@@ -10,6 +10,7 @@ import {
   createPostgresCatalogRepositoryStore,
   createPostgresChannelMemberStore,
   createPostgresConversationCalls,
+  createPostgresConversationReactions,
   createPostgresConversationReplies,
   createPostgresConversationStore,
   createPostgresConversationTurnQueue,
@@ -83,6 +84,7 @@ import {
   drainSlackInbox,
   drainSlackOutbox,
   SLACK_INPUT_HOLD_MS,
+  SLACK_REACTION_SCOPE,
   type SlackAudienceCache,
   type SlackInboundHandler,
   type SlackInboxDrain,
@@ -324,6 +326,11 @@ export function slackMentionTurnEndings(deps: {
   return endMentionTurns({
     statuses: deps.statuses ?? createPostgresMentionTurnStatuses(db),
     queue: createPostgresConversationTurnQueue(db, deps.secretKey),
+    reactions: createPostgresConversationReactions(
+      db,
+      createPostgresSlackOutboxStore(db),
+      SLACK_REACTION_SCOPE,
+    ),
     replies: createPostgresConversationReplies(
       db,
       createPostgresSlackOutboxStore(db),
