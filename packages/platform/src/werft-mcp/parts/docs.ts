@@ -39,6 +39,23 @@ function byteLength(text: string): number {
   return encoder.encode(text).length;
 }
 
+/** What `text` takes as a JSON string, escapes included. */
+function jsonBytes(text: string): number {
+  return byteLength(JSON.stringify(text));
+}
+
+/** `text` cut, if it must be, so it takes at most ANSWER_BYTES as JSON. */
+function fit(text: string): string {
+  if (jsonBytes(text) <= ANSWER_BYTES) return text;
+  let budget = ANSWER_BYTES - byteLength(CUT) - 2;
+  let cut = `${cutToBytes(text, budget)}\n\n${CUT}`;
+  while (jsonBytes(cut) > ANSWER_BYTES) {
+    budget = Math.floor(budget * 0.8);
+    cut = `${cutToBytes(text, budget)}\n\n${CUT}`;
+  }
+  return cut;
+}
+
 /** `text` within `budget` bytes, cut at a paragraph end where one is in reach. */
 function cutToBytes(text: string, budget: number): string {
   if (byteLength(text) <= budget) return text;
@@ -169,14 +186,16 @@ export function docsPart(
         const lang = language as DocsLanguage;
         if (rest.length === 0) {
           return fragment === undefined
-            ? [{ uri, mimeType: "text/markdown", text: toc(lang) }]
+            ? [{ uri, mimeType: "text/markdown", text: fit(toc(lang)) }]
             : null;
         }
         const slug = rest.join("/") === HOME ? "" : rest.join("/");
         const page = indexOf(lang).pages.find((p) => p.slug === slug);
         if (page === undefined) return null;
         if (fragment === undefined) {
-          return [{ uri, mimeType: "text/markdown", text: pageResource(page) }];
+          return [
+            { uri, mimeType: "text/markdown", text: fit(pageResource(page)) },
+          ];
         }
         let anchor: string;
         try {
@@ -190,7 +209,7 @@ export function docsPart(
           {
             uri,
             mimeType: "text/markdown",
-            text: sectionResource(page, section),
+            text: fit(sectionResource(page, section)),
           },
         ];
       },
@@ -306,7 +325,7 @@ export function docsPart(
         };
         // The text and the structured copy both travel, so both count.
         const sizeOf = (a: ReturnType<typeof answer>) =>
-          byteLength(a.content[0]?.text ?? "") +
+          jsonBytes(a.content[0]?.text ?? "") +
           byteLength(JSON.stringify(a.structuredContent));
         let kept = found.length;
         while (

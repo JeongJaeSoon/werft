@@ -488,6 +488,43 @@ describe("the documentation of this checkout", () => {
     ).toBeLessThanOrEqual(ANSWER_BYTES);
   });
 
+  test("no answer is larger than ANSWER_BYTES, however long a title or how many escapes", async () => {
+    const odd = [
+      {
+        path: "long.mdx",
+        text: page("x".repeat(70_000), "## needle\n\nneedle here."),
+      },
+      {
+        path: "quotes.mdx",
+        text: page('\\"'.repeat(3_000), "## needle\n\nneedle too."),
+      },
+    ];
+    const bytes = (value: unknown) =>
+      new TextEncoder().encode(JSON.stringify(value)).length;
+    for (const uri of [
+      "werft://docs/ko",
+      "werft://docs/ko/long",
+      "werft://docs/ko/long#needle",
+      "werft://docs/ko/quotes#needle",
+    ]) {
+      const { result } = await ask(odd, "resources/read", { uri });
+      const text = (result as { contents: { text: string }[] }).contents[0]
+        ?.text as string;
+      expect(bytes(text)).toBeLessThanOrEqual(ANSWER_BYTES);
+    }
+    const { result } = await ask(odd, "tools/call", {
+      name: SEARCH_DOCS_TOOL,
+      arguments: { query: "needle", limit: 2 },
+    });
+    const { content, structuredContent } = result as {
+      content: { text: string }[];
+      structuredContent: unknown;
+    };
+    expect(
+      bytes(content[0]?.text) + bytes(structuredContent),
+    ).toBeLessThanOrEqual(ANSWER_BYTES);
+  });
+
   test("pages that are only headings are still found by them", () => {
     const index = docsIndex(
       docsPages(
