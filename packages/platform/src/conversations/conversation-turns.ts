@@ -21,7 +21,7 @@ const tooLate = (usableUntil: Date | null, now: Date, leaseMs: number) =>
 
 // How long an ended turn is kept, so a repeated report is still told apart
 // from an unknown one and whoever queued the turn can read how it ended.
-const ENDED_TURN_KEPT_MS = 10 * 60_000;
+export const ENDED_TURN_KEPT_MS = 10 * 60_000;
 
 type Lease = {
   id: ConversationTurnLeaseId;
@@ -48,12 +48,15 @@ type Entry = { turn: QueuedConversationTurn } & (
 
 /**
  * The turn queue in this process's memory: empty after a restart, and seen by
- * this API process alone. For an installation whose conversation turns only
- * its operator starts; a queue in the database replaces it before turns are
- * dispatched from people's messages.
+ * this API process alone. For tests; the API serves the queue in the
+ * database, which keeps the same rules.
  */
 export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
   const entries = new Map<ConversationTurnId, Entry>();
+  // Each input's attempt queued, kept after its turn is forgotten.
+  const attempts = new Set<string>();
+  const attemptKey = (inputId: string, attempt: number) =>
+    `${inputId}:${attempt}`;
   // When each topic's last turn out ended: a turn queued behind it waits from then.
   const topicFreedAt = new Map<string, number>();
 
@@ -127,10 +130,17 @@ export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
   return {
     durable: false,
 
-    async enqueue(turn, takeBy, now = new Date(), usableUntil) {
+    async enqueue(
+      turn,
+      { inputId, attempt, takeBy, now = new Date(), usableUntil },
+    ) {
+      assertAttempt(attempt);
       if (entries.has(turn.turn_id)) {
         throw new Error(`Conversation turn ${turn.turn_id} is already queued`);
       }
+      const key = attemptKey(inputId, attempt);
+      if (attempts.has(key)) return "duplicate";
+      attempts.add(key);
       entries.set(turn.turn_id, {
         turn,
         state: "queued",
@@ -138,6 +148,7 @@ export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
         takeMs: Math.max(0, takeBy.getTime() - now.getTime()),
         usableUntil: usableUntil ?? null,
       });
+      return "queued";
     },
 
     async lease({ runtimeId, now, leaseMs }) {
@@ -205,7 +216,17 @@ export function createMemoryConversationTurnQueue(): ConversationTurnQueue {
   };
 }
 
-function sameResult(
+/** An input's attempts count from 1. */
+export function assertAttempt(attempt: number): void {
+  if (!Number.isInteger(attempt) || attempt < 1) {
+    throw new Error(
+      `A turn's attempt is a whole number from 1, not ${attempt}`,
+    );
+  }
+}
+
+/** Whether a repeated report says what the recorded outcome says. */
+export function sameResult(
   outcome: ConversationTurnOutcome,
   result: ConversationTurnResult,
 ): boolean {

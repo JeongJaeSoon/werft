@@ -1,5 +1,5 @@
 {
-  "id": "222962af-dbf2-4ae9-9864-5d051fb8d660",
+  "id": "f5c53dc6-5085-4e76-893d-0b6f25227141",
   "prevId": "0b8815b9-b911-4bc4-b35e-87074d624d72",
   "version": "7",
   "dialect": "postgresql",
@@ -1341,6 +1341,88 @@
         "agent_caller_limits_target_check": {
           "name": "agent_caller_limits_target_check",
           "value": "(\"agent_caller_limits\".\"target_kind\" = 'workspace' AND \"agent_caller_limits\".\"team_id\" IS NULL AND \"agent_caller_limits\".\"channel_id\" IS NULL AND \"agent_caller_limits\".\"user_id\" IS NULL)\n        OR (\"agent_caller_limits\".\"target_kind\" = 'team' AND \"agent_caller_limits\".\"team_id\" IS NOT NULL AND \"agent_caller_limits\".\"channel_id\" IS NULL AND \"agent_caller_limits\".\"user_id\" IS NULL)\n        OR (\"agent_caller_limits\".\"target_kind\" = 'channel' AND \"agent_caller_limits\".\"team_id\" IS NULL AND \"agent_caller_limits\".\"channel_id\" IS NOT NULL AND \"agent_caller_limits\".\"user_id\" IS NULL)\n        OR (\"agent_caller_limits\".\"target_kind\" = 'user' AND \"agent_caller_limits\".\"team_id\" IS NULL AND \"agent_caller_limits\".\"channel_id\" IS NULL AND \"agent_caller_limits\".\"user_id\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.agent_engine_settings": {
+      "name": "agent_engine_settings",
+      "schema": "",
+      "columns": {
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "permissions": {
+          "name": "permissions",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "auto_mode": {
+          "name": "auto_mode",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "agent_engine_settings_agent_fk": {
+          "name": "agent_engine_settings_agent_fk",
+          "tableFrom": "agent_engine_settings",
+          "tableTo": "agents",
+          "columnsFrom": ["workspace_id", "agent_id"],
+          "columnsTo": ["workspace_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "agent_engine_settings_permissions_check": {
+          "name": "agent_engine_settings_permissions_check",
+          "value": "jsonb_typeof(\"agent_engine_settings\".\"permissions\") = 'object'\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"permissions\", 'strict $.keyvalue() ? (!(@.key == \"allow\" || @.key == \"ask\" || @.key == \"deny\"))')\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"permissions\", 'strict $.* ? (@.type() != \"array\")')\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"permissions\", 'strict $.* ? (@.size() > 64)')\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"permissions\", 'strict $.*[*] ? (@.type() != \"string\")')\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"permissions\", 'strict $.*[*] ? (@ == \"\" || @ like_regex \"^(.{128}){2}.\" flag \"s\")')"
+        },
+        "agent_engine_settings_auto_mode_check": {
+          "name": "agent_engine_settings_auto_mode_check",
+          "value": "jsonb_typeof(\"agent_engine_settings\".\"auto_mode\") = 'object'\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"auto_mode\", 'strict $.keyvalue() ? (!(@.key == \"allow\" || @.key == \"soft_deny\" || @.key == \"hard_deny\" || @.key == \"environment\"))')\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"auto_mode\", 'strict $.* ? (@.type() != \"array\")')\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"auto_mode\", 'strict $.* ? (@.size() > 64)')\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"auto_mode\", 'strict $.*[*] ? (@.type() != \"string\")')\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"auto_mode\", 'strict $.*[*] ? (@ == \"\" || @ like_regex \"^(.{128}){8}.\" flag \"s\")')"
+        },
+        "agent_engine_settings_revision_check": {
+          "name": "agent_engine_settings_revision_check",
+          "value": "\"agent_engine_settings\".\"revision\" >= 1"
         }
       },
       "isRLSEnabled": false
@@ -7020,6 +7102,181 @@
         "conversation_turn_permits_refusal_check": {
           "name": "conversation_turn_permits_refusal_check",
           "value": "\"conversation_turn_permits\".\"refusal\" IN ('budget','concurrency','turn_limit')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.conversation_turn_queue": {
+      "name": "conversation_turn_queue",
+      "schema": "",
+      "columns": {
+        "turn_id": {
+          "name": "turn_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "input_id": {
+          "name": "input_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attempt": {
+          "name": "attempt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "topic_id": {
+          "name": "topic_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "seq": {
+          "name": "seq",
+          "type": "bigserial",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "take_by": {
+          "name": "take_by",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "take_ms": {
+          "name": "take_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "usable_until": {
+          "name": "usable_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "turn_nonce": {
+          "name": "turn_nonce",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "turn_ciphertext": {
+          "name": "turn_ciphertext",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_id": {
+          "name": "lease_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "runtime_id": {
+          "name": "runtime_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_expires_at": {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ended_at": {
+          "name": "ended_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "conversation_turn_queue_open_idx": {
+          "name": "conversation_turn_queue_open_idx",
+          "columns": [
+            {
+              "expression": "seq",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_turn_queue\".\"state\" IN ('queued', 'leased')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_turn_queue_topic_idx": {
+          "name": "conversation_turn_queue_topic_idx",
+          "columns": [
+            {
+              "expression": "topic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ended_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "conversation_turn_queue_turn_fk": {
+          "name": "conversation_turn_queue_turn_fk",
+          "tableFrom": "conversation_turn_queue",
+          "tableTo": "conversation_turns",
+          "columnsFrom": ["turn_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "conversation_turn_queue_attempt_uniq": {
+          "name": "conversation_turn_queue_attempt_uniq",
+          "nullsNotDistinct": false,
+          "columns": ["input_id", "attempt"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "conversation_turn_queue_state_check": {
+          "name": "conversation_turn_queue_state_check",
+          "value": "\"conversation_turn_queue\".\"attempt\" >= 1 AND \"conversation_turn_queue\".\"take_ms\" >= 0 AND CASE \"conversation_turn_queue\".\"state\"\n        WHEN 'queued' THEN \"conversation_turn_queue\".\"turn_nonce\" IS NOT NULL AND \"conversation_turn_queue\".\"turn_ciphertext\" IS NOT NULL AND \"conversation_turn_queue\".\"lease_id\" IS NULL AND \"conversation_turn_queue\".\"runtime_id\" IS NULL AND \"conversation_turn_queue\".\"lease_expires_at\" IS NULL AND \"conversation_turn_queue\".\"outcome\" IS NULL AND \"conversation_turn_queue\".\"ended_at\" IS NULL\n        WHEN 'leased' THEN \"conversation_turn_queue\".\"turn_nonce\" IS NULL AND \"conversation_turn_queue\".\"turn_ciphertext\" IS NULL AND \"conversation_turn_queue\".\"lease_id\" IS NOT NULL AND \"conversation_turn_queue\".\"runtime_id\" IS NOT NULL AND \"conversation_turn_queue\".\"lease_expires_at\" IS NOT NULL AND \"conversation_turn_queue\".\"outcome\" IS NULL AND \"conversation_turn_queue\".\"ended_at\" IS NULL\n        WHEN 'ended' THEN \"conversation_turn_queue\".\"turn_nonce\" IS NULL AND \"conversation_turn_queue\".\"turn_ciphertext\" IS NULL AND (\"conversation_turn_queue\".\"lease_id\" IS NULL) = (\"conversation_turn_queue\".\"runtime_id\" IS NULL) AND (\"conversation_turn_queue\".\"lease_id\" IS NULL) = (\"conversation_turn_queue\".\"lease_expires_at\" IS NULL) AND \"conversation_turn_queue\".\"outcome\" IS NOT NULL AND \"conversation_turn_queue\".\"ended_at\" IS NOT NULL\n        WHEN 'forgotten' THEN \"conversation_turn_queue\".\"turn_nonce\" IS NULL AND \"conversation_turn_queue\".\"turn_ciphertext\" IS NULL AND (\"conversation_turn_queue\".\"lease_id\" IS NULL) = (\"conversation_turn_queue\".\"runtime_id\" IS NULL) AND (\"conversation_turn_queue\".\"lease_id\" IS NULL) = (\"conversation_turn_queue\".\"lease_expires_at\" IS NULL) AND \"conversation_turn_queue\".\"outcome\" IS NULL AND \"conversation_turn_queue\".\"ended_at\" IS NOT NULL\n        ELSE false\n      END"
         }
       },
       "isRLSEnabled": false
@@ -21510,6 +21767,82 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.workspace_engine_settings": {
+      "name": "workspace_engine_settings",
+      "schema": "",
+      "columns": {
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "permissions": {
+          "name": "permissions",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "auto_mode": {
+          "name": "auto_mode",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "workspace_engine_settings_workspace_id_workspaces_id_fk": {
+          "name": "workspace_engine_settings_workspace_id_workspaces_id_fk",
+          "tableFrom": "workspace_engine_settings",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "workspace_engine_settings_permissions_check": {
+          "name": "workspace_engine_settings_permissions_check",
+          "value": "jsonb_typeof(\"workspace_engine_settings\".\"permissions\") = 'object'\n    AND NOT jsonb_path_exists(\"workspace_engine_settings\".\"permissions\", 'strict $.keyvalue() ? (!(@.key == \"allow\" || @.key == \"ask\" || @.key == \"deny\"))')\n    AND NOT jsonb_path_exists(\"workspace_engine_settings\".\"permissions\", 'strict $.* ? (@.type() != \"array\")')\n    AND NOT jsonb_path_exists(\"workspace_engine_settings\".\"permissions\", 'strict $.* ? (@.size() > 64)')\n    AND NOT jsonb_path_exists(\"workspace_engine_settings\".\"permissions\", 'strict $.*[*] ? (@.type() != \"string\")')\n    AND NOT jsonb_path_exists(\"workspace_engine_settings\".\"permissions\", 'strict $.*[*] ? (@ == \"\" || @ like_regex \"^(.{128}){2}.\" flag \"s\")')"
+        },
+        "workspace_engine_settings_auto_mode_check": {
+          "name": "workspace_engine_settings_auto_mode_check",
+          "value": "jsonb_typeof(\"workspace_engine_settings\".\"auto_mode\") = 'object'\n    AND NOT jsonb_path_exists(\"workspace_engine_settings\".\"auto_mode\", 'strict $.keyvalue() ? (!(@.key == \"allow\" || @.key == \"soft_deny\" || @.key == \"hard_deny\" || @.key == \"environment\"))')\n    AND NOT jsonb_path_exists(\"workspace_engine_settings\".\"auto_mode\", 'strict $.* ? (@.type() != \"array\")')\n    AND NOT jsonb_path_exists(\"workspace_engine_settings\".\"auto_mode\", 'strict $.* ? (@.size() > 64)')\n    AND NOT jsonb_path_exists(\"workspace_engine_settings\".\"auto_mode\", 'strict $.*[*] ? (@.type() != \"string\")')\n    AND NOT jsonb_path_exists(\"workspace_engine_settings\".\"auto_mode\", 'strict $.*[*] ? (@ == \"\" || @ like_regex \"^(.{128}){8}.\" flag \"s\")')"
+        },
+        "workspace_engine_settings_revision_check": {
+          "name": "workspace_engine_settings_revision_check",
+          "value": "\"workspace_engine_settings\".\"revision\" >= 1"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.workspace_mcp_connections": {
