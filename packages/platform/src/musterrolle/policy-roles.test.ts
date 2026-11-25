@@ -214,6 +214,18 @@ const TABLE: [
   ["Slack 앱 설치·채널 설정", "binding.manage", onAgentA, "ooxoxx"],
   ["그 에이전트의 사용량 읽기", "usage.agent_read", onAgentA, "ooxoxx"],
   ["그 에이전트의 M1 판단 기록 읽기", "judgment.read", onAgentA, "ooxoxx"],
+  [
+    "그 에이전트의 대화 턴 목록 읽기",
+    "conversation_turn.read",
+    onAgentA,
+    "ooxoxx",
+  ],
+  [
+    "다른 에이전트의 대화 턴 목록 (에이전트 admin)",
+    "conversation_turn.read",
+    { kind: "agent", id: AGENT_B },
+    "ooxxxx",
+  ],
   ["에이전트 보관", "agent.manage", onAgentA, "ooxoxx"],
   [
     "성과 구분·type·규칙·판정 설정 읽기",
