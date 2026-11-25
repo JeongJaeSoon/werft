@@ -30,8 +30,11 @@ const NARROW_HIDE = "[@container(width<460px)]:hidden";
 // With the conversation column a half-width table at 1280px (about 474px)
 // would wrap an agent's name, so that table drops tokens below 560px.
 const NARROW_TABLE_TALK =
-  "[@container(width<560px)]:grid-cols-[minmax(0,1fr)_48px_96px_104px]";
+  "[@container(460px<=width<560px)]:grid-cols-[minmax(0,1fr)_48px_96px_104px] [@container(width<460px)]:grid-cols-[minmax(0,1fr)_88px_80px]";
 const TALK_HIDE = "[@container(width<560px)]:hidden";
+// Below 460px the sessions go too: four columns left a phone's agent name a
+// few letters wide.
+const TALK_SESSIONS_HIDE = "[@container(width<460px)]:hidden";
 
 export interface UsageCostTableProps {
   /** Names the table and heads its first column: "모델별", "에이전트". */
@@ -115,14 +118,18 @@ export function UsageCostTable({
         aria-label={label}
         aria-busy={loading || undefined}
         className={cn(
-          tokens && (conversation ? NARROW_TABLE_TALK : NARROW_TABLE),
+          conversation ? NARROW_TABLE_TALK : tokens && NARROW_TABLE,
         )}
         columns={columns.join(" ")}
         align={columns.map((_, i) => (i === 0 ? "start" : "end"))}
       >
         <GridTableHeader>
           <GridTableColumnHeader>{head}</GridTableColumnHeader>
-          <GridTableColumnHeader>{messages.sessions}</GridTableColumnHeader>
+          <GridTableColumnHeader
+            className={cn(conversation && TALK_SESSIONS_HIDE)}
+          >
+            {messages.sessions}
+          </GridTableColumnHeader>
           {tokens ? (
             <GridTableColumnHeader
               className={conversation ? TALK_HIDE : NARROW_HIDE}
@@ -171,7 +178,12 @@ export function UsageCostTable({
                   />
                 )}
               </GridTableCell>
-              <GridTableCell className="tabular-nums">
+              <GridTableCell
+                className={cn(
+                  "tabular-nums",
+                  conversation && TALK_SESSIONS_HIDE,
+                )}
+              >
                 <Value loading={loading} width="1.5rem">
                   {row ? format.count(row.session_count) : null}
                 </Value>

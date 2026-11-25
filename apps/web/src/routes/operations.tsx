@@ -392,6 +392,7 @@ export function OperationsOverviewScreen() {
               by="agent"
               rows={agents.data?.rows.slice(0, TOP_AGENTS)}
               tokens={false}
+              conversation
               placeholderRows={TOP_AGENTS}
             />
           )}
@@ -451,8 +452,12 @@ export function OperationsUsageScreen() {
   const shown = set.current;
   // A conversation call may settle at no cost, so the agents' call count
   // says whether the period had one; the series alone cannot.
-  const talked = (shown?.agents.data?.totals.conversation?.call_count ?? 0) > 0;
+  // Without the agents' answer the period is not called empty: their failure
+  // and its retry stay on screen.
+  const agentTotals = shown?.agents.data?.totals;
+  const talked = (agentTotals?.conversation?.call_count ?? 0) > 0;
   const empty =
+    agentTotals !== undefined &&
     !talked &&
     (shown?.series.data?.buckets.every(
       (bucket) =>
