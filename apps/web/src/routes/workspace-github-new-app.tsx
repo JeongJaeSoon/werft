@@ -443,18 +443,17 @@ export function GitHubNewAppCallback() {
   const busy = retry.isPending || install.isPending;
   return (
     <>
-      <output aria-live="polite">
-        {missing
-          ? t("github.newApp.stateInvalid")
-          : complete.error
-            ? failureText(t, complete.error, role)
-            : hookFailed !== null
-              ? null
+      {hookFailed === null ? (
+        <output aria-live="polite">
+          {missing
+            ? t("github.newApp.stateInvalid")
+            : complete.error
+              ? failureText(t, complete.error, role)
               : complete.isSuccess
                 ? t("github.newApp.done")
                 : t("github.newApp.working")}
-      </output>
-      {hookFailed === null ? null : (
+        </output>
+      ) : (
         <Alert variant="red" role="alert">
           <AlertTitle>{t("github.newApp.webhookFailed")}</AlertTitle>
           <AlertDescription>
