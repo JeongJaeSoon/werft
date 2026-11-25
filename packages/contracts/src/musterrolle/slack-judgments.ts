@@ -69,9 +69,8 @@ export const slackJudgmentItemSchema = z
 
 /**
  * The agent's judged records of the last SLACK_JUDGMENT_WINDOW_DAYS days:
- * per channel counts, and the newest SLACK_JUDGMENT_RECENT_LIMIT. A private
- * channel, or one whose kind no live binding records, is left out of both
- * unless the caller is now its member.
+ * per channel counts, and the newest SLACK_JUDGMENT_RECENT_LIMIT. Private
+ * channels are in both; a reader needs only judgment.read.
  */
 export const getSlackJudgmentsResponseSchema = z
   .object({
