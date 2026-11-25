@@ -986,21 +986,50 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     /** `${{ <body> }}`, spelled so the linter does not read a template slot. */
     const expression = (body: string) => `\${{ ${body} }}`;
 
-    /** A job `if` of plain context checks; any other term is refused. */
+    /**
+     * A job `if` of plain context checks joined by `&&`; any other term is
+     * refused. `release` is what release-detect found.
+     */
     const passes = (
       condition: string | undefined,
-      run: { event: string; ref: string },
-    ) =>
+      run: { event: string; ref: string; release?: boolean },
+    ): boolean =>
       (condition ?? "").split(" && ").every((term) => {
         const prefix = term.match(/^startsWith\(github\.ref, '([^']+)'\)$/);
         if (prefix) return run.ref.startsWith(prefix[1] ?? "");
-        // The release jobs of a main run: they run only when release-detect
-        // found a new version heading, which no row below models.
-        if (term === "needs.release-detect.outputs.tag != ''") return false;
+        if (term === "needs.release-detect.outputs.tag != ''") {
+          return run.release === true && runs("release-detect", run);
+        }
+        const events = term.match(
+          /^contains\(fromJSON\('(\[[^\]]*\])'\), github\.event_name\)$/,
+        );
+        if (events) {
+          return (JSON.parse(events[1] ?? "[]") as string[]).includes(
+            run.event,
+          );
+        }
         const equal = term.match(/^github\.(event_name|ref) == '([^']+)'$/);
         if (!equal) throw new Error(`unexpected term: ${term}`);
         return (equal[1] === "ref" ? run.ref : run.event) === equal[2];
       });
+    /**
+     * Whether a job runs: its `if` holds and every job it needs ran, as the
+     * default `success()` asks of every ancestor (no job here checks results
+     * itself). The jobs before the publish chains are taken to pass, as they
+     * do on every event the rows name.
+     */
+    const runs = (
+      name: string,
+      run: { event: string; ref: string; release?: boolean },
+    ): boolean => {
+      if (["plan", "build", "supply-chain", "tag-conformance"].includes(name)) {
+        return true;
+      }
+      const job = jobs[name];
+      if (!passes(job?.if, run)) return false;
+      const needs = job?.needs === undefined ? [] : [job.needs].flat();
+      return needs.every((need) => runs(need, run));
+    };
 
     test("builds every app without package write", () => {
       expect(text).toContain(
@@ -1145,13 +1174,53 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       ["push", "refs/tags/sdk-v0.1.0", []],
       ["pull_request", "refs/pull/1/merge", []],
       ["schedule", "refs/heads/main", []],
-      ["workflow_dispatch", "refs/heads/main", []],
+      // A manual run on main stages images (staging tags only) for a retry.
+      ["workflow_dispatch", "refs/heads/main", ["index-main", "publish-main"]],
       ["workflow_dispatch", "refs/tags/v1.2.3", []],
     ] as const)("%s of %s publishes through %j", (event, ref, expected) => {
       expect(
-        writers.filter((name) => passes(jobs[name]?.if, { event, ref })).sort(),
+        writers.filter((name) => runs(name, { event, ref })).sort(),
       ).toEqual([...expected]);
     });
+
+    // A manual run on main that retries a release promotes its own staged
+    // images (never main-<12>) through the release chain after the approval.
+    // Elsewhere a found version changes nothing.
+    test.each([
+      [
+        "workflow_dispatch",
+        "refs/heads/main",
+        [
+          "chart-publish-release",
+          "index-main",
+          "promote-release",
+          "publish-main",
+        ],
+      ],
+      [
+        "push",
+        "refs/heads/main",
+        [
+          "chart-publish-main",
+          "chart-publish-release",
+          "index-main",
+          "promote-main",
+          "promote-release",
+          "publish-main",
+        ],
+      ],
+      ["workflow_dispatch", "refs/tags/v1.2.3", []],
+      ["schedule", "refs/heads/main", []],
+    ] as const)(
+      "%s of %s retrying a release publishes through %j",
+      (event, ref, expected) => {
+        expect(
+          writers
+            .filter((name) => runs(name, { event, ref, release: true }))
+            .sort(),
+        ).toEqual([...expected]);
+      },
+    );
 
     test("the images follow the owner rather than a spelled namespace", () => {
       expect(text).toContain(
@@ -1194,7 +1263,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
         expect(jobs[name]?.permissions).toBeUndefined();
         expect(jobs[name]?.environment).toBeUndefined();
       }
-      expect(jobs["sources-main"]?.if).toBe(jobs["publish-main"]?.if);
+      expect(jobs["sources-main"]?.if).toBe(jobs["index-main"]?.if);
       expect(jobs.sources?.if).toBe(jobs.publish?.if);
     });
 
@@ -1219,9 +1288,10 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       for (const name of ["chart", "chart-main"]) {
         expect(jobs[name]?.permissions).toBeUndefined();
       }
-      expect(jobs["chart-main"]?.if).toBe(jobs["publish-main"]?.if);
+      // A retry's main run promotes no main-<12>, so no chart of it either.
+      expect(jobs["chart-main"]?.if).toBe(jobs["promote-main"]?.if);
       expect(jobs.chart?.if).toBe(jobs.publish?.if);
-      expect(jobs["chart-publish-main"]?.if).toBe(jobs["publish-main"]?.if);
+      expect(jobs["chart-publish-main"]?.if).toBe(jobs["promote-main"]?.if);
       expect(jobs["chart-publish"]?.if).toBe(jobs.publish?.if);
       expect(jobs["chart-main"]?.steps).toEqual(jobs.chart?.steps ?? []);
       expect(jobs["chart-publish-main"]?.steps).toEqual(
