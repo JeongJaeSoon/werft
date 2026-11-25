@@ -172,6 +172,13 @@ function parsePage(
     if (current.heading !== null || current.text !== "") sections.push(current);
     lines.length = 0;
   };
+  // A repeated heading's id gets -1, -2, … as github-slugger gives it.
+  const anchors = new Map<string, number>();
+  const unique = (anchor: string) => {
+    const seen = anchors.get(anchor);
+    anchors.set(anchor, (seen ?? -1) + 1);
+    return seen === undefined ? anchor : `${anchor}-${seen + 1}`;
+  };
   let fence: string | null = null;
   for (const line of body.split(/\r?\n/)) {
     const fenceMark = FENCE.exec(line)?.[1];
@@ -196,7 +203,7 @@ function parsePage(
       );
       current = {
         heading: title,
-        anchor: custom?.[1] ?? anchorOf(title),
+        anchor: custom?.[1] ?? unique(anchorOf(title)),
         text: "",
       };
       continue;
@@ -320,54 +327,104 @@ export type DocsIndex = {
   search(query: string, limit: number): DocsHit[];
 };
 
-// A term in the title or heading counts for this many in the body.
-const TITLE_WEIGHT = 3;
+// What a query term found in the page title, or in the section heading, adds
+// on top of the body's BM25, in units of its idf among titles or headings.
+const TITLE_BOOST = 2;
+const HEADING_BOOST = 1;
 const K1 = 1.2;
 const B = 0.75;
 
-/** A BM25 index over the chunks of `pages`; titles and headings weigh more. */
+/**
+ * A BM25 index over the chunks of `pages`. A term in the page title or the
+ * section heading adds to it, and a chunk that has more of the query's terms
+ * ranks above one that repeats a few.
+ */
 export function docsIndex(pages: readonly DocsPage[]): DocsIndex {
   const chunks = pages.flatMap(chunksOf);
-  const counts = chunks.map((chunk) => {
+  const termSet = (text: string) => new Set(termsOf(text));
+  const titles = new Map(pages.map((page) => [page, termSet(page.title)]));
+  const headings = new Map<DocsSection, Set<string>>();
+  const entries = chunks.map((chunk) => {
     const count = new Map<string, number>();
-    const add = (text: string, weight: number) => {
-      for (const term of termsOf(text)) {
-        count.set(term, (count.get(term) ?? 0) + weight);
-      }
-    };
-    add(`${chunk.page.title} ${chunk.section.heading ?? ""}`, TITLE_WEIGHT);
-    add(chunk.text, 1);
+    for (const term of termsOf(chunk.text)) {
+      count.set(term, (count.get(term) ?? 0) + 1);
+    }
     let length = 0;
     for (const n of count.values()) length += n;
-    return { count, length };
+    if (!headings.has(chunk.section)) {
+      headings.set(chunk.section, termSet(chunk.section.heading ?? ""));
+    }
+    return {
+      count,
+      length,
+      title: titles.get(chunk.page) as Set<string>,
+      heading: headings.get(chunk.section) as Set<string>,
+    };
   });
   const documents = new Map<string, number>();
-  for (const { count } of counts) {
+  for (const { count } of entries) {
     for (const term of count.keys()) {
       documents.set(term, (documents.get(term) ?? 0) + 1);
     }
   }
   const average =
-    counts.reduce((sum, { length }) => sum + length, 0) /
-    Math.max(counts.length, 1);
+    entries.reduce((sum, { length }) => sum + length, 0) /
+    Math.max(entries.length, 1);
+  const idfIn = (n: number, df: number) =>
+    Math.log(1 + (n - df + 0.5) / (df + 0.5));
+  // A title or heading term weighs by how few titles or headings have it.
+  const fieldCounts = (sets: Iterable<Set<string>>) => {
+    const counts = new Map<string, number>();
+    let n = 0;
+    for (const set of sets) {
+      n += 1;
+      for (const term of set) counts.set(term, (counts.get(term) ?? 0) + 1);
+    }
+    return (term: string) => idfIn(n, counts.get(term) ?? 0);
+  };
+  const idf = (term: string) => idfIn(entries.length, documents.get(term) ?? 0);
+  const titleIdf = fieldCounts(titles.values());
+  const headingIdf = fieldCounts(headings.values());
   return {
     pages,
     search(query, limit) {
       const terms = [...new Set(termsOf(query))];
       if (terms.length === 0) return [];
+      const weights = terms.map(idf);
+      // A term no page has (a particle pair, a typo) cannot be matched, so
+      // it does not count against the chunks that match the rest.
+      const total = terms.reduce(
+        (sum, term, t) =>
+          (documents.get(term) ?? 0) > 0 ||
+          titleIdf(term) < idfIn(titles.size, 0)
+            ? sum + (weights[t] as number)
+            : sum,
+        0,
+      );
+      if (total === 0) return [];
       const hits: DocsHit[] = [];
-      counts.forEach(({ count, length }, i) => {
+      entries.forEach(({ count, length, title, heading }, i) => {
         let score = 0;
-        for (const term of terms) {
-          const tf = count.get(term);
-          if (tf === undefined) continue;
-          const df = documents.get(term) ?? 0;
-          const idf = Math.log(1 + (counts.length - df + 0.5) / (df + 0.5));
+        let matched = 0;
+        terms.forEach((term, t) => {
+          const weight = weights[t] as number;
+          const tf = count.get(term) ?? 0;
+          const inTitle = title.has(term);
+          const inHeading = heading.has(term);
+          if (tf === 0 && !inTitle && !inHeading) return;
+          matched += weight;
           score +=
-            (idf * tf * (K1 + 1)) /
-            (tf + K1 * (1 - B + (B * length) / average));
+            (weight * tf * (K1 + 1)) /
+              (tf + K1 * (1 - B + (B * length) / average)) +
+            (inTitle ? TITLE_BOOST * titleIdf(term) : 0) +
+            (inHeading ? HEADING_BOOST * headingIdf(term) : 0);
+        });
+        if (score > 0) {
+          hits.push({
+            chunk: chunks[i] as DocsChunk,
+            score: score * (matched / total) ** 2,
+          });
         }
-        if (score > 0) hits.push({ chunk: chunks[i] as DocsChunk, score });
       });
       hits.sort((a, b) => b.score - a.score);
       // One result per section: its best chunk.

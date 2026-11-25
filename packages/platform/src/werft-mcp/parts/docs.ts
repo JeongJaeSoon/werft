@@ -13,6 +13,7 @@ import {
   type DocsIndex,
   type DocsLanguage,
   type DocsPage,
+  type DocsSection,
   docsIndex,
   docsPages,
   excerptOf,
@@ -24,8 +25,34 @@ import {
 export const SEARCH_DOCS_TOOL = "search_docs";
 /** The most results one search returns. */
 export const SEARCH_RESULTS_MAX = 10;
-/** The most of a page one resource read returns, in characters. */
-export const PAGE_CHARS = 40_000;
+/**
+ * The most one answer holds, in UTF-8 bytes. A worker reports a tool result
+ * as one event, and the gateway takes at most 64 KiB in one report, so an
+ * answer stays far below it, room left for how an engine frames it.
+ */
+export const ANSWER_BYTES = 20_000;
+
+const CUT = `[Cut here: the rest is longer than one answer holds. Find it with ${SEARCH_DOCS_TOOL}.]`;
+
+const encoder = new TextEncoder();
+function byteLength(text: string): number {
+  return encoder.encode(text).length;
+}
+
+/** `text` within `budget` bytes, cut at a paragraph end where one is in reach. */
+function cutToBytes(text: string, budget: number): string {
+  if (byteLength(text) <= budget) return text;
+  let cut = "";
+  let used = 0;
+  for (const char of text) {
+    const size = byteLength(char);
+    if (used + size > budget) break;
+    cut += char;
+    used += size;
+  }
+  const paragraph = cut.lastIndexOf("\n\n");
+  return paragraph > cut.length / 2 ? cut.slice(0, paragraph) : cut;
+}
 
 const RESOURCE_ROOT = "werft://docs";
 // The home page has no path of its own on the site.
@@ -33,6 +60,12 @@ const HOME = "index";
 
 function tocUri(language: DocsLanguage): string {
   return `${RESOURCE_ROOT}/${language}`;
+}
+
+function sectionUri(page: DocsPage, section: DocsSection): string {
+  return section.anchor === null
+    ? pageUri(page)
+    : `${pageUri(page)}#${encodeURIComponent(section.anchor)}`;
 }
 
 export function pageUri(page: DocsPage): string {
@@ -94,26 +127,20 @@ export function docsPart(
   return {
     tools: [searchTool()],
     resources: {
+      // The contents of each language; every page and section is read by
+      // the URIs they list, not listed here: one entry per page would make
+      // the list itself larger than an answer can be.
       async list() {
-        return DOCS_LANGUAGES.flatMap((language): WerftMcpResource[] => [
-          {
+        return DOCS_LANGUAGES.map(
+          (language): WerftMcpResource => ({
             uri: tocUri(language),
             name: `docs-${language}`,
             title: `Werft documentation: contents (${language})`,
             description:
-              "Every page of the installed Werft documentation in this language, with its resource URI",
+              "Every page of the installed Werft documentation in this language, with the URI to read it",
             mimeType: "text/markdown",
-          },
-          ...indexOf(language).pages.map((page) => ({
-            uri: pageUri(page),
-            name: `docs-${language}-${page.slug === "" ? HOME : page.slug.replaceAll("/", "-")}`,
-            title: page.title,
-            ...(page.description === ""
-              ? {}
-              : { description: page.description }),
-            mimeType: "text/markdown",
-          })),
-        ]);
+          }),
+        );
       },
       templates: [
         {
@@ -121,33 +148,53 @@ export function docsPart(
           name: "docs-page",
           title: "Werft documentation page",
           description:
-            "A page of the installed Werft documentation; language is ko, en or ja, path as in the contents",
+            "A page of the installed Werft documentation: language ko, en or ja, path as the contents list it; add #<section> for one section",
           mimeType: "text/markdown",
         },
       ],
       async read(uri) {
         if (!uri.startsWith(`${RESOURCE_ROOT}/`)) return null;
-        const [language, ...rest] = uri
+        const [path = "", fragment] = uri
           .slice(RESOURCE_ROOT.length + 1)
-          .split("/");
+          .split("#", 2);
+        const [language, ...rest] = path.split("/");
         if (!(DOCS_LANGUAGES as readonly string[]).includes(language ?? "")) {
           return null;
         }
         const lang = language as DocsLanguage;
         if (rest.length === 0) {
-          return [{ uri, mimeType: "text/markdown", text: toc(lang) }];
+          return fragment === undefined
+            ? [{ uri, mimeType: "text/markdown", text: toc(lang) }]
+            : null;
         }
         const slug = rest.join("/") === HOME ? "" : rest.join("/");
         const page = indexOf(lang).pages.find((p) => p.slug === slug);
         if (page === undefined) return null;
-        return [{ uri, mimeType: "text/markdown", text: pageResource(page) }];
+        if (fragment === undefined) {
+          return [{ uri, mimeType: "text/markdown", text: pageResource(page) }];
+        }
+        let anchor: string;
+        try {
+          anchor = decodeURIComponent(fragment);
+        } catch {
+          return null;
+        }
+        const section = page.sections.find((s) => s.anchor === anchor);
+        if (section === undefined) return null;
+        return [
+          {
+            uri,
+            mimeType: "text/markdown",
+            text: sectionResource(page, section),
+          },
+        ];
       },
     },
   };
 
-  function pageResource(page: DocsPage): string {
+  function headOf(page: DocsPage): string {
     const source = sourceUrl(page, version);
-    const head = [
+    return [
       `Werft ${context.version}. Public page: ${pageUrl(page)}`,
       ...(source === null ? [] : [`Source at this version: ${source}`]),
       ...(page.translated
@@ -156,12 +203,42 @@ export function docsPart(
             `Not translated into ${page.language} yet: this is the Korean original.`,
           ]),
     ].join("\n");
+  }
+
+  // A page that does not fit one answer comes as its sections' URIs and as
+  // much of its text as fits; each section then reads on its own.
+  function pageResource(page: DocsPage): string {
+    const head = headOf(page);
     const text = pageText(page);
-    const body =
-      text.length <= PAGE_CHARS
-        ? text
-        : `${text.slice(0, PAGE_CHARS)}\n\n[The page goes on past ${PAGE_CHARS} characters. Search for the later sections with ${SEARCH_DOCS_TOOL}, or open the public page.]`;
-    return `${head}\n\n${body}`;
+    if (byteLength(`${head}\n\n${text}`) <= ANSWER_BYTES) {
+      return `${head}\n\n${text}`;
+    }
+    const note =
+      "This page is longer than one answer holds, so it is cut below. Read any section on its own at its URI:";
+    const index = cutToBytes(
+      page.sections
+        .filter((section) => section.anchor !== null)
+        .map((section) => `- ${section.heading}: ${sectionUri(page, section)}`)
+        .join("\n"),
+      ANSWER_BYTES / 2,
+    );
+    const frame = [head, note, index, "---", "", CUT].join("\n\n");
+    return [
+      head,
+      note,
+      index,
+      "---",
+      cutToBytes(text, ANSWER_BYTES - byteLength(frame)),
+      CUT,
+    ].join("\n\n");
+  }
+
+  function sectionResource(page: DocsPage, section: DocsSection): string {
+    const head = `${headOf(page)}\nSection of: ${page.title}`;
+    const text = `## ${section.heading}\n\n${section.text}`;
+    const whole = `${head}\n\n${text}`;
+    if (byteLength(whole) <= ANSWER_BYTES) return whole;
+    return `${head}\n\n${cutToBytes(text, ANSWER_BYTES - byteLength(head) - byteLength(CUT) - 4)}\n\n${CUT}`;
   }
 
   function searchTool() {
@@ -188,7 +265,7 @@ export function docsPart(
             ),
             url: pageUrl(chunk.page, chunk.section.anchor),
             ...(source === null ? {} : { source_url: source }),
-            resource: pageUri(chunk.page),
+            resource: sectionUri(chunk.page, chunk.section),
             translated: chunk.page.translated,
           };
         });

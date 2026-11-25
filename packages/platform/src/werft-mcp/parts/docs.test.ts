@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createWerftMcpServer } from "../server.ts";
-import { docsPart, PAGE_CHARS, SEARCH_DOCS_TOOL } from "./docs.ts";
+import { ANSWER_BYTES, docsPart, SEARCH_DOCS_TOOL } from "./docs.ts";
 import {
   CHUNK_CHARS,
   chunksOf,
@@ -118,6 +118,26 @@ describe("the pages of a language", () => {
     expect(home?.sections[0]?.text).toBe("시작");
   });
 
+  test("a repeated heading's anchor is numbered, as the docs site numbers it", () => {
+    const [p] = docsPages(
+      [
+        {
+          path: "a.mdx",
+          text: page(
+            "A",
+            "## 다음 단계\n\n하나\n\n## 다음 단계\n\n둘\n\n## 다음 단계\n\n셋",
+          ),
+        },
+      ],
+      "ko",
+    );
+    expect(p?.sections.map((s) => s.anchor)).toEqual([
+      "다음-단계",
+      "다음-단계-1",
+      "다음-단계-2",
+    ]);
+  });
+
   test("a chunk is at most CHUNK_CHARS, cut at paragraph ends", () => {
     const long = Array.from(
       { length: 40 },
@@ -187,7 +207,7 @@ describe(SEARCH_DOCS_TOOL, () => {
       url: `https://jeongjaesoon.github.io/werft/ko/integrations/github/#${encodeURIComponent("운영자가-할-일")}`,
       source_url:
         "https://github.com/JeongJaeSoon/werft/blob/v1.2.3/apps/docs/content/docs/integrations/github.mdx",
-      resource: "werft://docs/ko/integrations/github",
+      resource: `werft://docs/ko/integrations/github#${encodeURIComponent("운영자가-할-일")}`,
       translated: true,
     });
     expect(content[0]?.text).toContain("GitHub > 운영자가 할 일");
@@ -263,28 +283,28 @@ describe(SEARCH_DOCS_TOOL, () => {
 });
 
 describe("the docs as resources", () => {
-  test("a contents page per language and every page, from the same index", async () => {
+  test("the list is a contents page per language; pages are read by their URIs", async () => {
     const { result } = await ask(FILES, "resources/list");
-    const uris = (result?.resources as { uri: string }[]).map((r) => r.uri);
-    expect(uris).toContain("werft://docs/ko");
-    expect(uris).toContain("werft://docs/ja");
-    expect(uris).toContain("werft://docs/en/index");
-    expect(uris).toContain("werft://docs/ko/integrations/github");
-    expect(uris.filter((u) => u.startsWith("werft://docs/en/"))).toHaveLength(
-      4,
-    );
+    expect((result?.resources as { uri: string }[]).map((r) => r.uri)).toEqual([
+      "werft://docs/ko",
+      "werft://docs/en",
+      "werft://docs/ja",
+    ]);
     const templates = (await ask(FILES, "resources/templates/list")).result;
     expect(templates).toMatchObject({
       resourceTemplates: [{ uriTemplate: "werft://docs/{language}/{+path}" }],
     });
   });
 
-  test("contents and a page read as Markdown with the version and the public URL", async () => {
+  test("contents, a page and a section read as Markdown with the version and the public URL", async () => {
     const toc = (await ask(FILES, "resources/read", { uri: "werft://docs/en" }))
       .result as { contents: { text: string }[] };
     expect(toc.contents[0]?.text).toContain("version v1.2.3");
     expect(toc.contents[0]?.text).toContain(
       "[GitHub](werft://docs/en/integrations/github)",
+    );
+    expect(toc.contents[0]?.text).toContain(
+      "[Werft 문서](werft://docs/en/index)",
     );
     const read = (
       await ask(FILES, "resources/read", {
@@ -297,25 +317,64 @@ describe("the docs as resources", () => {
     );
     expect(read.contents[0]?.text).toContain("Not translated into ja yet");
     expect(read.contents[0]?.text).toContain("## 연결");
-    expect(
-      (await ask(FILES, "resources/read", { uri: "werft://docs/ko/nope" }))
-        .error?.code,
-    ).toBe(-32002);
-    expect(
-      (await ask(FILES, "resources/read", { uri: "werft://docs/de" })).error
-        ?.code,
-    ).toBe(-32002);
+    const section = (
+      await ask(FILES, "resources/read", {
+        uri: "werft://docs/ko/integrations/github#old-urls",
+      })
+    ).result as { contents: { text: string }[] };
+    expect(section.contents[0]?.text).toContain("## 이전 주소");
+    expect(section.contents[0]?.text).not.toContain("운영자가 할 일");
+    for (const uri of [
+      "werft://docs/ko/nope",
+      "werft://docs/de",
+      "werft://docs/ko#x",
+      "werft://docs/ko/integrations/github#nope",
+      "werft://docs/ko/integrations/github#%E0%A4%A",
+    ]) {
+      expect((await ask(FILES, "resources/read", { uri })).error?.code).toBe(
+        -32002,
+      );
+    }
   });
 
-  test("a page longer than PAGE_CHARS is cut, and says so", async () => {
+  test("a page longer than one answer comes as its sections' URIs and its start; a long section is cut and says so", async () => {
+    const sections = Array.from(
+      { length: 30 },
+      (_, i) => `## 절 ${i}\n\n${"가나다 ".repeat(400)}`,
+    ).join("\n\n");
     const files = [
-      { path: "big.mdx", text: page("Big", "가 ".repeat(PAGE_CHARS)) },
+      { path: "big.mdx", text: page("Big", sections) },
+      {
+        path: "one.mdx",
+        text: page("One", `## 긴 절\n\n${"라 ".repeat(ANSWER_BYTES)}`),
+      },
     ];
-    const read = (
-      await ask(files, "resources/read", { uri: "werft://docs/ko/big" })
-    ).result as { contents: { text: string }[] };
-    expect(read.contents[0]?.text.length).toBeLessThan(PAGE_CHARS + 600);
-    expect(read.contents[0]?.text).toContain(SEARCH_DOCS_TOOL);
+    const text = async (uri: string) =>
+      (
+        (await ask(files, "resources/read", { uri })).result as {
+          contents: { text: string }[];
+        }
+      ).contents[0]?.text ?? "";
+    const big = await text("werft://docs/ko/big");
+    expect(new TextEncoder().encode(big).length).toBeLessThanOrEqual(
+      ANSWER_BYTES,
+    );
+    expect(big).toContain(
+      `- 절 29: werft://docs/ko/big#${encodeURIComponent("절-29")}`,
+    );
+    expect(big).toContain("## 절 0");
+    expect(big).toContain(SEARCH_DOCS_TOOL);
+    const last = await text(
+      `werft://docs/ko/big#${encodeURIComponent("절-29")}`,
+    );
+    expect(last).toContain("## 절 29");
+    const long = await text(
+      `werft://docs/ko/one#${encodeURIComponent("긴-절")}`,
+    );
+    expect(new TextEncoder().encode(long).length).toBeLessThanOrEqual(
+      ANSWER_BYTES,
+    );
+    expect(long).toContain(SEARCH_DOCS_TOOL);
   });
 });
 
@@ -348,5 +407,69 @@ describe("the documentation of this checkout", () => {
       "integrations/slack",
     );
     expect(find("ja", "API キー 発行")).toContain("api-keys");
+    // The page named for the subject comes first, over pages that only
+    // mention it beside a common word.
+    expect(find("ko", "GitHub 연결")[0]).toBe("integrations/github");
+    expect(find("en", "connect GitHub")[0]).toBe("integrations/github");
+    expect(find("en", "API key")[0]).toBe("api-keys");
+    expect(find("ja", "API キーの発行方法は?")[0]).toBe("api-keys");
+  });
+
+  test("a query term no page has does not hide the pages that have the rest", () => {
+    const index = docsIndex(docsPages(files, "en"));
+    expect(index.search("API key qqqzzzunknown", 1)[0]?.chunk.page.slug).toBe(
+      "api-keys",
+    );
+    expect(index.search("qqqzzzunknown", 1)).toEqual([]);
+  });
+
+  test("no answer over the real docs is larger than ANSWER_BYTES", async () => {
+    const handle = createWerftMcpServer({
+      parts: [docsPart({ version: "v0.6.0" }, files)],
+      version: "v0.6.0",
+    });
+    const answer = async (method: string, params: Record<string, unknown>) => {
+      const answered = (await handle(
+        { sessionId: "s", attemptId: "a" },
+        { jsonrpc: "2.0", id: 1, method, params },
+        "r",
+      )) as { result?: unknown };
+      expect(answered.result).toBeDefined();
+      return new TextEncoder().encode(JSON.stringify(answered)).length;
+    };
+    // The JSON-RPC frame around an answer.
+    const limit = ANSWER_BYTES + 4_096;
+    expect(await answer("resources/list", {})).toBeLessThanOrEqual(limit);
+    for (const language of ["ko", "en", "ja"] as const) {
+      expect(
+        await answer("resources/read", { uri: `werft://docs/${language}` }),
+      ).toBeLessThanOrEqual(limit);
+      for (const p of docsPages(files, language)) {
+        const uri = `werft://docs/${language}/${p.slug === "" ? "index" : p.slug}`;
+        expect(await answer("resources/read", { uri })).toBeLessThanOrEqual(
+          limit,
+        );
+        for (const s of p.sections) {
+          if (s.anchor === null) continue;
+          expect(
+            await answer("resources/read", {
+              uri: `${uri}#${encodeURIComponent(s.anchor)}`,
+            }),
+          ).toBeLessThanOrEqual(limit);
+        }
+      }
+      for (const query of [
+        "GitHub 接続 設定 エージェント セッション 承認",
+        "설정 연결 에이전트 세션 승인 워크스페이스",
+        "configuration agent session approval workspace",
+      ]) {
+        expect(
+          await answer("tools/call", {
+            name: SEARCH_DOCS_TOOL,
+            arguments: { query, language, limit: 10 },
+          }),
+        ).toBeLessThanOrEqual(limit);
+      }
+    }
   });
 });
