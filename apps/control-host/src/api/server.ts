@@ -762,6 +762,7 @@ const slackChannelMembers = wireSlackChannelMembers({
   appStore: slackAppStore,
   secrets: slackSecretStore,
   store: createPostgresChannelMemberStore(db),
+  storageUnavailable: isStorageUnavailable,
   logger,
 });
 const authorization = createAuthorizationPolicy({
