@@ -1594,3 +1594,218 @@ describe("Slack app service", () => {
     ).toEqual([{ method: "apps.manifest.update", appId: "A0FAKE1" }]);
   });
 });
+
+describe("sending the events address after it changed", () => {
+  const OLD = "https://old.example.test";
+  const NEW = "https://new.example.test/in";
+
+  /** An app made under OLD; `base.url` is what the address reads now. */
+  async function madeApp() {
+    const base = { eventsPublicUrl: OLD };
+    const ctx = await setup(base);
+    await ctx.service.createAgentApp(user("owner"), AGENT, {
+      replace_uncertain: false,
+    });
+    const read = await ctx.service.recheckAgentAppEvents(user("owner"), AGENT);
+    const slackAppId = read.slack_app?.id;
+    const appId = read.slack_app?.app_id;
+    if (!slackAppId || !appId) throw new Error("the app was not made");
+    const requestUrl = () =>
+      (
+        manifestOf(ctx.slack, appId).settings as {
+          event_subscriptions?: { request_url?: string };
+        }
+      ).event_subscriptions?.request_url;
+    const sync = async () =>
+      (await ctx.service.getAgentApp(user("owner"), AGENT)).manifest_sync;
+    return { ...ctx, base, slackAppId, appId, requestUrl, sync };
+  }
+
+  test("every created agent app is sent the address in effect", async () => {
+    const { service, base, slackAppId, requestUrl, sync } = await madeApp();
+    expect(requestUrl()).toBe(`${OLD}/v1/slack/events/${AGENT}`);
+    base.eventsPublicUrl = NEW;
+    expect(await service.resendAgentAppEvents()).toEqual([
+      {
+        slack_app_id: slackAppId,
+        agent_id: AGENT,
+        name: "Release notes",
+        outcome: "updated",
+        reinstall_required: false,
+      },
+    ]);
+    expect(requestUrl()).toBe(`${NEW}/v1/slack/events/${AGENT}`);
+    expect((await sync())?.error).toBeNull();
+  });
+
+  test("a refused app is listed with the reason its manifest_sync records, and a retry by id sends it", async () => {
+    const { service, slack, base, slackAppId, requestUrl, sync } =
+      await madeApp();
+    base.eventsPublicUrl = NEW;
+    const update = slack.api.updateApp;
+    slack.api.updateApp = async () => {
+      throw new SlackApiError("apps.manifest.update", "invalid_manifest", true);
+    };
+    expect(await service.resendAgentAppEvents()).toEqual([
+      {
+        slack_app_id: slackAppId,
+        agent_id: AGENT,
+        name: "Release notes",
+        outcome: "failed",
+        reason_code: "slack_refused",
+      },
+    ]);
+    expect((await sync())?.error).toBe("slack_refused");
+    slack.api.updateApp = update;
+    expect(
+      (await service.resendAgentAppEvents([slackAppId])).map((u) => u.outcome),
+    ).toEqual(["updated"]);
+    expect(requestUrl()).toBe(`${NEW}/v1/slack/events/${AGENT}`);
+    expect((await sync())?.error).toBeNull();
+  });
+
+  test.each([
+    [
+      "a lost answer",
+      () => new SlackApiError("apps.manifest.update", "timeout", false),
+      "no_answer",
+    ],
+    [
+      "a rate limit, not waited out",
+      () => new SlackRateLimitedError("apps.manifest.update", 30),
+      "slack_refused",
+    ],
+  ] as const)("%s is listed failed", async (_, error, reason) => {
+    const waits: number[] = [];
+    const base = { eventsPublicUrl: OLD };
+    const ctx = await setup({
+      ...base,
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+    });
+    await ctx.service.createAgentApp(user("owner"), AGENT, {
+      replace_uncertain: false,
+    });
+    ctx.slack.api.updateApp = async () => {
+      throw error();
+    };
+    const [update] = await ctx.service.resendAgentAppEvents();
+    expect(update).toMatchObject({ outcome: "failed", reason_code: reason });
+    expect(waits).toEqual([]);
+  });
+
+  test("without an active config token nothing is sent", async () => {
+    const { service, slack, base, tokenStore, sync } = await madeApp();
+    base.eventsPublicUrl = NEW;
+    await tokenStore.store.invalidate(WORKSPACE, null);
+    const sent = slack.state.calls.length;
+    const [update] = await service.resendAgentAppEvents();
+    expect(update).toMatchObject({
+      outcome: "failed",
+      reason_code: "config_token_inactive",
+    });
+    expect(
+      slack.state.calls
+        .slice(sent)
+        .filter((call) => call.method === "apps.manifest.update"),
+    ).toEqual([]);
+    expect((await sync())?.error).toBe("config_token_inactive");
+  });
+
+  test("an address saved while a send was in flight is sent after it", async () => {
+    const { service, slack, base, requestUrl } = await madeApp();
+    base.eventsPublicUrl = NEW;
+    const update = slack.api.updateApp;
+    let sends = 0;
+    slack.api.updateApp = async (...args) => {
+      sends += 1;
+      if (sends === 1) base.eventsPublicUrl = "https://later.example.test";
+      return update(...args);
+    };
+    const [result] = await service.resendAgentAppEvents();
+    expect(result?.outcome).toBe("updated");
+    expect(sends).toBe(2);
+    expect(requestUrl()).toBe(
+      `https://later.example.test/v1/slack/events/${AGENT}`,
+    );
+  });
+
+  test("an app Slack has not answered when the wait ends is answered sending, and records its outcome after", async () => {
+    const { service, slack, base, slackAppId, requestUrl, sync } =
+      await madeApp();
+    base.eventsPublicUrl = NEW;
+    const update = slack.api.updateApp;
+    let answer = () => {};
+    slack.api.updateApp = async (...args) => {
+      await new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      return update(...args);
+    };
+    expect(await service.resendAgentAppEvents(undefined, 5)).toEqual([
+      {
+        slack_app_id: slackAppId,
+        agent_id: AGENT,
+        name: "Release notes",
+        outcome: "sending",
+      },
+    ]);
+    answer();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(requestUrl()).toBe(`${NEW}/v1/slack/events/${AGENT}`);
+    expect((await sync())?.error).toBeNull();
+  });
+
+  test("an agent read slower than the wait is inside it: the app is answered sending without its name", async () => {
+    const { service, apps, base, slackAppId, requestUrl } = await madeApp();
+    base.eventsPublicUrl = NEW;
+    const manifestAgent = apps.store.manifestAgent;
+    let answer = () => {};
+    apps.store.manifestAgent = async (...args) => {
+      await new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      return manifestAgent(...args);
+    };
+    const started = Date.now();
+    expect(await service.resendAgentAppEvents(undefined, 5)).toEqual([
+      {
+        slack_app_id: slackAppId,
+        agent_id: AGENT,
+        name: null,
+        outcome: "sending",
+      },
+    ]);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    answer();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(requestUrl()).toBe(`${NEW}/v1/slack/events/${AGENT}`);
+  });
+
+  test("an id that is no created agent app answers not_found", async () => {
+    const { service } = await madeApp();
+    const unknown = "019a0000-0000-7000-8000-0000000000b9";
+    expect(await service.resendAgentAppEvents([unknown])).toEqual([
+      {
+        slack_app_id: unknown,
+        agent_id: null,
+        name: null,
+        outcome: "failed",
+        reason_code: "not_found",
+      },
+    ]);
+    const ctx = await setup();
+    const off = createSlackAppService({
+      authorization: createAuthorizationPolicy({ agents: agentAuthority }),
+      apps: null,
+      tokens: null,
+      api: ctx.slack.api,
+      consoleOrigin: ORIGIN,
+    });
+    expect(await off.resendAgentAppEvents()).toEqual([]);
+    expect(
+      (await off.resendAgentAppEvents([unknown])).map((u) => u.outcome),
+    ).toEqual(["failed"]);
+  });
+});

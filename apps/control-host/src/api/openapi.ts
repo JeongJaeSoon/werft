@@ -289,6 +289,8 @@ import {
   resumeSessionRequestSchema,
   retryGitHubWebhookUpdatesRequestSchema,
   retryGitHubWebhookUpdatesResponseSchema,
+  retrySlackEventsUpdatesRequestSchema,
+  retrySlackEventsUpdatesResponseSchema,
   revertSkillResponseSchema,
   reviewAchievementRequestSchema,
   reviewAchievementResponseSchema,
@@ -498,6 +500,7 @@ const requestComponents = {
   UpdateLoginProviderRequest: updateLoginProviderRequestSchema,
   UpdateLoginSettingsRequest: updateLoginSettingsRequestSchema,
   UpdateSlackSettingsRequest: updateSlackSettingsRequestSchema,
+  RetrySlackEventsUpdatesRequest: retrySlackEventsUpdatesRequestSchema,
   UpdateGitHubWebhookSettingsRequest: updateGitHubWebhookSettingsRequestSchema,
   RetryGitHubWebhookUpdatesRequest: retryGitHubWebhookUpdatesRequestSchema,
   UpdateInstallationConfigRequest: updateInstallationConfigRequestSchema,
@@ -641,6 +644,7 @@ const responseComponents = {
   PutSlackConfigTokenResponse: putSlackConfigTokenResponseSchema,
   SlackSettings: slackSettingsSchema,
   UpdateSlackSettingsResponse: updateSlackSettingsResponseSchema,
+  RetrySlackEventsUpdatesResponse: retrySlackEventsUpdatesResponseSchema,
   GitHubWebhookSettings: githubWebhookSettingsSchema,
   UpdateGitHubWebhookSettingsResponse:
     updateGitHubWebhookSettingsResponseSchema,
@@ -3623,7 +3627,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "updateSlackSettings",
     tag: "Installation settings",
     summary: "Save or clear where Slack's events enter",
-    description: `${SETTINGS_OWNER} \`events_public_url\`: an absolute https URL without a query, fragment or credentials, at most 2048 characters; a path prefix is kept and a trailing slash dropped. Null or an empty string clears it, and the base is computed from \`CONSOLE_ORIGIN\` again. A change is one transaction and one receipt (\`update_slack_settings\`, the saved and the previous address); the value already saved answers 200 without \`receipt_id\` and leaves no receipt. Apps made before keep the address they were sent until their events are checked again (POST /v1/agents/{id}/slack/app/events/recheck).`,
+    description: `${SETTINGS_OWNER} \`events_public_url\`: an absolute https URL without a query, fragment or credentials, at most 2048 characters; a path prefix is kept and a trailing slash dropped. Null or an empty string clears it, and the base is computed from \`CONSOLE_ORIGIN\` again. A change is one transaction and one receipt (\`update_slack_settings\`, the saved and the previous address); the value already saved answers 200 without \`receipt_id\`, leaves no receipt and sends no app. After a changed address commits, every \`created\` agent app of every workspace is sent its manifest with the events address in effect (the saved one, or \`computed_events_base\` after clearing), as POST /v1/agents/{id}/slack/app/events/recheck sends it: all at once, each through its workspace's App Configuration Token. The answer waits at most 20 seconds. \`updates\` says per app what happened: \`updated\` (\`reinstall_required\` when Slack took new permissions with it), \`sending\` (Slack had not answered when the wait ended; the outcome lands on the app's \`manifest_sync\` once it does), or \`failed\` with \`reason_code\` \`config_token_inactive\`, \`events_url_unset\`, \`slack_refused\` (a rate limit included: its Retry-After is not waited out) or \`no_answer\`, the same reason the app's \`manifest_sync\` records. A failed app keeps the address it was sent before; the new address stays saved either way, and POST /v1/slack-settings/retry sends it again. \`updates\` is empty when nothing changed, or when clearing leaves no https address.`,
     auth: "session",
     body: "UpdateSlackSettingsRequest",
     requestExample: { events_public_url: "https://events.example.com/werft" },
@@ -3637,6 +3641,22 @@ export const API_ROUTE_DECLARATIONS = [
         events_url_template:
           "https://events.example.com/werft/v1/slack/events/{agent_id}",
         receipt_id: EXAMPLE_RECEIPT_ID,
+        updates: [
+          {
+            slack_app_id: "019a0000-0000-7000-8000-0000000000b1",
+            agent_id: "019a0000-0000-7000-8000-0000000000c1",
+            name: "Release notes",
+            outcome: "updated",
+            reinstall_required: false,
+          },
+          {
+            slack_app_id: "019a0000-0000-7000-8000-0000000000b2",
+            agent_id: "019a0000-0000-7000-8000-0000000000c2",
+            name: "Triage",
+            outcome: "failed",
+            reason_code: "config_token_inactive",
+          },
+        ],
       },
     },
     errors: [400, 401, 403, 503],
@@ -3644,6 +3664,37 @@ export const API_ROUTE_DECLARATIONS = [
       BAD_REQUEST:
         "Also when the address is not an https URL without a query, fragment or credentials (`details.reason_code: events_url_invalid`), or is longer than 2048 characters.",
     },
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/slack-settings/retry",
+    operationId: "retrySlackEventsUpdates",
+    tag: "Installation settings",
+    summary: "Send apps whose events address update failed the address again",
+    description: `${SETTINGS_OWNER} \`slack_app_ids\` (1 to 100) are app ids from a save's \`updates\`; each is sent the events address in effect again, as the save sends it, and \`updates\` answers per app. An id that is no longer a \`created\` agent app answers \`failed\` with \`reason_code: not_found\`, \`agent_id\` and \`name\` null. Writes no receipt: the saved address does not change.`,
+    auth: "session",
+    body: "RetrySlackEventsUpdatesRequest",
+    requestExample: {
+      slack_app_ids: ["019a0000-0000-7000-8000-0000000000b2"],
+    },
+    success: {
+      status: 200,
+      schema: "RetrySlackEventsUpdatesResponse",
+      description: "What happened per app.",
+      example: {
+        updates: [
+          {
+            slack_app_id: "019a0000-0000-7000-8000-0000000000b2",
+            agent_id: "019a0000-0000-7000-8000-0000000000c2",
+            name: "Triage",
+            outcome: "updated",
+            reinstall_required: false,
+          },
+        ],
+      },
+    },
+    errors: [400, 401, 403, 503],
     idempotent: false,
   },
   {
