@@ -1,5 +1,5 @@
 {
-  "id": "ad46683e-a9bc-41d7-a89f-9b738126c55f",
+  "id": "92a76ab1-a75e-4232-b717-f73a67a6aac8",
   "prevId": "f5c53dc6-5085-4e76-893d-0b6f25227141",
   "version": "7",
   "dialect": "postgresql",
@@ -1341,6 +1341,88 @@
         "agent_caller_limits_target_check": {
           "name": "agent_caller_limits_target_check",
           "value": "(\"agent_caller_limits\".\"target_kind\" = 'workspace' AND \"agent_caller_limits\".\"team_id\" IS NULL AND \"agent_caller_limits\".\"channel_id\" IS NULL AND \"agent_caller_limits\".\"user_id\" IS NULL)\n        OR (\"agent_caller_limits\".\"target_kind\" = 'team' AND \"agent_caller_limits\".\"team_id\" IS NOT NULL AND \"agent_caller_limits\".\"channel_id\" IS NULL AND \"agent_caller_limits\".\"user_id\" IS NULL)\n        OR (\"agent_caller_limits\".\"target_kind\" = 'channel' AND \"agent_caller_limits\".\"team_id\" IS NULL AND \"agent_caller_limits\".\"channel_id\" IS NOT NULL AND \"agent_caller_limits\".\"user_id\" IS NULL)\n        OR (\"agent_caller_limits\".\"target_kind\" = 'user' AND \"agent_caller_limits\".\"team_id\" IS NULL AND \"agent_caller_limits\".\"channel_id\" IS NULL AND \"agent_caller_limits\".\"user_id\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.agent_engine_settings": {
+      "name": "agent_engine_settings",
+      "schema": "",
+      "columns": {
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "permissions": {
+          "name": "permissions",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "auto_mode": {
+          "name": "auto_mode",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "agent_engine_settings_agent_fk": {
+          "name": "agent_engine_settings_agent_fk",
+          "tableFrom": "agent_engine_settings",
+          "tableTo": "agents",
+          "columnsFrom": ["workspace_id", "agent_id"],
+          "columnsTo": ["workspace_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "agent_engine_settings_permissions_check": {
+          "name": "agent_engine_settings_permissions_check",
+          "value": "jsonb_typeof(\"agent_engine_settings\".\"permissions\") = 'object'\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"permissions\", 'strict $.keyvalue() ? (!(@.key == \"allow\" || @.key == \"ask\" || @.key == \"deny\"))')\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"permissions\", 'strict $.* ? (@.type() != \"array\")')\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"permissions\", 'strict $.* ? (@.size() > 64)')\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"permissions\", 'strict $.*[*] ? (@.type() != \"string\")')\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"permissions\", 'strict $.*[*] ? (@ == \"\" || @ like_regex \"^(.{128}){2}.\" flag \"s\")')"
+        },
+        "agent_engine_settings_auto_mode_check": {
+          "name": "agent_engine_settings_auto_mode_check",
+          "value": "jsonb_typeof(\"agent_engine_settings\".\"auto_mode\") = 'object'\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"auto_mode\", 'strict $.keyvalue() ? (!(@.key == \"allow\" || @.key == \"soft_deny\" || @.key == \"hard_deny\" || @.key == \"environment\"))')\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"auto_mode\", 'strict $.* ? (@.type() != \"array\")')\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"auto_mode\", 'strict $.* ? (@.size() > 64)')\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"auto_mode\", 'strict $.*[*] ? (@.type() != \"string\")')\n    AND NOT jsonb_path_exists(\"agent_engine_settings\".\"auto_mode\", 'strict $.*[*] ? (@ == \"\" || @ like_regex \"^(.{128}){8}.\" flag \"s\")')"
+        },
+        "agent_engine_settings_revision_check": {
+          "name": "agent_engine_settings_revision_check",
+          "value": "\"agent_engine_settings\".\"revision\" >= 1"
         }
       },
       "isRLSEnabled": false
@@ -19566,6 +19648,13 @@
           "notNull": true,
           "default": "'free'"
         },
+        "m1_judgments_per_hour": {
+          "name": "m1_judgments_per_hour",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 12
+        },
         "ceiling_actions": {
           "name": "ceiling_actions",
           "type": "text[]",
@@ -19851,6 +19940,10 @@
         "surface_bindings_revision_check": {
           "name": "surface_bindings_revision_check",
           "value": "\"surface_bindings\".\"revision\" >= 1"
+        },
+        "surface_bindings_m1_judgments_per_hour_check": {
+          "name": "surface_bindings_m1_judgments_per_hour_check",
+          "value": "\"surface_bindings\".\"m1_judgments_per_hour\" BETWEEN 1 AND 60"
         }
       },
       "isRLSEnabled": false
@@ -21685,6 +21778,82 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.workspace_engine_settings": {
+      "name": "workspace_engine_settings",
+      "schema": "",
+      "columns": {
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "permissions": {
+          "name": "permissions",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "auto_mode": {
+          "name": "auto_mode",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "workspace_engine_settings_workspace_id_workspaces_id_fk": {
+          "name": "workspace_engine_settings_workspace_id_workspaces_id_fk",
+          "tableFrom": "workspace_engine_settings",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "workspace_engine_settings_permissions_check": {
+          "name": "workspace_engine_settings_permissions_check",
+          "value": "jsonb_typeof(\"workspace_engine_settings\".\"permissions\") = 'object'\n    AND NOT jsonb_path_exists(\"workspace_engine_settings\".\"permissions\", 'strict $.keyvalue() ? (!(@.key == \"allow\" || @.key == \"ask\" || @.key == \"deny\"))')\n    AND NOT jsonb_path_exists(\"workspace_engine_settings\".\"permissions\", 'strict $.* ? (@.type() != \"array\")')\n    AND NOT jsonb_path_exists(\"workspace_engine_settings\".\"permissions\", 'strict $.* ? (@.size() > 64)')\n    AND NOT jsonb_path_exists(\"workspace_engine_settings\".\"permissions\", 'strict $.*[*] ? (@.type() != \"string\")')\n    AND NOT jsonb_path_exists(\"workspace_engine_settings\".\"permissions\", 'strict $.*[*] ? (@ == \"\" || @ like_regex \"^(.{128}){2}.\" flag \"s\")')"
+        },
+        "workspace_engine_settings_auto_mode_check": {
+          "name": "workspace_engine_settings_auto_mode_check",
+          "value": "jsonb_typeof(\"workspace_engine_settings\".\"auto_mode\") = 'object'\n    AND NOT jsonb_path_exists(\"workspace_engine_settings\".\"auto_mode\", 'strict $.keyvalue() ? (!(@.key == \"allow\" || @.key == \"soft_deny\" || @.key == \"hard_deny\" || @.key == \"environment\"))')\n    AND NOT jsonb_path_exists(\"workspace_engine_settings\".\"auto_mode\", 'strict $.* ? (@.type() != \"array\")')\n    AND NOT jsonb_path_exists(\"workspace_engine_settings\".\"auto_mode\", 'strict $.* ? (@.size() > 64)')\n    AND NOT jsonb_path_exists(\"workspace_engine_settings\".\"auto_mode\", 'strict $.*[*] ? (@.type() != \"string\")')\n    AND NOT jsonb_path_exists(\"workspace_engine_settings\".\"auto_mode\", 'strict $.*[*] ? (@ == \"\" || @ like_regex \"^(.{128}){8}.\" flag \"s\")')"
+        },
+        "workspace_engine_settings_revision_check": {
+          "name": "workspace_engine_settings_revision_check",
+          "value": "\"workspace_engine_settings\".\"revision\" >= 1"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.workspace_mcp_connections": {

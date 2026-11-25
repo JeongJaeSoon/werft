@@ -99,6 +99,8 @@ import {
   LINKED_ACCOUNT_REVOKED_REASON_VALUES,
   LINKED_ACCOUNT_STATUS_VALUES,
   M1_DECISION_VALUES,
+  M1_JUDGMENTS_PER_HOUR_DEFAULT,
+  M1_JUDGMENTS_PER_HOUR_MAX,
   M1_MODEL_REASON_VALUES,
   type M1Decision,
   MCP_RESERVED_SERVER_NAMES,
@@ -5240,6 +5242,10 @@ export const surfaceBindings = pgTable(
       .$type<"free" | "mention" | "off">()
       .notNull()
       .default("free"),
+    /** M1's judgments per hour in the channel (`m1JudgmentsPerHourSchema`). */
+    m1JudgmentsPerHour: integer("m1_judgments_per_hour")
+      .notNull()
+      .default(M1_JUDGMENTS_PER_HOUR_DEFAULT),
     /** The channel's ceiling; `surfaceCeilingSchema` split in two columns. */
     ceilingActions: text("ceiling_actions").array().notNull(),
     ceilingDisclosure: text("ceiling_disclosure")
@@ -5387,6 +5393,10 @@ export const surfaceBindings = pgTable(
       sql`${table.status} <> 'left' OR (${table.surface} = 'slack' AND ${table.installationId} IS NOT NULL AND ${table.externalSurfaceId} IS NOT NULL AND COALESCE(${table.surfaceKind} = 'private_channel', false) AND NOT ${table.home} AND ${table.approvedAt} IS NULL AND ${table.approvedLifecycleUs} IS NULL)`,
     ),
     check("surface_bindings_revision_check", sql`${table.revision} >= 1`),
+    check(
+      "surface_bindings_m1_judgments_per_hour_check",
+      sql`${table.m1JudgmentsPerHour} BETWEEN 1 AND ${sql.raw(String(M1_JUDGMENTS_PER_HOUR_MAX))}`,
+    ),
   ],
 );
 
