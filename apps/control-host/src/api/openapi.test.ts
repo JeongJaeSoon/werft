@@ -522,6 +522,7 @@ describe("OpenAPI document", () => {
         "/v1/agents/{id}/slack-channels",
         "/v1/agents/{id}/slack/channels",
         "/v1/agents/{id}/slack/install/start",
+        "/v1/agents/{id}/slack/judgments",
         "/v1/slack-settings",
         "/v1/installation-config",
         "/v1/lost-checkpoint-notices",

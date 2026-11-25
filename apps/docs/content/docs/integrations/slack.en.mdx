@@ -186,6 +186,8 @@ A binding's `mode` is `off` (not used in this channel) or `on` (in use). When `m
 
 A binding also has a listen setting, `listen`: `free` (every message in the channel), `mention` (mentions and threads the agent is part of) or `off` (nothing). For now it is only stored and read; what the agent responds to is still decided by `mode` and `mention_only` above. A newly connected channel starts at `free`. A channel that existed before the setting took its agent's `mention_only` at that time: `mention` for `true`, `free` for `false`. A `PUT` without `listen` keeps the channel's value. A channel shared with another organization (Slack Connect) cannot be saved with `listen` `free` (400, `external_shared_channel`); `mention` and `off` are saved. A channel shared only among the workspaces of one Enterprise is not one of these.
 
+A binding's `m1_judgments_per_hour` is how many judgments the channel may have in an hour. The conversation layer's first judge (M1) gathers a channel's messages into batches and decides whether the agent should step in; once a channel's judgments within the hour reach this number, its next batch is recorded as `rate_limited` without calling M1. It is an integer from 1 to 60. A new channel, and one that existed before the setting, starts at 12. A changed value applies from the channel's next batch. A `PUT` without it keeps the channel's value. In the console, change it in the **Judgments per hour** column of the Slack tab's **Channels**.
+
 Each agent has its own Slack app. To connect it, send the app id, the team id, and the name of a credential reference that holds the bot token (`credential_ref`, not the value).
 
 ```sh
@@ -202,6 +204,14 @@ Deleting an app Werft made with `DELETE /v1/workspaces/{id}/slack/apps/{app_id}`
 Once Werft's side is committed, Slack is asked once each to revoke the bot token (`auth.revoke`) and to delete the app (`apps.manifest.delete`). A token or app Slack no longer has counts as done. If either fails, the delete still succeeds (`200`) and the response's `slack_cleanup` reports `failed` with the steps that failed (`failed_steps`). It isn't tried again, so delete the app yourself in Slack's app management page (api.slack.com/apps). An `app_uninstalled` or `tokens_revoked` event Slack sends afterwards changes nothing. The signing secret is deleted with the app, so a request whose signature can't be checked gets `401`, and the closed state stays as it is however often Slack retries.
 
 Some removals send no event. When a request that calls Slack with the bot token (channel list, name lookup, channel binding) is refused with `token_revoked` or `account_inactive`, the same disconnect happens. The answer is still 409 `SLACK_NOT_INSTALLED`. Errors that removal is not the only cause of (`invalid_auth`, `not_authed`, `token_expired`), 429, 5xx and network failures leave the state alone.
+
+### Judgment records
+
+`GET /v1/agents/{id}/slack/judgments` (console: the Slack tab's **Judgments**) shows what M1 judged in the agent's channels over the last 7 days. For now M1 judges in shadow and posts nothing to Slack. Per channel it counts the judgments, how many of them were `speak` (step in), and each reason code (`rate_limited` and `budget_refused` among them), and it lists the newest 50 judgments with their reason code and a link to the Slack message. Werft keeps no message text, so open the link to read it in Slack. The console also shows the agent instructions the judgments used: the release and commit of the instruction file read from the repository when the active release was made, or that there is no repository or no file.
+
+Only workspace owners and admins and the agent's admins can read it; API keys cannot. A private channel's records, its counts included, reach only the channel's current members, and so does a channel no live binding calls public. Slack is asked about membership (cached up to 5 minutes), and a channel whose membership can't be confirmed is left out. An owner or admin who is not a member sees that channel in neither the list nor the totals.
+
+If judgments are too frequent or too rare, tune the channel's listen setting, its judgments per hour, or the agent instructions in the repository (AGENTS.md).
 
 ## Mentions from other bots
 
