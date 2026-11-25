@@ -1,4 +1,5 @@
 import { BOT_SCOPES, SLACK_AGENT_BOT_EVENTS } from "@werft-ai/contracts";
+import { z } from "zod";
 
 // Slack's limits on what a manifest may say about an app.
 const APP_NAME_MAX = 35;
@@ -86,6 +87,61 @@ export function buildAgentAppManifest(input: AgentAppManifestInput) {
           }),
     },
   };
+}
+
+// Only what the comparison reads; Slack's manifest says much more.
+const exportedManifestSchema = z.object({
+  oauth_config: z
+    .object({
+      scopes: z
+        .object({
+          bot: z.array(z.string()).optional(),
+          user: z.array(z.string()).optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+  settings: z
+    .object({
+      event_subscriptions: z
+        .object({ bot_events: z.array(z.string()).optional() })
+        .optional(),
+    })
+    .optional(),
+});
+
+/**
+ * How an exported agent app manifest differs from what this build sends.
+ * `events`: only the bot events differ, which Slack takes without a new
+ * install. `scopes`: the bot scopes differ, or the app has user scopes an
+ * agent app never asks for; either needs an install, so nothing is sent on
+ * its own. `unsubscribed`: no event subscription yet, which
+ * Finalize adds. `unreadable`: not a manifest this code can read.
+ */
+export type AgentManifestDrift =
+  | "current"
+  | "events"
+  | "scopes"
+  | "unsubscribed"
+  | "unreadable";
+
+const sameSet = (a: readonly string[], b: readonly string[]) => {
+  const left = new Set(a);
+  const right = new Set(b);
+  return left.size === right.size && [...left].every((x) => right.has(x));
+};
+
+export function agentManifestDrift(exported: unknown): AgentManifestDrift {
+  const parsed = exportedManifestSchema.safeParse(exported);
+  if (!parsed.success) return "unreadable";
+  const subscription = parsed.data.settings?.event_subscriptions;
+  if (subscription === undefined) return "unsubscribed";
+  const scopes = parsed.data.oauth_config?.scopes;
+  if (!sameSet(scopes?.bot ?? [], BOT_SCOPES) || (scopes?.user ?? []).length)
+    return "scopes";
+  return sameSet(subscription.bot_events ?? [], SLACK_AGENT_BOT_EVENTS)
+    ? "current"
+    : "events";
 }
 
 /** The console page Slack sends the installer back to. */

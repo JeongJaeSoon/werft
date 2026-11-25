@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { BOT_SCOPES, SLACK_AGENT_BOT_EVENTS } from "@werft-ai/contracts";
 import {
   AGENT_DESCRIPTION_FALLBACK,
+  agentManifestDrift,
   buildAgentAppManifest,
   buildLinkAppManifest,
   LINK_APP_COPY,
@@ -219,5 +220,71 @@ describe("link app manifest", () => {
       `"Department of Very Long Works 계정 연결"`,
     );
     expect([...manifest.display_information.name]).toHaveLength(35);
+  });
+});
+
+describe("how an exported agent app manifest differs from this build's", () => {
+  const built = () =>
+    buildAgentAppManifest({
+      name: "Release notes",
+      botName: "release-notes",
+      description: "Writes the release notes",
+      redirectUrl: REDIRECT,
+      eventsUrl: `https://events.example.test/v1/slack/events/${AGENT}`,
+    });
+  // As Slack exports it: plain strings, which may name what this build does not.
+  const loose = () =>
+    structuredClone(built()) as {
+      oauth_config: { scopes: { bot: string[] } };
+      settings: { event_subscriptions: { bot_events: string[] } };
+    };
+
+  test("the manifest this build sends is current, in any order", () => {
+    const manifest = built();
+    expect(agentManifestDrift(manifest)).toBe("current");
+    manifest.settings.event_subscriptions?.bot_events.reverse();
+    manifest.oauth_config.scopes.bot.reverse();
+    expect(agentManifestDrift(manifest)).toBe("current");
+  });
+
+  test("an event more or fewer is an events-only change", () => {
+    const fewer = built();
+    fewer.settings.event_subscriptions?.bot_events.pop();
+    expect(agentManifestDrift(fewer)).toBe("events");
+    const more = loose();
+    more.settings.event_subscriptions.bot_events.push("reaction_added");
+    expect(agentManifestDrift(more)).toBe("events");
+  });
+
+  test("a scope more or fewer is never sent on its own, events changed or not", () => {
+    const fewer = built();
+    fewer.oauth_config.scopes.bot.pop();
+    fewer.settings.event_subscriptions?.bot_events.pop();
+    expect(agentManifestDrift(fewer)).toBe("scopes");
+    const more = loose();
+    more.oauth_config.scopes.bot.push("reactions:write");
+    expect(agentManifestDrift(more)).toBe("scopes");
+  });
+
+  test("user scopes an admin added are a scope change, events changed or not", () => {
+    const withUser = loose() as ReturnType<typeof loose> & {
+      oauth_config: { scopes: { user?: string[] } };
+    };
+    withUser.oauth_config.scopes.user = ["search:read"];
+    withUser.settings.event_subscriptions.bot_events.pop();
+    expect(agentManifestDrift(withUser)).toBe("scopes");
+    withUser.oauth_config.scopes.user = [];
+    expect(agentManifestDrift(withUser)).toBe("events");
+  });
+
+  test("an app Finalize has not subscribed, and what is no manifest, are told apart", () => {
+    const { event_subscriptions: _, ...settings } = built().settings;
+    expect(agentManifestDrift({ ...built(), settings })).toBe("unsubscribed");
+    expect(agentManifestDrift(null)).toBe("unreadable");
+    expect(
+      agentManifestDrift({
+        settings: { event_subscriptions: { bot_events: 1 } },
+      }),
+    ).toBe("unreadable");
   });
 });

@@ -46,6 +46,14 @@ export type GateSpec = {
   steps: GateStep[];
   /** Tokens each scripted reply reports; only the Responses fake reads it. */
   usage?: { input_tokens: number; output_tokens: number };
+  /**
+   * A text to look for in what the model was sent, as base64 so that the
+   * prompt carrying this spec does not hold the text itself. The final
+   * answer then ends with ` [probe:found]` or ` [probe:missing]`: how a
+   * session shows what its engine put in front of the model (an MCP server's
+   * instructions, say) without the fake keeping request bodies.
+   */
+  probe?: string;
 };
 
 type Message = { content: unknown; role: string };
@@ -192,6 +200,17 @@ export function callPlanOf(
   return null;
 }
 
+/** A spec's final answer; with a `probe`, also whether `carried` holds the probed text. */
+export function finalOf(spec: GateSpec, carried: unknown): string {
+  if (spec.probe === undefined) return spec.final;
+  // As JSON writes it, since `carried` is searched as JSON.
+  const probed = JSON.stringify(
+    Buffer.from(spec.probe, "base64").toString("utf8"),
+  ).slice(1, -1);
+  const found = JSON.stringify(carried ?? null).includes(probed);
+  return `${spec.final} [probe:${found ? "found" : "missing"}]`;
+}
+
 /** The spec is followed by whatever the engine appends to a prompt. */
 export function firstJsonObject(text: string): string {
   let depth = 0;
@@ -253,7 +272,7 @@ export function replyFor(
   const next = spec.steps[step];
   const reply =
     next === undefined
-      ? textReply(spec.final)
+      ? textReply(finalOf(spec, [request.body.system, messages]))
       : toolReply(next.tool, next.input, `toolu_gate_${spec.id}_${step}`);
   const delayMs = next === undefined ? spec.finalDelayMs : next.delayMs;
   return delayMs === undefined ? reply : Bun.sleep(delayMs).then(() => reply);

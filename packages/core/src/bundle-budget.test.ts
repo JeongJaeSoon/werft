@@ -40,7 +40,8 @@ const BUDGET_BYTES: Record<string, number> = {
   // channel's hourly M1 cap and the agent's M1 judgment records put
   // ./schemas 271 bytes over 151, so it moves to 152. The Slack tab's
   // instruction branch head read put ./forms 52 bytes over 149, so it moves
-  // to 150.
+  // to 150. The installation's GitHub webhook settings and their per-App
+  // update answers fit under both.
   "./schemas": 152 * 1024,
   "./forms": 150 * 1024,
 };

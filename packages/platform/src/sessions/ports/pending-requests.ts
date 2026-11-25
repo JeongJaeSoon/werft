@@ -26,6 +26,12 @@ export type AnswerRequestInput = {
   // What the approval row keeps besides the principal: where the answer
   // came from and the session.approve decision that let it through.
   approval: { surface: SurfaceKind; decisionId: string };
+  /**
+   * The policy let this answer through only because the request's requester
+   * left the session's private channel (its decision's `requester_left`);
+   * the store then takes a member who sees the session behind the door.
+   */
+  requesterLeft?: true;
 };
 
 export type AnswerRequestResult =

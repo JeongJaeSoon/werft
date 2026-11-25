@@ -1139,21 +1139,45 @@ export function slackRejectOnlyCard(
 }
 
 /**
- * A private channel push card whose requester left the channel: the card as
- * it was, with a line saying so above its buttons.
+ * A private channel card whose requester left the channel: the card as it
+ * was, with a line saying so above its buttons. A tool permission card loses
+ * its session button and the rules line under it: a member's session-wide
+ * allow is not yet bound to their authority (94S-2215).
  */
 export function slackRequesterLeftCard(
   card: SlackCard,
   locale: UserLocale,
 ): SlackCard {
-  const label = SLACK_PROMPT_MESSAGES[locale].pushRequesterLeft;
+  const copy = SLACK_PROMPT_MESSAGES[locale];
+  const label = copy.pushRequesterLeft;
   const note = {
     type: "context",
     elements: [
       { type: "mrkdwn", text: `:information_source: ${escapeMrkdwn(label)}` },
     ],
   };
-  const blocks = [...card.blocks];
+  const rules = `${copy.allowSession}: `;
+  const blocks = card.blocks.flatMap((block) => {
+    const { type, elements } = block as {
+      type?: unknown;
+      elements?: { action_id?: unknown; text?: unknown }[];
+    };
+    if (!Array.isArray(elements)) return [block];
+    if (type === "actions") {
+      const kept = elements.filter(
+        (element) =>
+          element.action_id !==
+          SLACK_INTERACTION_ACTIONS.permissionAllowSession,
+      );
+      return [{ ...(block as object), elements: kept }];
+    }
+    const only = elements.length === 1 ? elements[0] : undefined;
+    return type === "context" &&
+      typeof only?.text === "string" &&
+      only.text.startsWith(rules)
+      ? []
+      : [block];
+  });
   const actions = blocks
     .map((block) => (block as { type?: unknown }).type)
     .lastIndexOf("actions");

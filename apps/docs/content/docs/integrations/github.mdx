@@ -44,12 +44,11 @@ GitHub와 하는 일은 셋이다. 시작 저장소가 있는 세션은 시작�
 
 GitHub에서 등록한 스킬은 push webhook, 하루 한 번의 확인, 콘솔의 "지금 확인"으로 새 버전을 찾는다. webhook은 GitHub가 이 API에 닿을 때만 쓴다. 닿지 않는 설치는 나머지 둘로 동작한다.
 
-| 변수 | 기본값 | 허용 범위 |
-| --- | --- | --- |
-| `GITHUB_WEBHOOK_BASE_URL` | 없음(webhook 없음) | GitHub가 인터넷에서 닿는 이 API의 `https` 주소. query·fragment·사용자 정보가 있으면 API가 기동하지 않는다. webhook 주소는 `<이 값>/v1/github/webhook`이다 |
+GitHub가 인터넷에서 닿는 이 API의 `https` 주소는 owner가 **설정 > 연동 > GitHub**의 "웹훅 입구 주소"에 저장한다(`PUT /v1/github-webhook-settings`, 감사 기록 `update_github_webhook_settings`). query·fragment·계정 정보는 넣을 수 없고, 경로 prefix는 남는다. webhook 주소는 `<저장한 주소>/v1/github/webhook`이고, 이 값은 설치 전체에 하나다. 비워 두면 webhook이 없다. `GITHUB_WEBHOOK_BASE_URL`은 저장한 값이 없을 때 첫 기동에 한 번 옮겨 담는 처음 기본값으로만 쓴다([업그레이드](/run-server/self-hosting/upgrade-compose#웹으로-옮긴-github-webhook-입구-주소)).
 
-- 이 값이 있으면 콘솔에서 새로 만드는 작성용 App에 webhook 주소와 `push` 이벤트가 들어가고, GitHub가 준 webhook secret이 App 키처럼 암호화돼 저장된다.
-- 이미 있는 App은 GitHub의 App 설정(General → Webhook)에서 **Active**를 켜고 **Webhook URL**과 **Secret**을 넣은 뒤, Permissions & events에서 **Push** 이벤트를 켠다. 같은 secret을 owner나 admin이 `PUT /v1/workspaces/{id}/github-apps/{role}/webhook-secret`으로 넣는다.
+- 주소가 있으면 콘솔에서 새로 만드는 작성용 App에 webhook 주소와 `push` 이벤트가 들어가고, GitHub가 준 webhook secret이 App 키처럼 암호화돼 저장된다.
+- 주소를 바꿔 저장하면 webhook secret이 저장된 App마다, 다른 워크스페이스의 App도 App당 한 번씩, Werft가 그 App의 키로 App JWT를 만들어 `PATCH /app/hook/config`로 webhook URL만 바꾼다. secret과 content type은 그대로 둔다. 화면은 저장 전에 바뀔 App과 다른 워크스페이스에도 연결된 App을 보여 준다. 저장 뒤 GitHub가 받지 않은 App은 이유(`github_rejected`·`url_refused`·`github_unreachable`·`key_unreadable`)와 "다시 시도"(`POST /v1/github-webhook-settings/retry`)로 남는다. 그래도 주소는 저장되어 있고, 실패한 App의 GitHub 설정에는 예전 URL이 남는다. 주소를 비우면 App은 바꾸지 않는다.
+- webhook secret 없이 키로만 추가한 App은 Werft가 바꾸지 않는다. GitHub의 App 설정(General → Webhook)에서 **Active**를 켜고 **Webhook URL**과 **Secret**을 넣은 뒤, Permissions & events에서 **Push** 이벤트를 켠다. 같은 secret을 owner나 admin이 `PUT /v1/workspaces/{id}/github-apps/{role}/webhook-secret`으로 넣는다. 그 뒤로는 주소를 바꿀 때 이 App도 함께 바뀐다.
 - 받는 경로는 인증 없는 `POST /v1/github/webhook`이고, 본문의 `X-Hub-Signature-256` 서명을 검증한 뒤에만 이벤트를 처리한다. 서명이 없거나 틀리면 `401`, 본문이 64 KiB를 넘으면 `413`, App마다 분당 상한을 넘으면 `429`다.
 
 ### 토큰 발급이 실패할 때

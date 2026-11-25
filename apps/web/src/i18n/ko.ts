@@ -103,6 +103,15 @@ export const slackKo = {
     "manifest를 Slack에 다시 보냈습니다. 앱에 새 권한이 더해져, 앱을 다시 설치해야 적용됩니다.",
   "slack.eventsUrl.sent":
     "Request URL을 Slack에 다시 보냈습니다. 주소가 그대로면 Slack은 다시 확인하지 않을 수 있습니다. 확인 대기가 이어지면 앱 설정의 Event Subscriptions에서 Retry를 누르세요.",
+  "slack.manifestSync.needed": "갱신 필요",
+  "slack.manifestSync.config_token_inactive":
+    "App Configuration Token이 활성 상태가 아니어서 Werft가 이 앱의 Slack 설정을 확인하거나 갱신하지 못했습니다. 새로 더해진 이벤트를 받지 못할 수 있습니다. 토큰을 다시 넣은 뒤 다시 확인을 누르세요.",
+  "slack.manifestSync.events_url_unset":
+    "이벤트 주소를 알 수 없어 이 앱의 Slack 설정을 갱신하지 못했습니다. Slack 연동 설정에서 주소를 확인한 뒤 다시 확인을 누르세요.",
+  "slack.manifestSync.slack_refused":
+    "Slack이 이 앱의 설정 갱신을 거절했습니다. 새로 더해진 이벤트를 받지 못할 수 있습니다. 다시 확인을 누르세요. 누르지 않으면 서버가 다음에 시작할 때 다시 시도합니다.",
+  "slack.manifestSync.no_answer":
+    "Slack이 이 앱의 설정 갱신에 답하지 않았습니다. 새로 더해진 이벤트를 받지 못할 수 있습니다. 다시 확인을 누르세요. 누르지 않으면 서버가 다음에 시작할 때 다시 시도합니다.",
   "slack.repositoryRequired.title": "Slack에서는 세션을 시작할 수 없습니다",
   "slack.repositoryRequired.body":
     "활성 릴리스({release})로는 Slack 세션이 시작되지 못합니다. 릴리스의 저장소가 카탈로그에서 빠졌거나 워크스페이스 상한이 허용하지 않거나, 에이전트의 GitHub 설정을 읽을 수 없기 때문입니다. Slack 멘션과 DM은 거절되고 스레드에 안내만 남습니다. 연결은 할 수 있습니다. GitHub 설정을 확인하고 상세 설정에서 다시 저장하면 새 릴리스가 만들어집니다.",
