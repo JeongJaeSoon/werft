@@ -3,6 +3,8 @@ export {
   agentGitHubSettingsRowOf,
   agentSettingsColumns,
   ensureInstalledRepositoryCeiling,
+  githubPolicyColumns,
+  githubPolicyOfRow,
 } from "./github-settings.ts";
 export {
   creatorOf,
