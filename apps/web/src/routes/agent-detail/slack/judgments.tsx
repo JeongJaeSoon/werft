@@ -163,6 +163,8 @@ export function SlackJudgments({
               aria-label={t("slack.judgments.byChannel")}
               columns={CHANNEL_COLUMNS}
               align={["start", "end", "end", "start"]}
+              narrowAt={640}
+              narrowCards={true}
               framed
             >
               <GridTableHeader>
@@ -188,10 +190,16 @@ export function SlackJudgments({
                       {nameOf(channel.channel_id)}
                     </Text>
                   </GridTableCell>
-                  <GridTableCell className="tabular-nums">
+                  <GridTableCell
+                    cardLabel={t("slack.judgments.count")}
+                    className="tabular-nums"
+                  >
                     {channel.judgments}
                   </GridTableCell>
-                  <GridTableCell className="tabular-nums">
+                  <GridTableCell
+                    cardLabel={t("slack.judgments.speakRate")}
+                    className="tabular-nums"
+                  >
                     {t("slack.judgments.speakOf", {
                       percent: Math.round(
                         (channel.speak / Math.max(channel.judgments, 1)) * 100,
@@ -199,7 +207,7 @@ export function SlackJudgments({
                       speak: channel.speak,
                     })}
                   </GridTableCell>
-                  <GridTableCell>
+                  <GridTableCell cardLabel={t("slack.judgments.reasons")}>
                     <span className="flex flex-wrap gap-1">
                       {channel.reasons.map((reason) => (
                         <Badge key={reason.reason} variant="gray">
@@ -218,6 +226,8 @@ export function SlackJudgments({
               aria-label={t("slack.judgments.recent")}
               columns={RECENT_COLUMNS}
               align={["start", "start", "start", "start", "end"]}
+              narrowAt={640}
+              narrowCards={true}
               framed
             >
               <GridTableHeader>
@@ -244,12 +254,12 @@ export function SlackJudgments({
                   <GridTableCell className="py-3">
                     <RelativeTime value={item.judged_at} locale={locale} />
                   </GridTableCell>
-                  <GridTableCell>
+                  <GridTableCell cardLabel={t("slack.channelColumn")}>
                     <span className="wrap-anywhere">
                       {nameOf(item.channel_id)}
                     </span>
                   </GridTableCell>
-                  <GridTableCell>
+                  <GridTableCell cardLabel={t("slack.judgments.decision")}>
                     <Badge
                       variant={item.decision === "speak" ? "green" : "gray"}
                     >
@@ -260,8 +270,10 @@ export function SlackJudgments({
                       )}
                     </Badge>
                   </GridTableCell>
-                  <GridTableCell>{t(REASON_LABEL[item.reason])}</GridTableCell>
-                  <GridTableCell>
+                  <GridTableCell cardLabel={t("slack.judgments.reason")}>
+                    {t(REASON_LABEL[item.reason])}
+                  </GridTableCell>
+                  <GridTableCell cardLabel={t("slack.judgments.message")}>
                     <Link
                       href={item.url}
                       target="_blank"
