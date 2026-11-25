@@ -22,6 +22,7 @@
     "./testing/workflow-runnable": "./src/testing/workflow-runnable-contract.ts",
     "./testing/pushable": "./src/testing/pushable-contract.ts",
     "./testing/delivery": "./src/testing/delivery-contract.ts",
+    "./testing/conversation-turn-queue": "./src/testing/conversation-turn-queue-contract.ts",
     "./testing/notifiable": "./src/testing/notifiable-contract.ts",
     "./testing/approvable": "./src/testing/approvable-contract.ts",
     "./testing/agent-welcomable": "./src/testing/agent-welcomable-contract.ts",

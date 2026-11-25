@@ -2,6 +2,7 @@ import type {
   AdmissionState,
   BudgetOwnerKind,
   ConversationInputId,
+  ConversationKind,
   PendingQuestion,
   PushRequestOrigin,
   SlackMirrorCorrelationId,
@@ -119,6 +120,17 @@ export type SurfaceOutboxEntry = {
 
 export type SurfaceOutboxFence = { id: string; claimToken: string };
 
+/**
+ * The conversation a row speaks in, as the server reads it: a channel's team
+ * and channel, or a DM's team (its D… channel is not kept on the
+ * conversation).
+ */
+export type SurfaceConversationScope = {
+  kind: ConversationKind;
+  teamId: string;
+  channelId: string | null;
+};
+
 export type SurfaceOutboxClaim = SurfaceOutboxEntry &
   SurfaceOutboxFence & {
     /**
@@ -126,6 +138,12 @@ export type SurfaceOutboxClaim = SurfaceOutboxEntry &
      * beginSend or settle does not count.
      */
     attempts: number;
+    /**
+     * The parent conversation of the row's session, read at claim: the only
+     * Slack channel the text may link to or name. Null or absent for a row
+     * with no session, or a session with no parent conversation.
+     */
+    conversationScope?: SurfaceConversationScope | null;
   };
 
 /** A row the lease ran out on mid-send, now `uncertain`. */
