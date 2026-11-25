@@ -113,11 +113,17 @@ export function createPostgresSlackSourceMarkStore(db: Database): {
         ON CONFLICT (workspace_id, team_id, channel_id, ts) DO UPDATE
           SET edited_at = GREATEST(edited_sources.edited_at, EXCLUDED.edited_at),
               marked_at = now()
-        RETURNING ts`);
-        // An edited source leaves the summary as a deleted one does.
-        await dropChannelSummaryLinesOf(tx, mark);
+        RETURNING ts, edited_at`);
+        // A line made from the text before the edit goes, as a deleted
+        // source's does; one made from the edited text stays.
+        const [latest] = rowsOf<{ edited_at: Date | string }>(written);
+        await dropChannelSummaryLinesOf(
+          tx,
+          mark,
+          latest === undefined ? undefined : new Date(latest.edited_at),
+        );
         // A buffered message is judged by its latest text, kept only there.
-        if (body !== undefined && rowsOf(written).length > 0) {
+        if (body !== undefined && latest !== undefined) {
           await editBufferedMessage(tx, { ...mark, body });
         }
         return rowsOf(written).length > 0 ? "recorded" : "deleted";

@@ -72,6 +72,9 @@ async function readContext(
       readable.has(fragment.scope),
     ),
     unreadable: read.unreadable,
+    ...(read.summaryVersion === undefined
+      ? {}
+      : { summaryVersion: read.summaryVersion }),
   };
 }
 
@@ -308,11 +311,13 @@ export async function assembleCallContext(
     /** A topic's turn reads that topic's earlier answers too. */
     topicId?: ConversationTopicId;
   },
-): Promise<FittedContext & { unreadable: number }> {
+): Promise<FittedContext & { unreadable: number; summaryVersion: number }> {
   const read = await readContext(source, conversation, input.topicId);
   return {
     ...fitContext({ ...input, fragments: read.fragments }),
     unreadable: read.unreadable,
+    // A summary not made yet is at version 0, which its first write names.
+    summaryVersion: read.summaryVersion ?? 0,
   };
 }
 

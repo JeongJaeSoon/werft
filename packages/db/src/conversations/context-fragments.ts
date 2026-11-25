@@ -159,6 +159,7 @@ export function createPostgresContextFragmentSource(
         );
         if (conversation === undefined) return { fragments: [], unreadable: 0 };
         const fragments: ContextFragment[] = [];
+        let summaryVersion: number | undefined;
 
         // Every agent of the channel reads its one summary (9-2).
         if (conversation.kind === "channel") {
@@ -169,6 +170,7 @@ export function createPostgresContextFragmentSource(
           };
           const summary =
             await createPostgresChannelSummaryStore(tx).read(place);
+          summaryVersion = summary?.version ?? 0;
           const scope = scopeKeyOf({ kind: "channel", ...place });
           for (const line of summary?.lines ?? []) {
             fragments.push({
@@ -353,6 +355,7 @@ export function createPostgresContextFragmentSource(
         return {
           fragments: kept,
           unreadable: unreadable + fragments.length - kept.length,
+          ...(summaryVersion === undefined ? {} : { summaryVersion }),
         };
       });
     },

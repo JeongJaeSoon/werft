@@ -10,6 +10,7 @@ import {
   expireToolCallAudits,
   lowerUnapprovedRollouts,
   projectToolCalls,
+  pruneChannelSummaryHistory,
   purgeEndedAuthAttemptWindows,
   purgeExpiredEnvStart,
   purgeExpiredSlackChannelMembers,
@@ -156,6 +157,8 @@ export function reconcileOnce(
     purgeJudgmentBuffer: (options) => purgeJudgmentBuffer(db, options),
     purgeSlackSourceMarks: (options) =>
       purgeUnknownSlackSourceMarks(db, options),
+    pruneChannelSummaryHistory: (options) =>
+      pruneChannelSummaryHistory(db, options),
     purgeSlackChannelMembers: (options) =>
       purgeExpiredSlackChannelMembers(db, options),
     purgeAuthAttemptWindows: (options) =>

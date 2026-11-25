@@ -59,6 +59,7 @@ type HeldRow = {
   requester_id: string;
   body: string;
   received_at: Date | string;
+  body_edited_at: Date | string | null;
   rate_limited: boolean;
 };
 
@@ -129,7 +130,8 @@ async function closeChannel(
   const rows = rowsOf<HeldRow>(
     await tx.execute(sql`
       SELECT i.id, i.topic_id, i.slack_ts, i.requester_id,
-        i.body, i.received_at, i.judgment_batch_id IS NOT NULL AS rate_limited
+        i.body, i.received_at, i.body_edited_at,
+        i.judgment_batch_id IS NOT NULL AS rate_limited
       FROM conversation_inputs i
       LEFT JOIN judgment_batches b ON b.id = i.judgment_batch_id
       WHERE i.agent_id = ${channel.agent_id}::uuid
@@ -209,6 +211,7 @@ async function closeChannel(
     slackUserId: row.requester_id,
     body: row.body,
     receivedAt: dateOf(row.received_at),
+    editedAt: row.body_edited_at === null ? null : dateOf(row.body_edited_at),
   }));
   return {
     outcome: state,

@@ -34,6 +34,8 @@ export type JudgmentBatchInput = {
   slackUserId: string;
   body: string;
   receivedAt: Date;
+  /** When `body` became the message's text by an edit; unset: never edited. */
+  editedAt?: Date | null;
 };
 
 export type JudgmentBatch = {

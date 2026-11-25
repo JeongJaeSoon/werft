@@ -19,6 +19,7 @@ import {
 } from "@werft-ai/platform";
 import { type SQL, sql } from "drizzle-orm";
 import {
+  appendChannelSummaryLines,
   dropBufferedInputs,
   engagedJudgmentsInWindow,
   JUDGMENT_BUFFER_TTL_MS,
@@ -169,6 +170,24 @@ export function createPostgresM1JudgmentStore(
   return {
     gateOpen: (place) => gateOpenIn(db, place, false, versions),
 
+    writeSummaryLine(batch, line) {
+      return db.transaction(async (tx) => {
+        if (!(await gateOpenIn(tx, batch, true, versions))) {
+          return { outcome: "gate_closed" as const };
+        }
+        return appendChannelSummaryLines(tx, {
+          place: {
+            workspaceId: batch.workspaceId,
+            teamId: batch.teamId,
+            channelId: batch.channelId,
+          },
+          expectedVersion: line.expectedVersion,
+          agentId: batch.agentId,
+          lines: [{ text: line.text, sources: line.sources }],
+        });
+      });
+    },
+
     async recordBatch(batch, record, judged) {
       return db.transaction(async (tx) => {
         if (!(await gateOpenIn(tx, batch, true, versions))) return false;
@@ -178,7 +197,7 @@ export function createPostgresM1JudgmentStore(
             id, workspace_id, agent_id, conversation_id, grade,
             slack_team_id, slack_channel_id, refs, sources,
             judgment_batch_id, release_id, call_key, attempts,
-            prompt_version, outcome, decision, reason, judged_at
+            prompt_version, outcome, decision, reason, summary, judged_at
           ) VALUES (
             ${randomUUID()}::uuid, ${batch.workspaceId}::uuid,
             ${batch.agentId}::uuid, ${batch.conversationId}::uuid,
@@ -186,7 +205,7 @@ export function createPostgresM1JudgmentStore(
             ${textArray(record.refs)}, ${columns.sources}::jsonb,
             ${batch.id}::uuid, ${record.releaseId}, ${record.callKey},
             ${record.attempts}, ${M1_PROMPT_VERSION}, ${columns.outcome},
-            ${columns.decision}, ${columns.reason}, now()
+            ${columns.decision}, ${columns.reason}, ${record.summary}, now()
           )`);
         await dropBufferedInputs(tx, judged);
         return true;

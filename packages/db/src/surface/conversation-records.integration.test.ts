@@ -178,7 +178,12 @@ integration("admin delete of a conversation's records on PostgreSQL", () => {
       place: summaryPlace,
       agentId,
       expectedVersion: current?.version ?? 0,
-      lines: [{ text: "Friday it is", inputId: rows[0].id }],
+      lines: [
+        {
+          text: "Friday it is",
+          sources: [{ inputId: rows[0].id, slack: null }],
+        },
+      ],
     });
     if (written.outcome !== "written") throw new Error(written.outcome);
   }

@@ -1147,7 +1147,7 @@ grep -E '\((pass|fail|skip)\)' "$EVIDENCE/ci-<job>.log" | grep -F '<test name>'
 | context 조립(`assembleContext`) | context-assembler(db) | 9-2 1–9행, "a fragment with a deleted source is left out" | a1 |
 | 세션 없는 대화 호출(`createConversationCalls`) | conversation-calls(db), budget-accounts(db) | "two issues at once on an account that holds one: one token, one refusal, no stray row" | a1(a1/J5의 M1 판단기가 낸다. 실행기와 배선은 a1/J2에서 들어왔고, `tests/a0-deferred-paths.test.ts`의 목록에서 빠졌다) |
 | 웹 입력(`createWebInputService`) | conversation-inputs(db), slack/outbox(surface) | "a retry with the same key and text gets the same input id and number back", "the post's record and its echo arriving at once leave one input and one alias" | 웹 입력 route를 여는 epic(실제 Slack에서 mirror 왕복) |
-| 요약 줄 삭제 | channel-summaries(db) | "deleting one of three sources takes its line out of every version…", "a deletion deletes the channel's summary with every version…" | 요약을 쓰는 epic |
+| 요약 줄 삭제 | channel-summaries(db), m1-judgments(db) | "deleting one of three sources takes its line out of every version…", "a deletion deletes the channel's summary with every version…", "is written with the server's speakers before the buffer goes, again after a lost compare" | a1(a1/J8: M1이 버퍼 묶음을 판단하며 요약 줄을 쓴다. 출처 글 삭제와 채널 삭제의 실제 출력은 a1/J8의 스택 확인이 낸다) |
 
 `tests/a0-deferred-paths.test.ts`는 선언한 파일 밖의 제품 코드·`scripts/`에서 그 이름(식별자나 문자열)이 나오면 실패한다. 실패하면 그 경로에 호출자가 생긴 것이다. 그 epic에서 위 행의 실제 출력을 verify stack으로 내고 시험의 목록에서 뺀다.
 

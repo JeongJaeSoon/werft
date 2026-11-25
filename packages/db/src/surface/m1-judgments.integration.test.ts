@@ -7,7 +7,12 @@ import {
   type SlackNoticeVersionEntry,
   slackNoticeVersionSchema,
 } from "@werft-ai/contracts";
-import type { M1Record } from "@werft-ai/platform";
+import {
+  type JudgmentBatch,
+  M1_SUMMARY_WRITE_ATTEMPTS,
+  type M1Record,
+  writeM1SummaryLine,
+} from "@werft-ai/platform";
 import {
   createTempDatabase,
   type TempDatabase,
@@ -15,6 +20,7 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresChannelSummaryStore } from "../conversations/channel-summaries.ts";
 import { requestReplyJudgment } from "../conversations/conversation-judgments.ts";
 import { createPostgresConversationStore } from "../conversations/conversation-store.ts";
 import { createPostgresJudgmentBatchStore } from "../conversations/judgment-batches.ts";
@@ -28,6 +34,7 @@ import {
   releaseSpecSqlValues,
 } from "../testing/spec-pins.ts";
 import { createPostgresM1JudgmentStore } from "./m1-judgments.ts";
+import { createPostgresSlackSourceMarkStore } from "./slack-source-marks.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -193,6 +200,7 @@ integration("M1 judgment records", () => {
     releaseId,
     callKey: `${key}:m1` as never,
     attempts: 1,
+    summary: null,
   });
 
   const rowsOf = async (channelId: string) =>
@@ -273,7 +281,7 @@ integration("M1 judgment records", () => {
       outcome: "judged",
       decision: "quiet",
       reason: "human_conversation",
-      prompt_version: 1,
+      prompt_version: 2,
       attempts: 1,
       release_id: releaseId,
     });
@@ -283,6 +291,217 @@ integration("M1 judgment records", () => {
       [place.channelId],
     );
     expect(rows.map((r) => r.id)).toEqual([left]);
+  });
+
+  describe("a batch's summary line (a1/J8)", () => {
+    async function closedBatch(place: Place, posts: [string, string][]) {
+      for (const [ts, body] of posts) await hold(place, ts, body);
+      await pool.query(
+        "UPDATE conversation_inputs SET received_at = now() - interval '20 seconds' WHERE slack_channel_id = $1",
+        [place.channelId],
+      );
+      const closed = await createPostgresJudgmentBatchStore(db).closeNext();
+      if (closed?.outcome !== "judging") throw new Error("no batch");
+      return closed.batch;
+    }
+    const draftOf = (
+      batch: JudgmentBatch,
+      text: string,
+      expectedVersion = 0,
+    ) => ({
+      text,
+      expectedVersion,
+      sources: batch.inputs.map((input) => ({
+        inputId: input.inputId,
+        slack: { teamId: TEAM, channelId: batch.channelId, ts: input.ts },
+        editedAt: input.editedAt ?? null,
+      })),
+      messages: batch.inputs.map((input) => input.body),
+    });
+    const placeOf = (batch: JudgmentBatch) => ({
+      workspaceId,
+      teamId: TEAM,
+      channelId: batch.channelId,
+    });
+    /** Another agent's write landing first: a line on the summary's version now. */
+    async function rival(
+      batch: JudgmentBatch,
+      sourceInput: ConversationInputId,
+    ) {
+      const summaries = createPostgresChannelSummaryStore(db);
+      const now = await summaries.read(placeOf(batch));
+      const written = await summaries.append({
+        place: placeOf(batch),
+        agentId,
+        expectedVersion: now?.version ?? 0,
+        lines: [
+          {
+            text: "rival line",
+            sources: [{ inputId: sourceInput, slack: null }],
+          },
+        ],
+      });
+      if (written.outcome !== "written") throw new Error(written.outcome);
+    }
+
+    test("is written with the server's speakers before the buffer goes, again after a lost compare", async () => {
+      const place = await channel();
+      const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+      const batch = await closedBatch(place, [
+        ["500.000001", "when does the release go out?"],
+        ["500.000002", "friday, after the freeze"],
+      ]);
+      const other = await hold(place, "500.000009", "unrelated");
+      // The call read version 0; another write made version 1 meanwhile.
+      await rival(batch, other);
+      const outcome = await writeM1SummaryLine(
+        store,
+        batch,
+        draftOf(
+          batch,
+          "someone asked when the release goes out; another said Friday",
+        ),
+      );
+      expect(outcome).toBe("written");
+      const judged = batch.inputs.map((input) => input.inputId);
+      expect(
+        await store.recordBatch(
+          batch,
+          {
+            ...judgedRecord(batch.id, ["500.000001", "500.000002"]),
+            summary: outcome,
+          },
+          judged,
+        ),
+      ).toBe(true);
+      const summary = await createPostgresChannelSummaryStore(db).read(
+        placeOf(batch),
+      );
+      expect(summary?.version).toBe(2);
+      expect(
+        summary?.lines.map((line) => [
+          line.text,
+          line.sources.map((source) => [source.ts, source.speaker.id]),
+        ]),
+      ).toEqual([
+        ["rival line", [["500.000009", "U0PERSON"]]],
+        [
+          "someone asked when the release goes out; another said Friday",
+          [
+            ["500.000001", "U0PERSON"],
+            ["500.000002", "U0PERSON"],
+          ],
+        ],
+      ]);
+      // After: the judged posts' rows are gone, the line and its sources stay.
+      const { rows } = await pool.query(
+        "SELECT id FROM conversation_inputs WHERE id = ANY($1::uuid[])",
+        [judged],
+      );
+      expect(rows).toEqual([]);
+      const [row] = await rowsOf(place.channelId);
+      expect(row).toMatchObject({ summary: "written", prompt_version: 2 });
+    });
+
+    test("three lost compares in a row drop the line and the record says so", async () => {
+      const place = await channel();
+      const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+      const batch = await closedBatch(place, [
+        ["600.000001", "who owns the oncall rota?"],
+      ]);
+      const other = await hold(place, "600.000009", "unrelated");
+      let writes = 0;
+      const racing = {
+        writeSummaryLine: async (
+          b: JudgmentBatch,
+          line: Parameters<typeof store.writeSummaryLine>[1],
+        ) => {
+          writes += 1;
+          await rival(b, other);
+          return store.writeSummaryLine(b, line);
+        },
+      };
+      const outcome = await writeM1SummaryLine(
+        racing,
+        batch,
+        draftOf(batch, "someone asked who owns the oncall rota"),
+      );
+      expect(outcome).toBe("lost");
+      expect(writes).toBe(M1_SUMMARY_WRITE_ATTEMPTS);
+      await store.recordBatch(
+        batch,
+        { ...judgedRecord(batch.id, ["600.000001"]), summary: outcome },
+        batch.inputs.map((input) => input.inputId),
+      );
+      const summary = await createPostgresChannelSummaryStore(db).read(
+        placeOf(batch),
+      );
+      expect(summary?.lines.map((line) => line.text)).toEqual([
+        "rival line",
+        "rival line",
+        "rival line",
+      ]);
+      const [row] = await rowsOf(place.channelId);
+      expect(row).toMatchObject({ summary: "lost", outcome: "judged" });
+    });
+
+    test("one made from a body edited before the judgment survives that edit", async () => {
+      const place = await channel();
+      const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+      await hold(place, "700.000001", "deploy at 3pm");
+      const edited = new Date("2026-11-25T01:00:00.000Z");
+      const marks = createPostgresSlackSourceMarkStore(db);
+      const mark = {
+        workspaceId,
+        teamId: TEAM,
+        channelId: place.channelId,
+        ts: "700.000001",
+      };
+      expect(
+        await marks.markEdited({ ...mark, at: edited }, "deploy at 4pm"),
+      ).toBe("recorded");
+      const batch = await closedBatch(place, []);
+      expect(batch.inputs[0]).toMatchObject({
+        body: "deploy at 4pm",
+        editedAt: edited,
+      });
+      expect(
+        await writeM1SummaryLine(
+          store,
+          batch,
+          draftOf(batch, "someone moved the deploy to the afternoon"),
+        ),
+      ).toBe("written");
+      const texts = async () =>
+        (
+          await createPostgresChannelSummaryStore(db).read(placeOf(batch))
+        )?.lines.map((line) => line.text);
+      expect(await texts()).toEqual([
+        "someone moved the deploy to the afternoon",
+      ]);
+      // A later edit is of text the line was not made from: the line goes.
+      await marks.markEdited(
+        { ...mark, at: new Date("2026-11-25T01:10:00.000Z") },
+        "deploy at 5pm",
+      );
+      expect(await texts()).toEqual([]);
+    });
+
+    test("a closed gate writes no line", async () => {
+      const place = await channel();
+      const batch = await closedBatch(place, [["800.000001", "hello"]]);
+      const closed = createPostgresM1JudgmentStore(db);
+      expect(
+        await writeM1SummaryLine(
+          closed,
+          batch,
+          draftOf(batch, "someone said hello"),
+        ),
+      ).toBeNull();
+      expect(
+        await createPostgresChannelSummaryStore(db).read(placeOf(batch)),
+      ).toBeNull();
+    });
   });
 
   test("an engaged thread's reply waits outside batches, is judged, and its text goes", async () => {

@@ -1,8 +1,13 @@
 import type {
   ConversationInputId,
   ConversationJudgmentId,
+  M1SummaryOutcome,
 } from "@werft-ai/contracts";
 import { startPolling } from "../polling.ts";
+import type {
+  ChannelSummaryWriteResult,
+  NewChannelSummaryLine,
+} from "../ports/channel-summary-store.ts";
 import {
   type JudgmentBatch,
   type JudgmentBatchJudge,
@@ -10,11 +15,14 @@ import {
   runJudgmentBatches,
 } from "./judgment-batches.ts";
 import {
+  copiesMessage,
   type M1Judge,
   type M1Post,
   type M1Record,
   type M1Subject,
+  type M1SummaryDraft,
   m1NotCalled,
+  summaryTextFits,
 } from "./m1-judge.ts";
 
 /** The channel a judgment is in. */
@@ -41,6 +49,15 @@ export type ClaimedReplyJudgment = {
 export interface M1JudgmentStore {
   /** Asked right before each call. */
   gateOpen(place: M1Place): Promise<boolean>;
+  /**
+   * Adds a batch judgment's line to its channel's summary if the summary is
+   * at `expectedVersion`, in a transaction of its own under the gate;
+   * `gate_closed`, writing nothing, when the gate has closed.
+   */
+  writeSummaryLine(
+    batch: JudgmentBatch,
+    line: NewChannelSummaryLine & { expectedVersion: number },
+  ): Promise<ChannelSummaryWriteResult | { outcome: "gate_closed" }>;
   /**
    * Writes a batch's record and removes the buffered messages it judged;
    * false, writing and removing nothing, when the gate has closed.
@@ -80,6 +97,7 @@ const subjectOfBatch = (batch: JudgmentBatch): M1Subject => ({
       ts: input.ts,
       body: input.body,
       receivedAt: input.receivedAt,
+      editedAt: input.editedAt ?? null,
       sources: [
         {
           inputId: input.inputId,
@@ -94,20 +112,71 @@ const subjectOfBatch = (batch: JudgmentBatch): M1Subject => ({
   ),
 });
 
+/** Writes a summary line tries at most this many times (a1/J8). */
+export const M1_SUMMARY_WRITE_ATTEMPTS = 3;
+
 /**
- * J4's batches judged by M1: each record written, then the messages it
- * judged removed. One the channel's concurrency cap stopped keeps its
- * messages for the next batch (J7).
+ * Adds a batch judgment's summary line (a1/J8): not one that copies a
+ * message the call read; on a lost version compare, again on the version
+ * the loss names, adding only this line, up to M1_SUMMARY_WRITE_ATTEMPTS.
+ * Its sources are resolved off rows the batch's buffer drop has not yet
+ * removed, as the record is written after it. Null: the gate closed.
+ */
+export async function writeM1SummaryLine(
+  store: Pick<M1JudgmentStore, "writeSummaryLine">,
+  batch: JudgmentBatch,
+  draft: M1SummaryDraft,
+): Promise<M1SummaryOutcome | null> {
+  if (!summaryTextFits(draft.text)) return "invalid";
+  if (copiesMessage(draft.text, draft.messages)) return "copied";
+  let expectedVersion = draft.expectedVersion;
+  for (let attempt = 1; attempt <= M1_SUMMARY_WRITE_ATTEMPTS; attempt += 1) {
+    const result = await store.writeSummaryLine(batch, {
+      text: draft.text,
+      sources: draft.sources,
+      expectedVersion,
+    });
+    switch (result.outcome) {
+      case "gate_closed":
+        return null;
+      case "written":
+        return result.lineIds.length > 0 ? "written" : "skipped";
+      case "conflict":
+        expectedVersion = result.version;
+        continue;
+      default:
+        return "invalid";
+    }
+  }
+  return "lost";
+}
+
+/**
+ * J4's batches judged by M1: each summary line written, then each record,
+ * then the messages it judged removed. One the channel's concurrency cap
+ * stopped keeps its messages for the next batch (J7).
  */
 export function createM1BatchJudge(deps: {
   judge: M1Judge;
-  store: Pick<M1JudgmentStore, "recordBatch">;
+  store: Pick<M1JudgmentStore, "recordBatch" | "writeSummaryLine">;
 }): JudgmentBatchJudge {
   return {
     async judge(batch) {
       const subject = subjectOfBatch(batch);
-      const { record, left, modelCalled } = await deps.judge.judge(subject);
+      const judgment = await deps.judge.judge(subject);
+      const { left, modelCalled } = judgment;
+      let { record } = judgment;
       if (record === null) return { modelCalled, left: [] };
+      if (judgment.summary && record.verdict.outcome === "judged") {
+        record = {
+          ...record,
+          summary: await writeM1SummaryLine(
+            deps.store,
+            batch,
+            judgment.summary,
+          ),
+        };
+      }
       const deferred =
         record.verdict.outcome === "not_called" &&
         record.verdict.reason === "concurrency_limited";

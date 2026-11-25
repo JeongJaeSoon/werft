@@ -55,6 +55,8 @@ export type ContextRead = {
   fragments: ContextFragment[];
   /** Left out: their text could not be read again where it points (deleted, no access). */
   unreadable: number;
+  /** The version of the channel summary the lines were read at; unset: none. */
+  summaryVersion?: number;
 };
 
 /**

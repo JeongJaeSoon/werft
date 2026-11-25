@@ -394,4 +394,20 @@ export type JudgmentRule =
  * system text changes, so judgments under other rules are never compared
  * as one.
  */
-export const M1_PROMPT_VERSION = 1;
+export const M1_PROMPT_VERSION = 2;
+
+/**
+ * What became of the summary line a batch judgment gave (a1/J8): added;
+ * not added because a source was deleted or edited after it was read
+ * (`skipped`), because it copied a message (`copied`), because its text
+ * was empty or too long (`invalid`), or because three writes in a row lost
+ * the version compare (`lost`). A judgment that gave no line has none.
+ */
+export const M1_SUMMARY_OUTCOME_VALUES = [
+  "written",
+  "skipped",
+  "copied",
+  "invalid",
+  "lost",
+] as const;
+export type M1SummaryOutcome = (typeof M1_SUMMARY_OUTCOME_VALUES)[number];

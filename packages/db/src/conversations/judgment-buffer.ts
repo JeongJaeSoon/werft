@@ -219,7 +219,9 @@ export async function editBufferedMessage(
 ): Promise<number> {
   const rows = rowsOf(
     await tx.execute(sql`
-      UPDATE conversation_inputs SET body = ${message.body}
+      UPDATE conversation_inputs
+      SET body = ${message.body},
+        body_edited_at = ${message.at.toISOString()}::timestamptz
       WHERE buffer_expires_at IS NOT NULL
         AND workspace_id = ${message.workspaceId}::uuid
         AND slack_team_id = ${message.teamId}

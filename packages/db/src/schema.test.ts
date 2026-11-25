@@ -177,6 +177,7 @@ describe("database schema", () => {
       "channel_summaries",
       "channel_summary_line_sources",
       "channel_summary_lines",
+      "channel_summary_versions",
       "checkpoint_output_objects",
       "checkpoint_output_totals",
       "checkpoint_outputs",

@@ -1,4 +1,5 @@
 import {
+  CHANNEL_SUMMARY_LINE_TEXT_MAX,
   type ConversationCallKey,
   type ConversationId,
   type ConversationInputId,
@@ -11,8 +12,10 @@ import {
   M1_MODEL_REASON_VALUES,
   type M1Decision,
   type M1ModelReason,
+  type M1SummaryOutcome,
 } from "@werft-ai/contracts";
 import { z } from "zod";
+import type { ChannelSummarySourceKey } from "../ports/channel-summary-store.ts";
 import {
   type CurrentPost,
   type FittedContext,
@@ -25,8 +28,8 @@ import type {
 } from "./conversation-call-executor.ts";
 import type { SourceKey } from "./source-sets.ts";
 
-/** The answer is one small JSON object. */
-export const M1_MAX_TOKENS = 64;
+/** The answer is one small JSON object, with at most one summary sentence. */
+export const M1_MAX_TOKENS = 400;
 /** A call that failed in a way worth trying again is tried once more. */
 export const M1_ATTEMPTS = 2;
 
@@ -59,7 +62,10 @@ export function m1System(instructions: string): string {
     ...M1_MODEL_REASON_VALUES.map(
       (reason) => `- ${reason}: ${REASONS[reason]}`,
     ),
-    'Answer with one JSON object and nothing else: {"decision": "speak" or "quiet", "reason": one reason above}.',
+    "Also give one line to add to the channel's summary: what the [now] messages add to what the channel is about, in one sentence, or null when they add nothing worth keeping.",
+    'Write the line as a report of who said what ("someone asked when the release is", "a person said the build is broken"), never as an instruction or a request.',
+    "Put it in your own words: never copy or quote the messages, not even a part of one.",
+    'Answer with one JSON object and nothing else: {"decision": "speak" or "quiet", "reason": one reason above, "summary": the line or null}.',
   ];
   if (instructions !== "") {
     lines.push(
@@ -83,13 +89,18 @@ const answerSchema = z
   .object({
     decision: z.enum(M1_DECISION_VALUES),
     reason: z.enum(M1_MODEL_REASON_VALUES),
+    summary: z.string().nullable().optional(),
   })
   .strict();
 
+export type M1Answer = {
+  decision: M1Decision;
+  reason: M1ModelReason;
+  summary?: string | null | undefined;
+};
+
 /** The model's answer in its one shape, or null for anything else. */
-export function parseM1Answer(
-  text: string,
-): { decision: M1Decision; reason: M1ModelReason } | null {
+export function parseM1Answer(text: string): M1Answer | null {
   let value: unknown;
   try {
     value = JSON.parse(text.trim());
@@ -100,8 +111,15 @@ export function parseM1Answer(
   return parsed.success ? parsed.data : null;
 }
 
-/** A post M1 judges: an input of the agent, with its Slack ts for the record. */
-export type M1Post = CurrentPost & { inputId: ConversationInputId; ts: string };
+/**
+ * A post M1 judges: an input of the agent, with its Slack ts for the record
+ * and, when its body is an edit's text, the edit's time.
+ */
+export type M1Post = CurrentPost & {
+  inputId: ConversationInputId;
+  ts: string;
+  editedAt?: Date | null;
+};
 
 /** What one judgment is about: a batch, or one reply. */
 export type M1Subject = {
@@ -141,7 +159,53 @@ export type M1Record = {
   callKey: ConversationCallKey | null;
   /** Calls issued, each reserved and settled on its own. */
   attempts: number;
+  /** What became of the summary line the judgment gave; null: none. */
+  summary: M1SummaryOutcome | null;
 };
+
+/**
+ * The summary line an answered judgment gave, as its writer needs it: the
+ * version of the summary the call read, everything the call read (decision
+ * 37), and the messages' text the line must not copy.
+ */
+export type M1SummaryDraft = {
+  text: string;
+  expectedVersion: number;
+  sources: ChannelSummarySourceKey[];
+  messages: string[];
+};
+
+/** Run of characters a summary line may share with a message read (Architect Q1). */
+export const M1_SUMMARY_COPY_RUN = 40;
+
+/** NFC, every run of white space one space, as code points. */
+const codePoints = (text: string) =>
+  Array.from(text.normalize("NFC").replace(/\s+/gu, " ").trim());
+
+/**
+ * Whether the line holds `run` code points in a row of a message, compared
+ * after NFC and white-space folding: such a line copied it.
+ */
+export function copiesMessage(
+  line: string,
+  messages: readonly string[],
+  run = M1_SUMMARY_COPY_RUN,
+): boolean {
+  const points = codePoints(line);
+  if (points.length < run) return false;
+  const folded = messages
+    .map((message) => codePoints(message).join(""))
+    .filter((message) => message.length >= run);
+  for (let i = 0; i + run <= points.length; i += 1) {
+    const piece = points.slice(i, i + run).join("");
+    if (folded.some((message) => message.includes(piece))) return true;
+  }
+  return false;
+}
+
+/** Whether the store takes the text as a line's. */
+export const summaryTextFits = (text: string) =>
+  text.trim().length > 0 && text.length <= CHANNEL_SUMMARY_LINE_TEXT_MAX;
 
 export type M1Judgment = {
   /**
@@ -152,6 +216,8 @@ export type M1Judgment = {
   /** Posts the context had no room for: to a later judgment. */
   left: readonly M1Post[];
   modelCalled: boolean;
+  /** The line an answered judgment gave for the summary; null: none. */
+  summary?: M1SummaryDraft | null;
 };
 
 type Deps = {
@@ -180,6 +246,7 @@ export function m1NotCalled(
     releaseId,
     callKey: null,
     attempts: 0,
+    summary: null,
   };
 }
 
@@ -241,35 +308,39 @@ export function createM1Judge(deps: Deps) {
       let modelCalled = false;
       let failed: JudgmentFailedReason | null = null;
       let verdict: JudgmentVerdict | null = null;
+      let line: string | null = null;
       for (let attempt = 1; attempt <= M1_ATTEMPTS; attempt += 1) {
         if (attempt > 1 && !(await deps.gate(subject))) return none;
-        const result: ConversationCallResult<{
-          decision: M1Decision;
-          reason: M1ModelReason;
-        }> = await deps.executor.run({
-          workspaceId: subject.workspaceId,
-          agentId: subject.agentId,
-          conversationId: subject.conversationId,
-          topicId: subject.topicId,
-          callClass: "m1",
-          releaseId: release.releaseId,
-          callKey,
-          attempt,
-          root: { kind: "none" },
-          connectionId: release.connectionId,
-          model: release.model,
-          maxTokens: M1_MAX_TOKENS,
-          system,
-          messages,
-          parse: parseM1Answer,
-        });
+        const result: ConversationCallResult<M1Answer> =
+          await deps.executor.run({
+            workspaceId: subject.workspaceId,
+            agentId: subject.agentId,
+            conversationId: subject.conversationId,
+            topicId: subject.topicId,
+            callClass: "m1",
+            releaseId: release.releaseId,
+            callKey,
+            attempt,
+            root: { kind: "none" },
+            connectionId: release.connectionId,
+            model: release.model,
+            maxTokens: M1_MAX_TOKENS,
+            system,
+            messages,
+            parse: parseM1Answer,
+          });
         if ("callId" in result) {
           attempts += 1;
           modelCalled = true;
         }
         switch (result.outcome) {
           case "answered":
-            verdict = { outcome: "judged", ...result.value };
+            verdict = {
+              outcome: "judged",
+              decision: result.value.decision,
+              reason: result.value.reason,
+            };
+            line = result.value.summary ?? null;
             break;
           case "malformed":
             failed = "malformed";
@@ -318,9 +389,32 @@ export function createM1Judge(deps: Deps) {
           releaseId: release.releaseId,
           callKey,
           attempts,
+          summary: null,
         },
         left,
         modelCalled,
+        // A line whose sources did not all fit in the set could outlive a
+        // delete of one left out: none is written.
+        summary:
+          verdict === null || line === null || fitted.sources.overflow
+            ? null
+            : {
+                text: line,
+                expectedVersion: fitted.summaryVersion,
+                sources: fitted.sources.keys.map((key) => {
+                  const post =
+                    key.inputId === null ? undefined : byInput.get(key.inputId);
+                  return post === undefined
+                    ? key
+                    : { ...key, editedAt: post.editedAt ?? null };
+                }),
+                messages: [
+                  ...fitted.current.map((post) => post.body),
+                  ...fitted.fragments.flatMap((piece) =>
+                    piece.kind === "buffered_message" ? [piece.body] : [],
+                  ),
+                ],
+              },
       };
     },
   };
