@@ -1274,7 +1274,7 @@ describe("the budget account an open holds its call on", () => {
     const told: LogRecord[] = [];
     const { send } = authorizerWith(refusal, told, async (input) => {
       kept.push(input);
-      return "ephemeral";
+      return "recorded";
     });
     const refused = await send({ op: "open", ...call });
     expect(refused.status).toBe(403);
@@ -1298,7 +1298,7 @@ describe("the budget account an open holds its call on", () => {
     ).toEqual({
       session_id: call.session_id,
       attempt_id: call.attempt_id,
-      notice: "ephemeral",
+      result: "recorded",
     });
 
     const records: LogRecord[] = [];
@@ -1333,7 +1333,7 @@ describe("the budget account an open holds its call on", () => {
       [],
       async (input) => {
         kept.push(input);
-        return "thread";
+        return "recorded";
       },
     );
     const refused = await send({ op: "open", ...call });

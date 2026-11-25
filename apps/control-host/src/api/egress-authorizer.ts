@@ -759,11 +759,11 @@ export function createEgressAuthorizer(deps: {
             turnId: chosen?.turnId ?? null,
             owner: opened.owner,
           })
-          .then((notice) =>
+          .then((result) =>
             deps.logger.info("Budget account refusal kept", {
               session_id: body.session_id,
               attempt_id: body.attempt_id,
-              notice,
+              result,
             }),
           )
           .catch((error: unknown) =>
