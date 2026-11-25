@@ -1414,7 +1414,10 @@ export function createWorkerGateway(deps: {
       offeredFor(
         [
           retiredMcpServer(retired),
-          ...mcp.filter((server) => server.name !== retired.server),
+          // With the workspace server named `werft` that claim had, if any.
+          ...(squatted ?? mcp).filter(
+            (server) => server.name !== retired.server,
+          ),
         ],
         false,
       ),

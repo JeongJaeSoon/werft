@@ -295,6 +295,29 @@ describe("checkpoints from before the built-in werft server", () => {
       expect(before?.tools).toContain("mcp__werft__search");
     }
   });
+
+  test("beside a retired catalog server, the config a claim offered with both servers is still offered first", async () => {
+    const squatter = { ...docs, name: "werft", tools: ["mcp__werft__search"] };
+    const bound = {
+      workspaceMcp: [squatter],
+      retiredMcp: {
+        releaseId: "rel-1",
+        server: "fake",
+        url: "https://mcp.example.invalid/fake",
+        credentialRef: "fake",
+        tools: ["mcp__fake__whoami"],
+        restorable: true,
+      },
+    };
+    for (const capabilities of [CAPABLE, BEFORE]) {
+      const [first] = restoresOf(await claim(bound, { capabilities }));
+      expect(first?.servers.map(([name]) => name)).toEqual(["fake", "werft"]);
+      expect(first?.servers[1]).toEqual([
+        "werft",
+        workspaceMcpBinding(squatter),
+      ]);
+    }
+  });
 });
 
 describe("the built-in werft server's egress route", () => {
