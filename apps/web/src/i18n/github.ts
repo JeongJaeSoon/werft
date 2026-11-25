@@ -304,6 +304,46 @@ export const githubKo = {
   "github.pullRequest.invalidText": "템플릿이 올바른 UTF-8 텍스트가 아닙니다.",
   "github.pullRequest.unsupported":
     "템플릿에 지원하지 않는 마크업이 있거나 주석이 닫히지 않았습니다.",
+  "github.webhook.title": "웹훅 입구 주소",
+  "github.webhook.hint":
+    "GitHub App의 push webhook이 들어올 이 서버의 https 주소입니다. 저장하면 webhook secret이 저장된 GitHub App의 webhook URL을 GitHub에서 이 주소로 바꿉니다. 비우면 새로 만드는 App은 webhook 없이 만들고, Git 스킬은 하루 한 번 확인과 지금 확인으로만 새 버전을 찾습니다. 이 설치의 모든 워크스페이스에 적용됩니다.",
+  "github.webhook.label": "입구의 https 주소",
+  "github.webhook.invalid":
+    "https 주소여야 하고 ?·#·계정 정보는 넣을 수 없습니다. 경로(/werft 등)는 넣을 수 있습니다.",
+  "github.webhook.preview": "GitHub App의 webhook URL",
+  "github.webhook.previewNone":
+    "주소가 없어 GitHub App은 webhook을 받지 않습니다.",
+  "github.webhook.apps":
+    "저장하면 아래 GitHub App {count}개의 webhook URL을 GitHub에서 이 주소로 바꿉니다.",
+  "github.webhook.appsNone":
+    "webhook secret이 저장된 GitHub App이 없어 GitHub에서 바꿀 App은 없습니다.",
+  "github.webhook.appShared": "{name} (다른 워크스페이스 {count}곳에도 연결됨)",
+  "github.webhook.otherWorkspaces":
+    "다른 워크스페이스에 연결된 App도 함께 바뀝니다. 그 워크스페이스에 webhook이 들어오는 주소도 이 주소가 됩니다.",
+  "github.webhook.save": "저장",
+  "github.webhook.clear": "비우기",
+  "github.webhook.saved": "웹훅 입구 주소를 저장했습니다.",
+  "github.webhook.savedApps":
+    "웹훅 입구 주소를 저장하고 GitHub App {count}개의 webhook URL을 바꿨습니다.",
+  "github.webhook.cleared":
+    "웹훅 입구 주소를 비웠습니다. GitHub App에 걸린 webhook URL은 바꾸지 않았습니다.",
+  "github.webhook.failedTitle": "webhook URL을 바꾸지 못한 App이 있습니다",
+  "github.webhook.failedHint":
+    "주소는 저장되었습니다. 아래 App에는 GitHub에 예전 URL이 남아 있습니다.",
+  "github.webhook.failedLine": "{name}: {reason}",
+  "github.webhook.retry": "다시 시도",
+  "github.webhook.retried": "남은 App의 webhook URL을 모두 바꿨습니다.",
+  "github.webhook.unset": "저장된 주소가 없습니다. 먼저 주소를 저장하세요.",
+  "github.webhook.reason.githubRejected":
+    "GitHub가 App의 키를 받지 않았습니다. 키가 폐기되었거나 App이 삭제되었습니다.",
+  "github.webhook.reason.urlRefused":
+    "GitHub가 이 주소를 받지 않았습니다. 인터넷에서 닿는 https 주소인지 확인하세요.",
+  "github.webhook.reason.githubUnreachable":
+    "GitHub가 응답하지 않았습니다. 잠시 뒤 다시 시도하세요.",
+  "github.webhook.reason.keyUnreadable":
+    "이 서버의 마스터 키로 App의 키를 열 수 없습니다.",
+  "github.webhook.reason.notFound":
+    "더 이상 이 설치의 webhook을 받는 App이 아닙니다.",
 };
 
 export const githubEn: Record<keyof typeof githubKo, string> = {
@@ -617,6 +657,46 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.pullRequest.invalidText": "The template is not valid UTF-8 text.",
   "github.pullRequest.unsupported":
     "The template has unsupported markup or an unclosed comment.",
+  "github.webhook.title": "Webhook entrance",
+  "github.webhook.hint":
+    "The https address of this server where GitHub Apps' push webhooks enter. Saving changes the webhook URL on GitHub of every GitHub App whose webhook secret is stored. Left empty, new Apps are made without a webhook and Git skills find new versions only with the daily check and Check now. It applies to every workspace of this installation.",
+  "github.webhook.label": "Entrance https address",
+  "github.webhook.invalid":
+    "It must be an https address without ?, # or account details. A path (such as /werft) is allowed.",
+  "github.webhook.preview": "GitHub Apps' webhook URL",
+  "github.webhook.previewNone": "With no address, GitHub Apps get no webhook.",
+  "github.webhook.apps":
+    "Saving changes the webhook URL of the {count} GitHub Apps below on GitHub to this address.",
+  "github.webhook.appsNone":
+    "No GitHub App has a stored webhook secret, so no App is changed on GitHub.",
+  "github.webhook.appShared":
+    "{name} (also connected in {count} other workspaces)",
+  "github.webhook.otherWorkspaces":
+    "Apps connected in other workspaces change too. Their webhooks then enter at this address for those workspaces as well.",
+  "github.webhook.save": "Save",
+  "github.webhook.clear": "Clear",
+  "github.webhook.saved": "Saved the webhook entrance.",
+  "github.webhook.savedApps":
+    "Saved the webhook entrance and changed the webhook URL of {count} GitHub Apps.",
+  "github.webhook.cleared":
+    "Cleared the webhook entrance. The webhook URLs set on the GitHub Apps were left as they are.",
+  "github.webhook.failedTitle": "Some Apps' webhook URL was not changed",
+  "github.webhook.failedHint":
+    "The address is saved. GitHub still has the old URL for the Apps below.",
+  "github.webhook.failedLine": "{name}: {reason}",
+  "github.webhook.retry": "Retry",
+  "github.webhook.retried": "Changed the webhook URL of the remaining Apps.",
+  "github.webhook.unset": "No address is saved. Save one first.",
+  "github.webhook.reason.githubRejected":
+    "GitHub did not accept the App's key. The key was revoked or the App deleted.",
+  "github.webhook.reason.urlRefused":
+    "GitHub did not accept this address. Check that it is an https address reachable from the internet.",
+  "github.webhook.reason.githubUnreachable":
+    "GitHub did not answer. Try again in a moment.",
+  "github.webhook.reason.keyUnreadable":
+    "The App's key does not open with this server's master key.",
+  "github.webhook.reason.notFound":
+    "The App no longer gets this installation's webhooks.",
 };
 
 export const githubJa: Record<keyof typeof githubKo, string> = {
@@ -933,4 +1013,46 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "テンプレートが正しい UTF-8 のテキストではありません。",
   "github.pullRequest.unsupported":
     "テンプレートにサポートされないマークアップがあるか、コメントが閉じられていません。",
+  "github.webhook.title": "Webhook の入口アドレス",
+  "github.webhook.hint":
+    "GitHub App の push webhook が届く、このサーバーの https アドレスです。保存すると、webhook secret が保存された GitHub App の webhook URL を GitHub 上でこのアドレスに変えます。空にすると、新しく作る App は webhook なしで作成され、Git スキルは 1 日 1 回の確認と今すぐ確認でのみ新しいバージョンを見つけます。このインストールのすべてのワークスペースに適用されます。",
+  "github.webhook.label": "入口の https アドレス",
+  "github.webhook.invalid":
+    "https アドレスで、?・#・アカウント情報は入れられません。パス(/werft など)は入れられます。",
+  "github.webhook.preview": "GitHub App の webhook URL",
+  "github.webhook.previewNone":
+    "アドレスがないため、GitHub App は webhook を受け取りません。",
+  "github.webhook.apps":
+    "保存すると、下の GitHub App {count} 個の webhook URL を GitHub 上でこのアドレスに変えます。",
+  "github.webhook.appsNone":
+    "webhook secret が保存された GitHub App がないため、GitHub で変える App はありません。",
+  "github.webhook.appShared":
+    "{name}(ほかのワークスペース {count} か所にも接続)",
+  "github.webhook.otherWorkspaces":
+    "ほかのワークスペースに接続された App も一緒に変わります。そのワークスペースの webhook もこのアドレスに届くようになります。",
+  "github.webhook.save": "保存",
+  "github.webhook.clear": "空にする",
+  "github.webhook.saved": "Webhook の入口アドレスを保存しました。",
+  "github.webhook.savedApps":
+    "Webhook の入口アドレスを保存し、GitHub App {count} 個の webhook URL を変えました。",
+  "github.webhook.cleared":
+    "Webhook の入口アドレスを空にしました。GitHub App に設定された webhook URL は変えていません。",
+  "github.webhook.failedTitle": "webhook URL を変えられなかった App があります",
+  "github.webhook.failedHint":
+    "アドレスは保存されました。下の App は GitHub に古い URL が残っています。",
+  "github.webhook.failedLine": "{name}: {reason}",
+  "github.webhook.retry": "再試行",
+  "github.webhook.retried": "残りの App の webhook URL をすべて変えました。",
+  "github.webhook.unset":
+    "保存されたアドレスがありません。先にアドレスを保存してください。",
+  "github.webhook.reason.githubRejected":
+    "GitHub が App の鍵を受け付けませんでした。鍵が失効したか、App が削除されています。",
+  "github.webhook.reason.urlRefused":
+    "GitHub がこのアドレスを受け付けませんでした。インターネットから届く https アドレスか確認してください。",
+  "github.webhook.reason.githubUnreachable":
+    "GitHub が応答しませんでした。しばらくしてから再試行してください。",
+  "github.webhook.reason.keyUnreadable":
+    "このサーバーのマスターキーで App の鍵を開けません。",
+  "github.webhook.reason.notFound":
+    "この App はもうこのインストールの webhook を受け取る App ではありません。",
 };

@@ -87,7 +87,7 @@ integration("Git skill sync against fake GitHub", () => {
               secret: SIGNING,
             }))
           : [],
-      webhookUrl: "https://werft.example.com/v1/github/webhook",
+      webhookUrl: async () => "https://werft.example.com/v1/github/webhook",
       failed: (error) => failures.push(error),
     });
     app = createApiApp({

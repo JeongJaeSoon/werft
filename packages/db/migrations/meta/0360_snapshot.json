@@ -1,5 +1,5 @@
 {
-  "id": "36a0ea63-764c-4e76-b229-2cd811624b86",
+  "id": "22992bc7-15e4-44f9-b0a6-bc60c5d0b529",
   "prevId": "a78891d4-3983-444d-8652-9848ee191fb4",
   "version": "7",
   "dialect": "postgresql",
@@ -9510,6 +9510,44 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.github_webhook_settings": {
+      "name": "github_webhook_settings",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "boolean",
+          "primaryKey": true,
+          "notNull": true,
+          "default": true
+        },
+        "public_url": {
+          "name": "public_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "github_webhook_settings_single_row_check": {
+          "name": "github_webhook_settings_single_row_check",
+          "value": "\"github_webhook_settings\".\"id\""
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.github_workflow_dispatches": {
       "name": "github_workflow_dispatches",
       "schema": "",
@@ -12758,12 +12796,6 @@
         "answer_decision_id": {
           "name": "answer_decision_id",
           "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "session_allow_subject": {
-          "name": "session_allow_subject",
-          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },

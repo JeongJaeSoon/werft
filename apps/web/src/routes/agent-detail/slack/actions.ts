@@ -143,5 +143,8 @@ export function useSlackApp(agentId: string) {
 export type SlackApp = ReturnType<typeof useSlackApp>;
 /** The tab section whose button an action is. */
 export type SlackActionSite = "address" | "app" | "channels";
-/** Recheck sits in the address section and in the channels' notice. */
-export type RecheckSite = "address" | "channels";
+/**
+ * Recheck sits in the address section, in the channels' notice and in the
+ * app section's update-needed line.
+ */
+export type RecheckSite = "address" | "app" | "channels";
