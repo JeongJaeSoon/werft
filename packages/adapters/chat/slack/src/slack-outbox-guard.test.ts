@@ -32,6 +32,7 @@ describe("stripSlackGroupMentions", () => {
     ["@here look", "look"],
     ["hey @channel, look", "hey, look"],
     ["a @everyone b", "a b"],
+    ["ping _@channel_ now", "ping __ now"],
   ])("%p loses its group mention", (text, posted) => {
     expect(stripSlackGroupMentions(text)).toBe(posted);
   });
@@ -75,6 +76,8 @@ describe("dropOutOfScopeSlackRefs", () => {
     // In a link's fragment, on any site.
     [`see https://example.com/#${ELSEWHERE}`, "see "],
     [`see ${here}#${ELSEWHERE}`, "see "],
+    // In a URL that does not parse.
+    [`see https://acme.slack.com:bad/archives/${ELSEWHERE}`, "see "],
     // Set off by underscores (italics), or past a malformed escape.
     [`see _${ELSEWHERE}_`, "see __"],
     [`see ${here}?x=%ZZ#%4308AWAY222`, "see "],

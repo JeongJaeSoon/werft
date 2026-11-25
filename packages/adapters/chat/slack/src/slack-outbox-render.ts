@@ -215,7 +215,7 @@ export function slackOutboxPresentation(
 const GROUP_CONTROL =
   /(^|[ \t]+)?(?:<!(?:here|channel|everyone)(?:\|[^<>\n]*)?>|<!subteam\^[^<>\n]*>)([ \t]+)?/gim;
 const GROUP_WORD =
-  /(^|[ \t]+)?(?<![\w@.])@(?:here|channel|everyone)\b([ \t]+)?/gim;
+  /(^|[ \t]+)?(?<![A-Za-z0-9@.])@(?:here|channel|everyone)(?![A-Za-z0-9])([ \t]+)?/gim;
 
 // One space stays where the mention stood between two words.
 const dropSpaced = (_: string, before?: string, after?: string) =>
@@ -303,14 +303,15 @@ function decoded(value: string): string {
  */
 function slackUrlRefs(raw: string): { channels: string[]; teams: string[] } {
   const refs = { channels: [] as string[], teams: [] as string[] };
+  // Any link, a fragment included, can carry an id as bare text would, and
+  // one that does not parse still shows it.
+  refs.channels = decoded(raw).match(CHANNEL_ID_IN_TEXT) ?? [];
   const url = parsedUrl(raw);
   if (url === null) return refs;
   const values = [
     ...url.pathname.split("/").map(decoded),
     ...url.searchParams.values(),
   ];
-  // Any link, a fragment included, can carry an id as bare text would.
-  refs.channels = decoded(raw).match(CHANNEL_ID_IN_TEXT) ?? [];
   if (!isSlackUrl(url)) return refs;
   for (const value of values) {
     const channel = channelIdOf(value);
