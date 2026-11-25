@@ -112,6 +112,12 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
     this.credential = credential;
   }
 
+  private unconfirmed: (() => Promise<void> | undefined) | undefined;
+
+  holdWhile(unconfirmed: () => Promise<void> | undefined): void {
+    this.unconfirmed = unconfirmed;
+  }
+
   bootstrapClaim(
     request: BootstrapClaimRequest,
   ): Promise<BootstrapClaimResponse> {
@@ -251,6 +257,9 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
     options: { maxBytes: number; signal?: AbortSignal },
   ): Promise<Uint8Array> {
     const path = `/attempts/${encodeURIComponent(attemptId)}/extensions/${encodeURIComponent(digest)}`;
+    for (let held = this.unconfirmed?.(); held; held = this.unconfirmed?.()) {
+      await held;
+    }
     const timeout = AbortSignal.timeout(this.requestTimeoutMs);
     let response: Response;
     try {
@@ -336,6 +345,14 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
     body: unknown,
     decoder: Decoder<T>,
   ): Promise<T> {
+    // The beat is what settles it, so it alone goes out meanwhile. Read
+    // again after each wait, and sent in the tick it reads open: ownership
+    // can go unconfirmed again between a wait ending and this resuming.
+    if (path !== "/heartbeat") {
+      for (let held = this.unconfirmed?.(); held; held = this.unconfirmed?.()) {
+        await held;
+      }
+    }
     let response: Response;
     const traceparent = this.currentTraceparent?.();
     try {

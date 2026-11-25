@@ -7,6 +7,7 @@ import {
   JUDGMENT_REASON_VALUES,
   M1_DECISION_VALUES,
 } from "../domain/conversation.ts";
+import { instructionsCommitSchema } from "../kollegium/agents.ts";
 import { m1JudgmentsPerHourSchema } from "../kollegium/surfaces.ts";
 import { timestampSchema } from "../shared/index.ts";
 
@@ -81,6 +82,40 @@ export const getSlackJudgmentsResponseSchema = z
   })
   .strict();
 
+/**
+ * The commit the active release's repository branch is at now, against the
+ * commit its instruction snapshot was taken at. `unread` when there is
+ * nothing to compare: no active release, a snapshot with no commit, a
+ * repository not on GitHub (or no App reaches it), or the branch gone.
+ */
+export const getSlackInstructionsHeadResponseSchema = z.discriminatedUnion(
+  "state",
+  [
+    z
+      .object({
+        state: z.literal("read"),
+        commit: instructionsCommitSchema,
+        /** The branch has moved past the snapshot's commit. */
+        newer: z.boolean(),
+      })
+      .strict(),
+    z
+      .object({
+        state: z.literal("unread"),
+        reason: z.enum([
+          "no_release",
+          "no_commit",
+          "not_on_github",
+          "branch_missing",
+        ]),
+      })
+      .strict(),
+  ],
+);
+
+export type GetSlackInstructionsHeadResponse = z.infer<
+  typeof getSlackInstructionsHeadResponseSchema
+>;
 export type SlackJudgmentChannel = z.infer<typeof slackJudgmentChannelSchema>;
 export type SlackJudgmentItem = z.infer<typeof slackJudgmentItemSchema>;
 export type GetSlackJudgmentsResponse = z.infer<

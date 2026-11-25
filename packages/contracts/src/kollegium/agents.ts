@@ -1063,7 +1063,7 @@ export const releaseLabelSchema = z
 /** How much of an agent's instruction file its conversation judgment reads. */
 export const JUDGMENT_INSTRUCTIONS_MAX_BYTES = 4_096;
 
-const instructionsCommitSchema = z
+export const instructionsCommitSchema = z
   .string()
   .regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/);
 const utf8Bytes = (text: string) => new TextEncoder().encode(text).length;
