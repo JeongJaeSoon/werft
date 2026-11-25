@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { type AgentGitHub, GITHUB_MCP_FIXED_TOOLS } from "@werft-ai/contracts";
-import { verifyGitHubMcpGrant } from "../action/github/github-mcp-server.ts";
+import { verifyBuiltinMcpGrant } from "../action/github/github-mcp-server.ts";
 import type { GitHubMcpSessionState } from "../github/ports/github-mcp.ts";
 import {
   createGitHubMcpEgress,
@@ -61,7 +61,7 @@ describe("createGitHubMcpEgress", () => {
     const [[name, value] = ["", ""]] = decision.upstream.headers;
     expect(name).toBe("authorization");
     expect(
-      verifyGitHubMcpGrant(KEY, value.replace(/^Bearer /, ""), NOW),
+      verifyBuiltinMcpGrant(KEY, value.replace(/^Bearer /, ""), NOW),
     ).toEqual(fenced);
   });
 

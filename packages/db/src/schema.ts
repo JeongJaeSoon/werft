@@ -89,9 +89,10 @@ import {
   JUDGMENT_NOT_CALLED_REASON_VALUES,
   JUDGMENT_RULE_DECISION_VALUES,
   JUDGMENT_RULE_REASON_VALUES,
+  JUDGMENT_VOIDED_REASON_VALUES,
   type JudgmentGrade,
-  type JudgmentOutcome,
-  type JudgmentReason,
+  type JudgmentRecordOutcome,
+  type JudgmentRecordReason,
   type JudgmentRuleDecision,
   type JudgmentRuleReason,
   KILL_RECEIPT_OPERATIONS,
@@ -102,7 +103,9 @@ import {
   M1_JUDGMENTS_PER_HOUR_DEFAULT,
   M1_JUDGMENTS_PER_HOUR_MAX,
   M1_MODEL_REASON_VALUES,
+  M1_SUMMARY_OUTCOME_VALUES,
   type M1Decision,
+  type M1SummaryOutcome,
   MCP_RESERVED_SERVER_NAMES,
   MEMORY_BODY_MAX_BYTES,
   MEMORY_SCAN_STATUS_VALUES,
@@ -143,12 +146,14 @@ import {
   SLACK_CHANNEL_NAME_MAX,
   SLACK_INBOUND_DROP_REASON_VALUES,
   SLACK_INBOUND_EVENT_STATUS_VALUES,
+  SLACK_MANIFEST_SYNC_ERROR_VALUES,
   SLACK_SURFACE_ACTION_VALUES,
   type SlackAppKind,
   type SlackAppState,
   type SlackInboundDropFields,
   type SlackInboundDropReason,
   type SlackInboundEventStatus,
+  type SlackManifestSyncError,
   type SlackMessageRef,
   type SlackMirrorCorrelationId,
   SURFACE_BINDING_STATUS_VALUES,
@@ -684,6 +689,26 @@ export const slackSettings = pgTable(
       .defaultNow(),
   },
   (table) => [check("slack_settings_single_row_check", sql`${table.id}`)],
+);
+
+/**
+ * Where GitHub's App webhooks enter, for the whole installation: one row,
+ * absent until an owner saves one or a start carries GITHUB_WEBHOOK_BASE_URL in.
+ */
+export const githubWebhookSettings = pgTable(
+  "github_webhook_settings",
+  {
+    /** Always true; with the check, what keeps the table to one row. */
+    id: boolean().primaryKey().default(true),
+    /** Null: no address GitHub reaches, so Apps get no webhook. */
+    publicUrl: text("public_url"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check("github_webhook_settings_single_row_check", sql`${table.id}`),
+  ],
 );
 
 /**
@@ -1226,6 +1251,18 @@ export const slackApps = pgTable(
      * minute; null before any. Unlike events_state it also falls behind when Slack stops.
      */
     eventsReceivedAt: timestamp("events_received_at", { withTimezone: true }),
+    /**
+     * Why the app's manifest lacks what this build sends, from the last
+     * check (a start of the API, a recheck or Finalize); null when it was
+     * current or was never checked.
+     */
+    manifestSyncError: text(
+      "manifest_sync_error",
+    ).$type<SlackManifestSyncError>(),
+    /** When Werft last compared or sent the manifest; null before any. */
+    manifestSyncCheckedAt: timestamp("manifest_sync_checked_at", {
+      withTimezone: true,
+    }),
     createdByTokenUser: text("created_by_token_user"),
     /** No foreign key: the row outlives the account; null for the CLI. */
     createdBy: uuid("created_by"),
@@ -1271,6 +1308,10 @@ export const slackApps = pgTable(
     check(
       "slack_apps_agent_check",
       sql`(${table.kind} = 'agent') = (${table.agentId} IS NOT NULL)`,
+    ),
+    check(
+      "slack_apps_manifest_sync_error_check",
+      sql`${table.manifestSyncError} IS NULL OR ${table.manifestSyncError} IN (${sql.raw(sqlList(SLACK_MANIFEST_SYNC_ERROR_VALUES))})`,
     ),
     check(
       "slack_apps_created_check",
@@ -5964,6 +6005,8 @@ export const conversationInputs = pgTable(
      * 0345 may still read it here.
      */
     body: text(),
+    /** When a buffered `body` became an edit's text; null: never edited. */
+    bodyEditedAt: timestamp("body_edited_at", { withTimezone: true }),
     /**
      * A web input's turn row, which holds its text. Written with the input
      * from 0345; the start pass gives older ones theirs.
@@ -6174,7 +6217,7 @@ export const conversationJudgments = pgTable(
     grade: text().$type<JudgmentGrade>().notNull(),
     slackTeamId: text("slack_team_id").notNull(),
     slackChannelId: text("slack_channel_id").notNull(),
-    /** The ts of each message judged, oldest first. */
+    /** The ts of each message judged, oldest first; none once voided. */
     refs: text().array().notNull(),
     /** What the judgment read, set when judged. */
     sources: jsonb().$type<StoredSourceSet>(),
@@ -6187,11 +6230,13 @@ export const conversationJudgments = pgTable(
     /** Calls issued for it, each reserved and settled on its own. */
     attempts: integer().notNull().default(0),
     promptVersion: integer("prompt_version").notNull(),
-    outcome: text().$type<JudgmentOutcome>(),
+    outcome: text().$type<JudgmentRecordOutcome>(),
     decision: text().$type<M1Decision>(),
-    reason: text().$type<JudgmentReason>(),
+    reason: text().$type<JudgmentRecordReason>(),
     ruleDecision: text("rule_decision").$type<JudgmentRuleDecision>(),
     ruleReason: text("rule_reason").$type<JudgmentRuleReason>(),
+    // What became of the summary line a batch's judgment gave; null: none.
+    summary: text().$type<M1SummaryOutcome>(),
     // A reply's judge took it; one taken too long ago is given up.
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -6231,16 +6276,18 @@ export const conversationJudgments = pgTable(
     ),
     check(
       "conversation_judgments_slack_check",
-      sql`${table.slackTeamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackChannelId} ~ '^[A-Za-z0-9_-]{1,64}$' AND cardinality(${table.refs}) >= 1`,
+      sql`${table.slackTeamId} ~ '^[A-Za-z0-9_-]{1,64}$' AND ${table.slackChannelId} ~ '^[A-Za-z0-9_-]{1,64}$' AND CASE WHEN ${table.outcome} = 'voided' THEN cardinality(${table.refs}) = 0 AND ${table.sources} IS NULL AND ${table.inputId} IS NULL ELSE cardinality(${table.refs}) >= 1 END`,
     ),
     // Judged all at once, and a reason of the outcome's own set: the model's
-    // six for a judged one, which alone may speak.
+    // six for a judged one, which alone may speak. A voided one keeps no
+    // decision (a1/J6) and, above, no place of what it read.
     check(
       "conversation_judgments_verdict_check",
       sql`CASE ${table.outcome}
         WHEN 'judged' THEN ${table.decision} IN (${sql.raw(sqlList(M1_DECISION_VALUES))}) AND ${table.reason} IN (${sql.raw(sqlList(M1_MODEL_REASON_VALUES))})
         WHEN 'not_called' THEN ${table.decision} = 'quiet' AND ${table.reason} IN (${sql.raw(sqlList(JUDGMENT_NOT_CALLED_REASON_VALUES))})
         WHEN 'failed' THEN ${table.decision} = 'quiet' AND ${table.reason} IN (${sql.raw(sqlList(JUDGMENT_FAILED_REASON_VALUES))})
+        WHEN 'voided' THEN ${table.decision} IS NULL AND ${table.reason} IN (${sql.raw(sqlList(JUDGMENT_VOIDED_REASON_VALUES))})
         ELSE ${table.outcome} IS NULL AND ${table.decision} IS NULL AND ${table.reason} IS NULL
       END AND (${table.outcome} IS NULL) = (${table.judgedAt} IS NULL)`,
     ),
@@ -6256,6 +6303,11 @@ export const conversationJudgments = pgTable(
     check(
       "conversation_judgments_call_check",
       sql`${table.attempts} >= 0 AND (${table.callKey} IS NULL OR ${table.callKey} ~ '^[A-Za-z0-9_-]{1,128}:m1$') AND (${table.attempts} = 0 OR ${table.callKey} IS NOT NULL)`,
+    ),
+    // Only a batch's answered judgment gives a summary line (Architect Q3).
+    check(
+      "conversation_judgments_summary_check",
+      sql`${table.summary} IS NULL OR (${table.summary} IN (${sql.raw(sqlList(M1_SUMMARY_OUTCOME_VALUES))}) AND ${table.grade} = 'buffer_m1' AND ${table.outcome} = 'judged')`,
     ),
     // A reply is judged once.
     uniqueIndex("conversation_judgments_input_uniq")
@@ -6414,6 +6466,40 @@ export const channelSummaries = pgTable(
   ],
 );
 
+// When each version of a channel summary was made. A version current at any
+// time in the last 7 days is kept; the reconciler removes older ones, their
+// rows here and the lines no kept version holds. A revert needs its row.
+export const channelSummaryVersions = pgTable(
+  "channel_summary_versions",
+  {
+    workspaceId: uuid("workspace_id").notNull(),
+    teamId: text("team_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    version: bigint({ mode: "number" }).notNull(),
+    madeAt: timestamp("made_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.workspaceId,
+        table.teamId,
+        table.channelId,
+        table.version,
+      ],
+    }),
+    foreignKey({
+      name: "channel_summary_versions_summary_fk",
+      columns: [table.workspaceId, table.teamId, table.channelId],
+      foreignColumns: [
+        channelSummaries.workspaceId,
+        channelSummaries.teamId,
+        channelSummaries.channelId,
+      ],
+    }).onDelete("cascade"),
+    index("channel_summary_versions_made_idx").on(table.madeAt),
+  ],
+);
+
 // A line of a channel summary: the agent's own words, never a message's
 // text. It is in every version from `from_version` up to, not including,
 // `to_version` (null: the current one too). A revert brings a line back as
@@ -6489,6 +6575,9 @@ export const channelSummaryLineSources = pgTable(
     // As on conversation_inputs: requester_kind and requester_id.
     speakerKind: text("speaker_kind").notNull(),
     speakerId: text("speaker_id").notNull(),
+    // When the text read was last edited; null: the message's ts. An edit
+    // mark after it removes the line, one at or before it does not.
+    editedAt: timestamp("edited_at", { withTimezone: true }),
   },
   (table) => [
     primaryKey({ columns: [table.lineId, table.inputId] }),

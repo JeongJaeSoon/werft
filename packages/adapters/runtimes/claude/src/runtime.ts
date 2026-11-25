@@ -212,8 +212,10 @@ export function buildSdkOptions(
   toolDecisions?: ToolDecisionObserver,
 ): Options {
   const decisions = new ToolDecisions(toolDecisions);
-  const permittedTools = new Set(config.tools);
   const trustedTools = new Set(config.trustedTools ?? []);
+  const servedTools = new Set(config.servedTools ?? []);
+  // The built-in `werft` server's tools are in no release's list.
+  const permittedTools = new Set([...config.tools, ...servedTools]);
   const bypass = config.permissionMode === "bypassPermissions";
   // Neither mode calls canUseTool for a call it lets through.
   const unattended = bypass || config.permissionMode === "auto";
@@ -406,7 +408,8 @@ export function buildSdkOptions(
               // asking: it promises no side effects.
               if (
                 "tool_name" in input &&
-                trustedTools.has(input.tool_name) &&
+                (trustedTools.has(input.tool_name) ||
+                  servedTools.has(input.tool_name)) &&
                 config.permissionMode !== "plan"
               ) {
                 decisions.admitted(

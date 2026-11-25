@@ -1,5 +1,5 @@
 {
-  "id": "e9c86a96-cd43-4d68-b92e-81e1f92a24a4",
+  "id": "a78891d4-3983-444d-8652-9848ee191fb4",
   "prevId": "7add76ed-8ccd-46f4-9e5f-8a006d410000",
   "version": "7",
   "dialect": "postgresql",
@@ -6721,11 +6721,11 @@
         },
         "conversation_judgments_slack_check": {
           "name": "conversation_judgments_slack_check",
-          "value": "\"conversation_judgments\".\"slack_team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_judgments\".\"slack_channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND cardinality(\"conversation_judgments\".\"refs\") >= 1"
+          "value": "\"conversation_judgments\".\"slack_team_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND \"conversation_judgments\".\"slack_channel_id\" ~ '^[A-Za-z0-9_-]{1,64}$' AND CASE WHEN \"conversation_judgments\".\"outcome\" = 'voided' THEN cardinality(\"conversation_judgments\".\"refs\") = 0 AND \"conversation_judgments\".\"sources\" IS NULL AND \"conversation_judgments\".\"input_id\" IS NULL ELSE cardinality(\"conversation_judgments\".\"refs\") >= 1 END"
         },
         "conversation_judgments_verdict_check": {
           "name": "conversation_judgments_verdict_check",
-          "value": "CASE \"conversation_judgments\".\"outcome\"\n        WHEN 'judged' THEN \"conversation_judgments\".\"decision\" IN ('speak','quiet') AND \"conversation_judgments\".\"reason\" IN ('not_for_agent','human_conversation','already_handled','out_of_scope','needs_agent','unclear')\n        WHEN 'not_called' THEN \"conversation_judgments\".\"decision\" = 'quiet' AND \"conversation_judgments\".\"reason\" IN ('budget_refused','concurrency_limited','rate_limited','input_too_large','no_active_release','model_unavailable')\n        WHEN 'failed' THEN \"conversation_judgments\".\"decision\" = 'quiet' AND \"conversation_judgments\".\"reason\" IN ('timed_out','unreachable','provider_error','malformed')\n        ELSE \"conversation_judgments\".\"outcome\" IS NULL AND \"conversation_judgments\".\"decision\" IS NULL AND \"conversation_judgments\".\"reason\" IS NULL\n      END AND (\"conversation_judgments\".\"outcome\" IS NULL) = (\"conversation_judgments\".\"judged_at\" IS NULL)"
+          "value": "CASE \"conversation_judgments\".\"outcome\"\n        WHEN 'judged' THEN \"conversation_judgments\".\"decision\" IN ('speak','quiet') AND \"conversation_judgments\".\"reason\" IN ('not_for_agent','human_conversation','already_handled','out_of_scope','needs_agent','unclear')\n        WHEN 'not_called' THEN \"conversation_judgments\".\"decision\" = 'quiet' AND \"conversation_judgments\".\"reason\" IN ('budget_refused','concurrency_limited','rate_limited','input_too_large','no_active_release','model_unavailable')\n        WHEN 'failed' THEN \"conversation_judgments\".\"decision\" = 'quiet' AND \"conversation_judgments\".\"reason\" IN ('timed_out','unreachable','provider_error','malformed')\n        WHEN 'voided' THEN \"conversation_judgments\".\"decision\" IS NULL AND \"conversation_judgments\".\"reason\" IN ('voided_by_delete','voided_by_edit')\n        ELSE \"conversation_judgments\".\"outcome\" IS NULL AND \"conversation_judgments\".\"decision\" IS NULL AND \"conversation_judgments\".\"reason\" IS NULL\n      END AND (\"conversation_judgments\".\"outcome\" IS NULL) = (\"conversation_judgments\".\"judged_at\" IS NULL)"
         },
         "conversation_judgments_rule_check": {
           "name": "conversation_judgments_rule_check",
@@ -17113,30 +17113,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::uuid[]"
-        },
-        "task_request": {
-          "name": "task_request",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "task_interpretation": {
-          "name": "task_interpretation",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "task_closing": {
-          "name": "task_closing",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "task_closed_reason": {
-          "name": "task_closed_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -17346,10 +17322,6 @@
         "sessions_execution_revoked_check": {
           "name": "sessions_execution_revoked_check",
           "value": "(\"sessions\".\"execution_revoked_at\" IS NULL) = (\"sessions\".\"execution_revoked_reason\" IS NULL)"
-        },
-        "sessions_task_closed_reason_check": {
-          "name": "sessions_task_closed_reason_check",
-          "value": "\"sessions\".\"task_closed_reason\" IS NULL OR (\"sessions\".\"task_closed_reason\" IN ('completed', 'cancelled', 'failed', 'abandoned') AND \"sessions\".\"admission_state\" IN ('closing', 'closed'))"
         },
         "sessions_repository_mode_check": {
           "name": "sessions_repository_mode_check",

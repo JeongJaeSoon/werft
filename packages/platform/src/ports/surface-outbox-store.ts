@@ -1,5 +1,6 @@
 import type {
   AdmissionState,
+  BudgetOwnerKind,
   ConversationInputId,
   ConversationKind,
   PendingQuestion,
@@ -150,6 +151,15 @@ export type SurfaceOutboxClaim = SurfaceOutboxEntry &
     conversationScope?: SurfaceConversationScope | null;
   };
 
+/**
+ * Who a row goes out as: the agent's name and, for a task (a session with a
+ * Slack link), that session's title, null while it has none.
+ */
+export type SurfaceOutboxPostedAs = {
+  agentName: string;
+  taskTitle: string | null;
+};
+
 /** A row the lease ran out on mid-send, now `uncertain`. */
 export type SurfaceOutboxLost = SurfaceOutboxEntry & { id: string };
 
@@ -182,6 +192,15 @@ export type SurfaceUnansweredTurn = SurfaceLinkedTurnTarget & {
   terminalReason?: string | null;
   /** The session is paused: a resume that found no room went back to it. */
   sessionPaused?: boolean;
+  /**
+   * A failed turn a budget account refused (recordBudgetAccountRefusal):
+   * its notice says so in place of "try again". `first`: the session's first
+   * refusal while the limit holds (no told refusal on an earlier turn since
+   * the last completed one, in the same UTC month), told in the thread; a
+   * later one goes only to the person who asked, except in a direct message.
+   * Null or absent otherwise.
+   */
+  budgetRefusal?: { owner: BudgetOwnerKind; first: boolean } | null;
   /**
    * The final attempt's top-level assistant and tool_use event payloads,
    * in order; empty unless the turn completed.
@@ -522,11 +541,12 @@ export interface SurfaceCardSettleStore {
   markDueAt(card: { channelId: string; slackTs: string }): Promise<boolean>;
   /** Marks one card `due` by its row (a push whose approvability moved). */
   /**
-   * Marks `due` the push cards still showing a choice in one channel of an
-   * install, whose requester may have joined or left it; one being drawn
+   * Marks `due` the push, tool permission and question cards still showing
+   * a choice in one channel of an install, whose requester may have joined
+   * or left it; one being drawn
    * now is drawn again `windowMs` later. Returns how many.
    */
-  markPushCardsDueIn(input: {
+  markChoiceCardsDueIn(input: {
     installationId: string;
     channelId: string;
     windowMs: number;
@@ -713,9 +733,13 @@ export interface SurfaceOutboxStore {
   /**
    * `sending` from here on: a lease that runs out now leaves it `uncertain`.
    * `voided_by_delete`: a source of the row was deleted in Slack, and the
-   * row is settled so; nothing may go out.
+   * row is settled so; nothing may go out. Begun, who the row goes out as
+   * when the store reads it, under the same locks: a title whose message
+   * Slack deleted is never sent; `true` when it reads none.
    */
-  beginSend(fence: SurfaceOutboxFence): Promise<boolean | "voided_by_delete">;
+  beginSend(
+    fence: SurfaceOutboxFence,
+  ): Promise<boolean | "voided_by_delete" | SurfaceOutboxPostedAs>;
   /** False when the lease was lost: the row is someone else's now. */
   /**
    * False when the lease was lost. A sent `input_mirror` row gives its input

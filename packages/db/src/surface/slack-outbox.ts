@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
+  BUDGET_ACCOUNT_REFUSED_EVENT_CODE,
+  BUDGET_OWNER_KIND_VALUES,
   type ConversationInputId,
   DEFAULT_USER_LOCALE,
   type PushRequestOrigin,
@@ -24,6 +26,7 @@ import type {
   SurfaceConversationScope,
   SurfaceOpenPushCard,
   SurfaceOutboxFence,
+  SurfaceOutboxPostedAs,
   SurfaceOutboxStore,
   SurfacePendingPrompt,
   SurfacePromptCard,
@@ -48,6 +51,7 @@ import {
   inputTexts,
   lockedDeletedSource,
   outboxSources,
+  servedTitle,
 } from "../conversations/index.ts";
 import {
   mirrorsInstructions,
@@ -167,6 +171,48 @@ const owesInstruction = (turn: SQL, link: SQL, settled = false) => sql`(
   )
 )`;
 
+// The refusal recordBudgetAccountRefusal kept on a failed turn, and whether
+// it is the session's first while the limit holds: no refusal told before
+// it (on an earlier turn that ended with a post, so not completed, stopped
+// or turnless) after the last completed turn ended, in the same UTC month.
+// Found by the turn's attempt, the one its refused call ran in, so the
+// partial (session, attempt) index bounds the read to that attempt.
+const budgetRefusalOfTurn = sql<NonNullable<
+  SurfaceUnansweredTurn["budgetRefusal"]
+> | null>`(
+  CASE WHEN ${turns.status} <> 'completed' THEN (
+    SELECT jsonb_build_object(
+      'owner', r.payload->>'budget_owner',
+      'first', NOT EXISTS (
+        SELECT 1 FROM events p
+        WHERE p.session_id = r.session_id
+          AND p.type = 'error'
+          AND p.payload->>'code' = ${BUDGET_ACCOUNT_REFUSED_EVENT_CODE}
+          AND p.payload ? 'budget_owner'
+          AND p.id < r.id
+          AND EXISTS (
+            SELECT 1 FROM ${turns} pt
+            WHERE pt.id = p.turn_id
+              AND pt.sequence < ${turns.sequence}
+              AND pt.status IN ('failed', 'outcome_unknown'))
+          AND p.created_at >= date_trunc('month', r.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+          AND p.created_at > coalesce((
+            SELECT max(ct.ended_at) FROM ${turns} ct
+            WHERE ct.session_id = r.session_id
+              AND ct.status = 'completed'
+              AND ct.sequence < ${turns.sequence}), '-infinity')))
+    FROM events r
+    WHERE r.session_id = ${turns.sessionId}
+      AND r.attempt_id = ${turns.attemptId}
+      AND r.turn_id = ${turns.id}
+      AND r.type = 'error'
+      AND r.payload->>'code' = ${BUDGET_ACCOUNT_REFUSED_EVENT_CODE}
+      AND r.payload->>'budget_owner' IN (${sqlLiterals(BUDGET_OWNER_KIND_VALUES)})
+    ORDER BY r.id
+    LIMIT 1)
+  END
+)`;
+
 // The thread's language: that of whoever started the session, its first
 // turn's actor, else the person whose message opened the link.
 const starterLocale = sql<UserLocale | null>`(
@@ -185,13 +231,13 @@ const promptRequestId = (row: SQL, prefix: "prompt:" | "push:") => {
   return sql`substr(${row}.dedupe_key, ${sql.raw(String(from))} + position(':' in substr(${row}.dedupe_key, ${sql.raw(String(from))})))`;
 };
 
-// Only the notice that a channel waits for approval may go to a channel
-// whose binding waits, or was rejected and has no live binding since. A
+// Only the notice that a channel waits for approval (a `notice` of no
+// session) may go to a channel whose binding waits, or was rejected and has no live binding since. A
 // channel the bot left takes nothing at all, a notice included: the bot is
 // not in it.
 const channelNotWaiting = (row: SQL) => sql`(
   NOT ${channelLeft(sql`${row}.installation_id`, sql`${row}.channel_id`)}
-  AND (${row}.kind = 'notice' OR NOT EXISTS (
+  AND ((${row}.kind = 'notice' AND ${row}.session_id IS NULL) OR NOT EXISTS (
     SELECT 1 FROM surface_bindings b
     WHERE b.installation_id = ${row}.installation_id
       AND b.external_surface_id = ${row}.channel_id
@@ -514,9 +560,9 @@ function createPostgresSlackCardSettleStore(
       );
     },
 
-    async markPushCardsDueIn({ installationId, channelId, windowMs }) {
+    async markChoiceCardsDueIn({ installationId, channelId, windowMs }) {
       const inChannel = sql`${SENT_CARD} AND ${SHOWS_CHOICE}
-        AND o.dedupe_key LIKE 'push:%'
+        AND (o.dedupe_key LIKE 'push:%' OR o.dedupe_key LIKE 'prompt:%')
         AND o.installation_id = ${installationId}
         AND o.channel_id = ${channelId}`;
       // One statement, so a redraw's finish lands wholly before or after it.
@@ -1278,6 +1324,7 @@ export function createPostgresSlackOutboxStore(
           attemptId: turns.attemptId,
           requesterSlackUserId: linkedAccounts.externalUserId,
           locale: starterLocale,
+          budgetRefusal: budgetRefusalOfTurn,
         })
         .from(sessionLinks)
         .innerJoin(sessions, eq(sessions.id, sessionLinks.sessionId))
@@ -1841,7 +1888,9 @@ export function createPostgresSlackOutboxStore(
         const [row] = await tx
           .select({
             workspaceId: t.workspaceId,
+            agentId: t.agentId,
             sessionId: t.sessionId,
+            sessionLinkId: t.sessionLinkId,
             sources: t.sources,
             throughTurn: t.sourcesTurn,
           })
@@ -1855,6 +1904,32 @@ export function createPostgresSlackOutboxStore(
           )
           .for("update");
         if (row === undefined) return false;
+        // A title cut or made from the session's first message: that
+        // message's direct sources. Their marks are taken with the row's, in
+        // one order, so the title read below sees a delete under way.
+        const [title] =
+          row.sessionId === null
+            ? []
+            : rowsOf<{ sources: StoredSourceSet }>(
+                await tx.execute(sql`
+                  SELECT jsonb_build_object(
+                    'direct', tt.sources -> 'direct', 'inherited', '[]'::jsonb
+                  ) AS sources
+                  FROM sessions s
+                  JOIN turns tt ON tt.session_id = s.id AND tt.sequence = 1
+                  WHERE s.id = ${row.sessionId}
+                    AND s.title_source IN ('derived', 'generated')
+                    AND jsonb_typeof(tt.sources -> 'direct') = 'array'`),
+              );
+        if (title !== undefined) {
+          await lockedDeletedSource(tx, {
+            ...row,
+            sources: {
+              ...(row.sources ?? { inherited: [] }),
+              direct: [...(row.sources?.direct ?? []), ...title.sources.direct],
+            },
+          });
+        }
         // A row whose sources hold a message Slack deleted is never sent;
         // a delete that comes once it is sending leaves what went out.
         if (
@@ -1884,7 +1959,28 @@ export function createPostgresSlackOutboxStore(
             ),
           )
           .returning({ id: t.id });
-        return rows.length > 0;
+        if (rows.length === 0) return false;
+        // Who the row goes out as, read under those locks. A task is a
+        // session with a Slack link: the row's own, or, for a row sent
+        // outside its thread (a direct message), an open one. Its title as a
+        // reader is served it: none once Slack deleted what it came from.
+        const [sender] = rowsOf<{ posted_as: SurfaceOutboxPostedAs }>(
+          await tx.execute(sql`
+            SELECT json_build_object(
+              'agentName', a.name,
+              'taskTitle', (
+                SELECT ${servedTitle("s")} FROM sessions s
+                WHERE s.id = ${row.sessionId}::uuid AND (
+                  ${row.sessionLinkId}::uuid IS NOT NULL OR EXISTS (
+                    SELECT 1 FROM session_links l
+                    WHERE l.session_id = s.id AND l.closed_at IS NULL
+                  )
+                )
+              )
+            ) AS posted_as
+            FROM agents a WHERE a.id = ${row.agentId}::uuid`),
+        );
+        return sender?.posted_as ?? true;
       });
     },
 

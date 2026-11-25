@@ -635,6 +635,9 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         text: `Done: ping, &lt;@U0ELSE&gt; and <@${PERSON}>, but \`&lt;!here&gt;\` stays code.\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
         ts: expect.any(String),
         options: {
+          // N1: a task's answer goes under "agent [task]", the session's
+          // title cut from the mention.
+          username: "Notes [summarize the thread]",
           link_names: "false",
           unfurl_links: "false",
           unfurl_media: "false",
@@ -943,7 +946,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       {
         threadTs: THREAD,
         text: expect.stringMatching(/^Added\./),
-        username: undefined,
+        username: "Notes [summarize the thread]",
         icon_url: undefined,
       },
     ]);
@@ -983,7 +986,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         .map(({ text, options }) => [text.split("\n")[0], options.username]),
     ).toEqual([
       ["Run the checks", "API"],
-      [expect.stringMatching(/^Checks pass\./), undefined],
+      [expect.stringMatching(/^Checks pass\./), "Notes [summarize the thread]"],
     ]);
   });
 
@@ -1226,7 +1229,9 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     await outboxPass({ botToken: null });
     const [claim] = await outbox.claim({ limit: 10, leaseMs: 30_000 });
     if (!claim) throw new Error("nothing claimed");
-    expect(await outbox.beginSend(claim)).toBe(true);
+    expect(await outbox.beginSend(claim)).toMatchObject({
+      agentName: "Notes",
+    });
     await db
       .update(slackOutbox)
       .set({ leaseExpiresAt: sql`now() - interval '1 second'` });
@@ -1898,7 +1903,9 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         await outboxPass({ botToken: null });
         const [claim] = await outbox().claim({ limit: 10, leaseMs: 30_000 });
         if (!claim) throw new Error("nothing claimed");
-        expect(await outbox().beginSend(claim)).toBe(true);
+        expect(await outbox().beginSend(claim)).toMatchObject({
+          agentName: "Notes",
+        });
         const ts = "100.000777";
         await marks().markDeleted({
           workspaceId: fixture.workspaceId,
@@ -1930,7 +1937,9 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       await outboxPass({ botToken: null });
       const [claim] = await outbox().claim({ limit: 10, leaseMs: 30_000 });
       if (!claim) throw new Error("nothing claimed");
-      expect(await outbox().beginSend(claim)).toBe(true);
+      expect(await outbox().beginSend(claim)).toMatchObject({
+        agentName: "Notes",
+      });
       const ts = "100.000555";
       const conversation = await channelConversation(fixture);
       const replyTopic = await conversations().findOrCreateThreadTopic(
@@ -1961,7 +1970,9 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         await outboxPass({ botToken: null });
         const [claim] = await outbox().claim({ limit: 10, leaseMs: 30_000 });
         if (!claim) throw new Error("nothing claimed");
-        expect(await outbox().beginSend(claim)).toBe(true);
+        expect(await outbox().beginSend(claim)).toMatchObject({
+          agentName: "Notes",
+        });
         const ts = "100.000666";
         let held!: () => void;
         const hold = new Promise<void>((resolve) => {
@@ -2554,6 +2565,80 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       status: "failed",
       errorCode: "not_addressed",
     });
+  });
+
+  test("a budget account's refusals: the first in the thread, the next to the person alone, none to a channel waiting for approval; never 'try again'", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    // The turn ends failed on the attempt its refused call ran in.
+    const refused = async (sequence: number) => {
+      await endTurn(sessionId, sequence, "failed");
+      const [turn] = await db
+        .select({ attemptId: turns.attemptId })
+        .from(turns)
+        .where(
+          and(eq(turns.sessionId, sessionId), eq(turns.sequence, sequence)),
+        );
+      expect(
+        await schema.recordBudgetAccountRefusal(db, {
+          sessionId,
+          attemptId: turn?.attemptId ?? "",
+          turnId: String(sequence),
+          owner: "user",
+        }),
+      ).toBe("recorded");
+    };
+    const isBudgetLine = (text: string) =>
+      Object.values(SLACK_NOTICE_MESSAGES).some((messages) =>
+        text.startsWith(messages.budgetAccountUser),
+      );
+
+    await refused(1);
+    await outboxPass();
+    await outboxPass();
+    expect(
+      slack.messages.map((message) => [
+        message.method,
+        message.userId,
+        isBudgetLine(message.text),
+      ]),
+    ).toEqual([["chat.postMessage", null, true]]);
+
+    await mention(fixture, "100.000200");
+    await refused(2);
+    await outboxPass();
+    await outboxPass();
+    expect(
+      slack.messages.map((message) => [
+        message.method,
+        message.userId,
+        isBudgetLine(message.text),
+      ]),
+    ).toEqual([
+      ["chat.postMessage", null, true],
+      ["chat.postEphemeral", PERSON, true],
+    ]);
+
+    // A later refusal's ephemeral to a channel now waiting for approval
+    // does not go: only the notice of no session that asks for approval may.
+    await mention(fixture, "100.000300");
+    await refused(3);
+    await db.update(surfaceBindings).set({
+      surfaceKind: "private_channel",
+      status: "pending_approval",
+      home: false,
+    });
+    await outboxPass();
+    await outboxPass();
+    expect(slack.messages).toHaveLength(2);
+    expect(
+      (await rows()).map((row) => [row.kind, row.status, row.errorCode]),
+    ).toEqual([
+      ["failure_notice", "sent", null],
+      ["notice", "sent", null],
+      ["notice", "failed", "not_addressed"],
+    ]);
   });
 
   test("a reply claimed before its channel began waiting for approval does not start sending", async () => {
@@ -3339,7 +3424,9 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     await outboxPass({ botToken: null });
     const [claim] = await outbox.claim({ limit: 10, leaseMs: 30_000 });
     if (!claim) throw new Error("nothing claimed");
-    expect(await outbox.beginSend(claim)).toBe(true);
+    expect(await outbox.beginSend(claim)).toMatchObject({
+      agentName: "Notes",
+    });
     // The pass died mid-send.
     await db
       .update(slackOutbox)
@@ -4778,9 +4865,9 @@ describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
     // redraws it without the line.
     left = false;
     expect(
-      await cards().markPushCardsDueIn({ ...here, channelId: "C0OTHER" }),
+      await cards().markChoiceCardsDueIn({ ...here, channelId: "C0OTHER" }),
     ).toBe(0);
-    expect(await cards().markPushCardsDueIn(here)).toBe(1);
+    expect(await cards().markChoiceCardsDueIn(here)).toBe(1);
     await settler({ requesterLeft });
     expect(updated()[1]?.blocks).toEqual(
       JSON.parse(card.options.blocks ?? "[]"),
@@ -4792,7 +4879,7 @@ describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
 
     // A change while the card is being drawn: that edit may have read the
     // old membership, so finishing it leaves the card owed a window later.
-    expect(await cards().markPushCardsDueIn(here)).toBe(1);
+    expect(await cards().markChoiceCardsDueIn(here)).toBe(1);
     const [claim] = await cards().claim({
       limit: 1,
       leaseMs: LEASE,
@@ -4800,7 +4887,7 @@ describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
       only: { channelId: row.channelId, slackTs: row.slackTs ?? "" },
     });
     if (!claim) throw new Error("no claim");
-    expect(await cards().markPushCardsDueIn(here)).toBe(1);
+    expect(await cards().markChoiceCardsDueIn(here)).toBe(1);
     expect(await cards().beginSend(claim, 0)).not.toBeNull();
     expect(
       await cards().finish(claim, {
@@ -4837,8 +4924,52 @@ describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
       windowMs: W,
     });
     expect(await cardRow()).toMatchObject({ settleState: null });
-    expect(await cards().markPushCardsDueIn(here)).toBe(1);
+    expect(await cards().markChoiceCardsDueIn(here)).toBe(1);
     expect(await cardRow()).toMatchObject({ settleState: "due" });
+  });
+
+  test("a tool permission card whose requester left says so and loses its session button; a member change in its channel redraws it (94S-2175)", async () => {
+    const { sessionId, card } = await cardThread({
+      kind: "permission",
+      tool: "Bash",
+      input: { command: "npm test" },
+      remember_offer: [{ tool_name: "Bash", rule_content: "npm test" }],
+    });
+    // The requester's own card offers the session-wide allow.
+    expect(card.options.blocks ?? "").toContain("이 세션 동안 허용");
+    const row = await cardRow();
+    const here = {
+      installationId: row.installationId,
+      channelId: row.channelId,
+      windowMs: W,
+    };
+    const asked: unknown[] = [];
+    let left = true;
+    const requesterLeft = async (request: unknown) => {
+      asked.push(request);
+      return left;
+    };
+    expect(await cards().markChoiceCardsDueIn(here)).toBe(1);
+    await settler({ requesterLeft });
+    expect(asked).toEqual([
+      expect.objectContaining({ sessionId, pendingRequestId: "toolu:1" }),
+    ]);
+    const drawn = JSON.stringify(updated().at(-1)?.blocks ?? []);
+    expect(drawn).toContain(":information_source: 요청자가 채널을 나갔어요");
+    expect(drawn).not.toContain("이 세션 동안 허용");
+    expect(await cardRow()).toMatchObject({
+      settleRendered: "open_requester_left",
+      settleState: null,
+    });
+
+    // Back in: the card as posted, session button and all.
+    left = false;
+    expect(await cards().markChoiceCardsDueIn(here)).toBe(1);
+    await settler({ requesterLeft });
+    expect(updated().at(-1)?.blocks).toEqual(
+      JSON.parse(card.options.blocks ?? "[]"),
+    );
+    expect(await cardRow()).toMatchObject({ settleRendered: "open" });
   });
 
   test("a turn's notice from before the cards ends as one handled line once its turn waits no more", async () => {

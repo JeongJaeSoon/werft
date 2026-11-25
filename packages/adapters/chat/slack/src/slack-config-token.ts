@@ -166,7 +166,11 @@ export function createSlackConfigTokens(deps: {
               throw configTokenInvalid("needs_reentry");
             }
             await store.release(workspaceId, claim.leaseId);
-            throw slackUnavailable("tooling.tokens.rotate");
+            // `cause` keeps Slack's own failure (a rate limit, say) for
+            // callers in this process; the answer they send stays the same.
+            throw Object.assign(slackUnavailable("tooling.tokens.rotate"), {
+              cause: error,
+            });
           }
           await persist(workspaceId, claim.leaseId, rotated);
           return {

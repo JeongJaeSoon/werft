@@ -341,6 +341,19 @@ export const JUDGMENT_FAILED_REASON_VALUES = [
 export type JudgmentFailedReason =
   (typeof JUDGMENT_FAILED_REASON_VALUES)[number];
 
+/**
+ * Why a called judgment's result was thrown away (a1/J6): a message it read
+ * was deleted, or edited, while the model ran. Its row keeps no decision and
+ * no message's place.
+ */
+export const JUDGMENT_VOIDED_REASON_VALUES = [
+  "voided_by_delete",
+  "voided_by_edit",
+] as const;
+export type JudgmentVoidedReason =
+  (typeof JUDGMENT_VOIDED_REASON_VALUES)[number];
+
+/** A judgment's result: what a record with a decision has. */
 export const JUDGMENT_OUTCOME_VALUES = [
   "judged",
   "not_called",
@@ -354,6 +367,10 @@ export const JUDGMENT_REASON_VALUES = [
   ...JUDGMENT_FAILED_REASON_VALUES,
 ] as const;
 export type JudgmentReason = (typeof JUDGMENT_REASON_VALUES)[number];
+
+/** What a record's columns hold: a result, or one voided with no decision. */
+export type JudgmentRecordOutcome = JudgmentOutcome | "voided";
+export type JudgmentRecordReason = JudgmentReason | JudgmentVoidedReason;
 
 /** A judgment's result as its record keeps it; only `judged` can speak. */
 export type JudgmentVerdict =
@@ -394,4 +411,21 @@ export type JudgmentRule =
  * system text changes, so judgments under other rules are never compared
  * as one.
  */
-export const M1_PROMPT_VERSION = 1;
+export const M1_PROMPT_VERSION = 2;
+
+/**
+ * What became of the summary line a batch judgment gave (a1/J8): added;
+ * not added because a source was deleted or edited after it was read
+ * (`skipped`), because it copied a message (`copied`), because its text
+ * was empty or too long (`invalid`), or because three writes in a row lost
+ * the version compare (`lost`). A judgment that gave no line has none.
+ */
+export const M1_SUMMARY_OUTCOME_VALUES = [
+  "written",
+  "skipped",
+  "copied",
+  "invalid",
+  "lost",
+  "channel_gone",
+] as const;
+export type M1SummaryOutcome = (typeof M1_SUMMARY_OUTCOME_VALUES)[number];

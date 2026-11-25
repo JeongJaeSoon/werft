@@ -25,6 +25,7 @@ import {
   agents,
   conversations,
   memberTeams,
+  pendingRequests,
   pushIntents,
   pushRequests,
   receipts,
@@ -448,6 +449,43 @@ export async function pushRequesterOf(
   return row.starter;
 }
 
+/** SessionShareStore.pendingRequesterOf, by the rule pushRequesterOf has. */
+export async function pendingRequesterOf(
+  db: Database,
+  ownerId: string,
+  sessionId: string,
+  requestId: string,
+): Promise<string | null> {
+  if (!UUID.test(sessionId)) return null;
+  const [row] = await db
+    .select({
+      starter: sessions.createdByUserId,
+      turnKind: turns.requesterKind,
+      turnRequester: turns.requesterId,
+      turnAuth: turns.requesterAuth,
+    })
+    .from(pendingRequests)
+    .innerJoin(sessions, eq(sessions.id, pendingRequests.sessionId))
+    .innerJoin(turns, eq(turns.id, pendingRequests.turnId))
+    .where(
+      and(
+        eq(pendingRequests.requestId, requestId),
+        eq(pendingRequests.sessionId, sessionId.toLowerCase()),
+        eq(sessions.ownerId, ownerId),
+      ),
+    )
+    .limit(1);
+  if (row === undefined) return null;
+  const auth = objectOf(row.turnAuth);
+  const root = auth?.method === "push_decision" ? objectOf(auth.root) : null;
+  const [kind, id] =
+    root !== null
+      ? [root.requester_kind, root.requester_id]
+      : [row.turnKind, row.turnRequester];
+  if (kind === "user" && typeof id === "string") return id;
+  return row.starter;
+}
+
 export function createPostgresSessionShareStore(
   db: Database,
 ): SessionShareStore {
@@ -500,6 +538,9 @@ export function createPostgresSessionShareStore(
 
     pushRequesterOf: (ownerId, sessionId, pushRequestId) =>
       pushRequesterOf(db, ownerId, sessionId, pushRequestId),
+
+    pendingRequesterOf: (ownerId, sessionId, requestId) =>
+      pendingRequesterOf(db, ownerId, sessionId, requestId),
 
     async originOf(ownerId, sessionId) {
       if (!UUID.test(sessionId)) return null;

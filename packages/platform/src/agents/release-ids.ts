@@ -11,6 +11,7 @@ import {
   RETIRED_CATALOG_MCP_MESSAGE,
   type RuntimeKind,
   type ToolPolicy,
+  WERFT_MCP_SERVER,
 } from "@werft-ai/contracts";
 import { sha256Hex } from "@werft-ai/runtime-core";
 import {
@@ -210,6 +211,21 @@ function resolveToolPolicy(
       error: {
         field: "card.capabilities.tool_policy.per_tool",
         message: `${platformNamed.join(", ")} belongs to the built-in ${GITHUB_MCP_SERVER} server, whose tools follow the agent's GitHub settings, not this policy`,
+      },
+    };
+  }
+  // The built-in `werft` server is every session's and no policy changes
+  // it, so one written here would read as a switch that is not there.
+  const werftServer = `${MCP_TOOL_PREFIX}${WERFT_MCP_SERVER}__`;
+  const werftNamed = Object.keys(named).filter((tool) =>
+    tool.startsWith(werftServer),
+  );
+  if (werftNamed.length > 0) {
+    return {
+      ok: false,
+      error: {
+        field: "card.capabilities.tool_policy.per_tool",
+        message: `${werftNamed.join(", ")} belongs to the built-in ${WERFT_MCP_SERVER} server, which every session has and no policy changes`,
       },
     };
   }

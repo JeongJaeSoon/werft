@@ -460,6 +460,7 @@ describe("PendingRequestRegistry", () => {
           answer_surface: true,
           repository_pins: true,
           workspace_mcp: true,
+          werft_mcp: true,
         });
       }
     });

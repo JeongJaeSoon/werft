@@ -15,6 +15,7 @@ import {
   installationIdSchema,
   opaqueIdSchema,
   ownerScopeSchema,
+  requestIdSchema,
   revisionSchema,
   sessionIdSchema,
   surfaceBindingIdSchema,
@@ -759,17 +760,34 @@ export const authorizationResourceSchema = z
      * session, the channel's members decide a push whose requester left.
      */
     push_request_id: z.string().min(1).optional(),
+    /**
+     * The permission or question request a `session.approve` answers: the
+     * same rule as a push's, for a requester who left a private channel.
+     */
+    pending_request_id: requestIdSchema.optional(),
   })
   .strict()
   .superRefine((resource, ctx) => {
+    for (const key of ["push_request_id", "pending_request_id"] as const) {
+      if (
+        resource[key] !== undefined &&
+        (resource.kind !== "session" || resource.id === null)
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message: "a request is decided on its session",
+        });
+      }
+    }
     if (
       resource.push_request_id !== undefined &&
-      (resource.kind !== "session" || resource.id === null)
+      resource.pending_request_id !== undefined
     ) {
       ctx.addIssue({
         code: "custom",
-        path: ["push_request_id"],
-        message: "a push request is decided on its session",
+        path: ["pending_request_id"],
+        message: "a decision answers one request",
       });
     }
     for (const key of ["agent_id", "release_id"] as const) {
@@ -981,6 +999,14 @@ export const authorizationDecisionSchema = z
     policy_version: z.string().min(1),
     decision_id: z.uuid(),
     access: accessResultSchema.optional(),
+    /**
+     * An allowed `session.approve` on a private channel's request whose
+     * requester left the channel (answer 15, Q5): a current member's role
+     * refusal was lifted for it, and the store under its locks lets that
+     * answer through. A tool permission or question answered by anyone then
+     * carries it, so none gives it a session-wide allow.
+     */
+    requester_left: z.literal(true).optional(),
   })
   .strict()
   .superRefine((decision, ctx) => {

@@ -1,17 +1,15 @@
 import { DEFAULT_USER_LOCALE } from "@werft-ai/contracts";
 import type {
-  DeliveryInput,
   DeliveryOutcome,
-  SurfaceOutboxClaim,
   SurfaceOutboxLost,
   SurfaceOutboxSettle,
   SurfaceOutboxStore,
 } from "@werft-ai/platform";
 import { messageOf, type SurfaceBindingStore } from "@werft-ai/platform";
-import type { RowDelivery } from "./outbox-delivery.ts";
+import type { RowDelivery, RowDeliveryInput } from "./outbox-delivery.ts";
 import {
   SLACK_CARD_SETTLE_TIMING,
-  type SlackPushRequesterLeft,
+  type SlackRequesterLeft,
   settleSlackCards,
 } from "./slack-card-settle.ts";
 import { enqueueSlackChannelNotices } from "./slack-channel-notice.ts";
@@ -108,7 +106,7 @@ export async function drainSlackOutbox(deps: {
   deadline: number;
   /** Statuses in the first third, then posts; otherwise posts in the first two thirds, then statuses. */
   statusesFirst?: boolean;
-  requesterLeft?: SlackPushRequesterLeft;
+  requesterLeft?: SlackRequesterLeft;
   /** Defaults to `SLACK_INPUT_HOLD_MS`. */
   inputHoldMs?: number;
   /**
@@ -162,7 +160,7 @@ export async function drainSlackOutbox(deps: {
   };
   // The notice kinds go through Notifiable, a decision request through
   // Approvable; the rest the sender posts itself.
-  const deliver = (input: DeliveryInput<SurfaceOutboxClaim>) => {
+  const deliver = (input: RowDeliveryInput) => {
     switch (input.row.kind) {
       case "notice":
       case "failure_notice":
@@ -362,7 +360,7 @@ export async function drainSlackOutbox(deps: {
         begin: async () => {
           const begun = await deps.outbox.beginSend(claim);
           voided = begun === "voided_by_delete";
-          return begun === true;
+          return begun === "voided_by_delete" ? false : begun;
         },
       });
       if (outcome.kind === "lease_lost" && voided) {

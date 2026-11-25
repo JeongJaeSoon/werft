@@ -59,8 +59,10 @@ import {
   githubRefusalStatus,
   IMAGE_GIT_AUTHOR,
   MAX_RESTORE_CONFIGS,
+  MCP_TOOL_PREFIX,
   type RuntimeKind,
   sanitizeToolDecision,
+  WERFT_MCP_SERVER,
 } from "@werft-ai/contracts";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
 import { messageOf } from "@werft-ai/runtime-core";
@@ -89,6 +91,8 @@ import {
   type SessionGitHubMcp,
   type SessionWorkspaceMcp,
   trustedGitHubTools,
+  WERFT_MCP_ENDPOINT,
+  werftMcpBinding,
   withoutDeniedTools,
   workspaceMcpBinding,
 } from "../catalog/index.ts";
@@ -192,6 +196,7 @@ import {
 import type { McpEgressStore } from "./ports/mcp-egress.ts";
 import type { WorkspaceMcpEgressStore } from "./ports/workspace-mcp-egress.ts";
 import { runtimeConfigOfSpec } from "./runtime-config-of-spec.ts";
+import { createWerftMcpEgress } from "./werft-mcp-egress.ts";
 import {
   createWorkspaceMcpEgress,
   type WorkspaceMcpCallCredential,
@@ -743,6 +748,11 @@ export function createWorkerGateway(deps: {
   };
   // Absent, the built-in `github` MCP route is refused.
   githubMcp?: { store: GitHubMcpStore; grantKey: Uint8Array };
+  // The built-in `werft` server: the key its grants are signed with, and
+  // the tools it serves, by its own names. Absent, its route is refused and
+  // a claim names it with no tools; a worker that announced `werft_mcp` is
+  // given it either way.
+  werftMcp?: { grantKey: Uint8Array; tools: readonly string[] };
   // Absent, no attachment reaches a worker and its reports are dropped.
   attachments?: Pick<RepositoryAttachmentStore, "pending" | "settle">;
   // Absent, a worker fetches every attached repository at its branch tip,
@@ -1043,6 +1053,13 @@ export function createWorkerGateway(deps: {
         });
   const decideGitHubMcp =
     deps.githubMcp === undefined ? null : createGitHubMcpEgress(deps.githubMcp);
+  const decideWerftMcp =
+    deps.werftMcp === undefined
+      ? null
+      : createWerftMcpEgress({ grantKey: deps.werftMcp.grantKey });
+  const werftTools = (deps.werftMcp?.tools ?? []).map(
+    (tool) => `${MCP_TOOL_PREFIX}${WERFT_MCP_SERVER}__${tool}`,
+  );
   const decideGitHubPackages =
     deps.githubPackages === undefined
       ? null
@@ -1180,11 +1197,11 @@ export function createWorkerGateway(deps: {
     return runnableOf.input;
   }
 
-  // The workspace servers the session started with, then the built-in
-  // `github` when the release carries GitHub settings. The first entry's
-  // binding is the MCP token's. A retired catalog server is not claimed: a
-  // restore config names it (`retiredMcpServer`).
-  function claimedMcp(
+  // The servers a claim named before the built-in `werft` server existed:
+  // the workspace servers the session started with, then the built-in
+  // `github` when the release carries GitHub settings. A retired catalog
+  // server is not claimed: a restore config names it (`retiredMcpServer`).
+  function claimedBeforeWerft(
     session: {
       workspaceMcp?: readonly SessionWorkspaceMcp[];
       githubMcp?: SessionGitHubMcp | null;
@@ -1211,6 +1228,41 @@ export function createWorkerGateway(deps: {
               ...(trust
                 ? { trusted: trustedGitHubTools(githubMcp.tools) }
                 : {}),
+            },
+          ]
+        : []),
+    ];
+  }
+
+  // What a claim names: those servers, and for a worker that announced
+  // `werft_mcp` the built-in `werft`, last, so the MCP token stays held to
+  // the first entry's binding. No release, agent or workspace is read for
+  // it: every session such a worker claims has it. A workspace server
+  // registered as `werft` before the name was reserved is left out for
+  // every worker, since the name is the built-in server's.
+  //
+  // None of the built-in server's tools is in `tools`: they ride in
+  // `trusted`, and the worker leaves the entry out of the checkpoint
+  // fingerprint. So neither attaching the server nor its serving another
+  // tool stops a session's checkpoints from restoring, and a worker that
+  // did not announce it is claimed as before.
+  function claimedMcp(
+    session: Parameters<typeof claimedBeforeWerft>[0],
+    announced: { trust?: boolean; werft?: boolean } = {},
+  ): ClaimedMcpServer[] {
+    return [
+      ...claimedBeforeWerft(session, announced.trust === true).filter(
+        (server) => server.name !== WERFT_MCP_SERVER,
+      ),
+      ...(announced.werft === true
+        ? [
+            {
+              name: WERFT_MCP_SERVER,
+              endpoint: WERFT_MCP_ENDPOINT,
+              binding: werftMcpBinding(),
+              tools: [],
+              platform: true as const,
+              trusted: werftTools,
             },
           ]
         : []),
@@ -1256,9 +1308,16 @@ export function createWorkerGateway(deps: {
     >,
     current: RuntimeConfig,
     providerToken: string,
-    mcp: readonly ClaimedMcpServer[],
+    // The session's servers but the built-in `werft`, which is in no
+    // checkpoint fingerprint: the worker that is given it leaves it out, so
+    // no config here names it.
+    before: readonly ClaimedMcpServer[],
     mcpToken: string,
   ): { restore_runtime_configs?: RuntimeConfig[] } {
+    // A workspace server registered as `werft` before the name was reserved
+    // is no longer claimed: the name is the built-in server's.
+    const mcp = before.filter((server) => server.name !== WERFT_MCP_SERVER);
+    const squatted = mcp.length === before.length ? undefined : before;
     // First, ahead of the cap: what the session ran before its limit removed
     // a tool is the config its own checkpoints carry.
     const unlimited = specConfigOf(
@@ -1336,8 +1395,14 @@ export function createWorkerGateway(deps: {
       );
     };
     const retired = binding.retiredMcp;
+    // What a claim offered with the workspace server named `werft` comes
+    // first: those are the configs the session's checkpoints carry.
+    const live =
+      squatted === undefined
+        ? offeredFor(mcp, true)
+        : appendNew(offeredFor(squatted, false), offeredFor(mcp, true));
     if (retired == null || !retired.restorable) {
-      const offered = offeredFor(mcp, true).slice(0, MAX_RESTORE_CONFIGS);
+      const offered = live.slice(0, MAX_RESTORE_CONFIGS);
       return offered.length === 0 ? {} : { restore_runtime_configs: offered };
     }
     // A session a claim gave the retired catalog server before migration
@@ -1349,7 +1414,10 @@ export function createWorkerGateway(deps: {
       offeredFor(
         [
           retiredMcpServer(retired),
-          ...mcp.filter((server) => server.name !== retired.server),
+          // With the workspace server named `werft` that claim had, if any.
+          ...(squatted ?? mcp).filter(
+            (server) => server.name !== retired.server,
+          ),
         ],
         false,
       ),
@@ -1360,7 +1428,7 @@ export function createWorkerGateway(deps: {
     }
     const offered = appendNew(
       beforeRetired.slice(0, MAX_RESTORE_CONFIGS),
-      offeredFor(mcp, true),
+      live,
     ).slice(0, MAX_RESTORE_CONFIGS);
     return { restore_runtime_configs: offered };
   }
@@ -1370,6 +1438,8 @@ export function createWorkerGateway(deps: {
   // its entries exist here.
   function egressBindingsOf(
     session: Parameters<EgressIssue["bindingsOf"]>[0],
+    // The claiming worker announced `werft_mcp`.
+    werft: boolean,
   ): EgressBindings {
     if (connectionOf(catalog, session.connectionId) === undefined) {
       throw new Error("A claimed session has no runnable connection");
@@ -1379,9 +1449,10 @@ export function createWorkerGateway(deps: {
     const provider = session.specDigest;
     const object_store = sessionObjectPrefix(session.id);
     // One token serves every server; it is held to the first one's binding.
-    const claimed = claimedMcp(session);
-    // The name check on writes keeps a workspace server off `github`; this
-    // is the last guard should one be missed.
+    const claimed = claimedMcp(session, { werft });
+    // The name check on writes keeps a workspace server off `github`, and
+    // one named `werft` is left out of the claim; this is the last guard
+    // should one be missed.
     if (new Set(claimed.map((entry) => entry.name)).size !== claimed.length) {
       throw new WorkerGatewayError(
         503,
@@ -1831,7 +1902,8 @@ export function createWorkerGateway(deps: {
           objectStoreHash: hashWorkerToken(objectStoreToken),
           mcpHash: hashWorkerToken(mcpToken),
           packagesHash: hashWorkerToken(packagesToken),
-          bindingsOf: (session) => egressBindingsOf(session),
+          bindingsOf: (session) =>
+            egressBindingsOf(session, request.capabilities?.werft_mcp === true),
         },
         leaseTtlMs,
         now: at,
@@ -1917,10 +1989,11 @@ export function createWorkerGateway(deps: {
           );
         default: {
           const binding = result.binding;
-          const mcp = claimedMcp(
-            binding,
-            request.capabilities?.platform_tool_trust === true,
-          );
+          const trust = request.capabilities?.platform_tool_trust === true;
+          const mcp = claimedMcp(binding, {
+            trust,
+            werft: request.capabilities?.werft_mcp === true,
+          });
           const current = specConfigOf(binding, providerToken);
           // A launch on the previous image runs that image's engine, which
           // the worker checks the claim against; the spec names the version
@@ -1997,7 +2070,13 @@ export function createWorkerGateway(deps: {
             lease_remaining_ms: binding.leaseRemainingMs,
             ...resolved,
             ...withRestoreExtensions(
-              restoreRuntimesOf(binding, current, providerToken, mcp, mcpToken),
+              restoreRuntimesOf(
+                binding,
+                current,
+                providerToken,
+                claimedBeforeWerft(binding, trust),
+                mcpToken,
+              ),
               extensions,
             ),
             packages: {
@@ -2162,15 +2241,22 @@ export function createWorkerGateway(deps: {
         token: request.token,
         purpose: "mcp",
       });
-      // A workspace server's name never equals `github` or a catalog id in
-      // one session (the claim refuses it), so the snapshot decides the route.
+      // A built-in server's name is its own: `werft` and `github` never go
+      // to a workspace server's decision. A workspace server's name never
+      // equals a catalog id in one session (the claim refuses it), so for
+      // any other name the snapshot decides the route.
+      const builtin =
+        request.server === WERFT_MCP_SERVER
+          ? decideWerftMcp
+          : request.server === GITHUB_MCP_SERVER
+            ? decideGitHubMcp
+            : undefined;
       let decision =
-        request.server === GITHUB_MCP_SERVER || decideWorkspaceMcp === null
+        builtin !== undefined || decideWorkspaceMcp === null
           ? null
           : await decideWorkspaceMcp(result, request);
       if (decision === null) {
-        const decide =
-          request.server === GITHUB_MCP_SERVER ? decideGitHubMcp : decideMcp;
+        const decide = builtin === undefined ? decideMcp : builtin;
         if (decide === null) {
           throw new WorkerGatewayError(
             503,

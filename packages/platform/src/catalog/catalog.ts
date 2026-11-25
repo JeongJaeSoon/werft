@@ -19,6 +19,7 @@ import {
   type RuntimeConfig,
   type RuntimeKind,
   startRepositoryOf,
+  WERFT_MCP_SERVER,
 } from "@werft-ai/contracts";
 import { isPrivateAddress } from "@werft-ai/system";
 import { z } from "zod";
@@ -630,14 +631,30 @@ export function githubMcpBinding(releaseId: string): string {
 // The worker calls every server through the proxy's `/mcp/<name>` route;
 // the built-in one has no address of its own to name here.
 export const GITHUB_MCP_ENDPOINT = "https://builtin.invalid/mcp/github";
+export const WERFT_MCP_ENDPOINT = "https://builtin.invalid/mcp/werft";
+
+/**
+ * The built-in `werft` server's binding: one value for every session, since
+ * no release, agent or workspace decides it. A checkpoint made with the
+ * server restores whatever the server serves by then.
+ */
+export function werftMcpBinding(): string {
+  return sha256({ server_id: WERFT_MCP_SERVER, builtin: true });
+}
 
 export type ClaimedMcpServer = {
   name: string;
   endpoint: string;
   binding: string;
   tools: string[];
-  /** Set on the built-in server of a claim whose worker announced `platform_tool_trust`. */
+  /** Set on a built-in server of a claim whose worker announced `platform_tool_trust`. */
   trusted?: string[];
+  /**
+   * The platform's own server whatever it trusts: the built-in `werft`,
+   * marked for a worker that announced `platform_tool_trust`. The built-in
+   * `github` is marked by the tools it trusts.
+   */
+  platform?: true;
 };
 
 /**
@@ -684,9 +701,13 @@ export function runtimeConfigWithMcp(
       endpoint: server.endpoint,
       binding: server.binding,
       access: { kind: "egress_token", token },
+      ...(server.platform === true ||
+      (server.trusted !== undefined && server.trusted.length > 0)
+        ? { platform: true as const }
+        : {}),
       ...(server.trusted === undefined || server.trusted.length === 0
         ? {}
-        : { platform: true as const, trusted: server.trusted }),
+        : { trusted: server.trusted }),
     })),
   };
 }

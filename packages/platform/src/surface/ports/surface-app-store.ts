@@ -5,6 +5,8 @@ import type {
   SlackAppSecretPurpose,
   SlackAppSettings,
   SlackAppState,
+  SlackManifestSync,
+  SlackManifestSyncError,
   WorkspaceRole,
 } from "@werft-ai/contracts";
 import type { Principal } from "../../musterrolle/index.ts";
@@ -31,6 +33,7 @@ export type SurfaceAppRecord = {
   createdAt: Date;
   updatedAt: Date;
   events?: GetSlackAppResponse["events"];
+  manifestSync?: SlackManifestSync | null;
   secrets: Record<SlackAppSecretPurpose, SecretSummary | null>;
 };
 
@@ -152,6 +155,30 @@ export interface SurfaceAppStore {
     workspaceId: string,
     slackAppId: string,
     events: SurfaceEventsCheck,
+  ): Promise<void>;
+  /**
+   * Every workspace's `created` agent apps, for the manifest check a start
+   * of the API runs.
+   */
+  listAgentAppsForManifestCheck(): Promise<
+    { workspaceId: string; slackAppId: string; agentId: string }[]
+  >;
+  /**
+   * Takes the app for one manifest check by setting its check time to `at`,
+   * unless a check began after `staleBefore`: API replicas that start
+   * together check each app once. False when another check holds it.
+   */
+  claimManifestCheck(input: {
+    workspaceId: string;
+    slackAppId: string;
+    at: Date;
+    staleBefore: Date;
+  }): Promise<boolean>;
+  /** Records a manifest check; a null `error`: the manifest is current. */
+  setManifestSync(
+    workspaceId: string,
+    slackAppId: string,
+    sync: { error: SlackManifestSyncError | null; checkedAt: Date },
   ): Promise<void>;
   /**
    * Records that a request signed by this app arrived at `at`. A mark at
