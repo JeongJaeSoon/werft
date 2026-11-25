@@ -117,17 +117,40 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     : join(root, runArg.replace(/^verify-ap-/, ""));
   const statePath = join(run, "state.env");
   const stateText = readFileSync(statePath, "utf8");
-  const state = parseRunState(stateText);
+  // The state as lib.sh and down.sh read it, sourced by bash: a path up.sh
+  // quoted with %q (a space in it) comes back unquoted, which parseRunState
+  // does not do. The parser only names the file's variables.
+  let shellEnv;
+  try {
+    shellEnv = JSON.parse(
+      execFileSync(
+        "bash",
+        [
+          "-c",
+          'set -a && . "$1" >/dev/null && exec "$2" -e "process.stdout.write(JSON.stringify(process.env))"',
+          "bash",
+          statePath,
+          process.execPath,
+        ],
+        { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
+      ),
+    );
+  } catch (error) {
+    console.error(
+      `run-urls.mjs: could not source ${statePath}: ${error.message}`,
+    );
+    process.exit(1);
+  }
+  const state = Object.fromEntries(
+    Object.keys(parseRunState(stateText)).map((name) => [
+      name,
+      shellEnv[name] ?? "",
+    ]),
+  );
   if (!state.COMPOSE_PROJECT_NAME?.startsWith("verify-ap-")) {
     console.error(`run-urls.mjs: ${statePath} names no verify-ap-* project`);
     process.exit(1);
   }
-  // up.sh and lib.sh have sourced the state: their exported COMPOSE_FILE is
-  // the shell's reading of it, while parseRunState keeps the backslashes of a
-  // path up.sh quoted with %q (a space in it). Without them, the parsed state.
-  const sourced =
-    process.env.COMPOSE_PROJECT_NAME === state.COMPOSE_PROJECT_NAME &&
-    Boolean(process.env.COMPOSE_FILE);
   let urls;
   try {
     const ps = execFileSync(
@@ -144,7 +167,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
       ],
       {
         cwd: fileURLToPath(new URL("../..", import.meta.url)),
-        env: sourced ? process.env : { ...process.env, ...state },
+        env: shellEnv,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "inherit"],
       },

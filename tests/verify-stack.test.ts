@@ -472,9 +472,10 @@ describe("verify-werft run-urls.mjs and lib.sh's ap_urls", () => {
       join(dir, "bin", "docker"),
       `#!/bin/sh
 echo "$*" >> "${dir}/docker-calls"
+echo "$COMPOSE_FILE" >> "${dir}/compose-files"
 case "$*" in
   "compose --profile apps --profile fake-model ps --format json") cat "${dir}/ps" ;;
-  "compose --profile apps --profile fake-model restart api") ;;
+  "compose --profile apps --profile fake-model "*"restart api") ;;
   *) exit 1 ;;
 esac
 `,
@@ -550,7 +551,7 @@ esac
     expect(state).toMatchObject({ ...secretState, VERIFY_BUILT_FROM: "abc" });
   });
 
-  test("takes the compose files from a shell that sourced the state, where a path with a space is unquoted", async () => {
+  test("reads the state as the shell does, so a path with a space reaches compose unquoted", async () => {
     await writeFile(join(dir, "ps"), ps(33180));
     // up.sh writes paths with printf %q; parseRunState keeps the backslashes.
     const quoted = "/no/such/repo\\ with\\ spaces";
@@ -566,18 +567,15 @@ esac
     );
     const done = Bun.spawnSync(
       ["node", join(scripts, "run-urls.mjs"), runDir],
-      {
-        env: {
-          ...env(),
-          COMPOSE_PROJECT_NAME: "verify-ap-20261125-010101-1",
-          COMPOSE_FILE: "/no/such/repo with spaces/compose.yaml",
-        },
-      },
+      { env: env() },
     );
     expect(done.stderr.toString()).toBe("");
     expect(done.exitCode).toBe(0);
     const urls = await Bun.file(join(runDir, "state.json")).json();
     expect(urls.api_url).toBe("http://127.0.0.1:33180");
+    expect(await Bun.file(join(dir, "compose-files")).text()).toBe(
+      "/no/such/repo with spaces/compose.yaml\n",
+    );
   });
 
   test("ap_compose fails when the restart worked but the address could not be read", async () => {
@@ -619,7 +617,7 @@ esac
       [
         "bash",
         "-c",
-        '. "$1/lib.sh" 20261125-010101-1 && echo "$API" && ap_compose restart api && echo "$API" && ap_urls | grep -c api_url',
+        '. "$1/lib.sh" 20261125-010101-1 && echo "$API" && ap_compose --parallel 2 restart api && echo "$API" && ap_urls | grep -c api_url',
         "bash",
         scripts,
       ],

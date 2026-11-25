@@ -27,14 +27,20 @@ API=$VERIFY_API
 # follow, this shell's $API does not, hence the notice.
 ap_compose() {
   (cd "$VERIFY_REPO" && docker compose --profile apps --profile fake-model "$@")
-  local compose_rc=$? api_before=${API:-}
-  case "${1:-}" in
-    up | restart | start)
-      # A port that may have moved and could not be read is a failure too.
-      ap_urls >/dev/null || { [ "$compose_rc" != 0 ] || compose_rc=1; }
-      [ "${API:-}" = "$api_before" ] || echo "ap_compose: the API moved to $API (state.json updated; in a pipeline, run ap_urls or source lib.sh again)" >&2
-      ;;
-  esac
+  local compose_rc=$? api_before=${API:-} word moved=
+  # The subcommand may follow global options (--parallel 2 restart api); the
+  # words after exec, run or logs are that command's own.
+  for word in "$@"; do
+    case $word in
+      up | restart | start) moved=1; break ;;
+      exec | run | logs) break ;;
+    esac
+  done
+  if [ -n "$moved" ]; then
+    # A port that may have moved and could not be read is a failure too.
+    ap_urls >/dev/null || { [ "$compose_rc" != 0 ] || compose_rc=1; }
+    [ "${API:-}" = "$api_before" ] || echo "ap_compose: the API moved to $API (state.json updated; in a pipeline, run ap_urls or source lib.sh again)" >&2
+  fi
   return "$compose_rc"
 }
 
