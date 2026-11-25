@@ -22,7 +22,7 @@ import {
   startOf,
 } from "./testing/fake-responses.ts";
 
-const [REDACTED] = "[REDACTED]";
+const BEARER = "platform-mcp-local";
 const TOOL = "mcp__werft__probe";
 
 let available = true;
@@ -52,7 +52,7 @@ describe.skipIf(!available)(
       server: Omit<Parameters<typeof startFakePlatformMcp>[0], "bearer"> = {},
       model?: { name: string; answer: (call: number) => unknown[] },
     ) {
-      const platform = startFakePlatformMcp({ ...server, bearer: [REDACTED] });
+      const platform = startFakePlatformMcp({ ...server, bearer: BEARER });
       const seen: Seen[] = [];
       // A server with nothing to serve has no tool for the model to call.
       const served = server.bare === true ? [] : [TOOL];
@@ -78,7 +78,7 @@ describe.skipIf(!available)(
       const base = startOf({
         port: upstream.port as number,
         work,
-        egressToken: "[REDACTED]",
+        egressToken: "egress-local",
       });
       const start = {
         ...base,
@@ -90,7 +90,7 @@ describe.skipIf(!available)(
               name: "werft",
               binding: "binding-1",
               url: platform.url,
-              token: [REDACTED],
+              token: BEARER,
               // No release pins the server's tool: it is in no allowlist.
               tools: ["exec_command"],
               platform: true,
@@ -154,10 +154,6 @@ describe.skipIf(!available)(
       expect(calls).toBe(1);
     }, 60_000);
 
-    // A model that searches for its tools (as gpt-5.5 does in this build) is
-    // shown no MCP server up front: the engine defers every MCP tool behind
-    // `tool_search`. The server and its instructions reach the model with
-    // the search's answer, and its tool then runs unasked as before.
     // A model that searches for its tools (gpt-5.5 in this build) is shown
     // every MCP server as a deferred namespace instead: its tools and the
     // rest of its instructions come only with a `tool_search` answer. So
