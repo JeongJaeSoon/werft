@@ -24,6 +24,7 @@ import {
   createPostgresChannelMemberStore,
   createPostgresCommitAttributionLedger,
   createPostgresConversationCalls,
+  createPostgresConversationTurnQueue,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresEnvVariableStore,
@@ -141,7 +142,6 @@ import {
   createInviteService,
   createLinkedAccountService,
   createMemberService,
-  createMemoryConversationTurnQueue,
   createModelMoveRunner,
   createOutcomeRefresher,
   createPendingRequestService,
@@ -1340,10 +1340,12 @@ const skills =
           : { gitSources: (workspaceId) => skillGitSync.views(workspaceId) }),
       });
 const conversationCallStore = createPostgresConversationCalls(db);
-// Off unless the runtime's bearer is set. The queue is this process's memory
-// until conversation turns are queued in the database.
+// Off unless the runtime's bearer is set.
 const conversationRuntime = conversationRuntimeConfigFromEnv(process.env);
-const conversationTurnQueue = createMemoryConversationTurnQueue();
+const conversationTurnQueue = createPostgresConversationTurnQueue(
+  db,
+  secretKey,
+);
 assertConversationTurnDispatch(process.env, conversationTurnQueue);
 const conversationTurns = createConversationRuntimeTurns({
   queue: conversationTurnQueue,
@@ -1354,7 +1356,7 @@ const conversationTurns = createConversationRuntimeTurns({
       turnId: turn.turn_id,
       until: new Date(turn.lease_expires_at),
     }),
-  // What a topic's live session read, in this process's memory like the queue.
+  // What a topic's live session read, in this process's memory.
   topicSessions: createTopicSessionChecks({
     contexts: createPostgresTopicTurnContexts(db),
   }),
