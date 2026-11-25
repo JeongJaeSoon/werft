@@ -1435,6 +1435,8 @@ export function startCredentialProxy(
     /** What is left of a hold; the ask is cut there if that comes first. */
     withinMs = Number.POSITIVE_INFINITY,
   ): Promise<Authorized> {
+    const timeoutMs =
+      options.authorizer.timeoutMs ?? DEFAULT_AUTHORIZE_TIMEOUT_MS;
     let response: Response;
     try {
       response = await fetch(authorizeUrl, {
@@ -1448,17 +1450,21 @@ export function startCredentialProxy(
         },
         body: JSON.stringify({ token, purpose, ...question }),
         redirect: "error",
-        signal: AbortSignal.timeout(
-          Math.min(
-            options.authorizer.timeoutMs ?? DEFAULT_AUTHORIZE_TIMEOUT_MS,
-            withinMs,
-          ),
-        ),
+        signal: AbortSignal.timeout(Math.min(timeoutMs, withinMs)),
       });
     } catch (error) {
       logger.warn("Egress authorizer unreachable", {
         error: error instanceof Error ? error.name : "error",
       });
+      // Cut by the hold, not by the authorizer's own limit: still undecided.
+      // A timer may fire a moment early, so the clock cannot tell the two apart.
+      if (
+        withinMs < timeoutMs &&
+        error instanceof Error &&
+        error.name === "TimeoutError"
+      ) {
+        return { kind: "undecided" };
+      }
       return { kind: "refused", status: 503 };
     }
     if (response.status !== 200) {
