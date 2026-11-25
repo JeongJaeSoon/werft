@@ -232,7 +232,7 @@ integration("M1 judgment records", () => {
 
   test("with no notice published the gate is closed and nothing is written", async () => {
     const place = await channel();
-    const store = createPostgresM1JudgmentStore(db);
+    const store = createPostgresM1JudgmentStore(db, { versions: [] });
     const place4 = {
       workspaceId,
       agentId,
@@ -704,7 +704,7 @@ integration("M1 judgment records", () => {
     test("a closed gate writes no line", async () => {
       const place = await channel();
       const batch = await closedBatch(place, [["800.000001", "hello"]]);
-      const closed = createPostgresM1JudgmentStore(db);
+      const closed = createPostgresM1JudgmentStore(db, { versions: [] });
       expect(
         await writeM1SummaryLine(
           closed,
