@@ -50,4 +50,30 @@ describe("the limit a conversation turn ended on", () => {
     expect(conversationTurnLimitReached(done, null)).toBeNull();
     expect(conversationTurnLimitReached(null, null)).toBeNull();
   });
+
+  test("a tool call the server refused past the count ends the turn on the server's tool limit, unless the runner said so first", () => {
+    for (const outcome of [
+      done,
+      { outcome: "failed", reason: "engine_failed" },
+      { outcome: "failed", reason: "lease_expired" },
+      null,
+    ] as const) {
+      expect(conversationTurnLimitReached(outcome, null, true)).toEqual({
+        limit: "tool_call_limit",
+        by: "server",
+      });
+    }
+    expect(
+      conversationTurnLimitReached(
+        { outcome: "failed", reason: "tool_call_limit" },
+        null,
+        true,
+      ),
+    ).toEqual({ limit: "tool_call_limit", by: "runner" });
+    // A model call refused past its count is the server's call limit still.
+    expect(conversationTurnLimitReached(done, "turn_limit", true)).toEqual({
+      limit: "model_call_limit",
+      by: "server",
+    });
+  });
 });

@@ -1,4 +1,5 @@
 import {
+  CONVERSATION_READ_TOOL_NAMES,
   CONVERSATION_TOPIC_SESSION_MAX_BYTES,
   CONVERSATION_TURN_LIMIT_MS,
   CONVERSATION_TURN_MODEL_CALL_LIMIT,
@@ -9,6 +10,7 @@ import {
   type ConversationTurnResult,
 } from "@werft-ai/contracts";
 import type { RuntimeModule } from "@werft-ai/runtime-core";
+import type { ConversationTools } from "./conversation-tools.ts";
 import type { PermitRelay } from "./permit-relay.ts";
 import type { TopicSession, TopicSessions } from "./topic-sessions.ts";
 
@@ -28,6 +30,15 @@ export interface ConversationTurnRunner {
  * rule for every tool it has built in.
  */
 export const CONVERSATION_BUILTIN_TOOLS: readonly string[] = [];
+
+/**
+ * Every tool a conversation turn's engine is given: the read tools of the
+ * runtime's own server, a fixed list, and nothing built in.
+ */
+export const CONVERSATION_TURN_TOOLS: readonly string[] = [
+  ...CONVERSATION_BUILTIN_TOOLS,
+  ...CONVERSATION_READ_TOOL_NAMES,
+];
 
 const utf8 = new TextEncoder();
 // As a request body carries it: quoted and escaped.
@@ -86,6 +97,8 @@ export function createConversationTurnRunner(deps: {
     PermitRelay,
     "hold" | "release" | "url" | "requestBytes" | "responseBytes"
   >;
+  /** The read tools each session's engine calls, held to the running turn. */
+  tools: Pick<ConversationTools, "hold" | "release" | "server">;
   limitMs?: number;
   maxBytes?: number;
   modelCallLimit?: number;
@@ -126,7 +139,7 @@ export function createConversationTurnRunner(deps: {
               model: turn.model,
               // Nobody answers a permission request here: what is not allowed is refused.
               permissionMode: "dontAsk",
-              tools: CONVERSATION_BUILTIN_TOOLS,
+              tools: CONVERSATION_TURN_TOOLS,
               disallowedTools: builtinTools,
               // The engine's own stop at the call limit, behind the count below.
               maxTurns: modelCallLimit,
@@ -151,6 +164,7 @@ export function createConversationTurnRunner(deps: {
               instructions: [],
               repoInstructions: null,
               mcpServers: [],
+              localToolServers: [deps.tools.server(permitKey)],
             },
           });
       let session: TopicSession;
@@ -163,6 +177,7 @@ export function createConversationTurnRunner(deps: {
       }
       const { run } = session;
       const sent = continued ? turn.input : turn.fresh_input;
+      deps.tools.hold(session.permitKey, turn);
       deps.relay.hold(session.permitKey, turn.provider.auth.token);
       // The first cut is the turn's reason; the abort that follows it ends
       // the engine's events with a turn.ended of its own.
@@ -273,6 +288,7 @@ export function createConversationTurnRunner(deps: {
         clearTimeout(timer);
         stop.removeEventListener("abort", onStop);
         deps.relay.release(session.permitKey);
+        deps.tools.release(session.permitKey);
       }
       if (result.outcome === "completed") {
         // The relay saw the request whole, the engine's own parts with it.

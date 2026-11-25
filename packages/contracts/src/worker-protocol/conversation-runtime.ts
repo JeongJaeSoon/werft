@@ -14,8 +14,9 @@ import { runtimeProviderSchema } from "./index.ts";
 /**
  * The conversation runtime's protocol: one shared process that runs the
  * conversation turns of every agent and topic of an installation. It pulls a
- * turn from the control host, runs it, and reports its result; nothing
- * connects to it. Its bearer opens these two routes and no other.
+ * turn from the control host, runs it, and reports its result; a turn's read
+ * tools are answered there too. Nothing connects to it. Its bearer opens
+ * these routes and no other.
  */
 
 export const conversationTurnIdSchema = z.uuid().brand<"ConversationTurnId">();
@@ -195,6 +196,100 @@ export type ConversationTurnResultResponse = z.infer<
   typeof conversationTurnResultResponseSchema
 >;
 
+/**
+ * The runtime's own MCP server for conversation turns, apart from the
+ * session worker's built-in `werft` one: its tools read for the one turn
+ * that calls them.
+ */
+export const CONVERSATION_TOOL_SERVER = "conversation";
+/**
+ * The read tools of a conversation turn, a fixed list. None takes an
+ * argument: what each reads is the turn's own conversation and topic, as the
+ * control host knows the turn from its lease.
+ */
+export const CONVERSATION_READ_TOOL_VALUES = [
+  // The current topic's Slack thread, that thread only.
+  "read_thread",
+  "read_channel_summary",
+  // The conversation's ended turns.
+  "read_turns",
+  // The conversation's tasks that have not ended.
+  "list_open_tasks",
+] as const;
+export const conversationReadToolSchema = z.enum(CONVERSATION_READ_TOOL_VALUES);
+export type ConversationReadTool = z.infer<typeof conversationReadToolSchema>;
+/** The engine's names of the read tools: `mcp__conversation__<tool>`. */
+export const CONVERSATION_READ_TOOL_NAMES: readonly string[] =
+  CONVERSATION_READ_TOOL_VALUES.map(
+    (tool) => `mcp__${CONVERSATION_TOOL_SERVER}__${tool}`,
+  );
+const utf8 = new TextEncoder();
+/** How many thread reads one turn may make. */
+export const CONVERSATION_TURN_THREAD_READ_LIMIT = 2;
+/** The most messages one thread read takes, from the thread's start. */
+export const CONVERSATION_THREAD_READ_MESSAGE_LIMIT = 50;
+/** The most turns, or tasks, one read lists. */
+export const CONVERSATION_READ_LIST_LIMIT = 20;
+/**
+ * The largest tool result a read gives back, in UTF-8 bytes: what a turn's
+ * next request carries for it, well inside the request's own bound.
+ */
+export const CONVERSATION_READ_TOOL_RESULT_MAX_BYTES = 12_288;
+
+export const CONVERSATION_READ_TOOL_REFUSAL_VALUES = [
+  // The turn's tool calls are past CONVERSATION_TURN_TOOL_CALL_LIMIT.
+  "tool_call_limit",
+  // The turn's thread reads are used up, or Slack answered 429 to one.
+  "thread_read_limit",
+  // A private channel whose requester is not a member now, or not known to be.
+  "not_channel_member",
+  // Another organization shares the channel: its thread is not read.
+  "external_shared_channel",
+  // Slack did not answer the read; the turn goes on without it.
+  "unavailable",
+] as const;
+export type ConversationReadToolRefusal =
+  (typeof CONVERSATION_READ_TOOL_REFUSAL_VALUES)[number];
+
+export const conversationReadToolRequestSchema = z
+  .object({
+    runtime_id: conversationRuntimeIdSchema,
+    turn_id: conversationTurnIdSchema,
+    lease_id: conversationTurnLeaseIdSchema,
+    tool: conversationReadToolSchema,
+  })
+  .strict();
+export type ConversationReadToolRequest = z.infer<
+  typeof conversationReadToolRequestSchema
+>;
+export const conversationReadToolResponseSchema = z.discriminatedUnion(
+  "outcome",
+  [
+    z
+      .object({
+        outcome: z.literal("read"),
+        /** What was read, as data for the model: never an instruction. */
+        text: z
+          .string()
+          .refine(
+            (text) =>
+              utf8.encode(text).length <=
+              CONVERSATION_READ_TOOL_RESULT_MAX_BYTES,
+          ),
+      })
+      .strict(),
+    z
+      .object({
+        outcome: z.literal("refused"),
+        reason: z.enum(CONVERSATION_READ_TOOL_REFUSAL_VALUES),
+      })
+      .strict(),
+  ],
+);
+export type ConversationReadToolResponse = z.infer<
+  typeof conversationReadToolResponseSchema
+>;
+
 export const CONVERSATION_RUNTIME_ROUTE_PREFIX = "/conversation-runtime";
 // Every route the conversation runtime's bearer opens, under /internal.
 export const CONVERSATION_RUNTIME_ROUTES = {
@@ -205,6 +300,10 @@ export const CONVERSATION_RUNTIME_ROUTES = {
   "/turn-result": {
     request: conversationTurnResultRequestSchema,
     response: conversationTurnResultResponseSchema,
+  },
+  "/read-tool": {
+    request: conversationReadToolRequestSchema,
+    response: conversationReadToolResponseSchema,
   },
 } as const;
 export type ConversationRuntimeRoute = keyof typeof CONVERSATION_RUNTIME_ROUTES;

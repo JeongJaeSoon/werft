@@ -28,6 +28,7 @@ import {
   exposedMcpTools,
   fingerprintedMcpServers,
   type ImageRuntime,
+  type LocalToolServer,
   type NegotiatedCapabilities,
   type ParkReadiness,
   type RejectedCheckpoint,
@@ -51,6 +52,7 @@ import type {
   PermissionRequest,
   RuntimeHooks,
 } from "./driver.ts";
+import { localToolNames, localToolRelay } from "./local-tools.ts";
 import {
   approvalView,
   noteUndeliveredEvent,
@@ -132,7 +134,10 @@ export function claudeProfileConfig(
 function componentConfig(
   bundle: RuntimeStart["bundle"],
 ): Pick<ClaudeProfileConfig, "identities" | "mcpServers" | "plugins"> {
-  const mcp = mcpConfig(bundle.mcpServers);
+  const mcp = withLocalTools(
+    mcpConfig(bundle.mcpServers),
+    bundle.localToolServers ?? [],
+  );
   const bundles = bundle.extensions ?? [];
   if (bundles.length === 0) return mcp;
   return {
@@ -142,6 +147,33 @@ function componentConfig(
       plugins: Object.fromEntries(bundles.map((b) => [b.path, b.digest])),
     },
     plugins: bundles.map((b) => ({ path: b.path, type: "local" as const })),
+  };
+}
+
+function withLocalTools(
+  mcp: Pick<ClaudeProfileConfig, "identities" | "mcpServers">,
+  servers: readonly LocalToolServer[],
+): Pick<ClaudeProfileConfig, "identities" | "mcpServers"> {
+  if (servers.length === 0) return mcp;
+  for (const server of servers) {
+    if (mcp.mcpServers?.[server.name] !== undefined) {
+      throw new Error(
+        `A local tool server and a remote one are both named "${server.name}"`,
+      );
+    }
+  }
+  return {
+    identities: {
+      ...mcp.identities,
+      mcpServers: {
+        ...mcp.identities?.mcpServers,
+        ...Object.fromEntries(servers.map((s) => [s.name, s.binding])),
+      },
+    },
+    mcpServers: {
+      ...mcp.mcpServers,
+      ...Object.fromEntries(servers.map((s) => [s.name, localToolRelay(s)])),
+    },
   };
 }
 
@@ -189,15 +221,21 @@ function mcpConfig(
 // name that is not in the server's allowlist share is never trusted.
 function trustedToolsOf(
   servers: RuntimeStart["bundle"]["mcpServers"],
+  local: readonly LocalToolServer[] = [],
+  allowed: readonly string[] = [],
 ): Pick<ClaudeRuntimeConfig, "trustedTools"> {
-  const trusted = servers.flatMap((s) =>
-    s.platform === true
-      ? (s.trusted ?? []).filter(
-          (tool) =>
-            tool.startsWith(`mcp__${s.name}__`) && s.tools.includes(tool),
-        )
-      : [],
-  );
+  const trusted = [
+    ...servers.flatMap((s) =>
+      s.platform === true
+        ? (s.trusted ?? []).filter(
+            (tool) =>
+              tool.startsWith(`mcp__${s.name}__`) && s.tools.includes(tool),
+          )
+        : [],
+    ),
+    // A local server judges every call itself; only those the run allows.
+    ...local.flatMap(localToolNames).filter((tool) => allowed.includes(tool)),
+  ];
   return trusted.length === 0 ? {} : { trustedTools: trusted };
 }
 
@@ -232,7 +270,11 @@ export function claudeStartConfig(
     ...(config.userEnvironment === undefined
       ? {}
       : { userEnvironment: config.userEnvironment }),
-    ...trustedToolsOf(start.bundle.mcpServers),
+    ...trustedToolsOf(
+      start.bundle.mcpServers,
+      start.bundle.localToolServers,
+      start.config.tools,
+    ),
     ...servedToolsOf(start.bundle.mcpServers),
     ...(config.disallowedTools === undefined
       ? {}

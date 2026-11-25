@@ -89,6 +89,11 @@ export type FakeSlackWebApi = {
   statuses: { channelId: string; threadTs: string; status: string }[];
   /** Every message chat.postMessage and chat.postEphemeral accepted. */
   messages: FakeSlackMessage[];
+  /**
+   * conversations.replies answers, by `<channel>/<thread ts>`: the posts
+   * seeded here, with what chat.postMessage put in the thread after them.
+   */
+  threads: Map<string, FakeSlackThreadPost[]>;
   /** Every chat.update accepted, in order, with its blocks parsed. */
   updates: { channelId: string; ts: string; text: string; blocks: unknown }[];
   /** Every views.open accepted, in order. */
@@ -101,6 +106,15 @@ export type FakeSlackWebApi = {
   failures: Map<string, string>;
   /** A block type named here is refused as `invalid_blocks`, as an app without it would be. */
   refusedBlockTypes: Set<string>;
+};
+
+/** A post of a thread as conversations.replies gives it. */
+export type FakeSlackThreadPost = {
+  ts: string;
+  user?: string;
+  botId?: string;
+  subtype?: string;
+  text: string;
 };
 
 /** A chat.postMessage or chat.postEphemeral the fake accepted. */
@@ -263,6 +277,7 @@ export function createFakeSlackWebApi(
   const channels = new Map<string, FakeSlackChannel>();
   const statuses: FakeSlackWebApi["statuses"] = [];
   const messages: FakeSlackMessage[] = [];
+  const threads = new Map<string, FakeSlackThreadPost[]>();
   const missingTs = new Set<string>();
   let messageCounter = 0;
 
@@ -521,6 +536,44 @@ export function createFakeSlackWebApi(
           is_org_shared: channel.isOrgShared ?? false,
           ...membershipOf(context, id),
         },
+      };
+    },
+
+    // A seeded thread from its first post, then what the bot posted in it.
+    "conversations.replies"(context) {
+      const app = installedBot(context);
+      const { channel, ts } = context.params;
+      if (!channel) throw new SlackError("channel_not_found");
+      if (!ts) throw new SlackError("thread_not_found");
+      const posted = messages
+        .filter(
+          (message) =>
+            message.method === "chat.postMessage" &&
+            message.channelId === channel &&
+            message.threadTs === ts,
+        )
+        .map((message) => ({
+          ts: message.ts,
+          bot_id: `B${app.appId.slice(1)}`,
+          text: message.text,
+        }));
+      const seeded = threads.get(`${channel}/${ts}`);
+      if (seeded === undefined && posted.length === 0) {
+        throw new SlackError("thread_not_found");
+      }
+      const limit = Number(context.params.limit ?? 1000);
+      return {
+        messages: [
+          ...(seeded ?? []).map((post) => ({
+            ts: post.ts,
+            text: post.text,
+            ...(post.user === undefined ? {} : { user: post.user }),
+            ...(post.botId === undefined ? {} : { bot_id: post.botId }),
+            ...(post.subtype === undefined ? {} : { subtype: post.subtype }),
+          })),
+          ...posted,
+        ].slice(0, limit),
+        has_more: false,
       };
     },
 
@@ -846,6 +899,7 @@ export function createFakeSlackWebApi(
     channels,
     statuses,
     messages,
+    threads,
     missingTs,
     failures,
     refusedBlockTypes,
@@ -1234,6 +1288,53 @@ export function createFakeSlackWebApi(
             deleted: seed.deleted === true,
           });
         }
+        return Response.json({ ok: true });
+      }
+      // For curl on the local stack: a thread conversations.replies reads,
+      // its posts by whom the request says.
+      if (url.pathname === "/fake/threads" && request.method === "POST") {
+        const input = (await request.json().catch(() => null)) as {
+          channel?: unknown;
+          ts?: unknown;
+          messages?: unknown;
+        } | null;
+        const tsPattern = /^[0-9]{1,20}\.[0-9]{1,20}$/;
+        const posts = Array.isArray(input?.messages) ? input.messages : null;
+        const valid =
+          typeof input?.channel === "string" &&
+          /^[CGD][A-Z0-9]{2,20}$/.test(input.channel) &&
+          typeof input.ts === "string" &&
+          tsPattern.test(input.ts) &&
+          posts !== null &&
+          posts.length <= 200 &&
+          posts.every(
+            (post) =>
+              typeof post?.ts === "string" &&
+              tsPattern.test(post.ts) &&
+              typeof post.text === "string" &&
+              post.text.length <= 40_000 &&
+              (post.user === undefined ||
+                (typeof post.user === "string" &&
+                  /^[UW][A-Z0-9]{2,20}$/.test(post.user))) &&
+              (post.bot_id === undefined || typeof post.bot_id === "string") &&
+              (post.subtype === undefined || typeof post.subtype === "string"),
+          );
+        if (!valid) {
+          return Response.json(
+            { ok: false, error: "invalid_request" },
+            { status: 400 },
+          );
+        }
+        threads.set(
+          `${input.channel}/${input.ts}`,
+          posts.map((post) => ({
+            ts: post.ts,
+            text: post.text,
+            ...(post.user === undefined ? {} : { user: post.user }),
+            ...(post.bot_id === undefined ? {} : { botId: post.bot_id }),
+            ...(post.subtype === undefined ? {} : { subtype: post.subtype }),
+          })),
+        );
         return Response.json({ ok: true });
       }
       // An app made under fewer scopes: the scopes are taken from its

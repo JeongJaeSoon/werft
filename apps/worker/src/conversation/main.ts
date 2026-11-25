@@ -13,6 +13,7 @@ import {
   DEFAULT_CONVERSATION_STATUS_FILE,
 } from "./config.ts";
 import { ConversationHost } from "./conversation-host.ts";
+import { ConversationTools } from "./conversation-tools.ts";
 import { PermitRelay } from "./permit-relay.ts";
 import { TopicDirectories } from "./topic-directories.ts";
 import { TopicSessions } from "./topic-sessions.ts";
@@ -44,18 +45,20 @@ export async function main(
     new TopicDirectories(config.topicsDir),
     relay,
   );
+  const source = new HttpConversationTurnSource({
+    baseUrl: config.gatewayUrl,
+    token: config.gatewayToken,
+    runtimeId: conversationRuntimeIdSchema.parse(crypto.randomUUID()),
+    waitMs: CONVERSATION_NEXT_TURN_MAX_WAIT_MS,
+    requestTimeoutMs: config.requestTimeoutMs,
+  });
   const host = new ConversationHost({
-    source: new HttpConversationTurnSource({
-      baseUrl: config.gatewayUrl,
-      token: config.gatewayToken,
-      runtimeId: conversationRuntimeIdSchema.parse(crypto.randomUUID()),
-      waitMs: CONVERSATION_NEXT_TURN_MAX_WAIT_MS,
-      requestTimeoutMs: config.requestTimeoutMs,
-    }),
+    source,
     runner: createConversationTurnRunner({
       runtime: imageRuntime(),
       sessions,
       relay,
+      tools: new ConversationTools(source),
     }),
     sessions,
     logger,
