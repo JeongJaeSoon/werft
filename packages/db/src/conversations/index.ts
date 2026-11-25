@@ -22,9 +22,13 @@ export {
   type WebInputTurnsBackfilled,
 } from "./conversation-turns.ts";
 export {
+  channelMarksSettledAt,
   directSourceDeletedAt,
   firstTurnDeletedAt,
   lockedDeletedSource,
+  lockedReadChanges,
+  type ReadChanges,
+  type ReadMessage,
   servedTitle,
   sessionHoldsSource,
   titleDeletedAt,
@@ -40,7 +44,10 @@ export {
   JUDGMENT_BUFFER_TTL_MS,
 } from "./judgment-buffer.ts";
 export { takeSlackTurnInput } from "./slack-turn-inputs.ts";
-export { lockSlackSourceMark } from "./source-mark-lock.ts";
+export {
+  lockSlackChannelMarks,
+  lockSlackSourceMark,
+} from "./source-mark-lock.ts";
 export {
   lockSessionForSources,
   newTurnSources,

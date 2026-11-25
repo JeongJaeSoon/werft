@@ -1,3 +1,8 @@
+import {
+  JUDGMENT_REASON_VALUES,
+  type JudgmentReason,
+  type JudgmentRecordReason,
+} from "@werft-ai/contracts";
 import type {
   JudgmentReviewItem,
   JudgmentReviewStore,
@@ -11,12 +16,21 @@ import {
   inArray,
   isNotNull,
   isNull,
+  ne,
   or,
   sql,
 } from "drizzle-orm";
 import { dbNow } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import { conversationJudgments, surfaceBindings } from "../schema.ts";
+
+// A voided record (a1/J6) has no result to show: its decision went with the
+// message it read.
+const resultReason = (
+  reason: JudgmentRecordReason | null,
+): reason is JudgmentReason =>
+  reason !== null &&
+  (JUDGMENT_REASON_VALUES as readonly string[]).includes(reason);
 
 /** M1's judged records for the agent's admins: codes, ids and Slack ts. */
 export function createPostgresJudgmentReviewStore(
@@ -31,6 +45,7 @@ export function createPostgresJudgmentReviewStore(
       eq(conversationJudgments.workspaceId, input.workspaceId),
       eq(conversationJudgments.agentId, input.agentId),
       isNotNull(conversationJudgments.outcome),
+      ne(conversationJudgments.outcome, "voided"),
       gt(conversationJudgments.judgedAt, input.since),
     );
 
@@ -88,7 +103,7 @@ export function createPostgresJudgmentReviewStore(
       const rows: JudgmentTallyRow[] = [];
       for (const row of counted) {
         // A judged record always has both (conversation_judgments_verdict_check).
-        if (row.reason === null || row.decision === null) continue;
+        if (!resultReason(row.reason) || row.decision === null) continue;
         const binding = live.get(row.channelId);
         rows.push({
           teamId: row.teamId,
@@ -140,8 +155,9 @@ export function createPostgresJudgmentReviewStore(
       for (const row of rows) {
         if (
           row.outcome === null ||
+          row.outcome === "voided" ||
           row.decision === null ||
-          row.reason === null ||
+          !resultReason(row.reason) ||
           row.judgedAt === null
         ) {
           continue;
