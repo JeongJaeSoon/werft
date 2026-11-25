@@ -26,7 +26,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresAgentStore } from "./agents.ts";
@@ -258,16 +258,16 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       .select({ id: agents.id })
       .from(agents)
       .where(eq(agents.workspaceId, workspaceId))
-      .orderBy(asc(agents.createdAt), asc(agents.id));
+      .orderBy(desc(agents.createdAt), desc(agents.id));
     return rows.map((row) => row.id);
   }
 
-  test("pages walk created_at, id oldest first through ties and microseconds, and only the last page has no next_cursor", async () => {
+  test("pages walk created_at, id newest first through ties and microseconds, and only the last page has no next_cursor", async () => {
     const workspaceId = await workspace();
     const owner = await person(workspaceId, "owner");
     const agentsService = service();
     const tie = "2026-01-01 00:00:00.000001+00";
-    await seedAgents(workspaceId, [
+    const seeded = await seedAgents(workspaceId, [
       tie,
       tie,
       tie,
@@ -283,9 +283,24 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       false,
       true,
     ]);
-    expect(pages.flatMap((page) => page.ids)).toEqual(
-      await idsInOrder(workspaceId),
-    );
+    // Spelled out rather than read back with the query's own ORDER BY.
+    const [
+      t0 = "",
+      t1 = "",
+      t2 = "",
+      micro2 = "",
+      zero = "",
+      t5 = "",
+      day2 = "",
+    ] = seeded;
+    const newestFirst = [
+      day2,
+      micro2,
+      ...[t0, t1, t2, t5].sort().reverse(),
+      zero,
+    ];
+    expect(pages.flatMap((page) => page.ids)).toEqual(newestFirst);
+    expect(await idsInOrder(workspaceId)).toEqual(newestFirst);
 
     // Exactly limit agents: one full page, nothing after it.
     const exact = await workspace();
@@ -423,7 +438,7 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
         (agent) => agent.id,
       );
 
-    expect(await listed({ limit: 50, q: "NOTES" })).toEqual([first, second]);
+    expect(await listed({ limit: 50, q: "NOTES" })).toEqual([second, first]);
     // Slugs are seed-<id>, so part of an id finds that agent alone.
     expect(await listed({ limit: 50, q: third.slice(0, 13) })).toEqual([third]);
     // Wildcards match themselves.
@@ -433,16 +448,16 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
 
     expect(
       await listed({ limit: 50, ids: [fifth, first.toUpperCase(), other] }),
-    ).toEqual([first, fifth]);
+    ).toEqual([fifth, first]);
     const named = [first, fourth, fifth];
     const page = await agentsService.listAgents(owner, {
       limit: 1,
       ids: named,
     });
-    expect(page.items.map((agent) => agent.id)).toEqual([first]);
+    expect(page.items.map((agent) => agent.id)).toEqual([fifth]);
     expect(
       await listed({ limit: 50, ids: named, cursor: page.next_cursor ?? "" }),
-    ).toEqual([fourth, fifth]);
+    ).toEqual([fourth, first]);
   });
 
   test("counts are the list read to its end and the agents the caller administers now, as /v1/administered-agents lists them", async () => {
@@ -532,8 +547,9 @@ integration("agents, versions, releases and activation on PostgreSQL", () => {
       userId,
       200,
     );
-    expect(listed.map((agent) => agent.id).sort()).toEqual(
-      [direct ?? "", viaTeam ?? ""].sort(),
+    // Created at the same moment: newest first falls back to id, descending.
+    expect(listed.map((agent) => agent.id)).toEqual(
+      [direct ?? "", viaTeam ?? ""].sort().reverse(),
     );
 
     // A disabled member administers nothing, as the admin list says.
