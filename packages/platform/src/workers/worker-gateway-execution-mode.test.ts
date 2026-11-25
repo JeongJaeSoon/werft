@@ -14,7 +14,6 @@ import {
   testSpecSource,
 } from "../testing/catalog-fakes.ts";
 import { acceptAllCheckpoints } from "../testing/checkpoints.ts";
-import { storableLegacyConfig } from "./legacy-runtime-configs.ts";
 import { createWorkerGateway } from "./worker-gateway.ts";
 
 function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
@@ -69,21 +68,9 @@ describe("the mode a claim runs", () => {
   });
 });
 
-/** The config as a claim gave it before the built-in `werft` server was attached. */
-function beforeWerft<T extends { mcp_servers?: unknown }>(config: T) {
-  const { mcp_servers: _, ...before } = config;
-  return before;
-}
-
 describe("restore candidates", () => {
-  test("a session that ran one config only is offered it as it was before werft, and no other", async () => {
-    const response = await claim("auto");
-    expect(response.runtime_config.mcp_servers?.map((s) => s.name)).toEqual([
-      "werft",
-    ]);
-    expect(response.restore_runtime_configs).toEqual([
-      beforeWerft(response.runtime_config),
-    ]);
+  test("a session that ran one config only is offered no candidate", async () => {
+    expect((await claim("auto")).restore_runtime_configs).toBeUndefined();
   });
 
   // A digest scheme 1 checkpoint hashed the mode the session ran before a
@@ -107,12 +94,8 @@ describe("restore candidates", () => {
   test("a spec recorded as default is offered its config in that mode", async () => {
     const response = await claim("default");
     expect(response.runtime_config.permission_mode).toBe("auto");
-    // What it ran before werft first, then the recorded mode with and
-    // without werft.
     expect(response.restore_runtime_configs).toEqual([
-      beforeWerft(response.runtime_config),
       { ...response.runtime_config, permission_mode: "default" },
-      { ...beforeWerft(response.runtime_config), permission_mode: "default" },
     ]);
   });
 
@@ -120,31 +103,17 @@ describe("restore candidates", () => {
     const before = await claim("auto");
     const response = await claim("auto", {
       legacyRuntimeConfigs: [
-        storableLegacyConfig({
-          ...before.runtime_config,
-          model: "claude-sonnet-4",
-        }),
+        { ...before.runtime_config, model: "claude-sonnet-4" },
         { not: "a config" },
       ],
     });
-    // What it runs now as it was before werft, then the earlier model with
-    // and without werft.
     expect(
-      response.restore_runtime_configs?.map(
-        (config) =>
-          `${config.model}/${(config.mcp_servers ?? []).map((s) => s.name)}`,
-      ),
-    ).toEqual([
-      "claude-sonnet-5/",
-      "claude-sonnet-4/werft",
-      "claude-sonnet-4/",
-    ]);
+      response.restore_runtime_configs?.map((config) => config.model),
+    ).toEqual(["claude-sonnet-4"]);
     // Each candidate carries this claim's own provider token.
-    for (const config of response.restore_runtime_configs ?? []) {
-      expect(config.provider.auth).toEqual(
-        response.runtime_config.provider.auth,
-      );
-    }
+    expect(response.restore_runtime_configs?.[0]?.provider.auth).toEqual(
+      response.runtime_config.provider.auth,
+    );
   });
 });
 
@@ -167,25 +136,17 @@ describe("the row's platform prompt", () => {
       .runtime_config;
     const prompted = await claim("auto", {
       platformPrompt: prompt,
-      legacyRuntimeConfigs: [
-        storableLegacyConfig({ ...before, model: "claude-sonnet-4" }),
-      ],
+      legacyRuntimeConfigs: [{ ...before, model: "claude-sonnet-4" }],
     });
-    // The run config, it as it was before werft, and the kept one with and
-    // without werft.
-    expect(configsOf(prompted)).toHaveLength(4);
+    expect(configsOf(prompted)).toHaveLength(2);
     expect(configsOf(prompted).map((c) => c.platform_prompt)).toEqual([
-      prompt,
-      prompt,
       prompt,
       prompt,
     ]);
     const unprompted = (await claim("auto")).runtime_config;
     for (const platformPrompt of [null, undefined]) {
       const plain = await claim("auto", {
-        legacyRuntimeConfigs: [
-          storableLegacyConfig({ ...unprompted, model: "claude-sonnet-4" }),
-        ],
+        legacyRuntimeConfigs: [{ ...unprompted, model: "claude-sonnet-4" }],
         ...(platformPrompt === undefined ? {} : { platformPrompt }),
       });
       expect(

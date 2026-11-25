@@ -170,6 +170,24 @@ describe("the built-in werft server, whose tools no release pins", () => {
       codexProfileDigest(start([])),
     );
   });
+
+  test("it is in no profile digest: a run with it has the digest of the run without it", () => {
+    // As a claim names it: none of its tools is in a tool list.
+    const claimed = { ...werft([FIND]), tools: [] };
+    expect(codexProfileDigest(startOf([serverOf(1), claimed]))).toBe(
+      codexProfileDigest(startOf([serverOf(1)])),
+    );
+    expect(codexProfileDigest(startOf([claimed]))).toBe(
+      codexProfileDigest(startOf([])),
+    );
+  });
+
+  test("a server of that name the platform did not mark stays in the digest", () => {
+    const { platform: _, ...unmarked } = { ...werft([]), tools: [] };
+    expect(codexProfileDigest(startOf([unmarked]))).not.toBe(
+      codexProfileDigest(startOf([])),
+    );
+  });
 });
 
 describe("the profile digest with servers", () => {

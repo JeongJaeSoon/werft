@@ -159,6 +159,9 @@ export function startMcpRelay(
   async function listTools(server: PlatformMcpServer, signal: AbortSignal) {
     const allowed = pinned(server);
     const client = await connected(server);
+    // A server that declares no tools has none: asking it would fail, and
+    // the engine gives up on a server whose tool list fails.
+    if (client.getServerCapabilities()?.tools === undefined) return [];
     const tools: Array<{ name: string }> = [];
     let cursor: string | undefined;
     for (let page = 0; page < MAX_LIST_PAGES; page++) {

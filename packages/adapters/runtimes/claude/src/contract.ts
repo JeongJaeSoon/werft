@@ -26,6 +26,7 @@ import {
   type CheckpointPoint,
   type CheckpointPreparation,
   exposedMcpTools,
+  fingerprintedMcpServers,
   type ImageRuntime,
   type NegotiatedCapabilities,
   type ParkReadiness,
@@ -335,7 +336,14 @@ export const claudeRuntimeModule: RuntimeModule = {
   fingerprint: (profile, scheme) => ({
     ...CLAUDE_RUNTIME_FINGERPRINT,
     profileSha256: claudeProfileFingerprint(
-      claudeProfileConfig(profile),
+      // All but the built-in `werft` server, which every session has.
+      claudeProfileConfig({
+        ...profile,
+        bundle: {
+          ...profile.bundle,
+          mcpServers: fingerprintedMcpServers(profile.bundle.mcpServers),
+        },
+      }),
       scheme,
     ),
   }),

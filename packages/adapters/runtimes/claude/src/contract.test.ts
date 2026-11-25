@@ -1124,6 +1124,24 @@ describe("trustedTools", () => {
         ),
       ).toEqual(claudeRuntimeModule.fingerprint(start([werft])));
     });
+
+    test("it is in no checkpoint fingerprint: a run with it has the digest of the run without it", () => {
+      expect(
+        claudeRuntimeModule.fingerprint(
+          start([server, { ...werft, trusted: [FIND] }]),
+        ),
+      ).toEqual(claudeRuntimeModule.fingerprint(start([server])));
+      expect(claudeRuntimeModule.fingerprint(start([werft]))).toEqual(
+        claudeRuntimeModule.fingerprint(start([])),
+      );
+    });
+
+    test("a server of that name the platform did not mark stays in the fingerprint", () => {
+      const { platform: _, ...unmarked } = werft;
+      expect(claudeRuntimeModule.fingerprint(start([unmarked]))).not.toEqual(
+        claudeRuntimeModule.fingerprint(start([])),
+      );
+    });
   });
 });
 

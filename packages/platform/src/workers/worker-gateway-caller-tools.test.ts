@@ -59,26 +59,16 @@ async function claim(extra: Partial<WorkerBinding> = {}) {
   ) as typeof response;
 }
 
-/** A config's tools and MCP servers, as `Read+Bash/github,werft`. */
-const listOf = (config: {
-  tools: string[];
-  mcp_servers?: { name: string }[] | undefined;
-}) =>
-  `${config.tools.join("+")}/${(config.mcp_servers ?? []).map((s) => s.name)}`;
-
 describe("a pinned caller limit's built-in tools_deny reaches the claim", () => {
   test("a denied built-in tool is not in runtime_config.tools", async () => {
     const response = await claim({ callerToolsDeny: ["Bash"] });
     expect(response.runtime_config.tools).toEqual(["Read", "Write"]);
   });
 
-  test("a denied tool the list never held changes nothing, and offers no restore candidate of its own", async () => {
+  test("a denied tool the list never held changes nothing, and offers no restore candidate", async () => {
     const response = await claim({ callerToolsDeny: ["WebSearch"] });
     expect(response.runtime_config.tools).toEqual(TOOLS);
-    // Only the config as it was before the built-in `werft` server.
-    expect(response.restore_runtime_configs?.map(listOf)).toEqual([
-      "Read+Bash+Write/",
-    ]);
+    expect(response.restore_runtime_configs).toBeUndefined();
   });
 
   test("an old session with no or an empty limit claims what it always did", async () => {
@@ -86,21 +76,15 @@ describe("a pinned caller limit's built-in tools_deny reaches the claim", () => 
     const after = await claim({ callerToolsDeny: [] });
     expect(after).toEqual(before);
     expect(before.runtime_config.tools).toEqual(TOOLS);
-    expect(before.restore_runtime_configs?.map(listOf)).toEqual([
-      "Read+Bash+Write/",
-    ]);
+    expect(before.restore_runtime_configs).toBeUndefined();
   });
 
   test("the session is still offered the list its checkpoints were made with", async () => {
     const response = await claim({ callerToolsDeny: ["Bash"] });
     expect(response.runtime_config.tools).toEqual(["Read", "Write"]);
-    // The unlimited list with `werft` and without it, then the limited one
-    // as it ran before `werft`.
-    expect(response.restore_runtime_configs?.map(listOf)).toEqual([
-      "Read+Bash+Write/werft",
-      "Read+Bash+Write/",
-      "Read+Write/",
-    ]);
+    expect(
+      response.restore_runtime_configs?.map((config) => config.tools),
+    ).toEqual([TOOLS]);
   });
 });
 
@@ -149,7 +133,6 @@ describe("MCP decisions do not move with the limit", () => {
     expect(open.runtime_config.tools).toContain("mcp__github__request_push");
     expect(limited.runtime_config.mcp_servers?.map((s) => s.name)).toEqual([
       "github",
-      "werft",
     ]);
     expect(strip(limited).runtime_config).toEqual(strip(open).runtime_config);
   });

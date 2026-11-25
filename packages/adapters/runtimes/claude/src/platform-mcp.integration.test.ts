@@ -44,8 +44,10 @@ async function turn(
   isolated = await createIsolatedWorkspace({ prefix: "platform-mcp-" });
   const { home, workspace } = isolated;
   platform = startFakePlatformMcp({ ...server, bearer: BEARER });
+  // A server with nothing to serve has no tool for the model to call.
+  const served = server.bare === true ? [] : [TOOL];
   model = startFakeAnthropicServer((_request, index) =>
-    index === 0 ? toolReply(TOOL, {}) : textReply("done"),
+    index === 0 && served.length > 0 ? toolReply(TOOL, {}) : textReply("done"),
   );
   const runtime = new ClaudeSdkRuntime({
     endpoints: [model.url],
@@ -70,14 +72,14 @@ async function turn(
       settingSources: [],
       // No release pins the server's tool: it is in no allowlist.
       tools: [],
-      servedTools: [TOOL],
+      servedTools: served,
       identities: { mcpServers: { werft: "binding-1" } },
       mcpServers: {
         werft: remoteMcpRelay({
           name: "werft",
           url: platform.url,
           token: BEARER,
-          tools: [TOOL],
+          tools: served,
           platform: true,
         }),
       },
@@ -139,5 +141,13 @@ describe("a platform MCP server against the actual SDK", () => {
     expect(requests[0]).toContain(FAKE_PLATFORM_INSTRUCTIONS);
     expect(requests[0]).toContain(TOOL);
     expect(calls).toBe(1);
+  }, 90_000);
+
+  // Unlike the Codex engine, which tells the model of a server only once it
+  // shows a tool of it.
+  test("a server with nothing to serve yet still has its instructions with the model", async () => {
+    const { requests } = await turn({ bare: true });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toContain(FAKE_PLATFORM_INSTRUCTIONS);
   }, 90_000);
 });

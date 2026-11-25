@@ -136,6 +136,13 @@ export const workerCapabilitiesSchema = z
      * `2 + AGENT_WORKSPACE_MCP_SERVERS_MAX` entries.
      */
     workspace_mcp: z.literal(true).optional(),
+    /**
+     * `runtime_config.mcp_servers` may hold the built-in `werft` server. The
+     * worker leaves that entry out of the checkpoint fingerprint, shows the
+     * engine what the server says of itself, and serves the tools its
+     * `trusted` names though no `tools` list holds them.
+     */
+    werft_mcp: z.literal(true).optional(),
   })
   .strict();
 
@@ -305,10 +312,11 @@ export const projectSettingsSchema = z
 // worker that did not announce `platform_tool_trust`: its strict schema
 // refuses them, and without them the engine asks as it always did.
 //
-// The built-in `werft` server is every session's. Its `trusted` tools are
-// in no `tools` list: the server decides what it serves, so no fingerprint
-// holds their names, and a worker shows them as the server lists them. A
-// worker from before that shows the server with no tool.
+// The built-in `werft` server is given to every worker that announced
+// `werft_mcp`, whatever the session's release says. Its `trusted` tools
+// are in no `tools` list: the server decides what it serves, and the worker
+// leaves the entry out of the checkpoint fingerprint, so neither the server
+// nor a tool it gains stops a checkpoint from restoring.
 export const runtimeMcpServerSchema = z
   .object({
     name: mcpServerIdSchema,
@@ -464,8 +472,8 @@ export const runtimeConfigSchema = z
     project_settings: projectSettingsSchema.optional(),
     // A catalog server (a restore config only), the workspace's servers the
     // agent has on (only for a worker that announced `workspace_mcp`), the
-    // built-in `github`, then the built-in `werft` (never beside a catalog
-    // server, which was retired before it).
+    // built-in `github`, then the built-in `werft` (only for a worker that
+    // announced `werft_mcp`, and in no restore config).
     mcp_servers: z
       .array(runtimeMcpServerSchema)
       .min(1)

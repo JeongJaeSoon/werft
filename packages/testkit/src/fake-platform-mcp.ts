@@ -27,6 +27,8 @@ export function startFakePlatformMcp(options: {
   refuseFirst?: number;
   /** How long an `initialize` waits for its answer. */
   handshakeDelayMs?: number;
+  /** Nothing to serve: its instructions alone, no tool, resource or prompt. */
+  bare?: boolean;
 }): FakePlatformMcp {
   let calls = 0;
   let refusals = options.refuseFirst ?? 0;
@@ -54,27 +56,7 @@ export function startFakePlatformMcp(options: {
         { name: "fake-platform", version: "1" },
         { instructions: options.instructions ?? FAKE_PLATFORM_INSTRUCTIONS },
       );
-      mcp.registerTool(
-        "probe",
-        { description: "Says the platform server answered" },
-        async () => {
-          calls += 1;
-          return { content: [{ type: "text", text: "probe:ok" }] };
-        },
-      );
-      mcp.registerResource(
-        "guide",
-        FAKE_PLATFORM_RESOURCE,
-        { mimeType: "text/plain" },
-        async (uri) => ({
-          contents: [{ uri: uri.href, text: "resource:ok" }],
-        }),
-      );
-      mcp.registerPrompt("check", { description: "A check to run" }, () => ({
-        messages: [
-          { role: "user", content: { type: "text", text: "prompt:ok" } },
-        ],
-      }));
+      if (options.bare !== true) serve(mcp);
       // No session id generator: stateless, a server per request.
       const transport = new WebStandardStreamableHTTPServerTransport({
         enableJsonResponse: true,
@@ -83,6 +65,29 @@ export function startFakePlatformMcp(options: {
       return transport.handleRequest(request);
     },
   });
+  function serve(mcp: McpServer) {
+    mcp.registerTool(
+      "probe",
+      { description: "Says the platform server answered" },
+      async () => {
+        calls += 1;
+        return { content: [{ type: "text", text: "probe:ok" }] };
+      },
+    );
+    mcp.registerResource(
+      "guide",
+      FAKE_PLATFORM_RESOURCE,
+      { mimeType: "text/plain" },
+      async (uri) => ({
+        contents: [{ uri: uri.href, text: "resource:ok" }],
+      }),
+    );
+    mcp.registerPrompt("check", { description: "A check to run" }, () => ({
+      messages: [
+        { role: "user", content: { type: "text", text: "prompt:ok" } },
+      ],
+    }));
+  }
   return {
     url: `http://127.0.0.1:${server.port}/mcp`,
     calls: () => calls,

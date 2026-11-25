@@ -14,9 +14,24 @@ function own(server: PlatformMcpServer, names: readonly string[]): string[] {
  * Empty for any other server, whose trusted tools stay inside its allowlist.
  */
 export function servedMcpTools(server: PlatformMcpServer): string[] {
-  return server.platform === true && server.name === WERFT_MCP_SERVER
-    ? own(server, server.trusted ?? [])
-    : [];
+  return builtinWerft(server) ? own(server, server.trusted ?? []) : [];
+}
+
+/** Whether `server` is the built-in `werft` server, as the platform marked it. */
+function builtinWerft(server: PlatformMcpServer): boolean {
+  return server.platform === true && server.name === WERFT_MCP_SERVER;
+}
+
+/**
+ * The servers a checkpoint fingerprint holds: all but the built-in `werft`.
+ * Every session has that one, whatever its release, and what it serves is
+ * the platform's to change, so it says nothing of whether a checkpoint
+ * replays; a checkpoint made before it existed restores into a run with it.
+ */
+export function fingerprintedMcpServers<T extends PlatformMcpServer>(
+  servers: readonly T[],
+): T[] {
+  return servers.filter((server) => !builtinWerft(server));
 }
 
 /**

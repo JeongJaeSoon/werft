@@ -53,8 +53,10 @@ describe.skipIf(!available)(
     ) {
       const platform = startFakePlatformMcp({ ...server, bearer: BEARER });
       const seen: Seen[] = [];
+      // A server with nothing to serve has no tool for the model to call.
+      const served = server.bare === true ? [] : [TOOL];
       const model = fakeResponses(seen, (call) =>
-        call === 1
+        call === 1 && served.length > 0
           ? [
               {
                 type: "function_call",
@@ -87,7 +89,7 @@ describe.skipIf(!available)(
               // No release pins the server's tool: it is in no allowlist.
               tools: ["exec_command"],
               platform: true,
-              trusted: [TOOL],
+              trusted: served,
             },
           ],
         },
@@ -145,6 +147,18 @@ describe.skipIf(!available)(
       expect(requests[0]).toContain(FAKE_PLATFORM_INSTRUCTIONS);
       expect(requests[0]).toContain('"name":"mcp__werft"');
       expect(calls).toBe(1);
+    }, 60_000);
+
+    // What this build of the engine does, pinned so a change of it shows:
+    // it tells the model of a server only once it shows a tool of it. The
+    // server's instructions reach a Codex session with the first tool it
+    // serves, as the test above has it.
+    test("a server with nothing to serve yet starts with the session, and the model is told nothing of it", async () => {
+      const { events, requests } = await turn({ bare: true });
+      expect(events.find((e) => e.type === "turn.ended")).toMatchObject({
+        turn: { isError: false },
+      });
+      expect(requests[0]).not.toContain(FAKE_PLATFORM_INSTRUCTIONS);
     }, 60_000);
   },
 );

@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   bootstrapClaimResponseSchema,
   type RuntimeKind,
-  runtimeMcpServerSchema,
   WERFT_MCP_SERVER,
 } from "@werft-ai/contracts";
 import { verifyBuiltinMcpGrant } from "../action/github/github-mcp-server.ts";
@@ -29,7 +28,10 @@ import { createWorkerGateway } from "./worker-gateway.ts";
 
 const SESSION = "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d";
 const KEY = new Uint8Array(32).fill(7);
-const CAPABLE = { platform_tool_trust: true, workspace_mcp: true } as const;
+// What a worker of this build announces, and what one from before the
+// built-in server did.
+const BEFORE = { platform_tool_trust: true, workspace_mcp: true } as const;
+const CAPABLE = { ...BEFORE, werft_mcp: true } as const;
 
 function gatewayWith(
   work: Record<string, unknown>,
@@ -187,8 +189,6 @@ describe("the built-in werft server in the claim", () => {
       "mcp__werft__find",
       "mcp__werft__status",
     ]);
-    // What a checkpoint fingerprint reads of an MCP server: the tool list
-    // and the server's name and binding.
     for (const response of [one, two]) {
       expect(
         response.runtime_config.tools.filter((tool) =>
@@ -204,21 +204,6 @@ describe("the built-in werft server in the claim", () => {
     const entry = werftOf(await claim());
     expect(entry).toMatchObject({ platform: true });
     expect(Object.keys(entry ?? {})).not.toContain("trusted");
-  });
-
-  test("a worker that did not announce platform_tool_trust gets it with neither mark, and its old strict schema parses it", async () => {
-    // The schema of a worker image from before `platform` and `trusted`.
-    const oldServer = runtimeMcpServerSchema.omit({
-      platform: true,
-      trusted: true,
-    });
-    const entry = werftOf(
-      await claim({}, { capabilities: {}, tools: ["find"] }),
-    );
-    expect(entry).toBeDefined();
-    expect(Object.keys(entry ?? {})).not.toContain("platform");
-    expect(Object.keys(entry ?? {})).not.toContain("trusted");
-    expect(oldServer.safeParse(entry).success).toBe(true);
   });
 
   test("a gateway with no key for its grants still names it, with nothing trusted", async () => {
@@ -237,10 +222,57 @@ describe("the built-in werft server in the claim", () => {
     );
     expect(werftOf(response)).toMatchObject({ name: "werft", platform: true });
   });
+});
 
-  test("a workspace server registered as werft before the name was reserved is left out, and a checkpoint made with it still restores", async () => {
+// What a checkpoint fingerprint reads of a config, without its tokens.
+const restoresOf = (response: Awaited<ReturnType<typeof claim>>) =>
+  (response.restore_runtime_configs ?? []).map((config) => ({
+    model: config.model,
+    tools: config.tools,
+    servers: (config.mcp_servers ?? []).map((server) => [
+      server.name,
+      server.binding,
+    ]),
+  }));
+
+describe("a worker that did not announce werft_mcp", () => {
+  test("is claimed as before the server existed: no entry, and no MCP token for a session with no other server", async () => {
+    const bare = await claim({}, { capabilities: BEFORE, tools: ["find"] });
+    expect(bare.runtime_config.mcp_servers).toBeUndefined();
+    const response = await claim(
+      { workspaceMcp: [docs], githubMcp: github },
+      { capabilities: BEFORE, tools: ["find"] },
+    );
+    expect(serversOf(response).map((server) => server.name)).toEqual([
+      "docs",
+      "github",
+    ]);
+  });
+});
+
+describe("checkpoints from before the built-in werft server", () => {
+  // The worker leaves the entry out of the fingerprint, so a claim offers
+  // no config for it: the configs offered are the ones a claim without the
+  // server offers, and none is pushed past the cap.
+  test("need no config of their own: a claim with the server offers what one without it offers", async () => {
+    const bound = { workspaceMcp: [docs], githubMcp: github };
+    const withIt = await claim(bound);
+    const without = await claim(bound, { capabilities: BEFORE });
+    expect(restoresOf(without).length).toBeGreaterThan(0);
+    expect(restoresOf(withIt)).toEqual(restoresOf(without));
+    for (const config of withIt.restore_runtime_configs ?? []) {
+      expect(
+        (config.mcp_servers ?? []).map((server) => server.name),
+      ).not.toContain("werft");
+    }
+    // And with nothing to restore under but the running config, none.
+    expect((await claim()).restore_runtime_configs).toBeUndefined();
+  });
+
+  test("a workspace server registered as werft before the name was reserved is left out for every worker, and the configs a claim offered with it come first", async () => {
     const squatter = { ...docs, name: "werft", tools: ["mcp__werft__search"] };
-    const response = await claim({ workspaceMcp: [squatter, docs] });
+    const bound = { workspaceMcp: [squatter, docs] };
+    const response = await claim(bound);
     expect(
       serversOf(response).map((server) => [server.name, server.binding]),
     ).toEqual([
@@ -248,28 +280,20 @@ describe("the built-in werft server in the claim", () => {
       ["werft", werftMcpBinding()],
     ]);
     expect(response.runtime_config.tools).not.toContain("mcp__werft__search");
-    // The config a claim gave before the built-in server: the workspace
+    const old = await claim(bound, { capabilities: BEFORE });
+    expect(serversOf(old).map((server) => server.name)).toEqual(["docs"]);
+    // The config a claim gave before the name was reserved: the workspace
     // server under its name, with its tools.
-    const [before] = response.restore_runtime_configs ?? [];
-    expect(
-      before?.mcp_servers?.map((server) => [server.name, server.binding]),
-    ).toEqual([
-      ["werft", workspaceMcpBinding(squatter)],
-      ["docs", workspaceMcpBinding(docs)],
-    ]);
-    expect(before?.tools).toContain("mcp__werft__search");
-  });
-
-  test("a session claimed before it existed is offered the config it ran then, first", async () => {
-    const response = await claim({ workspaceMcp: [docs], githubMcp: github });
-    const [before] = response.restore_runtime_configs ?? [];
-    expect(before?.mcp_servers?.map((server) => server.name)).toEqual([
-      "docs",
-      "github",
-    ]);
-    const { mcp_servers: _now, ...current } = response.runtime_config;
-    const { mcp_servers: _then, ...then } = before ?? {};
-    expect(then).toEqual(current);
+    for (const claimed of [response, old]) {
+      const [before] = claimed.restore_runtime_configs ?? [];
+      expect(
+        before?.mcp_servers?.map((server) => [server.name, server.binding]),
+      ).toEqual([
+        ["werft", workspaceMcpBinding(squatter)],
+        ["docs", workspaceMcpBinding(docs)],
+      ]);
+      expect(before?.tools).toContain("mcp__werft__search");
+    }
   });
 });
 

@@ -63,6 +63,7 @@ const REFUSABLE_CAPABILITIES = [
   "answer_surface",
   "repository_pins",
   "workspace_mcp",
+  "werft_mcp",
 ] as const;
 
 // Only what a response body has to answer, so the worker never imports zod.

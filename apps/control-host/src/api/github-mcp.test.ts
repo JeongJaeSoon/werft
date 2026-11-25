@@ -180,6 +180,8 @@ async function seeded(
     remote?: boolean;
     /** The release denies the built-in `werft` server every way a release can. */
     denyWerft?: boolean;
+    /** The claiming worker announces `werft_mcp`, as this build's does. */
+    werft?: boolean;
   } = {},
 ) {
   const github = options.github === undefined ? settings() : options.github;
@@ -292,6 +294,9 @@ async function seeded(
   const claim = await gateway.bootstrapClaim(
     { kind: "bootstrap" },
     {
+      ...(options.werft
+        ? { capabilities: { platform_tool_trust: true, werft_mcp: true } }
+        : {}),
       execution_id: launch.executionId,
       execution_generation: launch.generation,
       credential: { kind: "launch_nonce", nonce: launch.nonce },
@@ -371,7 +376,6 @@ describe("the built-in github MCP server on stored rows", () => {
         binding: githubMcpBinding(releaseId),
         access: { kind: "egress_token", token: expect.any(String) },
       }),
-      expect.objectContaining({ name: "werft", binding: werftMcpBinding() }),
     ]);
     expect(claim.runtime_config.tools).toEqual([
       "Read",
@@ -393,10 +397,10 @@ describe("the built-in github MCP server on stored rows", () => {
     expect(JSON.stringify(claim)).not.toMatch(GITHUB_TOKEN_SHAPES);
   });
 
-  test("beside a retired catalog server it is claimed without that server, and the token does not reach it", async () => {
+  test("beside a retired catalog server it is claimed alone, and the token reaches no other", async () => {
     const { claim } = await seeded({ remote: true });
     const servers = claim.runtime_config.mcp_servers ?? [];
-    expect(servers.map((server) => server.name)).toEqual(["github", "werft"]);
+    expect(servers.map((server) => server.name)).toEqual(["github"]);
     const token = servers[0]?.access.token;
     const remote = await authorize({
       token,
@@ -425,19 +429,10 @@ describe("the built-in github MCP server on stored rows", () => {
   test("a checkpoint made before get_pull_request was added still restores", async () => {
     const { claim } = await seeded({ github: settings({ actions: true }) });
     const current = claim.runtime_config;
-    // Every one of them is from before the built-in `werft` server: the
-    // config as it ran then, the one before `github`, and the earlier list.
-    const beforeWerft = {
-      ...current,
-      mcp_servers: current.mcp_servers?.filter(
-        (server) => server.name === "github",
-      ),
-    };
     expect(claim.restore_runtime_configs).toEqual([
-      beforeWerft,
       expect.objectContaining({ tools: ["Read"] }),
       {
-        ...beforeWerft,
+        ...current,
         tools: current.tools.filter(
           (tool) => tool !== "mcp__github__get_pull_request",
         ),
@@ -445,7 +440,7 @@ describe("the built-in github MCP server on stored rows", () => {
     ]);
   });
 
-  test("beside a retired catalog server, the config from before werft comes first, then the configs a claim offered before the retire, then today's", async () => {
+  test("beside a retired catalog server, the configs a claim offered before come first, then today's", async () => {
     const { claim } = await seeded({ remote: true });
     expect(
       claim.restore_runtime_configs?.map((config) => [
@@ -454,7 +449,6 @@ describe("the built-in github MCP server on stored rows", () => {
         config.tools.some((tool) => tool.startsWith("mcp__github__")),
       ]),
     ).toEqual([
-      [["github"], true, true],
       [["fake", "github"], true, true],
       [["fake"], false, false],
       [["fake", "github"], false, true],
@@ -463,11 +457,9 @@ describe("the built-in github MCP server on stored rows", () => {
     ]);
   });
 
-  test("a release without GitHub settings attaches only the built-in werft server", async () => {
+  test("a release without GitHub settings attaches no server", async () => {
     const { claim } = await seeded({ github: null });
-    expect(
-      claim.runtime_config.mcp_servers?.map((server) => server.name),
-    ).toEqual(["werft"]);
+    expect(claim.runtime_config.mcp_servers).toBeUndefined();
     expect(claim.runtime_config.tools).toEqual(["Read"]);
   });
 
@@ -641,7 +633,7 @@ describe("the built-in werft MCP server on stored rows", () => {
   ];
   for (const [what, release] of releases) {
     test(`a session whose release ${what} has it`, async () => {
-      const { claim } = await seeded(release);
+      const { claim } = await seeded({ ...release, werft: true });
       expect(claim.runtime_config.mcp_servers?.at(-1)).toEqual(
         expect.objectContaining({ name: "werft", binding: werftMcpBinding() }),
       );
@@ -655,7 +647,7 @@ describe("the built-in werft MCP server on stored rows", () => {
   }
 
   test("its handshake reaches the session through the authorizer, with the instructions and the build's version", async () => {
-    const { token } = await seeded({ github: null });
+    const { token } = await seeded({ github: null, werft: true });
     const answered = await relay(
       token,
       { jsonrpc: "2.0", id: 1, method: "initialize", params: {} },
@@ -671,7 +663,11 @@ describe("the built-in werft MCP server on stored rows", () => {
   });
 
   test("a release that denies it still reaches it, and it lists what its parts serve", async () => {
-    const { token } = await seeded({ github: null, denyWerft: true });
+    const { token } = await seeded({
+      github: null,
+      denyWerft: true,
+      werft: true,
+    });
     const listed = await relay(
       token,
       { jsonrpc: "2.0", id: 1, method: "tools/list" },
@@ -686,7 +682,7 @@ describe("the built-in werft MCP server on stored rows", () => {
   });
 
   test("a grant for one built-in server does not open the other", async () => {
-    const { token } = await seeded();
+    const { token } = await seeded({ werft: true });
     const werft = await grantFor(token, "werft");
     const github = await grantFor(token, "github");
     expect(werft.url).toBe(WERFT_MCP_UPSTREAM_PATH);
@@ -706,7 +702,7 @@ describe("the built-in werft MCP server on stored rows", () => {
   });
 
   test("it answers no secret: neither a grant nor a token is in what it returns", async () => {
-    const { token } = await seeded({ github: null });
+    const { token } = await seeded({ github: null, werft: true });
     for (const method of ["initialize", "tools/list"]) {
       const answered = await relay(
         token,

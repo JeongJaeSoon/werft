@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { PlatformMcpServer } from "./agent-runtime.ts";
 import {
   exposedMcpTools,
+  fingerprintedMcpServers,
   servedMcpTools,
   withinHandshakeWait,
 } from "./platform-mcp.ts";
@@ -48,6 +49,19 @@ describe("any other server", () => {
     });
     expect(servedMcpTools(github)).toEqual([]);
     expect(exposedMcpTools(github)).toEqual(["mcp__github__request_push"]);
+  });
+});
+
+describe("the servers a checkpoint fingerprint holds", () => {
+  test("are all but the built-in werft server, and a server of its name the platform did not mark stays", () => {
+    const github = server({ name: "github", platform: true });
+    const werft = server({ platform: true });
+    const unmarked = server({});
+    expect(fingerprintedMcpServers([github, werft])).toEqual([github]);
+    expect(fingerprintedMcpServers([github, unmarked])).toEqual([
+      github,
+      unmarked,
+    ]);
   });
 });
 
