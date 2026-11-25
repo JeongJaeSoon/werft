@@ -12,6 +12,8 @@ import {
   S3_MAX_ATTEMPTS,
   S3_REQUEST_BOUNDS,
   type S3RequestBounds,
+  type S3TimeoutWarn,
+  warnOnS3Timeouts,
 } from "./s3.ts";
 import { listPrefixWithin, objectKeyWithin } from "./scoped-objects.ts";
 
@@ -414,8 +416,9 @@ const ROUTE_SIGNING_KEY = "object-store-route";
 export function createObjectRouteClient(
   route: { endpoint: string; region: string; token: () => string },
   bounds: S3RequestBounds = S3_REQUEST_BOUNDS,
+  warn?: S3TimeoutWarn,
 ): S3Client {
-  return new S3Client({
+  const client = new S3Client({
     credentials: async () => ({
       accessKeyId: route.token(),
       secretAccessKey: ROUTE_SIGNING_KEY,
@@ -428,4 +431,5 @@ export function createObjectRouteClient(
     region: route.region,
     requestHandler: new BoundedNodeHttpHandler(bounds),
   });
+  return warn === undefined ? client : warnOnS3Timeouts(client, warn);
 }

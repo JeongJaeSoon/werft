@@ -9329,6 +9329,19 @@ export interface components {
             install_url: string;
             /** Format: uuid */
             receipt_id: string;
+            webhook_update?: {
+                app_id: number;
+                name: string;
+                /** @constant */
+                outcome: "updated";
+            } | {
+                app_id: number;
+                name: string | null;
+                /** @constant */
+                outcome: "failed";
+                /** @enum {string} */
+                reason_code: "github_rejected" | "url_refused" | "github_unreachable" | "key_unreadable" | "not_found";
+            };
         };
         StartGitHubInstallationResponse: {
             /** Format: uri */
