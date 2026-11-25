@@ -28,6 +28,7 @@ import type {
   PushFollowUpStore,
   PushRequestService,
   SurfaceBindingStore,
+  SurfaceConversationScope,
   SurfaceOutboxStore,
 } from "@werft-ai/platform";
 import {
@@ -55,7 +56,7 @@ import {
   verifySlackRequest,
 } from "./slack-events-service.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
-import { slackOutboxText } from "./slack-outbox-render.ts";
+import { slackOutboxGuard, slackOutboxText } from "./slack-outbox-render.ts";
 import {
   SLACK_PROMPT_MESSAGES,
   type SlackPromptResult,
@@ -151,6 +152,18 @@ type Pressed = {
 };
 
 type Allowed = { caller: Caller; pressed: Pressed };
+
+// A card's text shown again on a press, in its session's conversation as the
+// server reads it; with none, every Slack channel is outside (94S-2213).
+const cardGuard = (
+  pressed: Pressed,
+  scope: SurfaceConversationScope | null | undefined,
+) =>
+  slackOutboxGuard({
+    kind: "input_notice",
+    channelId: pressed.channelId,
+    conversationScope: scope ?? null,
+  }).guard;
 
 export type SlackInteractionService = ReturnType<
   typeof createSlackInteractionService
@@ -255,7 +268,10 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         });
         return;
       }
-      const card = slackSettledCard(posted);
+      const card = slackSettledCard(
+        posted,
+        cardGuard(pressed, posted.conversationScope),
+      );
       if (card === null) return;
       await deps.slack.updateMessage(pressed.botToken, {
         channelId: pressed.channelId,
@@ -801,10 +817,25 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         await show(copy.already[result]);
         return ok("already");
       }
+      // The card's row names the scope its questions were first shown in.
+      const posted =
+        questions === null
+          ? null
+          : await deps.outbox.promptCard({
+              sessionId: value.s,
+              requestId: value.r,
+              channelId: pressed.channelId,
+              slackTs: payload.message.ts,
+            });
       const view =
         questions === null
           ? slackNoteView(metadata, pressed.locale)
-          : slackQuestionView(questions, metadata, pressed.locale);
+          : slackQuestionView(
+              questions,
+              metadata,
+              pressed.locale,
+              cardGuard(pressed, posted?.conversationScope),
+            );
       if (view === null) {
         await show(copy.unavailable);
         return ok("failed");

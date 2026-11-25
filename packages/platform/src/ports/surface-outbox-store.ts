@@ -277,6 +277,8 @@ export type UnmirroredWebInput = {
  * push request waiting for its decision.
  */
 export type SurfacePendingPrompt = SurfaceLinkedTurnTarget & {
+  /** The session's parent conversation, as the outbox claim reads it. */
+  conversationScope?: SurfaceConversationScope | null;
   /** The sources of the turn that asked. */
   sources: StoredSourceSet | null;
   /** That turn's public id; null with no sources. */
@@ -332,6 +334,8 @@ export type SurfacePromptCard = {
   linkUrl: string | null;
   deciderSlackUserId: string | null;
   display: PendingRequestDisplay | ({ kind: "push" } & PushRequestDisplay);
+  /** The session's parent conversation, as the outbox claim reads it. */
+  conversationScope?: SurfaceConversationScope | null;
 };
 
 export type SurfaceOutboxSettle =
@@ -504,6 +508,8 @@ export type SurfaceCardClaim = SurfaceCardFence & {
   inherited: boolean;
   /** Failures so far, rate limits not counted. */
   attempts: number;
+  /** The session's parent conversation, as the outbox claim reads it. */
+  conversationScope?: SurfaceConversationScope | null;
 };
 
 /** A card still waiting on its request. */
