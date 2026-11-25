@@ -254,7 +254,8 @@ test("a voided record is neither counted nor listed: it has no result", async ()
       await store.recent({
         ...input,
         channels: [{ teamId: TEAM, channelId: "C0VOID" }],
-        limit: 10,
+        // The newer voided row takes no place in the list's limit.
+        limit: 1,
       })
     ).map((item) => item.outcome),
   ).toEqual(["judged"]);
