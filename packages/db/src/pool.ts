@@ -406,12 +406,18 @@ const PG_CONNECTION_MESSAGES =
  * the driver's error) and add the SQLSTATEs their own policy counts.
  */
 export function isConnectionFailure(error: unknown): boolean {
-  const code = (error as { code?: unknown } | null)?.code;
+  const { code, syscall } = (error ?? {}) as {
+    code?: unknown;
+    syscall?: unknown;
+  };
   if (
-    typeof code === "string" &&
-    (code.startsWith("08") ||
-      code.startsWith("ECONN") ||
-      SOCKET_ERROR_CODES.has(code))
+    // A failed lookup of the host, whatever code the resolver gives it: a
+    // node whose DNS is not up yet answers ENOTIMP.
+    syscall === "getaddrinfo" ||
+    (typeof code === "string" &&
+      (code.startsWith("08") ||
+        code.startsWith("ECONN") ||
+        SOCKET_ERROR_CODES.has(code)))
   ) {
     return true;
   }

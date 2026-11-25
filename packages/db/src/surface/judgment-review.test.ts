@@ -233,3 +233,30 @@ test("the recent list is of the channels named only, newest first, the last mess
     }),
   ).toEqual([]);
 });
+
+test("a voided record is neither counted nor listed: it has no result", async () => {
+  await judgment({ channel: "C0VOID", outcome: "judged" });
+  await client.query(
+    `INSERT INTO conversation_judgments (id, workspace_id, agent_id,
+      conversation_id, grade, slack_team_id, slack_channel_id, refs,
+      prompt_version, outcome, reason, judged_at)
+     VALUES ($1, $2, $3, $4, 'buffer_m1', $5, 'C0VOID', '{}', 1, 'voided',
+      'voided_by_delete', now())`,
+    [randomUUID(), WORKSPACE, AGENT, randomUUID(), TEAM],
+  );
+  const store = createPostgresJudgmentReviewStore(db);
+  const input = { workspaceId: WORKSPACE, agentId: AGENT, since: since() };
+  expect(
+    (await store.tallies(input)).map((row) => [row.reason, row.count]),
+  ).toEqual([["human_conversation", 1]]);
+  expect(
+    (
+      await store.recent({
+        ...input,
+        channels: [{ teamId: TEAM, channelId: "C0VOID" }],
+        // The newer voided row takes no place in the list's limit.
+        limit: 1,
+      })
+    ).map((item) => item.outcome),
+  ).toEqual(["judged"]);
+});

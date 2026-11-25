@@ -751,6 +751,33 @@ describe("a session pinned to an agent release", () => {
     });
   });
 
+  test("a budget account's refusal is attention below the session's own limit", async () => {
+    const attentionOf = async (session: Partial<SessionDetailRecord>) => {
+      const s = setup({ session: { ...sessionOn(), ...session } });
+      return (await s.service.getSession(s.caller, SESSION)).attention;
+    };
+    expect(await attentionOf({ budget_account_refused: "team" })).toEqual({
+      code: "BUDGET_EXCEEDED",
+      reason: "The agent team's monthly budget account refused a model call",
+      budget_owner: "team",
+    });
+    expect(await attentionOf({ budget_account_refused: "user" })).toEqual({
+      code: "BUDGET_EXCEEDED",
+      reason: "The requester's monthly budget account refused a model call",
+      budget_owner: "user",
+    });
+    // The session's own limit keeps its words and says nothing of an account.
+    const spent = await attentionOf({
+      budget_account_refused: "user",
+      cost_usd: 2_000,
+    });
+    expect(spent).toMatchObject({ code: "BUDGET_EXCEEDED" });
+    expect(spent).not.toHaveProperty("budget_owner");
+    expect(spent?.code === "BUDGET_EXCEEDED" && spent.reason).toStartWith(
+      "The session has reached its",
+    );
+  });
+
   test("a session whose version string only an image of another engine ships says the images no longer ship its runtime", async () => {
     const spec = testSpecSource();
     const { kind, version } = spec.runtime;
@@ -1300,6 +1327,7 @@ function sessionOn(): SessionDetailRecord {
     github_policy_source: "release",
     auto_model_migration: true,
     holds_execution: false,
+    budget_account_refused: null,
   };
 }
 

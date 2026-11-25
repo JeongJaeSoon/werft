@@ -47,6 +47,8 @@ export type SlackInput = {
         id: string;
         /** The push request a press on a push card decides. */
         pushRequestId?: string;
+        /** The permission or question request a press on its card answers. */
+        pendingRequestId?: string;
       };
   requestId: string;
   /** The web page where a person links their Slack account. */
@@ -219,6 +221,9 @@ export async function authorizeSlackInput(
             ...(resource.pushRequestId === undefined
               ? {}
               : { push_request_id: resource.pushRequestId }),
+            ...(resource.pendingRequestId === undefined
+              ? {}
+              : { pending_request_id: resource.pendingRequestId }),
           }
         : {
             kind: "surface_binding",

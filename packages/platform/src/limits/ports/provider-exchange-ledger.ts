@@ -1,4 +1,4 @@
-import type { BudgetAccountId } from "@werft-ai/contracts";
+import type { BudgetAccountId, BudgetOwnerKind } from "@werft-ai/contracts";
 import type { BudgetChoice } from "../budget-accounts.ts";
 import type { ProviderUsage } from "../index.ts";
 
@@ -57,6 +57,9 @@ export type ProviderExchangeOpenResult =
       // The account that refused; null for the session, or for the agent's
       // own work with no team to charge.
       accountId: BudgetAccountId | null;
+      // Whose account refused; null for the session, and for the agent's
+      // own work with no team to charge.
+      owner: BudgetOwnerKind | null;
     }
   // No such attempt of that session.
   | { outcome: "unknown_attempt" }

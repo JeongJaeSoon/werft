@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
-import { connect } from "node:net";
+import { type AddressInfo, connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as schema from "@werft-ai/db";
@@ -51,6 +51,7 @@ function serverStdout(stream: ReadableStream<Uint8Array>): {
   port: Promise<number | undefined>;
   internalPort: Promise<number | undefined>;
   catalogLoaded: Promise<boolean>;
+  waitingForDatabase: Promise<boolean>;
 } {
   let found: (port: number | undefined) => void = () => {};
   let foundInternal: (port: number | undefined) => void = () => {};
@@ -63,6 +64,12 @@ function serverStdout(stream: ReadableStream<Uint8Array>): {
   let loaded: (loaded: boolean) => void = () => {};
   const catalogLoaded = new Promise<boolean>((resolve) => {
     loaded = resolve;
+  });
+  let waiting: (waiting: boolean) => void = () => {};
+  // The first line that says the start waits for the database: false if
+  // stdout ends first.
+  const waitingForDatabase = new Promise<boolean>((resolve) => {
+    waiting = resolve;
   });
   const text = (async () => {
     const decoder = new TextDecoder();
@@ -78,6 +85,9 @@ function serverStdout(stream: ReadableStream<Uint8Array>): {
         const line = all.slice(scanned, newline);
         scanned = newline + 1;
         if (line.includes('"Session catalog loaded"')) loaded(true);
+        if (line.includes('"Waiting for the database before starting"')) {
+          waiting(true);
+        }
         if (line.includes('"Internal API listening"')) {
           const record = JSON.parse(line) as { fields?: { port?: number } };
           foundInternal(record.fields?.port);
@@ -90,9 +100,10 @@ function serverStdout(stream: ReadableStream<Uint8Array>): {
     found(undefined);
     foundInternal(undefined);
     loaded(false);
+    waiting(false);
     return all + decoder.decode();
   })();
-  return { text, port, internalPort, catalogLoaded };
+  return { text, port, internalPort, catalogLoaded, waitingForDatabase };
 }
 
 // Waits for the server to report its port, then polls `path` on it until the
@@ -325,6 +336,36 @@ async function heldConnection(port: number) {
       }
     },
     close: () => socket.destroy(),
+  };
+}
+
+// The database behind a loopback port that drops every connection until
+// `open()`: to a server starting against it, a database that is not up yet.
+async function lateDatabase(url: string) {
+  const target = new URL(url);
+  let up = false;
+  const relay = createServer((client) => {
+    if (!up) {
+      client.destroy();
+      return;
+    }
+    const upstream = connect(Number(target.port || 5432), target.hostname);
+    client.pipe(upstream).pipe(client);
+    client.on("error", () => upstream.destroy());
+    upstream.on("error", () => client.destroy());
+    client.on("close", () => upstream.destroy());
+  });
+  relay.listen(0, "127.0.0.1");
+  await once(relay, "listening");
+  const late = new URL(url);
+  late.hostname = "127.0.0.1";
+  late.port = String((relay.address() as AddressInfo).port);
+  return {
+    url: late.toString(),
+    open: () => {
+      up = true;
+    },
+    close: () => relay.close(),
   };
 }
 
@@ -900,6 +941,53 @@ integration("API server on PostgreSQL", () => {
       expect(exitCode, logs).toBe(0);
       expect(logs).toContain("In-flight requests drained");
       expect(logs).not.toContain("Drain deadline passed");
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a start that finds the database not up yet says it waits, and listens once the database answers",
+    async () => {
+      const database = await lateDatabase(databaseUrl);
+      const server = Bun.spawn(["bun", "run", "src/main.ts", "api"], {
+        cwd: `${import.meta.dir}/../..`,
+        env: {
+          ...process.env,
+          AUTH_MODE: "api-key",
+          CHECKPOINT_OBJECT_STORE: "disabled",
+          DATABASE_URL: database.url,
+          EXECUTION_SLOT_LIMIT: "10",
+          QUEUED_INPUT_LIMIT_PER_SESSION: "20",
+          SESSION_COST_LIMIT_USD: "25",
+          STORAGE_LIMIT_BYTES: "1073741824",
+          PORT: "0",
+          INTERNAL_API_PORT: "0",
+          PLATFORM_SECRET_KEY: MASTER_KEY,
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const stdout = serverStdout(server.stdout);
+      const serverStderr = new Response(server.stderr).text();
+      try {
+        expect(
+          await Promise.race([
+            stdout.waitingForDatabase,
+            Bun.sleep(SERVER_START_DEADLINE_MS).then(() => false),
+          ]),
+        ).toBe(true);
+        database.open();
+        const { response } = await waitForServer(server, stdout, serverStderr, {
+          path: "/healthz",
+          headers: {},
+        });
+        expect(response.status).toBe(200);
+      } finally {
+        server.kill("SIGTERM");
+        await server.exited;
+        database.close();
+      }
+      expect(await stdout.text).not.toContain("Refusing to start");
     },
     TEST_TIMEOUT_MS,
   );

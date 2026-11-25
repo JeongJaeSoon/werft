@@ -55,36 +55,40 @@ type DrawnCard = {
 };
 
 /**
- * Whether a private channel push's requester left every channel of its
- * session (the policy's pushRequesterLeft): a member may then decide it.
+ * Whether a private channel card's requester left every channel of its
+ * session (the policy's requesterLeft): a member may then decide it.
  */
-export type SlackPushRequesterLeft = (push: {
-  workspaceId: string;
-  sessionId: string;
-  pushRequestId: string;
-}) => Promise<boolean>;
+export type SlackRequesterLeft = (
+  card: {
+    workspaceId: string;
+    sessionId: string;
+  } & ({ pushRequestId: string } | { pendingRequestId: string }),
+) => Promise<boolean>;
 
 /**
- * What the card should show now: its request as stored, and a push still
- * waiting says so when its requester left the private channel.
+ * What the card should show now: its request as stored, and a push, tool
+ * permission or question still waiting says so when its requester left the
+ * private channel.
  */
 async function drawCard(
   store: SurfaceCardSettleStore,
   claim: SurfaceCardClaim,
-  deps: { pushSource?: PushSource; requesterLeft?: SlackPushRequesterLeft },
+  deps: { pushSource?: PushSource; requesterLeft?: SlackRequesterLeft },
 ): Promise<DrawnCard | null> {
   const drawn = await drawChoice(store, claim, deps.pushSource);
   const [prefix, , ...rest] = claim.dedupeKey.split(":");
   if (
     drawn === null ||
     (drawn.rendered !== "open" && drawn.rendered !== "reject_only") ||
-    prefix !== "push" ||
+    (prefix !== "push" && prefix !== "prompt") ||
     claim.sessionId === null ||
     deps.requesterLeft === undefined ||
     !(await deps.requesterLeft({
       workspaceId: claim.workspaceId,
       sessionId: claim.sessionId,
-      pushRequestId: rest.join(":"),
+      ...(prefix === "push"
+        ? { pushRequestId: rest.join(":") }
+        : { pendingRequestId: rest.join(":") }),
     }))
   ) {
     return drawn;
@@ -182,7 +186,7 @@ export async function settleSlackCards(deps: {
   botToken: (workspaceId: string, slackAppId: string) => Promise<string | null>;
   logger: SlackInboxLogger;
   pushSource?: PushSource;
-  requesterLeft?: SlackPushRequesterLeft;
+  requesterLeft?: SlackRequesterLeft;
   batchSize: number;
   deadline: number;
   only?: { channelId: string; slackTs: string };

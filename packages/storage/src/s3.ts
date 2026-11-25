@@ -708,6 +708,28 @@ export function isConditionalConflict(error: unknown): boolean {
   );
 }
 
+/**
+ * The store gave no answer, as opposed to an answer that says no: a request
+ * past its timeout, a socket or a name lookup that failed (an errno code,
+ * whichever one), a body that stalled or ended early, a 5xx, or the two 4xx
+ * that say "later" (429, S3's RequestTimeout). A caller may wait this out;
+ * any other 4xx is a verdict on the request and waiting does not change it.
+ */
+export function isObjectStoreUnreachable(error: unknown): boolean {
+  const value = awsError(error);
+  const status = value?.$metadata?.httpStatusCode;
+  if (status !== undefined) {
+    return status >= 500 || status === 429 || value?.name === "RequestTimeout";
+  }
+  const code = (error as { code?: unknown } | null)?.code;
+  return (
+    value?.name === "TimeoutError" ||
+    error instanceof BodyStallError ||
+    error instanceof BodyTruncatedError ||
+    (typeof code === "string" && /^E(AI_)?[A-Z0-9]+$/.test(code))
+  );
+}
+
 async function readIterable(
   body: AsyncIterable<Uint8Array | string>,
   bounds: BodyReadBounds,
