@@ -3,6 +3,7 @@ import type {
   BudgetOwnerKind,
   ConversationInputId,
   ConversationKind,
+  ConversationTurnId,
   PendingQuestion,
   PushRequestOrigin,
   SlackMirrorCorrelationId,
@@ -44,6 +45,10 @@ import type {
  * (not a post: `body` is unused), keyed once per Slack team, channel and
  * message. Slack's `already_reacted` counts as sent; `slack_ts` is the
  * message reacted to.
+ * `conversation_reply`: a conversation turn's answer, the effect of its
+ * "reply" decision (v1-b/E1), with no session: its turn (`conversationTurnId`)
+ * names it, keyed once per turn. It goes in the turn's topic thread, never at
+ * the top of a channel (`threadTs` is never ""), and ends with the AI line.
  */
 export type SurfaceOutboxKind =
   | "instruction"
@@ -57,7 +62,8 @@ export type SurfaceOutboxKind =
   | "input_mirror"
   | "channel_notice"
   | "progress"
-  | "reaction";
+  | "reaction"
+  | "conversation_reply";
 
 /**
  * The sends a reaction gets, its lease running out included: asking again
@@ -104,6 +110,11 @@ export type SurfaceOutboxBody = {
   /** Block Kit, shown in place of `text`, which stays the notification. */
   blocks?: unknown[];
   sender?: { username: string; slack_user_id?: string };
+  /**
+   * The person a `conversation_reply` answers, by their Werft name, for its
+   * AI line; absent when no linked person asked.
+   */
+  requested_by?: string;
 };
 
 export type SurfaceOutboxEntry = {
@@ -155,6 +166,8 @@ export type SurfaceOutboxEntry = {
    * is one message across the installation: name it after what it reports.
    */
   progressKey?: string | null;
+  /** The conversation turn a `conversation_reply` row answers; set on it alone. */
+  conversationTurnId?: ConversationTurnId | null;
 };
 
 export type SurfaceOutboxFence = { id: string; claimToken: string };

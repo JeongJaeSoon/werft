@@ -39,6 +39,7 @@ import { viewerFor } from "../sessions/index.ts";
 import type {
   UsageAchievementCountsRecord,
   UsageBreakdownFiguresRecord,
+  UsageConversationCostRecord,
   UsageOutcomeFiguresRecord,
   UsageReader,
   UsageSummaryFilter,
@@ -65,6 +66,25 @@ export function decimalUsd(value: number): string {
 const saturated = (count: number) => Math.min(count, Number.MAX_SAFE_INTEGER);
 
 // token_count is the four columns, as the provider_tokens trigger sums them.
+function conversationOf(
+  record: UsageConversationCostRecord | undefined,
+): Pick<UsageBreakdownResponse["totals"], "conversation"> {
+  if (record === undefined) return {};
+  return {
+    conversation: {
+      call_count: record.callCount,
+      cost_usd: record.costUsd,
+      cost_complete: record.incompleteCallCount === 0,
+      by_class: {
+        judgment_usd: record.byClass.judgmentUsd,
+        turn_usd: record.byClass.turnUsd,
+        summary_usd: record.byClass.summaryUsd,
+        other_usd: record.byClass.otherUsd,
+      },
+    },
+  };
+}
+
 function breakdownFigures(
   figures: UsageBreakdownFiguresRecord,
 ): UsageBreakdownResponse["totals"] {
@@ -471,6 +491,9 @@ export function createUsageService(deps: {
           cost_complete: bucket.incompleteTurnCount === 0,
           token_count: bucket.providerTokens,
           run_seconds: bucket.runSeconds,
+          conversation_cost_usd: bucket.conversationCostUsd,
+          conversation_cost_complete:
+            bucket.conversationIncompleteCallCount === 0,
         })),
       };
     },
@@ -489,12 +512,18 @@ export function createUsageService(deps: {
         query.by,
       );
       return {
-        rows: breakdown.rows.map(({ key, label, ...figures }) => ({
-          key,
-          label,
-          ...breakdownFigures(figures),
-        })),
-        totals: breakdownFigures(breakdown.totals),
+        rows: breakdown.rows.map(
+          ({ key, label, conversation, ...figures }) => ({
+            key,
+            label,
+            ...breakdownFigures(figures),
+            ...conversationOf(conversation),
+          }),
+        ),
+        totals: {
+          ...breakdownFigures(breakdown.totals),
+          ...conversationOf(breakdown.totals.conversation),
+        },
       };
     },
 
