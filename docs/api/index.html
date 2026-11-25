@@ -19266,6 +19266,70 @@
             "type": "string",
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "webhook_update": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "app_id": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "outcome": {
+                    "type": "string",
+                    "const": "updated"
+                  }
+                },
+                "required": [
+                  "app_id",
+                  "name",
+                  "outcome"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "app_id": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "outcome": {
+                    "type": "string",
+                    "const": "failed"
+                  },
+                  "reason_code": {
+                    "type": "string",
+                    "enum": [
+                      "github_rejected",
+                      "url_refused",
+                      "github_unreachable",
+                      "key_unreadable",
+                      "not_found"
+                    ]
+                  }
+                },
+                "required": [
+                  "app_id",
+                  "name",
+                  "outcome",
+                  "reason_code"
+                ],
+                "additionalProperties": false
+              }
+            ]
           }
         },
         "required": [
