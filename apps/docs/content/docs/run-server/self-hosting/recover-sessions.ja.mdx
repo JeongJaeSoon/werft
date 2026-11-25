@@ -100,7 +100,7 @@ Kubernetes が worker Pod を置く node を見つけられないとき（Pod �
 
 worker は lease を保てなくなると、外部への書き込みを止めて exit code 75 で終了します。scheduler がその終了を確認し、その lease も期限切れになっていれば、実行中だった turn は `failed` で終わり（`terminal_reason` は `worker_ownership_lost`）、その入力の受付は `WORKER_OWNERSHIP_LOST` で失敗します。セッションは `idle` に戻り、launch の失敗としては数えません。運用者が下す復旧の判断はありません。
 - lease がまだ有効な間、scheduler は期限切れまで待ちます。その間は pass ごとにログ `Worker gave its lease up; exit settles once the lease runs out` が残り、セッションはその worker に結び付いたままです。待つ時間は `HEARTBEAT_TTL_SEC` を超えません。
-- 途切れた turn が自動でやり直されることはありません。Slack スレッドの「続きから進める」ボタンか新しいメッセージが、最後の checkpoint から続けます。その checkpoint より後に turn が行ったこと（push、pull request など）は人が確認します。
+- 途切れた turn が自動でやり直されることはありません。Web のセッション画面か Slack スレッドの「続きから進める」ボタン、または新しいメッセージが、最後の checkpoint から続けます。その checkpoint より後に turn が行ったこと（push、pull request など）は人が確認します。
 - どちらか一方でも欠けていれば、turn は `outcome_unknown` になり、セッションは `recovery_required` に移ります。理由なく消えた worker や、終了が確認されないまま lease だけが期限切れになった worker がこれに当たります。
 
 ### 3. interrupt 後の結果不明

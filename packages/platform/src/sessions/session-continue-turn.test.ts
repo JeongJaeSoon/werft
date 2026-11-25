@@ -101,6 +101,15 @@ describe("going on from a turn its worker's lost lease ended", () => {
     expect(other?.payloadHash).not.toBe(first?.payloadHash);
   });
 
+  test("a turn a later turn already follows is refused, and nothing is queued for it", async () => {
+    const { service } = setup("superseded");
+    const refused = await service
+      .continueTurn(caller("req-1"), SESSION, { turnId: 3 })
+      .catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(SessionServiceError);
+    expect((refused as SessionServiceError).code).toBe("CONTROL_SUPERSEDED");
+  });
+
   test("a turn that did not end that way is not found", async () => {
     const { service } = setup("not_found");
     const refused = await service

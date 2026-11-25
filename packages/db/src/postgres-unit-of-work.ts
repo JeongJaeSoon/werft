@@ -1078,6 +1078,21 @@ export function createPostgresSessionUnitOfWork(
         if (input.continueTurn !== undefined && !lost) {
           return { outcome: "not_found" };
         }
+        // A turn after the lost one already goes on from it: a message sent
+        // since, or one that waited behind it. The button goes with it.
+        if (input.continueTurn !== undefined) {
+          const [later] = await tx
+            .select({ sequence: turns.sequence })
+            .from(turns)
+            .where(
+              and(
+                eq(turns.sessionId, sessionId),
+                gt(turns.sequence, input.continueTurn),
+              ),
+            )
+            .limit(1);
+          if (later) return { outcome: "superseded" };
+        }
         const message = lost?.message ?? input.message;
         // The turn would carry a source Slack deleted: its own message, or
         // one an earlier turn of the session came from.

@@ -2,6 +2,7 @@ import {
   eventToolCall,
   eventToolResult,
   presentTurnEvent,
+  TURN_WORKER_OWNERSHIP_LOST_REASON,
   TURN_WORKSPACE_QUOTA_EXCEEDED_REASON,
   type TurnSummary,
 } from "@werft-ai/contracts";
@@ -43,6 +44,11 @@ export type ChatItem =
       readonly withheld?: true;
       /** The run stopped the turn for outgrowing its workspace; no event says so. */
       readonly workspaceQuotaExceeded?: true;
+      /**
+       * The id of the turn its worker's lost lease cut off: only a status
+       * event says so, and the chat draws none.
+       */
+      readonly ownershipLost?: string;
     }
   | {
       readonly kind: "tool";
@@ -202,20 +208,27 @@ export function chatItems(
     }
   }
   for (const turn of turns ?? []) {
-    if (
-      turn.status !== "failed" ||
-      turn.terminal_reason !== TURN_WORKSPACE_QUOTA_EXCEEDED_REASON
-    ) {
-      continue;
+    if (turn.status !== "failed") continue;
+    if (turn.terminal_reason === TURN_WORKSPACE_QUOTA_EXCEEDED_REASON) {
+      items.push({
+        kind: "reply",
+        id: `quota:${turn.turn_id}`,
+        at: turn.ended_at ?? turn.created_at,
+        text: "",
+        error: true,
+        workspaceQuotaExceeded: true,
+      });
     }
-    items.push({
-      kind: "reply",
-      id: `quota:${turn.turn_id}`,
-      at: turn.ended_at ?? turn.created_at,
-      text: "",
-      error: true,
-      workspaceQuotaExceeded: true,
-    });
+    if (turn.terminal_reason === TURN_WORKER_OWNERSHIP_LOST_REASON) {
+      items.push({
+        kind: "reply",
+        id: `lost:${turn.turn_id}`,
+        at: turn.ended_at ?? turn.created_at,
+        text: "",
+        error: true,
+        ownershipLost: turn.turn_id,
+      });
+    }
   }
   // Stable: a turn's message stays ahead of the events it started.
   return items
@@ -260,6 +273,8 @@ export interface SessionChatProps {
   readonly failedAttempts?: number;
   /** Opens a closed stream again; without it the notice says to reload. */
   readonly onReconnect?: () => void;
+  /** Drawn under the notice of a lost turn: the way to go on from it. */
+  readonly lostTurnAction?: (turnId: string) => ReactNode;
 }
 
 // A drop or two passes unannounced: the stream is back before the reader
@@ -276,6 +291,7 @@ export function SessionChat({
   after,
   failedAttempts = 0,
   onReconnect,
+  lostTurnAction,
 }: SessionChatProps): JSX.Element {
   const { t, formatMessage, locale } = useBlockText();
   const items = useMemo(
@@ -434,6 +450,11 @@ export function SessionChat({
                     </span>
                   ) : item.workspaceQuotaExceeded ? (
                     t("session.chat.workspaceQuotaExceeded")
+                  ) : item.ownershipLost !== undefined ? (
+                    <div className="flex flex-col items-start gap-3">
+                      <span>{t("session.event.workerOwnershipLost")}</span>
+                      {lostTurnAction?.(item.ownershipLost)}
+                    </div>
                   ) : item.error ? (
                     <span className="whitespace-pre-wrap">{item.text}</span>
                   ) : (

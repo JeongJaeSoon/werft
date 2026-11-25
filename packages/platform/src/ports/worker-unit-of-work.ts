@@ -14,6 +14,7 @@ import type {
   WorkerEvent,
   WorkspaceRepository,
 } from "@werft-ai/contracts";
+import { TURN_WORKER_OWNERSHIP_LOST_REASON } from "@werft-ai/contracts";
 import type { ImageRuntime, RuntimeFingerprint } from "@werft-ai/runtime-core";
 import type {
   ClaimCatalog,
@@ -569,11 +570,7 @@ export type ConfirmExecutionGoneInput = {
  * writing of its own accord.
  */
 export const WORKER_LEASE_LOST_END_REASON = "worker_lease_lost";
-/**
- * The terminal reason of a turn failed because its worker lost the lease
- * mid-turn: the session stays and goes on from its last checkpoint.
- */
-export const WORKER_OWNERSHIP_LOST_REASON = "worker_ownership_lost";
+export const WORKER_OWNERSHIP_LOST_REASON = TURN_WORKER_OWNERSHIP_LOST_REASON;
 export type ConfirmExecutionGoneResult = {
   sessionReleased: boolean;
   slotReleased: boolean;

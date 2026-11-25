@@ -300,6 +300,7 @@ const ROUTES: Record<string, Call> = {
   appendSessionMessage: { body: { message: "hello" } },
   listSessionTurns: {},
   getSessionTurn: {},
+  continueSessionTurn: {},
   streamSessionEvents: {},
   listPendingRequests: {},
   answerPendingRequest: {
