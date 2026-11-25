@@ -452,9 +452,11 @@ export function OperationsUsageScreen() {
   const shown = set.current;
   // A conversation call may settle at no cost, so the agents' call count
   // says whether the period had one; the series alone cannot.
-  // Without the agents' answer the period is not called empty: their failure
-  // and its retry stay on screen.
-  const agentTotals = shown?.agents.data?.totals;
+  // Without the agents' answer, or when their refetch failed over an older
+  // one, the period is not called empty: the failure and its retry stay.
+  const agentTotals = shown?.agents.error
+    ? undefined
+    : shown?.agents.data?.totals;
   const talked = (agentTotals?.conversation?.call_count ?? 0) > 0;
   const empty =
     agentTotals !== undefined &&
