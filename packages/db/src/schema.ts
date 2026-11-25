@@ -6924,6 +6924,14 @@ export const slackOutbox = pgTable(
      * again.
      */
     progressTs: text("progress_ts"),
+    /**
+     * The conversation turn a `conversation_reply` row answers; set on it
+     * alone. No foreign key: deleting conversation records takes the turn
+     * and leaves what was already sent.
+     */
+    conversationTurnId: uuid(
+      "conversation_turn_id",
+    ).$type<ConversationTurnId>(),
   },
   (table) => [
     unique("slack_outbox_dedupe_key").on(table.dedupeKey),
@@ -6985,7 +6993,13 @@ export const slackOutbox = pgTable(
     }),
     check(
       "slack_outbox_kind_check",
-      sql`${table.kind} IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice', 'progress', 'reaction')`,
+      sql`${table.kind} IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice', 'progress', 'reaction', 'conversation_reply')`,
+    ),
+    // A conversation's answer has a turn and no session, and always goes in
+    // a thread: never at the top of a channel.
+    check(
+      "slack_outbox_conversation_reply_check",
+      sql`(${table.kind} = 'conversation_reply') = (${table.conversationTurnId} IS NOT NULL) AND (${table.kind} <> 'conversation_reply' OR (${table.sessionId} IS NULL AND ${table.sessionLinkId} IS NULL AND ${table.threadTs} <> ''))`,
     ),
     check(
       "slack_outbox_progress_check",

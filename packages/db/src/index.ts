@@ -135,6 +135,7 @@ export * from "./sessions/workspace-mcp-egress.ts";
 export * from "./settings-document.ts";
 export { notDeleted } from "./soft-delete.ts";
 export * from "./surface/conversation-records.ts";
+export * from "./surface/conversation-replies.ts";
 export * from "./surface/judgment-review.ts";
 export * from "./surface/m1-judgments.ts";
 export * from "./surface/model-notices-off-people.ts";

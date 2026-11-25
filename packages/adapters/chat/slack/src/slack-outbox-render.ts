@@ -5,6 +5,7 @@ import type {
   SurfaceOutboxPostedAs,
   SurfaceUnpostedInstruction,
 } from "@werft-ai/platform";
+import { slackAiLabelBlock } from "./slack-ai-label.ts";
 import { markdownToSlackMrkdwn, markdownToSlackParts } from "./slack-mrkdwn.ts";
 import {
   escapeSlackControls,
@@ -178,12 +179,14 @@ export function slackReplyBlocks(
 export function slackOutboxText(
   body: SurfaceOutboxEntry["body"],
   guard?: SlackTextGuard,
+  // Room kept for what the caller adds after, so the cut never drops it.
+  reserve = 0,
 ): string {
   const link = outboxLink(body) === "" ? "" : `\n\n${outboxLink(body)}`;
   const escaped = outboxEscaper(body, guard);
   // Converted before the cut: the loop below re-escapes pieces of this text.
   const text = escaped(markdownToSlackMrkdwn(body.text));
-  const room = SLACK_TEXT_MAX - link.length - 1;
+  const room = SLACK_TEXT_MAX - link.length - 1 - reserve;
   if (text.length <= room + 1) return text + link;
   let piece = text;
   let cut = room;
@@ -228,6 +231,26 @@ export function slackOutboxPresentation(
   }
   if (claim.body.blocks !== undefined) {
     return { kind: "blocks", blocks: claim.body.blocks, fallback: false };
+  }
+  if (claim.kind === "conversation_reply") {
+    // The answer, then the AI line; too big for blocks, the text carries both.
+    const answer =
+      slackReplyBlocks(claim.body, guard) ??
+      sectionPieces(slackOutboxText(claim.body, guard))?.map((text) => ({
+        type: "section",
+        text: { type: "mrkdwn", text },
+      })) ??
+      null;
+    return answer === null || answer.length >= 50
+      ? { kind: "text" }
+      : {
+          kind: "blocks",
+          blocks: [
+            ...answer,
+            slackAiLabelBlock(claim.body.locale, claim.body.requested_by),
+          ],
+          fallback: true,
+        };
   }
   const blocks =
     claim.kind === "reply" ? slackReplyBlocks(claim.body, guard) : null;
