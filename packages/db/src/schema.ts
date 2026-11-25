@@ -3413,6 +3413,37 @@ export const checkpointRestoreChecks = pgTable(
   ],
 );
 
+// A workspace bundle verification that passed, remembered so that the
+// protected-commits answer does not start git again while nothing the pass
+// depended on has changed (CheckpointStore.recordBundleVerdict).
+// `verdict_key` names the verifier's version, every bundle of the chain and
+// the commit; `prerequisite_revisions` are the checkpoints whose bundles the
+// chain builds on. Rows are also deleted by a trigger this file cannot show,
+// `checkpoints_forget_bundle_verdicts` (migration checkpoint_bundle_verdicts):
+// when a checkpoint row is deleted, collected (`collected_at`) or re-pinned
+// (`manifest_ref`, `manifest_sha256`, `manifest_version`), its verdict and
+// every verdict that lists it as a prerequisite go.
+export const checkpointBundleVerdicts = pgTable(
+  "checkpoint_bundle_verdicts",
+  {
+    sessionId: uuid("session_id").notNull(),
+    revision: integer().notNull(),
+    verdictKey: text("verdict_key").notNull(),
+    prerequisiteRevisions: integer("prerequisite_revisions").array().notNull(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.revision] }),
+    foreignKey({
+      name: "checkpoint_bundle_verdicts_checkpoint_fk",
+      columns: [table.sessionId, table.revision],
+      foreignColumns: [checkpoints.sessionId, checkpoints.revision],
+    }).onDelete("cascade"),
+  ],
+);
+
 // Every output object a committed revision's manifest names, the ones it
 // inherited included, so the bytes still kept are the distinct keys of the
 // revisions garbage collection has not released.

@@ -31,6 +31,7 @@ import type { Database } from "../queries.ts";
 import { openResumeReceipt } from "../resume-control.ts";
 import {
   attempts,
+  checkpointBundleVerdicts,
   checkpoints,
   lostCheckpointNotices,
   pushIntents,
@@ -521,6 +522,76 @@ export function createPostgresCheckpointStore(
         versionsHeld: row.versionsHeld,
         turnId: row.turnSequence === null ? null : String(row.turnSequence),
       }));
+    },
+
+    async listBundleVerdicts(sessionId: string, revisions: readonly number[]) {
+      if (revisions.length === 0) return [];
+      return db
+        .select({
+          key: checkpointBundleVerdicts.verdictKey,
+          revision: checkpointBundleVerdicts.revision,
+        })
+        .from(checkpointBundleVerdicts)
+        .where(
+          and(
+            eq(checkpointBundleVerdicts.sessionId, sessionId),
+            inArray(checkpointBundleVerdicts.revision, [...revisions]),
+          ),
+        );
+    },
+
+    async recordBundleVerdict(input) {
+      await db.transaction(async (tx) => {
+        // Locked against the writes that withdraw verdicts (the trigger
+        // checkpoints_forget_bundle_verdicts): a collection or re-pin of the
+        // checkpoint or of one it builds on either committed before this
+        // read, or waits and then finds the row written below.
+        const rows = await tx
+          .select({
+            collectedAt: checkpoints.collectedAt,
+            manifestSha256: checkpoints.manifestSha256,
+            revision: checkpoints.revision,
+          })
+          .from(checkpoints)
+          .where(
+            and(
+              eq(checkpoints.sessionId, input.sessionId),
+              inArray(checkpoints.revision, [
+                input.revision,
+                ...input.prerequisiteRevisions,
+              ]),
+            ),
+          )
+          .orderBy(asc(checkpoints.revision))
+          .for("share");
+        const judged = rows.find((row) => row.revision === input.revision);
+        if (
+          judged === undefined ||
+          judged.collectedAt !== null ||
+          judged.manifestSha256 !== input.manifestSha256
+        ) {
+          return;
+        }
+        await tx
+          .insert(checkpointBundleVerdicts)
+          .values({
+            prerequisiteRevisions: [...input.prerequisiteRevisions],
+            revision: input.revision,
+            sessionId: input.sessionId,
+            verdictKey: input.key,
+          })
+          .onConflictDoUpdate({
+            target: [
+              checkpointBundleVerdicts.sessionId,
+              checkpointBundleVerdicts.revision,
+            ],
+            set: {
+              prerequisiteRevisions: [...input.prerequisiteRevisions],
+              verdictKey: input.key,
+              verifiedAt: DB_NOW,
+            },
+          });
+      });
     },
 
     async listPinnedCommits(sessionId: string, limit: number) {
