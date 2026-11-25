@@ -4,6 +4,13 @@
  * starts with a status check. No tool is named: the names belong to the
  * tools' own descriptions, and change without this text changing.
  */
+/**
+ * The criteria of the instructions in one sentence, for a tool's description:
+ * an engine that reads descriptions and not instructions still has it.
+ */
+export const WERFT_FIRST_RULE =
+  "Use the werft server first, before general knowledge and before a command-line tool's own setup steps, when a question is about what this agent is connected to in Werft (GitHub, Slack, MCP servers, skills, tools), what it may or may not do here, or how to set something up in Werft; when that is unclear, check this agent's status on this server first.";
+
 export const WERFT_MCP_INSTRUCTIONS = [
   "This server is Werft's own: Werft is the platform this agent runs on. It answers for the installed version of Werft, from its documentation and from what this agent is connected to and allowed to do right now. It only reads, and it never returns a secret value such as a token or a key.",
   "Use this server first, before general knowledge and before a command-line tool's own setup steps, when a question is about any of these:\n- what this agent is connected to in Werft: GitHub, Slack, MCP servers, skills, tools;\n- what this agent may or may not do here, or why something was refused;\n- how to set something up or change a setting in Werft.",
