@@ -18,9 +18,10 @@ import {
 } from "./slack-config-api.ts";
 import { type SlackInboxLogger, slackInboundBackoffMs } from "./slack-inbox.ts";
 import {
-  guardSlackOutboxBody,
+  type SlackTextGuard,
   sessionUrl,
   slackInstructionFallbackText,
+  slackOutboxGuard,
   slackOutboxPresentation,
   slackOutboxText,
 } from "./slack-outbox-render.ts";
@@ -141,13 +142,14 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     claim: SurfaceOutboxClaim,
     text: string,
     iconUrl: string | null,
+    guard: SlackTextGuard,
   ) => {
     const target = {
       channelId: claim.channelId,
       threadTs: claim.threadTs,
       text,
     };
-    const presentation = slackOutboxPresentation(claim);
+    const presentation = slackOutboxPresentation(claim, guard);
     if (presentation.kind !== "instruction") {
       if (presentation.kind === "text") {
         return deps.slack.postMessage(botToken, target);
@@ -194,7 +196,12 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     return deps.slack.postMessage(botToken, {
       ...target,
       ...metadata,
-      text: slackInstructionFallbackText(claim.body, text, sender.username),
+      text: slackInstructionFallbackText(
+        claim.body,
+        text,
+        sender.username,
+        guard,
+      ),
     });
   };
 
@@ -202,10 +209,27 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     input: DeliveryInput<SurfaceOutboxClaim>,
   ): Promise<DeliveryOutcome> => {
     const { row, attempts } = input;
-    // The one place a row's text is guarded: every way it goes out below
-    // draws from this body.
-    const guarded = guardSlackOutboxBody(row);
-    const claim = { ...row, body: guarded.body };
+    // The one guard a row's text goes through: on its Markdown here, and
+    // again on the text Slack reads once rendered (the render can join
+    // pieces), every way it goes out below.
+    const { guard, dropped } = slackOutboxGuard(row);
+    const claim =
+      row.body.blocks === undefined
+        ? { ...row, body: { ...row.body, text: guard(row.body.text) } }
+        : row;
+    const logDropped = () => {
+      if (dropped.size === 0) return;
+      deps.logger?.warn(
+        "Slack send dropped references outside its conversation",
+        {
+          id: claim.id,
+          kind: claim.kind,
+          channel_id: claim.channelId,
+          session_id: claim.sessionId,
+          dropped: [...dropped],
+        },
+      );
+    };
     // Before the token and any Slack call: such a row never goes out.
     if (slackOutboxChannelRefused(claim.kind, claim.channelId)) {
       return { kind: "failed", code: SLACK_USER_CHANNEL_CODE };
@@ -234,18 +258,6 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     }
     const iconUrl = await senderImage(botToken, claim);
     if (!(await input.begin())) return { kind: "lease_lost" };
-    if (guarded.dropped.length > 0) {
-      deps.logger?.warn(
-        "Slack send dropped references outside its conversation",
-        {
-          id: claim.id,
-          kind: claim.kind,
-          channel_id: claim.channelId,
-          session_id: claim.sessionId,
-          dropped: guarded.dropped,
-        },
-      );
-    }
 
     // A card's text is its own, escaped and linked already.
     // A model notice is a direct message with no thread: it opens the
@@ -261,6 +273,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
             modelLink === undefined
               ? claim.body
               : { ...claim.body, link_url: modelLink },
+            guard,
           );
     try {
       const response =
@@ -271,9 +284,11 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
               threadTs: claim.threadTs,
               text,
             })
-          : await postMessage(botToken, claim, text, iconUrl);
+          : await postMessage(botToken, claim, text, iconUrl, guard);
+      logDropped();
       return outcomeOf(slackOutboxSettleFor(attempts, response));
     } catch (error) {
+      logDropped();
       // No answer came: the request may have reached Slack.
       return {
         kind: "uncertain",

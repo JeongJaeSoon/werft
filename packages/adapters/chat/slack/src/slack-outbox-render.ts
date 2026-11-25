@@ -74,9 +74,15 @@ function outboxLink(body: SurfaceOutboxEntry["body"]): string {
     : "";
 }
 
-function outboxEscaper(body: SurfaceOutboxEntry["body"]) {
+/** A last pass over the text as Slack will read it, before escaping. */
+export type SlackTextGuard = (text: string) => string;
+
+function outboxEscaper(
+  body: SurfaceOutboxEntry["body"],
+  guard: SlackTextGuard = (text) => text,
+) {
   return (value: string) =>
-    escapeSlackControls(value, {
+    escapeSlackControls(guard(value), {
       maskedLinks: "expand",
       ...(body.mention_user_ids === undefined
         ? {}
@@ -113,10 +119,11 @@ function sectionPieces(text: string): string[] | null {
  */
 export function slackReplyBlocks(
   body: SurfaceOutboxEntry["body"],
+  guard: SlackTextGuard = (text) => text,
 ): unknown[] | null {
   const parts = markdownToSlackParts(body.text);
   if (parts === null) return null;
-  const escaped = outboxEscaper(body);
+  const escaped = outboxEscaper(body, guard);
   const blocks: unknown[] = [];
   for (const part of parts) {
     if ("table" in part) {
@@ -124,7 +131,7 @@ export function slackReplyBlocks(
         type: "table",
         column_settings: part.table.rows[0]?.map(() => ({ is_wrapped: true })),
         rows: part.table.rows.map((row) =>
-          row.map((text) => ({ type: "raw_text", text })),
+          row.map((text) => ({ type: "raw_text", text: guard(text) })),
         ),
       });
       continue;
@@ -142,9 +149,12 @@ export function slackReplyBlocks(
   return blocks.length <= 50 ? blocks : null;
 }
 
-export function slackOutboxText(body: SurfaceOutboxEntry["body"]): string {
+export function slackOutboxText(
+  body: SurfaceOutboxEntry["body"],
+  guard?: SlackTextGuard,
+): string {
   const link = outboxLink(body) === "" ? "" : `\n\n${outboxLink(body)}`;
-  const escaped = outboxEscaper(body);
+  const escaped = outboxEscaper(body, guard);
   // Converted before the cut: the loop below re-escapes pieces of this text.
   const text = escaped(markdownToSlackMrkdwn(body.text));
   const room = SLACK_TEXT_MAX - link.length - 1;
@@ -175,6 +185,7 @@ export function sessionUrl(consoleOrigin: string | null, sessionId: string) {
 
 export function slackOutboxPresentation(
   claim: Pick<SurfaceOutboxClaim, "kind" | "body">,
+  guard?: SlackTextGuard,
 ):
   | {
       kind: "instruction";
@@ -192,7 +203,8 @@ export function slackOutboxPresentation(
   if (claim.body.blocks !== undefined) {
     return { kind: "blocks", blocks: claim.body.blocks, fallback: false };
   }
-  const blocks = claim.kind === "reply" ? slackReplyBlocks(claim.body) : null;
+  const blocks =
+    claim.kind === "reply" ? slackReplyBlocks(claim.body, guard) : null;
   return blocks === null
     ? { kind: "text" }
     : { kind: "blocks", blocks, fallback: true };
@@ -354,9 +366,12 @@ export function dropOutOfScopeSlackRefs(
       if (control !== undefined) {
         const bar = control.indexOf("|");
         const target = bar === -1 ? control : control.slice(0, bar);
+        // Anything else in brackets is read as text: a bare id there too.
         const out = target.startsWith("#")
           ? outside([target.slice(1).toUpperCase()], [])
-          : outsideUrl(target);
+          : target.includes("://")
+            ? outsideUrl(target)
+            : outsideLabel(target);
         const label = bar === -1 ? "" : control.slice(bar + 1);
         return outsideLabel(label) || out ? "" : whole;
       }
@@ -376,11 +391,37 @@ export function dropOutOfScopeSlackRefs(
 }
 
 /**
- * The body as it may go out: no group mention, and, past a person's own
- * words (an instruction or its mirror), no Slack reference outside the row's
+ * What a row's text may say: no group mention, and, past a person's own words
+ * (an instruction or its mirror), no Slack reference outside the row's
  * conversation. Each removal can join the text around it into a new one, so
- * both run again until nothing changes; each pass only shortens the text. A
- * card's blocks and text are its own, escaped already.
+ * both run again until nothing changes; each pass only shortens the text.
+ * `dropped` gathers the ids taken out, over every text the guard is given.
+ */
+export function slackOutboxGuard(
+  claim: Pick<SurfaceOutboxClaim, "kind" | "channelId" | "conversationScope">,
+): { guard: SlackTextGuard; dropped: Set<string> } {
+  const own = claim.kind === "instruction" || claim.kind === "input_mirror";
+  const scope = slackOutboxScope(claim);
+  const dropped = new Set<string>();
+  const guard = (value: string) => {
+    let text = value;
+    for (;;) {
+      let next = stripSlackGroupMentions(text);
+      if (!own) {
+        const scoped = dropOutOfScopeSlackRefs(next, scope);
+        for (const id of scoped.dropped) dropped.add(id);
+        next = scoped.text;
+      }
+      if (next === text) return text;
+      text = next;
+    }
+  };
+  return { guard, dropped };
+}
+
+/**
+ * The body with its Markdown guarded. A card's blocks and text are its own,
+ * escaped already; its model text is left to the card's own renderer.
  */
 export function guardSlackOutboxBody(
   claim: Pick<
@@ -390,30 +431,18 @@ export function guardSlackOutboxBody(
 ): { body: SurfaceOutboxEntry["body"]; dropped: string[] } {
   const { body } = claim;
   if (body.blocks !== undefined) return { body, dropped: [] };
-  const own = claim.kind === "instruction" || claim.kind === "input_mirror";
-  const scope = slackOutboxScope(claim);
-  const dropped: string[] = [];
-  let text = body.text;
-  for (;;) {
-    let next = stripSlackGroupMentions(text);
-    if (!own) {
-      const scoped = dropOutOfScopeSlackRefs(next, scope);
-      dropped.push(...scoped.dropped);
-      next = scoped.text;
-    }
-    if (next === text) break;
-    text = next;
-  }
-  return { body: { ...body, text }, dropped };
+  const { guard, dropped } = slackOutboxGuard(claim);
+  return { body: { ...body, text: guard(body.text) }, dropped: [...dropped] };
 }
 
 export function slackInstructionFallbackText(
   body: SurfaceOutboxEntry["body"],
   text: string,
   username: string,
+  guard?: SlackTextGuard,
 ): string {
   const named = `${username}\n`;
   return body.text.startsWith(named)
     ? text
-    : slackOutboxText({ ...body, text: named + body.text });
+    : slackOutboxText({ ...body, text: named + body.text }, guard);
 }
