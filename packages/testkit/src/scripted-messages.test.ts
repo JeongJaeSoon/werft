@@ -132,6 +132,39 @@ describe("scripted Messages API", () => {
     ]);
   });
 
+  test("a probe says whether the request carried a text, which the prompt itself does not hold", async () => {
+    const probed = 'Ask this server first.\nIt\'s "Werft".';
+    const probe = Buffer.from(probed, "utf8").toString("base64");
+    const prompt = {
+      role: "user",
+      content: `${SPEC_MARKER}${JSON.stringify({ ...spec, steps: [], probe })}`,
+    };
+    const carried = { ...request([prompt]) };
+    const finalOf = async (body: Record<string, unknown>) =>
+      (
+        await replyFor(
+          { ...carried, body: { ...carried.body, ...body } },
+          [],
+          "fallback",
+        )
+      ).content;
+    expect(await finalOf({})).toEqual([
+      { type: "text", text: "done [probe:missing]" },
+    ]);
+    // In the system prompt, or in a block the engine added to the messages.
+    expect(
+      await finalOf({ system: [{ type: "text", text: `a ${probed} b` }] }),
+    ).toEqual([{ type: "text", text: "done [probe:found]" }]);
+    expect(
+      await finalOf({
+        messages: [
+          { role: "user", content: [{ type: "text", text: probed }] },
+          prompt,
+        ],
+      }),
+    ).toEqual([{ type: "text", text: "done [probe:found]" }]);
+  });
+
   test("answers the fallback without a spec, or without tools", async () => {
     const recorded: GateRequest[] = [];
     const plain = await replyFor(

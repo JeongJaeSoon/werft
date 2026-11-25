@@ -129,6 +129,17 @@ export interface SessionShareStore {
     sessionId: string,
     pushRequestId: string,
   ): Promise<string | null>;
+  /**
+   * The person a tool permission or question request is whose: the
+   * requester of the turn that asked (that turn's root when it was a push
+   * follow-up); with no person there, whoever started the session. Null when
+   * none is a person or the request is not the session's.
+   */
+  pendingRequesterOf(
+    ownerId: string,
+    sessionId: string,
+    requestId: string,
+  ): Promise<string | null>;
   get(ownerId: string, sessionId: string): Promise<SessionShare | null>;
   /** Wakes the session's open streams so each re-checks what it may see. */
   set(input: SetSessionShareInput): Promise<SetSessionShareResult>;

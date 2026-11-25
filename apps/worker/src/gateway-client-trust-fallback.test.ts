@@ -109,6 +109,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
       answer_surface: true,
       repository_pins: true,
       workspace_mcp: true,
+      werft_mcp: true,
     });
   });
 
@@ -130,6 +131,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
+        werft_mcp: true,
       },
       {
         approval_remember: true,
@@ -139,6 +141,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
+        werft_mcp: true,
       },
     ]);
   });
@@ -172,6 +175,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
+        werft_mcp: true,
       },
       {
         approval_remember: true,
@@ -181,6 +185,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
+        werft_mcp: true,
       },
       {
         approval_remember: true,
@@ -190,6 +195,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
+        werft_mcp: true,
       },
     ]);
   });
@@ -261,6 +267,7 @@ describe("claim against a control-host older than user_env", () => {
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
+        werft_mcp: true,
       },
       {
         approval_remember: true,
@@ -270,6 +277,7 @@ describe("claim against a control-host older than user_env", () => {
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
+        werft_mcp: true,
       },
     ]);
   });
@@ -291,6 +299,7 @@ describe("claim against a control-host older than user_env", () => {
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
+        werft_mcp: true,
       },
       {
         approval_remember: true,
@@ -299,6 +308,7 @@ describe("claim against a control-host older than user_env", () => {
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
+        werft_mcp: true,
       },
     ]);
   });
@@ -338,6 +348,7 @@ describe("claim against a control-host older than user_env", () => {
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
+        werft_mcp: true,
       },
       {
         approval_remember: true,
@@ -347,6 +358,7 @@ describe("claim against a control-host older than user_env", () => {
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
+        werft_mcp: true,
       },
       {
         approval_remember: true,
@@ -356,6 +368,7 @@ describe("claim against a control-host older than user_env", () => {
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
+        werft_mcp: true,
       },
       {
         approval_remember: true,
@@ -364,6 +377,7 @@ describe("claim against a control-host older than user_env", () => {
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
+        werft_mcp: true,
       },
     ]);
   });
@@ -385,6 +399,7 @@ describe("claim against a control-host older than user_env", () => {
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
+        werft_mcp: true,
       },
       {
         approval_remember: true,
@@ -394,6 +409,7 @@ describe("claim against a control-host older than user_env", () => {
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
+        werft_mcp: true,
       },
     ]);
   });
@@ -427,6 +443,22 @@ describe("claim against a control-host older than user_env", () => {
     );
     const { workspace_mcp, ...rest } = first ?? {};
     expect(workspace_mcp).toBe(true);
+    expect(second).toEqual(rest);
+  });
+
+  test("a control-host that does not know werft_mcp is claimed again without it only", async () => {
+    const { gateway, sent } = gatewayAgainst((request) =>
+      lacks(request, "werft_mcp")
+        ? json(200, claimAnswer)
+        : badRequest(refusing("werft_mcp")),
+    );
+    await gateway.bootstrapClaim(withUserEnv);
+    expect(sent).toHaveLength(2);
+    const [first, second] = sent.map(
+      (entry) => entry.body.capabilities as Record<string, unknown>,
+    );
+    const { werft_mcp, ...rest } = first ?? {};
+    expect(werft_mcp).toBe(true);
     expect(second).toEqual(rest);
   });
 

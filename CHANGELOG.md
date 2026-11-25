@@ -15,11 +15,20 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **비공개 채널에서 요청자가 나간 도구 권한·질문 카드도 지금 채널 멤버가 답한다**(JeongJaeSoon/werft#2197). migration은 없고 따로 할 일도 없다.
+  - 그 요청을 낸 턴의 사람(사람이 없으면 세션을 맡은 사람)이 세션의 비공개 채널을 모두 나가면, 카드에 "요청자가 채널을 나갔어요"가 붙고 `session.approve`를 가진 지금 채널 멤버가 답할 수 있다. 답한 사람은 `pending_requests.answered_by`에 남는다. 다시 들어오면 표시가 사라지고 원래 규칙으로 돌아간다. 공개 채널은 그대로다.
+  - 요청자가 나간 뒤의 도구 권한 카드에는 "이 세션 동안 허용" 버튼이 없고, 누가 답하든 API로 `remember: "session"`을 보내면 `403`이다. 세션 허용을 준 사람의 권한에 묶는 변경이 들어오면 풀린다.
+  - 멤버인지 확인하지 못하면 원래 규칙을 쓰고 로그 `Pending request's requester channel membership unconfirmed`(event `pending.requester_left.unconfirmed`)를 남긴다. push 카드의 로그는 그대로다.
+  - v0.5.0으로 되돌리면 이미 붙은 표시는 그 카드가 다음에 다시 그려질 때(답·만료 등) 사라지고, 그동안 멤버가 누르면 v0.5.0 규칙대로 거절된다.
 - **쓰지 않는 표 `agent_engine_settings`·`workspace_engine_settings`를 행째 지운다**(JeongJaeSoon/werft#2182). migration `0357_drop_engine_settings`가 지운다. 두 표에는 워크스페이스·에이전트의 실행 규칙이 들어 있었고, `v0.4.0`부터 어느 릴리스도 읽거나 쓰지 않았다. 마지막으로 읽은 릴리스는 `v0.3.0`이므로 지원 창 안의 이미지는 영향이 없다. 다만 `v0.3.0` 이하에서 저장한 규칙의 행이 남아 있을 수 있다. 행이 있으면 migrate 로그 `db.migrate.notice`에 표마다 지운 행 수가 남는다(`0357: dropped rows: …`). 그 행이 필요하면 올리기 전에 백업한다. 0357 아래로 스키마를 내려도 행은 돌아오지 않는다([업그레이드 문서](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/upgrade-compose/#엔진-설정-표-둘을-지운-릴리스)).
 - **Slack 역할의 스위치 `SLACK_ROLE_CLOSE_LINKS`의 기본이 `true`로 바뀐다. 닫힌 세션의 Slack 스레드에 다시 멘션하면 그 세션이 아니라 새 세션이 열린다**(JeongJaeSoon/werft#2180). migration은 없다. 끈 채로 두려면 slack 역할에 `SLACK_ROLE_CLOSE_LINKS=false`를 준다(Compose는 같은 이름, Helm은 `slack.extraEnv`).
   - 올린 뒤 slack 역할의 outbox pass가 닫힌(`closed`) 세션의 스레드 연결을 마지막 보고 줄을 넣은 뒤 닫는다. 올리기 전에 닫힌 세션의 연결도 같은 규칙으로 한 pass에 `SLACK_ROLE_BATCH_SIZE`개씩 닫힌다. 멈춘 세션(`stopped`·`paused`·`recovery_required`)과 폐기된 연결은 닫지 않는다.
   - 닫는 사유(`closed_reason`)는 v0.5.0과 같다. 소유자가 세션을 닫았으면 `completed`, 운영자 복구 닫기와 에이전트 릴리스가 없어 정리로 닫힌 세션은 `abandoned`다. 세션에 취소·실패 닫힘이 생기면 `cancelled`·`failed`를 쓴다.
   - 닫힌 연결은 이력으로 남고 되살아나지 않는다. v0.5.0으로 되돌려도 이미 닫힌 연결은 닫힌 채로 남고, 그 스레드의 다음 멘션은 새 세션이 된다. v0.5.0에도 같은 닫기가 스위치 뒤에 있으므로, 되돌린 뒤 닫기를 멈추려면 `SLACK_ROLE_CLOSE_LINKS=false`를 주거나 Compose 파일도 v0.5.0의 것으로 되돌린다. 이 릴리스의 `infra/compose.core.yml`은 값을 주지 않으면 `true`를 넘기므로 이미지만 되돌리면 닫기가 계속된다. Helm은 이 값을 기본으로 넘기지 않아 이미지를 되돌리면 꺼진다.
+- **이 버전의 worker 이미지로 도는 모든 세션에 내장 MCP 서버 `werft`가 붙고, workspace MCP 서버 이름 `werft`가 예약된다. 이미 그 이름으로 등록한 workspace MCP 서버는 세션에 붙지 않는다**(JeongJaeSoon/werft#2192). migration은 없다. 내장 서버는 에이전트·workspace의 어떤 설정으로도 끌 수 없다.
+  - `werft`라는 이름의 workspace MCP 서버를 쓰던 설치는 그 서버를 다른 이름으로 다시 등록한다. 도구 이름(`mcp__werft__…`)도 새 서버 이름을 따르므로, 그 이름을 적은 도구 정책도 함께 고친다. 올린 뒤에는 그 서버의 도구가 세션에 나오지 않는다. 올리기 전에 그 서버와 함께 찍힌 checkpoint는 그대로 복원된다.
+  - 새 등록에서 이름 `werft`는 `github`·`browser`·`memory`와 같이 거절된다. release의 도구 정책 `per_tool`에 `mcp__werft__`로 시작하는 이름을 적으면 release를 만들 수 없다.
+  - worker 이미지를 함께 올린다. 앞선 버전의 worker 이미지로 도는 세션은 지금처럼 돌고 내장 서버를 받지 않는다(새 worker가 capability `werft_mcp`를 알릴 때만 붙는다). checkpoint는 어느 쪽 worker에서 찍었든 다른 쪽에서 그대로 복원된다.
 
 ## v0.5.0
 

@@ -648,6 +648,7 @@ export function createSessionService(deps: {
       repository_mode,
       github_policy_source,
       holds_execution,
+      budget_account_refused,
       ...detail
     } = record;
     const spend = { costUsd: cost_usd, providerTokens: provider_tokens };
@@ -686,7 +687,17 @@ export function createSessionService(deps: {
               code: "BUDGET_EXCEEDED",
               reason: `The session has reached its ${reachedLimits(spend, budget)}; queued messages will not run and a pending resume will not launch`,
             }
-          : null),
+          : null) ??
+        (budget_account_refused === null
+          ? null
+          : {
+              code: "BUDGET_EXCEEDED",
+              reason:
+                budget_account_refused === "user"
+                  ? "The requester's monthly budget account refused a model call"
+                  : "The agent team's monthly budget account refused a model call",
+              budget_owner: budget_account_refused,
+            }),
       runtime: runtimeFor(spec),
     };
   }

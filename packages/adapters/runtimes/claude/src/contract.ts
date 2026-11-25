@@ -25,6 +25,8 @@ import {
   type CheckpointLeaseGrant,
   type CheckpointPoint,
   type CheckpointPreparation,
+  exposedMcpTools,
+  fingerprintedMcpServers,
   type ImageRuntime,
   type NegotiatedCapabilities,
   type ParkReadiness,
@@ -35,6 +37,7 @@ import {
   type RuntimeModule,
   type RuntimeProfileInput,
   type RuntimeStart,
+  servedMcpTools,
   type ToolDecisionObserver,
 } from "@werft-ai/runtime-core";
 
@@ -174,7 +177,8 @@ function mcpConfig(
           name: s.name,
           url: s.url,
           token: s.token,
-          tools: s.tools,
+          tools: exposedMcpTools(s),
+          ...(s.platform === true ? { platform: true } : {}),
         }),
       ]),
     ),
@@ -195,6 +199,13 @@ function trustedToolsOf(
       : [],
   );
   return trusted.length === 0 ? {} : { trustedTools: trusted };
+}
+
+function servedToolsOf(
+  servers: RuntimeStart["bundle"]["mcpServers"],
+): Pick<ClaudeRuntimeConfig, "servedTools"> {
+  const served = servers.flatMap(servedMcpTools);
+  return served.length === 0 ? {} : { servedTools: served };
 }
 
 export function claudeStartConfig(
@@ -222,6 +233,7 @@ export function claudeStartConfig(
       ? {}
       : { userEnvironment: config.userEnvironment }),
     ...trustedToolsOf(start.bundle.mcpServers),
+    ...servedToolsOf(start.bundle.mcpServers),
     ...(config.disallowedTools === undefined
       ? {}
       : { disallowedTools: config.disallowedTools }),
@@ -324,7 +336,14 @@ export const claudeRuntimeModule: RuntimeModule = {
   fingerprint: (profile, scheme) => ({
     ...CLAUDE_RUNTIME_FINGERPRINT,
     profileSha256: claudeProfileFingerprint(
-      claudeProfileConfig(profile),
+      // All but the built-in `werft` server, which every session has.
+      claudeProfileConfig({
+        ...profile,
+        bundle: {
+          ...profile.bundle,
+          mcpServers: fingerprintedMcpServers(profile.bundle.mcpServers),
+        },
+      }),
       scheme,
     ),
   }),

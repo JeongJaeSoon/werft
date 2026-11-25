@@ -139,7 +139,11 @@ export type PlatformMcpServer = {
   binding: string;
   url: string;
   token: string;
-  /** The tool allowlist; the run exposes only this server's share of it. */
+  /**
+   * The tool allowlist; the run exposes only this server's share of it, and
+   * for the built-in `werft` server also the tools it serves
+   * (`servedMcpTools`).
+   */
   tools: readonly string[];
   /** The platform's own server, not a remote one an administrator named. */
   platform?: boolean;

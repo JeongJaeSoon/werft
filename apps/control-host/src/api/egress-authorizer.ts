@@ -1,20 +1,23 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   ADDITIONAL_REPOSITORY_ID_PATTERN,
+  type BudgetOwnerKind,
   mcpServerIdSchema,
 } from "@werft-ai/contracts";
 import { RequestDeadline, runWithDeadline } from "@werft-ai/db/pool";
 import type { StructuredLogger } from "@werft-ai/observability";
 import {
   type BudgetChoice,
+  type BuiltinMcpGrant,
   GITHUB_MCP_UPSTREAM_PATH,
-  type GitHubMcpGrant,
   hashToken,
   type JsonRpcResponse,
   PACKAGE_REGISTRY_NAMES,
   type ProviderExchangeLedger,
   type ProviderUsage,
-  verifyGitHubMcpGrant,
+  verifyBuiltinMcpGrant,
+  WERFT_MCP_UPSTREAM_PATH,
+  type WerftMcpResponse,
   type WorkerGateway,
   WorkerGatewayError,
 } from "@werft-ai/platform";
@@ -109,9 +112,20 @@ export function githubMcpGrantKeyOf(config: EgressAuthorizerConfig): Buffer {
     .digest();
 }
 
-// What the built-in server takes in one message: a dispatch's inputs are
+/**
+ * The key the built-in `werft` MCP server's grants are signed with, derived
+ * the same way under its own name: a grant for one built-in server opens
+ * neither the other nor the authorizer.
+ */
+export function werftMcpGrantKeyOf(config: EgressAuthorizerConfig): Buffer {
+  return createHmac("sha256", config.token)
+    .update("werft werft mcp grant v1", "utf8")
+    .digest();
+}
+
+// What a built-in server takes in one message: a dispatch's inputs are
 // the largest argument (25 inputs of up to 64 KiB).
-const GITHUB_MCP_MAX_BODY_BYTES = 2 * 1024 * 1024;
+const BUILTIN_MCP_MAX_BODY_BYTES = 2 * 1024 * 1024;
 
 const tokenSchema = z.string().min(1).max(512);
 
@@ -330,6 +344,17 @@ export function createEgressAuthorizer(deps: {
     attemptId: string;
     title?: boolean;
   }) => Promise<{ choice: BudgetChoice | undefined; turnId: string | null }>;
+  /**
+   * Keeps an open a budget account refused on its session, where the
+   * session's attention and its Slack thread read it. Absent, the log alone.
+   */
+  recordAccountRefusal?: (refusal: {
+    sessionId: string;
+    attemptId: string;
+    /** The public id of the turn the call was chosen for, as logged. */
+    turnId: string | null;
+    owner: BudgetOwnerKind | null;
+  }) => Promise<string>;
   /** Absent when the API runs without an object store: the route refuses. */
   objectStore?: ObjectRouteSigner;
   /**
@@ -338,10 +363,23 @@ export function createEgressAuthorizer(deps: {
    */
   githubMcp?: {
     handle: (
-      grant: GitHubMcpGrant,
+      grant: BuiltinMcpGrant,
       message: unknown,
       requestId: string,
     ) => Promise<JsonRpcResponse | null>;
+    grantKey: Uint8Array;
+    now?: () => number;
+  };
+  /**
+   * The built-in `werft` MCP server, reached at WERFT_MCP_UPSTREAM_PATH the
+   * same way, with a grant signed under its own key.
+   */
+  werftMcp?: {
+    handle: (
+      grant: BuiltinMcpGrant,
+      message: unknown,
+      requestId: string,
+    ) => Promise<WerftMcpResponse | null>;
     grantKey: Uint8Array;
     now?: () => number;
   };
@@ -384,7 +422,10 @@ export function createEgressAuthorizer(deps: {
   return async (request) => {
     const url = new URL(request.url);
     if (url.pathname === GITHUB_MCP_UPSTREAM_PATH) {
-      return serveGitHubMcp(request);
+      return serveBuiltinMcp(request, deps.githubMcp, "GitHub");
+    }
+    if (url.pathname === WERFT_MCP_UPSTREAM_PATH) {
+      return serveBuiltinMcp(request, deps.werftMcp, "Werft");
     }
     const { exchanges } = deps;
     if (
@@ -560,8 +601,11 @@ export function createEgressAuthorizer(deps: {
 
   // Streamable HTTP without sessions or streams: one message in, one JSON
   // answer out. The grant alone names the session.
-  async function serveGitHubMcp(request: Request): Promise<Response> {
-    const mcp = deps.githubMcp;
+  async function serveBuiltinMcp(
+    request: Request,
+    mcp: typeof deps.githubMcp | typeof deps.werftMcp,
+    label: "GitHub" | "Werft",
+  ): Promise<Response> {
     if (mcp === undefined) return problem(404, "NOT_FOUND", "Not found");
     const bearer = /^Bearer (.+)$/.exec(
       request.headers.get("authorization") ?? "",
@@ -569,18 +613,18 @@ export function createEgressAuthorizer(deps: {
     const grant =
       bearer === undefined
         ? null
-        : verifyGitHubMcpGrant(mcp.grantKey, bearer, (mcp.now ?? Date.now)());
+        : verifyBuiltinMcpGrant(mcp.grantKey, bearer, (mcp.now ?? Date.now)());
     if (grant === null) {
-      return problem(401, "UNAUTHORIZED", "A GitHub MCP grant is required");
+      return problem(401, "UNAUTHORIZED", `A ${label} MCP grant is required`);
     }
     if (request.method !== "POST") {
       return new Response(null, { status: 405, headers: { allow: "POST" } });
     }
     const declared = Number(request.headers.get("content-length") ?? "0");
-    if (!Number.isFinite(declared) || declared > GITHUB_MCP_MAX_BODY_BYTES) {
+    if (!Number.isFinite(declared) || declared > BUILTIN_MCP_MAX_BODY_BYTES) {
       return problem(413, "PAYLOAD_TOO_LARGE", "Request body is too large");
     }
-    const bytes = await readAtMost(request, GITHUB_MCP_MAX_BODY_BYTES);
+    const bytes = await readAtMost(request, BUILTIN_MCP_MAX_BODY_BYTES);
     if (bytes === null) {
       return problem(413, "PAYLOAD_TOO_LARGE", "Request body is too large");
     }
@@ -603,11 +647,11 @@ export function createEgressAuthorizer(deps: {
         ? new Response(null, { status: 202 })
         : Response.json(answer);
     } catch (error) {
-      deps.logger.error("GitHub MCP call failed", {
+      deps.logger.error(`${label} MCP call failed`, {
         session_id: grant.sessionId,
         error: error instanceof Error ? error.name : "error",
       });
-      return problem(503, "BACKEND_UNAVAILABLE", "GitHub MCP unavailable");
+      return problem(503, "BACKEND_UNAVAILABLE", `${label} MCP unavailable`);
     }
   }
 
@@ -732,10 +776,39 @@ export function createEgressAuthorizer(deps: {
           budget_root_kind: budget?.rootKind,
           budget_account_id: opened.accountId ?? undefined,
         });
+        if (opened.by === "session") {
+          throw new WorkerGatewayError(
+            403,
+            "BUDGET_EXCEEDED",
+            "The session's spend with this call's reserve reaches its cost or token limit",
+          );
+        }
+        // The refusal stands whether or not its record lands.
+        await deps
+          .recordAccountRefusal?.({
+            sessionId: body.session_id,
+            attemptId: body.attempt_id,
+            turnId: chosen?.turnId ?? null,
+            owner: opened.owner,
+          })
+          .then((result) =>
+            deps.logger.info("Budget account refusal kept", {
+              session_id: body.session_id,
+              attempt_id: body.attempt_id,
+              result,
+            }),
+          )
+          .catch((error: unknown) =>
+            deps.logger.warn("Budget account refusal not recorded", {
+              session_id: body.session_id,
+              attempt_id: body.attempt_id,
+              error: error instanceof Error ? error.name : "error",
+            }),
+          );
         throw new WorkerGatewayError(
           403,
           "BUDGET_EXCEEDED",
-          "The session's spend with this call's reserve reaches its cost or token limit",
+          "The budget account this call is charged to cannot hold its reserve",
         );
       case "unknown_attempt":
         throw unknownAttempt();

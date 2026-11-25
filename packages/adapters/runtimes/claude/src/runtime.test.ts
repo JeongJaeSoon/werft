@@ -692,6 +692,46 @@ describe("Claude SDK adapter options", () => {
       expect(await call(PUSH, "toolu_1")).toEqual({});
     });
 
+    describe("a tool the built-in werft server serves", () => {
+      const FIND = "mcp__werft__find";
+      // In no allowlist: no release pins it.
+      const served: ClaudeRuntimeConfig = {
+        ...untrusted,
+        servedTools: [FIND],
+      };
+
+      test("is allowed without being in tools, past the engine's permission stage", async () => {
+        const call = hookOf(served);
+        expect(await call(FIND, "toolu_1")).toEqual(allowAnswer);
+        // Another tool of that server, which it does not serve, is refused.
+        expect(await call("mcp__werft__other", "toolu_2")).toMatchObject({
+          hookSpecificOutput: { permissionDecision: "deny" },
+        });
+        // Without the list, the tool is outside the allowlist as before.
+        expect(await hookOf(untrusted)(FIND, "toolu_3")).toMatchObject({
+          hookSpecificOutput: { permissionDecision: "deny" },
+        });
+      });
+
+      test("still waits for the admission guard and a checkpoint lease", async () => {
+        const leased = new TurnLedger("s2");
+        const call = hookOf(served, leased);
+        const grant = leased.leaseCheckpoint();
+        expect(await call(FIND, "toolu_1")).toMatchObject({
+          hookSpecificOutput: { permissionDecision: "deny" },
+        });
+        grant.lease?.release();
+      });
+
+      test("does not make the run one with trusted tools: auto keeps the full rules", () => {
+        const settings = buildSdkOptions(
+          { ...served, permissionMode: "auto" },
+          { onPermission: async () => ({ behavior: "allow" as const }) },
+        ).settings as { autoMode: typeof PLATFORM_AUTO_MODE };
+        expect(settings.autoMode).toBe(PLATFORM_AUTO_MODE);
+      });
+    });
+
     test("without trustedTools the hook answers nothing, as before", async () => {
       const call = hookOf(untrusted);
       expect(await call(PUSH, "toolu_1")).toEqual({});

@@ -46,6 +46,29 @@ describe("runtimeRequirementsOf", () => {
     ).toEqual({ features: ["mcp", "classifier_review"] });
   });
 
+  test("the built-in werft server asks for no mcp: it is the platform's, and a session runs without it", () => {
+    const werft = { ...mcpServer, name: "werft", platform: true as const };
+    expect(
+      runtimeRequirementsOf({
+        permission_mode: "default",
+        mcp_servers: [werft],
+      }),
+    ).toEqual({ features: [] });
+    expect(
+      runtimeRequirementsOf({
+        permission_mode: "default",
+        mcp_servers: [mcpServer, werft],
+      }),
+    ).toEqual({ features: ["mcp"] });
+    // A server of that name the platform did not mark is the session's own.
+    expect(
+      runtimeRequirementsOf({
+        permission_mode: "default",
+        mcp_servers: [{ ...mcpServer, name: "werft" }],
+      }),
+    ).toEqual({ features: ["mcp"] });
+  });
+
   test("asks for skills when the claim names an extension bundle, and only then", () => {
     const bundle = { name: "lint", digest: "ab".repeat(32), scope: "agent" };
     const one = runtimeRequirementsOf({

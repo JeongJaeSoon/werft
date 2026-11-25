@@ -174,12 +174,13 @@ const memberChangeSchema = z.object({
  * the bot included, or the channel being archived, unarchived, renamed or
  * deleted, voids that channel's member list for this app's install before
  * the event goes on to `next`. Someone joining or leaving also redraws the
- * channel's push cards, whose requester may be the one.
+ * channel's push, tool permission and question cards, whose requester may
+ * be the one.
  */
 export function createSlackMemberCacheInvalidator(deps: {
   agents: Pick<AgentIdentityStore, "resolveSlackEvent">;
   members: Pick<ChannelMemberStore, "forget">;
-  cards?: Pick<SurfaceCardSettleStore, "markPushCardsDueIn">;
+  cards?: Pick<SurfaceCardSettleStore, "markChoiceCardsDueIn">;
   next: SlackInboundHandler;
 }): SlackInboundHandler {
   return async (claim) => {
@@ -199,7 +200,7 @@ export function createSlackMemberCacheInvalidator(deps: {
       if (agent.status === "resolved") {
         await deps.members.forget(agent.installationId, channel);
         if (parsed.success) {
-          await deps.cards?.markPushCardsDueIn({
+          await deps.cards?.markChoiceCardsDueIn({
             installationId: agent.installationId,
             channelId: channel,
             windowMs: SLACK_CARD_SETTLE_TIMING.windowMs,
