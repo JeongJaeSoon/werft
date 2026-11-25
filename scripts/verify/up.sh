@@ -111,8 +111,9 @@ if ! LOCAL_DEMO_ACCOUNTS=$demo "$repo/scripts/local.sh" up --fake-model 2>&1 | t
   exit 1
 fi
 
-api=$(docker compose --profile apps port api 3000 | head -n 1)
-echo "VERIFY_API=http://127.0.0.1:${api##*:}" >>"$run/state.env"
+# VERIFY_API in state.env, and the addresses an agent may read (no secrets)
+# in state.json; ap_compose refreshes both when a port moves.
+node "$repo/scripts/verify/run-urls.mjs" "$run" >/dev/null
 # The first owner's one-time setup link, on an empty stack only (a demo run
 # has its owner, and the command issues none). state.env keeps the part
 # after #setup=; the console opens /bootstrap#setup=<it>.
