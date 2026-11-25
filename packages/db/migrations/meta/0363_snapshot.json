@@ -1,5 +1,5 @@
 {
-  "id": "be46595d-7603-4dcc-b28f-90f3f09e5e1e",
+  "id": "dd018794-34f0-43ab-8d97-0870e9f31a31",
   "prevId": "65383695-b58b-45d3-8515-a72dfe752ca4",
   "version": "7",
   "dialect": "postgresql",
@@ -17248,6 +17248,30 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::uuid[]"
+        },
+        "task_request": {
+          "name": "task_request",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "task_interpretation": {
+          "name": "task_interpretation",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "task_closing": {
+          "name": "task_closing",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "task_closed_reason": {
+          "name": "task_closed_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -17457,6 +17481,10 @@
         "sessions_execution_revoked_check": {
           "name": "sessions_execution_revoked_check",
           "value": "(\"sessions\".\"execution_revoked_at\" IS NULL) = (\"sessions\".\"execution_revoked_reason\" IS NULL)"
+        },
+        "sessions_task_closed_reason_check": {
+          "name": "sessions_task_closed_reason_check",
+          "value": "\"sessions\".\"task_closed_reason\" IS NULL OR (\"sessions\".\"task_closed_reason\" IN ('completed', 'cancelled', 'failed', 'abandoned') AND \"sessions\".\"admission_state\" IN ('closing', 'closed'))"
         },
         "sessions_repository_mode_check": {
           "name": "sessions_repository_mode_check",
@@ -19106,18 +19134,6 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
-        },
-        "progress_key": {
-          "name": "progress_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "progress_ts": {
-          "name": "progress_ts",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -19182,34 +19198,6 @@
           ],
           "isUnique": false,
           "where": "\"slack_outbox\".\"correlation_id\" IS NOT NULL AND \"slack_outbox\".\"status\" IN ('sending', 'uncertain')",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "slack_outbox_progress_idx": {
-          "name": "slack_outbox_progress_idx",
-          "columns": [
-            {
-              "expression": "installation_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "progress_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "seq",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"slack_outbox\".\"progress_key\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -19387,11 +19375,7 @@
         },
         "slack_outbox_kind_check": {
           "name": "slack_outbox_kind_check",
-          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice', 'progress')"
-        },
-        "slack_outbox_progress_check": {
-          "name": "slack_outbox_progress_check",
-          "value": "(\"slack_outbox\".\"kind\" = 'progress') = (\"slack_outbox\".\"progress_key\" IS NOT NULL) AND (\"slack_outbox\".\"progress_ts\" IS NULL OR \"slack_outbox\".\"kind\" = 'progress')"
+          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice')"
         },
         "slack_outbox_status_check": {
           "name": "slack_outbox_status_check",
