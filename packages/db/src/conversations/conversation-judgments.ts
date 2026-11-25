@@ -5,7 +5,10 @@ import {
   type JudgmentRule,
   M1_PROMPT_VERSION,
 } from "@werft-ai/contracts";
-import { M1_CHANNEL_WINDOW_MS } from "@werft-ai/platform";
+import {
+  M1_CHANNEL_WINDOW_MS,
+  M1_JUDGMENTS_PER_CHANNEL_WINDOW,
+} from "@werft-ai/platform";
 import { type SQL, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
@@ -39,6 +42,18 @@ export function engagedJudgmentsInWindow(channel: {
       AND j.grade = 'm1_engaged'
       AND j.claimed_at > ${channel.at} - make_interval(secs => ${M1_CHANNEL_WINDOW_MS / 1000})
       AND (j.outcome IS NULL OR j.attempts > 0))`;
+}
+
+/**
+ * M1's cap of a channel: its live binding's, or the starting one when the
+ * channel has none.
+ */
+export function m1ChannelCap(channel: { agentId: SQL; channelId: SQL }): SQL {
+  return sql`COALESCE((SELECT sb.m1_judgments_per_hour FROM surface_bindings sb
+    WHERE sb.agent_id = ${channel.agentId} AND sb.surface = 'slack'
+      AND sb.external_surface_id = ${channel.channelId}
+      AND sb.revoked_at IS NULL
+    ORDER BY sb.created_at DESC LIMIT 1), ${M1_JUDGMENTS_PER_CHANNEL_WINDOW})`;
 }
 
 /**

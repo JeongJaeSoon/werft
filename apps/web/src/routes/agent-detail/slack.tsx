@@ -1,4 +1,5 @@
 import { useLocation, useNavigate } from "@tanstack/react-router";
+import type { AgentDetail } from "@werft-ai/contracts";
 import { EmptyState, SettingsSection } from "@werft-ai/ui";
 import { useEffect, useState } from "react";
 import { useManagesAgent } from "../../components/agent-access.tsx";
@@ -17,6 +18,7 @@ import { SlackDmSetting, SlackMentionOnly } from "./slack/basic.tsx";
 import { SlackAllowedBots } from "./slack/bots.tsx";
 import { SlackChannels } from "./slack/channels.tsx";
 import { SlackSkeleton } from "./slack/connect.tsx";
+import { SlackJudgments } from "./slack/judgments.tsx";
 import { SlackNoticeSection } from "./slack/notice.tsx";
 import { unverifiedApp, useSlackBindings } from "./slack/queries.ts";
 import {
@@ -40,6 +42,7 @@ export default function SlackTab({
   slug,
   name,
   active,
+  activeRelease,
 }: {
   readonly agentId: string;
   /** The app manifest names the bot after it. */
@@ -47,6 +50,8 @@ export default function SlackTab({
   /** The agent's name, which its app is listed under. */
   readonly name: string;
   readonly active: boolean;
+  /** Whose instruction snapshot M1 judges with. */
+  readonly activeRelease: AgentDetail["active_release"];
 }) {
   const { t } = useI18n();
   const { notify, toast } = useToast();
@@ -96,7 +101,7 @@ export default function SlackTab({
   const keys: readonly SectionKey[] = [
     "slack",
     ...(connected ? (["notice", "channels"] as const) : []),
-    ...(connected && !homeStep ? (["basic"] as const) : []),
+    ...(connected && !homeStep ? (["judgments", "basic"] as const) : []),
     ...(manages ? (["token"] as const) : []),
     // Before an app there is no address to put in it.
     ...(manages && eventUrl(slack) ? (["addresses"] as const) : []),
@@ -138,6 +143,13 @@ export default function SlackTab({
             // The address section offers Recheck only for an installed app.
             canRecheck={manages && installed && eventUrl(slack) !== null}
             installed={installed}
+          />
+        ) : null}
+        {connected && !homeStep ? (
+          <SlackJudgments
+            agentId={agentId}
+            activeRelease={activeRelease}
+            manages={manages}
           />
         ) : null}
         {connected && !homeStep ? (

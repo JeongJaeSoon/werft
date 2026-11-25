@@ -3541,11 +3541,33 @@ export interface paths {
         get: operations["listSlackBindings"];
         /**
          * Set how the agent answers in one Slack channel or its DMs
-         * @description Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `on` (in use; the agent's `mention_only` setting says whether it also answers a top-level message without a mention).`home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. A binding that is `left` stays `left` when saved for its private channel (its `mode` and `ceiling` are edited, `home: true` answers 400); saved for a channel Slack now calls public, it is `ready` again. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.
+         * @description Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `on` (in use; the agent's `mention_only` setting says whether it also answers a top-level message without a mention). `m1_judgments_per_hour` (1 to 60) is how many M1 judgments the channel may have in an hour; a missing one keeps the channel's, and a new channel starts at 12. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. A binding that is `left` stays `left` when saved for its private channel (its `mode` and `ceiling` are edited, `home: true` answers 400); saved for a channel Slack now calls public, it is `ready` again. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         put: operations["putSlackBinding"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{id}/slack/judgments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * M1's judgments in the agent's Slack channels
+         * @description What the conversation layer's first judge (M1) decided in the agent's Slack channels in the last 7 days (`since`), judged records only. Per channel (`channels`, most judgments first): how many judgments had a result (`judgments`), how many of them were `speak`, how many had each reason code (`reasons`, most first; `rate_limited` and `budget_refused` among them), the kind the channel's live binding records and that binding's `m1_judgments_per_hour` (null without one). Then the newest 50 judgments (`recent`) with their reason code and `url`, the link to the newest message the judgment read, made from its channel and `ts`: the message's text is read in Slack, never here. A private channel, or one no live binding calls public, is left out of both, its counts included, unless the caller is a current member of it as Slack says (cached up to 5 minutes); when that cannot be confirmed it is left out. Owners, admins and the agent's admins; API keys are refused. It changes nothing.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["getSlackJudgments"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -6288,6 +6310,7 @@ export interface components {
             mode: "off" | "on";
             /** @enum {string} */
             listen?: "free" | "mention" | "off";
+            m1_judgments_per_hour?: number;
             /** @default false */
             home: boolean;
             ceiling?: {
@@ -9918,7 +9941,7 @@ export interface components {
                 created_at: string;
             } | null;
             scopes: ("sessions:read" | "sessions:write" | "sessions:approve" | "sessions:control" | "sessions:recover")[];
-            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "audit_log.read" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.read" | "agent.settings_read" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "agent.usage.manage" | "credential.bind" | "variable.workspace.manage" | "variable.agent.manage" | "binding.manage" | "binding.approve" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "conversation.view" | "conversation.post" | "task.spawn" | "usage.installation_read" | "usage.agent_read" | "installation.settings.manage" | "achievement_rule.manage" | "achievement.review" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send" | "mcp.use")[];
+            permissions: ("workspace.read" | "workspace.manage" | "audit_retention.manage" | "audit_log.read" | "member.manage" | "team.manage" | "api_key.manage" | "api_key.manage_own" | "account.link" | "agent.create" | "agent.read" | "agent.settings_read" | "agent.manage" | "agent.restore" | "agent.admin.manage" | "agent.usage.manage" | "credential.bind" | "variable.workspace.manage" | "variable.agent.manage" | "binding.manage" | "binding.approve" | "routine.manage" | "session.read" | "session.submit" | "session.approve" | "session.control" | "session.recover" | "session.share" | "session.rename" | "session.audit_read" | "session.admin_list" | "conversation.view" | "conversation.post" | "task.spawn" | "usage.installation_read" | "usage.agent_read" | "judgment.read" | "installation.settings.manage" | "achievement_rule.manage" | "achievement.review" | "memory.read" | "memory.write" | "artifact.read" | "delivery.send" | "mcp.use")[];
             /** @constant */
             codex_sandbox_missing?: true;
         };
@@ -12487,6 +12510,7 @@ export interface components {
                 mode: "off" | "on";
                 /** @enum {string} */
                 listen: "free" | "mention" | "off";
+                m1_judgments_per_hour: number;
                 ceiling: {
                     actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
                     /** @enum {string} */
@@ -12510,6 +12534,44 @@ export interface components {
                 revoked_at: string | null;
             }[];
         };
+        GetSlackJudgmentsResponse: {
+            /** @constant */
+            window_days: 7;
+            /** Format: date-time */
+            since: string;
+            channels: {
+                slack_team_id: string;
+                channel_id: string;
+                channel_kind: ("public_channel" | "private_channel") | null;
+                m1_judgments_per_hour: number | null;
+                judgments: number;
+                speak: number;
+                reasons: {
+                    /** @enum {string} */
+                    reason: "not_for_agent" | "human_conversation" | "already_handled" | "out_of_scope" | "needs_agent" | "unclear" | "budget_refused" | "concurrency_limited" | "rate_limited" | "input_too_large" | "no_active_release" | "model_unavailable" | "timed_out" | "unreachable" | "provider_error" | "malformed";
+                    count: number;
+                }[];
+            }[];
+            recent: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                grade: "buffer_m1" | "m1" | "m1_to_task" | "m1_engaged";
+                slack_team_id: string;
+                channel_id: string;
+                ts: string;
+                /** Format: uri */
+                url: string;
+                /** @enum {string} */
+                outcome: "judged" | "not_called" | "failed";
+                /** @enum {string} */
+                decision: "speak" | "quiet";
+                /** @enum {string} */
+                reason: "not_for_agent" | "human_conversation" | "already_handled" | "out_of_scope" | "needs_agent" | "unclear" | "budget_refused" | "concurrency_limited" | "rate_limited" | "input_too_large" | "no_active_release" | "model_unavailable" | "timed_out" | "unreachable" | "provider_error" | "malformed";
+                /** Format: date-time */
+                judged_at: string;
+            }[];
+        };
         PutSlackBindingResponse: {
             slack_binding: {
                 /** Format: uuid */
@@ -12528,6 +12590,7 @@ export interface components {
                 mode: "off" | "on";
                 /** @enum {string} */
                 listen: "free" | "mention" | "off";
+                m1_judgments_per_hour: number;
                 ceiling: {
                     actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
                     /** @enum {string} */
@@ -12572,6 +12635,7 @@ export interface components {
                 mode: "off" | "on";
                 /** @enum {string} */
                 listen: "free" | "mention" | "off";
+                m1_judgments_per_hour: number;
                 ceiling: {
                     actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
                     /** @enum {string} */
@@ -22048,6 +22112,7 @@ export interface operations {
                      *         "session.admin_list",
                      *         "usage.installation_read",
                      *         "usage.agent_read",
+                     *         "judgment.read",
                      *         "installation.settings.manage"
                      *       ]
                      *     }
@@ -38220,6 +38285,132 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getSlackJudgments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The agent's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The judged records of the last 7 days the caller may see, per channel and the newest 50. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "window_days": 7,
+                     *       "since": "2026-11-18T00:00:00.000Z",
+                     *       "channels": [
+                     *         {
+                     *           "slack_team_id": "T0123456",
+                     *           "channel_id": "C0123456",
+                     *           "channel_kind": "public_channel",
+                     *           "m1_judgments_per_hour": 12,
+                     *           "judgments": 3,
+                     *           "speak": 1,
+                     *           "reasons": [
+                     *             {
+                     *               "reason": "human_conversation",
+                     *               "count": 2
+                     *             },
+                     *             {
+                     *               "reason": "needs_agent",
+                     *               "count": 1
+                     *             }
+                     *           ]
+                     *         }
+                     *       ],
+                     *       "recent": [
+                     *         {
+                     *           "id": "019a0000-0000-7000-8000-0000000000b1",
+                     *           "grade": "buffer_m1",
+                     *           "slack_team_id": "T0123456",
+                     *           "channel_id": "C0123456",
+                     *           "ts": "1763942400.000100",
+                     *           "url": "https://slack.com/archives/C0123456/p1763942400000100",
+                     *           "outcome": "judged",
+                     *           "decision": "speak",
+                     *           "reason": "needs_agent",
+                     *           "judged_at": "2026-11-24T00:00:05.000Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["GetSlackJudgmentsResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
                         };
                     };
                 };
