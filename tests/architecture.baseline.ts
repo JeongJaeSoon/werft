@@ -108,6 +108,7 @@ export const pathFixed: readonly string[] = [
   "packages/platform/src/testing/channel-kind-readable-contract.ts",
   "packages/platform/src/testing/checkpoints.ts",
   "packages/platform/src/testing/commentable-contract.ts",
+  "packages/platform/src/testing/conversation-turn-queue-contract.ts",
   "packages/platform/src/testing/delivery-contract.ts",
   "packages/platform/src/testing/execution-backend-contract.ts",
   "packages/platform/src/testing/forge-contract-subject.ts",

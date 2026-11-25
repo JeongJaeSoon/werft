@@ -7,6 +7,7 @@ import {
   CONVERSATION_TURN_TEXT_MAX,
   type ConversationTurnCallRefusal,
   conversationIdSchema,
+  conversationInputIdSchema,
   conversationTopicIdSchema,
   conversationTurnIdSchema,
   workspaceIdSchema,
@@ -231,6 +232,9 @@ export function createOperatorConversationTurns(deps: {
             issued.expiresAt.getTime(),
           ),
         );
+        // An operator's input is its own: in no conversation_inputs row,
+        // and tried once.
+        const inputId = conversationInputIdSchema.parse(crypto.randomUUID());
         await deps.turns.queue.enqueue(
           {
             turn_id: turnId,
@@ -247,13 +251,17 @@ export function createOperatorConversationTurns(deps: {
               auth: { kind: "egress_token", token: issued.token },
             },
             call: { max_tokens: OPERATOR_TURN_MAX_TOKENS },
-            input: { id: crypto.randomUUID(), text: request.text },
+            input: { id: inputId, text: request.text },
             // Assembled when a runtime takes the turn.
             fresh_input: { id: crypto.randomUUID(), text: request.text },
           },
-          takeBy,
-          now(),
-          issued.expiresAt,
+          {
+            inputId,
+            attempt: 1,
+            takeBy,
+            now: now(),
+            usableUntil: issued.expiresAt,
+          },
         );
         turn = await deps.turns.ended(turnId);
       } catch (error) {
