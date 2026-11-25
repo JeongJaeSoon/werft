@@ -25,10 +25,14 @@ const botMention = mode === "bot-mention";
 // Slackbot's note in the DM `channel` (or a channel).
 const echo =
   mode === "own-reply" || mode === "own-mirror" || mode === "slackbot";
+// `person-plain` is `plain` posted by the person `text` (U0MOCK when
+// empty), with the default text.
+const personPlain = mode === "person-plain";
 const posted =
   mode === "mention" ||
   mode === "plain" ||
   mode === "reply" ||
+  personPlain ||
   botMention ||
   echo;
 const uninstalled = mode === "uninstall" || mode === "uninstall-late";
@@ -254,17 +258,17 @@ try {
                                 }
                               : { user: `U${app.appId}BOT` }),
                           }
-                      : mode === "plain" || mode === "reply"
+                      : mode === "plain" || mode === "reply" || personPlain
                         ? {
                             type: "message",
                             // A D… channel is U0MOCK's DM with the bot.
                             channel_type: channel.startsWith("D")
                               ? "im"
                               : "channel",
-                            user: "U0MOCK",
+                            user: (personPlain && text) || "U0MOCK",
                             channel,
                             ts,
-                            text: text || "verify plain post",
+                            text: (!personPlain && text) || "verify plain post",
                             ...(mode === "reply"
                               ? {
                                   thread_ts: slackTsOf(parent ?? ""),
