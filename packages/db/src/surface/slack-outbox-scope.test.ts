@@ -120,3 +120,71 @@ describe("claiming an outbox row", () => {
     expect(await claimedScope(await sessionIn(null))).toBeNull();
   });
 });
+
+// v1-b/G1b (94S-2213): a card is drawn, and redrawn, in the same scope.
+describe("a card's conversation scope", () => {
+  const room = (channelId: string) =>
+    ({ kind: "channel", teamId: "T0ACME", channelId }) as const;
+
+  test("comes with a sent card the settle pass claims", async () => {
+    await client.exec("DELETE FROM slack_outbox");
+    const ROOM = room("C0CARD");
+    const session = await sessionIn(ROOM);
+    const outbox = createPostgresSlackOutboxStore(db);
+    expect(
+      await outbox.enqueue({
+        ...entryOf(session),
+        kind: "input_notice",
+        channelId: "C0ROOM",
+        threadTs: "1.0",
+        body: { text: "card", blocks: [] },
+      }),
+    ).toBe("enqueued");
+    await client.exec(
+      "UPDATE slack_outbox SET status = 'sent', slack_ts = '1.1', settle_state = 'due'",
+    );
+    const cards = outbox.cards;
+    if (cards === undefined) throw new Error("no card store");
+    const [claim] = await cards.claim({
+      limit: 10,
+      leaseMs: 30_000,
+      graceMs: 0,
+    });
+    expect(claim?.conversationScope).toEqual(ROOM);
+  });
+
+  test("comes with a request still to be posted", async () => {
+    await client.exec("DELETE FROM slack_outbox");
+    const ROOM = room("C0ASK");
+    const session = await sessionIn(ROOM);
+    const appRow = crypto.randomUUID();
+    await client.query(
+      "INSERT INTO slack_apps (id, workspace_id, kind, agent_id, state, app_id, redirect_url) VALUES ($1, $2, 'agent', $3, 'creating', 'A0APP', 'https://example.test') ON CONFLICT DO NOTHING",
+      [appRow, WORKSPACE, AGENT],
+    );
+    await client.query(
+      "INSERT INTO session_links (id, workspace_id, owner_id, session_id, installation_id, surface_binding_id, surface_ref, channel_id, thread_id, opened_by_ts, agent_id, release_id) VALUES ($1, $2, 'owner', $3, $4, $5, 'ref', 'C0ROOM', '1.0', '1.0', $6, 'r1')",
+      [
+        crypto.randomUUID(),
+        WORKSPACE,
+        session,
+        INSTALL,
+        crypto.randomUUID(),
+        AGENT,
+      ],
+    );
+    await client.query(
+      "INSERT INTO push_requests (id, owner_id, session_id, repository_id, checkpoint_revision, git_commit, target_branch, requested_by, request_receipt_id) VALUES ($1, 'owner', $2, 'repo-1', 1, $3, $4, '{}'::jsonb, $5)",
+      [
+        crypto.randomUUID(),
+        session,
+        "a".repeat(40),
+        `agent/${session}`,
+        crypto.randomUUID(),
+      ],
+    );
+    const outbox = createPostgresSlackOutboxStore(db);
+    const pending = await outbox.unpromptedRequests(10);
+    expect(pending.map((row) => row.conversationScope)).toEqual([ROOM]);
+  });
+});
