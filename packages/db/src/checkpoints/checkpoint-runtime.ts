@@ -20,7 +20,7 @@ import {
 } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type { Database } from "../queries.ts";
-import { checkpoints, sessions, workerLaunches } from "../schema.ts";
+import { attempts, checkpoints, sessions, workerLaunches } from "../schema.ts";
 import { hasRestorePoint } from "../sessions/index.ts";
 
 export type RuntimeFingerprint = NonNullable<
@@ -264,6 +264,23 @@ export async function listUpgradeSessions(db: Database): Promise<
       runtimeKind,
     };
   });
+}
+
+/**
+ * The session of every launch a worker claimed that still holds its slot:
+ * the workers running now, idle or mid-turn. An unclaimed launch has no
+ * worker bound, and is built again by whichever scheduler finds it.
+ */
+export async function listSlotHoldingWorkerSessions(
+  db: Database,
+): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ sessionId: attempts.sessionId })
+    .from(workerLaunches)
+    .innerJoin(attempts, eq(attempts.id, workerLaunches.claimedAttemptId))
+    .where(isNull(workerLaunches.slotReleasedAt))
+    .orderBy(asc(attempts.sessionId));
+  return rows.map(({ sessionId }) => sessionId);
 }
 
 /**

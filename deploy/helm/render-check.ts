@@ -1261,6 +1261,7 @@ function checkUpgradeHook(
     "WORKER_IMAGE_RUNTIME",
     "WORKER_IMAGE_PREVIOUS",
     "WORKER_IMAGE_PREVIOUS_RUNTIME",
+    "WORKER_GATEWAY_URL",
   ]) {
     if (value(`UPGRADE_DEPLOYED_${name}`) !== "") {
       fail(`UPGRADE_DEPLOYED_${name} is not empty without a cluster`);
@@ -1276,7 +1277,8 @@ function checkUpgradeHook(
   ) {
     fail("WORKER_IMAGE is not the target worker digest");
   }
-  // It must judge the images the target scheduler will launch on.
+  // It must judge the images the target scheduler will launch on, and the
+  // gateway address it will give them.
   const schedulerDeployment = manifests.find(
     (m) => m.kind === "Deployment" && componentOf(m) === "scheduler",
   );
@@ -1290,6 +1292,7 @@ function checkUpgradeHook(
     "WORKER_IMAGE_PREVIOUS",
     "WORKER_IMAGE_RUNTIME",
     "WORKER_IMAGE_PREVIOUS_RUNTIME",
+    "WORKER_GATEWAY_URL",
   ]) {
     const want = schedulerEnv.find((e) => e.name === name)?.value;
     if (value(name) !== want) {
