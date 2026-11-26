@@ -20,6 +20,7 @@ import {
 import { and, eq, inArray, isNotNull, max, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { conversationTurnQueue as queue } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 
 const queuedTurnSchema = conversationRuntimeTurnSchema.omit({
   lease_id: true,
@@ -33,6 +34,29 @@ const tooLate = (usableUntil: Date | null, now: Date, leaseMs: number) =>
 // The sealed turn opens under its own row alone.
 const aadOf = (turnId: string) =>
   Buffer.from(`conversation_turn_queue|${turnId}`, "utf8");
+
+/**
+ * Where the queue tells what changed, for a waiting poll to look at once:
+ * `queued` for a new turn, a turn's id when it ended.
+ */
+export const CONVERSATION_TURN_QUEUE_CHANNEL = "conversation_turn_queue";
+
+/**
+ * Tells the queue's channel `payload` on one of `db`'s connections: how a
+ * listener on another connection proves that notices reach it.
+ */
+export async function tellConversationTurnQueue(
+  db: Database,
+  payload: string,
+): Promise<void> {
+  await db.execute(
+    sql`SELECT pg_notify(${CONVERSATION_TURN_QUEUE_CHANNEL}, ${payload})`,
+  );
+}
+
+// In a statement's RETURNING: told for each row it wrote, when it commits.
+const told = (payload: unknown) =>
+  sql<string>`pg_notify(${CONVERSATION_TURN_QUEUE_CHANNEL}, ${payload})`;
 
 const notTaken = { outcome: "failed", reason: "not_taken" } as const;
 const OPEN = ["queued", "leased"] as const;
@@ -88,7 +112,8 @@ export function createPostgresConversationTurnQueue(
         turnNonce: null,
         turnCiphertext: null,
       })
-      .where(eq(queue.turnId, turnId));
+      .where(eq(queue.turnId, turnId))
+      .returning({ told: told(sql`${queue.turnId}::text`) });
 
   // A turn nobody took, or whose holder went quiet, ends here: never
   // requeued, since its permit may already be spent. One ended long enough
@@ -117,7 +142,8 @@ export function createPostgresConversationTurnQueue(
           eq(queue.state, "leased"),
           sql`${queue.leaseExpiresAt} <= ${now.toISOString()}::timestamptz`,
         ),
-      );
+      )
+      .returning({ told: told(sql`${queue.turnId}::text`) });
     const open = await tx
       .select({
         turnId: queue.turnId,
@@ -209,7 +235,7 @@ export function createPostgresConversationTurnQueue(
           turnCiphertext: sealed.ciphertext,
         })
         .onConflictDoNothing()
-        .returning({ turnId: queue.turnId });
+        .returning({ turnId: queue.turnId, told: told("queued") });
       if (inserted.length > 0) return "queued";
       const [same] = await db
         .select({ turnId: queue.turnId })
@@ -305,5 +331,35 @@ export function createPostgresConversationTurnQueue(
         if (row === undefined || row.state === "forgotten") return null;
         return row.state === "ended" ? outcomeOf(row.outcome) : "pending";
       }),
+
+    // settle()'s rules as times: when a lease runs out, when a whole lease
+    // no longer fits a waiting turn's permit, and when a waiting turn of a
+    // free topic has waited its take time.
+    async nextTimedChange() {
+      const [row] = rowsOf<{ at: Date | string | null }>(
+        await db.execute(sql`
+          SELECT min(timed.at) AS at FROM (
+            SELECT lease_expires_at AS at FROM ${queue} WHERE state = 'leased'
+            UNION ALL
+            SELECT usable_until - (${CONVERSATION_TURN_LEASE_MS}::int - 1) * interval '1 millisecond'
+              FROM ${queue} WHERE state = 'queued' AND usable_until IS NOT NULL
+            UNION ALL
+            SELECT greatest(
+                waiting.take_by,
+                (SELECT max(ended.ended_at) FROM ${queue} ended
+                  WHERE ended.topic_id = waiting.topic_id
+                    AND ended.state IN ('ended', 'forgotten')
+                    AND ended.lease_id IS NOT NULL
+                ) + waiting.take_ms * interval '1 millisecond'
+              )
+              FROM ${queue} waiting
+              WHERE waiting.state = 'queued' AND NOT EXISTS (
+                SELECT 1 FROM ${queue} leased
+                WHERE leased.state = 'leased' AND leased.topic_id = waiting.topic_id
+              )
+          ) timed`),
+      );
+      return row?.at == null ? null : new Date(row.at);
+    },
   };
 }

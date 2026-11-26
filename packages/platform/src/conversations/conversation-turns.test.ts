@@ -9,7 +9,10 @@ import {
   conversationTopicIdSchema,
   conversationTurnIdSchema,
 } from "@werft-ai/contracts";
-import type { QueuedConversationTurn } from "../ports/conversation-turn-queue.ts";
+import type {
+  ConversationTurnQueue,
+  QueuedConversationTurn,
+} from "../ports/conversation-turn-queue.ts";
 import { conversationTurnQueueContract } from "../testing/conversation-turn-queue-contract.ts";
 import {
   createConversationRuntimeTurns,
@@ -170,5 +173,159 @@ describe("the limit a conversation turn ended on", () => {
     // A poll that finds nothing tells nothing.
     await turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 });
     expect(told).toHaveLength(1);
+  });
+});
+
+/**
+ * The service with a wakeup the test rings and a sleep only the test (or an
+ * abort) ends, over a memory queue or the one given.
+ */
+function heard(
+  options: {
+    listening?: boolean;
+    queue?: ConversationTurnQueue;
+    timed?: () => Date | null;
+  } = {},
+) {
+  const waits: { of: string; signal: AbortSignal; ring: () => void }[] = [];
+  const sleeps: { ms: number; end: () => void }[] = [];
+  const base = options.queue ?? createMemoryConversationTurnQueue();
+  const timed = options.timed;
+  const turns = createConversationRuntimeTurns({
+    queue:
+      timed === undefined
+        ? base
+        : { ...base, nextTimedChange: async () => timed() },
+    now: () => START,
+    sleep: (ms, signal) =>
+      new Promise<void>((resolve) => {
+        sleeps.push({ ms, end: resolve });
+        signal?.addEventListener("abort", () => resolve(), { once: true });
+      }),
+    wakeup: {
+      listening: options.listening ?? true,
+      wait: (of, signal) =>
+        new Promise<void>((resolve) => {
+          waits.push({ of, signal, ring: resolve });
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        }),
+    },
+  });
+  return { turns, waits, sleeps };
+}
+
+// Long enough for a poll to look at the queue and start its wait.
+const looked = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+describe("a poll that hears the queue change", () => {
+  test("told of a queued turn, a waiting poll takes it without waiting out its sleep", async () => {
+    const h = heard();
+    const poll = h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 20_000 });
+    await looked();
+    expect(h.waits.map((wait) => wait.of)).toEqual(["next"]);
+    // Nothing in the queue is timed: it would look again after the fallback.
+    expect(h.sleeps.map((sleep) => sleep.ms)).toEqual([5_000]);
+
+    const turn = queued();
+    await h.turns.queue.enqueue(turn, entryAt(START));
+    h.waits[0]?.ring();
+
+    expect((await poll)?.turn_id).toBe(turn.turn_id);
+    // Each look listened for itself and stopped once it was done.
+    expect(h.waits.map((wait) => wait.signal.aborted)).toEqual([true, true]);
+  });
+
+  test("a turn queued while the poll is looking still wakes it", async () => {
+    const base = createMemoryConversationTurnQueue();
+    const turn = queued();
+    let looks = 0;
+    const h = heard({
+      queue: {
+        ...base,
+        lease: async (input) => {
+          const taken = await base.lease(input);
+          looks += 1;
+          if (looks === 1) {
+            // Queued and told right after the look, before the poll waits.
+            await base.enqueue(turn, entryAt(START));
+            for (const wait of h.waits) wait.ring();
+          }
+          return taken;
+        },
+      },
+    });
+
+    // No sleep is ended here: only the notice can bring the second look.
+    expect(
+      (await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 20_000 }))
+        ?.turn_id,
+    ).toBe(turn.turn_id);
+    expect(looks).toBe(2);
+  });
+
+  test("it looks again by the queue's next timed change: a poll's wait at the soonest, the fallback at the latest", async () => {
+    for (const [timed, waitMs, slept] of [
+      [new Date(START.getTime() + 1_000), 20_000, 1_000],
+      [new Date(START.getTime() + 60_000), 20_000, 5_000],
+      [new Date(START.getTime() + 10), 20_000, 250],
+      [new Date(START.getTime() - 1_000), 20_000, 250],
+      [null, 20_000, 5_000],
+      // Never past the poll's own wait.
+      [new Date(START.getTime() + 1_000), 100, 100],
+    ] as const) {
+      const h = heard({ timed: () => timed });
+      const stop = new AbortController();
+      const poll = h.turns.nextTurn({
+        runtimeId: runtimeA,
+        waitMs,
+        stop: stop.signal,
+      });
+      await looked();
+      expect(h.sleeps.map((sleep) => sleep.ms)).toEqual([slept]);
+      // A stop ends the wait itself, not only the next look.
+      stop.abort();
+      expect(await poll).toBeNull();
+    }
+  });
+
+  test("while no notice arrives it polls as it did without one", async () => {
+    const h = heard({ listening: false, timed: () => START });
+    const stop = new AbortController();
+    const poll = h.turns.nextTurn({
+      runtimeId: runtimeA,
+      waitMs: 20_000,
+      stop: stop.signal,
+    });
+    await looked();
+    expect(h.waits).toEqual([]);
+    expect(h.sleeps.map((sleep) => sleep.ms)).toEqual([250]);
+    stop.abort();
+    h.sleeps[0]?.end();
+    expect(await poll).toBeNull();
+  });
+
+  test("whoever waits for a turn's end is told of that turn", async () => {
+    const h = heard();
+    const turn = queued();
+    await h.turns.queue.enqueue(turn, entryAt(START));
+    const taken = await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 });
+    if (taken === null) throw new Error("not taken");
+
+    const ended = h.turns.ended(turn.turn_id);
+    await looked();
+    expect(h.waits.at(-1)?.of).toBe(turn.turn_id);
+    const result: ConversationTurnResult = {
+      outcome: "completed",
+      text: "answer",
+    };
+    await h.turns.turnResult({
+      runtimeId: runtimeA,
+      turnId: turn.turn_id,
+      leaseId: taken.lease_id,
+      result,
+    });
+    h.waits.at(-1)?.ring();
+
+    expect(await ended).toEqual(result);
   });
 });

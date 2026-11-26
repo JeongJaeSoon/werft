@@ -570,6 +570,21 @@ export async function endMentionTurns(deps: {
 }
 
 /**
+ * Tells a waiting poll that the queue changed, so it looks then and not every
+ * `pollMs`. A notice can be missed, and a turn that ends by time alone sends
+ * none, so a poll that hears still looks again every `fallbackPollMs`.
+ */
+export interface ConversationTurnWakeup {
+  /** Whether notices arrive now. While they do not, a wait polls as without one. */
+  readonly listening: boolean;
+  /**
+   * Settles when a turn was queued or one ended (`next`), or when that turn
+   * ended, and on abort.
+   */
+  wait(of: "next" | ConversationTurnId, signal: AbortSignal): Promise<void>;
+}
+
+/**
  * The control host's side of the conversation runtime's protocol, over a turn
  * queue: a runtime's long poll for its next turn and its report of one, and,
  * for whoever queues a turn, the wait for how it ended.
@@ -579,9 +594,12 @@ export function createConversationRuntimeTurns(deps: {
   /** Checks a turn's topic session as a runtime takes it, and learns how it ended. */
   topicSessions?: Pick<TopicSessionChecks, "handOut" | "ended">;
   now?: () => Date;
-  sleep?: (ms: number) => Promise<void>;
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   /** How often a waiting poll looks at the queue again. */
   pollMs?: number;
+  wakeup?: ConversationTurnWakeup;
+  /** How often a poll that hears the queue change looks again all the same. */
+  fallbackPollMs?: number;
   leaseMs?: number;
   /** Told of each turn as it is leased, before the runtime has it. */
   leased?: (turn: ConversationRuntimeTurn) => Promise<void>;
@@ -589,8 +607,52 @@ export function createConversationRuntimeTurns(deps: {
   const now = deps.now ?? (() => new Date());
   const sleep =
     deps.sleep ??
-    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    ((ms: number, signal?: AbortSignal) =>
+      new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, ms);
+        signal?.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(timer);
+            resolve();
+          },
+          { once: true },
+        );
+      }));
   const pollMs = deps.pollMs ?? 250;
+  const fallbackPollMs = deps.fallbackPollMs ?? 5_000;
+
+  // Called before the caller looks at the queue, so a change right after the
+  // look still ends the wait.
+  const watch = (of: "next" | ConversationTurnId, stop?: AbortSignal) => {
+    if (deps.wakeup === undefined || !deps.wakeup.listening) {
+      return {
+        wait: (left = Number.POSITIVE_INFINITY) =>
+          sleep(Math.min(pollMs, left)),
+        done: () => {},
+      };
+    }
+    const over = new AbortController();
+    const signal =
+      stop === undefined ? over.signal : AbortSignal.any([over.signal, stop]);
+    const changed = deps.wakeup.wait(of, signal);
+    return {
+      // No later than the queue's next change by time alone, which sends no
+      // notice; a time already due is looked at as soon as a poll would.
+      wait: async (left = Number.POSITIVE_INFINITY) => {
+        const timed = await deps.queue.nextTimedChange?.();
+        const ms =
+          timed == null
+            ? fallbackPollMs
+            : Math.min(
+                fallbackPollMs,
+                Math.max(pollMs, timed.getTime() - now().getTime()),
+              );
+        await Promise.race([sleep(Math.min(ms, left), signal), changed]);
+      },
+      done: () => over.abort(),
+    };
+  };
   const leaseMs = deps.leaseMs ?? CONVERSATION_TURN_LEASE_MS;
   let lastPollAt: Date | null = null;
 
@@ -607,22 +669,27 @@ export function createConversationRuntimeTurns(deps: {
       const deadline = now().getTime() + input.waitMs;
       for (;;) {
         lastPollAt = now();
-        const turn = await deps.queue.lease({
-          runtimeId: input.runtimeId,
-          now: lastPollAt,
-          leaseMs,
-        });
-        if (turn !== null) {
-          const handed =
-            deps.topicSessions === undefined
-              ? turn
-              : await deps.topicSessions.handOut(turn);
-          await deps.leased?.(handed);
-          return handed;
+        const change = watch("next", input.stop);
+        try {
+          const turn = await deps.queue.lease({
+            runtimeId: input.runtimeId,
+            now: lastPollAt,
+            leaseMs,
+          });
+          if (turn !== null) {
+            const handed =
+              deps.topicSessions === undefined
+                ? turn
+                : await deps.topicSessions.handOut(turn);
+            await deps.leased?.(handed);
+            return handed;
+          }
+          const left = deadline - now().getTime();
+          if (left <= 0 || input.stop?.aborted === true) return null;
+          await change.wait(left);
+        } finally {
+          change.done();
         }
-        const left = deadline - now().getTime();
-        if (left <= 0 || input.stop?.aborted === true) return null;
-        await sleep(Math.min(pollMs, left));
       }
     },
 
@@ -656,10 +723,15 @@ export function createConversationRuntimeTurns(deps: {
       stop?: AbortSignal,
     ): Promise<ConversationTurnOutcome | null> {
       for (;;) {
-        const outcome = await deps.queue.outcome(turnId, now());
-        if (outcome !== "pending") return outcome;
-        if (stop?.aborted === true) return null;
-        await sleep(pollMs);
+        const change = watch(turnId, stop);
+        try {
+          const outcome = await deps.queue.outcome(turnId, now());
+          if (outcome !== "pending") return outcome;
+          if (stop?.aborted === true) return null;
+          await change.wait();
+        } finally {
+          change.done();
+        }
       }
     },
   };
