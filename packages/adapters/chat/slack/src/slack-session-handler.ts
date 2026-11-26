@@ -1127,7 +1127,14 @@ export function createSlackSessionHandler(
       // Slack deleted what the turn would come from, or the poster was already
       // told of the stop's refusal: nothing is said, the warning above is the
       // record.
-      if (error.code === "SOURCE_DELETED" || stopRefused) return;
+      if (error.code === "SOURCE_DELETED") return;
+      if (stopRefused) {
+        // Nothing more is said, but a storage refusal still ends dropped.
+        if (error.code === "STORAGE_LIMIT_EXCEEDED") {
+          throw new SlackInboundDropped("storage_limit_exceeded");
+        }
+        return;
+      }
       if (
         // GITHUB_REFUSED: unreadable GitHub settings or the workspace ceiling.
         (error.code === "UNSUPPORTED_CAPABILITY" ||

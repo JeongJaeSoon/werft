@@ -646,6 +646,31 @@ async function forgetSlackInput(ts: string) {
   }
 }
 
+// Another input's charge, landing between this input's storage check and
+// its commit: the commit-time check refuses it.
+async function chargeAfterTheCheck() {
+  await db.execute(
+    sql.raw(`CREATE FUNCTION test_late_charge() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        UPDATE storage_usage SET bytes = bytes + ${LIMITS.STORAGE_LIMIT_BYTES} WHERE scope = 'installation';
+        RETURN NEW;
+      END $$`),
+  );
+  await db.execute(
+    sql.raw(`CREATE TRIGGER test_late_charge BEFORE INSERT ON turns
+        FOR EACH ROW EXECUTE FUNCTION test_late_charge()`),
+  );
+}
+
+const inboxDrops = () =>
+  db
+    .select({
+      status: slackInboundEvents.status,
+      dropReason: slackInboundEvents.dropReason,
+    })
+    .from(slackInboundEvents)
+    .orderBy(asc(slackInboundEvents.receivedAt));
+
 /** The thread's link as a pass that died right after reserving it left it. */
 async function reserveThread(fixture: Fixture) {
   const [installation] = await db.select().from(slackInstallations);
@@ -1580,31 +1605,6 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     });
     expect(await inboxStatuses()).toEqual(["processed"]);
   });
-
-  // Another input's charge, landing between this input's storage check and
-  // its commit: the commit-time check refuses it.
-  async function chargeAfterTheCheck() {
-    await db.execute(
-      sql.raw(`CREATE FUNCTION test_late_charge() RETURNS trigger LANGUAGE plpgsql AS $$
-      BEGIN
-        UPDATE storage_usage SET bytes = bytes + ${LIMITS.STORAGE_LIMIT_BYTES} WHERE scope = 'installation';
-        RETURN NEW;
-      END $$`),
-    );
-    await db.execute(
-      sql.raw(`CREATE TRIGGER test_late_charge BEFORE INSERT ON turns
-        FOR EACH ROW EXECUTE FUNCTION test_late_charge()`),
-    );
-  }
-
-  const inboxDrops = () =>
-    db
-      .select({
-        status: slackInboundEvents.status,
-        dropReason: slackInboundEvents.dropReason,
-      })
-      .from(slackInboundEvents)
-      .orderBy(asc(slackInboundEvents.receivedAt));
 
   test("a mention the storage limit refuses at commit ends dropped, opens nothing and tells the requester once", async () => {
     const fixture = await agentInSlack();
@@ -5395,6 +5395,27 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
       },
     ]);
     expect(view.threadNotices).toEqual([]);
+  });
+
+  test("a stop word the member may not use, refused as input by the storage limit, ends dropped and says nothing more", async () => {
+    const { fixture, view, session, post } = await workingThread();
+    await member(fixture, "U0MEMBER");
+    await db
+      .update(surfaceBindings)
+      .set({ ceilingActions: ["session.read", "session.submit"] })
+      .where(eq(surfaceBindings.id, fixture.bindingId));
+    await chargeAfterTheCheck();
+    await deliver(fixture, post(at(1), { user: "U0MEMBER", text: "stop" }));
+    expect(await drain(view.handle)).toMatchObject({ dropped: 1, retried: 0 });
+    expect(await turnStatesOf(session.id)).toHaveLength(2);
+    expect(view.notices.map((notice) => notice.reason)).toEqual([
+      "stop_not_permitted",
+    ]);
+    expect(view.threadNotices).toEqual([]);
+    expect((await inboxDrops()).at(-1)).toEqual({
+      status: "dropped",
+      dropReason: "storage_limit_exceeded",
+    });
   });
 
   test("a stop word from a member the session is hidden from is done in one pass, and the requester's stop behind it takes at once", async () => {
