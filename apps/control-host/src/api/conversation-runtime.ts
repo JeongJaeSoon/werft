@@ -264,7 +264,9 @@ export function createOperatorConversationTurns(deps: {
             // Assembled when a runtime takes the turn.
             fresh_input: { id: crypto.randomUUID(), text: request.text },
             // The requester issueOperatorTurn wrote.
-            decision_tools: [...conversationDecisionTools("operator")],
+            decision_tools: [
+              ...conversationDecisionTools("operator", issued.place),
+            ],
           },
           {
             inputId,

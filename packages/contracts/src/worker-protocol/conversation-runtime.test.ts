@@ -22,6 +22,11 @@ describe("conversation decision tools by requester (G2)", () => {
       "route_to_task",
       "no_reply",
     ]);
+    expect([...conversationDecisionTools("operator", "dm")]).toEqual([
+      "reply",
+      "route_to_task",
+      "no_reply",
+    ]);
     expect([...conversationDecisionTools("slack_bot", "dm")]).toEqual([
       "reply",
       "no_reply",

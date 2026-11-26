@@ -119,19 +119,15 @@ export type ConversationTurnPermitIssued =
       /** Sent as the API key of each of the turn's calls to the proxy's provider route. */
       token: string;
       expiresAt: Date;
+      /** The conversation's kind, which says what the turn may decide. */
+      place: ConversationKind;
     }
   | Exclude<ConversationTurnPermitIssue, { outcome: "issued" }>
   | { outcome: "unavailable"; reason: ConversationCallUnavailable };
 
 export type ConversationMentionTurnIssued =
-  | {
-      outcome: "issued";
-      token: string;
-      expiresAt: Date;
-      place: ConversationKind;
-    }
-  | Exclude<ConversationMentionTurnIssue, { outcome: "issued" }>
-  | { outcome: "unavailable"; reason: ConversationCallUnavailable };
+  | ConversationTurnPermitIssued
+  | Exclude<ConversationMentionTurnIssue, ConversationTurnPermitIssue>;
 
 export type ConversationCallIssued =
   | {
@@ -333,7 +329,12 @@ export function createConversationCalls(deps: {
         ),
       });
       if (issued.outcome !== "issued") return issued;
-      return { outcome: "issued", token, expiresAt: issued.expiresAt };
+      return {
+        outcome: "issued",
+        token,
+        expiresAt: issued.expiresAt,
+        place: issued.place,
+      };
     },
     /**
      * A person's mention of the agent in Slack as a turn: writes the turn,

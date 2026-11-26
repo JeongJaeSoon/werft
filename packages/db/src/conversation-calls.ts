@@ -416,7 +416,19 @@ async function insertTurnPermitIn(
     })
     .returning({ expiresAt: conversationTurnPermits.expiresAt });
   if (!permit) throw new Error("turn permit row missing after insert");
-  return { outcome: "issued", expiresAt: permit.expiresAt };
+  // The conversation's kind says what the turn may decide.
+  const [conversation] = await tx
+    .select({ kind: conversations.kind })
+    .from(conversations)
+    .where(eq(conversations.id, input.conversationId));
+  if (conversation === undefined) {
+    throw new Error(`conversation ${input.conversationId} is gone`);
+  }
+  return {
+    outcome: "issued",
+    expiresAt: permit.expiresAt,
+    place: conversation.kind,
+  };
 }
 
 export function createPostgresConversationCalls(
@@ -565,19 +577,10 @@ export function createPostgresConversationCalls(
             .onConflictDoNothing()
             .returning({ ts: conversationEngagements.ts });
           if (engaged === undefined) throw new MentionEngaged();
-          const permit = await insertTurnPermitIn(tx, input, {
+          return insertTurnPermitIn(tx, input, {
             kind: "user",
             userId: input.requesterUserId,
           });
-          if (permit.outcome !== "issued") return permit;
-          const [conversation] = await tx
-            .select({ kind: conversations.kind })
-            .from(conversations)
-            .where(eq(conversations.id, input.conversationId));
-          if (conversation === undefined) {
-            throw new Error(`conversation ${input.conversationId} is gone`);
-          }
-          return { ...permit, place: conversation.kind };
         })
         .catch((error: unknown) => {
           if (error instanceof MentionEngaged) {

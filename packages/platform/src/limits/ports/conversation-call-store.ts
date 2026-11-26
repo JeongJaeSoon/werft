@@ -227,16 +227,15 @@ export type ConversationMentionTurnInput = Omit<
 };
 
 export type ConversationMentionTurnIssue =
-  // `place`: the conversation's kind, which says what the turn may decide.
-  | { outcome: "issued"; expiresAt: Date; place: ConversationKind }
-  | Exclude<ConversationTurnPermitIssue, { outcome: "issued" }>
+  | ConversationTurnPermitIssue
   // The message is engaged already: its turn was written before.
   | { outcome: "duplicate" }
   // The message is marked deleted.
   | { outcome: "source_deleted" };
 
 export type ConversationTurnPermitIssue =
-  | { outcome: "issued"; expiresAt: Date }
+  // `place`: the conversation's kind, which says what the turn may decide.
+  | { outcome: "issued"; expiresAt: Date; place: ConversationKind }
   | { outcome: "unknown_agent" }
   // The conversation is not the agent's, or the topic not the conversation's.
   | { outcome: "unknown_conversation" };
