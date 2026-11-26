@@ -12,7 +12,6 @@ import {
 } from "./slack-config-api.ts";
 import { drainSlackOutbox } from "./slack-outbox.ts";
 import {
-  SLACK_TEXT_MAX,
   slackInstructionFallbackText,
   slackOutboxPresentation,
   slackOutboxText,
@@ -216,18 +215,6 @@ describe("slackOutboxPresentation", () => {
         claim({ body: { text: "hi", sender: { username: "ignored" } } }),
       ),
     ).toEqual({ kind: "text" });
-  });
-
-  test("a long answer is cut to Slack's limit with its link kept whole", () => {
-    const text = slackOutboxText({
-      text: `${"가".repeat(40_000)}<@U0ELSE>`,
-      link_url: "https://console.example/sessions/s1",
-    });
-    expect(text.length).toBeLessThanOrEqual(40_000);
-    expect(text).toEndWith(
-      "…\n\n<https://console.example/sessions/s1|Open on the web>",
-    );
-    expect(SLACK_TEXT_MAX).toBe(40_000);
   });
 
   test.each(["Add a test, <!here>", "owner (웹 콘솔)\nAdd a test, <!here>"])(

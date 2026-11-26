@@ -556,6 +556,8 @@ describe("slackOutboxText", () => {
   });
 
   test("cuts to Slack's limit, never inside an escape or a surrogate pair", () => {
+    // chat.postMessage truncates text past 40,000 characters.
+    expect(SLACK_TEXT_MAX).toBe(40_000);
     const room = SLACK_TEXT_MAX - link.length;
     const url = "https://console.example/sessions/s1";
     const entity = slackOutboxText({
