@@ -5,6 +5,7 @@ import type { AgentDetail, SessionSummary } from "@werft-ai/contracts";
 import { agentSessionsQuery, agentSummariesQuery } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import {
+  isSessionCutOff,
   OPERATIONS_MESSAGES,
   SessionRowOpener,
   SessionStatusLabel,
@@ -409,6 +410,7 @@ function AgentSessionRow({
   const title =
     session.title ??
     (session.title_deleted_at ? t("session.sourceDeleted") : null);
+  const cutOff = isSessionCutOff(session);
   return (
     <GridTableRow data-status={session.status}>
       <GridTableCell lines={true}>
@@ -437,8 +439,12 @@ function AgentSessionRow({
       </GridTableCell>
       <GridTableCell>
         <SessionStatusLabel
-          status={session.status}
-          label={t(`sessions.status.${session.status}`)}
+          status={cutOff ? "failed" : session.status}
+          label={
+            cutOff
+              ? t("session.status.ownershipLost")
+              : t(`sessions.status.${session.status}`)
+          }
           capacityWait={session}
           capacityWaitLabel={t("sessions.capacityWait")}
           axisLabel={t("sessions.column.status")}
