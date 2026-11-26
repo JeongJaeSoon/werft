@@ -323,6 +323,41 @@ describe("a poll that hears the queue change", () => {
     }
   });
 
+  test("a failing timed change lookup fails the poll that still waits, and means nothing to one already told", async () => {
+    const failing = heard({
+      queue: {
+        ...createMemoryConversationTurnQueue(),
+        nextTimedChange: async () => {
+          throw new Error("database is gone");
+        },
+      },
+    });
+    await expect(
+      failing.turns.nextTurn({ runtimeId: runtimeA, waitMs: 20_000 }),
+    ).rejects.toThrow("database is gone");
+
+    const base = createMemoryConversationTurnQueue();
+    const turn = queued();
+    let fail = (_error: Error) => {};
+    const told = heard({
+      queue: {
+        ...base,
+        nextTimedChange: () =>
+          new Promise((_resolve, reject) => {
+            fail = reject;
+          }),
+      },
+    });
+    const poll = told.turns.nextTurn({ runtimeId: runtimeA, waitMs: 20_000 });
+    await looked();
+    await base.enqueue(turn, entryAt(START));
+    told.waits[0]?.ring();
+    expect((await poll)?.turn_id).toBe(turn.turn_id);
+    // Left unhandled, this rejection would fail the run.
+    fail(new Error("too late to matter"));
+    await looked();
+  });
+
   test("a stop ends the wait of the service's own sleep, and leaves no timer behind", async () => {
     const stop = new AbortController();
     const turns = createConversationRuntimeTurns({
