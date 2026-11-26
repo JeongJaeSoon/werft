@@ -89,4 +89,10 @@ export interface ConversationTurnQueue {
     turnId: ConversationTurnId,
     now: Date,
   ): Promise<ConversationTurnOutcome | "pending" | null>;
+  /**
+   * When the queue next changes with time alone, were nothing else to happen:
+   * the first lease to run out, or the first waiting turn to go untaken. Null
+   * when nothing in it is timed. A queue that cannot tell leaves this out.
+   */
+  nextTimedChange?(): Promise<Date | null>;
 }
