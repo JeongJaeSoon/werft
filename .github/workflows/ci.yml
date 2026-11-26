@@ -54,6 +54,7 @@ jobs:
       sdk_pack: ${{ steps.reuse.outputs.sdk_pack == 'true' && 'false' || steps.sdk.outputs.run }}
       reused: ${{ steps.reuse.outputs.reused }}
       unit_parts: ${{ steps.units.outputs.matrix }}
+      integration_matrix: ${{ steps.domains.outputs.matrix }}
       conformance: ${{ steps.conformance.outputs.run }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -128,7 +129,7 @@ jobs:
           DOMAINS: ${{ steps.plan.outputs.domains }}
           DOCS_ONLY: ${{ steps.plan.outputs.docs_only }}
         run: bash .github/scripts/ci-reuse.sh >>"$GITHUB_OUTPUT"
-      - if: github.event.inputs.only == 'check' || steps.plan.outputs.domains == '["surface"]'
+      - if: steps.plan.outputs.tests == 'true'
         uses: ./.github/actions/bun-setup
         with:
           restore-cache: "false"
@@ -144,10 +145,26 @@ jobs:
           fi
           matrix=$(bun .github/scripts/unit-part.ts matrix "${args[@]}")
           echo "matrix=$matrix" >>"$GITHUB_OUTPUT"
+      # The integration-domain matrix: only the planned domains start a job.
+      # An assignment, so a planner failure fails the step.
+      - id: domains
+        name: Integration matrix of the planned domains
+        if: steps.plan.outputs.tests == 'true' && steps.reuse.outputs.reused == ''
+        env:
+          DOMAINS: ${{ steps.plan.outputs.domains }}
+        run: |
+          matrix=$(bun .github/scripts/integration-jobs.ts matrix "$DOMAINS")
+          echo "matrix=$matrix" >>"$GITHUB_OUTPUT"
 
+  # A main push that reuses the PR run of its tree skips it: ci-reuse.sh
+  # counts that run's own static job among its proofs, and `check` accepts the
+  # skip only with the reused run's URL.
   static:
     name: check (static)
-    if: contains(fromJSON('["all","check"]'), github.event.inputs.only || 'all')
+    needs: changes
+    if: >-
+      needs.changes.outputs.reused == ''
+      && contains(fromJSON('["all","check"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 9
     steps:
@@ -238,7 +255,11 @@ jobs:
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
           REUSED: ${{ needs.changes.outputs.reused }}
         run: |
-          [ "$PLAN" = success ] && [ "$STATIC" = success ] || exit 1
+          [ "$PLAN" = success ] || exit 1
+          case "$STATIC:${REUSED:+reused}" in
+            success:* | skipped:reused) ;;
+            *) echo "::error::check (static) did not pass"; exit 1 ;;
+          esac
           case "$TESTS:$DOCS_ONLY:$RESULT:$DOCS:${REUSED:+reused}" in
             true:false:success:skipped:) echo "check: all planned tests passed" ;;
             false:true:skipped:success:) echo "check: documentation policy tests passed; product tests are not needed" ;;
@@ -282,8 +303,8 @@ jobs:
           echo "::error::workflow was cancelled"
           exit 1
 
-  # integration-jobs.ts reads ownership from this matrix and rejects missing
-  # or duplicate files and undeclared skips.
+  # integration-jobs.ts reads ownership from .github/integration-domains.yml
+  # and rejects missing or duplicate files and undeclared skips.
   integration-domain:
     name: integration (${{ matrix.domain }})
     needs: changes
@@ -295,274 +316,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # `docker` means the runner's own daemon, not a service container.
-        include:
-          # The PostgreSQL stores and the queue: unit and integration suites.
-          - domain: db
-            postgres: true
-            localstack: false
-            docker: false
-            paths:
-              - packages/db/
-              - packages/testkit/src/postgres.
-          # The session queue on PostgreSQL: sessions and their turns, the
-          # scheduler's claims, worker leases and fencing, parked and pending
-          # requests. Split from `db`, whose suite alone outran every other
-          # job; the longer prefixes take these files from `packages/db/`.
-          - domain: sessions
-            postgres: true
-            localstack: false
-            docker: false
-            paths:
-              - packages/db/src/session
-              - packages/db/src/scheduler/
-              - packages/db/src/worker-unit-of-work.
-              - packages/db/src/parked-requests.
-              - packages/db/src/pending-
-              - packages/db/src/reconcile.
-          # HTTP routes and the control-host flows they drive. Keep their
-          # database and lifecycle checks apart from API consumer suites.
-          - domain: api
-            postgres: true
-            localstack: true
-            docker: false
-            paths:
-              - apps/control-host/src/api/
-              - apps/control-host/src/ingest/
-              - apps/control-host/src/main
-              - apps/control-host/src/metrics/
-              - apps/control-host/src/pass-loop/
-              - apps/control-host/src/reconciler/
-              - apps/control-host/src/wiring/
-              - packages/adapters/forge/
-              - tests/catalog-mismatch.
-              - tests/context-gap-flow.
-              - tests/conversation-call-flow.
-              - tests/drain-park-flow.
-              - tests/feature-gate-flow.
-              - tests/interrupt-flow.
-              - tests/lease-clock.
-              - tests/park-resume-flow.
-              - tests/tool-call-audit.
-              - tests/turn-trace-context.
-          # Slack and the contracts, clients and web apps that consume the API.
-          # PostgreSQL only: no file here reads object storage, and LocalStack
-          # took 30-39s to get ready for nothing. A file that comes to need it
-          # skips without STORAGE_LOCALSTACK_TEST, which `verify` rejects.
-          - domain: surface
-            postgres: true
-            localstack: false
-            docker: false
-            paths:
-              - apps/control-host/src/slack/
-              - packages/adapters/chat/
-              - packages/contracts/
-              - packages/client/
-              - packages/sdk/
-              - examples/
-              - packages/core/
-              - packages/react/
-              - apps/web/
-          # Object storage: checkpoint objects, the S3 transport and its bounds.
-          - domain: storage
-            postgres: false
-            localstack: true
-            docker: false
-            paths:
-              - packages/storage/
-              - packages/testkit/src/localstack.
-              - tests/checkpoint-flow.
-              - tests/checkpoint-pins.
-              - tests/object-store-cli.
-              - tests/object-store-route.
-              - tests/test-ops-bundle.
-              - tests/test-ops.
-              - tests/worker-checkpoint-publish.
-            skips:
-              # skipIf(linux): the runner can enforce the limits.
-              - file: packages/storage/src/git-runner.test.ts
-                test: where limits cannot be enforced git still runs, and says so once
-          # Worker containers: the local-docker backend and its workspaces,
-          # the scheduler that drives it, and the images and compose they run
-          # as. Files are listed one by one under local-docker/src so that the
-          # egress suite can be a job of its own.
-          - domain: docker
-            postgres: true
-            localstack: false
-            docker: true
-            paths:
-              - apps/control-host/src/scheduler/
-              - packages/adapters/execution/local-docker/src/backend.
-              - packages/adapters/execution/local-docker/src/config.
-              - packages/adapters/execution/local-docker/src/docker-client.
-              - packages/adapters/execution/local-docker/src/isolation-contract.
-              - packages/adapters/execution/local-docker/src/workspace
-              - tests/backup-restore.
-              - tests/images.
-              - tests/scheduler-launch-claim.
-          # What a worker may reach: the egress proxy and the isolated worker
-          # networks. Split from `docker` because its suite alone runs ~70s,
-          # most of it pulling the LocalStack image it starts as a container.
-          - domain: egress
-            postgres: false
-            localstack: false
-            docker: true
-            paths:
-              - apps/egress-proxy/
-              - packages/adapters/execution/local-docker/src/egress.
-              - tests/credential-routes.
-              - tests/sdk-egress-proxy.
-              - tests/conversation-runtime-flow.
-          # What runs inside a worker, none of it needing a service: the worker
-          # process, runtime adapters, platform services — plus the UI component
-          # library and the repository's own tooling suites, which need no
-          # service either and are too small for a runner of their own.
-          - domain: worker
-            postgres: false
-            localstack: false
-            docker: false
-            paths:
-              - apps/worker/
-              - packages/adapters/execution/kubernetes/
-              - packages/adapters/runtimes/
-              - packages/observability/
-              - packages/platform/
-              - packages/runtime-core/
-              - packages/system/
-              - packages/ui/
-              - packages/testkit/src/fake-anthropic.
-              - packages/testkit/src/fake-github.
-              - packages/testkit/src/fake-responses.
-              - packages/testkit/src/git-http.
-              - packages/testkit/src/request-log.
-              - packages/testkit/src/scripted-messages.
-              - packages/testkit/src/scripted-responses.
-              - packages/testkit/src/workspace.
-              - tests/agent-sdk-compat/
-              - tests/architecture.
-              - tests/a0-deferred-paths.
-              - tests/module-load.
-              - tests/message-keys.
-              - tests/korean-copy.
-              - tests/ci-concurrency.
-              - tests/ci-images.
-              - tests/ci-services.
-              - tests/ci-plan.
-              - tests/ci-reuse.
-              - tests/ci-static-checks.
-              - tests/install-rehearsal.
-              - tests/receipt-agent-refs.
-              - tests/d2-gate/
-              - tests/dev/
-              - tests/docs-i18n-code.
-              - tests/docs-links.
-              - tests/docs-meta-pairs.
-              - tests/docs-reader-contract.
-              - tests/docs-self-hosting-commands.
-              - tests/docs-self-hosting-facts.
-              - tests/docs-self-hosting-urls.
-              - tests/docs-site-links.
-              - tests/slack-data-page.
-              - tests/e2e/fetch-retry.
-              - tests/e2e/local-model.
-              - tests/e2e/real-model.
-              - tests/execution-backend-env.
-              - tests/fetch-pinned.
-              - tests/forbidden-terms.
-              - tests/soak/
-              - tests/ci-issue-scripts.
-              - tests/integration-jobs.
-              - tests/local-sh.
-              - tests/pages-target.
-              - tests/pages-workflow.
-              - tests/prepare-xfs.
-              - tests/preview-reap.
-              - tests/preview-sync.
-              - tests/verify-werft-response-capture.
-              - tests/verify-werft-keycloak.
-              - tests/release-auto.
-              - tests/release-versions.
-              - tests/schema-subset.
-              - tests/sdk-release.
-              - tests/supply-chain.
-              - tests/test-files.
-              - tests/third-party-notices.
-              - tests/ui-release.
-              - tests/unit-part.
-              - tests/verify-stack.
-              - tests/worker-protocol-compat.
-            skips:
-              # The Kubernetes backend's suites need a kind cluster
-              # (K8S_BACKEND_TEST=1 and a KUBECONFIG); the job that brings one
-              # is `k8s-smoke`. (unnamed) is their beforeAll/afterAll.
-              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
-                test: "(unnamed)"
-              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
-                test: "a delete conditioned on the replaced Pod's UID leaves the replacement running"
-              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
-                test: "a failed worker reports its exit, reason and log tail"
-              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
-                test: "terminating one generation leaves the next generation's Pod untouched"
-              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
-                test: "the nonce is in the Pod's own Secret only, never in the Pod"
-              - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
-                test: "terminate and workspace removal leave no Pod, Secret or PVC of the session"
-              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
-                test: "(unnamed)"
-              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
-                test: "ensureExecution twice → one resource, adopted without a new nonce"
-              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
-                test: "inspect: found:false for nothing launched, running for a launch"
-              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
-                test: "listManaged returns what was launched and drops what was terminated"
-              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
-                test: "terminate: generation_mismatch, terminated, absent — only the matching generation"
-              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
-                test: "a resource removed out of band is re-created; terminate conditioned on the old providerRef leaves the replacement"
-              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
-                test: "a resource launched with another spec is refused with LaunchSpecMismatchError and left in place"
-              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
-                test: "workspace pair, when present: lists the session's workspace and removes it only once unused"
-              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
-                test: "assertReplaceable, when present: resolves for a launchable intent and launches nothing"
-              - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
-                test: "reconcileNetworks, when present: clears what an out-of-band removal left, then has nothing to do"
-              # The D2 gate needs the whole compose stack and the
-              # images built from the checkout; scripts/d2-gate/run.sh runs it.
-              # (unnamed) is its beforeAll/afterAll.
-              - file: tests/d2-gate/gate.e2e.test.ts
-                test: "(unnamed)"
-              - file: tests/d2-gate/gate.e2e.test.ts
-                test: "A: two turns on one engine, checkpoint, restore onto a clean worker"
-              - file: tests/d2-gate/gate.e2e.test.ts
-                test: "B: a publish that fails at the manifest is never promoted"
-              - file: tests/d2-gate/gate.e2e.test.ts
-                test: "C: a transcript mirror error blocks the checkpoint and new input"
-              - file: tests/d2-gate/gate.e2e.test.ts
-                test: "D: a worker that loses its lease mid-turn promotes nothing"
-              - file: tests/d2-gate/gate.e2e.test.ts
-                test: "E: an accepted interrupt stops its turn, however early it lands"
-              # sweep on the same stack; run against a stack kept by
-              # D2_GATE_UP_ONLY=1 scripts/d2-gate/run.sh.
-              - file: tests/d2-gate/reconciler-sweep.e2e.test.ts
-                test: "(unnamed)"
-              - file: tests/d2-gate/reconciler-sweep.e2e.test.ts
-                test: "R1: a worker whose heartbeat stopped is fenced by the periodic pass and its turn settled unknown"
-              - file: tests/d2-gate/reconciler-sweep.e2e.test.ts
-                test: "R2: an interrupt its heartbeating worker cannot settle is sent to terminate and its receipt ends unknown"
-              # control host roles, on the same kept stack.
-              - file: tests/d2-gate/control-host-roles.e2e.test.ts
-                test: "(unnamed)"
-              - file: tests/d2-gate/control-host-roles.e2e.test.ts
-                test: "H1: one image runs the three roles and only the scheduler holds the Docker socket"
-              - file: tests/d2-gate/control-host-roles.e2e.test.ts
-                test: "H2: a scheduler restarted mid-turn ends no worker and launches none twice"
-              - file: tests/d2-gate/control-host-roles.e2e.test.ts
-                test: "H3: the api and reconciler come back from a restart and the session takes its next turn"
-              - file: tests/d2-gate/control-host-roles.e2e.test.ts
-                test: "H4: with PostgreSQL down the loops fail their passes, and recover once it is back"
-              - file: tests/d2-gate/control-host-roles.e2e.test.ts
-                test: "H5: a scheduler without Docker reserves nothing, and the real one launches the waiting session once"
+        # Only the domains the plan names: a domain no changed path reaches
+        # takes no runner. `changes` reads each entry from
+        # .github/integration-domains.yml (integration-jobs.ts matrix).
+        include: ${{ fromJSON(needs.changes.outputs.integration_matrix) }}
     # Every third-party image in this workflow comes from ghcr.io, not Docker
     # Hub, pinned by its upstream digest: ci-image-mirror.yml copies it there
     # . These point the suites that pull their own images at it
@@ -576,35 +333,23 @@ jobs:
       EXECUTION_WORKSPACE_MIGRATION_IMAGE: ghcr.io/jeongjaesoon/werft-ci/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
       LOCALSTACK_TEST_IMAGE: ghcr.io/jeongjaesoon/werft-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
     steps:
-      # A job-level `if` cannot read the matrix, and the entries stay declared
-      # here once for integration-jobs.ts, so a domain no changed path reaches
-      # still starts, ends in seconds, and reports success. Every step below
-      # waits on this one.
-      - id: gate
-        env:
-          PLANNED: ${{ contains(fromJSON(needs.changes.outputs.domains), matrix.domain) }}
-        run: echo "run=$PLANNED" >>"$GITHUB_OUTPUT"
-      - if: steps.gate.outputs.run == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Not `services:`, which the runner starts one by one before the first
       # step and polls on a 2·4·8s backoff (46s for api). From here the pulls
       # overlap each other and the install below; `wait` then probes every
       # second, and fails with the container's log if one never gets ready.
-      - if: steps.gate.outputs.run == 'true' && (matrix.postgres || matrix.localstack)
+      - if: matrix.postgres || matrix.localstack
         env:
           POSTGRES: ${{ matrix.postgres }}
           LOCALSTACK: ${{ matrix.localstack }}
           POSTGRES_SERVICE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/postgres@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
           LOCALSTACK_SERVICE_IMAGE: ghcr.io/jeongjaesoon/werft-ci/localstack@sha256:b279c01f4cfb8f985a482e4014cabc1e2697b9d7a6c8c8db2e40f4d9f93687c7
         run: .github/scripts/ci-services.sh start
-      - if: steps.gate.outputs.run == 'true'
-        uses: ./.github/actions/bun-setup
-      - if: steps.gate.outputs.run == 'true'
-        run: bun install --frozen-lockfile
+      - uses: ./.github/actions/bun-setup
+      - run: bun install --frozen-lockfile
       # Unset rather than empty where the service is absent: a test reading
       # `?? default` would take an empty string as a value.
-      - if: steps.gate.outputs.run == 'true'
-        name: Opt-in variables of this job's services
+      - name: Opt-in variables of this job's services
         env:
           POSTGRES: ${{ matrix.postgres }}
           LOCALSTACK: ${{ matrix.localstack }}
@@ -632,18 +377,17 @@ jobs:
       # VM is gone, and the client only sees its own timeout. The
       # daemon's events say whether the container got as far as starting; the
       # step after the tests keeps them, with the daemon's log, when it fails.
-      - if: steps.gate.outputs.run == 'true' && matrix.docker
+      - if: matrix.docker
         name: Record the daemon's events
         run: |
           echo "DOCKER_EVENTS_SINCE=$(date -u '+%Y-%m-%d %H:%M:%S')" >>"$GITHUB_ENV"
           nohup docker events --format '{{json .}}' >"$RUNNER_TEMP/docker-events.jsonl" 2>&1 &
-      - if: steps.gate.outputs.run == 'true' && (matrix.postgres || matrix.localstack)
+      - if: matrix.postgres || matrix.localstack
         env:
           POSTGRES: ${{ matrix.postgres }}
           LOCALSTACK: ${{ matrix.localstack }}
         run: .github/scripts/ci-services.sh wait
-      - if: steps.gate.outputs.run == 'true'
-        name: Tests of this domain
+      - name: Tests of this domain
         env:
           DOMAIN: ${{ matrix.domain }}
         # An assignment, not process substitution, so a failed assignment
@@ -656,7 +400,7 @@ jobs:
           bun .github/scripts/integration-jobs.ts verify "$DOMAIN" "$RUNNER_TEMP/junit.xml"
       # Whatever the suites pulled, by whatever path: none of it from Docker
       # Hub. Also after a failure — such a pull is worth knowing about anyway.
-      - if: steps.gate.outputs.run == 'true' && !cancelled()
+      - if: '!cancelled()'
         name: Nothing pulled from Docker Hub
         run: .github/scripts/assert-no-docker-hub-images.sh docker
       # SIGUSR1 makes dockerd write every goroutine's stack, so a call still
@@ -679,10 +423,15 @@ jobs:
             ${{ runner.temp }}/goroutine-stacks-*.log
           if-no-files-found: ignore
           retention-days: 14
-      - if: always() && steps.gate.outputs.run == 'true'
+      - if: always()
         run: .github/scripts/ci-services.sh stop
 
   # Heavy jobs stay cancellable; this required gate rejects missing or cancelled results.
+  # It also reports the required `e2e` and `quickstart` checks. Those jobs
+  # start only when the plan gives them work, so a run with nothing for them
+  # takes no runner; the verdicts here hold each result to the plan, and a
+  # skip passes only where the plan says so. A gate that never reports leaves
+  # them expected, which blocks a merge rather than passing it.
   integration:
     needs: [changes, integration-domain, e2e, conformance, quickstart]
     if: >-
@@ -690,15 +439,49 @@ jobs:
       && contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 2
+    permissions:
+      checks: write
     steps:
+      - id: e2e
+        name: e2e verdict
+        if: "!cancelled() && (github.event.inputs.only || 'all') == 'all'"
+        env:
+          PLAN: ${{ needs.changes.result }}
+          PRODUCT: ${{ needs.changes.outputs.product }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          REUSED: ${{ needs.changes.outputs.reused }}
+          SCENARIO: ${{ needs.e2e.result }}
+        run: |
+          [ "$PLAN" = success ] || exit 1
+          case "$PRODUCT:$DOCS_ONLY:$SCENARIO:${REUSED:+reused}" in
+            true:false:success:) echo "e2e: scenario passed" ;;
+            false:true:skipped:) echo "e2e: intentionally omitted for documentation-only inputs" ;;
+            false:false:skipped:reused) echo "e2e: passed in the PR run that tested this exact tree: ${REUSED}" ;;
+            *) echo "::error::required e2e scenario did not pass"; exit 1 ;;
+          esac
+      - id: quickstart
+        name: quickstart verdict
+        if: "!cancelled() && (github.event.inputs.only || 'all') == 'all'"
+        env:
+          PLAN: ${{ needs.changes.result }}
+          QUICKSTART: ${{ needs.changes.outputs.quickstart }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          GUIDES: ${{ needs.quickstart.result }}
+        run: |
+          [ "$PLAN" = success ] || exit 1
+          case "$QUICKSTART:$DOCS_ONLY:$GUIDES" in
+            true:false:success | true:true:success) echo "quickstart: both guides passed" ;;
+            false:true:skipped | false:false:skipped) echo "quickstart: intentionally omitted; executable guides unchanged" ;;
+            *) echo "::error::required executable guide did not pass"; exit 1 ;;
+          esac
       - id: verdict
         if: '!cancelled()'
         env:
           RESULT: ${{ needs.integration-domain.result }}
-          E2E: ${{ needs.e2e.result }}
+          E2E: ${{ steps.e2e.outcome }}
           CONFORMANCE: ${{ needs.conformance.result }}
           CONFORMANCE_PLAN: ${{ needs.changes.outputs.conformance }}
-          QUICKSTART: ${{ needs.quickstart.result }}
+          QUICKSTART: ${{ steps.quickstart.outcome }}
           EVENT: ${{ github.event_name }}
           ONLY: ${{ github.event.inputs.only || 'all' }}
           PLAN: ${{ needs.changes.result }}
@@ -720,6 +503,30 @@ jobs:
             false:false:skipped:reused) echo "integration: the PR run that tested this exact tree passed every domain: ${REUSED}" ;;
             *) echo "::error::invalid or failed integration plan/results"; exit 1 ;;
           esac
+      # On the commit the required checks read: a pull request's head, not
+      # the merge commit the run checked out. Only success reports success.
+      - id: report
+        name: Report the required e2e and quickstart checks
+        if: "!cancelled() && (github.event.inputs.only || 'all') == 'all'"
+        env:
+          E2E: ${{ steps.e2e.outcome }}
+          QUICKSTART: ${{ steps.quickstart.outcome }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          for name in e2e quickstart; do
+            if [ "$name" = e2e ]; then outcome=$E2E; else outcome=$QUICKSTART; fi
+            conclusion=failure
+            [ "$outcome" != success ] || conclusion=success
+            gh api --method POST "repos/${GH_REPO}/check-runs" --silent \
+              -f name="$name" -f head_sha="$HEAD_SHA" -f status=completed \
+              -f conclusion="$conclusion" -f details_url="$RUN_URL" \
+              -f "output[title]=${name}: ${conclusion}" \
+              -f "output[summary]=The \`${name} verdict\` step of the \`integration\` job in ${RUN_URL} ended ${outcome:-unrun}."
+            echo "${name}: reported ${conclusion}"
+          done
       - id: cancelled
         if: cancelled()
         run: |
@@ -963,39 +770,24 @@ jobs:
 
   # Exercise the real worker CLI against the compose fake Messages API.
   # The scenario records the tested SHA, images and declared skips.
+  # Only a plan with product inputs starts it, so a run with nothing for it
+  # takes no runner. The required `e2e` check is not this job: `integration`
+  # reports it, holding this job's result to the plan.
   e2e:
+    name: e2e (scenario)
     needs: changes
     if: >-
       !cancelled()
+      && needs.changes.outputs.product == 'true'
       && contains(fromJSON('["all","e2e"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - name: Validate product test plan
-        if: '!cancelled()'
-        env:
-          PLAN: ${{ needs.changes.result }}
-          PRODUCT: ${{ needs.changes.outputs.product }}
-          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
-          REUSED: ${{ needs.changes.outputs.reused }}
-        run: |
-          [ "$PLAN" = success ] || exit 1
-          case "$PRODUCT:$DOCS_ONLY:${REUSED:+reused}" in
-            true:false:) echo "e2e: product inputs changed; running the complete scenario" ;;
-            false:true:) echo "e2e: documentation-only PR; product inputs unchanged" ;;
-            false:false:reused) echo "e2e: the PR run that tested this exact tree passed it: ${REUSED}" ;;
-            *) echo "::error::invalid product test plan"; exit 1 ;;
-          esac
-      - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
-        uses: ./.github/actions/bun-setup
-      - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
-        run: bun install --frozen-lockfile
-      - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
-        uses: ./.github/actions/image-cache
-      - if: success() && !cancelled() && needs.changes.outputs.product == 'true'
-        id: scenario
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/bun-setup
+      - run: bun install --frozen-lockfile
+      - uses: ./.github/actions/image-cache
+      - id: scenario
         name: Alpha path against the compose stack
         env:
           E2E_COMPOSE_OVERRIDE: tests/e2e/compose.ci-mirror.yml
@@ -1003,40 +795,18 @@ jobs:
           E2E_OUT: ${{ runner.temp }}/e2e
         run: tests/e2e/run.sh
       # run.sh removes the images it built; what compose pulled stays.
-      - if: '!cancelled() && needs.changes.outputs.product == ''true'''
+      - if: '!cancelled()'
         name: Nothing pulled from Docker Hub
         run: .github/scripts/assert-no-docker-hub-images.sh docker
       # Compose, worker and suite logs: the worker containers are gone by
       # now, so this is the only copy of what they printed.
-      - if: always() && needs.changes.outputs.product == 'true'
+      - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-record
           path: ${{ runner.temp }}/e2e
           if-no-files-found: ignore
           retention-days: 14
-      - id: verdict
-        name: Required scenario verdict
-        if: always() && !cancelled()
-        env:
-          PLAN: ${{ needs.changes.result }}
-          PRODUCT: ${{ needs.changes.outputs.product }}
-          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
-          REUSED: ${{ needs.changes.outputs.reused }}
-          SCENARIO: ${{ steps.scenario.outcome }}
-        run: |
-          [ "$PLAN" = success ] || exit 1
-          case "$PRODUCT:$DOCS_ONLY:$SCENARIO:${REUSED:+reused}" in
-            true:false:success:) echo "e2e: scenario passed" ;;
-            false:true:skipped:) echo "e2e: intentionally omitted for documentation-only inputs" ;;
-            false:false:skipped:reused) echo "e2e: passed in the PR run that tested this exact tree: ${REUSED}" ;;
-            *) echo "::error::required e2e scenario did not pass"; exit 1 ;;
-          esac
-      - id: cancelled
-        if: cancelled()
-        run: |
-          echo "::error::workflow was cancelled"
-          exit 1
 
   # The engine-parametrized conformance suite (tests/conformance): the same
   # scenarios on each runtime engine's own worker image and fake provider.
@@ -1083,10 +853,14 @@ jobs:
           retention-days: 14
 
   # Execute both guides as written, with the CI mirror compose overlay.
+  # Only a plan that reaches the guides starts it; like e2e, the required
+  # `quickstart` check is `integration`'s report of this job's result.
   quickstart:
+    name: quickstart (guides)
     needs: changes
     if: >-
       !cancelled()
+      && needs.changes.outputs.quickstart == 'true'
       && contains(fromJSON('["all","quickstart"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -1099,33 +873,15 @@ jobs:
     env:
       SCHEDULER_INTERVAL_SEC: "1"
     steps:
-      - name: Validate executable guide plan
-        if: '!cancelled()'
-        env:
-          PLAN: ${{ needs.changes.result }}
-          QUICKSTART: ${{ needs.changes.outputs.quickstart }}
-          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
-        run: |
-          [ "$PLAN" = success ] || exit 1
-          case "$QUICKSTART:$DOCS_ONLY" in
-            true:true | true:false) echo "quickstart: product or guide inputs changed; running both guides" ;;
-            false:true) echo "quickstart: documentation-only PR; executable guides unchanged" ;;
-            false:false) echo "quickstart: changed paths reach neither the images nor the guides" ;;
-            *) echo "::error::invalid executable guide plan"; exit 1 ;;
-          esac
-      - if: success() && !cancelled() && needs.changes.outputs.quickstart == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - if: success() && !cancelled() && needs.changes.outputs.quickstart == 'true'
-        uses: ./.github/actions/image-cache
-      - if: success() && !cancelled() && needs.changes.outputs.quickstart == 'true'
-        id: guide
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/image-cache
+      - id: guide
         name: docs/quickstart.md
         env:
           COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml:tests/e2e/compose.ci-cache.yml
           QUICKSTART_OUT: ${{ runner.temp }}/quickstart
         run: tests/e2e/quickstart.sh
-      - if: success() && !cancelled() && needs.changes.outputs.quickstart == 'true'
-        id: api-guide
+      - id: api-guide
         name: reference/api-guide.mdx
         env:
           COMPOSE_FILE: compose.yaml:tests/e2e/compose.ci-mirror.yml:tests/e2e/compose.ci-cache.yml
@@ -1136,17 +892,17 @@ jobs:
       # below reads as a pull. The guides build only the compose project's
       # werft-* images and pull none by that name; `scripts/local.sh down`
       # keeps them, so they go before the check.
-      - if: '!cancelled() && needs.changes.outputs.quickstart == ''true'''
+      - if: '!cancelled()'
         name: Remove the images the guides built
         run: |
           built="$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^werft-[a-z-]+:' || true)"
           echo "built by the guides: ${built:-(none)}"
           # shellcheck disable=SC2086 # one argument per image
           [ -z "$built" ] || docker image rm $built
-      - if: '!cancelled() && needs.changes.outputs.quickstart == ''true'''
+      - if: '!cancelled()'
         name: Nothing pulled from Docker Hub
         run: .github/scripts/assert-no-docker-hub-images.sh docker
-      - if: always() && needs.changes.outputs.quickstart == 'true'
+      - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: quickstart-record
@@ -1155,27 +911,6 @@ jobs:
             ${{ runner.temp }}/api-guide
           if-no-files-found: ignore
           retention-days: 14
-      - id: verdict
-        name: Required guide verdict
-        if: always() && !cancelled()
-        env:
-          PLAN: ${{ needs.changes.result }}
-          QUICKSTART: ${{ needs.changes.outputs.quickstart }}
-          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
-          GUIDE: ${{ steps.guide.outcome }}
-          API_GUIDE: ${{ steps.api-guide.outcome }}
-        run: |
-          [ "$PLAN" = success ] || exit 1
-          case "$QUICKSTART:$DOCS_ONLY:$GUIDE:$API_GUIDE" in
-            true:false:success:success | true:true:success:success) echo "quickstart: both guides passed" ;;
-            false:true:skipped:skipped | false:false:skipped:skipped) echo "quickstart: intentionally omitted; executable guides unchanged" ;;
-            *) echo "::error::required executable guide did not pass"; exit 1 ;;
-          esac
-      - id: cancelled
-        if: cancelled()
-        run: |
-          echo "::error::workflow was cancelled"
-          exit 1
 
   # Validate the chart against pinned Kubernetes and CRD schemas.
   helm-chart:

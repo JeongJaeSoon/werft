@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   assign,
   type IntegrationJob,
+  matrix,
   readJobs,
   readJunit,
   verifyRun,
@@ -23,11 +24,7 @@ function job(
 }
 
 function workflow(entries: string): string {
-  return `jobs:
-  integration-domain:
-    strategy:
-      matrix:
-        include:
+  return `domains:
 ${entries}`;
 }
 
@@ -93,7 +90,47 @@ describe("integration-jobs.ts", () => {
 `),
       ),
     ).toThrow("db: paths must be a non-empty list");
-    expect(() => readJobs("jobs: {}\n")).toThrow("no integration-domain");
+    expect(() => readJobs("domains: []\n")).toThrow("has no domains list");
+    expect(() => readJobs("")).toThrow("has no domains list");
+  });
+
+  const declared = workflow(`          - domain: db
+            postgres: true
+            localstack: false
+            docker: false
+            paths: [packages/db/]
+          - domain: storage
+            postgres: false
+            localstack: true
+            docker: false
+            paths: [packages/storage/]
+          - domain: egress
+            postgres: false
+            localstack: false
+            docker: true
+            paths: [apps/egress-proxy/]
+`);
+
+  test("the matrix holds only the planned domains, in declaration order, with their services", () => {
+    expect(matrix(declared, '["egress","db"]')).toEqual([
+      { domain: "db", postgres: true, localstack: false, docker: false },
+      { domain: "egress", postgres: false, localstack: false, docker: true },
+    ]);
+    expect(matrix(declared, '["storage"]')).toEqual([
+      { domain: "storage", postgres: false, localstack: true, docker: false },
+    ]);
+  });
+
+  test("the matrix refuses an empty, malformed, repeated or unknown plan", () => {
+    for (const planned of ["[]", "", "null", "{}", '"db"', "[true]", "db"]) {
+      expect(() => matrix(declared, planned)).toThrow(
+        "planned domains must be a non-empty JSON array of names",
+      );
+    }
+    expect(() => matrix(declared, '["db","db"]')).toThrow("name one twice");
+    expect(() => matrix(declared, '["db","surface"]')).toThrow(
+      "no integration domain named surface",
+    );
   });
 
   test("gives every file to the one job whose prefix it starts with", () => {
@@ -182,14 +219,28 @@ describe("integration-jobs.ts", () => {
     ).toThrow("a: declared skip in b.test.ts, which it does not run");
   });
 
-  test("the matrix in ci.yml gives every file of the suite to exactly one job", async () => {
+  test("the declared domains give every file of the suite to exactly one job", async () => {
     const jobs = readJobs(
-      await readFile(join(repo, ".github", "workflows", "ci.yml"), "utf8"),
+      await readFile(join(repo, ".github", "integration-domains.yml"), "utf8"),
     );
     const files = suiteFiles(repo);
     const assigned = assign(files, jobs);
 
     expect([...assigned.values()].flat().sort()).toEqual(files);
+  });
+
+  test("prints the planned domains' matrix as one line of JSON, and fails on an unknown one", async () => {
+    const planned = await run(["matrix", '["worker","db"]']);
+    expect(planned.exitCode).toBe(0);
+    expect(planned.lines).toHaveLength(1);
+    expect(JSON.parse(planned.lines[0]!)).toEqual([
+      { domain: "db", postgres: true, localstack: false, docker: false },
+      { domain: "worker", postgres: false, localstack: false, docker: false },
+    ]);
+    const unknown = await run(["matrix", '["nope"]']);
+    expect(unknown.exitCode).toBe(1);
+    expect(unknown.lines).toEqual([]);
+    expect(unknown.stderr).toContain("no integration domain named nope");
   });
 
   test("prints a job's files as paths bun test takes literally, and refuses an unknown job", async () => {

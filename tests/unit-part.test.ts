@@ -106,7 +106,10 @@ describe("unit-part.ts", () => {
             : matrix(
                 withoutSurface(
                   discover(repo, ["tests", "packages", "apps", "examples"]),
-                  readFileSync(join(repo, ".github/workflows/ci.yml"), "utf8"),
+                  readFileSync(
+                    join(repo, ".github/integration-domains.yml"),
+                    "utf8",
+                  ),
                 ),
               ).map((entry) => entry.unit),
         );
@@ -121,7 +124,7 @@ describe("unit-part.ts", () => {
       "../.github/scripts/integration-jobs.ts"
     );
     const workflow = readFileSync(
-      join(repo, ".github/workflows/ci.yml"),
+      join(repo, ".github/integration-domains.yml"),
       "utf8",
     );
     const files = discover(repo, ["tests", "packages", "apps", "examples"]);
@@ -152,7 +155,7 @@ describe("unit-part.ts", () => {
   test("web exclusion rejects an incomplete integration assignment", async () => {
     const { withoutSurface } = await import("../.github/scripts/unit-part.ts");
     const workflow = readFileSync(
-      join(repo, ".github/workflows/ci.yml"),
+      join(repo, ".github/integration-domains.yml"),
       "utf8",
     );
     const files = discover(repo, ["tests", "packages", "apps", "examples"]);
