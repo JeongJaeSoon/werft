@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -183,6 +184,23 @@ describe("test-ops-bundle-plan.sh", () => {
     const r = plan(before, commit(odd, "select 4;\n"));
     expect(r).toMatchObject({ code: 0, out: "ops_bundle=build\n" });
     expect(r.why).toContain("changed");
+  });
+
+  test("an input that is a symlink builds it, whatever changed", () => {
+    put("scripts/target.sh", "echo t\n");
+    mkdirSync(join(repo, "scripts"), { recursive: true });
+    rmSync(join(repo, "scripts/test-ops.sh"), { force: true });
+    symlinkSync("target.sh", join(repo, "scripts/test-ops.sh"));
+    git("add", ".");
+    git("commit", "--quiet", "-m", "link");
+    const before = git("rev-parse", "HEAD");
+    const r = plan(before, commit("scripts/target.sh"));
+    expect(r).toMatchObject({ code: 0, out: "ops_bundle=build\n" });
+    expect(r.why).toContain("an input is a symlink: scripts/test-ops.sh");
+    rmSync(join(repo, "scripts/test-ops.sh"));
+    put("scripts/test-ops.sh", "echo real\n");
+    git("add", ".");
+    git("commit", "--quiet", "-m", "unlink");
   });
 
   test("a list it cannot read builds it", () => {

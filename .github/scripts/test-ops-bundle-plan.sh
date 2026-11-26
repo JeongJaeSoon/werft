@@ -10,7 +10,8 @@
 # no previous commit (a new branch), a push of several commits or a force push
 # (HEAD^ is not `before`), a diff or list that cannot be read, and any
 # .gitattributes change (it can change the bytes a checkout gives the bundle).
-# Files outside
+# An input that is a symlink builds too: the bundle copies its target, which
+# the list does not name. Files outside
 # the list that still break the bundle surface in the next scheduled or tag
 # run, which always build it.
 #
@@ -44,6 +45,10 @@ specs=(':(glob,top).gitattributes' ':(glob,top)**/.gitattributes')
 while IFS= read -r path; do
   [ -z "$path" ] || specs+=(":(literal,top)${path}")
 done <<<"$inputs"
+links=$(git ls-files -s -- "${specs[@]}") || build "cannot read the inputs' modes"
+if grep -q '^120000 ' <<<"$links"; then
+  build "an input is a symlink: $(grep '^120000 ' <<<"$links" | head -n 1 | cut -f2)"
+fi
 git diff --quiet --no-renames "$before" HEAD -- "${specs[@]}"
 case $? in
   0) ;;
