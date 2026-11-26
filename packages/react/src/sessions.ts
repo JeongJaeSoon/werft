@@ -243,10 +243,16 @@ export function useRecheckSessionReads(
     if (seen.current === lastEventAt) return;
     const first = seen.current === undefined;
     seen.current = lastEventAt;
-    if (!first)
-      void queryClient.invalidateQueries(sessionTurnsQuery(client, id), {
-        cancelRefetch: false,
-      });
+    if (first) return;
+    const turns = sessionTurnsQuery(client, id);
+    // A turns read already in flight may have started before the event, and
+    // an invalidation joins it: read once more after it lands.
+    const inFlight = queryClient.isFetching(turns) > 0;
+    void queryClient
+      .invalidateQueries(turns)
+      .then(() =>
+        inFlight ? queryClient.invalidateQueries(turns) : undefined,
+      );
   }, [queryClient, client, id, lastEventAt]);
   useEffect(() => {
     if (!disagree) return;
