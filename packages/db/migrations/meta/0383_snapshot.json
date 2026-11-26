@@ -1,6 +1,6 @@
 {
-  "id": "a7bb8c8f-4da3-405a-98a2-1d7030289f22",
-  "prevId": "4ffdb946-aa26-446f-9f16-efeac143c337",
+  "id": "fae5f1b9-ff50-4462-900a-322c9af334e7",
+  "prevId": "1a819880-452c-4849-872e-97833b1098ce",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -7370,6 +7370,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_turn_queue_ended_idx": {
+          "name": "conversation_turn_queue_ended_idx",
+          "columns": [
+            {
+              "expression": "ended_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_turn_queue\".\"state\" = 'ended'",
           "concurrently": false,
           "method": "btree",
           "with": {}
