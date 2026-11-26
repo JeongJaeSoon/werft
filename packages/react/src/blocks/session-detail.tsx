@@ -256,6 +256,9 @@ export function SessionDetail({
         events: events.events,
         windowFull: events.events.length >= EVENT_WINDOW,
         now: lapseNow,
+        listCurrent:
+          pending.data !== undefined &&
+          pending.dataUpdatedAt >= session.dataUpdatedAt,
       })
     : undefined;
   // The requests sit at the chat's end: open the chat and land on them.
@@ -832,7 +835,7 @@ function UsageFigures({ usage }: { readonly usage: SessionUsageResponse }) {
   return (
     <span className="inline-flex items-center gap-[var(--werft-space-1)] tabular-nums">
       <Gauge
-        className="size-3.5 shrink-0"
+        className="size-[var(--werft-leading-caption)] shrink-0"
         strokeWidth={1.5}
         aria-hidden="true"
       />

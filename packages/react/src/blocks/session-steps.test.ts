@@ -105,6 +105,7 @@ const read = ({
     events: [],
     windowFull: false,
     now: Date.parse(AT),
+    listCurrent: false,
     ...overrides,
   });
 
@@ -176,6 +177,20 @@ describe("readSessionSteps", () => {
     });
     expect(steps.steps[0]?.state).toBe("running");
     expect(steps.steps[0]?.requests).toEqual([]);
+  });
+
+  test("a list read after the session is the truth: an older count does not bring the wait back", () => {
+    const steps = read({
+      session: {
+        current_turn_id: "1",
+        status: "needs_input",
+        pending_request_count: 1,
+      },
+      turns: [turn("1", "needs_input")],
+      requests: [],
+      listCurrent: true,
+    });
+    expect(steps.steps[0]?.state).toBe("running");
   });
 
   test("a turn already ended is not current, though a session read before its end names it", () => {

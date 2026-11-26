@@ -56,6 +56,12 @@ export interface ReadSessionStepsInput {
   readonly events: readonly SessionEventFrame[];
   /** Epoch ms: a request past its `expires_at` no longer holds its turn. */
   readonly now: number;
+  /**
+   * The request list was read no earlier than the session: it is the truth
+   * about open requests. Older, the session's own count speaks for requests
+   * the list has not caught up with.
+   */
+  readonly listCurrent: boolean;
   /** The event window is at its cap, so its oldest events are gone. */
   readonly windowFull: boolean;
 }
@@ -75,10 +81,9 @@ function stateOf(
       return "queued";
     case "running":
       return "running";
-    // The turns and the request list are read apart, so either may lag. The
-    // session counts its open requests in the same read as its status: a
-    // needs_input turn the list does not name waits only while that count
-    // says some are open.
+    // The turns and the request list are read apart, so either may lag: a
+    // needs_input turn the list does not name waits only while a session
+    // read newer than the list counts open requests.
     case "needs_input":
       return heldOpen ? "answer" : "running";
     case "completed":
@@ -108,6 +113,7 @@ export function readSessionSteps({
   events,
   windowFull,
   now,
+  listCurrent,
 }: ReadSessionStepsInput): SessionSteps {
   const calls = new Map<string, Set<string>>();
   for (const frame of events) {
@@ -131,7 +137,9 @@ export function readSessionSteps({
     // A turn whose requests are known to have lapsed is not held by a count
     // the session read before they did.
     const heldOpen =
-      session.pending_request_count > 0 && own.length === asked.length;
+      !listCurrent &&
+      session.pending_request_count > 0 &&
+      own.length === asked.length;
     return {
       turn,
       number: index + 1,

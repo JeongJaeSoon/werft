@@ -4946,6 +4946,31 @@ describe("session steps", () => {
     ).toBeNull();
   });
 
+  test("a request that lapses while the screen is open leaves the input line and its step", async () => {
+    const soon = new Date(Date.now() + 1_000).toISOString();
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...waitingOnTwo,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, {
+          ...pending,
+          items: pending.items.map((item) => ({
+            ...item,
+            turn_id: "2",
+            expires_at: soon,
+          })),
+        }),
+    });
+    const needed = await screen.findByRole("region", {
+      name: "내 입력이 필요합니다",
+    });
+    const list = screen.getByRole("region", { name: "단계" });
+    expect(within(list).getByText("승인 대기")).toBeTruthy();
+    await waitFor(() => expect(needed.isConnected).toBe(false), {
+      timeout: 3_000,
+    });
+    expect(within(list).queryByText("승인 대기")).toBeNull();
+  });
+
   test("a session nothing waits on has no input-needed line", async () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...waitingOnTwo,
@@ -4955,6 +4980,11 @@ describe("session steps", () => {
     await within(await sessionProgress()).findByRole("button", {
       name: /^단계 2\/2/,
     });
+    expect(
+      within(screen.getByRole("region", { name: "단계" })).queryByText(
+        "승인 대기",
+      ),
+    ).toBeNull();
     expect(
       screen.queryByRole("region", { name: "내 입력이 필요합니다" }),
     ).toBeNull();
