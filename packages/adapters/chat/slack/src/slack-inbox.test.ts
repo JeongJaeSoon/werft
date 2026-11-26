@@ -307,6 +307,57 @@ describe("drainSlackInbox lines", () => {
     expect(lane.ended).toEqual(["Ev3", "Ev4", "Ev1", "Ev2"]);
   });
 
+  test("a thread in backoff holds back its own later posts and a channel event behind it; other threads go on", async () => {
+    let clock = 1_000_000;
+    const inbox = createMemorySlackInboundEventStore({ now: () => clock });
+    const post = async (eventId: string, event: Record<string, unknown>) =>
+      inbox.store.record({
+        workspaceId: "w",
+        agentId: "a",
+        slackAppId: "s",
+        teamId: "T1",
+        appId: "A1",
+        eventId,
+        eventType: "app_mention",
+        eventSubtype: null,
+        eventTime: null,
+        status: "received",
+        payload: { event: { type: "app_mention", ...event } },
+        conversationKey: slackConversationKey("s", event),
+      });
+    await post("Ev1", { channel: "C1", ts: "1.0" });
+    await post("Ev2", { channel: "C1", ts: "2.0", thread_ts: "1.0" });
+    await post("Ev3", { channel: "C1", ts: "3.0" });
+    const ran: string[] = [];
+    let failing = true;
+    const pass = () =>
+      drainSlackInbox({
+        inbox: inbox.store,
+        handler: async (event) => {
+          if (event.eventId === "Ev1" && failing) throw new Error("boom");
+          ran.push(event.eventId);
+        },
+        logger: recorder().logger,
+        concurrency: 4,
+        leaseMs: 60_000,
+        deadline: Number.POSITIVE_INFINITY,
+        now: () => clock,
+      });
+    expect(await pass()).toMatchObject({ retried: 1, processed: 1 });
+    // Ev1 waits out its backoff: its reply waits, the other thread does not.
+    expect(ran).toEqual(["Ev3"]);
+    await inChannel(inbox, "Ev4", "member_left_channel", {
+      channel: "C1",
+      user: "U1",
+    });
+    await post("Ev5", { channel: "C1", ts: "5.0" });
+    expect(await pass()).toMatchObject({ claimed: 0 });
+    failing = false;
+    clock += slackInboundBackoffMs(1);
+    expect(await pass()).toMatchObject({ processed: 4 });
+    expect(ran).toEqual(["Ev3", "Ev1", "Ev2", "Ev4", "Ev5"]);
+  });
+
   test("no more run at once than the concurrency, and each claim leases only what starts", async () => {
     const inbox = createMemorySlackInboundEventStore();
     for (let i = 1; i <= 6; i += 1) {

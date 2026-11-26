@@ -3757,7 +3757,7 @@ describe.each(ENGINES)("Slack bot mentions on %s", (engine) => {
       fixture,
       botMention("100.000106", { thread_ts: "100.000100" }),
     );
-    // Its retries run out first: the next mentions wait in its channel.
+    // Its retries run out first: the next mentions wait in its thread.
     for (let attempt = 0; attempt < SLACK_INBOUND_MAX_ATTEMPTS; attempt += 1) {
       await db
         .update(schema.slackInboundEvents)

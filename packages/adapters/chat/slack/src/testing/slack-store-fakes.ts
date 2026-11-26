@@ -1174,17 +1174,33 @@ export function createMemorySlackInboundEventStore(
           ? `${row.slackAppId}:${id}`
           : null;
       };
+      const backingOff = (row: MemoryInboundRow) =>
+        !leased(row) && row.nextAttemptAt !== null && row.nextAttemptAt > now();
       // A channel with an event in flight, or one ahead in line, waits.
       const taken = new Set(
         [...lease.values()].filter((r) => waiting(r) && leased(r)).map(laneOf),
       );
+      // A thread whose row waits out its backoff steps aside from there on;
+      // a channel event behind it keeps its place, and its channel waits.
+      const asideThreads = new Set<string>();
+      const asideLanes = new Set<string>();
       for (const row of lease.values()) {
         if (out.length >= limit) break;
         if (row.state !== "received" || row.status === "dropped") continue;
         const lane = laneOf(row);
         if (lane !== null) {
           if (taken.has(lane)) continue;
+          const thread = row.conversationKey;
+          if (
+            thread !== null &&
+            (asideThreads.has(thread) || backingOff(row))
+          ) {
+            asideThreads.add(thread);
+            asideLanes.add(lane);
+            continue;
+          }
           taken.add(lane);
+          if (thread === null && asideLanes.has(lane)) continue;
         }
         if (leased(row)) continue;
         if (row.nextAttemptAt !== null && row.nextAttemptAt > now()) continue;

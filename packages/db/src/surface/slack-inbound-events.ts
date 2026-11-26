@@ -139,24 +139,44 @@ export function createPostgresSlackInboundEventStore(
               WHERE c.status = 'received'
                 AND c.id IN (
                   SELECT q.id FROM (
-                    SELECT r.id, r.attempts, r.claim_token, r.lease_expires_at,
-                      r.next_attempt_at, r.lane,
-                      row_number() OVER lanes AS place,
+                    SELECT s.id, s.attempts, s.claim_token, s.lease_expires_at,
+                      s.next_attempt_at, s.lane, s.conversation_key, s.aside,
+                      row_number() OVER (PARTITION BY s.lane, s.aside ORDER BY ${order("s")}) AS place,
+                      -- A channel event keeps its place behind a thread set
+                      -- aside: a leave or an archive changes who may see it.
+                      COALESCE(bool_or(s.aside) OVER (
+                        PARTITION BY s.lane ORDER BY ${order("s")}
+                        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                      ), false) AS behind_aside,
                       -- A late retry of an older event must not run beside
                       -- the one its channel already has in flight.
-                      bool_or(r.claim_token IS NOT NULL AND r.lease_expires_at > now())
-                        OVER (PARTITION BY r.lane) AS busy
+                      bool_or(s.claim_token IS NOT NULL AND s.lease_expires_at > now())
+                        OVER (PARTITION BY s.lane) AS busy
                     FROM (
-                      SELECT e.*, ${lane("e")} AS lane
-                      FROM slack_inbound_events e
-                      WHERE e.status = 'received'
-                    ) r
-                    WINDOW lanes AS (PARTITION BY r.lane ORDER BY ${order("r")})
+                      -- A row waiting out its backoff sets its thread aside
+                      -- from there on; the rest of its channel goes on.
+                      SELECT r.*, COALESCE(r.conversation_key IS NOT NULL AND bool_or(
+                        (r.claim_token IS NULL OR r.lease_expires_at <= now())
+                          AND r.next_attempt_at IS NOT NULL
+                          AND r.next_attempt_at > now()
+                      ) OVER (
+                        PARTITION BY r.lane, r.conversation_key ORDER BY ${order("r")}
+                        ROWS UNBOUNDED PRECEDING
+                      ), false) AS aside
+                      FROM (
+                        SELECT e.*, ${lane("e")} AS lane
+                        FROM slack_inbound_events e
+                        WHERE e.status = 'received'
+                      ) r
+                    ) s
                   ) q
                   WHERE q.attempts < ${maxAttempts}
                     AND (q.claim_token IS NULL OR q.lease_expires_at <= now())
                     AND (q.next_attempt_at IS NULL OR q.next_attempt_at <= now())
-                    AND (q.lane IS NULL OR (q.place = 1 AND NOT q.busy))
+                    AND (q.lane IS NULL OR (
+                      q.place = 1 AND NOT q.busy AND NOT q.aside
+                      AND (q.conversation_key IS NOT NULL OR NOT q.behind_aside)
+                    ))
                 )
               ORDER BY ${order("c")}
               LIMIT ${limit}
