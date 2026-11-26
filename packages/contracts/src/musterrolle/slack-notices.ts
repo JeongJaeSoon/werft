@@ -61,6 +61,8 @@ const SLACK_NOTICE_MESSAGES_KO = {
     "요청한 사람의 이번 달 예산 한도에 닿아 모델을 부르지 못했어요. 다음 달 1일(UTC)에 풀리고, 그 전에는 워크스페이스 관리자가 한도를 올리면 풀려요",
   budgetAccountTeam:
     "에이전트 팀의 이번 달 예산 한도에 닿아 모델을 부르지 못했어요. 다음 달 1일(UTC)에 풀리고, 그 전에는 워크스페이스 관리자가 한도를 올리면 풀려요",
+  storageLimit:
+    "이 설치의 저장 한도에 남은 자리가 모자라 이 요청을 받지 못했어요. 관리자에게 한도를 올려 달라고 요청하세요",
 } as const;
 
 export type SlackNoticeMessage = keyof typeof SLACK_NOTICE_MESSAGES_KO;
@@ -124,6 +126,8 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "依頼した人の今月の予算上限に達したため、モデルを呼び出せませんでした。来月1日（UTC）に解除されます。それより前に使うには、ワークスペースの管理者に上限を上げてもらってください",
     budgetAccountTeam:
       "エージェントのチームの今月の予算上限に達したため、モデルを呼び出せませんでした。来月1日（UTC）に解除されます。それより前に使うには、ワークスペースの管理者に上限を上げてもらってください",
+    storageLimit:
+      "この環境の保存容量の上限に空きが足りず、このリクエストを受け付けられませんでした。管理者に上限を上げるよう依頼してください",
   },
   en: {
     connect: "Link your Slack account on the web",
@@ -178,6 +182,8 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "The requester's monthly budget limit was reached, so the model could not be called. It lifts on the 1st of next month (UTC), or sooner when a workspace admin raises the limit",
     budgetAccountTeam:
       "The agent team's monthly budget limit was reached, so the model could not be called. It lifts on the 1st of next month (UTC), or sooner when a workspace admin raises the limit",
+    storageLimit:
+      "This installation's storage limit has too little room left, so this request was not taken. Ask an administrator to raise the limit",
   },
 };
 
