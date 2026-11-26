@@ -231,6 +231,30 @@ describe("the AI line on outbox rows", () => {
     }
   });
 
+  test("a forced cut drops no character of code", async () => {
+    const code = `\`\`\`\n${"a".repeat(2_992)}\tKEEP\n\`\`\``;
+    const pieces = await sections(code);
+    expect(
+      pieces.map((piece) => piece.replaceAll("```", "")).join(""),
+    ).toContain("\tKEEP");
+  });
+
+  test("inline code goes whole to the next section, or is closed across", async () => {
+    const span = `\`printf *danger* ${"x".repeat(30)}\``;
+    const moved = await sections(`${"a ".repeat(1_489)}${span} end`);
+    expect(moved[1]).toStartWith(span);
+
+    const long = await sections(`\`${"z ".repeat(2_000)}\``);
+    expect(long.length).toBeGreaterThan(1);
+    for (const piece of long) expect(piece.split("`")).toHaveLength(3);
+  });
+
+  test("a URL keeps the escapes it ends in, and stops at a bracket", async () => {
+    expect(
+      await sections("https://example.com/?a=1&. <https://b.example"),
+    ).toEqual(["<https://example.com/?a=1&amp;>. &lt;<https://b.example>"]);
+  });
+
   for (const kind of ["failure_notice", "notice"] as const) {
     test(`${kind}: refused blocks go again as text that keeps the line`, async () => {
       const sent = await deliver(row(kind), ADA, { refuseBlocks: true });
