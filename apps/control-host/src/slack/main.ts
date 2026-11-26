@@ -368,7 +368,7 @@ export function slackConversationTasks(deps: {
   const { db, logger } = deps;
   const { authorization, sessions } = slackSessionServices(deps);
   const tasks = {
-    store: createPostgresConversationTasks(db, deps.outbox, deps.secretKey),
+    store: createPostgresConversationTasks(db, deps.secretKey),
     links: createPostgresSessionLinkStore(db),
     authorization,
     sessions,

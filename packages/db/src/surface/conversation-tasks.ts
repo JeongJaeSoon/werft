@@ -11,7 +11,6 @@ import type {
   PendingConversationTask,
   SecretKey,
   StoredSourceSet,
-  SurfaceOutboxStore,
 } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
 import {
@@ -22,6 +21,7 @@ import {
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
 import { conversationReplyDedupeKey } from "./conversation-replies.ts";
+import { createPostgresSlackOutboxStore } from "./slack-outbox.ts";
 
 /**
  * What a mention turn's spawn_task decision reads and writes (v1-b/E3). The
@@ -30,7 +30,6 @@ import { conversationReplyDedupeKey } from "./conversation-replies.ts";
  */
 export function createPostgresConversationTasks(
   db: Database,
-  outbox: Pick<SurfaceOutboxStore, "enqueue">,
   secretKey: SecretKey,
 ): ConversationTaskStore {
   return {
@@ -139,43 +138,57 @@ export function createPostgresConversationTasks(
 
     requestText: (turnId) => keptTurnRequest(db, secretKey, turnId),
 
-    async settle(turnId, effect: ConversationTaskEffect) {
+    async madeSession(task) {
+      // Turn 1 took the mention as its input, and the request names it.
+      const [made] = rowsOf<{ id: string }>(
+        await db.execute(sql`
+          SELECT s.id FROM sessions s
+          JOIN conversation_inputs i ON i.id::text = s.task_request->>'inputId'
+          WHERE s.parent_conversation_id = ${task.conversationId}::uuid
+            AND i.agent_id = ${task.agentId}::uuid
+            AND i.slack_team_id = ${task.thread.teamId}
+            AND i.slack_channel_id = ${task.thread.channelId}
+            AND i.slack_ts = ${task.thread.messageTs}
+          LIMIT 1`),
+      );
+      return made?.id ?? null;
+    },
+
+    async settle(task, effect: ConversationTaskEffect, line) {
       return db.transaction(async (tx) => {
         const written = rowsOf(
           await tx.execute(sql`
             UPDATE conversation_turns SET task_effect = ${effect}
-            WHERE id = ${turnId}::uuid AND decision = 'spawn_task'
+            WHERE id = ${task.turnId}::uuid AND decision = 'spawn_task'
               AND task_effect IS NULL
             RETURNING id`),
         );
-        await releaseKeptTurnRequest(tx, turnId);
-        return written.length > 0;
-      });
-    },
-
-    async tellThread(task, message) {
-      if (task.thread.slackAppId === null) return;
-      const [requester] = rowsOf<{ locale: UserLocale | null }>(
-        await db.execute(sql`
-          SELECT locale FROM users WHERE id::text = ${task.requesterUserId}`),
-      );
-      const locale = requester?.locale ?? DEFAULT_USER_LOCALE;
-      await outbox.enqueue({
-        workspaceId: task.workspaceId,
-        agentId: task.agentId,
-        slackAppId: task.thread.slackAppId,
-        installationId: task.thread.installationId,
-        kind: "conversation_reply",
-        channelId: task.thread.channelId,
-        threadTs: task.thread.threadTs,
-        slackUserId: null,
-        sessionLinkId: null,
-        sessionId: null,
-        body: { text: SLACK_NOTICE_MESSAGES[locale][message], locale },
-        // One line per turn, as its answer would be.
-        dedupeKey: conversationReplyDedupeKey(task.turnId),
-        sources: task.sources,
-        conversationTurnId: task.turnId,
+        await releaseKeptTurnRequest(tx, task.turnId);
+        if (written.length === 0) return false;
+        if (line === null || task.thread.slackAppId === null) return true;
+        const [requester] = rowsOf<{ locale: UserLocale | null }>(
+          await tx.execute(sql`
+            SELECT locale FROM users WHERE id::text = ${task.requesterUserId}`),
+        );
+        const locale = requester?.locale ?? DEFAULT_USER_LOCALE;
+        await createPostgresSlackOutboxStore(tx).enqueue({
+          workspaceId: task.workspaceId,
+          agentId: task.agentId,
+          slackAppId: task.thread.slackAppId,
+          installationId: task.thread.installationId,
+          kind: "conversation_reply",
+          channelId: task.thread.channelId,
+          threadTs: task.thread.threadTs,
+          slackUserId: null,
+          sessionLinkId: null,
+          sessionId: null,
+          body: { text: SLACK_NOTICE_MESSAGES[locale][line], locale },
+          // One line per turn, as its answer would be.
+          dedupeKey: conversationReplyDedupeKey(task.turnId),
+          sources: task.sources,
+          conversationTurnId: task.turnId,
+        });
+        return true;
       });
     },
 

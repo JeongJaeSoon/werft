@@ -4421,7 +4421,46 @@ describe.each(ENGINES)(
       expect(slack.messages).toEqual([]);
     });
 
-    test("a line queued before a crash is not lost and not doubled", async () => {
+    test("a session tied to the thread before a crash stays the task once its link closes", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await spawnDecided();
+      // The session is made and tied; settling then fails.
+      await db.execute(
+        sql.raw(`CREATE FUNCTION fail_settle() RETURNS trigger LANGUAGE plpgsql
+          AS $$ BEGIN RAISE EXCEPTION 'settle lost'; END $$`),
+      );
+      await db.execute(
+        sql.raw(`CREATE TRIGGER fail_settle BEFORE UPDATE OF task_effect
+          ON conversation_turns FOR EACH ROW EXECUTE FUNCTION fail_settle()`),
+      );
+      try {
+        await endings();
+      } finally {
+        await db.execute(
+          sql.raw("DROP TRIGGER fail_settle ON conversation_turns"),
+        );
+        await db.execute(sql.raw("DROP FUNCTION fail_settle()"));
+      }
+      const [made] = await sessionsOf(fixture);
+      expect((await links())[0]?.sessionId).toBe(made?.id);
+      // The session ends and its link closes before the next run.
+      await db.execute(
+        sql`UPDATE session_links SET closed_at = now(), closed_reason = 'completed'`,
+      );
+      expect(await endings()).toMatchObject({ spawned: 1 });
+      expect(await sessionsOf(fixture)).toHaveLength(1);
+      expect(await links()).toHaveLength(1);
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        effect: "opened",
+        nonce: null,
+      });
+      await sendOutbox();
+      expect(threadPosts()).toEqual([]);
+    });
+
+    test("a refusal's line is written with its effect, or not at all", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       await deliver(fixture, mention("100.000100"));
       await drain(handler().handle);
@@ -4444,6 +4483,9 @@ describe.each(ENGINES)(
         await db.execute(sql.raw("DROP FUNCTION fail_settle()"));
       }
       expect(await taskOfTurn(turn.turn_id)).toMatchObject({ effect: null });
+      // The failed run left no line a later run could contradict.
+      await sendOutbox();
+      expect(threadPosts()).toEqual([]);
       await endings();
       expect(await taskOfTurn(turn.turn_id)).toMatchObject({
         effect: "refused",

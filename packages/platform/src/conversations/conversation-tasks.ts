@@ -85,16 +85,21 @@ export interface ConversationTaskStore {
   sourceDeleted(task: PendingConversationTask): Promise<boolean>;
   /** The request as the turn's runtime was given it; null once it is gone. */
   requestText(turnId: ConversationTurnId): Promise<string | null>;
-  /** True for the run that recorded it; false when another run did. */
+  /**
+   * The task session this turn's effect made, whether or not its link is
+   * still open; null when it made none.
+   */
+  madeSession(task: PendingConversationTask): Promise<string | null>;
+  /**
+   * Records the effect and, with it, the server's one line in the turn's
+   * thread: both or neither. True for the run that recorded it; false when
+   * another run did, which writes no line.
+   */
   settle(
-    turnId: ConversationTurnId,
-    effect: ConversationTaskEffect,
-  ): Promise<boolean>;
-  /** One line of the server's in the turn's thread, once per turn. */
-  tellThread(
     task: PendingConversationTask,
-    message: SlackNoticeMessage,
-  ): Promise<void>;
+    effect: ConversationTaskEffect,
+    line: SlackNoticeMessage | null,
+  ): Promise<boolean>;
   /** Takes back a link this effect reserved that never got its session. */
   dropUnopenedLink(link: SessionLinkRecord): Promise<void>;
 }
@@ -154,10 +159,7 @@ const reasonCodeOf = (details: unknown): string | undefined =>
 export async function spawnConversationTask(
   deps: {
     store: ConversationTaskStore;
-    links: Pick<
-      SessionLinkStore,
-      "find" | "reserve" | "attachSession" | "openedSession"
-    >;
+    links: Pick<SessionLinkStore, "find" | "reserve" | "attachSession">;
     authorization: Pick<AuthorizationPolicy, "authorize">;
     sessions: Pick<SessionService, "createSession">;
     /** An ephemeral line to the requester; false when Slack did not take it. */
@@ -185,16 +187,27 @@ export async function spawnConversationTask(
     reason: string,
   ): Promise<ConversationTaskOutcome> => {
     deps.logger.info("Conversation task not started", { ...ids, reason });
-    // Told before it is settled: a run that dies between the two tells
-    // again under the turn's one key, never not at all.
-    if (line !== null) await deps.store.tellThread(task, line);
-    await deps.store.settle(turnId, effect);
+    await deps.store.settle(task, effect, line);
     return effect;
   };
 
   // Deleted before the task: nothing is made, and nothing is said of it.
   if (await deps.store.sourceDeleted(task)) {
     return told("voided", null, "source_deleted");
+  }
+  // Made before a crash: it is the task, whatever the request or the right
+  // since, and its link may be closed by now.
+  const made = await deps.store.madeSession(task);
+  if (made !== null) {
+    const open = await deps.links.find(
+      task.thread.installationId,
+      `${task.thread.channelId}:${task.thread.threadTs}`,
+    );
+    if (open?.openedByTs === task.thread.messageTs && open.sessionId == null) {
+      await deps.links.attachSession(open.id, made);
+    }
+    await deps.store.settle(task, "opened", null);
+    return "opened";
   }
   const { thread, subject } = task;
   if (
@@ -216,17 +229,6 @@ export async function spawnConversationTask(
   if (link !== null && link.openedByTs !== thread.messageTs) {
     return told("failed", "taskFailed", "thread_taken");
   }
-  // Made before a crash, perhaps never tied to the thread: it is the
-  // task, whatever the request or the right since.
-  const made =
-    link === null
-      ? null
-      : (link.sessionId ?? (await deps.links.openedSession(link)));
-  if (link !== null && made !== null) {
-    if (link.sessionId == null) await deps.links.attachSession(link.id, made);
-    await deps.store.settle(turnId, "opened");
-    return "opened";
-  }
 
   const decision = await deps.authorization.authorize({
     action: "task.spawn",
@@ -244,10 +246,8 @@ export async function spawnConversationTask(
       reason: decision.reason_code,
     });
     const notice = taskRefusalNotice(decision.reason_code, deps.connectUrl);
-    if (!(await deps.tellRequester(task, notice))) {
-      await deps.store.tellThread(task, "taskFailed");
-    }
-    await deps.store.settle(turnId, "refused");
+    const heard = await deps.tellRequester(task, notice);
+    await deps.store.settle(task, "refused", heard ? null : "taskFailed");
     return "refused";
   }
 
@@ -341,7 +341,7 @@ export async function spawnConversationTask(
   if (attached.sessionId !== sessionId) {
     throw new Error(`Slack thread ${link.id} already holds another session`);
   }
-  await deps.store.settle(turnId, "opened");
+  await deps.store.settle(task, "opened", null);
   deps.logger.info("Conversation task started", {
     ...ids,
     session_id: sessionId,

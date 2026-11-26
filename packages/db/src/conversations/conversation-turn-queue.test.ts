@@ -5,11 +5,7 @@ import {
   conversationInputIdSchema,
   conversationRuntimeIdSchema,
 } from "@werft-ai/contracts";
-import {
-  derivedSecretKey,
-  openWithKey,
-  SecretKey,
-} from "@werft-ai/platform";
+import { derivedSecretKey, openWithKey, SecretKey } from "@werft-ai/platform";
 import { conversationTurnQueueContract } from "@werft-ai/platform/testing/conversation-turn-queue";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle } from "drizzle-orm/pglite";
