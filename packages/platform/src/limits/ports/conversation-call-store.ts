@@ -5,6 +5,7 @@ import type {
   ConversationCallId,
   ConversationCallKey,
   ConversationId,
+  ConversationKind,
   ConversationTopicId,
   ConversationTurnCallRefusal,
   ConversationTurnId,
@@ -12,6 +13,7 @@ import type {
   ConversationTurnLimitSide,
   ConversationTurnState,
 } from "@werft-ai/contracts";
+import type { ConversationTurnSurfaceSubject } from "../../conversations/index.ts";
 import type { BudgetRoot } from "../budget-accounts.ts";
 import type { ConversationCallLimit } from "../conversation-call-limits.ts";
 import type { ProviderUsage } from "../model-prices.ts";
@@ -220,6 +222,8 @@ export type ConversationMentionTurnInput = Omit<
   slackInstallationId: string;
   /** The mention: the turn's source and the message it engages. */
   message: { teamId: string; channelId: string; ts: string };
+  /** The Slack subject the mention was judged on, for a task it asks for. */
+  slackSubject?: ConversationTurnSurfaceSubject | null;
 };
 
 export type ConversationMentionTurnIssue =
@@ -230,7 +234,8 @@ export type ConversationMentionTurnIssue =
   | { outcome: "source_deleted" };
 
 export type ConversationTurnPermitIssue =
-  | { outcome: "issued"; expiresAt: Date }
+  // `place`: the conversation's kind, which says what the turn may decide.
+  | { outcome: "issued"; expiresAt: Date; place: ConversationKind }
   | { outcome: "unknown_agent" }
   // The conversation is not the agent's, or the topic not the conversation's.
   | { outcome: "unknown_conversation" };

@@ -87,8 +87,13 @@ describe("ConversationTools", () => {
     const samples = {
       body: "Here it is.",
       task_id: crypto.randomUUID(),
-      spec: "write the report",
+      goal: "write the report",
+      done_when: "the report is in the thread",
       reason: "asked",
+    };
+    // Fields a decision may leave out, each tool's own.
+    const OPTIONAL: Partial<Record<string, string[]>> = {
+      spawn_task: ["repository"],
     };
     for (const tool of ALL) {
       const schema = DECISION_INPUT_SCHEMAS[tool] as {
@@ -98,7 +103,7 @@ describe("ConversationTools", () => {
       };
       expect(schema.additionalProperties).toBe(false);
       expect(Object.keys(schema.properties).sort()).toEqual(
-        [...schema.required].sort(),
+        [...schema.required, ...(OPTIONAL[tool] ?? [])].sort(),
       );
       const input = Object.fromEntries(
         schema.required.map((field) => [
@@ -226,7 +231,11 @@ describe("ConversationTools", () => {
     }
     expect(decisions).toEqual([]);
     expect(
-      await callOf(t, "key-1", "spawn_task", { spec: "s", reason: "r" }),
+      await callOf(t, "key-1", "spawn_task", {
+        goal: "g",
+        done_when: "d",
+        reason: "r",
+      }),
     ).toEqual({
       text: "Refused (tool_not_allowed); this is not the turn's decision.",
       isError: true,

@@ -848,6 +848,46 @@ integration("worker gateway on PostgreSQL", () => {
     expect(await check()).toBe("stale_epoch");
   });
 
+  test("a waiting poll's question is answered while another transaction holds the session, its attempt and its queue (94S-2243)", async () => {
+    const session = await queuedSession(partitionFor("next-input-pending"));
+    const claimed = await claim(await launch(session.session_id));
+    await pool.query(
+      "UPDATE attempts SET lease_expires_at = clock_timestamp() + interval '1 minute' WHERE id = $1",
+      [claimed.attempt_id],
+    );
+    const work = createPostgresWorkerUnitOfWork(db);
+    const ask = () =>
+      work.nextInputPending({
+        fence: fenceOf(claimed),
+        budget: { costUsd: 1_000, tokens: null },
+      });
+    const blocker = await pool.connect();
+    try {
+      await blocker.query("BEGIN");
+      // Every row nextInputAtomic locks on its way to the same answer.
+      await blocker.query("SELECT 1 FROM sessions WHERE id = $1 FOR UPDATE", [
+        session.session_id,
+      ]);
+      await blocker.query("SELECT 1 FROM attempts WHERE id = $1 FOR UPDATE", [
+        claimed.attempt_id,
+      ]);
+      await blocker.query(
+        "SELECT 1 FROM queue_messages WHERE session_id = $1 FOR UPDATE",
+        [session.session_id],
+      );
+      // The first input is queued, and is seen without waiting for any row.
+      expect(
+        await Promise.race([ask(), sleep(2_000).then(() => "waited")]),
+      ).toBe(true);
+      await blocker.query("COMMIT");
+    } catch (error) {
+      await blocker.query("ROLLBACK");
+      throw error;
+    } finally {
+      blocker.release();
+    }
+  });
+
   test("the first egress call waits for the session row and judges the fence it finds there", async () => {
     const work = createPostgresWorkerUnitOfWork(db);
     const stateOf = async (attemptId: string) =>

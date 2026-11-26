@@ -3,10 +3,12 @@ import {
   CONVERSATION_TURN_DECISION_VALUES,
   CONVERSATION_TURN_LIMIT_VALUES,
   CONVERSATION_TURN_REASON_MAX,
+  type ConversationKind,
   type ConversationTurnDecision,
   conversationIdSchema,
   conversationTopicIdSchema,
 } from "../domain/conversation.ts";
+import { TASK_INTERPRETATION_TEXT_MAX } from "../domain/task.ts";
 import {
   agentIdSchema,
   timestampSchema,
@@ -100,13 +102,19 @@ const DECISION_TOOLS_BY_REQUESTER: Record<
   operator: ALL_DECISIONS,
   slack_bot: ANSWER_ONLY,
 };
-/** The decision tools of a turn whose requester is of `kind`; a kind not known gets the fewest. */
+/**
+ * The decision tools of a turn whose requester is of `kind`; a kind not
+ * known gets the fewest. A DM's turn opens no task: tasks start in channel
+ * threads alone.
+ */
 export function conversationDecisionTools(
   kind: string,
+  place: ConversationKind = "channel",
 ): readonly ConversationTurnDecision[] {
-  return Object.hasOwn(DECISION_TOOLS_BY_REQUESTER, kind)
+  const tools = Object.hasOwn(DECISION_TOOLS_BY_REQUESTER, kind)
     ? (DECISION_TOOLS_BY_REQUESTER[kind] ?? ANSWER_ONLY)
     : ANSWER_ONLY;
+  return place === "dm" ? tools.filter((tool) => tool !== "spawn_task") : tools;
 }
 
 const decisionReasonSchema = z
@@ -115,8 +123,10 @@ const decisionReasonSchema = z
   .max(CONVERSATION_TURN_REASON_MAX);
 /**
  * The one decision a turn's model makes, as its decision tool was called.
- * Only the reply's body is kept, as the turn's answer; a task id or a new
- * task's spec has no effect yet and is not stored.
+ * The reply's body is kept as the turn's answer, and a new task's goal, end
+ * and repository as its draft (v1-b/E3): the agent's reading of the request,
+ * never the request itself, which the server attaches (G6). The repository
+ * is the model's pick, checked by the server against the agent's (G3).
  */
 export const conversationDecisionSchema = z.discriminatedUnion("tool", [
   z
@@ -137,7 +147,9 @@ export const conversationDecisionSchema = z.discriminatedUnion("tool", [
   z
     .object({
       tool: z.literal("spawn_task"),
-      spec: z.string().min(1).max(CONVERSATION_TURN_TEXT_MAX),
+      goal: z.string().trim().min(1).max(TASK_INTERPRETATION_TEXT_MAX),
+      done_when: z.string().trim().min(1).max(TASK_INTERPRETATION_TEXT_MAX),
+      repository: z.string().min(1).max(128).optional(),
       reason: decisionReasonSchema,
     })
     .strict(),

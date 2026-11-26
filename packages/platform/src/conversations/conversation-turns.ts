@@ -16,6 +16,10 @@ import type {
   ConversationTurnReport,
   QueuedConversationTurn,
 } from "../ports/conversation-turn-queue.ts";
+import type {
+  ConversationTaskOutcome,
+  ConversationTurnSurfaceSubject,
+} from "./conversation-tasks.ts";
 import type { TopicSessionChecks } from "./topic-session-checks.ts";
 
 // A lease taken now would outlast the turn's permit.
@@ -268,6 +272,8 @@ export type MentionTurnRequest = {
   requesterUserId: string;
   /** The mention's text, the bot's own mention taken out: the turn's instruction. */
   text: string;
+  /** The Slack subject the mention was judged on, for a task it asks for. */
+  slackSubject: ConversationTurnSurfaceSubject | null;
 };
 
 export type MentionTurnStart =
@@ -407,6 +413,8 @@ export type MentionTurnEndings = {
   ended: number;
   /** Turns whose reply decision enqueued its answer. */
   replied: number;
+  /** Turns whose spawn_task decision opened its task. */
+  spawned: number;
   /** Turns that put a 👀 on the message that called them. */
   reacted: number;
   reset: number;
@@ -431,6 +439,10 @@ export async function endMentionTurns(deps: {
   queue: Pick<ConversationTurnQueue, "outcome">;
   replies: ConversationReplyStore;
   reactions: ConversationReactionStore;
+  /** The effect of a spawn_task decision (v1-b/E3). */
+  tasks: {
+    spawn(turnId: ConversationTurnId): Promise<ConversationTaskOutcome>;
+  };
   calls: {
     endTurn(
       turnId: ConversationTurnId,
@@ -467,6 +479,7 @@ export async function endMentionTurns(deps: {
   const result: MentionTurnEndings = {
     ended: 0,
     replied: 0,
+    spawned: 0,
     reacted: 0,
     reset: 0,
     superseded: 0,
@@ -507,6 +520,9 @@ export async function endMentionTurns(deps: {
       // The 👀 row first, so it is queued ahead of the answer it announces.
       if ((await deps.reactions.react(turn.turnId)) === "enqueued") {
         result.reacted += 1;
+      }
+      if ((await deps.tasks.spawn(turn.turnId)) === "opened") {
+        result.spawned += 1;
       }
       if ((await deps.replies.post(turn.turnId)) === "enqueued") {
         result.replied += 1;

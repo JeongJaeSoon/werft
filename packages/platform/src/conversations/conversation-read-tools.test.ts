@@ -446,7 +446,12 @@ describe("the decision tools as the control host answers them", () => {
   const ALL: ConversationDecision[] = [
     { tool: "reply", body: "Here it is.", reason: "asked" },
     { tool: "route_to_task", task_id: taskId, reason: "that task's" },
-    { tool: "spawn_task", spec: "write the report", reason: "new work" },
+    {
+      tool: "spawn_task",
+      goal: "write the report",
+      done_when: "the report is in the thread",
+      reason: "new work",
+    },
     { tool: "no_reply", reason: "not for the agent" },
   ];
   const task = (sessionId: string): ConversationOpenTask => ({
@@ -507,6 +512,21 @@ describe("the decision tools as the control host answers them", () => {
       reason: "tool_not_allowed",
     });
     expect(unknown.seen.decisions).toEqual([]);
+  });
+
+  test("a DM's turn is refused spawn_task by the server, whatever its runtime loaded", async () => {
+    const spawn = ALL.find((decision) => decision.tool === "spawn_task");
+    if (spawn === undefined) throw new Error("no spawn_task sample");
+    const s = setup(
+      turnOf({ place: { kind: "dm", personUserId: crypto.randomUUID() } }),
+    );
+    expect(await s.decide(spawn)).toEqual({
+      outcome: "refused",
+      reason: "tool_not_allowed",
+    });
+    expect(s.seen.decisions).toEqual([]);
+    // A channel's turn is not.
+    expect(await setup().decide(spawn)).toEqual({ outcome: "accepted" });
   });
 
   test("route_to_task names an open task the requester sees, behind the private channel's door", async () => {
