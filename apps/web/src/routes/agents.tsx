@@ -357,14 +357,17 @@ function AgentList({
 }
 
 /**
- * Every session the caller may read, as the sessions list opens it, each
- * figure a way into that list; a refusal or failure leaves the line out
- * rather than claiming none.
+ * Every session the caller may read, as the sessions list opens it, the
+ * running and failed figures each a way into that list; a refusal or failure,
+ * a later one included, leaves the line out rather than claiming none or
+ * keeping old figures.
  */
 function AgentsSessionSummary() {
   const { client } = useWerft();
   const counts = useQuery(sessionCountsQuery(client, undefined, undefined));
-  return counts.data ? <SessionSummary counts={counts.data} /> : null;
+  return counts.data && !counts.isError ? (
+    <SessionSummary counts={counts.data} />
+  ) : null;
 }
 
 /**

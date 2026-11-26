@@ -57,6 +57,8 @@ describe("ListSummary", () => {
     expect(failed.getAttribute("type")).toBe("button");
     await user.click(failed);
     expect(failed.getAttribute("aria-pressed")).toBe("true");
+    // More than the faint fill shows it pressed.
+    expect(failed.className).toContain("aria-pressed:ring-subtle-foreground");
     // Keyboard: Tab reaches it and Enter or Space presses it.
     failed.blur();
     await user.tab();

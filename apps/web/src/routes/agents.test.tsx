@@ -615,6 +615,29 @@ describe("에이전트 목록", () => {
     ).toBeDefined();
   });
 
+  test("한 번 읽은 뒤 다시 읽기가 실패하면 옛 수를 두지 않고 요약 줄을 뺀다", async () => {
+    const server = agentServer();
+    let reads = 0;
+    renderAt("/agents", {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/sessions/counts": () =>
+        ++reads === 1
+          ? json(200, SESSION_COUNTS)
+          : apiError(503, "BACKEND_UNAVAILABLE", "down"),
+      "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
+    });
+    const line = await screen.findByRole("list", { name: "세션 요약" });
+    const user = await setupUser();
+    // The sessions list reads the same counts again on arrival, and fails.
+    await user.click(within(line).getByRole("link", { name: "실패 3" }));
+    await screen.findByRole("group", { name: "적용한 필터" });
+    await waitFor(() => expect(reads).toBeGreaterThan(1));
+    await waitFor(() =>
+      expect(screen.queryByRole("list", { name: "세션 요약" })).toBeNull(),
+    );
+  });
+
   test("counts를 읽지 못하면 요약 줄을 빼고 0이라 말하지 않는다", async () => {
     const server = agentServer();
     renderAt("/agents", {

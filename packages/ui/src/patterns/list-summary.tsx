@@ -49,7 +49,9 @@ const PRESSABLE = cn(
   FIGURE,
   "border-0 bg-transparent text-foreground no-underline transition-[background-color] duration-[var(--werft-motion-fast)] hover:bg-hover motion-reduce:transition-none",
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
-  "aria-pressed:bg-active",
+  // The fill alone is too faint to tell a pressed figure (WCAG 1.4.11), so
+  // a ring in a text tone marks it too.
+  "aria-pressed:bg-active aria-pressed:ring-1 aria-pressed:ring-subtle-foreground aria-pressed:ring-inset",
 );
 
 // A router link's children may be a function of its state.

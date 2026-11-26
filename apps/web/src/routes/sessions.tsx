@@ -304,7 +304,8 @@ export function SessionsScreen() {
           refusal={refusal}
         />
         <div className="flex min-w-0 flex-col gap-4">
-          {counts.data ? (
+          {/* A failed read keeps its last answer: say nothing rather than old figures. */}
+          {counts.data && !counts.isError ? (
             <SessionSummary
               counts={counts.data}
               filter={{
