@@ -1,0 +1,9 @@
+# Names that belong to AffectUI alone and must not appear outside
+# apps/web/src/vendor/affectui/free/. CI reads this file in addition to the
+# built-in prefixes in .github/scripts/vendor-names.ts. The owner maintains it.
+#
+# One identifier per line: a class, CSS variable, component or asset file name.
+# Each line is matched as plain text, ignoring case, in file contents and paths,
+# so write only names that cannot occur by chance (never a common word).
+# Names only: this repository is public, so no code, markup or screen designs.
+# Blank lines and lines starting with # are ignored. An empty list passes.

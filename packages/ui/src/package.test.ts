@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { resolve } from "node:path";
 import { Glob } from "bun";
+import ts from "typescript";
 
 /*
  * packages/ui draws; it does not fetch, route, or decide. The boundary is a
@@ -31,6 +33,24 @@ const ALLOWED_RUNTIME_DEPENDENCIES = [
   "tailwind-merge",
 ];
 
+// Files copied from a third party stay in the web app. The kit is published, so
+// it takes only what was rewritten here, never the copy.
+const VENDOR = resolve(PACKAGE_ROOT, "../../apps/web/src/vendor");
+
+function vendorImports(file: string, source: string): string[] {
+  const specifiers = file.endsWith(".css")
+    ? Array.from(source.matchAll(/["'(]([^"'()\s;]+)/g), (m) => m[1] ?? "")
+    : ts
+        .preProcessFile(source, true, true)
+        .importedFiles.map((f) => f.fileName);
+  return specifiers.filter(
+    (specifier) =>
+      specifier.includes("vendor/affectui") ||
+      (specifier.startsWith(".") &&
+        resolve(PACKAGE_ROOT, file, "..", specifier).startsWith(`${VENDOR}/`)),
+  );
+}
+
 // The consumer's own React: a second copy breaks hooks.
 const PEER_DEPENDENCIES = ["react", "react-dom"];
 
@@ -59,6 +79,45 @@ describe("패키지 경계", () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  test("apps/web의 vendor 폴더를 import하지 않는다", async () => {
+    const glob = new Glob("**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,css}");
+    const offenders: string[] = [];
+    let seen = 0;
+    for await (const file of glob.scan({ cwd: PACKAGE_ROOT })) {
+      if (/(^|\/)(node_modules|dist)\//.test(file)) continue;
+      seen += 1;
+      const source = await Bun.file(`${PACKAGE_ROOT}/${file}`).text();
+      offenders.push(
+        ...vendorImports(file, source).map((found) => `${file}: ${found}`),
+      );
+    }
+    expect(seen).toBeGreaterThan(0);
+    expect(offenders).toEqual([]);
+  });
+
+  test.each([
+    'import { A } from "../../../../apps/web/src/vendor/affectui/free/a.tsx";',
+    'import type { A } from "../../../../apps/web/src/vendor/affectui/free/a";',
+    'export * from "../../../../apps/web/src/vendor/affectui/free/a";',
+    'const a = await import("../../../../apps/web/src/vendor/affectui/free/a");',
+    'const a = require("../../../../apps/web/src/vendor/affectui/free/a");',
+    'import "../../../../apps/web/src/vendor/other/a.ts";',
+    'import "@/vendor/affectui/free/a";',
+  ])("vendor import를 찾는다: %s", (source) => {
+    expect(vendorImports("src/patterns/x.tsx", source)).toHaveLength(1);
+  });
+
+  test("CSS의 vendor @import를 찾고, 고지 주석과 다른 import는 지나친다", () => {
+    const css =
+      '@import "../../../../apps/web/src/vendor/affectui/free/a.css";';
+    expect(vendorImports("src/foundations/x.css", css)).toHaveLength(1);
+    const clean = [
+      "// Adapted from AffectUI (MIT): apps/web/src/vendor/affectui/free/LICENSE",
+      'import { a } from "./vendor-list.ts";',
+    ].join("\n");
+    expect(vendorImports("src/patterns/x.tsx", clean)).toEqual([]);
   });
 
   test("직접 네트워크를 부르지 않는다", async () => {
