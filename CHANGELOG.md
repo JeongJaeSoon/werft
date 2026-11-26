@@ -15,6 +15,12 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **turn이 checkpoint 없이 끝나도 다음 메시지를 기다리지 않고 다시 찍는다. 쉬는 세션이 배경 작업 때문에 '실패 · 복구 필요'가 되지 않는다**(JeongJaeSoon/werft#2301). 전에는 배경 작업(배경으로 돌린 명령, dev server)이 살아 있는 채 끝난 turn의 checkpoint를 다음 turn만 찍을 수 있었다. 다음 turn 없이 worker가 idle로 끝나면 세션이 `recovery_required`(context gap)가 됐다. 이제 worker가 그 turn의 checkpoint를 turn 사이에, 늦어도 idle 종료 전에 찍는다. migration은 없다.
+  - **쉬는 세션의 배경 작업은 idle 종료 때 멈춘다.** idle 시간이 찼을 때 배경 작업이 살아 있으면 worker가 5분을 더 기다린 뒤 그 프로세스를 멈추고(SIGTERM, 10초 뒤 SIGKILL) checkpoint를 찍고 끝난다. 그동안 worker 자리는 5분 더 잡혀 있다. 세션에는 `system` 이벤트(`background_tasks_stopped`, 명령 이름만)가 남고, 다음 turn의 engine 입력 맨 앞에 같은 사실이 한 줄 붙는다. dev server는 다음 turn에서 다시 띄워야 한다.
+  - checkpoint 발행이 저장소나 control plane의 일시 오류로 실패하면(`publish_failed`) worker가 같은 turn의 checkpoint를 1~15초 간격으로 다시 시도하고, 그동안(최대 2분) 다음 메시지는 queue에 남는다. 2분이 지나면 전처럼 `publish_failed`가 보이는 채로 다음 turn을 받는다.
+  - 배경 작업이 끝난 뒤 engine이 스스로 낸 출력은 그 turn의 이벤트로 저장되고(`data.after_turn: true`), 그때 쓴 provider 비용은 그 turn을 요청한 쪽의 예산으로 센다. 전에는 어느 turn에도 속하지 않았고 비용은 세션 첫 turn의 요청자에게 갔다.
+  - worker 로그에 `worker.checkpoint.committed`(`capture_kind`), `worker.checkpoint.hold_ended`, `worker.idle.background_grace`, `worker.idle.background_stopped`가 생긴다.
+  - api와 worker 이미지가 모두 이 버전이어야 듣는다. worker만 이 버전이면 전처럼 다음 turn이 찍는다. turn 사이에 찍은 checkpoint의 manifest는 앞선 이미지가 읽지 못하므로, 앞선 이미지로 되돌리면 그런 checkpoint에서 쉬던 세션은 복원에 실패한다(recovery 결정으로 이어 간다).
 - **첫 turn 도중 worker가 죽은 세션을 새 세션 없이 `start_fresh`로 같은 입력부터 다시 돌린다**(JeongJaeSoon/werft#2264). 커밋된 checkpoint가 없는 세션에서는 결과를 모르는 turn을 먼저 정하지 않아도 `start_fresh`가 받아진다. 그 turn은 `cancelled`(`operator_start_fresh`)로 닫히고, 같은 입력의 새 turn이 대기열 끝에 들어간다. `start_fresh`는 그때까지의 context를 이어받지 않는다(먼저 기다리던 입력이 있으면 그 뒤에 돌고, 그 입력이 만든 context는 이어받는다). 전에는 `RECOVERY_REQUIRED`로 거절됐고, abandon 뒤에는 같은 요청을 다시 할 길이 새 세션뿐이었다. Slack 스레드에는 [새 문맥으로 계속] 버튼이 붙은 안내가 올라가고, 그 세션에 쓸 수 있는 사람이 누를 수 있다(비공개 채널이면 지금 멤버). 세션 상세에 `start_fresh_available`이 생긴다. migration은 없고 따로 할 일도 없다.
   - checkpoint가 있는 세션은 그대로다. abandon이나 confirm을 먼저 한다.
   - 다시 넣는 turn은 이미 받은 입력의 사본이다. 저장 한도와 대기열 한도로 거절하지 않고, bytes는 저장 사용량에 더한다.
