@@ -105,7 +105,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
-import { followUpFact, queuePushFollowUps } from "./action/push-follow-ups.ts";
+import { queuePushFollowUps } from "./action/push-follow-ups.ts";
 import { settleTurnPushIntents } from "./action/push-intents.ts";
 import {
   type RuntimeFingerprint,
@@ -193,6 +193,7 @@ import {
   contextGap,
   raiseContextGap,
 } from "./sessions/context-gap.ts";
+import { deliveredTurnInput } from "./sessions/cut-off-input.ts";
 import {
   CLOSE,
   drainBlocker,
@@ -2911,9 +2912,11 @@ export function createPostgresWorkerUnitOfWork(
           input: {
             turnId: String(turn.sequence),
             inputId: String(message.id),
-            // Turns queued before the follow-up wording became facts still
-            // hold the old text; only a message equal to it is rewritten.
-            message: followUpFact(turn.message),
+            message: await deliveredTurnInput(tx, {
+              turn,
+              workspaceId: fenced.session.workspaceId,
+              redelivery,
+            }),
             deliveryStartedAt,
             actorId: turn.actorId,
             traceContext: turn.traceContext,

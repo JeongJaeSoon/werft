@@ -28,6 +28,7 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
+import { CUT_OFF_INPUT_LINE } from "./sessions/cut-off-input.ts";
 import { reconcileExpiredLeases } from "./sessions/lease-reconcile.ts";
 import { createPostgresWorkerPendingStore } from "./sessions/pending-control.ts";
 import { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
@@ -793,7 +794,11 @@ describe("the session after a lost turn", () => {
       },
     );
     expect(delivered.input?.turn_id).toBe("2");
-    expect(delivered.input?.message).toBe("second input");
+    // Turn 2, with the lost turn's input put first: it came after the
+    // checkpoint turn 2 starts from (cut-off-input.test.ts).
+    expect(delivered.input?.message).toBe(
+      `${CUT_OFF_INPUT_LINE}\n\nfirst input\n\nsecond input`,
+    );
     expect((await stateOf(worker.sessionId)).session.admission).toBe("active");
   });
 

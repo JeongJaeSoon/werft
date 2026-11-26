@@ -18,6 +18,8 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 - **API 권한 판정이 DB를 읽지 못하면 `403 FORBIDDEN`(`reason_code: "error"`) 대신 `503 BACKEND_UNAVAILABLE`(retryable, `Retry-After: 1`)로 답한다**(JeongJaeSoon/werft#2242). 권한이 없다는 답이 아니라 판정하지 못했다는 답이고, 이 답도 허용은 아니다. 저장소 오류가 아닌 판정 실패와 credential에 없는 scope는 전처럼 403이다. worker는 이전 세션 허용을 다시 확인하지 못하면 1·2·4초 간격으로 최대 20초 다시 묻고, 그래도 안 되면 전처럼 사람에게 묻는다. migration은 없고 따로 할 일도 없다.
   - api와 worker 이미지가 모두 이 버전이어야 듣는다. api만 앞선 버전이면 전처럼 403이고, 웹은 그 403도 계속 잠시 다시 붙는다.
   - Slack 이벤트 처리 쪽 판정은 바뀌지 않는다.
+- **lease를 잃어 끊긴 turn 바로 뒤의 turn이 끊긴 turn의 입력을 맨 앞에 붙여 받는다**. 그 입력은 마지막 checkpoint 뒤의 일이라, 전에는 새 메시지나 끊기기 전에 기다리던 메시지로 이어 가면 엔진이 그 요청을 모른 채 돌았다. 앞의 요청이 중간에 끊겼다는 한 줄이 그 앞에 붙는다. 화면과 API의 `message`는 보낸 그대로이고, 새 필드 `prepended_turn_id`(turn 조회·목록)가 붙인 turn을 가리킨다. 원문이 지워졌거나 [이어서 하기]로 생긴 turn이면 붙이지 않는다. migration `0376_cut_off_turn_prepend`가 `turns`에 빈 열 두 개(`prepended_turn`, `prepend_skip_reason`)를 더한다. 따로 할 일은 없다.
+  - 앞선 이미지로 되돌려도 된다. 앞선 이미지는 이 열을 읽지도 쓰지도 않고, 전처럼 붙이지 않는다.
 - **lease를 잃어 끊긴 turn이 웹 세션 화면에 "중단됨"과 안내, [이어서 하기] 버튼으로 보인다**(JeongJaeSoon/werft#2246). 새 경로 `POST /v1/sessions/{id}/turns/{turn_id}/continue`가 그 버튼이다. Slack 안내의 버튼과 같아서, 어디서 몇 번 눌러도 turn은 하나만 생긴다. 끊긴 turn 뒤에 다른 turn이 이미 있으면 버튼은 아무것도 넣지 않고 `409 CONTROL_SUPERSEDED`로 답한다. 이전에는 끊기기 전에 대기열에 있던 글 뒤에도 turn을 하나 더 만들었다. migration은 없고 따로 할 일도 없다.
 - **대화 rollout이 `on`인 에이전트의 멘션 턴 스레드가 "처리 중"에 남던 두 경우를 고쳤다**(JeongJaeSoon/werft#2239). 첫째는 새 턴을 위해 다시 보낸 "처리 중"을 Slack이 받지 않은 경우, 둘째는 턴이 도는 중에 대화 기록을 지운 경우다. migration `0374_mention_thread_statuses`가 빈 표 `mention_thread_statuses`를 만든다. 따로 할 일은 없다.
   - 앞선 이미지로 되돌려도 된다. 앞선 이미지는 이 표를 읽지 않으므로 남은 줄을 보내지 않는다. 그 스레드는 다음 멘션 턴이 끝나거나 Slack이 한 시간 뒤 "처리 중"을 스스로 내릴 때 돌아온다. 남은 줄은 다시 올린 이미지가 보낸다.
