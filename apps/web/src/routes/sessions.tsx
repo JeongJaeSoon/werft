@@ -22,10 +22,12 @@ import {
 } from "@werft-ai/react/blocks";
 import { ListToolbar } from "@werft-ai/react/components";
 import {
+  AppliedFilters,
   Button,
   EmptyState,
-  FilterMenu,
   type ItemCountTone,
+  type ListFilterFacet,
+  ListFilters,
   Page,
   SegmentedControl,
   SegmentedControlItem,
@@ -121,6 +123,35 @@ export interface SessionsSearch {
 /** Rows on one page of the sessions list. */
 export const SESSIONS_PAGE_SIZE = 15;
 
+/**
+ * The list's filters as the address holds them; a screen beside the list
+ * applies one by navigating to /sessions with these.
+ */
+export type SessionsFilterState = Pick<SessionsSearch, "status" | "relation">;
+
+/**
+ * The address after a filter change: a field left out keeps its value, null
+ * clears it, and the page goes back to the first.
+ */
+export function withSessionsFilter(
+  current: SessionsFilterState,
+  change: {
+    readonly status?: SessionFilter | null;
+    readonly relation?: SessionRelationFilter | null;
+  },
+): SessionsSearch {
+  const status =
+    change.status === undefined ? current.status : (change.status ?? undefined);
+  const relation =
+    change.relation === undefined
+      ? current.relation
+      : (change.relation ?? undefined);
+  return {
+    ...(status ? { status } : {}),
+    ...(relation ? { relation } : {}),
+  };
+}
+
 export function sessionsSearch(
   search: Record<string, unknown>,
 ): SessionsSearch {
@@ -156,6 +187,14 @@ export function SessionsScreen() {
   const q = useSearchTerm(query);
   const search = useRef<HTMLInputElement>(null);
   const counts = useSessionCounts(relation, q);
+  // Each relation's count for the tab picked, read only while the filters
+  // are open.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const relationCounts = {
+    ...useRelationCounts(relation, q, filtersOpen),
+    [relation ?? "all"]: counts.data,
+  };
+  const filterButton = useRef<HTMLButtonElement>(null);
   const refusal = (error: { readonly code: string }) => t(errorKey(error.code));
   // A new filter leaves `page` out, so it opens on the first page.
   const go = (next: SessionsSearch) =>
@@ -180,15 +219,73 @@ export function SessionsScreen() {
     [navigate, status, kept],
   );
   const pick = (next: string) =>
-    go({
-      ...(next === "all" ? {} : { status: next as SessionFilter }),
-      ...(relation ? { relation } : {}),
-    });
+    go(
+      withSessionsFilter(address, {
+        status: SESSION_FILTERS.find((name) => name === next) ?? null,
+      }),
+    );
   const pickRelation = (next: string) =>
-    go({
-      ...(address.status ? { status: address.status } : {}),
-      ...(next === "all" ? {} : { relation: next as SessionRelationFilter }),
-    });
+    go(
+      withSessionsFilter(address, {
+        relation: SESSION_RELATIONS.find((name) => name === next) ?? null,
+      }),
+    );
+  // A server older than cut_off ignores the filter, so its tab would list
+  // every idle session; it waits for one that counts.
+  const statuses = SESSION_FILTERS.filter(
+    (name) =>
+      name !== "cut_off" ||
+      counts.data?.counts.cut_off !== undefined ||
+      counts.data === undefined,
+  );
+  const statusLabel = (name: SessionFilter) =>
+    name === "cut_off"
+      ? t("session.status.ownershipLost")
+      : t(`sessions.status.${name}`);
+  const countIn = (response: CountSessionsResponse | undefined) =>
+    response === undefined
+      ? undefined
+      : tab === "all"
+        ? response.total
+        : tabCount(response, tab);
+  const facets: ListFilterFacet[] = [
+    {
+      id: "status",
+      label: t("sessionList.status.label"),
+      value: tab,
+      choices: [
+        {
+          value: "all",
+          label: t("sessionList.filter.all"),
+          count: counts.data?.total,
+        },
+        ...statuses.map((name) => ({
+          value: name,
+          label: statusLabel(name),
+          count: counts.data ? tabCount(counts.data, name) : undefined,
+        })),
+      ],
+    },
+    {
+      id: "relation",
+      label: t("sessionList.relation.label"),
+      value: relation ?? "all",
+      choices: [
+        {
+          value: "all",
+          label: t("sessionList.relation.all"),
+          count: countIn(relationCounts.all),
+        },
+        ...SESSION_RELATIONS.map((name) => ({
+          value: name,
+          label: t(`sessionList.relation.${name}`),
+          count: countIn(relationCounts[name]),
+        })),
+      ],
+    },
+  ];
+  const pickFacet = (facet: string, value: string) =>
+    facet === "status" ? pick(value) : pickRelation(value);
   // The clear button leaves with the empty state, so focus would fall to
   // the page; it goes back to the search box instead.
   const clear = () => {
@@ -217,14 +314,7 @@ export function SessionsScreen() {
                 <SegmentedControlItem value="all" count={counts.data?.total}>
                   {t("sessionList.filter.all")}
                 </SegmentedControlItem>
-                {SESSION_FILTERS.filter(
-                  // A server older than cut_off ignores the filter, so the tab
-                  // would list every idle session; it waits for one that counts.
-                  (name) =>
-                    name !== "cut_off" ||
-                    counts.data?.counts.cut_off !== undefined ||
-                    counts.data === undefined,
-                ).map((name) => (
+                {statuses.map((name) => (
                   <SegmentedControlItem
                     key={name}
                     value={name}
@@ -233,25 +323,22 @@ export function SessionsScreen() {
                     }
                     countTone={FILTER_COUNT_TONE[name]}
                   >
-                    {name === "cut_off"
-                      ? t("session.status.ownershipLost")
-                      : t(`sessions.status.${name}`)}
+                    {statusLabel(name)}
                   </SegmentedControlItem>
                 ))}
               </SegmentedControl>
             }
             filters={
-              <FilterMenu
-                label={t("sessionList.relation.label")}
-                options={[
-                  { value: "all", label: t("sessionList.relation.all") },
-                  ...SESSION_RELATIONS.map((name) => ({
-                    value: name,
-                    label: t(`sessionList.relation.${name}`),
-                  })),
-                ]}
-                value={relation ?? "all"}
-                onValueChange={pickRelation}
+              <ListFilters
+                facets={facets}
+                onValueChange={pickFacet}
+                onOpenChange={setFiltersOpen}
+                triggerRef={filterButton}
+                messages={{
+                  trigger: t("filters.trigger"),
+                  count: (count) => t("filters.count", { count }),
+                  applied: (count) => t("filters.applied", { count }),
+                }}
               />
             }
             search={{
@@ -265,6 +352,17 @@ export function SessionsScreen() {
                 setQuery(event.target.value);
                 if (address.page) goToPage(1, { replace: true });
               },
+            }}
+          />
+          <AppliedFilters
+            facets={facets}
+            onValueChange={pickFacet}
+            onClearAll={() => go({})}
+            returnFocus={filterButton}
+            messages={{
+              label: t("filters.chips"),
+              remove: (facet, choice) => t("filters.remove", { facet, choice }),
+              clearAll: t("filters.clearAll"),
             }}
           />
           <SessionsView
@@ -364,6 +462,22 @@ function useListedSessions(filter: SessionsFilter) {
 }
 
 /** The tabs' numbers, for the relation and search the list is read with. */
+function sessionCountsQuery(
+  client: ApiClient,
+  relation: SessionRelationFilter | undefined,
+  q: string | undefined,
+) {
+  const filter = { ...(relation ? { relation } : {}), ...(q ? { q } : {}) };
+  return {
+    queryKey: [...statusLists(client), "counts", filter],
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/sessions/counts", { params: { query: filter } }),
+      ) as Promise<CountSessionsResponse>,
+    retry: false,
+  };
+}
+
 function useSessionCounts(
   relation: SessionRelationFilter | undefined,
   q: string | undefined,
@@ -372,17 +486,45 @@ function useSessionCounts(
   // Here, read whatever the tab: the counts follow every list refresh, and
   // so does the filtered list under the same key.
   useFollowListRefresh();
-  const filter = { ...(relation ? { relation } : {}), ...(q ? { q } : {}) };
   return useQuery({
-    queryKey: [...statusLists(client), "counts", filter],
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/sessions/counts", { params: { query: filter } }),
-      ) as Promise<CountSessionsResponse>,
+    ...sessionCountsQuery(client, relation, q),
     // The tabs keep their numbers, and so their widths, until the new ones come.
     placeholderData: keepPreviousData,
-    retry: false,
   });
+}
+
+/**
+ * Every relation's counts for the same search, keyed as useSessionCounts so
+ * the one already read is not read again.
+ */
+function useRelationCount(
+  name: SessionRelationFilter | "all",
+  current: SessionRelationFilter | undefined,
+  q: string | undefined,
+  enabled: boolean,
+): CountSessionsResponse | undefined {
+  const { client } = useWerft();
+  return useQuery({
+    ...sessionCountsQuery(client, name === "all" ? undefined : name, q),
+    // The relation picked is the tabs' own read.
+    enabled: enabled && name !== (current ?? "all"),
+    // A new search keeps the last numbers until its own arrive.
+    placeholderData: keepPreviousData,
+  }).data;
+}
+
+/** Every relation's counts for the same search, the tabs' one included. */
+function useRelationCounts(
+  current: SessionRelationFilter | undefined,
+  q: string | undefined,
+  enabled: boolean,
+): Record<SessionRelationFilter | "all", CountSessionsResponse | undefined> {
+  return {
+    all: useRelationCount("all", current, q, enabled),
+    started: useRelationCount("started", current, q, enabled),
+    shared: useRelationCount("shared", current, q, enabled),
+    administered: useRelationCount("administered", current, q, enabled),
+  };
 }
 
 /** The caller's sessions for the filters picked, a page at a time. */
