@@ -1,6 +1,6 @@
 {
-  "id": "af783680-b1ed-4403-8724-72c9edcccd5d",
-  "prevId": "4ffdb946-aa26-446f-9f16-efeac143c337",
+  "id": "a0768665-47d2-444d-ac66-bc8b4ae3c73a",
+  "prevId": "1a819880-452c-4849-872e-97833b1098ce",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -7376,6 +7376,38 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_turn_queue_ended_idx": {
+          "name": "conversation_turn_queue_ended_idx",
+          "columns": [
+            {
+              "expression": "ended_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_turn_queue\".\"state\" = 'ended'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_turn_queue_kept_idx": {
+          "name": "conversation_turn_queue_kept_idx",
+          "columns": [
+            {
+              "expression": "input_kept_until",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_turn_queue\".\"input_kept_until\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
