@@ -119,8 +119,8 @@ function auditCountsQuery(
 ) {
   return {
     queryKey: scopedKey(client, "audit-counts", queries),
-    // Changed filters leave the old pass unused; its signal stops it so it
-    // does not overlap the new one. Reopening reuses a pass still running.
+    // Changed filters, or a reopen that moves the window's start, leave the
+    // old pass unused; its signal stops it so it does not overlap the new one.
     queryFn: async ({ signal }: { signal: AbortSignal }) => {
       const counts: CountAuditEventsResponse[] = [];
       for (const query of queries) {
