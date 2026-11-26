@@ -163,6 +163,7 @@ import {
   events,
   executions,
   idempotencyKeys,
+  pendingRequests,
   receipts,
   sessionEventArchives,
   sessionShares,
@@ -1595,7 +1596,24 @@ export function createPostgresSessionReader(
   function publicStatusIs(status: SessionStatus) {
     const waiting = actionableOfSession(db);
     if (status === "needs_input") {
-      return and(inArray(sessions.status, AWAITABLE_STATUSES), exists(waiting));
+      return and(
+        inArray(sessions.status, AWAITABLE_STATUSES),
+        // Implied by `waiting`, but uncorrelated: the plan can start from
+        // the few open requests instead of every session of the owner.
+        inArray(
+          sessions.id,
+          db
+            .select({ id: pendingRequests.sessionId })
+            .from(pendingRequests)
+            .where(
+              and(
+                isNull(pendingRequests.resolvedAt),
+                gt(pendingRequests.expiresAt, sql`statement_timestamp()`),
+              ),
+            ),
+        ),
+        exists(waiting),
+      );
     }
     if (status === "running") {
       return and(
