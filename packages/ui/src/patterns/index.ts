@@ -79,6 +79,17 @@ export {
   LinkTabs,
   type LinkTabsProps,
 } from "./link-tabs.tsx";
+export {
+  AppliedFilters,
+  type AppliedFiltersMessages,
+  type AppliedFiltersProps,
+  appliedChoice,
+  type ListFilterChoice,
+  type ListFilterFacet,
+  ListFilters,
+  type ListFiltersMessages,
+  type ListFiltersProps,
+} from "./list-filters.tsx";
 export { MoreLink, type MoreLinkProps } from "./more-link.tsx";
 export {
   PageBreadcrumb,
