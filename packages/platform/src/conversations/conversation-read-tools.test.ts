@@ -446,7 +446,12 @@ describe("the decision tools as the control host answers them", () => {
   const ALL: ConversationDecision[] = [
     { tool: "reply", body: "Here it is.", reason: "asked" },
     { tool: "route_to_task", task_id: taskId, reason: "that task's" },
-    { tool: "spawn_task", spec: "write the report", reason: "new work" },
+    {
+      tool: "spawn_task",
+      goal: "write the report",
+      done_when: "the report is in the thread",
+      reason: "new work",
+    },
     { tool: "no_reply", reason: "not for the agent" },
   ];
   const task = (sessionId: string): ConversationOpenTask => ({

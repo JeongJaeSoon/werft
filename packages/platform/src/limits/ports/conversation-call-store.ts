@@ -12,6 +12,7 @@ import type {
   ConversationTurnLimitSide,
   ConversationTurnState,
 } from "@werft-ai/contracts";
+import type { ConversationTurnSurfaceSubject } from "../../conversations/index.ts";
 import type { BudgetRoot } from "../budget-accounts.ts";
 import type { ConversationCallLimit } from "../conversation-call-limits.ts";
 import type { ProviderUsage } from "../model-prices.ts";
@@ -220,6 +221,8 @@ export type ConversationMentionTurnInput = Omit<
   slackInstallationId: string;
   /** The mention: the turn's source and the message it engages. */
   message: { teamId: string; channelId: string; ts: string };
+  /** The Slack subject the mention was judged on, for a task it asks for. */
+  slackSubject?: ConversationTurnSurfaceSubject | null;
 };
 
 export type ConversationMentionTurnIssue =

@@ -86,6 +86,7 @@ import { additionalRepositoryAllowed } from "./additional-repositories.ts";
 import type { SessionControl } from "./ports/session-control.ts";
 import type { SessionViewer } from "./ports/session-share-store.ts";
 import type {
+  AcceptSessionTask,
   AppendMessageResult,
   EventPage,
   InputAcceptance,
@@ -815,6 +816,7 @@ export function createSessionService(deps: {
         slackMessage?: SlackMessageRef;
         slackInput?: TurnInputTopic;
         traceContext?: string;
+        task?: AcceptSessionTask;
       },
     ): Promise<CreateSessionResponse> {
       if (
@@ -822,6 +824,13 @@ export function createSessionService(deps: {
         input.parentConversationId === undefined
       ) {
         throw new Error("a private_channel session needs its channel");
+      }
+      if (
+        input.task !== undefined &&
+        (input.parentConversationId === undefined ||
+          input.slackInput === undefined)
+      ) {
+        throw new Error("a task session needs its conversation and its input");
       }
       const preview = input.body.preview === true;
       if (preview && !signedInPerson(actor)) {
@@ -1097,12 +1106,20 @@ export function createSessionService(deps: {
         ...(input.body.permission_wait === undefined
           ? {}
           : { permissionWait: input.body.permission_wait }),
+        ...(input.task === undefined ? {} : { task: input.task }),
         message: input.body.message,
         limits: await inputLimits(),
       });
       switch (result.outcome) {
         case "conflict":
           return idempotencyConflict();
+        case "task_limit":
+          throw new SessionServiceError(
+            "FORBIDDEN",
+            `The ${result.scope} already has its most open tasks`,
+            undefined,
+            { reason_code: `task_limit_${result.scope}` },
+          );
         // The agent turned private, or the requester left it, since the
         // policy decided: a start answers it as a release that is not there.
         case "agent_private":

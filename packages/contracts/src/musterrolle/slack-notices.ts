@@ -53,6 +53,19 @@ const SLACK_NOTICE_MESSAGES_KO = {
     "요청한 사람의 이번 달 예산 한도에 닿아 모델을 부르지 못했어요. 다음 달 1일(UTC)에 풀리고, 그 전에는 워크스페이스 관리자가 한도를 올리면 풀려요",
   budgetAccountTeam:
     "에이전트 팀의 이번 달 예산 한도에 닿아 모델을 부르지 못했어요. 다음 달 1일(UTC)에 풀리고, 그 전에는 워크스페이스 관리자가 한도를 올리면 풀려요",
+  // A task a conversation turn would start (v1-b/E3). The three refusals
+  // go to the requester alone and name no permission; the rest are the
+  // thread's.
+  taskConnect: "작업을 시작하려면 웹 콘솔에서 Slack 계정을 연결해 주세요.",
+  taskChannel: "이 채널에서는 작업을 시작할 수 없어요",
+  taskNoRight: "이 요청으로는 작업을 시작할 권한이 없어요",
+  taskFailed: "작업을 시작하지 못했어요.",
+  taskLimitConversation:
+    "이 대화에 열린 작업이 3개라 새 작업을 시작하지 않았어요. 열린 작업이 끝나면 다시 요청해 주세요",
+  taskLimitAgent:
+    "이 에이전트에 열린 작업이 10개라 새 작업을 시작하지 않았어요. 열린 작업이 끝나면 다시 요청해 주세요",
+  taskRepository:
+    "고른 저장소는 이 에이전트가 쓸 수 없어서 작업을 시작하지 않았어요",
 } as const;
 
 export type SlackNoticeMessage = keyof typeof SLACK_NOTICE_MESSAGES_KO;
@@ -110,6 +123,16 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "依頼した人の今月の予算上限に達したため、モデルを呼び出せませんでした。来月1日（UTC）に解除されます。それより前に使うには、ワークスペースの管理者に上限を上げてもらってください",
     budgetAccountTeam:
       "エージェントのチームの今月の予算上限に達したため、モデルを呼び出せませんでした。来月1日（UTC）に解除されます。それより前に使うには、ワークスペースの管理者に上限を上げてもらってください",
+    taskConnect: "作業を始めるには、Webコンソールで Slack アカウントを連携してください。",
+    taskChannel: "このチャンネルでは作業を始められません",
+    taskNoRight: "このリクエストでは作業を始める権限がありません",
+    taskFailed: "作業を始められませんでした。",
+    taskLimitConversation:
+      "この会話には進行中の作業が3件あるため、新しい作業は始めませんでした。進行中の作業が終わってから、もう一度依頼してください",
+    taskLimitAgent:
+      "このエージェントには進行中の作業が10件あるため、新しい作業は始めませんでした。進行中の作業が終わってから、もう一度依頼してください",
+    taskRepository:
+      "選ばれたリポジトリはこのエージェントでは使えないため、作業を始めませんでした",
   },
   en: {
     connect: "Link your Slack account on the web",
@@ -158,6 +181,16 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "The requester's monthly budget limit was reached, so the model could not be called. It lifts on the 1st of next month (UTC), or sooner when a workspace admin raises the limit",
     budgetAccountTeam:
       "The agent team's monthly budget limit was reached, so the model could not be called. It lifts on the 1st of next month (UTC), or sooner when a workspace admin raises the limit",
+    taskConnect: "To start a task, link your Slack account in the web console.",
+    taskChannel: "Tasks can't be started in this channel",
+    taskNoRight: "This request doesn't have permission to start a task",
+    taskFailed: "The task couldn't be started.",
+    taskLimitConversation:
+      "This conversation already has 3 open tasks, so a new one wasn't started. Ask again once one of them finishes",
+    taskLimitAgent:
+      "This agent already has 10 open tasks, so a new one wasn't started. Ask again once one of them finishes",
+    taskRepository:
+      "The chosen repository isn't one this agent can use, so the task wasn't started",
   },
 };
 

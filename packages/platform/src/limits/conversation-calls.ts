@@ -18,6 +18,7 @@ import {
   connectionOf,
   type SessionCatalog,
 } from "../catalog/index.ts";
+import type { ConversationTurnSurfaceSubject } from "../conversations/index.ts";
 import type { ConversationTurnOutcome } from "../ports/conversation-turn-queue.ts";
 import { hashToken } from "../token-hash.ts";
 import type { BudgetRoot } from "./budget-accounts.ts";
@@ -342,6 +343,7 @@ export function createConversationCalls(deps: {
       requesterUserId: string;
       slackInstallationId: string;
       message: { teamId: string; channelId: string; ts: string };
+      slackSubject: ConversationTurnSurfaceSubject | null;
       releaseId: string | null;
       connectionId: string;
       model: string;

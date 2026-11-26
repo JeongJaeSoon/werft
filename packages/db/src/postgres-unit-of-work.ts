@@ -34,6 +34,8 @@ import {
   sseEventSchema,
   type TurnDetail,
   type TurnSummary,
+  taskClosingSchema,
+  taskInterpretationSchema,
   turnStatusSchema,
   UNFINISHED_TURN_STATUSES,
   type WorkspaceLimitMode,
@@ -202,6 +204,7 @@ import {
   sameChunks,
 } from "./sessions/session-event-archives.ts";
 import { recordStatus } from "./sessions/session-events.ts";
+import { openTaskLimit, writeTaskRequest } from "./sessions/task-open.ts";
 import { withheldEventPayload } from "./sessions/withheld-events.ts";
 import { m1GateOpenForWrite } from "./surface/m1-judgments.ts";
 
@@ -704,7 +707,8 @@ export function createPostgresSessionUnitOfWork(
             receiptId,
           };
         }
-        // A Slack message deleted before its session was made makes none.
+        // A Slack message deleted before its session was made makes none,
+        // nor, for a task, any message its conversation turn read.
         if (
           input.slackMessage !== undefined &&
           workspaceId &&
@@ -712,7 +716,7 @@ export function createPostgresSessionUnitOfWork(
             workspaceId,
             sessionId: null,
             throughTurn: null,
-            sources: {
+            sources: input.task?.sources ?? {
               direct: [
                 {
                   team_id: input.slackMessage.team_id,
@@ -732,6 +736,17 @@ export function createPostgresSessionUnitOfWork(
           limits: input.limits,
         });
         if (refused) return refused;
+        // One task acceptance per agent at a time counts the tasks open.
+        if (input.task !== undefined) {
+          const limited = await openTaskLimit(tx, {
+            releaseId: input.agentReleaseId,
+            conversationId: input.parentConversationId ?? null,
+            limits: input.task.openLimits,
+          });
+          if (limited !== null) {
+            return { outcome: "task_limit", scope: limited };
+          }
+        }
         const sessionId = randomUUID();
         const actor = input.principal.actor;
         const repository =
@@ -785,6 +800,14 @@ export function createPostgresSessionUnitOfWork(
           callerLimit,
           callerLimitDigest:
             callerLimit === null ? null : callerLimitDigest(callerLimit),
+          ...(input.task === undefined
+            ? {}
+            : {
+                taskInterpretation: taskInterpretationSchema.parse(
+                  input.task.interpretation,
+                ),
+                taskClosing: taskClosingSchema.parse(input.task.closing),
+              }),
         });
         if (input.shareScope !== undefined) {
           if (!actor?.workspaceId) {
@@ -808,6 +831,8 @@ export function createPostgresSessionUnitOfWork(
           ...usageRecord(usage, requester),
           requesterAuth: requesterAuthOf(actor, requester),
           ...callerRecord(callerLimit, input.callerSubject),
+          // A task's first input carries what its conversation turn read.
+          ...(input.task === undefined ? {} : { sources: input.task.sources }),
         });
         await takeSlackInput(tx, {
           workspaceId: actor?.workspaceId,
@@ -817,6 +842,14 @@ export function createPostgresSessionUnitOfWork(
           slackMessage: input.slackMessage,
           slackInput: input.slackInput,
         });
+        if (input.task !== undefined) {
+          await writeTaskRequest(tx, {
+            sessionId,
+            agentReleaseId: input.agentReleaseId,
+            slackMessage: input.slackMessage,
+            text: input.task.requestText,
+          });
+        }
 
         if (envCapture.outcome === "resolved") {
           await recordEnvResolution(tx, {

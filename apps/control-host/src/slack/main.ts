@@ -1,4 +1,10 @@
-import { CONVERSATION_TURN_LEASE_MS } from "@werft-ai/contracts";
+import {
+  CONVERSATION_TURN_LEASE_MS,
+  type ConversationTurnId,
+  DEFAULT_USER_LOCALE,
+  SLACK_NOTICE_MESSAGES,
+  type SlackNotice,
+} from "@werft-ai/contracts";
 import { integerSetting } from "@werft-ai/contracts/settings";
 import * as schema from "@werft-ai/db";
 import {
@@ -9,10 +15,12 @@ import {
   createPostgresCallerLimitGate,
   createPostgresCatalogRepositoryStore,
   createPostgresChannelMemberStore,
+  createPostgresConversationAccess,
   createPostgresConversationCalls,
   createPostgresConversationReactions,
   createPostgresConversationReplies,
   createPostgresConversationStore,
+  createPostgresConversationTasks,
   createPostgresConversationTurnQueue,
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
@@ -48,18 +56,22 @@ import {
 } from "@werft-ai/observability";
 import {
   agentReleaseReaders,
+  type ConversationTaskOutcome,
   createAuthorizationPolicy,
   createCatalogRegistry,
   createConversationCalls,
   createSessionService,
   endMentionTurns,
   type MentionTurnStatusStore,
+  type PendingConversationTask,
   registryCatalog,
   repositoryView,
   requesterLeft,
   type SecretKey,
   type SurfaceInboundEventStore,
+  type SurfaceOutboxStore,
   settingsView,
+  spawnConversationTask,
   withConsoleRepositories,
 } from "@werft-ai/platform";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -90,11 +102,17 @@ import {
   type SlackInboxDrain,
   type SlackNoticeSink,
   setMentionThreadStatus,
+  slackOutboxText,
 } from "../wiring/chat-slack.ts";
 import { installationConfigOf } from "../wiring/installation-config.ts";
 import { releaseStartableIn } from "../wiring/release-startable.ts";
 import { wireSlackChannelMembers } from "../wiring/slack-api.ts";
-import { wireSlackInbound, wireSlackOutbound } from "../wiring/slack-worker.ts";
+import { slackConnectUrl } from "../wiring/slack-shared.ts";
+import {
+  type SlackOutbound,
+  wireSlackInbound,
+  wireSlackOutbound,
+} from "../wiring/slack-worker.ts";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
@@ -208,46 +226,11 @@ export function slackSessionHandler(deps: {
 }): SlackInboundHandler {
   const { db, environment, logger } = deps;
   const catalog = deps.catalog ?? slackCatalog(db, environment);
-  const credentials = createPostgresCredentialBindingStore(db);
-  const authorization = createAuthorizationPolicy({
-    identity: createDatabaseIdentityReader(db),
-    agents: createDatabaseAgentAuthority(db),
-    credentials,
-    slackGuests: createPostgresSlackGuestSetting(db),
-    sessions: createPostgresSessionShareStore(db),
-    // A press on a card outside the session's channel asks Slack.
-    channelMembers: wireSlackChannelMembers({
-      apiUrl: deps.slackApiUrl ?? slackApiUrlFrom(environment),
-      appStore: createPostgresSlackAppStore(db, deps.secretKey),
-      secrets: () => createPostgresSecretStore(db, deps.secretKey),
-      store: createPostgresChannelMemberStore(db),
-      logger,
-    }),
-    decisions: createPostgresDecisionLog(db),
-    logger,
+  const { authorization, sessions } = slackSessionServices({
+    ...deps,
+    catalog,
   });
   const agentStore = createPostgresAgentStore(db);
-  const sessions = createSessionService({
-    authorization,
-    inputs: createPostgresSessionUnitOfWork(db),
-    controls: createPostgresSessionControl(db, {
-      connect: () => deps.pool.connect(),
-      logger,
-    }),
-    reader: createPostgresSessionReader(db, {
-      logger,
-      neutralize: eventNeutralizer(logger),
-    }),
-    catalog,
-    releases: {
-      ...agentReleaseReaders(agentStore, catalog),
-      ...newSessionGitHubReaders(db),
-    },
-    extensions: extensionDepsFor(db),
-    credentials,
-    callerLimits: createPostgresCallerLimitGate(db, logger),
-    limits: installationConfigOf(db, logger).sessionLimits,
-  });
   const { secretKey } = deps;
   const secrets = createPostgresSecretStore(db, secretKey);
   const consoleOrigin = consoleOriginFrom(environment);
@@ -304,6 +287,137 @@ export function slackSessionHandler(deps: {
 }
 
 /**
+ * The policy and the session service a Slack input and a turn's task both
+ * go through: the same task.spawn judgment and the same session admission.
+ */
+function slackSessionServices(deps: {
+  db: Database;
+  pool: Pick<Pool, "connect">;
+  environment: Environment;
+  logger: StructuredLogger;
+  secretKey: SecretKey;
+  slackApiUrl?: string;
+  catalog: ReturnType<typeof slackCatalog>;
+}) {
+  const { db, environment, logger, catalog } = deps;
+  const credentials = createPostgresCredentialBindingStore(db);
+  const members = createPostgresChannelMemberStore(db);
+  // A press on a card outside the session's channel asks Slack.
+  const channelMembers = wireSlackChannelMembers({
+    apiUrl: deps.slackApiUrl ?? slackApiUrlFrom(environment),
+    appStore: createPostgresSlackAppStore(db, deps.secretKey),
+    secrets: () => createPostgresSecretStore(db, deps.secretKey),
+    store: members,
+    logger,
+  });
+  const authorization = createAuthorizationPolicy({
+    identity: createDatabaseIdentityReader(db),
+    agents: createDatabaseAgentAuthority(db),
+    credentials,
+    slackGuests: createPostgresSlackGuestSetting(db),
+    sessions: createPostgresSessionShareStore(db),
+    channelMembers,
+    conversations: createPostgresConversationAccess(db, {
+      members,
+      channelMembers,
+    }),
+    decisions: createPostgresDecisionLog(db),
+    logger,
+  });
+  const agentStore = createPostgresAgentStore(db);
+  const sessions = createSessionService({
+    authorization,
+    inputs: createPostgresSessionUnitOfWork(db),
+    controls: createPostgresSessionControl(db, {
+      connect: () => deps.pool.connect(),
+      logger,
+    }),
+    reader: createPostgresSessionReader(db, {
+      logger,
+      neutralize: eventNeutralizer(logger),
+    }),
+    catalog,
+    releases: {
+      ...agentReleaseReaders(agentStore, catalog),
+      ...newSessionGitHubReaders(db),
+    },
+    extensions: extensionDepsFor(db),
+    credentials,
+    callerLimits: createPostgresCallerLimitGate(db, logger),
+    limits: installationConfigOf(db, logger).sessionLimits,
+  });
+  return { authorization, sessions };
+}
+
+/**
+ * What a mention turn that decided spawn_task opens (v1-b/E3): judged again
+ * here, as the turn ends, on the Slack subject the mention was judged on.
+ */
+export function slackConversationTasks(deps: {
+  db: Database;
+  pool: Pick<Pool, "connect">;
+  environment: Environment;
+  logger: StructuredLogger;
+  secretKey: SecretKey;
+  catalog: ReturnType<typeof slackCatalog>;
+  slack: Pick<SlackOutbound["api"], "postEphemeral">;
+  botToken: SlackOutbound["botToken"];
+  outbox: Pick<SurfaceOutboxStore, "enqueue" | "readerLocale">;
+  slackApiUrl?: string;
+}): { spawn(turnId: ConversationTurnId): Promise<ConversationTaskOutcome> } {
+  const { db, logger } = deps;
+  const { authorization, sessions } = slackSessionServices(deps);
+  const tasks = {
+    store: createPostgresConversationTasks(db, deps.outbox, deps.secretKey),
+    links: createPostgresSessionLinkStore(db),
+    authorization,
+    sessions,
+    connectUrl: slackConnectUrl(consoleOriginFrom(deps.environment)),
+    logger,
+    // Sent now, not queued: a line Slack refuses falls back to the thread.
+    async tellRequester(task: PendingConversationTask, notice: SlackNotice) {
+      const slackUserId = task.subject?.slackUserId;
+      if (slackUserId === undefined || task.thread.slackAppId === null) {
+        return false;
+      }
+      try {
+        const token = await deps.botToken(
+          task.workspaceId,
+          task.thread.slackAppId,
+        );
+        if (token === null) return false;
+        const locale =
+          (await deps.outbox.readerLocale({
+            workspaceId: task.workspaceId,
+            teamId: task.thread.teamId,
+            slackUserId,
+          })) ?? DEFAULT_USER_LOCALE;
+        const { message, ...link } = notice;
+        const sent = await deps.slack.postEphemeral(token, {
+          channelId: task.thread.channelId,
+          userId: slackUserId,
+          threadTs: task.thread.threadTs,
+          text: slackOutboxText({
+            text: SLACK_NOTICE_MESSAGES[locale][message],
+            locale,
+            ...link,
+          }),
+        });
+        const body = sent.body as { ok?: unknown } | null;
+        return sent.httpStatus === 200 && body?.ok === true;
+      } catch (error) {
+        logger.warn("Task refusal not sent to its requester", {
+          turn_id: task.turnId,
+          error: error instanceof Error ? error.name : "error",
+        });
+        return false;
+      }
+    },
+  };
+  return { spawn: (turnId) => spawnConversationTask(tasks, turnId) };
+}
+
+/**
  * The pass's step that ends mention turns (v1-b/D1) and sets their threads
  * back from "processing", each once: also the one that ends a turn out of
  * time, so the time limit holds as long as the passes run.
@@ -321,6 +435,7 @@ export function slackMentionTurnEndings(deps: {
   deadline: number;
   now?: () => Date;
   statuses?: MentionTurnStatusStore;
+  tasks: Parameters<typeof endMentionTurns>[0]["tasks"];
 }) {
   const { db } = deps;
   return endMentionTurns({
@@ -335,6 +450,7 @@ export function slackMentionTurnEndings(deps: {
       db,
       createPostgresSlackOutboxStore(db),
     ),
+    tasks: deps.tasks,
     calls: createConversationCalls({
       store: createPostgresConversationCalls(db),
       catalog: deps.catalog,
@@ -451,6 +567,17 @@ export async function main(
       slack: slackApi,
       botToken,
       logger,
+      tasks: slackConversationTasks({
+        db,
+        pool,
+        environment,
+        logger,
+        secretKey,
+        catalog,
+        slack: slackApi,
+        botToken,
+        outbox,
+      }),
       limit: settings.batchSize,
       // The pass's timeout: a pass still holding a claim then is gone.
       claimMs: 2 * settings.passBudgetMs,

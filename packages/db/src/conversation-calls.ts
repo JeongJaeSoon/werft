@@ -545,6 +545,7 @@ export function createPostgresConversationCalls(
             sources,
             releaseId: input.releaseId,
             slackInstallationId: input.slackInstallationId,
+            slackSubject: input.slackSubject ?? null,
             // Its writer's until queued: no pass ends it in between.
             slackStatusClaimedAt: sql`now()`,
           });

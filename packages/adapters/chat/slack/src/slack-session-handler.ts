@@ -417,6 +417,7 @@ export function createSlackSessionHandler(
       botToken: string,
       requesterUserId: string | null,
       text: string,
+      slackSubject: MentionTurnRequest["slackSubject"],
     ): Promise<void> => {
       if (requesterUserId === null) {
         deps.logger.info("Slack mention not made a turn", {
@@ -472,6 +473,7 @@ export function createSlackSessionHandler(
           },
           requesterUserId,
           text,
+          slackSubject,
         },
         processing,
       );
@@ -839,7 +841,14 @@ export function createSlackSessionHandler(
       return;
     }
     if (mentionHandling === "m2") {
-      await mentionTurn(botToken, decision.actorUserId, message);
+      await mentionTurn(
+        botToken,
+        decision.actorUserId,
+        message,
+        event.user
+          ? { subject: decision.subject, slackUserId: event.user }
+          : null,
+      );
       return;
     }
     const caller = slackCallerOf(decision, requestId);

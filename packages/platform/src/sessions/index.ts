@@ -23,6 +23,7 @@ export type { RepositoryAttachmentService } from "./repository-attachment-servic
 export {
   idempotencyConflict,
   payloadHash,
+  type SessionService,
   selfApproval,
   viewerFor,
   viewerOf,

@@ -7,6 +7,7 @@ import {
   conversationIdSchema,
   conversationTopicIdSchema,
 } from "../domain/conversation.ts";
+import { TASK_INTERPRETATION_TEXT_MAX } from "../domain/task.ts";
 import {
   agentIdSchema,
   timestampSchema,
@@ -115,8 +116,10 @@ const decisionReasonSchema = z
   .max(CONVERSATION_TURN_REASON_MAX);
 /**
  * The one decision a turn's model makes, as its decision tool was called.
- * Only the reply's body is kept, as the turn's answer; a task id or a new
- * task's spec has no effect yet and is not stored.
+ * The reply's body is kept as the turn's answer, and a new task's goal, end
+ * and repository as its draft (v1-b/E3): the agent's reading of the request,
+ * never the request itself, which the server attaches (G6). The repository
+ * is the model's pick, checked by the server against the agent's (G3).
  */
 export const conversationDecisionSchema = z.discriminatedUnion("tool", [
   z
@@ -137,7 +140,9 @@ export const conversationDecisionSchema = z.discriminatedUnion("tool", [
   z
     .object({
       tool: z.literal("spawn_task"),
-      spec: z.string().min(1).max(CONVERSATION_TURN_TEXT_MAX),
+      goal: z.string().trim().min(1).max(TASK_INTERPRETATION_TEXT_MAX),
+      done_when: z.string().trim().min(1).max(TASK_INTERPRETATION_TEXT_MAX),
+      repository: z.string().min(1).max(128).optional(),
       reason: decisionReasonSchema,
     })
     .strict(),

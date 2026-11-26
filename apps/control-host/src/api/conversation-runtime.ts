@@ -349,6 +349,7 @@ export function createMentionConversationTurns(deps: {
         requesterUserId: request.requesterUserId,
         slackInstallationId: request.slackInstallationId,
         message: request.message,
+        slackSubject: request.slackSubject,
         ttlMs: OPERATOR_TURN_TAKE_MS + CONVERSATION_TURN_LEASE_MS,
         releaseId: release.id,
         connectionId: release.connection_id,
