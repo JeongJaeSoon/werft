@@ -412,6 +412,22 @@ describe("readSessionSteps", () => {
   });
 });
 
+describe("deleted sources", () => {
+  test("an event marking a turn's source deleted withholds its instruction, though the turns read predates it", () => {
+    const frame: SessionEventFrame = {
+      ...call("e1", "1", "c1"),
+      sourceDeletedAt: AT,
+    };
+    const steps = read({
+      session: { current_turn_id: "1", status: "running" },
+      turns: [turn("1", "running")],
+      events: [frame],
+    });
+    expect(steps.steps[0]?.turn.message).toBe("");
+    expect(steps.steps[0]?.turn.source_deleted_at).toBe(AT);
+  });
+});
+
 describe("readsDisagree", () => {
   const on = (current_turn_id: string | null, queued_turn_count = 0) => ({
     current_turn_id,

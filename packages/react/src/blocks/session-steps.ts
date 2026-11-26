@@ -142,11 +142,22 @@ export function readSessionSteps({
   // The oldest turn still in a full window may have lost its first calls;
   // events without a turn (control-plane ones) say nothing about that.
   const oldest = events.find((frame) => frame.turnId !== null)?.turnId ?? null;
+  // An event can say a turn's Slack source was deleted before the turns
+  // read does; its instruction is withheld from then on.
+  const deleted = new Map<string, string>();
+  for (const frame of events)
+    if (frame.sourceDeletedAt !== undefined && frame.turnId !== null)
+      deleted.set(frame.turnId, frame.sourceDeletedAt);
   // A session read newer than the list that counts nothing open outdates
   // every request the list still holds.
   const listed =
     !listCurrent && session.pending_request_count === 0 ? [] : requests;
-  const steps = turns.map((turn, index): SessionStep => {
+  const steps = turns.map((read, index): SessionStep => {
+    const deletedAt = deleted.get(read.turn_id);
+    const turn =
+      deletedAt === undefined || read.source_deleted_at
+        ? read
+        : { ...read, message: "", source_deleted_at: deletedAt };
     const own = listed.filter((request) => request.turn_id === turn.turn_id);
     const asked = own
       .filter((request) => Date.parse(request.expires_at) > now)

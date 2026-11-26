@@ -254,6 +254,62 @@ describe("useRecheckSessionReads", () => {
     );
   });
 
+  test("a slow background turns read is joined, not restarted, by each event, then read past", async () => {
+    const T3 = "2026-10-11T08:16:02.000Z";
+    const turn = (turn_id: string) => ({
+      turn_id,
+      session_id: SESSION_ID,
+      status: "completed",
+      message: `instruction ${turn_id}`,
+      channel: "web",
+      created_by: null,
+      requester: null,
+      slack_permalink: null,
+      source_deleted_at: null,
+      terminal_reason: null,
+      prepended_turn_id: null,
+      checkpoint_revision: null,
+      created_at: T1,
+      started_at: T1,
+      ended_at: T1,
+    });
+    const list = (...ids: string[]) =>
+      json(200, { items: ids.map(turn), next_cursor: null });
+    let reads = 0;
+    let release: (() => void) | undefined;
+    const h = harness(((sent: Sent) => {
+      if (sent.path !== `${BASE}/turns`) return json(404, {});
+      reads += 1;
+      if (reads === 1) return list("1");
+      if (reads === 2)
+        return new Promise<Response>((resolve) => {
+          release = () => resolve(list("1", "2"));
+        });
+      return list("1", "2", "3");
+    }) as unknown as (sent: Sent) => Response);
+    const { result, rerender } = renderHook(
+      ({ at }: { at: string }) => {
+        useRecheckSessionReads(SESSION_ID, false, at);
+        return useSessionTurns(SESSION_ID, true);
+      },
+      { wrapper: h.wrapper, initialProps: { at: T1 } },
+    );
+    await waitFor(() => expect(result.current.data?.items.length).toBe(1));
+    rerender({ at: T2 });
+    await waitFor(() => expect(reads).toBe(2));
+    rerender({ at: T3 });
+    expect(reads).toBe(2);
+    await act(async () => release?.());
+    await waitFor(() =>
+      expect(result.current.data?.items.map((t) => t.turn_id)).toEqual([
+        "1",
+        "2",
+        "3",
+      ]),
+    );
+    expect(reads).toBe(3);
+  });
+
   test("reads the session and its turns again while they disagree, and stops once they agree", async () => {
     const h = harness(receipt);
     const { rerender } = renderHook(
