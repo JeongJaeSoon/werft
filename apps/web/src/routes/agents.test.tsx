@@ -652,15 +652,18 @@ describe("에이전트 목록", () => {
     await screen.findByRole("list", { name: "세션 요약" });
     // Coming back to the window reads the counts again, under the same key.
     const { focusManager } = await import("@tanstack/react-query");
-    act(() => {
-      focusManager.setFocused(false);
-      focusManager.setFocused(true);
-    });
-    await waitFor(() => expect(reads).toBeGreaterThan(1));
-    await waitFor(() =>
-      expect(screen.queryByRole("list", { name: "세션 요약" })).toBeNull(),
-    );
-    act(() => focusManager.setFocused(undefined));
+    try {
+      act(() => {
+        focusManager.setFocused(false);
+        focusManager.setFocused(true);
+      });
+      await waitFor(() => expect(reads).toBeGreaterThan(1));
+      await waitFor(() =>
+        expect(screen.queryByRole("list", { name: "세션 요약" })).toBeNull(),
+      );
+    } finally {
+      act(() => focusManager.setFocused(undefined));
+    }
   });
 
   test("counts를 읽지 못하면 요약 줄을 빼고 0이라 말하지 않는다", async () => {
