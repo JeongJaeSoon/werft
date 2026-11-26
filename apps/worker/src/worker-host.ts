@@ -400,8 +400,6 @@ export type OutsideTurnCheckpoint = typeof OUTSIDE_TURN_CHECKPOINT;
 type OwedCheckpoint = {
   turnId: string;
   mode: "hold" | "quiet" | "deferred";
-  /** Why the last try at it went without. */
-  refused?: CaptureRefusal["reason"];
   /** When this debt first held input back; set once. */
   heldSince?: number;
   failures: number;
@@ -499,6 +497,8 @@ export class WorkerHost {
   /** The engine answered on its own since the last capture took its lease. */
   private outputUncaptured = false;
   private idleGraceLogged = false;
+  /** The last capture was given up for an answer the engine began during it. */
+  private captureCutInto = false;
   private scrubber: SecretScrubber;
   private tracing: TelemetrySession | undefined;
   private stopping: Stop | undefined;
@@ -3705,9 +3705,10 @@ export class WorkerHost {
       // a task that ended meanwhile (the order of a task leaving the run's
       // list and its notification is not promised). A capture that answer
       // began during may hold the notification without the answer.
-      if (ref !== null) {
+      if (ref !== null && lease !== null) {
         const after = await run.prepareCheckpoint("turn_end");
         if (after.status === "rejected" && after.reason === "turn_in_flight") {
+          this.captureCutInto = true;
           this.logger.warn("worker.checkpoint.rejected", {
             reason: after.reason,
             detail: "The engine began an answer of its own during the capture",
@@ -3948,7 +3949,6 @@ export class WorkerHost {
       return;
     }
     owed.failures += 1;
-    owed.refused = refusal.reason;
     if (mode !== "hold") {
       owed.mode = mode;
       return;
@@ -4053,13 +4053,11 @@ export class WorkerHost {
       await this.stopBackground(run, below);
       if (this.stopping !== undefined) return true;
     }
+    this.captureCutInto = false;
     await this.captureOwed(run, "before_idle_exit");
     // A capture the engine's own answer cut into is taken once more, when
     // that answer has ended.
-    if (
-      this.owed?.refused === "turn_in_flight" &&
-      this.stopping === undefined
-    ) {
+    if (this.captureCutInto && this.stopping === undefined) {
       await this.untilQuiet(run);
       if (this.stopping === undefined) {
         await this.captureOwed(run, "before_idle_exit");
