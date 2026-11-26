@@ -30,7 +30,8 @@ export async function emergencyStopHolds(
               SELECT 1 FROM conversations c
               WHERE c.id = s.parent_conversation_id
                 AND c.agent_id = b.agent_id
-                AND c.channel_id = b.external_surface_id)
+                AND c.channel_id = b.external_surface_id
+                AND c.team_id = (SELECT i.team_id FROM slack_installations i WHERE i.id = b.installation_id))
           )
       ) AS held`),
   );
@@ -45,14 +46,16 @@ export async function emergencyStopHolds(
  */
 export async function channelEmergencyStopped(
   tx: Database,
-  input: { releaseId: string; channelId: string },
+  input: { releaseId: string; teamId: string; channelId: string },
 ): Promise<boolean> {
   const rows = rowsOf<{ stopped: boolean }>(
     await tx.execute(sql`
       SELECT b.emergency_stopped_at IS NOT NULL AS stopped
       FROM surface_bindings b
       JOIN agent_releases r ON r.agent_id = b.agent_id
+      JOIN slack_installations i ON i.id = b.installation_id
       WHERE r.id = ${input.releaseId}
+        AND i.team_id = ${input.teamId}
         AND b.external_surface_id = ${input.channelId}
         AND b.revoked_at IS NULL
       FOR SHARE OF b`),

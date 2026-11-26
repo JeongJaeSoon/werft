@@ -53,6 +53,7 @@ import {
   workspaces,
 } from "./schema.ts";
 import { createPostgresSessionLinkStore } from "./session-links.ts";
+import { emergencyStopHolds } from "./surface/emergency-stop-hold.ts";
 import {
   registerSlackInstallation,
   verifySlackInstallation,
@@ -627,6 +628,24 @@ describe("what an emergency stop leaves the channel", () => {
       leaseMs: CONVERSATION_TURN_LEASE_MS,
     });
     expect(taken?.turn_id).toBe(turn.turn_id);
+    // The channel's install, in the team of the turn's conversation.
+    const [channel] = await db
+      .select({ teamId: schema.conversations.teamId })
+      .from(schema.conversations)
+      .where(
+        and(
+          eq(schema.conversations.agentId, turn.scope.agent_id),
+          eq(schema.conversations.channelId, "C0QUEUE"),
+        ),
+      );
+    if (!channel?.teamId) throw new Error("no channel conversation");
+    const installationId = randomUUID();
+    await db.insert(schema.slackInstallations).values({
+      id: installationId,
+      workspaceId: turn.scope.workspace_id,
+      appId: "A0QUEUE",
+      teamId: channel.teamId,
+    });
 
     const counts = await db.transaction((tx) =>
       stopChannelWork(
@@ -634,7 +653,7 @@ describe("what an emergency stop leaves the channel", () => {
         {
           workspaceId: turn.scope.workspace_id,
           agentId: turn.scope.agent_id,
-          installationId: randomUUID(),
+          installationId,
           channelId: "C0QUEUE",
         },
         { now, attempt: 0 },
@@ -1076,5 +1095,59 @@ describe("a post that meets an emergency stop as it goes", () => {
       .from(slackOutbox)
       .where(eq(slackOutbox.id, id));
     expect(after?.status).not.toBe("pending");
+  });
+});
+
+describe("the same channel id in another Slack team", () => {
+  test("is another channel: the stop leaves its work alone", async () => {
+    const s = await stage();
+    const other = { appId: "A0STOP", teamId: "T0OTHER" };
+    await registerSlackInstallation(db, {
+      ...other,
+      workspaceId: s.workspaceId,
+    });
+    await verifySlackInstallation(db, { ...other, botUserId: "B0OTHER" });
+    const linked = await createPostgresAgentIdentityStore(db).link({
+      principal: s.owner,
+      workspaceId: s.workspaceId,
+      agentId: s.agentId,
+      key: other,
+      credentialRef: "slack-bot-other",
+      managerRoles: MANAGERS,
+    });
+    if (linked.outcome !== "linked") throw new Error(linked.outcome);
+    // The newest install is the one a save writes.
+    const bound = await turnOn(s, s.owner);
+    if (bound.outcome !== "set") throw new Error(bound.outcome);
+    expect(bound.binding.id).not.toBe(s.bindingId);
+    const conversation = await createPostgresConversationStore(
+      db,
+    ).findOrCreateConversation({
+      kind: "channel",
+      workspaceId: s.workspaceId,
+      agentId: s.agentId,
+      teamId: other.teamId,
+      channelId: CHANNEL,
+    });
+    const there = await claimedSession(db, gateway, OWNER);
+    if (!(await gateway.nextInput(there.principal, there.scope)).input) {
+      throw new Error("no input delivered");
+    }
+    await db
+      .update(sessions)
+      .set({
+        workspaceId: s.workspaceId,
+        parentConversationId: conversation.id,
+      })
+      .where(eq(sessions.id, there.sessionId));
+    expect((await stop(s, s.admin)).outcome).toBe("stopped");
+    expect(await turnsOf(s.worker.sessionId)).toMatchObject([
+      { sequence: 1, status: "failed", reason: "emergency_stopped" },
+    ]);
+    expect(await turnsOf(there.sessionId)).toMatchObject([
+      { sequence: 1, status: "running" },
+    ]);
+    expect(await emergencyStopHolds(db, s.worker.sessionId)).toBe(true);
+    expect(await emergencyStopHolds(db, there.sessionId)).toBe(false);
   });
 });

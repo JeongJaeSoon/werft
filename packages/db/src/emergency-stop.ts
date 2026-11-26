@@ -92,7 +92,9 @@ export async function stopChannelWork(
             SELECT c.id FROM conversations c
             WHERE c.workspace_id = ${place.workspaceId}::uuid
               AND c.agent_id = ${place.agentId}::uuid
-              AND c.channel_id = ${place.channelId})
+              AND c.channel_id = ${place.channelId}
+              -- The same channel id in another team is another channel.
+              AND c.team_id = (SELECT i.team_id FROM slack_installations i WHERE i.id = ${place.installationId}::uuid))
         )
       ORDER BY s.id`),
   );
@@ -350,6 +352,7 @@ async function stopConversationTurns(
       WHERE ct.workspace_id = ${place.workspaceId}::uuid
         AND ct.agent_id = ${place.agentId}::uuid
         AND c.channel_id = ${place.channelId}
+        AND c.team_id = (SELECT i.team_id FROM slack_installations i WHERE i.id = ${place.installationId}::uuid)
         AND (ct.state = 'running' OR EXISTS (
           SELECT 1 FROM conversation_turn_queue q
           WHERE q.turn_id = ct.id AND q.state IN ('queued', 'leased')))

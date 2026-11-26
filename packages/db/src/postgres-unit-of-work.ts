@@ -737,6 +737,7 @@ export function createPostgresSessionUnitOfWork(
           input.agentReleaseId !== undefined &&
           (await channelEmergencyStopped(tx, {
             releaseId: input.agentReleaseId,
+            teamId: input.slackMessage.team_id,
             channelId: input.slackMessage.channel_id,
           }))
         ) {

@@ -370,7 +370,11 @@ async function turnScopeIn(
     .limit(1);
   if (!agent) return { outcome: "unknown_agent" };
   const [conversation] = await tx
-    .select({ id: conversations.id, channelId: conversations.channelId })
+    .select({
+      id: conversations.id,
+      teamId: conversations.teamId,
+      channelId: conversations.channelId,
+    })
     .from(conversations)
     .where(
       and(
@@ -389,6 +393,9 @@ async function turnScopeIn(
       FROM surface_bindings
       WHERE agent_id = ${input.agentId}::uuid
         AND external_surface_id = ${conversation.channelId}
+        AND installation_id IN (
+          SELECT id FROM slack_installations
+          WHERE team_id = ${conversation.teamId})
         AND revoked_at IS NULL
       FOR SHARE`),
   );
