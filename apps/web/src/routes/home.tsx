@@ -12,7 +12,9 @@ import type {
 import {
   apiKeysQuery,
   pendingRequestsQuery,
+  privateChannelsPending,
   queryKeysOf,
+  refetchWhilePending,
   scopedKey,
   waitingSessionsQuery,
 } from "@werft-ai/core";
@@ -85,6 +87,7 @@ import {
 import { CredentialNeed } from "../components/credential-need.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { MyTeams } from "../components/my-teams.tsx";
+import { PrivateChannelsPending } from "../components/private-channels-pending.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, type MessageKey, useI18n } from "../i18n/i18n.tsx";
 import { expiryState } from "./api-keys.tsx";
@@ -793,6 +796,16 @@ export function HomeScreen() {
             ) : undefined
           }
         >
+          <PrivateChannelsPending
+            pending={[
+              sessions.data,
+              waiting.data,
+              running.data,
+              idle.data,
+              agents.data,
+              slackActions.data,
+            ].some(privateChannelsPending)}
+          />
           {cards ? (
             <ul className="m-0 grid list-none grid-cols-1 items-stretch gap-4 p-0 @[720px]:grid-cols-3">
               {cards}
@@ -898,7 +911,7 @@ export function statusPageQuery(
     queryKey: [...queryKeysOf(client).sessions, "home", status],
     // In step with the waiting list, or the open total adds counts read at
     // different times and counts a session twice or not at all.
-    refetchInterval: WAITING_REFETCH_MS,
+    refetchInterval: refetchWhilePending(WAITING_REFETCH_MS),
     queryFn: () =>
       unwrap(
         client.GET("/v1/sessions", { params: { query: { status } } }),

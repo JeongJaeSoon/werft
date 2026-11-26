@@ -19,6 +19,7 @@ import {
 import type {
   NeutralizeEvent,
   StoredSourceSet,
+  SurfaceAiLabel,
   SurfaceCardClaim,
   SurfaceCardFence,
   SurfaceCardRendered,
@@ -34,9 +35,11 @@ import type {
   SurfaceUnpostedInstruction,
 } from "@werft-ai/platform";
 import {
+  SURFACE_EDIT_RATE_LIMITED_CODE,
   SURFACE_PROGRESS_EDIT_INTERVAL_MS,
   SURFACE_PROGRESS_STOPPED_CODE,
   SURFACE_PROGRESS_SUPERSEDED_CODE,
+  SURFACE_RATE_LIMITED_CODE,
   SURFACE_REACTION_MAX_ATTEMPTS,
   sourceSetOf,
 } from "@werft-ai/platform";
@@ -85,6 +88,7 @@ import {
   slackApps,
   slackInstallations,
   slackOutbox,
+  slackOutboxRateBlocks,
   surfaceBindings,
   turns,
   users,
@@ -295,6 +299,53 @@ const addressed = (
       AND l.thread_id = ${row}.thread_ts
       AND ${linkTakes(row)}
   )))
+)`;
+
+// The rate limits Slack's 429s set (slack_outbox_rate_blocks) that still
+// cover row `row`: its channel's posts (a reaction: the install's reactions.add) and,
+// for a progress update, which may edit, the install's chat.update.
+const rateBlocks = (row: SQL) => sql`
+  SELECT b.blocked_until FROM slack_outbox_rate_blocks b
+  WHERE b.installation_id = ${row}.installation_id
+    AND b.scope IN (
+      CASE WHEN ${row}.kind = 'reaction' THEN 'reactions.add'
+        ELSE 'channel:' || ${row}.channel_id END,
+      CASE WHEN ${row}.kind = 'progress' THEN 'chat.update' END)
+    AND b.blocked_until > now()`;
+
+// The AI line of row `row` (v1-b/G2): null unless its agent's conversation
+// rollout is `on`. Its name is that of whoever sent the turn the row's key
+// names: a turn's answer or failure, a card, a push's result. A push a turn's
+// intent made is that turn's sender's: its `requested_by` is the session's
+// creator. A row of any other key, or a sender who is no user, has the line
+// alone.
+const aiLabelOf = (row: SQL) => sql`(
+  SELECT json_build_object('requestedBy', (
+    SELECT u.display_name FROM users u WHERE u.id = CASE
+      WHEN ${row}.dedupe_key LIKE 'reply:%' OR ${row}.dedupe_key LIKE 'failure:%'
+        OR ${row}.dedupe_key LIKE 'prompt:%' THEN (
+        SELECT rt.actor_id FROM turns rt
+        WHERE rt.session_id = ${row}.session_id
+          AND rt.sequence = ${row}.sources_turn)
+      WHEN ${row}.dedupe_key LIKE 'push:%' OR ${row}.dedupe_key LIKE 'action:%' THEN (
+        SELECT CASE WHEN pi.id IS NULL
+            THEN (p.requested_by ->> 'actor_user_id')::uuid
+            ELSE it.actor_id END
+        FROM push_requests p
+        LEFT JOIN push_intents pi ON pi.push_request_id = p.id
+        LEFT JOIN turns it ON it.id = pi.turn_id
+        WHERE p.session_id = ${row}.session_id
+          AND p.id::text = split_part(${row}.dedupe_key, ':',
+            CASE WHEN ${row}.dedupe_key LIKE 'push:%' THEN 3 ELSE 2 END)
+        ORDER BY pi.turn_id LIMIT 1)
+      WHEN ${row}.dedupe_key LIKE 'intent:%' THEN (
+        SELECT it.actor_id FROM push_intents pi
+        JOIN turns it ON it.id = pi.turn_id
+        WHERE pi.session_id = ${row}.session_id
+          AND pi.id::text = split_part(${row}.dedupe_key, ':', 2))
+    END))
+  FROM agents a
+  WHERE a.id = ${row}.agent_id AND a.conversation_rollout = 'on'
 )`;
 
 // A closed link takes no new row but the notice that one of its own rows
@@ -695,6 +746,7 @@ function createPostgresSlackCardSettleStore(
             st.dedupe_key, st.body, st.settle_rendered, st.settle_uncertain_rev,
             st.settle_uncertain_latest_at IS NOT NULL AS uncertain,
             pick.inherited, st.settle_attempts,
+            ${aiLabelOf(sql.raw("st"))} AS ai_label,
             ${conversationScopeOf(sql`st.session_id`, sql`st.installation_id`)} AS conversation_scope`),
       );
       return rows.map(
@@ -713,6 +765,9 @@ function createPostgresSlackCardSettleStore(
           uncertain: Boolean(row.uncertain),
           inherited: Boolean(row.inherited),
           attempts: Number(row.settle_attempts),
+          ...(row.ai_label == null
+            ? {}
+            : { aiLabel: row.ai_label as SurfaceAiLabel }),
           conversationScope:
             (row.conversation_scope as SurfaceConversationScope | null) ?? null,
         }),
@@ -977,6 +1032,17 @@ export function createPostgresSlackOutboxStore(
         )
         .limit(1);
       return row?.locale ?? null;
+    },
+
+    async aiLabelFor({ agentId, sessionId, turnId }) {
+      const [row] = rowsOf<{ ai_label: SurfaceAiLabel | null }>(
+        await db.execute(sql`
+          WITH o AS (SELECT ${agentId}::uuid AS agent_id,
+            ${sessionId}::uuid AS session_id, ${turnId}::int AS sources_turn,
+            'failure:' AS dedupe_key)
+          SELECT ${aiLabelOf(sql.raw("o"))} AS ai_label FROM o`),
+      );
+      return row?.ai_label ?? null;
     },
 
     async advanceAnswered() {
@@ -1923,6 +1989,7 @@ export function createPostgresSlackOutboxStore(
               AND (c.claim_token IS NULL OR c.lease_expires_at <= now())
               AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= now())
               AND c.held_for_input_id IS NULL
+              AND NOT EXISTS (${rateBlocks(sql.raw("c"))})
               AND ${addressed(db, sql.raw("c"), noticeVersions)}
               -- Held while its channel is not one the agent reads.
               AND (c.kind <> 'channel_notice'
@@ -2141,6 +2208,24 @@ export function createPostgresSlackOutboxStore(
             .where(eq(t.id, fence.id));
           return "voided_by_delete" as const;
         }
+        // A 429 another row of this pass, or another replica, ran into since
+        // this one was claimed: released, unsent and uncounted, until then.
+        // Last before the send, after every lock waited for above.
+        const [limit] = rowsOf<{ until: string | null }>(
+          await tx.execute(sql`
+            SELECT (SELECT max(blocked_until) FROM (${rateBlocks(sql.raw("o"))}) l)::text AS until
+            FROM slack_outbox o WHERE o.id = ${fence.id}::uuid`),
+        );
+        if (limit?.until != null) {
+          await tx
+            .update(t)
+            .set({
+              ...released,
+              nextAttemptAt: sql`${limit.until}::timestamptz`,
+            })
+            .where(eq(t.id, fence.id));
+          return "rate_limited" as const;
+        }
         const rows = await tx
           .update(t)
           .set({
@@ -2163,7 +2248,10 @@ export function createPostgresSlackOutboxStore(
         // session with a Slack link: the row's own, or, for a row sent
         // outside its thread (a direct message), an open one. Its title as a
         // reader is served it: none once Slack deleted what it came from.
-        const [sender] = rowsOf<{ posted_as: SurfaceOutboxPostedAs }>(
+        const [sender] = rowsOf<{
+          posted_as: SurfaceOutboxPostedAs;
+          ai_label: SurfaceAiLabel | null;
+        }>(
           await tx.execute(sql`
             SELECT json_build_object(
               'agentName', a.name,
@@ -2176,17 +2264,26 @@ export function createPostgresSlackOutboxStore(
                   )
                 )
               )
-            ) AS posted_as
-            FROM agents a WHERE a.id = ${row.agentId}::uuid`),
+            ) AS posted_as, ${aiLabelOf(sql.raw("o"))} AS ai_label
+            FROM agents a, slack_outbox o
+            WHERE a.id = ${row.agentId}::uuid AND o.id = ${fence.id}::uuid`),
         );
         if (sender === undefined) return true;
-        return progress === undefined
-          ? sender.posted_as
-          : { ...sender.posted_as, progress };
+        return {
+          ...sender.posted_as,
+          ...(progress === undefined ? {} : { progress }),
+          ...(sender.ai_label === null ? {} : { aiLabel: sender.ai_label }),
+        };
       });
     },
 
     async settle(fence, outcome) {
+      const limitedMs =
+        outcome.status === "pending" &&
+        (outcome.errorCode === SURFACE_RATE_LIMITED_CODE ||
+          outcome.errorCode === SURFACE_EDIT_RATE_LIMITED_CODE)
+          ? outcome.retryInMs
+          : null;
       const set =
         outcome.status === "sent"
           ? {
@@ -2222,8 +2319,12 @@ export function createPostgresSlackOutboxStore(
           .set({
             ...set,
             ...released,
-            // SET reads the old status: still pending means beginSend never ran.
-            attempts: sql`CASE WHEN ${t.status} = 'pending' THEN ${t.attempts} + 1 ELSE ${t.attempts} END`,
+            // SET reads the old status: still pending means beginSend never
+            // ran. A rate-limited call gives back the attempt beginSend took.
+            attempts:
+              limitedMs === null
+                ? sql`CASE WHEN ${t.status} = 'pending' THEN ${t.attempts} + 1 ELSE ${t.attempts} END`
+                : sql`CASE WHEN ${t.status} = 'sending' THEN ${t.attempts} - 1 ELSE ${t.attempts} END`,
           })
           .where(fenced(fence))
           .returning({
@@ -2237,6 +2338,31 @@ export function createPostgresSlackOutboxStore(
             kind: t.kind,
           });
         if (row === undefined) return false;
+        // The limit holds the install's other rows it covers too (claim,
+        // beginSend): an edit's is chat.update's, a post's its channel's,
+        // a progress update's post where its edit found none included.
+        if (limitedMs !== null) {
+          const blocks = slackOutboxRateBlocks;
+          await tx
+            .insert(blocks)
+            .values({
+              installationId: row.installationId,
+              scope:
+                row.kind === "reaction"
+                  ? "reactions.add"
+                  : outcome.status === "pending" &&
+                      outcome.errorCode === SURFACE_EDIT_RATE_LIMITED_CODE
+                    ? "chat.update"
+                    : `channel:${row.channelId}`,
+              blockedUntil: sql`now() + ${ms(limitedMs)}`,
+            })
+            .onConflictDoUpdate({
+              target: [blocks.installationId, blocks.scope],
+              set: {
+                blockedUntil: sql`greatest(${blocks.blockedUntil}, excluded.blocked_until)`,
+              },
+            });
+        }
         // A post into the thread is a moment to show its status again soon;
         // an edit of one, or a reaction, is not.
         if (

@@ -28,7 +28,11 @@ import {
   useSessionEvents,
   WerftProvider,
 } from "./index.ts";
-import { eventToolCallId } from "./sessions.ts";
+import {
+  eventToolCallId,
+  useRecheckSessionReads,
+  useSessionTurns,
+} from "./sessions.ts";
 
 const { renderHook, waitFor, act } = await setupDom();
 
@@ -178,6 +182,154 @@ function harness(
     invalidated,
   };
 }
+
+describe("useRecheckSessionReads", () => {
+  const T1 = "2026-10-11T08:14:02.000Z";
+  const T2 = "2026-10-11T08:15:02.000Z";
+
+  test("reads the turns again when the session's newest event moves on, not on its first read", () => {
+    const h = harness(receipt);
+    const { rerender } = renderHook(
+      ({ at }: { at: string | null | undefined }) =>
+        useRecheckSessionReads(SESSION_ID, false, at),
+      {
+        wrapper: h.wrapper,
+        initialProps: { at: undefined as string | null | undefined },
+      },
+    );
+    rerender({ at: T1 });
+    expect(h.invalidated()).toEqual([]);
+    rerender({ at: T1 });
+    expect(h.invalidated()).toEqual([]);
+    rerender({ at: T2 });
+    expect(h.invalidated()).toEqual([[h.keys.turns, false]]);
+  });
+
+  test("a turns read in flight when the newest event moves on gives way to a new one", async () => {
+    const turn = (turn_id: string) => ({
+      turn_id,
+      session_id: SESSION_ID,
+      status: "completed",
+      message: `instruction ${turn_id}`,
+      channel: "web",
+      created_by: null,
+      requester: null,
+      slack_permalink: null,
+      source_deleted_at: null,
+      terminal_reason: null,
+      prepended_turn_id: null,
+      checkpoint_revision: null,
+      created_at: T1,
+      started_at: T1,
+      ended_at: T1,
+    });
+    let reads = 0;
+    let release: (() => void) | undefined;
+    const h = harness(((sent: Sent) => {
+      if (sent.path !== `${BASE}/turns`) return json(404, {});
+      reads += 1;
+      // The first read took the list before turn 2; its answer lags.
+      if (reads === 1)
+        return new Promise<Response>((resolve) => {
+          release = () =>
+            resolve(json(200, { items: [turn("1")], next_cursor: null }));
+        });
+      return json(200, { items: [turn("1"), turn("2")], next_cursor: null });
+    }) as unknown as (sent: Sent) => Response);
+    const { result, rerender } = renderHook(
+      ({ at }: { at: string }) => {
+        useRecheckSessionReads(SESSION_ID, false, at);
+        return useSessionTurns(SESSION_ID, true);
+      },
+      { wrapper: h.wrapper, initialProps: { at: T1 } },
+    );
+    await waitFor(() => expect(reads).toBe(1));
+    rerender({ at: T2 });
+    await act(async () => release?.());
+    await waitFor(() =>
+      expect(result.current.data?.items.map((t) => t.turn_id)).toEqual([
+        "1",
+        "2",
+      ]),
+    );
+  });
+
+  test("a slow background turns read is joined, not restarted, by each event, then read past", async () => {
+    const T3 = "2026-10-11T08:16:02.000Z";
+    const turn = (turn_id: string) => ({
+      turn_id,
+      session_id: SESSION_ID,
+      status: "completed",
+      message: `instruction ${turn_id}`,
+      channel: "web",
+      created_by: null,
+      requester: null,
+      slack_permalink: null,
+      source_deleted_at: null,
+      terminal_reason: null,
+      prepended_turn_id: null,
+      checkpoint_revision: null,
+      created_at: T1,
+      started_at: T1,
+      ended_at: T1,
+    });
+    const list = (...ids: string[]) =>
+      json(200, { items: ids.map(turn), next_cursor: null });
+    let reads = 0;
+    let release: (() => void) | undefined;
+    const h = harness(((sent: Sent) => {
+      if (sent.path !== `${BASE}/turns`) return json(404, {});
+      reads += 1;
+      if (reads === 1) return list("1");
+      if (reads === 2)
+        return new Promise<Response>((resolve) => {
+          release = () => resolve(list("1", "2"));
+        });
+      return list("1", "2", "3");
+    }) as unknown as (sent: Sent) => Response);
+    const { result, rerender } = renderHook(
+      ({ at }: { at: string }) => {
+        useRecheckSessionReads(SESSION_ID, false, at);
+        return useSessionTurns(SESSION_ID, true);
+      },
+      { wrapper: h.wrapper, initialProps: { at: T1 } },
+    );
+    await waitFor(() => expect(result.current.data?.items.length).toBe(1));
+    rerender({ at: T2 });
+    await waitFor(() => expect(reads).toBe(2));
+    rerender({ at: T3 });
+    expect(reads).toBe(2);
+    await act(async () => release?.());
+    await waitFor(() =>
+      expect(result.current.data?.items.map((t) => t.turn_id)).toEqual([
+        "1",
+        "2",
+        "3",
+      ]),
+    );
+    expect(reads).toBe(3);
+  });
+
+  test("reads the session and its turns again while they disagree, and stops once they agree", async () => {
+    const h = harness(receipt);
+    const { rerender } = renderHook(
+      ({ disagree }: { disagree: boolean }) =>
+        useRecheckSessionReads(SESSION_ID, disagree, T1),
+      { wrapper: h.wrapper, initialProps: { disagree: true } },
+    );
+    expect(h.invalidated()).toEqual([
+      [h.keys.detail, true],
+      [h.keys.turns, false],
+    ]);
+    await waitFor(() => expect(h.invalidated().length).toBe(4), {
+      timeout: 2_000,
+    });
+    rerender({ disagree: false });
+    const settled = h.invalidated().length;
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    expect(h.invalidated().length).toBe(settled);
+  });
+});
 
 describe("useAnswer", () => {
   test("posts the answer with an idempotency key, then refreshes the detail and the pending list", async () => {

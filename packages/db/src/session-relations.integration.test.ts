@@ -414,6 +414,17 @@ integration("session list relations, search and counts on PostgreSQL", () => {
   });
 
   test("counts equal the list read to its end, per status, for every filter", async () => {
+    // A power of two each, so a sum names exactly the sessions it added.
+    const cost = new Map<string, number>();
+    for (const [index, id] of Object.values(ids).entries()) {
+      cost.set(id, 2 ** index / 8);
+      await db
+        .update(sessions)
+        .set({ costUsd: 2 ** index / 8 })
+        .where(eq(sessions.id, id));
+    }
+    const costOf = (listed: readonly string[]) =>
+      listed.reduce((sum, id) => sum + (cost.get(id) ?? 0), 0);
     for (const who of ["alice", "bob", "dave"] as const) {
       for (const relation of SESSION_RELATION_VALUES) {
         for (const q of [undefined, "fix", "to"]) {
@@ -424,8 +435,10 @@ integration("session list relations, search and counts on PostgreSQL", () => {
             viewer(who),
           );
           let total = 0;
+          let spent = 0;
           for (const status of SESSION_STATUS_VALUES) {
             const listed = await readAll(viewer(who), { ...filter, status });
+            spent += costOf(listed);
             expect([who, relation, q, status, counted.counts[status]]).toEqual([
               who,
               relation,
@@ -436,12 +449,22 @@ integration("session list relations, search and counts on PostgreSQL", () => {
             total += listed.length;
           }
           expect(counted.total).toBe(total);
+          // A session the viewer cannot read adds nothing to the cost either.
+          expect([who, relation, q, Number(counted.cost_usd)]).toEqual([
+            who,
+            relation,
+            q,
+            spent,
+          ]);
         }
       }
     }
-    expect(
-      await reader().countSessions(workspaceId, {}, viewer("alice")),
-    ).toEqual({
+    const alice = await reader().countSessions(
+      workspaceId,
+      {},
+      viewer("alice"),
+    );
+    expect({ ...alice, cost_usd: undefined }).toEqual({
       counts: {
         queued: 0,
         running: 1,
@@ -452,7 +475,9 @@ integration("session list relations, search and counts on PostgreSQL", () => {
         cut_off: 0,
       },
       total: 7,
+      cost_usd: undefined,
     });
+    expect(alice.cost_usd).toMatch(/^\d+\.\d{6}$/);
   });
 
   test("a member inside an agent who administers none reads only its id, name and version on someone else's session", async () => {
