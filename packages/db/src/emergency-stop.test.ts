@@ -1303,6 +1303,46 @@ describe("the stop's own line", () => {
     expect(await kinds()).toContain("emergency_stop_notice");
   });
 
+  test("the stop's line does not wait for another agent's send in the channel", async () => {
+    const s = await stage();
+    const [app] = await db
+      .select({ id: slackApps.id })
+      .from(slackApps)
+      .where(eq(slackApps.agentId, s.agentId));
+    if (!app) throw new Error("no app");
+    const other = randomUUID();
+    await db.insert(agents).values({
+      id: other,
+      workspaceId: s.workspaceId,
+      managingTeamId: await fixtureTeam(db, s.workspaceId),
+      slug: "other",
+      name: "other",
+    });
+    await db.insert(slackOutbox).values({
+      id: randomUUID(),
+      workspaceId: s.workspaceId,
+      agentId: other,
+      slackAppId: app.id,
+      installationId: s.installationId,
+      kind: "reply",
+      channelId: CHANNEL,
+      threadTs: "100.000100",
+      body: { text: "another agent's reply" } as never,
+      dedupeKey: "reply:other-agent",
+    });
+    const outbox = createPostgresSlackOutboxStore(db);
+    const claimed = await outbox.claim({ limit: 10, leaseMs: 30_000 });
+    const sending = claimed.find((row) => row.agentId === other);
+    if (!sending) throw new Error("the other agent's reply was not claimed");
+    expect(await outbox.beginSend(sending)).not.toBe(false);
+    expect((await stop(s, s.admin)).outcome).toBe("stopped");
+    expect(
+      (await outbox.claim({ limit: 10, leaseMs: 30_000 })).map(
+        (row) => row.kind,
+      ),
+    ).toContain("emergency_stop_notice");
+  });
+
   test("the stop's line is told to a channel waiting for approval", async () => {
     const s = await stage();
     await db

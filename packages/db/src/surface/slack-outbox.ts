@@ -2020,13 +2020,14 @@ export function createPostgresSlackOutboxStore(
               AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= now())
               AND c.held_for_input_id IS NULL
               AND NOT EXISTS (${rateBlocks(sql.raw("c"))})
-              -- An emergency stop's line goes after every send to the
-              -- channel already under way through an install it covers,
+              -- An emergency stop's line goes after every send of its agent
+              -- to the channel already under way through an install it covers,
               -- a send's own retries included, is done or its lease is.
               AND (c.kind <> 'emergency_stop_notice' OR NOT EXISTS (
                 SELECT 1 FROM slack_outbox s
                 JOIN slack_installations si ON si.id = s.installation_id
                 WHERE s.channel_id = c.channel_id
+                  AND s.agent_id = c.agent_id
                   AND s.status = 'sending'
                   AND s.kind <> 'emergency_stop_notice'
                   AND s.lease_expires_at > now()
