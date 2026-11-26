@@ -48,6 +48,7 @@ export {
   type UsageFiltersMessages,
   type UsageInitiatorSplitMessages,
   type UsageKpisMessages,
+  type UsageOutcomesMessages,
   type UsageTokenMixMessages,
 } from "./operations/messages.ts";
 export {
@@ -104,6 +105,12 @@ export {
   type UsageInitiatorSplitProps,
 } from "./operations/usage-initiator-split.tsx";
 export { UsageKpis, type UsageKpisProps } from "./operations/usage-kpis.tsx";
+export {
+  USAGE_OUTCOME_KINDS,
+  type UsageOutcomeKind,
+  UsageOutcomes,
+  type UsageOutcomesProps,
+} from "./operations/usage-outcomes.tsx";
 export {
   UsageTokenMix,
   type UsageTokenMixProps,
