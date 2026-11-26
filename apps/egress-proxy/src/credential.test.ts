@@ -2216,6 +2216,24 @@ describe("startCredentialProxy", () => {
       expect(up.seen).toEqual([]);
     });
 
+    test("a slow first answer counts towards the hold", async () => {
+      const up = upstream(() => new Response("ok"));
+      const auth = authorizer(async () => {
+        await Bun.sleep(700);
+        return undecided();
+      });
+      const server = proxy(auth.url, up.port, {
+        undecidedHold: { ms: 1_000, backoffMs: [100] },
+      });
+      const started = performance.now();
+      const response = await messages(server.port);
+      expect(response.status).toBe(503);
+      expect(response.headers.get("retry-after")).toBe("1");
+      // 1 s from the first ask; not 0.7 s of it and then a whole hold more.
+      expect(performance.now() - started).toBeLessThan(1_400);
+      expect(up.seen).toEqual([]);
+    });
+
     test("no ask outlasts the hold: a grant that would come after it is not waited for, and nothing is sent", async () => {
       const up = upstream(() => new Response("ok"));
       let asks = 0;

@@ -1399,6 +1399,7 @@ export function startCredentialProxy(
   async function heldForDecision(
     ask: (withinMs: number) => Promise<Authorized>,
     ends: AbortSignal,
+    ms: number,
   ): Promise<Authorized> {
     if (held >= maxHeld) {
       logger.warn("Not holding an undecided provider call: too many held", {
@@ -1410,7 +1411,7 @@ export function startCredentialProxy(
     try {
       return await decidedWithin(
         ask,
-        { ms: holdMs, backoffMs: holdBackoffMs },
+        { ms, backoffMs: holdBackoffMs },
         {
           now: () => performance.now(),
           sleep: (ms) => untilEnded(Bun.sleep(ms), ends).catch(() => {}),
@@ -2586,6 +2587,7 @@ export function startCredentialProxy(
         }
         const ask = (withinMs?: number) =>
           authorize(token, route.purpose, question, exchangeId, withinMs);
+        const askedAt = performance.now();
         let authorized = await Promise.race([ask(), bodyStalled]);
         if (authorized.kind === "undecided" && route.purpose === "provider") {
           // Silent for the whole hold, so the idle clock is moved past it.
@@ -2594,7 +2596,8 @@ export function startCredentialProxy(
             UNAUTHORIZED_IDLE_SECONDS + Math.ceil(holdMs / 1000),
           );
           authorized = await Promise.race([
-            heldForDecision(ask, ends),
+            // The first ask is part of the hold, not ahead of it.
+            heldForDecision(ask, ends, holdMs - (performance.now() - askedAt)),
             bodyStalled,
           ]);
         }
