@@ -238,6 +238,11 @@ export function SessionDetail({
       : null;
   const cutOff = lostTurnId !== null && detail.status === "idle";
   const requests = pending.data?.items ?? [];
+  // A viewer who only sees the session through its share has nothing to
+  // answer, unless a request says otherwise.
+  const mine = requests.filter(
+    (request) => request.answerable ?? pending.data?.answerable ?? false,
+  );
   const steps = turns.data
     ? readSessionSteps({
         session: detail,
@@ -414,7 +419,7 @@ export function SessionDetail({
           onListToggle={() => setStepsOpen((open) => !open)}
           usage={usage.data ? <UsageFigures usage={usage.data} /> : null}
         />
-        <SessionInputNeeded requests={requests} onShow={showRequests} />
+        <SessionInputNeeded requests={mine} onShow={showRequests} />
         {steps && steps.steps.length > 0 ? (
           <SessionStepList
             // Each session opens on its own focused step.

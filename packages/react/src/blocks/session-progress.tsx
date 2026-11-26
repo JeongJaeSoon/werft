@@ -90,7 +90,7 @@ export function SessionProgress({
           type="button"
           variant="ghost"
           size="sm"
-          className="-ml-2 h-6 gap-1.5 px-2 text-caption text-foreground"
+          className="text-caption text-foreground"
           aria-expanded={listOpen}
           aria-controls={listId}
           onClick={onListToggle}

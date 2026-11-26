@@ -131,6 +131,14 @@ describe("readSessionSteps", () => {
     ]);
   });
 
+  test("a turn read as needs_input waits only while the request list holds its request", () => {
+    const steps = read({
+      session: { current_turn_id: "1", status: "running" },
+      turns: [turn("1", "needs_input")],
+    });
+    expect(steps.steps[0]?.state).toBe("running");
+  });
+
   test("with no running turn, the one holding requests is focused but not current", () => {
     const steps = read({
       session: { current_turn_id: null, status: "needs_input" },
@@ -193,6 +201,26 @@ describe("readSessionSteps", () => {
       [2, true],
       [1, false],
     ]);
+  });
+
+  test("a window opening on an event with no turn still marks the oldest turn's count partial", () => {
+    const control: SessionEventFrame = {
+      id: "e0",
+      occurredAt: AT,
+      turnId: null,
+      attemptId: null,
+      payload: {
+        event: "status",
+        data: { phase: "running" },
+      } as SessionEventPayload,
+    };
+    const steps = read({
+      session: { current_turn_id: "1", status: "running" },
+      turns: [turn("1", "running")],
+      events: [control, call("e1", "1", "c1")],
+      windowFull: true,
+    });
+    expect(steps.steps[0]?.toolCallsPartial).toBe(true);
   });
 });
 

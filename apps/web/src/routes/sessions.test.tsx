@@ -4818,7 +4818,8 @@ describe("session steps", () => {
       json(200, { ...detail, current_turn_id: "2", attention: null }),
     [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
       json(200, {
-        items: [turn("1", "completed"), turn("2", "running")],
+        // As the API projects it: the turn with an open request reads needs_input.
+        items: [turn("1", "completed"), turn("2", "needs_input")],
         next_cursor: null,
       }),
     [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
@@ -4876,6 +4877,36 @@ describe("session steps", () => {
     await waitFor(() =>
       expect(document.activeElement?.textContent).toBe("답변 대기 요청"),
     );
+  });
+
+  test("a viewer who may not answer is not told their input is needed", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...waitingOnTwo,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, {
+          ...pending,
+          answerable: false,
+          items: pending.items.map((item) => ({ ...item, turn_id: "2" })),
+        }),
+    });
+    const list = await screen.findByRole("region", { name: "단계" });
+    // The step still waits on approval; it is only not this viewer's to give.
+    await within(list).findByText("승인 대기");
+    expect(
+      screen.queryByRole("region", { name: "내 입력이 필요합니다" }),
+    ).toBeNull();
+  });
+
+  test("an answer read before the turn is read again leaves no wait behind", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...waitingOnTwo,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+    });
+    const list = await screen.findByRole("region", { name: "단계" });
+    await within(list).findByText("진행 중");
+    expect(within(list).queryByText("승인 대기")).toBeNull();
+    expect(within(list).queryByText("답변 대기")).toBeNull();
   });
 
   test("a session nothing waits on has no input-needed line", async () => {

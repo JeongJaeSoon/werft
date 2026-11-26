@@ -69,9 +69,10 @@ function stateOf(
       return "queued";
     case "running":
       return "running";
-    // Derived from an open request the list has not caught up with yet.
+    // The wait shows only while the request list holds one: a turn read
+    // before the answer still says needs_input.
     case "needs_input":
-      return "answer";
+      return "running";
     case "completed":
       return "done";
     case "failed":
@@ -104,7 +105,9 @@ export function readSessionSteps({
     seen.add(call.id);
     calls.set(frame.turnId, seen);
   }
-  const oldest = events[0]?.turnId ?? null;
+  // The oldest turn still in a full window may have lost its first calls;
+  // events without a turn (control-plane ones) say nothing about that.
+  const oldest = events.find((frame) => frame.turnId !== null)?.turnId ?? null;
   const steps = turns.map((turn, index): SessionStep => {
     const asked = requests
       .filter((request) => request.turn_id === turn.turn_id)
