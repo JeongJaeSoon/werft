@@ -595,11 +595,12 @@ describe("에이전트 목록", () => {
     expect(history.location.search).toBe("?status=failed");
     const chips = await screen.findByRole("group", { name: "적용한 필터" });
     expect(within(chips).getByRole("listitem").textContent).toBe("상태 실패");
+    // The sessions list's line keeps the total and cost; its tabs filter.
     expect(
       within(await screen.findByRole("list", { name: "세션 요약" }))
-        .getByRole("button", { name: "실패 3" })
-        .getAttribute("aria-pressed"),
-    ).toBe("true");
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["세션 10", "예상 비용 $3.20"]);
   });
 
   test("전체 목록을 못 보는 구성원도 자기가 볼 수 있는 세션의 요약을 본다", async () => {

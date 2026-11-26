@@ -366,7 +366,7 @@ function AgentsSessionSummary() {
   const { client } = useWerft();
   const counts = useQuery(sessionCountsQuery(client, undefined, undefined));
   return counts.data && !counts.isError ? (
-    <SessionSummary counts={counts.data} />
+    <SessionSummary counts={counts.data} statusLinks />
   ) : null;
 }
 
