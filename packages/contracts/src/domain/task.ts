@@ -19,7 +19,8 @@ export type TaskClosedReason = z.infer<typeof taskClosedReasonSchema>;
 
 /** Slack's own cap on a message's text. */
 const REQUEST_TEXT_MAX = 40_000;
-const INTERPRETATION_TEXT_MAX = 4_000;
+/** The longest goal or end the agent writes for a task. */
+export const TASK_INTERPRETATION_TEXT_MAX = 4_000;
 
 /**
  * The requester's message the task was opened from, as they wrote it, and
@@ -39,8 +40,8 @@ export type TaskRequest = z.infer<typeof taskRequestSchema>;
  * for the requester's text.
  */
 export const taskInterpretationSchema = z.strictObject({
-  goal: z.string().trim().min(1).max(INTERPRETATION_TEXT_MAX),
-  doneWhen: z.string().trim().min(1).max(INTERPRETATION_TEXT_MAX),
+  goal: z.string().trim().min(1).max(TASK_INTERPRETATION_TEXT_MAX),
+  doneWhen: z.string().trim().min(1).max(TASK_INTERPRETATION_TEXT_MAX),
   limits: z.strictObject({
     turns: z.int().positive(),
     hours: z.int().positive(),
@@ -62,6 +63,27 @@ export const taskClosingSchema = z.strictObject({
   quietAfterLimitDays: z.int().positive(),
 });
 export type TaskClosing = z.infer<typeof taskClosingSchema>;
+
+/**
+ * What a spawn_task decision's effect did, once it ran (v1-b/E3): `opened`
+ * its task; `refused` it (the person's right, a limit, the repository);
+ * `failed`, the request gone before it could be read; `voided` by a delete
+ * of a message the turn read.
+ */
+export const CONVERSATION_TASK_EFFECT_VALUES = [
+  "opened",
+  "refused",
+  "failed",
+  "voided",
+] as const;
+export type ConversationTaskEffect =
+  (typeof CONVERSATION_TASK_EFFECT_VALUES)[number];
+
+/** The most open tasks one conversation, and one agent, may have (decision 24). */
+export const TASK_OPEN_LIMIT_PER_CONVERSATION = 3;
+export const TASK_OPEN_LIMIT_PER_AGENT = 10;
+/** The limits a new task works within, as the server writes them. */
+export const TASK_LIMITS_DEFAULT = { turns: 40, hours: 2 } as const;
 
 /** The closing rules a task opens under today (decision 24). */
 export const TASK_CLOSING_DEFAULT: TaskClosing = {

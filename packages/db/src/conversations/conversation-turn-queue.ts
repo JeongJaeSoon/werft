@@ -59,6 +59,25 @@ const told = (payload: unknown) =>
   sql<string>`pg_notify(${CONVERSATION_TURN_QUEUE_CHANNEL}, ${payload})`;
 
 const notTaken = { outcome: "failed", reason: "not_taken" } as const;
+
+/**
+ * How long a turn that ended on spawn_task keeps its request for its task's
+ * effect: the effect pass's window to try again (Architect, v1-b/E3). Past
+ * it the request is let go, and the effect fails without it.
+ */
+export const SPAWN_INPUT_KEPT_MS = 60 * 60_000;
+
+// A turn ending keeps its sealed input only when it was leased (what is
+// sealed is then the input alone) and decided spawn_task with no effect yet.
+const keepsInput = sql`(${queue.leaseId} IS NOT NULL AND EXISTS (
+  SELECT 1 FROM conversation_turns t
+  WHERE t.id = ${queue.turnId} AND t.decision = 'spawn_task'
+    AND t.task_effect IS NULL))`;
+const keptInputAt = (now: Date) => ({
+  turnNonce: sql`CASE WHEN ${keepsInput} THEN ${queue.turnNonce} END`,
+  turnCiphertext: sql`CASE WHEN ${keepsInput} THEN ${queue.turnCiphertext} END`,
+  inputKeptUntil: sql`CASE WHEN ${keepsInput} THEN ${new Date(now.getTime() + SPAWN_INPUT_KEPT_MS).toISOString()}::timestamptz END`,
+});
 const OPEN = ["queued", "leased"] as const;
 
 function outcomeOf(stored: unknown): ConversationTurnOutcome {
@@ -76,6 +95,54 @@ function outcomeOf(stored: unknown): ConversationTurnOutcome {
     return { outcome: "failed", reason: stored.reason };
   }
   return conversationTurnResultSchema.parse(stored);
+}
+
+/**
+ * The request a turn that ended on spawn_task kept for its task: its input
+ * as its runtime was given it, the one place a turn's input is read from.
+ * Null once it was let go, past its deadline, or when it cannot be opened.
+ */
+export async function keptTurnRequest(
+  db: Database,
+  secretKey: SecretKey,
+  turnId: ConversationTurnId,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ nonce: queue.turnNonce, ciphertext: queue.turnCiphertext })
+    .from(queue)
+    .where(
+      and(
+        eq(queue.turnId, turnId),
+        sql`${queue.inputKeptUntil} > clock_timestamp()`,
+      ),
+    );
+  if (row?.nonce == null || row.ciphertext == null) return null;
+  try {
+    const opened = JSON.parse(
+      openWithKey(
+        derivedSecretKey(secretKey, "conversation-turn-queue"),
+        aadOf(turnId),
+        {
+          nonce: Buffer.from(row.nonce),
+          ciphertext: Buffer.from(row.ciphertext),
+        },
+      ),
+    ) as { input?: { text?: unknown } };
+    return typeof opened.input?.text === "string" ? opened.input.text : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Lets go of the request a turn kept, whatever its task's effect did. */
+export async function releaseKeptTurnRequest(
+  tx: Database,
+  turnId: ConversationTurnId,
+): Promise<void> {
+  await tx
+    .update(queue)
+    .set({ turnNonce: null, turnCiphertext: null, inputKeptUntil: null })
+    .where(and(eq(queue.turnId, turnId), isNotNull(queue.inputKeptUntil)));
 }
 
 /**
@@ -111,8 +178,7 @@ export function createPostgresConversationTurnQueue(
         state: "ended",
         outcome,
         endedAt: now,
-        turnNonce: null,
-        turnCiphertext: null,
+        ...keptInputAt(now),
       })
       .where(eq(queue.turnId, turnId))
       .returning({ told: told(sql`${queue.turnId}::text`) });
@@ -138,6 +204,7 @@ export function createPostgresConversationTurnQueue(
         state: "ended",
         outcome: { outcome: "failed", reason: "lease_expired" },
         endedAt: now,
+        ...keptInputAt(now),
       })
       .where(
         and(
@@ -146,6 +213,11 @@ export function createPostgresConversationTurnQueue(
         ),
       )
       .returning({ told: told(sql`${queue.turnId}::text`) });
+    // A kept request its task's effect never took is let go at its deadline.
+    await tx
+      .update(queue)
+      .set({ turnNonce: null, turnCiphertext: null, inputKeptUntil: null })
+      .where(sql`${queue.inputKeptUntil} <= ${now.toISOString()}::timestamptz`);
     const open = await tx
       .select({
         turnId: queue.turnId,
@@ -286,6 +358,13 @@ export function createPostgresConversationTurnQueue(
           }
           const leaseId = conversationTurnLeaseIdSchema.parse(randomUUID());
           const expiresAt = new Date(now.getTime() + leaseMs);
+          // The turn's input alone stays sealed while it runs, for a task
+          // its decision may ask for; its permit never outlives the lease.
+          const input = sealWithKey(
+            key,
+            aadOf(row.turnId),
+            JSON.stringify({ input: turn.input }),
+          );
           await tx
             .update(queue)
             .set({
@@ -293,8 +372,11 @@ export function createPostgresConversationTurnQueue(
               leaseId,
               runtimeId,
               leaseExpiresAt: expiresAt,
-              turnNonce: null,
-              turnCiphertext: null,
+              turnNonce: input.nonce,
+              turnCiphertext: input.ciphertext,
+              // Its deadline goes with it, so the sweep lets it go whoever
+              // ends the turn, an older image included.
+              inputKeptUntil: new Date(now.getTime() + SPAWN_INPUT_KEPT_MS),
             })
             .where(eq(queue.turnId, row.turnId));
           return {

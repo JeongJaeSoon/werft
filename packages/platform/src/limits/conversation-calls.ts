@@ -6,6 +6,7 @@ import {
   type ConversationCallId,
   type ConversationCallKey,
   type ConversationId,
+  type ConversationKind,
   type ConversationTopicId,
   type ConversationTurnCallRefusal,
   type ConversationTurnId,
@@ -18,6 +19,7 @@ import {
   connectionOf,
   type SessionCatalog,
 } from "../catalog/index.ts";
+import type { ConversationTurnSurfaceSubject } from "../conversations/index.ts";
 import type { ConversationTurnOutcome } from "../ports/conversation-turn-queue.ts";
 import { hashToken } from "../token-hash.ts";
 import type { BudgetRoot } from "./budget-accounts.ts";
@@ -117,6 +119,8 @@ export type ConversationTurnPermitIssued =
       /** Sent as the API key of each of the turn's calls to the proxy's provider route. */
       token: string;
       expiresAt: Date;
+      /** The conversation's kind, which says what the turn may decide. */
+      place: ConversationKind;
     }
   | Exclude<ConversationTurnPermitIssue, { outcome: "issued" }>
   | { outcome: "unavailable"; reason: ConversationCallUnavailable };
@@ -325,7 +329,12 @@ export function createConversationCalls(deps: {
         ),
       });
       if (issued.outcome !== "issued") return issued;
-      return { outcome: "issued", token, expiresAt: issued.expiresAt };
+      return {
+        outcome: "issued",
+        token,
+        expiresAt: issued.expiresAt,
+        place: issued.place,
+      };
     },
     /**
      * A person's mention of the agent in Slack as a turn: writes the turn,
@@ -342,6 +351,7 @@ export function createConversationCalls(deps: {
       requesterUserId: string;
       slackInstallationId: string;
       message: { teamId: string; channelId: string; ts: string };
+      slackSubject: ConversationTurnSurfaceSubject | null;
       releaseId: string | null;
       connectionId: string;
       model: string;
@@ -373,7 +383,12 @@ export function createConversationCalls(deps: {
         callKey: conversationCallKeySchema.parse(`${input.turnId}:m2`),
       });
       if (issued.outcome !== "issued") return issued;
-      return { outcome: "issued", token, expiresAt: issued.expiresAt };
+      return {
+        outcome: "issued",
+        token,
+        expiresAt: issued.expiresAt,
+        place: issued.place,
+      };
     },
     /**
      * Ends a turn issued here once its runtime is done with it, and its

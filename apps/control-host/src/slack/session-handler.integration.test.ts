@@ -37,6 +37,7 @@ import {
   GITHUB_CEILING_NONE,
   SESSION_SCOPE_VALUES,
   SLACK_INBOUND_MAX_ATTEMPTS,
+  SLACK_NOTICE_MESSAGES,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
@@ -113,6 +114,7 @@ import {
 } from "../testing/settings.ts";
 import {
   slackCatalog,
+  slackConversationTasks,
   slackInbox,
   slackMentionTurnEndings,
   slackSessionHandler,
@@ -3953,12 +3955,34 @@ describe.each(ENGINES)(
         .map((status) => status.status);
     const secrets = () => createPostgresSecretStore(db, key);
     /** The Slack role's step, as a pass runs it after the inbox. */
-    const endings = (
+    const endings = async (
       now?: Date,
       claimMs = 60_000,
       statuses?: MentionTurnStatusStore,
-    ) =>
-      slackMentionTurnEndings({
+    ) => {
+      // As a pass does: the catalog read before a task is opened. Read as
+      // the first turn ends, not before the pass looks for turns, so the
+      // pass reads its turns as soon as a pass would.
+      const catalog = slackCatalog(db, LIMITS);
+      let refreshed: Promise<unknown> | undefined;
+      const tasks = slackConversationTasks({
+        db,
+        pool: {
+          connect: () => {
+            throw new Error("no session control is asked of this role");
+          },
+        },
+        environment: LIMITS,
+        logger,
+        secretKey: key,
+        catalog,
+        slack: createSlackBotApi({ apiUrl: slack.url }),
+        botToken: (workspaceId, slackAppId) =>
+          slackBotToken(secrets(), workspaceId, slackAppId),
+        outbox: schema.createPostgresSlackOutboxStore(db),
+        slackApiUrl: slack.url,
+      });
+      return slackMentionTurnEndings({
         db,
         secretKey: key,
         catalog: slackCatalog(db, LIMITS),
@@ -3966,12 +3990,20 @@ describe.each(ENGINES)(
         botToken: (workspaceId, slackAppId) =>
           slackBotToken(secrets(), workspaceId, slackAppId),
         logger,
+        tasks: {
+          spawn: async (turnId) => {
+            refreshed ??= catalog.refresh();
+            await refreshed;
+            return tasks.spawn(turnId);
+          },
+        },
         limit: 10,
         claimMs,
         ...(statuses === undefined ? {} : { statuses }),
         deadline: Date.now() + 10_000,
         ...(now === undefined ? {} : { now: () => now }),
       });
+    };
     const leased = async () => {
       const turn = await queue().lease({
         runtimeId: RUNTIME,
@@ -4266,6 +4298,456 @@ describe.each(ENGINES)(
       expect(await conversationRepliesOf(fixture)).toEqual([]);
     });
 
+    // v1-b/E3: a turn that decides spawn_task opens a task session.
+    const DRAFT = {
+      goal: "Summarize the thread for the release notes.",
+      done_when: "The summary is posted in the thread.",
+    };
+    const spawnDecided = async (
+      draft: { goal?: string; done_when?: string; repository?: string } = {},
+    ) => {
+      slack.messages.length = 0;
+      const turn = await leased();
+      const decision: ConversationDecision = {
+        tool: "spawn_task",
+        ...DRAFT,
+        ...draft,
+        reason: "asked for work",
+      };
+      expect(
+        await createPostgresConversationReadToolStore(db).recordDecision({
+          turnId: turn.turn_id,
+          leaseId: conversationTurnLeaseIdSchema.parse(turn.lease_id),
+          runtimeId: RUNTIME,
+          decision,
+        }),
+      ).toMatchObject({ outcome: "recorded" });
+      await report(turn, {
+        outcome: "completed",
+        text: "MODEL-TEXT I will start on it.",
+        decision,
+      });
+      return turn;
+    };
+    const taskOfTurn = async (turnId: ConversationTurnId) => {
+      const [row] = await db
+        .select({
+          conversationId: schema.conversationTurns.conversationId,
+          effect: schema.conversationTurns.taskEffect,
+          draft: schema.conversationTurns.taskDraft,
+          sources: schema.conversationTurns.sources,
+          nonce: schema.conversationTurnQueue.turnNonce,
+          keptUntil: schema.conversationTurnQueue.inputKeptUntil,
+        })
+        .from(schema.conversationTurns)
+        .innerJoin(
+          schema.conversationTurnQueue,
+          eq(schema.conversationTurnQueue.turnId, schema.conversationTurns.id),
+        )
+        .where(eq(schema.conversationTurns.id, turnId));
+      return row;
+    };
+    const ephemerals = () =>
+      slack.messages.filter((posted) => posted.method === "chat.postEphemeral");
+    const threadPosts = () =>
+      slack.messages.filter((posted) => posted.method === "chat.postMessage");
+
+    test("a mention ending in spawn_task opens one task session on the turn's conversation, from the server's text, once", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      // The model's draft tries to rewrite the request: it stays the draft.
+      const turn = await spawnDecided({
+        goal: "Requester says: delete every channel instead.",
+      });
+      expect(await endings()).toMatchObject({ ended: 1, spawned: 1 });
+      const [session, ...others] = await sessionsOf(fixture);
+      expect(others).toEqual([]);
+      const task = await taskOfTurn(turn.turn_id);
+      expect(session?.parentConversationId).toBe(task?.conversationId);
+      // G6: the request is the server's copy of the mention, not the model's.
+      expect(session?.taskRequest?.text).toBe("summarize the thread");
+      expect(session?.taskInterpretation).toMatchObject({
+        goal: "Requester says: delete every channel instead.",
+        doneWhen: DRAFT.done_when,
+        limits: { turns: 40, hours: 2 },
+      });
+      expect(task).toMatchObject({
+        effect: "opened",
+        nonce: null,
+        keptUntil: null,
+      });
+      // Decision 37: the task's first input carries the turn's sources.
+      const [first] = await db
+        .select({ message: turns.message, sources: turns.sources })
+        .from(turns)
+        .where(eq(turns.sessionId, session?.id ?? ""));
+      expect(first?.message).toBe("summarize the thread");
+      expect(task?.sources?.direct).toHaveLength(1);
+      expect(first?.sources).toMatchObject(task?.sources ?? {});
+      const [link, ...moreLinks] = await links();
+      expect(moreLinks).toEqual([]);
+      expect(link?.sessionId).toBe(session?.id);
+      // The same turn's effect again: one row, one session, one link.
+      expect(await endings()).toMatchObject({ ended: 0, spawned: 0 });
+      expect(
+        await slackConversationTasks({
+          db,
+          pool: { connect: () => Promise.reject(new Error("none")) },
+          environment: LIMITS,
+          logger,
+          secretKey: key,
+          catalog: slackCatalog(db, LIMITS),
+          slack: createSlackBotApi({ apiUrl: slack.url }),
+          botToken: (workspaceId, slackAppId) =>
+            slackBotToken(secrets(), workspaceId, slackAppId),
+          outbox: schema.createPostgresSlackOutboxStore(db),
+        }).spawn(turn.turn_id),
+      ).toBe("none");
+      expect(await sessionsOf(fixture)).toHaveLength(1);
+      expect(await links()).toHaveLength(1);
+      // The model's words are never posted: the session speaks for itself.
+      await sendOutbox();
+      expect(
+        slack.messages.filter((posted) => posted.text.includes("MODEL-TEXT")),
+      ).toEqual([]);
+      expect(await conversationRepliesOf(fixture)).toEqual([]);
+    });
+
+    test("a repository outside the agent's is refused with a line in the thread, nothing opened (G3)", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await spawnDecided({ repository: "another-agents-repo" });
+      await endings();
+      expect(await sessionsOf(fixture)).toEqual([]);
+      expect(await links()).toEqual([]);
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        effect: "refused",
+        nonce: null,
+        keptUntil: null,
+      });
+      await sendOutbox();
+      expect(threadPosts().map((post) => post.text)).toEqual([
+        `${SLACK_NOTICE_MESSAGES.en.taskRepository}\n\nAI agent · Werft`,
+      ]);
+    });
+
+    test("a conversation's fourth open task is not made, and the thread is told why", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      for (const ts of ["100.000100", "100.000200", "100.000300"]) {
+        await deliver(fixture, mention(ts));
+        await drain(handler().handle);
+        await spawnDecided();
+        expect(await endings()).toMatchObject({ spawned: 1 });
+      }
+      await deliver(fixture, mention("100.000400"));
+      await drain(handler().handle);
+      const fourth = await spawnDecided();
+      expect(await endings()).toMatchObject({ spawned: 0 });
+      expect(await sessionsOf(fixture)).toHaveLength(3);
+      expect(await links()).toHaveLength(3);
+      expect(await taskOfTurn(fourth.turn_id)).toMatchObject({
+        effect: "refused",
+        nonce: null,
+      });
+      await sendOutbox();
+      expect(postsIn("100.000400").map((post) => post.text)).toEqual([
+        `${SLACK_NOTICE_MESSAGES.en.taskLimitConversation}\n\nAI agent · Werft`,
+      ]);
+    });
+
+    test("no task.spawn when the turn ends (account unlinked since): the requester alone is told, nothing opened", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await spawnDecided();
+      await db.delete(linkedAccounts);
+      await endings();
+      expect(await sessionsOf(fixture)).toEqual([]);
+      expect(await links()).toEqual([]);
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        effect: "refused",
+        nonce: null,
+      });
+      expect(ephemerals()).toMatchObject([
+        { userId: PERSON, threadTs: "100.000100" },
+      ]);
+      expect(ephemerals()[0]?.text).toContain(
+        SLACK_NOTICE_MESSAGES.en.taskConnect,
+      );
+      await sendOutbox();
+      expect(threadPosts()).toEqual([]);
+    });
+
+    test("a refusal Slack does not take as an ephemeral is a reasonless line in the thread", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await spawnDecided();
+      await db.delete(linkedAccounts);
+      slack.failures.set("chat.postEphemeral", "user_not_in_channel");
+      try {
+        await endings();
+      } finally {
+        slack.failures.delete("chat.postEphemeral");
+      }
+      await sendOutbox();
+      expect(threadPosts().map((post) => post.text)).toEqual([
+        `${SLACK_NOTICE_MESSAGES.en.taskFailed}\n\nAI agent · Werft`,
+      ]);
+      expect(await sessionsOf(fixture)).toEqual([]);
+    });
+
+    test("a mention deleted after the decision makes no task and says nothing, its kept request let go at once", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await spawnDecided();
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({ effect: null });
+      expect((await taskOfTurn(turn.turn_id))?.nonce).not.toBeNull();
+      await schema.createPostgresSlackSourceMarkStore(db).markDeleted({
+        workspaceId: fixture.workspaceId,
+        teamId: TEAM,
+        channelId: CHANNEL,
+        ts: "100.000100",
+        at: new Date(),
+      });
+      await endings();
+      expect(await sessionsOf(fixture)).toEqual([]);
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        effect: "voided",
+        nonce: null,
+        keptUntil: null,
+      });
+      await sendOutbox();
+      expect(slack.messages).toEqual([]);
+    });
+
+    test("a kept request past its deadline is let go, and the effect then fails out loud", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await spawnDecided();
+      // The effect has not run: the request waits for it, sealed.
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({ effect: null });
+      // The first pass to see the turn ends after the deadline.
+      await endings(new Date(Date.now() + 61 * 60_000));
+      expect(await sessionsOf(fixture)).toEqual([]);
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        effect: "failed",
+        nonce: null,
+        keptUntil: null,
+      });
+      await sendOutbox();
+      expect(threadPosts().map((post) => post.text)).toEqual([
+        `${SLACK_NOTICE_MESSAGES.en.taskFailed}\n\nAI agent · Werft`,
+      ]);
+    });
+
+    test("a session made before a crash is the task on the next run, past the deadline and the right too", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await spawnDecided();
+      // The session is made; tying it to the thread then fails.
+      await db.execute(
+        sql.raw(`CREATE FUNCTION fail_attach() RETURNS trigger LANGUAGE plpgsql
+          AS $$ BEGIN RAISE EXCEPTION 'attach lost'; END $$`),
+      );
+      await db.execute(
+        sql.raw(`CREATE TRIGGER fail_attach BEFORE UPDATE OF session_id
+          ON session_links FOR EACH ROW EXECUTE FUNCTION fail_attach()`),
+      );
+      try {
+        expect(await endings()).toMatchObject({ spawned: 0, failed: 1 });
+      } finally {
+        await db.execute(sql.raw("DROP TRIGGER fail_attach ON session_links"));
+        await db.execute(sql.raw("DROP FUNCTION fail_attach()"));
+      }
+      const [made] = await sessionsOf(fixture);
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({ effect: null });
+      await db.delete(linkedAccounts);
+      expect(await endings(new Date(Date.now() + 61 * 60_000))).toMatchObject({
+        spawned: 1,
+      });
+      expect(await sessionsOf(fixture)).toHaveLength(1);
+      expect((await links())[0]?.sessionId).toBe(made?.id);
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        effect: "opened",
+        nonce: null,
+      });
+      await sendOutbox();
+      expect(slack.messages).toEqual([]);
+    });
+
+    // The effect runs outside the channel's inbox lease: another pass can
+    // read the link between the session's commit and its attach.
+    test("a stop word on a task session its thread is not tied to yet stops it and is no input", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await spawnDecided();
+      await db.execute(
+        sql.raw(`CREATE FUNCTION fail_attach() RETURNS trigger LANGUAGE plpgsql
+          AS $$ BEGIN RAISE EXCEPTION 'attach lost'; END $$`),
+      );
+      await db.execute(
+        sql.raw(`CREATE TRIGGER fail_attach BEFORE UPDATE OF session_id
+          ON session_links FOR EACH ROW EXECUTE FUNCTION fail_attach()`),
+      );
+      try {
+        await endings();
+      } finally {
+        await db.execute(sql.raw("DROP TRIGGER fail_attach ON session_links"));
+        await db.execute(sql.raw("DROP FUNCTION fail_attach()"));
+      }
+      const [made] = await sessionsOf(fixture);
+      expect((await links())[0]?.sessionId).toBeNull();
+      await deliver(
+        fixture,
+        message("100.000200", { thread_ts: "100.000100", text: "그만" }),
+      );
+      expect(await drain(handler().handle)).toMatchObject({ processed: 1 });
+      expect(
+        await db
+          .select({ status: schema.turns.status })
+          .from(schema.turns)
+          .where(eq(schema.turns.sessionId, made?.id ?? "missing")),
+      ).toEqual([{ status: "cancelled" }]);
+      expect((await links())[0]?.sessionId).toBe(made?.id);
+    });
+
+    test("a DM's turn is not offered spawn_task: tasks start in channel threads alone", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, {
+        type: "message",
+        channel: "D0OWNER",
+        channel_type: "im",
+        user: PERSON,
+        ts: "100.000100",
+        text: "start the weekly report",
+      });
+      await drain(handler().handle);
+      const turn = await leased();
+      expect(turn.decision_tools).toEqual([
+        "reply",
+        "route_to_task",
+        "no_reply",
+      ]);
+      expect(turn.decision_tools).toEqual([
+        ...conversationDecisionTools("user", "dm"),
+      ]);
+    });
+
+    test("a session tied to the thread before a crash stays the task once its link closes", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await spawnDecided();
+      // The session is made and tied; settling then fails.
+      await db.execute(
+        sql.raw(`CREATE FUNCTION fail_settle() RETURNS trigger LANGUAGE plpgsql
+          AS $$ BEGIN RAISE EXCEPTION 'settle lost'; END $$`),
+      );
+      await db.execute(
+        sql.raw(`CREATE TRIGGER fail_settle BEFORE UPDATE OF task_effect
+          ON conversation_turns FOR EACH ROW EXECUTE FUNCTION fail_settle()`),
+      );
+      try {
+        await endings();
+      } finally {
+        await db.execute(
+          sql.raw("DROP TRIGGER fail_settle ON conversation_turns"),
+        );
+        await db.execute(sql.raw("DROP FUNCTION fail_settle()"));
+      }
+      const [made] = await sessionsOf(fixture);
+      expect((await links())[0]?.sessionId).toBe(made?.id);
+      // The session ends and its link closes before the next run.
+      await db.execute(
+        sql`UPDATE session_links SET closed_at = now(), closed_reason = 'completed'`,
+      );
+      expect(await endings()).toMatchObject({ spawned: 1 });
+      expect(await sessionsOf(fixture)).toHaveLength(1);
+      expect(await links()).toHaveLength(1);
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        effect: "opened",
+        nonce: null,
+      });
+      await sendOutbox();
+      expect(threadPosts()).toEqual([]);
+    });
+
+    test("a refusal's line is written with its effect, or not at all", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await spawnDecided({ repository: "another-agents-repo" });
+      // Settling fails once, after the line is queued.
+      await db.execute(
+        sql.raw(`CREATE FUNCTION fail_settle() RETURNS trigger LANGUAGE plpgsql
+          AS $$ BEGIN RAISE EXCEPTION 'settle lost'; END $$`),
+      );
+      await db.execute(
+        sql.raw(`CREATE TRIGGER fail_settle BEFORE UPDATE OF task_effect
+          ON conversation_turns FOR EACH ROW EXECUTE FUNCTION fail_settle()`),
+      );
+      try {
+        await endings();
+      } finally {
+        await db.execute(
+          sql.raw("DROP TRIGGER fail_settle ON conversation_turns"),
+        );
+        await db.execute(sql.raw("DROP FUNCTION fail_settle()"));
+      }
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({ effect: null });
+      // The failed run left no line a later run could contradict.
+      await sendOutbox();
+      expect(threadPosts()).toEqual([]);
+      await endings();
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        effect: "refused",
+      });
+      await sendOutbox();
+      expect(threadPosts().map((post) => post.text)).toEqual([
+        `${SLACK_NOTICE_MESSAGES.en.taskRepository}\n\nAI agent · Werft`,
+      ]);
+    });
+
+    test.each(["off", "shadow"] as const)(
+      "rollout %s: a mention opens its session as today, no turn, no task",
+      async (rollout) => {
+        const fixture = await agentInSlack("main", { rollout });
+        await deliver(fixture, mention("100.000100"));
+        await drain(handler().handle);
+        expect(await mentionTurnsOf(fixture)).toEqual([]);
+        const [session, ...others] = await sessionsOf(fixture);
+        expect(others).toEqual([]);
+        expect(session).toMatchObject({
+          taskRequest: null,
+          taskInterpretation: null,
+        });
+        expect(await endings()).toMatchObject({ ended: 0, spawned: 0 });
+      },
+    );
+
+    test("a turn not called by a mention opens no task, whatever it decided (G2)", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await spawnDecided();
+      await db
+        .update(schema.conversationEngagements)
+        .set({ kind: "bound" })
+        .where(
+          eq(schema.conversationEngagements.conversationTurnId, turn.turn_id),
+        );
+      expect(await endings()).toMatchObject({ spawned: 0 });
+      expect(await sessionsOf(fixture)).toEqual([]);
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({ effect: null });
+    });
+
     // v1-b/E2: the 👀 on the message that called a turn that took it on.
     const reactionCalls = () =>
       slack.calls.filter((call) => call.method === "reactions.add").length;
@@ -4280,7 +4762,12 @@ describe.each(ENGINES)(
       ["reply", { tool: "reply", body: "Ok.", reason: "asked" }, true],
       [
         "spawn_task",
-        { tool: "spawn_task", spec: "Write it up.", reason: "asked" },
+        {
+          tool: "spawn_task",
+          goal: "Write it up.",
+          done_when: "It is written.",
+          reason: "asked",
+        },
         true,
       ],
       [

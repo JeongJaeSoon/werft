@@ -8,6 +8,7 @@ import {
   type ConversationRuntimeTurn,
   type ConversationTurnDecision,
   conversationDecisionSchema,
+  TASK_INTERPRETATION_TEXT_MAX,
 } from "@werft-ai/contracts";
 import type { LocalTool, LocalToolServer } from "@werft-ai/runtime-core";
 import type { ConversationTurnSource } from "./turn-source.ts";
@@ -33,7 +34,7 @@ export const DECISION_TOOL_DESCRIPTIONS: Record<
 > = {
   reply: `Answers the person in this conversation with \`body\`, and says why in \`reason\`. ${ENDS_TURN}`,
   route_to_task: `Hands this message to one of the conversation's open tasks, by the \`task_id\` list_open_tasks gives, and says why. ${ENDS_TURN}`,
-  spawn_task: `Starts a new task for this conversation, described in \`spec\`, and says why. ${ENDS_TURN}`,
+  spawn_task: `Starts a new task for this conversation: its \`goal\`, what \`done_when\` it is finished, and, when it is not the agent's usual one, the \`repository\` it works in. The person's message goes with it as they wrote it. Write no answer: the server tells the thread whether the task started. Says why in \`reason\`. ${ENDS_TURN}`,
   no_reply: `Stays quiet: nothing is said, and \`reason\` says why. ${ENDS_TURN}`,
 };
 
@@ -42,9 +43,16 @@ const text = (maxLength: number) => ({
   minLength: 1,
   maxLength,
 });
-const takes = (fields: Record<string, unknown>) => ({
+const takes = (
+  fields: Record<string, unknown>,
+  optional: Record<string, unknown> = {},
+) => ({
   type: "object",
-  properties: { ...fields, reason: text(CONVERSATION_TURN_REASON_MAX) },
+  properties: {
+    ...fields,
+    ...optional,
+    reason: text(CONVERSATION_TURN_REASON_MAX),
+  },
   required: [...Object.keys(fields), "reason"],
   additionalProperties: false,
 });
@@ -58,7 +66,13 @@ export const DECISION_INPUT_SCHEMAS: Record<
 > = {
   reply: takes({ body: text(CONVERSATION_TURN_TEXT_MAX) }),
   route_to_task: takes({ task_id: { type: "string", format: "uuid" } }),
-  spawn_task: takes({ spec: text(CONVERSATION_TURN_TEXT_MAX) }),
+  spawn_task: takes(
+    {
+      goal: text(TASK_INTERPRETATION_TEXT_MAX),
+      done_when: text(TASK_INTERPRETATION_TEXT_MAX),
+    },
+    { repository: text(128) },
+  ),
   no_reply: takes({}),
 };
 

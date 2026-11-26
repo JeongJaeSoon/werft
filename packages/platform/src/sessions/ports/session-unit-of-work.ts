@@ -23,10 +23,13 @@ import type {
   SpecSource,
   SseEvent,
   SurfaceKind,
+  TaskClosing,
+  TaskInterpretation,
   ThreadReplyRule,
   TurnDetail,
   TurnSummary,
 } from "@werft-ai/contracts";
+import type { StoredSourceSet } from "../../conversations/index.ts";
 import type {
   CallerLimitDimension,
   Principal,
@@ -66,6 +69,22 @@ export type TurnInputTopic = {
   engagement: EngagementKind;
   /** An unmentioned reply M1 judges too, with what the current path's rule said. */
   judgment?: { rule: ThreadReplyRule };
+};
+
+/**
+ * A task session's server part (v1-b/E3), written with the session: the
+ * requester's message (its input is the one turn 1 takes), the agent's
+ * reading of it, the closing rules in force, and turn 1's sources as the
+ * conversation turn that decided it holds them (decision 37). Refused,
+ * with no session, when the conversation or the agent already has its most
+ * open tasks.
+ */
+export type AcceptSessionTask = {
+  requestText: string;
+  interpretation: TaskInterpretation;
+  closing: TaskClosing;
+  sources: StoredSourceSet | null;
+  openLimits: { conversation: number; agent: number };
 };
 
 export type AcceptSessionInput = {
@@ -143,6 +162,9 @@ export type AcceptSessionInput = {
   // The session's own waits, kept as given: a request takes the lower of
   // them and the installation's when it is raised.
   permissionWait?: PermissionWaitRequest;
+  // Set for a task a conversation turn opens; needs parentConversationId,
+  // slackMessage and slackInput.
+  task?: AcceptSessionTask;
   message: string;
   limits: InputLimitsSource;
 };
@@ -173,6 +195,8 @@ export type AcceptSessionResult =
   | { outcome: "source_deleted" }
   /** An admin emergency-stopped the agent in the message's channel. */
   | { outcome: "emergency_stopped" }
+  /** A task over the open tasks its conversation or its agent may have. */
+  | { outcome: "task_limit"; scope: "conversation" | "agent" }
   | InputLimitRefusal;
 
 export type AppendMessageInput = {

@@ -42,6 +42,7 @@ import {
   CONVERSATION_INPUT_SLACK_MIRROR_VALUES,
   CONVERSATION_KIND_VALUES,
   CONVERSATION_ROLLOUT_VALUES,
+  CONVERSATION_TASK_EFFECT_VALUES,
   CONVERSATION_TURN_CALL_REFUSAL_VALUES,
   CONVERSATION_TURN_DECISION_VALUES,
   CONVERSATION_TURN_LIMIT_SIDE_VALUES,
@@ -60,6 +61,7 @@ import {
   type ConversationInputSlackMirror,
   type ConversationJudgmentId,
   type ConversationKind,
+  type ConversationTaskEffect,
   type ConversationTopicId,
   type ConversationTurnCallRefusal,
   type ConversationTurnDecision,
@@ -180,6 +182,8 @@ import {
   WORKSPACE_ROLE_VALUES,
 } from "@werft-ai/contracts";
 import type {
+  ConversationTaskDraft,
+  ConversationTurnSurfaceSubject,
   ProviderUsage,
   SecretOwnerRef,
   StoredSourceSet,
@@ -5894,6 +5898,15 @@ export const conversationTurns = pgTable(
     answerText: text("answer_text"),
     // Slack places and input ids (`StoredSourceSet`), never text.
     sources: jsonb().$type<StoredSourceSet>(),
+    // A spawn_task decision's goal, end and repository: the model's reading
+    // of the request, never the request (G6); set with that decision alone.
+    taskDraft: jsonb("task_draft").$type<ConversationTaskDraft>(),
+    // A mention turn's Slack decision subject as its message was judged,
+    // which its new task is judged on again (v1-b/E3).
+    slackSubject:
+      jsonb("slack_subject").$type<ConversationTurnSurfaceSubject>(),
+    // What became of a spawn_task decision's task, once its effect ran.
+    taskEffect: text("task_effect").$type<ConversationTaskEffect>(),
     releaseId: text("release_id"),
     // The Slack installation the turn's messages came from, for the delete
     // that follows an app's removal; null for a web input's.
@@ -5992,6 +6005,10 @@ export const conversationTurns = pgTable(
           AND (${table.answerText} IS NULL OR ${table.decision} IS NOT NULL)
           AND (${table.endedAt} IS NULL) = (${table.state} = 'running')
       END`,
+    ),
+    check(
+      "conversation_turns_task_check",
+      sql`(${table.taskDraft} IS NULL OR ${table.decision} = 'spawn_task') AND (${table.taskEffect} IS NULL OR (${table.decision} = 'spawn_task' AND ${table.taskEffect} IN (${sql.raw(sqlList(CONVERSATION_TASK_EFFECT_VALUES))})))`,
     ),
     check(
       "conversation_turns_text_check",
@@ -6136,6 +6153,9 @@ export const conversationTurnQueue = pgTable(
     usableUntil: timestamp("usable_until", { withTimezone: true }),
     turnNonce: bytea("turn_nonce"),
     turnCiphertext: bytea("turn_ciphertext"),
+    // A turn that ended on spawn_task keeps its sealed input, and only that,
+    // until its task's effect takes it or this passes (v1-b/E3).
+    inputKeptUntil: timestamp("input_kept_until", { withTimezone: true }),
     leaseId: uuid("lease_id"),
     runtimeId: uuid("runtime_id"),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
@@ -6166,13 +6186,17 @@ export const conversationTurnQueue = pgTable(
     index("conversation_turn_queue_ended_idx")
       .on(table.endedAt)
       .where(sql`${table.state} = 'ended'`),
+    // The kept requests a sweep lets go at their deadline: the few kept now.
+    index("conversation_turn_queue_kept_idx")
+      .on(table.inputKeptUntil)
+      .where(sql`${table.inputKeptUntil} IS NOT NULL`),
     check(
       "conversation_turn_queue_state_check",
       sql`${table.attempt} >= 1 AND ${table.takeMs} >= 0 AND CASE ${table.state}
         WHEN 'queued' THEN ${table.turnNonce} IS NOT NULL AND ${table.turnCiphertext} IS NOT NULL AND ${table.leaseId} IS NULL AND ${table.runtimeId} IS NULL AND ${table.leaseExpiresAt} IS NULL AND ${table.outcome} IS NULL AND ${table.endedAt} IS NULL
-        WHEN 'leased' THEN ${table.turnNonce} IS NULL AND ${table.turnCiphertext} IS NULL AND ${table.leaseId} IS NOT NULL AND ${table.runtimeId} IS NOT NULL AND ${table.leaseExpiresAt} IS NOT NULL AND ${table.outcome} IS NULL AND ${table.endedAt} IS NULL
-        WHEN 'ended' THEN ${table.turnNonce} IS NULL AND ${table.turnCiphertext} IS NULL AND (${table.leaseId} IS NULL) = (${table.runtimeId} IS NULL) AND (${table.leaseId} IS NULL) = (${table.leaseExpiresAt} IS NULL) AND ${table.outcome} IS NOT NULL AND ${table.endedAt} IS NOT NULL
-        WHEN 'forgotten' THEN ${table.turnNonce} IS NULL AND ${table.turnCiphertext} IS NULL AND (${table.leaseId} IS NULL) = (${table.runtimeId} IS NULL) AND (${table.leaseId} IS NULL) = (${table.leaseExpiresAt} IS NULL) AND ${table.outcome} IS NULL AND ${table.endedAt} IS NOT NULL
+        WHEN 'leased' THEN (${table.turnNonce} IS NULL) = (${table.turnCiphertext} IS NULL) AND (${table.turnNonce} IS NULL OR ${table.inputKeptUntil} IS NOT NULL) AND ${table.leaseId} IS NOT NULL AND ${table.runtimeId} IS NOT NULL AND ${table.leaseExpiresAt} IS NOT NULL AND ${table.outcome} IS NULL AND ${table.endedAt} IS NULL
+        WHEN 'ended' THEN (${table.turnNonce} IS NULL) = (${table.turnCiphertext} IS NULL) AND (${table.turnNonce} IS NULL OR ${table.inputKeptUntil} IS NOT NULL) AND (${table.leaseId} IS NULL) = (${table.runtimeId} IS NULL) AND (${table.leaseId} IS NULL) = (${table.leaseExpiresAt} IS NULL) AND ${table.outcome} IS NOT NULL AND ${table.endedAt} IS NOT NULL
+        WHEN 'forgotten' THEN (${table.turnNonce} IS NULL) = (${table.turnCiphertext} IS NULL) AND (${table.turnNonce} IS NULL OR ${table.inputKeptUntil} IS NOT NULL) AND (${table.leaseId} IS NULL) = (${table.runtimeId} IS NULL) AND (${table.leaseId} IS NULL) = (${table.leaseExpiresAt} IS NULL) AND ${table.outcome} IS NULL AND ${table.endedAt} IS NOT NULL
         ELSE false
       END`,
     ),

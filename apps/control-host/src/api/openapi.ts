@@ -3904,7 +3904,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "getInstallationStatus",
     tag: "Installation settings",
     summary: "What the console says about the installation itself",
-    description: `${NOTICE_MANAGER} \`profile\` is \`INSTALLATION_PROFILE\`. \`no_disk_quota\` is true when the API runs with \`EXECUTION_WORKSPACE_QUOTA=off\`: worker workspaces have no kernel quota, and each worker measures its own at most once a minute and stops a turn that outgrows the limit. The console then shows a banner on every page, and \`GET /readyz\` stays ready with \`detail.no_disk_quota\`.`,
+    description: `${NOTICE_MANAGER} \`profile\` is \`INSTALLATION_PROFILE\`. \`no_disk_quota\` is true when the API runs with \`EXECUTION_WORKSPACE_QUOTA=off\`: worker workspaces have no kernel quota, and each worker measures its own at most once a minute and stops a turn that outgrows the limit. The console then shows a note on the workspace settings screen, and \`GET /readyz\` stays ready with \`detail.no_disk_quota\`.`,
     auth: "session",
     success: {
       status: 200,

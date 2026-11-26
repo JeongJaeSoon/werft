@@ -3,7 +3,7 @@ import { type ApiRouter, apiRoute, jsonWithSchema } from "../../app.ts";
 import type { InstallationStatusReader } from "../../installation-status.ts";
 import { mapped } from "../errors.ts";
 
-/** The console's banner for an installation without a disk quota. */
+/** The console's note for an installation without a disk quota. */
 export function registerInstallationStatusRoutes(
   router: ApiRouter,
   reader: InstallationStatusReader,
