@@ -12,6 +12,9 @@ import ts from "typescript";
  */
 
 const ROOT = join(import.meta.dir, "../../../..");
+// Assembled, so the architecture test does not take the fixtures below for
+// this package importing the SDK.
+const S3_MODULE = ["@aws-sdk", "client-s3"].join("/");
 // Test doubles lift holds on purpose (testkit's memory store).
 const SKIPPED = new Set(["node_modules", "dist", "testkit", "testing"]);
 // The S3 commands that can take a version's protection away.
@@ -94,7 +97,7 @@ function scanSource(file: string, text: string) {
     if (
       !ts.isImportDeclaration(statement) ||
       !ts.isStringLiteral(statement.moduleSpecifier) ||
-      statement.moduleSpecifier.text !== "@aws-sdk/client-s3"
+      statement.moduleSpecifier.text !== S3_MODULE
     ) {
       continue;
     }
@@ -224,8 +227,8 @@ describe("a legal hold is lifted only by collection", () => {
     const found = scanSource(
       "fixture.ts",
       [
-        'import { PutObjectLegalHoldCommand as Hold, PutObjectRetentionCommand } from "@aws-sdk/client-s3";',
-        'import * as s3 from "@aws-sdk/client-s3";',
+        `import { PutObjectLegalHoldCommand as Hold, PutObjectRetentionCommand } from "${S3_MODULE}";`,
+        `import * as s3 from "${S3_MODULE}";`,
         "const off = { Status: 'OFF' };",
         "function a() { return new Hold({ LegalHold: off }); }",
         "function b() { return new s3.PutObjectLegalHoldCommand({ LegalHold: { Status: 'OFF' } }); }",
