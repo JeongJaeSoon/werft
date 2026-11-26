@@ -3,6 +3,8 @@ import {
   AUDIT_EXPORT_MEDIA_TYPE,
   type AuditExportEnd,
   type AuditExportRow,
+  countAuditEventsQuerySchema,
+  countAuditEventsResponseSchema,
   listAuditEventsQuerySchema,
   listAuditEventsResponseSchema,
 } from "@werft-ai/contracts";
@@ -47,6 +49,14 @@ export function registerAuditLogRoutes(
   const checkMs = options.checkMs ?? EXPORT_CHECK_MS;
   // One export per workspace in this process.
   const exporting = new Set<string>();
+
+  apiRoute(router, "countAuditEvents", async (context) => {
+    const query = requireQuery(context, countAuditEventsQuerySchema);
+    const counts = await mapped(() =>
+      service.count(context.get("caller"), query),
+    );
+    return jsonWithSchema(context, countAuditEventsResponseSchema, counts);
+  });
 
   apiRoute(router, "listAuditEvents", async (context) => {
     const query = requireQuery(context, listAuditEventsQuerySchema);
