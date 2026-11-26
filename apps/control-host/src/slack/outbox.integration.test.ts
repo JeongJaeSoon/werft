@@ -6539,7 +6539,7 @@ describe.each(ENGINES)("a progress message on %s", (engine) => {
     expect(posted().map((message) => message.text)).toEqual(["step 1"]);
   });
 
-  test("an edit that found no post, its new post 429ed, holds the channel's posts and not the install's edits", async () => {
+  test("an edit that found no post, its new post 429ed, holds the channel's posts, and the install's edits only for the edit's own spacing", async () => {
     await mention(await agentInSlack(), THREAD);
     await progress(1, "step 1");
     await outboxPass();

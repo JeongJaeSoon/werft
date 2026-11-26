@@ -344,7 +344,7 @@ describe(`Slack rate limits in the outbox on ${ENGINE}`, () => {
     return { a2, b2 };
   }
 
-  test("a progress edit holds the install's next edits 1.3 s as it begins, in every channel; first posts and replies are not held", async () => {
+  test("a progress edit holds the install's next edits 1.3 s as it begins, in every channel; first posts and replies leave no hold", async () => {
     const { a2, b2 } = await twoPosted();
     // The first posts held nothing.
     expect(await blocks()).toEqual([]);
