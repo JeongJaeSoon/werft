@@ -2934,6 +2934,422 @@ describe("a turn its worker's lost lease cut off", () => {
   });
 });
 
+describe("a session waiting on a recovery decision", () => {
+  const unknown = {
+    turn_id: "2",
+    session_id: SESSION_ID,
+    status: "outcome_unknown",
+    message: "배포 스크립트를 돌려 줘",
+    channel: "web",
+    created_by: null,
+    slack_permalink: null,
+    terminal_reason: null,
+    checkpoint_revision: null,
+    created_at: AT,
+    started_at: AT,
+    ended_at: null,
+  };
+  const ran = {
+    ...unknown,
+    turn_id: "1",
+    status: "completed",
+    terminal_reason: "completed",
+    ended_at: AT,
+  };
+  const waiting = {
+    ...detail,
+    status: "failed",
+    admission_state: "recovery_required",
+    revision: 5,
+    current_turn_id: null,
+    pending_request_count: 0,
+    attention: null,
+  } as SessionDetail;
+  const gap = {
+    ...waiting,
+    attention: {
+      code: "CONTEXT_GAP",
+      last_ran_turn_id: "1",
+      checkpointed_turn_id: null,
+    },
+  } as SessionDetail;
+  const ABANDON = { name: "이 턴을 버리고 이어 가기" };
+  const FRESH = { name: "새 문맥으로 계속" };
+  const ABANDON_HINT = "마지막 저장 지점 뒤에 한 일은 확인이 필요합니다.";
+  const FRESH_HINT = "이전 대화 문맥이 빠집니다.";
+  const SENT = "요청을 보냈습니다. 바뀐 상태는 제목 옆 배지에 보입니다.";
+  const decisionPath = `/v1/sessions/${SESSION_ID}/recovery-decisions`;
+  const resumePath = `/v1/sessions/${SESSION_ID}/resume`;
+  const accepted = () =>
+    json(202, { receipt_id: RECEIPT_ID, receipt_status: "succeeded" });
+
+  function render(options: {
+    session: () => SessionDetail;
+    turns?: unknown[];
+    decided?: (request: Request) => Response;
+    resumed?: (request: Request) => Response;
+    scopes?: Parameters<typeof me>[0];
+    turnsDown?: boolean;
+  }) {
+    return renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      ...(options.scopes
+        ? { "GET /v1/auth/me": () => json(200, me(options.scopes)) }
+        : {}),
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, options.session()),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        options.turnsDown
+          ? apiError(503, "BACKEND_UNAVAILABLE", "down")
+          : json(200, {
+              items: options.turns ?? [ran, unknown],
+              next_cursor: null,
+            }),
+      ...(options.decided ? { [`POST ${decisionPath}`]: options.decided } : {}),
+      ...(options.resumed ? { [`POST ${resumePath}`]: options.resumed } : {}),
+    });
+  }
+  const posts = (api: {
+    calls: readonly {
+      method: string;
+      path: string;
+      body: unknown;
+      headers: Headers;
+    }[];
+  }) => api.calls.filter((call) => call.method === "POST");
+
+  test("a turn whose outcome is unknown offers to give it up, and says what that leaves to check", async () => {
+    render({ session: () => waiting });
+    const button = await screen.findByRole("button", ABANDON);
+    expect(screen.getByText(ABANDON_HINT)).toBeTruthy();
+    expect(button.getAttribute("aria-describedby")).toBe(
+      screen.getByText(ABANDON_HINT).id,
+    );
+    expect(screen.queryByRole("button", FRESH)).toBeNull();
+    // Terminate stays where it was.
+    expect(screen.getByRole("button", { name: "세션 종료" })).toBeTruthy();
+  });
+
+  test("a context no checkpoint covers offers to go on without it, and says it is left out", async () => {
+    render({ session: () => gap, turns: [ran] });
+    expect(await screen.findByRole("button", FRESH)).toBeTruthy();
+    expect(screen.getByText(FRESH_HINT)).toBeTruthy();
+    expect(screen.queryByRole("button", ABANDON)).toBeNull();
+  });
+
+  test("over an unknown turn, a context gap offers abandon alone: the server would refuse start_fresh", async () => {
+    render({ session: () => gap });
+    expect(await screen.findByRole("button", ABANDON)).toBeTruthy();
+    expect(screen.queryByRole("button", FRESH)).toBeNull();
+  });
+
+  const undecidable: [string, SessionDetail, unknown[]][] = [
+    [
+      "a restore that failed",
+      {
+        ...waiting,
+        attention: {
+          code: "RESTORE_FAILED",
+          reason: "incompatible_checkpoint",
+          failures: 1,
+          retry_at: null,
+        },
+      } as SessionDetail,
+      [ran],
+    ],
+    [
+      "a stopped session with a context gap",
+      {
+        ...gap,
+        admission_state: "stopped",
+        status: "stopped",
+      } as SessionDetail,
+      [ran],
+    ],
+    [
+      "an active session whose turns still read unknown",
+      {
+        ...waiting,
+        admission_state: "active",
+        status: "idle",
+      } as SessionDetail,
+      [ran, unknown],
+    ],
+  ];
+  for (const [name, session, turns] of undecidable) {
+    test(`no decision is offered for ${name}`, async () => {
+      render({ session: () => session, turns });
+      await screen.findByRole("heading", { level: 1 });
+      expect((await screen.findAllByText(ran.message)).length).toBeGreaterThan(
+        0,
+      );
+      expect(screen.queryByRole("button", ABANDON)).toBeNull();
+      expect(screen.queryByRole("button", FRESH)).toBeNull();
+    });
+  }
+
+  test("a context gap offers nothing while its turns cannot be read: one of them may be unknown", async () => {
+    const { api } = render({ session: () => gap, turnsDown: true });
+    await screen.findByRole("heading", { level: 1 });
+    await waitFor(() =>
+      expect(
+        api.calls.some((call) =>
+          call.path.endsWith(`/sessions/${SESSION_ID}/turns`),
+        ),
+      ).toBe(true),
+    );
+    expect(screen.queryByRole("button", FRESH)).toBeNull();
+    expect(screen.queryByRole("button", ABANDON)).toBeNull();
+  });
+
+  test("a decision on one session leaves another on the same revision its buttons", async () => {
+    const user = await setupUser();
+    const other = { ...gap, id: OTHER_ID } as SessionDetail;
+    const { history } = renderAt(`/sessions/${OTHER_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, gap),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, { items: [ran], next_cursor: null }),
+      [`POST ${decisionPath}`]: accepted,
+      [`GET /v1/sessions/${OTHER_ID}`]: () => json(200, other),
+      [`GET /v1/sessions/${OTHER_ID}/usage`]: () =>
+        json(200, { ...usage, session_id: OTHER_ID }),
+      [`GET /v1/sessions/${OTHER_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${OTHER_ID}/events`]: () =>
+        new Promise<Response>(() => {}),
+      [`GET /v1/sessions/${OTHER_ID}/turns`]: () =>
+        json(200, {
+          items: [{ ...ran, session_id: OTHER_ID }],
+          next_cursor: null,
+        }),
+    });
+    // The other session is read first, so its turns are already held.
+    await screen.findByRole("button", FRESH);
+    act(() => history.push(`/sessions/${SESSION_ID}`));
+    await screen.findByRole("heading", {
+      name: new RegExp(`^${SESSION_ID.slice(0, 8)}`),
+    });
+    await user.click(await screen.findByRole("button", FRESH));
+    await waitFor(() => expect(screen.queryByRole("button", FRESH)).toBeNull());
+    act(() => history.push(`/sessions/${OTHER_ID}`));
+    await screen.findByRole("heading", {
+      name: new RegExp(`^${OTHER_ID.slice(0, 8)}`),
+    });
+    expect(await screen.findByRole("button", FRESH)).toBeTruthy();
+  });
+
+  test("a session with nothing to decide leaves the keyboard where the page put it", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, { items: [ran], next_cursor: null }),
+    });
+    await screen.findByRole("heading", { level: 1 });
+    await waitFor(() =>
+      expect(screen.getAllByText(ran.message).length).toBeGreaterThan(0),
+    );
+    expect(document.activeElement?.tagName).toBe("BODY");
+  });
+
+  test("a credential that may not send to sessions has no decision to press", async () => {
+    render({ session: () => gap, turns: [ran], scopes: ["sessions:read"] });
+    await screen.findByRole("heading", { level: 1 });
+    // The turn shows in the chat and in the header's step list.
+    await waitFor(() =>
+      expect(screen.getAllByText(ran.message).length).toBeGreaterThan(0),
+    );
+    expect(screen.queryByRole("button", FRESH)).toBeNull();
+    expect(screen.queryByRole("button", ABANDON)).toBeNull();
+  });
+
+  test("abandon, then resume on the revision the abandon made; the buttons go with the recovery", async () => {
+    const user = await setupUser();
+    let session = waiting;
+    const { api } = render({
+      session: () => session,
+      decided: () => {
+        session = {
+          ...waiting,
+          admission_state: "stopped",
+          status: "stopped",
+          revision: 6,
+        } as SessionDetail;
+        return accepted();
+      },
+      resumed: () => {
+        session = {
+          ...waiting,
+          admission_state: "active",
+          status: "idle",
+          revision: 7,
+        } as SessionDetail;
+        return json(202, {
+          receipt_id: RECEIPT_ID,
+          receipt_status: "accepted",
+        });
+      },
+    });
+    await user.click(await screen.findByRole("button", ABANDON));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", ABANDON)).toBeNull(),
+    );
+    expect(posts(api).map((call) => [call.path, call.body])).toEqual([
+      [
+        decisionPath,
+        {
+          decision: "abandon",
+          expected_revision: 5,
+          target_turn_id: "2",
+          reason: "Decided from the web console",
+        },
+      ],
+      [resumePath, { expected_revision: 6 }],
+    ]);
+    // Two commands, two keys.
+    const keys = new Set(
+      api.calls
+        .filter((call) => call.method === "POST")
+        .map((call) => call.headers.get("idempotency-key")),
+    );
+    expect(keys.size).toBe(2);
+    expect(await screen.findByText(SENT)).toBeTruthy();
+  });
+
+  test("an abandon that took effect with its resume refused shows the stopped session and why", async () => {
+    const user = await setupUser();
+    let session = waiting;
+    render({
+      session: () => session,
+      decided: () => {
+        session = {
+          ...waiting,
+          admission_state: "stopped",
+          status: "stopped",
+          revision: 6,
+        } as SessionDetail;
+        return accepted();
+      },
+      resumed: () =>
+        apiError(409, "CHECKPOINT_UNAVAILABLE", "No committed checkpoint"),
+    });
+    await user.click(await screen.findByRole("button", ABANDON));
+    expect(
+      await screen.findByText(
+        "이어갈 저장 지점이 없거나 저장이 멈춰 처리하지 못했습니다 — 세션 상세의 안내를 확인하세요.",
+      ),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.queryByRole("button", ABANDON)).toBeNull(),
+    );
+    // The head reads the stopped session and takes a resume again.
+    const head = await screen.findByRole("heading", { level: 1 });
+    await waitFor(() => expect(head.textContent).toContain("종료됨"));
+    expect(screen.getByRole("button", { name: "다시 시작" })).toBeTruthy();
+  });
+
+  test("a session someone else moved after the abandon is not resumed", async () => {
+    const user = await setupUser();
+    let session = waiting;
+    const { api } = render({
+      session: () => session,
+      decided: () => {
+        // The abandon made revision 6; a terminate landed before the read.
+        session = {
+          ...waiting,
+          admission_state: "stopped",
+          status: "stopped",
+          revision: 7,
+        } as SessionDetail;
+        return accepted();
+      },
+      resumed: () => accepted(),
+    });
+    await user.click(await screen.findByRole("button", ABANDON));
+    expect(
+      await screen.findByText(
+        "그새 세션 상태가 바뀌었습니다. 바뀐 상태를 보고 다시 시도하세요.",
+      ),
+    ).toBeTruthy();
+    expect(posts(api).map((call) => call.path)).toEqual([decisionPath]);
+  });
+
+  test("start_fresh is one decision, and the session goes on", async () => {
+    const user = await setupUser();
+    let session = gap;
+    const { api } = render({
+      session: () => session,
+      turns: [ran],
+      decided: () => {
+        session = {
+          ...gap,
+          admission_state: "active",
+          status: "idle",
+          revision: 6,
+          attention: null,
+        } as SessionDetail;
+        return accepted();
+      },
+    });
+    await user.click(await screen.findByRole("button", FRESH));
+    await waitFor(() => expect(screen.queryByRole("button", FRESH)).toBeNull());
+    expect(posts(api).map((call) => [call.path, call.body])).toEqual([
+      [
+        decisionPath,
+        {
+          decision: "start_fresh",
+          expected_revision: 5,
+          reason: "Decided from the web console",
+        },
+      ],
+    ]);
+    expect(await screen.findByText(SENT)).toBeTruthy();
+  });
+
+  test("a double press makes one decision", async () => {
+    const user = await setupUser();
+    let session = gap;
+    const { api } = render({
+      session: () => session,
+      turns: [ran],
+      decided: () => {
+        session = {
+          ...gap,
+          admission_state: "active",
+          status: "idle",
+          revision: 6,
+          attention: null,
+        } as SessionDetail;
+        return accepted();
+      },
+    });
+    const button = await screen.findByRole("button", FRESH);
+    await user.dblClick(button);
+    await user.click(button);
+    await waitFor(() => expect(screen.queryByRole("button", FRESH)).toBeNull());
+    expect(posts(api).map((call) => call.path)).toEqual([decisionPath]);
+  });
+
+  test("a refused decision says why and leaves the choice", async () => {
+    const user = await setupUser();
+    render({
+      session: () => waiting,
+      decided: () => apiError(403, "FORBIDDEN", "Forbidden"),
+    });
+    await user.click(await screen.findByRole("button", ABANDON));
+    await waitFor(() =>
+      expect(
+        document.querySelector("[data-slot='recovery-decisions'] ~ output")
+          ?.textContent,
+      ).not.toBe(""),
+    );
+    expect(screen.getByRole("button", ABANDON)).toBeTruthy();
+  });
+});
+
 describe("session runtime", () => {
   test("allows a permission request from the keyboard; the answered request leaves", async () => {
     const user = await setupUser();
@@ -5149,6 +5565,116 @@ describe("session steps", () => {
       }),
   };
 
+  /** The step list starts closed: opens it by the head's step count. */
+  const openSteps = async (name = /^단계 /, region = "단계") => {
+    const user = await setupUser();
+    await user.click(
+      await within(await sessionProgress()).findByRole("button", { name }),
+    );
+    return screen.getByRole("region", { name: region });
+  };
+
+  /** The badges the head's progress line draws. */
+  const headStates = (progress: HTMLElement) =>
+    [...progress.querySelectorAll("[data-slot='badge']")].map(
+      (badge) => badge.textContent,
+    );
+
+  test("starts closed, saying in the head what waits, and opens and closes by keyboard", async () => {
+    const user = await setupUser();
+    renderAt(`/sessions/${SESSION_ID}`, waitingOnTwo);
+    const progress = await sessionProgress();
+    const toggle = await within(progress).findByRole("button", {
+      name: /^단계 2\/2/,
+    });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("region", { name: "단계" })).toBeNull();
+    await waitFor(() => expect(headStates(progress)).toEqual(["승인 대기"]));
+
+    toggle.focus();
+    await user.keyboard("{Enter}");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("region", { name: "단계" }).id).toBe(
+      toggle.getAttribute("aria-controls") ?? "",
+    );
+    // Open, the rows say it themselves.
+    expect(headStates(progress)).toEqual([]);
+    await user.keyboard(" ");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("region", { name: "단계" })).toBeNull();
+    expect(headStates(progress)).toEqual(["승인 대기"]);
+  });
+
+  test.each([
+    ["a running step", ["completed", "running"], ["진행 중"]],
+    ["finished steps only", ["completed", "failed"], []],
+  ] as const)("the closed head over %s", async (_, statuses, said) => {
+    const current = statuses[1] === "running" ? "2" : null;
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          status: current ? "running" : "idle",
+          current_turn_id: current,
+          pending_request_count: 0,
+          attention: null,
+        }),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, {
+          items: statuses.map((status, index) =>
+            turn(String(index + 1), status),
+          ),
+          next_cursor: null,
+        }),
+    });
+    const progress = await sessionProgress();
+    const toggle = await within(progress).findByRole("button", {
+      name: /^단계 /,
+    });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(headStates(progress)).toEqual([...said]);
+  });
+
+  test("another session's step list starts closed", async () => {
+    const other = Object.fromEntries(
+      Object.entries(waitingOnTwo).map(([route, answer]) => [
+        route.replace(SESSION_ID, OTHER_ID),
+        answer,
+      ]),
+    );
+    const { history } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...other,
+      ...waitingOnTwo,
+      [`GET /v1/sessions/${OTHER_ID}`]: () =>
+        json(200, {
+          ...detail,
+          session_id: OTHER_ID,
+          title: "다른 세션",
+          current_turn_id: "2",
+          attention: null,
+        }),
+    });
+    await openSteps();
+    await act(async () => history.push(`/sessions/${OTHER_ID}`));
+    await screen.findByRole("heading", { level: 1, name: /다른 세션/ });
+    const toggle = await within(await sessionProgress()).findByRole("button", {
+      name: /^단계 /,
+    });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    // Nor does the first one come back open.
+    await act(async () => history.push(`/sessions/${SESSION_ID}`));
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: /다른 세션/ })).toBeNull(),
+    );
+    const back = await within(await sessionProgress()).findByRole("button", {
+      name: /^단계 /,
+    });
+    expect(back.getAttribute("aria-expanded")).toBe("false");
+  });
+
   test("reads the turns again when they show a turn running that the session no longer runs", async () => {
     let turnReads = 0;
     renderAt(`/sessions/${SESSION_ID}`, {
@@ -5169,7 +5695,7 @@ describe("session steps", () => {
         });
       },
     });
-    const list = await screen.findByRole("region", { name: "단계" });
+    const list = await openSteps();
     await waitFor(
       () =>
         expect(within(list).getByRole("listitem").textContent).toContain(
@@ -5229,6 +5755,8 @@ describe("session steps", () => {
     const toggle = await within(progress).findByRole("button", {
       name: /^단계 2\/2/,
     });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await user.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     const list = screen.getByRole("region", { name: "단계" });
     expect(toggle.getAttribute("aria-controls")).toBe(list.id);
@@ -5288,7 +5816,7 @@ describe("session steps", () => {
           })),
         }),
     });
-    const list = await screen.findByRole("region", { name: "단계" });
+    const list = await openSteps();
     // The step still waits on approval; it is only not this viewer's to give.
     await within(list).findByText("승인 대기");
     expect(
@@ -5311,7 +5839,7 @@ describe("session steps", () => {
       [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
         json(200, { answerable: true, items: [] }),
     });
-    const list = await screen.findByRole("region", { name: "단계" });
+    const list = await openSteps();
     await within(list).findByText("진행 중");
     expect(within(list).queryByText("승인 대기")).toBeNull();
     expect(within(list).queryByText("답변 대기")).toBeNull();
@@ -5327,7 +5855,7 @@ describe("session steps", () => {
           items: pending.items.map((item) => ({ ...item, turn_id: "2" })),
         }),
     });
-    const list = await screen.findByRole("region", { name: "단계" });
+    const list = await openSteps();
     await within(list).findByText("진행 중");
     expect(within(list).queryByText("승인 대기")).toBeNull();
     expect(
@@ -5352,7 +5880,7 @@ describe("session steps", () => {
     const needed = await screen.findByRole("region", {
       name: "내 입력이 필요합니다",
     });
-    const list = screen.getByRole("region", { name: "단계" });
+    const list = await openSteps();
     expect(within(list).getByText("승인 대기")).toBeTruthy();
     await waitFor(() => expect(needed.isConnected).toBe(false), {
       timeout: 3_000,
@@ -5366,14 +5894,7 @@ describe("session steps", () => {
       [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
         json(200, { answerable: true, items: [] }),
     });
-    await within(await sessionProgress()).findByRole("button", {
-      name: /^단계 2\/2/,
-    });
-    expect(
-      within(screen.getByRole("region", { name: "단계" })).queryByText(
-        "승인 대기",
-      ),
-    ).toBeNull();
+    expect(within(await openSteps()).queryByText("승인 대기")).toBeNull();
     expect(
       screen.queryByRole("region", { name: "내 입력이 필요합니다" }),
     ).toBeNull();
@@ -5382,12 +5903,22 @@ describe("session steps", () => {
   test("a blocked session says why under its steps, with the fix where it is", async () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
+      [`GET /v1/agents/${AGENT_ID}`]:
+        agentServer().routes[`GET /v1/agents/${AGENT_ID}`],
       [`GET /v1/sessions/${SESSION_ID}`]: () =>
         json(200, {
           ...detail,
           status: "idle",
           current_turn_id: null,
           pending_request_count: 0,
+          agent: {
+            id: AGENT_ID,
+            name: "Release helper",
+            release_version_no: 3,
+            release_label: "2026-10-30_14:30:28-2",
+            release_is_active: true,
+            archived: false,
+          },
           attention: {
             code: "CATALOG_MISMATCH",
             reason: "connection_disabled",
@@ -5398,18 +5929,49 @@ describe("session steps", () => {
       [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
         json(200, { items: [turn("1", "completed")], next_cursor: null }),
     });
-    await within(await sessionProgress()).findByRole("button", {
+    const toggle = await within(await sessionProgress()).findByRole("button", {
       name: /^단계 1개/,
     });
-    const list = screen.getByRole("region", { name: "단계" });
-    expect(
-      within(list).getByText(
-        "다음 단계를 시작하지 못합니다. 모델 연결이나 저장소 설정이 바뀌어 실행할 수 없습니다.",
-      ),
-    ).toBeTruthy();
+    const reason =
+      "다음 단계를 시작하지 못합니다. 모델 연결이나 저장소 설정이 바뀌어 실행할 수 없습니다.";
+    const fix = { name: "에이전트 설정 열기" };
+    // Closed, the reason and its fix stand outside the hidden list.
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    const shown = () =>
+      screen.getAllByText(reason).filter((el) => !el.closest("[hidden]"));
+    expect(shown()).toHaveLength(1);
+    await screen.findByRole("link", fix);
+    const list = await openSteps(/^단계 1개/);
+    // Open, they show once, under the steps.
+    expect(within(list).getByText(reason)).toBeTruthy();
+    expect(screen.getAllByText(reason)).toHaveLength(1);
+    expect(screen.getAllByRole("link", fix)).toHaveLength(1);
     // Nothing runs, so no step is current or open.
     const [only] = within(list).getAllByRole("listitem");
     expect(only?.getAttribute("aria-current")).toBeNull();
+  });
+
+  test("a blocked step's reason shows closed, and only in its step once open", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...waitingOnTwo,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          current_turn_id: "2",
+          attention: {
+            code: "CATALOG_MISMATCH",
+            reason: "connection_disabled",
+          },
+        }),
+    });
+    const reason = "모델 연결이나 저장소 설정이 바뀌어 실행할 수 없습니다.";
+    const progress = await sessionProgress();
+    // The head's own copy: the hidden list holds another, outside this line.
+    expect(await within(progress).findByText(reason)).toBeTruthy();
+    const list = await openSteps();
+    const [, second] = within(list).getAllByRole("listitem");
+    expect(within(second as HTMLElement).getByText(reason)).toBeTruthy();
+    expect(screen.getAllByText(reason)).toHaveLength(1);
   });
 
   test("a step a lost worker cut off offers to continue in its place", async () => {
@@ -5433,7 +5995,7 @@ describe("session steps", () => {
           next_cursor: null,
         }),
     });
-    const list = await screen.findByRole("region", { name: "단계" });
+    const list = await openSteps();
     const [only] = within(list).getAllByRole("listitem");
     expect(
       await within(only as HTMLElement).findByText(
@@ -5466,13 +6028,12 @@ describe("session steps", () => {
     "in %s the steps and the input line speak it",
     async (locale, count, waiting, needed, show) => {
       renderAt(`/sessions/${SESSION_ID}`, waitingOnTwo, locale);
-      await within(await sessionProgress()).findByRole("button", {
-        name: count,
-      });
+      const progress = await sessionProgress();
+      await within(progress).findByRole("button", { name: count });
+      // Closed, the head already says what the step waits on.
+      expect(await within(progress).findByText(waiting)).toBeTruthy();
       const [, second] = within(
-        screen.getByRole("region", {
-          name: locale === "en" ? "Steps" : "ステップ",
-        }),
+        await openSteps(count, locale === "en" ? "Steps" : "ステップ"),
       ).getAllByRole("listitem");
       expect(within(second as HTMLElement).getByText(waiting)).toBeTruthy();
       const line = await screen.findByRole("region", { name: needed });

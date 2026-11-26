@@ -2,7 +2,8 @@ import {
   CUT_OFF_TURN_REASONS,
   type SessionAttention,
 } from "@werft-ai/contracts";
-import { and, eq, inArray, isNotNull, max, sql } from "drizzle-orm";
+import { WORKER_OWNERSHIP_LOST_REASON } from "@werft-ai/platform";
+import { and, eq, gt, inArray, isNotNull, max, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { openResumeReceipt } from "../resume-control.ts";
 import {
@@ -85,6 +86,31 @@ export async function contextCoverage(
     )
     .limit(1);
   return { lastRanTurn, checkpointedTurn: pointer?.sequence ?? null };
+}
+
+/**
+ * Whether a turn after `sequence` ran, the way contextCoverage counts one:
+ * what a context reset there did not write off.
+ */
+export async function ranAfter(
+  tx: Database,
+  sessionId: string,
+  sequence: number,
+): Promise<boolean> {
+  const [ran] = await tx
+    .select({ sequence: turns.sequence })
+    .from(turns)
+    .where(
+      and(
+        eq(turns.sessionId, sessionId),
+        gt(turns.sequence, sequence),
+        inArray(turns.status, RAN_TURN_STATUSES),
+        isNotNull(turns.deliveryStartedAt),
+        sql`${turns.terminalReason} IS DISTINCT FROM ${WORKER_OWNERSHIP_LOST_REASON}`,
+      ),
+    )
+    .limit(1);
+  return ran !== undefined;
 }
 
 /**

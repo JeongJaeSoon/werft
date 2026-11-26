@@ -44,6 +44,7 @@ import {
   SURFACE_RATE_LIMITED_CODE,
   SURFACE_REACTION_MAX_ATTEMPTS,
   sourceSetOf,
+  WORKER_OWNERSHIP_LOST_REASON,
 } from "@werft-ai/platform";
 import {
   and,
@@ -1444,6 +1445,9 @@ export function createPostgresSlackOutboxStore(
           status: turns.status,
           terminalReason: turns.terminalReason,
           sessionPaused: sql<boolean>`${sessions.admissionState} = 'paused'`,
+          // startFreshPlan's revoke and source checks and noCommittedCheckpoint
+          // in recovery-control.ts, spelled in SQL.
+          startFreshOffered: sql<boolean>`COALESCE(${turns.status} = 'outcome_unknown' AND ${sessions.executionRevokedAt} IS NULL AND ${sessions.sourceDeletedAt} IS NULL AND (${sessions.checkpointRevision} IS NULL OR (${sessions.checkpointRevision} <= ${sessions.contextResetCheckpointRevision} AND NOT EXISTS (SELECT 1 FROM turns ran WHERE ran.session_id = ${sessions.id} AND ran.sequence > COALESCE(${sessions.contextResetTurnSequence}, 0) AND ran.status IN ('completed', 'failed', 'interrupted') AND ran.delivery_started_at IS NOT NULL AND ran.terminal_reason IS DISTINCT FROM ${WORKER_OWNERSHIP_LOST_REASON}) AND NOT EXISTS (SELECT 1 FROM checkpoints cp JOIN turns covered ON covered.id = cp.turn_id WHERE cp.session_id = ${sessions.id} AND cp.revision = ${sessions.checkpointRevision} AND covered.sequence > COALESCE(${sessions.contextResetTurnSequence}, 0)))), false)`,
           attemptId: turns.attemptId,
           requesterSlackUserId: linkedAccounts.externalUserId,
           locale: starterLocale,

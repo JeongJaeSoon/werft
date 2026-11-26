@@ -621,6 +621,10 @@ export const sessionDetailSchema = sessionSummarySchema.extend({
       "The requests GET /v1/sessions/{id}/pending-requests lists, counted in the same read as status, parked sessions included: status reads needs_input exactly when this is above zero and the session would otherwise read running or, parked, idle.",
   }),
   attention: sessionAttentionSchema.nullable(),
+  start_fresh_available: z.boolean().optional().meta({
+    description:
+      "Whether `POST /v1/sessions/{id}/recovery-decisions` would take `start_fresh` on the session now, judged on its state alone, not on whether the caller may decide it. True also for a session with no committed checkpoint whose turn ended `outcome_unknown`: start_fresh runs that turn's input again. Absent from a server older than the field.",
+  }),
   durability: sessionDurabilitySchema,
   worker_runtime: sessionWorkerRuntimeSchema.optional().meta({
     description:

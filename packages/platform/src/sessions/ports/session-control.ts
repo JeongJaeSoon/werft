@@ -34,6 +34,9 @@ export type RecoveryDecisionInput = {
   payloadHash: string;
   decision: RecoveryDecisionRequest;
   now: Date;
+  // A start_fresh keyed by the unknown turn it runs again (the Slack
+  // button): its target_turn_id pins it, not expected_revision.
+  byTurn?: true;
 };
 
 export type RecoveryDecisionResult =
