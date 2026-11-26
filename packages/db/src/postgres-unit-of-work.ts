@@ -7,12 +7,14 @@ import {
   type CountSessionsQuery,
   type CountSessionsResponse,
   type CreateSessionResponse,
+  CUT_OFF_TURN_REASONS,
   checkpointBlockReasonSchema,
   createSessionResponseSchema,
   executionObservationSchema,
   type InputWait,
   type ListSessionsQuery,
   type ListTurnsQuery,
+  PAUSE_REASON_VALUES,
   type PostSessionMessageResponse,
   postSessionMessageResponseSchema,
   type Receipt,
@@ -71,7 +73,6 @@ import {
   sessionRepositoryOf,
   storedPendingReasonHoldsWork,
   transcriptLimitAttention,
-  WORKER_OWNERSHIP_LOST_REASON,
 } from "@werft-ai/platform";
 import {
   and,
@@ -203,6 +204,7 @@ import {
 } from "./sessions/session-event-archives.ts";
 import { recordStatus } from "./sessions/session-events.ts";
 import { withheldEventPayload } from "./sessions/withheld-events.ts";
+import { emergencyStopHolds } from "./surface/emergency-stop-hold.ts";
 import { m1GateOpenForWrite } from "./surface/m1-judgments.ts";
 
 export const CREATE_SESSION = "create_session";
@@ -1025,6 +1027,11 @@ export function createPostgresSessionUnitOfWork(
         if (session.sourceDeletedAt !== null) {
           return { outcome: "source_deleted", sessionStopped: true };
         }
+        // An admin stopped the agent in the session's channel: nothing goes
+        // in, a continuation included, until the channel is on again.
+        if (await emergencyStopHolds(tx, sessionId)) {
+          return { outcome: "emergency_stopped" };
+        }
         if (session.admissionState !== "active") {
           return {
             outcome: "rejected",
@@ -1067,8 +1074,9 @@ export function createPostgresSessionUnitOfWork(
           return { outcome: "pin_required" };
         }
         // A continuation carries the input of the turn it goes on from, read
-        // where that turn keeps it. Only a turn its worker's lost lease ended
-        // has one to give: any other turn's end already said what it came to.
+        // where that turn keeps it. Only a cut-off turn (its worker's lost
+        // lease, or an emergency stop of its channel) has one to give: any
+        // other turn's end already said what it came to.
         const [lost] =
           input.continueTurn === undefined
             ? []
@@ -1080,7 +1088,7 @@ export function createPostgresSessionUnitOfWork(
                     eq(turns.sessionId, sessionId),
                     eq(turns.sequence, input.continueTurn),
                     eq(turns.status, "failed"),
-                    eq(turns.terminalReason, WORKER_OWNERSHIP_LOST_REASON),
+                    inArray(turns.terminalReason, [...CUT_OFF_TURN_REASONS]),
                   ),
                 )
                 .limit(1);
@@ -1263,9 +1271,13 @@ const LAST_EVENT_AT = sql<Date | null>`coalesce((
   ORDER BY a.from_id DESC LIMIT 1
 ))`.mapWith(events.createdAt);
 
-// The session's last turn is one its worker's lost lease cut off.
+// The session's last turn was cut off: by its worker's lost lease, or by an
+// emergency stop of its channel.
 const LAST_TURN_CUT_OFF = sql<boolean>`coalesce((
-  SELECT t.status = 'failed' AND t.terminal_reason = ${WORKER_OWNERSHIP_LOST_REASON}
+  SELECT t.status = 'failed' AND t.terminal_reason IN (${sql.join(
+    CUT_OFF_TURN_REASONS.map((reason) => sql`${reason}`),
+    sql`, `,
+  )})
   FROM ${turns} t
   WHERE t.session_id = ${sessions}.id
   ORDER BY t.sequence DESC LIMIT 1
@@ -2174,7 +2186,8 @@ export function createPostgresSessionReader(
               (await readInputWaits(tx, [row], read.readAt)).get(row.id) ??
               null,
             pause_reason:
-              row.pauseReason === "awaiting_input" ? row.pauseReason : null,
+              PAUSE_REASON_VALUES.find((value) => value === row.pauseReason) ??
+              null,
             pending_request_count: read.pendingCount,
             attention:
               (row.sourceDeletedAt === null

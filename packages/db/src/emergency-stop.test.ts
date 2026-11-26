@@ -1,0 +1,675 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { randomBytes, randomUUID } from "node:crypto";
+import type { PGlite } from "@electric-sql/pglite";
+import {
+  CONVERSATION_TURN_LEASE_MS,
+  conversationInputIdSchema,
+  conversationRuntimeIdSchema,
+  DEFAULT_SURFACE_CEILING,
+  SLACK_EMERGENCY_STOP_TEXT,
+  scopesForRole,
+  type WorkspaceRole,
+} from "@werft-ai/contracts";
+import {
+  type Caller,
+  callerFor,
+  SecretKey,
+  type SessionCatalog,
+  type WorkerGateway,
+} from "@werft-ai/platform";
+import { testCaller } from "@werft-ai/testkit/callers";
+import { migratedPGlite } from "@werft-ai/testkit/pglite";
+import { and, asc, eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/pglite";
+import { createPostgresConversationStore } from "./conversations/conversation-store.ts";
+import { createPostgresConversationTurnQueue } from "./conversations/conversation-turn-queue.ts";
+import { stopChannelWork } from "./emergency-stop.ts";
+import { createPostgresAgentIdentityStore } from "./musterrolle/agent-identities.ts";
+import { createPostgresSurfaceBindingStore } from "./musterrolle/surface-bindings.ts";
+import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
+import type { Database } from "./queries.ts";
+import { resumeAtomic } from "./recovery-control.ts";
+import * as schema from "./schema.ts";
+import {
+  agents,
+  conversationTurns,
+  memberships,
+  receipts,
+  sessions,
+  slackApps,
+  slackOutbox,
+  surfaceBindings,
+  turns,
+  users,
+  workspaces,
+} from "./schema.ts";
+import {
+  registerSlackInstallation,
+  verifySlackInstallation,
+} from "./surface/slack-installations.ts";
+import { createPostgresSlackOutboxStore } from "./surface/slack-outbox.ts";
+import { commitCheckpoint } from "./testing/checkpoints.ts";
+import { conversationTurnQueueFixture } from "./testing/conversation-turn-queue.ts";
+import { fixtureTeam } from "./testing/fixture-team.ts";
+import { testWorkerGateway, workerOf } from "./testing/gateway.ts";
+import { launchSession } from "./testing/launches.ts";
+import { claimedSession } from "./testing/sessions.ts";
+import { testSessionCatalog } from "./testing/spec-pins.ts";
+import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
+
+// An emergency stop of one Slack channel: what runs there stops at once, what
+// was about to be posted is not, and only a person goes on afterwards.
+
+const OWNER = testCaller("00000000-0000-4000-8000-00000000000c");
+const CATALOG: SessionCatalog = testSessionCatalog({
+  provider: {
+    kind: "litellm",
+    endpoint: "https://litellm.invalid",
+    auth: {
+      kind: "api_key",
+      value: "provider-key",
+      ref: { stored: "connection:test-connection" },
+    },
+  },
+  models: ["claude-sonnet-5"],
+  repositories: {
+    "sample-app": {
+      url: "https://example.invalid/app.git",
+      branch: "main",
+      auth: { kind: "github_app", registered: true },
+    },
+  },
+});
+const LIMITS = { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 };
+const MANAGERS: readonly WorkspaceRole[] = ["owner", "admin"];
+const CHANNEL = "C0STOP";
+
+let client: PGlite;
+let db: Database;
+let gateway: WorkerGateway;
+
+beforeEach(async () => {
+  client = await migratedPGlite();
+  db = drizzle(client, { schema }) as unknown as Database;
+  gateway = testWorkerGateway(db, CATALOG);
+});
+
+afterEach(async () => {
+  await client.close();
+});
+
+const store = () => createPostgresSurfaceBindingStore(db);
+
+async function person(workspaceId: string, role: WorkspaceRole) {
+  const userId = randomUUID();
+  await db.insert(users).values({
+    id: userId,
+    email: `${userId}@example.invalid`,
+    passwordHash: "argon2id$placeholder",
+    displayName: `the ${role}`,
+  });
+  await db.insert(memberships).values({ workspaceId, userId, role });
+  const caller = callerFor(
+    {
+      kind: "user",
+      id: userId,
+      workspace_id: workspaceId,
+      role,
+      scopes: [...scopesForRole(role)],
+    },
+    { kind: "web" },
+    randomUUID(),
+  );
+  return Object.assign(caller, { userId });
+}
+
+/**
+ * A running first turn ("first input") of a session whose parent is the
+ * agent's private channel, and posts waiting to go to it and to another.
+ */
+async function stage(options: { checkpoint?: boolean } = {}) {
+  const worker = await claimedSession(db, gateway, OWNER);
+  const next = await gateway.nextInput(worker.principal, worker.scope);
+  if (!next.input) throw new Error("no input delivered");
+  // A pause stands on a committed checkpoint: the restore point a resume
+  // goes back to.
+  if (options.checkpoint !== false) {
+    const { kind: _kind, ...fence } = worker.principal as Extract<
+      typeof worker.principal,
+      { kind: "session" }
+    >;
+    const committed = await commitCheckpoint(db, {
+      checkpoint: {
+        revision: 0,
+        manifest_ref: "s3://bucket/stop-0.json",
+        manifest_sha256: "a".repeat(64),
+      },
+      fence,
+      now: new Date(),
+      sessionId: worker.sessionId,
+      turnId: null,
+    });
+    if (committed.outcome !== "committed") throw new Error(committed.outcome);
+  }
+  const workspaceId = randomUUID();
+  await db
+    .insert(workspaces)
+    .values({ id: workspaceId, slug: `ws-${workspaceId}`, name: "ws" });
+  const owner = await person(workspaceId, "owner");
+  const admin = await person(workspaceId, "admin");
+  const member = await person(workspaceId, "member");
+  const agentId = randomUUID();
+  await db.insert(agents).values({
+    id: agentId,
+    workspaceId,
+    managingTeamId: await fixtureTeam(db, workspaceId),
+    slug: "notes",
+    name: "notes",
+  });
+  const key = { appId: "A0STOP", teamId: "T0STOP" };
+  const appRowId = randomUUID();
+  await db.insert(slackApps).values({
+    id: appRowId,
+    workspaceId,
+    kind: "agent",
+    agentId,
+    state: "created",
+    appId: key.appId,
+    clientId: "1.stop",
+    redirectUrl: "https://example.invalid/slack/callback",
+    eventsState: "verified",
+  });
+  await registerSlackInstallation(db, { ...key, workspaceId });
+  await verifySlackInstallation(db, { ...key, botUserId: "B0BOT" });
+  const linked = await createPostgresAgentIdentityStore(db).link({
+    principal: owner,
+    workspaceId,
+    agentId,
+    key,
+    credentialRef: "slack-bot-stop",
+    managerRoles: MANAGERS,
+  });
+  if (linked.outcome !== "linked") throw new Error(linked.outcome);
+  const installationId = linked.identity.installationId;
+  const bound = await store().set({
+    principal: owner,
+    workspaceId,
+    agentId,
+    channelId: CHANNEL,
+    channelKind: "public_channel",
+    mode: "on",
+    home: false,
+    ceiling: DEFAULT_SURFACE_CEILING,
+    managerRoles: MANAGERS,
+  });
+  if (bound.outcome !== "set") throw new Error(bound.outcome);
+  const conversation = await createPostgresConversationStore(
+    db,
+  ).findOrCreateConversation({
+    kind: "channel",
+    workspaceId,
+    agentId,
+    teamId: key.teamId,
+    channelId: CHANNEL,
+  });
+  await db
+    .update(sessions)
+    .set({ workspaceId, parentConversationId: conversation.id })
+    .where(eq(sessions.id, worker.sessionId));
+  for (const channelId of [CHANNEL, "C0ELSE"]) {
+    await db.insert(slackOutbox).values({
+      id: randomUUID(),
+      workspaceId,
+      agentId,
+      slackAppId: appRowId,
+      installationId,
+      kind: "reply",
+      channelId,
+      threadTs: "100.000100",
+      body: { text: "a reply on its way" } as never,
+      dedupeKey: `reply:${channelId}`,
+    });
+  }
+  return {
+    worker,
+    workspaceId,
+    owner,
+    admin,
+    member,
+    agentId,
+    installationId,
+    bindingId: bound.binding.id,
+  };
+}
+
+type Stage = Awaited<ReturnType<typeof stage>>;
+
+const stop = (s: Stage, principal: Caller, reason = "a leak suspected") =>
+  store().emergencyStop({
+    principal,
+    workspaceId: s.workspaceId,
+    agentId: s.agentId,
+    bindingId: s.bindingId,
+    reason,
+    text: SLACK_EMERGENCY_STOP_TEXT,
+    managerRoles: MANAGERS,
+  });
+
+const turnOn = (s: Stage, principal: Caller, reason?: string) =>
+  store().set({
+    principal,
+    workspaceId: s.workspaceId,
+    agentId: s.agentId,
+    channelId: CHANNEL,
+    channelKind: "public_channel",
+    mode: "on",
+    home: false,
+    ceiling: DEFAULT_SURFACE_CEILING,
+    managerRoles: MANAGERS,
+    ...(reason === undefined ? {} : { reason }),
+  });
+
+async function sessionOf(sessionId: string) {
+  const [row] = await db
+    .select({
+      admissionState: sessions.admissionState,
+      pauseReason: sessions.pauseReason,
+      revision: sessions.revision,
+    })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId));
+  if (!row) throw new Error("no session");
+  return row;
+}
+
+const turnsOf = (sessionId: string) =>
+  db
+    .select({
+      sequence: turns.sequence,
+      status: turns.status,
+      reason: turns.terminalReason,
+      prepended: turns.prependedTurn,
+      skipped: turns.prependSkipReason,
+    })
+    .from(turns)
+    .where(eq(turns.sessionId, sessionId))
+    .orderBy(asc(turns.sequence));
+
+/** The fenced worker's execution is seen gone, so the pause settles. */
+async function executionGone(worker: Stage["worker"]) {
+  await createPostgresWorkerUnitOfWork(db).confirmExecutionGoneAtomic({
+    executionId: worker.executionId,
+    now: new Date(),
+  });
+}
+
+/**
+ * Input from the session's owner. The session leaves the workspace the stop
+ * found it in first, as a session from before workspaces has none: its
+ * fixture agent is no one's to use there, and the stop still holds by agent
+ * and channel.
+ */
+const send = async (
+  s: Stage,
+  input: { message: string } | { continueTurn: number },
+) => {
+  await db
+    .update(sessions)
+    .set({ workspaceId: null })
+    .where(eq(sessions.id, s.worker.sessionId));
+  return createPostgresSessionUnitOfWork(db).appendInputAtomic({
+    principal: { ...OWNER, requestId: randomUUID() },
+    sessionId: s.worker.sessionId,
+    idempotencyKey: randomUUID(),
+    payloadHash: randomUUID(),
+    ...("message" in input
+      ? { message: input.message }
+      : { message: "", continueTurn: input.continueTurn }),
+    limits: LIMITS,
+  });
+};
+
+const resume = async (sessionId: string) =>
+  resumeAtomic(db, {
+    principal: { ...OWNER, requestId: randomUUID() },
+    sessionId,
+    idempotencyKey: randomUUID(),
+    payloadHash: randomUUID(),
+    expectedRevision: (await sessionOf(sessionId)).revision,
+    now: new Date(),
+  });
+
+async function nextWorker(sessionId: string) {
+  const { executionId, generation, nonce } = await launchSession(db, {
+    sessionId,
+  });
+  const claimed = await gateway.bootstrapClaim(
+    { kind: "bootstrap" },
+    {
+      execution_id: executionId,
+      execution_generation: generation,
+      credential: { kind: "launch_nonce", nonce },
+    },
+  );
+  return workerOf(claimed, executionId);
+}
+
+async function delivered(worker: Awaited<ReturnType<typeof nextWorker>>) {
+  const next = await gateway.nextInput(worker.principal, worker.scope);
+  if (!next.input) throw new Error("no input delivered");
+  return next.input;
+}
+
+/** A new worker restores the session a resume left resuming. */
+async function restored(sessionId: string) {
+  const worker = await nextWorker(sessionId);
+  await gateway.ready(worker.principal, {
+    ...worker.scope,
+    restored_revision: 0,
+  });
+  return worker;
+}
+
+/** Stopped, the execution gone, turned on again, resumed and restored. */
+async function stoppedAndBack(s: Stage) {
+  expect((await stop(s, s.admin)).outcome).toBe("stopped");
+  await executionGone(s.worker);
+  expect((await turnOn(s, s.admin, "checked")).outcome).toBe("set");
+  expect((await resume(s.worker.sessionId)).outcome).toBe("accepted");
+  return restored(s.worker.sessionId);
+}
+
+describe("an emergency stop of a channel", () => {
+  test("mid model call: the turn is cut, the session pauses, the channel's posts are cancelled and the stop line queued", async () => {
+    const s = await stage();
+    const stopped = await stop(s, s.admin);
+    expect(stopped).toMatchObject({
+      outcome: "stopped",
+      stopped: { sessions: 1, turns: 1, posts: 1 },
+      binding: {
+        mode: "off",
+        emergencyStop: {
+          stoppedBy: { userId: s.admin.userId, name: "the admin" },
+          reason: "a leak suspected",
+        },
+      },
+    });
+    expect(await turnsOf(s.worker.sessionId)).toMatchObject([
+      { sequence: 1, status: "failed", reason: "emergency_stopped" },
+    ]);
+    expect(await sessionOf(s.worker.sessionId)).toMatchObject({
+      admissionState: "pausing",
+      pauseReason: "emergency_stopped",
+    });
+    const posts = await db
+      .select({
+        kind: slackOutbox.kind,
+        channelId: slackOutbox.channelId,
+        status: slackOutbox.status,
+        errorCode: slackOutbox.errorCode,
+        body: slackOutbox.body,
+      })
+      .from(slackOutbox)
+      .where(eq(slackOutbox.workspaceId, s.workspaceId))
+      .orderBy(asc(slackOutbox.seq));
+    expect(posts).toEqual([
+      {
+        kind: "reply",
+        channelId: CHANNEL,
+        status: "failed",
+        errorCode: "emergency_stopped",
+        body: { text: "a reply on its way" } as never,
+      },
+      {
+        kind: "reply",
+        channelId: "C0ELSE",
+        status: "pending",
+        errorCode: null,
+        body: { text: "a reply on its way" } as never,
+      },
+      {
+        kind: "emergency_stop_notice",
+        channelId: CHANNEL,
+        status: "pending",
+        errorCode: null,
+        body: { text: SLACK_EMERGENCY_STOP_TEXT } as never,
+      },
+    ]);
+    // The fenced worker's result is not taken.
+    const late = await gateway
+      .finalize(s.worker.principal, {
+        ...s.worker.scope,
+        turn_id: "1",
+        finalize_key: `${s.worker.scope.attempt_id}:1`,
+        final_source_sequence: 0,
+        terminal: {
+          status: "completed",
+          reason: null,
+          result: null,
+          usage: null,
+        },
+        checkpoint: null,
+      })
+      .then(
+        () => "taken",
+        () => "refused",
+      );
+    expect(late).toBe("refused");
+    expect(await turnsOf(s.worker.sessionId)).toMatchObject([
+      { status: "failed", reason: "emergency_stopped" },
+    ]);
+  });
+
+  test("the receipt says who, when, which channel and why; a second stop is refused", async () => {
+    const s = await stage();
+    const stopped = await stop(s, s.admin);
+    if (stopped.outcome !== "stopped") throw new Error(stopped.outcome);
+    const [receipt] = await db
+      .select({
+        operation: receipts.operation,
+        actor: receipts.actor,
+        targetRef: receipts.targetRef,
+        result: receipts.result,
+        createdAt: receipts.createdAt,
+      })
+      .from(receipts)
+      .where(eq(receipts.id, stopped.receiptId));
+    expect(receipt).toMatchObject({
+      operation: "emergency_stop_surface_binding",
+      actor: { actor_user_id: s.admin.userId },
+      result: {
+        reason: "a leak suspected",
+        stopped: { sessions: 1, turns: 1, posts: 1 },
+      },
+    });
+    expect(JSON.stringify(receipt?.targetRef)).toContain(s.bindingId);
+    expect(receipt?.createdAt).toBeInstanceOf(Date);
+    expect((await stop(s, s.admin)).outcome).toBe("already_stopped");
+  });
+
+  test("a member who manages nothing cannot stop it", async () => {
+    const s = await stage();
+    expect((await stop(s, s.member)).outcome).not.toBe("stopped");
+    expect(await turnsOf(s.worker.sessionId)).toMatchObject([
+      { status: "running" },
+    ]);
+    const [binding] = await db
+      .select({
+        mode: surfaceBindings.mode,
+        at: surfaceBindings.emergencyStoppedAt,
+      })
+      .from(surfaceBindings)
+      .where(eq(surfaceBindings.id, s.bindingId));
+    expect(binding).toEqual({ mode: "on", at: null });
+  });
+
+  test("turning the channel on asks a reason and records the stop it ends", async () => {
+    const s = await stage();
+    await stop(s, s.admin);
+    expect((await turnOn(s, s.owner)).outcome).toBe("reason_required");
+    const on = await turnOn(s, s.owner, "checked, nothing leaked");
+    if (on.outcome !== "set") throw new Error(on.outcome);
+    expect(on.binding).toMatchObject({ mode: "on", emergencyStop: null });
+    const [receipt] = await db
+      .select({ result: receipts.result })
+      .from(receipts)
+      .where(eq(receipts.id, on.receiptId));
+    expect(receipt?.result).toMatchObject({
+      reason: "checked, nothing leaked",
+      emergency_stop_ended: {
+        stopped_by_user_id: s.admin.userId,
+        reason: "a leak suspected",
+      },
+    });
+  });
+});
+
+describe("going on after an emergency stop", () => {
+  test("no resume while the channel is stopped; after it is on, a resume starts nothing by itself", async () => {
+    const s = await stage();
+    await stop(s, s.admin);
+    await executionGone(s.worker);
+    expect(await sessionOf(s.worker.sessionId)).toMatchObject({
+      admissionState: "paused",
+      pauseReason: "emergency_stopped",
+    });
+    expect((await resume(s.worker.sessionId)).outcome).toBe(
+      "emergency_stopped",
+    );
+    expect((await turnOn(s, s.admin, "checked")).outcome).toBe("set");
+    expect((await resume(s.worker.sessionId)).outcome).toBe("accepted");
+    await restored(s.worker.sessionId);
+    expect(await sessionOf(s.worker.sessionId)).toMatchObject({
+      admissionState: "active",
+      pauseReason: null,
+    });
+    // Nothing queued: the cut turn waits for a person's [Continue].
+    expect(await turnsOf(s.worker.sessionId)).toHaveLength(1);
+  });
+
+  test("[Continue] runs the cut-off input again", async () => {
+    const s = await stage();
+    const back = await stoppedAndBack(s);
+    const continued = await send(s, { continueTurn: 1 });
+    expect(continued.outcome).toBe("accepted");
+    const input = await delivered(back);
+    expect(input.message).toBe("first input");
+  });
+
+  test("the next message is not given the stopped turn's input, and the skip is recorded", async () => {
+    const s = await stage();
+    const worker = await stoppedAndBack(s);
+    const sent = await send(s, { message: "second input" });
+    expect(sent.outcome).toBe("accepted");
+    const first = await delivered(worker);
+    expect(first.message).toBe("second input");
+    expect(await delivered(worker)).toEqual(first);
+    const [second] = await db
+      .select({
+        prepended: turns.prependedTurn,
+        skipped: turns.prependSkipReason,
+      })
+      .from(turns)
+      .where(
+        and(eq(turns.sessionId, s.worker.sessionId), eq(turns.sequence, 2)),
+      );
+    expect(second).toEqual({ prepended: 1, skipped: "emergency_stopped" });
+  });
+
+  test("a session with no checkpoint yet is not paused, and takes no input until the channel is on", async () => {
+    const s = await stage({ checkpoint: false });
+    expect(await stop(s, s.admin)).toMatchObject({
+      outcome: "stopped",
+      stopped: { sessions: 1, turns: 1 },
+    });
+    await executionGone(s.worker);
+    expect(await sessionOf(s.worker.sessionId)).toMatchObject({
+      admissionState: "active",
+      pauseReason: null,
+    });
+    for (const input of [{ message: "meanwhile" }, { continueTurn: 1 }]) {
+      expect((await send(s, input)).outcome).toBe("emergency_stopped");
+    }
+    expect(await turnsOf(s.worker.sessionId)).toHaveLength(1);
+    expect((await turnOn(s, s.admin, "checked")).outcome).toBe("set");
+    expect((await send(s, { continueTurn: 1 })).outcome).toBe("accepted");
+  });
+});
+
+describe("what an emergency stop leaves the channel", () => {
+  test("a conversation turn leased in the channel is never taken: its queue entry ends failed", async () => {
+    const fixture = await conversationTurnQueueFixture(db);
+    const queue = createPostgresConversationTurnQueue(
+      db,
+      SecretKey.fromHex(randomBytes(32).toString("hex"), "TEST_KEY"),
+    );
+    const turn = await fixture.turn();
+    const now = new Date();
+    await queue.enqueue(turn, {
+      inputId: conversationInputIdSchema.parse(randomUUID()),
+      attempt: 1,
+      takeBy: new Date(now.getTime() + 30_000),
+      now,
+    });
+    const taken = await queue.lease({
+      runtimeId: conversationRuntimeIdSchema.parse(randomUUID()),
+      now,
+      leaseMs: CONVERSATION_TURN_LEASE_MS,
+    });
+    expect(taken?.turn_id).toBe(turn.turn_id);
+
+    const counts = await db.transaction((tx) =>
+      stopChannelWork(
+        tx as unknown as Database,
+        {
+          workspaceId: turn.scope.workspace_id,
+          agentId: turn.scope.agent_id,
+          installationId: randomUUID(),
+          channelId: "C0QUEUE",
+        },
+        { now, attempt: 0 },
+      ),
+    );
+    expect(counts).toEqual({ sessions: 0, turns: 1, posts: 0 });
+    const [row] = await db
+      .select({ state: conversationTurns.state })
+      .from(conversationTurns)
+      .where(eq(conversationTurns.id, turn.turn_id));
+    // A web input's turn keeps its record; only its run is gone.
+    expect(row).toEqual({ state: "received" });
+    expect(await queue.outcome(turn.turn_id, now)).toEqual({
+      outcome: "failed",
+      reason: "emergency_stopped",
+    });
+  });
+
+  test("nothing queued after the stop goes to the channel but the line that says so", async () => {
+    const s = await stage();
+    await stop(s, s.admin);
+    const [notice] = await db
+      .select({ slackAppId: slackOutbox.slackAppId })
+      .from(slackOutbox)
+      .where(eq(slackOutbox.kind, "emergency_stop_notice"));
+    if (!notice) throw new Error("no notice");
+    await db.insert(slackOutbox).values({
+      id: randomUUID(),
+      workspaceId: s.workspaceId,
+      agentId: s.agentId,
+      slackAppId: notice.slackAppId,
+      installationId: s.installationId,
+      kind: "reply",
+      channelId: CHANNEL,
+      threadTs: "100.000200",
+      body: { text: "a late reply" } as never,
+      dedupeKey: "reply:late",
+    });
+    const claimed = await createPostgresSlackOutboxStore(db).claim({
+      limit: 10,
+      leaseMs: 30_000,
+    });
+    expect(claimed.map((row) => [row.kind, row.channelId]).sort()).toEqual([
+      ["emergency_stop_notice", CHANNEL],
+      ["reply", "C0ELSE"],
+    ]);
+  });
+});

@@ -3635,7 +3635,7 @@ export interface paths {
         get: operations["listSlackBindings"];
         /**
          * Set how the agent answers in one Slack channel or its DMs
-         * @description Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `on` (in use; the agent's `mention_only` setting says whether it also answers a top-level message without a mention). `m1_judgments_per_hour` (1 to 60) is how many M1 judgments the channel may have in an hour; a missing one keeps the channel's, and a new channel starts at 12. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. A binding that is `left` stays `left` when saved for its private channel (its `mode` and `ceiling` are edited, `home: true` answers 400); saved for a channel Slack now calls public, it is `ready` again. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.
+         * @description Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `on` (in use; the agent's `mention_only` setting says whether it also answers a top-level message without a mention). `m1_judgments_per_hour` (1 to 60) is how many M1 judgments the channel may have in an hour; a missing one keeps the channel's, and a new channel starts at 12. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. A binding that is `left` stays `left` when saved for its private channel (its `mode` and `ceiling` are edited, `home: true` answers 400); saved for a channel Slack now calls public, it is `ready` again. A channel under an emergency stop (`emergency_stop` set) stays `off` until a save sets `mode` `on` with a `reason` (400 without one); that save ends the stop, and its receipt keeps the reason and the stop it ended. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3751,6 +3751,28 @@ export interface paths {
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
         post: operations["rejectSlackBinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{id}/slack-bindings/{binding_id}/emergency-stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop the agent in one Slack channel at once
+         * @description For whoever may set the channel, in it or not: the binding goes `off` and records who stopped it, when and the `reason` (required; empty or blank answers 400). In the same transaction every open task session of the channel is stopped: its running turn ends `failed` with `terminal_reason` `emergency_stopped`, its queued input is cancelled and its worker is fenced out at once. One with a committed checkpoint is paused with `pause_reason` `emergency_stopped`; while the stop holds no session of the channel takes a message or a resume (403 FORBIDDEN). Every conversation turn there, running or waiting in the queue, ends without a decision, every post to the channel not yet sent is cancelled (a progress message's next edit included), and the channel is told "관리자가 이 에이전트를 멈췄어요" in one post: nothing else goes to it until a save sets it `on` again with a reason (PUT /v1/agents/{id}/slack-bindings). A paused session resumes only after that, when a person resumes it; its cut-off turn goes on only from its [Continue] (POST /v1/sessions/{id}/turns/{turn_id}/continue), never by itself. The answer is the binding and the counts of sessions, turns and posts stopped: nothing written in the channel or its sessions. The DM binding answers 400; a channel stopped already answers 409 REVISION_CONFLICT. Owners, admins and the agent's admins; API keys are refused. Writes an `emergency_stop_surface_binding` receipt with the reason and the counts.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["emergencyStopSlackBinding"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6515,9 +6537,13 @@ export interface components {
                 /** @enum {string} */
                 disclosure: "full" | "summary";
             };
+            reason?: string;
         };
         ResolveSlackBindingRequest: {
             revision: number;
+        };
+        EmergencyStopSlackBindingRequest: {
+            reason: string;
         };
         ApiErrorResponse: {
             error: {
@@ -6722,7 +6748,7 @@ export interface components {
              */
             turn_time_ms: number;
             /**
-             * @description True when the session's last turn failed because its worker lost the session partway (`terminal_reason: worker_ownership_lost`): no turn follows it yet. The session goes on from its last checkpoint with its next input or `POST /v1/sessions/{id}/turns/{turn_id}/continue`. The console shows an `idle` session with this set as cut off. False otherwise, and from a server older than the field.
+             * @description True when the session's last turn was cut off partway: its worker lost the session (`terminal_reason: worker_ownership_lost`), or an admin emergency-stopped the agent in its Slack channel (`emergency_stopped`). No turn follows it yet. The session goes on from its last checkpoint with its next input or `POST /v1/sessions/{id}/turns/{turn_id}/continue`. The console shows an `idle` session with this set as cut off. False otherwise, and from a server older than the field.
              * @default false
              */
             last_turn_cut_off: boolean;
@@ -6881,7 +6907,7 @@ export interface components {
              */
             turn_time_ms: number;
             /**
-             * @description True when the session's last turn failed because its worker lost the session partway (`terminal_reason: worker_ownership_lost`): no turn follows it yet. The session goes on from its last checkpoint with its next input or `POST /v1/sessions/{id}/turns/{turn_id}/continue`. The console shows an `idle` session with this set as cut off. False otherwise, and from a server older than the field.
+             * @description True when the session's last turn was cut off partway: its worker lost the session (`terminal_reason: worker_ownership_lost`), or an admin emergency-stopped the agent in its Slack channel (`emergency_stopped`). No turn follows it yet. The session goes on from its last checkpoint with its next input or `POST /v1/sessions/{id}/turns/{turn_id}/continue`. The console shows an `idle` session with this set as cut off. False otherwise, and from a server older than the field.
              * @default false
              */
             last_turn_cut_off: boolean;
@@ -6906,8 +6932,8 @@ export interface components {
                 observed_at: string | null;
             } | null;
             checkpoint_revision: number | null;
-            /** @description Why the platform paused the session: `awaiting_input` while it is `pausing` or `paused` because its turn was parked on requests nobody answered. Null for a pause someone asked for, including one that took a park over, and for every other admission state. Absent from a server older than the field. */
-            pause_reason?: "awaiting_input" | null;
+            /** @description Why the platform paused the session: `awaiting_input` while it is `pausing` or `paused` because its turn was parked on requests nobody answered; `emergency_stopped` when its Slack channel's agent was stopped in an emergency (it resumes only once the channel is on again). Null for a pause someone asked for, including one that took a park over, and for every other admission state. Absent from a server older than the field. */
+            pause_reason?: ("awaiting_input" | "emergency_stopped") | null;
             /** @description The requests GET /v1/sessions/{id}/pending-requests lists, counted in the same read as status, parked sessions included: status reads needs_input exactly when this is above zero and the session would otherwise read running or, parked, idle. */
             pending_request_count: number;
             attention: ({
@@ -8571,7 +8597,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "bootstrap_owner" | "lock_login" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "delete_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_team_budget_limit" | "set_agent_usage" | "set_agent_caller_limits" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "request_surface_binding" | "resolve_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "merge_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "delete_slack_app" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_github_pull_request_settings" | "set_agent_pull_request_settings" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "create_connection" | "create_mcp_server" | "set_settings_credential" | "set_connection_auto_mode" | "set_connection_models" | "disable_connection" | "enable_connection" | "disable_mcp_server" | "set_mcp_server_workspaces" | "resolve_repository" | "set_agent_github" | "set_agent_mcp" | "set_agent_workspace_mcp" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement" | "set_env_variable" | "delete_env_variable" | "set_env_variable_grants" | "resolve_session_env" | "reject_session_env" | "resolve_session_engine_settings" | "set_workspace_engine_settings" | "set_agent_engine_settings" | "register_extension" | "approve_extension" | "attach_extension" | "detach_extension" | "archive_extension" | "revert_extension" | "update_extension_sync" | "create_login_provider" | "update_login_provider" | "refresh_login_provider_discovery" | "set_login_provider_secret" | "test_login_provider" | "enable_login_provider" | "disable_login_provider" | "delete_login_provider" | "link_login_method" | "unlink_login_method" | "set_password_login" | "set_emergency_admin" | "update_slack_settings" | "update_github_webhook_settings" | "update_installation_config" | "create_workspace_mcp_server" | "delete_workspace_mcp_server" | "set_workspace_mcp_credential" | "connect_workspace_mcp_server" | "disconnect_workspace_mcp_server" | "delete_conversation_records" | "set_slack_allowed_bots" | "approve_slack_notice" | "revoke_slack_notice" | "resolve_unknown_budget" | "set_conversation_rollout";
+            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "bootstrap_owner" | "lock_login" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "delete_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_team_budget_limit" | "set_agent_usage" | "set_agent_caller_limits" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "request_surface_binding" | "resolve_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "merge_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "delete_slack_app" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_github_pull_request_settings" | "set_agent_pull_request_settings" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "create_connection" | "create_mcp_server" | "set_settings_credential" | "set_connection_auto_mode" | "set_connection_models" | "disable_connection" | "enable_connection" | "disable_mcp_server" | "set_mcp_server_workspaces" | "resolve_repository" | "set_agent_github" | "set_agent_mcp" | "set_agent_workspace_mcp" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "rejudge_session" | "review_achievement" | "set_env_variable" | "delete_env_variable" | "set_env_variable_grants" | "resolve_session_env" | "reject_session_env" | "resolve_session_engine_settings" | "set_workspace_engine_settings" | "set_agent_engine_settings" | "register_extension" | "approve_extension" | "attach_extension" | "detach_extension" | "archive_extension" | "revert_extension" | "update_extension_sync" | "create_login_provider" | "update_login_provider" | "refresh_login_provider_discovery" | "set_login_provider_secret" | "test_login_provider" | "enable_login_provider" | "disable_login_provider" | "delete_login_provider" | "link_login_method" | "unlink_login_method" | "set_password_login" | "set_emergency_admin" | "update_slack_settings" | "update_github_webhook_settings" | "update_installation_config" | "create_workspace_mcp_server" | "delete_workspace_mcp_server" | "set_workspace_mcp_credential" | "connect_workspace_mcp_server" | "disconnect_workspace_mcp_server" | "delete_conversation_records" | "set_slack_allowed_bots" | "approve_slack_notice" | "revoke_slack_notice" | "resolve_unknown_budget" | "set_conversation_rollout" | "emergency_stop_surface_binding";
             target_ref: {
                 /** Format: uuid */
                 session_id: string;
@@ -12969,6 +12995,16 @@ export interface components {
                     error: string | null;
                 };
                 muted: boolean;
+                emergency_stop?: {
+                    /** Format: date-time */
+                    stopped_at: string;
+                    stopped_by: {
+                        /** Format: uuid */
+                        user_id: string;
+                        name: string;
+                    } | null;
+                    reason: string;
+                } | null;
                 revision: number;
                 /** Format: date-time */
                 created_at: string;
@@ -13107,6 +13143,16 @@ export interface components {
                     error: string | null;
                 };
                 muted: boolean;
+                emergency_stop?: {
+                    /** Format: date-time */
+                    stopped_at: string;
+                    stopped_by: {
+                        /** Format: uuid */
+                        user_id: string;
+                        name: string;
+                    } | null;
+                    reason: string;
+                } | null;
                 revision: number;
                 /** Format: date-time */
                 created_at: string;
@@ -13152,12 +13198,81 @@ export interface components {
                     error: string | null;
                 };
                 muted: boolean;
+                emergency_stop?: {
+                    /** Format: date-time */
+                    stopped_at: string;
+                    stopped_by: {
+                        /** Format: uuid */
+                        user_id: string;
+                        name: string;
+                    } | null;
+                    reason: string;
+                } | null;
                 revision: number;
                 /** Format: date-time */
                 created_at: string;
                 revoked_at: string | null;
             };
             receipt_id: string | null;
+        };
+        EmergencyStopSlackBindingResponse: {
+            slack_binding: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                workspace_id: string;
+                owner_id: string;
+                /** @enum {string} */
+                surface: "web" | "slack" | "api";
+                installation_id: string | null;
+                external_surface_id: string | null;
+                surface_kind: ("public_channel" | "private_channel" | "dm") | null;
+                /** Format: uuid */
+                agent_id: string;
+                /** @enum {string} */
+                mode: "off" | "on";
+                /** @enum {string} */
+                listen: "free" | "mention" | "off";
+                m1_judgments_per_hour: number;
+                ceiling: {
+                    actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
+                    /** @enum {string} */
+                    disclosure: "full" | "summary";
+                };
+                home: boolean;
+                /** @enum {string} */
+                memory_write_policy: "deny" | "allow_explicit";
+                /** @enum {string} */
+                status: "ready" | "pending_approval" | "left" | "gone" | "partial" | "failed" | "revoked";
+                approved_at?: string | null;
+                membership?: {
+                    /** @enum {string} */
+                    state: "joined" | "awaiting_invite" | "config_error" | "join_failed";
+                    error: string | null;
+                };
+                muted: boolean;
+                emergency_stop?: {
+                    /** Format: date-time */
+                    stopped_at: string;
+                    stopped_by: {
+                        /** Format: uuid */
+                        user_id: string;
+                        name: string;
+                    } | null;
+                    reason: string;
+                } | null;
+                revision: number;
+                /** Format: date-time */
+                created_at: string;
+                revoked_at: string | null;
+            };
+            stopped: {
+                sessions: number;
+                turns: number;
+                posts: number;
+            };
+            /** Format: uuid */
+            receipt_id: string;
         };
         SearchSlackChannelsResponse: {
             items: {
@@ -40036,6 +40151,211 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResolveSlackBindingResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    emergencyStopSlackBinding: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                /** @description The agent's id. */
+                id: string;
+                /** @description The Slack binding's id. */
+                binding_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "reason": "A customer's data may be leaking here"
+                 *     }
+                 */
+                "application/json": components["schemas"]["EmergencyStopSlackBindingRequest"];
+            };
+        };
+        responses: {
+            /** @description The binding, now off and stopped, and what the stop ended there. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "slack_binding": {
+                     *         "id": "019a0000-0000-7000-8000-0000000000d1",
+                     *         "workspace_id": "019a0000-0000-7000-8000-0000000000f1",
+                     *         "owner_id": "019a0000-0000-7000-8000-0000000000f1",
+                     *         "surface": "slack",
+                     *         "installation_id": "019a0000-0000-7000-8000-0000000000c1",
+                     *         "external_surface_id": "C0OPS",
+                     *         "surface_kind": "private_channel",
+                     *         "agent_id": "019a0000-0000-7000-8000-0000000000b1",
+                     *         "mode": "off",
+                     *         "listen": "free",
+                     *         "m1_judgments_per_hour": 12,
+                     *         "ceiling": {
+                     *           "actions": [
+                     *             "session.read",
+                     *             "session.submit"
+                     *           ],
+                     *           "disclosure": "summary"
+                     *         },
+                     *         "home": false,
+                     *         "memory_write_policy": "deny",
+                     *         "status": "ready",
+                     *         "muted": false,
+                     *         "revision": 4,
+                     *         "created_at": "2026-10-23T00:00:00.000Z",
+                     *         "revoked_at": null,
+                     *         "emergency_stop": {
+                     *           "stopped_at": "2026-11-26T09:00:00.000Z",
+                     *           "stopped_by": {
+                     *             "user_id": "019a0000-0000-7000-8000-0000000000a1",
+                     *             "name": "Workspace admin"
+                     *           },
+                     *           "reason": "A customer's data may be leaking here"
+                     *         }
+                     *       },
+                     *       "stopped": {
+                     *         "sessions": 2,
+                     *         "turns": 3,
+                     *         "posts": 1
+                     *       },
+                     *       "receipt_id": "019a0000-0000-7000-8000-0000000000e1"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["EmergencyStopSlackBindingResponse"];
                 };
             };
             /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */

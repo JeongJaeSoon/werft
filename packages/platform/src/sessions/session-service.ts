@@ -467,6 +467,14 @@ export function createSessionService(deps: {
     );
   }
 
+  // 403 as for a revocation: only turning the channel on again changes it.
+  function sessionEmergencyStopped(): never {
+    throw new SessionServiceError(
+      "FORBIDDEN",
+      "An admin emergency-stopped this agent in the session's Slack channel; it takes no input and cannot be resumed until the channel is turned on again",
+    );
+  }
+
   // 403 rather than a state conflict: no retry or later request by the
   // owner changes the answer, only the operator's restore does.
   function executionRevoked(): never {
@@ -776,6 +784,8 @@ export function createSessionService(deps: {
           "TAKEOVER_REQUIRED",
           "The person who asked for this session has left; it takes no messages until an owner takes it over",
         );
+      case "emergency_stopped":
+        throw sessionEmergencyStopped();
       case "source_deleted":
         if (result.sessionStopped) return sessionSourceDeleted();
         throw sourceDeleted();
@@ -1636,6 +1646,8 @@ export function createSessionService(deps: {
           throw executionRevoked();
         case "source_deleted":
           throw sessionSourceDeleted();
+        case "emergency_stopped":
+          throw sessionEmergencyStopped();
         case "pending_requests_open":
           throw new SessionServiceError(
             "PENDING_REQUESTS_OPEN",

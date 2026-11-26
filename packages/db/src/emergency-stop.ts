@@ -1,0 +1,387 @@
+import { randomUUID } from "node:crypto";
+import {
+  type ConversationInputId,
+  TURN_EMERGENCY_STOPPED_REASON,
+} from "@werft-ai/contracts";
+import type { EmergencyStopCounts } from "@werft-ai/platform";
+import { publicStatus } from "@werft-ai/platform";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { settleTurnPushIntents } from "./action/push-intents.ts";
+import {
+  INPUT_RECEIPT_OPERATIONS,
+  lockSessionForControl,
+  OPEN_TURN_STATUSES,
+} from "./control-shared.ts";
+import { stopExecution } from "./control-unit-of-work.ts";
+import { dbNow } from "./db-clock.ts";
+import type { Database } from "./queries.ts";
+import { queueMessages, receipts, sessions, turns } from "./schema.ts";
+import { PAUSE } from "./sessions/drain.ts";
+import { pauseReceiptResult } from "./sessions/pause-control.ts";
+import { hasRestorePoint } from "./sessions/pause-policy.ts";
+import { awaitingInputAt } from "./sessions/pending-status.ts";
+import { recordEvent, recordStatus } from "./sessions/session-events.ts";
+import { settleTurnInterrupts } from "./sessions/turn-interrupts.ts";
+import { rowsOf } from "./statement-rows.ts";
+import { closeHeldOfFailedMirror } from "./surface/slack-input-holds.ts";
+
+export const EMERGENCY_STOPPED = TURN_EMERGENCY_STOPPED_REASON;
+
+/** One agent's place in one Slack channel of its install. */
+export type ChannelWorkPlace = {
+  workspaceId: string;
+  agentId: string;
+  installationId: string;
+  channelId: string;
+};
+
+/**
+ * Everything of one agent that runs or is about to post in one Slack channel,
+ * stopped at once, in the caller's transaction (the emergency stop's, which
+ * holds the channel's binding). The one place a stop of a channel's work is
+ * made, so a single stop function can take its place.
+ *
+ * - Each open task session of the channel (linked from one of its threads,
+ *   or whose parent conversation is the channel's) is stopped: its running
+ *   turn fails as cut off, its queued input is cancelled and its worker is
+ *   fenced out, so nothing it does after this is taken. One with a restore
+ *   point is paused for `emergency_stopped`, one already paused is marked
+ *   so; neither resumes, and no session takes input, while the stop holds.
+ *   It goes on only when a person resumes it and continues the turn.
+ * - Each running conversation turn there ends without a decision: its
+ *   permit takes no more provider calls and its lease is ended, so no
+ *   decision it reaches is recorded.
+ * - Each post to the channel not sent yet is cancelled, and every turn cut
+ *   off above is marked told in its threads, so its failure is never posted.
+ */
+export async function stopChannelWork(
+  tx: Database,
+  place: ChannelWorkPlace,
+  input: { now: Date; attempt: number },
+): Promise<EmergencyStopCounts> {
+  const counts: EmergencyStopCounts = { sessions: 0, turns: 0, posts: 0 };
+  const held = rowsOf<{ id: string }>(
+    await tx.execute(sql`
+      SELECT s.id::text AS id FROM sessions s
+      WHERE s.workspace_id = ${place.workspaceId}::uuid
+        AND s.admission_state NOT IN ('closing', 'closed', 'stopping', 'stopped')
+        AND (
+          s.id IN (
+            SELECT l.session_id FROM session_links l
+            WHERE l.installation_id = ${place.installationId}::uuid
+              AND l.channel_id = ${place.channelId}
+              AND l.agent_id = ${place.agentId}::uuid
+              AND l.session_id IS NOT NULL)
+          OR s.parent_conversation_id IN (
+            SELECT c.id FROM conversations c
+            WHERE c.workspace_id = ${place.workspaceId}::uuid
+              AND c.agent_id = ${place.agentId}::uuid
+              AND c.channel_id = ${place.channelId})
+        )
+      ORDER BY s.id`),
+  );
+  for (const { id } of held) {
+    const stopped = await stopSession(tx, id, input);
+    if (stopped.paused) counts.sessions += 1;
+    counts.turns += stopped.cut;
+  }
+  counts.turns += await stopConversationTurns(tx, place);
+  counts.posts += await cancelChannelPosts(tx, place);
+  return counts;
+}
+
+async function stopSession(
+  tx: Database,
+  sessionId: string,
+  input: { now: Date; attempt: number },
+): Promise<{ paused: boolean; cut: number }> {
+  const { now } = input;
+  const session = await lockSessionForControl(tx, {
+    sessionId,
+    attempt: input.attempt,
+  });
+  if (session === null) return { paused: false, cut: 0 };
+  const from = session.admissionState;
+  // Paused already: it stays so, under the stop, until the channel is on.
+  if (from === "paused") {
+    if (session.pauseReason !== EMERGENCY_STOPPED) {
+      await tx
+        .update(sessions)
+        .set({
+          revision: sql`${sessions.revision} + 1`,
+          pauseReason: EMERGENCY_STOPPED,
+          updatedAt: now,
+        })
+        .where(eq(sessions.id, session.id));
+    }
+    return { paused: false, cut: 0 };
+  }
+  // Only these run or are about to: recovery waits on an operator, and a
+  // legacy pod binding has no fence to stop it with.
+  if (from !== "active" && from !== "pausing" && from !== "resuming") {
+    return { paused: false, cut: 0 };
+  }
+  if (session.executionId === null && session.podId !== null) {
+    return { paused: false, cut: 0 };
+  }
+  // Queued input never runs, open questions close, the execution is told
+  // to stop and a pause or resume under way is superseded.
+  const { pendingKill } = await stopExecution(tx, session, {
+    now,
+    by: "emergency stop",
+  });
+  const cut = await cutRunningTurns(tx, session.id, now);
+  // A pause stands on a committed checkpoint (pauseBlocker), so one with
+  // none could never settle paused: it stays as it is, its run cut and
+  // fenced, and takes no input while the stop holds (emergencyStopHolds).
+  const pauses = hasRestorePoint(session);
+  const into = !pauses ? from : pendingKill ? "pausing" : "paused";
+  await tx
+    .update(sessions)
+    .set({
+      revision: sql`${sessions.revision} + 1`,
+      // Every request of the fenced worker is refused from now.
+      ...(pendingKill ? { leaseEpoch: sql`${sessions.leaseEpoch} + 1` } : {}),
+      ...(pauses
+        ? { admissionState: into, pauseReason: EMERGENCY_STOPPED }
+        : {}),
+      ...(cut.length > 0 ? { status: "idle" as const, lastTurnAt: now } : {}),
+      updatedAt: now,
+    })
+    .where(eq(sessions.id, session.id));
+  // The platform's pause, as a deleted source opens it: no person asked, so
+  // the receipt has no actor; it settles once the execution is seen gone.
+  if (pauses) {
+    await tx.insert(receipts).values({
+      id: randomUUID(),
+      ownerId: session.ownerId,
+      actor: null,
+      requestId: null,
+      operation: PAUSE,
+      targetRef: { session_id: session.id, turn_id: null, request_id: null },
+      status: pendingKill ? "accepted" : "succeeded",
+      result: pendingKill ? null : await pauseReceiptResult(tx, session),
+      createdAt: sql`clock_timestamp()`,
+      updatedAt: sql`clock_timestamp()`,
+    });
+  }
+  await recordStatus(tx, {
+    sessionId: session.id,
+    phase: publicStatus(
+      cut.length > 0 ? "idle" : session.status,
+      await awaitingInputAt(tx, session.id, await dbNow(tx)),
+    ),
+    extra: { admission_state: into, reason: EMERGENCY_STOPPED },
+    turnRowId: null,
+    now,
+  });
+  await recordEvent(tx, {
+    sessionId: session.id,
+    type: "system",
+    payload: {
+      type: "system",
+      subtype: EMERGENCY_STOPPED,
+      from_admission_state: from,
+      admission_state: into,
+      cut_turn_ids: cut.map((turn) => String(turn.sequence)),
+    },
+    turnRowId: null,
+    now,
+  });
+  return { paused: true, cut: cut.length };
+}
+
+/**
+ * The session's running turns end `failed` as cut off, as a lost lease ends
+ * them: what they did after the last checkpoint is for a person to check,
+ * and a person's [Continue] is the only way on from them.
+ */
+async function cutRunningTurns(
+  tx: Database,
+  sessionId: string,
+  now: Date,
+): Promise<{ id: number; sequence: number }[]> {
+  const cut = await tx
+    .update(turns)
+    .set({
+      status: "failed",
+      endedAt: now,
+      terminalReason: EMERGENCY_STOPPED,
+    })
+    .where(
+      and(
+        eq(turns.sessionId, sessionId),
+        inArray(turns.status, OPEN_TURN_STATUSES),
+      ),
+    )
+    .returning({ id: turns.id, sequence: turns.sequence });
+  if (cut.length === 0) return cut;
+  for (const turn of cut) {
+    await settleTurnInterrupts(tx, {
+      sessionId,
+      turnRowId: turn.id,
+      turnSequence: turn.sequence,
+      terminal: "failed",
+      terminalReason: EMERGENCY_STOPPED,
+      at: now,
+    });
+    // The turn left no state to push.
+    await settleTurnPushIntents(tx, {
+      turnRowId: turn.id,
+      completedRevision: null,
+    });
+  }
+  const ids = cut.map((turn) => turn.id);
+  await tx.delete(queueMessages).where(inArray(queueMessages.turnId, ids));
+  // `result` stays the acceptance response (receiptSchema.result).
+  await tx
+    .update(receipts)
+    .set({
+      status: "failed",
+      error: {
+        code: "SESSION_STOPPED",
+        message: "cut off by an emergency stop of its Slack channel",
+      },
+      updatedAt: now,
+    })
+    .where(
+      and(
+        inArray(receipts.operation, INPUT_RECEIPT_OPERATIONS),
+        eq(receipts.status, "accepted"),
+        sql`${receipts.targetRef}->>'session_id' = ${sessionId}`,
+        inArray(
+          sql`${receipts.targetRef}->>'turn_id'`,
+          cut.map((turn) => String(turn.sequence)),
+        ),
+      ),
+    );
+  // Told already in every thread of the session, so its failure is never
+  // posted there: the keys the turn's failure row would take.
+  await tx.execute(sql`
+    INSERT INTO slack_outbox (id, workspace_id, agent_id, slack_app_id,
+      installation_id, kind, channel_id, thread_ts, session_id,
+      session_link_id, body, dedupe_key, status, error_code, sources_turn)
+    SELECT gen_random_uuid(), l.workspace_id, l.agent_id, a.id,
+      l.installation_id, 'failure_notice', l.channel_id, l.thread_id,
+      l.session_id, l.id, '{"text":""}'::jsonb,
+      'failure:' || l.id || ':' || t.sequence, 'failed',
+      ${EMERGENCY_STOPPED}, t.sequence
+    FROM session_links l
+    JOIN turns t ON t.session_id = l.session_id
+    JOIN slack_installations i ON i.id = l.installation_id
+    JOIN slack_apps a ON a.app_id = i.app_id
+    WHERE l.session_id = ${sessionId}::uuid
+      AND t.id IN (${sql.join(
+        ids.map((id) => sql`${id}`),
+        sql`, `,
+      )})
+    ON CONFLICT (dedupe_key) DO NOTHING`);
+  return cut;
+}
+
+/**
+ * The agent's conversation turns in the channel end without a decision:
+ * one running (its permit takes no more provider calls), and one still
+ * waiting in the queue or leased to a runtime (it is never handed out or
+ * taken). The queue's lock first, as every queue change takes it, then
+ * each turn's permit before the turn, as a provider call and a turn's end
+ * take them.
+ */
+async function stopConversationTurns(
+  tx: Database,
+  place: ChannelWorkPlace,
+): Promise<number> {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext('conversation_turn_queue'))`,
+  );
+  const open = rowsOf<{ id: string }>(
+    await tx.execute(sql`
+      SELECT ct.id::text AS id FROM conversation_turns ct
+      JOIN conversations c ON c.id = ct.conversation_id
+      WHERE ct.workspace_id = ${place.workspaceId}::uuid
+        AND ct.agent_id = ${place.agentId}::uuid
+        AND c.channel_id = ${place.channelId}
+        AND (ct.state = 'running' OR EXISTS (
+          SELECT 1 FROM conversation_turn_queue q
+          WHERE q.turn_id = ct.id AND q.state IN ('queued', 'leased')))
+      ORDER BY ct.id`),
+  ).map((row) => row.id);
+  if (open.length === 0) return 0;
+  const ids = sql.join(
+    open.map((id) => sql`${id}::uuid`),
+    sql`, `,
+  );
+  await tx.execute(sql`
+    SELECT 1 FROM conversation_turn_permits
+    WHERE turn_id IN (${ids}) ORDER BY turn_id FOR UPDATE`);
+  const ended = rowsOf<{ id: string }>(
+    await tx.execute(sql`
+      UPDATE conversation_turns SET state = 'no_decision',
+        ended_at = clock_timestamp()
+      WHERE id IN (${ids}) AND state = 'running'
+      RETURNING id::text AS id`),
+  );
+  await tx.execute(sql`
+    UPDATE conversation_turn_permits
+    SET expires_at = LEAST(expires_at, clock_timestamp())
+    WHERE turn_id IN (${ids})`);
+  const dequeued = rowsOf<{ id: string }>(
+    await tx.execute(sql`
+    UPDATE conversation_turn_queue
+    SET state = 'ended',
+      outcome = ${JSON.stringify({ outcome: "failed", reason: EMERGENCY_STOPPED })}::jsonb,
+      ended_at = clock_timestamp(), turn_nonce = NULL, turn_ciphertext = NULL
+    WHERE turn_id IN (${ids}) AND state IN ('queued', 'leased')
+    RETURNING turn_id::text AS id`),
+  );
+  return new Set([...ended, ...dequeued].map((row) => row.id)).size;
+}
+
+/**
+ * Every post to the channel from the agent's install that has not gone yet,
+ * a progress message's next edit and a held row included, is cancelled. A
+ * send already under way is Slack's by now.
+ */
+async function cancelChannelPosts(
+  tx: Database,
+  place: ChannelWorkPlace,
+): Promise<number> {
+  const cancelled = rowsOf<{ input_id: string | null }>(
+    await tx.execute(sql`
+      UPDATE slack_outbox
+      SET status = 'failed', error_code = ${EMERGENCY_STOPPED},
+        claim_token = NULL, lease_expires_at = NULL
+      WHERE installation_id = ${place.installationId}::uuid
+        AND channel_id = ${place.channelId}
+        AND status = 'pending'
+      RETURNING input_id::text AS input_id`),
+  );
+  // A mirror cancelled here never reached Slack: what it held closes too,
+  // in id order, as every path that takes several inputs does.
+  for (const inputId of [
+    ...new Set(
+      cancelled.flatMap((row) => (row.input_id === null ? [] : [row.input_id])),
+    ),
+  ].sort()) {
+    await closeHeldOfFailedMirror(tx, inputId as ConversationInputId);
+  }
+  return cancelled.length;
+}
+
+/** The channel's one line that its agent was stopped, once per stop. */
+export async function enqueueEmergencyStopNotice(
+  tx: Database,
+  place: ChannelWorkPlace & { receiptId: string; text: string },
+): Promise<void> {
+  await tx.execute(sql`
+    INSERT INTO slack_outbox (id, workspace_id, agent_id, slack_app_id,
+      installation_id, kind, channel_id, thread_ts, body, dedupe_key)
+    SELECT ${randomUUID()}::uuid, ${place.workspaceId}::uuid,
+      ${place.agentId}::uuid, a.id, i.id, 'emergency_stop_notice',
+      ${place.channelId}, '', ${JSON.stringify({ text: place.text })}::jsonb,
+      ${`emergency-stop:${place.receiptId}`}
+    FROM slack_installations i
+    JOIN slack_apps a ON a.app_id = i.app_id
+    WHERE i.id = ${place.installationId}::uuid
+    ON CONFLICT (dedupe_key) DO NOTHING`);
+}

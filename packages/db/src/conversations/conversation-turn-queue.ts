@@ -44,7 +44,9 @@ function outcomeOf(stored: unknown): ConversationTurnOutcome {
     "outcome" in stored &&
     "reason" in stored &&
     stored.outcome === "failed" &&
-    (stored.reason === "not_taken" || stored.reason === "lease_expired") &&
+    (stored.reason === "not_taken" ||
+      stored.reason === "lease_expired" ||
+      stored.reason === "emergency_stopped") &&
     Object.keys(stored).length === 2
   ) {
     return { outcome: "failed", reason: stored.reason };

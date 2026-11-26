@@ -4104,3 +4104,117 @@ describe("M1 shadow records on the Slack tab (a1/S3)", () => {
     expect(api.calls.filter((call) => call.method === "PUT")).toHaveLength(1);
   });
 });
+
+describe("Slack emergency stop", () => {
+  const listed = () =>
+    json(200, {
+      items: [
+        { id: "C123", name: "general", is_private: true, is_member: true },
+      ],
+      next_cursor: null,
+      stale: false,
+      truncated: false,
+    });
+  test("asks why, refuses an empty reason, then stops and says only counts", async () => {
+    let row: typeof BINDING = { ...BINDING, surface_kind: "private_channel" };
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [row] }),
+      [`GET ${PATH}/slack/channels`]: listed,
+      [`POST ${PATH}/slack-bindings/${ID}/emergency-stop`]: async (
+        request: Request,
+      ) => {
+        const body = await request.json();
+        row = {
+          ...row,
+          mode: "off",
+          revision: 1,
+          emergency_stop: {
+            stopped_at: AT,
+            stopped_by: { user_id: USER_ID, name: "관리자" },
+            reason: body.reason,
+          },
+        };
+        return json(200, {
+          slack_binding: row,
+          stopped: { sessions: 2, turns: 3, posts: 1 },
+          receipt_id: ID,
+        });
+      },
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("button", { name: "#general에서 긴급 정지" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "#general에서 긴급 정지",
+    });
+    await user.click(within(dialog).getByRole("button", { name: "긴급 정지" }));
+    expect(within(dialog).getByText("이유를 입력하세요.")).toBeDefined();
+    expect(api.calls.filter((call) => call.method === "POST")).toEqual([]);
+    await user.type(within(dialog).getByLabelText("이유"), "  유출 의심  ");
+    await user.click(within(dialog).getByRole("button", { name: "긴급 정지" }));
+    expect(
+      await screen.findByText(
+        "#general: 세션 2개와 작업 3개를 멈추고, 보내지 않은 글 1개를 취소했습니다.",
+      ),
+    ).toBeDefined();
+    expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({
+      reason: "유출 의심",
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await screen.findByText("긴급 정지됨")).toBeDefined();
+    expect(
+      screen.queryByRole("button", { name: "#general에서 긴급 정지" }),
+    ).toBeNull();
+  });
+
+  test("turning a stopped channel on shows who stopped it and why, and asks a reason", async () => {
+    let row: typeof BINDING = {
+      ...BINDING,
+      mode: "off",
+      emergency_stop: {
+        stopped_at: AT,
+        stopped_by: { user_id: USER_ID, name: "관리자" },
+        reason: "유출 의심",
+      },
+    };
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [row] }),
+      [`GET ${PATH}/slack/channels`]: listed,
+      [`PUT ${PATH}/slack-bindings`]: async (request: Request) => {
+        const body = await request.json();
+        row = { ...row, mode: body.mode, emergency_stop: null };
+        return json(200, { slack_binding: row, receipt_id: ID });
+      },
+    });
+    const user = await setupUser();
+    await user.click(
+      await screen.findByRole("switch", { name: "#general에서 사용" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "#general 다시 켜기",
+    });
+    expect(dialog.textContent).toContain("관리자님이");
+    expect(dialog.textContent).toContain("이유: 유출 의심");
+    // Nothing is written by the switch itself.
+    expect(api.calls.filter((call) => call.method === "PUT")).toEqual([]);
+    await user.click(within(dialog).getByRole("button", { name: "다시 켜기" }));
+    expect(within(dialog).getByText("이유를 입력하세요.")).toBeDefined();
+    expect(api.calls.filter((call) => call.method === "PUT")).toEqual([]);
+    await user.type(within(dialog).getByLabelText("이유"), "확인 끝");
+    await user.click(within(dialog).getByRole("button", { name: "다시 켜기" }));
+    expect(
+      await screen.findByText("#general 사용을 다시 켰습니다."),
+    ).toBeDefined();
+    expect(api.calls.find((call) => call.method === "PUT")?.body).toEqual({
+      channel_id: "C123",
+      mode: "on",
+      home: true,
+      ceiling: BINDING.ceiling,
+      reason: "확인 끝",
+    });
+    await waitFor(() => expect(screen.queryByText("긴급 정지됨")).toBeNull());
+  });
+});

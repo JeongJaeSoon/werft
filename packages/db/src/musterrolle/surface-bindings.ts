@@ -10,6 +10,7 @@ import type {
   ChannelKindNow,
   ChannelScopeChange,
   ChannelSessionPlace,
+  EmergencyStopResult,
   Principal,
   ResolveSurfaceBindingInput,
   ResolveSurfaceBindingResult,
@@ -31,13 +32,21 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { findPgError, UUID } from "../control-shared.ts";
+import {
+  findPgError,
+  transactionWithBindingRetry,
+  UUID,
+} from "../control-shared.ts";
 import {
   deleteChannelSummary,
   dropUnlistenedBuffer,
   holdChannelSummary,
 } from "../conversations/index.ts";
-import { DB_NOW } from "../db-clock.ts";
+import { DB_NOW, dbNow } from "../db-clock.ts";
+import {
+  enqueueEmergencyStopNotice,
+  stopChannelWork,
+} from "../emergency-stop.ts";
 import type { Database } from "../queries.ts";
 import {
   agentIdentities,
@@ -85,16 +94,29 @@ const columns = {
   membershipState: surfaceBindings.membership,
   membershipError: surfaceBindings.membershipError,
   muted: surfaceBindings.muted,
+  emergencyStoppedAt: surfaceBindings.emergencyStoppedAt,
+  emergencyStoppedBy: surfaceBindings.emergencyStoppedBy,
+  emergencyStopReason: surfaceBindings.emergencyStopReason,
+  emergencyStoppedByName: sql<string | null>`(
+    SELECT u.display_name FROM users u
+    WHERE u.id = ${surfaceBindings.emergencyStoppedBy})`,
   revision: surfaceBindings.revision,
   createdAt: surfaceBindings.createdAt,
   revokedAt: surfaceBindings.revokedAt,
 };
 
-type Row = Omit<SurfaceBindingRecord, "ceiling" | "membership"> & {
+type Row = Omit<
+  SurfaceBindingRecord,
+  "ceiling" | "membership" | "emergencyStop"
+> & {
   ceilingActions: string[];
   ceilingDisclosure: SurfaceBindingRecord["ceiling"]["disclosure"];
   membershipState: SurfaceMembershipState | null;
   membershipError: string | null;
+  emergencyStoppedAt: Date | null;
+  emergencyStoppedBy: string | null;
+  emergencyStopReason: string | null;
+  emergencyStoppedByName: string | null;
 };
 
 function recordOf(row: Row): SurfaceBindingRecord {
@@ -103,10 +125,25 @@ function recordOf(row: Row): SurfaceBindingRecord {
     ceilingDisclosure,
     membershipState,
     membershipError,
+    emergencyStoppedAt,
+    emergencyStoppedBy,
+    emergencyStopReason,
+    emergencyStoppedByName,
     ...rest
   } = row;
   return {
     ...rest,
+    emergencyStop:
+      emergencyStoppedAt === null || emergencyStopReason === null
+        ? null
+        : {
+            stoppedAt: emergencyStoppedAt,
+            stoppedBy:
+              emergencyStoppedBy === null || emergencyStoppedByName === null
+                ? null
+                : { userId: emergencyStoppedBy, name: emergencyStoppedByName },
+            reason: emergencyStopReason,
+          },
     membership:
       membershipState === null
         ? null
@@ -139,7 +176,8 @@ function isLiveConflict(error: unknown): boolean {
 type ReceiptOperation =
   | "set_surface_binding"
   | "request_surface_binding"
-  | "resolve_surface_binding";
+  | "resolve_surface_binding"
+  | "emergency_stop_surface_binding";
 
 const installationActor = (installationId: string | null) => ({
   principal: { kind: "installation" as const, id: installationId ?? "" },
@@ -240,6 +278,9 @@ async function set(
           agentId: surfaceBindings.agentId,
           status: surfaceBindings.status,
           surfaceKind: surfaceBindings.surfaceKind,
+          emergencyStoppedAt: surfaceBindings.emergencyStoppedAt,
+          emergencyStoppedBy: surfaceBindings.emergencyStoppedBy,
+          emergencyStopReason: surfaceBindings.emergencyStopReason,
         })
         .from(surfaceBindings)
         .where(channelOf(installationId, input.channelId))
@@ -266,6 +307,13 @@ async function set(
       const startsWaiting = waits && current?.status !== "pending_approval";
       if ((waits || isGone || (isLeft && !reopens)) && input.home) {
         return { outcome: "pending_home" };
+      }
+      // Turned on again after an emergency stop: the stop ends here, and why
+      // it does is said, as why it began was.
+      const endsStop =
+        current?.emergencyStoppedAt != null && input.mode === "on";
+      if (endsStop && input.reason === undefined) {
+        return { outcome: "reason_required" };
       }
       if (input.home) {
         await tx
@@ -297,6 +345,13 @@ async function set(
         ceilingDisclosure: input.ceiling.disclosure,
         ...(waits ? { status: "pending_approval" as const } : {}),
         ...(reopens ? { status: "ready" as const } : {}),
+        ...(endsStop
+          ? {
+              emergencyStoppedAt: null,
+              emergencyStoppedBy: null,
+              emergencyStopReason: null,
+            }
+          : {}),
         updatedAt: DB_NOW,
       };
       const id = current?.id ?? randomUUID();
@@ -327,7 +382,22 @@ async function set(
         .where(eq(surfaceBindings.id, id));
       if (!row) throw new Error(`surface binding ${id} vanished in its tx`);
       const binding = recordOf(row);
-      const receiptId = await writeReceipt(tx, input.principal, binding);
+      const receiptId = await writeReceipt(
+        tx,
+        input.principal,
+        binding,
+        "set_surface_binding",
+        endsStop && current
+          ? {
+              reason: input.reason,
+              emergency_stop_ended: {
+                stopped_at: current.emergencyStoppedAt?.toISOString(),
+                stopped_by_user_id: current.emergencyStoppedBy,
+                reason: current.emergencyStopReason,
+              },
+            }
+          : {},
+      );
       // A channel saved as off, listening to less, or waiting for approval
       // holds no unmentioned message from now on.
       const droppedBuffered =
@@ -353,11 +423,113 @@ async function set(
   }
 }
 
+async function emergencyStop(
+  db: Database,
+  input: Parameters<SurfaceBindingStore["emergencyStop"]>[0],
+): Promise<EmergencyStopResult> {
+  const { workspaceId } = input;
+  if (!UUID.test(input.agentId) || !UUID.test(input.bindingId)) {
+    return { outcome: "not_found" };
+  }
+  const agentId = input.agentId.toLowerCase();
+  const bindingId = input.bindingId.toLowerCase();
+  const live = and(
+    eq(surfaceBindings.id, bindingId),
+    eq(surfaceBindings.workspaceId, workspaceId),
+    eq(surfaceBindings.agentId, agentId),
+    isNull(surfaceBindings.revokedAt),
+  );
+  return transactionWithBindingRetry(db, async (tx, attempt) => {
+    const right = await callerHoldsRight(
+      tx,
+      input.principal,
+      workspaceId,
+      agentId,
+      input.managerRoles,
+    );
+    if ("outcome" in right) return right;
+    const [agent] = await tx
+      .select({ status: agents.status })
+      .from(agents)
+      .where(and(eq(agents.id, agentId), eq(agents.workspaceId, workspaceId)))
+      .limit(1)
+      .for("key share");
+    if (!agent || agent.status === "archived") return { outcome: "not_found" };
+    const [peek] = await tx
+      .select({
+        installationId: surfaceBindings.installationId,
+        channelId: surfaceBindings.externalSurfaceId,
+      })
+      .from(surfaceBindings)
+      .where(live)
+      .limit(1);
+    if (!peek) return { outcome: "not_found" };
+    if (peek.installationId === null || peek.channelId === null) {
+      return { outcome: "not_channel" };
+    }
+    // As a change of the channel's kind takes them: the channel, then its
+    // binding, then its sessions.
+    await lockChannelKind(tx, peek.installationId, peek.channelId);
+    const [found] = await tx
+      .select(columns)
+      .from(surfaceBindings)
+      .where(live)
+      .limit(1)
+      .for("update");
+    if (!found) return { outcome: "not_found" };
+    const current = recordOf(found);
+    const { installationId, channelId } = current;
+    if (installationId === null || channelId === null) {
+      return { outcome: "not_channel" };
+    }
+    if (current.emergencyStop != null) return { outcome: "already_stopped" };
+    const place = { workspaceId, agentId, installationId, channelId };
+    const stopped = await stopChannelWork(tx, place, {
+      now: await dbNow(tx),
+      attempt,
+    });
+    await tx
+      .update(surfaceBindings)
+      .set({
+        mode: "off",
+        emergencyStoppedAt: DB_NOW,
+        emergencyStoppedBy: right.userId,
+        emergencyStopReason: input.reason,
+        revision: sql`${surfaceBindings.revision} + 1`,
+        updatedAt: DB_NOW,
+      })
+      .where(eq(surfaceBindings.id, current.id));
+    const [after] = await tx
+      .select(columns)
+      .from(surfaceBindings)
+      .where(eq(surfaceBindings.id, current.id));
+    if (!after)
+      throw new Error(`surface binding ${current.id} vanished in its tx`);
+    const binding = recordOf(after);
+    // An off channel holds no unmentioned message from now on.
+    await dropUnlistenedBuffer(tx, { agentId, channelId });
+    const receiptId = await writeReceipt(
+      tx,
+      input.principal,
+      binding,
+      "emergency_stop_surface_binding",
+      { reason: input.reason, stopped },
+    );
+    await enqueueEmergencyStopNotice(tx, {
+      ...place,
+      receiptId,
+      text: input.text,
+    });
+    return { outcome: "stopped", binding, receiptId, stopped };
+  });
+}
+
 export function createPostgresSurfaceBindingStore(
   db: Database,
 ): SurfaceBindingStore {
   return {
     set: (input) => set(db, input),
+    emergencyStop: (input) => emergencyStop(db, input),
     async list(workspaceId, agentId, limit) {
       if (!UUID.test(agentId) || !UUID.test(workspaceId)) return [];
       const rows = await db

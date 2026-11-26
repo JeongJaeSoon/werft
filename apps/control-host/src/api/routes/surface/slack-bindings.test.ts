@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_SURFACE_CEILING,
+  emergencyStopSlackBindingResponseSchema,
   listSlackBindingsResponseSchema,
   putSlackBindingResponseSchema,
   REQUEST_BODY_MAX_BYTES,
@@ -323,6 +324,125 @@ describe("GET /v1/agents/{id}/slack-bindings", () => {
       (
         await app({ listSlackBindings: outage }).request(path, {
           headers: owner,
+        })
+      ).status,
+    ).toBe(503);
+  });
+});
+
+describe("POST /v1/agents/{id}/slack-bindings/{binding_id}/emergency-stop", () => {
+  const stop = (
+    api: ReturnType<typeof app>,
+    body: unknown,
+    path = `/v1/agents/${AGENT}/slack-bindings/${BINDING}/emergency-stop`,
+  ) =>
+    api.request(path, {
+      method: "POST",
+      headers: owner,
+      body: JSON.stringify(body),
+    });
+
+  test("stops with the trimmed reason and answers the counts, no channel content", async () => {
+    let asked: unknown;
+    const stopped = {
+      slack_binding: {
+        ...VIEW,
+        mode: "off" as const,
+        emergency_stop: {
+          stopped_at: "2026-11-26T00:00:00.000Z",
+          stopped_by: { user_id: WORKSPACE, name: "admin" },
+          reason: "leak",
+        },
+      },
+      stopped: { sessions: 2, turns: 3, posts: 1 },
+      receipt_id: RECEIPT,
+    };
+    const response = await stop(
+      app({
+        emergencyStopSlackBinding: async (
+          _caller,
+          agentId,
+          bindingId,
+          body,
+        ) => {
+          asked = { agentId, bindingId, body };
+          return stopped;
+        },
+      }),
+      { reason: "  leak  " },
+    );
+    expect(response.status).toBe(200);
+    expect(
+      emergencyStopSlackBindingResponseSchema.parse(await response.json()),
+    ).toEqual(stopped);
+    expect(asked).toEqual({
+      agentId: AGENT,
+      bindingId: BINDING,
+      body: { reason: "leak" },
+    });
+  });
+
+  test("an empty, blank, missing or long reason, or a bad id, never reaches the service", async () => {
+    const untouched = app({});
+    for (const body of [
+      {},
+      { reason: "" },
+      { reason: "   " },
+      { reason: "x".repeat(501) },
+      { reason: "leak", extra: true },
+    ]) {
+      expect((await stop(untouched, body)).status).toBe(400);
+    }
+    expect(
+      (
+        await stop(
+          untouched,
+          { reason: "leak" },
+          `/v1/agents/${AGENT}/slack-bindings/not-a-binding/emergency-stop`,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await stop(untouched, {
+          reason: "leak",
+          pad: "x".repeat(REQUEST_BODY_MAX_BYTES),
+        })
+      ).status,
+    ).toBe(413);
+  });
+
+  test("each refusal keeps its code and status", async () => {
+    const cases: [SessionServiceError, number][] = [
+      [
+        new SessionServiceError("FORBIDDEN", "no", undefined, {
+          reason_code: "role",
+        }),
+        403,
+      ],
+      [new SessionServiceError("NOT_FOUND", "Resource not found"), 404],
+      [new SessionServiceError("BAD_REQUEST", "DM"), 400],
+      [new SessionServiceError("REVISION_CONFLICT", "이미 멈췄어요"), 409],
+    ];
+    for (const [error, status] of cases) {
+      const response = await stop(
+        app({
+          emergencyStopSlackBinding: async () => {
+            throw error;
+          },
+        }),
+        { reason: "leak" },
+      );
+      expect(response.status).toBe(status);
+      expect(await errorOf(response)).toMatchObject({
+        code: error.code,
+        message: error.message,
+      });
+    }
+    expect(
+      (
+        await stop(app({ emergencyStopSlackBinding: outage }), {
+          reason: "leak",
         })
       ).status,
     ).toBe(503);

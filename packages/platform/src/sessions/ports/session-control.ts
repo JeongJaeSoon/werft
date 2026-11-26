@@ -152,6 +152,8 @@ export type ResumeSessionResult =
   // GC has claimed the stopped session's workspace and not yet settled the
   // removal; the same request succeeds once it has.
   | { outcome: "workspace_reclaiming" }
+  // Its Slack channel is emergency-stopped until it is turned on again.
+  | { outcome: "emergency_stopped" }
   // The spec pin is authoritative and the session has no release or no pin
   // on its own model, so it cannot go live again; retrying changes nothing.
   | { outcome: "pin_required" }

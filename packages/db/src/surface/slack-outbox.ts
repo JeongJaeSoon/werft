@@ -284,6 +284,15 @@ const addressed = (
   )
   -- A channel notice waits on its channel instead: claim holds it.
   AND (${row}.kind = 'channel_notice' OR ${channelNotWaiting(row)})
+  -- A channel whose agent was stopped in an emergency takes nothing from it
+  -- but the line that says so, until it is turned on again.
+  AND (${row}.kind = 'emergency_stop_notice' OR NOT EXISTS (
+    SELECT 1 FROM surface_bindings b
+    WHERE b.installation_id = ${row}.installation_id
+      AND b.external_surface_id = ${row}.channel_id
+      AND b.revoked_at IS NULL
+      AND b.emergency_stopped_at IS NOT NULL
+  ))
   AND (${row}.kind <> 'channel_notice' OR ${channelNoticeCurrent(row, noticeVersions)})
   AND (${row}.session_id IS NULL OR EXISTS (
     SELECT 1 FROM session_links l

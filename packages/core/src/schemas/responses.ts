@@ -49,6 +49,7 @@ import {
   discoverLoginProviderResponseSchema,
   discoverWorkspaceMcpServerResponseSchema,
   dispatchWorkflowResponseSchema,
+  emergencyStopSlackBindingResponseSchema,
   envVariableListSchema,
   exportSettingsResponseSchema,
   getGitHubAppResponseSchema,
@@ -492,6 +493,8 @@ export const responseSchemas = {
     resolveSlackBindingResponseSchema,
   "POST /v1/agents/{id}/slack-bindings/{binding_id}/reject":
     resolveSlackBindingResponseSchema,
+  "POST /v1/agents/{id}/slack-bindings/{binding_id}/emergency-stop":
+    emergencyStopSlackBindingResponseSchema,
   "GET /v1/agents/{id}/slack/channels": searchSlackChannelsResponseSchema,
   "GET /v1/api-keys": listApiKeysResponseSchema,
   "POST /v1/api-keys": createApiKeyResponseSchema,

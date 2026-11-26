@@ -63,6 +63,7 @@ import {
   RUNTIME_RETIRED_REASON,
 } from "./sessions/restore-failures.ts";
 import { recordEvent, recordStatus } from "./sessions/session-events.ts";
+import { emergencyStopHolds } from "./surface/emergency-stop-hold.ts";
 
 const RECOVERY_DECISION = "recovery_decision";
 // Control receipts a close supersedes: whichever of these is still open
@@ -879,6 +880,11 @@ export function resumeAtomic(
     }
     // Stopped for a deleted source: nothing brings it back, close ends it.
     if (session.sourceDeletedAt !== null) return { outcome: "source_deleted" };
+    // An admin stopped the agent in the session's channel: only turning the
+    // channel on again lets it go on.
+    if (await emergencyStopHolds(tx, sessionId)) {
+      return { outcome: "emergency_stopped" };
+    }
     // stopping: the kill is not yet observed. recovery_required: a turn is
     // unknown. Both are RECOVERY_REQUIRED to the caller.
     if (

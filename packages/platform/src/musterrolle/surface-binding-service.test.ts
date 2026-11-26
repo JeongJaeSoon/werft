@@ -52,6 +52,7 @@ function service(
   const actions: string[] = [];
   const stored: SurfaceChannelKind[] = [];
   const store: SurfaceBindingStore = {
+    emergencyStop: async () => ({ outcome: "not_found" }),
     async set(input) {
       stored.push(input.channelKind);
       return {

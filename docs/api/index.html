@@ -4470,6 +4470,11 @@
               "disclosure"
             ],
             "additionalProperties": false
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
           }
         },
         "required": [
@@ -4489,6 +4494,20 @@
         },
         "required": [
           "revision"
+        ],
+        "additionalProperties": false
+      },
+      "EmergencyStopSlackBindingRequest": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "reason"
         ],
         "additionalProperties": false
       },
@@ -5353,7 +5372,7 @@
           },
           "last_turn_cut_off": {
             "default": false,
-            "description": "True when the session's last turn failed because its worker lost the session partway (`terminal_reason: worker_ownership_lost`): no turn follows it yet. The session goes on from its last checkpoint with its next input or `POST /v1/sessions/{id}/turns/{turn_id}/continue`. The console shows an `idle` session with this set as cut off. False otherwise, and from a server older than the field.",
+            "description": "True when the session's last turn was cut off partway: its worker lost the session (`terminal_reason: worker_ownership_lost`), or an admin emergency-stopped the agent in its Slack channel (`emergency_stopped`). No turn follows it yet. The session goes on from its last checkpoint with its next input or `POST /v1/sessions/{id}/turns/{turn_id}/continue`. The console shows an `idle` session with this set as cut off. False otherwise, and from a server older than the field.",
             "type": "boolean"
           },
           "last_event_at": {
@@ -5950,7 +5969,7 @@
           },
           "last_turn_cut_off": {
             "default": false,
-            "description": "True when the session's last turn failed because its worker lost the session partway (`terminal_reason: worker_ownership_lost`): no turn follows it yet. The session goes on from its last checkpoint with its next input or `POST /v1/sessions/{id}/turns/{turn_id}/continue`. The console shows an `idle` session with this set as cut off. False otherwise, and from a server older than the field.",
+            "description": "True when the session's last turn was cut off partway: its worker lost the session (`terminal_reason: worker_ownership_lost`), or an admin emergency-stopped the agent in its Slack channel (`emergency_stopped`). No turn follows it yet. The session goes on from its last checkpoint with its next input or `POST /v1/sessions/{id}/turns/{turn_id}/continue`. The console shows an `idle` session with this set as cut off. False otherwise, and from a server older than the field.",
             "type": "boolean"
           },
           "last_event_at": {
@@ -6070,12 +6089,13 @@
             ]
           },
           "pause_reason": {
-            "description": "Why the platform paused the session: `awaiting_input` while it is `pausing` or `paused` because its turn was parked on requests nobody answered. Null for a pause someone asked for, including one that took a park over, and for every other admission state. Absent from a server older than the field.",
+            "description": "Why the platform paused the session: `awaiting_input` while it is `pausing` or `paused` because its turn was parked on requests nobody answered; `emergency_stopped` when its Slack channel's agent was stopped in an emergency (it resumes only once the channel is on again). Null for a pause someone asked for, including one that took a park over, and for every other admission state. Absent from a server older than the field.",
             "anyOf": [
               {
                 "type": "string",
                 "enum": [
-                  "awaiting_input"
+                  "awaiting_input",
+                  "emergency_stopped"
                 ]
               },
               {
@@ -14478,7 +14498,8 @@
               "approve_slack_notice",
               "revoke_slack_notice",
               "resolve_unknown_budget",
-              "set_conversation_rollout"
+              "set_conversation_rollout",
+              "emergency_stop_surface_binding"
             ]
           },
           "target_ref": {
@@ -37626,6 +37647,57 @@
                 "muted": {
                   "type": "boolean"
                 },
+                "emergency_stop": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "stopped_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        },
+                        "stopped_by": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "user_id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "name": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "user_id",
+                                "name"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "reason": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "stopped_at",
+                        "stopped_by",
+                        "reason"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "revision": {
                   "type": "integer",
                   "minimum": 0,
@@ -38390,6 +38462,57 @@
               "muted": {
                 "type": "boolean"
               },
+              "emergency_stop": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "stopped_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "stopped_by": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "user_id": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "user_id",
+                              "name"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "stopped_at",
+                      "stopped_by",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "type": "integer",
                 "minimum": 0,
@@ -38641,6 +38764,57 @@
               "muted": {
                 "type": "boolean"
               },
+              "emergency_stop": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "stopped_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "stopped_by": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "user_id": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "user_id",
+                              "name"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "stopped_at",
+                      "stopped_by",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "revision": {
                 "type": "integer",
                 "minimum": 0,
@@ -38702,6 +38876,330 @@
         },
         "required": [
           "slack_binding",
+          "receipt_id"
+        ],
+        "additionalProperties": false
+      },
+      "EmergencyStopSlackBindingResponse": {
+        "type": "object",
+        "properties": {
+          "slack_binding": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "workspace_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "owner_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "surface": {
+                "type": "string",
+                "enum": [
+                  "web",
+                  "slack",
+                  "api"
+                ]
+              },
+              "installation_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "external_surface_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "surface_kind": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "public_channel",
+                      "private_channel",
+                      "dm"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "agent_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "on"
+                ]
+              },
+              "listen": {
+                "type": "string",
+                "enum": [
+                  "free",
+                  "mention",
+                  "off"
+                ]
+              },
+              "m1_judgments_per_hour": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 60
+              },
+              "ceiling": {
+                "type": "object",
+                "properties": {
+                  "actions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "session.read",
+                        "session.submit",
+                        "session.control",
+                        "session.approve"
+                      ]
+                    }
+                  },
+                  "disclosure": {
+                    "type": "string",
+                    "enum": [
+                      "full",
+                      "summary"
+                    ]
+                  }
+                },
+                "required": [
+                  "actions",
+                  "disclosure"
+                ],
+                "additionalProperties": false
+              },
+              "home": {
+                "type": "boolean"
+              },
+              "memory_write_policy": {
+                "type": "string",
+                "enum": [
+                  "deny",
+                  "allow_explicit"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ready",
+                  "pending_approval",
+                  "left",
+                  "gone",
+                  "partial",
+                  "failed",
+                  "revoked"
+                ]
+              },
+              "approved_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "membership": {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "joined",
+                      "awaiting_invite",
+                      "config_error",
+                      "join_failed"
+                    ]
+                  },
+                  "error": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[a-z_]{1,64}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "state",
+                  "error"
+                ],
+                "additionalProperties": false
+              },
+              "muted": {
+                "type": "boolean"
+              },
+              "emergency_stop": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "stopped_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "stopped_by": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "user_id": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "user_id",
+                              "name"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "stopped_at",
+                      "stopped_by",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "revoked_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "workspace_id",
+              "owner_id",
+              "surface",
+              "installation_id",
+              "external_surface_id",
+              "surface_kind",
+              "agent_id",
+              "mode",
+              "listen",
+              "m1_judgments_per_hour",
+              "ceiling",
+              "home",
+              "memory_write_policy",
+              "status",
+              "muted",
+              "revision",
+              "created_at",
+              "revoked_at"
+            ],
+            "additionalProperties": false
+          },
+          "stopped": {
+            "type": "object",
+            "properties": {
+              "sessions": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "turns": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "posts": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "sessions",
+              "turns",
+              "posts"
+            ],
+            "additionalProperties": false
+          },
+          "receipt_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "slack_binding",
+          "stopped",
           "receipt_id"
         ],
         "additionalProperties": false
@@ -93559,7 +94057,7 @@
           "Agents"
         ],
         "summary": "Set how the agent answers in one Slack channel or its DMs",
-        "description": "Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `on` (in use; the agent's `mention_only` setting says whether it also answers a top-level message without a mention). `m1_judgments_per_hour` (1 to 60) is how many M1 judgments the channel may have in an hour; a missing one keeps the channel's, and a new channel starts at 12. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. A binding that is `left` stays `left` when saved for its private channel (its `mode` and `ceiling` are edited, `home: true` answers 400); saved for a channel Slack now calls public, it is `ready` again. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `on` (in use; the agent's `mention_only` setting says whether it also answers a top-level message without a mention). `m1_judgments_per_hour` (1 to 60) is how many M1 judgments the channel may have in an hour; a missing one keeps the channel's, and a new channel starts at 12. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. A binding that is `left` stays `left` when saved for its private channel (its `mode` and `ceiling` are edited, `home: true` answers 400); saved for a channel Slack now calls public, it is `ready` again. A channel under an emergency stop (`emergency_stop` set) stays `off` until a save sets `mode` `on` with a `reason` (400 without one); that save ends the stop, and its receipt keeps the reason and the stop it ended. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -95057,6 +95555,416 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ResolveSlackBindingResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REVISION_CONFLICT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "- `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "PAYLOAD_TOO_LARGE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agents/{id}/slack-bindings/{binding_id}/emergency-stop": {
+      "post": {
+        "operationId": "emergencyStopSlackBinding",
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Stop the agent in one Slack channel at once",
+        "description": "For whoever may set the channel, in it or not: the binding goes `off` and records who stopped it, when and the `reason` (required; empty or blank answers 400). In the same transaction every open task session of the channel is stopped: its running turn ends `failed` with `terminal_reason` `emergency_stopped`, its queued input is cancelled and its worker is fenced out at once. One with a committed checkpoint is paused with `pause_reason` `emergency_stopped`; while the stop holds no session of the channel takes a message or a resume (403 FORBIDDEN). Every conversation turn there, running or waiting in the queue, ends without a decision, every post to the channel not yet sent is cancelled (a progress message's next edit included), and the channel is told \"관리자가 이 에이전트를 멈췄어요\" in one post: nothing else goes to it until a save sets it `on` again with a reason (PUT /v1/agents/{id}/slack-bindings). A paused session resumes only after that, when a person resumes it; its cut-off turn goes on only from its [Continue] (POST /v1/sessions/{id}/turns/{turn_id}/continue), never by itself. The answer is the binding and the counts of sessions, turns and posts stopped: nothing written in the channel or its sessions. The DM binding answers 400; a channel stopped already answers 409 REVISION_CONFLICT. Owners, admins and the agent's admins; API keys are refused. Writes an `emergency_stop_surface_binding` receipt with the reason and the counts.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The agent's id.",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "binding_id",
+            "in": "path",
+            "required": true,
+            "description": "The Slack binding's id.",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `werft-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "werft-web"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "reason": "A customer's data may be leaking here"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/EmergencyStopSlackBindingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The binding, now off and stopped, and what the stop ended there.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "slack_binding": {
+                    "id": "019a0000-0000-7000-8000-0000000000d1",
+                    "workspace_id": "019a0000-0000-7000-8000-0000000000f1",
+                    "owner_id": "019a0000-0000-7000-8000-0000000000f1",
+                    "surface": "slack",
+                    "installation_id": "019a0000-0000-7000-8000-0000000000c1",
+                    "external_surface_id": "C0OPS",
+                    "surface_kind": "private_channel",
+                    "agent_id": "019a0000-0000-7000-8000-0000000000b1",
+                    "mode": "off",
+                    "listen": "free",
+                    "m1_judgments_per_hour": 12,
+                    "ceiling": {
+                      "actions": [
+                        "session.read",
+                        "session.submit"
+                      ],
+                      "disclosure": "summary"
+                    },
+                    "home": false,
+                    "memory_write_policy": "deny",
+                    "status": "ready",
+                    "muted": false,
+                    "revision": 4,
+                    "created_at": "2026-10-23T00:00:00.000Z",
+                    "revoked_at": null,
+                    "emergency_stop": {
+                      "stopped_at": "2026-11-26T09:00:00.000Z",
+                      "stopped_by": {
+                        "user_id": "019a0000-0000-7000-8000-0000000000a1",
+                        "name": "Workspace admin"
+                      },
+                      "reason": "A customer's data may be leaking here"
+                    }
+                  },
+                  "stopped": {
+                    "sessions": 2,
+                    "turns": 3,
+                    "posts": 1
+                  },
+                  "receipt_id": "019a0000-0000-7000-8000-0000000000e1"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/EmergencyStopSlackBindingResponse"
                 }
               }
             }

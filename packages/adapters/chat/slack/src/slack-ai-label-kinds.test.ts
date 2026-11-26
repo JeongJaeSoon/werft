@@ -28,6 +28,7 @@ const LINE: Partial<Record<SurfaceOutboxKind, boolean>> = {
   channel_notice: true,
   progress: true,
   conversation_reply: true,
+  emergency_stop_notice: true,
   // A person's own words under their name.
   instruction: false,
   input_mirror: false,
