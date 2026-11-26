@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { focusManager } from "@tanstack/react-query";
 import {
   type AuditEvent,
@@ -6,6 +6,7 @@ import {
   AUDIT_EXPORT_MEDIA_TYPE as CONTRACT_MEDIA_TYPE,
 } from "@werft-ai/contracts";
 import { setupUser } from "@werft-ai/ui/test-support/dom";
+import { auditLogEn, auditLogJa, auditLogKo } from "../i18n/audit-log.ts";
 import { apiError, json, me, USER_ID } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
 
@@ -470,6 +471,14 @@ describe("설정 › 감사 기록", () => {
       return "blob:test";
     };
     URL.revokeObjectURL = () => {};
+    const names: string[] = [];
+    // The link is never attached, so the click is caught on the prototype.
+    const click = spyOn(
+      HTMLAnchorElement.prototype,
+      "click",
+    ).mockImplementation(function (this: HTMLAnchorElement) {
+      names.push(this.download);
+    });
     try {
       const { api } = renderAt(
         PAGE,
@@ -482,8 +491,13 @@ describe("설정 › 감사 기록", () => {
         ),
       );
       await table();
-      const button = () =>
-        screen.getByRole("button", { name: "내보내기 (NDJSON)" });
+      const button = () => screen.getByRole("button", { name: "내보내기" });
+      // One height across the toolbar.
+      const tall = "h-[var(--werft-control-height)]";
+      expect(screen.getByRole("button", { name: "필터" }).className).toContain(
+        tall,
+      );
+      expect(button().className).toContain(tall);
 
       await user.click(button());
       expect(
@@ -499,6 +513,7 @@ describe("설정 › 감사 기록", () => {
 
       const resume = () =>
         screen.getByRole("button", { name: "이어서 내보내기" });
+      expect(resume().className).toContain(tall);
       await user.click(resume());
       expect(
         await screen.findByText(
@@ -511,6 +526,10 @@ describe("설정 › 감사 기록", () => {
       await user.click(resume());
       expect(await screen.findByText("1행을 내보냈습니다.")).toBeTruthy();
       expect(saved.length).toBe(2);
+      expect(names).toHaveLength(2);
+      for (const name of names) {
+        expect(name).toMatch(/^audit-log-[\dT-]+\.ndjson$/);
+      }
       const resumed = api.calls
         .filter((call) => call.headers.get("accept") === CONTRACT_MEDIA_TYPE)
         .map((call) => new URLSearchParams(call.search).get("cursor"));
@@ -521,6 +540,7 @@ describe("설정 › 감사 기록", () => {
     } finally {
       URL.createObjectURL = create;
       URL.revokeObjectURL = revoke;
+      click.mockRestore();
     }
   });
 
@@ -548,9 +568,7 @@ describe("설정 › 감사 기록", () => {
         }),
       );
       await table();
-      await user.click(
-        screen.getByRole("button", { name: "내보내기 (NDJSON)" }),
-      );
+      await user.click(screen.getByRole("button", { name: "내보내기" }));
       await screen.findByRole("button", { name: "내보내는 중…" });
       history.push("/settings/workspace/achievement-rules");
       await screen.findByRole("heading", { level: 1, name: "성과 규칙" });
@@ -616,7 +634,7 @@ describe("설정 › 감사 기록", () => {
       ),
     );
     await table();
-    await user.click(screen.getByRole("button", { name: "내보내기 (NDJSON)" }));
+    await user.click(screen.getByRole("button", { name: "내보내기" }));
     expect(
       await screen.findByText(/다른 내보내기가 진행 중입니다/),
     ).toBeTruthy();
@@ -665,6 +683,14 @@ describe("exportEnd", () => {
       kind: "decision",
       actor_user_id: MEMBER_ID,
     });
+  });
+
+  test("the export label names no format in any language", () => {
+    expect(
+      [auditLogKo, auditLogEn, auditLogJa].map(
+        (words) => words["auditLog.export"],
+      ),
+    ).toEqual(["내보내기", "Export", "エクスポート"]);
   });
 
   test("the copies are the contract's", () => {
