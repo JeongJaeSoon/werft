@@ -9,13 +9,13 @@ import type {
   DeliveryInput,
   DeliveryOutcome,
   Notifiable,
+  SurfaceAiLabel,
   SurfaceOutboxBegun,
   SurfaceOutboxClaim,
   SurfaceOutboxPostedAs,
   SurfaceOutboxSettle,
 } from "@werft-ai/platform";
 import { SURFACE_PROGRESS_STOPPED_CODE } from "@werft-ai/platform";
-import { slackAiLabelMrkdwn } from "./slack-ai-label.ts";
 import {
   SlackApiError,
   type SlackBotSender,
@@ -27,7 +27,9 @@ import {
   type SlackTextGuard,
   sessionUrl,
   slackAgentSender,
+  slackAiLabelSuffix,
   slackInstructionFallbackText,
+  slackOutboxAiLabel,
   slackOutboxGuard,
   slackOutboxPresentation,
   slackOutboxText,
@@ -182,6 +184,15 @@ const editRefusal = (response: SlackSendResponse) => {
   return null;
 };
 
+// Slack took nothing: it refused the blocks themselves.
+const blocksRefused = (response: SlackSendResponse) => {
+  const error =
+    typeof response.body === "object" && response.body !== null
+      ? (response.body as { error?: unknown }).error
+      : undefined;
+  return error === "invalid_blocks" || error === "msg_blocks_too_long";
+};
+
 // Nothing but formatting marks left: Slack would show an empty message.
 const isBlank = (text: string) => /^[\s*_~`>#|-]*$/.test(text);
 
@@ -204,13 +215,14 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     iconUrl: string | null,
     guard: SlackTextGuard,
     postedAs: SurfaceOutboxPostedAs | null,
+    label: SurfaceAiLabel | undefined,
   ) => {
     const target = {
       channelId: claim.channelId,
       threadTs: claim.threadTs,
       text,
     };
-    const presentation = slackOutboxPresentation(claim, guard);
+    const presentation = slackOutboxPresentation(claim, guard, label);
     if (presentation.kind !== "instruction") {
       // The agent's own row goes under its name, and a task's under its
       // title too. Slack posted nothing when it refused the name to an app
@@ -233,13 +245,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
       if (!presentation.fallback) return response;
       // Slack posted nothing when it refused the blocks (an app or workspace
       // without table support); the same reply goes once more as plain text.
-      const error =
-        typeof response.body === "object" && response.body !== null
-          ? (response.body as { error?: unknown }).error
-          : undefined;
-      return error === "invalid_blocks" || error === "msg_blocks_too_long"
-        ? post(target)
-        : response;
+      return blocksRefused(response) ? post(target) : response;
     }
     const { sender } = presentation;
     // A mirror's post names its request, so the post Slack sends back can.
@@ -283,21 +289,62 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     guard: SlackTextGuard,
     postedAs: SurfaceOutboxPostedAs,
     progress: { ts: string; reposted: boolean },
+    label: SurfaceAiLabel | undefined,
   ): Promise<SlackSendResponse | "stopped"> => {
-    if (deps.slack.editMessage === undefined) return "stopped";
-    const presentation = slackOutboxPresentation(claim, guard);
-    const edited = await deps.slack.editMessage(botToken, {
-      channelId: claim.channelId,
-      ts: progress.ts,
-      text,
-      ...(presentation.kind === "blocks"
-        ? { blocks: presentation.blocks }
-        : {}),
-    });
+    const { editMessage } = deps.slack;
+    if (editMessage === undefined) return "stopped";
+    const presentation = slackOutboxPresentation(claim, guard, label);
+    const edit = (blocks: unknown[] | undefined) =>
+      editMessage.call(deps.slack, botToken, {
+        channelId: claim.channelId,
+        ts: progress.ts,
+        text,
+        ...(blocks === undefined ? {} : { blocks }),
+      });
+    // An empty list takes an earlier update's blocks off a labelled post.
+    const textOnly = label === undefined ? undefined : [];
+    let edited = await edit(
+      presentation.kind === "blocks" ? presentation.blocks : textOnly,
+    );
+    if (
+      presentation.kind === "blocks" &&
+      presentation.fallback &&
+      blocksRefused(edited)
+    ) {
+      edited = await edit(textOnly);
+    }
     const refused = editRefusal(edited);
     if (refused === null) return edited;
     if (refused === "frozen" || progress.reposted) return "stopped";
-    return postMessage(botToken, claim, text, null, guard, postedAs);
+    return postMessage(botToken, claim, text, null, guard, postedAs, label);
+  };
+
+  // A refusal only its reader sees, with the line as any post of the agent's.
+  const postEphemeral = async (
+    botToken: string,
+    claim: SurfaceOutboxClaim,
+    userId: string,
+    text: string,
+    guard: SlackTextGuard,
+    label: SurfaceAiLabel | undefined,
+  ) => {
+    const target = {
+      channelId: claim.channelId,
+      userId,
+      threadTs: claim.threadTs,
+      text,
+    };
+    const presentation = slackOutboxPresentation(claim, guard, label);
+    if (label === undefined || presentation.kind !== "blocks") {
+      return deps.slack.postEphemeral(botToken, target);
+    }
+    const response = await deps.slack.postEphemeral(botToken, {
+      ...target,
+      blocks: presentation.blocks,
+    });
+    return blocksRefused(response)
+      ? deps.slack.postEphemeral(botToken, target)
+      : response;
   };
 
   // A reaction is the same however often it is asked for: Slack answers
@@ -418,41 +465,49 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
       modelLink === undefined
         ? claim.body
         : { ...claim.body, link_url: modelLink };
-    const label =
-      claim.kind === "conversation_reply"
-        ? `\n\n${slackAiLabelMrkdwn(body.locale)}`
-        : "";
+    const label = slackOutboxAiLabel(claim, postedAs?.aiLabel);
+    const suffix = slackAiLabelSuffix(body.locale, label);
     const rendered =
       claim.kind === "input_notice" && claim.body.blocks !== undefined
         ? claim.body.text
-        : slackOutboxText(body, guard, label.length);
-    const answer = emptied(rendered)
-      ? slackOutboxText({ ...body, text: empty }, guard, label.length)
-      : rendered;
+        : slackOutboxText(body, guard, suffix.length);
+    const shown = emptied(rendered) ? { ...body, text: empty } : body;
+    const answer =
+      shown === body ? rendered : slackOutboxText(shown, guard, suffix.length);
     // The notification, and the post when blocks cannot carry it.
-    const text = answer + label;
+    const text = answer + suffix;
+    // The row as it goes out, so its blocks hold what its text does.
+    const going = { ...claim, body: shown };
     try {
       const progress = postedAs?.progress;
       const response =
         claim.kind === "notice" && claim.slackUserId !== null
-          ? await deps.slack.postEphemeral(botToken, {
-              channelId: claim.channelId,
-              userId: claim.slackUserId,
-              threadTs: claim.threadTs,
+          ? await postEphemeral(
+              botToken,
+              going,
+              claim.slackUserId,
               text,
-            })
+              guard,
+              label,
+            )
           : postedAs !== null && progress?.ts != null
-            ? await editProgress(botToken, claim, text, guard, postedAs, {
-                ts: progress.ts,
-                reposted: progress.reposted,
-              })
+            ? await editProgress(
+                botToken,
+                going,
+                text,
+                guard,
+                postedAs,
+                { ts: progress.ts, reposted: progress.reposted },
+                label,
+              )
             : await postMessage(
                 botToken,
-                claim,
+                going,
                 text,
                 iconUrl,
                 guard,
                 postedAs,
+                label,
               );
       logDropped();
       if (response === "stopped") {

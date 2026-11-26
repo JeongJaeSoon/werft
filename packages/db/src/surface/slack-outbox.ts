@@ -19,6 +19,7 @@ import {
 import type {
   NeutralizeEvent,
   StoredSourceSet,
+  SurfaceAiLabel,
   SurfaceCardClaim,
   SurfaceCardFence,
   SurfaceCardRendered,
@@ -295,6 +296,41 @@ const addressed = (
       AND l.thread_id = ${row}.thread_ts
       AND ${linkTakes(row)}
   )))
+)`;
+
+// The AI line of row `row` (v1-b/G2): null unless its agent's conversation
+// rollout is `on`. Its name is that of whoever sent the turn the row's key
+// names: a turn's answer or failure, a card, a push's result. A push a turn's
+// intent made is that turn's sender's: its `requested_by` is the session's
+// creator. A row of any other key, or a sender who is no user, has the line
+// alone.
+const aiLabelOf = (row: SQL) => sql`(
+  SELECT json_build_object('requestedBy', (
+    SELECT u.display_name FROM users u WHERE u.id = CASE
+      WHEN ${row}.dedupe_key LIKE 'reply:%' OR ${row}.dedupe_key LIKE 'failure:%'
+        OR ${row}.dedupe_key LIKE 'prompt:%' THEN (
+        SELECT rt.actor_id FROM turns rt
+        WHERE rt.session_id = ${row}.session_id
+          AND rt.sequence = ${row}.sources_turn)
+      WHEN ${row}.dedupe_key LIKE 'push:%' OR ${row}.dedupe_key LIKE 'action:%' THEN (
+        SELECT CASE WHEN pi.id IS NULL
+            THEN (p.requested_by ->> 'actor_user_id')::uuid
+            ELSE it.actor_id END
+        FROM push_requests p
+        LEFT JOIN push_intents pi ON pi.push_request_id = p.id
+        LEFT JOIN turns it ON it.id = pi.turn_id
+        WHERE p.session_id = ${row}.session_id
+          AND p.id::text = split_part(${row}.dedupe_key, ':',
+            CASE WHEN ${row}.dedupe_key LIKE 'push:%' THEN 3 ELSE 2 END)
+        ORDER BY pi.turn_id LIMIT 1)
+      WHEN ${row}.dedupe_key LIKE 'intent:%' THEN (
+        SELECT it.actor_id FROM push_intents pi
+        JOIN turns it ON it.id = pi.turn_id
+        WHERE pi.session_id = ${row}.session_id
+          AND pi.id::text = split_part(${row}.dedupe_key, ':', 2))
+    END))
+  FROM agents a
+  WHERE a.id = ${row}.agent_id AND a.conversation_rollout = 'on'
 )`;
 
 // A closed link takes no new row but the notice that one of its own rows
@@ -695,6 +731,7 @@ function createPostgresSlackCardSettleStore(
             st.dedupe_key, st.body, st.settle_rendered, st.settle_uncertain_rev,
             st.settle_uncertain_latest_at IS NOT NULL AS uncertain,
             pick.inherited, st.settle_attempts,
+            ${aiLabelOf(sql.raw("st"))} AS ai_label,
             ${conversationScopeOf(sql`st.session_id`, sql`st.installation_id`)} AS conversation_scope`),
       );
       return rows.map(
@@ -713,6 +750,9 @@ function createPostgresSlackCardSettleStore(
           uncertain: Boolean(row.uncertain),
           inherited: Boolean(row.inherited),
           attempts: Number(row.settle_attempts),
+          ...(row.ai_label == null
+            ? {}
+            : { aiLabel: row.ai_label as SurfaceAiLabel }),
           conversationScope:
             (row.conversation_scope as SurfaceConversationScope | null) ?? null,
         }),
@@ -977,6 +1017,17 @@ export function createPostgresSlackOutboxStore(
         )
         .limit(1);
       return row?.locale ?? null;
+    },
+
+    async aiLabelFor({ agentId, sessionId, turnId }) {
+      const [row] = rowsOf<{ ai_label: SurfaceAiLabel | null }>(
+        await db.execute(sql`
+          WITH o AS (SELECT ${agentId}::uuid AS agent_id,
+            ${sessionId}::uuid AS session_id, ${turnId}::int AS sources_turn,
+            'failure:' AS dedupe_key)
+          SELECT ${aiLabelOf(sql.raw("o"))} AS ai_label FROM o`),
+      );
+      return row?.ai_label ?? null;
     },
 
     async advanceAnswered() {
@@ -2163,7 +2214,10 @@ export function createPostgresSlackOutboxStore(
         // session with a Slack link: the row's own, or, for a row sent
         // outside its thread (a direct message), an open one. Its title as a
         // reader is served it: none once Slack deleted what it came from.
-        const [sender] = rowsOf<{ posted_as: SurfaceOutboxPostedAs }>(
+        const [sender] = rowsOf<{
+          posted_as: SurfaceOutboxPostedAs;
+          ai_label: SurfaceAiLabel | null;
+        }>(
           await tx.execute(sql`
             SELECT json_build_object(
               'agentName', a.name,
@@ -2176,13 +2230,16 @@ export function createPostgresSlackOutboxStore(
                   )
                 )
               )
-            ) AS posted_as
-            FROM agents a WHERE a.id = ${row.agentId}::uuid`),
+            ) AS posted_as, ${aiLabelOf(sql.raw("o"))} AS ai_label
+            FROM agents a, slack_outbox o
+            WHERE a.id = ${row.agentId}::uuid AND o.id = ${fence.id}::uuid`),
         );
         if (sender === undefined) return true;
-        return progress === undefined
-          ? sender.posted_as
-          : { ...sender.posted_as, progress };
+        return {
+          ...sender.posted_as,
+          ...(progress === undefined ? {} : { progress }),
+          ...(sender.ai_label === null ? {} : { aiLabel: sender.ai_label }),
+        };
       });
     },
 
