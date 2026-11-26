@@ -98,7 +98,7 @@ async function kept(): Promise<number> {
   return row?.bytes ?? 0;
 }
 
-/** The tables this fixture's acceptances write to, counted whole. */
+/** Selected tables this fixture's acceptances write to, counted whole. */
 async function written() {
   const { rows } = await client.query(`
     SELECT (SELECT count(*)::int FROM sessions) AS sessions,

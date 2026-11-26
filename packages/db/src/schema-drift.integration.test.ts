@@ -48,6 +48,7 @@ const MIGRATIONS_ONLY = [
   "constraint session_links.session_links_slack_thread_status_insert TRIGGER DEFERRABLE INITIALLY DEFERRED",
   "constraint session_links.session_links_slack_thread_status_update TRIGGER DEFERRABLE INITIALLY DEFERRED",
   "constraint sessions.sessions_slack_thread_status_update TRIGGER DEFERRABLE INITIALLY DEFERRED",
+  "constraint turns.turns_charge_storage TRIGGER DEFERRABLE INITIALLY DEFERRED",
   "constraint turns.turns_slack_thread_status_insert TRIGGER DEFERRABLE INITIALLY DEFERRED",
   "constraint turns.turns_slack_thread_status_update TRIGGER DEFERRABLE INITIALLY DEFERRED",
   // 0137, 0139, 0255: agent versions, releases and their audit rows are
