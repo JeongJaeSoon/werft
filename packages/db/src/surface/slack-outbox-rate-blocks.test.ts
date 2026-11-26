@@ -321,4 +321,33 @@ describe(`Slack rate limits in the outbox on ${ENGINE}`, () => {
       error_code: "superseded",
     });
   });
+
+  test("a progress message's next edit waits 1.3 s for each of the install's messages waiting, ten seconds at least", async () => {
+    for (let s = 0; s < 10; s++) {
+      await enqueue(`p${s}`, s % 2 === 0 ? BUSY : QUIET, {
+        kind: "progress",
+        progressKey: `k${s}`,
+      });
+    }
+    const claims = await claimed();
+    expect(claims).toHaveLength(10);
+    const [first] = claims;
+    if (first === undefined) throw new Error("no claim");
+    expect(await outbox().beginSend(first)).toBeTruthy();
+    expect(
+      await outbox().settle(first, { status: "sent", slackTs: "1.1" }),
+    ).toBe(true);
+    // Nine others wait: 9 x 1.3 s.
+    const waitMs = Number((await row(first.body.text))?.wait_ms);
+    expect(waitMs).toBeGreaterThan(11_000);
+    expect(waitMs).toBeLessThanOrEqual(11_700);
+  });
+
+  test("a progress message alone waits the ten-second interval", async () => {
+    await enqueue("alone", BUSY, { kind: "progress", progressKey: "k1" });
+    await sendOne("alone");
+    const waitMs = Number((await row("alone"))?.wait_ms);
+    expect(waitMs).toBeGreaterThan(9_000);
+    expect(waitMs).toBeLessThanOrEqual(10_000);
+  });
 });

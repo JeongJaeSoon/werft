@@ -37,6 +37,7 @@ import type {
 import {
   SURFACE_EDIT_RATE_LIMITED_CODE,
   SURFACE_PROGRESS_EDIT_INTERVAL_MS,
+  SURFACE_PROGRESS_EDIT_SPACING_MS,
   SURFACE_PROGRESS_STOPPED_CODE,
   SURFACE_PROGRESS_SUPERSEDED_CODE,
   SURFACE_RATE_LIMITED_CODE,
@@ -2284,6 +2285,12 @@ export function createPostgresSlackOutboxStore(
           outcome.errorCode === SURFACE_EDIT_RATE_LIMITED_CODE)
           ? outcome.retryInMs
           : null;
+      // The least wait before a progress message's next send: the interval,
+      // longer while more of the install's progress messages wait to go.
+      const progressGap = sql`greatest(${ms(progressIntervalMs)}, ${ms(SURFACE_PROGRESS_EDIT_SPACING_MS)} * (
+        SELECT count(DISTINCT a.progress_key) FROM slack_outbox a
+        WHERE a.installation_id = ${t.installationId} AND a.status = 'pending'
+          AND a.progress_key IS NOT NULL))`;
       const set =
         outcome.status === "sent"
           ? {
@@ -2296,7 +2303,7 @@ export function createPostgresSlackOutboxStore(
               // have left the channel before it was posted.
               settleState: sql`CASE WHEN ${t.kind} = 'input_notice' AND ${t.dedupeKey} LIKE 'push:%' THEN 'due' ELSE ${t.settleState} END`,
               // The next update of a progress message waits this long.
-              nextAttemptAt: sql`CASE WHEN ${t.kind} = 'progress' THEN now() + ${ms(progressIntervalMs)} ELSE ${t.nextAttemptAt} END`,
+              nextAttemptAt: sql`CASE WHEN ${t.kind} = 'progress' THEN now() + ${progressGap} ELSE ${t.nextAttemptAt} END`,
             }
           : outcome.status === "pending"
             ? {
@@ -2304,14 +2311,14 @@ export function createPostgresSlackOutboxStore(
                 errorCode: outcome.errorCode,
                 // A progress message's next call, a retry too, waits the
                 // interval at least.
-                nextAttemptAt: sql`now() + CASE WHEN ${t.kind} = 'progress' THEN greatest(${ms(outcome.retryInMs)}, ${ms(progressIntervalMs)}) ELSE ${ms(outcome.retryInMs)} END`,
+                nextAttemptAt: sql`now() + CASE WHEN ${t.kind} = 'progress' THEN greatest(${ms(outcome.retryInMs)}, ${progressGap}) ELSE ${ms(outcome.retryInMs)} END`,
               }
             : {
                 status: outcome.status,
                 errorCode: outcome.errorCode,
                 // A call that ended a progress row still spaces the next, by
                 // the Retry-After it was given up on too.
-                nextAttemptAt: sql`CASE WHEN ${t.kind} = 'progress' THEN now() + greatest(${ms(outcome.status === "failed" ? (outcome.retryInMs ?? 0) : 0)}, ${ms(progressIntervalMs)}) ELSE ${t.nextAttemptAt} END`,
+                nextAttemptAt: sql`CASE WHEN ${t.kind} = 'progress' THEN now() + greatest(${ms(outcome.status === "failed" ? (outcome.retryInMs ?? 0) : 0)}, ${progressGap}) ELSE ${t.nextAttemptAt} END`,
               };
       return db.transaction(async (tx) => {
         const [row] = await tx
