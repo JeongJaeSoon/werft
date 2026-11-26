@@ -13,7 +13,7 @@ import type {
 } from "@werft-ai/platform";
 import { publicStatus, receiptActorOf } from "@werft-ai/platform";
 import { isUnsupportedFeaturesReason } from "@werft-ai/runtime-core";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import {
   controlClock,
   controlReplay,
@@ -42,6 +42,7 @@ import {
   queueMessages,
   receipts,
   sessions,
+  turnContinuations,
   turns,
   unassignedSessions,
   workerLaunches,
@@ -208,8 +209,13 @@ export async function cancelQueuedInput(
   input: {
     sessionId: string;
     terminalReason: string;
-    error: { code: "SESSION_CLOSED"; message: string };
+    error: { code: "SESSION_CLOSED" | "CONTROL_SUPERSEDED"; message: string };
     now: Date;
+    /**
+     * A stop's cut: only input queued before it, and no turn that carries
+     * on a parked one (the platform's, not input). Everything when unset.
+     */
+    queuedBefore?: Date;
   },
 ) {
   const cancelled = await tx
@@ -220,7 +226,16 @@ export async function cancelQueuedInput(
       terminalReason: input.terminalReason,
     })
     .where(
-      and(eq(turns.sessionId, input.sessionId), eq(turns.status, "queued")),
+      and(
+        eq(turns.sessionId, input.sessionId),
+        eq(turns.status, "queued"),
+        input.queuedBefore === undefined
+          ? undefined
+          : and(
+              lt(turns.createdAt, input.queuedBefore),
+              sql`NOT EXISTS (SELECT 1 FROM ${turnContinuations} c WHERE c.turn_id = ${turns.id})`,
+            ),
+      ),
     )
     .returning({ id: turns.id, sequence: turns.sequence });
   if (cancelled.length === 0) return cancelled;

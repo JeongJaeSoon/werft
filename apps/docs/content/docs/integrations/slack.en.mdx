@@ -94,6 +94,16 @@ What the agent posts in a session's thread (answers, failure and waiting notices
 
 The agent app holds the bot scope `reactions:write`. It is the scope for putting one 👀 on a message the agent will answer, once per message; when an agent whose conversation rollout is `on` ends a mention in a reply, a new task or a handoff to an open task, it goes on that message; staying quiet puts none. An app without the scope puts none, and the answer still goes out. The app reads no one's reactions and does not receive `reaction_added` events. An app installed before this scope keeps working as installed, and the app box in the console's Slack tab shows "Slack reapproval needed"; installing the app again with **Reapprove** grants the scope ([Connect Slack in the console](/integrations/slack-console)).
 
+## Stop a task
+
+On an agent whose conversation rollout is `on`, writing only one of `그만`, `그만해`, `멈춰`, `멈춰줘`, `중지`, `止めて`, `やめて`, `ストップ`, `停止` or `stop` in a thread (channel or DM) bound to an open task (session) stops that task. A mention of the agent, spaces around the word, any case and a closing `.`, `!` or `。` are fine. With other words mixed in ("stop, but run the tests"), the message goes to the task as an ordinary message. The channel's listen setting does not matter.
+
+- The running turn is interrupted, and messages that came in before the stop message and were still waiting are not processed. Messages written after the stop message are processed as usual.
+- The session is not closed. Writing in the same thread again carries on.
+- One line goes to the thread: `Stopped the task as you asked. Write in this thread again to carry on.` When waiting messages were not processed, it says how many. With no running turn and nothing waiting, it says only `There's no task running right now.`
+- The stop message itself is not input to the task.
+- Who may stop: anyone who may control the session (the same right as **Stop this turn** on the web). That covers the person who asked for the task and members who may write to the session. In a channel whose ceiling leaves out session control, no one can stop from Slack. A stop word from someone who may not stop shows `Only the person who asked for this task can stop it` to that person alone, and goes to the task as an ordinary message.
+
 ## Original Slack message link
 
 An instruction started or sent from Slack (a mention, a DM or a thread reply) keeps where that Slack message is (team, channel, `ts`, and `thread_ts` for a reply) together with the link Slack gave for it. The link comes from `chat.getPermalink`, which needs no extra scope. The web session screen shows a **View in Slack** link next to who started the session and from where in the header, and on each Slack instruction in the conversation; it opens in a new tab. Through the API, read the session's `slack_permalink` (the message that started the session) and each turn's `slack_permalink` (the message that sent that instruction).
