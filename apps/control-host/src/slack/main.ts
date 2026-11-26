@@ -25,6 +25,7 @@ import {
   createPostgresSessionLinkStore,
   createPostgresSessionReader,
   createPostgresSessionShareStore,
+  createPostgresSessionStops,
   createPostgresSessionUnitOfWork,
   createPostgresSlackAppStore,
   createPostgresSlackGuestSetting,
@@ -32,6 +33,7 @@ import {
   createPostgresSlackOutboxStore,
   createPostgresSlackThreadBotTurnStore,
   createPostgresSurfaceBindingStore,
+  createPostgresTurnInterrupts,
   type Database,
   getSlackAppSettings,
   newSessionGitHubReaders,
@@ -51,7 +53,9 @@ import {
   createAuthorizationPolicy,
   createCatalogRegistry,
   createConversationCalls,
+  createInterruptService,
   createSessionService,
+  createSessionStop,
   endMentionTurns,
   type MentionTurnStatusStore,
   registryCatalog,
@@ -286,6 +290,14 @@ export function slackSessionHandler(deps: {
       catalog,
     }),
     sessions,
+    stops: createSessionStop({
+      authorization,
+      stops: createPostgresSessionStops(db),
+      interrupts: createInterruptService({
+        authorization,
+        store: createPostgresTurnInterrupts(db, { logger }),
+      }),
+    }),
     agentDetails: agentStore,
     releaseRepositoryUnusable: async (workspaceId, releaseId) => {
       const release = await agentStore.findRelease(workspaceId, releaseId);

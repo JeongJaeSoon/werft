@@ -2010,6 +2010,13 @@
       "when": 1795661120298,
       "tag": "0377_conversation_turn_queue_ended_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 378,
+      "version": "7",
+      "when": 1795678667333,
+      "tag": "0378_session_stops",
+      "breakpoints": true
     }
   ]
 }
