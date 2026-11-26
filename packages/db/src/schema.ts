@@ -5440,9 +5440,7 @@ export const surfaceBindings = pgTable(
     emergencyStoppedAt: timestamp("emergency_stopped_at", {
       withTimezone: true,
     }),
-    emergencyStoppedBy: uuid("emergency_stopped_by").references(
-      () => users.id,
-    ),
+    emergencyStoppedBy: uuid("emergency_stopped_by").references(() => users.id),
     emergencyStopReason: text("emergency_stop_reason"),
     revision: integer().notNull().default(1),
     createdBy: uuid("created_by").references(() => users.id),

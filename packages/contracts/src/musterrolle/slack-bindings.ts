@@ -166,11 +166,11 @@ export const SLACK_BINDING_MESSAGES = {
     "이 채널은 승인을 기다리고 있지 않거나, 그 사이에 바뀌었어요. 목록을 새로 읽고 다시 시도하세요",
   externalShared:
     "외부 조직과 공유한 채널은 멘션으로만 들을 수 있어요. 듣기를 mention이나 off로 정하세요",
-  notChannel: "긴급 정지는 채널에서만 할 수 있어요. DM은 DM 설정을 off로 정하세요",
+  notChannel:
+    "긴급 정지는 채널에서만 할 수 있어요. DM은 DM 설정을 off로 정하세요",
   alreadyStopped:
     "이 채널의 에이전트는 이미 긴급 정지돼 있어요. 다시 켜려면 이유를 적고 켜세요",
-  reasonRequired:
-    "긴급 정지된 채널을 다시 켜려면 이유를 적어야 해요",
+  reasonRequired: "긴급 정지된 채널을 다시 켜려면 이유를 적어야 해요",
 } as const;
 /** The `details.reason_code` sent with each of those messages. */
 export const SLACK_BINDING_REASON_CODES = {
