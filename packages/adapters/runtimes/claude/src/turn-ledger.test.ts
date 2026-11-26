@@ -379,7 +379,14 @@ describe("checkpoint quiescence", () => {
     expect(ledger.prepareCheckpoint()).toMatchObject({
       reason: "turn_in_flight",
     });
+    // However soon that answer ends: the capture under this lease may hold
+    // the notification without it.
+    ledger.observe({ type: "result", session_id: "s1" });
+    expect(ledger.prepareCheckpoint()).toMatchObject({
+      reason: "turn_in_flight",
+    });
     grant.lease?.release();
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
   });
 
   test("a subagent's output with no input pending opens no answer of the run's own", () => {

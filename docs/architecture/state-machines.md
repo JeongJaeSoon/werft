@@ -37,7 +37,7 @@ turn은 `queued → running → completed | failed | interrupted | outcome_unkno
   - 결정적 거절: 캡처가 스스로 거절했다(작업 공간이 한도를 넘음 등). 로그의 `category`가 `refused`다. 다음 turn이 작업 공간을 고쳐야 통과한다.
 - **turn 밖 commit**: 이미 끝난 turn에 checkpoint를 붙이는 commit. turn은 끝난 상태 그대로 두고 pointer만 올린다. worker가 `POST /internal/worker/checkpoint-commit`으로 보낸다.
 - **capture_kind**: manifest의 `captureKind`. turn 끝 캡처는 적지 않는다. turn 밖 캡처는 `between_turns`(turn 사이)나 `before_idle_exit`(idle 종료 직전)를 적는다. 판정 키에는 들어가지 않는다.
-- **run이 조용하다**: engine이 추적하는 도구와 배경 작업이 없고, engine이 스스로 내던 답이 끝났고, engine 아래에 남은 프로세스가 없다. 배경 작업이 끝나면 engine은 그 알림을 받아 입력 없이 한 번 더 답한다. 알림을 받은 때부터 그 답의 result까지는 조용하지 않다. 그 사이에 찍은 transcript에는 알림만 있고 답이 없어서, 거기서 복원한 engine이 같은 알림에 다시 답한다. transcript에 넣지 않는 알림(ambient 작업)은 답을 열지 않는다. 작업이 목록에서 빠지는 것과 알림의 순서는 정해져 있지 않으므로, 캡처하는 동안 그 답이 시작됐으면 그 캡처는 버리고 답이 끝난 뒤 다시 찍는다. run에 조용한지 묻는 호출에도 캡처와 같은 단계 예산이 걸려 있다.
+- **run이 조용하다**: engine이 추적하는 도구와 배경 작업이 없고, engine이 스스로 내던 답이 끝났고, engine 아래에 남은 프로세스가 없다. 배경 작업이 끝나면 engine은 그 알림을 받아 입력 없이 한 번 더 답한다. 알림을 받은 때부터 그 답의 result까지는 조용하지 않다. 그 사이에 찍은 transcript에는 알림만 있고 답이 없어서, 거기서 복원한 engine이 같은 알림에 다시 답한다. transcript에 넣지 않는 알림(ambient 작업)은 답을 열지 않는다. 작업이 목록에서 빠지는 것과 알림의 순서는 정해져 있지 않으므로, 캡처하는 동안 그 답이 시작됐으면, 답이 그 안에 끝났더라도 그 캡처는 버리고 답이 끝난 뒤 다시 찍는다. idle 종료 직전의 캡처가 그렇게 버려지면 한 번 더 찍는다. run에 조용한지 묻는 호출에도 캡처와 같은 단계 예산이 걸려 있다.
 
 ### 전이 표
 
@@ -57,12 +57,12 @@ turn은 `queued → running → completed | failed | interrupted | outcome_unkno
 빚진 checkpoint는 worker가 기억하는 값이다. 마지막으로 끝낸 turn이 checkpoint 없이 끝났거나, 마지막 캡처 뒤에 engine이 스스로 답을 냈으면 빚이 있다.
 
 - T5와 T6은 빚이 있을 때만 일어난다. 빚이 없으면 idle 종료는 캡처 없이 끝난다.
-- T5와 T6의 캡처가 거절되거나 실패하면 worker는 checkpoint 없이 끝나고 T10으로 간다. T6에서 멈춘 뒤 run이 `settleWaitMs` 안에 조용해지지 않은 경우도 같다(engine이 알림에 답하다가 새 작업을 시작한 경우 등).
+- T5와 T6의 캡처가 거절되거나 실패하면 worker는 새 checkpoint 없이 끝난다. 덮이지 않은 turn이 있으면 T10으로 간다. T6에서 멈춘 뒤 run이 `settleWaitMs` 안에 조용해지지 않은 경우도 같다(engine이 알림에 답하다가 새 작업을 시작한 경우 등).
 - T6에서 멈추는 것은 그 run의 자손 프로세스다. worker 컨테이너에는 그 run의 프로세스만 있고, checkpoint를 `background_writer`로 거절하게 하는 프로세스 목록과 같은 목록을 쓴다. 신호를 보내기 직전에 목록을 다시 읽는다. SIGTERM을 보내고, 남으면 SIGKILL을 보낸다. worker가 종료 신호를 받았거나 lease를 잃었으면 신호를 보내지 않는다.
 - 멈춘 프로세스의 명령 이름(커널의 `comm`, 15자 이하)만 `system` 이벤트(`background_tasks_stopped`)에 적는다. 인자와 환경 값은 적지 않는다. 이름은 영문자, 숫자, `.`, `_`, `+`, `-`만 남기고, 읽는 쪽(웹, engine 입력)도 그 모양인 이름만 최대 16개 쓴다.
 - 그 이벤트는 세션 상세에 한 줄로 보이고, 다음 turn의 engine 입력 맨 앞에도 한 줄로 붙는다.
 - T7의 재시도가 성공하면 T2가 일어나고 queued였던 turn이 바로 시작한다.
-- T7의 보류는 turn 하나의 빚에 한 번이고, 첫 실패부터 센다. 보류를 벗어난 뒤 다시 인프라 실패가 나도 시간을 새로 세지 않는다. 상한이 지나면 새 재시도를 시작하지 않는다. 그때 진행 중이던 캡처와 commit은 끝까지 가므로 다음 입력은 그만큼 더 기다릴 수 있다. 캡처가 끝나지 않으면 turn 끝 캡처와 같은 단계 예산(worker 시작 timeout)에서 worker가 실패로 끝난다.
+- T7의 보류는 turn 하나의 빚에 한 번이고, 첫 실패부터 센다. 보류를 벗어난 뒤 다시 인프라 실패가 나도 시간을 새로 세지 않는다. 상한에 닿거나 넘는 재시도는 하지 않고, 상한에서 보류를 끝낸다. 그때 진행 중이던 캡처와 commit은 끝까지 가므로 다음 입력은 그만큼 더 기다릴 수 있다. 캡처가 끝나지 않으면 turn 끝 캡처와 같은 단계 예산(worker 시작 timeout)에서 worker가 실패로 끝난다.
 - T8 뒤의 빚은 pause 직전과 idle 종료 직전에 한 번씩 다시 시도한다. 그래도 덮지 못하면 T10으로 간다.
 - T10의 판정(context gap, claim gate)은 이 절의 전이가 바꾸지 않는다.
 
@@ -86,7 +86,7 @@ turn은 `queued → running → completed | failed | interrupted | outcome_unkno
 | --- | --- | --- | --- |
 | R1 | lease를 잃었거나 epoch가 지난 attempt의 turn 밖 commit | 409 `LEASE_EXPIRED` 또는 `STALE_EPOCH` | `is refused from an attempt whose epoch has passed or whose lease has lapsed` |
 | R2 | 그 attempt가 마지막으로 끝낸 turn이 아닌 turn id로 하는 commit | 409 `REQUEST_STALE`(다른 attempt의 turn은 404) | `is refused on a turn that is not the last the attempt finalized`, `is refused on another attempt's turn, and on a turn the session does not have` |
-| R3 | 다음 turn이 시작된 뒤 도착한 turn 밖 commit | 409 `REQUEST_STALE`. manifest를 판정하기 전과 한도 판정을 적기 직전에 turn을 다시 보므로, 그 manifest의 판정(transcript 한도 등)은 세션에 적히지 않는다 | `is refused once a later turn has started: that turn's finalize commits what covers both`, `is refused from the turn alone before its manifest is judged, …`, `packages/platform/src/workers/worker-gateway.test.ts`의 `a checkpoint for a turn that takes none any more is refused before its manifest is judged, …`, `a turn that starts while its predecessor's manifest is read keeps that manifest's verdict off the session` |
+| R3 | 다음 turn이 시작된 뒤 도착한 turn 밖 commit | 409 `REQUEST_STALE`. manifest를 판정하기 전에 거절한다. 판정하는 동안 다음 turn이 시작됐으면, 한도 판정을 적는 transaction이 fence 아래에서 turn을 다시 보고 적지 않는다 | `is refused once a later turn has started: that turn's finalize commits what covers both`, `is refused from the turn alone before its manifest is judged, …`, `packages/platform/src/workers/worker-gateway.test.ts`의 `a checkpoint for a turn that takes none any more is refused before its manifest is judged, …`, `a limit verdict on a checkpoint outside a turn is handed to the store with its turn, …`, `a limit its manifest reached is recorded while the turn still takes a checkpoint, and not once the next turn has started` |
 | R4 | blocking 사유(`mirror_error`)를 그 사유를 낸 attempt의 turn 밖 commit이 지우는 것 | commit은 되지만 사유는 남고, pointer는 복원 지점으로 믿지 않는다 | `does not clear the blocking reason of the attempt that raised it, so the pointer stays untrusted` |
 | R5 | revision이 pointer의 다음 번호가 아닌 commit | 409 `REVISION_CONFLICT` | `is refused when its revision is not the pointer's next` |
 | R6 | 다른 attempt가 끝낸 turn에 이벤트를 `after_turn`으로 붙이는 것 | 이벤트는 어느 turn에도 붙지 않는다 | `are never put on another attempt's turn` |
@@ -113,7 +113,7 @@ P4에는 예외가 하나 있다. 그 attempt가 아직 끝낸 turn이 없으면
 
 P4의 turn은 이벤트와 호출이 각각 control plane에 도착한 때로 정한다. turn N 뒤에 engine이 낸 이벤트가 늦게 도착해 turn N+1이 도는 중에 저장되면 어느 turn에도 붙지 않고, N+1이 끝난 뒤에 저장되면 N+1에 붙는다. 호출도 도착한 때의 turn으로 잡히므로, turn 경계에 걸친 답은 이벤트와 비용이 서로 다른 turn에 잡힐 수 있다. `after_turn` 이벤트는 답 판정(Slack 답, 예산 거절 경계)에 쓰이지 않는다.
 
-`after_turn` 표시는 control plane만 붙인다. worker가 보낸 payload에 같은 이름의 키가 있어도 저장된 표시가 이긴다. payload가 객체가 아닌 이벤트에는 표시가 붙지 않는다(turn에는 붙는다). Slack이 원문을 지워 가려진 turn의 이벤트는 표시 없이 읽힌다.
+`after_turn` 표시는 control plane만 붙인다. worker payload에 같은 이름의 키가 있어도 읽히지 않는다. payload가 객체가 아닌 이벤트는 표시를 옆에 저장만 하고, 읽을 때는 payload 그대로 나간다. Slack이 원문을 지워 가려진 turn의 이벤트는 표시 없이 읽힌다.
 
 ### 알려진 한계
 

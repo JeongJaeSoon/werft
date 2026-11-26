@@ -512,6 +512,98 @@ describe("WorkerHost checkpoints outside a turn", () => {
     ).toEqual([["1", 0]]);
   });
 
+  test("a capture is given up as well when that answer began and ended while it ran", async () => {
+    const { captures, gateway, host, refusals } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(SESSION_ID, 1) },
+        { type: "delay", delayMs: 30 },
+        {
+          type: "emit",
+          message: { type: "system", subtype: "task_notification" },
+        },
+        { type: "delay", delayMs: 20 },
+        {
+          type: "emit",
+          message: { ...resultMessage(SESSION_ID, 1), user_message_uuid: null },
+        },
+        { type: "await-input" },
+      ],
+      { captureMs: 150, timeouts: { idleTimeoutMs: 800 } },
+    );
+    gateway.enqueue("sleep 1 in the background and stop");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("idle");
+    expect(gateway.finalized[0]?.checkpoint).toBeNull();
+    expect(refusals).toHaveLength(1);
+    expect(captures).toEqual([
+      { status: "ready", kind: "turn_end" },
+      { status: "ready", kind: "between_turns" },
+    ]);
+    expect(gateway.checkpointCommits.map((call) => call.turn_id)).toEqual([
+      "1",
+    ]);
+  });
+
+  test("the capture before an idle exit that the engine's answer cut into is taken once more when the answer has ended", async () => {
+    let alive = [4243];
+    const engines: EngineExitWatch = {
+      descendants: async () => alive,
+      commands: async () => ["sleep"],
+      signal: () => {
+        alive = [];
+      },
+      exited: async () => true,
+      running: [],
+      kill() {},
+    };
+    const { captures, gateway, host, refusals } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(SESSION_ID, 1) },
+        // Told its work was stopped, the engine answers while the exit's
+        // capture is running: the turn's own capture waits a second for the
+        // process to leave, the exit follows it, and its capture runs for
+        // most of the next one.
+        { type: "delay", delayMs: 1_500 },
+        {
+          type: "emit",
+          message: { type: "system", subtype: "task_notification" },
+        },
+        { type: "delay", delayMs: 20 },
+        {
+          type: "emit",
+          message: { ...resultMessage(SESSION_ID, 1), user_message_uuid: null },
+        },
+        { type: "await-input" },
+      ],
+      {
+        captureMs: 800,
+        engines,
+        outsideTurnCheckpoint: {
+          idleBackgroundGraceMs: 0,
+          settleWaitMs: 2_000,
+        },
+      },
+    );
+    gateway.enqueue("start a dev server and leave it");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("idle");
+    expect(refusals).toHaveLength(1);
+    expect(captures).toEqual([
+      { status: "rejected", kind: "turn_end" },
+      { status: "ready", kind: "before_idle_exit" },
+      { status: "ready", kind: "before_idle_exit" },
+    ]);
+    expect(gateway.checkpointCommits.map((call) => call.turn_id)).toEqual([
+      "1",
+    ]);
+  }, 15_000);
+
   test("a run that never says whether it is quiet fails the worker at its budget instead of holding the session", async () => {
     let finalized = false;
     const { gateway, host, log } = harness(backgroundTurn(20), {

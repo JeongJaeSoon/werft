@@ -486,6 +486,9 @@ export type CheckpointStateInput = {
   // leaves the stored one alone, and an advisory reason never replaces a
   // blocking one. Only a committed checkpoint clears it (finalizeAtomic).
   pendingReason?: CheckpointBlockReason;
+  // Set for a verdict on a checkpoint committed outside a turn: the reason
+  // is recorded only while that turn still takes one, judged under the fence.
+  outsideTurnId?: string;
 };
 export type ExtensionsStateInput = { fence: WorkerFence; now: Date };
 export type ExtensionsStateResult =

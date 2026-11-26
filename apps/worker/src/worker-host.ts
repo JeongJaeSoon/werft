@@ -400,6 +400,8 @@ export type OutsideTurnCheckpoint = typeof OUTSIDE_TURN_CHECKPOINT;
 type OwedCheckpoint = {
   turnId: string;
   mode: "hold" | "quiet" | "deferred";
+  /** Why the last try at it went without. */
+  refused?: CaptureRefusal["reason"];
   /** When this debt first held input back; set once. */
   heldSince?: number;
   failures: number;
@@ -3946,6 +3948,7 @@ export class WorkerHost {
       return;
     }
     owed.failures += 1;
+    owed.refused = refusal.reason;
     if (mode !== "hold") {
       owed.mode = mode;
       return;
@@ -3969,28 +3972,46 @@ export class WorkerHost {
     const { retryBackoffMs, retryHoldMs } = this.outsideTurn;
     owed.heldSince ??= performance.now();
     const holdEndsAt = owed.heldSince + retryHoldMs;
-    const heldMs = performance.now() - owed.heldSince;
-    const spent = (): boolean => {
-      const held = performance.now() - (owed.heldSince ?? 0);
-      if (held < retryHoldMs) return false;
+    const step = Math.min(owed.failures, retryBackoffMs.length - 1);
+    const retryAt = performance.now() + (retryBackoffMs[step] ?? 0);
+    // A retry due at the limit or past it is not made: the hold ends at the
+    // limit, with no capture started on the way there. Slept in steps, as a
+    // sleep of under a millisecond can return at once.
+    const until = Math.min(retryAt, holdEndsAt);
+    while (
+      this.stopping === undefined &&
+      this.pauseControl === undefined &&
+      performance.now() < until
+    ) {
+      await Promise.race([
+        this.sleep(Math.max(1, until - performance.now())),
+        this.stopped,
+      ]);
+    }
+    if (this.stopping !== undefined || this.pauseControl !== undefined) return;
+    if (retryAt >= holdEndsAt) {
       owed.mode = "deferred";
       owed.holdSpent = true;
       this.logger.warn("worker.checkpoint.hold_ended", {
         turn_id: owed.turnId,
-        held_ms: Math.round(held),
+        held_ms: Math.round(performance.now() - owed.heldSince),
         failures: owed.failures,
       });
-      return true;
-    };
-    if (spent()) return;
-    const step = Math.min(owed.failures, retryBackoffMs.length - 1);
-    // The hold ends at its limit, not a backoff step past it, and no
-    // capture starts once it has.
-    const wait = Math.min(retryBackoffMs[step] ?? 0, retryHoldMs - heldMs);
-    await Promise.race([this.sleep(wait), this.stopped]);
-    if (this.stopping !== undefined || this.pauseControl !== undefined) return;
-    if (spent()) return;
+      return;
+    }
     await this.captureOwed(run, "between_turns", holdEndsAt);
+  }
+
+  /** Waits, for the settle time at most, until the run has gone quiet. */
+  private async untilQuiet(run: AgentRun): Promise<void> {
+    const deadline = performance.now() + this.outsideTurn.settleWaitMs;
+    while (
+      this.stopping === undefined &&
+      performance.now() < deadline &&
+      !(await this.quiet(run))
+    ) {
+      await this.sleep(CHECKPOINT_PROCESS_POLL_MS);
+    }
   }
 
   /**
@@ -4032,6 +4053,17 @@ export class WorkerHost {
       if (this.stopping !== undefined) return true;
     }
     await this.captureOwed(run, "before_idle_exit");
+    // A capture the engine's own answer cut into is taken once more, when
+    // that answer has ended.
+    if (
+      this.owed?.refused === "turn_in_flight" &&
+      this.stopping === undefined
+    ) {
+      await this.untilQuiet(run);
+      if (this.stopping === undefined) {
+        await this.captureOwed(run, "before_idle_exit");
+      }
+    }
     return true;
   }
 
@@ -4086,14 +4118,7 @@ export class WorkerHost {
     if (this.owed === undefined && turnId !== undefined) {
       this.owed = { turnId, mode: "quiet", failures: 0, holdSpent: false };
     }
-    const deadline = performance.now() + config.settleWaitMs;
-    while (
-      this.stopping === undefined &&
-      performance.now() < deadline &&
-      !(await this.quiet(run))
-    ) {
-      await this.sleep(CHECKPOINT_PROCESS_POLL_MS);
-    }
+    await this.untilQuiet(run);
   }
 
   /**

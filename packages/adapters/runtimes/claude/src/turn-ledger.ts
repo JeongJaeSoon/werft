@@ -62,6 +62,12 @@ export class TurnLedger {
    * and the engine restored from it answers again.
    */
   private unprompted = false;
+  /**
+   * The lease such an answer began under. Its capture may hold the task's
+   * notification without the answer however soon the answer ends, so it
+   * stays refused until that lease is given back.
+   */
+  private cutInto: object | undefined;
   private readonly toolsInFlight = new Set<string>();
   /**
    * Calls that ended on this run, whose tool_result an approval-wait
@@ -134,6 +140,7 @@ export class TurnLedger {
             message.skip_transcript !== true))
       ) {
         this.unprompted = true;
+        this.cutInto ??= this.lease;
       }
       return;
     }
@@ -279,7 +286,8 @@ export class TurnLedger {
     if (
       this.streaming ||
       this.pending.size > 0 ||
-      (this.unprompted && tools === 0)
+      (this.unprompted && tools === 0) ||
+      (this.lease !== undefined && this.cutInto === this.lease)
     ) {
       return {
         status: "rejected",
@@ -386,6 +394,7 @@ export class TurnLedger {
       lease: {
         release: () => {
           if (this.lease === held) this.lease = undefined;
+          if (this.cutInto === held) this.cutInto = undefined;
         },
       },
     };

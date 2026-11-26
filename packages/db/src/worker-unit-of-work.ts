@@ -3452,13 +3452,8 @@ export function createPostgresWorkerUnitOfWork(
                 sessionId: fence.sessionId,
                 type: event.event,
                 payload: event.data,
-                // The mark is read merged into the data, which only an
-                // object can take.
                 neutral:
-                  afterTurn === null ||
-                  typeof event.data !== "object" ||
-                  event.data === null ||
-                  Array.isArray(event.data)
+                  afterTurn === null
                     ? (input.neutral?.(event) ?? null)
                     : { ...input.neutral?.(event), [AFTER_TURN_FIELD]: true },
                 turnId: turnRowId,
@@ -3890,9 +3885,17 @@ export function createPostgresWorkerUnitOfWork(
         let pendingReason = storedPendingReason(
           fenced.session.checkpointPendingReason,
         );
+        // A verdict on a manifest captured outside a turn is the session's
+        // only while that turn still takes a checkpoint: once the next turn
+        // has started, that turn's own end says what holds.
+        const stale =
+          input.outsideTurnId !== undefined &&
+          (await outsideTurnTarget(tx, fence, input.outsideTurnId, true))
+            .outcome !== "ok";
         // A blocking reason outranks an advisory one and stays, attempt
         // included: the attempt decides who may clear it.
         if (
+          !stale &&
           input.pendingReason !== undefined &&
           nextPendingReason(pendingReason, input.pendingReason) ===
             input.pendingReason

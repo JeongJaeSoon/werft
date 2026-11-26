@@ -907,24 +907,17 @@ describe("WorkerGateway", () => {
     expect(recorded).toEqual([]);
   });
 
-  test("a turn that starts while its predecessor's manifest is read keeps that manifest's verdict off the session", async () => {
+  test("a limit verdict on a checkpoint outside a turn is handed to the store with its turn, which records it only while that turn still takes one", async () => {
     const recorded: unknown[] = [];
-    let peeks = 0;
     const instance = createWorkerGateway({
       work: work({
-        async peekCheckpointCommitAtomic() {
-          peeks += 1;
-          return peeks === 1
-            ? { outcome: "open" }
-            : { outcome: "turn_refused", reason: "a later turn has started" };
-        },
         async checkpointStateAtomic(input) {
-          recorded.push(input.pendingReason);
+          recorded.push([input.pendingReason, input.outsideTurnId]);
           return {
             outcome: "ok",
             pointer: null,
             restorable: false,
-            pendingReason: input.pendingReason ?? null,
+            pendingReason: null,
           };
         },
       }),
@@ -953,9 +946,8 @@ describe("WorkerGateway", () => {
           manifest_sha256: "0".repeat(64),
         },
       }),
-    ).rejects.toMatchObject({ status: 409, code: "REQUEST_STALE" });
-    expect(peeks).toBe(2);
-    expect(recorded).toEqual([]);
+    ).rejects.toMatchObject({ status: 409, code: "CHECKPOINT_UNAVAILABLE" });
+    expect(recorded).toEqual([["transcript_too_large", "1"]]);
   });
 
   test("finalize hands the verified transcript size to the commit", async () => {

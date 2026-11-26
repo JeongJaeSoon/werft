@@ -151,6 +151,15 @@ function append(fence: WorkerFence, batch: WorkerEvent[]) {
   });
 }
 
+/** Each event's payload as a reader is given it. */
+async function read(sessionId: string): Promise<unknown[]> {
+  const answer = (await db.execute(
+    sql`SELECT ${eventWithNeutralFields(sql`e`)} AS payload
+        FROM events e WHERE e.session_id = ${sessionId} ORDER BY e.id`,
+  )) as unknown as { rows: unknown[] };
+  return answer.rows;
+}
+
 async function stored(sessionId: string) {
   return db
     .select({
@@ -376,6 +385,30 @@ describe("a checkpoint committed outside a turn", () => {
     });
   });
 
+  test("a limit its manifest reached is recorded while the turn still takes a checkpoint, and not once the next turn has started", async () => {
+    const sessionId = await sessionWith(A);
+    const fence = fenceOf(sessionId, A);
+    await turn(sessionId, 1, "completed", A);
+    const limit = {
+      fence,
+      now: AT,
+      pendingReason: "transcript_too_large" as const,
+      outsideTurnId: "1",
+    };
+    await turn(sessionId, 2, "running", A);
+
+    await work().checkpointStateAtomic(limit);
+    expect((await sessionRow(sessionId)).checkpointPendingReason).toBeNull();
+
+    await db
+      .delete(turns)
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 2)));
+    await work().checkpointStateAtomic(limit);
+    expect((await sessionRow(sessionId)).checkpointPendingReason).toBe(
+      "transcript_too_large",
+    );
+  });
+
   test("a resend that names another version of the manifest object is not the commit that landed", async () => {
     const sessionId = await sessionWith(A);
     const fence = fenceOf(sessionId, A);
@@ -523,27 +556,56 @@ describe("events an attempt sends for no turn", () => {
     });
   });
 
-  test("a payload that is not an object goes on the turn without the mark, which only an object can take", async () => {
+  test("a payload that is not an object is marked beside it all the same, so a resend is the same event, and reads as it came", async () => {
     const sessionId = await sessionWith(A);
     const fence = fenceOf(sessionId, A);
     const first = await turn(sessionId, 1, "completed", A);
-
-    await append(fence, [
+    const batch = [
       {
         event: "tool_result",
         data: "plain output",
         source_sequence: 1,
         occurred_at: AT.toISOString(),
       } as WorkerEvent,
-    ]);
+    ];
+
+    await append(fence, batch);
+    expect(await append(fence, batch)).toMatchObject({
+      outcome: "ok",
+      acceptedThrough: 1,
+    });
 
     expect(await stored(sessionId)).toEqual([
       {
         sequence: 1,
         turnId: first.id,
-        neutral: null,
+        neutral: { after_turn: true },
         attemptId: fence.attemptId,
       },
+    ]);
+    expect(await read(sessionId)).toEqual([{ payload: "plain output" }]);
+  });
+
+  test("a key of the mark's name that came in a turn's own event is not read as the mark", async () => {
+    const sessionId = await sessionWith(A);
+    const fence = fenceOf(sessionId, A);
+    await turn(sessionId, 1, "running", A);
+    await work().commitEventsAtomic({
+      fence,
+      turnId: "1",
+      now: AT,
+      events: [
+        {
+          event: "system",
+          data: { type: "system", subtype: "sdk_event", after_turn: true },
+          source_sequence: 1,
+          occurred_at: AT.toISOString(),
+        } as WorkerEvent,
+      ],
+    });
+
+    expect(await read(sessionId)).toEqual([
+      { payload: { type: "system", subtype: "sdk_event" } },
     ]);
   });
 
@@ -560,11 +622,7 @@ describe("events an attempt sends for no turn", () => {
       } as WorkerEvent,
     ]);
 
-    const read = (await db.execute(
-      sql`SELECT ${eventWithNeutralFields(sql`e`)} AS payload
-          FROM events e WHERE e.session_id = ${sessionId}`,
-    )) as unknown as { rows: unknown[] };
-    expect(read.rows).toEqual([
+    expect(await read(sessionId)).toEqual([
       {
         payload: { type: "system", subtype: "sdk_event", after_turn: true },
       },
