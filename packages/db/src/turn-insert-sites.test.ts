@@ -174,17 +174,19 @@ function unheld(call: ts.CallExpression): string[] {
   const mine = body.statements.findIndex((statement) =>
     within(statement, call),
   );
-  const admitted = body.statements.slice(0, mine).some((statement) => {
-    if (!ts.isVariableStatement(statement)) return false;
-    let admits = false;
-    const look = (node: ts.Node) => {
-      if (isFunctionLike(node)) return;
-      if (calls(node, "admitInput")) admits = true;
-      ts.forEachChild(node, look);
-    };
-    look(statement);
-    return admits;
-  });
+  // The declaration's value is the awaited call itself, so no condition in
+  // it can skip the call either.
+  const admitted = body.statements.slice(0, mine).some(
+    (statement) =>
+      ts.isVariableStatement(statement) &&
+      statement.declarationList.declarations.some(({ initializer }) => {
+        const value =
+          initializer !== undefined && ts.isAwaitExpression(initializer)
+            ? initializer.expression
+            : initializer;
+        return value !== undefined && calls(value, "admitInput");
+      }),
+  );
   return admitted ? [] : ["no admitInput before it in the transaction's body"];
 }
 
@@ -270,6 +272,12 @@ describe("the scan", () => {
           await insertQueuedTurn(tx, {});
         });
       }
+      function conditional(db) {
+        return acceptanceTransaction(db, async (tx) => {
+          const refused = strict ? await admitInput(tx, {}) : null;
+          await insertQueuedTurn(tx, {});
+        });
+      }
       function held(db) {
         return acceptanceTransaction(db, async (tx) => {
           const refused = await admitInput(tx, {});
@@ -288,6 +296,9 @@ describe("the scan", () => {
         "no admitInput before it in the transaction's body",
       ],
       "packages/db/src/sample.ts#skipped": [
+        "no admitInput before it in the transaction's body",
+      ],
+      "packages/db/src/sample.ts#conditional": [
         "no admitInput before it in the transaction's body",
       ],
       "packages/db/src/sample.ts#held": [],
