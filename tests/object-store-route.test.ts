@@ -6,6 +6,8 @@ import {
   expect,
   test,
 } from "bun:test";
+import { createHash } from "node:crypto";
+import { Readable } from "node:stream";
 import {
   CopyObjectCommand,
   DeleteObjectCommand,
@@ -18,6 +20,7 @@ import {
   S3Client,
   S3ServiceException,
 } from "@aws-sdk/client-s3";
+import { createObjectRouteClient } from "@werft-ai/storage";
 import {
   createLocalstackBucket,
   type LocalstackBucket,
@@ -343,6 +346,135 @@ describe("the object store route, against a recording S3", () => {
       "live",
     );
   });
+});
+
+/**
+ * What a stopped database must not turn into: an upload granted a moment
+ * before, whose body then stops coming, held open on its upstream until the
+ * store gives up minutes later, with the turn that waits on it.
+ */
+describe("the object store route when the database stops during an upload", () => {
+  const BUCKET = "claude-sessions";
+  const objects = new Map<string, Uint8Array>();
+  const arrived = Promise.withResolvers<void>();
+  const over = Promise.withResolvers<void>();
+  let s3: ReturnType<typeof Bun.serve>;
+  let fixture: ObjectRouteFixture;
+  let proxy: CredentialProxyServer;
+
+  beforeAll(async () => {
+    s3 = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      // More patient than the proxy, as a real store is (SeaweedFS: 120 s).
+      idleTimeout: 120,
+      async fetch(request) {
+        arrived.resolve();
+        try {
+          objects.set(
+            new URL(request.url).pathname,
+            new Uint8Array(await request.arrayBuffer()),
+          );
+        } catch {
+          return new Response(null, { status: 400 });
+        }
+        return new Response(null, { headers: { etag: '"e"' } });
+      },
+    });
+    fixture = await startObjectRouteFixture({
+      objectStore: {
+        accessKeyId: "AKIDCONTROLHOST",
+        bucket: BUCKET,
+        endpoint: `http://127.0.0.1:${s3.port}`,
+        region: "ap-northeast-1",
+        secretAccessKey: "control-host-signing-material",
+      },
+    });
+    // No hold set: the proxy's own 20 s.
+    proxy = await withProxy(fixture, new URL(`http://127.0.0.1:${s3.port}`));
+  });
+
+  afterAll(async () => {
+    over.resolve();
+    proxy?.stop();
+    await fixture?.stop();
+    s3?.stop(true);
+  });
+
+  test("an upload whose body stopped coming is answered 503 with Retry-After within 20 s, nothing is stored, and the next try is answered at once", async () => {
+    const session = await fixture.openSession();
+    const token = await session.claim();
+    // The worker's own client for the route.
+    const client = createObjectRouteClient({
+      endpoint: `http://127.0.0.1:${proxy.port}/object-store`,
+      region: "ap-northeast-1",
+      token: () => token,
+    });
+    const key = `sessions/${session.sessionId}/workspace.bundle`;
+
+    const startedAt = performance.now();
+    const failure = await client
+      .send(
+        new PutObjectCommand({
+          Body: Readable.from(
+            (async function* () {
+              yield Buffer.from("half");
+              // Granted and on its way up. Then the database goes, and the
+              // rest of the body never comes.
+              await arrived.promise;
+              await fixture.stopDatabase();
+              await over.promise;
+            })(),
+          ),
+          Bucket: BUCKET,
+          ChecksumSHA256: createHash("sha256")
+            .update("halfrest")
+            .digest("base64"),
+          ContentLength: 8,
+          IfNoneMatch: "*",
+          Key: key,
+        }),
+      )
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    const heldMs = performance.now() - startedAt;
+
+    expect(failure).toBeInstanceOf(S3ServiceException);
+    const refused = failure as S3ServiceException;
+    expect(refused.name).toBe("ServiceUnavailable");
+    expect(refused.$metadata.httpStatusCode).toBe(503);
+    expect(refused.message).toContain("request body stalled");
+    expect(refused.$response?.headers["retry-after"]).toBe("1");
+    // The proxy's hold from the last byte: not the store's patience, which
+    // is minutes, nor the worker's own 30 s. The exact deadline is held to in
+    // the proxy's own tests; here a loaded runner gets room.
+    expect(heldMs).toBeGreaterThan(19_000);
+    expect(heldMs).toBeLessThan(28_000);
+    expect(objects.size).toBe(0);
+
+    // With no database to decide from, the next try is not held either, and
+    // it is read as a request of its own: on the stalled upload's
+    // connection it would be taken for the rest of that body.
+    const again = performance.now();
+    const next = await client
+      .send(
+        new PutObjectCommand({
+          Body: "whole",
+          Bucket: BUCKET,
+          IfNoneMatch: "*",
+          Key: key,
+        }),
+      )
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    expect((next as S3ServiceException).$metadata?.httpStatusCode).toBe(503);
+    expect(performance.now() - again).toBeLessThan(15_000);
+    expect(objects.size).toBe(0);
+  }, 60_000);
 });
 
 describe.skipIf(!localstackEnabled())(

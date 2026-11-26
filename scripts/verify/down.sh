@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Tear down the stack up.sh started, and only that one: scripts/local.sh down
-# under the run's own project, then a second compose down with --profile apps
+# Tear down the stack up.sh started, and only that one: `compose rm -v` for the
+# run's containers and their anonymous volumes, scripts/local.sh down under the
+# run's own project, then a second compose down with --profile apps
 # and the fake-model overlay (without both, app containers, fake-messages and
 # the default network can survive), then the leftover check: no container
 # and no network of the project or its installation.
 # Then the run's own images and networks, by exact name (teardown-lib.sh); the
 # targets, volumes included, are printed first.
-# Volumes are never deleted here (no -v, no docker volume rm): rm-volumes.sh
-# is the separate step that removes them by exact name. Evidence in
+# Named volumes are never deleted here (no `down -v`, no docker volume rm):
+# rm-volumes.sh is the separate step that removes them by exact name. Evidence in
 # <run>/evidence stays, and so does ports.yml until rm-volumes.sh runs. Any
 # failure keeps ports.yml so the same run can be torn down again once Docker
 # answers.
@@ -16,10 +17,19 @@
 #                                  without one it lists the runs and deletes nothing
 set -uo pipefail
 
+# The long-lived demo stack is never a target. Checked on the argument first,
+# because run.sh asks Docker when that run has no state file.
+demo_id=20261031-094644-90075
+refuse_demo() {
+  echo "down.sh: verify-ap-$demo_id is the demo stack; no docker command ran" >&2
+  exit 1
+}
+case "${1:-}" in *"$demo_id"*) refuse_demo ;; esac
+
 keep=--keep-volumes
 case "$#" in
   [01]) ;;
-  *) echo "usage: down.sh <run id | run dir>   (volumes stay; rm-volumes.sh removes them)" >&2; exit 2 ;;
+  *) echo "usage: down.sh <run id | run dir>   (named volumes stay; rm-volumes.sh removes them)" >&2; exit 2 ;;
 esac
 
 # shellcheck disable=SC1091
@@ -27,6 +37,7 @@ esac
 run=$VERIFY_RUN_DIR
 # shellcheck disable=SC1091
 . "$run/state.env" || exit 1
+[ "${COMPOSE_PROJECT_NAME:-}" != "verify-ap-$demo_id" ] || refuse_demo
 case "${COMPOSE_PROJECT_NAME:-}" in
   verify-ap-*) ;;
   *) echo "down.sh: $run/state.env names no verify-ap-* project; nothing was deleted" >&2; exit 1 ;;
@@ -58,7 +69,11 @@ if ! teardown_snapshot "$COMPOSE_PROJECT_NAME"; then
 fi
 TEARDOWN_VOLUMES=$(printf '%s\n%s\n' "$TEARDOWN_VOLUMES" "$prior" | sed '/^$/d' | sort -u)
 teardown_print "$COMPOSE_PROJECT_NAME" | tee "$targets" >&2
-"$VERIFY_REPO/scripts/local.sh" down "$keep" 2>&1 | tee "$run/evidence/down.log" >&2 || failed=1
+# Before any down: only removing a container with -v takes its anonymous
+# volumes (the one-shot worker's /workspace, local-s3-init's image volume) with
+# it. Named volumes stay. The files are state.env's COMPOSE_FILE, overlays included.
+docker compose --profile apps --profile fake-model rm -s -f -v 2>&1 | tee "$run/evidence/down.log" >&2 || failed=1
+"$VERIFY_REPO/scripts/local.sh" down "$keep" 2>&1 | tee -a "$run/evidence/down.log" >&2 || failed=1
 docker compose --profile apps --profile fake-model \
   -f compose.yaml -f "$run/ports.yml" -f infra/compose.fake-model.yml \
   down --remove-orphans --rmi local >>"$run/evidence/down.log" 2>&1 || failed=1
@@ -84,7 +99,7 @@ fi
   echo "${workers:-(none)}"
   echo "\$ docker network ls --filter label=com.docker.compose.project=$COMPOSE_PROJECT_NAME, then label=werft.installation=$EXECUTION_INSTALLATION_ID"
   echo "${networks:-(none)}"
-  echo "\$ volumes of the run, kept on purpose (rm-volumes.sh removes them)"
+  echo "\$ volumes of the run still here (rm-volumes.sh removes them)"
   teardown_volumes "$COMPOSE_PROJECT_NAME" | sed 's/^/  /'
   echo "\$ docker images, this run's tags"
   echo "$(teardown_images "$COMPOSE_PROJECT_NAME")"
@@ -93,4 +108,4 @@ if [ -n "$left$workers$networks" ]; then
   echo "down.sh: containers or networks left (above); ports.yml kept, rerun down.sh $run" >&2
   exit 1
 fi
-echo "down.sh: volumes kept; the run stays listed until rm-volumes.sh $run removes them" >&2
+echo "down.sh: named volumes kept; the run stays listed until rm-volumes.sh $run removes them" >&2

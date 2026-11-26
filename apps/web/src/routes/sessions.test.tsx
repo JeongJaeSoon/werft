@@ -659,6 +659,32 @@ describe("sessions list", () => {
     expect(listReads(api.calls)).toEqual(["?limit=15"]);
   });
 
+  // 94S-2270: the server leaves out private channels it is still
+  // confirming and says so; the screen says it is checking, with no count.
+  test("a list that left out private channels still being confirmed says it is checking", async () => {
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": sessionPages(3),
+      "GET /v1/sessions/counts": () =>
+        json(200, { ...sessionCounts(3), private_channels_pending: true }),
+    });
+    await screen.findByRole("link", { name: opener("세션 3") });
+    expect((await screen.findByText("비공개 채널 확인 중…")).tagName).toBe(
+      "OUTPUT",
+    );
+  });
+
+  test("a list with every channel confirmed says nothing of checking", async () => {
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": sessionPages(3),
+      "GET /v1/sessions/counts": () => json(200, sessionCounts(3)),
+    });
+    await screen.findByRole("link", { name: opener("세션 3") });
+    await screen.findByText("3개 표시");
+    expect(screen.queryByText("비공개 채널 확인 중…")).toBeNull();
+  });
+
   test("an address with a page opens on it, reading the pages before it in turn", async () => {
     const { api } = renderAt("/sessions?page=3", {
       "GET /v1/auth/me": () => json(200, memberMe()),
@@ -736,7 +762,12 @@ describe("sessions list", () => {
       "GET /v1/sessions/counts": () => json(200, sessionCounts(20)),
     });
     await screen.findByRole("link", { name: opener("세션 16") });
-    await user.click(screen.getByRole("button", { name: /^작업 중/ }));
+    await user.click(
+      within(screen.getByRole("group", { name: "상태로 보기" })).getByRole(
+        "button",
+        { name: /^작업 중/ },
+      ),
+    );
     await screen.findByRole("link", { name: opener("세션 1") });
     expect(history.location.search).toBe("?status=running");
 
@@ -1992,6 +2023,61 @@ describe("sessions list", () => {
     expect(screen.queryByRole("group", { name: "적용한 필터" })).toBeNull();
     const button = screen.getByRole("button", { name: "필터" });
     await waitFor(() => expect(document.activeElement === button).toBe(true));
+  });
+
+  test("the summary line shows the total and cost alone, and follows the relation picked", async () => {
+    const user = await setupUser();
+    const all = { ...sessionCounts(2), total: 9, cost_usd: "12.5" };
+    // Started by me: fewer of each, so the line follows the relation picked.
+    const started = { ...sessionCounts(1), total: 4, cost_usd: "0.004" };
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+      "GET /v1/sessions/counts": (request) =>
+        json(
+          200,
+          new URL(request.url).searchParams.get("relation") === "started"
+            ? started
+            : all,
+        ),
+    });
+    const line = await screen.findByRole("list", { name: "세션 요약" });
+    await waitFor(() =>
+      expect(
+        within(line)
+          .getAllByRole("listitem")
+          .map((item) => item.textContent),
+      ).toEqual(["세션 9", "예상 비용 $12.50"]),
+    );
+    // Running and failed are the status tabs' job: nothing here presses.
+    expect(within(line).queryByRole("button")).toBeNull();
+    expect(within(line).queryByRole("link")).toBeNull();
+
+    // The relation changes the figures, as it does the tabs.
+    await pickRelation(user, "내가 시작");
+    await waitFor(() =>
+      expect(
+        within(line)
+          .getAllByRole("listitem")
+          .map((item) => item.textContent),
+      ).toEqual(["세션 4", "예상 비용 <$0.01"]),
+    );
+  });
+
+  test("a server older than the cost leaves the cost out instead of showing $0", async () => {
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+      "GET /v1/sessions/counts": () => json(200, sessionCounts(1)),
+    });
+    const line = await screen.findByRole("list", { name: "세션 요약" });
+    expect(
+      within(line)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["세션 1"]);
   });
 
   test("withSessionsFilter keeps the other filter, clears with null and drops the page", () => {

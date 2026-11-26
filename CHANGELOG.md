@@ -15,9 +15,19 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **저장 한도가 거절한 Slack 입력에 저장 한도 안내가 한 줄 가고, inbox 항목이 `dropped`(`storage_limit_exceeded`)로 닫힌다**(JeongJaeSoon/werft#2280). 채널에서는 요청한 사람에게만 보이는 글, DM에서는 스레드 글이다. 전에는 "잠시 뒤 다시 시도해 주세요" 안내와 `processed`였다. migration `0385_storage_limit_drop_reason`이 `slack_inbound_events`의 drop reason CHECK를 `NOT VALID`로 다시 걸고 따로 확인한다. CHECK를 바꾸는 첫 문장 동안 `slack_inbound_events`의 읽기와 쓰기가 잠깐 기다리고, 확인하는 훑기는 쓰기를 막지 않는다. 따로 할 일은 없다.
+- **slack 역할이 inbox 이벤트를 채널마다 한 줄씩, 동시에 4개까지 처리하고, DB 연결을 최대 7개 연다**(JeongJaeSoon/werft#2273). 전에는 4개였다. Helm 기본값으로 늘 열려 있을 수 있는 연결은 36개에서 39개로, compose는 24개에서 27개로 는다. slack replica를 늘렸다면 replica 하나에 7개로 다시 세어 `max_connections`와 견준다. 같은 채널의 이벤트는 전처럼 차례로 돌고, 느린 workspace 하나가 다른 workspace의 멘션을 더는 막지 않는다. migration은 없다.
+- **DB 정지가 checkpoint 업로드와 겹쳐도 turn이 몇 분씩 `running`에 머물지 않는다**(JeongJaeSoon/werft#2271). egress proxy는 본문이 20초 동안 오지 않는 요청을 `503`과 `Retry-After`로 끝내고, 허용을 받아 열어 둔 upstream 연결도 닫는다. 전에는 본문이 오지 않는 업로드를 저장소가 포기할 때까지(SeaweedFS는 120초) 쥐고 있어서, 5초 정지에 turn이 4분 넘게 `running`이었다. worker는 bundle 업로드가 30초 동안 아무것도 보내지 못하고 답도 받지 못하면 끊고 다시 보낸다(3번까지, lease를 잃은 뒤에는 보내지 않는다). 이미 넘긴 바이트가 가장 느린 허용 속도(256 MiB에 5분)로 가는 데 드는 시간은 그 30초에 더한다. worker의 object store 요청은 요청마다 새 연결을 쓴다. migration은 없고 따로 할 일도 없다.
+  - egress-proxy와 worker 이미지가 각각 이 버전이어야 그쪽 제한이 듣는다. 한쪽만 올려도 된다.
+- **입력을 받는 트랜잭션이 저장 한도를 commit 때 확인한다. 설치 전체의 입력 수락이 트랜잭션 내내 `storage_usage` 한 행의 lock을 기다리지 않고, commit 순간에만 그 행에서 차례를 기다린다**(JeongJaeSoon/werft#2274). migration `0379_storage_charge_at_commit`이 `turns`의 charge trigger를 commit 때 도는 constraint trigger로 다시 만든다. 그 migration 동안 `turns`에 ACCESS EXCLUSIVE lock이 잠깐 걸려 읽기와 쓰기가 기다린다. 표를 훑거나 다시 쓰지는 않는다. 따로 할 일은 없다.
+  - 앞선 API 이미지가 남아 있는 동안에도 한도는 정확히 지켜진다. 트랜잭션 내내 기다리는 줄은 앞선 API가 모두 내려가야 없어진다.
+  - 앞선 이미지로 되돌려도 된다.
+- **저장 한도 경고 지표 셋과 하루 한 번의 카운터 점검을 더한다**(JeongJaeSoon/werft#2282). metrics role이 `werft_input_storage_used_bytes`·`werft_input_storage_limit_bytes`·`werft_input_storage_limit_reached{threshold="0.8"|"1"}`를 낸다. 한도 80%에서 알리려면 `werft_input_storage_limit_reached{threshold="0.8"} == 1`에 경고를 건다. api가 매일 03:30 UTC에 카운터를 `turns`의 실제 bytes와 맞춰 보고, 다르면 `The storage counter differs from the turns` 경고 로그를 남긴다. 카운터를 고치지는 않는다. migration은 없다.
 - **관리자가 채널 멤버가 아니어도 에이전트 Slack 탭의 채널 행에서 "긴급 정지"로 그 채널의 에이전트를 이유와 함께 바로 멈춘다**(JeongJaeSoon/werft#2268). 새 경로는 `POST /v1/agents/{id}/slack-bindings/{binding_id}/emergency-stop`이고 `binding.manage` 권한이 있으면 된다. 그 채널의 돌던 turn은 `emergency_stopped`로 끝나고, 보내지 않은 글은 취소되며, checkpoint가 있는 세션은 정지된다. 멈춘 동안 그 채널의 세션은 메시지와 재개를 `403`으로 거절한다. 다시 켜려면 이유를 적는다. 다시 켜도 세션은 사람이 재개해야 이어진다. migration `0383_emergency_stop`이 `surface_bindings`에 빈 열 세 개를 더하고 CHECK 네 개에 새 값을 더한다. 줄은 다시 쓰지 않는다. 따로 할 일은 없다.
   - 앞선 이미지로 되돌리기 전에 멈춘 채널을 모두 다시 켠다. 앞선 이미지는 정지를 읽지 않아 그 채널 세션의 입력과 재개를 막지 않고, `pause_reason` `emergency_stopped`인 세션도 알아보지 못한다.
 - **대화 rollout이 `on`인 에이전트가 올리는 글이 모두 AI가 쓴 글이라는 작은 회색 줄(`AI 에이전트 · Werft`)로 끝난다**(JeongJaeSoon/werft#2259). 한 턴의 결과나 요청인 글에는 `<이름> 님 요청`이 붙는다. `off`·`shadow`인 에이전트의 글은 전과 같다. migration은 없고 따로 할 일도 없다.
+- **에이전트의 대화 턴 목록을 여는 데 쓸 인덱스 둘을 더한다**(JeongJaeSoon/werft#2261). migration `0383_conversation_turn_list_indexes`가 `conversation_turns`와 `session_links`에 부분 인덱스를 `CONCURRENTLY`로 만든다. 쓰기를 막지 않고 따로 할 일은 없다. 앞선 이미지로 되돌려도 된다.
+- **사용량 화면의 대화 비용 읽기에 쓸 기간 조회 인덱스를 더한다**(JeongJaeSoon/werft#2257). migration `0382_conversation_calls_period_index`가 `conversation_calls`에 부분 인덱스를 `CONCURRENTLY`로 만든다. 쓰기를 막지 않고 따로 할 일은 없다. 앞선 이미지로 되돌려도 된다.
 - **DB가 15초 내려가도 heartbeat 간격의 어느 때에 시작됐든 진행 중인 turn이 끝까지 간다**(JeongJaeSoon/werft#2245). worker의 heartbeat 간격이 5초에서 2초로 준다. 전에는 장애가 간격의 끝 무렵(마지막 heartbeat 뒤 약 4.2초 넘어)에 시작되면 turn이 `worker_ownership_lost`로 끝났다. lease TTL(30초)과 안전 마진(10초)은 그대로이고, migration은 없다.
   - heartbeat 트랜잭션이 worker 하나당 초당 0.2회에서 0.5회로 는다. 동시 worker 50개면 초당 25회다.
   - 약 18초를 넘는 장애에서는 전과 같이 turn이 끊기고 세션은 다음 메시지를 받는다.
@@ -30,6 +40,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 - **lease를 잃어 끊긴 turn 바로 뒤의 turn이 끊긴 turn의 입력을 맨 앞에 붙여 받는다**(JeongJaeSoon/werft#2251). 그 입력은 마지막 checkpoint 뒤의 일이라, 전에는 새 메시지나 끊기기 전에 기다리던 메시지로 이어 가면 엔진이 그 요청을 모른 채 돌았다. 앞의 요청이 중간에 끊겼다는 한 줄이 그 앞에 붙는다. 화면과 API의 `message`는 보낸 그대로이고, 새 필드 `prepended_turn_id`(turn 조회·목록)가 붙인 turn을 가리킨다. 원문이 지워졌거나 [이어서 하기]로 생긴 turn이면 붙이지 않는다. migration `0376_cut_off_turn_prepend`가 `turns`에 빈 열 두 개(`prepended_turn`, `prepend_skip_reason`)를 더한다. 따로 할 일은 없다.
   - 앞선 이미지로 되돌려도 된다. 앞선 이미지는 이 열을 읽지도 쓰지도 않고, 전처럼 붙이지 않는다.
 - **대화 턴 큐가 끝난 턴을 잊는 조회에 쓸 인덱스를 더한다**(JeongJaeSoon/werft#2262). 대화 턴이 많이 쌓인 설치에서 턴을 집어 가는 호출이 쌓인 행 수만큼 느려지던 것을 고친다. migration `0377_conversation_turn_queue_ended_idx`가 `conversation_turn_queue`에 부분 인덱스를 `CONCURRENTLY`로 만든다. 쓰기를 막지 않고 따로 할 일은 없다. 앞선 이미지로 되돌려도 된다.
+- **대화 턴 큐를 기다리는 api가 250 ms마다 DB를 읽지 않고 알림(LISTEN/NOTIFY)에 깨어난다**(JeongJaeSoon/werft#2269). 턴을 집어 가는 지연이 평균 약 100 ms에서 수 ms로 줄고, 쉬는 런타임 하나가 내던 초당 4번의 큐 트랜잭션이 5초에 한 번이 된다. migration은 없다.
+  - 대화 런타임을 켠 api는 replica마다 DB 연결을 하나 더 쓴다(`werft:api-listen-turns`). `max_connections` 예산에 더한다.
+  - `DATABASE_URL`이 transaction 모드 pooler를 거치면 알림이 오지 않는다. 그때 api는 경고 `Conversation turn notices do not arrive on the listening connection`을 한 번 남기고 전처럼 250 ms마다 읽는다. 따로 할 일은 없다.
+  - 올리는 동안 옛 이미지의 프로세스(아직 바뀌지 않은 slack 역할 등)가 넣은 턴은 알림이 없어, 새 api가 최대 5초 뒤에 집는다. 모든 역할이 새 이미지가 되면 사라진다. 앞선 이미지로 되돌려도 된다.
 - **lease를 잃어 끊긴 turn이 웹 세션 화면에 "중단됨"과 안내, [이어서 하기] 버튼으로 보인다**(JeongJaeSoon/werft#2246). 새 경로 `POST /v1/sessions/{id}/turns/{turn_id}/continue`가 그 버튼이다. Slack 안내의 버튼과 같아서, 어디서 몇 번 눌러도 turn은 하나만 생긴다. 끊긴 turn 뒤에 다른 turn이 이미 있으면 버튼은 아무것도 넣지 않고 `409 CONTROL_SUPERSEDED`로 답한다. 이전에는 끊기기 전에 대기열에 있던 글 뒤에도 turn을 하나 더 만들었다. migration은 없고 따로 할 일도 없다.
 - **대화 rollout이 `on`인 에이전트의 멘션 턴 스레드가 "처리 중"에 남던 두 경우를 고쳤다**(JeongJaeSoon/werft#2239). 첫째는 새 턴을 위해 다시 보낸 "처리 중"을 Slack이 받지 않은 경우, 둘째는 턴이 도는 중에 대화 기록을 지운 경우다. migration `0374_mention_thread_statuses`가 빈 표 `mention_thread_statuses`를 만든다. 따로 할 일은 없다.
   - 앞선 이미지로 되돌려도 된다. 앞선 이미지는 이 표를 읽지 않으므로 남은 줄을 보내지 않는다. 그 스레드는 다음 멘션 턴이 끝나거나 Slack이 한 시간 뒤 "처리 중"을 스스로 내릴 때 돌아온다. 남은 줄은 다시 올린 이미지가 보낸다.

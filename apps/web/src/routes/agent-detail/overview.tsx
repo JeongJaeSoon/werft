@@ -2,7 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import { Link as RouterLink } from "@tanstack/react-router";
 import { isApiError } from "@werft-ai/client";
 import type { AgentDetail, SessionSummary } from "@werft-ai/contracts";
-import { agentSessionsQuery, agentSummariesQuery } from "@werft-ai/core";
+import {
+  agentSessionsQuery,
+  agentSummariesQuery,
+  privateChannelsPending,
+} from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import {
   isSessionCutOff,
@@ -39,6 +43,7 @@ import { useHasPermission } from "../../auth/guard.tsx";
 import { languageLabel } from "../../components/agent-card-form.tsx";
 import { LoadFailure } from "../../components/load-failure.tsx";
 import { OutcomeLine } from "../../components/outcome.tsx";
+import { PrivateChannelsPending } from "../../components/private-channels-pending.tsx";
 import { withNodes } from "../../components/with-nodes.tsx";
 import { type Locale, useI18n } from "../../i18n/i18n.tsx";
 import { usagePeriod } from "../operations.tsx";
@@ -86,22 +91,25 @@ export function AgentGlance({ detail }: { readonly detail: AgentDetail }) {
             ? String(pick(summary))
             : failed;
   return (
-    <ul
-      aria-label={t("agent.glance.label")}
-      className="m-0 grid list-none grid-cols-1 items-stretch gap-4 p-0 @[720px]:grid-flow-col @[720px]:auto-cols-fr @[720px]:grid-cols-none"
-    >
-      <Figure
-        label={t("agent.glance.waiting")}
-        value={count((counts) => counts.needs_input_count)}
-        note={t("agent.glance.waitingNote")}
-      />
-      <Figure
-        label={t("agent.glance.running")}
-        value={count((counts) => counts.running_count)}
-        note={t("agent.glance.runningNote")}
-      />
-      <WeekCost agentId={detail.agent.id} />
-    </ul>
+    <>
+      <PrivateChannelsPending pending={privateChannelsPending(agents.data)} />
+      <ul
+        aria-label={t("agent.glance.label")}
+        className="m-0 grid list-none grid-cols-1 items-stretch gap-4 p-0 @[720px]:grid-flow-col @[720px]:auto-cols-fr @[720px]:grid-cols-none"
+      >
+        <Figure
+          label={t("agent.glance.waiting")}
+          value={count((counts) => counts.needs_input_count)}
+          note={t("agent.glance.waitingNote")}
+        />
+        <Figure
+          label={t("agent.glance.running")}
+          value={count((counts) => counts.running_count)}
+          note={t("agent.glance.runningNote")}
+        />
+        <WeekCost agentId={detail.agent.id} />
+      </ul>
+    </>
   );
 }
 

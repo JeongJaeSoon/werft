@@ -48,6 +48,7 @@ const MIGRATIONS_ONLY = [
   "constraint session_links.session_links_slack_thread_status_insert TRIGGER DEFERRABLE INITIALLY DEFERRED",
   "constraint session_links.session_links_slack_thread_status_update TRIGGER DEFERRABLE INITIALLY DEFERRED",
   "constraint sessions.sessions_slack_thread_status_update TRIGGER DEFERRABLE INITIALLY DEFERRED",
+  "constraint turns.turns_charge_storage TRIGGER DEFERRABLE INITIALLY DEFERRED",
   "constraint turns.turns_slack_thread_status_insert TRIGGER DEFERRABLE INITIALLY DEFERRED",
   "constraint turns.turns_slack_thread_status_update TRIGGER DEFERRABLE INITIALLY DEFERRED",
   // 0137, 0139, 0255: agent versions, releases and their audit rows are
@@ -105,8 +106,9 @@ const MIGRATIONS_ONLY = [
   "function slack_thread_status_of_row() trigger language plpgsql volatility=v parallel=u body md5 82b785c73c74e41ac9d4ca426506e7d3",
   "function slack_thread_status_of_session() trigger language plpgsql volatility=v parallel=u body md5 2dfe6ae6f5da387e822bf624ebaeb999",
   "function slack_thread_status_touch(session uuid) void language sql volatility=v parallel=u body md5 c4d8bde1fd53798d7cd4a18e5187512f",
-  // 0107: retained input is charged to storage_usage as turns are inserted.
-  "function storage_usage_charge_turn() trigger language plpgsql volatility=v parallel=u body md5 181d4bb80e87699778f44b2c2d4b738f",
+  // 0107: retained input is charged to storage_usage; storage_charge_at_commit
+  // moved the charge to the commit and holds it to the limit there.
+  "function storage_usage_charge_turn() trigger language plpgsql volatility=v parallel=u body md5 6bd3ddd860cb51581176ce4a1d482abd",
   "function tool_call_audits_refuse_update() trigger language plpgsql volatility=v parallel=u body md5 7974f1b42d74d104e14687c272e81d7b",
   "function tool_call_outcomes_add() trigger language plpgsql volatility=v parallel=u body md5 658a9e9cf14c49d749ab3d2d896981e9",
   "function tool_call_outcomes_clear() trigger language plpgsql volatility=v parallel=u body md5 4a1a849f5fa78d7ae7af0811e384d367",
@@ -137,6 +139,7 @@ const MIGRATIONS_ONLY = [
   "trigger CREATE CONSTRAINT TRIGGER session_links_slack_thread_status_insert AFTER INSERT ON public.session_links DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN ((new.session_id IS NOT NULL)) EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
   "trigger CREATE CONSTRAINT TRIGGER session_links_slack_thread_status_update AFTER UPDATE ON public.session_links DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (((new.session_id IS NOT NULL) AND ((old.session_id IS DISTINCT FROM new.session_id) OR (old.revoked_at IS DISTINCT FROM new.revoked_at) OR (old.muted IS DISTINCT FROM new.muted)))) EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
   "trigger CREATE CONSTRAINT TRIGGER sessions_slack_thread_status_update AFTER UPDATE ON public.sessions DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (((old.admission_state IS DISTINCT FROM new.admission_state) OR (old.execution_revoked_at IS DISTINCT FROM new.execution_revoked_at) OR (old.checkpoint_revision IS DISTINCT FROM new.checkpoint_revision))) EXECUTE FUNCTION slack_thread_status_of_session() enabled=O",
+  "trigger CREATE CONSTRAINT TRIGGER turns_charge_storage AFTER INSERT ON public.turns DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION storage_usage_charge_turn() enabled=O",
   "trigger CREATE CONSTRAINT TRIGGER turns_slack_thread_status_insert AFTER INSERT ON public.turns DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
   "trigger CREATE CONSTRAINT TRIGGER turns_slack_thread_status_update AFTER UPDATE ON public.turns DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN ((old.status IS DISTINCT FROM new.status)) EXECUTE FUNCTION slack_thread_status_of_row() enabled=O",
   "trigger CREATE TRIGGER agent_activation_events_insert_only BEFORE DELETE OR UPDATE ON public.agent_activation_events FOR EACH ROW EXECUTE FUNCTION agents_reject_mutation() enabled=O",
@@ -177,7 +180,6 @@ const MIGRATIONS_ONLY = [
   "trigger CREATE TRIGGER tool_calls_count_insert AFTER INSERT ON public.tool_calls REFERENCING NEW TABLE AS added_rows FOR EACH STATEMENT EXECUTE FUNCTION tool_call_outcomes_add() enabled=O",
   "trigger CREATE TRIGGER tool_calls_count_truncate AFTER TRUNCATE ON public.tool_calls FOR EACH STATEMENT EXECUTE FUNCTION tool_call_outcomes_clear() enabled=O",
   "trigger CREATE TRIGGER tool_calls_count_update AFTER UPDATE ON public.tool_calls REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION tool_call_outcomes_move() enabled=O",
-  "trigger CREATE TRIGGER turns_charge_storage AFTER INSERT ON public.turns FOR EACH ROW EXECUTE FUNCTION storage_usage_charge_turn() enabled=O",
   "trigger CREATE TRIGGER worker_credentials_carried_binding BEFORE INSERT ON public.worker_credentials FOR EACH ROW WHEN ((new.purpose = 'repository'::text)) EXECUTE FUNCTION worker_credentials_carried_binding() enabled=O",
 ];
 

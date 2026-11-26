@@ -38,7 +38,8 @@ import type {
  * thread (`threadTs` "").
  * `progress`: one update of a message edited in place (its `progressKey`):
  * the first goes as a new post, later ones edit it, at most one every
- * `SURFACE_PROGRESS_EDIT_INTERVAL_MS`, and an update a newer one overtakes
+ * `SURFACE_PROGRESS_EDIT_INTERVAL_MS` and an install's edits one per
+ * `SURFACE_PROGRESS_EDIT_SPACING_MS` on average, and an update a newer one overtakes
  * before it goes is dropped (`superseded`). A post Slack lost is put up
  * again once; after that the message stops (`progress_stopped`).
  * `reaction`: the one 👀 on the message `threadTs` names in `channelId`
@@ -79,6 +80,13 @@ export const SURFACE_REACTION_MAX_ATTEMPTS = 5;
 
 /** The least time between two sends of one progress message. */
 export const SURFACE_PROGRESS_EDIT_INTERVAL_MS = 10_000;
+/**
+ * What each progress edit an install begins adds to the wait before its next
+ * one, from every replica, so its edits average one per this long; edits
+ * begun side by side are paid for after. Slack takes about 50 chat.update a
+ * minute per app and workspace (Tier 3).
+ */
+export const SURFACE_PROGRESS_EDIT_SPACING_MS = 1_300;
 /** A progress update a newer one overtook before it went: never sent. */
 export const SURFACE_PROGRESS_SUPERSEDED_CODE = "superseded";
 /**
@@ -86,6 +94,17 @@ export const SURFACE_PROGRESS_SUPERSEDED_CODE = "superseded";
  * every later one are never sent.
  */
 export const SURFACE_PROGRESS_STOPPED_CODE = "progress_stopped";
+/**
+ * A send the channel turned away for its rate limit. Its row waits the time
+ * asked, and so does every row of the install that limit covers; the call
+ * does not count as an attempt, so a row never fails from 429s alone.
+ */
+export const SURFACE_RATE_LIMITED_CODE = "ratelimited";
+/**
+ * The same for an edit (chat.update): its limit is the install's, so it holds
+ * the install's progress messages rather than one channel's posts.
+ */
+export const SURFACE_EDIT_RATE_LIMITED_CODE = "ratelimited_edit";
 
 /**
  * `uncertain`: the send was under way when its lease ran out or its answer
@@ -825,10 +844,14 @@ export interface SurfaceOutboxStore {
    * row is settled so; nothing may go out. Begun, who the row goes out as
    * when the store reads it, under the same locks: a title whose message
    * Slack deleted is never sent; `true` when it reads none.
+   * `rate_limited`: a rate limit a send of another row ran into covers this
+   * one; it is released, unsent and uncounted, until the limit ends.
    */
   beginSend(
     fence: SurfaceOutboxFence,
-  ): Promise<boolean | "voided_by_delete" | SurfaceOutboxBegun>;
+  ): Promise<
+    boolean | "voided_by_delete" | "rate_limited" | SurfaceOutboxBegun
+  >;
   /** False when the lease was lost: the row is someone else's now. */
   /**
    * False when the lease was lost. A sent `input_mirror` row gives its input

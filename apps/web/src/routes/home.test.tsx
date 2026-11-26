@@ -1769,10 +1769,16 @@ describe("statusPageQuery", () => {
     // The open total adds the three lists; read at different paces it would
     // count a session that moved between them twice or not at all.
     const client = withQueryScope({} as ApiClient, SCOPE);
-    for (const status of ["running", "idle"] as const)
-      expect<unknown>(
-        statusPageQuery(client, status, true).refetchInterval,
-      ).toBe(waitingSessionsQuery(client).refetchInterval);
+    type Pace = (query: { state: { data: unknown } }) => unknown;
+    const waiting = waitingSessionsQuery(client).refetchInterval as Pace;
+    // 94S-2270: all three read again sooner, together, while pending.
+    for (const data of [{ items: [] }, { private_channels_pending: true }])
+      for (const status of ["running", "idle"] as const)
+        expect(
+          (statusPageQuery(client, status, true).refetchInterval as Pace)({
+            state: { data },
+          }),
+        ).toBe(waiting({ state: { data } }));
   });
 });
 

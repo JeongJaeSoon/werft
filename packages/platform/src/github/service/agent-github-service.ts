@@ -38,7 +38,7 @@ import {
   requirePermitted,
   SessionServiceError,
 } from "../../musterrolle/index.ts";
-import { viewerFor } from "../../sessions/index.ts";
+import { pendingField, viewerFor } from "../../sessions/index.ts";
 import type { AgentGitHubStore } from "../ports/agent-github-store.ts";
 import type {
   GitHubAppStore,
@@ -687,10 +687,11 @@ export function createAgentGitHubService(deps: {
       if ((await store.enabled(caller.ownerId, agentId)) === null) {
         throw NOT_FOUND();
       }
+      const { viewer, pending } = await viewerFor(authorization, caller);
       const receipts = await store.activity(
         caller.ownerId,
         agentId,
-        await viewerFor(authorization, caller),
+        viewer,
         AGENT_GITHUB_ACTIVITY_LIMIT,
       );
       // New receipts carry `owner/repo`; the older ones only a catalog id,
@@ -715,6 +716,7 @@ export function createAgentGitHubService(deps: {
         ),
       ]);
       return {
+        ...pendingField(pending),
         items: receipts,
         receipt_repositories: receipts.flatMap((receipt) => {
           const found = named(receipt);

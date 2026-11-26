@@ -36,9 +36,12 @@ import type {
   SurfaceUnpostedInstruction,
 } from "@werft-ai/platform";
 import {
+  SURFACE_EDIT_RATE_LIMITED_CODE,
   SURFACE_PROGRESS_EDIT_INTERVAL_MS,
+  SURFACE_PROGRESS_EDIT_SPACING_MS,
   SURFACE_PROGRESS_STOPPED_CODE,
   SURFACE_PROGRESS_SUPERSEDED_CODE,
+  SURFACE_RATE_LIMITED_CODE,
   SURFACE_REACTION_MAX_ATTEMPTS,
   sourceSetOf,
 } from "@werft-ai/platform";
@@ -87,6 +90,7 @@ import {
   slackApps,
   slackInstallations,
   slackOutbox,
+  slackOutboxRateBlocks,
   surfaceBindings,
   turns,
   users,
@@ -307,6 +311,18 @@ const addressed = (
       AND ${linkTakes(row)}
   )))
 )`;
+
+// The rate limits Slack's 429s set (slack_outbox_rate_blocks) that still
+// cover row `row`: its channel's posts (a reaction: the install's reactions.add) and,
+// for a progress update, which may edit, the install's chat.update.
+const rateBlocks = (row: SQL) => sql`
+  SELECT b.blocked_until FROM slack_outbox_rate_blocks b
+  WHERE b.installation_id = ${row}.installation_id
+    AND b.scope IN (
+      CASE WHEN ${row}.kind = 'reaction' THEN 'reactions.add'
+        ELSE 'channel:' || ${row}.channel_id END,
+      CASE WHEN ${row}.kind = 'progress' THEN 'chat.update' END)
+    AND b.blocked_until > now()`;
 
 // The AI line of row `row` (v1-b/G2): null unless its agent's conversation
 // rollout is `on`. Its name is that of whoever sent the turn the row's key
@@ -1986,6 +2002,7 @@ export function createPostgresSlackOutboxStore(
               AND (c.claim_token IS NULL OR c.lease_expires_at <= now())
               AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= now())
               AND c.held_for_input_id IS NULL
+              AND NOT EXISTS (${rateBlocks(sql.raw("c"))})
               AND ${addressed(db, sql.raw("c"), noticeVersions)}
               -- Held while its channel is not one the agent reads.
               AND (c.kind <> 'channel_notice'
@@ -2240,6 +2257,24 @@ export function createPostgresSlackOutboxStore(
             .where(eq(t.id, fence.id));
           return "voided_by_delete" as const;
         }
+        // A 429 another row of this pass, or another replica, ran into since
+        // this one was claimed: released, unsent and uncounted, until then.
+        // Last before the send, after every lock waited for above.
+        const [limit] = rowsOf<{ until: string | null }>(
+          await tx.execute(sql`
+            SELECT (SELECT max(blocked_until) FROM (${rateBlocks(sql.raw("o"))}) l)::text AS until
+            FROM slack_outbox o WHERE o.id = ${fence.id}::uuid`),
+        );
+        if (limit?.until != null) {
+          await tx
+            .update(t)
+            .set({
+              ...released,
+              nextAttemptAt: sql`${limit.until}::timestamptz`,
+            })
+            .where(eq(t.id, fence.id));
+          return "rate_limited" as const;
+        }
         const rows = await tx
           .update(t)
           .set({
@@ -2258,6 +2293,26 @@ export function createPostgresSlackOutboxStore(
           )
           .returning({ id: t.id });
         if (rows.length === 0) return false;
+        // Every progress edit that begins, whatever comes of it, moves the
+        // install's chat.update block one spacing past the later of the block
+        // and now: edits from every replica average one a spacing, and edits
+        // begun side by side are paid for after.
+        if (progress?.ts != null) {
+          const blocks = slackOutboxRateBlocks;
+          await tx
+            .insert(blocks)
+            .values({
+              installationId: row.installationId,
+              scope: "chat.update",
+              blockedUntil: sql`now() + ${ms(SURFACE_PROGRESS_EDIT_SPACING_MS)}`,
+            })
+            .onConflictDoUpdate({
+              target: [blocks.installationId, blocks.scope],
+              set: {
+                blockedUntil: sql`greatest(${blocks.blockedUntil}, now()) + ${ms(SURFACE_PROGRESS_EDIT_SPACING_MS)}`,
+              },
+            });
+        }
         // Who the row goes out as, read under those locks. A task is a
         // session with a Slack link: the row's own, or, for a row sent
         // outside its thread (a direct message), an open one. Its title as a
@@ -2349,13 +2404,23 @@ export function createPostgresSlackOutboxStore(
         const outcome: typeof given = stopped
           ? { status: "failed", errorCode: TURN_EMERGENCY_STOPPED_REASON }
           : given;
+        const limitedMs =
+          outcome.status === "pending" &&
+          (outcome.errorCode === SURFACE_RATE_LIMITED_CODE ||
+            outcome.errorCode === SURFACE_EDIT_RATE_LIMITED_CODE)
+            ? outcome.retryInMs
+            : null;
         const [row] = await tx
           .update(t)
           .set({
             ...setOf(outcome),
             ...released,
-            // SET reads the old status: still pending means beginSend never ran.
-            attempts: sql`CASE WHEN ${t.status} = 'pending' THEN ${t.attempts} + 1 ELSE ${t.attempts} END`,
+            // SET reads the old status: still pending means beginSend never
+            // ran. A rate-limited call gives back the attempt beginSend took.
+            attempts:
+              limitedMs === null
+                ? sql`CASE WHEN ${t.status} = 'pending' THEN ${t.attempts} + 1 ELSE ${t.attempts} END`
+                : sql`CASE WHEN ${t.status} = 'sending' THEN ${t.attempts} - 1 ELSE ${t.attempts} END`,
           })
           .where(fenced(fence))
           .returning({
@@ -2369,6 +2434,31 @@ export function createPostgresSlackOutboxStore(
             kind: t.kind,
           });
         if (row === undefined) return false;
+        // The limit holds the install's other rows it covers too (claim,
+        // beginSend): an edit's is chat.update's, a post's its channel's,
+        // a progress update's post where its edit found none included.
+        if (limitedMs !== null) {
+          const blocks = slackOutboxRateBlocks;
+          await tx
+            .insert(blocks)
+            .values({
+              installationId: row.installationId,
+              scope:
+                row.kind === "reaction"
+                  ? "reactions.add"
+                  : outcome.status === "pending" &&
+                      outcome.errorCode === SURFACE_EDIT_RATE_LIMITED_CODE
+                    ? "chat.update"
+                    : `channel:${row.channelId}`,
+              blockedUntil: sql`now() + ${ms(limitedMs)}`,
+            })
+            .onConflictDoUpdate({
+              target: [blocks.installationId, blocks.scope],
+              set: {
+                blockedUntil: sql`greatest(${blocks.blockedUntil}, excluded.blocked_until)`,
+              },
+            });
+        }
         // A post into the thread is a moment to show its status again soon;
         // an edit of one, or a reaction, is not.
         if (

@@ -13,7 +13,11 @@ import type {
   SessionRelation,
   SessionStatus,
 } from "@werft-ai/contracts";
-import { queryKeysOf } from "@werft-ai/core";
+import {
+  privateChannelsPending,
+  queryKeysOf,
+  refetchWhilePending,
+} from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import {
   ApprovalInbox,
@@ -44,7 +48,9 @@ import {
   useCursorPage,
 } from "../components/list-pages.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { PrivateChannelsPending } from "../components/private-channels-pending.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
+import { SessionSummary } from "../components/session-summary.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 import { SessionGitHubWork } from "./session-github-work.tsx";
@@ -303,6 +309,10 @@ export function SessionsScreen() {
           refusal={refusal}
         />
         <div className="flex min-w-0 flex-col gap-4">
+          {/* A failed read keeps its last answer: say nothing rather than old figures. */}
+          {counts.data && !counts.isError ? (
+            <SessionSummary counts={counts.data} />
+          ) : null}
           <ListToolbar
             filter={
               <SegmentedControl
@@ -364,6 +374,10 @@ export function SessionsScreen() {
               remove: (facet, choice) => t("filters.remove", { facet, choice }),
               clearAll: t("filters.clearAll"),
             }}
+          />
+          {/* The counts and the list leave out the same channels. */}
+          <PrivateChannelsPending
+            pending={privateChannelsPending(counts.data)}
           />
           <SessionsView
             filter={{
@@ -457,12 +471,13 @@ function useListedSessions(filter: SessionsFilter) {
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor,
     placeholderData: keepPreviousData,
+    refetchInterval: refetchWhilePending(),
     retry: false,
   });
 }
 
 /** The tabs' numbers, for the relation and search the list is read with. */
-function sessionCountsQuery(
+export function sessionCountsQuery(
   client: ApiClient,
   relation: SessionRelationFilter | undefined,
   q: string | undefined,
@@ -474,6 +489,7 @@ function sessionCountsQuery(
       unwrap(
         client.GET("/v1/sessions/counts", { params: { query: filter } }),
       ) as Promise<CountSessionsResponse>,
+    refetchInterval: refetchWhilePending(),
     retry: false,
   };
 }

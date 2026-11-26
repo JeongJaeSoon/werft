@@ -1,6 +1,6 @@
 {
-  "id": "fae5f1b9-ff50-4462-900a-322c9af334e7",
-  "prevId": "1a819880-452c-4849-872e-97833b1098ce",
+  "id": "a6d46971-a42b-4d70-bf02-5c2d8d814108",
+  "prevId": "aa2472c9-4451-4c1e-b718-bcb2b7887a6f",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -5965,6 +5965,22 @@
           "method": "btree",
           "with": {}
         },
+        "conversation_calls_period_idx": {
+          "name": "conversation_calls_period_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_calls\".\"state\" <> 'released'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "conversation_calls_topic_idx": {
           "name": "conversation_calls_topic_idx",
           "columns": [
@@ -7569,6 +7585,34 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_turns_agent_page_idx": {
+          "name": "conversation_turns_agent_page_idx",
+          "columns": [
+            {
+              "expression": "agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_turns\".\"origin\" = 'm2'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -16016,6 +16060,40 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "session_links_open_thread_idx": {
+          "name": "session_links_open_thread_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "channel_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "thread_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"session_links\".\"session_id\" IS NOT NULL AND \"session_links\".\"closed_at\" IS NULL AND \"session_links\".\"revoked_at\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -16860,6 +16938,65 @@
       },
       "isRLSEnabled": false
     },
+    "public.session_stops": {
+      "name": "session_stops",
+      "schema": "",
+      "columns": {
+        "session_id": {
+          "name": "session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cancelled": {
+          "name": "cancelled",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "running_turn_id": {
+          "name": "running_turn_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "session_stops_session_id_sessions_id_fk": {
+          "name": "session_stops_session_id_sessions_id_fk",
+          "tableFrom": "session_stops",
+          "tableTo": "sessions",
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "session_stops_session_id_idempotency_key_pk": {
+          "name": "session_stops_session_id_idempotency_key_pk",
+          "columns": ["session_id", "idempotency_key"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.session_title_requests": {
       "name": "session_title_requests",
       "schema": "",
@@ -17557,6 +17694,28 @@
           "method": "btree",
           "with": {}
         },
+        "sessions_owner_parent_idx": {
+          "name": "sessions_owner_parent_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "parent_conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"sessions\".\"parent_conversation_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "sessions_created_by_user_idx": {
           "name": "sessions_created_by_user_idx",
           "columns": [
@@ -17714,7 +17873,7 @@
         },
         "sessions_pause_reason_check": {
           "name": "sessions_pause_reason_check",
-          "value": "\"sessions\".\"pause_reason\" IS NULL OR (\"sessions\".\"pause_reason\" IN ('awaiting_input', 'emergency_stopped') AND \"sessions\".\"admission_state\" IN ('pausing', 'paused'))"
+          "value": "\"sessions\".\"pause_reason\" IS NULL OR (\"sessions\".\"pause_reason\" IN ('awaiting_input') AND \"sessions\".\"admission_state\" IN ('pausing', 'paused'))"
         },
         "sessions_channel_check": {
           "name": "sessions_channel_check",
@@ -19677,7 +19836,7 @@
         },
         "slack_outbox_kind_check": {
           "name": "slack_outbox_kind_check",
-          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice', 'progress', 'reaction', 'conversation_reply', 'emergency_stop_notice')"
+          "value": "\"slack_outbox\".\"kind\" IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice', 'progress', 'reaction', 'conversation_reply')"
         },
         "slack_outbox_conversation_reply_check": {
           "name": "slack_outbox_conversation_reply_check",
@@ -19704,6 +19863,52 @@
           "value": "(\"slack_outbox\".\"claim_token\" IS NULL) = (\"slack_outbox\".\"lease_expires_at\" IS NULL) AND (\"slack_outbox\".\"status\" IN ('pending', 'sending') OR \"slack_outbox\".\"claim_token\" IS NULL) AND (\"slack_outbox\".\"status\" <> 'sending' OR \"slack_outbox\".\"claim_token\" IS NOT NULL)"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.slack_outbox_rate_blocks": {
+      "name": "slack_outbox_rate_blocks",
+      "schema": "",
+      "columns": {
+        "installation_id": {
+          "name": "installation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "blocked_until": {
+          "name": "blocked_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "slack_outbox_rate_blocks_installation_id_slack_installations_id_fk": {
+          "name": "slack_outbox_rate_blocks_installation_id_slack_installations_id_fk",
+          "tableFrom": "slack_outbox_rate_blocks",
+          "tableTo": "slack_installations",
+          "columnsFrom": ["installation_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "slack_outbox_rate_blocks_installation_id_scope_pk": {
+          "name": "slack_outbox_rate_blocks_installation_id_scope_pk",
+          "columns": ["installation_id", "scope"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.slack_settings": {
@@ -20146,24 +20351,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "emergency_stopped_at": {
-          "name": "emergency_stopped_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "emergency_stopped_by": {
-          "name": "emergency_stopped_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "emergency_stop_reason": {
-          "name": "emergency_stop_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "revision": {
           "name": "revision",
           "type": "integer",
@@ -20270,15 +20457,6 @@
         }
       },
       "foreignKeys": {
-        "surface_bindings_emergency_stopped_by_users_id_fk": {
-          "name": "surface_bindings_emergency_stopped_by_users_id_fk",
-          "tableFrom": "surface_bindings",
-          "tableTo": "users",
-          "columnsFrom": ["emergency_stopped_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
         "surface_bindings_created_by_users_id_fk": {
           "name": "surface_bindings_created_by_users_id_fk",
           "tableFrom": "surface_bindings",
@@ -20311,10 +20489,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "surface_bindings_emergency_stop_check": {
-          "name": "surface_bindings_emergency_stop_check",
-          "value": "(\"surface_bindings\".\"emergency_stopped_at\" IS NULL) = (\"surface_bindings\".\"emergency_stop_reason\" IS NULL) AND (\"surface_bindings\".\"emergency_stopped_at\" IS NULL OR \"surface_bindings\".\"mode\" = 'off')"
-        },
         "surface_bindings_surface_check": {
           "name": "surface_bindings_surface_check",
           "value": "\"surface_bindings\".\"surface\" IN ('web','slack','api')"
@@ -21509,7 +21683,7 @@
         },
         "turns_prepend_skip_reason_check": {
           "name": "turns_prepend_skip_reason_check",
-          "value": "\"turns\".\"prepend_skip_reason\" IS NULL OR (\"turns\".\"prepended_turn\" IS NOT NULL AND \"turns\".\"prepend_skip_reason\" IN ('continuation','deleted_source','unreadable_web_input','emergency_stopped'))"
+          "value": "\"turns\".\"prepend_skip_reason\" IS NULL OR (\"turns\".\"prepended_turn\" IS NOT NULL AND \"turns\".\"prepend_skip_reason\" IN ('continuation','deleted_source','unreadable_web_input'))"
         }
       },
       "isRLSEnabled": false
