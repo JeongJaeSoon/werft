@@ -164,7 +164,7 @@ curl -sS "$API/v1/sessions?limit=5" -H "Authorization: Bearer $KEY" | jq -c '.it
 
 各項目の `agent`(`id`、`name`、`release_version_no`、`release_label`)はセッションが結び付いたエージェントと release で、エージェントの release なしに作ったセッションでは `null` だ。`release_version_no` はその release が使うカードのバージョン、`release_label` は release の名前(作成時刻。例: `2026-10-30_14:30:28`)だ。`created_by`(`user_id`、`display_name`)はセッションを始めた人で、キーで作ったセッションではキーを作った人になる。引き継ぎの後も変わらない。引き継いだ人はそのセッションを読めるが、`started` には始めた人にだけ出る。`channel` はセッションを作ったリクエストの入口(`web`、`api`、`slack`)だ。始めた人や入口が記録からわからない古いセッションは `null` になる。`slack_permalink` は Slack で始めたセッションの最初のメッセージへのリンクだ([元の Slack メッセージへのリンク](/integrations/slack#元の-slack-メッセージへのリンク))。ほかの経路で作ったセッションとリンクを残す前のセッションは `null` になる。
 
-ステータスごとの件数は SDK にないので、HTTP API で読む。`GET /v1/sessions/counts` は、同じ `relation`・`q` で一覧を最後まで読んだときのステータスごとの件数と `total` を返す。見られないセッションは数えない。
+ステータスごとの件数は SDK にないので、HTTP API で読む。`GET /v1/sessions/counts` は、同じ `relation`・`q` で一覧を最後まで読んだときのステータスごとの件数と `total` を返す。見られないセッションは数えない。`cut_off` は `idle` のうち、最後の turn がワーカーの lease を失って途切れたセッション(一覧の項目の `last_turn_cut_off`)の件数で、これらは `idle` にも含まれる。コンソールはこれらを「中断」タブに、残りを「入力待ち」タブに分けて表示する。一覧では `status=idle&last_turn_cut_off=true`・`false` で同じ二つを読む。
 
 ```bash
 curl -sS "$API/v1/sessions/counts?relation=started" -H "Authorization: Bearer $KEY" | jq -c

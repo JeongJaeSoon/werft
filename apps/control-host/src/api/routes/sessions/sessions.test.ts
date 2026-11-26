@@ -481,6 +481,40 @@ describe("GET /v1/sessions validation", () => {
     }
   });
 
+  test("takes last_turn_cut_off as true or false and passes it to the reader", async () => {
+    const headers = { "X-Owner-Id": "owner-a" };
+    const seen: unknown[] = [];
+    const reader = app({
+      listSessions: async (_owner, query) => {
+        seen.push(query);
+        return { items: [], next_cursor: null };
+      },
+    });
+    expect(
+      (
+        await reader.request(
+          "/v1/sessions?status=idle&last_turn_cut_off=true",
+          { headers },
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await reader.request("/v1/sessions?last_turn_cut_off=false", {
+          headers,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await reader.request("/v1/sessions?last_turn_cut_off=yes", { headers }))
+        .status,
+    ).toBe(400);
+    expect(seen).toEqual([
+      { limit: 50, status: "idle", last_turn_cut_off: "true" },
+      { limit: 50, last_turn_cut_off: "false" },
+    ]);
+  });
+
   test("passes relation and q to the reader, trimmed", async () => {
     const seen: unknown[] = [];
     const counts = {
@@ -491,6 +525,7 @@ describe("GET /v1/sessions validation", () => {
         idle: 2,
         failed: 0,
         stopped: 0,
+        cut_off: 0,
       },
       total: 3,
     };
@@ -1374,6 +1409,7 @@ describe("session titles (94S-804)", () => {
     current_turn_id: null,
     queued_turn_count: 0,
     turn_time_ms: 0,
+    last_turn_cut_off: false,
     last_event_at: null,
     created_at: "2026-10-23T00:00:00.000Z",
     updated_at: "2026-10-23T00:00:00.000Z",
