@@ -4998,9 +4998,7 @@ describe.each(ENGINES)(
         })
         .from(schema.conversationCalls)
         .where(eq(schema.conversationCalls.agentId, fixture.agentId));
-      expect(calls).toEqual([
-        { rootKind: "user", requesterUserId: memberId },
-      ]);
+      expect(calls).toEqual([{ rootKind: "user", requesterUserId: memberId }]);
       // The runtime takes it: the DM is the instruction and the current post.
       expect(taken.input.text).toBe("what changed this week");
       const handed = await createTopicSessionChecks({
