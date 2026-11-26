@@ -339,6 +339,9 @@ export function createPostgresConversationTurnQueue(
               leaseExpiresAt: expiresAt,
               turnNonce: input.nonce,
               turnCiphertext: input.ciphertext,
+              // Its deadline goes with it, so the sweep lets it go whoever
+              // ends the turn, an older image included.
+              inputKeptUntil: new Date(now.getTime() + SPAWN_INPUT_KEPT_MS),
             })
             .where(eq(queue.turnId, row.turnId));
           return {

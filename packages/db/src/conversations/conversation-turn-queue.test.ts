@@ -98,6 +98,27 @@ describe("the conversation turn queue in the database (0355)", () => {
     expect(opened).not.toContain(turn.provider.auth.token);
   }, 60_000);
 
+  test("a leased turn an older image ends keeps no copy past the deadline", async () => {
+    const { client, db } = await database();
+    const fixture = await conversationTurnQueueFixture(db);
+    const queue = createPostgresConversationTurnQueue(db, key());
+    const turn = await fixture.turn();
+    await queue.enqueue(turn, entry());
+    await queue.lease({ runtimeId, now, leaseMs: CONVERSATION_TURN_LEASE_MS });
+    // An older image's lease-expired sweep, which clears no ciphertext.
+    await client.query(
+      `UPDATE conversation_turn_queue SET state = 'ended',
+         outcome = '{"outcome":"failed","reason":"lease_expired"}'::jsonb,
+         ended_at = now() WHERE turn_id = $1`,
+      [turn.turn_id],
+    );
+    await queue.outcome(turn.turn_id, new Date(now.getTime() + 61 * 60_000));
+    const left = await client.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM conversation_turn_queue WHERE turn_nonce IS NOT NULL OR input_kept_until IS NOT NULL",
+    );
+    expect(left.rows[0]?.n).toBe("0");
+  }, 60_000);
+
   test("a turn sealed under another key is ended as not taken, and the next one is still handed out", async () => {
     const { db } = await database();
     const fixture = await conversationTurnQueueFixture(db);
