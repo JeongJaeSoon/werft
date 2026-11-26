@@ -427,6 +427,10 @@ describe("superseded revisions", () => {
       parts.push(await transcriptPart(revision));
       published.push(await commit(revision, "attempt-a", [...parts]));
     }
+    // A later generation runs the session, so generation 1's parts are
+    // collectible unless something keeps them; one nothing names must go.
+    const orphan = await transcriptPart(99);
+    session.state.generation = 2;
     const purged: string[] = [];
     const spying = createCheckpointCollector({
       codecs: { [runtime.engine]: codec },
@@ -452,7 +456,7 @@ describe("superseded revisions", () => {
         ...revision.versions,
         ...revision.manifest.transcripts.root.parts.map(versionOf),
       ]);
-    expect(purged.length).toBeGreaterThan(0);
+    expect(purged).toContain(`${orphan.key}@${orphan.version}`);
     for (const entry of named) {
       expect(purged).not.toContain(`${entry.key}@${entry.version}`);
       expect(await objects.head(entry.key, entry.version)).toMatchObject({

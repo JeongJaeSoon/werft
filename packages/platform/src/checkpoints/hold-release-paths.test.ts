@@ -100,7 +100,10 @@ function scanSource(file: string, text: string) {
     }
     const bindings = statement.importClause?.namedBindings;
     if (bindings !== undefined && ts.isNamespaceImport(bindings)) {
+      // A namespace hands out every command under any name it is copied to,
+      // so none is allowed rather than tracked.
       namespaces.add(bindings.name.text);
+      imports.push({ file, what: "* as namespace", within: undefined });
     }
     if (bindings !== undefined && ts.isNamedImports(bindings)) {
       for (const element of bindings.elements) {
@@ -235,6 +238,7 @@ describe("a legal hold is lifted only by collection", () => {
         "function i() { return new s3['PutObjectLegalHoldCommand']({ LegalHold: { Status: 'OFF' } }); }",
         "function j(name) { return new s3[name]({}); }",
         "function k(store) { const release = store.purge.bind(store); return release(1); }",
+        "const Release = s3.PutObjectLegalHoldCommand;",
       ].join("\n"),
     );
     expect(found.lifts.map((site) => site.within)).toEqual([
@@ -244,6 +248,11 @@ describe("a legal hold is lifted only by collection", () => {
       "d",
       "i",
       "j",
+    ]);
+    expect(found.imports.map((site) => site.what)).toEqual([
+      "PutObjectLegalHoldCommand",
+      "PutObjectRetentionCommand",
+      "* as namespace",
     ]);
     expect(found.purges.map((site) => site.within)).toEqual([
       "e",
