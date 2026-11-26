@@ -251,6 +251,44 @@ describe("설정 › 감사 기록", () => {
     ).toBe(true);
   });
 
+  test("개수는 짧은 기간부터 하나씩 읽어, 읽기마다 남는 기록 때문에 긴 기간이 더 작아지지 않는다", async () => {
+    let open = 0;
+    let most = 0;
+    const order: (string | null)[] = [];
+    const zero = { count: 0, more: false };
+    renderAt(PAGE, {
+      ...routes(() => page([row({})])),
+      [COUNTS]: (request?: Request) => {
+        const params = new URL(request?.url ?? "http://x").searchParams;
+        order.push(params.get("from"));
+        open += 1;
+        most = Math.max(most, open);
+        return new Promise<Response>((resolve) =>
+          setTimeout(() => {
+            open -= 1;
+            resolve(
+              json(200, {
+                counts: { decision: zero, receipt: zero },
+                total: zero,
+              }),
+            );
+          }, 5),
+        );
+      },
+    });
+    await table();
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "필터" }));
+    await waitFor(() => expect(order).toHaveLength(4));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(order).toHaveLength(4);
+    expect(most).toBe(1);
+    // 24 hours, 7 days, 30 days, then the whole window (no `from`).
+    const starts = order.map((from) => (from ? Date.parse(from) : 0));
+    expect(starts).toEqual([...starts].sort((a, b) => b - a));
+    expect(order.at(-1)).toBeNull();
+  });
+
   test("1000을 넘는 개수는 1000+로 읽힌다", async () => {
     renderAt(PAGE, {
       ...routes(() => page([row({})])),

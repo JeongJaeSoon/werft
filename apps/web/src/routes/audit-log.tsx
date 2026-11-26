@@ -3,6 +3,7 @@ import {
   useInfiniteQuery,
   useQueries,
   useQuery,
+  useQueryClient,
 } from "@tanstack/react-query";
 import { type ApiClient, isApiError, unwrap } from "@werft-ai/client";
 import type {
@@ -62,6 +63,7 @@ export const AUDIT_EXPORT_MAX_ROWS = 100_000;
 
 const PERIODS = { all: 0, day: 1, week: 7, month: 30 } as const;
 type Period = keyof typeof PERIODS;
+const SHORTEST_FIRST: readonly Period[] = ["day", "week", "month", "all"];
 const PERIOD_LABEL: Record<Period, MessageKey> = {
   all: "auditLog.period.all",
   day: "auditLog.period.day",
@@ -227,18 +229,33 @@ function AuditLog() {
       from: period === filter.period ? filter.from : periodFrom(period, anchor),
     });
   const kindQuery = queryOf({ ...filter, kind: undefined });
+  // Every count is itself recorded, so counts read at once would each miss
+  // the others' rows and a longer period could show fewer. Read one after
+  // another, shortest window first: each later count includes every earlier
+  // read, so a longer window never shows less.
   const countQueries = [
     ...new Map(
-      [kindQuery, ...periods.map(periodQuery)].map((query) => [
+      [...SHORTEST_FIRST.map(periodQuery), kindQuery].map((query) => [
         JSON.stringify(query),
         query,
       ]),
     ).values(),
   ];
+  const queryClient = useQueryClient();
   const countResults = useQueries({
-    queries: countQueries.map((query) =>
-      auditCountsQuery(client, query, filtersOpen),
-    ),
+    queries: countQueries.map((query, index) => {
+      const before = countQueries[index - 1];
+      // A query that is waiting to be enabled is idle too, so wait for an answer.
+      const state =
+        before &&
+        queryClient.getQueryState(scopedKey(client, "audit-counts", before));
+      const settled =
+        before === undefined ||
+        (state !== undefined &&
+          state.status !== "pending" &&
+          state.fetchStatus === "idle");
+      return auditCountsQuery(client, query, filtersOpen && settled);
+    }),
   });
   const countsFor = (query: AuditQuery) =>
     countResults[
