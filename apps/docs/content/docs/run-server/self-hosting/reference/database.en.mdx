@@ -19,7 +19,7 @@ Every role creates its pool the same way. Pool limits vary by role.
 
 | Role | Pool limit | Reason |
 |---|---|---|
-| api | 10 + 1 readiness probe + 1 LISTEN | Handles concurrent requests. The probe uses its own pool (limit 1), so it does not compete with requests for connections. One LISTEN connection (`werft:api-listen`) receives event notifications outside the pool |
+| api | 10 + 1 readiness probe + 1 LISTEN | Handles concurrent requests. The probe uses its own pool (limit 1), so it does not compete with requests for connections. One LISTEN connection (`werft:api-listen`) receives event notifications outside the pool. The notifications wake event streams and the requests of workers waiting for their next input. While the connection is down, a stream re-reads every 15 seconds and a worker request every 5 seconds |
 | metrics | 10 | Each scrape reads 7 aggregates concurrently |
 | scheduler | 4 | Each pass issues statements sequentially. The pass lock holds an additional connection |
 | reconciler | 4 | Each pass issues statements sequentially |

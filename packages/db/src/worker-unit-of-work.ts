@@ -52,6 +52,7 @@ import {
   LEGACY_CONFIG_TOKEN,
   launchNonceFingerprint,
   type NextInputInput,
+  type NextInputPendingInput,
   type NextInputResult,
   nextPendingReason,
   type PeekFinalizeInput,
@@ -2990,6 +2991,69 @@ export function createPostgresWorkerUnitOfWork(
           },
         };
       });
+    },
+
+    async nextInputPending(input: NextInputPendingInput): Promise<boolean> {
+      const { fence } = input;
+      // One statement, no lock, as authorizeEgressAtomic reads its fence. A
+      // waiting poll asks this many times for each answer it gives, and a
+      // session row locked that often is one every writer of the session
+      // queues behind. A turn queued or a drain asked for after this
+      // snapshot notifies the session, and the poll asks again.
+      const [row] = await db
+        .select({
+          session: {
+            leaseEpoch: sessions.leaseEpoch,
+            executionGeneration: sessions.executionGeneration,
+            authRevision: sessions.authRevision,
+            model: sessions.model,
+            costUsd: sessions.costUsd,
+            providerTokens: sessions.providerTokens,
+          },
+          attempt: {
+            leaseEpoch: attempts.leaseEpoch,
+            executionGeneration: attempts.executionGeneration,
+            authRevision: attempts.authRevision,
+            state: attempts.state,
+            model: attempts.model,
+          },
+          leaseHeld: sql<boolean>`${attempts.leaseExpiresAt} > clock_timestamp()`,
+          drainRequested: sql<boolean>`EXISTS (
+            SELECT 1 FROM ${workerLaunches}
+            WHERE ${workerLaunches.executionId} = ${attempts.executionId}
+              AND ${workerLaunches.generation} = ${attempts.executionGeneration}
+              AND ${workerLaunches.drainRequestedAt} IS NOT NULL
+          )`,
+          // The head nextInputAtomic reads: still queued, or a turn this
+          // attempt already holds.
+          headDeliverable: sql<boolean | null>`(
+            SELECT ${turns.status} = 'queued' OR ${turns.attemptId} = ${attempts.id}
+            FROM ${queueMessages}
+            INNER JOIN ${turns} ON ${turns.id} = ${queueMessages.turnId}
+            WHERE ${queueMessages.sessionId} = ${sessions.id}
+              AND ${queueMessages.kind} = 'message'
+            ORDER BY ${queueMessages.id}
+            LIMIT 1
+          )`,
+        })
+        .from(sessions)
+        .innerJoin(attempts, eq(attempts.sessionId, sessions.id))
+        .where(
+          and(
+            eq(sessions.id, fence.sessionId),
+            eq(attempts.id, fence.attemptId),
+          ),
+        )
+        .limit(1);
+      if (!row || fenceRejection(row, fence, row.leaseHeld)) return true;
+      return (
+        row.attempt.state === "draining" ||
+        row.drainRequested ||
+        (row.attempt.model !== null &&
+          row.attempt.model !== row.session.model) ||
+        budgetExceeded(row.session, input.budget) ||
+        row.headDeliverable === true
+      );
     },
 
     heartbeatAtomic(input: HeartbeatInput): Promise<HeartbeatResult> {

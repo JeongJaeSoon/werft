@@ -315,9 +315,14 @@ export type WorkerGatewayOptions = {
   maxWaitMs?: number;
   /** Once aborted, nextInput answers with what it has instead of waiting. */
   stopWaiting?: AbortSignal;
+  /**
+   * How often a waiting nextInput asks again. With a `wakeup` this only
+   * bounds what no notification announces: 5 s then, 250 ms without one.
+   */
   pollIntervalMs?: number;
   now?: () => Date;
-  sleep?: (ms: number) => Promise<void>;
+  /** Resolves early when the signal aborts. */
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 };
 
 export const DEFAULT_LEASE_TTL_MS = 30_000;
@@ -326,6 +331,7 @@ export const DEFAULT_NONCE_TTL_MS = 10 * 60 * 1000;
 export const DEFAULT_PENDING_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_WAIT_MS = 25_000;
 const DEFAULT_POLL_INTERVAL_MS = 250;
+const DEFAULT_NOTIFIED_POLL_INTERVAL_MS = 5_000;
 
 export const hashWorkerToken = hashToken;
 
@@ -716,6 +722,9 @@ export function createWorkerGateway(deps: {
   checkpoints: CheckpointVerifier;
   // Absent when no object store is configured; see CheckpointProtocol.
   checkpointProtocol?: CheckpointProtocol;
+  // Ends a nextInput's wait when its session is notified (a turn queued, a
+  // drain asked for). Absent, the poll asks again every pollIntervalMs.
+  wakeup?: { wait(sessionId: string, signal: AbortSignal): Promise<void> };
   // Absent, the pending routes answer 404 and the worker denies what it
   // cannot put to anyone; heartbeat then never reports an answer waiting.
   pending?: WorkerPendingStore;
@@ -1128,7 +1137,16 @@ export function createWorkerGateway(deps: {
 
   const sleep =
     deps.options.sleep ??
-    ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+    ((ms: number, signal?: AbortSignal) =>
+      new Promise<void>((resolve) => {
+        const done = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        const timer = setTimeout(done, ms);
+        if (signal?.aborted === true) done();
+        else signal?.addEventListener("abort", done, { once: true });
+      }));
   const leaseTtlMs = deps.options.leaseTtlMs;
   const sessionTokenTtlMs =
     deps.options.sessionTokenTtlMs ?? DEFAULT_SESSION_TOKEN_TTL_MS;
@@ -1166,7 +1184,10 @@ export function createWorkerGateway(deps: {
   };
   const maxWaitMs = deps.options.maxWaitMs ?? DEFAULT_MAX_WAIT_MS;
   const pollIntervalMs =
-    deps.options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+    deps.options.pollIntervalMs ??
+    (deps.wakeup === undefined
+      ? DEFAULT_POLL_INTERVAL_MS
+      : DEFAULT_NOTIFIED_POLL_INTERVAL_MS);
 
   // Only sessions this host can actually run are claimable: a session whose
   // connection left the catalog, whose model is no longer offered, or whose
@@ -2664,58 +2685,86 @@ export function createWorkerGateway(deps: {
       request: NextInputRequest,
     ): Promise<NextInputResponse> {
       const fence = requireScope(principal, request);
+      const stop = deps.options.stopWaiting;
       const deadline =
         now().getTime() + Math.min(request.wait_ms ?? 0, maxWaitMs);
-      for (;;) {
-        const budget = await budgetNow();
-        const result = await work.nextInputAtomic({
-          fence,
-          now: now(),
-          budget,
-        });
-        if (result.outcome !== "ok") rejected(result);
-        // A draining attempt is never handed new input, and neither is a
-        // session over budget, so waiting out the poll would only hold up
-        // the shutdown.
-        if (
-          result.input ||
-          result.draining === true ||
-          result.blocked !== undefined ||
-          deps.options.stopWaiting?.aborted === true ||
-          now().getTime() >= deadline
-        ) {
-          const coAuthor = result.input
-            ? await turnCoAuthor(fence.sessionId, result.input.actorId)
-            : undefined;
-          const contentMode = deps.telemetry?.contentMode();
-          return {
-            input: result.input
-              ? {
-                  turn_id: result.input.turnId,
-                  input_id: result.input.inputId,
-                  message: result.input.message,
-                  delivery_started_at:
-                    result.input.deliveryStartedAt.toISOString(),
-                  ...(coAuthor === undefined ? {} : { co_author: coAuthor }),
-                  ...(result.input.traceContext === null
-                    ? {}
-                    : { trace_context: result.input.traceContext }),
-                  ...(contentMode === undefined
-                    ? {}
-                    : { content_mode: contentMode }),
-                }
-              : null,
-            lease_expires_at: result.leaseExpiresAt.toISOString(),
-            ...(result.blocked !== undefined
-              ? { draining: true, reason: result.blocked }
-              : result.draining === true
-                ? { draining: true }
-                : {}),
-          };
+      const due = () => stop?.aborted === true || now().getTime() >= deadline;
+      // The first read is the fenced one, and so is every read a poll
+      // answers on. A poll that waits asks in between, without a lock,
+      // whether the fenced read would say anything new: the session row was
+      // otherwise locked four times a second for every idle worker.
+      for (let fenced = true; ; fenced = false) {
+        // Armed before the read, so a notification that lands between the
+        // read and the wait still ends the wait.
+        const waiting = new AbortController();
+        const cut = () => waiting.abort();
+        stop?.addEventListener("abort", cut, { once: true });
+        const notified = deps.wakeup?.wait(fence.sessionId, waiting.signal);
+        try {
+          const budget = await budgetNow();
+          if (
+            fenced ||
+            due() ||
+            (await work.nextInputPending({ fence, budget }))
+          ) {
+            const result = await work.nextInputAtomic({
+              fence,
+              now: now(),
+              budget,
+            });
+            if (result.outcome !== "ok") rejected(result);
+            // A draining attempt is never handed new input, and neither is a
+            // session over budget, so waiting out the poll would only hold up
+            // the shutdown.
+            if (
+              result.input ||
+              result.draining === true ||
+              result.blocked !== undefined ||
+              due()
+            ) {
+              const coAuthor = result.input
+                ? await turnCoAuthor(fence.sessionId, result.input.actorId)
+                : undefined;
+              const contentMode = deps.telemetry?.contentMode();
+              return {
+                input: result.input
+                  ? {
+                      turn_id: result.input.turnId,
+                      input_id: result.input.inputId,
+                      message: result.input.message,
+                      delivery_started_at:
+                        result.input.deliveryStartedAt.toISOString(),
+                      ...(coAuthor === undefined
+                        ? {}
+                        : { co_author: coAuthor }),
+                      ...(result.input.traceContext === null
+                        ? {}
+                        : { trace_context: result.input.traceContext }),
+                      ...(contentMode === undefined
+                        ? {}
+                        : { content_mode: contentMode }),
+                    }
+                  : null,
+                lease_expires_at: result.leaseExpiresAt.toISOString(),
+                ...(result.blocked !== undefined
+                  ? { draining: true, reason: result.blocked }
+                  : result.draining === true
+                    ? { draining: true }
+                    : {}),
+              };
+            }
+          }
+          // Never sleep past the deadline the caller asked for: a one
+          // millisecond wait must not cost a whole poll interval.
+          const nap = sleep(
+            Math.min(pollIntervalMs, deadline - now().getTime()),
+            waiting.signal,
+          );
+          await (notified === undefined ? nap : Promise.race([nap, notified]));
+        } finally {
+          stop?.removeEventListener("abort", cut);
+          waiting.abort();
         }
-        // Never sleep past the deadline the caller asked for: a one
-        // millisecond wait must not cost a whole poll interval.
-        await sleep(Math.min(pollIntervalMs, deadline - now().getTime()));
       }
     },
 

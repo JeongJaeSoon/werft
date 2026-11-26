@@ -19,7 +19,7 @@ PostgreSQL 16を使います。接続の飽和、遅いSQL、ロックの調査�
 
 | 役割 | プール上限 | 理由 |
 |---|---|---|
-| api | 10 + readiness probe 1 + LISTEN 1 | リクエストを並列処理します。probeは専用プール（上限1）を使い、通常のリクエストと競合しません。イベント通知用LISTEN接続（`werft:api-listen`）はプール外に1本あります |
+| api | 10 + readiness probe 1 + LISTEN 1 | リクエストを並列処理します。probeは専用プール（上限1）を使い、通常のリクエストと競合しません。イベント通知用LISTEN接続（`werft:api-listen`）はプール外に1本あります。この通知が、イベントストリームと、次の入力を待つworkerのリクエストを起こします。接続が切れている間は、ストリームは15秒ごと、workerのリクエストは5秒ごとに読み直します |
 | metrics | 10 | 1回のscrapeで7つの集計を並列に読みます |
 | scheduler | 4 | pass内のSQLは逐次実行ですが、pass lockが別の接続を保持します |
 | reconciler | 4 | pass内のSQLを逐次実行します |
