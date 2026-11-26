@@ -37,18 +37,28 @@ const ALLOWED_RUNTIME_DEPENDENCIES = [
 // it takes only what was rewritten here, never the copy.
 const VENDOR = resolve(PACKAGE_ROOT, "../../apps/web/src/vendor");
 
+// A CSS comment, or a string, which is kept so a "/*" inside it opens nothing.
+const CSS_COMMENT =
+  /("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')|\/\*[\s\S]*?\*\//g;
+
+function cssReferences(source: string): string[] {
+  const code = source.replace(CSS_COMMENT, (_, text) => text ?? " ");
+  return Array.from(code.matchAll(/["'(]\s*([^"'()\s;]+)/g), (m) => m[1] ?? "");
+}
+
 function vendorImports(file: string, source: string): string[] {
   const specifiers = file.endsWith(".css")
-    ? Array.from(source.matchAll(/["'(]\s*([^"'()\s;]+)/g), (m) => m[1] ?? "")
+    ? cssReferences(source)
     : ts
         .preProcessFile(source, true, true)
         .importedFiles.map((f) => f.fileName);
-  return specifiers.filter(
-    (specifier) =>
-      specifier.includes("vendor/affectui") ||
-      (specifier.startsWith(".") &&
-        resolve(PACKAGE_ROOT, file, "..", specifier).startsWith(`${VENDOR}/`)),
-  );
+  return specifiers.filter((specifier) => {
+    if (specifier.includes("vendor/affectui")) return true;
+    if (!specifier.startsWith(".")) return false;
+    // The folder itself too: an index file would make it importable.
+    const target = resolve(PACKAGE_ROOT, file, "..", specifier);
+    return target === VENDOR || target.startsWith(`${VENDOR}/`);
+  });
 }
 
 // The consumer's own React: a second copy breaks hooks.
@@ -104,6 +114,8 @@ describe("패키지 경계", () => {
     'const a = await import("../../../../apps/web/src/vendor/affectui/free/a");',
     'const a = require("../../../../apps/web/src/vendor/affectui/free/a");',
     'import "../../../../apps/web/src/vendor/other/a.ts";',
+    'import { a } from "../../../../apps/web/src/vendor";',
+    "const a = await import(`../../../../apps/web/src/vendor/affectui/free/a`);",
     'import "@/vendor/affectui/free/a";',
   ])("vendor import를 찾는다: %s", (source) => {
     expect(vendorImports("src/patterns/x.tsx", source)).toHaveLength(1);
@@ -119,6 +131,15 @@ describe("패키지 경계", () => {
     ]) {
       expect(vendorImports("src/foundations/x.css", css)).toHaveLength(1);
     }
+    const commented = [
+      `@source "../**/*.tsx";`,
+      `/* see "${target}" */`,
+      `/*\n * url(${target})\n */`,
+    ].join("\n");
+    expect(vendorImports("src/foundations/x.css", commented)).toEqual([]);
+    // A "/*" inside a string does not hide the import after it.
+    const globbed = `@source "../**/*.tsx";\n@import "${target}"; /* a */`;
+    expect(vendorImports("src/foundations/x.css", globbed)).toHaveLength(1);
     const clean = [
       "// Adapted from AffectUI (MIT): apps/web/src/vendor/affectui/free/LICENSE",
       'import { a } from "./vendor-list.ts";',
