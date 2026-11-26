@@ -32,6 +32,8 @@ const SITES: Record<string, "input" | "platform"> = {
   // fail the commit that ends a turn or records an answer.
   "packages/db/src/action/push-follow-ups.ts#queuePushFollowUps": "platform",
   "packages/db/src/sessions/parked-group.ts#continueParkedTurn": "platform",
+  // start_fresh queues again an input the limit already admitted.
+  "packages/db/src/recovery-control.ts#rerunUnknownTurn": "platform",
 };
 
 function sources(directory: string): string[] {

@@ -1120,3 +1120,60 @@ describe("recovery decisions through the session service", () => {
     ]);
   });
 });
+
+// 94S-2250: [Continue in a new context] on a turn of unknown outcome is judged
+// as [Continue] is (94S-2247 shares the rule): those who may write to the
+// session, and on a private channel's session its current members only.
+describe("starting an unknown turn fresh through the session service", () => {
+  function startingFresh() {
+    const reached: string[] = [];
+    const service = createSessionService({
+      authorization: policyFor(plain),
+      catalog: testCatalog({ repositories: {} }),
+      controls: {
+        async decideRecoveryAtomic(input: {
+          principal: { subject?: { principal?: { id?: string } } };
+        }) {
+          reached.push(input.principal.subject?.principal?.id ?? "");
+          return {
+            outcome: "accepted",
+            response: {
+              receipt_id: "019a0000-0000-7000-8000-00000000b0b2",
+              receipt_status: "succeeded",
+            },
+          };
+        },
+      } as never,
+      reader: { getSession: async () => null } as never,
+      limits: {
+        queuedInputLimitPerSession: 10,
+        storageLimitBytes: 1e9,
+        sessionCostLimitUsd: 100,
+        sessionTokenLimit: null,
+      },
+      releases: {} as never,
+      inputs: {} as never,
+    });
+    const press = (who: Person, sessionId: string) =>
+      service.startFreshTurn(person(who), sessionId, { turnId: 1 }).then(
+        () => "started",
+        (error: { code?: string }) => error.code ?? "error",
+      );
+    return { press, reached };
+  }
+
+  test("on a private channel's session, a current member starts fresh; the requester who left and a non-member do not", async () => {
+    const { press, reached } = startingFresh();
+    expect(await press("member", PRIVATE_SESSION)).toBe("started");
+    expect(await press("requester", PRIVATE_SESSION)).toBe("NOT_FOUND");
+    expect(await press("nonmember", PRIVATE_SESSION)).toBe("NOT_FOUND");
+    expect(reached).toEqual([USERS.member]);
+  });
+
+  test("on a public channel's session, the requester and a member who may write start fresh", async () => {
+    const { press, reached } = startingFresh();
+    expect(await press("requester", PUBLIC_SESSION)).toBe("started");
+    expect(await press("nonmember", PUBLIC_SESSION)).toBe("started");
+    expect(reached).toEqual([USERS.requester, USERS.nonmember]);
+  });
+});

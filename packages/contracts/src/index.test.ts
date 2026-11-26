@@ -489,7 +489,7 @@ describe("answers, pending requests and control", () => {
     ).toBe(false);
   });
 
-  test("a context gap is visible on the detail, and start_fresh takes no target", () => {
+  test("a context gap is visible on the detail, and start_fresh may name the unknown turn it runs again", () => {
     // a session held back because no checkpoint covers the turns
     // that ran says which ones, and a reset stays visible afterwards.
     const base = {
@@ -572,11 +572,20 @@ describe("answers, pending requests and control", () => {
         decision: "start_fresh",
       }).success,
     ).toBe(true);
+    // A turn of unknown outcome it runs again, on a session with no
+    // committed checkpoint.
     expect(
       recoveryDecisionRequestSchema.safeParse({
         ...decision,
         decision: "start_fresh",
         target_turn_id: "1",
+      }).success,
+    ).toBe(true);
+    expect(
+      recoveryDecisionRequestSchema.safeParse({
+        ...decision,
+        decision: "start_fresh",
+        target_turn_id: "",
       }).success,
     ).toBe(false);
   });
