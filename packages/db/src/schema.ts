@@ -2969,6 +2969,25 @@ export const turnContinuations = pgTable("turn_continuations", {
     .references(() => turns.id, { onDelete: "cascade" }),
 });
 
+// What a stop did, under the key of the request that asked for it: a retry
+// of that request replays it, so it never cancels or interrupts later work.
+export const sessionStops = pgTable(
+  "session_stops",
+  {
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    cancelled: integer().notNull(),
+    // The turn sequence the stop interrupted; null when none was running.
+    runningTurnId: text("running_turn_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.sessionId, table.idempotencyKey] })],
+);
+
 // A Slack push approval's follow-up turn, held while the session had a turn
 // running: that turn may open the pull request itself, so the next turn end
 // queues the follow-up only if no pull request is recorded by then, and

@@ -45,6 +45,7 @@ export interface SlackInboundDeps {
   sessionLinks: Param<typeof createSlackSessionHandler>["sessionLinks"];
   conversations: Param<typeof createSlackSessionHandler>["conversations"];
   sessions: Param<typeof createSlackSessionHandler>["sessions"];
+  stops: Param<typeof createSlackSessionHandler>["stops"];
   agentDetails: Param<typeof createSlackSessionHandler>["agentDetails"];
   releaseRepositoryUnusable: Param<
     typeof createSlackSessionHandler
@@ -92,6 +93,7 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
     mentionTurns: deps.mentionTurns,
     audience,
     sessions: deps.sessions,
+    stops: deps.stops,
     agentDetails: deps.agentDetails,
     releaseRepositoryUnusable: deps.releaseRepositoryUnusable,
     slack: slackApi,

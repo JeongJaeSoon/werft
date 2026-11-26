@@ -1,5 +1,5 @@
 {
-  "id": "f8a53aac-3b28-4c01-9a26-e513e6d4814f",
+  "id": "8961bcf5-df71-45fb-b761-58aa5f36192c",
   "prevId": "1a819880-452c-4849-872e-97833b1098ce",
   "version": "7",
   "dialect": "postgresql",
@@ -16860,6 +16860,65 @@
       },
       "isRLSEnabled": false
     },
+    "public.session_stops": {
+      "name": "session_stops",
+      "schema": "",
+      "columns": {
+        "session_id": {
+          "name": "session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cancelled": {
+          "name": "cancelled",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "running_turn_id": {
+          "name": "running_turn_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "session_stops_session_id_sessions_id_fk": {
+          "name": "session_stops_session_id_sessions_id_fk",
+          "tableFrom": "session_stops",
+          "tableTo": "sessions",
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "session_stops_session_id_idempotency_key_pk": {
+          "name": "session_stops_session_id_idempotency_key_pk",
+          "columns": ["session_id", "idempotency_key"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.session_title_requests": {
       "name": "session_title_requests",
       "schema": "",
@@ -19704,52 +19763,6 @@
           "value": "(\"slack_outbox\".\"claim_token\" IS NULL) = (\"slack_outbox\".\"lease_expires_at\" IS NULL) AND (\"slack_outbox\".\"status\" IN ('pending', 'sending') OR \"slack_outbox\".\"claim_token\" IS NULL) AND (\"slack_outbox\".\"status\" <> 'sending' OR \"slack_outbox\".\"claim_token\" IS NOT NULL)"
         }
       },
-      "isRLSEnabled": false
-    },
-    "public.slack_outbox_rate_blocks": {
-      "name": "slack_outbox_rate_blocks",
-      "schema": "",
-      "columns": {
-        "installation_id": {
-          "name": "installation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "scope": {
-          "name": "scope",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "blocked_until": {
-          "name": "blocked_until",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "slack_outbox_rate_blocks_installation_id_slack_installations_id_fk": {
-          "name": "slack_outbox_rate_blocks_installation_id_slack_installations_id_fk",
-          "tableFrom": "slack_outbox_rate_blocks",
-          "tableTo": "slack_installations",
-          "columnsFrom": ["installation_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "slack_outbox_rate_blocks_installation_id_scope_pk": {
-          "name": "slack_outbox_rate_blocks_installation_id_scope_pk",
-          "columns": ["installation_id", "scope"]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.slack_settings": {
