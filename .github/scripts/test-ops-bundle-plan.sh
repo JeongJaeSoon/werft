@@ -10,8 +10,9 @@
 # no previous commit (a new branch), a push of several commits or a force push
 # (HEAD^ is not `before`), a diff or list that cannot be read, and any
 # .gitattributes change (it can change the bytes a checkout gives the bundle).
-# An input that is a symlink builds too: the bundle copies its target, which
-# the list does not name. Files outside
+# Every input has to be a regular file git tracks at that very path: a symlink,
+# or a path under a symlinked directory, makes the bundle copy bytes the list
+# does not name, so it builds. Files outside
 # the list that still break the bundle surface in the next scheduled or tag
 # run, which always build it.
 #
@@ -45,9 +46,19 @@ specs=(':(glob,top).gitattributes' ':(glob,top)**/.gitattributes')
 while IFS= read -r path; do
   [ -z "$path" ] || specs+=(":(literal,top)${path}")
 done <<<"$inputs"
-links=$(git ls-files -s -- "${specs[@]}") || build "cannot read the inputs' modes"
-if grep -q '^120000 ' <<<"$links"; then
-  build "an input is a symlink: $(grep '^120000 ' <<<"$links" | head -n 1 | cut -f2)"
+while IFS= read -r path; do
+  [ -n "$path" ] || continue
+  # One index entry, a regular file, and a blob at HEAD:<path> (a path under a
+  # symlinked directory has no such blob). git quotes some names in
+  # ls-files output, so the name itself is not compared.
+  entry=$(git ls-files -s -- ":(literal,top)${path}") || build "cannot read how git tracks ${path}"
+  [[ "$entry" =~ ^100(644|755)\  && "$entry" != *$'\n'* ]] \
+    && [ "$(git cat-file -t "HEAD:${path}" 2>/dev/null)" = blob ] \
+    || build "an input is not a regular tracked file: ${path}"
+done <<<"$inputs"
+attributes=$(git ls-files -s -- "${specs[@]:0:2}") || build "cannot read the .gitattributes files"
+if grep -q '^120000 ' <<<"$attributes"; then
+  build "a .gitattributes is a symlink"
 fi
 git diff --quiet --no-renames "$before" HEAD -- "${specs[@]}"
 case $? in

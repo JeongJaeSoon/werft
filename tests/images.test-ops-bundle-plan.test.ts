@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -85,6 +86,21 @@ beforeAll(() => {
   put("packages/db/migrations/0000_a.sql", "select 1;\n");
   put("packages/db/migrations/0001_b.sql", "select 2;\n");
   put("apps/web/a.ts", "a\n");
+  // Every input the planner checks exists as a tracked file, as in a checkout.
+  const inputs = Bun.spawnSync(
+    ["bash", ".github/scripts/test-ops-bundle.sh", "--inputs"],
+    { cwd: repo },
+  )
+    .stdout.toString()
+    .trim()
+    .split("\n");
+  for (const path of [
+    ...inputs,
+    "tests/fixtures/test-ops-release-manifest.json",
+    ".github/workflows/images.yml",
+  ]) {
+    if (!existsSync(join(repo, path))) put(path, `${path}\n`);
+  }
   git("add", ".");
   git("commit", "--quiet", "-m", "base");
 });
@@ -196,11 +212,27 @@ describe("test-ops-bundle-plan.sh", () => {
     const before = git("rev-parse", "HEAD");
     const r = plan(before, commit("scripts/target.sh"));
     expect(r).toMatchObject({ code: 0, out: "ops_bundle=build\n" });
-    expect(r.why).toContain("an input is a symlink: scripts/test-ops.sh");
+    expect(r.why).toContain(
+      "an input is not a regular tracked file: scripts/test-ops.sh",
+    );
     rmSync(join(repo, "scripts/test-ops.sh"));
     put("scripts/test-ops.sh", "echo real\n");
     git("add", ".");
     git("commit", "--quiet", "-m", "unlink");
+  });
+
+  test("an input under a symlinked directory builds it", () => {
+    put("support/lib/backup-lib.sh", "echo lib\n");
+    rmSync(join(repo, "scripts/lib"), { recursive: true, force: true });
+    symlinkSync("../support/lib", join(repo, "scripts/lib"));
+    git("add", "-A");
+    git("commit", "--quiet", "-m", "dir link");
+    const before = git("rev-parse", "HEAD");
+    const r = plan(before, commit("support/lib/backup-lib.sh"));
+    expect(r).toMatchObject({ code: 0, out: "ops_bundle=build\n" });
+    expect(r.why).toContain(
+      "an input is not a regular tracked file: scripts/lib/backup-lib.sh",
+    );
   });
 
   test("a list it cannot read builds it", () => {
