@@ -58,8 +58,10 @@ import {
 import type { SlackInboxLogger } from "./slack-inbox.ts";
 import {
   sessionUrl,
+  slackAiLabelSuffix,
   slackOutboxGuard,
   slackOutboxText,
+  withSlackAiLabel,
 } from "./slack-outbox-render.ts";
 import {
   SLACK_PROMPT_MESSAGES,
@@ -114,7 +116,10 @@ export type SlackInteractionDeps = {
     Required<Pick<SlackBotApi, "updateMessage" | "openView" | "updateView">> &
     Pick<SlackBotSender, "postEphemeral">;
   botToken(workspaceId: string, slackAppId: string): Promise<string | null>;
-  outbox: Pick<SurfaceOutboxStore, "readerLocale" | "promptCard" | "cards">;
+  outbox: Pick<
+    SurfaceOutboxStore,
+    "readerLocale" | "promptCard" | "cards" | "aiLabelFor"
+  >;
   /** The web page where a person links their Slack account. */
   connectUrl: string;
   logger: SlackInboxLogger;
@@ -976,16 +981,24 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     try {
       // The console is where a person links their Slack account, too.
       const linkUrl = sessionUrl(new URL(deps.connectUrl).origin, value.s);
+      const redrawn = slackOwnershipLostNotice({
+        locale: pressed.locale,
+        sessionId: value.s,
+        turnId,
+        continued: true,
+        ...(linkUrl === undefined ? {} : { linkUrl }),
+      });
+      const label =
+        (await deps.outbox.aiLabelFor({
+          agentId: pressed.agentId,
+          sessionId: value.s,
+          turnId,
+        })) ?? undefined;
       await deps.slack.updateMessage(pressed.botToken, {
         channelId: pressed.channelId,
         ts,
-        ...slackOwnershipLostNotice({
-          locale: pressed.locale,
-          sessionId: value.s,
-          turnId,
-          continued: true,
-          ...(linkUrl === undefined ? {} : { linkUrl }),
-        }),
+        text: redrawn.text + slackAiLabelSuffix(pressed.locale, label),
+        blocks: withSlackAiLabel(redrawn.blocks, pressed.locale, label),
       });
     } catch (error) {
       deps.logger.warn("Slack notice update failed", {
