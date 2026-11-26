@@ -2012,6 +2012,93 @@ describe("session detail", () => {
     expect(screen.queryByRole("button", { name: "다시 연결" })).toBeNull();
   });
 
+  describe("a read that failed under the chat", () => {
+    const PENDING_ROUTE = `GET /v1/sessions/${SESSION_ID}/pending-requests`;
+    const failingPending = () => {
+      const read = { down: true, count: 0 };
+      const route = () => {
+        read.count += 1;
+        return read.down
+          ? apiError(503, "BACKEND_UNAVAILABLE", "down")
+          : json(200, pending);
+      };
+      return { read, route };
+    };
+    // Compared with null: bun serialises a DOM node a failing matcher holds.
+    const hasRetry = () =>
+      screen.queryByRole("button", { name: "다시 시도" }) !== null;
+
+    test("is read again when the event stream reconnects, and its card goes", async () => {
+      const { read, route } = failingPending();
+      renderAt(`/sessions/${SESSION_ID}`, {
+        ...detailRoutes,
+        [PENDING_ROUTE]: route,
+      });
+      await screen.findByRole("button", { name: "다시 시도" });
+      await waitFor(() => expect(stream.requests).toHaveLength(1));
+      const before = read.count;
+      await act(async () => stream.open());
+      await waitFor(() => expect(read.count).toBe(before + 1));
+
+      // The server answers again; the stream drops and opens again.
+      read.down = false;
+      act(() => stream.drop());
+      await waitFor(() => expect(stream.requests).toHaveLength(2));
+      await act(async () => stream.open());
+      await screen.findByText("권한 요청: Bash");
+      expect(hasRetry()).toBe(false);
+      expect(read.count).toBe(before + 2);
+    });
+
+    test("keeps its card while it keeps failing, read once per reconnect", async () => {
+      const { read, route } = failingPending();
+      renderAt(`/sessions/${SESSION_ID}`, {
+        ...detailRoutes,
+        [PENDING_ROUTE]: route,
+      });
+      await screen.findByRole("button", { name: "다시 시도" });
+      await waitFor(() => expect(stream.requests).toHaveLength(1));
+      const before = read.count;
+      await act(async () => stream.open());
+      await waitFor(() => expect(read.count).toBe(before + 1));
+
+      act(() => stream.drop());
+      await waitFor(() => expect(stream.requests).toHaveLength(2));
+      await act(async () => stream.open());
+      await waitFor(() => expect(read.count).toBe(before + 2));
+      // Nothing asks again on its own past the one read per reconnect.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(read.count).toBe(before + 2);
+      expect(hasRetry()).toBe(true);
+    });
+
+    test("is read again when the session's status changes", async () => {
+      const { read, route } = failingPending();
+      let status = "needs_input";
+      const { services } = renderAt(`/sessions/${SESSION_ID}`, {
+        ...detailRoutes,
+        [`GET /v1/sessions/${SESSION_ID}`]: () =>
+          json(200, { ...detail, status }),
+        [PENDING_ROUTE]: route,
+      });
+      await screen.findByRole("button", { name: "다시 시도" });
+
+      read.down = false;
+      status = "idle";
+      const before = read.count;
+      // Only the detail is read: no event says what else went stale.
+      await act(() =>
+        services.queryClient.refetchQueries({
+          queryKey: keys.session(SESSION_ID),
+          exact: true,
+        }),
+      );
+      await screen.findByText("권한 요청: Bash");
+      expect(hasRetry()).toBe(false);
+      expect(read.count).toBe(before + 1);
+    });
+  });
+
   test("a tool call runs until its result arrives, then holds it in the same row", async () => {
     renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
     await waitFor(() => expect(stream.requests).toHaveLength(1));
