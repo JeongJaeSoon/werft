@@ -1123,8 +1123,8 @@ esac
     ]);
     expect(calls).toContain("rm -f worker-1");
     expect(calls).toContain("network rm net-1");
-    // Listing volumes is how down.sh records the anonymous ones for the next
-    // pass; only removing them is forbidden here.
+    // Anonymous volumes go with their containers (compose rm -v above); no
+    // volume is removed by name here.
     expect(calls.filter((call) => call.startsWith("volume rm"))).toEqual([]);
     expect(calls.filter((call) => /^rm -v/.test(call))).toEqual([]);
     expect(await Bun.file(join(runDir, "ports.yml")).exists()).toBe(true);
