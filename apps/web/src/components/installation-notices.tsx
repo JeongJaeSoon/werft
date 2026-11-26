@@ -62,6 +62,7 @@ export function DiskQuotaNotice() {
           ? t("shell.noDiskQuota.test")
           : t("shell.noDiskQuota")}{" "}
         <Link
+          underline="always"
           href={`${docsSiteUrl(locale)}run-server/self-hosting/prepare-xfs/`}
           target="_blank"
           newTabLabel={t("shell.docsNewTab")}

@@ -279,20 +279,27 @@ describe("the note for an installation without a disk quota", () => {
     }
   }
 
-  test("nothing shows with the quota on or on a server from before the status", async () => {
-    for (const answer of [
+  for (const [name, answer] of [
+    [
+      "with the quota on",
       () => json(200, { profile: "test", no_disk_quota: false }),
+    ],
+    [
+      "on a server from before the status",
       () => apiError(404, "NOT_FOUND", "no such route"),
-    ]) {
-      const { api } = renderAt(SETTINGS, {
+    ],
+  ] as const) {
+    test(`nothing shows ${name}`, async () => {
+      const { api, services } = renderAt(SETTINGS, {
         ...answers("test"),
         [STATUS]: answer,
       });
       await shell();
       await waitFor(() => expect(asked(api)).toBe(true));
+      await waitFor(() => expect(services.queryClient.isFetching()).toBe(0));
       expect(quotaNote() === null).toBe(true);
-    }
-  });
+    });
+  }
 
   for (const path of ["/", SETTINGS]) {
     test(`a member is shown nothing on ${path} and the status is not asked for`, async () => {
