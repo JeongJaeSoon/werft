@@ -1905,6 +1905,50 @@ describe("sessions list", () => {
     ).toBe("true");
   });
 
+  test("a new search keeps each relation's last count until its own arrives", async () => {
+    const user = await setupUser();
+    let release: (() => void) | undefined;
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+      "GET /v1/sessions/counts": (request) => {
+        const answer = json(200, sessionCounts(3));
+        // Counts for the search wait until the test lets them go.
+        if (!new URL(request.url).searchParams.has("q")) return answer;
+        return new Promise<Response>((resolve) => {
+          release = () => resolve(json(200, sessionCounts(1)));
+        });
+      },
+    });
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
+    const list = await relationChoices(user);
+    const shown = () =>
+      within(list)
+        .getAllByRole("button")
+        .map((choice) => choice.textContent);
+    await waitFor(() =>
+      expect(shown()).toEqual([
+        "모든 관계 33개",
+        "내가 시작 33개",
+        "공유받음 33개",
+        "관리하는 에이전트 33개",
+      ]),
+    );
+    const search = screen.getByRole("searchbox", {
+      name: "제목이나 ID로 찾기",
+    });
+    await user.type(search, "x");
+    await waitFor(() => expect(release).toBeDefined());
+    expect(shown()).toEqual([
+      "모든 관계 33개",
+      "내가 시작 33개",
+      "공유받음 33개",
+      "관리하는 에이전트 33개",
+    ]);
+    act(() => release?.());
+  });
+
   test("a chip's × clears that filter alone, and remove all clears them all", async () => {
     const user = await setupUser();
     const { history } = renderAt("/sessions?status=failed&relation=shared", {

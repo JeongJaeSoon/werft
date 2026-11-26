@@ -2,7 +2,6 @@ import {
   hashKey,
   keepPreviousData,
   useInfiniteQuery,
-  useQueries,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -498,27 +497,34 @@ function useSessionCounts(
  * Every relation's counts for the same search, keyed as useSessionCounts so
  * the one already read is not read again.
  */
+function useRelationCount(
+  name: SessionRelationFilter | "all",
+  current: SessionRelationFilter | undefined,
+  q: string | undefined,
+  enabled: boolean,
+): CountSessionsResponse | undefined {
+  const { client } = useWerft();
+  return useQuery({
+    ...sessionCountsQuery(client, name === "all" ? undefined : name, q),
+    // The relation picked is the tabs' own read.
+    enabled: enabled && name !== (current ?? "all"),
+    // A new search keeps the last numbers until its own arrive.
+    placeholderData: keepPreviousData,
+  }).data;
+}
+
+/** Every relation's counts for the same search, the tabs' one included. */
 function useRelationCounts(
   current: SessionRelationFilter | undefined,
   q: string | undefined,
   enabled: boolean,
-): Partial<Record<SessionRelationFilter | "all", CountSessionsResponse>> {
-  const { client } = useWerft();
-  // The relation picked is the tabs' own read; the others are read here.
-  const others = (["all", ...SESSION_RELATIONS] as const).filter(
-    (name) => name !== (current ?? "all"),
-  );
-  const results = useQueries({
-    queries: others.map((name) => ({
-      ...sessionCountsQuery(client, name === "all" ? undefined : name, q),
-      enabled,
-      // A new search keeps the last numbers until its own arrive.
-      placeholderData: keepPreviousData,
-    })),
-  });
-  return Object.fromEntries(
-    others.map((name, index) => [name, results[index]?.data]),
-  );
+): Record<SessionRelationFilter | "all", CountSessionsResponse | undefined> {
+  return {
+    all: useRelationCount("all", current, q, enabled),
+    started: useRelationCount("started", current, q, enabled),
+    shared: useRelationCount("shared", current, q, enabled),
+    administered: useRelationCount("administered", current, q, enabled),
+  };
 }
 
 /** The caller's sessions for the filters picked, a page at a time. */
