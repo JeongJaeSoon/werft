@@ -164,7 +164,7 @@ curl -sS "$API/v1/sessions?limit=5" -H "Authorization: Bearer $KEY" | jq -c '.it
 
 각 항목의 `agent`(`id`, `name`, `release_version_no`, `release_label`)는 세션이 묶인 에이전트와 release다. `release_version_no`는 그 release가 쓰는 카드 version이고, `release_label`은 release의 이름(만든 시각, 예: `2026-10-30_14:30:28`)이다. 에이전트 release 없이 만든 세션은 `null`이다. `created_by`(`user_id`, `display_name`)는 세션을 시작한 사람이고, key로 만든 세션은 key를 만든 사람이다. 인계 뒤에도 바뀌지 않는다. 인계받은 사람은 그 세션을 읽을 수 있지만 `started`에는 시작한 사람에게만 나온다. `channel`은 세션을 만든 요청이 들어온 곳(`web`, `api`, `slack`)이다. 시작한 사람이나 경로를 기록에서 알 수 없는 예전 세션은 `null`이다. `slack_permalink`는 Slack에서 시작한 세션의 첫 메시지 링크다([원래 Slack 메시지 링크](/integrations/slack#원래-slack-메시지-링크)). 다른 경로로 만든 세션과 링크를 남기기 전 세션은 `null`이다.
 
-상태별 개수는 SDK에 없어 HTTP API로 읽는다. `GET /v1/sessions/counts`는 같은 `relation`·`q`로 목록을 끝까지 읽었을 때 상태별로 몇 개인지와 `total`을 준다. 볼 수 없는 세션은 세지 않는다.
+상태별 개수는 SDK에 없어 HTTP API로 읽는다. `GET /v1/sessions/counts`는 같은 `relation`·`q`로 목록을 끝까지 읽었을 때 상태별로 몇 개인지와 `total`을 준다. 볼 수 없는 세션은 세지 않는다. `cut_off`는 `idle` 가운데 마지막 turn이 worker의 lease를 잃어 끊긴 세션(목록 항목의 `last_turn_cut_off`)의 수다. 이 세션들은 `idle`에도 들어 있다. 콘솔은 이 세션을 "중단됨" 탭에, 나머지를 "쉬는 중" 탭에 나눠 보인다. 목록에서는 `status=idle&last_turn_cut_off=true`·`false`로 같은 두 묶음을 읽는다.
 
 ```bash
 curl -sS "$API/v1/sessions/counts?relation=started" -H "Authorization: Bearer $KEY" | jq -c
