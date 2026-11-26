@@ -24,6 +24,7 @@ import {
 
 import {
   type BodyReadBounds,
+  BodyStallError,
   getObjectVersion,
   isConditionalConflict,
   isMissingObject,
@@ -33,6 +34,7 @@ import {
   S3_METADATA_REQUEST_TIMEOUT_MS,
   S3_REQUEST_BOUNDS,
   S3_SMALL_WRITE_FLOOR_MS,
+  S3_UPLOAD_STALL_MS,
   type S3ClientLike,
   sha256,
   storedVersion,
@@ -52,6 +54,8 @@ export type CheckpointObjectStoreOptions = {
   readonly bodyRead?: BodyReadBounds;
   readonly bucket: string;
   readonly client: S3ClientLike;
+  /** Defaults to `S3_UPLOAD_STALL_MS`; tests pin a shorter one. */
+  readonly uploadStallMs?: number;
 };
 
 /**
@@ -89,6 +93,7 @@ export function createCheckpointObjectStore(
   options: CheckpointObjectStoreOptions,
 ): CheckpointObjectStore {
   const { bodyRead, bucket, client } = options;
+  const uploadStallMs = options.uploadStallMs ?? S3_UPLOAD_STALL_MS;
 
   function read(key: string, version?: string) {
     return getObjectVersion(client, bucket, key, {
@@ -148,23 +153,60 @@ export function createCheckpointObjectStore(
     // The length and the checksum up front keep the SDK from switching to
     // `aws-chunked`, which the worker's object store route refuses; S3 still
     // checks the body against both.
-    const put = () =>
-      client.send(
-        new PutObjectCommand({
-          Body: pass(body),
-          Bucket: bucket,
-          ChecksumSHA256: Buffer.from(body.sha256, "hex").toString("base64"),
-          ContentLength: body.bytes,
-          IfNoneMatch: "*",
-          Key: key,
-        }),
-        {
-          requestTimeout: transferBudgetMs(
-            body.bytes,
-            S3_REQUEST_BOUNDS.requestTimeout,
-          ),
-        },
-      );
+    const put = async () => {
+      const cut = new AbortController();
+      let handed = 0;
+      let stalledMs: number | undefined;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let settled = false;
+      // Armed again by each chunk the client takes, and left running once
+      // the last is taken: the answer is due within the same bound. Not
+      // once the send has settled: a read still pending then may yet hand
+      // over a chunk.
+      const moved = (bytes: number) => {
+        if (settled) return;
+        handed += bytes;
+        const ms = uploadStallMs + transferBudgetMs(handed, 0);
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          stalledMs = ms;
+          cut.abort();
+        }, ms);
+      };
+      moved(0);
+      const source = pass(body, moved);
+      try {
+        return await client.send(
+          new PutObjectCommand({
+            Body: source,
+            Bucket: bucket,
+            ChecksumSHA256: Buffer.from(body.sha256, "hex").toString("base64"),
+            ContentLength: body.bytes,
+            IfNoneMatch: "*",
+            Key: key,
+          }),
+          {
+            abortSignal: cut.signal,
+            requestTimeout: transferBudgetMs(
+              body.bytes,
+              S3_REQUEST_BOUNDS.requestTimeout,
+            ),
+          },
+        );
+      } catch (error) {
+        throw stalledMs === undefined
+          ? error
+          : new BodyStallError(
+              `S3 upload moved nothing for ${stalledMs}ms after ${handed} of ${body.bytes} bytes`,
+            );
+      } finally {
+        settled = true;
+        clearTimeout(timer);
+        // The SDK destroys the request on an abort, not what was piped into
+        // it: the source stays open until this.
+        source.destroy();
+      }
+    };
     return retried(put);
   }
 
@@ -301,11 +343,18 @@ export function createCheckpointObjectStore(
 /**
  * One pass over a streamed body. Each chunk is copied, because the stream
  * buffers ahead of the socket and the source may refill what it handed out.
+ * `moved` hears of each chunk as the client takes it.
  */
-function pass(source: ImmutableObjectSource): Readable {
+function pass(
+  source: ImmutableObjectSource,
+  moved: (bytes: number) => void,
+): Readable {
   return Readable.from(
     (async function* () {
-      for await (const chunk of source.open()) yield Buffer.from(chunk);
+      for await (const chunk of source.open()) {
+        moved(chunk.byteLength);
+        yield Buffer.from(chunk);
+      }
     })(),
   );
 }
@@ -314,8 +363,8 @@ function pass(source: ImmutableObjectSource): Readable {
  * The SDK retries nothing whose body is a stream — it cannot send a spent
  * stream again — so a streamed upload retries here, with a fresh pass each
  * time, on what the SDK would have retried: a server fault or a request
- * that never got an answer. A 4xx is the answer, the preconditions
- * included, and goes back to the caller.
+ * that never got an answer, one cut for moving nothing included. A 4xx is
+ * the answer, the preconditions included, and goes back to the caller.
  */
 async function retried<T>(attempt: () => Promise<T>): Promise<T> {
   for (let tried = 1; ; tried += 1) {

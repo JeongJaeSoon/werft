@@ -462,9 +462,9 @@ describe("the session's GitHub pull requests", () => {
       within(area).getByRole("button", { name: "변경 사항 접기" }),
     );
     expect(within(area).queryByRole("listitem")).toBeNull();
-    // The session's tokens and cost are in the head's meta line.
-    const meta = document.querySelector("[data-slot='session-meta']");
-    expect(meta?.textContent).toContain("$0.25 · 토큰 12,345");
+    // The session's tokens and cost are in the head's progress line.
+    const progress = document.querySelector("[data-slot='session-progress']");
+    expect(progress?.textContent).toContain("$0.25 · 토큰 12,345");
   });
 
   test("a session with only attached repositories still lists its pull requests", async () => {

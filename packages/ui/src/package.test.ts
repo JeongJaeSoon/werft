@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { resolve } from "node:path";
 import { Glob } from "bun";
+import ts from "typescript";
 
 /*
  * packages/ui draws; it does not fetch, route, or decide. The boundary is a
@@ -31,6 +33,35 @@ const ALLOWED_RUNTIME_DEPENDENCIES = [
   "tailwind-merge",
 ];
 
+// Files copied from a third party stay in the web app. The kit is published, so
+// it takes only what was rewritten here, never the copy. This reads import
+// specifiers as written; aliases, symlinks and HTML entries are not followed.
+const VENDOR = resolve(PACKAGE_ROOT, "../../apps/web/src/vendor");
+
+// A CSS comment, or a string, which is kept so a "/*" inside it opens nothing.
+const CSS_COMMENT =
+  /("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')|\/\*[\s\S]*?\*\//g;
+
+function cssReferences(source: string): string[] {
+  const code = source.replace(CSS_COMMENT, (_, text) => text ?? " ");
+  return Array.from(code.matchAll(/["'(]\s*([^"'()\s;]+)/g), (m) => m[1] ?? "");
+}
+
+function vendorImports(file: string, source: string): string[] {
+  const specifiers = file.endsWith(".css")
+    ? cssReferences(source)
+    : ts
+        .preProcessFile(source, true, true)
+        .importedFiles.map((f) => f.fileName);
+  return specifiers.filter((specifier) => {
+    if (specifier.includes("vendor/affectui")) return true;
+    if (!specifier.startsWith(".")) return false;
+    // The folder itself too: an index file would make it importable.
+    const target = resolve(PACKAGE_ROOT, file, "..", specifier);
+    return target === VENDOR || target.startsWith(`${VENDOR}/`);
+  });
+}
+
 // The consumer's own React: a second copy breaks hooks.
 const PEER_DEPENDENCIES = ["react", "react-dom"];
 
@@ -59,6 +90,63 @@ describe("패키지 경계", () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  test("apps/web의 vendor 폴더를 import하지 않는다", async () => {
+    const glob = new Glob("**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,css}");
+    const offenders: string[] = [];
+    let seen = 0;
+    // Hidden folders hold tool setup that imports like any other source.
+    for await (const file of glob.scan({ cwd: PACKAGE_ROOT, dot: true })) {
+      if (/(^|\/)(node_modules|dist)\//.test(file)) continue;
+      seen += 1;
+      const source = await Bun.file(`${PACKAGE_ROOT}/${file}`).text();
+      offenders.push(
+        ...vendorImports(file, source).map((found) => `${file}: ${found}`),
+      );
+    }
+    expect(seen).toBeGreaterThan(0);
+    expect(offenders).toEqual([]);
+  });
+
+  test.each([
+    'import { A } from "../../../../apps/web/src/vendor/affectui/free/a.tsx";',
+    'import type { A } from "../../../../apps/web/src/vendor/affectui/free/a";',
+    'export * from "../../../../apps/web/src/vendor/affectui/free/a";',
+    'const a = await import("../../../../apps/web/src/vendor/affectui/free/a");',
+    'const a = require("../../../../apps/web/src/vendor/affectui/free/a");',
+    'import "../../../../apps/web/src/vendor/other/a.ts";',
+    'import { a } from "../../../../apps/web/src/vendor";',
+    "const a = await import(`../../../../apps/web/src/vendor/affectui/free/a`);",
+    'import "@/vendor/affectui/free/a";',
+  ])("vendor import를 찾는다: %s", (source) => {
+    expect(vendorImports("src/patterns/x.tsx", source)).toHaveLength(1);
+  });
+
+  test("CSS의 vendor @import를 찾고, 고지 주석과 다른 import는 지나친다", () => {
+    const target = "../../../../apps/web/src/vendor/affectui/free/a.css";
+    for (const css of [
+      `@import "${target}";`,
+      `@import url(${target});`,
+      `@import url( ${target} );`,
+      `@import url(\n  "${target}"\n);`,
+    ]) {
+      expect(vendorImports("src/foundations/x.css", css)).toHaveLength(1);
+    }
+    const commented = [
+      `@source "../**/*.tsx";`,
+      `/* see "${target}" */`,
+      `/*\n * url(${target})\n */`,
+    ].join("\n");
+    expect(vendorImports("src/foundations/x.css", commented)).toEqual([]);
+    // A "/*" inside a string does not hide the import after it.
+    const globbed = `@source "../**/*.tsx";\n@import "${target}"; /* a */`;
+    expect(vendorImports("src/foundations/x.css", globbed)).toHaveLength(1);
+    const clean = [
+      "// Adapted from AffectUI (MIT): apps/web/src/vendor/affectui/free/LICENSE",
+      'import { a } from "./vendor-list.ts";',
+    ].join("\n");
+    expect(vendorImports("src/patterns/x.tsx", clean)).toEqual([]);
   });
 
   test("직접 네트워크를 부르지 않는다", async () => {

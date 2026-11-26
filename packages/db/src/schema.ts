@@ -1385,8 +1385,9 @@ export const slackInboundEvents = pgTable(
       .defaultNow(),
     /**
      * `<slack_app_id>:<channel>:<thread_ts ?? ts>`: the thread a message
-     * belongs to, in which the `slack` role takes one event at a time.
-     * Null on dropped rows and on events outside a channel message.
+     * belongs to. Null on dropped rows and on events outside a channel
+     * message. The claim lines rows up by the channel in their payload
+     * instead, one event of a channel at a time.
      */
     conversationKey: text("conversation_key"),
     claimToken: uuid("claim_token"),
@@ -1989,6 +1990,12 @@ export const sessions = pgTable(
     index("sessions_workspace_idx")
       .on(table.workspaceId)
       .where(sql`${table.workspaceId} IS NOT NULL`),
+    // An owner's distinct parent conversations, walked one per probe, and
+    // the sessions of one of them: the private channels a read across
+    // sessions asks about (privateChannels).
+    index("sessions_owner_parent_idx")
+      .on(table.ownerId, table.parentConversationId)
+      .where(sql`${table.parentConversationId} IS NOT NULL`),
     index("sessions_created_by_user_idx")
       .on(table.createdByUserId)
       .where(sql`${table.createdByUserId} IS NOT NULL`),
@@ -1997,6 +2004,11 @@ export const sessions = pgTable(
       .where(sql`${table.takeoverRequiredAt} IS NOT NULL`),
     // Usage summaries and series pick an installation's sessions by period.
     index("sessions_created_at_idx").on(table.createdAt),
+    // A workspace's in-flight sessions, newest first: the running list and
+    // the agent cards' tally find these few without reading every session.
+    index("sessions_owner_in_flight_idx")
+      .on(table.ownerId, table.createdAt, table.id)
+      .where(sql`${table.status} IN ('running', 'needs_input')`),
     // The reconciler's sweep for waits that ended with no write.
     index("sessions_input_announced_idx")
       .on(table.id)
@@ -2050,11 +2062,13 @@ export const sessionTitleRequests = pgTable(
   ],
 );
 
-// Retained content the installation holds. A `turns` insert trigger
-// (migration 0107) charges every input in the same transaction that writes
-// it, and admitInput checks STORAGE_LIMIT_BYTES under this row's lock, so no
-// concurrent writer can race past the limit. One row per scope: today only
-// "installation".
+// Retained content the installation holds. A deferred `turns` insert trigger
+// (`storage_usage_charge_turn`) charges every input at the commit of the
+// transaction that writes it, and refuses the commit when the sum it wrote is
+// past the limit the acceptance set (admitInput), so no concurrent acceptance
+// can race past STORAGE_LIMIT_BYTES and this row is locked for the commit
+// alone. A writer that sets no limit (a platform turn) is charged only.
+// One row per scope: today only "installation".
 export const storageUsage = pgTable(
   "storage_usage",
   {
@@ -2968,6 +2982,25 @@ export const turnContinuations = pgTable("turn_continuations", {
     .unique()
     .references(() => turns.id, { onDelete: "cascade" }),
 });
+
+// What a stop did, under the key of the request that asked for it: a retry
+// of that request replays it, so it never cancels or interrupts later work.
+export const sessionStops = pgTable(
+  "session_stops",
+  {
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    cancelled: integer().notNull(),
+    // The turn sequence the stop interrupted; null when none was running.
+    runningTurnId: text("running_turn_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.sessionId, table.idempotencyKey] })],
+);
 
 // A Slack push approval's follow-up turn, held while the session had a turn
 // running: that turn may open the pull request itself, so the next turn end
@@ -4044,6 +4077,11 @@ export const conversationCalls = pgTable(
       .where(
         sql`${table.state} IN ('reserved', 'in_flight') AND ${table.requesterUserId} IS NOT NULL`,
       ),
+    // The usage reads' period range; an installation's has no workspace to
+    // lead with.
+    index("conversation_calls_period_idx")
+      .on(table.createdAt)
+      .where(sql`${table.state} <> 'released'`),
     // For the topic FK's ON DELETE, so dropping a topic reads no other row.
     index("conversation_calls_topic_idx")
       .on(table.topicId)
@@ -5891,6 +5929,11 @@ export const conversationTurns = pgTable(
       foreignColumns: [slackInstallations.id],
     }),
     index("conversation_turns_conversation_idx").on(table.conversationId),
+    // The agent's turn list, read backwards in its order, so a page reads
+    // its own rows alone.
+    index("conversation_turns_agent_page_idx")
+      .on(table.agentId, table.createdAt, table.id)
+      .where(sql`${table.origin} = 'm2'`),
     index("conversation_turns_topic_idx")
       .on(table.topicId)
       .where(sql`${table.topicId} IS NOT NULL`),
@@ -6921,6 +6964,12 @@ export const sessionLinks = pgTable(
     uniqueIndex("session_links_open_session_uniq")
       .on(table.sessionId)
       .where(sql`${table.sessionId} IS NOT NULL AND ${table.closedAt} IS NULL`),
+    // A thread's open task session, which the turn list reads per turn.
+    index("session_links_open_thread_idx")
+      .on(table.workspaceId, table.agentId, table.channelId, table.threadId)
+      .where(
+        sql`${table.sessionId} IS NOT NULL AND ${table.closedAt} IS NULL AND ${table.revokedAt} IS NULL`,
+      ),
     check(
       "session_links_closed_check",
       sql`(${table.closedAt} IS NULL) = (${table.closedReason} IS NULL)`,
@@ -7148,6 +7197,23 @@ export const slackOutbox = pgTable(
       .on(table.seq)
       .where(sql`${table.status} = 'uncertain' AND ${table.kind} = 'reply'`),
   ],
+);
+
+// Slack's rate limits, as its 429s told them (94S-2274), and the spacing of
+// an install's progress edits: until `blocked_until` the outbox sends nothing
+// an install's `scope` covers, from any replica. `scope` is `channel:<id>`
+// (posts into one channel) or a method (`chat.update`, `reactions.add`),
+// whose limit is the install's.
+export const slackOutboxRateBlocks = pgTable(
+  "slack_outbox_rate_blocks",
+  {
+    installationId: uuid("installation_id")
+      .notNull()
+      .references(() => slackInstallations.id, { onDelete: "cascade" }),
+    scope: text().notNull(),
+    blockedUntil: timestamp("blocked_until", { withTimezone: true }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.installationId, table.scope] })],
 );
 
 // The thread status the `slack` role last sent for a session link, and what

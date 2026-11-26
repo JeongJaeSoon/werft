@@ -497,7 +497,12 @@ async function probeFinalize(
   const [checkpoint] = await tx
     .select({ revision: max(checkpoints.revision) })
     .from(checkpoints)
-    .where(eq(checkpoints.turnId, turn.id));
+    .where(
+      and(
+        eq(checkpoints.sessionId, fence.sessionId),
+        eq(checkpoints.turnId, turn.id),
+      ),
+    );
   return {
     state: "settled",
     result: {

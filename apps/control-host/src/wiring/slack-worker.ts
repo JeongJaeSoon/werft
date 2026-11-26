@@ -21,6 +21,7 @@ import {
   createSlackSessionHandler,
   createSlackWelcome,
   type SlackAudienceCache,
+  type SlackChannelRef,
   type SlackInboundHandler,
   type SlackNoticeSink,
   slackBotToken,
@@ -39,12 +40,14 @@ export interface SlackInboundDeps {
   links: Param<typeof createSlackSessionHandler>["links"];
   bindings: SurfaceBindingStore;
   members: Pick<ChannelMemberStore, "forget">;
+  refill?: (ref: SlackChannelRef) => void;
   cards: Pick<SurfaceCardSettleStore, "markChoiceCardsDueIn"> | undefined;
   settings: Param<typeof createSlackSessionHandler>["settings"];
   botTurns: Param<typeof createSlackSessionHandler>["botTurns"];
   sessionLinks: Param<typeof createSlackSessionHandler>["sessionLinks"];
   conversations: Param<typeof createSlackSessionHandler>["conversations"];
   sessions: Param<typeof createSlackSessionHandler>["sessions"];
+  stops: Param<typeof createSlackSessionHandler>["stops"];
   agentDetails: Param<typeof createSlackSessionHandler>["agentDetails"];
   releaseRepositoryUnusable: Param<
     typeof createSlackSessionHandler
@@ -92,6 +95,7 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
     mentionTurns: deps.mentionTurns,
     audience,
     sessions: deps.sessions,
+    stops: deps.stops,
     agentDetails: deps.agentDetails,
     releaseRepositoryUnusable: deps.releaseRepositoryUnusable,
     slack: slackApi,
@@ -118,6 +122,7 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
   const chain = createSlackMemberCacheInvalidator({
     agents: deps.identities,
     members: deps.members,
+    ...(deps.refill === undefined ? {} : { refill: deps.refill }),
     ...(deps.cards === undefined ? {} : { cards: deps.cards }),
     next: createSlackChannelConversionHandler({
       agents: deps.identities,

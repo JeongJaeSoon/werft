@@ -424,12 +424,14 @@ export interface AuthorizationPolicy {
   /**
    * The conversations of the private channels whose sessions this subject
    * may pass the door of now (SessionViewer.privateChannels), for a
-   * read across sessions. Records nothing.
+   * read across sessions. Records nothing. Only cached member lists are
+   * read, so a channel with none is left out (decision 26: what is not
+   * confirmed is hidden) and `pending` says one is being read.
    */
   privateChannelsOf?(
     subject: AuthorizationSubject,
     ownerScope: string,
-  ): Promise<string[]>;
+  ): Promise<{ conversationIds: string[]; pending: boolean }>;
 }
 
 // The scope each session action needs. Actions with no scope have no rule
@@ -878,13 +880,17 @@ export function createAuthorizationPolicy(
   // agent and is a member of the channel now; never a key. An event or a
   // click from that very channel (its channel read from the signed Slack
   // payload) is a member's, so Slack is not asked. Whatever cannot be
-  // confirmed hides the channel.
+  // confirmed hides the channel. `cached` (a read across sessions) asks the
+  // cached member lists alone and says which it is still `pending` on;
+  // `inline` (a decision on one session) asks Slack when no list is cached.
   async function privateChannelsFor(
     reading: Extract<IdentityReading, { status: "ok" }>,
     surface: AuthorizationSurface,
     workspaceId: string,
     places: readonly PrivateChannelPlace[],
-  ): Promise<string[]> {
+    mode: "inline" | "cached",
+  ): Promise<{ seen: string[]; pending: boolean }> {
+    const none = { seen: [], pending: false };
     const { principal } = reading;
     const unknown = places.filter((place) => place.kindUnknown === true);
     if (unknown.length > 0) {
@@ -893,10 +899,10 @@ export function createAuthorizationPolicy(
         conversation_count: unknown.length,
       });
     }
-    if (places.length === 0 || principal.kind === "api_key") return [];
+    if (places.length === 0 || principal.kind === "api_key") return none;
     const same = (a: string | undefined, b: string) =>
       a !== undefined && a.toLowerCase() === b.toLowerCase();
-    if (principal.kind !== "user") return [];
+    if (principal.kind !== "user") return none;
     const members = deps.channelMembers;
     // The signed payload stands in for the member check only; the agent
     // access is checked all the same.
@@ -908,6 +914,7 @@ export function createAuthorizationPolicy(
       (place) => fromChannel(place) || members !== undefined,
     );
     const seen: string[] = [];
+    let pending = false;
     const sees = async (place: PrivateChannelPlace) => {
       try {
         const agentId = place.agentId.toLowerCase();
@@ -921,16 +928,18 @@ export function createAuthorizationPolicy(
           });
           return false;
         }
-        return (
-          fromChannel(place) ||
-          (members !== undefined &&
-            (await members.isMember({
-              workspaceId,
-              agentId,
-              channelId: place.channelId,
-              userId: principal.id,
-            })))
-        );
+        if (fromChannel(place)) return true;
+        if (members === undefined) return false;
+        const question = {
+          workspaceId,
+          agentId,
+          channelId: place.channelId,
+          userId: principal.id,
+        };
+        if (mode === "inline") return await members.isMember(question);
+        const answer = await members.cachedMembership(question);
+        if (answer === "pending") pending = true;
+        return answer === "member";
       } catch (error) {
         if (deps.storageUnavailable?.(error)) throw error;
         deps.logger?.warn("Private channel access unconfirmed; hidden", {
@@ -946,7 +955,7 @@ export function createAuthorizationPolicy(
         if (answers[i]) seen.push(place.conversationId);
       });
     }
-    return seen;
+    return { seen, pending };
   }
 
   const decisions = deps.decisions;
@@ -1061,12 +1070,15 @@ export function createAuthorizationPolicy(
         resource.id,
         {
           ...viewerOf(reading),
-          privateChannels: await privateChannelsFor(
-            reading,
-            surface,
-            resource.owner_scope,
-            places,
-          ),
+          privateChannels: (
+            await privateChannelsFor(
+              reading,
+              surface,
+              resource.owner_scope,
+              places,
+              "inline",
+            )
+          ).seen,
         },
       );
       // The reason a key is refused is kept apart from not_found, though
@@ -1295,7 +1307,8 @@ export function createAuthorizationPolicy(
 
   return {
     async privateChannelsOf(subject, ownerScope) {
-      if (subject.principal === null || !sessions.privateChannels) return [];
+      const none = { conversationIds: [], pending: false };
+      if (subject.principal === null || !sessions.privateChannels) return none;
       try {
         const reading = await identity.reread({
           ...subject,
@@ -1305,14 +1318,16 @@ export function createAuthorizationPolicy(
           reading.status !== "ok" ||
           ownerScope !== ownerScopeOf(reading.principal)
         ) {
-          return [];
+          return none;
         }
-        return await privateChannelsFor(
+        const { seen, pending } = await privateChannelsFor(
           reading,
           subject.surface,
           ownerScope,
           await sessions.privateChannels(ownerScope, null),
+          "cached",
         );
+        return { conversationIds: seen, pending };
       } catch (error) {
         if (deps.storageUnavailable?.(error)) {
           throw new AuthorizationUndecidedError(error);

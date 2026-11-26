@@ -392,6 +392,34 @@ describe("createOutboxSlackNoticeSink", () => {
       locale: "en",
     });
   });
+
+  test("a thread line fills in its count, and the count goes nowhere else", async () => {
+    const enqueued: SurfaceOutboxEntry[] = [];
+    const sink = createOutboxSlackNoticeSink({
+      async enqueue(entry) {
+        enqueued.push(entry);
+        return "enqueued";
+      },
+      readerLocale: async () => null,
+    });
+    await sink.recordInThread({
+      workspaceId: "ws-1",
+      agentId: "agent-1",
+      installationId: "installation-1",
+      slackAppId: "slack-app-1",
+      teamId: "T0ACME",
+      channelId: "C0OPS",
+      threadTs: "100.000100",
+      sessionId: "session-1",
+      sessionLinkId: "link-1",
+      notice: { message: "sessionStoppedQueued", count: 2 },
+      onceKey: "T0ACME:C0OPS:100.000100:stop:100.000300",
+    });
+    expect(enqueued[0]?.body).toEqual({
+      text: "Stopped the task as you asked. 2 waiting messages were not processed either. Write in this thread again to carry on.",
+      locale: "en",
+    });
+  });
 });
 
 // One event per block, as the runtime's codec gives them.

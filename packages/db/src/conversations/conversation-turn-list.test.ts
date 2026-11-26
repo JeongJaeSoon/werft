@@ -492,6 +492,15 @@ describe("an agent's conversation turns, for its admins", () => {
       at: "2026-11-25 10:00:00+00",
       agentId: OTHER_AGENT,
     });
+    // A web input's holder row never runs, so it is no turn of the list.
+    await client.query(
+      `INSERT INTO conversation_turns (id, workspace_id, agent_id,
+        conversation_id, topic_id, origin, state, requester_kind, requester_id,
+        input_text, created_at)
+       VALUES ($1, $2, $3, $4, $5, 'web_input', 'received', 'user', $6,
+        'SECRET INPUT', '2026-11-25 10:00:05+00')`,
+      [randomUUID(), WORKSPACE, AGENT, dm, webTopic.id, USER],
+    );
     // Bodies a turn row holds, which the list never shows.
     await client.query(
       `UPDATE conversation_turns SET decision = 'reply',

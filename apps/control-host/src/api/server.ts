@@ -3,6 +3,7 @@ import {
   agentDeleted,
   backfillWebInputTurns,
   budgetChoiceOfCall,
+  checkStorageCounter,
   closeAgentlessSessions,
   closeLostCheckpointNotices,
   createDatabaseAgentAuthority,
@@ -102,6 +103,7 @@ import {
   reconcileRetiredCatalogDrafts,
   recordBudgetAccountRefusal,
   slackAppKind,
+  tellConversationTurnQueue,
   workspaceRepositoryCeiling,
 } from "@werft-ai/db";
 import {
@@ -270,6 +272,7 @@ import {
   createOperatorConversationTurns,
   serveOperatorConversationTurns,
 } from "./conversation-runtime.ts";
+import { PostgresConversationTurnNotifier } from "./conversation-turn-notifier.ts";
 import {
   createEgressAuthorizer,
   egressAuthorizerConfigFromEnv,
@@ -405,6 +408,11 @@ import {
   slackEventsBaseOf,
 } from "./slack-settings.ts";
 import { createStartupWait } from "./startup-wait.ts";
+import {
+  runStorageCounterCheck,
+  STORAGE_COUNTER_CHECK_TIMEOUT_MS,
+  scheduleStorageCounterCheck,
+} from "./storage-counter-check.ts";
 import { installedToolCatalogView } from "./tool-catalogs.ts";
 import {
   startTelemetryIngest,
@@ -583,6 +591,13 @@ const readCatalog = (): void => {
 readCatalog();
 const neutralize = eventNeutralizer(logger);
 startNeutralFill(db, neutralize, logger, () => catalogRegistry.refresh());
+scheduleStorageCounterCheck(() =>
+  runStorageCounterCheck(
+    () =>
+      checkStorageCounter(db, { timeoutMs: STORAGE_COUNTER_CHECK_TIMEOUT_MS }),
+    logger,
+  ),
+);
 // Drafts saved while the catalog MCP lived; each start finds what is left.
 reconcileRetiredCatalogDrafts(db).then(
   (drafts) => {
@@ -1508,8 +1523,21 @@ const topicSessionChecks = createTopicSessionChecks({
   contexts: topicTurnContexts,
   turns: conversationReadToolStore,
 });
+// Wakes the polls on the turn queue; while it hears nothing they poll as before.
+const conversationTurnNotifier =
+  conversationRuntime === null
+    ? undefined
+    : new PostgresConversationTurnNotifier(
+        databaseUrl,
+        (payload) => tellConversationTurnQueue(db, payload),
+        logger,
+      );
+void conversationTurnNotifier?.start();
 const conversationTurns = createConversationRuntimeTurns({
   queue: conversationTurnQueue,
+  ...(conversationTurnNotifier === undefined
+    ? {}
+    : { wakeup: conversationTurnNotifier }),
   // A turn's calls end with its runtime's lease, the turn's time limit as
   // the server holds it: at the lease's own end, however late this runs.
   leased: (turn) =>
@@ -2056,6 +2084,14 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
           ? []
           : [{ name: "m1-judgments", close: () => m1Judgments.stop() }]),
         { name: "event-listener", close: () => notifier.close() },
+        ...(conversationTurnNotifier === undefined
+          ? []
+          : [
+              {
+                name: "conversation-turn-listener",
+                close: () => conversationTurnNotifier.close(),
+              },
+            ]),
         ...(operatorTurns === undefined
           ? []
           : [
