@@ -1,6 +1,6 @@
 {
-  "id": "45d23ef9-d671-400f-b96f-8e46faac3cc1",
-  "prevId": "76c99fb4-4f93-45f8-9ac8-e39907dff845",
+  "id": "6ea710e5-6595-4ee1-9bed-9893fdc601d0",
+  "prevId": "8746bfe0-8e92-4d56-a8ae-76db673925a7",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -7314,6 +7314,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "input_kept_until": {
+          "name": "input_kept_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "lease_id": {
           "name": "lease_id",
           "type": "uuid",
@@ -7405,6 +7411,22 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "conversation_turn_queue_kept_idx": {
+          "name": "conversation_turn_queue_kept_idx",
+          "columns": [
+            {
+              "expression": "input_kept_until",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_turn_queue\".\"input_kept_until\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -7430,7 +7452,7 @@
       "checkConstraints": {
         "conversation_turn_queue_state_check": {
           "name": "conversation_turn_queue_state_check",
-          "value": "\"conversation_turn_queue\".\"attempt\" >= 1 AND \"conversation_turn_queue\".\"take_ms\" >= 0 AND CASE \"conversation_turn_queue\".\"state\"\n        WHEN 'queued' THEN \"conversation_turn_queue\".\"turn_nonce\" IS NOT NULL AND \"conversation_turn_queue\".\"turn_ciphertext\" IS NOT NULL AND \"conversation_turn_queue\".\"lease_id\" IS NULL AND \"conversation_turn_queue\".\"runtime_id\" IS NULL AND \"conversation_turn_queue\".\"lease_expires_at\" IS NULL AND \"conversation_turn_queue\".\"outcome\" IS NULL AND \"conversation_turn_queue\".\"ended_at\" IS NULL\n        WHEN 'leased' THEN \"conversation_turn_queue\".\"turn_nonce\" IS NULL AND \"conversation_turn_queue\".\"turn_ciphertext\" IS NULL AND \"conversation_turn_queue\".\"lease_id\" IS NOT NULL AND \"conversation_turn_queue\".\"runtime_id\" IS NOT NULL AND \"conversation_turn_queue\".\"lease_expires_at\" IS NOT NULL AND \"conversation_turn_queue\".\"outcome\" IS NULL AND \"conversation_turn_queue\".\"ended_at\" IS NULL\n        WHEN 'ended' THEN \"conversation_turn_queue\".\"turn_nonce\" IS NULL AND \"conversation_turn_queue\".\"turn_ciphertext\" IS NULL AND (\"conversation_turn_queue\".\"lease_id\" IS NULL) = (\"conversation_turn_queue\".\"runtime_id\" IS NULL) AND (\"conversation_turn_queue\".\"lease_id\" IS NULL) = (\"conversation_turn_queue\".\"lease_expires_at\" IS NULL) AND \"conversation_turn_queue\".\"outcome\" IS NOT NULL AND \"conversation_turn_queue\".\"ended_at\" IS NOT NULL\n        WHEN 'forgotten' THEN \"conversation_turn_queue\".\"turn_nonce\" IS NULL AND \"conversation_turn_queue\".\"turn_ciphertext\" IS NULL AND (\"conversation_turn_queue\".\"lease_id\" IS NULL) = (\"conversation_turn_queue\".\"runtime_id\" IS NULL) AND (\"conversation_turn_queue\".\"lease_id\" IS NULL) = (\"conversation_turn_queue\".\"lease_expires_at\" IS NULL) AND \"conversation_turn_queue\".\"outcome\" IS NULL AND \"conversation_turn_queue\".\"ended_at\" IS NOT NULL\n        ELSE false\n      END"
+          "value": "\"conversation_turn_queue\".\"attempt\" >= 1 AND \"conversation_turn_queue\".\"take_ms\" >= 0 AND CASE \"conversation_turn_queue\".\"state\"\n        WHEN 'queued' THEN \"conversation_turn_queue\".\"turn_nonce\" IS NOT NULL AND \"conversation_turn_queue\".\"turn_ciphertext\" IS NOT NULL AND \"conversation_turn_queue\".\"lease_id\" IS NULL AND \"conversation_turn_queue\".\"runtime_id\" IS NULL AND \"conversation_turn_queue\".\"lease_expires_at\" IS NULL AND \"conversation_turn_queue\".\"outcome\" IS NULL AND \"conversation_turn_queue\".\"ended_at\" IS NULL\n        WHEN 'leased' THEN (\"conversation_turn_queue\".\"turn_nonce\" IS NULL) = (\"conversation_turn_queue\".\"turn_ciphertext\" IS NULL) AND (\"conversation_turn_queue\".\"turn_nonce\" IS NULL OR \"conversation_turn_queue\".\"input_kept_until\" IS NOT NULL) AND \"conversation_turn_queue\".\"lease_id\" IS NOT NULL AND \"conversation_turn_queue\".\"runtime_id\" IS NOT NULL AND \"conversation_turn_queue\".\"lease_expires_at\" IS NOT NULL AND \"conversation_turn_queue\".\"outcome\" IS NULL AND \"conversation_turn_queue\".\"ended_at\" IS NULL\n        WHEN 'ended' THEN (\"conversation_turn_queue\".\"turn_nonce\" IS NULL) = (\"conversation_turn_queue\".\"turn_ciphertext\" IS NULL) AND (\"conversation_turn_queue\".\"turn_nonce\" IS NULL OR \"conversation_turn_queue\".\"input_kept_until\" IS NOT NULL) AND (\"conversation_turn_queue\".\"lease_id\" IS NULL) = (\"conversation_turn_queue\".\"runtime_id\" IS NULL) AND (\"conversation_turn_queue\".\"lease_id\" IS NULL) = (\"conversation_turn_queue\".\"lease_expires_at\" IS NULL) AND \"conversation_turn_queue\".\"outcome\" IS NOT NULL AND \"conversation_turn_queue\".\"ended_at\" IS NOT NULL\n        WHEN 'forgotten' THEN (\"conversation_turn_queue\".\"turn_nonce\" IS NULL) = (\"conversation_turn_queue\".\"turn_ciphertext\" IS NULL) AND (\"conversation_turn_queue\".\"turn_nonce\" IS NULL OR \"conversation_turn_queue\".\"input_kept_until\" IS NOT NULL) AND (\"conversation_turn_queue\".\"lease_id\" IS NULL) = (\"conversation_turn_queue\".\"runtime_id\" IS NULL) AND (\"conversation_turn_queue\".\"lease_id\" IS NULL) = (\"conversation_turn_queue\".\"lease_expires_at\" IS NULL) AND \"conversation_turn_queue\".\"outcome\" IS NULL AND \"conversation_turn_queue\".\"ended_at\" IS NOT NULL\n        ELSE false\n      END"
         }
       },
       "isRLSEnabled": false
@@ -7520,6 +7542,24 @@
         "sources": {
           "name": "sources",
           "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "task_draft": {
+          "name": "task_draft",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "slack_subject": {
+          "name": "slack_subject",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "task_effect": {
+          "name": "task_effect",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -7737,6 +7777,10 @@
         "conversation_turns_shape_check": {
           "name": "conversation_turns_shape_check",
           "value": "CASE \"conversation_turns\".\"origin\"\n        WHEN 'web_input' THEN \"conversation_turns\".\"state\" = 'received' AND \"conversation_turns\".\"input_text\" IS NOT NULL AND \"conversation_turns\".\"requester_kind\" = 'user' AND \"conversation_turns\".\"decision\" IS NULL AND \"conversation_turns\".\"decision_reason\" IS NULL AND \"conversation_turns\".\"answer_text\" IS NULL AND \"conversation_turns\".\"ended_at\" IS NULL\n        ELSE \"conversation_turns\".\"state\" <> 'received' AND \"conversation_turns\".\"input_text\" IS NULL\n          AND (\"conversation_turns\".\"decision\" IS NOT NULL) = (\"conversation_turns\".\"state\" = 'decided')\n          AND (\"conversation_turns\".\"decision_reason\" IS NULL OR \"conversation_turns\".\"decision\" IS NOT NULL)\n          AND (\"conversation_turns\".\"answer_text\" IS NULL OR \"conversation_turns\".\"decision\" IS NOT NULL)\n          AND (\"conversation_turns\".\"ended_at\" IS NULL) = (\"conversation_turns\".\"state\" = 'running')\n      END"
+        },
+        "conversation_turns_task_check": {
+          "name": "conversation_turns_task_check",
+          "value": "(\"conversation_turns\".\"task_draft\" IS NULL OR \"conversation_turns\".\"decision\" = 'spawn_task') AND (\"conversation_turns\".\"task_effect\" IS NULL OR (\"conversation_turns\".\"decision\" = 'spawn_task' AND \"conversation_turns\".\"task_effect\" IN ('opened','refused','failed','voided')))"
         },
         "conversation_turns_text_check": {
           "name": "conversation_turns_text_check",
