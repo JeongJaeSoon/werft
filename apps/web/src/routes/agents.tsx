@@ -136,7 +136,7 @@ export function AgentsScreen() {
       ) : counts.error ? (
         isApiError(counts.error, "FORBIDDEN") ? (
           <>
-            <AgentsSessionSummary />
+            <AgentsSessionSummary announcePending />
             <p className="web-page__intro">{t("agents.listWithheld")}</p>
             <AdministeredAgents showEmpty />
           </>
@@ -174,6 +174,7 @@ function AgentList({
   );
   const [query, setQuery] = useState("");
   const q = useSearchTerm(query);
+  const sessionCounts = useAgentsSessionCounts();
   const paged = scope !== "administered";
   const pages = useInfiniteQuery({
     ...agentPagesQuery(client, q, AGENTS_PAGE_SIZE, scope === "ownerless"),
@@ -302,8 +303,12 @@ function AgentList({
           ? ""
           : t("agents.shown", { count: shown })}
       </output>
+      {/* One notice for the session summary above and the list below. */}
       <PrivateChannelsPending
-        pending={privateChannelsPending(paged ? pages.data : summaries.data)}
+        pending={
+          privateChannelsPending(sessionCounts) ||
+          privateChannelsPending(paged ? pages.data : summaries.data)
+        }
       />
       {paged ? (
         counts.all === 0 ? (
@@ -367,12 +372,27 @@ function AgentList({
  * a later one included, leaves the line out rather than claiming none or
  * keeping old figures.
  */
-function AgentsSessionSummary() {
+function AgentsSessionSummary({
+  announcePending = false,
+}: {
+  /** Set where no agent list below says that channels are being confirmed. */
+  readonly announcePending?: boolean;
+}) {
+  const counts = useAgentsSessionCounts();
+  return (
+    <>
+      {counts ? <SessionSummary counts={counts} statusLinks /> : null}
+      {announcePending ? (
+        <PrivateChannelsPending pending={privateChannelsPending(counts)} />
+      ) : null}
+    </>
+  );
+}
+
+function useAgentsSessionCounts() {
   const { client } = useWerft();
   const counts = useQuery(sessionCountsQuery(client, undefined, undefined));
-  return counts.data && !counts.isError ? (
-    <SessionSummary counts={counts.data} statusLinks />
-  ) : null;
+  return counts.isError ? undefined : counts.data;
 }
 
 /**
