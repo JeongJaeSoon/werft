@@ -416,7 +416,19 @@ async function insertTurnPermitIn(
     })
     .returning({ expiresAt: conversationTurnPermits.expiresAt });
   if (!permit) throw new Error("turn permit row missing after insert");
-  return { outcome: "issued", expiresAt: permit.expiresAt };
+  // The conversation's kind says what the turn may decide.
+  const [conversation] = await tx
+    .select({ kind: conversations.kind })
+    .from(conversations)
+    .where(eq(conversations.id, input.conversationId));
+  if (conversation === undefined) {
+    throw new Error(`conversation ${input.conversationId} is gone`);
+  }
+  return {
+    outcome: "issued",
+    expiresAt: permit.expiresAt,
+    place: conversation.kind,
+  };
 }
 
 export function createPostgresConversationCalls(
@@ -545,6 +557,7 @@ export function createPostgresConversationCalls(
             sources,
             releaseId: input.releaseId,
             slackInstallationId: input.slackInstallationId,
+            slackSubject: input.slackSubject ?? null,
             // Its writer's until queued: no pass ends it in between.
             slackStatusClaimedAt: sql`now()`,
           });

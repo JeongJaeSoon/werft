@@ -264,7 +264,9 @@ export function createOperatorConversationTurns(deps: {
             // Assembled when a runtime takes the turn.
             fresh_input: { id: crypto.randomUUID(), text: request.text },
             // The requester issueOperatorTurn wrote.
-            decision_tools: [...conversationDecisionTools("operator")],
+            decision_tools: [
+              ...conversationDecisionTools("operator", issued.place),
+            ],
           },
           {
             inputId,
@@ -349,6 +351,7 @@ export function createMentionConversationTurns(deps: {
         requesterUserId: request.requesterUserId,
         slackInstallationId: request.slackInstallationId,
         message: request.message,
+        slackSubject: request.slackSubject,
         ttlMs: OPERATOR_TURN_TAKE_MS + CONVERSATION_TURN_LEASE_MS,
         releaseId: release.id,
         connectionId: release.connection_id,
@@ -386,7 +389,9 @@ export function createMentionConversationTurns(deps: {
             // the turn reads is assembled as data when a runtime takes it.
             input: { id: inputId, text: request.text },
             fresh_input: { id: crypto.randomUUID(), text: request.text },
-            decision_tools: [...conversationDecisionTools("user")],
+            decision_tools: [
+              ...conversationDecisionTools("user", issued.place),
+            ],
           },
           {
             inputId,

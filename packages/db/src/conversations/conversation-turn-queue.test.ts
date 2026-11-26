@@ -5,7 +5,7 @@ import {
   conversationInputIdSchema,
   conversationRuntimeIdSchema,
 } from "@werft-ai/contracts";
-import { SecretKey } from "@werft-ai/platform";
+import { derivedSecretKey, openWithKey, SecretKey } from "@werft-ai/platform";
 import { conversationTurnQueueContract } from "@werft-ai/platform/testing/conversation-turn-queue";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle } from "drizzle-orm/pglite";
@@ -49,10 +49,11 @@ describe("the conversation turn queue in the database (0355)", () => {
     expect(createPostgresConversationTurnQueue(db, key()).durable).toBe(true);
   }, 60_000);
 
-  test("holds the waiting turn sealed, and clears it once the turn is leased", async () => {
+  test("holds the waiting turn sealed, and keeps its input alone once the turn is leased", async () => {
     const { client, db } = await database();
     const fixture = await conversationTurnQueueFixture(db);
-    const queue = createPostgresConversationTurnQueue(db, key());
+    const secret = key();
+    const queue = createPostgresConversationTurnQueue(db, secret);
     const turn = await fixture.turn();
     await queue.enqueue(turn, entry());
 
@@ -75,10 +76,46 @@ describe("the conversation turn queue in the database (0355)", () => {
       leaseMs: CONVERSATION_TURN_LEASE_MS,
     });
     expect(taken?.provider).toEqual(turn.provider);
-    const after = await client.query<{ n: string }>(
-      "SELECT count(*)::text AS n FROM conversation_turn_queue WHERE turn_nonce IS NOT NULL OR turn_ciphertext IS NOT NULL",
+    // What stays while it runs is its input alone, for a task it may ask
+    // for (v1-b/E3): never its permit.
+    const kept = await client.query<{
+      nonce: Uint8Array;
+      ciphertext: Uint8Array;
+    }>(
+      "SELECT turn_nonce AS nonce, turn_ciphertext AS ciphertext FROM conversation_turn_queue WHERE turn_id = $1",
+      [turn.turn_id],
     );
-    expect(after.rows[0]?.n).toBe("0");
+    const opened = openWithKey(
+      derivedSecretKey(secret, "conversation-turn-queue"),
+      Buffer.from(`conversation_turn_queue|${turn.turn_id}`, "utf8"),
+      {
+        nonce: Buffer.from(kept.rows[0]?.nonce ?? []),
+        ciphertext: Buffer.from(kept.rows[0]?.ciphertext ?? []),
+      },
+    );
+    expect(JSON.parse(opened)).toEqual({ input: turn.input });
+    expect(opened).not.toContain(turn.provider.auth.token);
+  }, 60_000);
+
+  test("a leased turn an older image ends keeps no copy past the deadline", async () => {
+    const { client, db } = await database();
+    const fixture = await conversationTurnQueueFixture(db);
+    const queue = createPostgresConversationTurnQueue(db, key());
+    const turn = await fixture.turn();
+    await queue.enqueue(turn, entry());
+    await queue.lease({ runtimeId, now, leaseMs: CONVERSATION_TURN_LEASE_MS });
+    // An older image's lease-expired sweep, which clears no ciphertext.
+    await client.query(
+      `UPDATE conversation_turn_queue SET state = 'ended',
+         outcome = '{"outcome":"failed","reason":"lease_expired"}'::jsonb,
+         ended_at = now() WHERE turn_id = $1`,
+      [turn.turn_id],
+    );
+    await queue.outcome(turn.turn_id, new Date(now.getTime() + 61 * 60_000));
+    const left = await client.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM conversation_turn_queue WHERE turn_nonce IS NOT NULL OR input_kept_until IS NOT NULL",
+    );
+    expect(left.rows[0]?.n).toBe("0");
   }, 60_000);
 
   test("a turn sealed under another key is ended as not taken, and the next one is still handed out", async () => {
