@@ -381,7 +381,7 @@ async function mention(
       slackApiUrl: slack.url,
     }),
     logger,
-    batchSize: 10,
+    concurrency: 4,
     leaseMs: 30_000,
     deadline: Date.now() + 10_000,
   });

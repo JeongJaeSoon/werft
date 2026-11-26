@@ -1385,8 +1385,9 @@ export const slackInboundEvents = pgTable(
       .defaultNow(),
     /**
      * `<slack_app_id>:<channel>:<thread_ts ?? ts>`: the thread a message
-     * belongs to, in which the `slack` role takes one event at a time.
-     * Null on dropped rows and on events outside a channel message.
+     * belongs to. Null on dropped rows and on events outside a channel
+     * message. The claim lines rows up by the channel in their payload
+     * instead, one event of a channel at a time.
      */
     conversationKey: text("conversation_key"),
     claimToken: uuid("claim_token"),

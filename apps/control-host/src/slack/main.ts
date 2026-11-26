@@ -377,6 +377,15 @@ function slackRequesterLeft(
     requesterLeft(deps, card);
 }
 
+/**
+ * Inbox events acted on at once, each in its own channel. Every one may hold
+ * a pool client, so the pool grows by as many (see the connection budget in
+ * the self-hosting database reference).
+ */
+export const SLACK_INBOX_CONCURRENCY = 4;
+export const SLACK_ROLE_POOL_MAX =
+  SEQUENTIAL_ROLE_POOL_MAX - 1 + SLACK_INBOX_CONCURRENCY;
+
 // The pass child serves pass after pass, so this flips each pass: statuses
 // and posts take turns at the start of the outbox window.
 let statusesFirst = false;
@@ -398,7 +407,7 @@ export async function main(
     logger,
     "slack",
     JOB_POOL_TIMEOUTS,
-    { max: SEQUENTIAL_ROLE_POOL_MAX },
+    { max: SLACK_ROLE_POOL_MAX },
   );
   try {
     const db = drizzle(pool, { schema });
@@ -426,7 +435,7 @@ export async function main(
         audienceCache,
       }),
       logger,
-      batchSize: settings.batchSize,
+      concurrency: SLACK_INBOX_CONCURRENCY,
       leaseMs: settings.leaseMs,
       deadline: started + settings.passBudgetMs / 2,
     });

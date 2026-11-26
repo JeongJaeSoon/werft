@@ -37,11 +37,27 @@ const installationStatusOf = sql<SurfaceInboundClaim["installationStatus"]>`(
     AND i.team_id = slack_inbound_events.team_id
 )`;
 
-// Thread order, the claim's ORDER BY and its head-of-conversation test
-// alike; event_time is Slack's, in whole seconds.
+// Channel order, the claim's ORDER BY and its head-of-lane test alike;
+// event_time is Slack's, in whole seconds.
 const order = (alias: string) =>
   sql.raw(
     `(COALESCE(${alias}.event_time, ${alias}.received_at), ${alias}.received_at, ${alias}.id)`,
+  );
+
+/**
+ * The channel an event's row takes its turn in, `<slack_app_id>:<channel>`:
+ * a DM is a channel too, and a channel event (a member, a rename, an
+ * archive) waits in the line of the messages it changes the rules for. Read
+ * from the payload, which a received row keeps, so rows stored with a
+ * thread's conversation_key line up with the rest of their channel. Null
+ * for an event that names no channel.
+ */
+const lane = (alias: string) =>
+  sql.raw(
+    `(${alias}.slack_app_id::text || ':' || NULLIF(CASE jsonb_typeof(${alias}.payload->'event'->'channel')
+      WHEN 'string' THEN ${alias}.payload->'event'->>'channel'
+      WHEN 'object' THEN ${alias}.payload->'event'->'channel'->>'id'
+    END, ''))`,
   );
 
 export function createPostgresSlackInboundEventStore(
@@ -94,7 +110,7 @@ export function createPostgresSlackInboundEventStore(
 
     claim({ limit, leaseMs, maxAttempts }) {
       return db.transaction(async (tx) => {
-        // One claimer at a time: the thread rule reads other rows' leases,
+        // One claimer at a time: the channel rule reads other rows' leases,
         // and a lease another claimer has not committed yet is invisible.
         await tx.execute(
           sql`SELECT pg_advisory_xact_lock(hashtext('slack_inbound_events.claim'))`,
@@ -121,18 +137,26 @@ export function createPostgresSlackInboundEventStore(
             sql`${t.id} IN (
               SELECT c.id FROM slack_inbound_events c
               WHERE c.status = 'received'
-                AND c.attempts < ${maxAttempts}
-                AND (c.claim_token IS NULL OR c.lease_expires_at <= now())
-                AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= now())
-                AND NOT EXISTS (
-                  SELECT 1 FROM slack_inbound_events o
-                  WHERE o.status = 'received'
-                    AND o.conversation_key = c.conversation_key
-                    AND o.id <> c.id
-                    -- A late retry of an older event must not run beside
-                    -- the one its thread already has in flight.
-                    AND (${order("o")} < ${order("c")}
-                      OR (o.claim_token IS NOT NULL AND o.lease_expires_at > now()))
+                AND c.id IN (
+                  SELECT q.id FROM (
+                    SELECT r.id, r.attempts, r.claim_token, r.lease_expires_at,
+                      r.next_attempt_at, r.lane,
+                      row_number() OVER lanes AS place,
+                      -- A late retry of an older event must not run beside
+                      -- the one its channel already has in flight.
+                      bool_or(r.claim_token IS NOT NULL AND r.lease_expires_at > now())
+                        OVER (PARTITION BY r.lane) AS busy
+                    FROM (
+                      SELECT e.*, ${lane("e")} AS lane
+                      FROM slack_inbound_events e
+                      WHERE e.status = 'received'
+                    ) r
+                    WINDOW lanes AS (PARTITION BY r.lane ORDER BY ${order("r")})
+                  ) q
+                  WHERE q.attempts < ${maxAttempts}
+                    AND (q.claim_token IS NULL OR q.lease_expires_at <= now())
+                    AND (q.next_attempt_at IS NULL OR q.next_attempt_at <= now())
+                    AND (q.lane IS NULL OR (q.place = 1 AND NOT q.busy))
                 )
               ORDER BY ${order("c")}
               LIMIT ${limit}
@@ -157,7 +181,7 @@ export function createPostgresSlackInboundEventStore(
             payload: t.payload,
             installationStatus: installationStatusOf,
           });
-        // RETURNING keeps no order; hand them out in thread order.
+        // RETURNING keeps no order; hand them out in channel order.
         return rows
           .sort(
             (a, b) =>

@@ -21,7 +21,8 @@ export const SLACK_PERSON_RESET_SUBTYPES: ReadonlySet<string> = new Set([
 /**
  * The thread an event belongs to, `<slack_app_id>:<channel>:<thread_ts ??
  * ts>`: a message outside a thread starts its own, and a DM is a channel
- * too. Null for an event that is no channel message.
+ * too. Null for an event that is no channel message. Stored with the row;
+ * the claim lines rows up by their channel, not by this key.
  */
 export function slackConversationKey(
   slackAppId: string,
@@ -75,16 +76,19 @@ export type SlackInboxDrain = {
 };
 
 /**
- * One pass of the `slack` role: claims a batch, acts on each event, and
- * claims again until the inbox has nothing due or `deadline` (ms since the
- * epoch) has passed. The deadline only stops the pass; leases are the
- * database's.
+ * One pass of the `slack` role: acts on up to `concurrency` events at a
+ * time and claims another as each slot frees, until the inbox has nothing
+ * due and nothing in flight, or `deadline` (ms since the epoch) has passed.
+ * The claim hands out one event per channel at a time, so events of one
+ * channel run in order and different channels side by side. A claim takes
+ * only what a free slot starts at once, so no lease runs while its event
+ * waits. Past the deadline nothing new is claimed; what is in flight ends.
  */
 export async function drainSlackInbox(deps: {
   inbox: SurfaceInboundEventStore;
   handler: SlackInboundHandler;
   logger: SlackInboxLogger;
-  batchSize: number;
+  concurrency: number;
   leaseMs: number;
   deadline: number;
   now?: () => number;
@@ -99,72 +103,100 @@ export async function drainSlackInbox(deps: {
     failed: 0,
     lost: 0,
   };
-  while (now() < deps.deadline) {
-    const batch = await deps.inbox.claim({
-      limit: deps.batchSize,
-      leaseMs: deps.leaseMs,
+
+  async function settle(event: SurfaceInboundClaim): Promise<void> {
+    const ids = {
+      id: event.id,
+      event_id: event.eventId,
+      event_type: event.eventType,
+      attempts: event.attempts,
+    };
+    deps.logger.info("Slack event claimed", ids);
+    const lost = () => {
+      drain.lost += 1;
+      deps.logger.warn("Slack event lease lost; left to its next claim", ids);
+    };
+    if (event.installationStatus === "revoked") {
+      if (await deps.inbox.drop(event, "installation_revoked")) {
+        drain.dropped += 1;
+      } else lost();
+      return;
+    }
+    let failure: { error: unknown } | undefined;
+    let input: InboundInputReceipt | BufferedInputReceipt | undefined;
+    try {
+      input = (await deps.handler(event)) ?? undefined;
+    } catch (error) {
+      failure = { error };
+    }
+    if (failure?.error instanceof SlackInboundDropped) {
+      if (await deps.inbox.drop(event, failure.error.reason)) {
+        drain.dropped += 1;
+      } else lost();
+      return;
+    }
+    if (failure === undefined) {
+      if (await deps.inbox.complete(event, input)) drain.processed += 1;
+      else lost();
+      return;
+    }
+    const outcome = await deps.inbox.fail(event, {
+      retryInMs: slackInboundBackoffMs(event.attempts),
       maxAttempts,
     });
-    if (batch.length === 0) break;
-    for (const event of batch) {
-      drain.claimed += 1;
-      const ids = {
-        id: event.id,
-        event_id: event.eventId,
-        event_type: event.eventType,
-        attempts: event.attempts,
-      };
-      deps.logger.info("Slack event claimed", ids);
-      const lost = () => {
-        drain.lost += 1;
-        deps.logger.warn("Slack event lease lost; left to its next claim", ids);
-      };
-      if (event.installationStatus === "revoked") {
-        if (await deps.inbox.drop(event, "installation_revoked")) {
-          drain.dropped += 1;
-        } else lost();
-        continue;
-      }
-      let failure: { error: unknown } | undefined;
-      let input: InboundInputReceipt | BufferedInputReceipt | undefined;
-      try {
-        input = (await deps.handler(event)) ?? undefined;
-      } catch (error) {
-        failure = { error };
-      }
-      if (failure?.error instanceof SlackInboundDropped) {
-        if (await deps.inbox.drop(event, failure.error.reason)) {
-          drain.dropped += 1;
-        } else lost();
-        continue;
-      }
-      if (failure === undefined) {
-        if (await deps.inbox.complete(event, input)) drain.processed += 1;
-        else lost();
-        continue;
-      }
-      const outcome = await deps.inbox.fail(event, {
-        retryInMs: slackInboundBackoffMs(event.attempts),
-        maxAttempts,
-      });
-      if (outcome === "lost") {
-        lost();
-        continue;
-      }
-      drain[outcome === "failed" ? "failed" : "retried"] += 1;
-      deps.logger.warn(
-        outcome === "failed"
-          ? "Slack event failed; attempts spent"
-          : "Slack event failed; retried later",
-        {
-          ...ids,
-          error:
-            failure.error instanceof Error
-              ? failure.error.message
-              : String(failure.error),
-        },
-      );
+    if (outcome === "lost") {
+      lost();
+      return;
     }
+    drain[outcome === "failed" ? "failed" : "retried"] += 1;
+    deps.logger.warn(
+      outcome === "failed"
+        ? "Slack event failed; attempts spent"
+        : "Slack event failed; retried later",
+      {
+        ...ids,
+        error:
+          failure.error instanceof Error
+            ? failure.error.message
+            : String(failure.error),
+      },
+    );
+  }
+
+  const inFlight = new Set<Promise<void>>();
+  try {
+    while (now() < deps.deadline) {
+      const free = deps.concurrency - inFlight.size;
+      const batch =
+        free > 0
+          ? await deps.inbox.claim({
+              limit: free,
+              leaseMs: deps.leaseMs,
+              maxAttempts,
+            })
+          : [];
+      for (const event of batch) {
+        drain.claimed += 1;
+        // settle() catches the handler's throw; a store write that throws
+        // ends the pass, as it did one event at a time.
+        const running: Promise<void> = settle(event).finally(() =>
+          inFlight.delete(running),
+        );
+        // Raced or awaited below; this only keeps a rejection that lands
+        // between those waits from counting as unhandled.
+        running.catch(() => {});
+        inFlight.add(running);
+      }
+      if (inFlight.size === 0) break;
+      // Nothing more to claim until one ends: it may be what its channel's
+      // next event waits for.
+      if (batch.length === 0 || inFlight.size >= deps.concurrency) {
+        await Promise.race(inFlight);
+      }
+    }
+    await Promise.all(inFlight);
+  } finally {
+    await Promise.allSettled(inFlight);
   }
   return drain;
 }

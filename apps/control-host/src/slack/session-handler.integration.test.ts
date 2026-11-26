@@ -480,7 +480,7 @@ async function drain(
     inbox,
     handler: handle,
     logger,
-    batchSize: 10,
+    concurrency: 4,
     leaseMs: 30_000,
     deadline: Date.now() + 10_000,
   });
