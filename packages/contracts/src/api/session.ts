@@ -11,6 +11,7 @@ import {
   agentReleaseIdSchema,
   pageSchema,
   paginationQuerySchema,
+  privateChannelsPendingSchema,
   receiptIdSchema,
   requestIdSchema,
   revisionSchema,
@@ -752,7 +753,9 @@ export const listSessionsQuerySchema = paginationQuerySchema
     }),
   })
   .extend(sessionFilterQuerySchema.shape);
-export const listSessionsResponseSchema = pageSchema(sessionSummarySchema);
+export const listSessionsResponseSchema = pageSchema(
+  sessionSummarySchema,
+).extend({ private_channels_pending: privateChannelsPendingSchema });
 export const countSessionsQuerySchema = sessionFilterQuerySchema;
 const sessionCountSchema = z.number().int().nonnegative();
 export const countSessionsResponseSchema = z.object({
@@ -780,6 +783,7 @@ export const countSessionsResponseSchema = z.object({
     description:
       "The estimated provider cost of the `total` sessions added up: the sum of `cost.amount_usd` from GET /v1/sessions/{id}/usage over the same sessions, read with the counts. An estimate, not a bill; a turn still running adds what it has spent so far. Absent from a server older than the field.",
   }),
+  private_channels_pending: privateChannelsPendingSchema,
 });
 export const getSessionResponseSchema = sessionDetailSchema;
 

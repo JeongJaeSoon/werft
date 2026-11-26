@@ -37,7 +37,7 @@ import {
   SessionServiceError,
 } from "../musterrolle/index.ts";
 import type { WorkerLimits } from "../scheduler/ports/execution-backend.ts";
-import { viewerFor } from "../sessions/index.ts";
+import { pendingField, viewerFor } from "../sessions/index.ts";
 import type {
   UsageAchievementCountsRecord,
   UsageBreakdownFiguresRecord,
@@ -393,6 +393,7 @@ export function createUsageService(deps: {
         query.scope === "agent"
           ? await agentFilter(actor, query.agent_id)
           : await filterFor(actor, query.scope);
+      const seen = await viewerFor(authorization, actor);
       const read = await reader.usageAchievements(filter, {
         period: {
           since: query.since,
@@ -407,7 +408,7 @@ export function createUsageService(deps: {
           : { categoryId: query.category_id }),
         recentLimit: USAGE_RECENT_ACHIEVEMENTS_LIMIT,
         ownerId: actor.ownerId,
-        viewer: await viewerFor(authorization, actor),
+        viewer: seen.viewer,
       });
       const counts = (row: UsageAchievementCountsRecord) => ({
         achievement_count: row.achievementCount,
@@ -421,6 +422,7 @@ export function createUsageService(deps: {
         },
         refreshed_at: read.readAt.toISOString(),
         session_count: read.sessionCount,
+        ...pendingField(seen.pending),
         sessions_with_achievement_count: read.sessionsWithAchievementCount,
         cost_usd: read.costUsd,
         cost_complete: read.incompleteTurnCount === 0,
@@ -628,6 +630,7 @@ export function createUsageService(deps: {
         },
         ...(query.agent_id === undefined ? {} : { agentId: query.agent_id }),
       };
+      const seen = await viewerFor(authorization, actor);
       const page = await reader.usageToolCalls(filter, {
         ...tools,
         name,
@@ -635,7 +638,7 @@ export function createUsageService(deps: {
         limit: query.limit,
         ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
         ownerId: actor.ownerId,
-        viewer: await viewerFor(authorization, actor),
+        viewer: seen.viewer,
       });
       return {
         calls: page.calls.map((call) => ({
@@ -648,6 +651,7 @@ export function createUsageService(deps: {
         })),
         next_cursor: page.nextCursor,
         per_day: await reader.usageToolDays(filter, { ...tools, name }),
+        ...pendingField(seen.pending),
       };
     },
 

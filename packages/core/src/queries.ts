@@ -83,6 +83,38 @@ function infiniteQueryOptions<T, K extends QueryKey, P>(
 const LIVE_REFETCH_MS = 5_000;
 
 /**
+ * How soon a list answer that says `private_channels_pending` is read again:
+ * the server confirms those channels' members in the background meanwhile.
+ */
+export const PRIVATE_CHANNELS_PENDING_REFETCH_MS = 3_000;
+
+/** Whether an answer, or any page of a paged one, waits on private channels. */
+export function privateChannelsPending(data: unknown): boolean {
+  if (typeof data !== "object" || data === null) return false;
+  if ("pages" in data && Array.isArray(data.pages)) {
+    return data.pages.some(privateChannelsPending);
+  }
+  return (
+    "private_channels_pending" in data && data.private_channels_pending === true
+  );
+}
+
+/** A refetchInterval: the pending pace while pending, else `otherwise`. */
+export function refetchWhilePending(otherwise: number | false = false) {
+  return (query: { state: { data: unknown } }): number | false =>
+    !privateChannelsPending(query.state.data)
+      ? otherwise
+      : otherwise === false
+        ? PRIVATE_CHANNELS_PENDING_REFETCH_MS
+        : Math.min(otherwise, PRIVATE_CHANNELS_PENDING_REFETCH_MS);
+}
+
+const pendingOf = (pages: readonly unknown[]) =>
+  pages.some(privateChannelsPending)
+    ? { private_channels_pending: true as const }
+    : {};
+
+/**
  * Who a cached answer belongs to: the principal that read it, in its
  * workspace. Every key but the ones that find out who is signed in starts
  * with it, so one cache can hold several principals' data without mixing
@@ -452,16 +484,19 @@ export function agentsQuery(client: ApiClient) {
   return queryOptions({
     queryKey: queryKeysOf(client).agents,
     queryFn: async (): Promise<ListAgentsResponse> => {
-      const { items } = await readEveryPage(
-        (query) =>
-          unwrap(
-            client.GET("/v1/agents", {
-              params: { query: { include: "summary", ...query } },
-            }),
-          ) as Promise<ListAgentsResponse>,
-      );
-      return { items, next_cursor: null };
+      const pages: ListAgentsResponse[] = [];
+      const { items } = await readEveryPage(async (query) => {
+        const page = (await unwrap(
+          client.GET("/v1/agents", {
+            params: { query: { include: "summary", ...query } },
+          }),
+        )) as ListAgentsResponse;
+        pages.push(page);
+        return page;
+      });
+      return { items, next_cursor: null, ...pendingOf(pages) };
     },
+    refetchInterval: refetchWhilePending(),
     retry: false,
   });
 }
@@ -498,6 +533,7 @@ export function agentPagesQuery(
     getNextPageParam: (page) => page.next_cursor,
     // As memberPagesQuery: coming back reads the first page, not every page.
     gcTime: 0,
+    refetchInterval: refetchWhilePending(),
     retry: false,
   });
 }
@@ -520,8 +556,10 @@ export function agentSlackActionsQuery(client: ApiClient) {
       return {
         items: page.items.filter((agent) => agent.summary?.slack_action),
         more: page.next_cursor !== null,
+        ...pendingOf([page]),
       };
     },
+    refetchInterval: refetchWhilePending(),
     retry: false,
   });
 }
@@ -559,8 +597,13 @@ export function agentSummariesQuery(client: ApiClient, ids: readonly string[]) {
           ),
         ),
       )) as ListAgentsResponse[];
-      return { items: pages.flatMap((page) => page.items), next_cursor: null };
+      return {
+        items: pages.flatMap((page) => page.items),
+        next_cursor: null,
+        ...pendingOf(pages),
+      };
     },
+    refetchInterval: refetchWhilePending(),
     retry: false,
   });
 }
@@ -713,6 +756,7 @@ export function sessionsQuery(client: ApiClient) {
       ) as Promise<ListSessionsResponse>,
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor,
+    refetchInterval: refetchWhilePending(),
     retry: false,
   });
 }
@@ -728,7 +772,7 @@ export function waitingSessionsQuery(client: ApiClient) {
         }),
       ) as Promise<ListSessionsResponse>,
     retry: false,
-    refetchInterval: 30_000,
+    refetchInterval: refetchWhilePending(30_000),
   });
 }
 
@@ -745,6 +789,7 @@ export function waitingSessionsByQuery(
           params: { query: { status: "needs_input", relation } },
         }),
       ) as Promise<ListSessionsResponse>,
+    refetchInterval: refetchWhilePending(),
     retry: false,
   });
 }
@@ -778,6 +823,7 @@ export function agentSessionsQuery(client: ApiClient, agentId: string) {
           params: { query: { agent_id: agentId, limit: 5 } },
         }),
       ) as Promise<ListSessionsResponse>,
+    refetchInterval: refetchWhilePending(),
     retry: false,
   });
 }

@@ -2026,6 +2026,13 @@
       "breakpoints": true
     },
     {
+      "idx": 380,
+      "version": "7",
+      "when": 1795689020397,
+      "tag": "0380_slack_outbox_rate_blocks",
+      "breakpoints": true
+    },
+    {
       "idx": 384,
       "version": "7",
       "when": 1795691472377,

@@ -213,6 +213,13 @@ export function slackSessionHandler(deps: {
   const { db, environment, logger } = deps;
   const catalog = deps.catalog ?? slackCatalog(db, environment);
   const credentials = createPostgresCredentialBindingStore(db);
+  const channelMembers = wireSlackChannelMembers({
+    apiUrl: deps.slackApiUrl ?? slackApiUrlFrom(environment),
+    appStore: createPostgresSlackAppStore(db, deps.secretKey),
+    secrets: () => createPostgresSecretStore(db, deps.secretKey),
+    store: createPostgresChannelMemberStore(db),
+    logger,
+  });
   const authorization = createAuthorizationPolicy({
     identity: createDatabaseIdentityReader(db),
     agents: createDatabaseAgentAuthority(db),
@@ -220,13 +227,7 @@ export function slackSessionHandler(deps: {
     slackGuests: createPostgresSlackGuestSetting(db),
     sessions: createPostgresSessionShareStore(db),
     // A press on a card outside the session's channel asks Slack.
-    channelMembers: wireSlackChannelMembers({
-      apiUrl: deps.slackApiUrl ?? slackApiUrlFrom(environment),
-      appStore: createPostgresSlackAppStore(db, deps.secretKey),
-      secrets: () => createPostgresSecretStore(db, deps.secretKey),
-      store: createPostgresChannelMemberStore(db),
-      logger,
-    }),
+    channelMembers,
     decisions: createPostgresDecisionLog(db),
     logger,
   });
@@ -271,6 +272,8 @@ export function slackSessionHandler(deps: {
     links: createPostgresLinkedAccountStore(db),
     bindings,
     members: createPostgresChannelMemberStore(db),
+    // A member event reads that channel's list again, in this process.
+    refill: (ref) => channelMembers.refill(ref),
     settings: {
       getSettings: (workspaceId, agentId) =>
         getSlackAppSettings(db, workspaceId, agentId),

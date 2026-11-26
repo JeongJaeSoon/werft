@@ -141,8 +141,16 @@ async function visibleTo(
   authorization: AuthorizationPolicy,
   facts: WerftStatusFacts,
   requestId: string,
-): Promise<{ details: boolean; privateChannels: ReadonlySet<string> }> {
-  const none = { details: false, privateChannels: new Set<string>() };
+): Promise<{
+  details: boolean;
+  privateChannels: ReadonlySet<string>;
+  pending: boolean;
+}> {
+  const none = {
+    details: false,
+    privateChannels: new Set<string>(),
+    pending: false,
+  };
   const userId = facts.requesterUserId;
   if (userId === null) return none;
   const subject = subjectOf(facts, userId);
@@ -167,12 +175,18 @@ async function visibleTo(
   }
   const askPrivate = facts.slack.channels.some((channel) => channel.private);
   let privateChannels: string[] = [];
+  let pending = false;
+  // Cached member lists alone: a model's tool call never sends Slack a
+  // question. A channel not yet confirmed is left out, and the answer says
+  // it may be incomplete.
   if (askPrivate && authorization.privateChannelsOf !== undefined) {
     try {
-      privateChannels = await authorization.privateChannelsOf(
+      const found = await authorization.privateChannelsOf(
         subject,
         facts.workspaceId,
       );
+      privateChannels = found.conversationIds;
+      pending = found.pending;
     } catch (error) {
       if (error instanceof AuthorizationUndecidedError) throw error;
       privateChannels = [];
@@ -181,6 +195,7 @@ async function visibleTo(
   return {
     details: true,
     privateChannels: new Set(privateChannels.map((id) => id.toLowerCase())),
+    pending,
   };
 }
 
@@ -209,6 +224,9 @@ export async function werftStatusOf(
   return {
     werft: { version: deps.version },
     details: seen.details ? "shown" : "hidden",
+    // Some private channel is still being checked, so it may be missing
+    // from slack.channels; never how many.
+    ...(seen.pending ? { incomplete: true as const } : {}),
     github: {
       state: githubState,
       app: github.app ? "connected" : "not_connected",
