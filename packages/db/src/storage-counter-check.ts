@@ -16,7 +16,7 @@ export type StorageCounterCheck =
  * Reads the installation's storage counter and the bytes its turns hold, in
  * one statement so both come from one snapshot: a turn and its charge commit
  * together. Changes nothing, the counter included. The turns read is a full
- * scan, so the transaction is cut off after `timeoutMs` and the error is
+ * scan, so that statement is cut off after `timeoutMs` and the error is
  * thrown as it came.
  */
 export async function checkStorageCounter(
