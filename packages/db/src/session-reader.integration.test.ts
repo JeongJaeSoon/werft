@@ -487,16 +487,28 @@ integration("session reader on PostgreSQL", () => {
       turnId,
     });
     await db.insert(checkpoints).values([checkpoint(1), checkpoint(2)]);
+    // Another session's newer revisions say nothing about this turn.
+    const other = await queuedSession();
+    await db.insert(checkpoints).values(
+      [1, 2, 3].map((revision) => ({
+        sessionId: other.sessionId,
+        revision,
+        manifestRef: `manifests/${other.sessionId}/${revision}.json`,
+        manifestSha256: "0".repeat(64),
+        turnId: other.turnId,
+      })),
+    );
     const reader = createPostgresSessionReader(db);
-    const revisionOfTurn = async () => {
-      const listed = await reader.listTurns(OWNER, sessionId, { limit: 10 });
-      const detail = await reader.getTurn(OWNER, sessionId, "1");
+    const revisionOfTurn = async (id = sessionId) => {
+      const listed = await reader.listTurns(OWNER, id, { limit: 10 });
+      const detail = await reader.getTurn(OWNER, id, "1");
       expect(listed?.items[0]?.checkpoint_revision).toBe(
         detail?.checkpoint_revision ?? null,
       );
       return detail?.checkpoint_revision;
     };
     expect(await revisionOfTurn()).toBe(2);
+    expect(await revisionOfTurn(other.sessionId)).toBe(3);
 
     await db
       .update(checkpoints)
