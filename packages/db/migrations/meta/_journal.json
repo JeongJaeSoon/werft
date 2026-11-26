@@ -2012,10 +2012,10 @@
       "breakpoints": true
     },
     {
-      "idx": 386,
+      "idx": 378,
       "version": "7",
-      "when": 1795676939045,
-      "tag": "0386_slack_outbox_rate_blocks",
+      "when": 1795678667333,
+      "tag": "0378_session_stops",
       "breakpoints": true
     }
   ]
