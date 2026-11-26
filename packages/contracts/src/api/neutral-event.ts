@@ -62,7 +62,11 @@ export function withStoredNeutralFields(
   const record = asRecord(data);
   const fields = asRecord(neutral);
   if (record === null || fields === null) return data;
-  const added = Object.entries(fields).filter(([key]) => !(key in record));
+  // The mark of an event that came after its turn is the control plane's
+  // alone: there the stored field wins.
+  const added = Object.entries(fields).filter(
+    ([key]) => key === AFTER_TURN_FIELD || !(key in record),
+  );
   return added.length === 0
     ? data
     : { ...record, ...Object.fromEntries(added) };

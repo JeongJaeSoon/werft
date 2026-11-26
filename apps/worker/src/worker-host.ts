@@ -3699,6 +3699,25 @@ export class WorkerHost {
           told.refusal = refusal;
         },
       });
+      // The lease keeps tools and input out, not the engine's own answer to
+      // a task that ended meanwhile (the order of a task leaving the run's
+      // list and its notification is not promised). A capture that answer
+      // began during may hold the notification without the answer.
+      if (ref !== null) {
+        const after = await run.prepareCheckpoint("turn_end");
+        if (after.status === "rejected" && after.reason === "turn_in_flight") {
+          this.logger.warn("worker.checkpoint.rejected", {
+            reason: after.reason,
+            detail: "The engine began an answer of its own during the capture",
+          });
+          await this.checkpoints.finalizeRefused?.(
+            "the engine began an answer of its own during the capture",
+            { ...this.scope },
+          );
+          told.refusal = { reason: after.reason, infrastructure: false };
+          ref = null;
+        }
+      }
     } catch (error) {
       lease?.release();
       throw error;
@@ -3752,10 +3771,29 @@ export class WorkerHost {
     };
   }
 
+  /**
+   * The run's own word on whether it is quiet, asked under a budget: an
+   * engine that never answers would keep the next input, or the idle exit,
+   * waiting for good. Undefined once the worker has to stop.
+   */
+  private async quietVerdict(
+    run: AgentRun,
+  ): Promise<CheckpointPreparation | undefined> {
+    const budget = this.stageBudget(
+      "Asking the run whether it is quiet",
+      this.options.timeouts.startupTimeoutMs,
+    );
+    try {
+      return await this.untilAbandoned(run.prepareCheckpoint("turn_end"));
+    } finally {
+      budget.disarm();
+    }
+  }
+
   /** Nothing the run tracks is running, and no process is left under it. */
   private async quiet(run: AgentRun): Promise<boolean> {
-    const verdict = await run.prepareCheckpoint("turn_end");
-    if (verdict.status !== "ready") return false;
+    const verdict = await this.quietVerdict(run);
+    if (verdict?.status !== "ready") return false;
     const below = (await this.options.engines?.descendants?.()) ?? [];
     return below.length === 0;
   }
@@ -3932,21 +3970,26 @@ export class WorkerHost {
     owed.heldSince ??= performance.now();
     const holdEndsAt = owed.heldSince + retryHoldMs;
     const heldMs = performance.now() - owed.heldSince;
-    if (heldMs >= retryHoldMs) {
+    const spent = (): boolean => {
+      const held = performance.now() - (owed.heldSince ?? 0);
+      if (held < retryHoldMs) return false;
       owed.mode = "deferred";
       owed.holdSpent = true;
       this.logger.warn("worker.checkpoint.hold_ended", {
         turn_id: owed.turnId,
-        held_ms: Math.round(heldMs),
+        held_ms: Math.round(held),
         failures: owed.failures,
       });
-      return;
-    }
+      return true;
+    };
+    if (spent()) return;
     const step = Math.min(owed.failures, retryBackoffMs.length - 1);
-    // The last retry starts at the limit, not a backoff step past it.
+    // The hold ends at its limit, not a backoff step past it, and no
+    // capture starts once it has.
     const wait = Math.min(retryBackoffMs[step] ?? 0, retryHoldMs - heldMs);
     await Promise.race([this.sleep(wait), this.stopped]);
     if (this.stopping !== undefined || this.pauseControl !== undefined) return;
+    if (spent()) return;
     await this.captureOwed(run, "between_turns", holdEndsAt);
   }
 
@@ -3965,7 +4008,8 @@ export class WorkerHost {
     if (this.owed === undefined) return true;
     const config = this.outsideTurn;
     const below = (await this.options.engines?.descendants?.()) ?? [];
-    const verdict = await run.prepareCheckpoint("turn_end");
+    const verdict = await this.quietVerdict(run);
+    if (verdict === undefined) return true;
     const background =
       below.length > 0 ||
       (verdict.status === "rejected" && verdict.reason === "background_writer");

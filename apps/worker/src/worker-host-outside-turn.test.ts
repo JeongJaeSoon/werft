@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { WorkerGatewayRequestError } from "@werft-ai/runtime-core";
+import {
+  type AgentRun,
+  WorkerGatewayRequestError,
+} from "@werft-ai/runtime-core";
 import type {
   EngineMessage,
   ScriptedStep,
@@ -53,6 +56,7 @@ function namingPort(
   gateway: FakeWorkerGateway,
   failures: CaptureRefusal[] = [],
   everyTime?: CaptureRefusal,
+  captureMs = 0,
 ) {
   const captures: Capture[] = [];
   const refusals: string[] = [];
@@ -75,6 +79,7 @@ function namingPort(
         context.refused?.(failure);
         return null;
       }
+      if (captureMs > 0) await Bun.sleep(captureMs);
       const revision = (gateway.checkpointRevision ?? -1) + 1;
       return {
         revision,
@@ -92,12 +97,14 @@ function namingPort(
 function harness(
   steps: ScriptedStep[],
   overrides: {
+    captureMs?: number;
     engines?: EngineExitWatch;
     everyTime?: CaptureRefusal;
     failures?: CaptureRefusal[];
     gateway?: FakeWorkerGateway;
     outsideTurnCheckpoint?: Partial<OutsideTurnCheckpoint>;
     timeouts?: Partial<WorkerTimeouts>;
+    wrapRun?: (run: AgentRun) => AgentRun;
   } = {},
 ) {
   const gateway = overrides.gateway ?? new FakeWorkerGateway();
@@ -110,13 +117,17 @@ function harness(
   };
   const runtimes: RuntimeRegistry = {
     launcherFor: () => ({
-      start: (launch) => startScripted(runtime, launch),
+      start: (launch) => {
+        const run = startScripted(runtime, launch);
+        return overrides.wrapRun?.(run) ?? run;
+      },
     }),
   };
   const checkpoints = namingPort(
     gateway,
     overrides.failures,
     overrides.everyTime,
+    overrides.captureMs,
   );
   const host = new WorkerHost({
     checkpoints: checkpoints.port,
@@ -433,8 +444,8 @@ describe("WorkerHost checkpoints outside a turn", () => {
     ).toEqual([["1", 0]]);
   });
 
-  test("the last retry of a hold starts at its limit, not a backoff step past it", async () => {
-    const { gateway, host, log } = harness(twoTurns, {
+  test("a hold ends at its limit, not a backoff step past it, and no capture starts once it has", async () => {
+    const { captures, gateway, host, log } = harness(twoTurns, {
       everyTime: INFRASTRUCTURE,
       outsideTurnCheckpoint: { retryHoldMs: 60, retryBackoffMs: [5_000] },
     });
@@ -448,11 +459,91 @@ describe("WorkerHost checkpoints outside a turn", () => {
     // 60 ms.
     expect(performance.now() - started).toBeLessThan(2_500);
     expect(log).toContain("worker.checkpoint.hold_ended");
+    expect(captures.map((capture) => capture.kind)).toEqual([
+      "turn_end",
+      "turn_end",
+      "before_idle_exit",
+    ]);
     expect(summary.turns.map((turn) => turn.status)).toEqual([
       "completed",
       "completed",
     ]);
   });
+
+  test("a capture the engine began answering a finished task during is given up, and taken again once that answer has ended", async () => {
+    const { captures, gateway, host, refusals } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(SESSION_ID, 1) },
+        // The task's end reaches the engine while the turn's capture runs.
+        { type: "delay", delayMs: 30 },
+        {
+          type: "emit",
+          message: { type: "system", subtype: "task_notification" },
+        },
+        { type: "delay", delayMs: 150 },
+        {
+          type: "emit",
+          message: { ...resultMessage(SESSION_ID, 1), user_message_uuid: null },
+        },
+        { type: "await-input" },
+      ],
+      { captureMs: 90, timeouts: { idleTimeoutMs: 600 } },
+    );
+    gateway.enqueue("sleep 1 in the background and stop");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("idle");
+    // The turn's own capture held the notification without the answer.
+    expect(gateway.finalized[0]?.checkpoint).toBeNull();
+    expect(refusals).toEqual([
+      "the engine began an answer of its own during the capture",
+    ]);
+    expect(captures).toEqual([
+      { status: "ready", kind: "turn_end" },
+      { status: "ready", kind: "between_turns" },
+    ]);
+    expect(
+      gateway.checkpointCommits.map((call) => [
+        call.turn_id,
+        call.checkpoint.revision,
+      ]),
+    ).toEqual([["1", 0]]);
+  });
+
+  test("a run that never says whether it is quiet fails the worker at its budget instead of holding the session", async () => {
+    let finalized = false;
+    const { gateway, host, log } = harness(backgroundTurn(20), {
+      timeouts: { idleTimeoutMs: 5_000, startupTimeoutMs: 150 },
+      wrapRun: (run) =>
+        new Proxy(run, {
+          get(target, key, receiver) {
+            if (key === "prepareCheckpoint") {
+              return (...args: Parameters<AgentRun["prepareCheckpoint"]>) =>
+                finalized
+                  ? new Promise<never>(() => {})
+                  : target.prepareCheckpoint(...args);
+            }
+            const value = Reflect.get(target, key, receiver);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        }),
+    });
+    const finalize = gateway.finalize.bind(gateway);
+    gateway.finalize = async (request) => {
+      const answer = await finalize(request);
+      finalized = true;
+      return answer;
+    };
+    gateway.enqueue("run a build in the background");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("failed");
+    expect(log).toContain("worker.stage.timeout");
+    expect(gateway.checkpointCommits).toEqual([]);
+  }, 10_000);
 
   test("a server without the commit route is asked once for a turn: the debt is dropped and what was uploaded is given up", async () => {
     const gateway = new FakeWorkerGateway();

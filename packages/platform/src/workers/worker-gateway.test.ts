@@ -907,6 +907,57 @@ describe("WorkerGateway", () => {
     expect(recorded).toEqual([]);
   });
 
+  test("a turn that starts while its predecessor's manifest is read keeps that manifest's verdict off the session", async () => {
+    const recorded: unknown[] = [];
+    let peeks = 0;
+    const instance = createWorkerGateway({
+      work: work({
+        async peekCheckpointCommitAtomic() {
+          peeks += 1;
+          return peeks === 1
+            ? { outcome: "open" }
+            : { outcome: "turn_refused", reason: "a later turn has started" };
+        },
+        async checkpointStateAtomic(input) {
+          recorded.push(input.pendingReason);
+          return {
+            outcome: "ok",
+            pointer: null,
+            restorable: false,
+            pendingReason: input.pendingReason ?? null,
+          };
+        },
+      }),
+      catalog: { connections: {}, repositories: {} },
+      checkpoints: {
+        async verify() {
+          return {
+            status: "rejected",
+            reason: "the transcript is 9 bytes, over the 8-byte limit",
+            limit: "transcript_too_large",
+          };
+        },
+      },
+      options: {
+        sessionBudget: { costUsd: 1_000, tokens: null },
+        leaseTtlMs: 30_000,
+      },
+    });
+    await expect(
+      instance.commitCheckpoint(principal, {
+        ...scope,
+        turn_id: "1",
+        checkpoint: {
+          revision: 1,
+          manifest_ref: "ref",
+          manifest_sha256: "0".repeat(64),
+        },
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "REQUEST_STALE" });
+    expect(peeks).toBe(2);
+    expect(recorded).toEqual([]);
+  });
+
   test("finalize hands the verified transcript size to the commit", async () => {
     const seen: unknown[] = [];
     const instance = createWorkerGateway({

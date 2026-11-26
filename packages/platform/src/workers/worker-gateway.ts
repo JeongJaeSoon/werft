@@ -3291,6 +3291,10 @@ export function createWorkerGateway(deps: {
       );
       if (verdict.status === "rejected") {
         if (verdict.limit !== undefined) {
+          // Asked again: a turn that started while the manifest was read
+          // records its own verdict when it ends.
+          const still = await work.peekCheckpointCommitAtomic(attempt);
+          if (still.outcome !== "open") return answer(still);
           const state = await work.checkpointStateAtomic({
             fence,
             now: now(),

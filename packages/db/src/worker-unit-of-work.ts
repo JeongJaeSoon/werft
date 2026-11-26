@@ -3452,8 +3452,13 @@ export function createPostgresWorkerUnitOfWork(
                 sessionId: fence.sessionId,
                 type: event.event,
                 payload: event.data,
+                // The mark is read merged into the data, which only an
+                // object can take.
                 neutral:
-                  afterTurn === null
+                  afterTurn === null ||
+                  typeof event.data !== "object" ||
+                  event.data === null ||
+                  Array.isArray(event.data)
                     ? (input.neutral?.(event) ?? null)
                     : { ...input.neutral?.(event), [AFTER_TURN_FIELD]: true },
                 turnId: turnRowId,

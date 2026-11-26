@@ -347,6 +347,41 @@ describe("checkpoint quiescence", () => {
     expect(ledger.prepareCheckpoint()).toEqual(ready);
   });
 
+  test("the notification of an ambient task, or of one kept out of the transcript, opens no answer", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.observe({
+      type: "system",
+      subtype: "task_notification",
+      session_id: "s1",
+      ambient: true,
+    });
+    ledger.observe({
+      type: "system",
+      subtype: "task_notification",
+      session_id: "s1",
+      skip_transcript: true,
+    });
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
+  test("an answer that begins while a checkpoint holds the lease shows through the lease", () => {
+    const ledger = new TurnLedger("s1");
+    const grant = ledger.leaseCheckpoint();
+    expect(ledger.prepareCheckpoint()).toMatchObject({
+      reason: "checkpoint_lease_held",
+    });
+    // The task left the run's list before its notification came.
+    ledger.observe({
+      type: "system",
+      subtype: "task_notification",
+      session_id: "s1",
+    });
+    expect(ledger.prepareCheckpoint()).toMatchObject({
+      reason: "turn_in_flight",
+    });
+    grant.lease?.release();
+  });
+
   test("a subagent's output with no input pending opens no answer of the run's own", () => {
     const ledger = new TurnLedger("s1");
     ledger.observe({

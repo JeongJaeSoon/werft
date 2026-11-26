@@ -126,8 +126,12 @@ export class TurnLedger {
       if (
         this.pending.size === 0 &&
         ((message.type === "assistant" && message.parent_tool_use_id == null) ||
+          // An ambient task's notification (one kept out of the transcript,
+          // a live-update watcher) is not put to the model.
           (message.type === "system" &&
-            message.subtype === "task_notification"))
+            message.subtype === "task_notification" &&
+            message.ambient !== true &&
+            message.skip_transcript !== true))
       ) {
         this.unprompted = true;
       }
@@ -267,7 +271,16 @@ export class TurnLedger {
     if (point === "approval_wait") return this.prepareApprovalCheckpoint();
     const mirror = this.mirrorRefusal();
     if (mirror !== undefined) return mirror;
-    if (this.streaming || this.unprompted || this.pending.size > 0) {
+    const tools = this.toolsInFlight.size + this.asking.length;
+    // The engine's own answer counts ahead of a lease: one that begins while
+    // a capture holds the lease is how that capture learns its transcript
+    // is mid-answer. With a call of that answer still running, the call is
+    // the nearer reason.
+    if (
+      this.streaming ||
+      this.pending.size > 0 ||
+      (this.unprompted && tools === 0)
+    ) {
       return {
         status: "rejected",
         reason: "turn_in_flight",
@@ -276,7 +289,6 @@ export class TurnLedger {
     }
     const lease = this.leaseRefusal();
     if (lease !== undefined) return lease;
-    const tools = this.toolsInFlight.size + this.asking.length;
     if (tools > 0) {
       return {
         status: "rejected",

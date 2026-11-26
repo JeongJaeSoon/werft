@@ -374,11 +374,25 @@ const storedEventPayloadSchema = z.discriminatedUnion("event", [
 // every reader before any writer uses it.
 export const UNREADABLE_EVENT_CODE = "EVENT_UNREADABLE";
 
+// `after_turn` is the control plane's to set, and only ever to true. A
+// payload that came with a key of that name is read without it: the row was
+// taken from its worker, and must not become unreadable for it.
+function withoutForeignMark(data: unknown): unknown {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) {
+    return data;
+  }
+  const { after_turn: mark, ...rest } = data as Record<string, unknown>;
+  return mark === undefined || mark === true ? data : rest;
+}
+
 export function readStoredEvent(
   event: string,
   data: unknown,
 ): { payload: SessionEventPayload; readable: boolean } {
-  const parsed = storedEventPayloadSchema.safeParse({ event, data });
+  const parsed = storedEventPayloadSchema.safeParse({
+    event,
+    data: withoutForeignMark(data),
+  });
   if (parsed.success) return { payload: parsed.data, readable: true };
   return {
     payload: {

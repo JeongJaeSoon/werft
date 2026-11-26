@@ -697,6 +697,16 @@ describe("fake run checkpoint quiescence", () => {
           { input: {}, requestId: "r1", tool: "Bash", toolUseId: "toolu_1" },
         ],
       },
+      // The engine called the tool with no input pending: an answer of its
+      // own, which ends with a result as the SDK's does.
+      {
+        type: "emit",
+        message: {
+          type: "result",
+          subtype: "success",
+          session_id: "fake-session",
+        },
+      },
     ]).start(resumed, {
       onPermission: () =>
         new Promise((resolve) => {

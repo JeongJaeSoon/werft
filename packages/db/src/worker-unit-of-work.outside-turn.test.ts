@@ -3,13 +3,14 @@ import type { PGlite } from "@electric-sql/pglite";
 import type { CheckpointRef, WorkerEvent } from "@werft-ai/contracts";
 import type { WorkerFence } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { deliveredTurnInput, stoppedBackgroundLine } from "./cut-off-input.ts";
 import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
 import { attempts, checkpoints, events, sessions, turns } from "./schema.ts";
 import { contextCoverage, contextGap } from "./sessions/context-gap.ts";
+import { eventWithNeutralFields } from "./sessions/event-payload.ts";
 import { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
 
 /*
@@ -520,6 +521,54 @@ describe("events an attempt sends for no turn", () => {
     expect(await append(fence, [engineEvent(1, "in the turn")])).toMatchObject({
       outcome: "event_conflict",
     });
+  });
+
+  test("a payload that is not an object goes on the turn without the mark, which only an object can take", async () => {
+    const sessionId = await sessionWith(A);
+    const fence = fenceOf(sessionId, A);
+    const first = await turn(sessionId, 1, "completed", A);
+
+    await append(fence, [
+      {
+        event: "tool_result",
+        data: "plain output",
+        source_sequence: 1,
+        occurred_at: AT.toISOString(),
+      } as WorkerEvent,
+    ]);
+
+    expect(await stored(sessionId)).toEqual([
+      {
+        sequence: 1,
+        turnId: first.id,
+        neutral: null,
+        attemptId: fence.attemptId,
+      },
+    ]);
+  });
+
+  test("are read with the stored mark, whatever key of that name the payload came with", async () => {
+    const sessionId = await sessionWith(A);
+    const fence = fenceOf(sessionId, A);
+    await turn(sessionId, 1, "completed", A);
+    await append(fence, [
+      {
+        event: "system",
+        data: { type: "system", subtype: "sdk_event", after_turn: false },
+        source_sequence: 1,
+        occurred_at: AT.toISOString(),
+      } as WorkerEvent,
+    ]);
+
+    const read = await db.execute(
+      sql`SELECT ${eventWithNeutralFields(sql`e`)} AS payload
+          FROM events e WHERE e.session_id = ${sessionId}`,
+    );
+    expect(read.rows).toEqual([
+      {
+        payload: { type: "system", subtype: "sdk_event", after_turn: true },
+      },
+    ]);
   });
 
   test("are never put on another attempt's turn", async () => {
