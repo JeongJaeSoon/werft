@@ -80,6 +80,9 @@ const REFRESH_AHEAD_MS = 60_000;
 // A channel whose background read could not tell is answered unconfirmed
 // for this long rather than pending, so a list does not wait on it forever.
 const FILL_FAILED_HOLD_MS = 60_000;
+// The most channels held at once; past it the oldest hold goes first, and
+// that channel is only read again sooner.
+const FILLS_FAILED_HELD_MAX = 1_024;
 
 /**
  * The member check over Slack's `conversations.members`, one list per
@@ -189,6 +192,17 @@ export function createSlackChannelMembers(deps: {
         return of(read.memberIds.includes(input.slackUserId));
       }
       const list = await readList(input, read.checkedAt);
+      if (list === "overtaken") {
+        // A newer read was kept first, and its list answers; a void leaves
+        // none, and the person stays out.
+        const after = await deps.store.cached(
+          input.installationId,
+          input.channelId,
+        );
+        if (after.memberIds !== null) {
+          return of(after.memberIds.includes(input.slackUserId));
+        }
+      }
       if (typeof list === "string") {
         warnUnconfirmed(input, list);
         return "unconfirmed";
@@ -219,6 +233,26 @@ export function createSlackChannelMembers(deps: {
     if (next === undefined) reading -= 1;
     else next();
   }
+  function hold(key: string): void {
+    const at = now();
+    for (const [held, until] of failedUntil) {
+      if (until <= at) failedUntil.delete(held);
+    }
+    failedUntil.delete(key);
+    if (failedUntil.size >= FILLS_FAILED_HELD_MAX) {
+      const oldest = failedUntil.keys().next();
+      if (!oldest.done) failedUntil.delete(oldest.value);
+    }
+    failedUntil.set(key, at + FILL_FAILED_HOLD_MS);
+  }
+  // Whether a failed read still holds the channel; a hold past is dropped.
+  function holding(key: string): boolean {
+    const until = failedUntil.get(key);
+    if (until === undefined) return false;
+    if (until > now()) return true;
+    failedUntil.delete(key);
+    return false;
+  }
   function fill(ref: SlackChannelRef): void {
     const key = keyOf(ref);
     if (fills.has(key) || fills.size >= FILLS_HELD_MAX) return;
@@ -230,15 +264,13 @@ export function createSlackChannelMembers(deps: {
         if (typeof list === "string") {
           warnUnconfirmed(ref, list);
           // Overtaken is a newer void, whose own read follows: no failure.
-          if (list !== "overtaken") {
-            failedUntil.set(key, now() + FILL_FAILED_HOLD_MS);
-          }
+          if (list !== "overtaken") hold(key);
         } else {
           failedUntil.delete(key);
         }
       } catch (error) {
         warnUnconfirmed(ref, unconfirmedOf(error), error);
-        failedUntil.set(key, now() + FILL_FAILED_HOLD_MS);
+        hold(key);
       } finally {
         free();
         fills.delete(key);
@@ -270,7 +302,8 @@ export function createSlackChannelMembers(deps: {
           read.fetchedAt.getTime() +
             SLACK_MEMBER_CACHE_TTL_MS -
             read.checkedAt.getTime() <
-            REFRESH_AHEAD_MS
+            REFRESH_AHEAD_MS &&
+          !holding(keyOf(ref))
         ) {
           fill(ref);
         }
@@ -278,12 +311,7 @@ export function createSlackChannelMembers(deps: {
           ? "member"
           : "not_member";
       }
-      const key = keyOf(ref);
-      const held = failedUntil.get(key);
-      if (held !== undefined) {
-        if (held > now()) return "unconfirmed";
-        failedUntil.delete(key);
-      }
+      if (holding(keyOf(ref))) return "unconfirmed";
       fill(ref);
       return "pending";
     },

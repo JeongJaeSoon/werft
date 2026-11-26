@@ -62,6 +62,8 @@ function memoryStore(clock: () => number) {
       if (at <= clock() - SLACK_MEMBER_CACHE_TTL_MS) return false;
       const row = rows.get(key(installationId, channelId));
       if (row?.voidedAt != null && row.voidedAt >= at) return false;
+      // As the table: a newer read already kept wins.
+      if (row?.fetchedAt != null && row.fetchedAt >= at) return false;
       rows.set(key(installationId, channelId), {
         memberIds: [...memberIds],
         fetchedAt: at,
@@ -633,5 +635,68 @@ describe("Slack channel member check from the cache", () => {
     ).toBeNull();
     expect(refilled).toHaveLength(1);
     expect(forwarded).toEqual(["channel_convert_to_private"]);
+  });
+});
+
+// Codex review of 94S-2270: the inline check, the read ahead of the TTL and
+// the failed holds.
+describe("Slack channel member reads that race or fail", () => {
+  const question = (channelId: string, userId: string) => ({
+    workspaceId: WORKSPACE,
+    agentId: AGENT,
+    channelId,
+    userId,
+  });
+
+  // a background read that began later but was kept first
+  // must not turn a member's own inline check into a refusal.
+  test("an inline read overtaken by a newer read answers from that read", async () => {
+    const t = setup();
+    const remember = t.memory.store.remember;
+    t.memory.store.remember = async (installationId, channelId, ids, at) => {
+      t.memory.store.remember = remember;
+      await remember(
+        installationId,
+        channelId,
+        ["U0MEMBER"],
+        new Date(at.getTime() + 1),
+      );
+      return remember(installationId, channelId, ids, at);
+    };
+    expect(await t.ask(MEMBER)).toBe(true);
+    expect(await t.ask(STRANGER)).toBe(false);
+  });
+
+  test("a read ahead of the TTL that failed holds the channel too", async () => {
+    const t = setup();
+    expect(await t.ask(MEMBER)).toBe(true);
+    const of = () => t.members.cachedMembership(question(t.inside.id, MEMBER));
+    t.advance(SLACK_MEMBER_CACHE_TTL_MS - 30_000);
+    // The question's own cache read passes; the read behind it fails.
+    const cached = t.memory.store.cached;
+    let calls = 0;
+    t.memory.store.cached = async (installationId, channelId) => {
+      calls += 1;
+      if (calls === 2) throw new Error("connection terminated");
+      return cached(installationId, channelId);
+    };
+    expect(await of()).toBe("member");
+    await t.members.idle();
+    expect(await of()).toBe("member");
+    await t.members.idle();
+    expect(t.memberCalls()).toBe(1);
+  });
+
+  test("failed holds stay bounded: past the most, the oldest is read again first", async () => {
+    const t = setup({ botToken: false });
+    const of = (channelId: string) =>
+      t.members.cachedMembership(question(channelId, MEMBER));
+    for (let i = 0; i <= 1_024; i += 1) {
+      expect(await of(`C0HELD${i}`)).toBe("pending");
+      await t.members.idle();
+    }
+    expect(await of("C0HELD1024")).toBe("unconfirmed");
+    expect(await of("C0HELD0")).toBe("pending");
+    await t.members.idle();
   });
 });
