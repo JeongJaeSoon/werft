@@ -62,6 +62,11 @@ export interface ReadSessionStepsInput {
    * the list has not caught up with.
    */
   readonly listCurrent: boolean;
+  /**
+   * The turns were read no earlier than the session. Older, a turn they
+   * show open that the session no longer runs has ended since.
+   */
+  readonly turnsCurrent: boolean;
   /** The event window is at its cap, so its oldest events are gone. */
   readonly windowFull: boolean;
 }
@@ -107,6 +112,12 @@ const OPEN_TURN: ReadonlySet<TurnSummary["status"]> = new Set([
   "needs_input",
 ]);
 
+/** A turn in these runs on a worker; a queued one has not started. */
+const LIVE_TURN: ReadonlySet<TurnSummary["status"]> = new Set([
+  "running",
+  "needs_input",
+]);
+
 export function readSessionSteps({
   session,
   turns,
@@ -115,6 +126,7 @@ export function readSessionSteps({
   windowFull,
   now,
   listCurrent,
+  turnsCurrent,
 }: ReadSessionStepsInput): SessionSteps {
   const calls = new Map<string, Set<string>>();
   for (const frame of events) {
@@ -147,10 +159,17 @@ export function readSessionSteps({
       session.pending_request_count > 0 &&
       turn.turn_id === session.current_turn_id &&
       own.length === asked.length;
+    const ended =
+      !turnsCurrent &&
+      LIVE_TURN.has(turn.status) &&
+      turn.turn_id !== session.current_turn_id;
     return {
       turn,
       number: index + 1,
-      state: stateOf(turn, asked, heldOpen),
+      state:
+        ended && asked.length === 0
+          ? "unknown"
+          : stateOf(turn, asked, heldOpen),
       requests: asked,
       toolCalls: calls.get(turn.turn_id)?.size ?? 0,
       toolCallsPartial: windowFull && oldest === turn.turn_id,

@@ -106,6 +106,7 @@ const read = ({
     windowFull: false,
     now: Date.parse(AT),
     listCurrent: false,
+    turnsCurrent: false,
     ...overrides,
   });
 
@@ -223,8 +224,9 @@ describe("readSessionSteps", () => {
       requests: [],
       listCurrent: false,
     });
+    // Turn 1 has ended since the turns were read; the session runs turn 2.
     expect(steps.steps.map((step) => step.state)).toEqual([
-      "running",
+      "unknown",
       "answer",
     ]);
     expect(steps.focus).toBe(1);
@@ -277,6 +279,27 @@ describe("readSessionSteps", () => {
     expect(sessionTime({ turn_time_ms: 2 * 60_000 }, steps, Date.now())).toBe(
       2 * 60_000,
     );
+  });
+
+  test("an open turn in a turns read older than the session, which no longer runs it, has ended", () => {
+    const steps = read({
+      session: { current_turn_id: null, status: "idle" },
+      turns: [turn("1", "running"), turn("2", "needs_input")],
+    });
+    expect(steps.steps.map((step) => step.state)).toEqual([
+      "unknown",
+      "unknown",
+    ]);
+    expect(steps.focus).toBeNull();
+  });
+
+  test("a turns read newer than the session keeps a turn it started running", () => {
+    const steps = read({
+      session: { current_turn_id: "1", status: "running" },
+      turns: [turn("1", "completed", { ended_at: AT }), turn("2", "running")],
+      turnsCurrent: true,
+    });
+    expect(steps.steps[1]?.state).toBe("running");
   });
 
   test("with no running turn, the one holding requests is focused but not current", () => {
@@ -408,6 +431,7 @@ describe("sessionTime", () => {
     } as const;
     const now = Date.parse(AT) + 6 * MINUTE;
     const before = read({ session, turns: [turn("1", "running")] });
+    expect(before.steps[0]?.state).toBe("unknown");
     expect(sessionTime(session, before, now)).toBe(5 * MINUTE);
     const after = read({
       session,

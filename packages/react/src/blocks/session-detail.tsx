@@ -264,6 +264,7 @@ export function SessionDetail({
         windowFull: events.events.length >= EVENT_WINDOW,
         now: lapseNow,
         listCurrent,
+        turnsCurrent: turns.dataUpdatedAt >= session.dataUpdatedAt,
       })
     : undefined;
   // The requests sit at the chat's end: open the chat and land on them.

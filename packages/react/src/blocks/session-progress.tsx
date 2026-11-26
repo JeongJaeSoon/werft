@@ -396,8 +396,9 @@ function StepRow({
       : turn.message;
   const started = turn.started_at ? Date.parse(turn.started_at) : null;
   const ended = turn.ended_at ? Date.parse(turn.ended_at) : null;
+  // A turn the session no longer runs has an end the turns read lacks.
   const time =
-    started === null
+    started === null || (ended === null && state === "unknown")
       ? null
       : ended === null
         ? t("session.steps.since", {
