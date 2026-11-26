@@ -599,6 +599,23 @@ describe("에이전트 목록", () => {
       false,
     );
   });
+
+  test("에이전트 목록 응답이 비공개 채널을 확인 중이면 한 번 말한다", async () => {
+    const server = agentServer();
+    const list = server.routes["GET /v1/agents"];
+    if (!list) throw new Error("agentServer has no GET /v1/agents");
+    renderAt("/agents", {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/agents": async (request) =>
+        json(200, {
+          ...(await (await list(request)).json()),
+          private_channels_pending: true,
+        }),
+    });
+    await screen.findByRole("table", { name: "에이전트" });
+    expect(await screen.findAllByText("비공개 채널 확인 중…")).toHaveLength(1);
+  });
 });
 
 describe("에이전트 목록 탭과 검색", () => {
