@@ -171,6 +171,7 @@ export {
   type SessionRowProps,
 } from "./session/session-row.tsx";
 export {
+  isSessionCutOff,
   SessionStatusLabel,
   type SessionStatusLabelProps,
 } from "./session/session-status-label.tsx";

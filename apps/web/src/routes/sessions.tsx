@@ -62,10 +62,34 @@ export const SESSION_FILTERS = [
   "needs_input",
   "running",
   "idle",
+  "cut_off",
   "stopped",
   "failed",
-] as const satisfies readonly SessionStatus[];
+] as const satisfies readonly (SessionStatus | "cut_off")[];
 export type SessionFilter = (typeof SESSION_FILTERS)[number];
+
+/**
+ * A tab's query. The idle tab leaves out the sessions the cut-off tab lists,
+ * so the tabs never share a row.
+ */
+function statusQuery(status: SessionFilter) {
+  if (status === "cut_off") {
+    return { status: "idle", last_turn_cut_off: "true" } as const;
+  }
+  if (status === "idle") {
+    return { status, last_turn_cut_off: "false" } as const;
+  }
+  return { status };
+}
+
+/** A tab's count; `counts.idle` counts the cut-off sessions too. */
+function tabCount(response: CountSessionsResponse, status: SessionFilter) {
+  const { counts } = response;
+  // A server older than cut_off leaves it out: none are cut off then.
+  return status === "idle"
+    ? counts.idle - (counts.cut_off ?? 0)
+    : counts[status];
+}
 
 /**
  * The states someone has to act on: a count above 0 shows as a badge in the
@@ -73,6 +97,7 @@ export type SessionFilter = (typeof SESSION_FILTERS)[number];
  */
 const FILTER_COUNT_TONE: Partial<Record<SessionFilter, ItemCountTone>> = {
   needs_input: "attention",
+  cut_off: "danger",
   failed: "danger",
 };
 
@@ -196,10 +221,14 @@ export function SessionsScreen() {
                   <SegmentedControlItem
                     key={name}
                     value={name}
-                    count={counts.data?.counts[name]}
+                    count={
+                      counts.data ? tabCount(counts.data, name) : undefined
+                    }
                     countTone={FILTER_COUNT_TONE[name]}
                   >
-                    {t(`sessions.status.${name}`)}
+                    {name === "cut_off"
+                      ? t("session.status.ownershipLost")
+                      : t(`sessions.status.${name}`)}
                   </SegmentedControlItem>
                 ))}
               </SegmentedControl>
@@ -242,7 +271,7 @@ export function SessionsScreen() {
                 ? undefined
                 : tab === "all"
                   ? counts.data.total
-                  : counts.data.counts[tab]
+                  : tabCount(counts.data, tab)
             }
             page={address.page ?? 1}
             onPageChange={goToPage}
@@ -311,7 +340,9 @@ function useListedSessions(filter: SessionsFilter) {
         client.GET("/v1/sessions", {
           params: {
             query: {
-              ...filter,
+              ...(filter.status ? statusQuery(filter.status) : {}),
+              ...(filter.relation ? { relation: filter.relation } : {}),
+              ...(filter.q ? { q: filter.q } : {}),
               ...(pageParam ? { cursor: pageParam } : {}),
               limit: SESSIONS_PAGE_SIZE,
             },

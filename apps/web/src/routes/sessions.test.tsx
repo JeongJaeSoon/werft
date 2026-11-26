@@ -231,6 +231,7 @@ function sessionCounts(running: number) {
       idle: 0,
       failed: 0,
       stopped: 0,
+      cut_off: 0,
     },
     total: running,
   };
@@ -1348,13 +1349,14 @@ describe("sessions list", () => {
                 idle: 4,
                 failed: 0,
                 stopped: 5,
+                cut_off: 1,
               },
               total: 15,
             })
           : apiError(400, "INVALID_REQUEST", "wrong relation"),
     });
     const tabs = await screen.findByRole("group", { name: "상태로 보기" });
-    // Six counted tabs do not fit a phone: one line that scrolls sideways.
+    // Seven counted tabs do not fit a phone: one line that scrolls sideways.
     expect((tabs.parentElement as HTMLElement).dataset.slot).toBe(
       "segmented-control-scroll",
     );
@@ -1367,13 +1369,15 @@ describe("sessions list", () => {
         "전체 15",
         "답변 대기 3",
         "작업 중 2",
-        "쉬는 중 4",
+        "쉬는 중 3",
+        "중단됨 1",
         "멈춤 5",
         "실패 0",
       ]),
     );
     // Only the states someone has to act on turn into a badge, and only
-    // above 0: three waiting answers do, no failures and the rest do not.
+    // above 0: three waiting answers and one cut-off session do, no failures
+    // and the rest do not.
     expect(
       within(tabs)
         .getAllByRole("button")
@@ -1382,7 +1386,7 @@ describe("sessions list", () => {
             tab.querySelector<HTMLElement>('[data-slot="item-count"]')?.dataset
               .tone ?? null,
         ),
-    ).toEqual([null, "attention", null, null, null, null]);
+    ).toEqual([null, "attention", null, null, "danger", null, null]);
   });
 
   test("counts that failed leave the tabs without numbers", async () => {
@@ -1399,7 +1403,15 @@ describe("sessions list", () => {
       within(tabs)
         .getAllByRole("button")
         .map((tab) => tab.textContent),
-    ).toEqual(["전체", "답변 대기", "작업 중", "쉬는 중", "멈춤", "실패"]);
+    ).toEqual([
+      "전체",
+      "답변 대기",
+      "작업 중",
+      "쉬는 중",
+      "중단됨",
+      "멈춤",
+      "실패",
+    ]);
   });
 
   test("a waiting row says how long its oldest request has waited", async () => {
@@ -1531,7 +1543,15 @@ describe("sessions list", () => {
       within(tabs)
         .getAllByRole("button")
         .map((tab) => tab.textContent),
-    ).toEqual(["전체", "답변 대기", "작업 중", "쉬는 중", "멈춤", "실패"]);
+    ).toEqual([
+      "전체",
+      "답변 대기",
+      "작업 중",
+      "쉬는 중",
+      "중단됨",
+      "멈춤",
+      "실패",
+    ]);
     expect(
       within(tabs)
         .getByRole("button", { name: "전체" })
@@ -1610,6 +1630,86 @@ describe("sessions list", () => {
     const tab = await screen.findByRole("button", { name: "쉬는 중" });
     expect(tab.getAttribute("aria-pressed")).toBe("true");
     await screen.findByRole("link", { name: opener(OTHER_ID) });
+  });
+
+  test("the cut-off tab lists the idle sessions a lost lease cut off, the idle tab the rest, each with its count", async () => {
+    const user = await setupUser();
+    const { api, history } = renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": (request) => {
+        const query = new URL(request.url).searchParams;
+        const cutOff = summary(OTHER_ID, {
+          status: "idle",
+          last_turn_cut_off: true,
+        });
+        const rested = summary(SESSION_ID, { status: "idle" });
+        const items =
+          query.get("last_turn_cut_off") === "true"
+            ? [cutOff]
+            : query.get("last_turn_cut_off") === "false"
+              ? [rested]
+              : [cutOff, rested];
+        return json(200, { items, next_cursor: null });
+      },
+      "GET /v1/sessions/counts": () =>
+        json(200, {
+          counts: {
+            queued: 0,
+            running: 0,
+            needs_input: 0,
+            idle: 2,
+            failed: 0,
+            stopped: 0,
+            cut_off: 1,
+          },
+          total: 2,
+        }),
+    });
+    await screen.findByRole("link", { name: opener(OTHER_ID) });
+    const count = (name: string) =>
+      screen
+        .getByRole("button", { name: new RegExp(`^${name}`) })
+        .querySelector("[data-slot=item-count]")?.textContent;
+    await waitFor(() => expect(count("중단됨")).toBe("1"));
+    // counts.idle holds the cut-off one too; the idle tab shows the rest.
+    expect(count("쉬는 중")).toBe("1");
+
+    await user.click(screen.getByRole("button", { name: /^중단됨/ }));
+    await waitFor(() =>
+      expect(history.location.search).toBe("?status=cut_off"),
+    );
+    await screen.findByRole("link", { name: opener(OTHER_ID) });
+    expect(screen.queryByRole("link", { name: opener(SESSION_ID) })).toBeNull();
+    await user.click(screen.getByRole("button", { name: /^쉬는 중/ }));
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
+    expect(screen.queryByRole("link", { name: opener(OTHER_ID) })).toBeNull();
+    const reads = api.calls
+      .filter((call) => call.path === "/v1/sessions")
+      .map((call) => call.search);
+    expect(reads).toContain("?status=idle&last_turn_cut_off=true&limit=15");
+    expect(reads).toContain("?status=idle&last_turn_cut_off=false&limit=15");
+  });
+
+  test("a row whose idle session a lost lease cut off reads 중단됨, and only while idle", async () => {
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, {
+          items: [
+            summary(OTHER_ID, { status: "idle", last_turn_cut_off: true }),
+            // Running again on its next input: the flag no longer shows.
+            summary(SESSION_ID, { status: "running", last_turn_cut_off: true }),
+          ],
+          next_cursor: null,
+        }),
+    });
+    const cutOff = await screen.findByRole("link", { name: opener(OTHER_ID) });
+    const row = (link: HTMLElement) =>
+      link.closest<HTMLElement>("[data-slot=session-overview-row]");
+    expect(row(cutOff)?.textContent).toContain("중단됨");
+    const running = screen.getByRole("link", { name: opener(SESSION_ID) });
+    expect(row(running)?.textContent).not.toContain("중단됨");
+    expect(row(running)?.textContent).toContain("작업 중");
   });
 
   test("an unknown status in the address opens every session", async () => {
