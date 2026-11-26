@@ -2,6 +2,7 @@ import {
   infiniteQueryOptions,
   useInfiniteQuery,
   useQuery,
+  useQueryClient,
 } from "@tanstack/react-query";
 import { type ApiClient, isApiError, unwrap } from "@werft-ai/client";
 import type {
@@ -254,7 +255,9 @@ function AuditLog() {
       ]),
     ).values(),
   ];
-  const counts = useQuery(auditCountsQuery(client, countQueries, filtersOpen));
+  const countsQuery = auditCountsQuery(client, countQueries, filtersOpen);
+  const counts = useQuery(countsQuery);
+  const queryClient = useQueryClient();
   const countsFor = (query: AuditQuery) =>
     counts.data?.[
       countQueries.findIndex(
@@ -339,6 +342,13 @@ function AuditLog() {
             onValueChange={pickFacet}
             onOpenChange={(open) => {
               if (open) setAnchor(Date.now());
+              // Closing stops the pass: nobody sees the rest, yet each is recorded.
+              else {
+                void queryClient.cancelQueries({
+                  queryKey: countsQuery.queryKey,
+                  exact: true,
+                });
+              }
               setFiltersOpen(open);
             }}
             triggerRef={filterButton}

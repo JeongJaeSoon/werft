@@ -254,6 +254,55 @@ describe("AppliedFilters", () => {
     await waitFor(() => expect(document.activeElement === button).toBe(true));
   });
 
+  // The screen answers later, as one that keeps filters in the address does.
+  function Late({ values }: { readonly values: Values }) {
+    const trigger = useRef<HTMLButtonElement>(null);
+    return (
+      <>
+        <input aria-label="검색" />
+        <button type="button" ref={trigger}>
+          필터
+        </button>
+        <AppliedFilters
+          facets={facetsOf(values)}
+          onValueChange={() => {}}
+          onClearAll={() => {}}
+          messages={CHIPS}
+          returnFocus={trigger}
+        />
+      </>
+    );
+  }
+  const late = (values: Values) => <Late values={values} />;
+
+  test.each([
+    ["칩 ×", "관계 필터 빼기: 내가 시작"],
+    ["모두 지우기", "모두 지우기"],
+  ])(
+    "%s 뒤 화면이 답하기 전에 값이 바깥에서 바뀌면, 나중에 풀려도 포커스를 옮기지 않는다",
+    async (_, name) => {
+      const view = render(late({ relation: "started" }));
+      const user = await setupUser();
+      await user.click(view.getByRole("button", { name }));
+      view.rerender(late({ relation: "shared", kind: "decision" }));
+      (document.activeElement as HTMLElement).blur();
+      view.rerender(late({}));
+      expect(document.activeElement === document.body).toBe(true);
+    },
+  );
+
+  test("칩이 빠지기 전에 다른 곳으로 옮긴 포커스는 빼앗지 않는다", async () => {
+    const view = render(late({ relation: "started", kind: "decision" }));
+    const user = await setupUser();
+    await user.click(
+      view.getByRole("button", { name: "관계 필터 빼기: 내가 시작" }),
+    );
+    const search = view.getByRole("textbox", { name: "검색" });
+    await user.click(search);
+    view.rerender(late({ kind: "decision" }));
+    expect(document.activeElement === search).toBe(true);
+  });
+
   test("두 진입점에서 같은 부품을 내보낸다", async () => {
     const root = await import("../index.ts");
     const patterns = await import("./index.ts");

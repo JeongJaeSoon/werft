@@ -280,22 +280,42 @@ export function AppliedFilters({
   className,
 }: AppliedFiltersProps): JSX.Element | null {
   const list = useRef<HTMLUListElement>(null);
-  // The facet whose chip went, kept until the screen has let it go: the
-  // filters may live in the address, which answers a render later.
-  const pending = useRef<{ facet: string | null; at: number } | null>(null);
+  // The pressed chip's facet (null for "remove all") and the chips shown then,
+  // kept until the screen has let go: the filters may live in the address,
+  // which answers a render later.
+  const pending = useRef<{
+    facet: string | null;
+    at: number;
+    before: string;
+  } | null>(null);
   const chips = facets.flatMap((facet) => {
     const choice = appliedChoice(facet);
     return choice ? [{ facet, choice }] : [];
   });
-  const shown = chips.map((chip) => chip.facet.id).join(" ");
+  const shown = JSON.stringify(
+    chips.map((chip) => [chip.facet.id, chip.facet.value]),
+  );
   useEffect(() => {
     const wait = pending.current;
     if (wait === null) return;
-    const ids = shown === "" ? [] : shown.split(" ");
-    if (wait.facet === null ? ids.length > 0 : ids.includes(wait.facet)) {
+    const now: [string, string][] = JSON.parse(shown);
+    const before = new Map<string, string>(JSON.parse(wait.before));
+    // A value that was not there at the press came from somewhere else.
+    if (now.some(([id, value]) => before.get(id) !== value)) {
+      pending.current = null;
+      return;
+    }
+    if (
+      wait.facet === null
+        ? now.length > 0
+        : now.some(([id]) => id === wait.facet)
+    ) {
       return;
     }
     pending.current = null;
+    // Focus that has moved elsewhere meanwhile stays there.
+    const held = document.activeElement;
+    if (held !== null && held !== document.body && held.isConnected) return;
     const buttons =
       list.current?.querySelectorAll<HTMLButtonElement>(
         "[data-slot=remove-button]",
@@ -329,7 +349,7 @@ export function AppliedFilters({
             <RemoveButton
               aria-label={messages.remove(facet.label, choice.label)}
               onClick={() => {
-                pending.current = { facet: facet.id, at: index };
+                pending.current = { facet: facet.id, at: index, before: shown };
                 onValueChange(facet.id, facet.choices[0]?.value ?? "");
               }}
             />
@@ -341,7 +361,7 @@ export function AppliedFilters({
         variant="ghost"
         size="sm"
         onClick={() => {
-          pending.current = { facet: null, at: 0 };
+          pending.current = { facet: null, at: 0, before: shown };
           onClearAll();
         }}
       >

@@ -299,6 +299,39 @@ describe("설정 › 감사 기록", () => {
     expect(most).toBe(1);
   });
 
+  test("개수를 읽는 중에 패널을 닫으면 남은 개수는 읽지 않는다", async () => {
+    let asked = 0;
+    let answer = () => {};
+    const zero = { count: 0, more: false };
+    renderAt(PAGE, {
+      ...routes(() => page([row({})])),
+      [COUNTS]: (request?: Request) => {
+        asked += 1;
+        return new Promise<Response>((resolve, reject) => {
+          // As fetch does: an aborted request fails instead of answering.
+          request?.signal.addEventListener("abort", () =>
+            reject(request.signal.reason),
+          );
+          answer = () =>
+            resolve(
+              json(200, {
+                counts: { decision: zero, receipt: zero },
+                total: zero,
+              }),
+            );
+        });
+      },
+    });
+    await table();
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "필터" }));
+    await waitFor(() => expect(asked).toBe(1));
+    await user.keyboard("{Escape}");
+    answer();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(asked).toBe(1);
+  });
+
   test("1000을 넘는 개수는 1000+로 읽힌다", async () => {
     renderAt(PAGE, {
       ...routes(() => page([row({})])),
