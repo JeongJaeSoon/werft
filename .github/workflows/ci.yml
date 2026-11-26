@@ -73,7 +73,7 @@ jobs:
           run=true
           if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] && [ "$BASE_SHA" != 0000000000000000000000000000000000000000 ]; then
             git fetch --no-tags --depth=1 origin "$BASE_SHA"
-            git diff --name-only --no-renames -z "$BASE_SHA" HEAD >"$RUNNER_TEMP/sdk-pack-paths"
+            git diff --name-only --no-renames -z "$BASE_SHA" HEAD -- . ':!.github' ':!tests' >"$RUNNER_TEMP/sdk-pack-paths"
             run=false
             while IFS= read -r -d '' path; do
               case "$path" in
