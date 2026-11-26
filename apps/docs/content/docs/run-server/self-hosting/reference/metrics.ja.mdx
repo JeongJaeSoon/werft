@@ -48,7 +48,7 @@ scrape ごとに DB を読んで集計します。scrape 間隔を短くする�
 | `werft_input_storage_limit_bytes` | gauge | なし | 保存容量の上限（`STORAGE_LIMIT_BYTES`）。環境の設定を読めない間はない |
 | `werft_input_storage_limit_reached` | gauge | `threshold` | 使った bytes が上限の `threshold` 分（`0.8`、`1`）以上なら 1、それ以外は 0。上限を読めない間はない。`threshold="1"` が 1 なら、新しい入力は `413 STORAGE_LIMIT_EXCEEDED` で拒否される |
 
-保存容量の上限に達する前に知るには、`werft_input_storage_limit_reached{threshold="0.8"} == 1` にアラートを設定します。api は 1 日 1 回（03:30 UTC）カウンターと `turns` に残る message の実際の bytes を照合します。違えば警告ログ `The storage counter differs from the turns` に `counter_bytes`・`actual_bytes`・`difference_bytes` を残し、同じなら info ログを残します。カウンターは直しません。replica が複数あっても照合するのは一つだけで、`turns` を最後まで読むこの点検は 5 分を過ぎると止まり、警告ログを残します。
+保存容量の上限に達する前に知るには、`werft_input_storage_limit_reached{threshold="0.8"} == 1` にアラートを設定します。api は 1 日 1 回（03:30 UTC）カウンターと `turns` に残る message の実際の bytes を照合します。違えば警告ログ `The storage counter differs from the turns` に `counter_bytes`・`actual_bytes`・`difference_bytes` を残し、同じなら info ログを残します。カウンターは直しません。replica が複数あっても、二つが同時に `turns` を読むことはありません。`turns` を最後まで読むこの点検は 15 秒を過ぎると止まり、警告ログを残します。
 
 `tool_calls` が counter ではなく gauge なのは、ツールの結果が後で変わることがあるためです。結果イベントが遅れて届くと `unknown` が `ok` や `failed` になり、より早い結果が後から届くと既存結果を置き換えます。counter の値が減るとコレクターは reset と解釈し、増分が跳ねます。呼び出し数の増分は `tool_calls_total`、結果別の比率は `tool_calls` で確認します。
 

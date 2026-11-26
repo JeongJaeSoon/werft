@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { createLogger, MemoryLogSink } from "@werft-ai/observability";
+import { API_POOL_TIMEOUTS } from "./pool.ts";
 import {
   runStorageCounterCheck,
   STORAGE_COUNTER_CHECK_INTERVAL_MS,
+  STORAGE_COUNTER_CHECK_TIMEOUT_MS,
   untilNextStorageCounterCheck,
 } from "./storage-counter-check.ts";
 
@@ -77,6 +79,12 @@ describe("the daily storage counter check", () => {
         fields: { error_name: "Error", sqlstate: "57014" },
       },
     ]);
+  });
+
+  test("the scan is cut off by the server before the api pool's read timeout", () => {
+    expect(STORAGE_COUNTER_CHECK_TIMEOUT_MS).toBeLessThan(
+      API_POOL_TIMEOUTS.queryMs,
+    );
   });
 
   test("every replica runs at 03:30 UTC, never at once", () => {

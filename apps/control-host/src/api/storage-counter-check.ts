@@ -7,13 +7,17 @@ import type { StructuredLogger } from "@werft-ai/observability";
 export const STORAGE_COUNTER_CHECK_INTERVAL_MS = 24 * 60 * 60_000;
 /** 03:30 UTC: the turns scan runs off the busy hours. */
 export const STORAGE_COUNTER_CHECK_OFFSET_MS = 3.5 * 60 * 60_000;
-/** The scan is cut off after this; the next day tries again. */
-export const STORAGE_COUNTER_CHECK_TIMEOUT_MS = 5 * 60_000;
+/**
+ * The scan is cut off after this; the next day tries again. Below the api
+ * pool's read timeout (API_POOL_TIMEOUTS.queryMs), so the server's cancel ends
+ * the scan, not the client dropping its connection.
+ */
+export const STORAGE_COUNTER_CHECK_TIMEOUT_MS = 15_000;
 
 /**
  * Time to the next run: the same moment of every day for every replica, so
- * they start together and the check's lock lets one of them scan. Never at
- * once, so a boot does not scan.
+ * they start together and the check's lock keeps them from scanning side by
+ * side. Never at once, so a boot does not scan.
  */
 export function untilNextStorageCounterCheck(now: number): number {
   const into =
@@ -52,14 +56,19 @@ export async function runStorageCounterCheck(
   }
 }
 
-/** Runs `run` at each daily moment, for the life of the process. */
+/**
+ * Runs `run` at each daily moment, for the life of the process. The next
+ * moment is set before `run` starts, so a run that never ends does not stop
+ * the days after it.
+ */
 export function scheduleStorageCounterCheck(
   run: () => Promise<void>,
   now: () => number = Date.now,
 ): void {
   const next = () => {
     setTimeout(() => {
-      void run().finally(next);
+      next();
+      run().catch(() => {});
     }, untilNextStorageCounterCheck(now())).unref();
   };
   next();

@@ -3,8 +3,9 @@ import { INSTALLATION_STORAGE_SCOPE } from "./input-limits.ts";
 import type { Database } from "./queries.ts";
 import { rowsOf } from "./statement-rows.ts";
 
-// pg_try_advisory_xact_lock key: one replica scans turns at a time; the
-// others find it taken and skip that day's check.
+// pg_try_advisory_xact_lock key: no two replicas scan turns side by side. A
+// replica that finds it taken skips that moment's check; one that comes after
+// another's scan ended scans again, which only repeats a read.
 export const STORAGE_COUNTER_CHECK_LOCK_KEY = 2_271_001;
 
 export type StorageCounterCheck =

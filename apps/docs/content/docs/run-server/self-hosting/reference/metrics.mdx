@@ -45,7 +45,7 @@ scrape마다 DB를 읽어 값을 집계한다. scrape 간격을 짧게 잡을수
 | `werft_input_storage_limit_bytes` | gauge | 없음 | 저장 한도(`STORAGE_LIMIT_BYTES`). 설치 설정을 읽지 못하는 동안은 없다 |
 | `werft_input_storage_limit_reached` | gauge | `threshold` | 쓴 bytes가 한도의 `threshold` 몫(`0.8`, `1`) 이상이면 1, 아니면 0. 한도를 읽지 못하는 동안은 없다. `threshold="1"`이 1이면 새 입력이 `413 STORAGE_LIMIT_EXCEEDED`로 거절된다 |
 
-저장 한도에 닿기 전에 알리려면 `werft_input_storage_limit_reached{threshold="0.8"} == 1`에 경고를 건다. api는 하루 한 번(03:30 UTC) 카운터와 `turns`에 남은 message의 실제 bytes를 맞춰 본다. 둘이 다르면 `The storage counter differs from the turns` 경고 로그에 `counter_bytes`·`actual_bytes`·`difference_bytes`를 남기고, 같으면 info 로그를 남긴다. 카운터를 고치지는 않는다. replica가 여럿이면 그중 하나만 맞춰 보고, `turns`를 끝까지 읽는 이 점검은 5분이 지나면 멈추고 경고 로그를 남긴다.
+저장 한도에 닿기 전에 알리려면 `werft_input_storage_limit_reached{threshold="0.8"} == 1`에 경고를 건다. api는 하루 한 번(03:30 UTC) 카운터와 `turns`에 남은 message의 실제 bytes를 맞춰 본다. 둘이 다르면 `The storage counter differs from the turns` 경고 로그에 `counter_bytes`·`actual_bytes`·`difference_bytes`를 남기고, 같으면 info 로그를 남긴다. 카운터를 고치지는 않는다. replica가 여럿이어도 둘이 함께 `turns`를 읽지는 않는다. `turns`를 끝까지 읽는 이 점검은 15초가 지나면 멈추고 경고 로그를 남긴다.
 
 `tool_calls`가 counter가 아니라 gauge인 이유: 도구 결과는 나중에 바뀔 수 있다. 결과 이벤트가 늦게 도착하면 `unknown`이 `ok`나 `failed`가 되고, 더 이른 결과가 뒤에 도착하면 기존 결과를 바꾼다. counter 값이 줄면 수집기가 reset으로 읽어 증가량이 튄다. 호출 수의 증가량은 `tool_calls_total`로 보고, 결과별 비율은 `tool_calls`로 본다.
 
