@@ -547,14 +547,16 @@ integration("API server on PostgreSQL", () => {
           session_id: string;
         };
 
-        // A key without the scope is refused before anything is read or
-        // changed: sessions:recover is its own scope, which
-        // sessions:write does not include.
-        const before = await (
+        // A key without the scope is refused before anything changes:
+        // closing is an operator's decision, sessions:recover is its own
+        // scope, and sessions:write does not include it. The service judges
+        // it once the body is read, so the body is a valid one.
+        const before = (await (
           await call(readOnly, "GET", `/sessions/${sessionId}`)
-        ).json();
+        ).json()) as { revision: number };
         const decision = {
           decision: "close",
+          expected_revision: before.revision,
           reason: "integration",
         };
         for (const key of [readOnly, plaintext]) {
