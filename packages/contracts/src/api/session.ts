@@ -11,6 +11,7 @@ import {
   agentReleaseIdSchema,
   pageSchema,
   paginationQuerySchema,
+  privateChannelsPendingSchema,
   receiptIdSchema,
   requestIdSchema,
   revisionSchema,
@@ -751,7 +752,9 @@ export const listSessionsQuerySchema = paginationQuerySchema
     }),
   })
   .extend(sessionFilterQuerySchema.shape);
-export const listSessionsResponseSchema = pageSchema(sessionSummarySchema);
+export const listSessionsResponseSchema = pageSchema(
+  sessionSummarySchema,
+).extend({ private_channels_pending: privateChannelsPendingSchema });
 export const countSessionsQuerySchema = sessionFilterQuerySchema;
 const sessionCountSchema = z.number().int().nonnegative();
 export const countSessionsResponseSchema = z.object({
@@ -774,6 +777,7 @@ export const countSessionsResponseSchema = z.object({
         "For each status, how many items GET /v1/sessions would list with that `status` and the same `relation` and `q`, read to the last page.",
     }),
   total: sessionCountSchema,
+  private_channels_pending: privateChannelsPendingSchema,
 });
 export const getSessionResponseSchema = sessionDetailSchema;
 

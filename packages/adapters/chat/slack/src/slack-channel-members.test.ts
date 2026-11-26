@@ -54,6 +54,7 @@ function memoryStore(clock: () => number) {
       return {
         memberIds: fresh ? row.memberIds : null,
         checkedAt: new Date(now),
+        fetchedAt: fresh ? new Date(row.fetchedAt as number) : null,
       };
     },
     async remember(installationId, channelId, memberIds, checkedAt) {
@@ -79,7 +80,9 @@ function memoryStore(clock: () => number) {
   return { store, rows };
 }
 
-function setup(options: { botToken?: boolean } = {}) {
+function setup(
+  options: { botToken?: boolean; gate?: () => Promise<void> } = {},
+) {
   let now = Date.parse("2026-11-23T10:00:00.000Z");
   const slack = createFakeSlackWebApi();
   const botToken = fakeSlackValue("xoxb");
@@ -102,13 +105,19 @@ function setup(options: { botToken?: boolean } = {}) {
   ]);
   if (!inside || !outside) throw new Error("seed failed");
   const memory = memoryStore(() => now);
+  // Slack answers once the gate opens: what a caller does before it did
+  // not wait on Slack.
+  const handle = async (request: Request) => {
+    await options.gate?.();
+    return slack.handle(request);
+  };
   const warnings: Record<string, unknown>[] = [];
   const members = createSlackChannelMembers({
     store: memory.store,
     slack: createSlackBotApi({
       apiUrl: "http://slack.test/api",
       fetch: (async (input: RequestInfo | URL, init?: RequestInit) =>
-        (await slack.handle(new Request(input, init))) ??
+        (await handle(new Request(input, init))) ??
         new Response("not found", { status: 404 })) as typeof fetch,
     }),
     botToken: async (workspaceId, agentId) =>
@@ -118,6 +127,7 @@ function setup(options: { botToken?: boolean } = {}) {
         ? botToken
         : null,
     logger: { warn: (_message, fields) => warnings.push(fields ?? {}) },
+    now: () => now,
   });
   const ask = (userId: string, channelId = inside.id) =>
     members.isMember({
@@ -408,5 +418,220 @@ describe("Slack channel member check for one account", () => {
     expect(await of("U0MEMBER")).toBe("member");
     expect(await of("U0FORMER")).toBe("not_member");
     expect(await of("U0STRANGER")).toBe("not_member");
+  });
+});
+
+// 94S-2270 (Architect answer): a read across sessions takes the cached list
+// alone. Nothing cached is pending, read in the background; a member event
+// voids at once and has the slack role read the channel again.
+describe("Slack channel member check from the cache", () => {
+  const gated = () => {
+    let open = () => {};
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    return { gate: () => gate, open: () => open() };
+  };
+  const question = (channelId: string, userId: string) => ({
+    workspaceId: WORKSPACE,
+    agentId: AGENT,
+    channelId,
+    userId,
+  });
+  const resolved: SlackEventAgent = {
+    status: "resolved",
+    workspaceId: WORKSPACE,
+    agentId: AGENT,
+    identity: { id: "019a0000-0000-7000-8000-0000000000b1", revision: 1 },
+    installationId: INSTALL,
+    botUserId: `U${APP_ID}BOT`,
+    credentialRef: "ref",
+    allowedBotUserIds: [],
+    werftBotUserIds: [],
+  };
+  const claim = (event: Record<string, unknown>) =>
+    ({
+      id: "019a0000-0000-7000-8000-0000000000b2",
+      appId: APP_ID,
+      teamId: "T0MOCK",
+      agentId: AGENT,
+      workspaceId: WORKSPACE,
+      slackAppId: "019a0000-0000-7000-8000-0000000000d1",
+      payload: { event },
+    }) as unknown as SurfaceInboundClaim;
+
+  test("nothing cached answers pending before Slack does, and is read once behind it", async () => {
+    const slack = gated();
+    const t = setup({ gate: slack.gate });
+    const of = (userId: string) =>
+      t.members.cachedMembership(question(t.inside.id, userId));
+
+    expect(await of(MEMBER)).toBe("pending");
+    expect(await of(STRANGER)).toBe("pending");
+    slack.open();
+    await t.members.idle();
+    expect(t.memberCalls()).toBe(1);
+    expect(await of(MEMBER)).toBe("member");
+    expect(await of(STRANGER)).toBe("not_member");
+    expect(t.memberCalls()).toBe(1);
+  });
+
+  test("a user with no Slack link is unconfirmed, not pending, and nothing is read", async () => {
+    const t = setup();
+    expect(
+      await t.members.cachedMembership(question(t.inside.id, UNLINKED)),
+    ).toBe("unconfirmed");
+    await t.members.idle();
+    expect(t.memberCalls()).toBe(0);
+  });
+
+  test("a background read that cannot tell holds the channel unconfirmed for a while, then pending again", async () => {
+    const t = setup({ botToken: false });
+    const of = () => t.members.cachedMembership(question(t.inside.id, MEMBER));
+    expect(await of()).toBe("pending");
+    await t.members.idle();
+    expect(await of()).toBe("unconfirmed");
+    expect(t.warnings).toEqual([
+      expect.objectContaining({ reason: "no_bot_token" }),
+    ]);
+    t.advance(60_000);
+    expect(await of()).toBe("pending");
+    await t.members.idle();
+  });
+
+  test("a list close to its TTL answers and is read again behind it; never one past it", async () => {
+    const t = setup();
+    expect(await t.ask(MEMBER)).toBe(true);
+    const of = () => t.members.cachedMembership(question(t.inside.id, MEMBER));
+
+    t.advance(SLACK_MEMBER_CACHE_TTL_MS - 120_000);
+    expect(await of()).toBe("member");
+    await t.members.idle();
+    expect(t.memberCalls()).toBe(1);
+
+    t.advance(90_000);
+    expect(await of()).toBe("member");
+    await t.members.idle();
+    expect(t.memberCalls()).toBe(2);
+
+    // The fresh list holds a full TTL from its own read.
+    t.advance(SLACK_MEMBER_CACHE_TTL_MS - 60_001);
+    expect(await of()).toBe("member");
+    await t.members.idle();
+    expect(t.memberCalls()).toBe(2);
+  });
+
+  test("member_left takes the person out at once, and the slack role reads the channel again", async () => {
+    const slack = gated();
+    const t = setup({ gate: slack.gate });
+    const of = () => t.members.cachedMembership(question(t.inside.id, MEMBER));
+    slack.open();
+    expect(await t.ask(MEMBER)).toBe(true);
+
+    // The read behind a void begins after it.
+    const forget = t.memory.store.forget;
+    t.memory.store.forget = async (installationId, channelId) => {
+      await forget(installationId, channelId);
+      t.advance(1);
+    };
+    const refilled: unknown[] = [];
+    const invalidate = createSlackMemberCacheInvalidator({
+      agents: { resolveSlackEvent: async () => resolved },
+      members: t.memory.store,
+      refill: (ref) => {
+        refilled.push(ref);
+        t.members.refill(ref);
+      },
+      next: async () => {},
+    });
+
+    t.inside.people = [];
+    await invalidate(
+      claim({
+        type: "member_left_channel",
+        user: "U0MEMBER",
+        channel: t.inside.id,
+      }),
+    );
+    expect(await of()).not.toBe("member");
+    await t.members.idle();
+    expect(await of()).toBe("not_member");
+    expect(t.memberCalls()).toBe(2);
+
+    t.inside.people = ["U0MEMBER"];
+    await invalidate(
+      claim({
+        type: "member_joined_channel",
+        user: "U0MEMBER",
+        channel: t.inside.id,
+      }),
+    );
+    await t.members.idle();
+    // Filled by the event's read, not by this question.
+    expect(t.memberCalls()).toBe(3);
+    expect(await of()).toBe("member");
+    expect(t.memberCalls()).toBe(3);
+    const ref = {
+      workspaceId: WORKSPACE,
+      agentId: AGENT,
+      installationId: INSTALL,
+      channelId: t.inside.id,
+    };
+    expect(refilled).toEqual([ref, ref]);
+  });
+
+  test("a failed read behind member_left keeps the person out", async () => {
+    const t = setup();
+    expect(await t.ask(MEMBER)).toBe(true);
+    const invalidate = createSlackMemberCacheInvalidator({
+      agents: { resolveSlackEvent: async () => resolved },
+      members: t.memory.store,
+      refill: (ref) => t.members.refill(ref),
+      next: async () => {},
+    });
+    t.slack.failures.set("conversations.members", "internal_error");
+    t.advance(1);
+    await invalidate(
+      claim({
+        type: "member_left_channel",
+        user: "U0MEMBER",
+        channel: t.inside.id,
+      }),
+    );
+    await t.members.idle();
+    expect(
+      await t.members.cachedMembership(question(t.inside.id, MEMBER)),
+    ).toBe("unconfirmed");
+    expect(await t.ask(MEMBER)).toBe(false);
+  });
+
+  test("a channel made private voids its list and has it read again", async () => {
+    const t = setup();
+    expect(await t.ask(MEMBER)).toBe(true);
+    const refilled: unknown[] = [];
+    const forwarded: string[] = [];
+    const invalidate = createSlackMemberCacheInvalidator({
+      agents: { resolveSlackEvent: async () => resolved },
+      members: t.memory.store,
+      refill: (ref) => refilled.push(ref),
+      next: async (event) => {
+        forwarded.push(
+          (event.payload.event as { subtype?: string }).subtype ?? "",
+        );
+      },
+    });
+    t.advance(1);
+    await invalidate(
+      claim({
+        type: "message",
+        subtype: "channel_convert_to_private",
+        channel: t.inside.id,
+      }),
+    );
+    expect(
+      (await t.memory.store.cached(INSTALL, t.inside.id)).memberIds,
+    ).toBeNull();
+    expect(refilled).toHaveLength(1);
+    expect(forwarded).toEqual(["channel_convert_to_private"]);
   });
 });

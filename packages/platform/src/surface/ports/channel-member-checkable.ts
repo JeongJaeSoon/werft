@@ -13,6 +13,16 @@ export interface ChannelMemberCheckable {
    * anything on a guess (a requester taken to have left).
    */
   membership(input: ChannelMemberQuestion): Promise<ChannelMembership>;
+  /**
+   * membership read from the cached list alone, for a read across sessions
+   * (a list, a count): Slack is never asked while the caller waits.
+   * `pending` when no list is cached: one is read in the background, and a
+   * later read answers. A list close to its TTL answers and is read again
+   * in the background.
+   */
+  cachedMembership(
+    input: ChannelMemberQuestion,
+  ): Promise<ChannelMembership | "pending">;
 }
 
 export type ChannelMemberQuestion = {
@@ -28,6 +38,8 @@ export type ChannelMembership = "member" | "not_member" | "unconfirmed";
 export type ChannelMemberRead = {
   memberIds: readonly string[] | null;
   checkedAt: Date;
+  /** When the list `memberIds` holds was read from Slack; null with none. */
+  fetchedAt: Date | null;
 };
 
 /**

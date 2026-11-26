@@ -13,7 +13,11 @@ import type {
   SessionRelation,
   SessionStatus,
 } from "@werft-ai/contracts";
-import { queryKeysOf } from "@werft-ai/core";
+import {
+  privateChannelsPending,
+  queryKeysOf,
+  refetchWhilePending,
+} from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import {
   ApprovalInbox,
@@ -42,6 +46,7 @@ import {
   useCursorPage,
 } from "../components/list-pages.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { PrivateChannelsPending } from "../components/private-channels-pending.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
@@ -267,6 +272,10 @@ export function SessionsScreen() {
               },
             }}
           />
+          {/* The counts and the list leave out the same channels. */}
+          <PrivateChannelsPending
+            pending={privateChannelsPending(counts.data)}
+          />
           <SessionsView
             filter={{
               ...(tab === "all" ? {} : { status: tab }),
@@ -359,6 +368,7 @@ function useListedSessions(filter: SessionsFilter) {
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor,
     placeholderData: keepPreviousData,
+    refetchInterval: refetchWhilePending(),
     retry: false,
   });
 }
@@ -381,6 +391,7 @@ function useSessionCounts(
       ) as Promise<CountSessionsResponse>,
     // The tabs keep their numbers, and so their widths, until the new ones come.
     placeholderData: keepPreviousData,
+    refetchInterval: refetchWhilePending(),
     retry: false,
   });
 }

@@ -630,6 +630,32 @@ describe("sessions list", () => {
     expect(listReads(api.calls)).toEqual(["?limit=15"]);
   });
 
+  // 94S-2270: the server leaves out private channels it is still
+  // confirming and says so; the screen says it is checking, with no count.
+  test("a list that left out private channels still being confirmed says it is checking", async () => {
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": sessionPages(3),
+      "GET /v1/sessions/counts": () =>
+        json(200, { ...sessionCounts(3), private_channels_pending: true }),
+    });
+    await screen.findByRole("link", { name: opener("세션 3") });
+    expect((await screen.findByText("비공개 채널 확인 중…")).tagName).toBe(
+      "OUTPUT",
+    );
+  });
+
+  test("a list with every channel confirmed says nothing of checking", async () => {
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": sessionPages(3),
+      "GET /v1/sessions/counts": () => json(200, sessionCounts(3)),
+    });
+    await screen.findByRole("link", { name: opener("세션 3") });
+    await screen.findByText("3개 표시");
+    expect(screen.queryByText("비공개 채널 확인 중…")).toBeNull();
+  });
+
   test("an address with a page opens on it, reading the pages before it in turn", async () => {
     const { api } = renderAt("/sessions?page=3", {
       "GET /v1/auth/me": () => json(200, memberMe()),

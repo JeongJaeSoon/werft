@@ -7,6 +7,7 @@ import type {
   AgentListItem,
   CountAgentsResponse,
 } from "@werft-ai/contracts";
+import { privateChannelsPending } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import { ListToolbar } from "@werft-ai/react/components";
 import {
@@ -67,6 +68,7 @@ import {
 } from "../components/list-pages.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { NewAgentFlow } from "../components/new-agent-flow.tsx";
+import { PrivateChannelsPending } from "../components/private-channels-pending.tsx";
 import { OPENS_ROW, TABLE_ROW_LINK } from "../components/row-link.ts";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -296,6 +298,9 @@ function AgentList({
           ? ""
           : t("agents.shown", { count: shown })}
       </output>
+      <PrivateChannelsPending
+        pending={privateChannelsPending(paged ? pages.data : summaries.data)}
+      />
       {paged ? (
         counts.all === 0 ? (
           <EmptyState title={t("agents.empty")} />

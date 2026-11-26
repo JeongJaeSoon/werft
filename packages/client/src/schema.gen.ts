@@ -6577,6 +6577,11 @@ export interface components {
         ListSessionsResponse: {
             items: components["schemas"]["SessionSummary"][];
             next_cursor: string | null;
+            /**
+             * @description Present and true while some private channel's members are still being confirmed: that channel's sessions are left out of this answer, which may hold more when read again shortly. No count is given.
+             * @constant
+             */
+            private_channels_pending?: true;
         };
         CountSessionsResponse: {
             /** @description For each status, how many items GET /v1/sessions would list with that `status` and the same `relation` and `q`, read to the last page. */
@@ -6594,6 +6599,11 @@ export interface components {
                 cut_off: number;
             };
             total: number;
+            /**
+             * @description Present and true while some private channel's members are still being confirmed: that channel's sessions are left out of this answer, which may hold more when read again shortly. No count is given.
+             * @constant
+             */
+            private_channels_pending?: true;
         };
         SessionSummary: {
             /** Format: uuid */
@@ -8552,6 +8562,11 @@ export interface components {
                 receipt_id: string;
                 repository: string;
             }[];
+            /**
+             * @description Present and true while some private channel's members are still being confirmed: that channel's sessions are left out of this answer, which may hold more when read again shortly. No count is given.
+             * @constant
+             */
+            private_channels_pending?: true;
         };
         ReceiptAcceptedResponse: {
             /** Format: uuid */
@@ -10439,6 +10454,11 @@ export interface components {
             /** Format: date-time */
             refreshed_at: string;
             session_count: number;
+            /**
+             * @description Present and true while some private channel's members are still being confirmed: that channel's sessions are left out of this answer, which may hold more when read again shortly. No count is given.
+             * @constant
+             */
+            private_channels_pending?: true;
             sessions_with_achievement_count: number;
             cost_usd: string;
             cost_complete: boolean;
@@ -10637,6 +10657,11 @@ export interface components {
                 date: string;
                 calls: number;
             }[];
+            /**
+             * @description Present and true while some private channel's members are still being confirmed: that channel's sessions are left out of this answer, which may hold more when read again shortly. No count is given.
+             * @constant
+             */
+            private_channels_pending?: true;
         };
         SessionUsageResponse: {
             /** Format: uuid */
@@ -10734,6 +10759,11 @@ export interface components {
                 };
             }[];
             next_cursor: string | null;
+            /**
+             * @description Present and true while some private channel's members are still being confirmed: that channel's sessions are left out of this answer, which may hold more when read again shortly. No count is given.
+             * @constant
+             */
+            private_channels_pending?: true;
         };
         CountAgentsResponse: {
             counts: {
