@@ -15,6 +15,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **대화 rollout이 `on`인 에이전트가 올리는 글이 모두 AI가 쓴 글이라는 작은 회색 줄(`AI 에이전트 · Werft`)로 끝난다**(JeongJaeSoon/werft#2259). 한 턴의 결과나 요청인 글에는 `<이름> 님 요청`이 붙는다. `off`·`shadow`인 에이전트의 글은 전과 같다. migration은 없고 따로 할 일도 없다.
 - **DB가 15초 내려가도 heartbeat 간격의 어느 때에 시작됐든 진행 중인 turn이 끝까지 간다**(JeongJaeSoon/werft#2245). worker의 heartbeat 간격이 5초에서 2초로 준다. 전에는 장애가 간격의 끝 무렵(마지막 heartbeat 뒤 약 4.2초 넘어)에 시작되면 turn이 `worker_ownership_lost`로 끝났다. lease TTL(30초)과 안전 마진(10초)은 그대로이고, migration은 없다.
   - heartbeat 트랜잭션이 worker 하나당 초당 0.2회에서 0.5회로 는다. 동시 worker 50개면 초당 25회다.
   - 약 18초를 넘는 장애에서는 전과 같이 turn이 끊기고 세션은 다음 메시지를 받는다.
@@ -23,9 +24,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 - **API 권한 판정이 DB를 읽지 못하면 `403 FORBIDDEN`(`reason_code: "error"`) 대신 `503 BACKEND_UNAVAILABLE`(retryable, `Retry-After: 1`)로 답한다**(JeongJaeSoon/werft#2242). 권한이 없다는 답이 아니라 판정하지 못했다는 답이고, 이 답도 허용은 아니다. 저장소 오류가 아닌 판정 실패와 credential에 없는 scope는 전처럼 403이다. worker는 이전 세션 허용을 다시 확인하지 못하면 1·2·4초 간격으로 최대 20초 다시 묻고, 그래도 안 되면 전처럼 사람에게 묻는다. migration은 없고 따로 할 일도 없다.
   - api와 worker 이미지가 모두 이 버전이어야 듣는다. api만 앞선 버전이면 전처럼 403이고, 웹은 그 403도 계속 잠시 다시 붙는다.
   - Slack 이벤트 처리 쪽 판정은 바뀌지 않는다.
+- **lease를 잃어 끊긴 채 쉬는 세션이 세션 목록·홈·에이전트 탭에서도 "중단됨"으로 보이고, 세션 목록에 "중단됨" 탭이 생긴다**(JeongJaeSoon/werft#2252). "쉬는 중" 탭과 그 숫자에서는 이 세션들이 빠진다. API는 더하기만 했다. 목록 항목에 `last_turn_cut_off`, 목록 query에 `last_turn_cut_off=true|false`, `GET /v1/sessions/counts`에 `counts.cut_off`가 생겼다. `status=idle`과 `counts.idle`의 뜻은 그대로다. migration은 없고 따로 할 일도 없다.
 - **lease를 잃어 끊긴 turn 바로 뒤의 turn이 끊긴 turn의 입력을 맨 앞에 붙여 받는다**(JeongJaeSoon/werft#2251). 그 입력은 마지막 checkpoint 뒤의 일이라, 전에는 새 메시지나 끊기기 전에 기다리던 메시지로 이어 가면 엔진이 그 요청을 모른 채 돌았다. 앞의 요청이 중간에 끊겼다는 한 줄이 그 앞에 붙는다. 화면과 API의 `message`는 보낸 그대로이고, 새 필드 `prepended_turn_id`(turn 조회·목록)가 붙인 turn을 가리킨다. 원문이 지워졌거나 [이어서 하기]로 생긴 turn이면 붙이지 않는다. migration `0376_cut_off_turn_prepend`가 `turns`에 빈 열 두 개(`prepended_turn`, `prepend_skip_reason`)를 더한다. 따로 할 일은 없다.
   - 앞선 이미지로 되돌려도 된다. 앞선 이미지는 이 열을 읽지도 쓰지도 않고, 전처럼 붙이지 않는다.
-- **대화 턴 큐가 끝난 턴을 잊는 조회에 쓸 인덱스를 더한다**(JeongJaeSoon/werft#2262). 대화 턴이 많이 쌓인 설치에서 턴을 집어 가는 호출이 쌓인 행 수만큼 느려지던 것을 고친다. migration `0381_conversation_turn_queue_ended_idx`가 `conversation_turn_queue`에 부분 인덱스를 `CONCURRENTLY`로 만든다. 쓰기를 막지 않고 따로 할 일은 없다. 앞선 이미지로 되돌려도 된다.
+- **대화 턴 큐가 끝난 턴을 잊는 조회에 쓸 인덱스를 더한다**(JeongJaeSoon/werft#2262). 대화 턴이 많이 쌓인 설치에서 턴을 집어 가는 호출이 쌓인 행 수만큼 느려지던 것을 고친다. migration `0377_conversation_turn_queue_ended_idx`가 `conversation_turn_queue`에 부분 인덱스를 `CONCURRENTLY`로 만든다. 쓰기를 막지 않고 따로 할 일은 없다. 앞선 이미지로 되돌려도 된다.
 - **대화 턴 큐를 기다리는 api가 250 ms마다 DB를 읽지 않고 알림(LISTEN/NOTIFY)에 깨어난다**(JeongJaeSoon/werft#2269). 턴을 집어 가는 지연이 평균 약 100 ms에서 수 ms로 줄고, 쉬는 런타임 하나가 내던 초당 4번의 큐 트랜잭션이 5초에 한 번이 된다. migration은 없다.
   - 대화 런타임을 켠 api는 replica마다 DB 연결을 하나 더 쓴다(`werft:api-listen-turns`). `max_connections` 예산에 더한다.
   - `DATABASE_URL`이 transaction 모드 pooler를 거치면 알림이 오지 않는다. 그때 api는 경고 `Conversation turn notices do not arrive on the listening connection`을 한 번 남기고 전처럼 250 ms마다 읽는다. 따로 할 일은 없다.

@@ -428,6 +428,43 @@ describe("bootstrap checklist", () => {
 });
 
 describe("최근 세션 표", () => {
+  test("lease를 잃어 끊긴 채 쉬는 세션은 상태 칸이 실패 색의 '중단됨'이다", async () => {
+    renderAt("/", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/members": () =>
+        json(200, memberPage({ items: [owner], next_cursor: null })),
+      "GET /v1/invites": () => json(200, { items: [] }),
+      "GET /v1/agents": () => json(200, { items: [], next_cursor: null }),
+      "GET /v1/sessions": () =>
+        json(200, {
+          items: [
+            { ...oneSession, last_turn_cut_off: true },
+            { ...oneSession, id: USER_ID },
+          ],
+          next_cursor: null,
+        }),
+    });
+    const table = await screen.findByRole("table", { name: "최근 세션" });
+    const at = within(table)
+      .getAllByRole("columnheader")
+      .findIndex((header) => header.textContent === "상태");
+    const cells = within(table)
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) => within(row).getAllByRole("cell")[at]);
+    expect(cells.map((cell) => cell && shownText(cell))).toEqual([
+      "작업 상태: 중단됨",
+      "작업 상태: 쉬는 중",
+    ]);
+    expect(
+      cells.map(
+        (cell) =>
+          cell
+            ?.querySelector("[data-slot=badge]")
+            ?.className.match(/tone-[a-z]+-bg/)?.[0],
+      ),
+    ).toEqual(["tone-danger-bg", "tone-neutral-bg"]);
+  });
   test("에이전트 칸은 세션이 붙은 에이전트의 이름을, 에이전트 없는 세션은 '에이전트 없음'을, 가려진 에이전트는 '볼 수 없는 에이전트'를 보인다", async () => {
     renderAt("/", {
       "GET /v1/auth/me": () => json(200, me()),
