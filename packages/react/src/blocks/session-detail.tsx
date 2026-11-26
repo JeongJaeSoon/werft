@@ -1,5 +1,6 @@
 import { isApiError } from "@werft-ai/client";
 import type {
+  PendingRequest,
   SessionDetail as SessionDetailData,
   SessionShareView,
   SessionUsageResponse,
@@ -30,6 +31,7 @@ import {
   Fragment,
   type ReactNode,
   useCallback,
+  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -42,11 +44,14 @@ import {
   shortSessionId,
 } from "../components/index.ts";
 import { useFollowEnd } from "../components/session/follow-end.ts";
+import { useMinute } from "../components/session/use-minute.ts";
 import { useKeptFailure } from "../kept-failure.ts";
 import { useWerft } from "../provider.tsx";
 import {
+  EVENT_WINDOW,
   useAgentOpenable,
   usePendingRequests,
+  useRecheckSessionReads,
   useRetryFailedReadsOnStatus,
   useSession,
   useSessionEvents,
@@ -64,6 +69,12 @@ import {
   SessionControls,
 } from "./session-actions.tsx";
 import { SessionChat } from "./session-chat.tsx";
+import {
+  SessionInputNeeded,
+  SessionProgress,
+  SessionStepList,
+} from "./session-progress.tsx";
+import { readSessionSteps, readsDisagree } from "./session-steps.ts";
 import { SlackMark } from "./slack-mark.tsx";
 import { SlackMessageLink } from "./slack-message-link.tsx";
 import { type BlockText, useBlockText } from "./text.ts";
@@ -167,6 +178,19 @@ export function SessionDetail({
   const share = useSessionShare(id, readable);
   const shareFailure = useKeptFailure(share, id);
   useRetryFailedReadsOnStatus(id, detail?.status);
+  useRecheckSessionReads(
+    id,
+    detail !== undefined &&
+      turns.data !== undefined &&
+      readsDisagree(detail, turns.data.items),
+    detail?.last_event_at,
+  );
+  // A running turn's time moves on its own.
+  const now = useMinute(Boolean(detail?.current_turn_id));
+  const stepListId = useId();
+  const [stepsOpen, setStepsOpen] = useState(true);
+  const waitingTitle = useRef<HTMLHeadingElement>(null);
+  const lapseNow = useLapseClock(pending.data?.items);
   // The event window keeps its length once full, so the newest event's id
   // tells an arrival, not the count.
   const follow = useFollowEnd(
@@ -196,7 +220,7 @@ export function SessionDetail({
     // Titled for screen readers: once the last request is answered and its
     // notice goes, the keyboard lands on this title.
     <section aria-labelledby={WAITING_ID} className="flex flex-col">
-      <h2 id={WAITING_ID} className="sr-only">
+      <h2 id={WAITING_ID} ref={waitingTitle} tabIndex={-1} className="sr-only">
         {t("session.pending")}
       </h2>
       <PendingAnswers
@@ -230,6 +254,52 @@ export function SessionDetail({
   const unknownTurnId =
     turns.data?.items.find((turn) => turn.status === "outcome_unknown")
       ?.turn_id ?? null;
+  const requests = pending.data?.items ?? [];
+  const listCurrent =
+    pending.data !== undefined &&
+    pending.dataUpdatedAt >= session.dataUpdatedAt;
+  // A viewer who only sees the session through its share has nothing to
+  // answer, unless a request says otherwise; a lapsed request takes none,
+  // nor does one a newer session read no longer counts.
+  const outdated = !listCurrent && detail.pending_request_count === 0;
+  // A credential without sessions:approve answers nothing, whoever holds it.
+  const canAnswer = unavailable?.answer === undefined;
+  const mine = (outdated || !canAnswer ? [] : requests).filter(
+    (request) =>
+      Date.parse(request.expires_at) > lapseNow &&
+      (request.answerable ?? pending.data?.answerable ?? false),
+  );
+  const steps = turns.data
+    ? readSessionSteps({
+        session: detail,
+        turns: turns.data.items,
+        requests,
+        events: events.events,
+        windowFull: events.events.length >= EVENT_WINDOW,
+        now: lapseNow,
+        listCurrent,
+        turnsCurrent: turns.dataUpdatedAt >= session.dataUpdatedAt,
+      })
+    : undefined;
+  // The requests sit at the chat's end: open the chat and land on them.
+  const showRequests = () => {
+    changeTab("chat");
+    requestAnimationFrame(() => {
+      const title = waitingTitle.current;
+      title?.parentElement?.scrollIntoView?.({ block: "nearest" });
+      title?.focus({ preventScroll: true });
+    });
+  };
+  const continueTurn = (turnId: string, label?: string) =>
+    cutOff && turnId === lostTurnId && detail.admission_state === "active" ? (
+      <ContinueTurn
+        sessionId={id}
+        turnId={turnId}
+        {...(label ? { label } : {})}
+        unavailable={unavailable}
+        refusal={refusal}
+      />
+    ) : null;
 
   const chat = (
     <div
@@ -257,18 +327,7 @@ export function SessionDetail({
             state={events.state}
             failedAttempts={events.failedAttempts}
             onReconnect={events.reconnect}
-            lostTurnAction={(turnId) =>
-              cutOff &&
-              turnId === lostTurnId &&
-              detail.admission_state === "active" ? (
-                <ContinueTurn
-                  sessionId={id}
-                  turnId={turnId}
-                  unavailable={unavailable}
-                  refusal={refusal}
-                />
-              ) : null
-            }
+            lostTurnAction={(turnId) => continueTurn(turnId)}
             turns={turns.data?.items}
             agentName={detail.agent?.name}
             working={working}
@@ -383,12 +442,35 @@ export function SessionDetail({
         </div>
         <SessionMeta
           session={detail}
-          usage={usage.data}
           share={share.data}
           shareFailure={shareFailure}
           // A second press joins the read already going, data or not.
           retryShare={() => void share.refetch({ cancelRefetch: false })}
         />
+        <SessionProgress
+          session={detail}
+          steps={steps}
+          now={now}
+          listId={stepListId}
+          listOpen={stepsOpen}
+          onListToggle={() => setStepsOpen((open) => !open)}
+          usage={usage.data ? <UsageFigures usage={usage.data} /> : null}
+        />
+        <SessionInputNeeded requests={mine} onShow={showRequests} />
+        {steps && steps.steps.length > 0 ? (
+          <SessionStepList
+            // Each session opens on its own focused step.
+            key={detail.id}
+            id={stepListId}
+            open={stepsOpen}
+            session={detail}
+            steps={steps}
+            now={now}
+            cutOffAction={(step) =>
+              continueTurn(step.turn.turn_id, t("session.steps.continue"))
+            }
+          />
+        ) : null}
         {usage.error
           ? renderError(usage.error, () => void usage.refetch())
           : null}
@@ -444,6 +526,29 @@ export function SessionDetail({
   );
 }
 
+const TIMER_MAX = 2 ** 31 - 1;
+
+/** Date.now(), read again when the soonest of these requests lapses. */
+function useLapseClock(
+  requests: readonly PendingRequest[] | undefined,
+): number {
+  const [now, setNow] = useState(Date.now);
+  const next = Math.min(
+    ...(requests ?? [])
+      .map((request) => Date.parse(request.expires_at))
+      .filter((at) => at > now),
+  );
+  useEffect(() => {
+    if (!Number.isFinite(next)) return;
+    const id = setTimeout(
+      () => setNow(Date.now()),
+      Math.min(Math.max(0, next - Date.now()), TIMER_MAX),
+    );
+    return () => clearTimeout(id);
+  }, [next]);
+  return now;
+}
+
 /** Names the chat's waiting requests, where focus lands once all are answered. */
 const WAITING_ID = "session-waiting";
 
@@ -464,18 +569,16 @@ const CHANNEL_ICON: Record<
 /** Where the session was started from, with that surface's mark. */
 /**
  * The head's one line under the title: the short id to copy, the agent,
- * where the session was started and by whom (the start time on hover), then
- * its cost and tokens. Grey and small; it wraps on a narrow screen.
+ * where the session was started and by whom (the start time on hover), and
+ * who sees it. Grey and small; it wraps on a narrow screen.
  */
 function SessionMeta({
   session,
-  usage,
   share,
   shareFailure,
   retryShare,
 }: {
   readonly session: SessionDetailData;
-  readonly usage: SessionUsageResponse | undefined;
   readonly share: SessionShareView | undefined;
   readonly shareFailure: unknown;
   readonly retryShare: () => void;
@@ -552,20 +655,6 @@ function SessionMeta({
           {started}
         </span>
       </span>
-      {usage ? (
-        <span className="inline-flex items-center gap-1.5 tabular-nums">
-          <Gauge
-            className="size-3.5 shrink-0"
-            strokeWidth={1.5}
-            aria-hidden="true"
-          />
-          <span className="sr-only">{t("session.usage")}: </span>
-          <Cost usage={usage} />
-          {" · "}
-          {t("session.info.tokens")}{" "}
-          {new Intl.NumberFormat(locale).format(usage.token_count)}
-        </span>
-      ) : null}
       <SessionShare
         key={session.id}
         share={share}
@@ -765,6 +854,25 @@ function AgentRelease({
         </>
       ) : null}
     </Text>
+  );
+}
+
+/** The progress line's last part: what the session cost and its tokens. */
+function UsageFigures({ usage }: { readonly usage: SessionUsageResponse }) {
+  const { t, locale } = useBlockText();
+  return (
+    <span className="inline-flex items-center gap-[var(--werft-space-1)] tabular-nums">
+      <Gauge
+        className="size-[var(--werft-leading-caption)] shrink-0"
+        strokeWidth={1.5}
+        aria-hidden="true"
+      />
+      <span className="sr-only">{t("session.usage")}: </span>
+      <Cost usage={usage} />
+      {" · "}
+      {t("session.info.tokens")}{" "}
+      {new Intl.NumberFormat(locale).format(usage.token_count)}
+    </span>
   );
 }
 

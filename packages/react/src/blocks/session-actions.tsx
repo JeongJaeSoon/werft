@@ -297,11 +297,14 @@ function useRefusal(refusal: SessionActionProps["refusal"]) {
 export function ContinueTurn({
   sessionId,
   turnId,
+  label,
   unavailable,
   refusal,
 }: SessionActionProps & {
   readonly sessionId: string;
   readonly turnId: string;
+  /** Another name where a second button stands for the same turn. */
+  readonly label?: string;
 }) {
   const { t } = useBlockText();
   const resume = useContinueTurn(sessionId);
@@ -333,7 +336,7 @@ export function ContinueTurn({
           );
         }}
       >
-        {t("session.chat.continue")}
+        {label ?? t("session.chat.continue")}
       </Button>
       {resume.error ? (
         <Text

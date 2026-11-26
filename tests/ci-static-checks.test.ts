@@ -201,6 +201,7 @@ test("static checks keep one cache writer and report independent failures", () =
     "bun run typecheck",
     "bun run lint",
     "bun scripts/third-party-notices.ts --check",
+    "bun .github/scripts/vendor-names.ts",
   ]) {
     const steps = job?.steps.filter((step) => step.run === command);
     expect(steps).toHaveLength(1);
