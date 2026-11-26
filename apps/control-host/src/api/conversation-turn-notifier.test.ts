@@ -10,10 +10,14 @@ import { PostgresConversationTurnNotifier } from "./conversation-turn-notifier.t
 class FakeClient extends EventEmitter {
   queries: string[] = [];
   ended = false;
-  constructor(private readonly failConnect = false) {
+  constructor(
+    private readonly failConnect = false,
+    private readonly connected: Promise<void> = Promise.resolve(),
+  ) {
     super();
   }
   async connect() {
+    await this.connected;
     if (this.failConnect) throw new Error("ECONNREFUSED");
   }
   async query(text: string) {
@@ -162,6 +166,25 @@ describe("PostgresConversationTurnNotifier", () => {
       ),
     ).toBe(true);
     await instance.close();
+  });
+
+  test("closed while it connects, it proves nothing and warns of nothing", async () => {
+    let connect = () => {};
+    const client = new FakeClient(
+      false,
+      new Promise<void>((resolve) => {
+        connect = resolve;
+      }),
+    );
+    const { instance, sink, told } = notifier([client], false);
+    const starting = instance.start();
+    await instance.close();
+    connect();
+    await starting;
+    await Bun.sleep(60);
+    expect(told).toEqual([]);
+    expect(instance.listening).toBe(false);
+    expect(sink.records.map((record) => record.message)).toEqual([]);
   });
 
   test("retries a failed first connection in the background, and close stops the retries", async () => {

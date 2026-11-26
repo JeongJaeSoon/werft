@@ -84,6 +84,8 @@ export class PostgresConversationTurnNotifier
     try {
       await client.connect();
       await client.query(`LISTEN ${CONVERSATION_TURN_QUEUE_CHANNEL}`);
+      // Closed or lost while it connected: nothing is left to prove.
+      if (this.#client !== client) return;
       this.#proofTimer = setTimeout(
         () => this.#unproved(client, "TimedOut"),
         this.#proofTimeoutMs,

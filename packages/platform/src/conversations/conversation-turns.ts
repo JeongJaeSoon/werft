@@ -609,6 +609,10 @@ export function createConversationRuntimeTurns(deps: {
     deps.sleep ??
     ((ms: number, signal?: AbortSignal) =>
       new Promise<void>((resolve) => {
+        if (signal?.aborted) {
+          resolve();
+          return;
+        }
         const timer = setTimeout(resolve, ms);
         signal?.addEventListener(
           "abort",
@@ -627,8 +631,8 @@ export function createConversationRuntimeTurns(deps: {
   const watch = (of: "next" | ConversationTurnId, stop?: AbortSignal) => {
     if (deps.wakeup === undefined || !deps.wakeup.listening) {
       return {
-        wait: (left = Number.POSITIVE_INFINITY) =>
-          sleep(Math.min(pollMs, left)),
+        wait: (until = Number.POSITIVE_INFINITY) =>
+          sleep(Math.min(pollMs, until - now().getTime())),
         done: () => {},
       };
     }
@@ -637,18 +641,23 @@ export function createConversationRuntimeTurns(deps: {
       stop === undefined ? over.signal : AbortSignal.any([over.signal, stop]);
     const changed = deps.wakeup.wait(of, signal);
     return {
-      // No later than the queue's next change by time alone, which sends no
-      // notice; a time already due is looked at as soon as a poll would.
-      wait: async (left = Number.POSITIVE_INFINITY) => {
-        const timed = await deps.queue.nextTimedChange?.();
-        const ms =
-          timed == null
-            ? fallbackPollMs
-            : Math.min(
-                fallbackPollMs,
-                Math.max(pollMs, timed.getTime() - now().getTime()),
-              );
-        await Promise.race([sleep(Math.min(ms, left), signal), changed]);
+      // Until the queue's next change by time alone, which sends no notice,
+      // the fallback or `until`, whichever is first. A time already due is
+      // looked at as soon as a poll would.
+      wait: async (until = Number.POSITIVE_INFINITY) => {
+        const lookup = deps.queue.nextTimedChange?.() ?? Promise.resolve(null);
+        // A notice or a stop during the lookup ends the wait without it.
+        void lookup.catch(() => {});
+        const timed = await Promise.race([
+          lookup,
+          changed.then(() => undefined),
+        ]);
+        if (timed === undefined) return;
+        const at = now().getTime();
+        const due =
+          timed === null ? Number.POSITIVE_INFINITY : timed.getTime() - at;
+        const ms = Math.min(fallbackPollMs, due > 0 ? due : pollMs, until - at);
+        await Promise.race([sleep(Math.max(0, ms), signal), changed]);
       },
       done: () => over.abort(),
     };
@@ -686,7 +695,7 @@ export function createConversationRuntimeTurns(deps: {
           }
           const left = deadline - now().getTime();
           if (left <= 0 || input.stop?.aborted === true) return null;
-          await change.wait(left);
+          await change.wait(deadline);
         } finally {
           change.done();
         }

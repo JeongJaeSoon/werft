@@ -263,11 +263,12 @@ describe("a poll that hears the queue change", () => {
     expect(looks).toBe(2);
   });
 
-  test("it looks again by the queue's next timed change: a poll's wait at the soonest, the fallback at the latest", async () => {
+  test("it looks again at the queue's next timed change, at the fallback at the latest, and as a poll would when that time is already due", async () => {
     for (const [timed, waitMs, slept] of [
       [new Date(START.getTime() + 1_000), 20_000, 1_000],
       [new Date(START.getTime() + 60_000), 20_000, 5_000],
-      [new Date(START.getTime() + 10), 20_000, 250],
+      [new Date(START.getTime() + 10), 20_000, 10],
+      [START, 20_000, 250],
       [new Date(START.getTime() - 1_000), 20_000, 250],
       [null, 20_000, 5_000],
       // Never past the poll's own wait.
@@ -286,6 +287,57 @@ describe("a poll that hears the queue change", () => {
       stop.abort();
       expect(await poll).toBeNull();
     }
+  });
+
+  test("a notice or a stop while it asks for the next timed change ends the wait without the answer", async () => {
+    for (const end of ["notice", "stop"] as const) {
+      const base = createMemoryConversationTurnQueue();
+      const turn = queued();
+      const h = heard({
+        // The queue never answers.
+        queue: { ...base, nextTimedChange: () => new Promise(() => {}) },
+      });
+      const stop = new AbortController();
+      const poll = h.turns.nextTurn({
+        runtimeId: runtimeA,
+        waitMs: 20_000,
+        stop: stop.signal,
+      });
+      await looked();
+      expect(h.sleeps).toEqual([]);
+      if (end === "notice") {
+        await base.enqueue(turn, entryAt(START));
+        h.waits[0]?.ring();
+        expect((await poll)?.turn_id).toBe(turn.turn_id);
+      } else {
+        stop.abort();
+        expect(await poll).toBeNull();
+      }
+    }
+  });
+
+  test("a stop ends the wait of the service's own sleep, and leaves no timer behind", async () => {
+    const stop = new AbortController();
+    const turns = createConversationRuntimeTurns({
+      queue: createMemoryConversationTurnQueue(),
+      wakeup: {
+        listening: true,
+        wait: (_of, signal) =>
+          new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          }),
+      },
+    });
+    const started = performance.now();
+    const poll = turns.nextTurn({
+      runtimeId: runtimeA,
+      waitMs: 20_000,
+      stop: stop.signal,
+    });
+    await looked();
+    stop.abort();
+    expect(await poll).toBeNull();
+    expect(performance.now() - started).toBeLessThan(1_000);
   });
 
   test("while no notice arrives it polls as it did without one", async () => {
