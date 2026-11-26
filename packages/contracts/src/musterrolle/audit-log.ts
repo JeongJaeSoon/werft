@@ -100,6 +100,35 @@ export const listAuditEventsResponseSchema = z
   })
   .strict();
 
+/** Each audit count stops here; a count past it reads as `more`. */
+export const AUDIT_COUNT_CAP = 1000;
+
+export const countAuditEventsQuerySchema = listAuditEventsQuerySchema
+  .omit({ cursor: true, limit: true })
+  .strict();
+
+const auditCountSchema = z
+  .object({
+    count: z.number().int().nonnegative().max(AUDIT_COUNT_CAP),
+    more: z.boolean().meta({
+      description: `True when more than ${AUDIT_COUNT_CAP} rows match: \`count\` is then ${AUDIT_COUNT_CAP}.`,
+    }),
+  })
+  .strict();
+
+export const countAuditEventsResponseSchema = z
+  .object({
+    counts: z
+      .object({ decision: auditCountSchema, receipt: auditCountSchema })
+      .strict()
+      .meta({
+        description:
+          "For each `kind`, how many rows GET /v1/audit/events would list with the same filters and that `kind`, read to the last page. A `kind` in the query leaves the other at 0.",
+      }),
+    total: auditCountSchema,
+  })
+  .strict();
+
 // The export's last line; a stream that ends without it was cut short.
 export const auditExportEndSchema = z
   .object({
@@ -132,4 +161,8 @@ export type ListAuditEventsResponse = z.infer<
   typeof listAuditEventsResponseSchema
 >;
 export type AuditExportRow = z.infer<typeof auditExportRowSchema>;
+export type CountAuditEventsQuery = z.infer<typeof countAuditEventsQuerySchema>;
+export type CountAuditEventsResponse = z.infer<
+  typeof countAuditEventsResponseSchema
+>;
 export type AuditExportEnd = z.infer<typeof auditExportEndSchema>;

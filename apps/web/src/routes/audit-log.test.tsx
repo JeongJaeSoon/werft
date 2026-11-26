@@ -7,16 +7,17 @@ import {
 import { setupUser } from "@werft-ai/ui/test-support/dom";
 import { apiError, json, me, USER_ID } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
-import {
+
+const { renderAt, screen, within, waitFor } = await appHarness();
+// After the harness: Radix Popover portals only when it found a DOM at import.
+const {
   AUDIT_EXPORT_MAX_ROWS,
   AUDIT_EXPORT_MEDIA_TYPE,
   AUDIT_PAGE_SIZE,
   continuesRequest,
   exportEnd,
   queryOf,
-} from "./audit-log.tsx";
-
-const { renderAt, screen, within } = await appHarness();
+} = await import("./audit-log.tsx");
 
 const PAGE = "/settings/workspace/audit-log";
 const API = "GET /v1/audit/events";
@@ -83,6 +84,8 @@ const routes = (
 });
 
 const table = () => screen.findByRole("table", { name: "감사 기록" });
+const COUNTS_PATH = "/v1/audit/events/counts";
+const COUNTS = `GET ${COUNTS_PATH}`;
 
 describe("설정 › 감사 기록", () => {
   test("거절 행은 거절과 이유를, 긴 값은 줄여 보이되 전체를 title에 둔다", async () => {
@@ -173,13 +176,145 @@ describe("설정 › 감사 기록", () => {
     await table();
     const first = api.calls.find((call) => call.path === "/v1/audit/events");
     expect(first?.search).toBe(`?limit=${AUDIT_PAGE_SIZE}`);
-    for (const name of [
-      "기간 보존 기간 전체",
-      "종류 모든 종류",
-      "사람 모든 사람",
-    ]) {
-      expect(screen.getByRole("button", { name })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "필터" })).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "적용한 필터" })).toBeNull();
+    // Counts wait for the filters to open.
+    expect(api.calls.some((call) => call.path === COUNTS_PATH)).toBe(false);
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "필터" }));
+    const panel = await screen.findByRole("dialog", { name: "필터" });
+    for (const name of [/^기간 /, /^종류 /, /^사람 /]) {
+      expect(within(panel).queryByRole("button", { name })).toBeNull();
     }
+    expect(
+      within(panel)
+        .getAllByRole("button", { expanded: false })
+        .map((header) => header.textContent),
+    ).toEqual(["종류", "사람"]);
+  });
+
+  test("기간·종류 값마다 개수 API가 같은 조건으로 센 수가 붙고, 고른 기간은 목록과 같은 창을 센다", async () => {
+    const asked: URLSearchParams[] = [];
+    const count = (n: number) => ({ count: Math.min(n, 1000), more: n > 1000 });
+    const { api } = renderAt(PAGE, {
+      ...routes(() => page([row({})])),
+      [COUNTS]: (request?: Request) => {
+        const params = new URL(request?.url ?? "http://x").searchParams;
+        asked.push(params);
+        // Ten decisions a day over a 90-day window, and 7 receipts.
+        const days = params.get("from")
+          ? (Date.now() - Date.parse(params.get("from") ?? "")) / 86_400_000
+          : 90;
+        const decision =
+          params.get("kind") === "receipt" ? 0 : Math.round(days * 10);
+        const receipt = params.get("kind") === "decision" ? 0 : 7;
+        return json(200, {
+          counts: { decision: count(decision), receipt: count(receipt) },
+          total: count(decision + receipt),
+        });
+      },
+    });
+    await table();
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "필터" }));
+    const panel = await screen.findByRole("dialog", { name: "필터" });
+    const period = within(panel).getByRole("list", { name: "기간" });
+    await waitFor(() =>
+      expect(
+        within(period)
+          .getAllByRole("button")
+          .map((choice) => choice.textContent),
+      ).toEqual([
+        "보존 기간 전체 907907개",
+        "지난 24시간 1717개",
+        "지난 7일 7777개",
+        "지난 30일 307307개",
+      ]),
+    );
+    await user.click(within(panel).getByRole("button", { name: "종류" }));
+    const kinds = within(panel).getByRole("list", { name: "종류" });
+    await waitFor(() =>
+      expect(
+        within(kinds).getByRole("button", { name: /^모든 종류/ }).textContent,
+      ).toBe("모든 종류 907907개"),
+    );
+
+    await user.click(
+      within(period).getByRole("button", { name: /^지난 30일/ }),
+    );
+    const listed = api.calls.filter((call) => call.path === "/v1/audit/events");
+    const from = new URLSearchParams(listed.at(-1)?.search).get("from");
+    // The list reads the very window its count counted.
+    expect(asked.some((params) => params.get("from") === from)).toBe(true);
+    expect(
+      asked.every((params) => !params.has("limit") && !params.has("cursor")),
+    ).toBe(true);
+  });
+
+  test("1000을 넘는 개수는 1000+로 읽힌다", async () => {
+    renderAt(PAGE, {
+      ...routes(() => page([row({})])),
+      [COUNTS]: () =>
+        json(200, {
+          counts: {
+            decision: { count: 1000, more: true },
+            receipt: { count: 1000, more: false },
+          },
+          total: { count: 1000, more: true },
+        }),
+    });
+    await table();
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "필터" }));
+    const panel = await screen.findByRole("dialog", { name: "필터" });
+    await user.click(within(panel).getByRole("button", { name: "종류" }));
+    const kinds = within(panel).getByRole("list", { name: "종류" });
+    expect(
+      await within(kinds).findByRole("button", { name: "권한 판정 1000+개" }),
+    ).toBeTruthy();
+    expect(
+      within(kinds).getByRole("button", { name: /^명령 기록 1000개/ }),
+    ).toBeTruthy();
+  });
+
+  test("칩의 ×는 그 거름만 풀고 모두 지우기는 처음 조건으로 되돌린다", async () => {
+    const { api } = renderAt(
+      PAGE,
+      routes(() => page([row({})])),
+    );
+    await table();
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "필터" }));
+    const panel = await screen.findByRole("dialog", { name: "필터" });
+    await user.click(within(panel).getByRole("button", { name: /^지난 7일/ }));
+    await user.click(within(panel).getByRole("button", { name: "종류" }));
+    await user.click(within(panel).getByRole("button", { name: /^권한 판정/ }));
+    await user.keyboard("{Escape}");
+    const chips = await screen.findByRole("group", { name: "적용한 필터" });
+    expect(
+      within(chips)
+        .getAllByRole("listitem")
+        .map((chip) => chip.textContent),
+    ).toEqual(["기간 지난 7일", "종류 권한 판정"]);
+    const last = () =>
+      new URLSearchParams(
+        api.calls.filter((call) => call.path === "/v1/audit/events").at(-1)
+          ?.search,
+      );
+    await waitFor(() => expect(last().get("kind")).toBe("decision"));
+    expect(last().has("from")).toBe(true);
+
+    await user.click(
+      within(chips).getByRole("button", { name: "기간 필터 빼기: 지난 7일" }),
+    );
+    await waitFor(() => expect(last().has("from")).toBe(false));
+    expect(last().get("kind")).toBe("decision");
+
+    await user.click(screen.getByRole("button", { name: "모두 지우기" }));
+    await waitFor(() =>
+      expect(last().toString()).toBe(`limit=${AUDIT_PAGE_SIZE}`),
+    );
+    expect(screen.queryByRole("group", { name: "적용한 필터" })).toBeNull();
   });
 
   test("owner가 아니면 메뉴에도 없고 주소로 열어도 없는 화면이며 기록을 읽지 않는다", async () => {
