@@ -47,7 +47,8 @@ import { useWerft } from "./provider.tsx";
 
 // Events kept on screen; older ones drop off so a long session does not
 // grow the page without bound.
-const EVENT_WINDOW = 200;
+/** The most events the session screen keeps; older ones drop off. */
+export const EVENT_WINDOW = 200;
 
 export function useSessions() {
   const { client } = useWerft();
@@ -219,6 +220,55 @@ export function useRetryFailedReadsOnStatus(
     seen.current = status;
     retryFailedReads(queryClient, client, id);
   }, [queryClient, client, id, status]);
+}
+
+const RECHECK_MS = 1_000;
+
+/**
+ * Reads the session and its turns again while they disagree, until they
+ * agree: a read can come back before the other catches up. A read still in
+ * flight is left to finish rather than cancelled by the next.
+ */
+export function useRecheckSessionReads(
+  id: string,
+  disagree: boolean,
+  lastEventAt: string | null | undefined,
+) {
+  const { client } = useWerft();
+  const queryClient = useQueryClient();
+  // A turn can start and end between two session reads with nothing else
+  // to tell, but the session's newest event moves on with it.
+  const seen = useRef(lastEventAt);
+  useEffect(() => {
+    if (seen.current === lastEventAt) return;
+    const first = seen.current === undefined;
+    seen.current = lastEventAt;
+    if (first) return;
+    const turns = sessionTurnsQuery(client, id);
+    // A turns read already in flight may have started before the event:
+    // join it rather than restart it, so a slow read is not restarted by
+    // every event before it lands, then read once more after it does.
+    const inFlight = queryClient.isFetching(turns) > 0;
+    const options = { cancelRefetch: false };
+    void queryClient
+      .invalidateQueries(turns, options)
+      .then(() =>
+        inFlight ? queryClient.invalidateQueries(turns, options) : undefined,
+      );
+  }, [queryClient, client, id, lastEventAt]);
+  useEffect(() => {
+    if (!disagree) return;
+    const recheck = () => {
+      for (const filter of [
+        { ...sessionQuery(client, id), exact: true },
+        sessionTurnsQuery(client, id),
+      ])
+        void queryClient.invalidateQueries(filter, { cancelRefetch: false });
+    };
+    recheck();
+    const timer = setInterval(recheck, RECHECK_MS);
+    return () => clearInterval(timer);
+  }, [queryClient, client, id, disagree]);
 }
 
 /** Queues a message as the session's next turn. */

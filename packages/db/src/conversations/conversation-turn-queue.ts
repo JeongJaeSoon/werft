@@ -159,7 +159,8 @@ export function createPostgresConversationTurnQueue(
   // A turn nobody took, or whose holder went quiet, ends here: never
   // requeued, since its permit may already be spent. One ended long enough
   // ago is forgotten, as the memory queue forgets it, but its row stays.
-  async function settle(tx: Database, now: Date): Promise<void> {
+  // Answers with the turns still open, oldest first.
+  async function settle(tx: Database, now: Date) {
     await tx
       .update(queue)
       // Its lease's ids and end stay: a turn queued behind it waits from then.
@@ -202,7 +203,7 @@ export function createPostgresConversationTurnQueue(
       .where(inArray(queue.state, [...OPEN]))
       .orderBy(queue.seq);
     const waiting = open.filter((row) => row.state === "queued");
-    if (waiting.length === 0) return;
+    if (waiting.length === 0) return open;
     const busy = new Set(
       open.filter((row) => row.state === "leased").map((row) => row.topicId),
     );
@@ -224,6 +225,7 @@ export function createPostgresConversationTurnQueue(
           .groupBy(queue.topicId)
       ).map((row) => [row.topicId, row.at?.getTime() ?? 0]),
     );
+    const ended = new Set<ConversationTurnId>();
     for (const row of waiting) {
       if (
         tooLate(row.usableUntil, now, CONVERSATION_TURN_LEASE_MS) ||
@@ -235,8 +237,10 @@ export function createPostgresConversationTurnQueue(
             ))
       ) {
         await end(tx, row.turnId, notTaken, now);
+        ended.add(row.turnId);
       }
     }
+    return open.filter((row) => !ended.has(row.turnId));
   }
 
   async function settledRow(
@@ -291,12 +295,7 @@ export function createPostgresConversationTurnQueue(
 
     lease: ({ runtimeId, now, leaseMs }) =>
       locked(async (tx) => {
-        await settle(tx, now);
-        const open = await tx
-          .select()
-          .from(queue)
-          .where(inArray(queue.state, [...OPEN]))
-          .orderBy(queue.seq);
+        const open = await settle(tx, now);
         // One turn of a topic at a time: the next waits for the one out to end.
         const busy = new Set(
           open
@@ -306,13 +305,21 @@ export function createPostgresConversationTurnQueue(
         for (const row of open) {
           if (row.state !== "queued" || busy.has(row.topicId)) continue;
           if (tooLate(row.usableUntil, now, leaseMs)) continue;
+          // Only the turn about to be handed out is read sealed.
+          const [sealed] = await tx
+            .select({
+              nonce: queue.turnNonce,
+              ciphertext: queue.turnCiphertext,
+            })
+            .from(queue)
+            .where(eq(queue.turnId, row.turnId));
           let turn: ReturnType<typeof queuedTurnSchema.parse>;
           try {
             turn = queuedTurnSchema.parse(
               JSON.parse(
                 openWithKey(key, aadOf(row.turnId), {
-                  nonce: Buffer.from(row.turnNonce ?? []),
-                  ciphertext: Buffer.from(row.turnCiphertext ?? []),
+                  nonce: Buffer.from(sealed?.nonce ?? []),
+                  ciphertext: Buffer.from(sealed?.ciphertext ?? []),
                 }),
               ),
             );
