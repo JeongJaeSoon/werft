@@ -14,6 +14,7 @@ import { workerImageReplacedDedupeKey } from "./worker-image-replaced-notice.ts"
 test("every notice keeps the dedupe key its outbox rows were written with", () => {
   expect([
     actionNoticeDedupeKey("p-1", "opened"),
+    actionNoticeDedupeKey("p-1", "pushed"),
     intentNoticeDedupeKey("i-1"),
     modelCutDedupeKey("w-1", "s-1", "l-1"),
     sessionModelMoveDedupeKey("w-1", "s-1", "m-old", "m-new", "l-1"),
@@ -21,6 +22,7 @@ test("every notice keeps the dedupe key its outbox rows were written with", () =
     workerImageReplacedDedupeKey("w-1", "s-1", 2, "l-1"),
   ]).toEqual([
     "action:p-1:opened",
+    "action:p-1:pushed",
     "intent:i-1:ended",
     "model-not-allowed:w-1:s-1:l-1",
     "session-model-move:w-1:s-1:m-old:m-new:l-1",
