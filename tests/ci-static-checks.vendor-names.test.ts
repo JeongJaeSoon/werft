@@ -1,5 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -61,6 +67,7 @@ describe("vendor-names.ts", () => {
     ["apps/web/src/b.ts", 'import "./vendor/affectui-pro/x.ts";'],
     ["apps/web/src/vendor/affectui/pro/x.tsx", 'const c = "affect-x";'],
     ["apps/web/public/affect-loader.svg", "<svg/>"],
+    ["apps/docs/content/docs/a.mdx", '<div className="affect-card" />'],
   ])("fails on %s", (path, text) => {
     put(path, `${text}\n`);
     try {
@@ -68,6 +75,17 @@ describe("vendor-names.ts", () => {
       expect(run().exitCode).toBe(1);
     } finally {
       rmSync(join(dir, path));
+    }
+  });
+
+  test("fails on the name of a symlink, even one into the vendor folder", () => {
+    const link = "apps/web/public/affect-link.svg";
+    mkdirSync(dirname(join(dir, link)), { recursive: true });
+    symlinkSync("../src/vendor/affectui/free/gone.svg", join(dir, link));
+    try {
+      expect(findNames(dir)).toEqual([`${link}: affect-`]);
+    } finally {
+      rmSync(join(dir, link));
     }
   });
 

@@ -7,10 +7,11 @@
  *   bun .github/scripts/vendor-names.ts [repo-dir]
  *
  * Names come from PATTERNS below and from .github/vendor-identifiers.txt.
- * Markdown is not scanned: documents have to be able to cite the source.
+ * .md files are not scanned: documents have to be able to cite the source.
+ * .mdx is, because it renders.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 // `affect-` needs the hyphen and no letter before it, so "affected" and
@@ -68,17 +69,19 @@ export function findNames(root: string): string[] {
 
   const found: string[] = [];
   for (const path of trackedFiles(root)) {
-    if (path.startsWith(VENDOR) || EXEMPT.has(path) || /\.mdx?$/.test(path)) {
+    if (path.startsWith(VENDOR) || EXEMPT.has(path) || path.endsWith(".md")) {
       continue;
     }
     const file = join(root, path);
-    // Deleted but not yet staged, or a symlink: its target is listed itself.
-    if (!existsSync(file) || !lstatSync(file).isFile()) continue;
+    const stat = lstatSync(file, { throwIfNoEntry: false });
+    if (!stat) continue; // deleted but not yet staged
     // The path as it is: a file named after a piece is a carried-over asset.
     const named =
       PATTERNS.map((pattern) => path.match(pattern)?.[0]).find(Boolean) ??
       own.find((name) => path.toLowerCase().includes(name));
     if (named) found.push(`${path}: ${named}`);
+    // A symlink is only a name here: a target in the repository is listed itself.
+    if (!stat.isFile()) continue;
     const text = readFileSync(file, "utf8");
     if (text.includes("\0")) continue;
     for (const [index, line] of text.split("\n").entries()) {

@@ -19,6 +19,6 @@ AffectUI가 MIT로 공개한 조각을 그대로 옮겨 두는 곳이다. 아직
 ## CI가 막는 것
 
 - packages/ui는 이 폴더를 import하지 못한다(`packages/ui/src/package.test.ts`).
-- 이 폴더 밖의 파일 내용과 경로에 AffectUI의 이름이 보이면 `check (static)`이 실패한다(`bun .github/scripts/vendor-names.ts`). 위의 머리글 한 줄, 이 폴더를 가리키는 import 경로, Markdown 문서는 괜찮다.
+- 이 폴더 밖의 파일 내용과 경로에 AffectUI의 이름이 보이면 `check (static)`이 실패한다(`bun .github/scripts/vendor-names.ts`). 위의 머리글 한 줄, 이 폴더를 가리키는 import 경로, `.md` 문서는 괜찮다(`.mdx`는 화면으로 그려지므로 검사한다).
   - 기본 접두어는 스크립트의 `PATTERNS`에 있다.
   - 그 밖의 고유 식별자는 owner가 `.github/vendor-identifiers.txt`에 적는다.
