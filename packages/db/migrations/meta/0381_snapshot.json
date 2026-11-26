@@ -1,6 +1,6 @@
 {
-  "id": "0d74597c-4593-455e-ad80-5a33245a73d3",
-  "prevId": "47b459c8-b6d2-4b09-88ec-4d5b983b37db",
+  "id": "257ce987-bb5f-40e8-9e8c-cd794c3f2fa0",
+  "prevId": "1b2aea5b-0375-4824-87a9-113cd8f3a128",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -19785,6 +19785,52 @@
           "value": "(\"slack_outbox\".\"claim_token\" IS NULL) = (\"slack_outbox\".\"lease_expires_at\" IS NULL) AND (\"slack_outbox\".\"status\" IN ('pending', 'sending') OR \"slack_outbox\".\"claim_token\" IS NULL) AND (\"slack_outbox\".\"status\" <> 'sending' OR \"slack_outbox\".\"claim_token\" IS NOT NULL)"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.slack_outbox_rate_blocks": {
+      "name": "slack_outbox_rate_blocks",
+      "schema": "",
+      "columns": {
+        "installation_id": {
+          "name": "installation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "blocked_until": {
+          "name": "blocked_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "slack_outbox_rate_blocks_installation_id_slack_installations_id_fk": {
+          "name": "slack_outbox_rate_blocks_installation_id_slack_installations_id_fk",
+          "tableFrom": "slack_outbox_rate_blocks",
+          "tableTo": "slack_installations",
+          "columnsFrom": ["installation_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "slack_outbox_rate_blocks_installation_id_scope_pk": {
+          "name": "slack_outbox_rate_blocks_installation_id_scope_pk",
+          "columns": ["installation_id", "scope"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.slack_settings": {
