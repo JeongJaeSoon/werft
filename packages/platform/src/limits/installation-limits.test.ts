@@ -15,6 +15,20 @@ describe("installationLimitsFromEnv", () => {
     });
   });
 
+  test("no longer reads the limits the console keeps", () => {
+    expect(
+      installationLimitProblems({
+        ...complete,
+        QUEUED_INPUT_LIMIT_PER_SESSION: "0",
+        STORAGE_LIMIT_BYTES: "0",
+        SESSION_COST_LIMIT_USD: "abc",
+        SESSION_TOKEN_LIMIT: "-1",
+        MAX_TURN_SECONDS: "0",
+        PROVIDER_MAX_RETRIES: "11",
+      }),
+    ).toEqual([]);
+  });
+
   test("names every missing limit at once and has no defaults for them", () => {
     let thrown: unknown;
     try {
