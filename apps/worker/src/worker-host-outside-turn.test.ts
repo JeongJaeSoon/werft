@@ -103,6 +103,7 @@ function harness(
     failures?: CaptureRefusal[];
     gateway?: FakeWorkerGateway;
     outsideTurnCheckpoint?: Partial<OutsideTurnCheckpoint>;
+    sleep?: (ms: number) => Promise<void>;
     timeouts?: Partial<WorkerTimeouts>;
     wrapRun?: (run: AgentRun) => AgentRun;
   } = {},
@@ -148,6 +149,7 @@ function harness(
       ...overrides.outsideTurnCheckpoint,
     },
     ...(overrides.engines === undefined ? {} : { engines: overrides.engines }),
+    ...(overrides.sleep === undefined ? {} : { sleep: overrides.sleep }),
   });
   return { ...checkpoints, gateway, host, log, runtime };
 }
@@ -416,6 +418,26 @@ describe("WorkerHost checkpoints outside a turn", () => {
     expect(gateway.checkpointCommits).toHaveLength(2);
     expect(refusals).toHaveLength(2);
     expect(gateway.checkpointRevision).toBeNull();
+  });
+
+  test("a retry due before the hold's limit starts no capture when its timer fires past the limit", async () => {
+    const { captures, gateway, host, log } = harness(twoTurns, {
+      everyTime: INFRASTRUCTURE,
+      outsideTurnCheckpoint: { retryHoldMs: 60, retryBackoffMs: [40] },
+      // The backoff's timer fires 60 ms late; the short polls are on time.
+      sleep: (ms) => Bun.sleep(ms >= 30 ? ms + 60 : ms),
+    });
+    gateway.enqueue("first");
+    gateway.enqueue("second");
+
+    await host.runLoop();
+
+    expect(log).toContain("worker.checkpoint.hold_ended");
+    expect(captures.map((capture) => capture.kind)).toEqual([
+      "turn_end",
+      "turn_end",
+      "before_idle_exit",
+    ]);
   });
 
   test("a capture refused at the turn's end is taken again before the idle exit, with no background work to wait for", async () => {

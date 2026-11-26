@@ -3989,7 +3989,8 @@ export class WorkerHost {
       ]);
     }
     if (this.stopping !== undefined || this.pauseControl !== undefined) return;
-    if (retryAt >= holdEndsAt) {
+    // By the clock as well: a timer can fire late.
+    if (retryAt >= holdEndsAt || performance.now() >= holdEndsAt) {
       owed.mode = "deferred";
       owed.holdSpent = true;
       this.logger.warn("worker.checkpoint.hold_ended", {
