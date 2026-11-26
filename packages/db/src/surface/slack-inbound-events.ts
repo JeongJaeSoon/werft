@@ -138,9 +138,11 @@ export function createPostgresSlackInboundEventStore(
               SELECT c.id FROM slack_inbound_events c
               WHERE c.status = 'received'
                 AND c.id IN (
-                  -- Computed once: estimated at a row, the lanes would be
-                  -- recomputed for every received row the join tries.
-                  WITH q AS MATERIALIZED (
+                  -- Computed once, and only the heads kept: estimated at a
+                  -- row, the lanes would be recomputed, or every received row
+                  -- read again, for each received row the join tries.
+                  WITH heads AS MATERIALIZED (
+                  SELECT q.id FROM (
                     SELECT s.id, s.attempts, s.claim_token, s.lease_expires_at,
                       s.next_attempt_at, s.lane, s.conversation_key, s.aside,
                       row_number() OVER (PARTITION BY s.lane, s.aside ORDER BY ${order("s")}) AS place,
@@ -171,8 +173,7 @@ export function createPostgresSlackInboundEventStore(
                         WHERE e.status = 'received'
                       ) r
                     ) s
-                  )
-                  SELECT q.id FROM q
+                  ) q
                   WHERE q.attempts < ${maxAttempts}
                     AND (q.claim_token IS NULL OR q.lease_expires_at <= now())
                     AND (q.next_attempt_at IS NULL OR q.next_attempt_at <= now())
@@ -180,6 +181,8 @@ export function createPostgresSlackInboundEventStore(
                       q.place = 1 AND NOT q.busy AND NOT q.aside
                       AND (q.conversation_key IS NOT NULL OR NOT q.behind_aside)
                     ))
+                  )
+                  SELECT heads.id FROM heads
                 )
               ORDER BY ${order("c")}
               LIMIT ${limit}
