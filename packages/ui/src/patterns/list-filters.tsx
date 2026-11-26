@@ -91,15 +91,20 @@ export function ListFilters({
   const labelId = useId();
   const baseId = useId();
   const applied = facets.filter((facet) => appliedChoice(facet)).length;
-  // A facet that narrows opens with the panel, as does the first.
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(
-    () =>
-      new Set(
-        facets
-          .filter((facet, index) => index === 0 || appliedChoice(facet))
-          .map((facet) => facet.id),
-      ),
-  );
+  // Each opening unfolds the first facet and every facet that narrows.
+  const unfolded = () =>
+    new Set(
+      facets
+        .filter((facet, index) => index === 0 || appliedChoice(facet))
+        .map((facet) => facet.id),
+    );
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(unfolded);
+  const [open, setOpen] = useState(false);
+  const openChange = (next: boolean) => {
+    if (next) setExpanded(unfolded());
+    setOpen(next);
+    onOpenChange?.(next);
+  };
   const toggle = (id: string) =>
     setExpanded((current) => {
       const next = new Set(current);
@@ -128,7 +133,7 @@ export function ListFilters({
     buttons[target]?.focus();
   };
   return (
-    <Popover {...(onOpenChange ? { onOpenChange } : {})}>
+    <Popover open={open} onOpenChange={openChange}>
       <PopoverTrigger
         ref={triggerRef}
         data-slot="list-filters"
@@ -202,6 +207,7 @@ export function ListFilters({
                       <li key={choice.value}>
                         <MenuItem
                           aria-pressed={pressed}
+                          className="aria-pressed:bg-active"
                           onClick={() => {
                             if (!pressed) onValueChange(facet.id, choice.value);
                           }}

@@ -1812,24 +1812,22 @@ describe("sessions list", () => {
     }
     await screen.findByRole("link", { name: opener(SESSION_ID) });
     expect(counts()).toHaveLength(1);
-    // The other relations are counted only once the filters open.
-    await pickRelation(user, "내가 시작");
-    await waitFor(() =>
-      expect(new Set(counts().map((call) => call.search))).toEqual(
-        new Set([
-          "",
-          "?relation=started",
-          "?relation=shared",
-          "?relation=administered",
-        ]),
-      ),
-    );
-    const read = counts().length;
+    // The other relations are counted once each, and only once the filters
+    // open; the relation picked is the tabs' own read.
+    await relationChoices(user);
+    await waitFor(() => expect(counts()).toHaveLength(4));
+    expect(counts().map((call) => call.search)).toEqual([
+      "",
+      "?relation=started",
+      "?relation=shared",
+      "?relation=administered",
+    ]);
+    await user.keyboard("{Escape}");
     for (const tab of ["실패", "전체"]) {
       await user.click(screen.getByRole("button", { name: tab }));
     }
     await screen.findByRole("link", { name: opener(SESSION_ID) });
-    expect(counts()).toHaveLength(read);
+    expect(counts()).toHaveLength(4);
   });
 
   test("each filter value carries the count the API reads for it, with the tab and search kept", async () => {

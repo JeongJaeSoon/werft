@@ -172,6 +172,33 @@ describe("ListFilters", () => {
     expect(document.activeElement === relation).toBe(true);
   });
 
+  test("다시 열면 첫 묶음과 거른 묶음이 펼쳐지고, 고른 값은 바탕이 채워진다", async () => {
+    const { getByRole } = render(<Screen />);
+    const user = await setupUser();
+    await user.click(getByRole("button", { name: "필터" }));
+    let panel = await waitFor(() => getByRole("dialog", { name: "필터" }));
+    await user.click(within(panel).getByRole("button", { name: "관계" }));
+    expect(
+      within(panel)
+        .getByRole("button", { name: "관계" })
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
+    await user.click(within(panel).getByRole("button", { name: "종류" }));
+    await user.click(within(panel).getByRole("button", { name: /^접근/ }));
+    await user.keyboard("{Escape}");
+    await user.click(getByRole("button", { name: /^필터/ }));
+    panel = await waitFor(() => getByRole("dialog", { name: "필터" }));
+    for (const name of ["관계", "종류 접근 판단"]) {
+      expect(
+        within(panel)
+          .getByRole("button", { name })
+          .getAttribute("aria-expanded"),
+      ).toBe("true");
+    }
+    const picked = within(panel).getByRole("button", { name: /^접근/ });
+    expect(picked.className.split(" ")).toContain("aria-pressed:bg-active");
+  });
+
   test("Escape로 닫고 버튼으로 돌아온다", async () => {
     const { getByRole, queryByRole } = render(<Screen />);
     const user = await setupUser();

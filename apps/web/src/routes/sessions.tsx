@@ -191,7 +191,10 @@ export function SessionsScreen() {
   // Each relation's count for the tab picked, read only while the filters
   // are open.
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const relationCounts = useRelationCounts(q, filtersOpen);
+  const relationCounts = {
+    ...useRelationCounts(relation, q, filtersOpen),
+    [relation ?? "all"]: counts.data,
+  };
   const filterButton = useRef<HTMLButtonElement>(null);
   const refusal = (error: { readonly code: string }) => t(errorKey(error.code));
   // A new filter leaves `page` out, so it opens on the first page.
@@ -496,19 +499,25 @@ function useSessionCounts(
  * the one already read is not read again.
  */
 function useRelationCounts(
+  current: SessionRelationFilter | undefined,
   q: string | undefined,
   enabled: boolean,
 ): Partial<Record<SessionRelationFilter | "all", CountSessionsResponse>> {
   const { client } = useWerft();
-  const relations = ["all", ...SESSION_RELATIONS] as const;
+  // The relation picked is the tabs' own read; the others are read here.
+  const others = (["all", ...SESSION_RELATIONS] as const).filter(
+    (name) => name !== (current ?? "all"),
+  );
   const results = useQueries({
-    queries: relations.map((name) => ({
+    queries: others.map((name) => ({
       ...sessionCountsQuery(client, name === "all" ? undefined : name, q),
       enabled,
+      // A new search keeps the last numbers until its own arrive.
+      placeholderData: keepPreviousData,
     })),
   });
   return Object.fromEntries(
-    relations.map((name, index) => [name, results[index]?.data]),
+    others.map((name, index) => [name, results[index]?.data]),
   );
 }
 
