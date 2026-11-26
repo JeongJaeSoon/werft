@@ -27,7 +27,9 @@ export interface ListToolbarProps {
  * on the right the chips, the view switch, then the search. Every control is
  * 32px with the control corner and the input edge. The search keeps a fixed
  * 260px beside the categories; below `sm` the right group takes its own
- * full-width row and the search fills what the others leave.
+ * full-width row and the search fills what the others leave. From `lg` it
+ * is one row: the categories give way (a scrolling SegmentedControl scrolls)
+ * and the right group keeps its width.
  */
 export function ListToolbar({
   filter,
@@ -40,7 +42,7 @@ export function ListToolbar({
     <div
       data-slot="list-toolbar"
       className={cn(
-        "flex flex-wrap items-center justify-between gap-2",
+        "flex flex-wrap items-center justify-between gap-2 lg:flex-nowrap",
         className,
       )}
     >
@@ -48,7 +50,7 @@ export function ListToolbar({
       {filters || search || view ? (
         <div
           data-slot="list-toolbar-end"
-          className="ml-auto flex w-full items-center gap-2 sm:w-auto"
+          className="ml-auto flex w-full items-center gap-2 sm:w-auto lg:shrink-0"
         >
           {filters}
           {view}

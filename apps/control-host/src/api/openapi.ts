@@ -4208,7 +4208,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "Count the sessions a list would return, per status",
     description:
-      "Counts, for each status, the sessions `GET /v1/sessions` would list with that `status` and the same `relation` and `q` when read to its last page; `total` is their sum, and `cost_usd` the estimated provider cost of those `total` sessions added up. A session the caller cannot read is never counted, and neither is its cost. It changes nothing.",
+      "Counts, for each status, the sessions `GET /v1/sessions` would list with that `status` and the same `relation` and `q` when read to its last page; `total` is their sum. A session the caller cannot read is never counted. It changes nothing.",
     scope: "read",
     query: "CountSessionsQuery",
     success: {
@@ -4226,7 +4226,6 @@ export const API_ROUTE_DECLARATIONS = [
           cut_off: 1,
         },
         total: 12,
-        cost_usd: "8.421500",
       },
     },
     errors: [400, 401, 503],
