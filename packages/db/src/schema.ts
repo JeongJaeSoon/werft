@@ -2050,11 +2050,13 @@ export const sessionTitleRequests = pgTable(
   ],
 );
 
-// Retained content the installation holds. A `turns` insert trigger
-// (migration 0107) charges every input in the same transaction that writes
-// it, and admitInput checks STORAGE_LIMIT_BYTES under this row's lock, so no
-// concurrent writer can race past the limit. One row per scope: today only
-// "installation".
+// Retained content the installation holds. A deferred `turns` insert trigger
+// (`storage_usage_charge_turn`) charges every input at the commit of the
+// transaction that writes it, and refuses the commit when the sum it wrote is
+// past the limit the acceptance set (admitInput), so no concurrent acceptance
+// can race past STORAGE_LIMIT_BYTES and this row is locked for the commit
+// alone. A writer that sets no limit (a platform turn) is charged only.
+// One row per scope: today only "installation".
 export const storageUsage = pgTable(
   "storage_usage",
   {
