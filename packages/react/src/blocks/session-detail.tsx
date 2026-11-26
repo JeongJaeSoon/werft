@@ -51,6 +51,7 @@ import {
   EVENT_WINDOW,
   useAgentOpenable,
   usePendingRequests,
+  useRecheckSessionReads,
   useRetryFailedReadsOnStatus,
   useSession,
   useSessionEvents,
@@ -72,7 +73,7 @@ import {
   SessionProgress,
   SessionStepList,
 } from "./session-progress.tsx";
-import { readSessionSteps } from "./session-steps.ts";
+import { readSessionSteps, readsDisagree } from "./session-steps.ts";
 import { SlackMark } from "./slack-mark.tsx";
 import { SlackMessageLink } from "./slack-message-link.tsx";
 import { type BlockText, useBlockText } from "./text.ts";
@@ -176,6 +177,12 @@ export function SessionDetail({
   const share = useSessionShare(id, readable);
   const shareFailure = useKeptFailure(share, id);
   useRetryFailedReadsOnStatus(id, detail?.status);
+  useRecheckSessionReads(
+    id,
+    detail !== undefined &&
+      turns.data !== undefined &&
+      readsDisagree(detail.current_turn_id, turns.data.items),
+  );
   // A running turn's time moves on its own.
   const now = useMinute(Boolean(detail?.current_turn_id));
   const stepListId = useId();

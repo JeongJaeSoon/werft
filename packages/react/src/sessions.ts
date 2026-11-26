@@ -222,6 +222,15 @@ export function useRetryFailedReadsOnStatus(
   }, [queryClient, client, id, status]);
 }
 
+/** Reads the session and its turns again once they start to disagree. */
+export function useRecheckSessionReads(id: string, disagree: boolean) {
+  const { client } = useWerft();
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (disagree) refreshSession(queryClient, client, id, ["detail", "turns"]);
+  }, [queryClient, client, id, disagree]);
+}
+
 /** Queues a message as the session's next turn. */
 export function useSendMessage(id: string) {
   const { client } = useWerft();

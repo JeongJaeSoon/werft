@@ -6,7 +6,11 @@ import type {
 } from "@werft-ai/contracts";
 import { TURN_WORKER_OWNERSHIP_LOST_REASON } from "@werft-ai/contracts";
 import type { SessionEventFrame } from "../sessions.ts";
-import { readSessionSteps, sessionTime } from "./session-steps.ts";
+import {
+  readSessionSteps,
+  readsDisagree,
+  sessionTime,
+} from "./session-steps.ts";
 
 const AT = "2026-11-26T01:00:00.000Z";
 const LATER = "2099-01-01T00:00:00.000Z";
@@ -302,6 +306,23 @@ describe("readSessionSteps", () => {
     expect(steps.steps[1]?.state).toBe("running");
   });
 
+  test("a turns read newer than the session makes the turn it shows running current, time and all", () => {
+    const at = (ms: number) => new Date(Date.parse(AT) + ms).toISOString();
+    const steps = read({
+      session: { current_turn_id: "1", status: "running" },
+      turns: [
+        turn("1", "completed", { ended_at: at(60_000) }),
+        turn("2", "running", { started_at: at(60_000) }),
+      ],
+      turnsCurrent: true,
+    });
+    expect(steps.focus).toBe(1);
+    expect(steps.current).toBe(true);
+    expect(
+      sessionTime({ turn_time_ms: 0 }, steps, Date.parse(AT) + 3 * 60_000),
+    ).toBe(3 * 60_000);
+  });
+
   test("with no running turn, the one holding requests is focused but not current", () => {
     const steps = read({
       session: {
@@ -388,6 +409,23 @@ describe("readSessionSteps", () => {
       windowFull: true,
     });
     expect(steps.steps[0]?.toolCallsPartial).toBe(true);
+  });
+});
+
+describe("readsDisagree", () => {
+  test("agrees when the session's current turn is the open one", () => {
+    expect(
+      readsDisagree("2", [turn("1", "completed"), turn("2", "running")]),
+    ).toBe(false);
+    expect(readsDisagree(null, [turn("1", "completed")])).toBe(false);
+  });
+
+  test("disagrees when the turns show another turn running, or the session's one ended", () => {
+    expect(readsDisagree(null, [turn("1", "running")])).toBe(true);
+    expect(
+      readsDisagree("1", [turn("1", "completed"), turn("2", "running")]),
+    ).toBe(true);
+    expect(readsDisagree("2", [turn("1", "completed")])).toBe(true);
   });
 });
 

@@ -183,12 +183,34 @@ export function readSessionSteps({
       OPEN_TURN.has(step.turn.status),
   );
   if (running !== -1) return { steps, focus: running, current: true };
+  // A turns read newer than the session may show the turn it runs next.
+  const live = turnsCurrent
+    ? steps.findIndex((step) => LIVE_TURN.has(step.turn.status))
+    : -1;
+  if (live !== -1) return { steps, focus: live, current: true };
   const asking = steps.findIndex((step) => step.requests.length > 0);
   if (asking !== -1) return { steps, focus: asking, current: false };
   const last = steps.length - 1;
   const stopped =
     session.status === "idle" && steps[last]?.state === "cut_off" ? last : -1;
   return { steps, focus: stopped === -1 ? null : stopped, current: false };
+}
+
+/**
+ * The session and its turns name different running turns: one read is
+ * behind the other. Each lands when its response does, not when the server
+ * answered it, so only reading both again tells which.
+ */
+export function readsDisagree(
+  currentTurnId: string | null,
+  turns: readonly TurnSummary[],
+): boolean {
+  const named = turns.find((turn) => turn.turn_id === currentTurnId);
+  if (currentTurnId !== null && !(named && OPEN_TURN.has(named.status)))
+    return true;
+  return turns.some(
+    (turn) => LIVE_TURN.has(turn.status) && turn.turn_id !== currentTurnId,
+  );
 }
 
 /**

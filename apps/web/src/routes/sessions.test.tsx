@@ -4837,6 +4837,32 @@ describe("session steps", () => {
       }),
   };
 
+  test("reads the turns again when they show a turn running that the session no longer runs", async () => {
+    let turnReads = 0;
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          status: "idle",
+          current_turn_id: null,
+          attention: null,
+        }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () => {
+        turnReads += 1;
+        return json(200, {
+          items: [turn("1", turnReads === 1 ? "running" : "completed")],
+          next_cursor: null,
+        });
+      },
+    });
+    const list = await screen.findByRole("region", { name: "단계" });
+    await waitFor(() =>
+      expect(within(list).getByRole("listitem").textContent).toContain("마침"),
+    );
+    expect(turnReads).toBeGreaterThanOrEqual(2);
+  });
+
   test("counts the turns as steps, opens only the current one and marks its approval wait", async () => {
     const user = await setupUser();
     renderAt(`/sessions/${SESSION_ID}`, waitingOnTwo);
