@@ -62,8 +62,15 @@ jobs:
   plan:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 3
+    permissions:
+      contents: read
+      # images-reuse.sh reads the PR run's jobs.
+      actions: read
     outputs:
       images: ${{ steps.images.outputs.images }}
+      # build, skip, or reused: a main push whose PR Images run on the same
+      # tree built and ran the bundle (images-reuse.sh) leaves it out.
+      ops_bundle: ${{ steps.bundle.outputs.reused != '' && 'reused' || steps.images.outputs.images }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -114,35 +121,47 @@ jobs:
             done <"$paths"
           fi
           echo "images=$images" >>"$GITHUB_OUTPUT"
+      - id: bundle
+        name: Reuse the PR run that built this tree's bundle
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.images.outputs.images == 'build'
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: bash .github/scripts/images-reuse.sh >>"$GITHUB_OUTPUT"
 
-  # On a main push the smoke, license and scan steps below are left out:
-  # publish-main runs them on the very digest it pushes, the one main-<12>
-  # promotes, and this job's image is never published. The job itself still
-  # runs and succeeds (and writes the layer cache publish-main reads): a
-  # skipped job here would skip every job after supply-chain as well, even
-  # through its `always()` (actions/runner#491).
+  # A main push builds each image once, in publish-main: it pushes, smokes,
+  # license-checks and scans the digest main-<12> promotes, and writes the
+  # layer cache pull requests read. Here a main push has one stand-in leg
+  # (app `none`) that runs no step and succeeds: a skipped job here would skip
+  # every job after supply-chain as well, even through its `always()`
+  # (actions/runner#491).
   build:
     needs: plan
     if: needs.plan.outputs.images == 'build'
+    name: ${{ matrix.app == 'none' && 'build (main push, built by publish-main)' || format('build ({0}, {1})', matrix.app, matrix.arch) }}
     # Pin the OS release to avoid ubuntu-latest switching to a new major version.
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      matrix: &image-matrix
+      matrix:
         # worker-codex is apps/worker built with WORKER_RUNTIME=codex_app_server:
         # one worker image holds one engine, so each engine is its own image
         # (werft-worker-codex) with its own tag, cache scope and artifacts.
-        app: [control-host, worker, worker-codex, egress-proxy]
-        arch: ${{ github.event_name == 'pull_request' && fromJSON('["amd64"]') || fromJSON('["amd64","arm64"]') }}
+        app: ${{ fromJSON(github.event_name == 'push' && github.ref == 'refs/heads/main' && '["none"]' || '["control-host","worker","worker-codex","egress-proxy"]') }}
+        arch: ${{ fromJSON(github.event_name == 'pull_request' && '["amd64"]' || github.event_name == 'push' && github.ref == 'refs/heads/main' && '["none"]' || '["amd64","arm64"]') }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - if: matrix.app != 'none'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: matrix.app != 'none'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver-opts: image=${{ env.BUILDKIT_IMAGE }}
 
       - id: meta
         name: Image name and tags
+        if: matrix.app != 'none'
         env:
           APP: ${{ matrix.app }}
           PREFIX: ${{ env.IMAGE_PREFIX }}
@@ -158,6 +177,7 @@ jobs:
       # `load` puts the image in the runner's daemon for the smoke below.
       # Nothing is pushed from this job; see `publish` and `publish-main`.
       - id: build
+        if: matrix.app != 'none'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -183,7 +203,7 @@ jobs:
             ${{ matrix.app == 'worker-codex' && 'WORKER_RUNTIME=codex_app_server' || '' }}
 
       - name: Smoke
-        if: "!(github.event_name == 'push' && github.ref == 'refs/heads/main')"
+        if: matrix.app != 'none'
         env:
           APP: ${{ matrix.app }}
           NAME: ${{ steps.meta.outputs.name }}
@@ -191,7 +211,7 @@ jobs:
 
       # THIRD_PARTY_NOTICES.md against what the image really holds.
       - name: Licenses of what the image ships
-        if: "!(github.event_name == 'push' && github.ref == 'refs/heads/main')"
+        if: matrix.app != 'none'
         env:
           APP: ${{ matrix.app }}
           NAME: ${{ steps.meta.outputs.name }}
@@ -202,7 +222,7 @@ jobs:
       # download, database update) fails the build: no verdict is not a pass.
       # The `error` it leaves in the result file is what `supply-chain` reads.
       - name: Vulnerability scan
-        if: "!(github.event_name == 'push' && github.ref == 'refs/heads/main')"
+        if: matrix.app != 'none'
         timeout-minutes: 10
         env:
           APP: ${{ matrix.app }}
@@ -210,7 +230,7 @@ jobs:
           NAME: ${{ steps.meta.outputs.name }}
         run: .github/scripts/image-scan.sh "${APP}-${ARCH}" "${NAME}:sha-${GITHUB_SHA::12}" vulnerabilities
 
-      - if: always() && !(github.event_name == 'push' && github.ref == 'refs/heads/main')
+      - if: always() && matrix.app != 'none'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: vulnerabilities-${{ matrix.app }}-${{ matrix.arch }}
@@ -222,6 +242,7 @@ jobs:
       # published digests are in `image-digests-published`.
       # The image id (config digest) is what a local `docker images` shows.
       - name: Record digests
+        if: matrix.app != 'none'
         env:
           APP: ${{ matrix.app }}
           ARCH: ${{ matrix.arch }}
@@ -255,7 +276,8 @@ jobs:
             echo '```'
           } >>"$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - if: matrix.app != 'none'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: image-digest-${{ matrix.app }}-${{ matrix.arch }}
           path: digests/${{ matrix.app }}-${{ matrix.arch }}.json
@@ -390,6 +412,10 @@ jobs:
           push: true
           provenance: false
           cache-from: type=gha,scope=images-${{ matrix.app }}-${{ matrix.arch }}
+          # A main push builds here and nowhere else (see `build`), so this is
+          # where it writes the cache pull requests read. A tag or a manual run
+          # wrote it in `build` already.
+          cache-to: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && format('type=gha,scope=images-{0}-{1},mode=min', matrix.app, matrix.arch) || '' }}
           build-args: |
             BUN_IMAGE=${{ env.BUN_IMAGE }}
             BUILDKIT_SYNTAX=${{ env.DOCKERFILE_FRONTEND_IMAGE }}
@@ -769,12 +795,13 @@ jobs:
             "${REGISTRY}/$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')"
 
   # The single-server bundle (scripts/test-ops.sh, its compose files and the
-  # manifest, no image) is built and checked on every run; only a tag's
+  # manifest, no image) is built and checked on every run that builds images,
+  # but a main push whose PR run already did it on the same tree; only a tag's
   # `release` job uploads it. Here it is built twice from a fixed manifest, and
   # the two archives must be the same bytes, which a rerun of a release relies on.
   test-ops-bundle:
     needs: plan
-    if: needs.plan.outputs.images == 'build'
+    if: needs.plan.outputs.ops_bundle == 'build'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

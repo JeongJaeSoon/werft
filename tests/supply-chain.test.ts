@@ -516,28 +516,28 @@ describe("images.yml supply-chain", () => {
     expect(workflow.jobs.build?.needs).toBe("plan");
     // The job runs wherever the plan builds, a main push included: a skipped
     // build skips every job after supply-chain, through its always()
-    // (actions/runner#491), and main stops publishing. A main push leaves out
-    // only the checks publish-main repeats on the digest it pushes.
+    // (actions/runner#491), and main stops publishing. A main push builds in
+    // publish-main alone, so here it gets one stand-in leg that runs no step
+    // and succeeds.
     expect(workflow.jobs.build?.if).toBe(
       "needs.plan.outputs.images == 'build'",
     );
-    const notMain =
-      "!(github.event_name == 'push' && github.ref == 'refs/heads/main')";
-    const steps = workflow.jobs.build?.steps ?? [];
-    for (const name of [
-      "Smoke",
-      "Licenses of what the image ships",
-      "Vulnerability scan",
-    ]) {
-      expect(steps.find((step) => step.name === name)?.if).toBe(notMain);
-    }
-    for (const step of steps) {
-      if (
-        step.uses?.startsWith("docker/build-push-action@") ||
-        step.name === "Record digests"
-      ) {
-        expect(step.if).toBeUndefined();
+    const matrix = (
+      workflow.jobs.build as Job & {
+        strategy?: { matrix?: Record<string, string> };
       }
+    ).strategy?.matrix;
+    const mainPush =
+      "github.event_name == 'push' && github.ref == 'refs/heads/main' && '[\"none\"]'";
+    expect(matrix?.app).toContain(mainPush);
+    expect(matrix?.arch).toContain(mainPush);
+    const steps = workflow.jobs.build?.steps ?? [];
+    expect(steps.length).toBeGreaterThan(0);
+    for (const step of steps) {
+      expect([
+        "matrix.app != 'none'",
+        "always() && matrix.app != 'none'",
+      ]).toContain((step as { if?: string }).if ?? "");
     }
     const verdict = job?.steps?.find((step) =>
       step.run?.includes("supply-chain-verdict.sh"),

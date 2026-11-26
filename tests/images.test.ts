@@ -1060,15 +1060,22 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       for (const name of ["build", "publish", "publish-main"]) {
         const job = jobs[name];
         // The Codex worker image is one of the four images every job handles.
-        expect(job?.strategy?.matrix).toEqual({
-          app: ["control-host", "worker", "worker-codex", "egress-proxy"],
-          arch:
-            name === "build"
-              ? expression(
-                  `github.event_name == 'pull_request' && fromJSON('["amd64"]') || fromJSON('["amd64","arm64"]')`,
-                )
-              : ["amd64", "arm64"],
-        });
+        // A main push gives build one stand-in leg: publish-main builds there.
+        expect(job?.strategy?.matrix).toEqual(
+          name === "build"
+            ? {
+                app: expression(
+                  `fromJSON(github.event_name == 'push' && github.ref == 'refs/heads/main' && '["none"]' || '["control-host","worker","worker-codex","egress-proxy"]')`,
+                ),
+                arch: expression(
+                  `fromJSON(github.event_name == 'pull_request' && '["amd64"]' || github.event_name == 'push' && github.ref == 'refs/heads/main' && '["none"]' || '["amd64","arm64"]')`,
+                ),
+              }
+            : {
+                app: ["control-host", "worker", "worker-codex", "egress-proxy"],
+                arch: ["amd64", "arm64"],
+              },
+        );
         expect(job?.["runs-on"]).toBe(runner);
         const build = job?.steps.find((step) =>
           step.uses?.startsWith("docker/build-push-action@"),
@@ -1119,20 +1126,44 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       }
     });
 
-    test("only the build job writes the layer cache, and never for a pull request", () => {
-      for (const name of ["publish", "publish-main"]) {
-        const build = jobs[name]?.steps.find((step) =>
+    // The cache pull requests read (e2e, quickstart, k8s-smoke and their own
+    // image builds) is written once per image on every run that builds on a
+    // trusted ref: by publish-main on a main push, which builds nowhere else,
+    // and by build on a tag, scheduled or manual run. Never by a pull request.
+    test("one job writes the layer cache per run, and never for a pull request", () => {
+      const cacheTo = (name: string) =>
+        jobs[name]?.steps.find((step) =>
           step.uses?.startsWith("docker/build-push-action@"),
-        );
-        expect(build?.with?.["cache-to"]).toBeUndefined();
-      }
-      const build = jobs.build?.steps.find((step) =>
-        step.uses?.startsWith("docker/build-push-action@"),
+        )?.with?.["cache-to"];
+      const scope =
+        "format('type=gha,scope=images-{0}-{1},mode=min', matrix.app, matrix.arch)";
+      expect(cacheTo("build")).toBe(
+        expression(`github.event_name != 'pull_request' && ${scope} || ''`),
       );
-      expect(build?.with?.["cache-to"]).toBe(
-        expression(
-          "github.event_name != 'pull_request' && format('type=gha,scope=images-{0}-{1},mode=min', matrix.app, matrix.arch) || ''",
-        ),
+      const mainPush =
+        "github.event_name == 'push' && github.ref == 'refs/heads/main'";
+      // publish and publish-main share their steps; only a main push writes.
+      expect(jobs.publish?.steps).toEqual(jobs["publish-main"]?.steps ?? []);
+      expect(cacheTo("publish-main")).toBe(
+        expression(`${mainPush} && ${scope} || ''`),
+      );
+      // On a main push the build step of build does not run at all.
+      const step = jobs.build?.steps.find((s) =>
+        s.uses?.startsWith("docker/build-push-action@"),
+      ) as { if?: string } | undefined;
+      expect(step?.if).toBe("matrix.app != 'none'");
+      expect(jobs.build?.strategy?.matrix.app).toContain(
+        `${mainPush} && '["none"]'`,
+      );
+      // The scope is the one the readers name (tests/ci-images.test.ts).
+      expect(
+        jobs.build?.steps.find((s) => s.with?.["cache-from"])?.with?.[
+          "cache-from"
+        ],
+      ).toBe(
+        jobs["publish-main"]?.steps.find((s) => s.with?.["cache-from"])?.with?.[
+          "cache-from"
+        ],
       );
     });
 
