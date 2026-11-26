@@ -122,6 +122,16 @@ function scanSource(file: string, text: string) {
     ) {
       return expression.name.text;
     }
+    if (
+      ts.isElementAccessExpression(expression) &&
+      ts.isIdentifier(expression.expression) &&
+      namespaces.has(expression.expression.text)
+    ) {
+      // Any computed member of the namespace may be one of them.
+      const member = expression.argumentExpression;
+      if (!ts.isStringLiteralLike(member)) return "<computed>";
+      return LIFTING.has(member.text) ? member.text : undefined;
+    }
     return undefined;
   };
   const visit = (node: ts.Node) => {
@@ -146,13 +156,12 @@ function scanSource(file: string, text: string) {
         within: enclosingName(node),
       });
     }
+    // Every reference, called or not: `.purge.bind(…)` hands it on.
     const purgeCall =
-      ts.isCallExpression(node) &&
-      ((ts.isPropertyAccessExpression(node.expression) &&
-        node.expression.name.text === "purge") ||
-        (ts.isElementAccessExpression(node.expression) &&
-          ts.isStringLiteralLike(node.expression.argumentExpression) &&
-          node.expression.argumentExpression.text === "purge"));
+      (ts.isPropertyAccessExpression(node) && node.name.text === "purge") ||
+      (ts.isElementAccessExpression(node) &&
+        ts.isStringLiteralLike(node.argumentExpression) &&
+        node.argumentExpression.text === "purge");
     const purgeTaken =
       ts.isBindingElement(node) &&
       ((node.propertyName ?? node.name).getText() === "purge" ||
@@ -223,6 +232,9 @@ describe("a legal hold is lifted only by collection", () => {
         "function f({ purge }) { return purge(1); }",
         "function g(store) { const { purge: p } = store; return p(1); }",
         "function h() { return new Hold({ LegalHold: { Status: 'ON' } }); }",
+        "function i() { return new s3['PutObjectLegalHoldCommand']({ LegalHold: { Status: 'OFF' } }); }",
+        "function j(name) { return new s3[name]({}); }",
+        "function k(store) { const release = store.purge.bind(store); return release(1); }",
       ].join("\n"),
     );
     expect(found.lifts.map((site) => site.within)).toEqual([
@@ -230,7 +242,14 @@ describe("a legal hold is lifted only by collection", () => {
       "b",
       "c",
       "d",
+      "i",
+      "j",
     ]);
-    expect(found.purges.map((site) => site.within)).toEqual(["e", "f", "g"]);
+    expect(found.purges.map((site) => site.within)).toEqual([
+      "e",
+      "f",
+      "g",
+      "k",
+    ]);
   });
 });
