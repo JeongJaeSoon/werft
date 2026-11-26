@@ -930,7 +930,8 @@ integration("worker gateway on PostgreSQL", () => {
       const clock = await blocker.query(
         "SELECT (extract(epoch from clock_timestamp()) * 1000)::text AS ms",
       );
-      committedAt = Number(clock.rows[0].ms);
+      // `at` is a Date, whole milliseconds.
+      committedAt = Math.floor(Number(clock.rows[0].ms));
       await blocker.query("COMMIT");
     } catch (error) {
       await blocker.query("ROLLBACK");
