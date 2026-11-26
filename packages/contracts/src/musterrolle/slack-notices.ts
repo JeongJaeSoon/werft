@@ -47,6 +47,14 @@ const SLACK_NOTICE_MESSAGES_KO = {
     "이 에이전트를 쓰는 사람에게 걸린 제한 때문에 이 세션이 쓰는 도구를 쓸 수 없어요",
   botTurnLimit:
     "사람 없이 봇끼리 5번 주고받아 여기서 멈춰요. 사람이 이어 가야 해요",
+  // A stop asked for in the work's thread (handling table row 12); `{count}`
+  // is the number of waiting messages it cancelled.
+  sessionStopped:
+    "요청하신 대로 작업을 멈췄어요. 이어서 하려면 이 스레드에 다시 써 주세요.",
+  sessionStoppedQueued:
+    "요청하신 대로 작업을 멈췄어요. 기다리던 글 {count}개도 처리하지 않았어요. 이어서 하려면 이 스레드에 다시 써 주세요.",
+  nothingToStop: "지금 하고 있는 작업이 없어요.",
+  stopNotPermitted: "작업을 맡긴 사람만 멈출 수 있어요",
   // A budget account's refusal, never the session's own limit: whose
   // monthly limit it is, as the ledger charged the call.
   budgetAccountUser:
@@ -108,6 +116,12 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "このエージェントを使う人に設定された制限のため、このセッションが使うツールは使えません",
     botTurnLimit:
       "人を挟まずにボット同士で5回やり取りしたため、ここで止まります。続きは人が進めてください",
+    sessionStopped:
+      "ご依頼どおり作業を止めました。続けるにはこのスレッドにもう一度書いてください。",
+    sessionStoppedQueued:
+      "ご依頼どおり作業を止めました。待っていた{count}件のメッセージも処理していません。続けるにはこのスレッドにもう一度書いてください。",
+    nothingToStop: "今進めている作業はありません。",
+    stopNotPermitted: "作業を依頼した人だけが止められます",
     budgetAccountUser:
       "依頼した人の今月の予算上限に達したため、モデルを呼び出せませんでした。来月1日（UTC）に解除されます。それより前に使うには、ワークスペースの管理者に上限を上げてもらってください",
     budgetAccountTeam:
@@ -158,6 +172,12 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "A limit set on the people who use this agent doesn't allow a tool this session uses",
     botTurnLimit:
       "Bots went back and forth 5 times with no person in between, so this stops here. A person needs to take it from here",
+    sessionStopped:
+      "Stopped the task as you asked. Write in this thread again to carry on.",
+    sessionStoppedQueued:
+      "Stopped the task as you asked. {count} waiting messages were not processed either. Write in this thread again to carry on.",
+    nothingToStop: "There's no task running right now.",
+    stopNotPermitted: "Only the person who asked for this task can stop it",
     budgetAccountUser:
       "The requester's monthly budget limit was reached, so the model could not be called. It lifts on the 1st of next month (UTC), or sooner when a workspace admin raises the limit",
     budgetAccountTeam:
@@ -218,9 +238,22 @@ const NOTICE_FOR: Record<
 /** A notice before its reader is known: the words come in their language. */
 export type SlackNotice = {
   message: SlackNoticeMessage;
+  /** What a message's `{count}` stands for. */
+  count?: number;
   /** The web page where the person links their Slack account. */
   link_url?: string;
 };
+
+/** A notice's words in one language, its `{count}` filled in. */
+export function slackNoticeText(
+  locale: UserLocale,
+  notice: Pick<SlackNotice, "message" | "count">,
+): string {
+  const text = SLACK_NOTICE_MESSAGES[locale][notice.message];
+  return notice.count === undefined
+    ? text
+    : text.replaceAll("{count}", String(notice.count));
+}
 
 /**
  * The notice for a decision, or null when there is nothing to tell: an

@@ -15,7 +15,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **입력을 받는 트랜잭션이 저장 한도를 commit 때 확인한다. 설치 전체의 입력 수락이 트랜잭션 내내 `storage_usage` 한 행의 lock을 기다리지 않고, commit 순간에만 그 행에서 차례를 기다린다**(JeongJaeSoon/werft#2274). migration `0385_storage_charge_at_commit`이 `turns`의 charge trigger를 commit 때 도는 constraint trigger로 다시 만든다. 그 migration 동안 `turns`에 ACCESS EXCLUSIVE lock이 잠깐 걸려 읽기와 쓰기가 기다린다. 표를 훑거나 다시 쓰지는 않는다. 따로 할 일은 없다.
+- **입력을 받는 트랜잭션이 저장 한도를 commit 때 확인한다. 설치 전체의 입력 수락이 트랜잭션 내내 `storage_usage` 한 행의 lock을 기다리지 않고, commit 순간에만 그 행에서 차례를 기다린다**(JeongJaeSoon/werft#2274). migration `0380_storage_charge_at_commit`이 `turns`의 charge trigger를 commit 때 도는 constraint trigger로 다시 만든다. 그 migration 동안 `turns`에 ACCESS EXCLUSIVE lock이 잠깐 걸려 읽기와 쓰기가 기다린다. 표를 훑거나 다시 쓰지는 않는다. 따로 할 일은 없다.
   - 앞선 API 이미지가 남아 있는 동안에도 한도는 정확히 지켜진다. 트랜잭션 내내 기다리는 줄은 앞선 API가 모두 내려가야 없어진다.
   - 앞선 이미지로 되돌려도 된다.
 - **저장 한도가 거절한 Slack 입력에 저장 한도 안내가 한 줄 가고, inbox 항목이 `dropped`(`storage_limit_exceeded`)로 닫힌다**(JeongJaeSoon/werft#2280). 채널에서는 요청한 사람에게만 보이는 글, DM에서는 스레드 글이다. 전에는 "잠시 뒤 다시 시도해 주세요" 안내와 `processed`였다. migration `0387_storage_limit_drop_reason`이 `slack_inbound_events`의 drop reason CHECK를 `NOT VALID`로 다시 걸고 따로 확인한다. 쓰기를 막지 않고 따로 할 일은 없다.

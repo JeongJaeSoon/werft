@@ -265,6 +265,7 @@ describe("database schema", () => {
       "session_repository_pins",
       "session_share_targets",
       "session_shares",
+      "session_stops",
       "session_title_requests",
       "sessions",
       "settings_generation",

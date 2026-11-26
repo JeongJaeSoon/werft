@@ -4,6 +4,7 @@ import {
   eventToolCall,
   SLACK_NOTICE_MESSAGES,
   slackMirrorCorrelationIdSchema,
+  slackNoticeText,
 } from "@werft-ai/contracts";
 import type {
   SurfaceOutboxStore,
@@ -153,7 +154,7 @@ export function createOutboxSlackNoticeSink(
           teamId: notice.teamId,
           slackUserId: notice.slackUserId,
         })) ?? DEFAULT_USER_LOCALE;
-      const { message, ...link } = notice.notice;
+      const { message: _message, count: _count, ...link } = notice.notice;
       await outbox.enqueue({
         workspaceId: notice.workspaceId,
         agentId: notice.agentId,
@@ -165,7 +166,7 @@ export function createOutboxSlackNoticeSink(
         slackUserId: notice.slackUserId,
         sessionId: null,
         sessionLinkId: null,
-        body: { text: SLACK_NOTICE_MESSAGES[locale][message], locale, ...link },
+        body: { text: slackNoticeText(locale, notice.notice), locale, ...link },
         dedupeKey: `notice:${notice.onceKey}`,
       });
     },
@@ -173,7 +174,7 @@ export function createOutboxSlackNoticeSink(
     // there, in the deployment's language since no one reader is named.
     async recordInThread(notice) {
       const locale = DEFAULT_USER_LOCALE;
-      const { message, ...link } = notice.notice;
+      const { message: _message, count: _count, ...link } = notice.notice;
       await outbox.enqueue({
         workspaceId: notice.workspaceId,
         agentId: notice.agentId,
@@ -185,7 +186,7 @@ export function createOutboxSlackNoticeSink(
         slackUserId: null,
         sessionId: notice.sessionId,
         sessionLinkId: notice.sessionLinkId,
-        body: { text: SLACK_NOTICE_MESSAGES[locale][message], locale, ...link },
+        body: { text: slackNoticeText(locale, notice.notice), locale, ...link },
         dedupeKey: `thread_notice:${notice.onceKey}`,
       });
     },
