@@ -70,7 +70,7 @@ if [ -n "$base" ]; then
   checkout_base=$(git rev-parse --verify 'HEAD^1' 2>/dev/null || true)
   if [ "$event" = push ] || [ "$base" = "$checkout_base" ]; then
     paths="${RUNNER_TEMP:?}/ci-paths"
-    git diff --name-only --no-renames -z "$base" HEAD >"$paths"
+    git diff --name-only --no-renames -z "$base" HEAD -- . ':!.github' ':!tests' >"$paths"
     docs_only=true
     guide=false
     site=false
