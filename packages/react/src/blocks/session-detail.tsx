@@ -47,6 +47,7 @@ import { useWerft } from "../provider.tsx";
 import {
   useAgentOpenable,
   usePendingRequests,
+  useRetryFailedReadsOnStatus,
   useSession,
   useSessionEvents,
   useSessionShare,
@@ -164,6 +165,7 @@ export function SessionDetail({
   const turns = useSessionTurns(id, readable);
   const share = useSessionShare(id, readable);
   const shareFailure = useKeptFailure(share, id);
+  useRetryFailedReadsOnStatus(id, detail?.status);
   // The event window keeps its length once full, so the newest event's id
   // tells an arrival, not the count.
   const follow = useFollowEnd(
