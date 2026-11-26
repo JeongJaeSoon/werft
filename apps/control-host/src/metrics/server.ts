@@ -99,6 +99,14 @@ export function serveMetrics(environment: NodeJS.ProcessEnv = process.env) {
               throw error;
             }),
           buckets: TURN_DURATION_BUCKETS,
+          storageLimitBytes: await installationConfig
+            .get("storage_limit_bytes")
+            .catch((error: unknown) => {
+              if (error instanceof InstallationConfigUnavailableError) {
+                return null;
+              }
+              throw error;
+            }),
         }),
       ),
     logger,
