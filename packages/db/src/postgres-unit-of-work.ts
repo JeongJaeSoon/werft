@@ -1524,8 +1524,10 @@ export function createPostgresSessionReader(
 
   // Only a revision a restore can still reach counts: one garbage
   // collection took, or one a start_fresh decision retired, does
-  // not.
+  // not. The session bound lets the primary key find the rows; turn_id
+  // has no index of its own.
   async function checkpointRevisions(
+    sessionId: string,
     turnIds: number[],
     retiredCheckpointRevision: number | null,
   ) {
@@ -1538,6 +1540,7 @@ export function createPostgresSessionReader(
       .from(checkpoints)
       .where(
         and(
+          eq(checkpoints.sessionId, sessionId),
           inArray(checkpoints.turnId, turnIds),
           isNull(checkpoints.collectedAt),
           retiredCheckpointRevision === null
@@ -2214,6 +2217,7 @@ export function createPostgresSessionReader(
       const page = rows.slice(0, query.limit);
       const last = page[page.length - 1];
       const revisions = await checkpointRevisions(
+        sessionId,
         page.map(({ turn }) => turn.id),
         session.retiredCheckpointRevision,
       );
@@ -2245,6 +2249,7 @@ export function createPostgresSessionReader(
       if (!read) return null;
       const row = read.turn;
       const revisions = await checkpointRevisions(
+        sessionId,
         [row.id],
         session.retiredCheckpointRevision,
       );

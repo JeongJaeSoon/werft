@@ -7,6 +7,7 @@ import {
   ApiError,
   createApiClient,
 } from "@werft-ai/client";
+import type { TurnSummary } from "@werft-ai/contracts";
 import {
   agentSessionsQuery,
   pendingRequestsQuery,
@@ -26,6 +27,7 @@ import {
   useSendMessage,
   useSessionControl,
   useSessionEvents,
+  useSessionTurns,
   WerftProvider,
 } from "./index.ts";
 import { eventToolCallId } from "./sessions.ts";
@@ -592,5 +594,125 @@ describe("useSessionEvents", () => {
       h.keys.detail,
       h.keys.pending,
     ]);
+  });
+});
+
+describe("useSessionTurns", () => {
+  const status = ["status", { phase: "running" }] as const;
+  const turn = (sequence: number, status: TurnSummary["status"]) => ({
+    turn_id: String(sequence),
+    session_id: SESSION_ID,
+    status,
+    message: `turn ${sequence}`,
+    channel: null,
+    created_by: null,
+    requester: null,
+    slack_permalink: null,
+    source_deleted_at: null,
+    terminal_reason: null,
+    prepended_turn_id: null,
+    checkpoint_revision: null,
+    created_at: AT,
+    started_at: null,
+    ended_at: null,
+  });
+
+  /** A session with `count` turns behind the API's 100-turn pages. */
+  function turnsServer(count: number, openAt: number) {
+    const turns = Array.from({ length: count }, (_, i) =>
+      turn(i + 1, i + 1 === openAt ? "running" : "completed"),
+    );
+    const reads: (string | null)[] = [];
+    const stream = eventStream();
+    const fakeFetch = async (request: Request) => {
+      const url = new URL(request.url);
+      if (url.pathname === `${BASE}/events`)
+        return stream.response(request.signal);
+      if (url.pathname !== `${BASE}/turns`) return json(404, {});
+      const cursor = url.searchParams.get("cursor");
+      const limit = Number(url.searchParams.get("limit"));
+      reads.push(cursor);
+      const from = cursor ? Number(cursor.slice(1)) : 0;
+      const items = turns.slice(from, from + limit);
+      return json(200, {
+        items,
+        next_cursor: from + limit < turns.length ? `c${from + limit}` : null,
+      });
+    };
+    const client: ApiClient = withQueryScope(
+      createApiClient({
+        baseUrl: "https://console.test",
+        fetch: fakeFetch as unknown as NonNullable<ApiClientOptions["fetch"]>,
+      }),
+      { actor: "user:u-1", workspace: "w-1" },
+    );
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>
+        <WerftProvider
+          client={client}
+          locale="en"
+          renderLink={() => null}
+          eventRetry={{ initialMs: 1, maxMs: 4 }}
+        >
+          {children}
+        </WerftProvider>
+      </QueryClientProvider>
+    );
+    const hook = renderHook(
+      () => ({
+        events: useSessionEvents(SESSION_ID, true),
+        turns: useSessionTurns(SESSION_ID, true),
+      }),
+      { wrapper },
+    );
+    return { turns, reads, stream, hook };
+  }
+
+  test("a status event re-reads only the last page of a settled session's turns", async () => {
+    const s = turnsServer(200, 0);
+    await waitFor(() =>
+      expect(s.hook.result.current.turns.data?.items).toHaveLength(200),
+    );
+    await waitFor(() =>
+      expect(s.hook.result.current.events.state).toBe("open"),
+    );
+    expect(s.reads).toEqual([null, "c100"]);
+    s.reads.length = 0;
+    s.turns.push(turn(201, "queued"));
+    s.turns[199] = { ...turn(200, "completed"), message: "turn 200, ended" };
+    act(() => {
+      s.stream.push(status);
+    });
+    await waitFor(() =>
+      expect(s.hook.result.current.turns.data?.items).toHaveLength(201),
+    );
+    expect(s.reads).toEqual(["c100", "c200"]);
+    expect(s.hook.result.current.turns.data).toEqual({
+      items: s.turns,
+      next_cursor: null,
+    });
+  });
+
+  test("a status event re-reads from the page holding the oldest unsettled turn", async () => {
+    const s = turnsServer(250, 150);
+    await waitFor(() =>
+      expect(s.hook.result.current.turns.data?.items).toHaveLength(250),
+    );
+    await waitFor(() =>
+      expect(s.hook.result.current.events.state).toBe("open"),
+    );
+    s.reads.length = 0;
+    s.turns[149] = turn(150, "completed");
+    act(() => {
+      s.stream.push(status);
+    });
+    await waitFor(() =>
+      expect(s.hook.result.current.turns.data?.items[149]?.status).toBe(
+        "completed",
+      ),
+    );
+    expect(s.reads).toEqual(["c100", "c200"]);
+    expect(s.hook.result.current.turns.data?.items).toEqual(s.turns);
   });
 });
