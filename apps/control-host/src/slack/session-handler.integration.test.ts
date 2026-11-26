@@ -36,6 +36,7 @@ import {
   DEFAULT_SURFACE_CEILING,
   GITHUB_CEILING_NONE,
   SESSION_SCOPE_VALUES,
+  SLACK_INBOUND_MAX_ATTEMPTS,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
@@ -498,6 +499,53 @@ async function claimAll(leaseMs: number): Promise<SurfaceInboundClaim[]> {
   });
 }
 
+/**
+ * Leases every received row at once, channel lines aside. The claim hands a
+ * channel one row at a time, but a row whose lease ran out mid-effect can
+ * still be running when the next one of its channel is taken; this is the
+ * handler meeting that.
+ */
+async function claimSideBySide(
+  leaseMs: number,
+): Promise<SurfaceInboundClaim[]> {
+  const t = schema.slackInboundEvents;
+  const rows = await db
+    .update(t)
+    .set({
+      claimToken: sql`gen_random_uuid()`,
+      leaseExpiresAt: sql`now() + make_interval(secs => ${leaseMs / 1000})`,
+      attempts: sql`${t.attempts} + 1`,
+    })
+    .where(eq(t.status, "received"))
+    .returning();
+  const installs = await db.select().from(schema.slackInstallations);
+  return rows
+    .sort(
+      (a, b) => (a.eventTime?.getTime() ?? 0) - (b.eventTime?.getTime() ?? 0),
+    )
+    .map((row) => ({
+      id: row.id,
+      claimToken: row.claimToken as string,
+      attempts: row.attempts,
+      workspaceId: row.workspaceId,
+      agentId: row.agentId,
+      slackAppId: row.slackAppId,
+      teamId: row.teamId,
+      appId: row.appId,
+      eventId: row.eventId,
+      eventType: row.eventType,
+      eventSubtype: row.eventSubtype,
+      eventTime: row.eventTime,
+      conversationKey: row.conversationKey,
+      payload: row.payload as Record<string, unknown>,
+      installationStatus:
+        installs.find(
+          (install) =>
+            install.appId === row.appId && install.teamId === row.teamId,
+        )?.status ?? null,
+    }));
+}
+
 const sessionsOf = (fixture: Fixture) =>
   db
     .select()
@@ -831,15 +879,13 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     const { handle } = handler();
     await deliver(fixture, mention("100.000100"));
     await drain(handle);
-    // No thread key: the claim hands both out together.
     for (const ts of ["100.000200", "100.000300", "100.000400"]) {
       await deliver(
         fixture,
         message(ts, { thread_ts: "100.000100", text: `<@${BOT_USER}> ${ts}` }),
-        { thread: false },
       );
     }
-    const claims = await claimAll(30_000);
+    const claims = await claimSideBySide(30_000);
     expect(claims).toHaveLength(3);
     const inbox = createPostgresSlackInboundEventStore(db);
     const receipts = await Promise.all(claims.map((claim) => handle(claim)));
@@ -2536,9 +2582,9 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
   test("concurrent first posts of one thread make one session", async () => {
     const fixture = await agentInSlack();
     const { handle } = handler();
-    await deliver(fixture, mention("100.000100"), { thread: false });
-    await deliver(fixture, rootMessage("100.000100"), { thread: false });
-    const claims = await claimAll(30_000);
+    await deliver(fixture, mention("100.000100"));
+    await deliver(fixture, rootMessage("100.000100"));
+    const claims = await claimSideBySide(30_000);
     expect(claims).toHaveLength(2);
     await Promise.all(claims.map((claim) => handle(claim)));
     const [session, ...others] = await sessionsOf(fixture);
@@ -3707,15 +3753,20 @@ describe.each(ENGINES)("Slack bot mentions on %s", (engine) => {
       }
       return record(notice);
     };
-    // Out of the thread's order, so the next mentions need not wait for its
-    // retries to run out.
     await deliver(
       fixture,
       botMention("100.000106", { thread_ts: "100.000100" }),
-      { thread: false },
     );
-    await drain(handle);
-    expect(lost).toBeGreaterThan(0);
+    // Its retries run out first: the next mentions wait in its channel.
+    for (let attempt = 0; attempt < SLACK_INBOUND_MAX_ATTEMPTS; attempt += 1) {
+      await db
+        .update(schema.slackInboundEvents)
+        .set({ nextAttemptAt: null })
+        .where(eq(schema.slackInboundEvents.status, "received"));
+      await drain(handle);
+    }
+    expect(await inboxStatuses()).toEqual(["failed"]);
+    expect(lost).toBe(SLACK_INBOUND_MAX_ATTEMPTS);
     expect(threadNotices).toEqual([]);
     sink.recordInThread = record;
     await deliver(
