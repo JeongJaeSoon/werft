@@ -3,25 +3,38 @@ import {
   type InputLimitsSource,
   inputLimitsOf,
 } from "@werft-ai/platform";
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
+import { findPgError } from "./control-shared.ts";
 import type { Database } from "./queries.ts";
 import { storageUsage, turns } from "./schema.ts";
+import { rowsOf } from "./statement-rows.ts";
 
 /** The one storage_usage row every acceptance charges today. */
 export const INSTALLATION_STORAGE_SCOPE = "installation";
 
 /**
+ * Set for its transaction by an acceptance, read by the charge trigger
+ * (`storage_usage_charge_turn`) at commit: the bytes the installation may
+ * keep. A transaction that leaves it unset is charged and never refused.
+ */
+export const STORAGE_LIMIT_SETTING = "werft.storage_limit_bytes";
+
+/** What the charge trigger raises at commit past the limit, and nothing else does. */
+export const STORAGE_LIMIT_SQLSTATE = "WF001";
+
+/**
  * Admits one input message against the installation's limits, inside the
- * acceptance transaction and after its replay check. Takes the storage row
- * lock last, after any session row lock the caller holds, so acceptances
- * always lock in the same order.
+ * acceptance transaction and after its replay check.
  *
- * This only checks. The charge is the `turns` insert trigger from migration
- * 0107, so a writer that knows nothing of the limit (an API build from
- * before it, still running during a rollout) is counted too. The row lock
- * taken here is held until the caller's turn insert commits, so two
- * acceptances racing for the last bytes serialize and the second one reads
- * the first one's charge.
+ * The storage check here takes no lock and decides nothing for good: it
+ * refuses early what cannot fit, so a full installation answers without
+ * writing. What decides is the charge trigger on `turns`, which adds the
+ * message's bytes at commit and raises `STORAGE_LIMIT_SQLSTATE` when the sum
+ * it wrote is past the limit set here; `acceptanceTransaction` answers that
+ * as the same refusal. The storage row is locked for the commit alone, so
+ * acceptances do not wait for each other's transactions on it (one session's
+ * or one idempotency key's still queue), and two racing for the last bytes
+ * still cannot both fit.
  *
  * `sessionId` is null for a session this transaction is creating: it has no
  * queued turns yet, and the limit is at least one.
@@ -46,18 +59,34 @@ export async function admitInput(
       return { outcome: "queue_full" };
     }
   }
-  // The migration seeds the row; this only matters on a database it did not.
-  await tx
-    .insert(storageUsage)
-    .values({ scope: INSTALLATION_STORAGE_SCOPE })
-    .onConflictDoNothing();
-  const [usage] = await tx
-    .select({ bytes: storageUsage.bytes })
-    .from(storageUsage)
-    .where(eq(storageUsage.scope, INSTALLATION_STORAGE_SCOPE))
-    .for("update");
+  // One statement, and a row even when storage_usage has none: the setting
+  // must not depend on the usage row being there.
+  const result = await tx.execute(sql`
+    SELECT set_config(${STORAGE_LIMIT_SETTING}, ${String(limits.storageLimitBytes)}, true),
+      (SELECT ${storageUsage.bytes} FROM ${storageUsage}
+        WHERE ${storageUsage.scope} = ${INSTALLATION_STORAGE_SCOPE}) AS bytes`);
+  const used = Number(rowsOf<{ bytes: unknown }>(result)[0]?.bytes ?? 0);
   const bytes = Buffer.byteLength(input.message, "utf8");
-  return (usage?.bytes ?? 0) + bytes > limits.storageLimitBytes
+  return used + bytes > limits.storageLimitBytes
     ? { outcome: "storage_exhausted" }
     : null;
+}
+
+/**
+ * Runs an acceptance in a transaction of its own and answers the charge
+ * trigger's refusal at its commit as `storage_exhausted`. The transaction
+ * rolled back whole, its receipt and idempotency record included, so the
+ * same key sent again is decided anew. Any other commit error is thrown as
+ * it came.
+ */
+export async function acceptanceTransaction<T>(
+  db: Database,
+  work: (tx: Database) => Promise<T>,
+): Promise<T | InputLimitRefusal> {
+  try {
+    return await db.transaction(work);
+  } catch (error) {
+    if (findPgError(error, STORAGE_LIMIT_SQLSTATE) === undefined) throw error;
+    return { outcome: "storage_exhausted" };
+  }
 }

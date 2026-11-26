@@ -1,3 +1,4 @@
+import type { Agent } from "node:http";
 import { isIP } from "node:net";
 import { GetObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { HttpRequest } from "@smithy/core/protocols";
@@ -8,7 +9,10 @@ import { resolveEveryTime } from "@werft-ai/system";
 export interface S3ClientLike {
   send(
     command: unknown,
-    options?: { readonly requestTimeout?: number },
+    options?: {
+      readonly abortSignal?: AbortSignal;
+      readonly requestTimeout?: number;
+    },
   ): Promise<unknown>;
 }
 
@@ -104,7 +108,7 @@ export function readBudgetMs(bytes: number, floorMs: number): number {
 export class BoundedNodeHttpHandler extends NodeHttpHandler {
   readonly #bodyIdleMs: number;
 
-  constructor(bounds: S3RequestBounds) {
+  constructor(bounds: S3RequestBounds & { readonly httpAgent?: Agent }) {
     super(bounds);
     this.#bodyIdleMs = bounds.bodyIdleMs;
   }
@@ -302,6 +306,17 @@ export const S3_METADATA_REQUEST_TIMEOUT_MS = 5_000;
  */
 export const S3_SMALL_WRITE_FLOOR_MS = 30_000;
 
+/**
+ * How long a streamed write may hand over nothing and hear nothing before it
+ * is cut and sent again: the progress bound `requestTimeout` is not, since
+ * that one lets a bundle of a few KiB wait five minutes for an answer that
+ * is not coming. Added to it is the time the bytes handed over so far need
+ * at the slowest allowed link ({@link transferBudgetMs}): the egress proxy
+ * takes a body faster than its upstream does, so those bytes may still be on
+ * their way when this process has none left to give.
+ */
+export const S3_UPLOAD_STALL_MS = 30_000;
+
 /** Where {@link warnOnS3Timeouts} reports a request that ran out its bound. */
 export type S3TimeoutWarn = (
   message: string,
@@ -345,9 +360,14 @@ export function warnOnS3Timeouts(
   return client;
 }
 
+// `AbortError`: a streamed write cut for moving nothing, the one abort this
+// package asks for.
 function ranOutOfBound(error: unknown): boolean {
+  const name = awsError(error)?.name;
   return (
-    awsError(error)?.name === "TimeoutError" || error instanceof BodyStallError
+    name === "TimeoutError" ||
+    name === "AbortError" ||
+    error instanceof BodyStallError
   );
 }
 
@@ -402,7 +422,8 @@ export const DEFAULT_BODY_READ_BOUNDS: BodyReadBounds = {
 };
 
 /**
- * A response body that stopped delivering bytes within its bound. Worth
+ * A body that stopped moving within its bound: a response that stopped
+ * delivering bytes, or a streamed write the store stopped taking. Worth
  * another request: the stalled socket is gone, so the retry gets a fresh one.
  */
 export class BodyStallError extends Error {

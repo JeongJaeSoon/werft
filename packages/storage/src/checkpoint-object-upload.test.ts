@@ -6,6 +6,7 @@ import type { ImmutableObjectSource } from "@werft-ai/runtime-core";
 
 import { createCheckpointObjectStore } from "./checkpoint-objects.ts";
 import {
+  BodyStallError,
   BoundedNodeHttpHandler,
   DEFAULT_BODY_READ_BOUNDS,
   readBudgetMs,
@@ -122,16 +123,23 @@ describe("streamed putImmutable over HTTP", () => {
     answer: (
       request: Received,
       puts: number,
+      // null: the request is taken whole and never answered.
     ) => {
       status: number;
       headers?: Record<string, string>;
       body?: string | Uint8Array;
-    },
+    } | null,
+    bounds: { uploadStallMs?: number } = {},
   ) {
     const received: Received[] = [];
     server = createServer(async (request, response) => {
       const parts: Buffer[] = [];
-      for await (const part of request) parts.push(part as Buffer);
+      try {
+        for await (const part of request) parts.push(part as Buffer);
+      } catch {
+        // Cut by the client before its body ended: never taken whole.
+        return;
+      }
       const entry = {
         body: new Uint8Array(Buffer.concat(parts)),
         headers: request.headers,
@@ -139,9 +147,10 @@ describe("streamed putImmutable over HTTP", () => {
       };
       received.push(entry);
       const puts = received.filter(({ method }) => method === "PUT").length;
-      const { body, headers, status } = answer(entry, puts);
-      response.writeHead(status, headers);
-      response.end(body);
+      const answered = answer(entry, puts);
+      if (answered === null) return;
+      response.writeHead(answered.status, answered.headers);
+      response.end(answered.body);
     });
     await new Promise<void>((resolve) =>
       server?.listen(0, "127.0.0.1", resolve),
@@ -160,7 +169,11 @@ describe("streamed putImmutable over HTTP", () => {
     });
     return {
       received,
-      store: createCheckpointObjectStore({ bucket: "bucket", client }),
+      store: createCheckpointObjectStore({
+        bucket: "bucket",
+        client,
+        ...bounds,
+      }),
     };
   }
 
@@ -226,6 +239,127 @@ describe("streamed putImmutable over HTTP", () => {
     });
     expect(received.filter(({ method }) => method === "PUT")).toHaveLength(0);
     expect(source.opened()).toBe(0);
+  }, 20_000);
+
+  test("an upload the store takes and never answers is cut at the stall bound and sent again with a fresh pass", async () => {
+    const bytes = new Uint8Array(randomBytes(64 * 1024 + 11));
+    const source = sourceOf(bytes);
+    const { received, store } = await peer(
+      (request, puts) => {
+        if (request.method === "GET") return missing;
+        return puts === 1
+          ? null
+          : { status: 200, headers: { "x-amz-version-id": "v2" } };
+      },
+      { uploadStallMs: 300 },
+    );
+
+    const startedAt = Date.now();
+    expect(await store.putImmutable(KEY, source)).toEqual({
+      outcome: "created",
+      version: "v2",
+    });
+
+    // The stall bound, not the five minutes its request timeout allows.
+    expect(Date.now() - startedAt).toBeLessThan(5_000);
+    const puts = received.filter(({ method }) => method === "PUT");
+    expect(puts.map(({ body }) => body)).toEqual([bytes, bytes]);
+    expect(source.opened()).toBe(2);
+  }, 20_000);
+
+  test("a store that never answers fails the upload as a stall once its attempts are spent", async () => {
+    const source = sourceOf(new Uint8Array(randomBytes(698)));
+    const { received, store } = await peer(
+      (request) => (request.method === "GET" ? missing : null),
+      { uploadStallMs: 200 },
+    );
+
+    const startedAt = Date.now();
+    const failure = await store.putImmutable(KEY, source).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    expect(failure).toBeInstanceOf(BodyStallError);
+    // The bound, and the moment the 698 bytes need at the slowest link.
+    expect((failure as Error).message).toMatch(
+      /moved nothing for 20\dms after 698 of 698 bytes/,
+    );
+    expect(Date.now() - startedAt).toBeLessThan(5_000);
+    expect(received.filter(({ method }) => method === "PUT")).toHaveLength(
+      S3_MAX_ATTEMPTS,
+    );
+    expect(source.opened()).toBe(S3_MAX_ATTEMPTS);
+  }, 20_000);
+
+  test("an upload cut for a stall closes the source it was reading", async () => {
+    const piece = new Uint8Array(randomBytes(1024));
+    const bytes = new Uint8Array(Buffer.concat([piece, piece]));
+    let opened = 0;
+    let closed = 0;
+    // The second chunk comes after the stall bound, so each attempt is cut
+    // with its source still part read.
+    const source: ImmutableObjectSource = {
+      bytes: bytes.byteLength,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      async *open() {
+        opened += 1;
+        try {
+          yield piece;
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          yield piece;
+        } finally {
+          closed += 1;
+        }
+      },
+    };
+    const { store } = await peer(
+      (request) => (request.method === "GET" ? missing : null),
+      { uploadStallMs: 150 },
+    );
+
+    const failure = await store.putImmutable(KEY, source).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    expect(failure).toBeInstanceOf(BodyStallError);
+    expect(opened).toBe(S3_MAX_ATTEMPTS);
+    const by = Date.now() + 2_000;
+    while (closed < opened && Date.now() < by) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(closed).toBe(opened);
+  }, 20_000);
+
+  test("an upload that keeps moving is not cut, however long it takes", async () => {
+    const piece = new Uint8Array(randomBytes(1024));
+    const bytes = new Uint8Array(Buffer.concat([piece, piece, piece, piece]));
+    let opened = 0;
+    // A chunk every 150 ms: 600 ms in all, each gap inside the 300 ms bound.
+    const source: ImmutableObjectSource = {
+      bytes: bytes.byteLength,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      async *open() {
+        opened += 1;
+        for (let sent = 0; sent < 4; sent += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 150));
+          yield piece;
+        }
+      },
+    };
+    const { received, store } = await peer(
+      (request) => (request.method === "GET" ? missing : { status: 200 }),
+      { uploadStallMs: 300 },
+    );
+
+    expect(await store.putImmutable(KEY, source)).toEqual({
+      outcome: "created",
+    });
+    expect(opened).toBe(1);
+    expect(received.find(({ method }) => method === "PUT")?.body).toEqual(
+      bytes,
+    );
   }, 20_000);
 });
 

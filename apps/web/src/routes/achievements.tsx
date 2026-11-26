@@ -6,6 +6,7 @@ import type {
   ListAchievementTypesResponse,
   UsageAchievementsResponse,
 } from "@werft-ai/contracts";
+import { privateChannelsPending, refetchWhilePending } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import {
   OPERATIONS_MESSAGES,
@@ -38,6 +39,7 @@ import { type ReactNode, useState } from "react";
 import { agentsQuery, scopedKey } from "../api/queries.ts";
 import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { PrivateChannelsPending } from "../components/private-channels-pending.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
 const DAY_MS = 86_400_000;
@@ -102,6 +104,7 @@ export function AchievementsScreen() {
         client.GET("/v1/usage/achievements", { params: { query } }),
       ) as Promise<UsageAchievementsResponse>,
     placeholderData: keepPreviousData,
+    refetchInterval: refetchWhilePending(),
     retry: false,
   });
   const agents = useQuery(agentsQuery(client));
@@ -156,6 +159,7 @@ export function AchievementsScreen() {
         </Button>
       }
     >
+      <PrivateChannelsPending pending={privateChannelsPending(figures.data)} />
       <div className="flex flex-wrap gap-2">
         <Filter
           label={t("achievements.filter.period")}

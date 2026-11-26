@@ -3,6 +3,7 @@ import {
   agentDeleted,
   backfillWebInputTurns,
   budgetChoiceOfCall,
+  checkStorageCounter,
   closeAgentlessSessions,
   closeLostCheckpointNotices,
   createDatabaseAgentAuthority,
@@ -407,6 +408,11 @@ import {
   slackEventsBaseOf,
 } from "./slack-settings.ts";
 import { createStartupWait } from "./startup-wait.ts";
+import {
+  runStorageCounterCheck,
+  STORAGE_COUNTER_CHECK_TIMEOUT_MS,
+  scheduleStorageCounterCheck,
+} from "./storage-counter-check.ts";
 import { installedToolCatalogView } from "./tool-catalogs.ts";
 import {
   startTelemetryIngest,
@@ -585,6 +591,13 @@ const readCatalog = (): void => {
 readCatalog();
 const neutralize = eventNeutralizer(logger);
 startNeutralFill(db, neutralize, logger, () => catalogRegistry.refresh());
+scheduleStorageCounterCheck(() =>
+  runStorageCounterCheck(
+    () =>
+      checkStorageCounter(db, { timeoutMs: STORAGE_COUNTER_CHECK_TIMEOUT_MS }),
+    logger,
+  ),
+);
 // Drafts saved while the catalog MCP lived; each start finds what is left.
 reconcileRetiredCatalogDrafts(db).then(
   (drafts) => {
