@@ -4581,6 +4581,45 @@ describe.each(ENGINES)(
       expect(slack.messages).toEqual([]);
     });
 
+    // The effect runs outside the channel's inbox lease: another pass can
+    // read the link between the session's commit and its attach.
+    test("a stop word on a task session its thread is not tied to yet stops it and is no input", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await spawnDecided();
+      await db.execute(
+        sql.raw(`CREATE FUNCTION fail_attach() RETURNS trigger LANGUAGE plpgsql
+          AS $$ BEGIN RAISE EXCEPTION 'attach lost'; END $$`),
+      );
+      await db.execute(
+        sql.raw(`CREATE TRIGGER fail_attach BEFORE UPDATE OF session_id
+          ON session_links FOR EACH ROW EXECUTE FUNCTION fail_attach()`),
+      );
+      try {
+        await endings();
+      } finally {
+        await db.execute(sql.raw("DROP TRIGGER fail_attach ON session_links"));
+        await db.execute(sql.raw("DROP FUNCTION fail_attach()"));
+      }
+      const [made] = await sessionsOf(fixture);
+      expect((await links())[0]?.sessionId).toBeNull();
+      await deliver(
+        fixture,
+        message("100.000200", { thread_ts: "100.000100", text: "그만" }),
+      );
+      expect(await drain(handler().handle)).toMatchObject({ processed: 1 });
+      expect(
+        await db
+          .select({ status: schema.turns.status })
+          .from(schema.turns)
+          .where(eq(schema.turns.sessionId, made?.id ?? "missing")),
+      ).toEqual([{ status: "cancelled" }]);
+      // The link is the effect's to tie, on its next run.
+      await endings();
+      expect((await links())[0]?.sessionId).toBe(made?.id);
+    });
+
     test("a DM's turn is not offered spawn_task: tasks start in channel threads alone", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       await deliver(fixture, {

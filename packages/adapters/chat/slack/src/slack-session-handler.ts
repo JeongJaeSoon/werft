@@ -973,14 +973,17 @@ export function createSlackSessionHandler(
     // A stop word alone in a thread its open work is bound to, by its
     // requester or anyone the session lets control it: the work stops and
     // the message is no input. Anyone else's goes on as input.
+    // The session recovered above counts too: a task's effect makes one
+    // outside this channel's lease, before its link learns it.
     if (
       !fromBot &&
-      found?.sessionId != null &&
+      found !== null &&
+      sessionId !== null &&
       found.openedByTs !== event.ts &&
       isStopRequest(message) &&
       (await stopHandling()) === "stop_session"
     ) {
-      const stopped = await stopRequest(caller, found, found.sessionId);
+      const stopped = await stopRequest(caller, found, sessionId);
       if (stopped) return;
     }
     const slackMessage: SlackMessageRef = {
