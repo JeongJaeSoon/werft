@@ -35,3 +35,4 @@ API로 세션을 만들고 쓰는 사람.
 | [저장소와 보존](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/reference/storage/) | 데이터별 저장 위치·보존 기간·삭제 조건, 세션 이벤트 보관 |
 
 <!-- ci probe 1 -->
+<!-- ci probe 2 -->
