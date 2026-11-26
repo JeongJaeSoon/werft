@@ -15,6 +15,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **첫 turn 도중 worker가 죽은 세션을 새 세션 없이 `start_fresh`로 같은 입력부터 다시 돌린다**(JeongJaeSoon/werft#2264). 커밋된 checkpoint가 없는 세션에서는 결과를 모르는 turn을 먼저 정하지 않아도 `start_fresh`가 받아진다. 그 turn은 `cancelled`(`operator_start_fresh`)로 닫히고, 같은 입력의 새 turn이 빈 context에서 돈다. 전에는 `RECOVERY_REQUIRED`로 거절됐고, abandon 뒤에는 같은 요청을 다시 할 길이 새 세션뿐이었다. Slack 스레드에는 [새 문맥으로 계속] 버튼이 붙은 안내가 올라가고, 그 세션에 쓸 수 있는 사람이 누를 수 있다(비공개 채널이면 지금 멤버). 세션 상세에 `start_fresh_available`이 생긴다. migration은 없고 따로 할 일도 없다.
+  - checkpoint가 있는 세션은 그대로다. abandon이나 confirm을 먼저 한다.
+  - api 이미지가 이 버전이어야 듣는다.
+
 - **DB가 15초 내려가도 heartbeat 간격의 어느 때에 시작됐든 진행 중인 turn이 끝까지 간다**(JeongJaeSoon/werft#2245). worker의 heartbeat 간격이 5초에서 2초로 준다. 전에는 장애가 간격의 끝 무렵(마지막 heartbeat 뒤 약 4.2초 넘어)에 시작되면 turn이 `worker_ownership_lost`로 끝났다. lease TTL(30초)과 안전 마진(10초)은 그대로이고, migration은 없다.
   - heartbeat 트랜잭션이 worker 하나당 초당 0.2회에서 0.5회로 는다. 동시 worker 50개면 초당 25회다.
   - 약 18초를 넘는 장애에서는 전과 같이 turn이 끊기고 세션은 다음 메시지를 받는다.
