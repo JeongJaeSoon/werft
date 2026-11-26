@@ -23,6 +23,7 @@ import {
 import {
   createCheckpointService,
   manifestRefFor,
+  type ProtectedCommitsTrust,
   sessionObjectPrefix,
 } from "./checkpoint-service.ts";
 import type {
@@ -707,6 +708,235 @@ describe("finalize trusts what a held pointer already proved", () => {
     expect(await objects.head(part.key, part.version)).toMatchObject({
       held: true,
     });
+  });
+});
+
+describe("protectedCommits trusts what a held pointer already proved", () => {
+  /** A service over `objects` that records every HEAD and what it reported. */
+  function watching(options: { unversioned?: boolean } = {}) {
+    const heads: string[] = [];
+    const reports: ProtectedCommitsTrust[] = [];
+    const counted: CheckpointObjectStore = {
+      ...objects,
+      head(key, version) {
+        heads.push(key);
+        return objects.head(key, version);
+      },
+    };
+    return {
+      heads,
+      reports,
+      service: createCheckpointService({
+        codecs: { [runtime.engine]: codec },
+        objects: counted,
+        ...(options.unversioned ? { objectProtection: "unversioned" } : {}),
+        onProtectedCommits: (event) => reports.push(event),
+        store: checkpoints.store,
+        workspaceBundles: structuralBundleVerifier,
+      }),
+    };
+  }
+
+  async function parts(from: number, count: number): Promise<ObjectRef[]> {
+    const refs: ObjectRef[] = [];
+    for (let index = from; index < from + count; index += 1) {
+      refs.push(
+        await upload(
+          `${prefix}mirror/part-${index}.jsonl`,
+          encode(`${index}\n`),
+        ),
+      );
+    }
+    return refs;
+  }
+
+  const sorted = (keys: readonly string[]) => [...keys].sort();
+
+  async function twoRevisions() {
+    const inherited = await parts(0, 4);
+    const first = await publish(0, inherited);
+    await finalize(first.checkpoint);
+    const second = await publish(1, [...inherited, ...(await parts(4, 2))]);
+    await finalize(second.checkpoint);
+    return { first, second };
+  }
+
+  test("asks nothing of a version the held pointer names, and reports how many it took on its word", async () => {
+    const { first, second } = await twoRevisions();
+    const { heads, reports, service: watched } = watching();
+
+    expect(
+      await watched.protectedCommits({
+        sessionId,
+        pointer: checkpoints.pointer(),
+      }),
+    ).toEqual([workspaceBundle.commit]);
+    // Each revision's bundle (the remembered-pass rule needs its HEAD), and
+    // the untracked file only revision 0 names: the held pointer does not.
+    // No manifest, no part, nothing revision 1 names but its bundle.
+    expect(sorted(heads)).toEqual(
+      sorted([
+        first.manifest.workspace.bundle.key,
+        second.manifest.workspace.bundle.key,
+        ...first.manifest.workspace.untracked.map((ref) => ref.key),
+      ]),
+    );
+    // Six parts and revision 1's untracked file, each counted once though
+    // both revisions name the four inherited parts.
+    expect(reports).toEqual([
+      {
+        heldSkipped: 7,
+        judgedRevisions: 2,
+        pointerRevision: 1,
+        sessionId,
+        vouchingRevision: 1,
+      },
+    ]);
+  });
+
+  test("an observer that throws does not take the list away", async () => {
+    await twoRevisions();
+    const throwing = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objects,
+      onProtectedCommits: () => {
+        throw new Error("log sink down");
+      },
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+    expect(
+      await throwing.protectedCommits({
+        sessionId,
+        pointer: checkpoints.pointer(),
+      }),
+    ).toEqual([workspaceBundle.commit]);
+  });
+
+  test("an unversioned deployment asks after every object, and reports nothing", async () => {
+    const { first, second } = await twoRevisions();
+    const {
+      heads,
+      reports,
+      service: watched,
+    } = watching({
+      unversioned: true,
+    });
+
+    await watched.protectedCommits({
+      sessionId,
+      pointer: checkpoints.pointer(),
+    });
+    for (const ref of [
+      ...everyRef(first.manifest),
+      ...everyRef(second.manifest),
+    ]) {
+      expect(heads).toContain(ref.key);
+    }
+    expect(reports).toEqual([]);
+  });
+
+  test("a pointer committed without its versions held vouches for nothing here either", async () => {
+    const inherited = await parts(0, 4);
+    const locked = service;
+    service = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
+      objects,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+    const { checkpoint, manifest } = await publish(0, inherited);
+    await finalize(checkpoint);
+    service = locked;
+    expect(checkpoints.pointer()?.versionsHeld).toBe(false);
+    const { heads, reports, service: watched } = watching();
+
+    await watched.protectedCommits({
+      sessionId,
+      pointer: checkpoints.pointer(),
+    });
+    for (const ref of everyRef(manifest)) expect(heads).toContain(ref.key);
+    expect(reports).toEqual([]);
+  });
+
+  test("a version whose hold failed is never vouched for: its finalize did not commit", async () => {
+    const inherited = await parts(0, 2);
+    await finalize((await publish(0, inherited)).checkpoint);
+    const [added] = await parts(2, 1);
+    if (added === undefined) throw new Error("expected a part");
+    const failing = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objects: {
+        ...objects,
+        async hold() {
+          throw new Error("AccessDenied");
+        },
+      },
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+    await expect(
+      finalizeCheckpoint(failing, checkpoints.commit, {
+        checkpoint: (await publish(1, [...inherited, added])).checkpoint,
+        fence,
+        now: new Date(),
+        sessionId,
+        turnId: null,
+      }),
+    ).rejects.toThrow(/AccessDenied/);
+    expect(checkpoints.pointer()?.revision).toBe(0);
+    const { reports, service: watched } = watching();
+
+    await watched.protectedCommits({
+      sessionId,
+      pointer: checkpoints.pointer(),
+    });
+    // Revision 0's two parts and untracked file: the unheld part is in no
+    // committed checkpoint, so nothing names it, let alone vouches for it.
+    expect(reports).toMatchObject([{ heldSkipped: 3, vouchingRevision: 0 }]);
+  });
+
+  test("a trusted part destroyed after the commit still lists its commit, and the restore still finds the damage", async () => {
+    const { second } = await twoRevisions();
+    const [part] = second.manifest.transcripts.root.parts;
+    if (part?.version === undefined) throw new Error("expected a part");
+    // Only an operator gets here: nothing in the platform releases a version
+    // the live pointer names.
+    objects.releaseHold(part.key, part.version);
+    objects.purgeVersion(part.key, part.version);
+
+    // More protection, never less: the commit stays on the list.
+    expect(
+      await watching().service.protectedCommits({
+        sessionId,
+        pointer: checkpoints.pointer(),
+      }),
+    ).toEqual([workspaceBundle.commit]);
+    // Restore HEADs every version, as before this rule.
+    expect(await service.getRestorePlan({ runtime, sessionId })).toEqual({
+      status: "unavailable",
+      code: "CHECKPOINT_UNAVAILABLE",
+      reason: expect.stringContaining(
+        `manifest references a missing object: ${part.key} (version ${part.version})`,
+      ),
+    });
+  });
+
+  test("restore still asks after every version the held pointer names", async () => {
+    const { second } = await twoRevisions();
+    const { heads, service: watched } = watching();
+
+    expect(await watched.getRestorePlan({ runtime, sessionId })).toMatchObject({
+      status: "ready",
+      plan: { revision: 1 },
+    });
+    expect(sorted(heads)).toEqual(
+      sorted([
+        second.checkpoint.manifest_ref,
+        ...everyRef(second.manifest).map((ref) => ref.key),
+      ]),
+    );
   });
 });
 
