@@ -891,7 +891,13 @@ export function createPostgresSessionUnitOfWork(
       return acceptanceTransaction(db, async (tx) => {
         await lockIdempotencyScope(tx, scope);
         const existing = await findIdempotent(tx, scope);
-        if (existing) {
+        // A continuation cancelled before it ran (an emergency stop's)
+        // continued nothing: the lost turn may be continued again.
+        const spent =
+          existing !== undefined &&
+          input.continueTurn !== undefined &&
+          (await continuationCancelled(tx, sessionId, existing.result));
+        if (existing && !spent) {
           if (existing.payloadHash !== input.payloadHash) {
             return { outcome: "conflict" };
           }
@@ -899,6 +905,18 @@ export function createPostgresSessionUnitOfWork(
             outcome: "replayed",
             response: postSessionMessageResponseSchema.parse(existing.result),
           };
+        }
+        if (spent) {
+          await tx
+            .delete(idempotencyKeys)
+            .where(
+              and(
+                eq(idempotencyKeys.principal, scope.principal),
+                eq(idempotencyKeys.operation, scope.operation),
+                eq(idempotencyKeys.resource, scope.resource),
+                eq(idempotencyKeys.key, scope.key),
+              ),
+            );
         }
         const platform = input.platform;
         const requester =
@@ -1302,6 +1320,26 @@ const LAST_TURN_CUT_OFF = sql<boolean>`coalesce((
   WHERE t.session_id = ${sessions}.id AND t.status <> 'cancelled'
   ORDER BY t.sequence DESC LIMIT 1
 ), false)`;
+
+/** The turn a continuation queued was cancelled before it ran. */
+async function continuationCancelled(
+  tx: Database,
+  sessionId: string,
+  result: unknown,
+): Promise<boolean> {
+  const parsed = postSessionMessageResponseSchema.safeParse(result);
+  if (!parsed.success) return false;
+  const [turn] = await tx
+    .select({ status: turns.status })
+    .from(turns)
+    .where(
+      and(
+        eq(turns.sessionId, sessionId),
+        eq(turns.sequence, Number(parsed.data.turn_id)),
+      ),
+    );
+  return turn?.status === "cancelled";
+}
 
 type SessionRow = typeof sessions.$inferSelect;
 type TurnRow = typeof turns.$inferSelect;

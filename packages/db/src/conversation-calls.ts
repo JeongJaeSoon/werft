@@ -640,6 +640,20 @@ export function createPostgresConversationCalls(
             maxTokens: c.maxTokens,
             maxRequestBytes: c.maxRequestBytes,
           };
+          // Read after the lock, not in its statement (db-clock.ts).
+          const now = await dbNow(tx);
+          // Its own statement: a turn ended while this waited on the permit
+          // reads as running in the statement that took it.
+          const [turn] = await tx
+            .select({ state: t.state })
+            .from(t)
+            .where(eq(t.id, permit.turnId));
+          // A decided turn's engine still closes it: its provider calls only,
+          // as a tool call on it is refused (admit), and none once it ends,
+          // a regrant of one under way included (an emergency stop ends it).
+          if (turn?.state !== "running" && turn?.state !== "decided") {
+            return { outcome: "invalid_token" };
+          }
           // The proxy's regrant of a call already made on the permit.
           const [again] = await tx
             .select(limits)
@@ -654,22 +668,7 @@ export function createPostgresConversationCalls(
             )
             .limit(1);
           if (again) return { outcome: "ok", turnId: permit.turnId, ...again };
-          // Read after the lock, not in its statement (db-clock.ts).
-          const now = await dbNow(tx);
-          // Its own statement: a turn ended while this waited on the permit
-          // reads as running in the statement that took it.
-          const [turn] = await tx
-            .select({ state: t.state })
-            .from(t)
-            .where(eq(t.id, permit.turnId));
-          // A decided turn's engine still closes it: its provider calls only,
-          // as a tool call on it is refused (admit), and none once it ends.
-          if (
-            (turn?.state !== "running" && turn?.state !== "decided") ||
-            permit.expiresAt <= now
-          ) {
-            return { outcome: "invalid_token" };
-          }
+          if (permit.expiresAt <= now) return { outcome: "invalid_token" };
           const [taken] = await tx
             .select({ id: c.id })
             .from(c)

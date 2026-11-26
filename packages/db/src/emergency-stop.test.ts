@@ -558,6 +558,31 @@ describe("going on after an emergency stop", () => {
     expect(await turnsOf(s.worker.sessionId)).toHaveLength(1);
   });
 
+  test("a continuation a second stop cancelled before it ran leaves [Continue] to take again", async () => {
+    const s = await stage();
+    const back = await stoppedAndBack(s);
+    expect((await send(s, { continueTurn: 1 })).outcome).toBe("accepted");
+    await db
+      .update(sessions)
+      .set({ workspaceId: s.workspaceId })
+      .where(eq(sessions.id, s.worker.sessionId));
+    expect((await stop(s, s.admin)).outcome).toBe("stopped");
+    expect(await turnsOf(s.worker.sessionId)).toMatchObject([
+      { sequence: 1, status: "failed", reason: "emergency_stopped" },
+      { sequence: 2, status: "cancelled" },
+    ]);
+    await executionGone({ ...back, sessionId: s.worker.sessionId });
+    expect((await turnOn(s, s.admin, "checked again")).outcome).toBe("set");
+    expect((await resume(s.worker.sessionId)).outcome).toBe("accepted");
+    await restored(s.worker.sessionId);
+    expect((await send(s, { continueTurn: 1 })).outcome).toBe("accepted");
+    expect(await turnsOf(s.worker.sessionId)).toMatchObject([
+      { sequence: 1 },
+      { sequence: 2, status: "cancelled" },
+      { sequence: 3, status: "queued" },
+    ]);
+  });
+
   test("[Continue] runs the cut-off input again", async () => {
     const s = await stage();
     const back = await stoppedAndBack(s);
