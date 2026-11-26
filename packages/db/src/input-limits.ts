@@ -32,8 +32,9 @@ export const STORAGE_LIMIT_SQLSTATE = "WF001";
  * message's bytes at commit and raises `STORAGE_LIMIT_SQLSTATE` when the sum
  * it wrote is past the limit set here; `acceptanceTransaction` answers that
  * as the same refusal. The storage row is locked for the commit alone, so
- * acceptances do not wait for each other's transactions, and two racing for
- * the last bytes still cannot both fit.
+ * acceptances do not wait for each other's transactions on it (one session's
+ * or one idempotency key's still queue), and two racing for the last bytes
+ * still cannot both fit.
  *
  * `sessionId` is null for a session this transaction is creating: it has no
  * queued turns yet, and the limit is at least one.
