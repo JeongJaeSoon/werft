@@ -28,13 +28,8 @@ export function createPostgresSessionStops(db: Database): SessionStops {
           attempt,
         });
         if (session === null) return { outcome: "not_found" };
-        if (
-          session.admissionState === "closed" ||
-          session.admissionState === "closing"
-        ) {
-          return { outcome: "closed" };
-        }
-        // A retry of this stop: what it did then, not what is running now.
+        // A retry of this stop: what it did then, not what is running now,
+        // even once the session has closed since.
         const [done] = await tx
           .select({
             cancelled: sessionStops.cancelled,
@@ -49,6 +44,12 @@ export function createPostgresSessionStops(db: Database): SessionStops {
           )
           .limit(1);
         if (done !== undefined) return { outcome: "cancelled", ...done };
+        if (
+          session.admissionState === "closed" ||
+          session.admissionState === "closing"
+        ) {
+          return { outcome: "closed" };
+        }
         const now = await dbNow(tx);
         const cancelled = await cancelQueuedInput(tx, {
           sessionId,

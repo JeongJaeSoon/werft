@@ -5315,6 +5315,19 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     expect((await turnStatesOf(session.id)).map((turn) => turn.status)).toEqual(
       ["completed", "cancelled", "running", "queued"],
     );
+    // Closed since: the retry still says what the stop did; a new stop finds
+    // the session closed.
+    await db
+      .update(sessions)
+      .set({ admissionState: "closed" })
+      .where(eq(sessions.id, session.id));
+    expect(await stops.cancelQueued(request)).toEqual(first);
+    expect(
+      await stops.cancelQueued({
+        ...request,
+        idempotencyKey: "slack-stop:new",
+      }),
+    ).toEqual({ outcome: "closed" });
   });
 
   test("a stop word whose event comes again stops once and says so once", async () => {
