@@ -2025,59 +2025,22 @@ describe("sessions list", () => {
     await waitFor(() => expect(document.activeElement === button).toBe(true));
   });
 
-  test("the summary line shows the total and cost alone, and follows the relation picked", async () => {
-    const user = await setupUser();
-    const all = { ...sessionCounts(2), total: 9, cost_usd: "12.5" };
-    // Started by me: fewer of each, so the line follows the relation picked.
-    const started = { ...sessionCounts(1), total: 4, cost_usd: "0.004" };
+  test("no summary line sits over the list: the status tabs carry the counts", async () => {
     renderAt("/sessions", {
       "GET /v1/auth/me": () => json(200, memberMe()),
       "GET /v1/sessions": () =>
         json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
-      "GET /v1/sessions/counts": (request) =>
-        json(
-          200,
-          new URL(request.url).searchParams.get("relation") === "started"
-            ? started
-            : all,
-        ),
+      "GET /v1/sessions/counts": () =>
+        json(200, { ...sessionCounts(2), total: 9 }),
     });
-    const line = await screen.findByRole("list", { name: "세션 요약" });
+    const tabs = await screen.findByRole("group", { name: "상태로 보기" });
     await waitFor(() =>
-      expect(
-        within(line)
-          .getAllByRole("listitem")
-          .map((item) => item.textContent),
-      ).toEqual(["세션 9", "예상 비용 $12.50"]),
+      expect(within(tabs).getAllByRole("button")[0]?.textContent).toBe(
+        "전체 9",
+      ),
     );
-    // Running and failed are the status tabs' job: nothing here presses.
-    expect(within(line).queryByRole("button")).toBeNull();
-    expect(within(line).queryByRole("link")).toBeNull();
-
-    // The relation changes the figures, as it does the tabs.
-    await pickRelation(user, "내가 시작");
-    await waitFor(() =>
-      expect(
-        within(line)
-          .getAllByRole("listitem")
-          .map((item) => item.textContent),
-      ).toEqual(["세션 4", "예상 비용 <$0.01"]),
-    );
-  });
-
-  test("a server older than the cost leaves the cost out instead of showing $0", async () => {
-    renderAt("/sessions", {
-      "GET /v1/auth/me": () => json(200, memberMe()),
-      "GET /v1/sessions": () =>
-        json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
-      "GET /v1/sessions/counts": () => json(200, sessionCounts(1)),
-    });
-    const line = await screen.findByRole("list", { name: "세션 요약" });
-    expect(
-      within(line)
-        .getAllByRole("listitem")
-        .map((item) => item.textContent),
-    ).toEqual(["세션 1"]);
+    expect(screen.queryByRole("list", { name: "세션 요약" })).toBeNull();
+    expect(document.body.textContent).not.toContain("예상 비용");
   });
 
   test("withSessionsFilter keeps the other filter, clears with null and drops the page", () => {
