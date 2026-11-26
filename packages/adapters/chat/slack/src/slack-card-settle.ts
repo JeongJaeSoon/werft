@@ -15,7 +15,11 @@ import {
   SlackRateLimitedError,
 } from "./slack-config-api.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
-import { slackOutboxGuard } from "./slack-outbox-render.ts";
+import {
+  slackAiLabelSuffix,
+  slackOutboxGuard,
+  withSlackAiLabel,
+} from "./slack-outbox-render.ts";
 import {
   guardSlackCardBlocks,
   slackDoneCard,
@@ -324,12 +328,13 @@ export async function settleSlackCards(deps: {
           pass.lost += 1;
           continue;
         }
+        const { locale } = claim.body;
         const edit = (blocks: unknown[]) =>
           deps.slack.updateMessage(botToken, {
             channelId: claim.channelId,
             ts: claim.slackTs,
-            text: drawn.text,
-            blocks,
+            text: drawn.text + slackAiLabelSuffix(locale, claim.aiLabel),
+            blocks: withSlackAiLabel(blocks, locale, claim.aiLabel),
           });
         let failure: Error | null = null;
         try {
