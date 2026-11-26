@@ -9798,6 +9798,7 @@ function takesIdempotencyKey(route: RouteDeclaration): boolean {
 function errorContext(route: RouteDeclaration): ErrorContext {
   return {
     scope: scopeOf(route),
+    scopeCheckedBy: route.scopeCheckedBy ?? "api",
     auth: route.auth ?? "any",
     csrf:
       route.csrf === "always"

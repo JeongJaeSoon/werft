@@ -935,8 +935,18 @@ describe("going on from a lost turn through the session service", () => {
 describe("recovery decisions through the session service", () => {
   function deciding() {
     const reached: string[] = [];
+    // The recorded asks: which action, and the justification it carried.
+    const justified: unknown[] = [];
+    const policy = policyFor(plain);
     const service = createSessionService({
-      authorization: policyFor(plain),
+      authorization: {
+        authorize: (request, options) => {
+          if (options?.record !== false) {
+            justified.push([request.action, request.subject.justification]);
+          }
+          return policy.authorize(request, options);
+        },
+      },
       catalog: testCatalog({ repositories: {} }),
       controls: {
         async decideRecoveryAtomic(input: RecoveryDecisionInput) {
@@ -992,17 +1002,19 @@ describe("recovery decisions through the session service", () => {
       who: Caller,
       sessionId: string,
       decision: keyof typeof bodies,
+      justification?: string,
     ) =>
       service
         .decideRecovery(who, sessionId, {
           idempotencyKey: `k-${decision}`,
           body: bodies[decision],
+          ...(justification === undefined ? {} : { justification }),
         })
         .then(
           () => "decided",
           (error: { code?: string }) => error.code ?? "error",
         );
-    return { press, reached };
+    return { press, reached, justified };
   }
   const reader = callerFor(
     {
@@ -1063,6 +1075,23 @@ describe("recovery decisions through the session service", () => {
     expect(reached).toEqual([
       `${USERS.requester}:abandon`,
       `${USERS.nonmember}:start_fresh`,
+    ]);
+  });
+
+  test("a break-glass abandon is an operator's: a writer does not fall back to writing, an owner's carries the justification", async () => {
+    const { press, reached, justified } = deciding();
+    expect(
+      await press(person("requester"), PUBLIC_SESSION, "abandon", "incident"),
+    ).toBe("FORBIDDEN");
+    expect(await press(owner, PUBLIC_SESSION, "abandon", "incident")).toBe(
+      "decided",
+    );
+    expect(reached).toEqual([`${USERS.nonmember}:abandon`]);
+    // One recorded decision each, both as recover: no write probe, no
+    // fallback to session.submit.
+    expect(justified).toEqual([
+      ["session.recover", "incident"],
+      ["session.recover", "incident"],
     ]);
   });
 
