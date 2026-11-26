@@ -1830,7 +1830,7 @@ describe("principal middleware", () => {
     expect(await reauth()).toBe(false);
   });
 
-  test("a cookie user's scopes follow the role: a member may not recover, an owner may", async () => {
+  test("a cookie user's scopes follow the role; a recovery decision is judged past the edge", async () => {
     const h = harness();
     await h.bootstrap();
     const cookie = cookieOf(await h.login());
@@ -1851,17 +1851,14 @@ describe("principal middleware", () => {
     const terminate = `/v1/sessions/${crypto.randomUUID()}/terminate`;
 
     membership.role = "member";
-    const refused = await request(recover);
-    expect(refused.status).toBe(403);
-    expect(await refused.json()).toMatchObject({
-      error: { code: "FORBIDDEN" },
-    });
+    // A member writes, so the edge lets a recovery decision through: which
+    // decision needs sessions:recover is the service's to judge from the
+    // body. This harness registers no session routes.
+    expect((await request(recover)).status).toBe(404);
     // Control is still a member's; only the harness has no such route.
     expect((await request(terminate)).status).toBe(404);
 
     membership.role = "owner";
-    // Past the policy: this harness registers no session routes, so the
-    // owner reaches the router and finds none.
     expect((await request(recover)).status).toBe(404);
   });
 

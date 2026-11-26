@@ -411,7 +411,8 @@ export async function openControl(
   scope: IdempotencyScope,
   input: {
     payloadHash: string;
-    expectedRevision: number;
+    // null: the caller pins the decision some other way.
+    expectedRevision: number | null;
     now: Date;
     startedAt: number;
     measure?: ControlStageMeasure;
@@ -444,7 +445,10 @@ export async function openControl(
   if (session.admissionState === "closed") {
     return { done: { outcome: "rejected", admissionState: "closed" } };
   }
-  if (session.revision !== input.expectedRevision) {
+  if (
+    input.expectedRevision !== null &&
+    session.revision !== input.expectedRevision
+  ) {
     return {
       done: {
         outcome: "revision_conflict",

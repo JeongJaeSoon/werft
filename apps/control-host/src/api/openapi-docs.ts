@@ -10,6 +10,8 @@ import {
 /** What the generator knows about an operation when it writes error text. */
 export type ErrorContext = {
   scope: SessionScope | undefined;
+  // "service": the scope is judged after the request is read, not at the edge.
+  scopeCheckedBy: "api" | "service";
   // "public": no credential; "session": a cookie session only.
   auth: "public" | "session" | "any";
   // "always": every caller sends the CSRF header (login). "cookie": only a
@@ -129,7 +131,9 @@ function forbidden(context: ErrorContext): string {
   }
   if (context.scope) {
     causes.push(
-      `Scope: the credential does not hold \`${context.scope}\`, checked before the body or the resource is read`,
+      context.scopeCheckedBy === "service"
+        ? `Scope: the credential does not hold \`${context.scope}\`, judged once the request is read`
+        : `Scope: the credential does not hold \`${context.scope}\`, checked before the body or the resource is read`,
     );
   }
   return `${causes.join(". ")}.`;

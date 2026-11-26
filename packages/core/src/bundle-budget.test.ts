@@ -50,7 +50,10 @@ const BUDGET_BYTES: Record<string, number> = {
   // prepended_turn_id put ./schemas 179 bytes over 154, so it moves to 155.
   // The session list's last_turn_cut_off, its filter and the counts' cut_off
   // then fit ./schemas but put ./forms 117 bytes over 152, so it moves to 153.
-  "./schemas": 155 * 1024,
+  // The session detail's start_fresh_available and the start_fresh notice
+  // words, on top of main's growth, put ./schemas 32 bytes over 155, so it
+  // moves to 156.
+  "./schemas": 156 * 1024,
   "./forms": 153 * 1024,
 };
 
