@@ -448,9 +448,10 @@ describe("the object store route when the database stops during an upload", () =
     expect(refused.message).toContain("request body stalled");
     expect(refused.$response?.headers["retry-after"]).toBe("1");
     // The proxy's hold from the last byte: not the store's patience, which
-    // is minutes, nor the worker's own 30 s.
+    // is minutes, nor the worker's own 30 s. The exact deadline is held to in
+    // the proxy's own tests; here a loaded runner gets room.
     expect(heldMs).toBeGreaterThan(19_000);
-    expect(heldMs).toBeLessThan(22_000);
+    expect(heldMs).toBeLessThan(28_000);
     expect(objects.size).toBe(0);
 
     // With no database to decide from, the next try is not held either, and

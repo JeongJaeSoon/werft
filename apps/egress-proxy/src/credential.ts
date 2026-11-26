@@ -2014,12 +2014,17 @@ export function startCredentialProxy(
     // What a Messages answer that says too little about its usage is
     // charged from.
     let sent: Uint8Array | null = null;
+    // Ends the upstream call itself when a streamed body stops arriving: a
+    // write that is not draining would never read the stream's failure.
+    const stalled = new AbortController();
     try {
       const body =
         typeof route.lfs === "object"
           ? lfsBatchBody([route.lfs])
           : whole === null
-            ? objectBody(request, grant, bodyBy, holdMs)
+            ? objectBody(request, grant, bodyBy, holdMs, (error) =>
+                stalled.abort(error),
+              )
             : await whole;
       if (body instanceof Uint8Array) sent = body;
       const refused = await ledger?.open(sent, signal);
@@ -2042,7 +2047,7 @@ export function startCredentialProxy(
             ] as Array<[string, string]>)
           : [...headers],
         body,
-        signal,
+        signal: AbortSignal.any([signal, stalled.signal]),
       };
       let at = first;
       for (let tried = 0; ; tried++) {
@@ -2088,7 +2093,7 @@ export function startCredentialProxy(
       if (error instanceof BodyTooLargeError) {
         return reply(413, "request body too large", route.purpose);
       }
-      if (error instanceof BodyStalledError) {
+      if (error instanceof BodyStalledError || stalled.signal.aborted) {
         return stalledReply(route.purpose, fields);
       }
       logger.warn("Credential route upstream failed", {
@@ -2469,6 +2474,14 @@ export function startCredentialProxy(
               holdMs,
             );
       whole?.catch(() => {});
+      // Rejects once that read has stalled and otherwise never settles: a
+      // wait for a decision is raced with it, so it ends the request too.
+      const bodyStalled = new Promise<never>((_, reject) => {
+        whole?.catch((error) => {
+          if (error instanceof BodyStalledError) reject(error);
+        });
+      });
+      bodyStalled.catch(() => {});
       // A definite refusal cuts the exchange at once. An authorizer that
       // cannot answer does only after the grace: a blip must not break
       // every stream in flight, and an outage must not hide an ended grant.
@@ -2562,14 +2575,17 @@ export function startCredentialProxy(
         }
         const ask = (withinMs?: number) =>
           authorize(token, route.purpose, question, exchangeId, withinMs);
-        let authorized = await ask();
+        let authorized = await Promise.race([ask(), bodyStalled]);
         if (authorized.kind === "undecided" && route.purpose === "provider") {
           // Silent for the whole hold, so the idle clock is moved past it.
           server.timeout(
             request,
             UNAUTHORIZED_IDLE_SECONDS + Math.ceil(holdMs / 1000),
           );
-          authorized = await heldForDecision(ask, ends);
+          authorized = await Promise.race([
+            heldForDecision(ask, ends),
+            bodyStalled,
+          ]);
         }
         if (authorized.kind === "undecided") {
           release();
@@ -2833,33 +2849,45 @@ export function bodyReservation(
  * authorizer signed that same declaration; the upstream client checks the
  * stream against it again as it writes.
  *
- * The stream fails once the worker sends nothing for `idleMs`, its first
- * byte due at `firstBy`. Only the worker's silence counts: a read is
- * pending only while the upstream has room for more.
+ * `stalled` hears once the worker sends nothing for `idleMs`, its first byte
+ * due at `firstBy`, and the stream fails. The body is taken off the request
+ * as it arrives, whatever the upstream's pace, so a gap is the worker's own
+ * silence and is seen even while a write upstream is not draining. Bun holds
+ * what a worker sent either way, inside the reservation made for it.
  */
 function objectBody(
   request: Request,
   grant: EgressGrant,
   firstBy: number,
   idleMs: number,
+  stalled: (error: BodyStalledError) => void,
 ): UpstreamBody {
   const declared = grant.headers.find(([name]) => name === "content-length");
   if (declared === undefined || request.body === null) return null;
   const reader = request.body.getReader();
-  let due = firstBy - performance.now();
+  let over = false;
   const stream = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const next = await arrivingWithin(reader.read(), due);
-        due = idleMs;
-        if (next.done) controller.close();
-        else controller.enqueue(next.value);
-      } catch (error) {
-        reader.cancel(error).catch(() => {});
-        controller.error(error);
-      }
+    start(controller) {
+      void (async () => {
+        try {
+          for (let due = firstBy - performance.now(); ; due = idleMs) {
+            const next = await arrivingWithin(reader.read(), due);
+            if (over) return;
+            if (next.done) return controller.close();
+            controller.enqueue(next.value);
+          }
+        } catch (error) {
+          if (over) return;
+          if (error instanceof BodyStalledError) stalled(error);
+          reader.cancel(error).catch(() => {});
+          controller.error(error);
+        }
+      })();
     },
-    cancel: (reason) => reader.cancel(reason),
+    cancel(reason) {
+      over = true;
+      return reader.cancel(reason);
+    },
   });
   return { stream, length: Number(declared[1]) };
 }
