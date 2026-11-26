@@ -28,7 +28,7 @@
       "pendingApproval": "This channel is waiting for an admin's approval",
       "releaseUnavailable": "The agent couldn't start because its release's connection was disabled or its model left the connection's list. An agent admin needs to create and activate a new release on an available connection and model in the web console",
       "repositoryRequired": "The agent couldn't start because its release has no repository it can use (none was chosen, it was removed from the catalog, or the workspace ceiling does not allow it) or its GitHub settings can't be read. An agent admin needs to check the GitHub settings in the web console and, if a repository is needed, choose one, then create and activate a new release",
-      "storageLimit": "This installation's storage limit is full, so the request was not taken. An administrator needs to raise the limit before requests are taken again"
+      "storageLimit": "This installation's storage limit has too little room left, so this request was not taken. Ask an administrator to raise the limit"
     },
     "ja": {
       "agentOwnerless": "このエージェントを管理する人がいないため、新しいセッションを開始できません。ワークスペースの管理者にエージェントの管理者を決めてもらってください",
@@ -58,7 +58,7 @@
       "pendingApproval": "このチャンネルはアドミンの承認を待っています",
       "releaseUnavailable": "このエージェントのリリースが使う接続が無効になったか、そのモデルが接続の一覧から外れたため、開始できませんでした。エージェントの管理者がWebコンソールで使える接続とモデルの新しいリリースを作成して有効化する必要があります",
       "repositoryRequired": "このエージェントのリリースで使えるリポジトリがないか(リポジトリが選ばれていない、カタログから外れている、またはワークスペースの上限が許可していません)、エージェントのGitHub設定を読み取れないため、開始できませんでした。エージェントの管理者がWebコンソールでGitHub設定を確認し、リポジトリが必要なら選んで、新しいリリースを作成して有効化する必要があります",
-      "storageLimit": "この環境の保存容量の上限に達したため、リクエストを受け付けられませんでした。管理者が上限を上げると、また受け付けられます"
+      "storageLimit": "この環境の保存容量の上限に空きが足りず、このリクエストを受け付けられませんでした。管理者に上限を上げるよう依頼してください"
     },
     "ko": {
       "agentOwnerless": "이 에이전트를 관리할 사람이 없어 새 세션을 시작할 수 없어요. 워크스페이스 관리자에게 에이전트 관리자를 정해 달라고 요청하세요",
@@ -88,7 +88,7 @@
       "pendingApproval": "이 채널은 어드민 승인을 기다리고 있어요",
       "releaseUnavailable": "이 에이전트의 릴리스가 쓰는 연결이 꺼졌거나 그 모델이 연결 목록에서 빠져 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 쓸 수 있는 연결과 모델로 새 릴리스를 만들고 활성화해야 해요",
       "repositoryRequired": "이 에이전트의 릴리스에 쓸 수 있는 저장소가 없거나(저장소를 고르지 않았거나, 카탈로그에서 빠졌거나, 워크스페이스 상한이 허용하지 않아요) 에이전트의 GitHub 설정을 읽을 수 없어 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 GitHub 설정을 확인하고, 저장소가 필요하면 골라 새 릴리스를 만들고 활성화해야 해요",
-      "storageLimit": "이 설치의 저장 한도가 다 차서 요청을 받지 못했어요. 관리자가 한도를 올려야 다시 받을 수 있어요"
+      "storageLimit": "이 설치의 저장 한도에 남은 자리가 모자라 이 요청을 받지 못했어요. 관리자에게 한도를 올려 달라고 요청하세요"
     }
   },
   "notices": [
