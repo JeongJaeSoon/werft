@@ -191,6 +191,8 @@ export function SessionDetail({
   // The session whose step list was opened: every other one starts closed.
   const [stepsOpenFor, setStepsOpenFor] = useState<string | null>(null);
   const stepsOpen = stepsOpenFor === id;
+  // Left behind, a session starts closed again on the way back.
+  if (stepsOpenFor !== null && !stepsOpen) setStepsOpenFor(null);
   const waitingTitle = useRef<HTMLHeadingElement>(null);
   const lapseNow = useLapseClock(pending.data?.items);
   // The event window keeps its length once full, so the newest event's id

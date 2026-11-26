@@ -5645,6 +5645,15 @@ describe("session steps", () => {
       name: /^단계 /,
     });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    // Nor does the first one come back open.
+    await act(async () => history.push(`/sessions/${SESSION_ID}`));
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: /다른 세션/ })).toBeNull(),
+    );
+    const back = await within(await sessionProgress()).findByRole("button", {
+      name: /^단계 /,
+    });
+    expect(back.getAttribute("aria-expanded")).toBe("false");
   });
 
   test("reads the turns again when they show a turn running that the session no longer runs", async () => {
@@ -5938,10 +5947,8 @@ describe("session steps", () => {
     });
     const reason = "모델 연결이나 저장소 설정이 바뀌어 실행할 수 없습니다.";
     const progress = await sessionProgress();
-    // The hidden list holds a copy of its own.
-    await waitFor(() =>
-      expect(within(progress).getByText(reason, { ignore: "[hidden] *" })),
-    );
+    // The head's own copy: the hidden list holds another, outside this line.
+    expect(await within(progress).findByText(reason)).toBeTruthy();
     const list = await openSteps();
     const [, second] = within(list).getAllByRole("listitem");
     expect(within(second as HTMLElement).getByText(reason)).toBeTruthy();

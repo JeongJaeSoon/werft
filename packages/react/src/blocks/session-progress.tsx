@@ -43,7 +43,7 @@ const STATE_TONE: Record<
   unknown: "gray",
 };
 
-/** What a closed list must still say, the viewer's turn to act first. */
+/** What a closed list must still say, the waits first. */
 const HEAD_STATES = ["approval", "answer", "running"] as const;
 
 /** The step whose tool calls the head counts: the focused one, else the last. */
@@ -67,7 +67,7 @@ export interface SessionProgressProps {
 /**
  * The head's progress line: which step of how many, the tool calls of that
  * step, the time the turns have run and what they cost. The step count opens
- * and closes the step list; while closed, the line also says which steps run
+ * and closes the step list; while closed, the line also says whether steps run
  * or wait for an answer, and why the session is blocked.
  */
 export function SessionProgress({
