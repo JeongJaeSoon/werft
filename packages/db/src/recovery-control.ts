@@ -13,7 +13,7 @@ import type {
 } from "@werft-ai/platform";
 import { publicStatus, receiptActorOf } from "@werft-ai/platform";
 import { isUnsupportedFeaturesReason } from "@werft-ai/runtime-core";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import {
   controlClock,
   controlReplay,
@@ -47,7 +47,11 @@ import {
   workerLaunches,
 } from "./schema.ts";
 import { pinRefusesLive } from "./session-spec-pin.ts";
-import { contextCoverage, contextGap } from "./sessions/context-gap.ts";
+import {
+  contextCoverage,
+  contextGap,
+  ranAfter,
+} from "./sessions/context-gap.ts";
 import { enqueueWithin } from "./sessions/enqueue.ts";
 import { closeParkedGroup } from "./sessions/parked-group.ts";
 import {
@@ -505,20 +509,44 @@ type StartFreshRefusal = Exclude<
 
 /**
  * A session that never committed a checkpoint, or whose checkpoints a
- * start_fresh retired: no context is there to lose, so an unknown turn is
- * not the operator's to settle first. start_fresh runs it again instead.
+ * start_fresh retired with nothing but unknown turns run since: no context
+ * is there to lose, so an unknown turn is not the operator's to settle
+ * first. start_fresh runs it again instead. forgetLostCheckpoints retires
+ * the pointer as well but writes no turn off; the turns that ran on the lost
+ * checkpoint keep such a session with the operator.
  */
-function noCommittedCheckpoint(
+async function noCommittedCheckpoint(
+  tx: Database,
   session: Pick<
     SessionRow,
-    "checkpointRevision" | "contextResetCheckpointRevision"
+    | "id"
+    | "checkpointRevision"
+    | "contextResetCheckpointRevision"
+    | "contextResetTurnSequence"
   >,
-): boolean {
-  return (
-    session.checkpointRevision === null ||
-    (session.contextResetCheckpointRevision !== null &&
-      session.checkpointRevision <= session.contextResetCheckpointRevision)
-  );
+): Promise<boolean> {
+  if (session.checkpointRevision === null) return true;
+  if (
+    session.contextResetCheckpointRevision === null ||
+    session.checkpointRevision > session.contextResetCheckpointRevision
+  ) {
+    return false;
+  }
+  const after = session.contextResetTurnSequence ?? 0;
+  // A start_fresh writes off every turn its retired checkpoint covers.
+  const [covered] = await tx
+    .select({ sequence: turns.sequence })
+    .from(checkpoints)
+    .innerJoin(turns, eq(turns.id, checkpoints.turnId))
+    .where(
+      and(
+        eq(checkpoints.sessionId, session.id),
+        eq(checkpoints.revision, session.checkpointRevision),
+        gt(turns.sequence, after),
+      ),
+    )
+    .limit(1);
+  return covered === undefined && !(await ranAfter(tx, session.id, after));
 }
 
 /**
@@ -564,7 +592,7 @@ async function startFreshPlan(
       },
     };
   }
-  if (unknown !== null && !noCommittedCheckpoint(session)) {
+  if (unknown !== null && !(await noCommittedCheckpoint(tx, session))) {
     return { refused: { outcome: "unknown_turn_left", turnId: unknown } };
   }
   // Same as resume: an active session must not have its workspace

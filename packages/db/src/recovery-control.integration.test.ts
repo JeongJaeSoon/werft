@@ -1704,6 +1704,33 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
       }
     });
 
+    test("a checkpoint forgetLostCheckpoints gave up still holds the unknown turn it covered for the operator", async () => {
+      const { session } = await unknownSession("fresh-forgotten", {
+        checkpointRevision: 2,
+        checkpointCoversTurn1: true,
+      });
+      expect((await forgetLostCheckpoints(db, clock)).held).toContain(
+        session.session_id,
+      );
+      const held = await sessionRow(session.session_id);
+      expect(held.contextResetCheckpointRevision).toBe(2);
+      expect(await startFreshAvailable(session)).toBe(false);
+      expect(
+        await decide(session, {
+          decision: "start_fresh",
+          expected_revision: held.revision,
+          reason: "lost with its checkpoint",
+        }),
+      ).toEqual({ outcome: "unknown_turn_left", turnId: "1" });
+      expect(await pressStartFresh(session, "1")).toEqual({
+        outcome: "unknown_turn_left",
+        turnId: "1",
+      });
+      expect(
+        (await turnRows(session.session_id)).map((turn) => turn.status),
+      ).toEqual(["outcome_unknown"]);
+    });
+
     test("expected_revision still holds for a decision sent without byTurn", async () => {
       const { session, row } = await unknownSession("fresh-revision");
       expect(
