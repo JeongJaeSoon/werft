@@ -3,6 +3,11 @@ import { resolve } from "node:path";
 import { Glob } from "bun";
 import ts from "typescript";
 
+import { setupDom } from "./test-support/dom.ts";
+
+// The export check below loads the components; Radix must find a DOM then.
+await setupDom();
+
 /*
  * packages/ui draws; it does not fetch, route, or decide. The boundary is a
  * property of the package, so it is checked as one rather than left to review.
