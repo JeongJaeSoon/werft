@@ -1534,6 +1534,101 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
     expect(await inboxStatuses()).toEqual(["processed"]);
   });
 
+  // Another input's charge, landing between this input's storage check and
+  // its commit: the commit-time check refuses it.
+  async function chargeAfterTheCheck() {
+    await db.execute(
+      sql.raw(`CREATE FUNCTION test_late_charge() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        UPDATE storage_usage SET bytes = bytes + ${LIMITS.STORAGE_LIMIT_BYTES} WHERE scope = 'installation';
+        RETURN NEW;
+      END $$`),
+    );
+    await db.execute(
+      sql.raw(`CREATE TRIGGER test_late_charge BEFORE INSERT ON turns
+        FOR EACH ROW EXECUTE FUNCTION test_late_charge()`),
+    );
+  }
+
+  const inboxDrops = () =>
+    db
+      .select({
+        status: slackInboundEvents.status,
+        dropReason: slackInboundEvents.dropReason,
+      })
+      .from(slackInboundEvents)
+      .orderBy(asc(slackInboundEvents.receivedAt));
+
+  test("a mention the storage limit refuses at commit ends dropped, opens nothing and tells the requester once", async () => {
+    const fixture = await agentInSlack();
+    await chargeAfterTheCheck();
+    const { handle, notices, threadNotices } = handler();
+    await deliver(fixture, mention("100.000100"));
+    expect(await drain(handle)).toMatchObject({ dropped: 1, retried: 0 });
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      channelId: CHANNEL,
+      threadTs: "100.000100",
+      slackUserId: PERSON,
+      reason: "STORAGE_LIMIT_EXCEEDED",
+      notice: { message: "storageLimit" },
+    });
+    expect(threadNotices).toEqual([]);
+    expect(await inboxDrops()).toEqual([
+      { status: "dropped", dropReason: "storage_limit_exceeded" },
+    ]);
+    // Nothing is left to claim, so the item is never tried again.
+    expect(await claimAll(30_000)).toEqual([]);
+  });
+
+  test("a thread post the storage limit refuses at commit adds no turn and ends dropped", async () => {
+    const fixture = await agentInSlack();
+    const { handle, notices } = handler();
+    await deliver(fixture, mention("100.000100"));
+    expect(await drain(handle)).toMatchObject({ processed: 1 });
+    await chargeAfterTheCheck();
+    await deliver(fixture, message("100.000200", { thread_ts: "100.000100" }));
+    expect(await drain(handle)).toMatchObject({ dropped: 1, retried: 0 });
+    const [session] = await sessionsOf(fixture);
+    expect((await turnsOf(session?.id)).map((turn) => turn.sequence)).toEqual([
+      1,
+    ]);
+    expect(notices.map((held) => held.notice)).toEqual([
+      { message: "storageLimit" },
+    ]);
+    expect(await inboxDrops()).toEqual([
+      { status: "processed", dropReason: null },
+      { status: "dropped", dropReason: "storage_limit_exceeded" },
+    ]);
+  });
+
+  test("a DM the storage limit refuses is told in its thread, not ephemerally", async () => {
+    const fixture = await agentInSlack();
+    await chargeAfterTheCheck();
+    const { handle, notices, threadNotices } = handler();
+    await deliver(fixture, {
+      type: "message",
+      channel: "D0OWNER",
+      channel_type: "im",
+      user: PERSON,
+      text: "hello",
+      ts: "100.000100",
+    });
+    expect(await drain(handle)).toMatchObject({ dropped: 1, retried: 0 });
+    expect(await sessionsOf(fixture)).toEqual([]);
+    expect(notices).toEqual([]);
+    expect(threadNotices).toHaveLength(1);
+    expect(threadNotices[0]).toMatchObject({
+      channelId: "D0OWNER",
+      threadTs: "100.000100",
+      notice: { message: "storageLimit" },
+    });
+    expect(await inboxDrops()).toEqual([
+      { status: "dropped", dropReason: "storage_limit_exceeded" },
+    ]);
+  });
+
   test("a linked member outside the managing team is refused before the agent's release state", async () => {
     const fixture = await agentInSlack("main", { activate: false });
     const outsiderId = randomUUID();
