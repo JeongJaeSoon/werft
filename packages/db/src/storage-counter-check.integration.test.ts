@@ -56,11 +56,11 @@ integration("the daily storage counter check on PostgreSQL", () => {
   test("a scan that runs past its timeout is cancelled by the server", async () => {
     const other = await pool.connect();
     // Without the check's own timeout the scan would wait on this lock for
-    // good: the server ends this session after 2 s idle instead, so the test
+    // good: the server ends this session after 5 s idle instead, so the test
     // fails on its assertion and leaves no lock behind.
     other.on("error", () => {});
-    await other.query("SET idle_in_transaction_session_timeout = 2000");
     try {
+      await other.query("SET idle_in_transaction_session_timeout = 5000");
       await other.query("BEGIN");
       await other.query("LOCK TABLE turns IN ACCESS EXCLUSIVE MODE");
       const failure = await checkStorageCounter(db, { timeoutMs: 300 }).then(
