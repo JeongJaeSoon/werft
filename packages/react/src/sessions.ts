@@ -222,12 +222,28 @@ export function useRetryFailedReadsOnStatus(
   }, [queryClient, client, id, status]);
 }
 
-/** Reads the session and its turns again once they start to disagree. */
+const RECHECK_MS = 1_000;
+
+/**
+ * Reads the session and its turns again while they disagree, until they
+ * agree: a read can come back before the other catches up. A read still in
+ * flight is left to finish rather than cancelled by the next.
+ */
 export function useRecheckSessionReads(id: string, disagree: boolean) {
   const { client } = useWerft();
   const queryClient = useQueryClient();
   useEffect(() => {
-    if (disagree) refreshSession(queryClient, client, id, ["detail", "turns"]);
+    if (!disagree) return;
+    const recheck = () => {
+      for (const filter of [
+        { ...sessionQuery(client, id), exact: true },
+        sessionTurnsQuery(client, id),
+      ])
+        void queryClient.invalidateQueries(filter, { cancelRefetch: false });
+    };
+    recheck();
+    const timer = setInterval(recheck, RECHECK_MS);
+    return () => clearInterval(timer);
   }, [queryClient, client, id, disagree]);
 }
 

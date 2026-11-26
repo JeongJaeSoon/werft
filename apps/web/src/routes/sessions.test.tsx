@@ -4851,16 +4851,28 @@ describe("session steps", () => {
       [`GET /v1/sessions/${SESSION_ID}/turns`]: () => {
         turnReads += 1;
         return json(200, {
-          items: [turn("1", turnReads === 1 ? "running" : "completed")],
+          // The second read still lags; only the third has caught up.
+          items: [turn("1", turnReads <= 2 ? "running" : "completed")],
           next_cursor: null,
         });
       },
     });
     const list = await screen.findByRole("region", { name: "단계" });
-    await waitFor(() =>
-      expect(within(list).getByRole("listitem").textContent).toContain("마침"),
+    await waitFor(
+      () =>
+        expect(within(list).getByRole("listitem").textContent).toContain(
+          "마침",
+        ),
+      { timeout: 4_000 },
     );
-    expect(turnReads).toBeGreaterThanOrEqual(2);
+    expect(turnReads).toBeGreaterThanOrEqual(3);
+    expect(
+      within(list).getByRole("listitem").getAttribute("aria-current"),
+    ).toBeNull();
+    const reads = turnReads;
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    // Once the reads agree, the rechecks stop.
+    expect(turnReads).toBe(reads);
   });
 
   test("counts the turns as steps, opens only the current one and marks its approval wait", async () => {
