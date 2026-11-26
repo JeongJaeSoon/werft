@@ -98,7 +98,7 @@ The agent app holds the bot scope `reactions:write`. It is the scope for putting
 
 On an agent whose conversation rollout is `on`, writing only one of `그만`, `그만해`, `멈춰`, `멈춰줘`, `중지`, `止めて`, `やめて`, `ストップ`, `停止` or `stop` in a thread (channel or DM) bound to an open task (session) stops that task. A mention of the agent, spaces around the word, any case and a closing `.`, `!` or `。` are fine. With other words mixed in ("stop, but run the tests"), the message goes to the task as an ordinary message. The channel's listen setting does not matter.
 
-- The running turn is interrupted, and messages that came in before the stop message and were still waiting are not processed. Messages written after the stop message are processed as usual.
+- The running turn is interrupted, and messages that came in before the stop message and were still waiting are not processed. Messages written after the stop message are processed as usual. A message written within a second of the stop message may arrive from Slack in the other order, and be handled as if it came on the other side of it.
 - The session is not closed. Writing in the same thread again carries on.
 - One line goes to the thread: `Stopped the task as you asked. Write in this thread again to carry on.` When waiting messages were not processed, it says how many. With no running turn and nothing waiting, it says only `There's no task running right now.`
 - The stop message itself is not input to the task.

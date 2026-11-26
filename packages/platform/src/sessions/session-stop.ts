@@ -50,6 +50,7 @@ export function createSessionStop(deps: {
       const queued = await deps.stops.cancelQueued({
         principal: actor,
         sessionId,
+        idempotencyKey: input.idempotencyKey,
       });
       if (queued.outcome === "not_found") {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");

@@ -3,6 +3,8 @@ import type { Principal } from "../../musterrolle/index.ts";
 export type StopQueuedInput = {
   principal: Principal;
   sessionId: string;
+  /** The stop request's key: a retry under it replays the first result. */
+  idempotencyKey: string;
 };
 
 export type StopQueuedResult =

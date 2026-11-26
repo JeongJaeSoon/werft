@@ -55,6 +55,7 @@ import {
   createPostgresSessionLinkStore,
   createPostgresSessionReader,
   createPostgresSessionShareStore,
+  createPostgresSessionStops,
   createPostgresSlackAppStore,
   createPostgresSlackInboundEventStore,
   createPostgresSurfaceBindingStore,
@@ -5281,6 +5282,39 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     ]);
     expect(await interruptsOf(session.id)).toEqual([]);
     expect(view.threadNotices).toEqual([]);
+  });
+
+  test("a stop retried under its key replays what it did: work that started since is neither cancelled nor interrupted", async () => {
+    const { fixture, view, session, post } = await workingThread();
+    const stops = createPostgresSessionStops(db);
+    const request = {
+      principal: { ownerId: session.ownerId },
+      sessionId: session.id,
+      idempotencyKey: "slack-stop:retried",
+    };
+    const first = await stops.cancelQueued(request);
+    expect(first).toEqual({
+      outcome: "cancelled",
+      cancelled: 1,
+      runningTurnId: "1",
+    });
+    // The process died before the stop was done; meanwhile turn 1 ended and
+    // new work came in and started.
+    await setTurn(session.id, 1, { status: "completed", endedAt: new Date() });
+    await deliver(fixture, post(at(5), { text: "new work" }));
+    await drain(view.handle);
+    await setTurn(session.id, 3, {
+      status: "running",
+      attemptId: "attempt-3",
+      startedAt: new Date(),
+    });
+    await deliver(fixture, post(at(6), { text: "more new work" }));
+    await drain(view.handle);
+
+    expect(await stops.cancelQueued(request)).toEqual(first);
+    expect((await turnStatesOf(session.id)).map((turn) => turn.status)).toEqual(
+      ["completed", "cancelled", "running", "queued"],
+    );
   });
 
   test("a stop word whose event comes again stops once and says so once", async () => {

@@ -12,7 +12,7 @@ import {
 import { dbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
 import { cancelQueuedInput } from "./recovery-control.ts";
-import { turns } from "./schema.ts";
+import { sessionStops, turns } from "./schema.ts";
 import { touchSlackThreadStatus } from "./surface/slack-thread-status.ts";
 
 export function createPostgresSessionStops(db: Database): SessionStops {
@@ -34,6 +34,21 @@ export function createPostgresSessionStops(db: Database): SessionStops {
         ) {
           return { outcome: "closed" };
         }
+        // A retry of this stop: what it did then, not what is running now.
+        const [done] = await tx
+          .select({
+            cancelled: sessionStops.cancelled,
+            runningTurnId: sessionStops.runningTurnId,
+          })
+          .from(sessionStops)
+          .where(
+            and(
+              eq(sessionStops.sessionId, sessionId),
+              eq(sessionStops.idempotencyKey, input.idempotencyKey),
+            ),
+          )
+          .limit(1);
+        if (done !== undefined) return { outcome: "cancelled", ...done };
         const now = await dbNow(tx);
         const cancelled = await cancelQueuedInput(tx, {
           sessionId,
@@ -57,12 +72,17 @@ export function createPostgresSessionStops(db: Database): SessionStops {
           )
           .orderBy(desc(turns.sequence))
           .limit(1);
-        return {
-          outcome: "cancelled",
+        const result = {
           cancelled: cancelled.length,
           runningTurnId:
             running === undefined ? null : String(running.sequence),
         };
+        await tx.insert(sessionStops).values({
+          sessionId,
+          idempotencyKey: input.idempotencyKey,
+          ...result,
+        });
+        return { outcome: "cancelled", ...result };
       });
     },
   };
