@@ -98,6 +98,23 @@ scripts/verify/doctor.sh <run id>
 
 run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 않은 변경 digest, `scripts/verify/tree-id.sh`)와 지금 checkout, API 주소, 서비스별 상태, `/readyz`를 보여 준다. ready가 아니거나 `up.sh` 뒤 HEAD나 커밋하지 않은 변경(`.claude/`·`scripts/verify/` 밖)이 바뀌었으면 exit 1(바뀐 코드는 `down.sh` 뒤 `up.sh`로 다시 빌드한다). 이상해 보이면 먼저 이것을 돌린다. `api`·`scheduler`·`reconciler`·`postgres`·`localstack`·`fake-git`·`egress-proxy`·`fake-messages`·`fake-mcp`가 모두 `running`(healthcheck가 있으면 `healthy`)이 아니면 exit 1이다. doctor는 돌린 그 순간의 상태만 본다. doctor가 보는 서비스 중 restart 정책이 있는 것(`egress-proxy`·`scheduler`·`reconciler`·`slack`)은 모두 healthcheck가 있어서, 재시작을 되풀이하면 `restarting`일 때도 막 다시 떠 `starting`일 때도 exit 1이다. 다만 healthcheck를 통과한 뒤 다시 죽기 전에 돌리면 `healthy`라 exit 0이다. 의심되면 `ap_compose ps`의 상태 열(Up 시간)을 잠시 간격을 두고 두 번 보고 그 서비스의 로그를 본다. 이 run의 compose가 켜진 profile로 정의하는 `fake-responses`(Codex 엔진 run), `slack`(기본 run), `mock-slack`(mock Slack run)도 같은 조건으로 본다. `infra/compose.dev.yml` overlay run은 `slack`을 꺼 두므로 doctor가 `slack`을 점검하지 않는다. `slack`의 healthy는 pass loop가 돌고 있다는 뜻일 뿐, Slack에 닿는다는 뜻은 아니다. mock Slack run에서는 이렇다. `/fake/answers`로 500을 주면 전송이 `uncertain`으로 남는다. `/fake/rate-limits`로 429를 주면 이벤트가 `ratelimited`로 다시 시도된다. 두 경우 모두 `slack`은 healthy이고 doctor는 exit 0이다. `mock-slack`을 멈추거나(`stop`) `docker pause`하면 이벤트가 `unreachable`·`timeout`으로 다시 시도되고 `slack`은 healthy다. 이때 doctor는 `mock-slack`이 running이 아니라서 exit 1이다. 응답 실패는 `slack` 로그(`Slack send not delivered`, `Slack event failed`)에서 본다. `/readyz`는 database·schema·config만 보므로 scheduler가 죽어도 ready다. `up.sh` 직후에는 scheduler와 `slack`이 잠시(`slack`은 길면 30초) `starting`일 수 있으니 잠시 뒤 다시 돌린다(`migrate`·`worker`는 한 번 돌고 끝나 목록에 없다).
 
+## 동시 부하 측정 전
+
+여러 세션을 한꺼번에 돌리는 측정은 시작하기 전에 Docker VM의 여유를 확인한다. VM은 다른 verify 스택·4620 데모와 같이 쓰고, 차면 OOM killer가 컨테이너를 죽인다.
+
+```sh
+total=$(docker info --format '{{.MemTotal}}') && usage=$(docker stats --no-stream --format '{{.MemUsage}}') &&
+  printf '%s\n' "$usage" | awk -v total="$total" \
+    '{ m = $1 ~ /GiB/ ? 1024 : $1 ~ /MiB/ ? 1 : $1 ~ /KiB/ ? 1/1024 : 1/1048576; used += $1 * m }
+     END { vm = total / 1048576; printf "containers %.0f MiB, VM %.0f MiB, headroom %.0f MiB\n", used, vm, vm - used }' ||
+  echo "docker를 읽지 못했다: 측정을 시작하지 않는다" >&2
+```
+
+- headroom은 어림값이다. 커널과 이미지 빌드가 쓰는 몫은 합계에 없어 실제 여유는 더 작다.
+- 이번 부하가 더 쓸 메모리보다 headroom이 작으면 시작하지 않고, 합계를 맡긴 사람에게 알린다. 남의 컨테이너는 내리지 않는다. 참고로 동시 6 세션 측정에서 worker 하나가 0.5~0.8 GB, 그 스택 전체가 최대 6.6 GB였다.
+- 출력 줄을 측정 결과에 같이 적는다.
+- 끝나면 `ap_compose ps -a fake-messages`가 `running`인지, `docker inspect -f '{{.State.OOMKilled}}' "$(ap_compose ps -aq fake-messages)"`가 `false`인지 본다. fake-messages가 죽으면 이후 turn은 다른 신호 없이 `terminal_reason=api_error`로 끝난다. `up.sh`는 이 컨테이너를 512 MiB로 제한한다. `true`면 그 회차는 버린다.
+
 ## Drive
 
 `lib.sh`가 주는 함수. 모든 응답은 본문 뒤 마지막 줄에 HTTP 상태 코드를 붙인다.

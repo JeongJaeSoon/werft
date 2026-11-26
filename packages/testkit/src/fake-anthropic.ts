@@ -76,6 +76,12 @@ export type FakeAnthropicOptions = {
   models?: ReadonlyArray<{ id: string; display_name: string }>;
   /** The most models one page holds, whatever `limit` asks for. */
   modelsPageMax?: number;
+  /**
+   * How many of the latest requests `requests` and `modelRequests` each
+   * hold, oldest out first; all by default. A long-running host sets it, as
+   * every request carries its whole conversation.
+   */
+  keepRequests?: number;
 };
 
 export type FakeAnthropicServer = {
@@ -132,6 +138,11 @@ export function startFakeAnthropicServer(
   const requests: RecordedRequest[] = [];
   const modelRequests: FakeAnthropicServer["modelRequests"] = [];
   const resolve = toResolver(replies);
+  const keep = options.keepRequests ?? Number.POSITIVE_INFINITY;
+  const trim = (log: unknown[]) => {
+    if (log.length > keep) log.splice(0, log.length - keep);
+  };
+  let received = 0;
   const server = Bun.serve({
     hostname: options.listen?.hostname ?? "127.0.0.1",
     port: options.listen?.port ?? 0,
@@ -143,6 +154,7 @@ export function startFakeAnthropicServer(
           path: `${url.pathname}${url.search}`,
           headers: Object.fromEntries(request.headers.entries()),
         });
+        trim(modelRequests);
         return modelsPage(
           options.models ?? FAKE_ANTHROPIC_MODELS,
           url,
@@ -158,8 +170,9 @@ export function startFakeAnthropicServer(
         path: `${url.pathname}${url.search}`,
         signal: request.signal,
       };
+      const index = received++;
       requests.push(recorded);
-      const index = requests.length - 1;
+      trim(requests);
       if (options.latencyMs !== undefined && options.latencyMs > 0) {
         await Bun.sleep(options.latencyMs);
       }

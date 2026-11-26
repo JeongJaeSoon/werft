@@ -330,6 +330,19 @@ esac
     expect(await runs()).toEqual([]);
   });
 
+  test("up.sh limits the memory of the run's fake-messages", async () => {
+    await run("up.sh", [], { pools: orbstackPools(30), networks: [] });
+    const [id] = await runs();
+    const ports = await Bun.file(
+      join(dir, "runs", id ?? "", "ports.yml"),
+    ).text();
+    expect(Bun.YAML.parse(ports.replaceAll("!override", ""))).toMatchObject({
+      services: {
+        "fake-messages": { mem_limit: "512m", memswap_limit: "512m" },
+      },
+    });
+  });
+
   test("up.sh publishes the API on VERIFY_CONSOLE_PORT and keeps VERIFY_STATE_VARS for the run's later steps", async () => {
     // local.sh stops at the stand-in's `docker version`; what up.sh wrote for
     // the run by then stays, because the teardown that follows fails too.
