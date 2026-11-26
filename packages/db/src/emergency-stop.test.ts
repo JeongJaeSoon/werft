@@ -765,9 +765,47 @@ describe("work that meets an emergency stop as it runs", () => {
         ttlMs: 180_000,
       });
     };
+    // Another app's install in the same team binds the channel too.
+    const second = { appId: "A0SECOND", teamId: "T0STOP" };
+    await registerSlackInstallation(db, {
+      ...second,
+      workspaceId: s.workspaceId,
+    });
+    await verifySlackInstallation(db, { ...second, botUserId: "B0SECOND" });
+    const linked = await createPostgresAgentIdentityStore(db).link({
+      principal: s.owner,
+      workspaceId: s.workspaceId,
+      agentId: s.agentId,
+      key: second,
+      credentialRef: "slack-bot-second",
+      managerRoles: MANAGERS,
+    });
+    if (linked.outcome !== "linked") throw new Error(linked.outcome);
+    const bound = await turnOn(s, s.owner);
+    if (bound.outcome !== "set") throw new Error(bound.outcome);
+    expect(bound.binding.id).not.toBe(s.bindingId);
     // Before the stop the channel takes it as far as its topic.
     expect((await issue()).outcome).toBe("unknown_conversation");
     await stop(s, s.admin);
+    expect((await issue()).outcome).toBe("channel_stopped");
+    // Whichever of the two bindings holds the stop.
+    await db
+      .update(surfaceBindings)
+      .set({
+        emergencyStoppedAt: null,
+        emergencyStoppedBy: null,
+        emergencyStopReason: null,
+      })
+      .where(eq(surfaceBindings.id, s.bindingId));
+    expect((await issue()).outcome).toBe("unknown_conversation");
+    await db
+      .update(surfaceBindings)
+      .set({
+        mode: "off",
+        emergencyStoppedAt: new Date(),
+        emergencyStopReason: "a leak suspected",
+      })
+      .where(eq(surfaceBindings.id, bound.binding.id));
     expect((await issue()).outcome).toBe("channel_stopped");
   });
 

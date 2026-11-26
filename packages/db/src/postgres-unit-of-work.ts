@@ -1290,14 +1290,15 @@ const LAST_EVENT_AT = sql<Date | null>`coalesce((
 ))`.mapWith(events.createdAt);
 
 // The session's last turn was cut off: by its worker's lost lease, or by an
-// emergency stop of its channel.
+// emergency stop of its channel. One cancelled before it ran (an emergency
+// stop's) is not the last.
 const LAST_TURN_CUT_OFF = sql<boolean>`coalesce((
   SELECT t.status = 'failed' AND t.terminal_reason IN (${sql.join(
     CUT_OFF_TURN_REASONS.map((reason) => sql`${reason}`),
     sql`, `,
   )})
   FROM ${turns} t
-  WHERE t.session_id = ${sessions}.id
+  WHERE t.session_id = ${sessions}.id AND t.status <> 'cancelled'
   ORDER BY t.sequence DESC LIMIT 1
 ), false)`;
 

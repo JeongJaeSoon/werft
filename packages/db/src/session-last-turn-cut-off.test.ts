@@ -69,7 +69,7 @@ const service = () =>
 /** A session whose turns ended as given, in order, and whose status is set. */
 async function sessionWith(
   status: "idle" | "failed",
-  ended: readonly ("lost" | "stopped" | "completed")[],
+  ended: readonly ("lost" | "stopped" | "completed" | "cancelled")[],
 ) {
   const inputs = createPostgresSessionUnitOfWork(db);
   const created = await inputs.acceptInputAtomic({
@@ -103,8 +103,8 @@ async function sessionWith(
     await db
       .update(turns)
       .set(
-        end === "completed"
-          ? { status: "completed" }
+        end === "completed" || end === "cancelled"
+          ? { status: end }
           : {
               status: "failed",
               terminalReason:
@@ -173,6 +173,22 @@ describe("a session whose last turn a lost lease cut off (94S-2261)", () => {
       (await listed()).map((item) => [item.id, item.last_turn_cut_off]),
     );
     expect(flags).toEqual({ [stopped]: true, [goneOn]: false });
+    expect((await service().countSessions(OWNER, {})).counts.cut_off).toBe(1);
+  });
+
+  test("input the stop cancelled behind the cut-off turn leaves it the last", async () => {
+    const stopped = await sessionWith("idle", ["stopped", "cancelled"]);
+    expect((await listed()).map((item) => item.last_turn_cut_off)).toEqual([
+      true,
+    ]);
+    const ids = async (query: Partial<ListSessionsQuery>) =>
+      (await listed(query)).map((item) => item.id);
+    expect(await ids({ status: "idle", last_turn_cut_off: "true" })).toEqual([
+      stopped,
+    ]);
+    expect(await ids({ status: "idle", last_turn_cut_off: "false" })).toEqual(
+      [],
+    );
     expect((await service().countSessions(OWNER, {})).counts.cut_off).toBe(1);
   });
 });

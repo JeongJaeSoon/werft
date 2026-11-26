@@ -387,7 +387,7 @@ async function turnScopeIn(
   // An emergency stop holds the channel's binding while it ends the turns
   // there: a turn written first is ended by it, and one after it finds the
   // channel stopped.
-  const [binding] = rowsOf<{ stopped: boolean }>(
+  const bindings = rowsOf<{ stopped: boolean }>(
     await tx.execute(sql`
       SELECT emergency_stopped_at IS NOT NULL AS stopped
       FROM surface_bindings
@@ -399,7 +399,8 @@ async function turnScopeIn(
         AND revoked_at IS NULL
       FOR SHARE`),
   );
-  if (binding?.stopped) return { outcome: "channel_stopped" };
+  if (bindings.some((binding) => binding.stopped))
+    return { outcome: "channel_stopped" };
   const [topic] = await tx
     .select({ id: conversationTopics.id })
     .from(conversationTopics)
