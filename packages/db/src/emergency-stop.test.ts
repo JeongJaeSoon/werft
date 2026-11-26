@@ -1280,7 +1280,18 @@ describe("the stop's own line", () => {
       .update(surfaceBindings)
       .set({ surfaceKind: "private_channel", status: "pending_approval" })
       .where(eq(surfaceBindings.id, s.bindingId));
-    expect((await stop(s, s.admin)).outcome).toBe("stopped");
+    const stopped = await stop(s, s.admin);
+    if (stopped.outcome !== "stopped") throw new Error(stopped.outcome);
+    // Refused after the stop: its line still goes.
+    const refused = await store().reject({
+      principal: s.owner,
+      workspaceId: s.workspaceId,
+      agentId: s.agentId,
+      bindingId: s.bindingId,
+      revision: stopped.binding.revision,
+      approverRoles: ["owner", "admin"],
+    });
+    expect(refused.outcome).not.toBe("not_found");
     const outbox = createPostgresSlackOutboxStore(db);
     const claimed = await outbox.claim({ limit: 10, leaseMs: 30_000 });
     expect(claimed.map((row) => row.kind)).toContain("emergency_stop_notice");

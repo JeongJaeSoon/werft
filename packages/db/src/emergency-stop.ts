@@ -463,6 +463,11 @@ async function stopConversationTurns(
     UPDATE conversation_turn_permits
     SET expires_at = LEAST(expires_at, clock_timestamp())
     WHERE turn_id IN (${ids})`);
+  // A call under way (a decided turn's closing one too) is regranted no more.
+  await tx.execute(sql`
+    UPDATE conversation_calls
+    SET expires_at = LEAST(expires_at, clock_timestamp())
+    WHERE conversation_turn_id IN (${ids}) AND state = 'in_flight'`);
   const dequeued = rowsOf<{ id: string }>(
     await tx.execute(sql`
     UPDATE conversation_turn_queue

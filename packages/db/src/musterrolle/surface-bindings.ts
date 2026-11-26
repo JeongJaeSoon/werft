@@ -1699,7 +1699,9 @@ async function resolve(
         WHERE installation_id = ${after.installationId}
           AND channel_id = ${after.channelId}
           AND status = 'pending'
-          AND NOT (kind = 'notice' AND session_id IS NULL)`);
+          AND NOT (kind = 'notice' AND session_id IS NULL)
+          -- An emergency stop's line still goes: the bot may be in it.
+          AND kind <> 'emergency_stop_notice'`);
     }
     const receiptId = await writeReceipt(
       tx,
