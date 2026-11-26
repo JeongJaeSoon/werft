@@ -1,6 +1,6 @@
 {
-  "id": "d4fa648b-16a7-4119-97a9-e6afcc913a6b",
-  "prevId": "50e62184-4848-4089-ae0c-ada553d9efbb",
+  "id": "257ce987-bb5f-40e8-9e8c-cd794c3f2fa0",
+  "prevId": "1b2aea5b-0375-4824-87a9-113cd8f3a128",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -17616,6 +17616,28 @@
           "method": "btree",
           "with": {}
         },
+        "sessions_owner_parent_idx": {
+          "name": "sessions_owner_parent_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "parent_conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"sessions\".\"parent_conversation_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "sessions_created_by_user_idx": {
           "name": "sessions_created_by_user_idx",
           "columns": [
@@ -18876,7 +18898,7 @@
         },
         "slack_inbound_events_drop_reason_check": {
           "name": "slack_inbound_events_drop_reason_check",
-          "value": "\"slack_inbound_events\".\"drop_reason\" IS NULL OR \"slack_inbound_events\".\"drop_reason\" IN ('not_installed','installation_unverified','installation_revoked','unidentified','identity_revoked','bot_mismatch','agent_mismatch','agent_archived','app_mismatch','bot_message','bot_allowlist_empty','bot_not_allowed','own_bot_user','werft_agent_bot','slackbot','message_subtype','unsupported_event','user_tokens_only','channel_pending_approval','channel_left','channel_gone','storage_limit_exceeded')"
+          "value": "\"slack_inbound_events\".\"drop_reason\" IS NULL OR \"slack_inbound_events\".\"drop_reason\" IN ('not_installed','installation_unverified','installation_revoked','unidentified','identity_revoked','bot_mismatch','agent_mismatch','agent_archived','app_mismatch','bot_message','bot_allowlist_empty','bot_not_allowed','own_bot_user','werft_agent_bot','slackbot','message_subtype','unsupported_event','user_tokens_only','channel_pending_approval','channel_left','channel_gone')"
         },
         "slack_inbound_events_payload_check": {
           "name": "slack_inbound_events_payload_check",
@@ -19763,6 +19785,52 @@
           "value": "(\"slack_outbox\".\"claim_token\" IS NULL) = (\"slack_outbox\".\"lease_expires_at\" IS NULL) AND (\"slack_outbox\".\"status\" IN ('pending', 'sending') OR \"slack_outbox\".\"claim_token\" IS NULL) AND (\"slack_outbox\".\"status\" <> 'sending' OR \"slack_outbox\".\"claim_token\" IS NOT NULL)"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.slack_outbox_rate_blocks": {
+      "name": "slack_outbox_rate_blocks",
+      "schema": "",
+      "columns": {
+        "installation_id": {
+          "name": "installation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "blocked_until": {
+          "name": "blocked_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "slack_outbox_rate_blocks_installation_id_slack_installations_id_fk": {
+          "name": "slack_outbox_rate_blocks_installation_id_slack_installations_id_fk",
+          "tableFrom": "slack_outbox_rate_blocks",
+          "tableTo": "slack_installations",
+          "columnsFrom": ["installation_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "slack_outbox_rate_blocks_installation_id_scope_pk": {
+          "name": "slack_outbox_rate_blocks_installation_id_scope_pk",
+          "columns": ["installation_id", "scope"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.slack_settings": {

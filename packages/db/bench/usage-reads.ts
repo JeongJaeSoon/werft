@@ -2,11 +2,12 @@
  * What the usage summary, series and breakdown cost on real PostgreSQL when an
  * installation has a long history: `days` of sessions at `per-day` a day,
  * each with turns and proxy-metered calls. One person started a twentieth of
- * them, which is what scope=me reads. PGlite timings do not carry over, so
+ * them, which is what scope=me reads. Conversation calls spread over the same
+ * period and five workspaces, half of them this one's. PGlite timings do not carry over, so
  * this takes a server: an empty database it migrates and seeds once; a later
  * run against the same database reuses the seed.
  *
- *   BENCH_DATABASE_URL=postgresql://… bun packages/db/bench/usage-reads.ts [per-day] [days] [turns-per-session] [calls-per-session]
+ *   BENCH_DATABASE_URL=postgresql://… bun packages/db/bench/usage-reads.ts [per-day] [days] [turns-per-session] [calls-per-session] [conversation-calls]
  */
 import { performance } from "node:perf_hooks";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -26,6 +27,7 @@ const perDay = Number(process.argv[2] ?? 1000);
 const days = Number(process.argv[3] ?? 400);
 const turnsPerSession = Number(process.argv[4] ?? 3);
 const callsPerSession = Number(process.argv[5] ?? 10);
+const conversationCalls = Number(process.argv[6] ?? 100_000);
 const RUNS = Number(process.env.BENCH_RUNS ?? 20);
 const OWNER = "00000000-0000-4000-8000-000000000001";
 const ME = "00000000-0000-4000-8000-000000000002";
@@ -139,11 +141,55 @@ if (existing.rows[0]?.n === 0) {
   }
   console.log(`seeded in ${((performance.now() - seeded) / 1000).toFixed(1)}s`);
 }
+const existingCalls = await pool.query<{ n: number }>(
+  "SELECT count(*)::int AS n FROM conversation_calls",
+);
+if (existingCalls.rows[0]?.n === 0) {
+  const client = await pool.connect();
+  try {
+    await client.query("SET session_replication_role = replica");
+    // One in thirty was released and one in a hundred is still in flight.
+    await client.query(`
+      WITH u AS (SELECT array_agg(id ORDER BY id = '${ME}' DESC, id) AS ids FROM users),
+           a AS (SELECT array_agg(id ORDER BY id) AS ids FROM agents),
+           g AS (
+             SELECT g, CASE WHEN g % 30 = 7 THEN 'released'
+                            WHEN g % 100 = 3 THEN 'in_flight'
+                            ELSE 'settled' END AS state,
+                    now() - (g::float8 / ${conversationCalls}) * interval '${days} days' AS at
+             FROM generate_series(1, ${conversationCalls}) g)
+      INSERT INTO conversation_calls (id, workspace_id, agent_id, token_hash,
+        root_kind, requester_user_id, connection_id, path, model, max_tokens,
+        max_request_bytes, state, exchange_id, expires_at, usage, cost_usd,
+        tokens, created_at, started_at, ended_at)
+      SELECT gen_random_uuid(),
+             CASE WHEN g % 2 = 0 THEN '${OWNER}'::uuid
+                  ELSE ('00000000-0000-4000-8000-00000000010' || (g % 8) / 2)::uuid END,
+             a.ids[1 + g % ${AGENTS}], sha256(g::text::bytea),
+             CASE WHEN g % 5 = 0 THEN 'key' ELSE 'user' END,
+             u.ids[1 + g % ${USERS}], 'bench', '/v1/messages',
+             'claude-haiku-4-5', 1024, 100000, state,
+             CASE WHEN state IN ('settled', 'in_flight') THEN 'call-' || g END,
+             at + interval '3 minutes',
+             CASE WHEN state = 'settled' THEN '{"inputTokens":900,"outputTokens":40}'::jsonb END,
+             CASE WHEN state = 'settled' THEN 0.002 END,
+             CASE WHEN state = 'settled' THEN 940 END,
+             at,
+             CASE WHEN state IN ('settled', 'in_flight') THEN at END,
+             CASE WHEN state IN ('settled', 'released') THEN at + interval '2 seconds' END
+      FROM g, u, a`);
+    await client.query("RESET session_replication_role");
+    await client.query("VACUUM ANALYZE conversation_calls");
+  } finally {
+    client.release();
+  }
+}
 const counts = await pool.query(
   `SELECT (SELECT count(*)::int FROM sessions) AS sessions,
           (SELECT count(*)::int FROM turns) AS turns,
           (SELECT count(*)::int FROM provider_usage) AS provider_usage,
           (SELECT count(*)::int FROM session_model_usage) AS session_model_usage,
+          (SELECT count(*)::int FROM conversation_calls) AS conversation_calls,
           (SELECT count(*)::int FROM sessions WHERE created_at > now() - interval '90 days') AS sessions_90d,
           (SELECT count(*)::int FROM sessions WHERE created_by_user_id = '${ME}' AND created_at > now() - interval '90 days') AS my_sessions_90d`,
 );
@@ -188,6 +234,18 @@ const reads = {
     reader.usageBreakdown(installation, { since: since(90) }, "agent"),
   "breakdown model me 90d": () =>
     reader.usageBreakdown(me, { since: since(90) }, "model"),
+  "series installation 1d": () =>
+    reader.usageSeries(installation, { since: since(1) }),
+  "series me 7d": () => reader.usageSeries(me, { since: since(7) }),
+  "series me 30d": () => reader.usageSeries(me, { since: since(30) }),
+  "breakdown agent installation 7d": () =>
+    reader.usageBreakdown(installation, { since: since(7) }, "agent"),
+  "breakdown agent me 30d": () =>
+    reader.usageBreakdown(me, { since: since(30) }, "agent"),
+  "people workspace 7d": () =>
+    reader.usagePeople({ ownerId: OWNER }, { since: since(7) }),
+  "people workspace 30d": () =>
+    reader.usagePeople({ ownerId: OWNER }, { since: since(30) }),
 } satisfies Record<string, () => Promise<unknown>>;
 
 const table: Record<string, Awaited<ReturnType<typeof timed>>> = {};
@@ -201,11 +259,19 @@ for (const label of [
   "series me 90d",
   "breakdown model installation 90d",
   "breakdown agent installation 90d",
+  "series installation 7d",
+  "series installation 30d",
+  "series me 30d",
+  "breakdown agent installation 7d",
+  "breakdown agent installation 30d",
+  "breakdown agent me 30d",
+  "people workspace 7d",
+  "people workspace 30d",
 ] as const) {
   captured.length = 0;
   await reads[label]();
   const read = captured.find(({ query }) =>
-    query.trimStart().startsWith("WITH"),
+    /^(WITH|SELECT now)/.test(query.trimStart()),
   );
   if (!read) throw new Error(`${label} ran no query`);
   // As the reader runs it: JIT off for the transaction.

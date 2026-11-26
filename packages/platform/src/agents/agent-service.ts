@@ -69,7 +69,7 @@ import {
 } from "../musterrolle/index.ts";
 import type { WorkspaceKeyStore } from "../musterrolle/ports/api-key-store.ts";
 import type { CredentialBindingStore } from "../musterrolle/ports/credential-binding-store.ts";
-import { viewerFor } from "../sessions/index.ts";
+import { pendingField, viewerFor } from "../sessions/index.ts";
 import type { AgentWelcomable } from "../surface/ports/agent-welcomable.ts";
 import type { ModelMoveStep } from "./model-move-runner.ts";
 import type {
@@ -1058,13 +1058,15 @@ export function createAgentService(deps: {
       // The store leaves out each agent whose settings the caller may not
       // read; that row goes without a summary. Sessions are counted only
       // where the caller could list them.
+      const { viewer, pending } = await viewerFor(authorization, caller);
       const summaries = await store.summaries(
         caller.ownerId,
         page.items.map((agent) => agent.id),
-        await viewerFor(authorization, caller),
+        viewer,
       );
       return {
         ...page,
+        ...pendingField(pending),
         items: page.items.map((agent) => {
           const summary = summaries.get(agent.id);
           return summary ? { ...listed(agent), summary } : listed(agent);

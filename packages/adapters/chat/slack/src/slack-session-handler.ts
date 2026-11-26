@@ -533,6 +533,10 @@ export function createSlackSessionHandler(
       return handling.kind === "table" ? handling.handling : null;
     };
 
+    // Set once the poster was told they may not stop the work: if the session
+    // then refuses the word as input too, that is not said a second time.
+    let stopRefused = false;
+
     /**
      * Stops the thread's work for the person who wrote the stop word and
      * says so in the thread. False when the message is input after all: the
@@ -577,6 +581,7 @@ export function createSlackSessionHandler(
           notice: { message: "stopNotPermitted" },
           onceKey: `${agent.installationId}:${surfaceRef}:${event.user}:stop:${event.ts}`,
         });
+        stopRefused = true;
         return false;
       }
       await deps.notices.recordInThread({
@@ -1119,9 +1124,10 @@ export function createSlackSessionHandler(
         code: error.code,
         reason_code: reasonCodeOf(error.details),
       });
-      // Slack deleted what the turn would come from: nothing is said there,
-      // the warning above is the record.
-      if (error.code === "SOURCE_DELETED") return;
+      // Slack deleted what the turn would come from, or the poster was already
+      // told of the stop's refusal: nothing is said, the warning above is the
+      // record.
+      if (error.code === "SOURCE_DELETED" || stopRefused) return;
       if (
         // GITHUB_REFUSED: unreadable GitHub settings or the workspace ceiling.
         (error.code === "UNSUPPORTED_CAPABILITY" ||

@@ -199,20 +199,21 @@ integration("slack_inbound_events on PostgreSQL", () => {
     }
   });
 
-  test("racing claimers take only each thread's head while it is in flight", async () => {
+  test("racing claimers take only each channel's head while it is in flight", async () => {
     const app = await agentApp();
     const inbox = createPostgresSlackInboundEventStore(db);
     const team = slackId("T");
-    const threads = 6;
-    const perThread = 8;
-    for (let n = 0; n < perThread; n += 1) {
-      for (let thread = 0; thread < threads; thread += 1) {
+    const channels = 6;
+    const perChannel = 8;
+    for (let n = 0; n < perChannel; n += 1) {
+      for (let channel = 0; channel < channels; channel += 1) {
         await inbox.record({
-          ...event(app, team, `EvHEAD${thread}-${n}`),
+          ...event(app, team, `EvHEAD${channel}-${n}`),
           eventTime: new Date(Date.parse("2026-10-24T10:00:00Z") + n * 1000),
           status: "received",
-          payload: {},
-          conversationKey: `${app.slackAppId}:C2:${thread}`,
+          // Each in a thread of its own; the channel lines them up.
+          payload: { event: { channel: `C2${channel}`, ts: `${n}.0` } },
+          conversationKey: `${app.slackAppId}:C2${channel}:${n}.0`,
         });
       }
     }
@@ -223,7 +224,7 @@ integration("slack_inbound_events on PostgreSQL", () => {
         createPostgresSlackInboundEventStore(drizzle(second, { schema })),
       ];
       const taken: string[] = [];
-      // Nobody completes, so each thread's head stays leased throughout.
+      // Nobody completes, so each channel's head stays leased throughout.
       const worker = async (store: (typeof stores)[number]) => {
         for (;;) {
           const batch = await store.claim({
@@ -240,22 +241,22 @@ integration("slack_inbound_events on PostgreSQL", () => {
       );
       const mine = taken.filter((id) => id.startsWith("EvHEAD")).sort();
       console.log(
-        `thread heads (PostgreSQL): ${mine.length} claimed of ${threads * perThread} rows in ${threads} threads`,
+        `channel heads (PostgreSQL): ${mine.length} claimed of ${channels * perChannel} rows in ${channels} channels`,
       );
       expect(mine).toEqual(
-        Array.from({ length: threads }, (_, thread) => `EvHEAD${thread}-0`),
+        Array.from({ length: channels }, (_, channel) => `EvHEAD${channel}-0`),
       );
 
       // Late retries of older events land while claimers keep racing; the
       // heads are still in flight, so none may run beside them.
       const late = await Promise.all([
-        ...Array.from({ length: threads }, (_, thread) =>
+        ...Array.from({ length: channels }, (_, channel) =>
           inbox.record({
-            ...event(app, team, `EvLATE${thread}`),
+            ...event(app, team, `EvLATE${channel}`),
             eventTime: new Date("2026-10-24T09:59:00Z"),
             status: "received",
-            payload: {},
-            conversationKey: `${app.slackAppId}:C2:${thread}`,
+            payload: { event: { channel: `C2${channel}`, ts: "1.0" } },
+            conversationKey: `${app.slackAppId}:C2${channel}:1.0`,
           }),
         ),
         ...stores.flatMap((store) =>
@@ -277,7 +278,7 @@ integration("slack_inbound_events on PostgreSQL", () => {
         .flat()
         .filter((id) => id.startsWith("EvHEAD") || id.startsWith("EvLATE"));
       console.log(
-        `late retries (PostgreSQL): ${lateTaken.length} claimed beside ${threads} in-flight heads`,
+        `late retries (PostgreSQL): ${lateTaken.length} claimed beside ${channels} in-flight heads`,
       );
       expect(lateTaken).toEqual([]);
     } finally {
@@ -285,7 +286,7 @@ integration("slack_inbound_events on PostgreSQL", () => {
     }
   });
 
-  test("a claim waits for another claimer's uncommitted lease before judging the thread", async () => {
+  test("a claim waits for another claimer's uncommitted lease before judging the channel", async () => {
     const app = await agentApp();
     const inbox = createPostgresSlackInboundEventStore(db);
     const team = slackId("T");
@@ -293,7 +294,7 @@ integration("slack_inbound_events on PostgreSQL", () => {
     await inbox.record({
       ...event(app, team, "EvLOCKHEAD"),
       status: "received",
-      payload: {},
+      payload: { event: { channel: "C3", ts: "1.0" } },
       conversationKey: key,
     });
     // Another claimer mid-claim: holds the claim lock and has leased the
@@ -313,7 +314,7 @@ integration("slack_inbound_events on PostgreSQL", () => {
         ...event(app, team, "EvLOCKEARLY"),
         eventTime: new Date("2026-10-24T09:00:00Z"),
         status: "received",
-        payload: {},
+        payload: { event: { channel: "C3", ts: "1.0" } },
         conversationKey: key,
       });
       let settled = false;
