@@ -15,6 +15,8 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **관리자가 채널 멤버가 아니어도 에이전트 Slack 탭의 채널 행에서 "긴급 정지"로 그 채널의 에이전트를 이유와 함께 바로 멈춘다**(JeongJaeSoon/werft#2268). 새 경로는 `POST /v1/agents/{id}/slack-bindings/{binding_id}/emergency-stop`이고 `binding.manage` 권한이 있으면 된다. 그 채널의 돌던 turn은 `emergency_stopped`로 끝나고, 보내지 않은 글은 취소되며, checkpoint가 있는 세션은 정지된다. 멈춘 동안 그 채널의 세션은 메시지와 재개를 `403`으로 거절한다. 다시 켜려면 이유를 적는다. 다시 켜도 세션은 사람이 재개해야 이어진다. migration `0383_emergency_stop`이 `surface_bindings`에 빈 열 세 개를 더하고 CHECK 네 개에 새 값을 더한다. 줄은 다시 쓰지 않는다. 따로 할 일은 없다.
+  - 앞선 이미지로 되돌리기 전에 멈춘 채널을 모두 다시 켠다. 앞선 이미지는 정지를 읽지 않아 그 채널 세션의 입력과 재개를 막지 않고, `pause_reason` `emergency_stopped`인 세션도 알아보지 못한다.
 - **대화 rollout이 `on`인 에이전트가 올리는 글이 모두 AI가 쓴 글이라는 작은 회색 줄(`AI 에이전트 · Werft`)로 끝난다**(JeongJaeSoon/werft#2259). 한 턴의 결과나 요청인 글에는 `<이름> 님 요청`이 붙는다. `off`·`shadow`인 에이전트의 글은 전과 같다. migration은 없고 따로 할 일도 없다.
 - **DB가 15초 내려가도 heartbeat 간격의 어느 때에 시작됐든 진행 중인 turn이 끝까지 간다**(JeongJaeSoon/werft#2245). worker의 heartbeat 간격이 5초에서 2초로 준다. 전에는 장애가 간격의 끝 무렵(마지막 heartbeat 뒤 약 4.2초 넘어)에 시작되면 turn이 `worker_ownership_lost`로 끝났다. lease TTL(30초)과 안전 마진(10초)은 그대로이고, migration은 없다.
   - heartbeat 트랜잭션이 worker 하나당 초당 0.2회에서 0.5회로 는다. 동시 worker 50개면 초당 25회다.
