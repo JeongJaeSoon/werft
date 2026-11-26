@@ -158,6 +158,16 @@ async function sessionMeta() {
     return meta;
   });
 }
+/** The head's progress line: step, tool calls, time, cost and tokens. */
+async function sessionProgress() {
+  return waitFor(() => {
+    const line = document.querySelector<HTMLElement>(
+      "[data-slot='session-progress']",
+    );
+    if (!line) throw new Error("no session progress line yet");
+    return line;
+  });
+}
 const EVENTS_ROUTE = `GET /v1/sessions/${SESSION_ID}/events`;
 
 /** The filter panel's relation section, unfolded. */
@@ -2098,9 +2108,9 @@ describe("session detail", () => {
     expect(
       await screen.findByText("한도에 도달해 새 턴을 시작하지 않습니다."),
     ).toBeTruthy();
-    const meta = await sessionMeta();
-    await waitFor(() => expect(meta.textContent).toContain("<$0.01"));
-    expect(meta.textContent).toContain("토큰 1,234");
+    const progress = await sessionProgress();
+    await waitFor(() => expect(progress.textContent).toContain("<$0.01"));
+    expect(progress.textContent).toContain("토큰 1,234");
     expect(
       await screen.findByRole("article", { name: "권한 요청: Bash" }),
     ).toBeTruthy();
@@ -2401,8 +2411,13 @@ describe("session detail", () => {
         text: "첫 답",
       });
     });
+    // The step list names each instruction too; these are the chat's.
     const asked = async (text: string) =>
-      (await screen.findByText(text)).closest("[data-slot='chat-message']");
+      (
+        await within(screen.getByRole("list", { name: "이벤트" })).findByText(
+          text,
+        )
+      ).closest("[data-slot='chat-message']");
     const first = await asked("첫 지시");
     expect(first?.getAttribute("data-side")).toBe("self");
     expect(first?.textContent).toContain("김민아");
@@ -2631,14 +2646,14 @@ describe("session detail", () => {
       refused(() => apiError(403, "FORBIDDEN", "may not read")));
   });
 
-  test("cost reads with two decimals in the head's meta line", async () => {
+  test("cost reads with two decimals in the head's progress line", async () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
       [`GET /v1/sessions/${SESSION_ID}/usage`]: () =>
         json(200, { ...usage, cost: { ...usage.cost, amount_usd: "1.5" } }),
     });
-    const meta = await sessionMeta();
-    await waitFor(() => expect(meta.textContent).toContain("$1.50"));
+    const progress = await sessionProgress();
+    await waitFor(() => expect(progress.textContent).toContain("$1.50"));
   });
 
   test("a turn that ended without a cost report is not called running", async () => {
@@ -3393,9 +3408,11 @@ describe("session runtime", () => {
     await user.click(await screen.findByRole("textbox", { name: "다음 지시" }));
     await user.keyboard("next step{Control>}{Enter}{/Control}");
     // No worker has started the turn, so no event names it.
-    const bubble = (await screen.findByText("next step")).closest(
-      "[data-slot='chat-message']",
-    );
+    const bubble = (
+      await within(screen.getByRole("list", { name: "이벤트" })).findByText(
+        "next step",
+      )
+    ).closest("[data-slot='chat-message']");
     expect(bubble?.getAttribute("data-side")).toBe("self");
     const notice = await screen.findByText("메시지를 보냈습니다.");
     expect(notice.tagName).toBe("OUTPUT");
@@ -3576,6 +3593,10 @@ describe("session runtime", () => {
     });
     const allow = await screen.findByRole("button", { name: "승인" });
     expect(allow.hasAttribute("disabled")).toBe(true);
+    // A key that may not answer is not told its input is needed.
+    expect(
+      screen.queryByRole("region", { name: "내 입력이 필요합니다" }),
+    ).toBeNull();
     // Beside the buttons, once.
     expect(
       screen.getAllByText("sessions:approve 권한이 있어야 할 수 있습니다."),
@@ -3728,8 +3749,8 @@ describe("세션 상세 레이아웃", () => {
     expect(
       screen.getAllByRole("group", { name: "세션 조작", hidden: true }),
     ).toEqual([controls]);
-    const meta = await sessionMeta();
-    await waitFor(() => expect(meta.textContent).toContain("<$0.01"));
+    const progress = await sessionProgress();
+    await waitFor(() => expect(progress.textContent).toContain("<$0.01"));
   });
 
   // happy-dom lays nothing out, so this pins what keeps the boxes still; the
@@ -4981,6 +5002,379 @@ describe("세션의 릴리스", () => {
       expect(piece.querySelectorAll("[data-slot=text]")).toHaveLength(0);
       // Nor anywhere else on the line, outside the piece.
       expect((meta.textContent ?? "").includes("릴리스")).toBe(false);
+    },
+  );
+});
+
+describe("session steps", () => {
+  const turn = (
+    turn_id: string,
+    status: string,
+    extra: Record<string, unknown> = {},
+  ) => ({
+    turn_id,
+    session_id: SESSION_ID,
+    status,
+    message: `지시 ${turn_id}`,
+    channel: "web",
+    created_by: null,
+    slack_permalink: null,
+    terminal_reason: null,
+    checkpoint_revision: null,
+    created_at: AT,
+    started_at: AT,
+    ended_at: status === "running" || status === "needs_input" ? null : AT,
+    ...extra,
+  });
+  const waitingOnTwo = {
+    ...detailRoutes,
+    [`GET /v1/sessions/${SESSION_ID}`]: () =>
+      json(200, { ...detail, current_turn_id: "2", attention: null }),
+    [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+      json(200, {
+        // As the API projects it: the turn with an open request reads needs_input.
+        items: [turn("1", "completed"), turn("2", "needs_input")],
+        next_cursor: null,
+      }),
+    [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+      json(200, {
+        ...pending,
+        items: pending.items.map((item) => ({
+          ...item,
+          turn_id: "2",
+          expires_at: LATER,
+        })),
+      }),
+  };
+
+  test("reads the turns again when they show a turn running that the session no longer runs", async () => {
+    let turnReads = 0;
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          status: "idle",
+          current_turn_id: null,
+          attention: null,
+        }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () => {
+        turnReads += 1;
+        return json(200, {
+          // The second read still lags; only the third has caught up.
+          items: [turn("1", turnReads <= 2 ? "running" : "completed")],
+          next_cursor: null,
+        });
+      },
+    });
+    const list = await screen.findByRole("region", { name: "단계" });
+    await waitFor(
+      () =>
+        expect(within(list).getByRole("listitem").textContent).toContain(
+          "마침",
+        ),
+      { timeout: 4_000 },
+    );
+    expect(turnReads).toBeGreaterThanOrEqual(3);
+    expect(
+      within(list).getByRole("listitem").getAttribute("aria-current"),
+    ).toBeNull();
+    const reads = turnReads;
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    // Once the reads agree, the rechecks stop.
+    expect(turnReads).toBe(reads);
+  });
+
+  test("reads the turns again when the session counts a queued turn they lack", async () => {
+    let turnReads = 0;
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          status: "running",
+          current_turn_id: "1",
+          queued_turn_count: 1,
+          attention: null,
+        }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () => {
+        turnReads += 1;
+        return json(200, {
+          // Another client queued turn 2; the first read missed it.
+          items:
+            turnReads === 1
+              ? [turn("1", "running")]
+              : [
+                  turn("1", "running"),
+                  turn("2", "queued", { started_at: null }),
+                ],
+          next_cursor: null,
+        });
+      },
+    });
+    const progress = await sessionProgress();
+    await within(progress).findByRole(
+      "button",
+      { name: /^단계 1\/2/ },
+      { timeout: 4_000 },
+    );
+  });
+
+  test("counts the turns as steps, opens only the current one and marks its approval wait", async () => {
+    const user = await setupUser();
+    renderAt(`/sessions/${SESSION_ID}`, waitingOnTwo);
+    const progress = await sessionProgress();
+    const toggle = await within(progress).findByRole("button", {
+      name: /^단계 2\/2/,
+    });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const list = screen.getByRole("region", { name: "단계" });
+    expect(toggle.getAttribute("aria-controls")).toBe(list.id);
+    const [first, second] = within(list).getAllByRole("listitem");
+    expect(second?.getAttribute("aria-current")).toBe("step");
+    expect(first?.getAttribute("aria-current")).toBeNull();
+    const open = within(second as HTMLElement).getByRole("button", {
+      name: /2단계: 지시 2/,
+    });
+    expect(open.getAttribute("aria-expanded")).toBe("true");
+    expect(open.textContent).toContain("승인 대기, 지금 단계");
+    expect(
+      within(second as HTMLElement).getByText("승인을 기다리는 도구: Bash"),
+    ).toBeTruthy();
+    // The open turn's time runs from its start.
+    expect(second?.textContent).toMatch(/시작한 지 /);
+    const closed = within(first as HTMLElement).getByRole("button", {
+      name: /1단계: 지시 1/,
+    });
+    expect(closed.textContent).toContain("마침");
+    expect(closed.textContent).not.toContain("지금 단계");
+    expect(closed.getAttribute("aria-expanded")).toBe("false");
+
+    // Any step opens by its row; the count folds the whole list.
+    await user.click(closed);
+    expect(closed.getAttribute("aria-expanded")).toBe("true");
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(list.hidden).toBe(true);
+  });
+
+  test("says the viewer's input is needed and takes the keyboard to the requests", async () => {
+    const user = await setupUser();
+    renderAt(`/sessions/${SESSION_ID}`, waitingOnTwo);
+    const needed = await screen.findByRole("region", {
+      name: "내 입력이 필요합니다",
+    });
+    expect(needed.textContent).toContain("승인 1건");
+    await screen.findByRole("article", { name: "권한 요청: Bash" });
+    await user.click(within(needed).getByRole("button", { name: "요청 보기" }));
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("답변 대기 요청"),
+    );
+  });
+
+  test("a viewer who may not answer is not told their input is needed", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...waitingOnTwo,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, {
+          ...pending,
+          answerable: false,
+          items: pending.items.map((item) => ({
+            ...item,
+            turn_id: "2",
+            expires_at: LATER,
+          })),
+        }),
+    });
+    const list = await screen.findByRole("region", { name: "단계" });
+    // The step still waits on approval; it is only not this viewer's to give.
+    await within(list).findByText("승인 대기");
+    expect(
+      screen.queryByRole("region", { name: "내 입력이 필요합니다" }),
+    ).toBeNull();
+  });
+
+  test("an answer read before the turn is read again leaves no wait behind", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...waitingOnTwo,
+      // The session read after the answer: running, nothing open.
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          status: "running",
+          current_turn_id: "2",
+          pending_request_count: 0,
+          attention: null,
+        }),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+    });
+    const list = await screen.findByRole("region", { name: "단계" });
+    await within(list).findByText("진행 중");
+    expect(within(list).queryByText("승인 대기")).toBeNull();
+    expect(within(list).queryByText("답변 대기")).toBeNull();
+  });
+
+  test("a request past its expiry neither asks for input nor holds its step", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...waitingOnTwo,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, {
+          ...pending,
+          // AT is long past.
+          items: pending.items.map((item) => ({ ...item, turn_id: "2" })),
+        }),
+    });
+    const list = await screen.findByRole("region", { name: "단계" });
+    await within(list).findByText("진행 중");
+    expect(within(list).queryByText("승인 대기")).toBeNull();
+    expect(
+      screen.queryByRole("region", { name: "내 입력이 필요합니다" }),
+    ).toBeNull();
+  });
+
+  test("a request that lapses while the screen is open leaves the input line and its step", async () => {
+    const soon = new Date(Date.now() + 1_000).toISOString();
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...waitingOnTwo,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, {
+          ...pending,
+          items: pending.items.map((item) => ({
+            ...item,
+            turn_id: "2",
+            expires_at: soon,
+          })),
+        }),
+    });
+    const needed = await screen.findByRole("region", {
+      name: "내 입력이 필요합니다",
+    });
+    const list = screen.getByRole("region", { name: "단계" });
+    expect(within(list).getByText("승인 대기")).toBeTruthy();
+    await waitFor(() => expect(needed.isConnected).toBe(false), {
+      timeout: 3_000,
+    });
+    expect(within(list).queryByText("승인 대기")).toBeNull();
+  });
+
+  test("a session nothing waits on has no input-needed line", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...waitingOnTwo,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+    });
+    await within(await sessionProgress()).findByRole("button", {
+      name: /^단계 2\/2/,
+    });
+    expect(
+      within(screen.getByRole("region", { name: "단계" })).queryByText(
+        "승인 대기",
+      ),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("region", { name: "내 입력이 필요합니다" }),
+    ).toBeNull();
+  });
+
+  test("a blocked session says why under its steps, with the fix where it is", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          status: "idle",
+          current_turn_id: null,
+          pending_request_count: 0,
+          attention: {
+            code: "CATALOG_MISMATCH",
+            reason: "connection_disabled",
+          },
+        }),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, { items: [turn("1", "completed")], next_cursor: null }),
+    });
+    await within(await sessionProgress()).findByRole("button", {
+      name: /^단계 1개/,
+    });
+    const list = screen.getByRole("region", { name: "단계" });
+    expect(
+      within(list).getByText(
+        "다음 단계를 시작하지 못합니다. 모델 연결이나 저장소 설정이 바뀌어 실행할 수 없습니다.",
+      ),
+    ).toBeTruthy();
+    // Nothing runs, so no step is current or open.
+    const [only] = within(list).getAllByRole("listitem");
+    expect(only?.getAttribute("aria-current")).toBeNull();
+  });
+
+  test("a step a lost worker cut off offers to continue in its place", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          status: "idle",
+          current_turn_id: null,
+          pending_request_count: 0,
+          attention: null,
+        }),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, {
+          items: [
+            turn("1", "failed", { terminal_reason: "worker_ownership_lost" }),
+          ],
+          next_cursor: null,
+        }),
+    });
+    const list = await screen.findByRole("region", { name: "단계" });
+    const [only] = within(list).getAllByRole("listitem");
+    expect(
+      await within(only as HTMLElement).findByText(
+        "작업자가 세션을 놓쳐 이 단계가 중간에 끊겼습니다.",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(only as HTMLElement).getByRole("button", {
+        name: "이 단계 이어서 하기",
+      }),
+    ).toBeTruthy();
+  });
+
+  test.each([
+    [
+      "en",
+      /^Step 2\/2/,
+      "Awaiting approval",
+      "Your input is needed",
+      "View requests",
+    ],
+    [
+      "ja",
+      /^ステップ 2\/2/,
+      "承認待ち",
+      "あなたの入力が必要です",
+      "リクエストを見る",
+    ],
+  ] as const)(
+    "in %s the steps and the input line speak it",
+    async (locale, count, waiting, needed, show) => {
+      renderAt(`/sessions/${SESSION_ID}`, waitingOnTwo, locale);
+      await within(await sessionProgress()).findByRole("button", {
+        name: count,
+      });
+      const [, second] = within(
+        screen.getByRole("region", {
+          name: locale === "en" ? "Steps" : "ステップ",
+        }),
+      ).getAllByRole("listitem");
+      expect(within(second as HTMLElement).getByText(waiting)).toBeTruthy();
+      const line = await screen.findByRole("region", { name: needed });
+      expect(within(line).getByRole("button", { name: show })).toBeTruthy();
     },
   );
 });

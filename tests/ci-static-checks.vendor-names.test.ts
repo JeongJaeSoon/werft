@@ -109,7 +109,8 @@ describe("vendor-names.ts", () => {
     expect(identifiers("# a\n\n   \n  # b\n")).toEqual([]);
   });
 
+  // Reads every tracked file; CI runners pass bun's 5 s default.
   test("this repository passes", () => {
     expect(findNames(repo)).toEqual([]);
-  });
+  }, 30_000);
 });
