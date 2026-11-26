@@ -60,6 +60,7 @@ import {
   workers,
   workspaces,
 } from "./schema.ts";
+import { acquireFence } from "./sessions/fence.ts";
 import { pauseBlocker } from "./sessions/pause-control.ts";
 import { commitCheckpoint } from "./testing/checkpoints.ts";
 import { insertDecisionModel } from "./testing/decision-model.ts";
@@ -899,6 +900,58 @@ integration("worker gateway on PostgreSQL", () => {
       }
       expect(await pending).toBe(expected);
       expect(await stateOf(claimed.attempt_id)).toBe(state);
+    }
+  });
+
+  test("the fence reads the database clock after its row lock is granted, and judges the rows the lock returned", async () => {
+    // Only locking: a changed row would make PostgreSQL re-evaluate a
+    // locking SELECT's target list after the wait, hiding a clock read
+    // before it. Renewing: the fence returns the committed lease.
+    for (const renew of [false, true]) {
+      const session = await queuedSession(partitionFor("fence-clock"));
+      const claimed = await claim(await launch(session.session_id));
+      await pool.query(
+        "UPDATE attempts SET lease_expires_at = clock_timestamp() + interval '1 minute' WHERE id = $1",
+        [claimed.attempt_id],
+      );
+      const blocker = await pool.connect();
+      let pending: ReturnType<typeof acquireFence>;
+      let committedAt: number;
+      let renewed: Date | undefined;
+      try {
+        await blocker.query("BEGIN");
+        await blocker.query("SELECT 1 FROM sessions WHERE id = $1 FOR UPDATE", [
+          session.session_id,
+        ]);
+        if (renew) {
+          const { rows } = await blocker.query(
+            "UPDATE attempts SET lease_expires_at = clock_timestamp() + interval '2 minutes' WHERE id = $1 RETURNING lease_expires_at",
+            [claimed.attempt_id],
+          );
+          renewed = rows[0].lease_expires_at;
+        }
+        pending = db.transaction((tx) => acquireFence(tx, fenceOf(claimed)));
+        expect(await lockWaitSeen()).toBe(true);
+        await sleep(300);
+        const clock = await blocker.query(
+          "SELECT (extract(epoch from clock_timestamp()) * 1000)::text AS ms",
+        );
+        // `at` is a Date, whole milliseconds.
+        committedAt = Math.floor(Number(clock.rows[0].ms));
+        await blocker.query("COMMIT");
+      } catch (error) {
+        await blocker.query("ROLLBACK");
+        throw error;
+      } finally {
+        blocker.release();
+      }
+      const fenced = await pending;
+      if (fenced.outcome !== "ok") throw new Error(fenced.outcome);
+      // A clock read before the wait would be some 300 ms older than this.
+      expect(fenced.at.getTime()).toBeGreaterThanOrEqual(committedAt);
+      if (renewed) {
+        expect(fenced.attempt.leaseExpiresAt.getTime()).toBe(renewed.getTime());
+      }
     }
   });
 
