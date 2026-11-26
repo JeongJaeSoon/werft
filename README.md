@@ -37,3 +37,4 @@ PolyForm Small Business 1.0.0의 허용 범위는 `LICENSE`의 "Small Business" 
 - 복사본을 다른 사람에게 넘길 때는 라이선스 전문(또는 URL)과 `LICENSE` 첫 줄의 `Required Notice:`를 함께 넘긴다.
 
 평가·상용 라이선스 문의: jaesoon@94soon.dev
+
