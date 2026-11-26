@@ -6127,6 +6127,10 @@ export const conversationTurnQueue = pgTable(
     index("conversation_turn_queue_ended_idx")
       .on(table.endedAt)
       .where(sql`${table.state} = 'ended'`),
+    // The kept requests a sweep lets go at their deadline: the few kept now.
+    index("conversation_turn_queue_kept_idx")
+      .on(table.inputKeptUntil)
+      .where(sql`${table.inputKeptUntil} IS NOT NULL`),
     check(
       "conversation_turn_queue_state_check",
       sql`${table.attempt} >= 1 AND ${table.takeMs} >= 0 AND CASE ${table.state}

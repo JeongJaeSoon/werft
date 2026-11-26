@@ -7,7 +7,9 @@
 -- input_kept_until, so a turn an older image ends is cleared all the same.
 -- Nullable columns, no row rewritten; an older image neither reads nor writes
 -- them. The CHECKs are added NOT VALID and validated in statements of their
--- own, so no scan holds a write lock. Every statement may run again.
+-- own, so no scan holds a write lock. The sweep that lets kept requests go
+-- reads a partial index of the few kept, built CONCURRENTLY: the queue is
+-- written on every turn. Every statement may run again.
 ALTER TABLE "conversation_turn_queue" ADD COLUMN IF NOT EXISTS "input_kept_until" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "conversation_turns" ADD COLUMN IF NOT EXISTS "task_draft" jsonb;--> statement-breakpoint
 ALTER TABLE "conversation_turns" ADD COLUMN IF NOT EXISTS "slack_subject" jsonb;--> statement-breakpoint
@@ -23,4 +25,6 @@ ALTER TABLE "conversation_turn_queue" ADD CONSTRAINT "conversation_turn_queue_st
 ALTER TABLE "conversation_turn_queue" VALIDATE CONSTRAINT "conversation_turn_queue_state_check";--> statement-breakpoint
 ALTER TABLE "conversation_turns" DROP CONSTRAINT IF EXISTS "conversation_turns_task_check";--> statement-breakpoint
 ALTER TABLE "conversation_turns" ADD CONSTRAINT "conversation_turns_task_check" CHECK (("conversation_turns"."task_draft" IS NULL OR "conversation_turns"."decision" = 'spawn_task') AND ("conversation_turns"."task_effect" IS NULL OR ("conversation_turns"."decision" = 'spawn_task' AND "conversation_turns"."task_effect" IN ('opened','refused','failed','voided')))) NOT VALID;--> statement-breakpoint
-ALTER TABLE "conversation_turns" VALIDATE CONSTRAINT "conversation_turns_task_check";
+ALTER TABLE "conversation_turns" VALIDATE CONSTRAINT "conversation_turns_task_check";--> statement-breakpoint
+DROP INDEX CONCURRENTLY IF EXISTS "conversation_turn_queue_kept_idx";--> statement-breakpoint
+CREATE INDEX CONCURRENTLY "conversation_turn_queue_kept_idx" ON "conversation_turn_queue" USING btree ("input_kept_until") WHERE "conversation_turn_queue"."input_kept_until" IS NOT NULL;
