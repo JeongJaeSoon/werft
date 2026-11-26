@@ -185,6 +185,42 @@ export function useAnswer(id: string) {
   });
 }
 
+/**
+ * Reads again, once, each of the session's shown reads that failed: a
+ * reconnected stream or a changed status says the server answers again. One
+ * that fails again keeps its error, and a read already going is joined.
+ */
+function retryFailedReads(
+  queryClient: QueryClient,
+  client: ApiClient,
+  id: string,
+) {
+  // The detail's key prefixes every other read of the session.
+  void queryClient.refetchQueries(
+    {
+      ...sessionQuery(client, id),
+      type: "active",
+      predicate: (query) => query.state.status === "error",
+    },
+    { cancelRefetch: false },
+  );
+}
+
+/** Reads the session's failed reads again when its status changes. */
+export function useRetryFailedReadsOnStatus(
+  id: string,
+  status: string | undefined,
+) {
+  const { client } = useWerft();
+  const queryClient = useQueryClient();
+  const seen = useRef(status);
+  useEffect(() => {
+    if (seen.current === status) return;
+    seen.current = status;
+    retryFailedReads(queryClient, client, id);
+  }, [queryClient, client, id, status]);
+}
+
 /** Queues a message as the session's next turn. */
 export function useSendMessage(id: string) {
   const { client } = useWerft();
@@ -360,7 +396,7 @@ interface Resume {
  * refusal (the share taken back, the login gone, a decision that kept
  * failing) closes it, and `reconnect` opens it again after the last event
  * shown. An event that changes the session's state refreshes the queries it
- * makes stale.
+ * makes stale, and each open reads again the session's reads that failed.
  */
 export function useSessionEvents(id: string, enabled: boolean) {
   const { client, onUnauthorized, eventRetry } = useWerft();
@@ -444,7 +480,9 @@ export function useSessionEvents(id: string, enabled: boolean) {
       onState: (next) => {
         if (stop.signal.aborted) return;
         setState(next);
-        if (next === "open") setFailedAttempts(0);
+        if (next !== "open") return;
+        setFailedAttempts(0);
+        retryFailedReads(queryClient, client, id);
       },
       onRetry: (failed) => {
         if (!stop.signal.aborted) setFailedAttempts(failed);
