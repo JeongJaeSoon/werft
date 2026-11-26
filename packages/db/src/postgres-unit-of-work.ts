@@ -125,7 +125,7 @@ import {
 import { DB_NOW } from "./db-clock.ts";
 import { budgetAccountRefused } from "./exchange-budget.ts";
 import { captureGitHubPolicyStart } from "./github/github-settings.ts";
-import { admitInput } from "./input-limits.ts";
+import { acceptanceTransaction, admitInput } from "./input-limits.ts";
 import { readArchivedWorkspaceLimit } from "./limits/workspace-limit.ts";
 import {
   agentNamedInSession,
@@ -512,7 +512,7 @@ export function createPostgresSessionUnitOfWork(
         resource: SESSIONS_RESOURCE,
         key: input.idempotencyKey,
       };
-      return db.transaction(async (tx) => {
+      return acceptanceTransaction(db, async (tx) => {
         await lockIdempotencyScope(tx, scope);
         const existing = await findIdempotent(tx, scope);
         if (existing) {
@@ -870,7 +870,7 @@ export function createPostgresSessionUnitOfWork(
             ? input.idempotencyKey
             : String(input.continueTurn),
       };
-      return db.transaction(async (tx) => {
+      return acceptanceTransaction(db, async (tx) => {
         await lockIdempotencyScope(tx, scope);
         const existing = await findIdempotent(tx, scope);
         if (existing) {

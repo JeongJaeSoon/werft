@@ -2012,10 +2012,45 @@
       "breakpoints": true
     },
     {
-      "idx": 389,
+      "idx": 378,
       "version": "7",
-      "when": 1795677593582,
-      "tag": "0389_session_owner_in_flight_idx",
+      "when": 1795678667333,
+      "tag": "0378_session_stops",
+      "breakpoints": true
+    },
+    {
+      "idx": 379,
+      "version": "7",
+      "when": 1795687854277,
+      "tag": "0379_storage_charge_at_commit",
+      "breakpoints": true
+    },
+    {
+      "idx": 380,
+      "version": "7",
+      "when": 1795689020397,
+      "tag": "0380_slack_outbox_rate_blocks",
+      "breakpoints": true
+    },
+    {
+      "idx": 381,
+      "version": "7",
+      "when": 1795693717641,
+      "tag": "0381_session_owner_parent_idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 382,
+      "version": "7",
+      "when": 1795694565240,
+      "tag": "0382_conversation_calls_period_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 383,
+      "version": "7",
+      "when": 1795694903565,
+      "tag": "0383_conversation_turn_list_indexes",
       "breakpoints": true
     }
   ]

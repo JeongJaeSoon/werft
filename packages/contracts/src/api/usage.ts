@@ -4,6 +4,7 @@ import { costUsdSchema } from "../domain/digest.ts";
 import {
   agentIdSchema,
   opaqueCursorSchema,
+  privateChannelsPendingSchema,
   sessionIdSchema,
   timestampSchema,
   userIdSchema,
@@ -471,6 +472,7 @@ export const usageToolCallsResponseSchema = z
     per_day: z.array(
       z.object({ date: z.iso.date(), calls: countSchema }).strict(),
     ),
+    private_channels_pending: privateChannelsPendingSchema,
   })
   .strict();
 
@@ -619,6 +621,7 @@ export const usageAchievementsResponseSchema = z
       .strict(),
     refreshed_at: timestampSchema,
     session_count: countSchema,
+    private_channels_pending: privateChannelsPendingSchema,
     sessions_with_achievement_count: countSchema,
     cost_usd: costUsdSchema,
     cost_complete: z.boolean(),
