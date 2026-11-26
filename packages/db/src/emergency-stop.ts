@@ -21,6 +21,7 @@ import { PAUSE } from "./sessions/drain.ts";
 import { pauseReceiptResult } from "./sessions/pause-control.ts";
 import { hasRestorePoint } from "./sessions/pause-policy.ts";
 import { awaitingInputAt } from "./sessions/pending-status.ts";
+import { lockChannelKind } from "./sessions/private-channel-scope.ts";
 import { recordEvent, recordStatus } from "./sessions/session-events.ts";
 import { settleTurnInterrupts } from "./sessions/turn-interrupts.ts";
 import { rowsOf } from "./statement-rows.ts";
@@ -34,7 +35,83 @@ export type ChannelWorkPlace = {
   agentId: string;
   installationId: string;
   channelId: string;
+  /**
+   * Every install of the channel's Slack team the agent is bound there
+   * through, `installationId` among them: one stop covers them all.
+   */
+  installationIds: readonly string[];
 };
+
+const installsOf = (ids: readonly string[]) =>
+  sql.join(
+    ids.map((id) => sql`${id}::uuid`),
+    sql`, `,
+  );
+
+/** One live binding a stop of its channel covers. */
+export type StopScopeBinding = {
+  id: string;
+  installationId: string;
+  /** ISO 8601, as a receipt says it. */
+  emergencyStoppedAt: string | null;
+  emergencyStoppedBy: string | null;
+  emergencyStopReason: string | null;
+};
+
+/**
+ * What one emergency stop covers, locked: the agent's live bindings of one
+ * channel across every install of the channel's Slack team, in id order. A
+ * stop and a save of the channel take the scope's lock first, so a binding
+ * a save writes (a new install's) is written before a stop or after it,
+ * where it starts stopped. With `kinds`, each install's channel lock is
+ * taken before the bindings, as a change of the channel's kind takes them.
+ */
+export async function lockStopScope(
+  tx: Database,
+  place: Omit<ChannelWorkPlace, "installationIds">,
+  options: { kinds: boolean },
+): Promise<{ installationIds: string[]; bindings: StopScopeBinding[] }> {
+  const team = sql`(SELECT coalesce(i.team_id, i.id::text)
+    FROM slack_installations i WHERE i.id = ${place.installationId}::uuid)`;
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(
+    'emergency_stop:' || ${place.agentId.toLowerCase()} || ':' || ${team}
+      || ':' || ${place.channelId}, 0))`);
+  const bound = rowsOf<{ id: string }>(
+    await tx.execute(sql`
+      SELECT DISTINCT b.installation_id::text AS id FROM surface_bindings b
+      JOIN slack_installations i ON i.id = b.installation_id
+      WHERE b.workspace_id = ${place.workspaceId}::uuid
+        AND b.agent_id = ${place.agentId}::uuid
+        AND b.external_surface_id = ${place.channelId}
+        AND b.revoked_at IS NULL
+        AND coalesce(i.team_id, i.id::text) = ${team}`),
+  ).map((row) => row.id);
+  const installationIds = [
+    ...new Set([...bound, place.installationId.toLowerCase()]),
+  ].sort();
+  if (options.kinds) {
+    for (const id of installationIds) {
+      await lockChannelKind(tx, id, place.channelId);
+    }
+  }
+  const bindings = rowsOf<StopScopeBinding>(
+    await tx.execute(sql`
+      SELECT b.id::text AS id, b.installation_id::text AS "installationId",
+        to_char(b.emergency_stopped_at AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "emergencyStoppedAt",
+        b.emergency_stopped_by::text AS "emergencyStoppedBy",
+        b.emergency_stop_reason AS "emergencyStopReason"
+      FROM surface_bindings b
+      WHERE b.workspace_id = ${place.workspaceId}::uuid
+        AND b.agent_id = ${place.agentId}::uuid
+        AND b.external_surface_id = ${place.channelId}
+        AND b.revoked_at IS NULL
+        AND b.installation_id IN (${installsOf(installationIds)})
+      ORDER BY b.id
+      FOR UPDATE`),
+  );
+  return { installationIds, bindings };
+}
 
 /**
  * Everything of one agent that runs or is about to post in one Slack channel,
@@ -69,7 +146,7 @@ export async function stopChannelWork(
         AND (
           s.id IN (
             SELECT l.session_id FROM session_links l
-            WHERE l.installation_id = ${place.installationId}::uuid
+            WHERE l.installation_id IN (${installsOf(place.installationIds)})
               AND l.channel_id = ${place.channelId}
               AND l.agent_id = ${place.agentId}::uuid
               AND l.session_id IS NOT NULL)
@@ -83,7 +160,7 @@ export async function stopChannelWork(
               AND k.resource = ${SESSIONS_RESOURCE}
               AND k.key = l.id::text
             JOIN receipts r ON r.id = k.receipt_id
-            WHERE l.installation_id = ${place.installationId}::uuid
+            WHERE l.installation_id IN (${installsOf(place.installationIds)})
               AND l.channel_id = ${place.channelId}
               AND l.agent_id = ${place.agentId}::uuid
               AND l.session_id IS NULL
@@ -390,7 +467,7 @@ async function stopConversationTurns(
 }
 
 /**
- * Every post to the channel from the agent's install that has not gone yet,
+ * Every post to the channel from the agent's installs that has not gone yet,
  * a progress message's next edit and a held row included, is cancelled; the
  * stop's own line is not. A send already under way is Slack's by now, and a
  * retry of it while the stop holds ends failed (settle). Run again as the
@@ -398,14 +475,14 @@ async function stopConversationTurns(
  */
 export async function cancelChannelPosts(
   tx: Database,
-  place: Pick<ChannelWorkPlace, "installationId" | "channelId">,
+  place: Pick<ChannelWorkPlace, "installationIds" | "channelId">,
 ): Promise<number> {
   const cancelled = rowsOf<{ input_id: string | null }>(
     await tx.execute(sql`
       UPDATE slack_outbox
       SET status = 'failed', error_code = ${EMERGENCY_STOPPED},
         claim_token = NULL, lease_expires_at = NULL
-      WHERE installation_id = ${place.installationId}::uuid
+      WHERE installation_id IN (${installsOf(place.installationIds)})
         AND channel_id = ${place.channelId}
         AND status = 'pending'
         AND kind <> 'emergency_stop_notice'
@@ -415,7 +492,7 @@ export async function cancelChannelPosts(
   // failed even after the channel is on again (settle).
   await tx.execute(sql`
     UPDATE slack_outbox SET error_code = ${EMERGENCY_STOPPED}
-    WHERE installation_id = ${place.installationId}::uuid
+    WHERE installation_id IN (${installsOf(place.installationIds)})
       AND channel_id = ${place.channelId}
       AND status = 'sending'
       AND kind <> 'emergency_stop_notice'`);

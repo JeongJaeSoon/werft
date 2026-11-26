@@ -397,6 +397,7 @@ async function turnScopeIn(
           SELECT id FROM slack_installations
           WHERE team_id = ${conversation.teamId})
         AND revoked_at IS NULL
+      ORDER BY id
       FOR SHARE`),
   );
   if (bindings.some((binding) => binding.stopped))

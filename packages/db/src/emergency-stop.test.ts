@@ -23,7 +23,7 @@ import {
 } from "@werft-ai/platform";
 import { testCaller } from "@werft-ai/testkit/callers";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { createPostgresConversationCalls } from "./conversation-calls.ts";
 import { createPostgresConversationStore } from "./conversations/conversation-store.ts";
@@ -655,6 +655,7 @@ describe("what an emergency stop leaves the channel", () => {
           agentId: turn.scope.agent_id,
           installationId,
           channelId: "C0QUEUE",
+          installationIds: [installationId],
         },
         { now, attempt: 0 },
       ),
@@ -788,25 +789,20 @@ describe("work that meets an emergency stop as it runs", () => {
     expect((await issue()).outcome).toBe("unknown_conversation");
     await stop(s, s.admin);
     expect((await issue()).outcome).toBe("channel_stopped");
-    // Whichever of the two bindings holds the stop.
-    await db
-      .update(surfaceBindings)
-      .set({
-        emergencyStoppedAt: null,
-        emergencyStoppedBy: null,
-        emergencyStopReason: null,
-      })
-      .where(eq(surfaceBindings.id, s.bindingId));
-    expect((await issue()).outcome).toBe("unknown_conversation");
-    await db
-      .update(surfaceBindings)
-      .set({
-        mode: "off",
-        emergencyStoppedAt: new Date(),
-        emergencyStopReason: "a leak suspected",
-      })
-      .where(eq(surfaceBindings.id, bound.binding.id));
+    // Either of the two bindings holding the stop holds the channel.
+    const unstop = (id: string) =>
+      db
+        .update(surfaceBindings)
+        .set({
+          emergencyStoppedAt: null,
+          emergencyStoppedBy: null,
+          emergencyStopReason: null,
+        })
+        .where(eq(surfaceBindings.id, id));
+    await unstop(s.bindingId);
     expect((await issue()).outcome).toBe("channel_stopped");
+    await unstop(bound.binding.id);
+    expect((await issue()).outcome).toBe("unknown_conversation");
   });
 
   test("a send under way when the stop came is not tried again, and what waited is cancelled as the channel is turned on", async () => {
@@ -1206,5 +1202,167 @@ describe("a stop that cancelled input behind the cut-off turn", () => {
       { sequence: 2, status: "cancelled" },
     ]);
     expect((await send(s, { continueTurn: 1 })).outcome).toBe("accepted");
+  });
+});
+
+describe("two installs of one Slack team in the channel", () => {
+  async function secondInstall(s: Stage) {
+    const second = { appId: "A0SECOND", teamId: "T0STOP" };
+    const appRowId = randomUUID();
+    await db.insert(slackApps).values({
+      id: appRowId,
+      workspaceId: s.workspaceId,
+      kind: "agent",
+      agentId: s.agentId,
+      // The agent's one live app is the first's; the row is only what the
+      // second install's posts name.
+      state: "failed",
+      appId: second.appId,
+      clientId: "2.stop",
+      redirectUrl: "https://example.invalid/slack/callback",
+      eventsState: "verified",
+    });
+    await registerSlackInstallation(db, {
+      ...second,
+      workspaceId: s.workspaceId,
+    });
+    await verifySlackInstallation(db, { ...second, botUserId: "B0SECOND" });
+    const linked = await createPostgresAgentIdentityStore(db).link({
+      principal: s.owner,
+      workspaceId: s.workspaceId,
+      agentId: s.agentId,
+      key: second,
+      credentialRef: "slack-bot-second",
+      managerRoles: MANAGERS,
+    });
+    if (linked.outcome !== "linked") throw new Error(linked.outcome);
+    return { appRowId, installationId: linked.identity.installationId };
+  }
+
+  const postThrough = (
+    s: Stage,
+    install: { appRowId: string; installationId: string },
+    channelId: string,
+    dedupeKey: string,
+  ) =>
+    db.insert(slackOutbox).values({
+      id: randomUUID(),
+      workspaceId: s.workspaceId,
+      agentId: s.agentId,
+      slackAppId: install.appRowId,
+      installationId: install.installationId,
+      kind: "reply",
+      channelId,
+      threadTs: "100.000100",
+      body: { text: "a reply on its way" } as never,
+      dedupeKey,
+    });
+
+  const stopsOf = async (ids: readonly string[]) =>
+    (
+      await db
+        .select({
+          id: surfaceBindings.id,
+          stoppedAt: surfaceBindings.emergencyStoppedAt,
+        })
+        .from(surfaceBindings)
+        .where(inArray(surfaceBindings.id, [...ids]))
+    ).map((row) => row.stoppedAt !== null);
+
+  const resultOf = async (receiptId: string) => {
+    const [row] = await db
+      .select({ result: receipts.result })
+      .from(receipts)
+      .where(eq(receipts.id, receiptId));
+    return row?.result as Record<string, unknown> | undefined;
+  };
+
+  test("one stop covers both: the other install posts nothing after its line, and turning it on frees both", async () => {
+    const s = await stage();
+    const b = await secondInstall(s);
+    const bound = await turnOn(s, s.owner);
+    if (bound.outcome !== "set") throw new Error(bound.outcome);
+    expect(bound.binding.id).not.toBe(s.bindingId);
+    const both = [s.bindingId, bound.binding.id].sort();
+    await postThrough(s, b, CHANNEL, "reply:b-before");
+    await postThrough(s, b, "C0ELSE", "reply:b-else");
+
+    // Stopped through the older install's binding.
+    const stopped = await stop(s, s.admin);
+    if (stopped.outcome !== "stopped") throw new Error(stopped.outcome);
+    expect(await stopsOf(both)).toEqual([true, true]);
+    expect(
+      ((await resultOf(stopped.receiptId))?.surface_binding_ids as string[])
+        .slice()
+        .sort(),
+    ).toEqual(both);
+    expect(await stop(s, s.admin)).toMatchObject({
+      outcome: "already_stopped",
+    });
+    await postThrough(s, b, CHANNEL, "reply:b-after");
+
+    const outbox = createPostgresSlackOutboxStore(db);
+    const began: string[] = [];
+    for (const row of await outbox.claim({ limit: 50, leaseMs: 30_000 })) {
+      if ((await outbox.beginSend(row)) !== false) {
+        began.push(`${row.kind}:${row.channelId}`);
+      }
+    }
+    // The other channel's posts go out, the stopped channel's only line.
+    expect(began.sort()).toEqual(
+      [
+        `emergency_stop_notice:${CHANNEL}`,
+        "reply:C0ELSE",
+        "reply:C0ELSE",
+      ].sort(),
+    );
+
+    const on = await turnOn(s, s.owner, "checked, it was a false alarm");
+    if (on.outcome !== "set") throw new Error(on.outcome);
+    expect(on.binding.id).toBe(bound.binding.id);
+    expect(await stopsOf(both)).toEqual([false, false]);
+    const ended = (await resultOf(on.receiptId))?.emergency_stop_ended as {
+      surface_binding_ids: string[];
+    };
+    expect(ended.surface_binding_ids.slice().sort()).toEqual(both);
+    const left = await db
+      .select({ status: slackOutbox.status })
+      .from(slackOutbox)
+      .where(
+        and(
+          eq(slackOutbox.installationId, b.installationId),
+          eq(slackOutbox.channelId, CHANNEL),
+        ),
+      );
+    expect(left.map((row) => row.status)).toEqual(["failed", "failed"]);
+  });
+
+  test("a binding written while the stop holds starts stopped", async () => {
+    const s = await stage();
+    expect((await stop(s, s.admin)).outcome).toBe("stopped");
+    await secondInstall(s);
+    const saved = await store().set({
+      principal: s.owner,
+      workspaceId: s.workspaceId,
+      agentId: s.agentId,
+      channelId: CHANNEL,
+      channelKind: "public_channel",
+      mode: "off",
+      home: false,
+      ceiling: DEFAULT_SURFACE_CEILING,
+      managerRoles: MANAGERS,
+    });
+    if (saved.outcome !== "set") throw new Error(saved.outcome);
+    expect(saved.binding.id).not.toBe(s.bindingId);
+    expect(saved.binding.emergencyStop?.reason).toBe("a leak suspected");
+    expect(saved.binding.mode).toBe("off");
+    expect((await turnOn(s, s.owner)).outcome).toBe("reason_required");
+    expect(
+      (await turnOn(s, s.owner, "checked, it was a false alarm")).outcome,
+    ).toBe("set");
+    expect(await stopsOf([s.bindingId, saved.binding.id])).toEqual([
+      false,
+      false,
+    ]);
   });
 });

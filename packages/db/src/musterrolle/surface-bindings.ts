@@ -24,6 +24,7 @@ import {
   asc,
   desc,
   eq,
+  inArray,
   isNull,
   lt,
   lte,
@@ -46,6 +47,7 @@ import { DB_NOW, dbNow } from "../db-clock.ts";
 import {
   cancelChannelPosts,
   enqueueEmergencyStopNotice,
+  lockStopScope,
   stopChannelWork,
 } from "../emergency-stop.ts";
 import type { Database } from "../queries.ts";
@@ -272,6 +274,24 @@ async function set(
         .for("share");
       if (!identity) return { outcome: "not_installed" };
       const { installationId } = identity;
+      // A save of a channel waits for a stop of it, and sees it: the stop
+      // covers each of the agent's bindings there in the Slack team.
+      const scope =
+        input.channelId === null
+          ? null
+          : await lockStopScope(
+              tx,
+              {
+                workspaceId,
+                agentId,
+                installationId,
+                channelId: input.channelId,
+              },
+              { kinds: false },
+            );
+      const stop = scope?.bindings.find(
+        (binding) => binding.emergencyStoppedAt !== null,
+      );
 
       const [current] = await tx
         .select({
@@ -311,8 +331,7 @@ async function set(
       }
       // Turned on again after an emergency stop: the stop ends here, and why
       // it does is said, as why it began was.
-      const endsStop =
-        current?.emergencyStoppedAt != null && input.mode === "on";
+      const endsStop = stop !== undefined && input.mode === "on";
       if (endsStop && input.reason === undefined) {
         return { outcome: "reason_required" };
       }
@@ -346,20 +365,38 @@ async function set(
         ceilingDisclosure: input.ceiling.disclosure,
         ...(waits ? { status: "pending_approval" as const } : {}),
         ...(reopens ? { status: "ready" as const } : {}),
-        ...(endsStop
+        // A channel written while its stop holds (a new install's) starts
+        // stopped as the others are.
+        ...(stop !== undefined && !endsStop && !current
           ? {
-              emergencyStoppedAt: null,
-              emergencyStoppedBy: null,
-              emergencyStopReason: null,
+              mode: "off" as const,
+              emergencyStoppedAt: sql`${stop.emergencyStoppedAt}::timestamptz`,
+              emergencyStoppedBy: stop.emergencyStoppedBy,
+              emergencyStopReason: stop.emergencyStopReason,
             }
           : {}),
         updatedAt: DB_NOW,
       };
-      // What the stop held back stays unsent: a row written while it held
-      // never goes out late.
-      if (endsStop && input.channelId !== null) {
+      // Turned on, the stop ends on each binding it covers. What it held
+      // back stays unsent: a row written while it held never goes out late.
+      if (endsStop && scope !== null && input.channelId !== null) {
+        await tx
+          .update(surfaceBindings)
+          .set({
+            emergencyStoppedAt: null,
+            emergencyStoppedBy: null,
+            emergencyStopReason: null,
+            revision: sql`${surfaceBindings.revision} + 1`,
+            updatedAt: DB_NOW,
+          })
+          .where(
+            inArray(
+              surfaceBindings.id,
+              scope.bindings.map((binding) => binding.id),
+            ),
+          );
         await cancelChannelPosts(tx, {
-          installationId,
+          installationIds: scope.installationIds,
           channelId: input.channelId,
         });
       }
@@ -396,13 +433,16 @@ async function set(
         input.principal,
         binding,
         "set_surface_binding",
-        endsStop && current
+        endsStop && stop !== undefined && scope !== null
           ? {
               reason: input.reason,
               emergency_stop_ended: {
-                stopped_at: current.emergencyStoppedAt?.toISOString(),
-                stopped_by_user_id: current.emergencyStoppedBy,
-                reason: current.emergencyStopReason,
+                stopped_at: stop.emergencyStoppedAt,
+                stopped_by_user_id: stop.emergencyStoppedBy,
+                reason: stop.emergencyStopReason,
+                surface_binding_ids: scope.bindings.map(
+                  (binding) => binding.id,
+                ),
               },
             }
           : {},
@@ -476,9 +516,19 @@ async function emergencyStop(
     if (peek.installationId === null || peek.channelId === null) {
       return { outcome: "not_channel" };
     }
-    // As a change of the channel's kind takes them: the channel, then its
-    // binding, then its sessions.
-    await lockChannelKind(tx, peek.installationId, peek.channelId);
+    // As a change of the channel's kind takes them: the channel (each
+    // install's, after the stop's own lock), then its bindings, then its
+    // sessions.
+    const scope = await lockStopScope(
+      tx,
+      {
+        workspaceId,
+        agentId,
+        installationId: peek.installationId,
+        channelId: peek.channelId,
+      },
+      { kinds: true },
+    );
     const [found] = await tx
       .select(columns)
       .from(surfaceBindings)
@@ -491,8 +541,18 @@ async function emergencyStop(
     if (installationId === null || channelId === null) {
       return { outcome: "not_channel" };
     }
-    if (current.emergencyStop != null) return { outcome: "already_stopped" };
-    const place = { workspaceId, agentId, installationId, channelId };
+    if (scope.bindings.some((binding) => binding.emergencyStoppedAt !== null)) {
+      return { outcome: "already_stopped" };
+    }
+    // One stop covers the channel in every install of its Slack team.
+    const bindingIds = scope.bindings.map((binding) => binding.id);
+    const place = {
+      workspaceId,
+      agentId,
+      installationId,
+      channelId,
+      installationIds: scope.installationIds,
+    };
     const stopped = await stopChannelWork(tx, place, {
       now: await dbNow(tx),
       attempt,
@@ -507,7 +567,7 @@ async function emergencyStop(
         revision: sql`${surfaceBindings.revision} + 1`,
         updatedAt: DB_NOW,
       })
-      .where(eq(surfaceBindings.id, current.id));
+      .where(inArray(surfaceBindings.id, bindingIds));
     const [after] = await tx
       .select(columns)
       .from(surfaceBindings)
@@ -522,7 +582,7 @@ async function emergencyStop(
       input.principal,
       binding,
       "emergency_stop_surface_binding",
-      { reason: input.reason, stopped },
+      { reason: input.reason, stopped, surface_binding_ids: bindingIds },
     );
     await enqueueEmergencyStopNotice(tx, {
       ...place,
