@@ -3,8 +3,6 @@ import type { Principal } from "../../musterrolle/index.ts";
 export type StopQueuedInput = {
   principal: Principal;
   sessionId: string;
-  /** Queued input from before this moment is cancelled; later input stays. */
-  queuedBefore: Date;
 };
 
 export type StopQueuedResult =
@@ -20,7 +18,8 @@ export type StopQueuedResult =
 
 export interface SessionStops {
   /**
-   * Cancels the session's queued input from before `queuedBefore` in one
+   * Cancels the session's input queued before this call, by the database's
+   * clock, in one
    * transaction, and names the turn still running. A turn that carries on a
    * parked one is the platform's, not queued input, and stays.
    */

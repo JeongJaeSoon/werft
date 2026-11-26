@@ -549,10 +549,10 @@ export function createSlackSessionHandler(
         throw new SlackInboundDropped("installation_revoked");
       }
       await stopIfLeft();
+      // Input queued until now is cancelled: the thread's earlier posts are
+      // in, and its later ones wait for this event's lease.
       const stopped = await deps.stops.stop(caller, sessionId, {
         idempotencyKey: `slack-stop:${claim.teamId}:${event.channel}:${event.ts}`,
-        // Input queued after the stop word was written stays.
-        queuedBefore: new Date(Number(event.ts) * 1000),
       });
       deps.logger.info("Slack stop request", {
         ...ids,
@@ -595,7 +595,7 @@ export function createSlackSessionHandler(
             : stopped.cancelled > 0
               ? { message: "sessionStoppedQueued", count: stopped.cancelled }
               : { message: "sessionStopped" },
-        onceKey: `${claim.teamId}:${surfaceRef}:stop:${event.ts}`,
+        onceKey: `${agent.installationId}:${surfaceRef}:stop:${event.ts}`,
       });
       return true;
     };

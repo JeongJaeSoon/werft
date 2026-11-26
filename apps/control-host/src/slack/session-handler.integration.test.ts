@@ -5154,7 +5154,7 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
 
   test("the requester's stop word alone stops the work: the running turn is interrupted, waiting input from before it cancelled, one line, and the word is no input", async () => {
     const { fixture, view, root, session, post } = await workingThread();
-    // Written after the stop word, though taken before it.
+    // Queued after the stop is taken (its clock is the cut): it stays.
     await deliver(fixture, post(at(-80), { text: "then the docs" }));
     await drain(view.handle);
     await setTurn(session.id, 3, { createdAt: new Date(Date.now() + 60_000) });
@@ -5181,6 +5181,19 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     // The session stays open: decision 35.
     const [after] = await sessionsOf(fixture);
     expect(after?.admissionState).toBe("active");
+  });
+
+  test("a post written before the stop word but taken after its Slack time is cancelled too", async () => {
+    const { fixture, view, session, post } = await workingThread();
+    // The inbox took the earlier post late: its turn is newer than the stop
+    // word's Slack timestamp, yet it waited when the stop ran.
+    await deliver(fixture, post(at(-40), { text: "then the docs" }));
+    await drain(view.handle);
+    await deliver(fixture, post(at(-30), { text: "stop" }));
+    await drain(view.handle);
+    expect((await turnStatesOf(session.id)).map((turn) => turn.status)).toEqual(
+      ["running", "cancelled", "cancelled"],
+    );
   });
 
   test("in a DM thread the requester's stop works the same", async () => {

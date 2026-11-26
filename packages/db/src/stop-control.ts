@@ -43,7 +43,7 @@ export function createPostgresSessionStops(db: Database): SessionStops {
             message: "input cancelled by a stop before it ran",
           },
           now,
-          queuedBefore: input.queuedBefore,
+          queuedBefore: now,
         });
         if (cancelled.length > 0) await touchSlackThreadStatus(tx, sessionId);
         const [running] = await tx

@@ -11,7 +11,6 @@ import type {
 import { createSessionStop } from "./session-stop.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
-const BEFORE = new Date("2026-11-26T03:00:00Z");
 
 function policy(outcome: "allow" | "deny"): AuthorizationPolicy {
   return {
@@ -54,7 +53,6 @@ function stopWith(
   });
   const result = stop.stop(testCaller("owner-a"), SESSION, {
     idempotencyKey: "stop-1",
-    queuedBefore: BEFORE,
   });
   return { result, calls, cancels, interrupts };
 }
@@ -72,7 +70,7 @@ describe("createSessionStop", () => {
       cancelled: 2,
     });
     expect(run.calls).toEqual(["cancel", "interrupt"]);
-    expect(run.cancels[0]?.queuedBefore).toEqual(BEFORE);
+    expect(run.cancels.map((cancel) => cancel.sessionId)).toEqual([SESSION]);
     expect(run.interrupts).toEqual([
       {
         sessionId: SESSION,
@@ -105,7 +103,7 @@ describe("createSessionStop", () => {
     expect(await run.result).toEqual({ outcome: "nothing_running" });
   });
 
-  test("a turn that ended since it was read is nothing to interrupt", async () => {
+  test("a turn put back in the queue since it was read is nothing to interrupt", async () => {
     const run = stopWith(
       { outcome: "cancelled", cancelled: 0, runningTurnId: "3" },
       {

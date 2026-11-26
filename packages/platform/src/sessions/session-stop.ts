@@ -30,7 +30,7 @@ export function createSessionStop(deps: {
     async stop(
       actor: Caller,
       sessionId: string,
-      input: { idempotencyKey: string; queuedBefore: Date },
+      input: { idempotencyKey: string },
     ): Promise<SessionStopResult> {
       try {
         await requirePermitted(deps.authorization, actor, "session.control", {
@@ -50,7 +50,6 @@ export function createSessionStop(deps: {
       const queued = await deps.stops.cancelQueuedBefore({
         principal: actor,
         sessionId,
-        queuedBefore: input.queuedBefore,
       });
       if (queued.outcome === "not_found") {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
@@ -65,7 +64,8 @@ export function createSessionStop(deps: {
           });
           interrupted = true;
         } catch (error) {
-          // It ended, or was put back in the queue, since it was read.
+          // Put back in the queue since it was read. (One that ended takes
+          // the interrupt as a no-op receipt.)
           if (
             !(error instanceof SessionServiceError) ||
             error.code !== "TURN_NOT_STARTED"
