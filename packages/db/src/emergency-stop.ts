@@ -56,11 +56,16 @@ export type StopScopeBinding = {
   emergencyStoppedAt: string | null;
   emergencyStoppedBy: string | null;
   emergencyStopReason: string | null;
+  /** Gone (its identity revoked, the channel refused), its stop kept. */
+  revoked: boolean;
 };
 
 /**
- * What one emergency stop covers, locked: the agent's live bindings of one
- * channel across every install of the channel's Slack team, in id order. A
+ * What one emergency stop covers, locked: the agent's bindings of one
+ * channel across every install of the channel's Slack team it has (its
+ * identity's, revoked or not, or one it was bound through), in id order:
+ * each live one, and each revoked one that still holds a stop, which holds
+ * until a save turns the channel on, whatever became of its binding. A
  * stop and a save of the channel take the scope's lock first, so a binding
  * a save writes (a new install's) is written before a stop or after it,
  * where it starts stopped. With `kinds`, each install's channel lock is
@@ -78,13 +83,16 @@ export async function lockStopScope(
       || ':' || ${place.channelId}, 0))`);
   const bound = rowsOf<{ id: string }>(
     await tx.execute(sql`
-      SELECT DISTINCT b.installation_id::text AS id FROM surface_bindings b
-      JOIN slack_installations i ON i.id = b.installation_id
-      WHERE b.workspace_id = ${place.workspaceId}::uuid
-        AND b.agent_id = ${place.agentId}::uuid
-        AND b.external_surface_id = ${place.channelId}
-        AND b.revoked_at IS NULL
-        AND coalesce(i.team_id, i.id::text) = ${team}`),
+      SELECT i.id::text AS id FROM slack_installations i
+      WHERE coalesce(i.team_id, i.id::text) = ${team}
+        AND (EXISTS (
+          SELECT 1 FROM agent_identities a
+          WHERE a.installation_id = i.id
+            AND a.agent_id = ${place.agentId}::uuid)
+        OR EXISTS (
+          SELECT 1 FROM surface_bindings b
+          WHERE b.installation_id = i.id
+            AND b.agent_id = ${place.agentId}::uuid))`),
   ).map((row) => row.id);
   const installationIds = [
     ...new Set([...bound, place.installationId.toLowerCase()]),
@@ -100,12 +108,13 @@ export async function lockStopScope(
         to_char(b.emergency_stopped_at AT TIME ZONE 'UTC',
           'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "emergencyStoppedAt",
         b.emergency_stopped_by::text AS "emergencyStoppedBy",
-        b.emergency_stop_reason AS "emergencyStopReason"
+        b.emergency_stop_reason AS "emergencyStopReason",
+        b.revoked_at IS NOT NULL AS revoked
       FROM surface_bindings b
       WHERE b.workspace_id = ${place.workspaceId}::uuid
         AND b.agent_id = ${place.agentId}::uuid
         AND b.external_surface_id = ${place.channelId}
-        AND b.revoked_at IS NULL
+        AND (b.revoked_at IS NULL OR b.emergency_stopped_at IS NOT NULL)
         AND b.installation_id IN (${installsOf(installationIds)})
       ORDER BY b.id
       FOR UPDATE`),

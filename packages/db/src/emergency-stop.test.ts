@@ -587,6 +587,32 @@ describe("going on after an emergency stop", () => {
     expect(second).toEqual({ prepended: 1, skipped: "emergency_stopped" });
   });
 
+  test("the next message after input the stop cancelled is not given the stopped turn's input either", async () => {
+    const s = await stage();
+    expect((await send(s, { message: "queued behind" })).outcome).toBe(
+      "accepted",
+    );
+    await db
+      .update(sessions)
+      .set({ workspaceId: s.workspaceId })
+      .where(eq(sessions.id, s.worker.sessionId));
+    const worker = await stoppedAndBack(s);
+    expect((await send(s, { message: "third input" })).outcome).toBe(
+      "accepted",
+    );
+    expect((await delivered(worker)).message).toBe("third input");
+    const [third] = await db
+      .select({
+        prepended: turns.prependedTurn,
+        skipped: turns.prependSkipReason,
+      })
+      .from(turns)
+      .where(
+        and(eq(turns.sessionId, s.worker.sessionId), eq(turns.sequence, 3)),
+      );
+    expect(third).toEqual({ prepended: 1, skipped: "emergency_stopped" });
+  });
+
   test("a session with no checkpoint yet is not paused, and takes no input until the channel is on", async () => {
     const s = await stage({ checkpoint: false });
     expect(await stop(s, s.admin)).toMatchObject({
@@ -1454,6 +1480,67 @@ describe("two installs of one Slack team in the channel", () => {
       .where(eq(surfaceBindings.id, s.bindingId));
     expect(b.installationId).not.toBe(s.installationId);
     expect(await emergencyStopHolds(db, s.worker.sessionId)).toBe(true);
+  });
+
+  test("a stop outlives the binding it marked: a channel joined again starts stopped, and turning it on ends it", async () => {
+    const s = await stage();
+    expect((await stop(s, s.admin)).outcome).toBe("stopped");
+    // Refused or its identity revoked: the binding goes, its stop stays.
+    await db
+      .update(surfaceBindings)
+      .set({ revokedAt: new Date(), status: "revoked" })
+      .where(eq(surfaceBindings.id, s.bindingId));
+    const joined = await store().ensureInvitedChannel(
+      s.installationId,
+      CHANNEL,
+      "public_channel",
+    );
+    expect(joined?.emergencyStop?.reason).toBe("a leak suspected");
+    if (!joined) throw new Error("not joined");
+    expect(
+      (await turnOn(s, s.owner, "checked, it was a false alarm")).outcome,
+    ).toBe("set");
+    expect(await stopsOf([s.bindingId, joined.id])).toEqual([false, false]);
+  });
+
+  test("a session through an install whose identity went is stopped with the rest", async () => {
+    const s = await stage();
+    const b = await secondInstall(s);
+    const bound = await turnOn(s, s.owner);
+    if (bound.outcome !== "set") throw new Error(bound.outcome);
+    const [made] = await db
+      .select({ releaseId: sessions.agentReleaseId })
+      .from(sessions)
+      .where(eq(sessions.id, s.worker.sessionId));
+    if (!made?.releaseId) throw new Error("no release");
+    await db
+      .update(sessions)
+      .set({ parentConversationId: null })
+      .where(eq(sessions.id, s.worker.sessionId));
+    const links = createPostgresSessionLinkStore(db);
+    await client.exec("SET session_replication_role = replica");
+    const { link } = await links.reserve({
+      workspaceId: s.workspaceId,
+      installationId: b.installationId,
+      surfaceBindingId: bound.binding.id,
+      surfaceRef: `${CHANNEL}:400.000100`,
+      channelId: CHANNEL,
+      threadId: "400.000100",
+      openedByTs: "400.000100",
+      agentId: s.agentId,
+      releaseId: made.releaseId,
+      createdBy: s.owner.userId,
+    });
+    await client.exec("SET session_replication_role = DEFAULT");
+    await links.attachSession(link.id, s.worker.sessionId);
+    await db
+      .update(surfaceBindings)
+      .set({ revokedAt: new Date(), status: "revoked" })
+      .where(eq(surfaceBindings.id, bound.binding.id));
+    expect((await stop(s, s.admin)).outcome).toBe("stopped");
+    expect(await turnsOf(s.worker.sessionId)).toMatchObject([
+      { sequence: 1, status: "failed", reason: "emergency_stopped" },
+    ]);
   });
 
   test("a binding written while the stop holds starts stopped", async () => {

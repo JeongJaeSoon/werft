@@ -547,7 +547,9 @@ async function emergencyStop(
       return { outcome: "already_stopped" };
     }
     // One stop covers the channel in every install of its Slack team.
-    const bindingIds = scope.bindings.map((binding) => binding.id);
+    const bindingIds = scope.bindings
+      .filter((binding) => !binding.revoked)
+      .map((binding) => binding.id);
     const place = {
       workspaceId,
       agentId,

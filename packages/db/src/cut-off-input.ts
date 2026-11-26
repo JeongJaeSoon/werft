@@ -1,9 +1,9 @@
 import {
-  CUT_OFF_TURN_REASONS,
+  isCutOffTurnReason,
   TURN_EMERGENCY_STOPPED_REASON,
 } from "@werft-ai/contracts";
 import { sourceSetOf } from "@werft-ai/platform";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, lt, ne } from "drizzle-orm";
 import { followUpFact } from "./action/push-follow-ups.ts";
 import { lockedDeletedSource } from "./conversations/deleted-sources.ts";
 import { inputTexts } from "./conversations/input-texts.ts";
@@ -125,17 +125,26 @@ async function cutOffInput(
       message: turns.message,
       sources: turns.sources,
       terminalReason: turns.terminalReason,
+      status: turns.status,
     })
     .from(turns)
     .where(
       and(
         eq(turns.sessionId, turn.sessionId),
-        eq(turns.sequence, turn.sequence - 1),
-        eq(turns.status, "failed"),
-        inArray(turns.terminalReason, [...CUT_OFF_TURN_REASONS]),
+        lt(turns.sequence, turn.sequence),
+        // One cancelled before it ran (an emergency stop's) is passed over.
+        ne(turns.status, "cancelled"),
       ),
-    );
-  if (cut === undefined) return none;
+    )
+    .orderBy(desc(turns.sequence))
+    .limit(1);
+  if (
+    cut === undefined ||
+    cut.status !== "failed" ||
+    !isCutOffTurnReason(cut.terminalReason)
+  ) {
+    return none;
+  }
   if (cut.terminalReason === TURN_EMERGENCY_STOPPED_REASON) {
     return {
       text: null,
