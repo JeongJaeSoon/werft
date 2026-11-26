@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readdirSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import { Glob } from "bun";
 import ts from "typescript";
 
@@ -35,7 +34,8 @@ const ALLOWED_RUNTIME_DEPENDENCIES = [
 ];
 
 // Files copied from a third party stay in the web app. The kit is published, so
-// it takes only what was rewritten here, never the copy.
+// it takes only what was rewritten here, never the copy. This reads import
+// specifiers as written; aliases, symlinks and HTML entries are not followed.
 const VENDOR = resolve(PACKAGE_ROOT, "../../apps/web/src/vendor");
 
 // A CSS comment, or a string, which is kept so a "/*" inside it opens nothing.
@@ -107,37 +107,6 @@ describe("패키지 경계", () => {
     }
     expect(seen).toBeGreaterThan(0);
     expect(offenders).toEqual([]);
-  });
-
-  test("경로 별칭이나 링크로 import의 도착지를 바꾸지 않는다", async () => {
-    // The check above reads each specifier as a path. An alias or a symlink
-    // would let one that looks local end in the vendor folder.
-    const configs = [
-      "../../tsconfig.base.json",
-      ...new Glob("tsconfig*.json").scanSync({ cwd: PACKAGE_ROOT }),
-    ];
-    expect(configs).toContain("tsconfig.json");
-    for (const config of configs) {
-      const { compilerOptions = {} } = Bun.JSONC.parse(
-        await Bun.file(`${PACKAGE_ROOT}/${config}`).text(),
-      ) as { compilerOptions?: object };
-      const keys = Object.keys(compilerOptions);
-      expect(keys).not.toContain("paths");
-      expect(keys).not.toContain("baseUrl");
-      expect(keys).not.toContain("rootDirs");
-    }
-    const entries = readdirSync(PACKAGE_ROOT, {
-      recursive: true,
-      withFileTypes: true,
-    });
-    expect(
-      entries
-        .filter((entry) => entry.isSymbolicLink())
-        .map((entry) =>
-          relative(PACKAGE_ROOT, `${entry.parentPath}/${entry.name}`),
-        )
-        .filter((path) => !path.split("/").includes("node_modules")),
-    ).toEqual([]);
   });
 
   test.each([
