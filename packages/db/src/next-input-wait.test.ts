@@ -317,7 +317,8 @@ describe("a nextInput waiting on an idle session", () => {
       .update(sessions)
       .set({ takeoverRequiredAt: null })
       .where(eq(sessions.id, idle.sessionId));
-    // The interval, played by hand: this sleep never ends by itself.
+    // This harness's sleep never ends by itself: a notification stands in
+    // for the 250 ms running out.
     await db.execute(
       sql`SELECT pg_notify('session_events', ${idle.sessionId})`,
     );
@@ -353,6 +354,30 @@ describe("a nextInput waiting on an idle session", () => {
     await db.execute(sql`SELECT pg_notify('session_events', 'marker')`);
     await until(() => notified.includes("marker"));
     expect(notified.slice(before)).toEqual([idle.sessionId, "marker"]);
+  });
+
+  test("a draining beat is answered without waiting for its notification", async () => {
+    const idle = await idleSession();
+    // A database that takes the beat and never answers the notification.
+    const stalled = new Proxy(db, {
+      get: (target, key, receiver) =>
+        key === "execute"
+          ? () => new Promise(() => {})
+          : Reflect.get(target, key, receiver),
+    });
+    const beat = await createPostgresWorkerUnitOfWork(stalled).heartbeatAtomic({
+      fence: idle.fence,
+      now: new Date(),
+      leaseTtlMs: 60_000,
+      credentialTtlMs: 60_000,
+      attemptState: "draining",
+    });
+    expect(beat.outcome).toBe("ok");
+    const [attempt] = await db
+      .select({ state: attempts.state })
+      .from(attempts)
+      .where(eq(attempts.id, idle.fence.attemptId));
+    expect(attempt?.state).toBe("draining");
   });
 
   const LOST: [string, string, (idle: Idle) => Promise<unknown>][] = [

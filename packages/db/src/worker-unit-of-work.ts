@@ -3157,11 +3157,12 @@ export function createPostgresWorkerUnitOfWork(
       });
       // A stopping worker beats `draining` and then waits for the answer to
       // the nextInput it has out: that poll is told now, not at its next
-      // interval. After the renewal has committed and never part of it, so
-      // a notification that cannot be raised costs the lease nothing; the
-      // poll's interval is what covers one that is missed.
+      // interval. After the renewal has committed, neither part of it nor
+      // waited for: a notification that cannot be raised costs the lease
+      // and this beat's answer nothing, and the poll's interval is what
+      // covers one that is missed.
       if (result.outcome === "ok" && beganDraining) {
-        await db
+        void db
           .execute(sql`SELECT pg_notify('session_events', ${fence.sessionId})`)
           .catch(() => {});
       }

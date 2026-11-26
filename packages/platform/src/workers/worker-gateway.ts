@@ -2765,7 +2765,8 @@ export function createWorkerGateway(deps: {
           // Something is queued that the fenced read did not hand over: a
           // pause, a takeover, a checkpoint owed. What holds it back can
           // lift without a word to this session, so it is read as often as
-          // it always was; only a poll with nothing queued waits long.
+          // it always was. A poll waits long only while the head of the
+          // queue is nothing it could be given.
           const held = first ? await ask(budget) : pending;
           // Never sleep past the deadline the caller asked for: a one
           // millisecond wait must not cost a whole poll interval.

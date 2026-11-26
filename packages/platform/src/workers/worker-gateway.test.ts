@@ -148,7 +148,6 @@ function notified(stopWaiting?: AbortSignal) {
     naps: [] as number[],
     waiters: [] as { sessionId: string; signal: AbortSignal; wake(): void }[],
     queued: false,
-    held: false,
     listening: true,
     async napping(count: number) {
       for (let tries = 0; harness.naps.length < count; tries += 1) {
@@ -171,7 +170,7 @@ function notified(stopWaiting?: AbortSignal) {
       },
       async nextInputPending() {
         harness.order.push("asked");
-        return harness.queued || harness.held;
+        return harness.queued;
       },
     }),
     wakeup: {
@@ -610,25 +609,49 @@ describe("WorkerGateway", () => {
   });
 
   test("something queued that the fenced read holds back is read every 250 ms, as it always was", async () => {
-    const poll = notified();
-    // A turn is queued and the session may not be given it: a takeover, say.
-    poll.held = true;
-    const polling = poll.instance.nextInput(principal, {
+    // A turn is queued and the session may not be given it (a takeover,
+    // say), then it may: the third fenced read. No notification ever comes.
+    let at = new Date("2026-09-22T00:00:00.000Z");
+    const slept: number[] = [];
+    let fencedReads = 0;
+    const instance = createWorkerGateway({
+      work: work({
+        async nextInputAtomic(input) {
+          fencedReads += 1;
+          return {
+            outcome: "ok",
+            leaseExpiresAt: new Date(input.now.getTime() + 30_000),
+            input: fencedReads === 3 ? GO(input.now) : null,
+          };
+        },
+        nextInputPending: async () => true,
+      }),
+      wakeup: {
+        listening: true,
+        wait: (_sessionId, signal) =>
+          new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          }),
+      },
+      catalog: { connections: {}, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      options: {
+        sessionBudget: { costUsd: 1_000, tokens: null },
+        leaseTtlMs: 30_000,
+        now: () => at,
+        sleep: async (ms) => {
+          slept.push(ms);
+          at = new Date(at.getTime() + ms);
+        },
+      },
+    });
+    const response = await instance.nextInput(principal, {
       ...scope,
       wait_ms: 20_000,
     });
-    await poll.napping(1);
-    expect(poll.order).toEqual(["armed", "fenced", "asked"]);
-    // The interval, played by hand: each one is a fenced read again.
-    poll.waiters[0]?.wake();
-    await poll.napping(2);
-    expect(poll.order.slice(3)).toEqual(["armed", "asked", "fenced"]);
-    expect(poll.naps).toEqual([250, 250]);
-    // What held it lifts, and no notification says so.
-    poll.held = false;
-    poll.queued = true;
-    poll.waiters[1]?.wake();
-    expect((await polling).input?.turn_id).toBe("1");
+    expect(response.input?.turn_id).toBe("1");
+    // Not the 5 s of a poll with nothing queued.
+    expect(slept).toEqual([250, 250]);
   });
 
   test("fence rejections map to 409 LEASE_EXPIRED / STALE_EPOCH", async () => {
