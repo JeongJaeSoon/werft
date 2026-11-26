@@ -279,6 +279,7 @@ describe("database schema", () => {
       "slack_installations",
       "slack_notice_approvals",
       "slack_outbox",
+      "slack_outbox_rate_blocks",
       "slack_settings",
       "slack_thread_bot_turns",
       "slack_thread_status",
