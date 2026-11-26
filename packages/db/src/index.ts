@@ -135,6 +135,7 @@ export { expireOverdueInterrupts } from "./sessions/turn-interrupts.ts";
 export * from "./sessions/workspace-mcp-egress.ts";
 export * from "./settings-document.ts";
 export { notDeleted } from "./soft-delete.ts";
+export * from "./stop-control.ts";
 export * from "./storage-counter-check.ts";
 export * from "./surface/conversation-reactions.ts";
 export * from "./surface/conversation-records.ts";

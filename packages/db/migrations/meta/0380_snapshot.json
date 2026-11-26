@@ -1,6 +1,6 @@
 {
-  "id": "2d994665-cb0f-47a1-9d81-855621bd4034",
-  "prevId": "1a819880-452c-4849-872e-97833b1098ce",
+  "id": "50e62184-4848-4089-ae0c-ada553d9efbb",
+  "prevId": "8961bcf5-df71-45fb-b761-58aa5f36192c",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -16858,6 +16858,65 @@
           "value": "\"session_shares\".\"scope\" IN ('private', 'people', 'team', 'workspace', 'private_channel')"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.session_stops": {
+      "name": "session_stops",
+      "schema": "",
+      "columns": {
+        "session_id": {
+          "name": "session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cancelled": {
+          "name": "cancelled",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "running_turn_id": {
+          "name": "running_turn_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "session_stops_session_id_sessions_id_fk": {
+          "name": "session_stops_session_id_sessions_id_fk",
+          "tableFrom": "session_stops",
+          "columnsFrom": ["session_id"],
+          "tableTo": "sessions",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {
+        "session_stops_session_id_idempotency_key_pk": {
+          "name": "session_stops_session_id_idempotency_key_pk",
+          "columns": ["session_id", "idempotency_key"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.session_title_requests": {
