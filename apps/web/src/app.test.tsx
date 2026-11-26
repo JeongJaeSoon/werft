@@ -600,6 +600,22 @@ describe("권한 없는 버튼", () => {
     expect(pressed).toEqual([]);
   });
 
+  test("Tab으로 닿으면 이유가 보이고, Escape로 닫혀도 포커스는 버튼에 남는다", async () => {
+    const user = await setupUser();
+    const { button } = await renderButton(["sessions:read"]);
+    screen.getByLabelText("이름").focus();
+    await user.tab();
+    expect(document.activeElement === button).toBe(true);
+    await waitFor(() =>
+      expect(note()?.textContent).toBe(
+        "sessions:recover 권한이 있어야 할 수 있습니다.",
+      ),
+    );
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(note()).toBeNull());
+    expect(document.activeElement === button).toBe(true);
+  });
+
   test("scope가 있으면 누를 수 있고 이유가 없다", async () => {
     const user = await setupUser();
     const { button, pressed } = await renderButton([
