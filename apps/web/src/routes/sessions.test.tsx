@@ -5549,6 +5549,116 @@ describe("session steps", () => {
       }),
   };
 
+  /** The step list starts closed: opens it by the head's step count. */
+  const openSteps = async (name = /^단계 /, region = "단계") => {
+    const user = await setupUser();
+    await user.click(
+      await within(await sessionProgress()).findByRole("button", { name }),
+    );
+    return screen.getByRole("region", { name: region });
+  };
+
+  /** The badges the head's progress line draws. */
+  const headStates = (progress: HTMLElement) =>
+    [...progress.querySelectorAll("[data-slot='badge']")].map(
+      (badge) => badge.textContent,
+    );
+
+  test("starts closed, saying in the head what waits, and opens and closes by keyboard", async () => {
+    const user = await setupUser();
+    renderAt(`/sessions/${SESSION_ID}`, waitingOnTwo);
+    const progress = await sessionProgress();
+    const toggle = await within(progress).findByRole("button", {
+      name: /^단계 2\/2/,
+    });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("region", { name: "단계" })).toBeNull();
+    await waitFor(() => expect(headStates(progress)).toEqual(["승인 대기"]));
+
+    toggle.focus();
+    await user.keyboard("{Enter}");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("region", { name: "단계" }).id).toBe(
+      toggle.getAttribute("aria-controls") ?? "",
+    );
+    // Open, the rows say it themselves.
+    expect(headStates(progress)).toEqual([]);
+    await user.keyboard(" ");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("region", { name: "단계" })).toBeNull();
+    expect(headStates(progress)).toEqual(["승인 대기"]);
+  });
+
+  test.each([
+    ["a running step", ["completed", "running"], ["진행 중"]],
+    ["finished steps only", ["completed", "failed"], []],
+  ] as const)("the closed head over %s", async (_, statuses, said) => {
+    const current = statuses[1] === "running" ? "2" : null;
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          status: current ? "running" : "idle",
+          current_turn_id: current,
+          pending_request_count: 0,
+          attention: null,
+        }),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, {
+          items: statuses.map((status, index) =>
+            turn(String(index + 1), status),
+          ),
+          next_cursor: null,
+        }),
+    });
+    const progress = await sessionProgress();
+    const toggle = await within(progress).findByRole("button", {
+      name: /^단계 /,
+    });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(headStates(progress)).toEqual([...said]);
+  });
+
+  test("another session's step list starts closed", async () => {
+    const other = Object.fromEntries(
+      Object.entries(waitingOnTwo).map(([route, answer]) => [
+        route.replace(SESSION_ID, OTHER_ID),
+        answer,
+      ]),
+    );
+    const { history } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...other,
+      ...waitingOnTwo,
+      [`GET /v1/sessions/${OTHER_ID}`]: () =>
+        json(200, {
+          ...detail,
+          session_id: OTHER_ID,
+          title: "다른 세션",
+          current_turn_id: "2",
+          attention: null,
+        }),
+    });
+    await openSteps();
+    await act(async () => history.push(`/sessions/${OTHER_ID}`));
+    await screen.findByRole("heading", { level: 1, name: /다른 세션/ });
+    const toggle = await within(await sessionProgress()).findByRole("button", {
+      name: /^단계 /,
+    });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    // Nor does the first one come back open.
+    await act(async () => history.push(`/sessions/${SESSION_ID}`));
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: /다른 세션/ })).toBeNull(),
+    );
+    const back = await within(await sessionProgress()).findByRole("button", {
+      name: /^단계 /,
+    });
+    expect(back.getAttribute("aria-expanded")).toBe("false");
+  });
+
   test("reads the turns again when they show a turn running that the session no longer runs", async () => {
     let turnReads = 0;
     renderAt(`/sessions/${SESSION_ID}`, {
@@ -5569,7 +5679,7 @@ describe("session steps", () => {
         });
       },
     });
-    const list = await screen.findByRole("region", { name: "단계" });
+    const list = await openSteps();
     await waitFor(
       () =>
         expect(within(list).getByRole("listitem").textContent).toContain(
@@ -5629,6 +5739,8 @@ describe("session steps", () => {
     const toggle = await within(progress).findByRole("button", {
       name: /^단계 2\/2/,
     });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await user.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     const list = screen.getByRole("region", { name: "단계" });
     expect(toggle.getAttribute("aria-controls")).toBe(list.id);
@@ -5688,7 +5800,7 @@ describe("session steps", () => {
           })),
         }),
     });
-    const list = await screen.findByRole("region", { name: "단계" });
+    const list = await openSteps();
     // The step still waits on approval; it is only not this viewer's to give.
     await within(list).findByText("승인 대기");
     expect(
@@ -5711,7 +5823,7 @@ describe("session steps", () => {
       [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
         json(200, { answerable: true, items: [] }),
     });
-    const list = await screen.findByRole("region", { name: "단계" });
+    const list = await openSteps();
     await within(list).findByText("진행 중");
     expect(within(list).queryByText("승인 대기")).toBeNull();
     expect(within(list).queryByText("답변 대기")).toBeNull();
@@ -5727,7 +5839,7 @@ describe("session steps", () => {
           items: pending.items.map((item) => ({ ...item, turn_id: "2" })),
         }),
     });
-    const list = await screen.findByRole("region", { name: "단계" });
+    const list = await openSteps();
     await within(list).findByText("진행 중");
     expect(within(list).queryByText("승인 대기")).toBeNull();
     expect(
@@ -5752,7 +5864,7 @@ describe("session steps", () => {
     const needed = await screen.findByRole("region", {
       name: "내 입력이 필요합니다",
     });
-    const list = screen.getByRole("region", { name: "단계" });
+    const list = await openSteps();
     expect(within(list).getByText("승인 대기")).toBeTruthy();
     await waitFor(() => expect(needed.isConnected).toBe(false), {
       timeout: 3_000,
@@ -5766,14 +5878,7 @@ describe("session steps", () => {
       [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
         json(200, { answerable: true, items: [] }),
     });
-    await within(await sessionProgress()).findByRole("button", {
-      name: /^단계 2\/2/,
-    });
-    expect(
-      within(screen.getByRole("region", { name: "단계" })).queryByText(
-        "승인 대기",
-      ),
-    ).toBeNull();
+    expect(within(await openSteps()).queryByText("승인 대기")).toBeNull();
     expect(
       screen.queryByRole("region", { name: "내 입력이 필요합니다" }),
     ).toBeNull();
@@ -5782,12 +5887,22 @@ describe("session steps", () => {
   test("a blocked session says why under its steps, with the fix where it is", async () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
+      [`GET /v1/agents/${AGENT_ID}`]:
+        agentServer().routes[`GET /v1/agents/${AGENT_ID}`],
       [`GET /v1/sessions/${SESSION_ID}`]: () =>
         json(200, {
           ...detail,
           status: "idle",
           current_turn_id: null,
           pending_request_count: 0,
+          agent: {
+            id: AGENT_ID,
+            name: "Release helper",
+            release_version_no: 3,
+            release_label: "2026-10-30_14:30:28-2",
+            release_is_active: true,
+            archived: false,
+          },
           attention: {
             code: "CATALOG_MISMATCH",
             reason: "connection_disabled",
@@ -5798,18 +5913,49 @@ describe("session steps", () => {
       [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
         json(200, { items: [turn("1", "completed")], next_cursor: null }),
     });
-    await within(await sessionProgress()).findByRole("button", {
+    const toggle = await within(await sessionProgress()).findByRole("button", {
       name: /^단계 1개/,
     });
-    const list = screen.getByRole("region", { name: "단계" });
-    expect(
-      within(list).getByText(
-        "다음 단계를 시작하지 못합니다. 모델 연결이나 저장소 설정이 바뀌어 실행할 수 없습니다.",
-      ),
-    ).toBeTruthy();
+    const reason =
+      "다음 단계를 시작하지 못합니다. 모델 연결이나 저장소 설정이 바뀌어 실행할 수 없습니다.";
+    const fix = { name: "에이전트 설정 열기" };
+    // Closed, the reason and its fix stand outside the hidden list.
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    const shown = () =>
+      screen.getAllByText(reason).filter((el) => !el.closest("[hidden]"));
+    expect(shown()).toHaveLength(1);
+    await screen.findByRole("link", fix);
+    const list = await openSteps(/^단계 1개/);
+    // Open, they show once, under the steps.
+    expect(within(list).getByText(reason)).toBeTruthy();
+    expect(screen.getAllByText(reason)).toHaveLength(1);
+    expect(screen.getAllByRole("link", fix)).toHaveLength(1);
     // Nothing runs, so no step is current or open.
     const [only] = within(list).getAllByRole("listitem");
     expect(only?.getAttribute("aria-current")).toBeNull();
+  });
+
+  test("a blocked step's reason shows closed, and only in its step once open", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...waitingOnTwo,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          current_turn_id: "2",
+          attention: {
+            code: "CATALOG_MISMATCH",
+            reason: "connection_disabled",
+          },
+        }),
+    });
+    const reason = "모델 연결이나 저장소 설정이 바뀌어 실행할 수 없습니다.";
+    const progress = await sessionProgress();
+    // The head's own copy: the hidden list holds another, outside this line.
+    expect(await within(progress).findByText(reason)).toBeTruthy();
+    const list = await openSteps();
+    const [, second] = within(list).getAllByRole("listitem");
+    expect(within(second as HTMLElement).getByText(reason)).toBeTruthy();
+    expect(screen.getAllByText(reason)).toHaveLength(1);
   });
 
   test("a step a lost worker cut off offers to continue in its place", async () => {
@@ -5833,7 +5979,7 @@ describe("session steps", () => {
           next_cursor: null,
         }),
     });
-    const list = await screen.findByRole("region", { name: "단계" });
+    const list = await openSteps();
     const [only] = within(list).getAllByRole("listitem");
     expect(
       await within(only as HTMLElement).findByText(
@@ -5866,13 +6012,12 @@ describe("session steps", () => {
     "in %s the steps and the input line speak it",
     async (locale, count, waiting, needed, show) => {
       renderAt(`/sessions/${SESSION_ID}`, waitingOnTwo, locale);
-      await within(await sessionProgress()).findByRole("button", {
-        name: count,
-      });
+      const progress = await sessionProgress();
+      await within(progress).findByRole("button", { name: count });
+      // Closed, the head already says what the step waits on.
+      expect(await within(progress).findByText(waiting)).toBeTruthy();
       const [, second] = within(
-        screen.getByRole("region", {
-          name: locale === "en" ? "Steps" : "ステップ",
-        }),
+        await openSteps(count, locale === "en" ? "Steps" : "ステップ"),
       ).getAllByRole("listitem");
       expect(within(second as HTMLElement).getByText(waiting)).toBeTruthy();
       const line = await screen.findByRole("region", { name: needed });
