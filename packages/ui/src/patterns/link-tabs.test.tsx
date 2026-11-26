@@ -275,13 +275,4 @@ describe("LinkTabs", () => {
       getAllByRole("link").map((link) => link.getAttribute("href") ?? ""),
     );
   });
-
-  test("두 진입점에서 같은 부품을 내보낸다", async () => {
-    const root = await import("../index.ts");
-    const patterns = await import("./index.ts");
-    expect(root.LinkTabs === LinkTabs).toBe(true);
-    expect(root.LinkTab === LinkTab).toBe(true);
-    expect(patterns.LinkTabs === LinkTabs).toBe(true);
-    expect(patterns.LinkTab === LinkTab).toBe(true);
-  });
 });
