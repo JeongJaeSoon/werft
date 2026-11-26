@@ -70,6 +70,16 @@ describe("scripted Messages API", () => {
     expect(planOf([{ role: "user", content: text }])?.spec).toEqual(spec);
   });
 
+  test("a spec with no complete object fails with the text that arrived", () => {
+    // What a session gets when macOS bash 3.2 runs
+    // ap_post … "$(body "GATE-SPEC {\"id\":…,\"steps\":…}")": brace expansion
+    // turns that argument into one per member, and ap_post sends only the first.
+    const text = `${SPEC_MARKER}"id":"a1-t1"`;
+    expect(() => planOf([{ role: "user", content: text }])).toThrow(
+      'unterminated GATE-SPEC, got: "id":"a1-t1"',
+    );
+  });
+
   test("walks the script to its final text", async () => {
     const recorded: GateRequest[] = [];
     const prompt = {
