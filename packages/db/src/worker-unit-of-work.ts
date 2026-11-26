@@ -3059,105 +3059,102 @@ export function createPostgresWorkerUnitOfWork(
     async heartbeatAtomic(input: HeartbeatInput): Promise<HeartbeatResult> {
       const { fence, now } = input;
       let beganDraining = false;
-      const result = await db.transaction(
-        async (tx): Promise<HeartbeatResult> => {
-          // A beat stuck behind another transaction's session row would spend
-          // the worker's whole lease budget waiting; failing fast lets it send
-          // the next beat while a renewal can still land.
-          await tx.execute(sql`SET LOCAL lock_timeout = '2s'`);
-          const fenced = await acquireFence(tx, fence);
-          if (fenced.outcome !== "ok") return fenced;
-          const reported = ATTEMPT_PHASE_ORDER[input.attemptState] ?? -1;
-          const current = ATTEMPT_PHASE_ORDER[fenced.attempt.state] ?? -1;
-          // Overlapping heartbeats can commit out of order, and the loser must
-          // not shorten a lease the winner already extended, so every clock
-          // here only moves forward.
-          const updated = await tx
-            .update(attempts)
-            .set({
-              leaseExpiresAt: sql`GREATEST(${attempts.leaseExpiresAt}, ${fromDbNow(input.leaseTtlMs)})`,
-              lastHeartbeatAt: sql`GREATEST(${attempts.lastHeartbeatAt}, ${now})`,
-              state:
-                reported > current ? input.attemptState : fenced.attempt.state,
-            })
-            .where(fencedAttempt(fence, fenced.at))
-            .returning({ leaseExpiresAt: attempts.leaseExpiresAt });
-          expectFenced(updated, "attempt");
-          beganDraining =
-            reported > current && input.attemptState === "draining";
-          const [beat] = updated;
-          if (!beat) throw new Error("Fenced attempt write returned no row");
-          const persistedAt = input.transcript?.persistedAt ?? null;
-          const mirrorError = input.transcript?.mirrorError ?? null;
-          // A mirror that has written nothing yet reports nulls on every beat
-          // until its first batch lands; there is nothing to record, and an
-          // empty SET is an error in drizzle.
-          if (persistedAt !== null || mirrorError !== null) {
-            // A late heartbeat cannot walk the mirror mark backwards, and an
-            // error only sets the reason: clearing is a checkpoint's to do.
-            expectFenced(
-              await tx
-                .update(sessions)
-                .set({
-                  ...(persistedAt === null
-                    ? {}
-                    : {
-                        lastTranscriptPersistedAt: sql`GREATEST(${sessions.lastTranscriptPersistedAt}, ${persistedAt})`,
-                      }),
-                  ...(mirrorError === null
-                    ? {}
-                    : {
-                        checkpointPendingReason: "mirror_error",
-                        checkpointPendingAttemptId: fence.attemptId,
-                      }),
-                })
-                .where(fencedSession(fence))
-                .returning({ id: sessions.id }),
-              "session transcript",
-            );
-          }
-          await tx
-            .update(executions)
-            .set({
-              observedAt: sql`GREATEST(${executions.observedAt}, ${now})`,
-              observedState: "running",
-            })
-            .where(eq(executions.id, fenced.attempt.executionId));
-          await tx
-            .update(workerCredentials)
-            .set({
-              expiresAt: sql`GREATEST(${workerCredentials.expiresAt}, ${fromDbNow(input.credentialTtlMs)})`,
-            })
-            .where(
-              and(
-                eq(workerCredentials.attemptId, fence.attemptId),
-                isNull(workerCredentials.revokedAt),
-              ),
-            );
-          // The legacy orphan reconciler keys on workers by pod_id and judges
-          // the deadline written here, never a TTL of its own.
-          await tx
-            .insert(workers)
-            .values({
-              podId: fenced.attempt.executionId,
-              lastSeen: now,
-              leaseExpiresAt: beat.leaseExpiresAt,
-            })
-            .onConflictDoUpdate({
-              target: workers.podId,
-              set: {
-                lastSeen: sql`GREATEST(${workers.lastSeen}, ${now})`,
-                leaseExpiresAt: sql`GREATEST(${workers.leaseExpiresAt}, ${beat.leaseExpiresAt})`,
-              },
-            });
-          return {
-            outcome: "ok",
+      const result: HeartbeatResult = await db.transaction(async (tx) => {
+        // A beat stuck behind another transaction's session row would spend
+        // the worker's whole lease budget waiting; failing fast lets it send
+        // the next beat while a renewal can still land.
+        await tx.execute(sql`SET LOCAL lock_timeout = '2s'`);
+        const fenced = await acquireFence(tx, fence);
+        if (fenced.outcome !== "ok") return fenced;
+        const reported = ATTEMPT_PHASE_ORDER[input.attemptState] ?? -1;
+        const current = ATTEMPT_PHASE_ORDER[fenced.attempt.state] ?? -1;
+        // Overlapping heartbeats can commit out of order, and the loser must
+        // not shorten a lease the winner already extended, so every clock
+        // here only moves forward.
+        const updated = await tx
+          .update(attempts)
+          .set({
+            leaseExpiresAt: sql`GREATEST(${attempts.leaseExpiresAt}, ${fromDbNow(input.leaseTtlMs)})`,
+            lastHeartbeatAt: sql`GREATEST(${attempts.lastHeartbeatAt}, ${now})`,
+            state:
+              reported > current ? input.attemptState : fenced.attempt.state,
+          })
+          .where(fencedAttempt(fence, fenced.at))
+          .returning({ leaseExpiresAt: attempts.leaseExpiresAt });
+        expectFenced(updated, "attempt");
+        beganDraining = reported > current && input.attemptState === "draining";
+        const [beat] = updated;
+        if (!beat) throw new Error("Fenced attempt write returned no row");
+        const persistedAt = input.transcript?.persistedAt ?? null;
+        const mirrorError = input.transcript?.mirrorError ?? null;
+        // A mirror that has written nothing yet reports nulls on every beat
+        // until its first batch lands; there is nothing to record, and an
+        // empty SET is an error in drizzle.
+        if (persistedAt !== null || mirrorError !== null) {
+          // A late heartbeat cannot walk the mirror mark backwards, and an
+          // error only sets the reason: clearing is a checkpoint's to do.
+          expectFenced(
+            await tx
+              .update(sessions)
+              .set({
+                ...(persistedAt === null
+                  ? {}
+                  : {
+                      lastTranscriptPersistedAt: sql`GREATEST(${sessions.lastTranscriptPersistedAt}, ${persistedAt})`,
+                    }),
+                ...(mirrorError === null
+                  ? {}
+                  : {
+                      checkpointPendingReason: "mirror_error",
+                      checkpointPendingAttemptId: fence.attemptId,
+                    }),
+              })
+              .where(fencedSession(fence))
+              .returning({ id: sessions.id }),
+            "session transcript",
+          );
+        }
+        await tx
+          .update(executions)
+          .set({
+            observedAt: sql`GREATEST(${executions.observedAt}, ${now})`,
+            observedState: "running",
+          })
+          .where(eq(executions.id, fenced.attempt.executionId));
+        await tx
+          .update(workerCredentials)
+          .set({
+            expiresAt: sql`GREATEST(${workerCredentials.expiresAt}, ${fromDbNow(input.credentialTtlMs)})`,
+          })
+          .where(
+            and(
+              eq(workerCredentials.attemptId, fence.attemptId),
+              isNull(workerCredentials.revokedAt),
+            ),
+          );
+        // The legacy orphan reconciler keys on workers by pod_id and judges
+        // the deadline written here, never a TTL of its own.
+        await tx
+          .insert(workers)
+          .values({
+            podId: fenced.attempt.executionId,
+            lastSeen: now,
             leaseExpiresAt: beat.leaseExpiresAt,
-            leaseRemainingMs: leaseRemainingMs(beat.leaseExpiresAt, fenced.at),
-            authRevision: fenced.session.authRevision,
-          };
-        },
-      );
+          })
+          .onConflictDoUpdate({
+            target: workers.podId,
+            set: {
+              lastSeen: sql`GREATEST(${workers.lastSeen}, ${now})`,
+              leaseExpiresAt: sql`GREATEST(${workers.leaseExpiresAt}, ${beat.leaseExpiresAt})`,
+            },
+          });
+        return {
+          outcome: "ok",
+          leaseExpiresAt: beat.leaseExpiresAt,
+          leaseRemainingMs: leaseRemainingMs(beat.leaseExpiresAt, fenced.at),
+          authRevision: fenced.session.authRevision,
+        };
+      });
       // A stopping worker beats `draining` and then waits for the answer to
       // the nextInput it has out: that poll is told now, not at its next
       // interval. After the renewal has committed and never part of it, so
