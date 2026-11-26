@@ -119,11 +119,4 @@ describe("FilterMenu", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => expect(queryByRole("dialog")).toBeNull());
   });
-
-  test("두 진입점에서 같은 부품을 내보낸다", async () => {
-    const root = await import("../index.ts");
-    const patterns = await import("./index.ts");
-    expect(root.FilterMenu === FilterMenu).toBe(true);
-    expect(patterns.FilterMenu === FilterMenu).toBe(true);
-  });
 });

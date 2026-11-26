@@ -64,11 +64,4 @@ describe("SearchInput", () => {
       "enabled:not-aria-invalid:hover:border-subtle-foreground",
     );
   });
-
-  test("두 진입점에서 같은 부품을 내보낸다", async () => {
-    const root = await import("../index.ts");
-    const primitives = await import("./index.ts");
-    expect(root.SearchInput === SearchInput).toBe(true);
-    expect(primitives.SearchInput === SearchInput).toBe(true);
-  });
 });

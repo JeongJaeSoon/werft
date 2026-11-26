@@ -24,6 +24,7 @@ export {
   idempotencyConflict,
   payloadHash,
   pendingField,
+  type SessionService,
   selfApproval,
   viewerFor,
   viewerOf,

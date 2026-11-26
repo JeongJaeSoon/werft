@@ -1,6 +1,7 @@
 import {
   CONVERSATION_TURN_THREAD_READ_LIMIT,
   CONVERSATION_TURN_TOOL_CALL_LIMIT,
+  type ConversationDecision,
   type ConversationId,
   type ConversationTopicId,
   type ConversationTurnDecision,
@@ -9,6 +10,7 @@ import {
 } from "@werft-ai/contracts";
 import {
   type ConversationReadToolStore,
+  type ConversationTaskDraft,
   type ConversationToolTurn,
   type SourcePlace,
   sourceSetOf,
@@ -22,6 +24,15 @@ import { rowsOf } from "../statement-rows.ts";
 import { lockedTurnReadDeleted } from "./conversation-turns.ts";
 import { directSourceDeletedAt, servedTitle } from "./deleted-sources.ts";
 import { turnAnswerTexts } from "./input-texts.ts";
+
+// What the turn keeps of a spawn_task decision: the model's reading alone.
+const taskDraftOf = (
+  decision: Extract<ConversationDecision, { tool: "spawn_task" }>,
+): ConversationTaskDraft => ({
+  goal: decision.goal,
+  doneWhen: decision.done_when,
+  repository: decision.repository ?? null,
+});
 
 type AdmitRow = {
   state: string;
@@ -216,6 +227,11 @@ export function createPostgresConversationReadToolStore(
                 SET state = 'decided', decision = ${decision.tool},
                   decision_reason = ${decision.reason},
                   answer_text = ${decision.tool === "reply" ? decision.body : null},
+                  task_draft = ${
+                    decision.tool === "spawn_task"
+                      ? JSON.stringify(taskDraftOf(decision))
+                      : null
+                  }::jsonb,
                   ended_at = clock_timestamp()
                 WHERE id = ${turnId}::uuid`
               : sql`

@@ -20,14 +20,6 @@ describe("컴포넌트 갤러리", () => {
     expect(galleryAt(360)).toMatchSnapshot();
   });
 
-  test("768px", () => {
-    expect(galleryAt(768)).toMatchSnapshot();
-  });
-
-  test("1440px", () => {
-    expect(galleryAt(1440)).toMatchSnapshot();
-  });
-
   test("폭이 바뀌어도 마크업은 그대로다", () => {
     const [narrow, ...rest] = WIDTHS.map((width) => galleryAt(width));
     for (const markup of rest) {

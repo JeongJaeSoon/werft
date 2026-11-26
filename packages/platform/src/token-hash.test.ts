@@ -6,20 +6,17 @@ import { hashWorkerToken } from "./workers/worker-gateway.ts";
 
 describe("hashToken", () => {
   // Stored token columns hold these bytes; a change here orphans every row.
-  test("is the SHA-256 of the token's UTF-8 bytes", () => {
-    expect(Buffer.from(hashToken("abc")).toString("hex")).toBe(
+  test.each([
+    ["hashToken", hashToken],
+    ["hashWorkerToken", hashWorkerToken],
+    ["hashTitleToken", hashTitleToken],
+    ["hashJudgmentToken", hashJudgmentToken],
+  ] as const)("%s is the SHA-256 of the token's UTF-8 bytes", (_name, hash) => {
+    expect(Buffer.from(hash("abc")).toString("hex")).toBe(
       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
     );
-    expect(Buffer.from(hashToken("é")).toString("hex")).toBe(
-      new Bun.CryptoHasher("sha256")
-        .update(new Uint8Array([0xc3, 0xa9]))
-        .digest("hex"),
+    expect(Buffer.from(hash("é")).toString("hex")).toBe(
+      "4a99557e4033c3539de2eb65472017cad5f9557f7a0625a09f1c3f6e2ba69c4c",
     );
-  });
-
-  test("the per-domain names are the same function", () => {
-    for (const alias of [hashWorkerToken, hashTitleToken, hashJudgmentToken]) {
-      expect(alias).toBe(hashToken);
-    }
   });
 });

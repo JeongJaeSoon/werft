@@ -13,7 +13,11 @@ export {
   requestReplyJudgment,
 } from "./conversation-judgments.ts";
 export { createPostgresConversationStore } from "./conversation-store.ts";
-export { createPostgresConversationTurnQueue } from "./conversation-turn-queue.ts";
+export {
+  createPostgresConversationTurnQueue,
+  keptTurnRequest,
+  releaseKeptTurnRequest,
+} from "./conversation-turn-queue.ts";
 export {
   type BeginConversationTurn,
   type BegunConversationTurn,

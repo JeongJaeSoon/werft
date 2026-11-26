@@ -556,6 +556,8 @@ describe("slackOutboxText", () => {
   });
 
   test("cuts to Slack's limit, never inside an escape or a surrogate pair", () => {
+    // chat.postMessage truncates text past 40,000 characters.
+    expect(SLACK_TEXT_MAX).toBe(40_000);
     const room = SLACK_TEXT_MAX - link.length;
     const url = "https://console.example/sessions/s1";
     const entity = slackOutboxText({
@@ -573,6 +575,14 @@ describe("slackOutboxText", () => {
     expect(emoji).toEndWith(`a…${link}`);
     // Throws on a lone surrogate.
     expect(() => encodeURIComponent(emoji)).not.toThrow();
+
+    // A body already past the limit leaves room for its link too.
+    const over = slackOutboxText({
+      text: "a".repeat(SLACK_TEXT_MAX + 10),
+      link_url: url,
+    });
+    expect(over.length).toBeLessThanOrEqual(SLACK_TEXT_MAX);
+    expect(over).toEndWith(`a…${link}`);
   });
 
   test("a cut that leaves a code fence open escapes what the fence held", () => {

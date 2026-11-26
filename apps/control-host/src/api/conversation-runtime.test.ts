@@ -170,6 +170,8 @@ function operatorHarness(
     release?: unknown;
     /** Wait in real time, for a test that acts while the operator waits. */
     realTime?: boolean;
+    /** The kind of the conversation the turn is in. */
+    place?: "channel" | "dm";
   } = {},
 ) {
   let clock = Date.parse("2026-11-24T00:00:00.000Z");
@@ -199,6 +201,7 @@ function operatorHarness(
               token: CALL_TOKEN,
               // The take time and a whole lease, as the real permit's.
               expiresAt: new Date(now().getTime() + 180_000),
+              place: options.place ?? "channel",
             };
       },
       async endTurn(turnId, outcome) {
@@ -294,6 +297,22 @@ describe("an operator's conversation turn", () => {
       turn: result,
       recorded: "decided",
     });
+  });
+
+  test("in a DM is not given spawn_task, as the server refuses it there", async () => {
+    const h = operatorHarness({ realTime: true, decided: true, place: "dm" });
+    expect(await h.turns.nextTurn({ runtimeId, waitMs: 0 })).toBeNull();
+    const running = h.operator.run(h.request);
+    const turn = await h.turns.nextTurn({ runtimeId, waitMs: 2_000 });
+    if (turn === null) throw new Error("the turn was not queued");
+    expect(turn.decision_tools).toEqual(["reply", "route_to_task", "no_reply"]);
+    await h.turns.turnResult({
+      runtimeId,
+      turnId: turn.turn_id,
+      leaseId: turn.lease_id,
+      result: { outcome: "completed", text: "" },
+    });
+    expect(await running).toMatchObject({ outcome: "ended" });
   });
 
   test("writes the turn with its permit, queues it with its scope, and ends it once the runtime reports", async () => {

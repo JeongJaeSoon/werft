@@ -279,7 +279,13 @@ describe("the read tools' store on PostgreSQL", () => {
         reason: "asked who owns the deploy",
       },
       { tool: "route_to_task", task_id: randomUUID(), reason: "its task's" },
-      { tool: "spawn_task", spec: "write the report", reason: "new work" },
+      {
+        tool: "spawn_task",
+        goal: "write the report",
+        done_when: "the report is in the thread",
+        repository: "repo-main",
+        reason: "new work",
+      },
       { tool: "no_reply", reason: "people talking to each other" },
     ];
 

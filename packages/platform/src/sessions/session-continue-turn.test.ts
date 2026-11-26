@@ -101,21 +101,15 @@ describe("going on from a turn its worker's lost lease ended", () => {
     expect(other?.payloadHash).not.toBe(first?.payloadHash);
   });
 
-  test("a turn a later turn already follows is refused, and nothing is queued for it", async () => {
-    const { service } = setup("superseded");
+  test.each([
+    ["a turn a later turn already follows", "CONTROL_SUPERSEDED", "superseded"],
+    ["a turn that did not end that way", "NOT_FOUND", "not_found"],
+  ] as const)("%s is refused with %s", async (_turn, code, outcome) => {
+    const { service } = setup(outcome);
     const refused = await service
       .continueTurn(caller("req-1"), SESSION, { turnId: 3 })
       .catch((error: unknown) => error);
     expect(refused).toBeInstanceOf(SessionServiceError);
-    expect((refused as SessionServiceError).code).toBe("CONTROL_SUPERSEDED");
-  });
-
-  test("a turn that did not end that way is not found", async () => {
-    const { service } = setup("not_found");
-    const refused = await service
-      .continueTurn(caller("req-1"), SESSION, { turnId: 3 })
-      .catch((error: unknown) => error);
-    expect(refused).toBeInstanceOf(SessionServiceError);
-    expect((refused as SessionServiceError).code).toBe("NOT_FOUND");
+    expect((refused as SessionServiceError).code).toBe(code);
   });
 });
