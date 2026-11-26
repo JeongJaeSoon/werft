@@ -3,6 +3,7 @@ import type { SurfaceOutboxClaim } from "@werft-ai/platform";
 import { createRowDelivery } from "./outbox-delivery.ts";
 import { slackAiLabelBlock, slackAiLabelText } from "./slack-ai-label.ts";
 import type { SlackBotSender, SlackSendResponse } from "./slack-config-api.ts";
+import { SLACK_TEXT_MAX } from "./slack-outbox-render.ts";
 
 // v1-b/E1: a conversation turn's answer, posted in its thread under the
 // agent's name, ending with the AI line (Architect Q2).
@@ -116,8 +117,18 @@ describe("a conversation reply row", () => {
     ]);
     await deliver(row({ text: "Done.", locale: "en", requested_by: name }));
     expect(JSON.stringify(posted[0]?.blocks)).toContain(name);
+    expect(posted).toHaveLength(2);
     expect(posted[1]?.blocks).toBeUndefined();
     expect(posted[1]?.text).toBe("Done.\n\nAI agent · Werft");
+  });
+
+  test("an answer cut to Slack's limit keeps the AI line whole", async () => {
+    const { deliver, posted } = deliveryAnswering([]);
+    // Allowed in length, past the limit once each & is escaped.
+    await deliver(row({ text: "&".repeat(16_000), locale: "en" }));
+    const text = posted[0]?.text ?? "";
+    expect(text.length).toBeLessThanOrEqual(SLACK_TEXT_MAX);
+    expect(text.endsWith("…\n\nAI agent · Werft")).toBe(true);
   });
 
   test("the answer loses group mentions and channels outside its conversation", async () => {
