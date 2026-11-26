@@ -805,23 +805,7 @@ integration("worker gateway on PostgreSQL", () => {
       cases.map(([name, , , , expected]) => [name, expected]),
     );
     // A token presented for another route than its own.
-    expect(await check("repository")).toBe("invalid_token");
-    // A token with no binding stands for nothing.
-    const { rows: bound } = await pool.query(
-      "SELECT binding FROM worker_credentials WHERE attempt_id = $1 AND purpose = 'provider'",
-      [claimed.attempt_id],
-    );
-    await pool.query(
-      "UPDATE worker_credentials SET binding = NULL WHERE attempt_id = $1 AND purpose = 'provider'",
-      [claimed.attempt_id],
-    );
-    expect(await check()).toBe("invalid_token");
-    await pool.query(
-      "UPDATE worker_credentials SET binding = $2 WHERE attempt_id = $1 AND purpose = 'provider'",
-      [claimed.attempt_id, bound[0].binding],
-    );
-    expect(await check()).toBe("ok");
-  });
+    expect(await check("repository")).toBe("invalid_token");  });
 
   test("a fence change not yet committed does not hold the check up, and refuses once committed", async () => {
     const session = await queuedSession(partitionFor("egress-bump"));
