@@ -4825,7 +4825,11 @@ describe("session steps", () => {
     [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
       json(200, {
         ...pending,
-        items: pending.items.map((item) => ({ ...item, turn_id: "2" })),
+        items: pending.items.map((item) => ({
+          ...item,
+          turn_id: "2",
+          expires_at: LATER,
+        })),
       }),
   };
 
@@ -4888,7 +4892,11 @@ describe("session steps", () => {
         json(200, {
           ...pending,
           answerable: false,
-          items: pending.items.map((item) => ({ ...item, turn_id: "2" })),
+          items: pending.items.map((item) => ({
+            ...item,
+            turn_id: "2",
+            expires_at: LATER,
+          })),
         }),
     });
     const list = await screen.findByRole("region", { name: "단계" });
@@ -4918,6 +4926,24 @@ describe("session steps", () => {
     await within(list).findByText("진행 중");
     expect(within(list).queryByText("승인 대기")).toBeNull();
     expect(within(list).queryByText("답변 대기")).toBeNull();
+  });
+
+  test("a request past its expiry neither asks for input nor holds its step", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...waitingOnTwo,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, {
+          ...pending,
+          // AT is long past.
+          items: pending.items.map((item) => ({ ...item, turn_id: "2" })),
+        }),
+    });
+    const list = await screen.findByRole("region", { name: "단계" });
+    await within(list).findByText("진행 중");
+    expect(within(list).queryByText("승인 대기")).toBeNull();
+    expect(
+      screen.queryByRole("region", { name: "내 입력이 필요합니다" }),
+    ).toBeNull();
   });
 
   test("a session nothing waits on has no input-needed line", async () => {

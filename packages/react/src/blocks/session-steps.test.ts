@@ -9,6 +9,7 @@ import type { SessionEventFrame } from "../sessions.ts";
 import { readSessionSteps, sessionTime } from "./session-steps.ts";
 
 const AT = "2026-11-26T01:00:00.000Z";
+const LATER = "2099-01-01T00:00:00.000Z";
 
 function turn(
   turn_id: string,
@@ -42,7 +43,7 @@ function permission(turn_id: string, request_id: string): PendingRequest {
     turn_id,
     attempt_id: "att_1",
     created_at: AT,
-    expires_at: AT,
+    expires_at: LATER,
     tool: "Bash",
     input: {},
   };
@@ -55,7 +56,7 @@ function question(turn_id: string): PendingRequest {
     turn_id,
     attempt_id: "att_1",
     created_at: AT,
-    expires_at: AT,
+    expires_at: LATER,
     questions: [
       {
         question_id: "q1",
@@ -103,6 +104,7 @@ const read = ({
     requests: [],
     events: [],
     windowFull: false,
+    now: Date.parse(AT),
     ...overrides,
   });
 
@@ -159,6 +161,21 @@ describe("readSessionSteps", () => {
       turns: [turn("1", "needs_input")],
     });
     expect(steps.steps[0]?.state).toBe("answer");
+  });
+
+  test("a request past its expiry no longer holds its turn, nor does the session's earlier count", () => {
+    const steps = read({
+      session: {
+        current_turn_id: "1",
+        status: "needs_input",
+        pending_request_count: 1,
+      },
+      turns: [turn("1", "needs_input")],
+      requests: [{ ...permission("1", "req_1"), expires_at: AT }],
+      now: Date.parse(AT) + 1,
+    });
+    expect(steps.steps[0]?.state).toBe("running");
+    expect(steps.steps[0]?.requests).toEqual([]);
   });
 
   test("a turn already ended is not current, though a session read before its end names it", () => {

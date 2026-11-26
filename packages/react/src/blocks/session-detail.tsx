@@ -1,5 +1,6 @@
 import { isApiError } from "@werft-ai/client";
 import type {
+  PendingRequest,
   SessionDetail as SessionDetailData,
   SessionShareView,
   SessionUsageResponse,
@@ -30,6 +31,7 @@ import {
   Fragment,
   type ReactNode,
   useCallback,
+  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -179,6 +181,7 @@ export function SessionDetail({
   const stepListId = useId();
   const [stepsOpen, setStepsOpen] = useState(true);
   const waitingTitle = useRef<HTMLHeadingElement>(null);
+  const lapseNow = useLapseClock(pending.data?.items);
   // The event window keeps its length once full, so the newest event's id
   // tells an arrival, not the count.
   const follow = useFollowEnd(
@@ -239,9 +242,11 @@ export function SessionDetail({
   const cutOff = lostTurnId !== null && detail.status === "idle";
   const requests = pending.data?.items ?? [];
   // A viewer who only sees the session through its share has nothing to
-  // answer, unless a request says otherwise.
+  // answer, unless a request says otherwise; a lapsed request takes none.
   const mine = requests.filter(
-    (request) => request.answerable ?? pending.data?.answerable ?? false,
+    (request) =>
+      Date.parse(request.expires_at) > lapseNow &&
+      (request.answerable ?? pending.data?.answerable ?? false),
   );
   const steps = turns.data
     ? readSessionSteps({
@@ -250,6 +255,7 @@ export function SessionDetail({
         requests,
         events: events.events,
         windowFull: events.events.length >= EVENT_WINDOW,
+        now: lapseNow,
       })
     : undefined;
   // The requests sit at the chat's end: open the chat and land on them.
@@ -487,6 +493,29 @@ export function SessionDetail({
       </Tabs>
     </PageFrame>
   );
+}
+
+const TIMER_MAX = 2 ** 31 - 1;
+
+/** Date.now(), read again when the soonest of these requests lapses. */
+function useLapseClock(
+  requests: readonly PendingRequest[] | undefined,
+): number {
+  const [now, setNow] = useState(Date.now);
+  const next = Math.min(
+    ...(requests ?? [])
+      .map((request) => Date.parse(request.expires_at))
+      .filter((at) => at > now),
+  );
+  useEffect(() => {
+    if (!Number.isFinite(next)) return;
+    const id = setTimeout(
+      () => setNow(Date.now()),
+      Math.min(Math.max(0, next - Date.now()), TIMER_MAX),
+    );
+    return () => clearTimeout(id);
+  }, [next]);
+  return now;
 }
 
 /** Names the chat's waiting requests, where focus lands once all are answered. */

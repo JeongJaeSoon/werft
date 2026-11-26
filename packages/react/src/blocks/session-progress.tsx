@@ -96,7 +96,7 @@ export function SessionProgress({
           onClick={onListToggle}
         >
           <ListChecks
-            className="size-3.5"
+            className="size-[var(--werft-leading-caption)]"
             strokeWidth={1.5}
             aria-hidden="true"
           />
@@ -111,7 +111,7 @@ export function SessionProgress({
           <span className="sr-only">, {t("session.steps.toggle")}</span>
           <ChevronDown
             className={cn(
-              "size-3.5 motion-safe:transition-transform",
+              "size-[var(--werft-leading-caption)] motion-safe:transition-transform",
               listOpen && "rotate-180",
             )}
             strokeWidth={1.5}
@@ -122,7 +122,7 @@ export function SessionProgress({
       {step && step.toolCalls > 0 ? (
         <span className="inline-flex items-center gap-[var(--werft-space-1)] tabular-nums">
           <Wrench
-            className="size-3.5 shrink-0"
+            className="size-[var(--werft-leading-caption)] shrink-0"
             strokeWidth={1.5}
             aria-hidden="true"
           />
@@ -137,7 +137,7 @@ export function SessionProgress({
       {duration ? (
         <span className="inline-flex items-center gap-[var(--werft-space-1)] tabular-nums">
           <Clock
-            className="size-3.5 shrink-0"
+            className="size-[var(--werft-leading-caption)] shrink-0"
             strokeWidth={1.5}
             aria-hidden="true"
           />
@@ -254,7 +254,7 @@ function AgentFix({ agent }: { readonly agent: SessionDetailData["agent"] }) {
     to: "agent",
     id: agent.id,
     className:
-      "inline-flex w-fit items-center text-caption text-(color:--werft-color-link) underline underline-offset-2",
+      "inline-flex w-fit items-center text-caption text-(color:--werft-color-link) underline",
     children: t("session.steps.openAgent"),
   });
 }
@@ -327,7 +327,7 @@ export function SessionStepList({
         // A long session scrolls inside its box; the keyboard needs a stop.
         <div
           {...{ role: "group", tabIndex: 0, "aria-labelledby": titleId }}
-          className="max-h-[40dvh] overflow-y-auto rounded-card p-[var(--werft-space-1)] focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
+          className="max-h-[40dvh] overflow-y-auto rounded-card p-[var(--werft-space-1)]"
         >
           <ol className="m-0 flex list-none flex-col p-0">
             {steps.steps.map((step, index) => {
@@ -422,12 +422,14 @@ function StepRow({
       data-state={state}
       className="flex min-w-0 flex-col"
     >
-      <button
+      <Button
         type="button"
+        variant="ghost"
         aria-expanded={expanded}
         aria-controls={panelId}
         onClick={onToggle}
-        className="flex min-h-[var(--werft-control-height)] w-full min-w-0 items-center gap-[var(--werft-space-3)] rounded-control px-[var(--werft-space-2)] py-[var(--werft-space-1)] text-left text-body hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
+        // The primitive's focus ring and hover, on a row as tall as its text.
+        className="h-auto min-h-[var(--werft-control-height)] w-full min-w-0 justify-start gap-[var(--werft-space-3)] whitespace-normal px-[var(--werft-space-2)] py-[var(--werft-space-1)] text-left font-normal text-body text-foreground"
       >
         <span
           aria-hidden="true"
@@ -453,13 +455,13 @@ function StepRow({
         ) : null}
         <ChevronDown
           className={cn(
-            "size-3.5 shrink-0 text-muted-foreground motion-safe:transition-transform",
+            "size-[var(--werft-leading-caption)] shrink-0 text-muted-foreground motion-safe:transition-transform",
             expanded && "rotate-180",
           )}
           strokeWidth={1.5}
           aria-hidden="true"
         />
-      </button>
+      </Button>
       <div
         id={panelId}
         hidden={!expanded}

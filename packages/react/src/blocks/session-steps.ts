@@ -54,6 +54,8 @@ export interface ReadSessionStepsInput {
   readonly turns: readonly TurnSummary[];
   readonly requests: readonly PendingRequest[];
   readonly events: readonly SessionEventFrame[];
+  /** Epoch ms: a request past its `expires_at` no longer holds its turn. */
+  readonly now: number;
   /** The event window is at its cap, so its oldest events are gone. */
   readonly windowFull: boolean;
 }
@@ -105,6 +107,7 @@ export function readSessionSteps({
   requests,
   events,
   windowFull,
+  now,
 }: ReadSessionStepsInput): SessionSteps {
   const calls = new Map<string, Set<string>>();
   for (const frame of events) {
@@ -121,13 +124,18 @@ export function readSessionSteps({
   // events without a turn (control-plane ones) say nothing about that.
   const oldest = events.find((frame) => frame.turnId !== null)?.turnId ?? null;
   const steps = turns.map((turn, index): SessionStep => {
-    const asked = requests
-      .filter((request) => request.turn_id === turn.turn_id)
+    const own = requests.filter((request) => request.turn_id === turn.turn_id);
+    const asked = own
+      .filter((request) => Date.parse(request.expires_at) > now)
       .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    // A turn whose requests are known to have lapsed is not held by a count
+    // the session read before they did.
+    const heldOpen =
+      session.pending_request_count > 0 && own.length === asked.length;
     return {
       turn,
       number: index + 1,
-      state: stateOf(turn, asked, session.pending_request_count > 0),
+      state: stateOf(turn, asked, heldOpen),
       requests: asked,
       toolCalls: calls.get(turn.turn_id)?.size ?? 0,
       toolCallsPartial: windowFull && oldest === turn.turn_id,
