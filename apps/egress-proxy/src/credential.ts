@@ -118,6 +118,12 @@ const BUILTIN_RETRY_AFTER_SECONDS = 5;
  * safety margin), so past it the engine that sent the call is being stopped
  * anyway. Each ask is judged afresh, the attempt's hold on its session
  * included: a call held here is never let through on an earlier answer.
+ *
+ * Also how long a request may go on sending none of its body: the first
+ * byte is due this long after the request arrived, each later one this long
+ * after the byte before. Past it the request is answered the same 503: a
+ * granted upload would otherwise hold its upstream open on a body that is
+ * not coming, until the upstream gave up.
  */
 const DEFAULT_UNDECIDED_HOLD_MS = 20_000;
 /** Waits between those asks; the last repeats. */
@@ -1227,7 +1233,8 @@ export type CredentialProxyOptions = {
   usageReportBackoffMs?: readonly number[];
   /**
    * How a provider call the authorizer could not decide is held: for how
-   * long, the waits between asks, and how many calls at once.
+   * long, the waits between asks, and how many calls at once. `ms` is also
+   * how long any request's body may stop arriving.
    */
   undecidedHold?: { ms?: number; backoffMs?: readonly number[]; max?: number };
   /** Roots for https upstreams; tests name a private CA. */
@@ -1360,13 +1367,31 @@ export function startCredentialProxy(
   }
 
   // Retryable, and said so: the client's own retry sends the same request.
-  function undecidedReply(purpose: EgressPurpose): Response {
-    const response = reply(
-      503,
-      "egress authorization unavailable; retry in a few seconds",
-      purpose,
-    );
+  function retryLater(purpose: EgressPurpose, message: string): Response {
+    const response = reply(503, message, purpose);
     response.headers.set("retry-after", String(UNDECIDED_RETRY_AFTER_SECONDS));
+    return response;
+  }
+
+  function undecidedReply(purpose: EgressPurpose): Response {
+    return retryLater(
+      purpose,
+      "egress authorization unavailable; retry in a few seconds",
+    );
+  }
+
+  function stalledReply(
+    purpose: EgressPurpose,
+    fields: Record<string, unknown>,
+  ): Response {
+    logger.warn("Credential route request body stalled", fields);
+    const response = retryLater(
+      purpose,
+      "request body stalled; retry in a few seconds",
+    );
+    // The rest of that body is still owed on this connection: a request
+    // sent after it would be read as the body's remainder.
+    response.headers.set("connection", "close");
     return response;
   }
 
@@ -1917,6 +1942,8 @@ export function startCredentialProxy(
     // The route's body as read since admission; null for the object store,
     // whose body streams upstream.
     whole: Promise<UpstreamBody> | null,
+    // When the first byte of a streamed body is due.
+    bodyBy: number,
     // The exchange's id: the ledger's open and renewals and the usage
     // report all name the call by it.
     exchangeId: string,
@@ -1992,7 +2019,7 @@ export function startCredentialProxy(
         typeof route.lfs === "object"
           ? lfsBatchBody([route.lfs])
           : whole === null
-            ? objectBody(request, grant)
+            ? objectBody(request, grant, bodyBy, holdMs)
             : await whole;
       if (body instanceof Uint8Array) sent = body;
       const refused = await ledger?.open(sent, signal);
@@ -2060,6 +2087,9 @@ export function startCredentialProxy(
       if (wroteNothing(error)) ledger?.release();
       if (error instanceof BodyTooLargeError) {
         return reply(413, "request body too large", route.purpose);
+      }
+      if (error instanceof BodyStalledError) {
+        return stalledReply(route.purpose, fields);
       }
       logger.warn("Credential route upstream failed", {
         ...fields,
@@ -2380,6 +2410,7 @@ export function startCredentialProxy(
         );
       }
       const client = server.requestIP(request)?.address ?? "unknown";
+      const bodyBy = performance.now() + holdMs;
       const admitted = admit(client);
       if (admitted === null) {
         logger.warn("Refusing a credential exchange over the cap", { client });
@@ -2435,6 +2466,7 @@ export function startCredentialProxy(
               request.body,
               AbortSignal.any([ends, reading.signal]),
               reservation.bytes,
+              holdMs,
             );
       whole?.catch(() => {});
       // A definite refusal cuts the exchange at once. An authorizer that
@@ -2649,6 +2681,7 @@ export function startCredentialProxy(
           client,
           ends,
           whole,
+          bodyBy,
           exchangeId,
           ledger,
         );
@@ -2663,6 +2696,12 @@ export function startCredentialProxy(
         release();
         if (error instanceof BodyTooLargeError) {
           return reply(413, "request body too large", route.purpose);
+        }
+        if (error instanceof BodyStalledError) {
+          return stalledReply(route.purpose, {
+            purpose: route.purpose,
+            client,
+          });
         }
         logger.error("Credential exchange failed", {
           error: error instanceof Error ? error.name : "error",
@@ -2685,6 +2724,22 @@ export function startCredentialProxy(
 }
 
 class BodyTooLargeError extends Error {}
+
+/** A request body that sent nothing for as long as a request may be held. */
+class BodyStalledError extends Error {}
+
+/** `read`, or a `BodyStalledError` once it has been pending for `ms`. */
+async function arrivingWithin<T>(read: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stalled = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new BodyStalledError()), Math.max(0, ms));
+  });
+  try {
+    return await Promise.race([read, stalled]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** A billed provider call's entry in the exchange ledger. */
 type LedgerCall = {
@@ -2710,14 +2765,16 @@ function untilEnded<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
 
 /**
  * The request body, all of it in hand before the upstream is dialled, given
- * up the moment `signal` fires or it passes `max`. Copied into one buffer of
- * the reserved size as it arrives, so neither a copy nor a trickle of tiny
- * chunks holds more than the reservation.
+ * up the moment `signal` fires, it passes `max` or it sends nothing for
+ * `idleMs`. Copied into one buffer of the reserved size as it arrives, so
+ * neither a copy nor a trickle of tiny chunks holds more than the
+ * reservation.
  */
 async function readWhole(
   body: ReadableStream<Uint8Array> | null,
   signal: AbortSignal,
   max: number,
+  idleMs: number,
 ): Promise<UpstreamBody> {
   if (body === null) return null;
   const reader = body.getReader();
@@ -2730,7 +2787,7 @@ async function readWhole(
     const whole = new Uint8Array(max);
     let total = 0;
     for (;;) {
-      const next = await reader.read();
+      const next = await arrivingWithin(reader.read(), idleMs);
       signal.throwIfAborted();
       if (next.done) break;
       if (total + next.value.byteLength > max) {
@@ -2742,6 +2799,9 @@ async function readWhole(
       total += next.value.byteLength;
     }
     return whole.subarray(0, total);
+  } catch (error) {
+    if (error instanceof BodyStalledError) reader.cancel().catch(() => {});
+    throw error;
   } finally {
     signal.removeEventListener("abort", stop);
   }
@@ -2772,11 +2832,36 @@ export function bodyReservation(
  * signed. Bun already holds the worker to the length it declared, and the
  * authorizer signed that same declaration; the upstream client checks the
  * stream against it again as it writes.
+ *
+ * The stream fails once the worker sends nothing for `idleMs`, its first
+ * byte due at `firstBy`. Only the worker's silence counts: a read is
+ * pending only while the upstream has room for more.
  */
-function objectBody(request: Request, grant: EgressGrant): UpstreamBody {
+function objectBody(
+  request: Request,
+  grant: EgressGrant,
+  firstBy: number,
+  idleMs: number,
+): UpstreamBody {
   const declared = grant.headers.find(([name]) => name === "content-length");
   if (declared === undefined || request.body === null) return null;
-  return { stream: request.body, length: Number(declared[1]) };
+  const reader = request.body.getReader();
+  let due = firstBy - performance.now();
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const next = await arrivingWithin(reader.read(), due);
+        due = idleMs;
+        if (next.done) controller.close();
+        else controller.enqueue(next.value);
+      } catch (error) {
+        reader.cancel(error).catch(() => {});
+        controller.error(error);
+      }
+    },
+    cancel: (reason) => reader.cancel(reason),
+  });
+  return { stream, length: Number(declared[1]) };
 }
 
 const S3_ERROR_CODES: Record<number, string> = {

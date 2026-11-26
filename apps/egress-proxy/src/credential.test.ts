@@ -7,7 +7,7 @@ import {
   test,
 } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
-import { createServer } from "node:net";
+import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -750,7 +750,10 @@ describe("startCredentialProxy", () => {
   }
 
   function authorizer(
-    answer: (body: { token: string; purpose: string }) => Response,
+    answer: (body: {
+      token: string;
+      purpose: string;
+    }) => Response | Promise<Response>,
     usageAnswer: () => Response = () => Response.json({}),
     ledgerAnswer: () => Response | Promise<Response> = () =>
       Response.json({ state: "open" }, { status: 201 }),
@@ -2292,6 +2295,176 @@ describe("startCredentialProxy", () => {
         "<Code>ServiceUnavailable</Code><Message>egress authorization unavailable; retry in a few seconds</Message>",
       );
       expect(auth.asked).toHaveLength(1);
+      expect(up.seen).toEqual([]);
+    });
+  });
+
+  describe("a request body that stops arriving", () => {
+    const OBJECT_HEAD = [
+      "PUT /object-store/bucket/key HTTP/1.1",
+      "host: 127.0.0.1",
+      `authorization: AWS4-HMAC-SHA256 Credential=${WORKER_TOKEN}/20261008/auto/s3/aws4_request, SignedHeaders=host, Signature=0`,
+      "content-length: 10",
+    ];
+
+    /** What an S3 was sent before it answered anything, and whether the proxy hung up. */
+    async function rawUpstream(answerAt?: number) {
+      const state = { received: "", closed: false };
+      const sockets: Socket[] = [];
+      const server = createServer((socket) => {
+        sockets.push(socket);
+        socket.on("data", (chunk) => {
+          state.received += chunk.toString("latin1");
+          const head = state.received.indexOf("\r\n\r\n");
+          if (
+            answerAt !== undefined &&
+            head >= 0 &&
+            state.received.length - head - 4 >= answerAt
+          ) {
+            socket.end(
+              "HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok",
+            );
+          }
+        });
+        socket.on("error", () => {});
+        socket.on("close", () => {
+          state.closed = true;
+        });
+      });
+      await new Promise<void>((resolve) =>
+        server.listen(0, "127.0.0.1", resolve),
+      );
+      servers.push({
+        stop() {
+          for (const socket of sockets) socket.destroy();
+          server.close();
+        },
+      });
+      const { port } = server.address() as { port: number };
+      return { port, state };
+    }
+
+    function granted(port: number) {
+      return Response.json({
+        session_id: "sess-1",
+        attempt_id: "att-1",
+        upstream: {
+          url: `http://upstream.test:${port}`,
+          target: "/bucket/key",
+          headers: [["content-length", "10"]],
+        },
+      });
+    }
+
+    /** One request written by hand, so its body stops where a test says. */
+    function raw(
+      port: number,
+      head: string[],
+      send?: (socket: Socket) => unknown,
+    ): Promise<{ answer: string; ms: number }> {
+      const startedAt = performance.now();
+      return new Promise((resolve, reject) => {
+        const socket = connect({ host: "127.0.0.1", port });
+        let answer = "";
+        socket.on("connect", () => {
+          socket.write(`${head.join("\r\n")}\r\n\r\n`);
+          void send?.(socket);
+        });
+        socket.on("data", (chunk) => {
+          answer += chunk.toString("latin1");
+          const end = answer.indexOf("\r\n\r\n");
+          if (end < 0) return;
+          const length = Number(
+            /content-length: (\d+)/i.exec(answer)?.[1] ?? 0,
+          );
+          if (answer.length - end - 4 < length) return;
+          resolve({ answer, ms: performance.now() - startedAt });
+          socket.destroy();
+        });
+        socket.on("error", reject);
+        socket.on("close", () => reject(new Error("closed with no answer")));
+      });
+    }
+
+    test("an object upload that stops half way is answered 503 with Retry-After within the hold, and its upstream is hung up on", async () => {
+      const up = await rawUpstream();
+      const auth = authorizer(() => granted(up.port));
+      const server = proxy(auth.url, up.port, { undecidedHold: { ms: 400 } });
+      const { answer, ms } = await raw(server.port, OBJECT_HEAD, (socket) =>
+        socket.write("1234"),
+      );
+      expect(answer).toStartWith("HTTP/1.1 503");
+      expect(answer.toLowerCase()).toContain("retry-after: 1\r\n");
+      expect(answer).toContain(
+        "<Code>ServiceUnavailable</Code><Message>request body stalled; retry in a few seconds</Message>",
+      );
+      // The rest of the body is still owed on this connection.
+      expect(answer.toLowerCase()).toContain("connection: close\r\n");
+      // The hold, counted from the last byte; never the upstream's patience.
+      expect(ms).toBeGreaterThanOrEqual(350);
+      expect(ms).toBeLessThan(3_000);
+      // Granted, so the signed request went up: its head and what had come.
+      expect(up.state.received).toContain("PUT /bucket/key HTTP/1.1");
+      expect(up.state.received).toEndWith("\r\n\r\n1234");
+      await until(() => up.state.closed);
+    });
+
+    test("the first byte is due within the hold of the request's arrival, whatever the authorizer took of it", async () => {
+      const up = await rawUpstream();
+      const auth = authorizer(async () => {
+        await Bun.sleep(700);
+        return granted(up.port);
+      });
+      const server = proxy(auth.url, up.port, {
+        undecidedHold: { ms: 1_000 },
+      });
+      const { answer, ms } = await raw(server.port, OBJECT_HEAD);
+      expect(answer).toStartWith("HTTP/1.1 503");
+      expect(answer.toLowerCase()).toContain("retry-after: 1\r\n");
+      // 1 s after the request, not 1 s after the 700 ms grant.
+      expect(ms).toBeGreaterThanOrEqual(950);
+      expect(ms).toBeLessThan(1_600);
+      await until(() => up.state.closed);
+    });
+
+    test("an upload that keeps arriving is not cut, however long it takes", async () => {
+      const up = await rawUpstream(10);
+      const auth = authorizer(() => granted(up.port));
+      const server = proxy(auth.url, up.port, { undecidedHold: { ms: 400 } });
+      const { answer, ms } = await raw(
+        server.port,
+        OBJECT_HEAD,
+        async (socket) => {
+          for (const byte of "0123456789") {
+            socket.write(byte);
+            await Bun.sleep(100);
+          }
+        },
+      );
+      expect(answer).toStartWith("HTTP/1.1 200");
+      expect(ms).toBeGreaterThan(800);
+      expect(up.state.received).toEndWith("\r\n\r\n0123456789");
+    });
+
+    test("a provider call whose body never arrives is answered the same 503, and nothing goes upstream", async () => {
+      const up = upstream(() => Response.json({ id: "msg_1" }));
+      const auth = authorizer(
+        granting(`http://upstream.test:${up.port}`, [
+          ["x-api-key", PROVIDER_KEY],
+        ]),
+      );
+      const server = proxy(auth.url, up.port, { undecidedHold: { ms: 400 } });
+      const { answer, ms } = await raw(server.port, [
+        "POST /provider/v1/messages?beta=true HTTP/1.1",
+        "host: 127.0.0.1",
+        `x-api-key: ${WORKER_TOKEN}`,
+        "content-length: 13",
+      ]);
+      expect(answer).toStartWith("HTTP/1.1 503");
+      expect(answer.toLowerCase()).toContain("retry-after: 1\r\n");
+      expect(answer).toContain("request body stalled");
+      expect(ms).toBeGreaterThanOrEqual(350);
+      expect(ms).toBeLessThan(3_000);
       expect(up.seen).toEqual([]);
     });
   });
