@@ -67,6 +67,16 @@ export const paginationQuerySchema = z.object({
     .default(PAGE_LIMIT_DEFAULT),
 });
 
+/**
+ * On a read across sessions (a list, a count, a summary): some private
+ * channel's members were not yet confirmed, so what that channel's sessions
+ * hold is left out for now. Absent otherwise. Read again shortly to see it.
+ */
+export const privateChannelsPendingSchema = z.literal(true).optional().meta({
+  description:
+    "Present and true while some private channel's members are still being confirmed: that channel's sessions are left out of this answer, which may hold more when read again shortly. No count is given.",
+});
+
 export function pageSchema<T extends z.ZodType>(item: T) {
   return z.object({
     items: z.array(item),

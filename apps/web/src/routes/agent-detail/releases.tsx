@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import type { components } from "@werft-ai/client";
 import type { AgentDetail, AgentRelease } from "@werft-ai/contracts";
+import { privateChannelsPending } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import {
   Badge,
@@ -21,6 +22,7 @@ import { memberSummariesQuery } from "../../api/queries.ts";
 import { useHasPermission } from "../../auth/guard.tsx";
 import { useManagesAgent } from "../../components/agent-access.tsx";
 import { PreviewDialog } from "../../components/agent-preview.tsx";
+import { PrivateChannelsPending } from "../../components/private-channels-pending.tsx";
 import { SECTION_BODY } from "../../components/section-body.ts";
 import { withNodes } from "../../components/with-nodes.tsx";
 import { type Translate, useI18n } from "../../i18n/i18n.tsx";
@@ -173,6 +175,9 @@ export function Releases({
     >
       <div className={SECTION_BODY}>
         {result}
+        <PrivateChannelsPending
+          pending={privateChannelsPending(activity.data)}
+        />
         {entries.length === 0 ? (
           <EmptyState
             title={t("agent.releases.empty")}
