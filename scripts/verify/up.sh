@@ -63,6 +63,8 @@ chmod 700 "$run"
 
 # The same overrides as tests/e2e/compose.yml: ephemeral loopback ports, so
 # this stack never fights another one (this machine's 3000 may be taken).
+# fake-messages gets a memory limit too: without one, a leak or a heavy load
+# lets it grow until the shared Docker VM's OOM killer picks it.
 umask 077
 cat >"$run/ports.yml" <<EOF
 services:
@@ -75,6 +77,9 @@ services:
   fake-git:
     ports: !override
       - "127.0.0.1::3000"
+  fake-messages:
+    mem_limit: 512m
+    memswap_limit: 512m
   api:
     ports: !override
       - "127.0.0.1:${console_port}:3000"
