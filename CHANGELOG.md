@@ -15,6 +15,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **slack 역할이 inbox 이벤트를 채널마다 한 줄씩, 동시에 4개까지 처리하고, DB 연결을 최대 7개 연다**(JeongJaeSoon/werft#2273). 전에는 4개였다. Helm 기본값으로 늘 열려 있을 수 있는 연결은 36개에서 39개로, compose는 24개에서 27개로 는다. slack replica를 늘렸다면 replica 하나에 7개로 다시 세어 `max_connections`와 견준다. 같은 채널의 이벤트는 전처럼 차례로 돌고, 느린 workspace 하나가 다른 workspace의 멘션을 더는 막지 않는다. migration은 없다.
 - **대화 rollout이 `on`인 에이전트가 올리는 글이 모두 AI가 쓴 글이라는 작은 회색 줄(`AI 에이전트 · Werft`)로 끝난다**(JeongJaeSoon/werft#2259). 한 턴의 결과나 요청인 글에는 `<이름> 님 요청`이 붙는다. `off`·`shadow`인 에이전트의 글은 전과 같다. migration은 없고 따로 할 일도 없다.
 - **DB가 15초 내려가도 heartbeat 간격의 어느 때에 시작됐든 진행 중인 turn이 끝까지 간다**(JeongJaeSoon/werft#2245). worker의 heartbeat 간격이 5초에서 2초로 준다. 전에는 장애가 간격의 끝 무렵(마지막 heartbeat 뒤 약 4.2초 넘어)에 시작되면 turn이 `worker_ownership_lost`로 끝났다. lease TTL(30초)과 안전 마진(10초)은 그대로이고, migration은 없다.
   - heartbeat 트랜잭션이 worker 하나당 초당 0.2회에서 0.5회로 는다. 동시 worker 50개면 초당 25회다.
