@@ -3,7 +3,6 @@ import type {
   DefaultError,
   InfiniteData,
   InfiniteQueryObserverOptions,
-  Query,
   QueryFunction,
   QueryKey,
   QueryObserverOptions,
@@ -34,7 +33,6 @@ import type {
   SessionShareView,
   SessionUsageResponse,
   TeamDetail,
-  TurnSummary,
   UsageBreakdownBy,
   UsageBreakdownResponse,
   UsagePeopleResponse,
@@ -796,71 +794,19 @@ export function sessionQuery(client: ApiClient, id: string) {
   });
 }
 
-const UNSETTLED_TURN: readonly TurnSummary["status"][] = [
-  "queued",
-  "running",
-  "needs_input",
-];
-
-// The cursor each page of a cached turn list was read from, by its query:
-// the cache stores a structurally shared copy, not the object returned.
-const turnPageCursors = new WeakMap<Query, (string | null)[]>();
-
-/**
- * Every turn of a session, oldest first: what each one was asked. A refetch
- * keeps the pages before the one holding the oldest unsettled turn, or before
- * the last page when every turn has settled, and reads the rest again: turns
- * are only ever appended, and a settled turn's summary no longer moves with
- * the session's status.
- */
+/** Every turn of a session, oldest first: what each one was asked. */
 export function sessionTurnsQuery(client: ApiClient, id: string) {
   return queryOptions({
     queryKey: queryKeysOf(client).sessionTurns(id),
-    queryFn: async (context): Promise<ListTurnsResponse> => {
-      // Absent when a test calls the function bare.
-      const query = context.client
-        ?.getQueryCache()
-        .find({ queryKey: context.queryKey, exact: true });
-      const previous = query?.state.data as ListTurnsResponse | undefined;
-      const known = query && turnPageCursors.get(query);
-      // Cursors that describe some other list, as after a setQueryData,
-      // are not trusted: everything is read again.
-      const kept =
-        previous &&
-        known?.length ===
-          Math.max(1, Math.ceil(previous.items.length / READ_ALL_PAGE_LIMIT))
-          ? known
-          : undefined;
-      let page = 0;
-      if (previous && kept) {
-        const open = previous.items.findIndex((turn) =>
-          UNSETTLED_TURN.includes(turn.status),
-        );
-        const from = open === -1 ? previous.items.length - 1 : open;
-        page = Math.max(0, Math.floor(from / READ_ALL_PAGE_LIMIT));
-      }
-      const items =
-        previous && kept
-          ? previous.items.slice(0, page * READ_ALL_PAGE_LIMIT)
-          : [];
-      const cursors = kept ? kept.slice(0, page) : [];
-      let cursor = kept?.[page] ?? null;
-      do {
-        cursors.push(cursor);
-        const read = (await unwrap(
-          client.GET("/v1/sessions/{id}/turns", {
-            params: {
-              path: { id },
-              query: cursor
-                ? { cursor, limit: READ_ALL_PAGE_LIMIT }
-                : { limit: READ_ALL_PAGE_LIMIT },
-            },
-          }),
-        )) as ListTurnsResponse;
-        items.push(...read.items);
-        cursor = read.next_cursor;
-      } while (cursor);
-      if (query) turnPageCursors.set(query, cursors);
+    queryFn: async (): Promise<ListTurnsResponse> => {
+      const { items } = await readEveryPage(
+        (query) =>
+          unwrap(
+            client.GET("/v1/sessions/{id}/turns", {
+              params: { path: { id }, query },
+            }),
+          ) as Promise<ListTurnsResponse>,
+      );
       return { items, next_cursor: null };
     },
     retry: false,
