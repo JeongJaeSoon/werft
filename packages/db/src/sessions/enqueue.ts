@@ -2,7 +2,7 @@ import {
   postSessionAnswerRequestSchema,
   sessionMessageSchema,
 } from "@werft-ai/contracts";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { queueMessages, sessions, unassignedSessions } from "../schema.ts";
 
@@ -43,7 +43,11 @@ export async function enqueueWithin(
     throw new Error("Failed to enqueue message");
   }
   const [session] = await tx
-    .select({ partition: sessions.partition, podId: sessions.podId })
+    .select({
+      id: sessions.id,
+      partition: sessions.partition,
+      podId: sessions.podId,
+    })
     .from(sessions)
     .where(eq(sessions.id, input.sessionId))
     .limit(1)
@@ -56,6 +60,12 @@ export async function enqueueWithin(
       .insert(unassignedSessions)
       .values({ sessionId: input.sessionId, partition: session.partition })
       .onConflictDoNothing({ target: unassignedSessions.sessionId });
+  }
+  // Delivered on commit: a worker waiting in nextInput reads the queue again
+  // now rather than at its next interval. In the stored spelling, which is
+  // the one its waiter is keyed by.
+  if (validated.kind === "message") {
+    await tx.execute(sql`SELECT pg_notify('session_events', ${session.id})`);
   }
   return inserted.id;
 }
