@@ -15,7 +15,10 @@ import type {
   SurfaceOutboxPostedAs,
   SurfaceOutboxSettle,
 } from "@werft-ai/platform";
-import { SURFACE_PROGRESS_STOPPED_CODE } from "@werft-ai/platform";
+import {
+  SURFACE_PROGRESS_STOPPED_CODE,
+  SURFACE_RATE_LIMITED_CODE,
+} from "@werft-ai/platform";
 import {
   SlackApiError,
   type SlackBotSender,
@@ -42,16 +45,11 @@ import {
 
 /** The longest Retry-After the outbox honours before asking again. */
 export const SLACK_RETRY_AFTER_MAX_MS = 5 * 60_000;
-/** Claims, rate-limited ones included, before a row gives up. */
-export const SLACK_OUTBOX_MAX_ATTEMPTS = 10;
 
 export function slackOutboxSettleFor(
   attempts: number,
   response: SlackSendResponse,
-  /**
-   * A progress message waits out the whole Retry-After, and its next update
-   * still does once the row gives up.
-   */
+  /** A progress message waits out the whole Retry-After. */
   progress = false,
 ): SurfaceOutboxSettle {
   const retryAfterMaxMs = progress
@@ -78,20 +76,13 @@ export function slackOutboxSettleFor(
       return { status: "sent", slackTs: outcome.ts };
     case "failed":
       return { status: "failed", errorCode: outcome.code };
+    // Never failed: the store does not count the call as an attempt.
     case "retry_after":
-      return attempts >= SLACK_OUTBOX_MAX_ATTEMPTS
-        ? progress
-          ? {
-              status: "failed",
-              errorCode: "ratelimited",
-              retryInMs: outcome.waitMs,
-            }
-          : { status: "failed", errorCode: "ratelimited" }
-        : {
-            status: "pending",
-            errorCode: "ratelimited",
-            retryInMs: Math.min(outcome.waitMs, retryAfterMaxMs),
-          };
+      return {
+        status: "pending",
+        errorCode: SURFACE_RATE_LIMITED_CODE,
+        retryInMs: Math.min(outcome.waitMs, retryAfterMaxMs),
+      };
     case "retry":
       return {
         status: "pending",

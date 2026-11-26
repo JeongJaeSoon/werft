@@ -16,7 +16,6 @@ import {
   drainSlackOutbox,
   reconcileSlackThreadStatuses,
   SLACK_CARD_SETTLE_TIMING,
-  SLACK_OUTBOX_MAX_ATTEMPTS,
   SLACK_OUTBOX_MESSAGES,
   SLACK_RETRY_AFTER_MAX_MS,
   SLACK_THREAD_STATUS_TIMING,
@@ -3349,10 +3348,21 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     );
     expect(await outboxPass()).toMatchObject({ claimed: 0 });
 
+    // The channel's other rows wait as long.
+    const { rows: blocks } = (await db.execute(
+      sql`SELECT scope FROM slack_outbox_rate_blocks`,
+    )) as unknown as { rows: { scope: string }[] };
+    expect(blocks).toEqual([{ scope: `channel:${CHANNEL}` }]);
+
     await db.update(slackOutbox).set({ nextAttemptAt: sql`now()` });
+    expect(await outboxPass()).toMatchObject({ claimed: 0 });
+    await db.execute(
+      sql`UPDATE slack_outbox_rate_blocks SET blocked_until = now() - interval '1 second'`,
+    );
     expect(await outboxPass()).toMatchObject({ sent: 1 });
     expect(posted()).toHaveLength(1);
-    expect((await rows())[0]).toMatchObject({ status: "sent", attempts: 2 });
+    // The rate-limited call was no attempt.
+    expect((await rows())[0]).toMatchObject({ status: "sent", attempts: 1 });
   });
 
   test("a 5xx whose body breaks off mid-read is uncertain, never resent", async () => {
@@ -6186,11 +6196,16 @@ describe.each(ENGINES)("a progress message on %s", (engine) => {
   }
 
   // As if the interval since the last send, or a Retry-After, ran out.
-  const intervalOver = () =>
-    db
+  // Rate limits a 429 set are over by then too.
+  const intervalOver = async () => {
+    await db
       .update(slackOutbox)
       .set({ nextAttemptAt: sql`now()` })
       .where(eq(slackOutbox.kind, "progress"));
+    await db.execute(
+      sql`UPDATE slack_outbox_rate_blocks SET blocked_until = now() - interval '1 second'`,
+    );
+  };
 
   const progressRows = () =>
     db
@@ -6394,26 +6409,29 @@ describe.each(ENGINES)("a progress message on %s", (engine) => {
     expect(await waitMsOf(2)).toBeGreaterThan(590_000);
   });
 
-  test("a 429 on the last attempt still holds the next update for its Retry-After", async () => {
+  test("an update 429ed after many attempts still waits, never failed, and the last one goes", async () => {
     await mention(await agentInSlack(), THREAD);
     await progress(1, "step 1");
     await outboxPass();
     await progress(2, "step 2");
     await intervalOver();
-    // Nine claims spent: this one is the last.
+    // More claims spent than any row gets for other errors.
     await db
       .update(slackOutbox)
-      .set({ attempts: SLACK_OUTBOX_MAX_ATTEMPTS - 1 })
+      .set({ attempts: 20 })
       .where(eq(slackOutbox.dedupeKey, `progress:${KEY}:2`));
     slack.rateLimit("chat.update", 600);
-    expect(await outboxPass()).toMatchObject({ failed: 1 });
+    expect(await outboxPass()).toMatchObject({ retried: 1, failed: 0 });
     expect((await progressRows())[1]).toMatchObject({
-      status: "failed",
+      status: "pending",
       errorCode: "ratelimited",
     });
     expect(await waitMsOf(2)).toBeGreaterThan(590_000);
     await progress(3, "step 3");
     expect(await outboxPass()).toMatchObject({ claimed: 0 });
+    await intervalOver();
+    expect(await outboxPass()).toMatchObject({ sent: 1 });
+    expect(slack.updates.map(({ text }) => text)).toEqual(["step 3"]);
   });
 
   test("an edit that fails for good still spaces the next one", async () => {

@@ -82,6 +82,12 @@ export const SURFACE_PROGRESS_SUPERSEDED_CODE = "superseded";
  * every later one are never sent.
  */
 export const SURFACE_PROGRESS_STOPPED_CODE = "progress_stopped";
+/**
+ * A send the channel turned away for its rate limit. Its row waits the time
+ * asked, and so does every row of the install that limit covers; the call
+ * does not count as an attempt, so a row never fails from 429s alone.
+ */
+export const SURFACE_RATE_LIMITED_CODE = "ratelimited";
 
 /**
  * `uncertain`: the send was under way when its lease ran out or its answer
@@ -821,10 +827,14 @@ export interface SurfaceOutboxStore {
    * row is settled so; nothing may go out. Begun, who the row goes out as
    * when the store reads it, under the same locks: a title whose message
    * Slack deleted is never sent; `true` when it reads none.
+   * `rate_limited`: a rate limit a send of another row ran into covers this
+   * one; it is released, unsent and uncounted, until the limit ends.
    */
   beginSend(
     fence: SurfaceOutboxFence,
-  ): Promise<boolean | "voided_by_delete" | SurfaceOutboxBegun>;
+  ): Promise<
+    boolean | "voided_by_delete" | "rate_limited" | SurfaceOutboxBegun
+  >;
   /** False when the lease was lost: the row is someone else's now. */
   /**
    * False when the lease was lost. A sent `input_mirror` row gives its input
