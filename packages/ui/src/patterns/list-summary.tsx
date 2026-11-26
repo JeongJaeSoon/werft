@@ -12,9 +12,8 @@ import { StatusDot, type StatusDotStatus } from "../primitives/status-dot.tsx";
 
 /*
  * One line above a list that sums it up: a few figures, each a name and a
- * value. A figure that stands for one of the list's filters is a button the
- * screen presses that filter with, or a link the screen gives to a list that
- * applies it, so the line is also a way into the list. The rest are text.
+ * value. A figure that stands for a filtered list is a link the screen gives to
+ * it, so the line is also a way into that list. The rest are text.
  */
 
 export type ListSummaryProps = Omit<ComponentProps<"ul">, "aria-label"> & {
@@ -45,13 +44,10 @@ export function ListSummary({
 const FIGURE =
   "inline-flex h-[var(--werft-control-height-sm)] items-center gap-2 whitespace-nowrap rounded-control px-2 text-control";
 
-const PRESSABLE = cn(
+const LINK = cn(
   FIGURE,
-  "border-0 bg-transparent text-foreground no-underline transition-[background-color] duration-[var(--werft-motion-fast)] hover:bg-hover motion-reduce:transition-none",
+  "text-foreground no-underline transition-[background-color] duration-[var(--werft-motion-fast)] hover:bg-hover motion-reduce:transition-none",
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
-  // The fill alone is too faint to tell a pressed figure (WCAG 1.4.11), so
-  // a ring in a text tone marks it too.
-  "aria-pressed:bg-active aria-pressed:ring-1 aria-pressed:ring-subtle-foreground aria-pressed:ring-inset",
 );
 
 // A router link's children may be a function of its state.
@@ -63,9 +59,6 @@ export type ListSummaryItemProps = {
   readonly value: ReactNode;
   /** A dot before the name, for a figure that counts one status. */
   readonly status?: StatusDotStatus | undefined;
-  /** Makes the figure a button; with `pressed`, it shows the filter is on. */
-  readonly onPress?: (() => void) | undefined;
-  readonly pressed?: boolean | undefined;
   /**
    * A link (a router link) to render the figure as; its own children are
    * replaced by the figure.
@@ -78,8 +71,6 @@ export function ListSummaryItem({
   label,
   value,
   status,
-  onPress,
-  pressed,
   link,
   className,
 }: ListSummaryItemProps): JSX.Element {
@@ -99,20 +90,9 @@ export function ListSummaryItem({
   let body: ReactNode;
   if (link && isValidElement<ChildProps>(link)) {
     body = cloneElement(link, {
-      className: cn(PRESSABLE, link.props.className, className),
+      className: cn(LINK, link.props.className, className),
       children: figure,
     });
-  } else if (onPress) {
-    body = (
-      <button
-        type="button"
-        aria-pressed={pressed ?? false}
-        onClick={onPress}
-        className={cn(PRESSABLE, "cursor-pointer", className)}
-      >
-        {figure}
-      </button>
-    );
   } else {
     body = <span className={cn(FIGURE, className)}>{figure}</span>;
   }
