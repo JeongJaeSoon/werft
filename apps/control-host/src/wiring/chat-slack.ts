@@ -64,5 +64,6 @@ export {
   slackEventsUrl,
   slackLinkAuthorizeUrl,
   slackLinkRedirectUrl,
+  slackOutboxText,
   slackPublicUrlsOf,
 } from "@werft-ai/chat-slack";

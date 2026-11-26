@@ -961,7 +961,10 @@ export function createPostgresSchedulerStore(
         // turn it hands out is seen below, or it sees the request and hands
         // out nothing.
         const [launch] = await tx
-          .select({ claimedAttemptId: workerLaunches.claimedAttemptId })
+          .select({
+            claimedAttemptId: workerLaunches.claimedAttemptId,
+            drainRequestedAt: workerLaunches.drainRequestedAt,
+          })
           .from(workerLaunches)
           .where(
             and(
@@ -1004,6 +1007,13 @@ export function createPostgresSchedulerStore(
           .returning({
             overdue: sql<boolean>`${workerLaunches.drainRequestedAt} + ${deadlineMs} * interval '1 millisecond' <= ${DB_NOW}`,
           });
+        // A worker waiting in nextInput is told now, not at its next
+        // interval; only the pass that first asks says so.
+        if (session !== undefined && launch.drainRequestedAt === null) {
+          await tx.execute(
+            sql`SELECT pg_notify('session_events', ${session.id})`,
+          );
+        }
         const open =
           session === undefined
             ? []
@@ -1145,6 +1155,10 @@ export function createPostgresSchedulerStore(
           .update(workerLaunches)
           .set({ drainRequestedAt: DB_NOW })
           .where(eq(workerLaunches.executionId, ref.executionId));
+        // As requestDrain: the idle worker's waiting poll reads it now.
+        await tx.execute(
+          sql`SELECT pg_notify('session_events', ${session.id})`,
+        );
         return true;
       });
     },

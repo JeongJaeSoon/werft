@@ -324,6 +324,10 @@ export type NextInputResult =
       blocked?: "BUDGET_EXCEEDED";
     }
   | FenceRejection;
+export type NextInputPendingInput = {
+  fence: WorkerFence;
+  budget: SessionBudget;
+};
 
 export type HeartbeatInput = {
   // A worker that keeps heartbeating keeps its token: the credential's
@@ -616,6 +620,13 @@ export interface WorkerUnitOfWork {
     input: ProviderUsageInput,
   ): Promise<ProviderUsageResult>;
   nextInputAtomic(input: NextInputInput): Promise<NextInputResult>;
+  // Whether nextInputAtomic would now answer anything but "nothing yet",
+  // read without a lock for a poll that is waiting. Nothing is handed out on
+  // it: true only sends the poll back to the fenced read. So it errs towards
+  // true: for a fence that no longer holds, and for a queued head whether or
+  // not the session may be given it yet. A head another attempt was handed
+  // and has not finished is false; only its settling changes the answer.
+  nextInputPending(input: NextInputPendingInput): Promise<boolean>;
   heartbeatAtomic(input: HeartbeatInput): Promise<HeartbeatResult>;
   commitEventsAtomic(input: CommitEventsInput): Promise<CommitEventsResult>;
   // The same question finalizeAtomic answers, without committing anything:

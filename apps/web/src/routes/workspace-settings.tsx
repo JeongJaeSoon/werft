@@ -29,6 +29,7 @@ import {
   useRole,
 } from "../auth/guard.tsx";
 import { ReasonButton } from "../auth/reason-button.tsx";
+import { DiskQuotaNotice } from "../components/installation-notices.tsx";
 import { type Outcome, OutcomeLine } from "../components/outcome.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 
@@ -68,6 +69,7 @@ export function WorkspaceSettingsScreen() {
   const editable = workspaceManage || retentionManage;
   return (
     <WorkspacePage>
+      <DiskQuotaNotice />
       <OutcomeLine outcome={outcome} />
       <Basics />
       {editable ? (

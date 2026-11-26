@@ -107,7 +107,7 @@ XFS を用意できないサーバー（コンテナ型サーバー、隔離 VM 
 - `preflight` と `deploy` は quota probe を省きます。`preflight: passed` の行に `no workspace quota (test mode, not for production)` が出ます。
 - カーネルの quota がないため、worker が自分の作業領域を測ります。測るのは 1 分に 1 回までです。`EXECUTION_WORKSPACE_QUOTA_MB`（既定 4096）または `EXECUTION_WORKSPACE_QUOTA_INODES`（既定 1,000,000）を超えると、コンソールの作業領域の容量設定（`WORKSPACE_ENFORCE`）に関係なくその turn を止めます。セッションは残るので、ファイルを減らしてから再度依頼します。二つの測定の間は一時的に上限を超えることがあります。
 - `/readyz` は 200 のままで、本文の `detail.no_disk_quota` が `true` になります。
-- コンソールは owner・admin にすべての画面の上部に「試験モード: ディスク quota なし、運用不可」を表示します。この帯は閉じられません。
+- コンソールは owner・admin にワークスペース設定の一般画面で「試験モード: ディスク quota なし、運用不可」を表示します。この通知は閉じられません。
 - api は起動時に、scheduler は pass ごとにログへ警告を残します。
 
 `off` は LocalStack ストアでだけ受け付けます。`TEST_OPS_OBJECT_STORE=s3` なら `preflight` が `off is for the LocalStack store only` で止まります。
