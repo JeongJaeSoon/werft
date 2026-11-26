@@ -118,7 +118,7 @@ curl -X POST "$API/v1/sessions/$SESSION/recovery-decisions" \
 - `abandon`: turn을 `cancelled`로 닫는다.
 - `confirm_completed`: 커밋된 checkpoint가 그 turn까지 덮을 때만 받는다(`evidence_ref` 필수). `interrupt_checkpoint_unavailable`은 대개 그런 checkpoint가 없으므로 409 `CHECKPOINT_UNAVAILABLE`이다.
 - `close`: 세션을 끝낸다. 되돌릴 수 없다.
-- `start_fresh`: 커밋된 checkpoint가 없는 세션(첫 turn 도중 worker가 죽은 세션 등)이면 결과를 모르는 turn을 먼저 정하지 않아도 된다. 그 turn은 `cancelled`(`terminal_reason` `operator_start_fresh`)로 닫히고, 같은 입력의 새 turn이 이미 기다리던 입력 뒤에 들어가 checkpoint 없는 새 engine session에서 돈다(먼저 돈 대기 입력의 문맥은 본다). Slack 스레드와 작업 공간은 그대로다. 끊기기 전에 한 일은 되돌리지 않으니 확인한다. Slack 스레드의 [새 문맥으로 계속] 버튼도 같은 결정이고, 그 세션에 쓸 수 있는 사람이 누를 수 있다(비공개 채널이면 지금 멤버). 몇 번 눌러도 결정은 하나다. 세션 상세의 `start_fresh_available`이 지금 받는지 알려 준다.
+- `start_fresh`: 커밋된 checkpoint가 없는 세션(첫 turn 도중 worker가 죽은 세션 등)이면 결과를 모르는 turn을 먼저 정하지 않아도 된다. 그 turn은 `cancelled`(`terminal_reason` `operator_start_fresh`)로 닫히고, 같은 입력의 새 turn이 이미 기다리던 입력 뒤에 들어간다. `start_fresh`는 그때까지의 context를 이어받지 않으며, 먼저 돈 대기 입력이 만든 context는 이어받는다. Slack 스레드와 작업 공간은 그대로다. 끊기기 전에 한 일은 되돌리지 않으니 확인한다. Slack 스레드의 [새 문맥으로 계속] 버튼도 같은 결정이고, 그 세션에 쓸 수 있는 사람이 누를 수 있다(비공개 채널이면 지금 멤버). 몇 번 눌러도 결정은 하나다. 세션 상세의 `start_fresh_available`이 지금 받는지 알려 준다.
 
 4. `abandon`·`confirm_completed` 뒤 세션은 `stopped`다. 결정 receipt의 `result.resumable`이 `true`면 resume한다. `false`면 이어받을 checkpoint가 없거나, 마지막 checkpoint 뒤에 돈 turn이 있어 그 context를 이어받을 수 없다는 뜻이다(세션 상세 attention `CONTEXT_GAP`). `start_fresh`로 그 context 없이 이어가거나 `close`한다.
 
