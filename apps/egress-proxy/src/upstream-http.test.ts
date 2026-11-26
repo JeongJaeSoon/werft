@@ -133,6 +133,41 @@ describe("upstreamExchange", () => {
     );
   });
 
+  test("a streamed body that fails once the upstream has answered leaves the answer whole", async () => {
+    const server = createServer((socket) => {
+      socket.once("data", () => {
+        socket.write("HTTP/1.1 200 OK\r\ncontent-length: 5\r\n\r\nhel");
+        setTimeout(() => socket.end("lo"), 300);
+      });
+      socket.on("error", () => {});
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const { port } = server.address() as { port: number };
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2]));
+        setTimeout(() => controller.error(new Error("body stalled")), 100);
+      },
+    });
+    const response = await upstreamExchange(
+      { address: "127.0.0.1", port, tls: null },
+      {
+        method: "PUT",
+        target: "/bucket/key",
+        headers: [["host", "upstream.test"]],
+        body: { stream, length: 10 },
+        signal: AbortSignal.timeout(5_000),
+      },
+    );
+    expect(response.status).toBe(200);
+    // Read by hand, as in `failureOf`: the text, or what failed it.
+    const text = await response.text().catch((error: Error) => error.message);
+    expect(text).toBe("hello");
+  });
+
   test("a head that is malformed, unbounded or never comes is refused", async () => {
     const junk = await raw((socket) => socket.end("SMTP ready\r\n\r\n"));
     await expect(call(junk.port)).rejects.toThrow("malformed response head");
