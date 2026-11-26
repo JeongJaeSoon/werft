@@ -5896,6 +5896,11 @@ export const conversationTurns = pgTable(
       foreignColumns: [slackInstallations.id],
     }),
     index("conversation_turns_conversation_idx").on(table.conversationId),
+    // The agent's turn list, read backwards in its order, so a page reads
+    // its own rows alone.
+    index("conversation_turns_agent_page_idx")
+      .on(table.agentId, table.createdAt, table.id)
+      .where(sql`${table.origin} = 'm2'`),
     index("conversation_turns_topic_idx")
       .on(table.topicId)
       .where(sql`${table.topicId} IS NOT NULL`),
@@ -6922,6 +6927,12 @@ export const sessionLinks = pgTable(
     uniqueIndex("session_links_open_session_uniq")
       .on(table.sessionId)
       .where(sql`${table.sessionId} IS NOT NULL AND ${table.closedAt} IS NULL`),
+    // A thread's open task session, which the turn list reads per turn.
+    index("session_links_open_thread_idx")
+      .on(table.workspaceId, table.agentId, table.channelId, table.threadId)
+      .where(
+        sql`${table.sessionId} IS NOT NULL AND ${table.closedAt} IS NULL AND ${table.revokedAt} IS NULL`,
+      ),
     check(
       "session_links_closed_check",
       sql`(${table.closedAt} IS NULL) = (${table.closedReason} IS NULL)`,
