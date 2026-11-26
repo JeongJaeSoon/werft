@@ -2066,6 +2066,13 @@
       "when": 1795700411923,
       "tag": "0385_storage_limit_drop_reason",
       "breakpoints": true
+    },
+    {
+      "idx": 387,
+      "version": "7",
+      "when": 1795705450073,
+      "tag": "0387_emergency_stop",
+      "breakpoints": true
     }
   ]
 }
