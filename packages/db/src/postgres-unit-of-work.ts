@@ -127,7 +127,7 @@ import {
 import { DB_NOW } from "./db-clock.ts";
 import { budgetAccountRefused } from "./exchange-budget.ts";
 import { captureGitHubPolicyStart } from "./github/github-settings.ts";
-import { admitInput } from "./input-limits.ts";
+import { acceptanceTransaction, admitInput } from "./input-limits.ts";
 import { readArchivedWorkspaceLimit } from "./limits/workspace-limit.ts";
 import {
   agentNamedInSession,
@@ -165,6 +165,7 @@ import {
   events,
   executions,
   idempotencyKeys,
+  pendingRequests,
   receipts,
   sessionEventArchives,
   sessionShares,
@@ -514,7 +515,7 @@ export function createPostgresSessionUnitOfWork(
         resource: SESSIONS_RESOURCE,
         key: input.idempotencyKey,
       };
-      return db.transaction(async (tx) => {
+      return acceptanceTransaction(db, async (tx) => {
         await lockIdempotencyScope(tx, scope);
         const existing = await findIdempotent(tx, scope);
         if (existing) {
@@ -902,7 +903,7 @@ export function createPostgresSessionUnitOfWork(
             ? input.idempotencyKey
             : String(input.continueTurn),
       };
-      return db.transaction(async (tx) => {
+      return acceptanceTransaction(db, async (tx) => {
         await lockIdempotencyScope(tx, scope);
         const existing = await findIdempotent(tx, scope);
         if (existing) {
@@ -1565,8 +1566,10 @@ export function createPostgresSessionReader(
 
   // Only a revision a restore can still reach counts: one garbage
   // collection took, or one a start_fresh decision retired, does
-  // not.
+  // not. The session bound lets the primary key find the rows; turn_id
+  // has no index of its own.
   async function checkpointRevisions(
+    sessionId: string,
     turnIds: number[],
     retiredCheckpointRevision: number | null,
   ) {
@@ -1579,6 +1582,7 @@ export function createPostgresSessionReader(
       .from(checkpoints)
       .where(
         and(
+          eq(checkpoints.sessionId, sessionId),
           inArray(checkpoints.turnId, turnIds),
           isNull(checkpoints.collectedAt),
           retiredCheckpointRevision === null
@@ -1628,7 +1632,24 @@ export function createPostgresSessionReader(
   function publicStatusIs(status: SessionStatus) {
     const waiting = actionableOfSession(db);
     if (status === "needs_input") {
-      return and(inArray(sessions.status, AWAITABLE_STATUSES), exists(waiting));
+      return and(
+        inArray(sessions.status, AWAITABLE_STATUSES),
+        // Implied by `waiting`, but uncorrelated: the plan can start from
+        // the few open requests instead of every session of the owner.
+        inArray(
+          sessions.id,
+          db
+            .select({ id: pendingRequests.sessionId })
+            .from(pendingRequests)
+            .where(
+              and(
+                isNull(pendingRequests.resolvedAt),
+                gt(pendingRequests.expiresAt, sql`statement_timestamp()`),
+              ),
+            ),
+        ),
+        exists(waiting),
+      );
     }
     if (status === "running") {
       return and(
@@ -2279,6 +2300,7 @@ export function createPostgresSessionReader(
       const page = rows.slice(0, query.limit);
       const last = page[page.length - 1];
       const revisions = await checkpointRevisions(
+        sessionId,
         page.map(({ turn }) => turn.id),
         session.retiredCheckpointRevision,
       );
@@ -2310,6 +2332,7 @@ export function createPostgresSessionReader(
       if (!read) return null;
       const row = read.turn;
       const revisions = await checkpointRevisions(
+        sessionId,
         [row.id],
         session.retiredCheckpointRevision,
       );

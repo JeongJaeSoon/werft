@@ -64,6 +64,9 @@ export const SLACK_INBOUND_DROP_REASON_VALUES = [
   // An event of a channel Slack deleted (binding `gone`); its text is not
   // kept and nobody is answered.
   "channel_gone",
+  // An input the installation's storage limit refused, at the check or at
+  // commit; its text is not kept and the requester is told once.
+  "storage_limit_exceeded",
 ] as const;
 
 /** Message subtypes kept besides a plain message (no subtype). */

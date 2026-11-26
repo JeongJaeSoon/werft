@@ -115,17 +115,29 @@ export const viewerOf = (actor: Caller): SessionViewer => ({
 /**
  * viewerOf with the private channels the policy finds the caller a member
  * of now, for a read across sessions. A read that skips this hides every
- * private_channel session.
+ * private_channel session. `pending`: some channel's members are still
+ * being read, so the read may show more soon (`private_channels_pending`).
  */
 export async function viewerFor(
   authorization: Pick<AuthorizationPolicy, "privateChannelsOf">,
   actor: Caller,
-): Promise<SessionViewer> {
-  const privateChannels =
-    (await authorization.privateChannelsOf?.(actor.subject, actor.ownerId)) ??
-    [];
-  return { ...viewerOf(actor), privateChannels };
+): Promise<{ viewer: SessionViewer; pending: boolean }> {
+  const found = await authorization.privateChannelsOf?.(
+    actor.subject,
+    actor.ownerId,
+  );
+  return {
+    viewer: {
+      ...viewerOf(actor),
+      privateChannels: found?.conversationIds ?? [],
+    },
+    pending: found?.pending ?? false,
+  };
 }
+
+/** The response field a read across sessions adds while `pending`. */
+export const pendingField = (pending: boolean) =>
+  pending ? { private_channels_pending: true as const } : {};
 
 function extensionRefusalError(refusal: ExtensionRefusal): SessionServiceError {
   return new SessionServiceError(
@@ -1671,12 +1683,10 @@ export function createSessionService(deps: {
         kind: "session",
         id: null,
       });
-      const page = await reader.listSessions(
-        actor.ownerId,
-        query,
-        await viewerFor(authorization, actor),
-      );
+      const { viewer, pending } = await viewerFor(authorization, actor);
+      const page = await reader.listSessions(actor.ownerId, query, viewer);
       return {
+        ...pendingField(pending),
         items: page.items.map(({ spec, ...item }) => {
           const attached = attachedRepositoriesOf(
             item.attached_repository_ids,
@@ -1702,11 +1712,11 @@ export function createSessionService(deps: {
         kind: "session",
         id: null,
       });
-      return reader.countSessions(
-        actor.ownerId,
-        query,
-        await viewerFor(authorization, actor),
-      );
+      const { viewer, pending } = await viewerFor(authorization, actor);
+      return {
+        ...(await reader.countSessions(actor.ownerId, query, viewer)),
+        ...pendingField(pending),
+      };
     },
 
     async getSession(actor: Caller, sessionId: string): Promise<SessionDetail> {

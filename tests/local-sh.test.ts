@@ -1075,8 +1075,12 @@ esac
     await rm(dir, { force: true, recursive: true });
   });
 
-  async function down(args: string[], env: Record<string, string> = {}) {
-    const handle = Bun.spawn(["bash", downSh, runDir, ...args], {
+  async function down(
+    args: string[],
+    env: Record<string, string> = {},
+    target = runDir,
+  ) {
+    const handle = Bun.spawn(["bash", downSh, target, ...args], {
       env: {
         ...process.env,
         PATH: `${join(dir, "bin")}:${process.env.PATH ?? ""}`,
@@ -1101,18 +1105,26 @@ esac
   const composeDowns = (calls: string[]) =>
     calls.filter((call) => / down( |$)/.test(call));
 
-  test("deletes the workers and their networks, keeps every volume and the run", async () => {
+  test("deletes the workers and their networks, keeps named volumes and the run", async () => {
     const { exitCode, calls } = await down([]);
 
     expect(exitCode).toBe(0);
+    // Containers and their anonymous volumes go before the first down.
+    const composeRm = calls.indexOf(
+      "compose --profile apps --profile fake-model rm -s -f -v",
+    );
+    expect(composeRm).toBeGreaterThanOrEqual(0);
+    expect(composeRm).toBeLessThan(
+      calls.findIndex((call) => / down( |$)/.test(call)),
+    );
     expect(composeDowns(calls)).toEqual([
       "compose --profile apps --profile fake-model down --remove-orphans",
       `compose --profile apps --profile fake-model -f compose.yaml -f ${runDir}/ports.yml -f infra/compose.fake-model.yml down --remove-orphans --rmi local`,
     ]);
     expect(calls).toContain("rm -f worker-1");
     expect(calls).toContain("network rm net-1");
-    // Listing volumes is how down.sh records the anonymous ones for the next
-    // pass; only removing them is forbidden here.
+    // Anonymous volumes go with their containers (compose rm -v above); no
+    // volume is removed by name here.
     expect(calls.filter((call) => call.startsWith("volume rm"))).toEqual([]);
     expect(calls.filter((call) => /^rm -v/.test(call))).toEqual([]);
     expect(await Bun.file(join(runDir, "ports.yml")).exists()).toBe(true);
@@ -1142,6 +1154,34 @@ esac
     expect(exitCode).toBe(1);
     expect(stderr).toContain(`rerun down.sh ${runDir}\n`);
     expect(await Bun.file(join(runDir, "ports.yml")).exists()).toBe(true);
+  });
+
+  test("refuses the demo stack before any docker command", async () => {
+    const demoId = "20261031-094644-90075";
+    const demo = `verify-ap-${demoId}`;
+    const demoRun = join(dir, "runs", demoId);
+    const state = (path: string) =>
+      writeFile(
+        join(path, "state.env"),
+        `VERIFY_REPO=${repo}\nexport COMPOSE_PROJECT_NAME=${demo}\nexport EXECUTION_INSTALLATION_ID=${demo}\n`,
+      );
+    await mkdir(demoRun);
+    await state(demoRun);
+    // Another run's directory whose state names the demo project.
+    await state(runDir);
+
+    for (const target of [
+      demoRun,
+      demo,
+      join(dir, "no-state", demoId),
+      runDir,
+    ]) {
+      const { exitCode, stderr, calls } = await down([], {}, target);
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("is the demo stack; no docker command ran");
+      expect(calls).toEqual([]);
+    }
   });
 
   test("refuses any other or extra argument without calling docker", async () => {

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link as RouterLink } from "@tanstack/react-router";
 import { type ApiError, type components, unwrap } from "@werft-ai/client";
 import type { AgentDetail } from "@werft-ai/contracts";
+import { privateChannelsPending } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import { shortSessionId } from "@werft-ai/react/components";
 import {
@@ -58,6 +59,7 @@ import {
 import { useManagesAgent } from "../../components/agent-access.tsx";
 import { GitHubTileMark } from "../../components/brand-marks.tsx";
 import { LoadFailure } from "../../components/load-failure.tsx";
+import { PrivateChannelsPending } from "../../components/private-channels-pending.tsx";
 import { type Notify, useToast } from "../../components/toast.tsx";
 import {
   errorKey,
@@ -327,6 +329,9 @@ function Activity({
         title={t("agentGitHub.section.activity")}
         description={t("agentGitHub.activityHint")}
       >
+        <PrivateChannelsPending
+          pending={privateChannelsPending(activity.data)}
+        />
         {activity.error ? (
           <LoadFailure
             error={activity.error}

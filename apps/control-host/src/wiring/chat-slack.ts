@@ -44,6 +44,7 @@ export {
   type SlackAppService,
   type SlackAudienceCache,
   type SlackChannelMembers,
+  type SlackChannelRef,
   type SlackChannelSearchService,
   type SlackEventsService,
   type SlackInboundHandler,

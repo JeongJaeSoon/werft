@@ -595,11 +595,12 @@ describe("에이전트 목록", () => {
     expect(history.location.search).toBe("?status=failed");
     const chips = await screen.findByRole("group", { name: "적용한 필터" });
     expect(within(chips).getByRole("listitem").textContent).toBe("상태 실패");
+    // The sessions list's line keeps the total and cost; its tabs filter.
     expect(
       within(await screen.findByRole("list", { name: "세션 요약" }))
-        .getByRole("button", { name: "실패 3" })
-        .getAttribute("aria-pressed"),
-    ).toBe("true");
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["세션 10", "예상 비용 $3.20"]);
   });
 
   test("전체 목록을 못 보는 구성원도 자기가 볼 수 있는 세션의 요약을 본다", async () => {
@@ -613,6 +614,32 @@ describe("에이전트 목록", () => {
     expect(
       await screen.findByRole("link", { name: "작업 중 2" }),
     ).toBeDefined();
+  });
+
+  test("비공개 채널을 확인 중인 요약은 전체 목록을 못 보는 구성원에게도 확인 중이라 말한다", async () => {
+    renderAt("/agents", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/agents": () =>
+        apiError(403, "FORBIDDEN", "This principal does not hold agent.manage"),
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
+      "GET /v1/sessions/counts": () =>
+        json(200, { ...SESSION_COUNTS, private_channels_pending: true }),
+    });
+    expect((await screen.findByText("비공개 채널 확인 중…")).tagName).toBe(
+      "OUTPUT",
+    );
+  });
+
+  test("요약만 비공개 채널을 확인 중이어도 목록 화면은 확인 중이라 한 번 말한다", async () => {
+    const server = agentServer();
+    renderAt("/agents", {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/sessions/counts": () =>
+        json(200, { ...SESSION_COUNTS, private_channels_pending: true }),
+    });
+    await screen.findByRole("table", { name: "에이전트" });
+    expect(await screen.findAllByText("비공개 채널 확인 중…")).toHaveLength(1);
   });
 
   test("한 번 읽은 뒤 다시 읽기가 실패하면 옛 수를 두지 않고 요약 줄을 뺀다", async () => {
