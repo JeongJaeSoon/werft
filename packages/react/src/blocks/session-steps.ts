@@ -172,17 +172,22 @@ export function readSessionSteps({
   return { steps, focus: stopped === -1 ? null : stopped, current: false };
 }
 
-/** Finished turns' time plus the running one's so far, in milliseconds. */
+/**
+ * How long the turns have run, in milliseconds: each ended turn's span and
+ * an open one's so far. The session sums its ended turns too, in a read that
+ * may be older or newer than the turns', so the larger of the two stands and
+ * the figure never runs back.
+ */
 export function sessionTime(
   session: Pick<SessionDetail, "turn_time_ms">,
   steps: SessionSteps,
   now: number,
 ): number {
-  const step = steps.current ? steps.steps[steps.focus ?? -1] : undefined;
-  const started = step?.turn.started_at;
-  const open =
-    started && step.turn.ended_at === null
-      ? Math.max(0, now - Date.parse(started))
-      : 0;
-  return session.turn_time_ms + open;
+  let fromTurns = 0;
+  for (const { turn } of steps.steps) {
+    if (turn.started_at === null) continue;
+    const end = turn.ended_at === null ? now : Date.parse(turn.ended_at);
+    fromTurns += Math.max(0, end - Date.parse(turn.started_at));
+  }
+  return Math.max(session.turn_time_ms, fromTurns);
 }

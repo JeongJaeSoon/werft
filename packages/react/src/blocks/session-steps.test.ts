@@ -369,13 +369,46 @@ describe("readSessionSteps", () => {
 });
 
 describe("sessionTime", () => {
+  const MINUTE = 60_000;
+  const at = (ms: number) => new Date(Date.parse(AT) + ms).toISOString();
+
   test("adds the running turn's time so far to the finished turns'", () => {
     const steps = read({
-      session: { current_turn_id: "1", status: "running" },
+      session: { current_turn_id: "2", status: "running" },
+      turns: [
+        turn("1", "completed", { ended_at: at(MINUTE) }),
+        turn("2", "running", { started_at: at(MINUTE) }),
+      ],
+    });
+    const now = Date.parse(AT) + 6 * MINUTE;
+    expect(sessionTime({ turn_time_ms: MINUTE }, steps, now)).toBe(6 * MINUTE);
+  });
+
+  test("does not run back when the turns read sees a turn end before the session read counts it", () => {
+    const steps = read({
+      session: { current_turn_id: "2", status: "running" },
+      turns: [
+        turn("1", "completed", { ended_at: at(MINUTE) }),
+        turn("2", "completed", {
+          started_at: at(MINUTE),
+          ended_at: at(6 * MINUTE),
+        }),
+      ],
+    });
+    expect(steps.current).toBe(false);
+    const now = Date.parse(AT) + 6 * MINUTE;
+    expect(sessionTime({ turn_time_ms: MINUTE }, steps, now)).toBe(6 * MINUTE);
+  });
+
+  test("keeps the session's count when it is newer than the turns read", () => {
+    const steps = read({
+      session: { current_turn_id: null, status: "idle" },
       turns: [turn("1", "running")],
     });
-    const now = Date.parse(AT) + 5 * 60_000;
-    expect(sessionTime({ turn_time_ms: 60_000 }, steps, now)).toBe(6 * 60_000);
+    const now = Date.parse(AT) + 2 * MINUTE;
+    expect(sessionTime({ turn_time_ms: 3 * MINUTE }, steps, now)).toBe(
+      3 * MINUTE,
+    );
   });
 
   test("counts only the finished turns when none runs", () => {
