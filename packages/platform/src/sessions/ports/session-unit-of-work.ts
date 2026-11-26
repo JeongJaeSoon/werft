@@ -171,6 +171,8 @@ export type AcceptSessionResult =
   | { outcome: "variables_refused"; reason: EnvRefusal; receiptId: string }
   /** The Slack message it came from was deleted; no session was created. */
   | { outcome: "source_deleted" }
+  /** An admin emergency-stopped the agent in the message's channel. */
+  | { outcome: "emergency_stopped" }
   | InputLimitRefusal;
 
 export type AppendMessageInput = {

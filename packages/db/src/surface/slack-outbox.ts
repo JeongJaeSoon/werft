@@ -2296,8 +2296,9 @@ export function createPostgresSlackOutboxStore(
                     AND b.external_surface_id = o.channel_id
                   WHERE o.id = ${fence.id}::uuid
                     AND o.kind <> 'emergency_stop_notice'
-                    AND b.revoked_at IS NULL
-                    AND b.emergency_stopped_at IS NOT NULL`),
+                    AND (o.error_code = ${TURN_EMERGENCY_STOPPED_REASON} OR (
+                      b.revoked_at IS NULL
+                      AND b.emergency_stopped_at IS NOT NULL))`),
               )
             : [];
         const outcome: typeof given = stopped

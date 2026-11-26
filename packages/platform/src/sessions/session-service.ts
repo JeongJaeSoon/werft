@@ -1138,6 +1138,8 @@ export function createSessionService(deps: {
           );
         case "source_deleted":
           throw sourceDeleted();
+        case "emergency_stopped":
+          throw sessionEmergencyStopped();
         case "queue_full":
         case "storage_exhausted":
           throw limitError(result);

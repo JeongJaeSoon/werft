@@ -31,7 +31,11 @@ import { createPostgresConversationTurnQueue } from "./conversations/conversatio
 import { stopChannelWork } from "./emergency-stop.ts";
 import { createPostgresAgentIdentityStore } from "./musterrolle/agent-identities.ts";
 import { createPostgresSurfaceBindingStore } from "./musterrolle/surface-bindings.ts";
-import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
+import {
+  CREATE_SESSION,
+  createPostgresSessionUnitOfWork,
+  SESSIONS_RESOURCE,
+} from "./postgres-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import { resumeAtomic } from "./recovery-control.ts";
 import * as schema from "./schema.ts";
@@ -756,11 +760,6 @@ describe("work that meets an emergency stop as it runs", () => {
     if (!sending) throw new Error("nothing claimed for the channel");
     expect(await outbox.beginSend(sending)).not.toBe(false);
     await stop(s, s.admin);
-    await outbox.settle(sending, {
-      status: "pending",
-      errorCode: "ratelimited",
-      retryInMs: 1_000,
-    });
     const [notice] = await db
       .select({ slackAppId: slackOutbox.slackAppId })
       .from(slackOutbox)
@@ -779,6 +778,12 @@ describe("work that meets an emergency stop as it runs", () => {
       dedupeKey: "reply:meanwhile",
     });
     expect((await turnOn(s, s.admin, "checked")).outcome).toBe("set");
+    // Slack's answer to the send comes only now, the channel on again.
+    await outbox.settle(sending, {
+      status: "pending",
+      errorCode: "ratelimited",
+      retryInMs: 1_000,
+    });
     const rows = await db
       .select({
         key: slackOutbox.dedupeKey,
@@ -799,6 +804,109 @@ describe("work that meets an emergency stop as it runs", () => {
         status: "failed",
         errorCode: "emergency_stopped",
       },
+    ]);
+  });
+});
+
+describe("a session that meets an emergency stop as it is made", () => {
+  test("a Slack message to a stopped channel opens no session", async () => {
+    const s = await stage();
+    const late = await claimedSession(db, gateway, OWNER);
+    const [made] = await db
+      .select({ releaseId: sessions.agentReleaseId })
+      .from(sessions)
+      .where(eq(sessions.id, late.sessionId));
+    if (!made?.releaseId) throw new Error("no release");
+    const [release] = await db
+      .select({ agentId: schema.agentReleases.agentId })
+      .from(schema.agentReleases)
+      .where(eq(schema.agentReleases.id, made.releaseId));
+    if (!release) throw new Error("no release row");
+    await stop(s, s.admin);
+    // The stopped binding is the release's agent's.
+    await client.exec("SET session_replication_role = replica");
+    await db
+      .update(surfaceBindings)
+      .set({ agentId: release.agentId })
+      .where(eq(surfaceBindings.id, s.bindingId));
+    await client.exec("SET session_replication_role = DEFAULT");
+    const accept = (channelId: string) =>
+      createPostgresSessionUnitOfWork(db).acceptInputAtomic({
+        principal: { ...OWNER, requestId: randomUUID() },
+        idempotencyKey: randomUUID(),
+        payloadHash: randomUUID(),
+        repository: {
+          id: "sample-app",
+          url: "https://example.invalid/app.git",
+          branch: "main",
+        },
+        agentReleaseId: made.releaseId as string,
+        model: "claude-sonnet-5",
+        message: "from Slack",
+        limits: LIMITS,
+        slackMessage: {
+          team_id: "T0STOP",
+          channel_id: channelId,
+          ts: "300.000100",
+        },
+      } as never);
+    expect((await accept(CHANNEL)).outcome).toBe("emergency_stopped");
+    expect((await accept("C0ELSE")).outcome).toBe("accepted");
+  });
+
+  test("a thread's session made but not yet linked is stopped with the channel", async () => {
+    const s = await stage();
+    const late = await claimedSession(db, gateway, OWNER);
+    const next = await gateway.nextInput(late.principal, late.scope);
+    if (!next.input) throw new Error("no input delivered");
+    await db
+      .update(sessions)
+      .set({ workspaceId: s.workspaceId })
+      .where(eq(sessions.id, late.sessionId));
+    const [made] = await db
+      .select({ releaseId: sessions.agentReleaseId })
+      .from(sessions)
+      .where(eq(sessions.id, late.sessionId));
+    await client.exec("SET session_replication_role = replica");
+    const { link } = await createPostgresSessionLinkStore(db).reserve({
+      workspaceId: s.workspaceId,
+      installationId: s.installationId,
+      surfaceBindingId: s.bindingId,
+      surfaceRef: `${CHANNEL}:400.000100`,
+      channelId: CHANNEL,
+      threadId: "400.000100",
+      openedByTs: "400.000100",
+      agentId: s.agentId,
+      releaseId: made?.releaseId as string,
+      createdBy: s.owner.userId,
+    });
+    // What the session's create left: its receipt under the link's key.
+    const receiptId = randomUUID();
+    await db.insert(receipts).values({
+      id: receiptId,
+      ownerId: s.workspaceId,
+      actor: null,
+      requestId: null,
+      operation: CREATE_SESSION,
+      targetRef: { session_id: late.sessionId, turn_id: "1", request_id: null },
+      status: "accepted",
+      result: { session_id: late.sessionId } as never,
+    });
+    await db.insert(schema.idempotencyKeys).values({
+      principal: s.workspaceId,
+      operation: CREATE_SESSION,
+      resource: SESSIONS_RESOURCE,
+      key: link.id,
+      payloadHash: "x",
+      receiptId,
+    } as never);
+    await client.exec("SET session_replication_role = DEFAULT");
+    expect(await stop(s, s.admin)).toMatchObject({
+      outcome: "stopped",
+      stopped: { turns: 2 },
+    });
+    expect(await turnsOf(late.sessionId)).toMatchObject([
+      { sequence: 1, status: "failed", reason: "emergency_stopped" },
     ]);
   });
 });

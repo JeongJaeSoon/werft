@@ -204,7 +204,10 @@ import {
 } from "./sessions/session-event-archives.ts";
 import { recordStatus } from "./sessions/session-events.ts";
 import { withheldEventPayload } from "./sessions/withheld-events.ts";
-import { emergencyStopHolds } from "./surface/emergency-stop-hold.ts";
+import {
+  channelEmergencyStopped,
+  emergencyStopHolds,
+} from "./surface/emergency-stop-hold.ts";
 import { m1GateOpenForWrite } from "./surface/m1-judgments.ts";
 
 export const CREATE_SESSION = "create_session";
@@ -727,6 +730,17 @@ export function createPostgresSessionUnitOfWork(
           })) !== null
         ) {
           return { outcome: "source_deleted" };
+        }
+        // Last of its locks, so none is taken after the binding's.
+        if (
+          input.slackMessage !== undefined &&
+          input.agentReleaseId !== undefined &&
+          (await channelEmergencyStopped(tx, {
+            releaseId: input.agentReleaseId,
+            channelId: input.slackMessage.channel_id,
+          }))
+        ) {
+          return { outcome: "emergency_stopped" };
         }
         const refused = await admitInput(tx, {
           sessionId: null,

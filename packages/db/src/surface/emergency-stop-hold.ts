@@ -36,3 +36,26 @@ export async function emergencyStopHolds(
   );
   return row?.held === true;
 }
+
+/**
+ * Whether the agent of `releaseId` is emergency-stopped in `channelId`,
+ * read with the channel's binding held: the stop holds it while it stops
+ * the channel's work, so work begun here either waits for the stop and
+ * sees it, or is done first and is found by it.
+ */
+export async function channelEmergencyStopped(
+  tx: Database,
+  input: { releaseId: string; channelId: string },
+): Promise<boolean> {
+  const rows = rowsOf<{ stopped: boolean }>(
+    await tx.execute(sql`
+      SELECT b.emergency_stopped_at IS NOT NULL AS stopped
+      FROM surface_bindings b
+      JOIN agent_releases r ON r.agent_id = b.agent_id
+      WHERE r.id = ${input.releaseId}
+        AND b.external_surface_id = ${input.channelId}
+        AND b.revoked_at IS NULL
+      FOR SHARE OF b`),
+  );
+  return rows.some((row) => row.stopped);
+}

@@ -14,6 +14,7 @@ import {
 } from "./control-shared.ts";
 import { stopExecution } from "./control-unit-of-work.ts";
 import { dbNow } from "./db-clock.ts";
+import { CREATE_SESSION, SESSIONS_RESOURCE } from "./postgres-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import { queueMessages, receipts, sessions, turns } from "./schema.ts";
 import { PAUSE } from "./sessions/drain.ts";
@@ -72,6 +73,21 @@ export async function stopChannelWork(
               AND l.channel_id = ${place.channelId}
               AND l.agent_id = ${place.agentId}::uuid
               AND l.session_id IS NOT NULL)
+          -- A thread's session made but not yet linked: its link holds the
+          -- key the session was made under.
+          OR s.id IN (
+            SELECT (r.result ->> 'session_id')::uuid
+            FROM session_links l
+            JOIN idempotency_keys k ON k.principal = l.workspace_id::text
+              AND k.operation = ${CREATE_SESSION}
+              AND k.resource = ${SESSIONS_RESOURCE}
+              AND k.key = l.id::text
+            JOIN receipts r ON r.id = k.receipt_id
+            WHERE l.installation_id = ${place.installationId}::uuid
+              AND l.channel_id = ${place.channelId}
+              AND l.agent_id = ${place.agentId}::uuid
+              AND l.session_id IS NULL
+              AND r.result ->> 'session_id' IS NOT NULL)
           OR s.parent_conversation_id IN (
             SELECT c.id FROM conversations c
             WHERE c.workspace_id = ${place.workspaceId}::uuid
@@ -371,6 +387,14 @@ export async function cancelChannelPosts(
         AND kind <> 'emergency_stop_notice'
       RETURNING input_id::text AS input_id`),
   );
+  // A send under way keeps its claim, but is marked: a retry of it ends
+  // failed even after the channel is on again (settle).
+  await tx.execute(sql`
+    UPDATE slack_outbox SET error_code = ${EMERGENCY_STOPPED}
+    WHERE installation_id = ${place.installationId}::uuid
+      AND channel_id = ${place.channelId}
+      AND status = 'sending'
+      AND kind <> 'emergency_stop_notice'`);
   // A mirror cancelled here never reached Slack: what it held closes too,
   // in id order, as every path that takes several inputs does.
   for (const inputId of [
