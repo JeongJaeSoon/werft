@@ -778,10 +778,20 @@ integration("context gap on PostgreSQL", () => {
     );
   });
 
-  test("start_fresh is refused over an unknown turn, on an active session and on a stopped session that can resume", async () => {
+  test("start_fresh is refused over an unknown turn of a session with a committed checkpoint, on an active session and on a stopped session that can resume", async () => {
     const unknown = await queuedSession("fresh-unknown");
+    await runOneTurn(unknown, {
+      checkpoint: checkpointAt(0),
+      thenQueue: "second input",
+    });
     const l = await launch(unknown);
     const claimed = await claim(l);
+    if (claimed.restore !== null) {
+      await gateway.ready(principalOf(claimed), {
+        ...scopeOf(claimed),
+        restored_revision: claimed.restore.revision,
+      });
+    }
     await gateway.nextInput(principalOf(claimed), scopeOf(claimed));
     await confirmExecutionGone(db, l.executionId);
     expect((await sessionRow(unknown.session_id)).admissionState).toBe(
@@ -789,7 +799,7 @@ integration("context gap on PostgreSQL", () => {
     );
     expect(await startFresh(unknown)).toEqual({
       outcome: "unknown_turn_left",
-      turnId: "1",
+      turnId: "2",
     });
 
     const active = await queuedSession("fresh-active");

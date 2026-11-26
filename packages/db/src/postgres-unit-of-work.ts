@@ -154,6 +154,7 @@ import {
   sessionVisibleTo,
 } from "./musterrolle/session-shares.ts";
 import type { Database } from "./queries.ts";
+import { startFreshAvailable } from "./recovery-control.ts";
 import {
   agentReleases,
   agents,
@@ -2214,6 +2215,7 @@ export function createPostgresSessionReader(
                   ? null
                   : (checkpoint?.transcriptBytes ?? null),
               ),
+            start_fresh_available: await startFreshAvailable(tx, sessionId),
             cost_usd: row.costUsd,
             provider_tokens: row.providerTokens,
             repo_url: row.repoUrl,
