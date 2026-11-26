@@ -6,7 +6,7 @@
 // the planned domains.
 //
 // A job never sees another's list, so the whole assignment is checked on every
-// call before anything is printed: a file that belongs to no job would pass
+// `files` and `verify` call before anything is printed: a file that belongs to no job would pass
 // silently, which is the one failure this split must not have.
 //
 // usage:

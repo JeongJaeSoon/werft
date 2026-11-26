@@ -431,7 +431,7 @@ jobs:
   # start only when the plan gives them work, so a run with nothing for them
   # takes no runner; the verdicts here hold each result to the plan, and a
   # skip passes only where the plan says so. A gate that never reports leaves
-  # them expected, which blocks a merge rather than passing it.
+  # them expected on a new commit, which blocks a merge rather than passing it.
   integration:
     needs: [changes, integration-domain, e2e, conformance, quickstart]
     if: >-
@@ -515,18 +515,30 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        # Each name is tried on its own, three times, so one refused request
+        # does not leave the other unreported; any that never lands fails the
+        # gate.
         run: |
+          unreported=
           for name in e2e quickstart; do
             if [ "$name" = e2e ]; then outcome=$E2E; else outcome=$QUICKSTART; fi
             conclusion=failure
             [ "$outcome" != success ] || conclusion=success
-            gh api --method POST "repos/${GH_REPO}/check-runs" --silent \
-              -f name="$name" -f head_sha="$HEAD_SHA" -f status=completed \
-              -f conclusion="$conclusion" -f details_url="$RUN_URL" \
-              -f "output[title]=${name}: ${conclusion}" \
-              -f "output[summary]=The \`${name} verdict\` step of the \`integration\` job in ${RUN_URL} ended ${outcome:-unrun}."
-            echo "${name}: reported ${conclusion}"
+            for attempt in 1 2 3; do
+              if gh api --method POST "repos/${GH_REPO}/check-runs" --silent \
+                -f name="$name" -f head_sha="$HEAD_SHA" -f status=completed \
+                -f conclusion="$conclusion" -f details_url="$RUN_URL" \
+                -f "output[title]=${name}: ${conclusion}" \
+                -f "output[summary]=The \`${name} verdict\` step of the \`integration\` job in ${RUN_URL} ended ${outcome:-unrun}."; then
+                echo "${name}: reported ${conclusion}"
+                continue 2
+              fi
+              [ "$attempt" = 3 ] || sleep "${REPORT_RETRY_SECONDS:-5}"
+            done
+            echo "::error::could not report the required ${name} check"
+            unreported="${unreported} ${name}"
           done
+          [ -z "$unreported" ]
       - id: cancelled
         if: cancelled()
         run: |

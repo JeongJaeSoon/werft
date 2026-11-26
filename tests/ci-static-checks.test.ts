@@ -730,6 +730,7 @@ function report(
         GH_REPO: "o/r",
         HEAD_SHA: "a".repeat(40),
         RUN_URL: "https://github.invalid/o/r/actions/runs/1",
+        REPORT_RETRY_SECONDS: "0",
         ...env,
       },
     });
@@ -788,10 +789,26 @@ test("the required e2e and quickstart names come only from the gate's report", (
     expect(guide.calls[0]).toContain("-f conclusion=success ");
     expect(guide.calls[1]).toContain("-f conclusion=failure ");
   }
-  // A report that does not land fails the gate.
+  // A report that does not land fails the gate, after three tries, and
+  // leaves the other name's report standing.
+  const refused = report(
+    { E2E: "success", QUICKSTART: "success" },
+    'printf "%s\\n" "$*" >>"$CALLS"; case "$*" in *"name=e2e "*) exit 1 ;; esac',
+  );
+  expect(refused.exitCode).not.toBe(0);
+  expect(refused.calls.filter((c) => c.includes("-f name=e2e "))).toHaveLength(
+    3,
+  );
   expect(
-    report({ E2E: "success", QUICKSTART: "success" }, "exit 1").exitCode,
-  ).not.toBe(0);
+    refused.calls.filter((c) => c.includes("-f name=quickstart ")),
+  ).toHaveLength(1);
+  // A request refused once and then accepted still reports.
+  const flaky = report(
+    { E2E: "success", QUICKSTART: "success" },
+    'printf "%s\\n" "$*" >>"$CALLS"; [ "$(wc -l <"$CALLS")" -gt 1 ]',
+  );
+  expect(flaky.exitCode).toBe(0);
+  expect(flaky.calls).toHaveLength(3);
 });
 
 test("all product and site consumers use the same explicit plan", () => {
@@ -1048,6 +1065,10 @@ test("a heavy job that passed ran every step it carries", () => {
     for (const id of ran) {
       expect(steps.filter((s) => s.id === id)).toHaveLength(1);
     }
+    // Nor may a step or the job swallow a failure.
+    expect(JSON.stringify(workflow.jobs[name])).not.toContain(
+      "continue-on-error",
+    );
     for (const step of steps) {
       expect([undefined, "!cancelled()", "always()"]).toContain(step.if);
     }
