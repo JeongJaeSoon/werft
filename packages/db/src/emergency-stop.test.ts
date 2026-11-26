@@ -880,6 +880,11 @@ describe("a session that meets an emergency stop as it is made", () => {
       releaseId: made?.releaseId as string,
       createdBy: s.owner.userId,
     });
+    // Reserved before the session was made, as a thread's link is.
+    await db
+      .update(schema.sessionLinks)
+      .set({ createdAt: new Date(Date.now() - 3_600_000) })
+      .where(eq(schema.sessionLinks.id, link.id));
     // What the session's create left: its receipt under the link's key.
     const receiptId = randomUUID();
     await db.insert(receipts).values({
@@ -908,5 +913,16 @@ describe("a session that meets an emergency stop as it is made", () => {
     expect(await turnsOf(late.sessionId)).toMatchObject([
       { sequence: 1, status: "failed", reason: "emergency_stopped" },
     ]);
+    // Linked only once the channel is on again: its cut turn is still never
+    // told there as a failure.
+    expect((await turnOn(s, s.admin, "checked")).outcome).toBe("set");
+    await createPostgresSessionLinkStore(db).attachSession(
+      link.id,
+      late.sessionId,
+    );
+    const owed = await createPostgresSlackOutboxStore(db).unansweredTurns(50);
+    expect(owed.filter((turn) => turn.sessionId === late.sessionId)).toEqual(
+      [],
+    );
   });
 });

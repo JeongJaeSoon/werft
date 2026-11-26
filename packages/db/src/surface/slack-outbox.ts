@@ -2286,6 +2286,13 @@ export function createPostgresSlackOutboxStore(
       return db.transaction(async (tx) => {
         // A retry put back while the channel's agent is emergency-stopped
         // ends here instead, so it never goes out once the channel is on.
+        // The row first, so a stop marking it waits for this: a retry put
+        // back before the mark is cancelled as the channel is turned on.
+        if (given.status === "pending") {
+          await tx.execute(
+            sql`SELECT 1 FROM slack_outbox WHERE id = ${fence.id}::uuid FOR UPDATE`,
+          );
+        }
         const [stopped] =
           given.status === "pending"
             ? rowsOf(

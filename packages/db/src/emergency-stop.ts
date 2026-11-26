@@ -283,8 +283,20 @@ async function cutRunningTurns(
         ),
       ),
     );
-  // Told already in every thread of the session, so its failure is never
-  // posted there: the keys the turn's failure row would take.
+  await markCutTurnsTold(tx, sessionId);
+  return cut;
+}
+
+/**
+ * Every turn of the session an emergency stop cut off is told already in
+ * each thread of the session, so its failure is never posted there: the
+ * keys its failure row would take. Run as the stop cuts it, and as a thread
+ * takes a session made around a stop.
+ */
+export async function markCutTurnsTold(
+  tx: Database,
+  sessionId: string,
+): Promise<void> {
   await tx.execute(sql`
     INSERT INTO slack_outbox (id, workspace_id, agent_id, slack_app_id,
       installation_id, kind, channel_id, thread_ts, session_id,
@@ -299,12 +311,9 @@ async function cutRunningTurns(
     JOIN slack_installations i ON i.id = l.installation_id
     JOIN slack_apps a ON a.app_id = i.app_id
     WHERE l.session_id = ${sessionId}::uuid
-      AND t.id IN (${sql.join(
-        ids.map((id) => sql`${id}`),
-        sql`, `,
-      )})
+      AND t.status = 'failed'
+      AND t.terminal_reason = ${EMERGENCY_STOPPED}
     ON CONFLICT (dedupe_key) DO NOTHING`);
-  return cut;
 }
 
 /**

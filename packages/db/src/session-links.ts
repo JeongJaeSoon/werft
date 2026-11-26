@@ -3,7 +3,7 @@ import type { SessionLinkRecord, SessionLinkStore } from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { UUID } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
-import { stopJoiningSession } from "./emergency-stop.ts";
+import { markCutTurnsTold, stopJoiningSession } from "./emergency-stop.ts";
 import { CREATE_SESSION, SESSIONS_RESOURCE } from "./postgres-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import { idempotencyKeys, receipts, sessionLinks, turns } from "./schema.ts";
@@ -126,6 +126,9 @@ export function createPostgresSessionLinkStore(db: Database): SessionLinkStore {
               AND b.emergency_stopped_at IS NOT NULL`),
         );
         if (stopped) await stopJoiningSession(tx, sessionId.toLowerCase());
+        // A turn a stop cut before this thread held the session, the
+        // channel on again or not, is never told here as a failure.
+        await markCutTurnsTold(tx, sessionId.toLowerCase());
         const narrowed = await tx.execute(sql`
           INSERT INTO session_shares (session_id, owner_id, workspace_id, scope,
             updated_by, updated_at, revision)
