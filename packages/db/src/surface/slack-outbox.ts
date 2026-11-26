@@ -293,10 +293,8 @@ const addressed = (
   -- but the line that says so, until it is turned on again.
   AND (${row}.kind = 'emergency_stop_notice' OR NOT EXISTS (
     SELECT 1 FROM surface_bindings b
-    WHERE b.installation_id = ${row}.installation_id
-      AND b.external_surface_id = ${row}.channel_id
-      AND b.revoked_at IS NULL
-      AND b.emergency_stopped_at IS NOT NULL
+    JOIN slack_installations bi ON bi.id = b.installation_id
+    WHERE ${stopCovers(row)} AND b.emergency_stopped_at IS NOT NULL
   ))
   AND (${row}.kind <> 'channel_notice' OR ${channelNoticeCurrent(row, noticeVersions)})
   AND (${row}.session_id IS NULL OR EXISTS (
@@ -311,6 +309,18 @@ const addressed = (
       AND ${linkTakes(row)}
   )))
 )`;
+
+// Binding `b` (its install `bi`) is one an emergency stop of row `row`'s
+// channel covers: the row's own install's, or its agent's in the channel in
+// any install of the row's Slack team, as one stop covers them all.
+const stopCovers = (row: SQL) => sql`(
+  b.external_surface_id = ${row}.channel_id
+  AND b.revoked_at IS NULL
+  AND (b.installation_id = ${row}.installation_id OR (
+    b.agent_id = ${row}.agent_id
+    AND coalesce(bi.team_id, bi.id::text) = (
+      SELECT coalesce(ri.team_id, ri.id::text) FROM slack_installations ri
+      WHERE ri.id = ${row}.installation_id))))`;
 
 // The rate limits Slack's 429s set (slack_outbox_rate_blocks) that still
 // cover row `row`: its channel's posts (a reaction: the install's reactions.add) and,
@@ -2087,20 +2097,21 @@ export function createPostgresSlackOutboxStore(
             sql`SELECT pg_advisory_xact_lock(hashtextextended(${`slack_outbox_progress:${keyed.installationId}:${keyed.progressKey}`}, 0))`,
           );
         }
-        // The channel's binding before the row, as an emergency stop takes
-        // them: a stop under way is waited for, and once it holds the row
-        // ends as the stop ended the channel's unsent posts.
+        // The channel's bindings before the row, in id order, as an
+        // emergency stop takes them: a stop under way is waited for, and once
+        // it holds the row ends as the stop ended the channel's unsent posts.
         if (keyed !== undefined && keyed.kind !== "emergency_stop_notice") {
-          const [binding] = rowsOf<{ stopped: boolean }>(
+          const bindings = rowsOf<{ stopped: boolean }>(
             await tx.execute(sql`
               SELECT b.emergency_stopped_at IS NOT NULL AS stopped
-              FROM surface_bindings b
-              WHERE b.installation_id = ${keyed.installationId}::uuid
-                AND b.external_surface_id = ${keyed.channelId}
-                AND b.revoked_at IS NULL
-              FOR SHARE`),
+              FROM slack_outbox o
+              CROSS JOIN surface_bindings b
+              JOIN slack_installations bi ON bi.id = b.installation_id
+              WHERE o.id = ${fence.id}::uuid AND ${stopCovers(sql.raw("o"))}
+              ORDER BY b.id
+              FOR SHARE OF b`),
           );
-          if (binding?.stopped === true) {
+          if (bindings.some((binding) => binding.stopped)) {
             const ended = await tx
               .update(t)
               .set({
@@ -2391,14 +2402,13 @@ export function createPostgresSlackOutboxStore(
             ? rowsOf(
                 await tx.execute(sql`
                   SELECT 1 FROM slack_outbox o
-                  JOIN surface_bindings b
-                    ON b.installation_id = o.installation_id
-                    AND b.external_surface_id = o.channel_id
                   WHERE o.id = ${fence.id}::uuid
                     AND o.kind <> 'emergency_stop_notice'
-                    AND (o.error_code = ${TURN_EMERGENCY_STOPPED_REASON} OR (
-                      b.revoked_at IS NULL
-                      AND b.emergency_stopped_at IS NOT NULL))`),
+                    AND (o.error_code = ${TURN_EMERGENCY_STOPPED_REASON} OR EXISTS (
+                      SELECT 1 FROM surface_bindings b
+                      JOIN slack_installations bi ON bi.id = b.installation_id
+                      WHERE ${stopCovers(sql.raw("o"))}
+                        AND b.emergency_stopped_at IS NOT NULL))`),
               )
             : [];
         const outcome: typeof given = stopped

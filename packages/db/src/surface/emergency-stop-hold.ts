@@ -58,6 +58,7 @@ export async function channelEmergencyStopped(
         AND i.team_id = ${input.teamId}
         AND b.external_surface_id = ${input.channelId}
         AND b.revoked_at IS NULL
+      ORDER BY b.id
       FOR SHARE OF b`),
   );
   return rows.some((row) => row.stopped);

@@ -1337,6 +1337,40 @@ describe("two installs of one Slack team in the channel", () => {
     expect(left.map((row) => row.status)).toEqual(["failed", "failed"]);
   });
 
+  test("a post through an install with no binding of the channel is held as well", async () => {
+    const s = await stage();
+    const b = await secondInstall(s);
+    await postThrough(s, b, CHANNEL, "reply:b-before");
+    await postThrough(s, b, "C0ELSE", "reply:b-else");
+    expect((await stop(s, s.admin)).outcome).toBe("stopped");
+    await postThrough(s, b, CHANNEL, "reply:b-after");
+    const outbox = createPostgresSlackOutboxStore(db);
+    const began: string[] = [];
+    for (const row of await outbox.claim({ limit: 50, leaseMs: 30_000 })) {
+      if (
+        row.installationId === b.installationId &&
+        (await outbox.beginSend(row)) !== false
+      ) {
+        began.push(`${row.kind}:${row.channelId}`);
+      }
+    }
+    expect(began).toEqual(["reply:C0ELSE"]);
+    const rows = await db
+      .select({ key: slackOutbox.dedupeKey, status: slackOutbox.status })
+      .from(slackOutbox)
+      .where(
+        and(
+          eq(slackOutbox.installationId, b.installationId),
+          eq(slackOutbox.channelId, CHANNEL),
+        ),
+      )
+      .orderBy(asc(slackOutbox.dedupeKey));
+    expect(rows).toEqual([
+      { key: "reply:b-after", status: "pending" },
+      { key: "reply:b-before", status: "failed" },
+    ]);
+  });
+
   test("a binding written while the stop holds starts stopped", async () => {
     const s = await stage();
     expect((await stop(s, s.admin)).outcome).toBe("stopped");

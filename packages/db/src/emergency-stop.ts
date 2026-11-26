@@ -475,14 +475,26 @@ async function stopConversationTurns(
  */
 export async function cancelChannelPosts(
   tx: Database,
-  place: Pick<ChannelWorkPlace, "installationIds" | "channelId">,
+  place: Pick<
+    ChannelWorkPlace,
+    "agentId" | "installationId" | "installationIds" | "channelId"
+  >,
 ): Promise<number> {
+  // Through one of the stop's bound installs, or the agent's through any
+  // install of the channel's Slack team (one whose binding is gone, as a
+  // refused channel's notice is).
+  const covered = sql`(installation_id IN (${installsOf(place.installationIds)})
+    OR (agent_id = ${place.agentId}::uuid AND installation_id IN (
+      SELECT i.id FROM slack_installations i
+      WHERE coalesce(i.team_id, i.id::text) = (
+        SELECT coalesce(t.team_id, t.id::text) FROM slack_installations t
+        WHERE t.id = ${place.installationId}::uuid))))`;
   const cancelled = rowsOf<{ input_id: string | null }>(
     await tx.execute(sql`
       UPDATE slack_outbox
       SET status = 'failed', error_code = ${EMERGENCY_STOPPED},
         claim_token = NULL, lease_expires_at = NULL
-      WHERE installation_id IN (${installsOf(place.installationIds)})
+      WHERE ${covered}
         AND channel_id = ${place.channelId}
         AND status = 'pending'
         AND kind <> 'emergency_stop_notice'
@@ -492,7 +504,7 @@ export async function cancelChannelPosts(
   // failed even after the channel is on again (settle).
   await tx.execute(sql`
     UPDATE slack_outbox SET error_code = ${EMERGENCY_STOPPED}
-    WHERE installation_id IN (${installsOf(place.installationIds)})
+    WHERE ${covered}
       AND channel_id = ${place.channelId}
       AND status = 'sending'
       AND kind <> 'emergency_stop_notice'`);

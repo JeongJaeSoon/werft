@@ -396,6 +396,8 @@ async function set(
             ),
           );
         await cancelChannelPosts(tx, {
+          agentId,
+          installationId,
           installationIds: scope.installationIds,
           channelId: input.channelId,
         });
