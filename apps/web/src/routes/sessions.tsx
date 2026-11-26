@@ -13,7 +13,11 @@ import type {
   SessionRelation,
   SessionStatus,
 } from "@werft-ai/contracts";
-import { queryKeysOf } from "@werft-ai/core";
+import {
+  privateChannelsPending,
+  queryKeysOf,
+  refetchWhilePending,
+} from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import {
   ApprovalInbox,
@@ -44,6 +48,7 @@ import {
   useCursorPage,
 } from "../components/list-pages.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { PrivateChannelsPending } from "../components/private-channels-pending.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { SessionSummary } from "../components/session-summary.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
@@ -370,6 +375,10 @@ export function SessionsScreen() {
               clearAll: t("filters.clearAll"),
             }}
           />
+          {/* The counts and the list leave out the same channels. */}
+          <PrivateChannelsPending
+            pending={privateChannelsPending(counts.data)}
+          />
           <SessionsView
             filter={{
               ...(tab === "all" ? {} : { status: tab }),
@@ -462,6 +471,7 @@ function useListedSessions(filter: SessionsFilter) {
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor,
     placeholderData: keepPreviousData,
+    refetchInterval: refetchWhilePending(),
     retry: false,
   });
 }
@@ -479,6 +489,7 @@ export function sessionCountsQuery(
       unwrap(
         client.GET("/v1/sessions/counts", { params: { query: filter } }),
       ) as Promise<CountSessionsResponse>,
+    refetchInterval: refetchWhilePending(),
     retry: false,
   };
 }

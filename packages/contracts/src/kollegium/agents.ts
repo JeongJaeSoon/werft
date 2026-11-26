@@ -19,6 +19,7 @@ import {
   PAGE_LIMIT_MAX,
   pageSchema,
   paginationQuerySchema,
+  privateChannelsPendingSchema,
   receiptIdSchema,
   sha256HexSchema,
   timestampSchema,
@@ -1427,7 +1428,10 @@ export const listAgentsQuerySchema = paginationQuerySchema.extend({
       "Keeps the agents no one live administers now (`ownerless` true).",
   }),
 });
-export const listAgentsResponseSchema = pageSchema(agentListItemSchema);
+export const listAgentsResponseSchema = pageSchema(agentListItemSchema).extend(
+  // Only with include=summary: the sessions the summaries count.
+  { private_channels_pending: privateChannelsPendingSchema },
+);
 const agentCountSchema = z.number().int().nonnegative();
 export const countAgentsResponseSchema = z.object({
   counts: z

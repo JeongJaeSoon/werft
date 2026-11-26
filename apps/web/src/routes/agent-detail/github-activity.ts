@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { type ApiClient, type components, unwrap } from "@werft-ai/client";
-import { queryKeysOf } from "@werft-ai/core";
+import { queryKeysOf, refetchWhilePending } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import type { Translate } from "../../i18n/i18n.tsx";
 
@@ -19,6 +19,7 @@ export function useAgentGitHubActivity(agentId: string, enabled = true) {
           params: { path: { id: agentId } },
         }),
       ),
+    refetchInterval: refetchWhilePending(),
     retry: false,
     enabled,
   });
