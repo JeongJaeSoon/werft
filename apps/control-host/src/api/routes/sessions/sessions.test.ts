@@ -1037,14 +1037,14 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
     expect(
       (await decide({ ...abandon, reason: "x".repeat(65 * 1024) })).status,
     ).toBe(413);
-    // start_fresh names no turn: the context it gives up is all of it.
+    // start_fresh's turn, when named, is a turn id.
     expect(
       (
         await decide({
           decision: "start_fresh",
           expected_revision: 1,
           reason: "r",
-          target_turn_id: "1",
+          target_turn_id: "",
         })
       ).status,
     ).toBe(400);
@@ -1056,6 +1056,12 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
         decision: "start_fresh" as const,
         expected_revision: 3,
         reason: "the checkpoint is gone; continue without it",
+      },
+      {
+        decision: "start_fresh" as const,
+        expected_revision: 3,
+        reason: "no save point yet; run the first turn again",
+        target_turn_id: "1",
       },
       {
         decision: "retry_restore" as const,

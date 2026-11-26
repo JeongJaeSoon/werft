@@ -1490,6 +1490,241 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
     ).toEqual({ outcome: "not_found" });
   });
 
+  describe("start_fresh on a session with no committed checkpoint runs its unknown turn again", () => {
+    // The Slack button: keyed by the turn, so every press is one request.
+    function pressStartFresh(session: Session, turnId: string) {
+      return controls().decideRecoveryAtomic({
+        principal: { ownerId: session.ownerId },
+        sessionId: session.session_id,
+        idempotencyKey: `start_fresh:${turnId}`,
+        payloadHash: `start_fresh_turn:${turnId}`,
+        decision: {
+          decision: "start_fresh",
+          expected_revision: 0,
+          target_turn_id: turnId,
+          reason: "Continued in a new context from the Slack notice",
+        },
+        byTurn: true,
+        now: clock,
+      });
+    }
+
+    async function startFreshAvailable(session: Session) {
+      const detail = await createPostgresSessionReader(db).getSession(
+        session.ownerId,
+        session.session_id,
+      );
+      return detail?.start_fresh_available;
+    }
+
+    test("a first turn whose worker died runs once more with the same input in an empty context", async () => {
+      const { session, launch: l, row } = await unknownSession("fresh-first");
+      expect(await startFreshAvailable(session)).toBe(true);
+
+      const fresh = await decide(session, {
+        decision: "start_fresh",
+        expected_revision: row.revision,
+        target_turn_id: "1",
+        reason: "the first turn had no save point",
+      });
+      if (fresh.outcome !== "accepted") throw new Error(fresh.outcome);
+      expect(await turnRows(session.session_id)).toEqual([
+        {
+          sequence: 1,
+          status: "cancelled",
+          terminalReason: "operator_start_fresh",
+          outcomeUnknown: true,
+        },
+        {
+          sequence: 2,
+          status: "queued",
+          terminalReason: null,
+          outcomeUnknown: false,
+        },
+      ]);
+      const [rerun] = await db
+        .select({ message: turns.message })
+        .from(turns)
+        .where(
+          and(eq(turns.sessionId, session.session_id), eq(turns.sequence, 2)),
+        );
+      expect(rerun?.message).toBe("first input");
+      const input1 = await db
+        .select({ status: receipts.status, error: receipts.error })
+        .from(receipts)
+        .where(
+          and(
+            eq(receipts.operation, "create_session"),
+            eq(receipts.ownerId, session.ownerId),
+          ),
+        );
+      expect(input1).toEqual([
+        {
+          status: "failed",
+          error: expect.objectContaining({ code: "CONTROL_SUPERSEDED" }),
+        },
+      ]);
+      expect(await sessionRow(session.session_id)).toMatchObject({
+        admissionState: "active",
+        status: "queued",
+        contextResetTurnSequence: 1,
+      });
+      expect(await queueRows(session.session_id)).toHaveLength(1);
+      expect(await startFreshAvailable(session)).toBe(false);
+      expect(
+        (await receiptRow(fresh.response.receipt_id)).targetRef,
+      ).toMatchObject({ turn_id: "1" });
+
+      // The next worker restores nothing and is handed the same input once.
+      const again = await launch(l.partition, session.session_id);
+      const claimed = await claim(again);
+      expect(claimed.restore).toBeNull();
+      const next = await gateway.nextInput(
+        principalOf(claimed),
+        scopeOf(claimed),
+      );
+      expect(next.input?.turn_id).toBe("2");
+      expect(next.input?.message).toBe("first input");
+    });
+
+    test("pressed twice, one after the other or at once, it decides once and queues one turn", async () => {
+      const { session } = await unknownSession("fresh-twice");
+      const first = await pressStartFresh(session, "1");
+      expect(first.outcome).toBe("accepted");
+      const second = await pressStartFresh(session, "1");
+      expect(second.outcome).toBe("replayed");
+      if (first.outcome !== "accepted" || second.outcome !== "replayed") return;
+      expect(second.response.receipt_id).toBe(first.response.receipt_id);
+      expect(
+        (await turnRows(session.session_id)).map((turn) => turn.status),
+      ).toEqual(["cancelled", "queued"]);
+
+      const raced = (await unknownSession("fresh-race")).session;
+      const both = await Promise.all([
+        pressStartFresh(raced, "1"),
+        pressStartFresh(raced, "1"),
+      ]);
+      expect(both.map((result) => result.outcome).sort()).toEqual([
+        "accepted",
+        "replayed",
+      ]);
+      expect(
+        (await turnRows(raced.session_id)).map((turn) => turn.status),
+      ).toEqual(["cancelled", "queued"]);
+    });
+
+    test("input queued behind the unknown turn keeps its place: the rerun goes after it", async () => {
+      const { session, row } = await unknownSession("fresh-behind", {
+        queuedBehind: true,
+      });
+      const fresh = await decide(session, {
+        decision: "start_fresh",
+        expected_revision: row.revision,
+        reason: "no save point",
+      });
+      if (fresh.outcome !== "accepted") throw new Error(fresh.outcome);
+      const rows = await db
+        .select({
+          sequence: turns.sequence,
+          status: turns.status,
+          message: turns.message,
+        })
+        .from(turns)
+        .where(eq(turns.sessionId, session.session_id))
+        .orderBy(asc(turns.sequence));
+      expect(rows).toEqual([
+        { sequence: 1, status: "cancelled", message: "first input" },
+        { sequence: 2, status: "queued", message: "second input" },
+        { sequence: 3, status: "queued", message: "first input" },
+      ]);
+      expect(await queueRows(session.session_id)).toHaveLength(2);
+    });
+
+    test("a target turn that is not the unknown one is stale, and nothing changes", async () => {
+      const { session, row } = await unknownSession("fresh-wrong-turn");
+      expect(
+        await decide(session, {
+          decision: "start_fresh",
+          expected_revision: row.revision,
+          target_turn_id: "7",
+          reason: "wrong turn",
+        }),
+      ).toEqual({ outcome: "turn_not_unknown", turnStatus: null });
+      expect(
+        (await turnRows(session.session_id)).map((turn) => turn.status),
+      ).toEqual(["outcome_unknown"]);
+    });
+
+    test("a session with a committed checkpoint is unchanged: the unknown turn is settled first", async () => {
+      for (const checkpointCoversTurn1 of [false, true]) {
+        const { session, row } = await unknownSession("fresh-checkpoint", {
+          checkpointRevision: 2,
+          checkpointCoversTurn1,
+        });
+        expect(await startFreshAvailable(session)).toBe(false);
+        expect(
+          await decide(session, {
+            decision: "start_fresh",
+            expected_revision: row.revision,
+            reason: "has a save point",
+          }),
+        ).toEqual({ outcome: "unknown_turn_left", turnId: "1" });
+        expect(await pressStartFresh(session, "1")).toEqual({
+          outcome: "unknown_turn_left",
+          turnId: "1",
+        });
+        expect(
+          (await turnRows(session.session_id)).map((turn) => turn.status),
+        ).toEqual(["outcome_unknown"]);
+      }
+    });
+
+    test("expected_revision still holds for a decision sent without byTurn", async () => {
+      const { session, row } = await unknownSession("fresh-revision");
+      expect(
+        await decide(session, {
+          decision: "start_fresh",
+          expected_revision: row.revision + 5,
+          target_turn_id: "1",
+          reason: "stale read",
+        }),
+      ).toEqual({
+        outcome: "revision_conflict",
+        currentRevision: row.revision,
+      });
+    });
+
+    test("after an abandon, start_fresh goes on with nothing queued: abandon still means it will not run again", async () => {
+      const { session, row } = await unknownSession("fresh-after-abandon");
+      const abandoned = await decide(session, {
+        decision: "abandon",
+        expected_revision: row.revision,
+        target_turn_id: "1",
+        reason: "do not run it again",
+      });
+      if (abandoned.outcome !== "accepted") throw new Error(abandoned.outcome);
+      const stopped = await sessionRow(session.session_id);
+      const fresh = await decide(session, {
+        decision: "start_fresh",
+        expected_revision: stopped.revision,
+        reason: "go on empty",
+      });
+      if (fresh.outcome !== "accepted") throw new Error(fresh.outcome);
+      expect(await turnRows(session.session_id)).toEqual([
+        {
+          sequence: 1,
+          status: "cancelled",
+          terminalReason: "operator_abandoned",
+          outcomeUnknown: true,
+        },
+      ]);
+      expect(await sessionRow(session.session_id)).toMatchObject({
+        admissionState: "active",
+        status: "idle",
+      });
+    });
+  });
+
   test("a worker's late finalize replay after an operator decision meets a conflict, not a crash", async () => {
     // A worker that finalized outcome_unknown itself (mirror error) and
     // retries that finalize after the operator abandoned the turn.

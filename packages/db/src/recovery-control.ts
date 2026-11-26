@@ -48,6 +48,7 @@ import {
 } from "./schema.ts";
 import { pinRefusesLive } from "./session-spec-pin.ts";
 import { contextCoverage, contextGap } from "./sessions/context-gap.ts";
+import { enqueueWithin } from "./sessions/enqueue.ts";
 import { closeParkedGroup } from "./sessions/parked-group.ts";
 import {
   hasRestorePoint,
@@ -65,6 +66,8 @@ import {
 import { recordEvent, recordStatus } from "./sessions/session-events.ts";
 
 const RECOVERY_DECISION = "recovery_decision";
+// The terminal reason of an unknown turn a start_fresh runs again as a new turn.
+export const START_FRESH_RERUN_REASON = "operator_start_fresh";
 // Control receipts a close supersedes: whichever of these is still open
 // was waiting on an outcome the close makes irrelevant.
 const SUPERSEDED_CONTROL_OPERATIONS = ["terminate", "resume", "pause", "close"];
@@ -306,7 +309,13 @@ export function decideRecoveryAtomic(
   return transactionWithBindingRetry(db, async (tx, attempt) => {
     const opened = await openControl(tx, attempt, scope, {
       payloadHash: input.payloadHash,
-      expectedRevision: decision.expected_revision,
+      // The turn a byTurn start_fresh names pins what it decides.
+      expectedRevision:
+        input.byTurn &&
+        decision.decision === "start_fresh" &&
+        decision.target_turn_id !== undefined
+          ? null
+          : decision.expected_revision,
       now: input.now,
       startedAt,
     });
@@ -321,7 +330,13 @@ export function decideRecoveryAtomic(
     let targetTurnRowId: number | null = null;
     let reset: ContextReset | null = null;
     if (decision.decision === "start_fresh") {
-      const started = await startFresh(tx, session, now);
+      const started = await startFresh(
+        tx,
+        session,
+        decision.target_turn_id ?? null,
+        decision.reason,
+        now,
+      );
       if (started.outcome !== "reset") return started;
       reset = started.reset;
       // The checkpoint a parked turn would resume from is retired with the
@@ -458,7 +473,9 @@ function targetTurnIdOf(decision: RecoveryDecisionRequest): string | null {
   return decision.decision === "abandon" ||
     decision.decision === "confirm_completed"
     ? decision.target_turn_id
-    : null;
+    : decision.decision === "start_fresh"
+      ? (decision.target_turn_id ?? null)
+      : null;
 }
 
 type ContextReset = {
@@ -481,43 +498,208 @@ type ContextReset = {
  * unknown turn, which abandon or confirm_completed settles first, and never
  * while the last execution may still be running.
  */
-async function startFresh(
+type StartFreshRefusal = Exclude<
+  RecoveryDecisionResult,
+  { outcome: "accepted" | "replayed" }
+>;
+
+/**
+ * A session that never committed a checkpoint, or whose checkpoints a
+ * start_fresh retired: no context is there to lose, so an unknown turn is
+ * not the operator's to settle first. start_fresh runs it again instead.
+ */
+function noCommittedCheckpoint(
+  session: Pick<
+    SessionRow,
+    "checkpointRevision" | "contextResetCheckpointRevision"
+  >,
+): boolean {
+  return (
+    session.checkpointRevision === null ||
+    (session.contextResetCheckpointRevision !== null &&
+      session.checkpointRevision <= session.contextResetCheckpointRevision)
+  );
+}
+
+/**
+ * Why start_fresh would be refused now, or the unknown turns it would run
+ * again; read by the decision and by the session detail's
+ * start_fresh_available. targetTurnId, when given, has to name the earliest
+ * unknown turn.
+ */
+async function startFreshPlan(
   tx: Database,
   session: SessionRow,
-  now: Date,
-): Promise<
-  | { outcome: "reset"; reset: ContextReset }
-  | Exclude<RecoveryDecisionResult, { outcome: "accepted" | "replayed" }>
-> {
+  targetTurnId: string | null,
+): Promise<{ refused: StartFreshRefusal } | { rerun: number[] }> {
   const eligible =
     session.admissionState === "recovery_required" ||
     (session.admissionState === "stopped" &&
       !(await resumableFromStopped(tx, session)));
   if (!eligible) {
     return {
-      outcome: "not_in_recovery",
-      admissionState: session.admissionState,
+      refused: {
+        outcome: "not_in_recovery",
+        admissionState: session.admissionState,
+      },
     };
   }
-  if (session.executionId !== null) return { outcome: "execution_unconfirmed" };
+  if (session.executionId !== null) {
+    return { refused: { outcome: "execution_unconfirmed" } };
+  }
   // start_fresh dispatches queued input like a resume does.
   if (session.executionRevokedAt !== null) {
-    return { outcome: "execution_revoked" };
+    return { refused: { outcome: "execution_revoked" } };
   }
-  if (session.sourceDeletedAt !== null) return { outcome: "source_deleted" };
+  if (session.sourceDeletedAt !== null) {
+    return { refused: { outcome: "source_deleted" } };
+  }
   const unknown = await earliestUnknownTurn(tx, session.id);
-  if (unknown !== null) {
-    return { outcome: "unknown_turn_left", turnId: unknown };
+  if (targetTurnId !== null && unknown !== targetTurnId) {
+    const turn = await turnBySequence(tx, session.id, targetTurnId);
+    return {
+      refused: {
+        outcome: "turn_not_unknown",
+        turnStatus: turn?.status ?? null,
+      },
+    };
+  }
+  if (unknown !== null && !noCommittedCheckpoint(session)) {
+    return { refused: { outcome: "unknown_turn_left", turnId: unknown } };
   }
   // Same as resume: an active session must not have its workspace
   // removed underneath the worker the reset launches.
   if (session.workspaceReclaimId !== null) {
-    return { outcome: "workspace_reclaiming" };
+    return { refused: { outcome: "workspace_reclaiming" } };
   }
-  if (pinRefusesLive(session)) return { outcome: "pin_required" };
+  if (pinRefusesLive(session)) return { refused: { outcome: "pin_required" } };
+  if (unknown === null) return { rerun: [] };
+  const rows = await tx
+    .select({ sequence: turns.sequence })
+    .from(turns)
+    .where(
+      and(eq(turns.sessionId, session.id), eq(turns.status, "outcome_unknown")),
+    )
+    .orderBy(turns.sequence);
+  return { rerun: rows.map((row) => row.sequence) };
+}
+
+/** Whether a start_fresh decision would be taken on the session now. */
+export async function startFreshAvailable(
+  tx: Database,
+  sessionId: string,
+): Promise<boolean> {
+  const [session] = await tx
+    .select()
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .limit(1);
+  if (!session) return false;
+  if (session.podId !== null && session.executionId === null) return false;
+  return "rerun" in (await startFreshPlan(tx, session, null));
+}
+
+/**
+ * An unknown turn start_fresh runs again: it ends cancelled and its input
+ * receipt fails, and a new queued turn at the end of the queue carries the
+ * same input, from the same requester and sources. What the first run did
+ * outside is not undone.
+ */
+async function rerunUnknownTurn(
+  tx: Database,
+  sessionId: string,
+  sequence: number,
+  reason: string,
+  now: Date,
+): Promise<number> {
+  const [old] = await tx
+    .select()
+    .from(turns)
+    .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, sequence)))
+    .limit(1);
+  if (!old) throw new Error(`Turn ${sequence} of ${sessionId} vanished`);
+  const [last] = await tx
+    .select({ sequence: sql<number>`max(${turns.sequence})` })
+    .from(turns)
+    .where(eq(turns.sessionId, sessionId));
+  const next = (last?.sequence ?? sequence) + 1;
+  await tx
+    .update(turns)
+    .set({
+      status: "cancelled",
+      terminalReason: START_FRESH_RERUN_REASON,
+      endedAt: now,
+      resultJson: settledResultJson(old.resultJson, {
+        decision: "start_fresh",
+        evidence_ref: null,
+        reason,
+      }),
+    })
+    .where(eq(turns.id, old.id));
+  await tx.delete(queueMessages).where(eq(queueMessages.turnId, old.id));
+  await tx
+    .update(receipts)
+    .set({
+      status: "failed",
+      error: {
+        code: "CONTROL_SUPERSEDED",
+        message: `input run again as turn ${next} by a start_fresh decision; effects the first run had outside are not reverted`,
+      },
+      updatedAt: now,
+    })
+    .where(unknownInputReceiptOf(sessionId, sequence));
+  const [turn] = await tx
+    .insert(turns)
+    .values({
+      sessionId,
+      sequence: next,
+      message: old.message,
+      status: "queued",
+      createdAt: sql`clock_timestamp()`,
+      actorId: old.actorId,
+      channel: old.channel,
+      // The Slack message stays the first turn's: the new one is no reply to it.
+      slackMessage: null,
+      traceContext: old.traceContext,
+      usageBasis: old.usageBasis,
+      usageTeamId: old.usageTeamId,
+      requesterKind: old.requesterKind,
+      requesterId: old.requesterId,
+      requesterAuth: old.requesterAuth,
+      callerChannel: old.callerChannel,
+      callerLimitDigest: old.callerLimitDigest,
+      sources: old.sources,
+    })
+    .returning({ id: turns.id });
+  if (!turn) throw new Error("Failed to insert turn");
+  await enqueueWithin(tx, {
+    sessionId,
+    turnId: turn.id,
+    payload: { message: old.message },
+  });
+  return next;
+}
+
+async function startFresh(
+  tx: Database,
+  session: SessionRow,
+  targetTurnId: string | null,
+  reason: string,
+  now: Date,
+): Promise<{ outcome: "reset"; reset: ContextReset } | StartFreshRefusal> {
+  const plan = await startFreshPlan(tx, session, targetTurnId);
+  if ("refused" in plan) return plan.refused;
+  // Read before the reruns: the unknown turns ran, and their context goes too.
   const { lastRanTurn } = await contextCoverage(tx, session);
+  for (const sequence of plan.rerun) {
+    await rerunUnknownTurn(tx, session.id, sequence, reason, now);
+  }
+  const gaveUp = Math.max(
+    lastRanTurn ?? session.contextResetTurnSequence ?? 0,
+    ...plan.rerun,
+  );
   const reset: ContextReset = {
-    turnSequence: lastRanTurn ?? session.contextResetTurnSequence,
+    turnSequence: gaveUp === 0 ? null : gaveUp,
     retiredCheckpointRevision:
       session.checkpointRevision ?? session.contextResetCheckpointRevision,
     clearedPendingReason: session.checkpointPendingReason,

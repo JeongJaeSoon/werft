@@ -55,6 +55,7 @@ let calls: Call[];
 let role: WorkspaceRole;
 let answerError: Error | null;
 let continueError: Error | null;
+let startFreshError: Error | null;
 let outcome: Awaited<ReturnType<SlackInteractionDeps["pending"]["outcome"]>>;
 let listed: unknown[];
 let pushState: "requested" | "approved" | "rejected" | null;
@@ -79,6 +80,7 @@ beforeEach(() => {
   role = "owner";
   answerError = null;
   continueError = null;
+  startFreshError = null;
   viewUpdateError = null;
   channelLeft = false;
   outcome = { state: "open", kind: "permission" };
@@ -315,6 +317,11 @@ function deps(): SlackInteractionDeps {
       continueTurn: (async (...args: unknown[]) => {
         calls.push({ method: "continue", args });
         if (continueError !== null) throw continueError;
+        return undefined;
+      }) as never,
+      startFreshTurn: (async (...args: unknown[]) => {
+        calls.push({ method: "start_fresh", args });
+        if (startFreshError !== null) throw startFreshError;
         return undefined;
       }) as never,
       queuePushFollowUp: record("append") as never,
@@ -734,6 +741,7 @@ describe("Slack interactions", () => {
       ...base,
       sessions: {
         continueTurn: record("continue") as never,
+        startFreshTurn: record("start_fresh") as never,
         queuePushFollowUp: (async (...args: unknown[]) => {
           calls.push({ method: "append", args });
           if (fails-- > 0) throw new Error("queue unavailable");
@@ -1539,6 +1547,7 @@ describe("Slack interactions", () => {
       ...base,
       sessions: {
         continueTurn: record("continue") as never,
+        startFreshTurn: record("start_fresh") as never,
         queuePushFollowUp: (async () => {
           throw new Error("queue unavailable");
         }) as never,
@@ -1688,6 +1697,87 @@ describe("the continue button on the notice of a turn its worker's lost lease en
   test("a turn the session will not go on from leaves the notice as it is and tells the presser", async () => {
     continueError = new SessionServiceError("NOT_FOUND", "Resource not found");
     const outcome = await send(pressContinue("3"));
+    expect((outcome as { result: string }).result).toBe("failed");
+    expect(called("update")).toEqual([]);
+    expect(called("ephemeral")).toHaveLength(1);
+  });
+});
+
+describe("the start-fresh button on the notice of a turn of unknown outcome with no save point", () => {
+  const pressStartFresh = (turn: string, user = LINKED) =>
+    press(
+      SLACK_INTERACTION_ACTIONS.turnStartFresh,
+      { s: SESSION, r: turn },
+      user,
+    );
+
+  test("a press decides start_fresh on the turn as the presser and takes the button away", async () => {
+    const outcome = await send(pressStartFresh("1"));
+    expect(outcome).toEqual({
+      kind: "ok",
+      body: { ok: true },
+      result: "started_fresh",
+    });
+    const [started] = called("start_fresh");
+    expect(started?.args.slice(1)).toEqual([SESSION, { turnId: 1 }]);
+    expect(
+      (started?.args[0] as { actor: { userId: string } }).actor.userId,
+    ).toBe(USER);
+    expect(called("continue")).toEqual([]);
+    const [update] = called("update");
+    const drawn = update?.args[1] as {
+      channelId: string;
+      ts: string;
+      blocks: unknown[];
+    };
+    expect({ channelId: drawn.channelId, ts: drawn.ts }).toEqual({
+      channelId: CHANNEL,
+      ts: CARD_TS,
+    });
+    const shown = JSON.stringify(drawn.blocks);
+    expect(shown).not.toContain(SLACK_INTERACTION_ACTIONS.turnStartFresh);
+    expect(shown).toContain("Running the same request again in a new context");
+  });
+
+  test("pressed again, the same turn is asked for again and the store decides it once", async () => {
+    await send(pressStartFresh("1"));
+    await send(pressStartFresh("1"));
+    expect(called("start_fresh").map((call) => call.args.slice(1))).toEqual([
+      [SESSION, { turnId: 1 }],
+      [SESSION, { turnId: 1 }],
+    ]);
+  });
+
+  test("a person who may not send to the session decides nothing and the notice stays", async () => {
+    const outcome = await send(pressStartFresh("1", "U0STRANGER"));
+    expect((outcome as { result: string }).result).toStartWith("refused:");
+    expect(called("start_fresh")).toEqual([]);
+    expect(called("update")).toEqual([]);
+  });
+
+  test("a value that names no turn is ignored", async () => {
+    const outcome = await send(pressStartFresh("toolu_1"));
+    expect((outcome as { result: string }).result).toBe("ignored");
+    expect(called("start_fresh")).toEqual([]);
+  });
+
+  test("a session that moved on another way runs nothing and tells nobody", async () => {
+    startFreshError = new SessionServiceError(
+      "REQUEST_STALE",
+      "Session is active with nothing to recover",
+    );
+    const outcome = await send(pressStartFresh("1"));
+    expect((outcome as { result: string }).result).toBe("stale");
+    expect(called("update")).toEqual([]);
+    expect(called("ephemeral")).toEqual([]);
+  });
+
+  test("a decision that fails leaves the notice as it is and tells the presser", async () => {
+    startFreshError = new SessionServiceError(
+      "RECOVERY_REQUIRED",
+      "The previous execution has not been confirmed gone",
+    );
+    const outcome = await send(pressStartFresh("1"));
     expect((outcome as { result: string }).result).toBe("failed");
     expect(called("update")).toEqual([]);
     expect(called("ephemeral")).toHaveLength(1);

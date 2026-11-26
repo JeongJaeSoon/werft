@@ -132,6 +132,7 @@ curl -X POST "$API/v1/sessions/$SESSION/recovery-decisions" \
 - `abandon`: closes the turn as `cancelled`.
 - `confirm_completed`: accepted only with a committed checkpoint covering the turn (`evidence_ref` required). `interrupt_checkpoint_unavailable` usually lacks one and returns 409 `CHECKPOINT_UNAVAILABLE`.
 - `close`: ends the session irreversibly.
+- `start_fresh`: on a session with no committed checkpoint (for example one whose worker died during the first turn), the turn of unknown outcome does not have to be settled first. That turn closes as `cancelled` (`terminal_reason` `operator_start_fresh`), and a new turn with the same input goes behind any input already waiting and runs in an empty context. The Slack thread and the workspace stay. What the turn did before it was cut off is not undone, so check it. The [Continue in a new context] button in the Slack thread makes the same decision; anyone who may write to the session can press it (on a private channel, current members only), and however often it is pressed there is one decision. `start_fresh_available` in the session detail says whether it is taken now.
 
 4. After `abandon`/`confirm_completed`, the session is `stopped`. Resume if receipt `result.resumable` is `true`. If `false`, no checkpoint exists to resume, or a turn ran after the last checkpoint and its context cannot be continued (session attention `CONTEXT_GAP`). Choose `start_fresh` without that context or `close`.
 

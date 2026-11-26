@@ -21,6 +21,7 @@ import {
 import {
   slackOwnershipLostNotice,
   slackPromptMessage,
+  slackStartFreshNotice,
 } from "./slack-prompts.ts";
 
 /** Enqueues the instructions sent from the web or the API, once each. */
@@ -265,8 +266,13 @@ export async function enqueueSlackTurnAnswers(deps: {
     const ownershipLost =
       turn.state === "failed" &&
       turn.terminalReason === WORKER_OWNERSHIP_LOST_REASON;
+    // A turn of unknown outcome with no save point before it offers to run
+    // it again in a new context.
+    const startFresh = !ownershipLost && turn.startFreshOffered === true;
     const refusal =
-      turn.state === "completed" || ownershipLost ? null : turn.budgetRefusal;
+      turn.state === "completed" || ownershipLost || startFresh
+        ? null
+        : turn.budgetRefusal;
     // A budget account's later refusal goes to the person who asked alone;
     // the first, and every one in a direct message, to the thread.
     const alone =
@@ -277,21 +283,29 @@ export async function enqueueSlackTurnAnswers(deps: {
         ? turn.requesterSlackUserId
         : null;
     // A turn its worker's lost lease ended says so in place of "try again",
-    // with the button that goes on from it; nothing runs it again by itself.
-    const lost = ownershipLost
+    // with the button that goes on from it, and so does one start_fresh can
+    // run again; nothing runs either again by itself.
+    const card = ownershipLost
       ? slackOwnershipLostNotice({
           locale,
           sessionId: turn.sessionId,
           turnId: turn.turnId,
           ...(link_url === undefined ? {} : { linkUrl: link_url }),
         })
-      : null;
+      : startFresh
+        ? slackStartFreshNotice({
+            locale,
+            sessionId: turn.sessionId,
+            turnId: turn.turnId,
+            ...(link_url === undefined ? {} : { linkUrl: link_url }),
+          })
+        : null;
     const text =
       turn.state === "completed"
         ? finalReplyText(turn.events) ||
           SLACK_OUTBOX_MESSAGES[locale].emptyReply
-        : lost !== null
-          ? lost.text
+        : card !== null
+          ? card.text
           : refusal != null
             ? SLACK_NOTICE_MESSAGES[locale][
                 refusal.owner === "user"
@@ -325,7 +339,7 @@ export async function enqueueSlackTurnAnswers(deps: {
         text,
         locale,
         ...(link_url === undefined ? {} : { link_url }),
-        ...(lost === null ? {} : { blocks: lost.blocks }),
+        ...(card === null ? {} : { blocks: card.blocks }),
         ...(turn.requesterSlackUserId === null || alone !== null
           ? {}
           : { mention_user_ids: [turn.requesterSlackUserId] }),

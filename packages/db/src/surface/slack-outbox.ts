@@ -1354,6 +1354,8 @@ export function createPostgresSlackOutboxStore(
           status: turns.status,
           terminalReason: turns.terminalReason,
           sessionPaused: sql<boolean>`${sessions.admissionState} = 'paused'`,
+          // noCommittedCheckpoint in recovery-control.ts, spelled in SQL.
+          startFreshOffered: sql<boolean>`COALESCE(${turns.status} = 'outcome_unknown' AND (${sessions.checkpointRevision} IS NULL OR ${sessions.checkpointRevision} <= ${sessions.contextResetCheckpointRevision}), false)`,
           attemptId: turns.attemptId,
           requesterSlackUserId: linkedAccounts.externalUserId,
           locale: starterLocale,
