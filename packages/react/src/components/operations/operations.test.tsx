@@ -21,6 +21,7 @@ const { UsageFilters } = await import("./usage-filters.tsx");
 const { UsageKpis } = await import("./usage-kpis.tsx");
 const { UsageCostTable } = await import("./usage-cost-table.tsx");
 const { UsageInitiatorSplit } = await import("./usage-initiator-split.tsx");
+const { UsageOutcomes } = await import("./usage-outcomes.tsx");
 const { UsageDailyCost } = await import("./usage-daily-cost.tsx");
 const { UsageBasis } = await import("./usage-basis.tsx");
 const { OPERATIONS_MESSAGES } = await import("./messages.ts");
@@ -1296,6 +1297,80 @@ describe("UsageCostTable", () => {
     // Without people the parts stand alone.
     const bare = withPlatform(<UsageInitiatorSplit totals={totals} />);
     expect(bare.getAllByRole("row")).toHaveLength(3);
+  });
+
+  test("성과당 비용: 병합된 PR 수와 하나당 비용은 API 값 그대로, 병합된 PR이 없으면 빈 상태다", () => {
+    const outcomes = {
+      scope: "installation" as const,
+      period: {
+        since: "2026-09-25T00:00:00.000Z",
+        until: "2026-10-25T00:00:00.000Z",
+      },
+      refreshed_at: "2026-10-24T12:40:00.000Z",
+      session_count: 12,
+      cost_usd: "10.000000",
+      cost_complete: true,
+      token_count: 1000,
+      sessions_with_pr: 4,
+      sessions_with_merged_pr: 3,
+      pr_count: 5,
+      merged_pr_count: 3,
+      closed_pr_count: 1,
+      cost_of_merged_sessions_usd: "6.000000",
+      // Not cost_usd / merged_pr_count: the screen shows the API's figure.
+      cost_per_merged_pr_usd: "2.500000",
+    };
+    const rows = (view: ReturnType<typeof withPlatform>) =>
+      view
+        .getAllByRole("row")
+        .map((r) =>
+          [...r.querySelectorAll("[role=cell],[role=columnheader]")].map(
+            (c) => c.textContent,
+          ),
+        );
+    const view = withPlatform(<UsageOutcomes data={outcomes} />);
+    expect(view.getByRole("table", { name: "성과당 비용" })).toBeTruthy();
+    expect(rows(view)).toEqual([
+      ["성과", "수", "하나당 비용"],
+      ["병합된 PR", "3", "$2.50"],
+    ]);
+    expect(
+      view.getByText("나눈 비용은 작업 세션 12개의 $10.00입니다."),
+    ).toBeTruthy();
+    view.unmount();
+    // A session whose cost is not reported yet makes the figure a floor.
+    const partial = withPlatform(
+      <UsageOutcomes data={{ ...outcomes, cost_complete: false }} />,
+    );
+    expect(
+      partial.getByText(
+        "나눈 비용은 작업 세션 12개의 $10.00입니다. 보고 안 된 비용이 있어 실제 비용은 더 많을 수 있습니다.",
+      ),
+    ).toBeTruthy();
+    partial.unmount();
+    const none = withPlatform(
+      <UsageOutcomes
+        data={{ ...outcomes, merged_pr_count: 0, cost_per_merged_pr_usd: null }}
+      />,
+    );
+    expect(
+      none.getByText("이 기간에 시작한 세션이 병합한 PR이 없습니다."),
+    ).toBeTruthy();
+    expect(none.queryByRole("table")).toBeNull();
+    none.unmount();
+    const loading = withPlatform(<UsageOutcomes data={undefined} />);
+    expect(
+      loading
+        .getByRole("table", { name: "성과당 비용" })
+        .getAttribute("aria-busy"),
+    ).toBe("true");
+    expect(
+      loading.queryByText("이 기간에 시작한 세션이 병합한 PR이 없습니다."),
+    ).toBeNull();
+    loading.unmount();
+    const en = withPlatform(<UsageOutcomes data={outcomes} />, "en");
+    expect(rows(en)[1]).toEqual(["Merged PRs", "3", "$2.50"]);
+    en.unmount();
   });
 
   test("빈 rows는 빈 상태, undefined는 자리 행을 placeholderRows만큼 둔다", () => {

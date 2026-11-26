@@ -161,7 +161,10 @@ describe("scope matrix: every scoped route", () => {
     expect(calls).toEqual([]);
   });
 
-  test("sessions:recover is its own scope: every other scope together is not enough", async () => {
+  test("a recovery decision passes the edge without sessions:recover: the service judges it by the decision", async () => {
+    expect(
+      requiredScope("POST", `/v1/sessions/${SESSION}/recovery-decisions`),
+    ).toBeNull();
     const calls: string[] = [];
     const { app, token } = appWithKey(
       SESSION_SCOPE_VALUES.filter((scope) => scope !== "sessions:recover"),
@@ -176,11 +179,17 @@ describe("scope matrix: every scoped route", () => {
           "Content-Type": "application/json",
           "Idempotency-Key": "k-1",
         },
-        body: JSON.stringify({ decision: "abandon", expected_revision: 1 }),
+        body: JSON.stringify({
+          decision: "confirm_completed",
+          expected_revision: 1,
+          target_turn_id: "1",
+          evidence_ref: "log",
+          reason: "checked",
+        }),
       },
     );
-    expect(response.status).toBe(403);
-    expect(calls).toEqual([]);
+    expect(response.status).not.toBe(403);
+    expect(calls).toEqual(["decideRecovery"]);
   });
 });
 

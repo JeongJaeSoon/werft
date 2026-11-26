@@ -13,6 +13,7 @@ const ACTIONS: Record<string, string> = {
   "push-reject": "push.reject",
   // On the notice of a turn its worker's lost lease ended.
   continue: "turn.continue",
+  "start-fresh": "turn.start_fresh",
 };
 
 type Message = {

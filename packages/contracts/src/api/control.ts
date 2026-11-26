@@ -49,9 +49,15 @@ export const recoveryDecisionRequestSchema = z.discriminatedUnion("decision", [
   z.object({ ...recoveryDecisionBase, decision: z.literal("close") }).strict(),
   // Continue a session whose context cannot be restored on a new
   // engine session that does not remember the turns before it. Nothing is
-  // restored, the checkpoints so far are retired, and queued input runs.
+  // restored, the checkpoints so far are retired, and queued input runs. On
+  // a session with no committed checkpoint, a turn whose outcome is unknown
+  // runs again as a new turn; target_turn_id, when sent, must name it.
   z
-    .object({ ...recoveryDecisionBase, decision: z.literal("start_fresh") })
+    .object({
+      ...recoveryDecisionBase,
+      decision: z.literal("start_fresh"),
+      target_turn_id: turnIdSchema.optional(),
+    })
     .strict(),
   // Restore the same checkpoint again on a session its failed restores
   // stopped, once what made them fail is fixed. The

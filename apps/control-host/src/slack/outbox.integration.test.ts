@@ -798,8 +798,9 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     // An operator's confirm_completed.
     await endTurn(sessionId, 1, "completed", [[text("answer 1")]]);
     expect(await outboxPass()).toMatchObject({ sent: 1 });
+    // No checkpoint yet, so the unknown turn's notice offers start_fresh.
     expect(posted().map((message) => message.text.split("\n")[0])).toEqual([
-      SLACK_NOTICE_MESSAGES.ko.failed,
+      SLACK_NOTICE_MESSAGES.ko.startFresh,
       "answer 1",
     ]);
   });

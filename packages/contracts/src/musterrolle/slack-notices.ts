@@ -28,6 +28,11 @@ const SLACK_NOTICE_MESSAGES_KO = {
     "작업이 중간에 끊겼어요. 서버 연결이 잠시 끊겼어요. 마지막 저장 지점 뒤에 한 일은 확인이 필요해요.",
   ownershipLostContinue: "이어서 하기",
   ownershipLostContinued: "마지막 저장 지점에서 이어서 하고 있어요",
+  startFresh: "작업이 중간에 끊겼어요. 이 대화에는 아직 저장 지점이 없어요.",
+  startFreshWarning:
+    "이전 대화 문맥 없이 같은 요청을 처음부터 다시 해요. 끊기기 전에 한 일은 확인이 필요해요.",
+  startFreshContinue: "새 문맥으로 계속",
+  startFreshContinued: "새 문맥에서 같은 요청을 다시 하고 있어요",
   repositoryRequired:
     "이 에이전트의 릴리스에 쓸 수 있는 저장소가 없거나(저장소를 고르지 않았거나, 카탈로그에서 빠졌거나, 워크스페이스 상한이 허용하지 않아요) 에이전트의 GitHub 설정을 읽을 수 없어 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 GitHub 설정을 확인하고, 저장소가 필요하면 골라 새 릴리스를 만들고 활성화해야 해요",
   releaseUnavailable:
@@ -110,6 +115,12 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "作業が途中で途切れました。サーバーとの接続が一時的に切れました。最後の保存地点より後に行ったことは確認が必要です。",
     ownershipLostContinue: "続きから進める",
     ownershipLostContinued: "最後の保存地点から続けています",
+    startFresh:
+      "作業が途中で途切れました。この会話にはまだ保存地点がありません。",
+    startFreshWarning:
+      "前の会話の文脈なしで、同じ依頼を最初からやり直します。途切れる前に行ったことは確認が必要です。",
+    startFreshContinue: "新しい文脈で続ける",
+    startFreshContinued: "新しい文脈で同じ依頼をやり直しています",
     repositoryRequired:
       "このエージェントのリリースで使えるリポジトリがないか(リポジトリが選ばれていない、カタログから外れている、またはワークスペースの上限が許可していません)、エージェントのGitHub設定を読み取れないため、開始できませんでした。エージェントの管理者がWebコンソールでGitHub設定を確認し、リポジトリが必要なら選んで、新しいリリースを作成して有効化する必要があります",
     releaseUnavailable:
@@ -177,6 +188,12 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "The work was cut off partway. The connection to the server dropped for a moment. What it did after the last save point needs checking.",
     ownershipLostContinue: "Continue",
     ownershipLostContinued: "Continuing from the last save point",
+    startFresh:
+      "The work was cut off partway. This conversation has no save point yet.",
+    startFreshWarning:
+      "The same request runs again from the start, without the earlier conversation's context. What it did before it was cut off needs checking.",
+    startFreshContinue: "Continue in a new context",
+    startFreshContinued: "Running the same request again in a new context",
     repositoryRequired:
       "The agent couldn't start because its release has no repository it can use (none was chosen, it was removed from the catalog, or the workspace ceiling does not allow it) or its GitHub settings can't be read. An agent admin needs to check the GitHub settings in the web console and, if a repository is needed, choose one, then create and activate a new release",
     releaseUnavailable:

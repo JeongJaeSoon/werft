@@ -47,6 +47,23 @@ export async function requirePermitted(
   await requireAllowed(authorization, caller, action, resource, justification);
 }
 
+/**
+ * Whether the policy would allow the action, recording nothing: for a
+ * service choosing which of two actions to require. A store it could not
+ * read is passed on as for requirePermitted.
+ */
+export async function wouldAllow(
+  authorization: AuthorizationPolicy,
+  caller: Caller,
+  action: AuthorizationAction,
+  resource: Omit<AuthorizationResource, "owner_scope">,
+): Promise<boolean> {
+  const decision = await authorization
+    .authorize(requestOf(caller, action, resource), { record: false })
+    .catch(refusedUnlessUndecided);
+  return decision?.outcome === "allow";
+}
+
 /** requirePermitted, for a caller that records which decision allowed it. */
 export async function requireAllowed(
   authorization: AuthorizationPolicy,

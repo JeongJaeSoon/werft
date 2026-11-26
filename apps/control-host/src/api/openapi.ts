@@ -866,7 +866,7 @@ export const OPENAPI_TAGS = [
   {
     name: "Recovery",
     description:
-      "Resolve sessions that require an operator recovery decision. The requester's own decision also takes an API key with `sessions:recover`.",
+      "Resolve sessions that require a recovery decision. Whoever may write to a session also gives up its unknown turn (`abandon`) or its lost context (`start_fresh`); the other decisions are an operator's and take `sessions:recover`, from a cookie session or an API key.",
   },
   {
     name: "Admin",
@@ -5595,8 +5595,11 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "Operator decision for an unknown outcome or a context no checkpoint covers",
     description:
-      "Records an operator's decision where the platform will not guess: a turn whose outcome is unknown, or context no checkpoint covers. Nothing the execution did outside is reverted.\n\n- `abandon`: the `outcome_unknown` turn `target_turn_id` becomes `cancelled` and its input receipt fails; the session is `stopped`.\n- `confirm_completed`: with `evidence_ref`, the turn becomes `completed` and its input receipt succeeds; it needs a committed checkpoint that reaches the turn. The session is `stopped`.\n- `close`: ends the session for good.\n- `start_fresh`: continues on a new engine session that does not remember the turns before; the checkpoints so far are retired and queued input runs.\n- `retry_restore`: restores the same checkpoint again after what made the restores fail is fixed; queued input runs.\n\nThe decision takes effect in the request: the receipt is `succeeded` in the response, with result `{resulting_admission_state, checkpoint_revision, resumable}`. After `abandon` or `confirm_completed`, resume the session; `resumable: false` means a resume would answer `CHECKPOINT_UNAVAILABLE`. The decision is also recorded as a `system` event on the stream.",
+      "Records an operator's decision where the platform will not guess: a turn whose outcome is unknown, or context no checkpoint covers. Nothing the execution did outside is reverted.\n\n- `abandon`: the `outcome_unknown` turn `target_turn_id` becomes `cancelled` and its input receipt fails; the session is `stopped`.\n- `confirm_completed`: with `evidence_ref`, the turn becomes `completed` and its input receipt succeeds; it needs a committed checkpoint that reaches the turn. The session is `stopped`.\n- `close`: ends the session for good.\n- `start_fresh`: continues on a new engine session that does not remember the turns before; the checkpoints so far are retired and queued input runs. On a session with no committed checkpoint (a worker that died during the first turn, say), a turn whose outcome is unknown does not have to be settled first: it ends `cancelled` with `terminal_reason` `operator_start_fresh`, its input receipt fails with `CONTROL_SUPERSEDED`, and a new turn with the same input is queued behind any input already waiting. `target_turn_id`, when sent, must name that turn. `start_fresh_available` on `GET /v1/sessions/{id}` says whether this decision would be taken now.\n- `retry_restore`: restores the same checkpoint again after what made the restores fail is fixed; queued input runs.\n\nThe decision takes effect in the request: the receipt is `succeeded` in the response, with result `{resulting_admission_state, checkpoint_revision, resumable}`. After `abandon` or `confirm_completed`, resume the session; `resumable: false` means a resume would answer `CHECKPOINT_UNAVAILABLE`. The decision is also recorded as a `system` event on the stream.\n\n`abandon` and `start_fresh` are also open to whoever may write to the session: `sessions:write` on a session the credential sees, and for a private channel's session only while its person is a member of the channel. `confirm_completed`, `close` and `retry_restore` need `sessions:recover`.",
     scope: "recover",
+    // abandon and start_fresh also take sessions:write, which only the body
+    // says: the policy judges the scope there.
+    scopeCheckedBy: "service",
     body: "RecoveryDecisionRequest",
     requestExample: {
       decision: "abandon",
@@ -5616,12 +5619,12 @@ export const API_ROUTE_DECLARATIONS = [
       SOURCE_DELETED:
         "`start_fresh` or `retry_restore` on a session stopped because a source of one of its turns was deleted in Slack; `close` is the decision left.",
       FORBIDDEN:
-        "Also when an operator revoked the session's execution authority.",
+        "The credential holds neither `sessions:recover` nor, for `abandon` and `start_fresh`, `sessions:write`. Also when an operator revoked the session's execution authority.",
       NOT_FOUND: "Also when `target_turn_id` names no turn of the session.",
       REQUEST_STALE:
-        "The decision does not apply to the session now: `close` or `start_fresh` on a session not awaiting recovery, `confirm_completed` or `abandon` on a turn whose outcome is not unknown, or `retry_restore` on a session a failed restore did not stop.",
+        "The decision does not apply to the session now: `close` or `start_fresh` on a session not awaiting recovery, `confirm_completed`, `abandon` or `start_fresh` with a `target_turn_id` naming a turn whose outcome is not unknown, or `retry_restore` on a session a failed restore did not stop.",
       RECOVERY_REQUIRED:
-        "The execution is not yet confirmed gone, or `start_fresh` while a turn's outcome is still unknown.",
+        "The execution is not yet confirmed gone, or `start_fresh` while a turn's outcome is still unknown on a session with a committed checkpoint.",
       CHECKPOINT_UNAVAILABLE:
         "`confirm_completed` with no committed checkpoint that reaches the target turn.",
       SESSION_PAUSED: `${RESERVED_HERE} A decision that does not apply to the session answers \`REQUEST_STALE\`.`,
@@ -9827,6 +9830,7 @@ function takesIdempotencyKey(route: RouteDeclaration): boolean {
 function errorContext(route: RouteDeclaration): ErrorContext {
   return {
     scope: scopeOf(route),
+    scopeCheckedBy: route.scopeCheckedBy ?? "api",
     auth: route.auth ?? "any",
     csrf:
       route.csrf === "always"
