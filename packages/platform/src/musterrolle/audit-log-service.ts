@@ -1,7 +1,10 @@
-import type {
-  AuthorizationRequest,
-  ListAuditEventsQuery,
-  ListAuditEventsResponse,
+import {
+  AUDIT_COUNT_CAP,
+  type AuthorizationRequest,
+  type CountAuditEventsQuery,
+  type CountAuditEventsResponse,
+  type ListAuditEventsQuery,
+  type ListAuditEventsResponse,
 } from "@werft-ai/contracts";
 import type { AuthorizationPolicy, Caller } from "./policy.ts";
 import type {
@@ -29,7 +32,16 @@ export interface AuditLogService {
     query: ListAuditEventsQuery,
   ): Promise<ListAuditEventsResponse>;
   startExport(caller: Caller, filter: AuditLogFilter): Promise<AuditExport>;
+  count(
+    caller: Caller,
+    query: CountAuditEventsQuery,
+  ): Promise<CountAuditEventsResponse>;
 }
+
+const capped = (rows: number) => ({
+  count: Math.min(rows, AUDIT_COUNT_CAP),
+  more: rows > AUDIT_COUNT_CAP,
+});
 
 export function createAuditLogService(deps: {
   authorization: AuthorizationPolicy;
@@ -54,6 +66,24 @@ export function createAuditLogService(deps: {
         limit,
       );
       return page;
+    },
+
+    async count(caller, query) {
+      // Recorded like a list read: a count tells as much about the log.
+      await requireReader(caller);
+      // One past the cap tells "more" from exactly the cap.
+      const rows = await reader.count(
+        caller.ownerId,
+        query,
+        AUDIT_COUNT_CAP + 1,
+      );
+      return {
+        counts: {
+          decision: capped(rows.decision),
+          receipt: capped(rows.receipt),
+        },
+        total: capped(rows.decision + rows.receipt),
+      };
     },
 
     async startExport(caller, filter) {
