@@ -255,12 +255,19 @@ export type CheckpointServiceDependencies = {
    * untrusted: without them a claimed worker makes a finalize hold an
    * arbitrarily large object in memory, or fan out one HEAD and GET per
    * reference it cares to list. The size is checked with a HEAD before the
-   * body is fetched and again on the bytes that arrived.
+   * body is fetched and again on the bytes that arrived; `protectedCommits`,
+   * which holds nothing, skips the HEAD and stops its read past the limit.
    */
   maxManifestBytes?: number;
   maxManifestObjects?: number;
   /** `TRANSCRIPT_LIMITS` unless a test sets smaller ones. */
   transcriptLimits?: TranscriptLimits;
+  /**
+   * After a `protectedCommits` call took versions on the held pointer's
+   * word instead of a HEAD: how many, and which pointer vouched. A restore
+   * that later finds one of them damaged is traced back through this.
+   */
+  onProtectedCommits?: (event: ProtectedCommitsTrust) => void;
   /**
    * How many committed revisions below the pointer a restore may try when
    * the pointer's own checkpoint does not verify. Each one tried is read and
@@ -320,6 +327,16 @@ export type CheckpointServiceDependencies = {
 };
 
 export type ObjectProtection = "locked" | "unversioned";
+
+export type ProtectedCommitsTrust = {
+  /** Distinct versions the call did not HEAD. */
+  heldSkipped: number;
+  judgedRevisions: number;
+  pointerRevision: number | null;
+  sessionId: string;
+  /** The committed pointer whose `versionsHeld` record they stood on. */
+  vouchingRevision: number | null;
+};
 
 export const DEFAULT_MAX_CONCURRENT_BUNDLE_VERIFICATIONS = 2;
 export const DEFAULT_MAX_RESTORE_FALLBACKS = 3;
@@ -393,6 +410,18 @@ type SharedReads = {
     key: string,
     version: string | undefined,
   ): Promise<ObjectHead | undefined>;
+  /**
+   * The call's one read of a manifest version, stopped past `limit` bytes:
+   * a revision judged and the pointer `verifiedRefs` reads are often the
+   * same, and the read itself says what a HEAD would about its size.
+   */
+  manifest(
+    key: string,
+    version: string | undefined,
+    limit: number,
+  ): Promise<Uint8Array | "over" | undefined>;
+  /** Every version the call took on the held pointer's word, without a HEAD. */
+  heldSkipped: Set<string>;
 };
 
 type SharedBundle =
@@ -574,13 +603,35 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       status: "rejected",
       reason: `manifest is ${bytes} bytes, over the ${maxManifestBytes}-byte limit`,
     });
-    const size = await objects.head(checkpoint.manifest_ref, version);
-    if (size === undefined) return missing;
-    if (size.bytes > maxManifestBytes) return tooLarge(size.bytes);
-    const bytes = await objects.get(checkpoint.manifest_ref, version);
-    if (bytes === undefined) return missing;
-    // Replaced between the two reads: judge what actually arrived.
-    if (bytes.byteLength > maxManifestBytes) return tooLarge(bytes.byteLength);
+    let size: ObjectHead | undefined;
+    let bytes: Uint8Array | undefined;
+    if (input.shared !== undefined && input.pinned === undefined) {
+      // Nothing to hold, so the size is all a HEAD would say, and the
+      // bounded read says it without the round trip.
+      const read = await input.shared.manifest(
+        checkpoint.manifest_ref,
+        version,
+        maxManifestBytes,
+      );
+      if (read === undefined) return missing;
+      if (read === "over") {
+        return {
+          status: "rejected",
+          reason: `manifest delivered more than the ${maxManifestBytes}-byte limit`,
+        };
+      }
+      bytes = read;
+    } else {
+      size = await objects.head(checkpoint.manifest_ref, version);
+      if (size === undefined) return missing;
+      if (size.bytes > maxManifestBytes) return tooLarge(size.bytes);
+      bytes = await objects.get(checkpoint.manifest_ref, version);
+      if (bytes === undefined) return missing;
+      // Replaced between the two reads: judge what actually arrived.
+      if (bytes.byteLength > maxManifestBytes) {
+        return tooLarge(bytes.byteLength);
+      }
+    }
     const digest = sha256(bytes);
     if (digest !== checkpoint.manifest_sha256) {
       return damaged(`manifest digest mismatch: stored ${digest}`);
@@ -635,7 +686,7 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         ? rejected(bad.reason)
         : { limit: bad.limit, reason: bad.reason, status: "rejected" };
     }
-    if (version !== undefined) {
+    if (version !== undefined && size !== undefined) {
       input.pinned?.note(checkpoint.manifest_ref, version, size);
     }
     return { status: "verified", manifest };
@@ -818,7 +869,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     const problems = await inBatches(refs, 32, async (ref) => {
       const token = refToken(ref);
       const known = token !== undefined && verified.objects.has(token);
-      if (known && held) return undefined;
+      if (known && held) {
+        shared?.heldSkipped.add(token);
+        return undefined;
+      }
       const head = await (shared?.head(ref.key, ref.version) ??
         objects.head(ref.key, ref.version));
       if (head === undefined) {
@@ -1277,6 +1331,10 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
       JSON.stringify([key, version ?? null]);
     const heads = new Map<string, Promise<ObjectHead | undefined>>();
     const digests = new Map<string, ReturnType<typeof digestObject>>();
+    const manifests = new Map<
+      string,
+      Promise<Uint8Array | "over" | undefined>
+    >();
     const bundleFiles = new Map<string, Promise<SharedBundle>>();
     let spool: Promise<string> | undefined;
     // Files stay until the call ends, so they are held to one bundle
@@ -1284,12 +1342,22 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
     // way a call of its own reads it, into a spool removed after its chain.
     let spooledBytes = 0;
     const shared: SharedReads = {
+      heldSkipped: new Set(),
       head(key, version) {
         const at = id(key, version);
         let read = heads.get(at);
         if (read === undefined) {
           read = objects.head(key, version);
           heads.set(at, read);
+        }
+        return read;
+      },
+      manifest(key, version, limit) {
+        const at = JSON.stringify([key, version ?? null, limit]);
+        let read = manifests.get(at);
+        if (read === undefined) {
+          read = readBounded(objects, key, version, limit);
+          manifests.set(at, read);
         }
         return read;
       },
@@ -1674,11 +1742,15 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
    */
   async function committedManifest(
     checkpoint: CheckpointPointer,
+    shared?: SharedReads,
   ): Promise<CheckpointManifest | undefined> {
-    const bytes = await objects.get(
-      checkpoint.manifestRef,
-      pinnedVersion(checkpoint.manifestVersion),
-    );
+    const version = pinnedVersion(checkpoint.manifestVersion);
+    // Shared: the read the call's judgement of the same revision makes. A
+    // manifest over the limit vouches for nothing, which only costs a re-hash.
+    const read = await (shared === undefined
+      ? objects.get(checkpoint.manifestRef, version)
+      : shared.manifest(checkpoint.manifestRef, version, maxManifestBytes));
+    const bytes = read === "over" ? undefined : read;
     if (bytes === undefined || sha256(bytes) !== checkpoint.manifestSha256) {
       return undefined;
     }
@@ -1914,29 +1986,58 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         belowRevision: input.pointer.revision,
         limit: MAX_PROTECTED_COMMITS - 1,
       });
-      const verified = await verifiedRefs(input.sessionId);
       const checkpoints = [input.pointer, ...earlier];
       const remembered = await rememberedVerdicts(input.sessionId, checkpoints);
       // Each checkpoint judged in full, a few at once, and every object read
       // once per call however many of them name it. Only git's verdict on
       // bundles that have not changed since it passed is taken from an
       // earlier call (`badWorkspaceBundle`).
-      const judged = await withSharedReads((shared) =>
-        inBatches(checkpoints, PROTECTED_JUDGE_CONCURRENCY, (pointer) =>
-          judgeManifest({
-            checkpoint: checkpointRefOf(pointer),
-            ...(remembered === undefined
-              ? {}
-              : { remembered: remembered(pointer) }),
-            sessionId: input.sessionId,
-            shared,
-            verified,
-          }).then(
-            (verdict) => ({ verdict }),
-            (error: unknown) => ({ error }),
-          ),
-        ),
-      );
+      const judged = await withSharedReads(async (shared) => {
+        const reads = committedReads(input.sessionId);
+        const verified = await verifiedRefs(input.sessionId, undefined, {
+          pointer: reads.pointer,
+          manifest: (checkpoint) => committedManifest(checkpoint, shared),
+        });
+        const outcomes = await inBatches(
+          checkpoints,
+          PROTECTED_JUDGE_CONCURRENCY,
+          (pointer) =>
+            judgeManifest({
+              checkpoint: checkpointRefOf(pointer),
+              // The rule finalize already follows: a version the held
+              // pointer names was hashed and held before it committed, and
+              // collection keeps what the pointer names. So it is not asked
+              // after again here. Trusting it wrongly only protects a
+              // damaged checkpoint's commit; restore still HEADs it.
+              held: protection === "locked",
+              ...(remembered === undefined
+                ? {}
+                : { remembered: remembered(pointer) }),
+              sessionId: input.sessionId,
+              shared,
+              verified,
+            }).then(
+              (verdict) => ({ verdict }),
+              (error: unknown) => ({ error }),
+            ),
+        );
+        if (shared.heldSkipped.size > 0) {
+          // The pointer that vouched: `verifiedRefs` read it through `reads`.
+          const vouching = await reads.pointer().catch(() => null);
+          try {
+            deps.onProtectedCommits?.({
+              heldSkipped: shared.heldSkipped.size,
+              judgedRevisions: checkpoints.length,
+              pointerRevision: input.pointer?.revision ?? null,
+              sessionId: input.sessionId,
+              vouchingRevision: vouching?.revision ?? null,
+            });
+          } catch {
+            // An observer that fails says nothing about the commits.
+          }
+        }
+        return outcomes;
+      });
       const commits: string[] = [];
       let current: string | undefined;
       for (const [index, pointer] of checkpoints.entries()) {
@@ -2406,6 +2507,38 @@ async function digestObject(
     await sink?.(chunk);
   }
   return { bytes, sha256: hash.digest("hex"), status: "read" };
+}
+
+/** An object's bytes, or "over" as soon as it passes `limit`. */
+async function readBounded(
+  objects: CheckpointObjectStore,
+  key: string,
+  version: string | undefined,
+  limit: number,
+): Promise<Uint8Array | "over" | undefined> {
+  const chunks = await objects.stream(key, version);
+  if (chunks === undefined) return undefined;
+  // Copied into one buffer of our own as it arrives: a store may refill the
+  // chunk it handed over, and keeping chunk after chunk would let a body
+  // split into tiny pieces cost far more than its bytes.
+  let kept = new Uint8Array(Math.min(limit, 64 * 1024));
+  let bytes = 0;
+  for await (const chunk of chunks) {
+    if (bytes + chunk.byteLength > limit) return "over";
+    if (bytes + chunk.byteLength > kept.byteLength) {
+      const grown = new Uint8Array(
+        Math.min(
+          limit,
+          Math.max(kept.byteLength * 2, bytes + chunk.byteLength),
+        ),
+      );
+      grown.set(kept.subarray(0, bytes));
+      kept = grown;
+    }
+    kept.set(chunk, bytes);
+    bytes += chunk.byteLength;
+  }
+  return kept.subarray(0, bytes);
 }
 
 /**
