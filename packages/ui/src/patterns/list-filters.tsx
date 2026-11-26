@@ -295,6 +295,15 @@ export function AppliedFilters({
   const shown = JSON.stringify(
     chips.map((chip) => [chip.facet.id, chip.facet.value]),
   );
+  // Focus the person moves while waiting stays where they put it. Watched as an
+  // event: a removed button and a person both can leave focus on the body.
+  useEffect(() => {
+    const abandon = () => {
+      pending.current = null;
+    };
+    document.addEventListener("focusin", abandon);
+    return () => document.removeEventListener("focusin", abandon);
+  }, []);
   useEffect(() => {
     const wait = pending.current;
     if (wait === null) return;
@@ -313,9 +322,6 @@ export function AppliedFilters({
       return;
     }
     pending.current = null;
-    // Focus that has moved elsewhere meanwhile stays there.
-    const held = document.activeElement;
-    if (held !== null && held !== document.body && held.isConnected) return;
     const buttons =
       list.current?.querySelectorAll<HTMLButtonElement>(
         "[data-slot=remove-button]",

@@ -332,6 +332,36 @@ describe("설정 › 감사 기록", () => {
     expect(asked).toBe(1);
   });
 
+  test("다시 읽기가 실패하면 앞 개수를 두지 않고 자리를 비운다", async () => {
+    let failing = false;
+    const one = { count: 1, more: false };
+    renderAt(PAGE, {
+      ...routes(() => page([row({})])),
+      [COUNTS]: () =>
+        failing
+          ? json(500, { error: { code: "INTERNAL", message: "failed" } })
+          : json(200, {
+              counts: { decision: one, receipt: one },
+              total: one,
+            }),
+    });
+    await table();
+    const user = await setupUser();
+    await user.click(screen.getByRole("button", { name: "필터" }));
+    const panel = await screen.findByRole("dialog", { name: "필터" });
+    const period = within(panel).getByRole("list", { name: "기간" });
+    await within(period).findByRole("button", { name: "지난 7일 1개" });
+    failing = true;
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+    await waitFor(() =>
+      expect(
+        within(period).queryByRole("button", { name: "지난 7일" }) !== null,
+      ).toBe(true),
+    );
+    focusManager.setFocused(undefined);
+  });
+
   test("1000을 넘는 개수는 1000+로 읽힌다", async () => {
     renderAt(PAGE, {
       ...routes(() => page([row({})])),

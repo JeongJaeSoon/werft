@@ -3,7 +3,7 @@ import { type JSX, useRef, useState } from "react";
 
 import { setupDom, setupUser } from "../test-support/dom.ts";
 
-const { render, waitFor, within } = await setupDom();
+const { fireEvent, render, waitFor, within } = await setupDom();
 // Radix Popover portals only when it found a DOM at import time.
 const { AppliedFilters, ListFilters } = await import("./list-filters.tsx");
 
@@ -301,6 +301,33 @@ describe("AppliedFilters", () => {
     await user.click(search);
     view.rerender(late({ kind: "decision" }));
     expect(document.activeElement === search).toBe(true);
+  });
+
+  test("옮겨 갔다가 빈 곳으로 빠진 포커스도 다시 가져오지 않는다", async () => {
+    const view = render(late({ relation: "started", kind: "decision" }));
+    const user = await setupUser();
+    await user.click(
+      view.getByRole("button", { name: "관계 필터 빼기: 내가 시작" }),
+    );
+    const search = view.getByRole("textbox", { name: "검색" });
+    await user.click(search);
+    search.blur();
+    view.rerender(late({ kind: "decision" }));
+    expect(document.activeElement === document.body).toBe(true);
+  });
+
+  test("누른 버튼이 포커스를 받지 않는 브라우저에서도 다음 칩으로 간다", () => {
+    const view = render(late({ relation: "started", kind: "decision" }));
+    view.getByRole("textbox", { name: "검색" }).focus();
+    // A click that leaves focus where it was.
+    fireEvent.click(
+      view.getByRole("button", { name: "관계 필터 빼기: 내가 시작" }),
+    );
+    view.rerender(late({ kind: "decision" }));
+    const next = view.getByRole("button", {
+      name: "종류 필터 빼기: 접근 판단",
+    });
+    expect(document.activeElement === next).toBe(true);
   });
 
   test("두 진입점에서 같은 부품을 내보낸다", async () => {

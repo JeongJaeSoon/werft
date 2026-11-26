@@ -258,8 +258,9 @@ function AuditLog() {
   const countsQuery = auditCountsQuery(client, countQueries, filtersOpen);
   const counts = useQuery(countsQuery);
   const queryClient = useQueryClient();
+  // A failed reread leaves the old numbers in the cache; they are not shown.
   const countsFor = (query: AuditQuery) =>
-    counts.data?.[
+    (counts.isError ? undefined : counts.data)?.[
       countQueries.findIndex(
         (one) => JSON.stringify(one) === JSON.stringify(query),
       )
