@@ -484,14 +484,15 @@ describe("conversation call cost on the usage reads", () => {
   test("a period takes a call made at its since and none made at its until or released", async () => {
     const bounds = {
       since: new Date("2026-08-10T00:00:00.000Z"),
-      until: new Date("2026-08-11T00:00:00.000Z"),
+      // Not a midnight: a call at until would fall in the series' own day.
+      until: new Date("2026-08-10T12:00:00.000Z"),
     };
     for (const [at, state, cost] of [
       ["2026-08-09T23:59:59.999Z", "settled", 0.001],
       ["2026-08-10T00:00:00.000Z", "settled", 0.002],
-      ["2026-08-10T12:00:00.000Z", "released", 0],
-      ["2026-08-10T23:59:59.999Z", "settled", 0.004],
-      ["2026-08-11T00:00:00.000Z", "settled", 0.008],
+      ["2026-08-10T06:00:00.000Z", "released", 0],
+      ["2026-08-10T11:59:59.999Z", "settled", 0.004],
+      ["2026-08-10T12:00:00.000Z", "settled", 0.008],
     ] as const) {
       await call({
         agent: agentA,
