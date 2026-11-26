@@ -43,6 +43,7 @@ is_k8s_path() {
       packages/platform/src/scheduler/* | packages/platform/src/testing/execution-backend-contract.ts | \
       packages/testkit/src/local-github* | packages/testkit/src/fake-messages-main.ts | \
       packages/testkit/src/fake-anthropic.ts | packages/testkit/src/scripted-messages.ts | \
+      packages/testkit/src/request-log.ts | \
       infra/localstack/* | Dockerfile* | */Dockerfile* | .dockerignore | bun.lock | \
       .github/workflows/ci.yml | .github/scripts/ci-plan.sh | \
       .github/scripts/assert-no-docker-hub-images.sh | .github/actions/*) return 0 ;;

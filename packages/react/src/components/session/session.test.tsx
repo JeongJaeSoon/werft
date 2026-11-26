@@ -326,12 +326,47 @@ const SESSION: SessionSummary = {
   current_turn_id: null,
   queued_turn_count: 2,
   turn_time_ms: 0,
+  last_turn_cut_off: false,
   last_event_at: null,
   created_at: "2026-10-21T01:00:00.000Z",
   updated_at: "2026-10-21T01:00:00.000Z",
 };
 
 describe("SessionRow", () => {
+  test("lease를 잃어 끊긴 채 쉬는 세션은 cutOff 문구와 실패 상태로, 다른 상태나 문구가 없으면 그대로 그린다", () => {
+    const cutOff = {
+      ...SESSION,
+      status: "idle",
+      last_turn_cut_off: true,
+    } as const;
+    const statusOf = (
+      session: SessionSummary,
+      messages: SessionRowMessages,
+    ) => {
+      const { container, unmount } = render(
+        <SessionRow
+          session={session}
+          renderLink={(link) => <a href="/sessions/abc" {...link} />}
+          messages={messages}
+        />,
+      );
+      const label = container.querySelector("[data-axis=session]");
+      const read = [label?.getAttribute("data-state"), label?.textContent];
+      unmount();
+      return read;
+    };
+    const withCutOff = { ...ROW_MESSAGES, cutOff: "cut" };
+    expect(statusOf(cutOff, withCutOff)).toEqual(["failed", "work: cut"]);
+    expect(statusOf({ ...cutOff, status: "running" }, withCutOff)).toEqual([
+      "running",
+      "work: status:running",
+    ]);
+    expect(statusOf(cutOff, ROW_MESSAGES)).toEqual([
+      "idle",
+      "work: status:idle",
+    ]);
+  });
+
   test("행 전체를 여는 링크가 전체 id로 읽히고 런타임과 대기 작업을 그린다", () => {
     const { getByRole, container } = render(
       <SessionRow

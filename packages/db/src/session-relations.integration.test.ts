@@ -449,6 +449,7 @@ integration("session list relations, search and counts on PostgreSQL", () => {
         idle: 3,
         failed: 2,
         stopped: 1,
+        cut_off: 0,
       },
       total: 7,
     });

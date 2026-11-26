@@ -23,7 +23,10 @@ import {
 import { Globe, SquareTerminal } from "lucide-react";
 import type { JSX, ReactNode } from "react";
 import { type SessionRowLink, SessionRowOpener } from "./session-row.tsx";
-import { useWaitingForCapacity } from "./session-status-label.tsx";
+import {
+  isSessionCutOff,
+  useWaitingForCapacity,
+} from "./session-status-label.tsx";
 
 /**
  * Title, agent, channel, status, started, duration. At 820px of table width
@@ -137,6 +140,8 @@ export interface SessionOverviewRowMessages {
   readonly statusAxis: string;
   /** Read in place of the status once the worker has waited long for room. */
   readonly capacityWait?: string | undefined;
+  /** In place of the status of an idle session cut off mid-turn: "중단됨". */
+  readonly cutOff?: string | undefined;
   /** Names the channel icon: "Slack", "웹 콘솔", "API". */
   readonly channel: (channel: SurfaceKind) => string;
   /** The duration of a session still at work: "진행 중". */
@@ -250,6 +255,7 @@ export function SessionOverviewRow({
     ? null
     : session.admission_state;
   const atWork = AT_WORK.has(session.status);
+  const cutOff = messages.cutOff !== undefined && isSessionCutOff(session);
   // A session at work is "in progress"; otherwise its finished turns' run
   // time, so idle, paused and answer-waiting time between turns is not counted.
   const duration = atWork
@@ -325,10 +331,12 @@ export function SessionOverviewRow({
       </GridTableCell>
       <GridTableCell className="flex-wrap gap-1">
         <span className="sr-only">{messages.statusAxis}: </span>
-        <Badge variant={STATUS_VARIANT[session.status]}>
-          {waitingForCapacity && messages.capacityWait
-            ? messages.capacityWait
-            : messages.status(session.status)}
+        <Badge variant={STATUS_VARIANT[cutOff ? "failed" : session.status]}>
+          {cutOff && messages.cutOff
+            ? messages.cutOff
+            : waitingForCapacity && messages.capacityWait
+              ? messages.capacityWait
+              : messages.status(session.status)}
         </Badge>
         {admission ? (
           <Badge variant={admission === "recovery_required" ? "red" : "gray"}>

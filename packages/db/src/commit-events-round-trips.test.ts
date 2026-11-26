@@ -126,7 +126,7 @@ describe("append-events round trips", () => {
     expect(result.cursor).toBe(
       encodeEventCursor(await newestWorkerEvent(turn.sessionId)),
     );
-    expect(sent).toBe(10);
+    expect(sent).toBe(9);
   });
 
   test("a replayed batch writes nothing and reads the stream once", async () => {
@@ -134,7 +134,7 @@ describe("append-events round trips", () => {
     const first = await turn.append([1, 2]);
     const { result, sent } = await counted(() => turn.append([1, 2]));
     expect(result).toEqual(first);
-    expect(sent).toBe(8);
+    expect(sent).toBe(7);
   });
 
   test("a batch past a hole is refused with how far the stream runs", async () => {

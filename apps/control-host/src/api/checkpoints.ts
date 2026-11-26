@@ -43,6 +43,9 @@ import {
 } from "@werft-ai/storage";
 import { installationProfileFromEnv } from "../installation-profile.ts";
 
+/** Where a protected-commits call that trusted held versions is recorded. */
+const checkpointLogger = createLogger();
+
 export type ApiCheckpointServiceDependencies = Pick<
   CheckpointServiceDependencies,
   "codecs" | "objectProtection" | "objects" | "store"
@@ -72,6 +75,18 @@ export function createApiCheckpointService(
       ? {}
       : { objectProtection: deps.objectProtection }),
     objects: deps.objects,
+    onProtectedCommits: (event) =>
+      checkpointLogger.info(
+        "Protected commits took held versions without a HEAD",
+        {
+          event: "checkpoint.protected_commits.held_skipped",
+          held_skipped: event.heldSkipped,
+          judged_revisions: event.judgedRevisions,
+          pointer_revision: event.pointerRevision,
+          session_id: event.sessionId,
+          vouching_revision: event.vouchingRevision,
+        },
+      ),
     store: deps.store,
     workspaceBundles:
       deps.workspaceBundles ??
