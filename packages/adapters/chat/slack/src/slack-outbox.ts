@@ -64,6 +64,8 @@ export type SlackOutboxDrain = {
   lost: number;
   /** Rows never sent: a source was deleted in Slack before the send. */
   voided: number;
+  /** Rows held back unsent by a rate limit another row's send ran into. */
+  deferred: number;
   /** Thread statuses sent. */
   statuses: number;
   /** Posted cards redrawn. */
@@ -134,6 +136,7 @@ export async function drainSlackOutbox(deps: {
     uncertain: 0,
     lost: 0,
     voided: 0,
+    deferred: 0,
     statuses: 0,
     cards: 0,
     topicAliasTaken: 0,
@@ -363,15 +366,24 @@ export async function drainSlackOutbox(deps: {
       // When Slack is asked, so a join noted after it outdates its answer.
       const askedAt = Date.now() * 1000;
       let voided = false;
+      let deferred = false;
       const outcome = await deliver({
         row: claim,
         attempts: claim.attempts,
         begin: async () => {
           const begun = await deps.outbox.beginSend(claim);
+          if (begun !== "voided_by_delete" && begun !== "rate_limited") {
+            return begun;
+          }
           voided = begun === "voided_by_delete";
-          return begun === "voided_by_delete" ? false : begun;
+          deferred = begun === "rate_limited";
+          return false;
         },
       });
+      if (outcome.kind === "lease_lost" && deferred) {
+        drain.deferred += 1;
+        continue;
+      }
       if (outcome.kind === "lease_lost" && voided) {
         drain.voided += 1;
         deps.logger.warn("Slack send voided: a source was deleted", {
