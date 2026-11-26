@@ -679,7 +679,9 @@ export function createPostgresSurfaceBindingStore(
               eq(agentIdentities.status, "active"),
             ),
           )
-          .limit(1);
+          .limit(1)
+          // Held, so the binding is the agent's whose stop was read.
+          .for("share");
         const stop =
           identity === undefined
             ? undefined
@@ -709,6 +711,7 @@ export function createPostgresSurfaceBindingStore(
               ${stop?.emergencyStopReason ?? null}
             FROM ${agentIdentities} i
             WHERE i.installation_id = ${id} AND i.status = 'active'
+              AND i.agent_id = ${identity?.agentId ?? null}::uuid
             ON CONFLICT DO NOTHING
             RETURNING id`),
         );

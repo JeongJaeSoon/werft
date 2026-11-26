@@ -15,9 +15,10 @@ export async function emergencyStopHolds(
     await tx.execute(sql`
       SELECT EXISTS (
         SELECT 1 FROM sessions s
+        -- Revoked or not: a stop holds until a save turns the channel on,
+        -- whatever became of the binding it marked.
         JOIN surface_bindings b
-          ON b.revoked_at IS NULL
-         AND b.emergency_stopped_at IS NOT NULL
+          ON b.emergency_stopped_at IS NOT NULL
         WHERE s.id = ${sessionId}::uuid
           AND (
             -- A thread's channel through any install of its Slack team: one
@@ -62,7 +63,7 @@ export async function channelEmergencyStopped(
       WHERE r.id = ${input.releaseId}
         AND i.team_id = ${input.teamId}
         AND b.external_surface_id = ${input.channelId}
-        AND b.revoked_at IS NULL
+        AND (b.revoked_at IS NULL OR b.emergency_stopped_at IS NOT NULL)
       ORDER BY b.id
       FOR SHARE OF b`),
   );

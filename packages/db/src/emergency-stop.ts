@@ -489,15 +489,11 @@ export async function cancelChannelPosts(
     "agentId" | "installationId" | "installationIds" | "channelId"
   >,
 ): Promise<number> {
-  // Through one of the stop's bound installs, or the agent's through any
-  // install of the channel's Slack team (one whose binding is gone, as a
-  // refused channel's notice is).
-  const covered = sql`(installation_id IN (${installsOf(place.installationIds)})
-    OR (agent_id = ${place.agentId}::uuid AND installation_id IN (
-      SELECT i.id FROM slack_installations i
-      WHERE coalesce(i.team_id, i.id::text) = (
-        SELECT coalesce(t.team_id, t.id::text) FROM slack_installations t
-        WHERE t.id = ${place.installationId}::uuid))))`;
+  // The agent's through any of its installs in the channel's Slack team
+  // (one whose binding is gone too, as a refused channel's notice is), and
+  // never another agent's an install went on to.
+  const covered = sql`(agent_id = ${place.agentId}::uuid
+    AND installation_id IN (${installsOf(place.installationIds)}))`;
   const cancelled = rowsOf<{ input_id: string | null }>(
     await tx.execute(sql`
       UPDATE slack_outbox

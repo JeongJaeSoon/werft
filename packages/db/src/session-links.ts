@@ -119,7 +119,7 @@ export function createPostgresSessionLinkStore(db: Database): SessionLinkStore {
             JOIN surface_bindings b ON b.external_surface_id = l.channel_id
               AND b.agent_id = l.agent_id
             JOIN slack_installations bi ON bi.id = b.installation_id
-            WHERE l.id = ${linkId}::uuid AND b.revoked_at IS NULL
+            WHERE l.id = ${linkId}::uuid
               AND coalesce(bi.team_id, bi.id::text)
                 = coalesce(li.team_id, li.id::text)
               AND b.emergency_stopped_at IS NOT NULL`),

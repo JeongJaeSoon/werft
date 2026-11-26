@@ -396,7 +396,7 @@ async function turnScopeIn(
         AND installation_id IN (
           SELECT id FROM slack_installations
           WHERE team_id = ${conversation.teamId})
-        AND revoked_at IS NULL
+        AND (revoked_at IS NULL OR emergency_stopped_at IS NOT NULL)
       ORDER BY id
       FOR SHARE`),
   );

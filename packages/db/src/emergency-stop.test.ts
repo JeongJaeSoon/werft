@@ -1490,6 +1490,10 @@ describe("two installs of one Slack team in the channel", () => {
       .update(surfaceBindings)
       .set({ revokedAt: new Date(), status: "revoked" })
       .where(eq(surfaceBindings.id, s.bindingId));
+    expect(await emergencyStopHolds(db, s.worker.sessionId)).toBe(true);
+    expect((await send(s, { message: "meanwhile" })).outcome).toBe(
+      "emergency_stopped",
+    );
     const joined = await store().ensureInvitedChannel(
       s.installationId,
       CHANNEL,
@@ -1541,6 +1545,42 @@ describe("two installs of one Slack team in the channel", () => {
     expect(await turnsOf(s.worker.sessionId)).toMatchObject([
       { sequence: 1, status: "failed", reason: "emergency_stopped" },
     ]);
+  });
+
+  test("another agent's post through the same install is left alone", async () => {
+    const s = await stage();
+    const [app] = await db
+      .select({ id: slackApps.id })
+      .from(slackApps)
+      .where(eq(slackApps.agentId, s.agentId));
+    if (!app) throw new Error("no app");
+    // An install that went on to another agent keeps its id.
+    const other = randomUUID();
+    await db.insert(agents).values({
+      id: other,
+      workspaceId: s.workspaceId,
+      managingTeamId: await fixtureTeam(db, s.workspaceId),
+      slug: "other",
+      name: "other",
+    });
+    await db.insert(slackOutbox).values({
+      id: randomUUID(),
+      workspaceId: s.workspaceId,
+      agentId: other,
+      slackAppId: app.id,
+      installationId: s.installationId,
+      kind: "reply",
+      channelId: CHANNEL,
+      threadTs: "100.000100",
+      body: { text: "another agent's reply" } as never,
+      dedupeKey: "reply:other-agent",
+    });
+    expect((await stop(s, s.admin)).outcome).toBe("stopped");
+    const [row] = await db
+      .select({ status: slackOutbox.status })
+      .from(slackOutbox)
+      .where(eq(slackOutbox.dedupeKey, "reply:other-agent"));
+    expect(row?.status).toBe("pending");
   });
 
   test("a binding written while the stop holds starts stopped", async () => {

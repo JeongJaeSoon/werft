@@ -314,16 +314,16 @@ const addressed = (
 )`;
 
 // Binding `b` (its install `bi`) is one an emergency stop of row `row`'s
-// channel covers: the row's own install's, or its agent's in the channel in
-// any install of the row's Slack team, as one stop covers them all.
+// channel covers: its agent's in the channel in any install of the row's
+// Slack team, as one stop covers them all; a revoked one only while it holds
+// a stop, which outlives its binding.
 const stopCovers = (row: SQL) => sql`(
   b.external_surface_id = ${row}.channel_id
-  AND b.revoked_at IS NULL
-  AND (b.installation_id = ${row}.installation_id OR (
-    b.agent_id = ${row}.agent_id
-    AND coalesce(bi.team_id, bi.id::text) = (
-      SELECT coalesce(ri.team_id, ri.id::text) FROM slack_installations ri
-      WHERE ri.id = ${row}.installation_id))))`;
+  AND (b.revoked_at IS NULL OR b.emergency_stopped_at IS NOT NULL)
+  AND b.agent_id = ${row}.agent_id
+  AND coalesce(bi.team_id, bi.id::text) = (
+    SELECT coalesce(ri.team_id, ri.id::text) FROM slack_installations ri
+    WHERE ri.id = ${row}.installation_id))`;
 
 // The rate limits Slack's 429s set (slack_outbox_rate_blocks) that still
 // cover row `row`: its channel's posts (a reaction: the install's reactions.add) and,
