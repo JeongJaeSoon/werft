@@ -1,7 +1,7 @@
 import { sourceSetOf, WORKER_OWNERSHIP_LOST_REASON } from "@werft-ai/platform";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { followUpFact } from "../action/push-follow-ups.ts";
-import { directSourceDeletedAt } from "../conversations/deleted-sources.ts";
+import { lockedDeletedSource } from "../conversations/deleted-sources.ts";
 import { inputTexts } from "../conversations/input-texts.ts";
 import type { Database } from "../queries.ts";
 import { type PrependSkipReason, turns } from "../schema.ts";
@@ -79,7 +79,11 @@ async function cutOffInput(
           eq(turns.sequence, turn.prependedTurn),
         ),
       );
-    return cut === undefined ? null : turnInputText(tx, cut);
+    if (cut === undefined) return null;
+    // Deleted since the first delivery: what was given then stays given,
+    // but it is not given again.
+    const read = await readCutOff(tx, cut, input.workspaceId);
+    return "text" in read ? read.text : null;
   }
   // Nothing recorded on a redelivery: its first delivery found no cut-off
   // turn to put first, or ran on an image from before the record.
@@ -89,10 +93,6 @@ async function cutOffInput(
       sequence: turns.sequence,
       message: turns.message,
       sources: turns.sources,
-      deletedAt: sql<unknown>`${directSourceDeletedAt(
-        sql`${turns.sources}`,
-        sql`${input.workspaceId}::uuid`,
-      )}`,
     })
     .from(turns)
     .where(
@@ -104,17 +104,38 @@ async function cutOffInput(
       ),
     );
   if (cut === undefined) return null;
-  let skip: PrependSkipReason | null = null;
-  let text: string | null = null;
-  if (cut.deletedAt !== null) {
-    skip = "deleted_source";
-  } else {
-    text = await turnInputText(tx, cut);
-    if (text === null) skip = "unreadable_web_input";
-  }
+  const read = await readCutOff(tx, cut, input.workspaceId);
   await tx
     .update(turns)
-    .set({ prependedTurn: cut.sequence, prependSkipReason: skip })
+    .set({
+      prependedTurn: cut.sequence,
+      prependSkipReason: "skip" in read ? read.skip : null,
+    })
     .where(eq(turns.id, turn.id));
-  return text;
+  return "text" in read ? read.text : null;
+}
+
+/**
+ * The cut-off turn's input, unless a direct source of it was deleted (in
+ * Slack, by an admin, or at a web input's Slack alias) or it cannot be read
+ * where it is kept. The marks are locked as a turn's insert locks them, to
+ * the end of the delivery: a delete under way is waited for and seen.
+ */
+async function readCutOff(
+  tx: Database,
+  cut: TurnInputRow,
+  workspaceId: string | null,
+): Promise<{ text: string } | { skip: PrependSkipReason }> {
+  if (workspaceId !== null) {
+    const stored = cut.sources as { direct?: unknown } | null;
+    const deleted = await lockedDeletedSource(tx, {
+      workspaceId,
+      sessionId: null,
+      sources: { direct: stored?.direct ?? [], inherited: [] },
+      throughTurn: null,
+    });
+    if (deleted !== null) return { skip: "deleted_source" };
+  }
+  const text = await turnInputText(tx, cut);
+  return text === null ? { skip: "unreadable_web_input" } : { text };
 }

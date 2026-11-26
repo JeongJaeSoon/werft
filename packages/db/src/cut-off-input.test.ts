@@ -209,7 +209,24 @@ describe("the turn right after a cut-off turn", () => {
     await send(worker.sessionId, "third input");
     await cutOff(worker);
     const next = await nextWorker(worker.sessionId);
-    await delivered(next);
+    expect((await delivered(next)).message).toBe(PREPENDED);
+    await gateway.finalize(next.principal, {
+      ...next.scope,
+      turn_id: "2",
+      finalize_key: `${next.scope.attempt_id}:2`,
+      final_source_sequence: 0,
+      terminal: {
+        status: "completed",
+        reason: null,
+        result: null,
+        usage: null,
+      },
+      checkpoint: null,
+    });
+
+    const third = await delivered(next);
+    expect(third.turn_id).toBe("3");
+    expect(third.message).toBe("third input");
     expect(await recordOf(worker.sessionId, 3)).toMatchObject({
       turn: null,
       skipped: null,
@@ -245,28 +262,56 @@ describe("the turn right after a cut-off turn", () => {
   });
 });
 
+/** Puts the session in a workspace of its own, which delete marks name. */
+async function inWorkspace(sessionId: string) {
+  const workspaceId = crypto.randomUUID();
+  await db
+    .insert(workspaces)
+    .values({ id: workspaceId, slug: `ws-${workspaceId}`, name: "ws" });
+  await db
+    .update(sessions)
+    .set({ workspaceId })
+    .where(eq(sessions.id, sessionId));
+  return workspaceId;
+}
+
+const PLACE = { team_id: "T1", channel_id: "C1", ts: "1700000000.000100" };
+const markDeleted = (workspaceId: string) =>
+  db.insert(deletedSources).values({
+    workspaceId,
+    teamId: PLACE.team_id,
+    channelId: PLACE.channel_id,
+    ts: PLACE.ts,
+    deletedAt: new Date(),
+    reason: "slack_deleted" as never,
+  });
+
 describe("a cut-off input that cannot be given again", () => {
+  test("deleted after the first delivery: a redelivery leaves it out, the record stays", async () => {
+    const worker = await runningTurn();
+    await send(worker.sessionId, "second input");
+    const workspaceId = await inWorkspace(worker.sessionId);
+    await sourceOfFirstTurn(worker.sessionId, PLACE);
+    await cutOff(worker);
+    const next = await nextWorker(worker.sessionId);
+    expect((await delivered(next)).message).toBe(
+      `${CUT_OFF_INPUT_LINE}\n\nfirst input\n\nsecond input`,
+    );
+
+    await markDeleted(workspaceId);
+    expect((await delivered(next)).message).toBe("second input");
+    expect(await recordOf(worker.sessionId, 2)).toMatchObject({
+      turn: 1,
+      skipped: null,
+    });
+  });
+
   test("deleted in Slack or by an admin: left out, recorded, and a redelivery leaves it out too", async () => {
     const worker = await runningTurn();
     await send(worker.sessionId, "second input");
-    const workspaceId = crypto.randomUUID();
-    await db
-      .insert(workspaces)
-      .values({ id: workspaceId, slug: `ws-${workspaceId}`, name: "ws" });
-    await db
-      .update(sessions)
-      .set({ workspaceId })
-      .where(eq(sessions.id, worker.sessionId));
-    const place = { team_id: "T1", channel_id: "C1", ts: "1700000000.000100" };
-    await sourceOfFirstTurn(worker.sessionId, place);
-    await db.insert(deletedSources).values({
-      workspaceId,
-      teamId: place.team_id,
-      channelId: place.channel_id,
-      ts: place.ts,
-      deletedAt: new Date(),
-      reason: "slack_deleted" as never,
-    });
+    const workspaceId = await inWorkspace(worker.sessionId);
+    await sourceOfFirstTurn(worker.sessionId, PLACE);
+    await markDeleted(workspaceId);
     await cutOff(worker);
     const next = await nextWorker(worker.sessionId);
 
