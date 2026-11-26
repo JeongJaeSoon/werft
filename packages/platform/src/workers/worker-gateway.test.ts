@@ -91,6 +91,8 @@ function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
     nextInputPending: async () => true,
     peekFinalizeAtomic: async () => ({ outcome: "open" }),
     finalizeAtomic: unimplemented,
+    peekCheckpointCommitAtomic: async () => ({ outcome: "open" }),
+    commitCheckpointAtomic: unimplemented,
     checkpointStateAtomic: unimplemented,
     extensionsStateAtomic: unimplemented,
     recordRestoreBaseAtomic: unimplemented,

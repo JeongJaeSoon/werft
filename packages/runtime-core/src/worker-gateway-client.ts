@@ -4,6 +4,8 @@ import type {
   AppendEventsResponse,
   BootstrapClaimRequest,
   BootstrapClaimResponse,
+  CheckpointCommitRequest,
+  CheckpointCommitResponse,
   CheckpointRequest,
   CheckpointRequestResponse,
   FinalizeRequest,
@@ -90,6 +92,14 @@ export interface WorkerGatewayClient {
   requestCheckpoint(
     request: CheckpointRequest,
   ): Promise<CheckpointRequestResponse>;
+  /**
+   * Commits a checkpoint captured outside a turn onto the turn this attempt
+   * finalized last. Optional: an older server has no such route, and a worker
+   * without it leaves the checkpoint to the next turn's finalize.
+   */
+  commitCheckpoint?(
+    request: CheckpointCommitRequest,
+  ): Promise<CheckpointCommitResponse>;
   /**
    * The commits the worker's attribution repair must leave as they are,
    * asked at a turn's end before the checkpoint. Optional: an older server

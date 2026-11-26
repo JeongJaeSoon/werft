@@ -309,6 +309,40 @@ describe("checkpoint quiescence", () => {
     expect(ledger.prepareCheckpoint()).toEqual(ready);
   });
 
+  test("an answer the engine gives with no input pending is in flight until its result", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.queued("a");
+    ledger.observe({
+      type: "result",
+      session_id: "s1",
+      user_message_uuid: "a",
+    });
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+    // A background task ended and the engine says so on its own.
+    ledger.observe({
+      type: "assistant",
+      session_id: "s1",
+      parent_tool_use_id: null,
+      message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+    });
+    expect(ledger.prepareCheckpoint()).toMatchObject({
+      reason: "turn_in_flight",
+    });
+    ledger.observe({ type: "result", session_id: "s1" });
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
+  test("a subagent's output with no input pending opens no answer of the run's own", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.observe({
+      type: "assistant",
+      session_id: "s1",
+      parent_tool_use_id: "toolu_task",
+      message: { role: "assistant", content: [] },
+    });
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
   test("a lost stream proves nothing about the tools and tasks it left", () => {
     const ledger = new TurnLedger("s1");
     ledger.toolStarting("toolu_1");

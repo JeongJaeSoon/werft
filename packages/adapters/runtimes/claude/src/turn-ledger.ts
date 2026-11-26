@@ -54,6 +54,11 @@ export class TurnLedger {
   private readonly sent = new Set<string>();
   private sessionId: string | undefined;
   private streaming = false;
+  /**
+   * The engine is answering with no input pending: a background task ended
+   * and it says so on its own. Open until that answer's result, like a turn.
+   */
+  private unprompted = false;
   private readonly toolsInFlight = new Set<string>();
   /**
    * Calls that ended on this run, whose tool_result an approval-wait
@@ -115,9 +120,17 @@ export class TurnLedger {
     }
     if (message.type !== "result") {
       this.streaming = this.pending.size > 0;
+      if (
+        message.type === "assistant" &&
+        this.pending.size === 0 &&
+        message.parent_tool_use_id == null
+      ) {
+        this.unprompted = true;
+      }
       return;
     }
     this.streaming = false;
+    this.unprompted = false;
     const last = message.user_message_uuid;
     if (typeof last === "string" && this.pending.has(last)) {
       for (const uuid of [...this.pending]) {
@@ -250,7 +263,7 @@ export class TurnLedger {
     if (point === "approval_wait") return this.prepareApprovalCheckpoint();
     const mirror = this.mirrorRefusal();
     if (mirror !== undefined) return mirror;
-    if (this.streaming || this.pending.size > 0) {
+    if (this.streaming || this.unprompted || this.pending.size > 0) {
       return {
         status: "rejected",
         reason: "turn_in_flight",

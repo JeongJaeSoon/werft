@@ -192,6 +192,13 @@ curl -sS "$API/v1/sessions/$SID/turns/$TURN_ID" "${AUTH[@]}" \
 - 上限を超えると、その turn は実行されたとおり `completed` のままですが、新しいチェックポイントはできません。`durability.checkpoint_pending_reason` が `transcript_too_large`(1 つの部分が超えたときは `transcript_part_too_large`)になり、通常の公開失敗 `publish_failed` と区別されます。`attention.reason` も同じ値で、`limit_bytes` はその reason が指す上限です。最初に記録されるとき、`system` イベント(`subtype: "transcript_limit_reached"`、`reason`、`limit_bytes`)が SSE に 1 回届きます。
 - この状態のセッションは、新しいメッセージを 409 `CHECKPOINT_UNAVAILABLE` で拒否し、すでにキューにあった入力も実行しません。以前の turn と最後のチェックポイントはそのままで、そのチェックポイントが復元点です。トランスクリプトは同じエンジンセッションの中では縮まないので、待っても解消しません。新しいセッションを開くか、セッションが `recovery_required` になったら `start_fresh` で文脈なしに続けます([7 節](#7-outcome_unknown-と-recovery_required-の復旧判断))。このセッションの close も 409 `CHECKPOINT_UNAVAILABLE` です。閉じるには、terminate してから recovery close を使います。
 
+**バックグラウンド作業を残した turn とアイドル中のセッション.** turn が終わるときにバックグラウンド作業(バックグラウンドで実行したコマンドや dev server など)がまだ動いていると、その turn は `completed` で終わりますが、チェックポイントはできず、`durability.checkpoint_pending_reason` が `background_writer` になります。
+
+- バックグラウンド作業が終わると、worker は次のメッセージを待たずにその turn のチェックポイントを取ります。`durability.last_checkpointed_turn_id` がその turn になり、pending reason は消えます。turn の状態は変わりません。
+- バックグラウンド作業が終わったあとにエンジンが自分から出した答えは、その turn のイベントとして届きます。`data.turn_id` はその turn で、`data.after_turn` は `true` です。turn が終わるまでの答えだけを見るには、`after_turn` のないイベントだけを見ます。
+- 新しいメッセージがないセッションの worker がアイドル時間の上限に達したとき、バックグラウンド作業がまだ動いていれば、さらに 5 分待ってからその作業を止め、チェックポイントを取って終了します。SSE に `system` イベント(`subtype: "background_tasks_stopped"`、`commands`)が 1 回届きます。`commands` は止めたプロセスのコマンド名で、引数は含みません。次の turn のエンジン入力の先頭にも、同じ内容が 1 行付きます。その作業がまだ必要なら、次のメッセージでもう一度起動するよう依頼してください。
+- チェックポイントの公開がオブジェクトストアやコントロールプレーンの一時的なエラーで失敗すると(`publish_failed`)、worker は同じ turn のチェックポイントをやり直します。その間(最大 2 分)、次のメッセージはキューに残り、やり直しが成功するとすぐに始まります。
+
 ## 5. SSE で進行を見て Last-Event-ID で再接続する
 
 OpenAPI: [`streamSessionEvents`](/reference/http-api/events/streamSessionEvents)

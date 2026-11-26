@@ -1199,6 +1199,18 @@ export const checkpointRequestResponseSchema = z.discriminatedUnion("status", [
   }),
 ]);
 
+// Commits a checkpoint outside a turn: onto the turn this attempt finalized
+// last, which stays as it ended. Only that turn's id is accepted, and only
+// while no later turn has started; anything else is a 409. A server without
+// the route answers 404, and the worker goes on as before it existed.
+export const checkpointCommitRequestSchema = workerScopeSchema
+  .extend({ turn_id: turnIdSchema, checkpoint: checkpointRefSchema })
+  .strict();
+export const checkpointCommitResponseSchema = z.object({
+  turn_id: turnIdSchema,
+  checkpoint_revision: revisionSchema,
+});
+
 // The commits the worker's attribution repair must never remake: the
 // workspace commit of each of the session's recent confirmed checkpoints. A
 // push request pins exactly such a commit, so what a request already holds,
@@ -1495,6 +1507,12 @@ export type CheckpointRequest = z.infer<typeof checkpointRequestSchema>;
 export type CheckpointRequestResponse = z.infer<
   typeof checkpointRequestResponseSchema
 >;
+export type CheckpointCommitRequest = z.infer<
+  typeof checkpointCommitRequestSchema
+>;
+export type CheckpointCommitResponse = z.infer<
+  typeof checkpointCommitResponseSchema
+>;
 export type ProtectedCommitsRequest = z.infer<
   typeof protectedCommitsRequestSchema
 >;
@@ -1614,6 +1632,10 @@ export const WORKER_PROTOCOL_ROUTES = {
   "/checkpoint-request": {
     request: checkpointRequestSchema,
     response: checkpointRequestResponseSchema,
+  },
+  "/checkpoint-commit": {
+    request: checkpointCommitRequestSchema,
+    response: checkpointCommitResponseSchema,
   },
   "/protected-commits": {
     request: protectedCommitsRequestSchema,

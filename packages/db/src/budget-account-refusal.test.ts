@@ -484,6 +484,27 @@ describe("budgetAccountRefused", () => {
     expect(await budgetAccountRefused(db, who.sessionId)).toBeNull();
   });
 
+  test("a refusal between turns is still told when what the engine said after it was put on the completed turn", async () => {
+    const who = await threaded({ link: false });
+    const done = await who.run();
+    await db
+      .update(turns)
+      .set({ status: "completed" })
+      .where(eq(turns.id, done));
+    // A call the engine made on its own, between turns, was refused.
+    await refuse(who, null);
+    // What it said next continues the completed turn and is stored on it.
+    await db.insert(events).values({
+      sessionId: who.sessionId,
+      type: "assistant",
+      payload: { type: "assistant" },
+      neutral: { after_turn: true },
+      turnId: done,
+    });
+
+    expect(await budgetAccountRefused(db, who.sessionId)).toBe("user");
+  });
+
   test("an error event of another code is not a refusal", async () => {
     const who = await threaded({ link: false });
     await db.insert(events).values({

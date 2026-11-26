@@ -13,6 +13,38 @@ import type {
  * malformed. Free of zod for the same reason as present-turn-event.
  */
 
+// The field the control plane stores beside an event (`events.neutral`) when
+// the event came from an attempt with no turn open and was put on the turn
+// that attempt ended last: engine output between turns continues that turn.
+// Read merged into the event's data, like every neutral field.
+export const AFTER_TURN_FIELD = "after_turn";
+export const BACKGROUND_TASKS_STOPPED_SUBTYPE = "background_tasks_stopped";
+const STOPPED_BACKGROUND_COMMAND = /^[A-Za-z0-9._+-]{1,32}$/;
+const MAX_STOPPED_BACKGROUND_COMMANDS = 16;
+
+/**
+ * The command names of a `background_tasks_stopped` event, or null for
+ * anything else. The event arrives from a worker, so only names of that shape
+ * are ever shown or handed to an engine.
+ */
+export function stoppedBackgroundCommands(data: unknown): string[] | null {
+  const record = asRecord(data);
+  if (
+    record === null ||
+    record.type !== "system" ||
+    record.subtype !== BACKGROUND_TASKS_STOPPED_SUBTYPE ||
+    !Array.isArray(record.commands)
+  ) {
+    return null;
+  }
+  return record.commands
+    .filter(
+      (name): name is string =>
+        typeof name === "string" && STOPPED_BACKGROUND_COMMAND.test(name),
+    )
+    .slice(0, MAX_STOPPED_BACKGROUND_COMMANDS);
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)

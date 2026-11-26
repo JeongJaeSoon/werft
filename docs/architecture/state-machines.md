@@ -1,0 +1,113 @@
+# 상태 기계
+
+Werft에는 전이를 바꿀 때 표와 시험을 함께 고쳐야 하는 상태 기계가 넷 있다.
+
+1. 세션 admission
+2. turn·attempt (checkpoint pointer 포함)
+3. 대화 turn
+4. rollout 스위치
+
+기계의 전이를 더하거나 바꾸는 변경은 그 기계의 절을 함께 고친다. 절마다 세 가지를 적는다.
+
+- 전이 표: 지금 상태, 다음 상태, 조건, 누가 일으키는지.
+- 막을 전이: 일어나면 안 되는 전이와 그것을 거절하는 시험.
+- 지킬 성질: 어떤 전이를 거쳐도 참이어야 하는 문장과 그것을 고정하는 시험.
+
+허용 전이마다 성공 시험을 하나, 막을 전이마다 거절 시험을 하나 둔다.
+
+## 1. 세션 admission
+
+이 절은 세션 admission 전이를 바꾸는 변경이 채운다. 2번 절이 기대는 전이 하나만 적어 둔다.
+
+| 지금 상태 | 다음 상태 | 조건 | 누가 |
+| --- | --- | --- | --- |
+| active | recovery_required (status failed, reason context_gap) | 실행이 사라진 것이 확인됐거나 새 worker가 claim했고, 열린 turn이 없고, 마지막으로 돈 turn을 덮는 checkpoint가 없다 | scheduler(실행 종료 확인), worker의 claim |
+
+## 2. turn·attempt
+
+turn은 `queued → running → completed | failed | interrupted | outcome_unknown | cancelled`로 간다. attempt는 worker 하나가 세션을 쥔 기간이다. checkpoint pointer는 세션이 복원할 수 있는 마지막 revision을 가리키고, 그 revision의 행은 자기가 덮는 turn을 이름으로 가진다.
+
+### 용어
+
+- **pending 사유**: turn이 checkpoint 없이 끝난 까닭. 세션에 적힌다.
+  - advisory: `background_writer`, `tool_in_flight`, `checkpoint_lease_held`, `publish_failed`. 세션은 계속 일한다.
+  - blocking(`mirror_error`), exhausted(`transcript_too_large`, `transcript_part_too_large`): 새 turn을 받지 않는다.
+- **`publish_failed`의 두 갈래**: worker는 둘을 구분한다. 세션에 적히는 사유는 같다.
+  - 인프라 실패: checkpoint 요청, 업로드, commit이 오류나 503으로 끝났다. worker 로그의 `category`가 `error`다. 잠시 뒤 같은 캡처가 통과할 수 있다.
+  - 결정적 거절: 캡처가 스스로 거절했다(작업 공간이 한도를 넘음 등). 로그의 `category`가 `refused`다. 다음 turn이 작업 공간을 고쳐야 통과한다.
+- **turn 밖 commit**: 이미 끝난 turn에 checkpoint를 붙이는 commit. turn은 끝난 상태 그대로 두고 pointer만 올린다. worker가 `POST /internal/worker/checkpoint-commit`으로 보낸다.
+- **capture_kind**: manifest의 `captureKind`. turn 끝 캡처는 적지 않는다. turn 밖 캡처는 `between_turns`(turn 사이)나 `before_idle_exit`(idle 종료 직전)를 적는다. 판정 키에는 들어가지 않는다.
+- **run이 조용하다**: engine이 추적하는 도구와 배경 작업이 없고, engine이 스스로 내던 답이 끝났고, engine 아래에 남은 프로세스가 없다.
+
+### 전이 표
+
+| # | 지금 상태 | 다음 상태 | 조건 | 누가 |
+| --- | --- | --- | --- | --- |
+| T1 | turn running | turn completed, pointer 그대로, pending = advisory 사유 | finalize에 checkpoint가 없고 사유가 advisory다 | worker (finalize) |
+| T2 | turn completed, pending advisory | pointer rev N+1(turn = 그 attempt가 마지막으로 끝낸 turn), pending 없음. turn은 completed 그대로 | 같은 attempt, 같은 lease epoch, lease가 살아 있음, 그 attempt에 열린 turn이 없음, 뒤에 시작한 turn이 없음, run이 조용함 | worker의 재시도 → gateway의 turn 밖 commit |
+| T3 | 열린 turn 없음, 그 attempt의 이벤트 도착 | 이벤트가 그 attempt가 마지막으로 끝낸 turn에 붙고 `after_turn`으로 표시됨 | 같은 attempt, 같은 epoch, 그 attempt가 끝낸 turn이 있음 | gateway (append-events) |
+| T4 | 열린 turn 없음, 그 attempt의 provider 호출 | 호출이 그 attempt가 마지막으로 끝낸 turn의 예산 root로 잡힘 | 같은 attempt, 그 attempt가 끝낸 turn이 있음 | egress 판정 (예산 선택) |
+| T5 | attempt running(idle), 빚진 checkpoint 있음, 배경 작업 없음 | 캡처(`before_idle_exit`) → turn 밖 commit → attempt exited | idle timeout | worker |
+| T6 | attempt running(idle), 빚진 checkpoint 있음, 배경 작업 있음 | 유예 → 유예 안에 끝나면 캡처 → exited. 유예가 지나면 배경 작업 멈춤 → 알림 이벤트 → 캡처 → exited | idle timeout | worker |
+| T7 | turn completed, pending = `publish_failed`(인프라 실패), 새 입력 도착 | 새 turn은 queued로 남음 | 재시도가 성공하거나 보류 상한이 찰 때까지 | worker (next-input을 묻지 않음) |
+| T8 | T7의 보류가 상한을 넘김 | 새 turn 시작. pending = `publish_failed`는 남음 | 보류 상한 초과 | worker |
+| T9 | turn completed, pending = `publish_failed`(결정적 거절) 또는 `background_writer`, 새 입력 도착 | 새 turn 시작. 그 turn의 finalize가 checkpoint를 commit하면 pending 없음 | 사유가 advisory다 | worker |
+| T10 | attempt exited, 덮이지 않은 turn 있음 | 세션 recovery_required | 1번 절의 조건 | scheduler |
+
+빚진 checkpoint는 worker가 기억하는 값이다. 마지막으로 끝낸 turn이 checkpoint 없이 끝났거나, 마지막 캡처 뒤에 engine이 스스로 답을 냈으면 빚이 있다.
+
+- T5와 T6은 빚이 있을 때만 일어난다. 빚이 없으면 idle 종료는 캡처 없이 끝난다.
+- T6에서 멈추는 것은 그 run의 자손 프로세스다. SIGTERM을 보내고, 남으면 SIGKILL을 보낸다. 멈춘 프로세스의 명령 이름만 `system` 이벤트(`background_tasks_stopped`)에 적는다. 인자와 환경 값은 적지 않는다.
+- 그 이벤트는 세션 상세에 한 줄로 보이고, 다음 turn의 engine 입력 맨 앞에도 한 줄로 붙는다.
+- T7의 재시도가 성공하면 T2가 일어나고 queued였던 turn이 바로 시작한다.
+- T8 뒤의 빚은 pause 직전과 idle 종료 직전에 한 번씩 다시 시도한다. 그래도 덮지 못하면 T10으로 간다.
+- T10의 판정(context gap, claim gate)은 이 절의 전이가 바꾸지 않는다.
+
+### 값
+
+값은 `apps/worker/src/worker-host.ts`의 `OUTSIDE_TURN_CHECKPOINT` 하나에 모여 있다.
+
+| 이름 | 값 | 뜻 |
+| --- | --- | --- |
+| `idleBackgroundGraceMs` | 5분 | T6의 유예 |
+| `afterIdleGrace` | `stop` | 유예 뒤 동작. `wait`이면 멈추지 않고 배경 작업이 끝날 때까지 종료를 미룬다 |
+| `stopSignalWaitMs` | 10초 | SIGTERM에서 SIGKILL까지 |
+| `settleWaitMs` | 30초 | 멈춘 뒤 run이 조용해지기를 기다리는 상한 |
+| `retryBackoffMs` | 1, 2, 4, 8, 15초(마지막 값 반복) | T7 재시도 간격 |
+| `retryHoldMs` | 120초 | T7 보류의 총 시간 상한 |
+| `commitRetryMs` | 30초 | commit 하나가 5xx를 받으며 다시 보내는 상한 |
+
+### 막을 전이
+
+| # | 막을 전이 | 답 | 시험 |
+| --- | --- | --- | --- |
+| R1 | lease를 잃었거나 epoch가 지난 attempt의 turn 밖 commit | 409 `LEASE_EXPIRED` 또는 `STALE_EPOCH` | `is refused from an attempt whose epoch has passed or whose lease has lapsed` |
+| R2 | 그 attempt가 마지막으로 끝낸 turn이 아닌 turn id로 하는 commit | 409 `REQUEST_STALE`(다른 attempt의 turn은 404) | `is refused on a turn that is not the last the attempt finalized`, `is refused on another attempt's turn, and on a turn the session does not have` |
+| R3 | 다음 turn이 시작된 뒤 도착한 turn 밖 commit | 409 `REQUEST_STALE` | `is refused once a later turn has started: that turn's finalize commits what covers both` |
+| R4 | blocking 사유(`mirror_error`)를 그 사유를 낸 attempt의 turn 밖 commit이 지우는 것 | commit은 되지만 사유는 남고, pointer는 복원 지점으로 믿지 않는다 | `does not clear the blocking reason of the attempt that raised it, so the pointer stays untrusted` |
+| R5 | revision이 pointer의 다음 번호가 아닌 commit | 409 `REVISION_CONFLICT` | `is refused when its revision is not the pointer's next` |
+| R6 | 다른 attempt가 끝낸 turn에 이벤트를 `after_turn`으로 붙이는 것 | 이벤트는 어느 turn에도 붙지 않는다 | `are never put on another attempt's turn` |
+
+열린 turn, `outcome_unknown` turn, `cancelled` turn에 하는 commit도 409 `REQUEST_STALE`로 거절한다(`is refused on a turn that is %s`).
+
+시험은 `packages/db/src/worker-unit-of-work.outside-turn.test.ts`에 있다.
+
+### 지킬 성질
+
+| # | 성질 | 시험 |
+| --- | --- | --- |
+| P1 | 덮이지 않은 turn이 있는 세션은 새 worker로 넘어가지 않는다 | `tests/context-gap-flow.integration.test.ts`의 `an idle exit without a covering checkpoint waits on an operator, …` |
+| P2 | 배경 작업을 남긴 turn 뒤에 idle 종료가 와도, 캡처가 성공하면 세션은 recovery_required가 되지 않는다 | 같은 파일의 `a turn that left background work running is checkpointed once the work ends, …`, `apps/worker/src/worker-host-outside-turn.test.ts`의 유예 안·밖 시험 |
+| P3 | turn 없는 checkpoint는 어느 turn도 덮지 않는다. turn 밖 commit은 언제나 turn id를 가진다 | `a checkpoint that names no turn covers none, …`, `a commit outside a turn always names the turn it is put on` |
+| P4 | turn 밖 출력과 비용은 언제나 한 turn에 속한다 | `go on the turn it ended last, marked as after it, …`, `packages/db/src/exchange-budget.test.ts`의 `a call between turns is charged as the turn the attempt ended last, …` |
+| P5 | 인프라 실패 pending 동안 다음 turn은 시작하지 않는다. 결정적 거절은 다음 turn을 막지 않고, 보류는 상한에서 끝난다 | `apps/worker/src/worker-host-outside-turn.test.ts`의 `a publish the infrastructure failed is retried in the lease, …`, `a capture the workspace itself refuses does not hold the next turn, …`, `past the hold's limit input is asked for again …`, 흐름 시험 `a publish the store failed is retried in the lease while the next message stays queued, …` |
+
+P4에는 예외가 하나 있다. 그 attempt가 아직 끝낸 turn이 없으면(시작 직후) 이벤트는 어느 turn에도 붙지 않고, 호출은 세션의 첫 turn의 예산 root로 잡힌다.
+
+## 3. 대화 turn
+
+이 절은 대화 turn 전이를 바꾸는 변경이 채운다.
+
+## 4. rollout 스위치
+
+이 절은 rollout 스위치 전이를 바꾸는 변경이 채운다.

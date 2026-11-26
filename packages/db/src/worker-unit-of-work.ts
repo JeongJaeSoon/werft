@@ -1,4 +1,5 @@
 import {
+  AFTER_TURN_FIELD,
   budgetEndedTerminal,
   type CheckpointBlockReason,
   type CheckpointRef,
@@ -33,6 +34,8 @@ import {
   type ClaimCatalog,
   type ClaimInput,
   type ClaimResult,
+  type CommitCheckpointInput,
+  type CommitCheckpointResult,
   type CommitEventsInput,
   type CommitEventsResult,
   type ConfirmExecutionGoneInput,
@@ -55,6 +58,8 @@ import {
   type NextInputPendingInput,
   type NextInputResult,
   nextPendingReason,
+  type PeekCheckpointCommitInput,
+  type PeekCheckpointCommitResult,
   type PeekFinalizeInput,
   type PeekFinalizeResult,
   type ProviderUsageInput,
@@ -103,6 +108,7 @@ import {
   lt,
   max,
   notInArray,
+  or,
   type SQL,
   sql,
 } from "drizzle-orm";
@@ -411,6 +417,63 @@ function leaseRemainingMs(leaseExpiresAt: Date, at: Date): number {
 
 // The system event a restore that fell back to an earlier revision leaves.
 export const CHECKPOINT_RESTORE_FALLBACK = "checkpoint_restore_fallback";
+
+// Turns a checkpoint may be put on after they ended: the ones that ran.
+// `outcome_unknown` waits on a recovery decision, and `cancelled` never ran.
+const CHECKPOINTABLE_ENDED_STATUSES = ["completed", "failed", "interrupted"];
+
+/**
+ * The turn an event for no turn belongs to: the last this attempt ended,
+ * while it has none open. Never another attempt's turn: an attempt that has
+ * ended none of its own leaves its events on no turn, as before.
+ */
+async function turnEndedLastBy(
+  tx: Database,
+  fence: WorkerFence,
+): Promise<number | null> {
+  const [last] = await tx
+    .select({ id: turns.id, status: turns.status })
+    .from(turns)
+    .where(
+      and(
+        eq(turns.sessionId, fence.sessionId),
+        eq(turns.attemptId, fence.attemptId),
+      ),
+    )
+    .orderBy(desc(turns.sequence))
+    .limit(1);
+  if (last === undefined || OPEN_TURN_STATUSES.includes(last.status)) {
+    return null;
+  }
+  return last.id;
+}
+
+/** The stored row of exactly this commit, when it has already landed. */
+async function committedOutsideTurn(
+  tx: Database,
+  input: PeekCheckpointCommitInput,
+): Promise<PeekCheckpointCommitResult> {
+  const sequence = parseTurnSequence(input.turnId);
+  if (!sequence) return { outcome: "open" };
+  const [stored] = await tx
+    .select({ revision: checkpoints.revision })
+    .from(checkpoints)
+    .innerJoin(turns, eq(turns.id, checkpoints.turnId))
+    .where(
+      and(
+        eq(checkpoints.sessionId, input.fence.sessionId),
+        eq(checkpoints.revision, input.checkpoint.revision),
+        eq(checkpoints.manifestRef, input.checkpoint.manifest_ref),
+        eq(checkpoints.manifestSha256, input.checkpoint.manifest_sha256),
+        eq(turns.sequence, sequence),
+        eq(turns.attemptId, input.fence.attemptId),
+      ),
+    )
+    .limit(1);
+  return stored === undefined
+    ? { outcome: "open" }
+    : { outcome: "replayed", turnId: input.turnId, revision: stored.revision };
+}
 
 // Two submissions of one source_sequence are the same event only if every
 // stored field matches: a reused sequence that moved to another turn or
@@ -3221,6 +3284,12 @@ export function createPostgresWorkerUnitOfWork(
           turnRowId = turn.id;
           turnStatus = turn.status;
         }
+        // What the engine says between turns (a background task ended and
+        // it answers) continues the turn that started the work, so it is
+        // stored on that turn and marked as having come after it.
+        const afterTurn =
+          input.turnId === null ? await turnEndedLastBy(tx, fence) : null;
+        if (afterTurn !== null) turnRowId = afterTurn;
 
         // Everything is checked before anything is written: a batch that is
         // rejected must leave the stream exactly as it was, which an
@@ -3254,13 +3323,16 @@ export function createPostgresWorkerUnitOfWork(
           }
           // A replay of what is already stored is a no-op; anything else
           // would leave the worker holding a cursor for data the stream
-          // does not contain.
+          // does not contain. An event sent for no turn is compared on the
+          // turn it was stored on: which turn that is was decided here, and
+          // may read differently once a later turn has started.
+          const storedOn = input.turnId === null ? row.turnId : turnRowId;
           if (
-            !sameEvent(row, event, turnRowId) &&
+            !sameEvent(row, event, storedOn) &&
             !sameEvent(
               row,
               event,
-              turnRowId,
+              storedOn,
               await streamClock(tx, fence.sessionId, row.id),
             )
           ) {
@@ -3299,7 +3371,10 @@ export function createPostgresWorkerUnitOfWork(
                 sessionId: fence.sessionId,
                 type: event.event,
                 payload: event.data,
-                neutral: input.neutral?.(event) ?? null,
+                neutral:
+                  afterTurn === null
+                    ? (input.neutral?.(event) ?? null)
+                    : { ...input.neutral?.(event), [AFTER_TURN_FIELD]: true },
                 turnId: turnRowId,
                 attemptId: fence.attemptId,
                 sourceSequence: event.source_sequence,
@@ -3644,6 +3719,122 @@ export function createPostgresWorkerUnitOfWork(
           logControlResult(options.logger, controlResult);
         }
         return result;
+      });
+    },
+
+    // Unfenced, as peekFinalizeAtomic is: it only reads back a commit this
+    // attempt already made, which a retry after the lease lapsed must learn.
+    peekCheckpointCommitAtomic(
+      input: PeekCheckpointCommitInput,
+    ): Promise<PeekCheckpointCommitResult> {
+      return committedOutsideTurn(db, input);
+    },
+
+    commitCheckpointAtomic(
+      input: CommitCheckpointInput,
+    ): Promise<CommitCheckpointResult> {
+      const { fence, now } = input;
+      return db.transaction(async (tx) => {
+        const fenced = await acquireFence(tx, fence);
+        if (fenced.outcome !== "ok") return fenced;
+        // Waiting for the fence is when an earlier send of this commit lands.
+        const replay = await committedOutsideTurn(tx, input);
+        if (replay.outcome !== "open") return replay;
+        const sequence = parseTurnSequence(input.turnId);
+        const [turn] = sequence
+          ? await tx
+              .select({
+                id: turns.id,
+                status: turns.status,
+                sequence: turns.sequence,
+                attemptId: turns.attemptId,
+              })
+              .from(turns)
+              .where(
+                and(
+                  eq(turns.sessionId, fence.sessionId),
+                  eq(turns.sequence, sequence),
+                ),
+              )
+              .limit(1)
+              .for("update")
+          : [];
+        if (!turn || turn.attemptId !== fence.attemptId) {
+          return { outcome: "turn_not_found" };
+        }
+        if (!CHECKPOINTABLE_ENDED_STATUSES.includes(turn.status)) {
+          return {
+            outcome: "turn_refused",
+            reason: OPEN_TURN_STATUSES.includes(turn.status)
+              ? "the turn is still open; its finalize commits its checkpoint"
+              : `a turn that ended ${turn.status} takes no checkpoint`,
+          };
+        }
+        if (!leaseHeld(fenced.attempt, await dbNow(tx))) {
+          return { outcome: "lease_expired" };
+        }
+        // Only the last turn this attempt finalized, and only until the
+        // next one starts: that turn's finalize commits what covers both, and
+        // a capture from before it must not land over it. A turn still
+        // queued has not started.
+        const [later] = await tx
+          .select({ status: turns.status, attemptId: turns.attemptId })
+          .from(turns)
+          .where(
+            and(
+              eq(turns.sessionId, fence.sessionId),
+              gt(turns.sequence, turn.sequence),
+              or(
+                isNotNull(turns.attemptId),
+                isNotNull(turns.deliveryStartedAt),
+              ),
+            ),
+          )
+          .orderBy(asc(turns.sequence))
+          .limit(1);
+        if (later !== undefined) {
+          return {
+            outcome: "turn_refused",
+            reason: OPEN_TURN_STATUSES.includes(later.status)
+              ? "a later turn has started"
+              : "it is not the last turn this attempt finalized",
+          };
+        }
+        const advanced = await advanceCheckpointPointer(tx, {
+          fence,
+          session: fenced.session,
+          checkpoint: input.checkpoint,
+          turnRowId: turn.id,
+          now,
+          versionsHeld: input.checkpointVersionsHeld === true,
+          ...(input.checkpointTranscriptBytes === undefined
+            ? {}
+            : { transcriptBytes: input.checkpointTranscriptBytes }),
+          ...(input.checkpointOutputs === undefined
+            ? {}
+            : { outputs: input.checkpointOutputs }),
+          ...(input.checkpointOutputsDigest === undefined
+            ? {}
+            : { outputsDigest: input.checkpointOutputsDigest }),
+          ...(input.checkpointRuntime === undefined
+            ? {}
+            : { runtime: input.checkpointRuntime }),
+        });
+        if (advanced.outcome === "not_next") {
+          return {
+            outcome: "checkpoint_conflict",
+            currentRevision: advanced.currentRevision,
+          };
+        }
+        // The session's durability changed with no turn event to say so.
+        await tx.execute(
+          sql`SELECT pg_notify('session_events', ${fence.sessionId})`,
+        );
+        return {
+          outcome: "committed",
+          turnId: input.turnId,
+          revision: advanced.revision,
+        };
       });
     },
 

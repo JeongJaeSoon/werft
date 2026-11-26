@@ -7,6 +7,8 @@ import type {
   AttemptState,
   BootstrapClaimRequest,
   BootstrapClaimResponse,
+  CheckpointCommitRequest,
+  CheckpointCommitResponse,
   CheckpointRequest,
   CheckpointRequestResponse,
   ClaimGit,
@@ -3228,6 +3230,99 @@ export function createWorkerGateway(deps: {
         });
       }
       return finalizeAnswer(finalized);
+    },
+
+    // A checkpoint for a turn that has already ended: the attempt's last
+    // one went without (its run was not quiet, or the publish failed), and
+    // the capture was taken again between turns or before an idle exit. The
+    // manifest is verified as a finalize verifies one; which turn it may be
+    // put on is the store's to judge, under the fence.
+    async commitCheckpoint(
+      principal: WorkerPrincipal,
+      request: CheckpointCommitRequest,
+    ): Promise<CheckpointCommitResponse> {
+      const fence = requireScope(principal, request);
+      const attempt = {
+        fence,
+        turnId: request.turn_id,
+        checkpoint: request.checkpoint,
+      };
+      const answer = (
+        result: Awaited<ReturnType<typeof work.commitCheckpointAtomic>>,
+      ): CheckpointCommitResponse => {
+        switch (result.outcome) {
+          case "committed":
+          case "replayed":
+            return {
+              turn_id: result.turnId,
+              checkpoint_revision: result.revision,
+            };
+          case "turn_not_found":
+            throw new WorkerGatewayError(
+              404,
+              "NOT_FOUND",
+              "Turn is not delivered to this attempt",
+            );
+          case "turn_refused":
+            throw new WorkerGatewayError(
+              409,
+              "REQUEST_STALE",
+              `No checkpoint is committed onto turn ${request.turn_id}: ${result.reason}`,
+            );
+          case "checkpoint_conflict":
+            throw new WorkerGatewayError(
+              409,
+              "REVISION_CONFLICT",
+              `The checkpoint pointer stands at ${result.currentRevision ?? "none"}; request the next revision and upload again`,
+            );
+          default:
+            return rejected(result);
+        }
+      };
+      const settled = await work.peekCheckpointCommitAtomic(attempt);
+      if (settled.outcome !== "open") return answer(settled);
+      const verdict = await checkpointInfrastructure(() =>
+        checkpoints.verify({
+          fence,
+          turnId: request.turn_id,
+          checkpoint: request.checkpoint,
+          at: now(),
+        }),
+      );
+      if (verdict.status === "rejected") {
+        if (verdict.limit !== undefined) {
+          const state = await work.checkpointStateAtomic({
+            fence,
+            now: now(),
+            pendingReason: verdict.limit,
+          });
+          if (state.outcome !== "ok") rejected(state);
+        }
+        throw new WorkerGatewayError(
+          409,
+          "CHECKPOINT_UNAVAILABLE",
+          `Checkpoint manifest rejected: ${verdict.reason}`,
+        );
+      }
+      return answer(
+        await work.commitCheckpointAtomic({
+          ...attempt,
+          now: now(),
+          checkpointVersionsHeld: verdict.versionsHeld === true,
+          ...(verdict.transcriptBytes === undefined
+            ? {}
+            : { checkpointTranscriptBytes: verdict.transcriptBytes }),
+          ...(verdict.outputs === undefined
+            ? {}
+            : { checkpointOutputs: verdict.outputs }),
+          ...(verdict.outputsDigest === undefined
+            ? {}
+            : { checkpointOutputsDigest: verdict.outputsDigest }),
+          ...(verdict.runtime === undefined
+            ? {}
+            : { checkpointRuntime: verdict.runtime }),
+        }),
+      );
     },
 
     // Where the next checkpoint goes. The fenced read comes first: a stale

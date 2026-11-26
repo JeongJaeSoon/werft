@@ -35,6 +35,37 @@ describe("EngineProcesses", () => {
     }
   });
 
+  test("names a process by its command alone, and passes over one that is gone", async () => {
+    const procRoot = await mkdtemp(join(tmpdir(), "94s-2370-proc-"));
+    try {
+      for (const [pid, comm] of [
+        [201, "sleep\n"],
+        [202, "node\n"],
+        [203, "node\n"],
+        // A process names its own comm: nothing but a command name survives.
+        [204, "x --token=abc $(rm)\n"],
+      ] as const) {
+        await mkdir(join(procRoot, String(pid)), { recursive: true });
+        await writeFile(join(procRoot, String(pid), "comm"), comm);
+      }
+      const engines = new EngineProcesses(procRoot);
+
+      expect(await engines.commands([201, 202, 203, 204, 999])).toEqual([
+        "sleep",
+        "node",
+        "x--tokenabcrm",
+      ]);
+    } finally {
+      await rm(procRoot, { force: true, recursive: true });
+    }
+  });
+
+  test("signals what is still there and ignores what is not", () => {
+    const engines = new EngineProcesses();
+    // No such process: the signal is passed over, not thrown.
+    expect(() => engines.signal([2_147_483_646], "SIGTERM")).not.toThrow();
+  });
+
   test("reports exit only once every spawned engine is gone", async () => {
     const engines = new EngineProcesses();
     engines.onSpawn(101);

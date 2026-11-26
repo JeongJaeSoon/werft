@@ -75,6 +75,9 @@ export const PLATFORM_SYSTEM_SUBTYPE_VALUES = [
   "approval_checkpoint_failed",
   "repository_restore_failed",
   "catalog_mcp_skipped",
+  // Written by a worker, not the control plane: background work it stopped
+  // before an idle exit, by command name (stoppedBackgroundCommands).
+  "background_tasks_stopped",
 ] as const;
 // Why an approval request waits without the checkpoint the worker tried to
 // take for it, so a crash during the wait cannot resume it: the capture
