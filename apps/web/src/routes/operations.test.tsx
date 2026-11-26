@@ -198,8 +198,26 @@ const PEOPLE = {
   totals: { call_count: 3, cost_usd: "0.050000", cost_complete: true },
 };
 
+const OUTCOMES = {
+  scope: "installation",
+  period: PEOPLE.period,
+  refreshed_at: "2026-10-25T00:00:00.000Z",
+  session_count: 435,
+  cost_usd: "1045.500000",
+  cost_complete: true,
+  token_count: 38_160_000,
+  sessions_with_pr: 9,
+  sessions_with_merged_pr: 6,
+  pr_count: 11,
+  merged_pr_count: 7,
+  closed_pr_count: 2,
+  cost_of_merged_sessions_usd: "120.000000",
+  cost_per_merged_pr_usd: "149.357142",
+};
+
 const usageRoutes = {
   "GET /v1/usage/people": () => json(200, PEOPLE),
+  "GET /v1/usage/outcomes": () => json(200, OUTCOMES),
   "GET /v1/sessions/counts": () => json(200, COUNTS),
   "GET /v1/usage/tools": () => json(200, TOOLS),
   ...Object.fromEntries(
@@ -966,9 +984,15 @@ describe("사용량·한도", () => {
     expect(usage.map((call) => call.path).sort()).toEqual([
       "/v1/usage/breakdown",
       "/v1/usage/breakdown",
+      "/v1/usage/outcomes",
       "/v1/usage/people",
       "/v1/usage/series",
     ]);
+    expect(
+      usage.find((call) => call.path === "/v1/usage/outcomes")?.search,
+    ).toBe(
+      "?scope=installation&since=2026-09-25T00%3A00%3A00.000Z&until=2026-10-25T00%3A00%3A00.000Z",
+    );
     expect(usage.find((call) => call.path === "/v1/usage/people")?.search).toBe(
       "?since=2026-09-25T00%3A00%3A00.000Z&until=2026-10-25T00%3A00%3A00.000Z",
     );
@@ -978,6 +1002,67 @@ describe("사용량·한도", () => {
         .map((call) => new URLSearchParams(call.search).get("by"))
         .sort(),
     ).toEqual(["agent", "model"]);
+  });
+
+  test("사용량 탭: 성과당 비용은 /v1/usage/outcomes의 병합된 PR 수와 하나당 비용이고, 병합된 PR이 없으면 빈 상태다", async () => {
+    setSystemTime(NOW);
+    renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/limits": () => json(200, LIMITS),
+      ...usageRoutes,
+    });
+    const table = await screen.findByRole("table", { name: "성과당 비용" });
+    await within(table).findByText("$149.36");
+    const row = within(table).getByText("병합된 PR").closest("[role=row]");
+    expect(
+      [...(row?.querySelectorAll("[role=cell]") ?? [])].map(
+        (cell) => cell.textContent,
+      ),
+    ).toEqual(["병합된 PR", "7", "$149.36"]);
+    expect(
+      screen.getByText("나눈 비용은 작업 세션 435개의 $1,045.50입니다."),
+    ).toBeTruthy();
+  });
+
+  test("사용량 탭: 기간에 병합된 PR이 없으면 성과당 비용 자리에 빈 상태를 보인다", async () => {
+    setSystemTime(NOW);
+    renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/limits": () => json(200, LIMITS),
+      ...usageRoutes,
+      "GET /v1/usage/outcomes": () =>
+        json(200, {
+          ...OUTCOMES,
+          sessions_with_merged_pr: 0,
+          merged_pr_count: 0,
+          cost_of_merged_sessions_usd: "0",
+          cost_per_merged_pr_usd: null,
+        }),
+    });
+    expect(
+      await screen.findByText("이 기간에 병합된 PR이 없습니다."),
+    ).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "성과당 비용" })).toBeTruthy();
+    expect(screen.queryByRole("table", { name: "성과당 비용" })).toBeNull();
+  });
+
+  test("사용량 탭: 성과를 못 읽으면 그 자리에만 실패와 다시 시도가 나오고 다른 표는 남는다", async () => {
+    setSystemTime(NOW);
+    let fail = true;
+    renderAt("/operations/usage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      "GET /v1/limits": () => json(200, LIMITS),
+      ...usageRoutes,
+      "GET /v1/usage/outcomes": () =>
+        fail ? apiError(500, "internal", "boom") : json(200, OUTCOMES),
+    });
+    const retry = await screen.findByRole("button", { name: "다시 시도" });
+    expect(screen.getByRole("heading", { name: "성과당 비용" })).toBeTruthy();
+    expect(screen.getByRole("table", { name: "에이전트별" })).toBeTruthy();
+    fail = false;
+    await (await setupUser()).click(retry);
+    const table = await screen.findByRole("table", { name: "성과당 비용" });
+    await within(table).findByText("$149.36");
   });
 
   test("사용량 탭: 비용 보고가 안 끝난 지난 날의 막대만 빗금이다", async () => {
@@ -1181,7 +1266,7 @@ describe("사용량·한도", () => {
             call.path.startsWith("/v1/usage/") &&
             call.search.includes("2026-10-18"),
         ),
-      ).toHaveLength(3),
+      ).toHaveLength(4),
     );
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(screen.getByText(/^설치 전체 · 2026-09-25/)).toBeTruthy();

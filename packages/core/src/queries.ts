@@ -35,6 +35,7 @@ import type {
   TeamDetail,
   UsageBreakdownBy,
   UsageBreakdownResponse,
+  UsageOutcomesResponse,
   UsagePeopleResponse,
   UsageSeriesResponse,
   UsageSummaryScope,
@@ -232,6 +233,11 @@ export function queryKeysOf(client: ApiClient) {
       until: string | null,
       by: UsageBreakdownBy,
     ) => [s, "usage-breakdown", scope, since, until, by] as const,
+    usageOutcomes: (
+      scope: UsageSummaryScope,
+      since: string,
+      until: string | null,
+    ) => [s, "usage-outcomes", scope, since, until] as const,
     usagePeople: (
       since: string,
       until: string | null,
@@ -925,6 +931,27 @@ export function usageBreakdownQuery(
           },
         }),
       ) as Promise<UsageBreakdownResponse>,
+    retry: false,
+  });
+}
+
+/** The period's session cost against the outcomes those sessions reached. */
+export function usageOutcomesQuery(
+  client: ApiClient,
+  scope: UsageSummaryScope,
+  since: string,
+  until: string | null = null,
+) {
+  return queryOptions({
+    queryKey: queryKeysOf(client).usageOutcomes(scope, since, until),
+    queryFn: () =>
+      unwrap(
+        client.GET("/v1/usage/outcomes", {
+          params: {
+            query: { scope, since, ...(until === null ? {} : { until }) },
+          },
+        }),
+      ) as Promise<UsageOutcomesResponse>,
     retry: false,
   });
 }

@@ -297,6 +297,16 @@ exports[`query keys 1`] = `
     null,
     "model",
   ],
+  "usageOutcomes": [
+    {
+      "actor": "user:u-1",
+      "workspace": "w-1",
+    },
+    "usage-outcomes",
+    "me",
+    "2026-07-26",
+    null,
+  ],
   "usagePeople": [
     {
       "actor": "user:u-1",
@@ -1120,6 +1130,34 @@ exports[`query options and the request each query makes 1`] = `
         undefined,
         null,
         undefined,
+      ],
+      "retry": false,
+    },
+  },
+  "usageOutcomesQuery": {
+    "calls": [
+      [
+        "/v1/usage/outcomes",
+        {
+          "params": {
+            "query": {
+              "scope": "id-1",
+              "since": undefined,
+            },
+          },
+        },
+      ],
+    ],
+    "options": {
+      "queryKey": [
+        {
+          "actor": "user:u-1",
+          "workspace": "w-1",
+        },
+        "usage-outcomes",
+        "id-1",
+        undefined,
+        null,
       ],
       "retry": false,
     },

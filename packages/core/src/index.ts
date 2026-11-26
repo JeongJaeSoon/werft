@@ -38,6 +38,7 @@ export {
   teamQuery,
   teamsQuery,
   usageBreakdownQuery,
+  usageOutcomesQuery,
   usagePeopleQuery,
   usageSeriesQuery,
   viewerQuery,
