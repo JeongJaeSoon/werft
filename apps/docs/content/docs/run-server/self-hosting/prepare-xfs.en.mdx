@@ -87,6 +87,55 @@ When a step fails, the script undoes the steps before it in reverse: it restores
 
 The script ends by checking the data-root, the mount options, and the quota probe. Rerun the commands from step 1 to see `xfs`/`prjquota` and a successful probe yourself. Check free space with `df -h`, `df -i`, and `xfs_quota -x -c 'report -p'`.
 
+<a id="xfs-project-quota를-직접-켜기" />
+## Turn on the XFS project quota yourself
+
+If you already have an XFS disk or partition dedicated to the Docker data-root, turn on the mount option instead of running the script. The conditions are:
+
+- The filesystem at the path that `docker info -f '{{.DockerRootDir}}'` reports is XFS. Other filesystems, such as ext4, do not pass Werft's quota check.
+- That filesystem is mounted with the `prjquota` option (`pquota` means the same).
+
+The `/etc/fstab` entry looks like this. Find the UUID with `sudo blkid`, and use your own path if the data-root is not `/var/lib/docker`.
+
+```text
+UUID=<filesystem-uuid> /var/lib/docker xfs defaults,prjquota 0 0
+```
+
+Quota options take effect only at the first mount. `mount -o remount` does not turn them on, so stop Docker, unmount, and mount again. Every running container stops, so do this in a maintenance window. On a host without a `docker.socket` unit, drop that name from the first command.
+
+```bash
+sudo systemctl stop docker.socket docker.service
+sudo umount /var/lib/docker
+sudo systemctl daemon-reload
+sudo mount /var/lib/docker
+sudo systemctl start docker.service
+```
+
+If the data-root is on the root filesystem (`/`), you cannot unmount it, and the fstab option alone does not turn the quota on. Add `rootflags=prjquota` to the kernel boot arguments (add to the value if `rootflags` is already there) and reboot. How to change boot arguments differs between distributions.
+
+<a id="켜졌는지-확인하기" />
+## Check that it is on
+
+```bash
+DATA="$(docker info -f '{{.DockerRootDir}}')"
+findmnt -no TARGET,FSTYPE,OPTIONS -T "$DATA"
+sudo xfs_quota -x -c 'state -p' "$(findmnt -no TARGET -T "$DATA")"
+P="quota-probe-$(date +%s)"; docker volume create --driver local --opt size=64m "$P" && docker volume rm "$P"
+```
+
+`findmnt` must show the filesystem `xfs` with `prjquota` among the options. In the Project quota section of `xfs_quota`, both Accounting and Enforcement must be `ON`. The last line succeeds when it prints the volume name twice. `quota size requested but no quota support` means the quota is still off.
+
+<a id="werft가-quota를-알아내는-방법" />
+## How Werft finds out about the quota
+
+This section is about Docker installations. On Kubernetes the scheduler does not check a quota; see [Storage and limits](/run-server/self-hosting/reference/storage) for the limits there.
+
+With `EXECUTION_WORKSPACE_QUOTA=on`, the scheduler does not decide from the mount table or fstab. It asks the Docker Engine API to create a probe volume (its name starts with `ap-quota-probe-`) with the `local` driver's `size` option. A daemon that refuses with `no quota support` fails the check. When the volume is created, a helper container runs from the worker image (capabilities `SYS_ADMIN` and `MKNOD`). The helper reads `/proc/self/mountinfo` to see that the volume is on XFS, confirms with `xfs_io` that the volume has a project of its own, sets an inode limit with `xfs_quota`, and reads it back with `xfs_quota` and `stat -f`. The probe volume is removed after the check. `preflight` and `deploy` of `scripts/test-ops.sh` also create a probe volume with the same `size` option.
+
+When the check fails, the scheduler launches no worker and ends in failure. **It does not switch to measurement on its own.** Measurement holds the limit only when the operator sets `EXECUTION_WORKSPACE_QUOTA=off`. Then the scheduler skips the probe, each worker measures its workspace at most once a minute, and a turn that passes the limit is stopped. A workspace can briefly pass the limit between two measurements. In a single-server installation, `scripts/test-ops.sh` accepts `off` only for the LocalStack test installation. The local Compose stack of a repository checkout is `off` when no value is given.
+
+The quota note on the General screen of workspace settings and `detail.no_disk_quota` in `/readyz` do not come from a disk check. They show whether the `EXECUTION_WORKSPACE_QUOTA` value the api received is `off`. After preparing the disk, change the value to `on` and apply it to the api and the scheduler again. In a single-server installation, edit the env file and run `scripts/test-ops.sh start`. A workspace created under `off` does not start as it is under `on`, so follow [Migrate workspaces](/run-server/self-hosting/migrate-workspaces).
+
 <a id="자주-막히는-곳" />
 ## Troubleshooting
 
