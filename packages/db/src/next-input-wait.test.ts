@@ -305,6 +305,28 @@ describe("a nextInput waiting on an idle session", () => {
     expect(answer.draining).toBe(true);
   });
 
+  test("is answered draining as soon as its own worker beats draining, and only that beat says so", async () => {
+    const idle = await idleSession();
+    const { polling } = await waitingPoll(idle);
+    const before = notified.length;
+    // What a stopping worker sends before it waits for this poll's answer.
+    await gateway.heartbeat(idle.principal, {
+      ...idle.scope,
+      attempt_state: "draining",
+    });
+    const answer = await polling;
+    expect(answer.input).toBeNull();
+    expect(answer.draining).toBe(true);
+    // The beats that follow renew the lease and announce nothing.
+    await gateway.heartbeat(idle.principal, {
+      ...idle.scope,
+      attempt_state: "draining",
+    });
+    await db.execute(sql`SELECT pg_notify('session_events', 'marker')`);
+    await until(() => notified.includes("marker"));
+    expect(notified.slice(before)).toEqual([idle.sessionId, "marker"]);
+  });
+
   const LOST: [string, string, (idle: Idle) => Promise<unknown>][] = [
     [
       "whose lease ran out",

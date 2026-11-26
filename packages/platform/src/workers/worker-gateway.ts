@@ -724,8 +724,8 @@ export function createWorkerGateway(deps: {
   // Absent when no object store is configured; see CheckpointProtocol.
   checkpointProtocol?: CheckpointProtocol;
   // Ends a nextInput's wait when its session is notified (a turn queued, a
-  // drain asked for). Absent, or while it is not listening, the poll asks
-  // again as often as it always did.
+  // drain asked for or begun). Absent, or while it is not listening, the
+  // poll asks again as often as it always did.
   wakeup?: {
     readonly listening: boolean;
     wait(sessionId: string, signal: AbortSignal): Promise<void>;
@@ -1188,7 +1188,8 @@ export function createWorkerGateway(deps: {
     }
   };
   const maxWaitMs = deps.options.maxWaitMs ?? DEFAULT_MAX_WAIT_MS;
-  // Read at each wait: a listener that went down is polled around at once.
+  // Read at each wait: once a listener is down, the waits that follow are
+  // short again. One already begun runs out, or ends when it reconnects.
   const pollIntervalMs = () =>
     deps.options.pollIntervalMs ??
     (deps.wakeup?.listening === true

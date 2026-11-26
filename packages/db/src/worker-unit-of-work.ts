@@ -3081,6 +3081,14 @@ export function createPostgresWorkerUnitOfWork(
           .where(fencedAttempt(fence, fenced.at))
           .returning({ leaseExpiresAt: attempts.leaseExpiresAt });
         expectFenced(updated, "attempt");
+        // A stopping worker beats `draining` and then waits for the answer
+        // to the nextInput it has out: that poll is told now, not at its
+        // next interval. Only the beat that moves the state says so.
+        if (reported > current && input.attemptState === "draining") {
+          await tx.execute(
+            sql`SELECT pg_notify('session_events', ${fence.sessionId})`,
+          );
+        }
         const [beat] = updated;
         if (!beat) throw new Error("Fenced attempt write returned no row");
         const persistedAt = input.transcript?.persistedAt ?? null;
