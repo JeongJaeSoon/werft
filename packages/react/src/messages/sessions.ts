@@ -183,6 +183,8 @@ export const sessionsKo = {
     "그새 세션 상태가 바뀌었습니다. 바뀐 상태를 보고 다시 시도하세요.",
   "session.refused.PAUSE_COMMITTING":
     "일시 정지를 확정하는 중이라 지금은 취소할 수 없습니다. 멈춘 뒤 다시 시작하세요.",
+  "session.refused.CHECKPOINT_UNAVAILABLE":
+    "이어갈 저장 지점이 없거나 저장이 멈춰 처리하지 못했습니다 — 세션 상세의 안내를 확인하세요.",
   "session.refused.SESSION_PAUSED": "일시 정지된 세션입니다.",
   "session.refused.SESSION_RESUMING": "다시 시작하는 중인 세션입니다.",
   "session.refused.SESSION_STOPPED": "종료된 세션입니다.",
@@ -243,6 +245,11 @@ export const sessionsKo = {
     "작업이 중간에 끊겼습니다. 서버 연결이 잠시 끊겼습니다. 마지막 저장 지점 뒤에 한 일은 확인이 필요합니다.",
   "session.status.ownershipLost": "중단됨",
   "session.chat.continue": "이어서 하기",
+  "session.recovery.abandon": "이 턴을 버리고 이어 가기",
+  "session.recovery.abandon.hint":
+    "마지막 저장 지점 뒤에 한 일은 확인이 필요합니다.",
+  "session.recovery.startFresh": "새 문맥으로 계속",
+  "session.recovery.startFresh.hint": "이전 대화 문맥이 빠집니다.",
   "session.event.error.modelConnectionRemoved":
     "{model}을(를) 쓰던 모델 연결이 꺼지거나 없어져 이 세션의 모델 요청이 차단되었습니다. 관리자에게 연결 복원을 요청하거나, 다른 연결로 만든 릴리스로 새 세션을 시작하세요.",
   "session.event.modelMigrated":
@@ -459,6 +466,8 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
     "The session changed in the meantime. Check its state and try again.",
   "session.refused.PAUSE_COMMITTING":
     "The pause is being committed and cannot be cancelled now. Resume once it has stopped.",
+  "session.refused.CHECKPOINT_UNAVAILABLE":
+    "There's no save point to continue from, or saving stalled — see the guidance on the session's page.",
   "session.refused.SESSION_PAUSED": "The session is paused.",
   "session.refused.SESSION_RESUMING": "The session is resuming.",
   "session.refused.SESSION_STOPPED": "The session is stopped.",
@@ -519,6 +528,12 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
     "The work was cut off partway. The connection to the server dropped for a moment. What it did after the last save point needs checking.",
   "session.status.ownershipLost": "Cut off",
   "session.chat.continue": "Continue",
+  "session.recovery.abandon": "Discard this turn and continue",
+  "session.recovery.abandon.hint":
+    "What it did after the last save point needs checking.",
+  "session.recovery.startFresh": "Continue with a fresh context",
+  "session.recovery.startFresh.hint":
+    "The earlier conversation context is left out.",
   "session.event.error.modelConnectionRemoved":
     "Model requests for this session were blocked because the model connection that served {model} was disabled or is gone. Ask an administrator to restore it, or start a new session on a release that uses another connection.",
   "session.event.modelMigrated":
@@ -736,6 +751,8 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
     "その間にセッションの状態が変わりました。状態を確認してから、もう一度お試しください。",
   "session.refused.PAUSE_COMMITTING":
     "一時停止を確定しているため、現在は取り消せません。停止したあとで再開してください。",
+  "session.refused.CHECKPOINT_UNAVAILABLE":
+    "続けられる保存地点がないか、保存が止まって処理できませんでした — セッション詳細の案内を確認してください。",
   "session.refused.SESSION_PAUSED": "一時停止中のセッションです。",
   "session.refused.SESSION_RESUMING": "再開中のセッションです。",
   "session.refused.SESSION_STOPPED": "終了したセッションです。",
@@ -789,6 +806,12 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
     "作業が途中で途切れました。サーバーとの接続が一時的に切れました。最後の保存地点より後に行ったことは確認が必要です。",
   "session.status.ownershipLost": "中断",
   "session.chat.continue": "続きから進める",
+  "session.recovery.abandon": "このターンを破棄して続ける",
+  "session.recovery.abandon.hint":
+    "最後の保存地点より後に行ったことは確認が必要です。",
+  "session.recovery.startFresh": "新しい文脈で続ける",
+  "session.recovery.startFresh.hint":
+    "これまでの会話の文脈は引き継がれません。",
   "session.event.error.modelConnectionRemoved":
     "{model} を使っていたモデル接続が無効になったかなくなったため、このセッションのモデルリクエストがブロックされました。管理者に復元を依頼するか、別の接続のリリースで新しいセッションを開始してください。",
   "session.event.modelMigrated":

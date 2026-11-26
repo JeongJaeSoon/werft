@@ -15,6 +15,7 @@ export {
   refusedUnlessUndecided,
   requireAllowed,
   requirePermitted,
+  wouldAllow,
 } from "./require-permitted.ts";
 export {
   ACTOR_INACTIVE,

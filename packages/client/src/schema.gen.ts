@@ -2394,6 +2394,8 @@ export interface paths {
          *
          *     The decision takes effect in the request: the receipt is `succeeded` in the response, with result `{resulting_admission_state, checkpoint_revision, resumable}`. After `abandon` or `confirm_completed`, resume the session; `resumable: false` means a resume would answer `CHECKPOINT_UNAVAILABLE`. The decision is also recorded as a `system` event on the stream.
          *
+         *     `abandon` and `start_fresh` are also open to whoever may write to the session: `sessions:write` on a session the credential sees, and for a private channel's session only while its person is a member of the channel. `confirm_completed`, `close` and `retry_restore` need `sessions:recover`.
+         *
          *     **Scope:** `sessions:recover` (API key or cookie session). **Idempotency-Key:** required.
          */
         post: operations["decideSessionRecovery"];
@@ -30311,7 +30313,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:recover`, checked before the body or the resource is read. Also when an operator revoked the session's execution authority. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:recover`, checked before the body or the resource is read. The credential holds neither `sessions:recover` nor, for `abandon` and `start_fresh`, `sessions:write`. Also when an operator revoked the session's execution authority. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];

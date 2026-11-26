@@ -43,9 +43,11 @@ import {
 } from "../components/index.ts";
 import { useExpired, useExpiryFocus } from "../components/session/expiry.ts";
 import {
+  type RecoveryChoice,
   type SessionControl,
   useAnswer,
   useContinueTurn,
+  useRecoveryDecision,
   useSendMessage,
   useSessionControl,
 } from "../sessions.ts";
@@ -259,6 +261,7 @@ const SESSION_REFUSALS = [
   "SESSION_STOPPED",
   "SESSION_CLOSED",
   "RECOVERY_REQUIRED",
+  "CHECKPOINT_UNAVAILABLE",
 ] as const;
 
 // Why the API refused an allow's instruction, from `error.details.reason_code`.
@@ -343,6 +346,143 @@ export function ContinueTurn({
         </Text>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The decisions a recovery_required session offers whoever may write to it:
+ * give up the turn whose outcome is unknown and resume, or, where no
+ * checkpoint covers the context, go on without it. The server judges who may
+ * press; a start_fresh it would refuse over an unknown turn is not offered.
+ * The outcome stays after the session moved on, as when the resume that
+ * follows an abandon was refused.
+ */
+export function RecoveryDecisions({
+  session,
+  unknownTurnId,
+  unavailable,
+  refusal,
+}: SessionActionProps & {
+  readonly session: SessionDetailData;
+  /** The earliest turn whose outcome is unknown, if any. */
+  readonly unknownTurnId: string | null;
+}) {
+  const { t } = useBlockText();
+  const decide = useRecoveryDecision(session.id);
+  const refused = useRefusal(refusal);
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const outcomeRef = useRef<HTMLOutputElement>(null);
+  // Two presses in one tick, before the pending state is drawn, send one.
+  const pressing = useRef(false);
+  // The revision a decision was taken on: until the session is read past
+  // it, the buttons drawn from it would decide a second time.
+  const [decidedOn, setDecidedOn] = useState<number | null>(null);
+  const hintIds = useId();
+  const waiting =
+    session.admission_state === "recovery_required" &&
+    session.revision !== decidedOn;
+  const choices: readonly {
+    readonly key: "abandon" | "startFresh";
+    readonly choice: RecoveryChoice;
+  }[] = waiting
+    ? [
+        ...(unknownTurnId === null
+          ? []
+          : [
+              {
+                key: "abandon" as const,
+                choice: {
+                  decision: "abandon" as const,
+                  turnId: unknownTurnId,
+                  revision: session.revision,
+                },
+              },
+            ]),
+        ...(session.attention?.code === "CONTEXT_GAP" && unknownTurnId === null
+          ? [
+              {
+                key: "startFresh" as const,
+                choice: {
+                  decision: "start_fresh" as const,
+                  revision: session.revision,
+                },
+              },
+            ]
+          : []),
+      ]
+    : [];
+  const shown = choices.length;
+
+  // The pressed button goes with the state it decided: the line that says
+  // what happened takes the keyboard.
+  useLayoutEffect(() => {
+    if (shown === 0 && focusLost(outcomeRef.current)) {
+      outcomeRef.current?.focus();
+    }
+  }, [shown]);
+
+  // A credential that may not send has nothing to press.
+  if (unavailable?.send !== undefined) return null;
+
+  const press = (choice: RecoveryChoice) => {
+    if (pressing.current) return;
+    pressing.current = true;
+    setOutcome(null);
+    decide.mutate(choice, {
+      onSuccess: () => {
+        setDecidedOn(choice.revision);
+        setOutcome({ kind: "notice", text: t("session.control.sent") });
+      },
+      onError: (error) => setOutcome({ kind: "error", text: refused(error) }),
+      onSettled: () => {
+        pressing.current = false;
+      },
+    });
+  };
+
+  return (
+    <>
+      {shown === 0 ? null : (
+        <div
+          data-slot="recovery-decisions"
+          className="flex flex-col gap-3 rounded-control border border-[var(--werft-tone-attention-border)] bg-card px-3 py-3"
+        >
+          {choices.map(({ key, choice }) => {
+            const hintId = `${hintIds}-${key}`;
+            return (
+              <div
+                key={key}
+                className="flex flex-col items-start gap-1 md:flex-row md:items-center md:gap-3"
+              >
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={key === "abandon" ? "default" : "outline"}
+                  className="max-w-full shrink-0 whitespace-normal text-start"
+                  disabled={decide.isPending}
+                  aria-describedby={hintId}
+                  onClick={() => press(choice)}
+                >
+                  {key === "abandon"
+                    ? t("session.recovery.abandon")
+                    : t("session.recovery.startFresh")}
+                </Button>
+                <Text id={hintId} variant="meta">
+                  {key === "abandon"
+                    ? t("session.recovery.abandon.hint")
+                    : t("session.recovery.startFresh.hint")}
+                </Text>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <OutcomeLine
+        ref={outcomeRef}
+        outcome={outcome}
+        className={outcome === null ? "sr-only" : undefined}
+      />
+    </>
   );
 }
 

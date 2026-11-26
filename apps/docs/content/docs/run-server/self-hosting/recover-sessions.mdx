@@ -13,7 +13,7 @@ outcome: "원인과 외부 효과를 확인한 뒤 복구 결정을 적용한다
 
 ## 준비물
 
-세션 상세와 worker·scheduler·reconciler 로그, sessions:recover scope의 API key가 필요하다. 마지막 checkpoint와 외부 도구 효과를 확인한다. 저장소가 회복됐다고 outcome_unknown turn을 자동 재실행하지 않는다.
+세션 상세와 worker·scheduler·reconciler 로그, sessions:recover scope의 API key가 필요하다. `abandon`과 `start_fresh`는 그 세션에 쓸 수 있는 사람(`sessions:write`, 비공개 채널의 세션이면 지금 그 채널 멤버)도 보낸다. 웹 세션 화면의 [이 턴을 버리고 이어 가기](abandon 뒤 resume)와 [새 문맥으로 계속](start_fresh, `CONTEXT_GAP`일 때)이 이 결정이다. 마지막 checkpoint와 외부 도구 효과를 확인한다. 저장소가 회복됐다고 outcome_unknown turn을 자동 재실행하지 않는다.
 
 ## 단계
 

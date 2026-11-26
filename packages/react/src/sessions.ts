@@ -332,6 +332,86 @@ export function useSessionControl(id: string) {
   });
 }
 
+/** A recovery decision the web offers whoever may write to the session. */
+export type RecoveryChoice =
+  | {
+      readonly decision: "abandon";
+      readonly turnId: string;
+      readonly revision: number;
+    }
+  | { readonly decision: "start_fresh"; readonly revision: number };
+
+// The audit record's reason; nobody types one on the web.
+const WEB_RECOVERY_REASON = "Decided from the web console";
+
+// The resume that follows an abandon is a command of its own.
+const resumeKeys = new WeakMap<MutationFunctionContext, string>();
+
+/**
+ * Gives up the unknown turn and resumes the session, or starts it fresh. An
+ * abandon leaves the session stopped: the resume is sent on the revision the
+ * abandon made, read back, and may still be refused, which the error says.
+ */
+export function useRecoveryDecision(id: string) {
+  const { client } = useWerft();
+  const queryClient = useQueryClient();
+  return useMutation<ReceiptAcceptedResponse, ApiError, RecoveryChoice>({
+    onMutate: (choice, context) => {
+      newCommand(choice, context);
+      resumeKeys.set(context, crypto.randomUUID());
+    },
+    mutationFn: async (choice, context) => {
+      const params = commandParams(id, context);
+      const reason = WEB_RECOVERY_REASON;
+      if (choice.decision === "start_fresh") {
+        return (await unwrap(
+          client.POST("/v1/sessions/{id}/recovery-decisions", {
+            params,
+            body: {
+              decision: "start_fresh",
+              expected_revision: choice.revision,
+              reason,
+            },
+          }),
+        )) as ReceiptAcceptedResponse;
+      }
+      await unwrap(
+        client.POST("/v1/sessions/{id}/recovery-decisions", {
+          params,
+          body: {
+            decision: "abandon",
+            expected_revision: choice.revision,
+            target_turn_id: choice.turnId,
+            reason,
+          },
+        }),
+      );
+      const stopped = await unwrap(
+        client.GET("/v1/sessions/{id}", { params: { path: { id } } }),
+      );
+      return (await unwrap(
+        client.POST("/v1/sessions/{id}/resume", {
+          params: {
+            path: { id },
+            header: {
+              "Idempotency-Key": resumeKeys.get(context) ?? crypto.randomUUID(),
+            },
+          },
+          body: { expected_revision: stopped.revision },
+        }),
+      )) as ReceiptAcceptedResponse;
+    },
+    // A refused resume still follows an abandon that took effect.
+    onSettled: () =>
+      refreshSession(queryClient, client, id, [
+        "list",
+        "detail",
+        "turns",
+        "pending",
+      ]),
+  });
+}
+
 /**
  * What each event kind can make stale. Message and tool events only add to
  * the stream itself, so they refetch nothing.

@@ -76,6 +76,7 @@ import {
   refusedUnlessUndecided,
   requirePermitted,
   SessionServiceError,
+  wouldAllow,
 } from "../musterrolle/index.ts";
 import type {
   CallerLimitDimension,
@@ -1483,11 +1484,21 @@ export function createSessionService(deps: {
         justification?: string;
       },
     ): Promise<ControlAcceptedResponse> {
+      // Giving up the unknown turn or the lost context is also the call of
+      // whoever may write to the session (a private channel's only while a
+      // member); confirming an outcome, closing and retrying a restore stay
+      // the operator's. An operator outside the share decides with a reason.
+      const resource = { kind: "session", id: sessionId } as const;
+      const writerMay =
+        (input.body.decision === "abandon" ||
+          input.body.decision === "start_fresh") &&
+        input.justification === undefined &&
+        !(await wouldAllow(authorization, actor, "session.recover", resource));
       await requirePermitted(
         authorization,
         actor,
-        "session.recover",
-        { kind: "session", id: sessionId },
+        writerMay ? "session.submit" : "session.recover",
+        resource,
         input.justification,
       );
       const result = await controls.decideRecoveryAtomic({

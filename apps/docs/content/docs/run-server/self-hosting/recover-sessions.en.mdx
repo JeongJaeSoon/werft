@@ -15,7 +15,7 @@ Distinguish restoration failures, startup failures, and turns with unknown outco
 <a id="준비물" />
 ## Before you begin
 
-You need session details, worker/scheduler/reconciler logs, and an API key with sessions:recover scope. Check the last checkpoint and external tool effects. Storage recovery alone must not trigger automatic reruns of outcome_unknown turns.
+You need session details, worker/scheduler/reconciler logs, and an API key with sessions:recover scope. `abandon` and `start_fresh` can also be sent by anyone who may write to the session (`sessions:write`; for a private channel's session, only a current member of that channel). The web session page's [Discard this turn and continue] (abandon, then resume) and [Continue with a fresh context] (start_fresh, on `CONTEXT_GAP`) send these decisions. Check the last checkpoint and external tool effects. Storage recovery alone must not trigger automatic reruns of outcome_unknown turns.
 
 <a id="단계" />
 ## Steps

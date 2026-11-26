@@ -2472,6 +2472,324 @@ describe("a turn its worker's lost lease cut off", () => {
   });
 });
 
+describe("a session waiting on a recovery decision", () => {
+  const unknown = {
+    turn_id: "2",
+    session_id: SESSION_ID,
+    status: "outcome_unknown",
+    message: "배포 스크립트를 돌려 줘",
+    channel: "web",
+    created_by: null,
+    slack_permalink: null,
+    terminal_reason: null,
+    checkpoint_revision: null,
+    created_at: AT,
+    started_at: AT,
+    ended_at: null,
+  };
+  const ran = {
+    ...unknown,
+    turn_id: "1",
+    status: "completed",
+    terminal_reason: "completed",
+    ended_at: AT,
+  };
+  const waiting = {
+    ...detail,
+    status: "failed",
+    admission_state: "recovery_required",
+    revision: 5,
+    current_turn_id: null,
+    pending_request_count: 0,
+    attention: null,
+  } as SessionDetail;
+  const gap = {
+    ...waiting,
+    attention: {
+      code: "CONTEXT_GAP",
+      last_ran_turn_id: "1",
+      checkpointed_turn_id: null,
+    },
+  } as SessionDetail;
+  const ABANDON = { name: "이 턴을 버리고 이어 가기" };
+  const FRESH = { name: "새 문맥으로 계속" };
+  const ABANDON_HINT = "마지막 저장 지점 뒤에 한 일은 확인이 필요합니다.";
+  const FRESH_HINT = "이전 대화 문맥이 빠집니다.";
+  const SENT = "요청을 보냈습니다. 바뀐 상태는 제목 옆 배지에 보입니다.";
+  const decisionPath = `/v1/sessions/${SESSION_ID}/recovery-decisions`;
+  const resumePath = `/v1/sessions/${SESSION_ID}/resume`;
+  const accepted = () =>
+    json(202, { receipt_id: RECEIPT_ID, receipt_status: "succeeded" });
+
+  function render(options: {
+    session: () => SessionDetail;
+    turns?: unknown[];
+    decided?: (request: Request) => Response;
+    resumed?: (request: Request) => Response;
+    scopes?: Parameters<typeof me>[0];
+  }) {
+    return renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      ...(options.scopes
+        ? { "GET /v1/auth/me": () => json(200, me(options.scopes)) }
+        : {}),
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, options.session()),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, {
+          items: options.turns ?? [ran, unknown],
+          next_cursor: null,
+        }),
+      ...(options.decided ? { [`POST ${decisionPath}`]: options.decided } : {}),
+      ...(options.resumed ? { [`POST ${resumePath}`]: options.resumed } : {}),
+    });
+  }
+  const posts = (api: {
+    calls: readonly {
+      method: string;
+      path: string;
+      body: unknown;
+      headers: Headers;
+    }[];
+  }) => api.calls.filter((call) => call.method === "POST");
+
+  test("a turn whose outcome is unknown offers to give it up, and says what that leaves to check", async () => {
+    render({ session: () => waiting });
+    const button = await screen.findByRole("button", ABANDON);
+    expect(screen.getByText(ABANDON_HINT)).toBeTruthy();
+    expect(button.getAttribute("aria-describedby")).toBe(
+      screen.getByText(ABANDON_HINT).id,
+    );
+    expect(screen.queryByRole("button", FRESH)).toBeNull();
+    // Terminate stays where it was.
+    expect(screen.getByRole("button", { name: "세션 종료" })).toBeTruthy();
+  });
+
+  test("a context no checkpoint covers offers to go on without it, and says it is left out", async () => {
+    render({ session: () => gap, turns: [ran] });
+    expect(await screen.findByRole("button", FRESH)).toBeTruthy();
+    expect(screen.getByText(FRESH_HINT)).toBeTruthy();
+    expect(screen.queryByRole("button", ABANDON)).toBeNull();
+  });
+
+  test("over an unknown turn, a context gap offers abandon alone: the server would refuse start_fresh", async () => {
+    render({ session: () => gap });
+    expect(await screen.findByRole("button", ABANDON)).toBeTruthy();
+    expect(screen.queryByRole("button", FRESH)).toBeNull();
+  });
+
+  const undecidable: [string, SessionDetail, unknown[]][] = [
+    [
+      "a restore that failed",
+      {
+        ...waiting,
+        attention: {
+          code: "RESTORE_FAILED",
+          reason: "incompatible_checkpoint",
+          failures: 1,
+          retry_at: null,
+        },
+      } as SessionDetail,
+      [ran],
+    ],
+    [
+      "a stopped session with a context gap",
+      {
+        ...gap,
+        admission_state: "stopped",
+        status: "stopped",
+      } as SessionDetail,
+      [ran],
+    ],
+    [
+      "an active session whose turns still read unknown",
+      {
+        ...waiting,
+        admission_state: "active",
+        status: "idle",
+      } as SessionDetail,
+      [ran, unknown],
+    ],
+  ];
+  for (const [name, session, turns] of undecidable) {
+    test(`no decision is offered for ${name}`, async () => {
+      render({ session: () => session, turns });
+      await screen.findByRole("heading", { level: 1 });
+      expect((await screen.findAllByText(ran.message)).length).toBeGreaterThan(
+        0,
+      );
+      expect(screen.queryByRole("button", ABANDON)).toBeNull();
+      expect(screen.queryByRole("button", FRESH)).toBeNull();
+    });
+  }
+
+  test("a credential that may not send to sessions has no decision to press", async () => {
+    render({ session: () => gap, turns: [ran], scopes: ["sessions:read"] });
+    await screen.findByRole("heading", { level: 1 });
+    await waitFor(() => expect(screen.getByText(ran.message)).toBeTruthy());
+    expect(screen.queryByRole("button", FRESH)).toBeNull();
+    expect(screen.queryByRole("button", ABANDON)).toBeNull();
+  });
+
+  test("abandon, then resume on the revision the abandon made; the buttons go with the recovery", async () => {
+    const user = await setupUser();
+    let session = waiting;
+    const { api } = render({
+      session: () => session,
+      decided: () => {
+        session = {
+          ...waiting,
+          admission_state: "stopped",
+          status: "stopped",
+          revision: 6,
+        } as SessionDetail;
+        return accepted();
+      },
+      resumed: () => {
+        session = {
+          ...waiting,
+          admission_state: "active",
+          status: "idle",
+          revision: 7,
+        } as SessionDetail;
+        return json(202, {
+          receipt_id: RECEIPT_ID,
+          receipt_status: "accepted",
+        });
+      },
+    });
+    await user.click(await screen.findByRole("button", ABANDON));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", ABANDON)).toBeNull(),
+    );
+    expect(posts(api).map((call) => [call.path, call.body])).toEqual([
+      [
+        decisionPath,
+        {
+          decision: "abandon",
+          expected_revision: 5,
+          target_turn_id: "2",
+          reason: "Decided from the web console",
+        },
+      ],
+      [resumePath, { expected_revision: 6 }],
+    ]);
+    // Two commands, two keys.
+    const keys = new Set(
+      api.calls
+        .filter((call) => call.method === "POST")
+        .map((call) => call.headers.get("idempotency-key")),
+    );
+    expect(keys.size).toBe(2);
+    expect(await screen.findByText(SENT)).toBeTruthy();
+  });
+
+  test("an abandon that took effect with its resume refused shows the stopped session and why", async () => {
+    const user = await setupUser();
+    let session = waiting;
+    render({
+      session: () => session,
+      decided: () => {
+        session = {
+          ...waiting,
+          admission_state: "stopped",
+          status: "stopped",
+          revision: 6,
+        } as SessionDetail;
+        return accepted();
+      },
+      resumed: () =>
+        apiError(409, "CHECKPOINT_UNAVAILABLE", "No committed checkpoint"),
+    });
+    await user.click(await screen.findByRole("button", ABANDON));
+    expect(
+      await screen.findByText(
+        "이어갈 저장 지점이 없거나 저장이 멈춰 처리하지 못했습니다 — 세션 상세의 안내를 확인하세요.",
+      ),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.queryByRole("button", ABANDON)).toBeNull(),
+    );
+    // The head reads the stopped session and takes a resume again.
+    const head = await screen.findByRole("heading", { level: 1 });
+    await waitFor(() => expect(head.textContent).toContain("종료됨"));
+    expect(screen.getByRole("button", { name: "다시 시작" })).toBeTruthy();
+  });
+
+  test("start_fresh is one decision, and the session goes on", async () => {
+    const user = await setupUser();
+    let session = gap;
+    const { api } = render({
+      session: () => session,
+      turns: [ran],
+      decided: () => {
+        session = {
+          ...gap,
+          admission_state: "active",
+          status: "idle",
+          revision: 6,
+          attention: null,
+        } as SessionDetail;
+        return accepted();
+      },
+    });
+    await user.click(await screen.findByRole("button", FRESH));
+    await waitFor(() => expect(screen.queryByRole("button", FRESH)).toBeNull());
+    expect(posts(api).map((call) => [call.path, call.body])).toEqual([
+      [
+        decisionPath,
+        {
+          decision: "start_fresh",
+          expected_revision: 5,
+          reason: "Decided from the web console",
+        },
+      ],
+    ]);
+    expect(await screen.findByText(SENT)).toBeTruthy();
+  });
+
+  test("a double press makes one decision", async () => {
+    const user = await setupUser();
+    let session = gap;
+    const { api } = render({
+      session: () => session,
+      turns: [ran],
+      decided: () => {
+        session = {
+          ...gap,
+          admission_state: "active",
+          status: "idle",
+          revision: 6,
+          attention: null,
+        } as SessionDetail;
+        return accepted();
+      },
+    });
+    const button = await screen.findByRole("button", FRESH);
+    await user.dblClick(button);
+    await user.click(button);
+    await waitFor(() => expect(screen.queryByRole("button", FRESH)).toBeNull());
+    expect(posts(api).map((call) => call.path)).toEqual([decisionPath]);
+  });
+
+  test("a refused decision says why and leaves the choice", async () => {
+    const user = await setupUser();
+    render({
+      session: () => waiting,
+      decided: () => apiError(403, "FORBIDDEN", "Forbidden"),
+    });
+    await user.click(await screen.findByRole("button", ABANDON));
+    await waitFor(() =>
+      expect(
+        document.querySelector("[data-slot='recovery-decisions'] ~ output")
+          ?.textContent,
+      ).not.toBe(""),
+    );
+    expect(screen.getByRole("button", ABANDON)).toBeTruthy();
+  });
+});
+
 describe("session runtime", () => {
   test("allows a permission request from the keyboard; the answered request leaves", async () => {
     const user = await setupUser();
