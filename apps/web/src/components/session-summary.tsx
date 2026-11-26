@@ -8,31 +8,24 @@ import {
 } from "@werft-ai/ui";
 import { useI18n } from "../i18n/i18n.tsx";
 
-/** The figures that are one of the sessions list's status filters. */
+/** The figures that link to one of the sessions list's status filters. */
 const STATUS_FIGURES = [
   ["running", "run"],
   ["failed", "failed"],
 ] as const satisfies readonly (readonly [SessionStatus, StatusDotStatus])[];
-export type SessionSummaryStatus = (typeof STATUS_FIGURES)[number][0];
 
 export interface SessionSummaryProps {
   /** GET /v1/sessions/counts, read with the list's relation and search. */
   readonly counts: CountSessionsResponse;
   /**
-   * On the sessions list: the status filter it shows and how to set it, so a
-   * figure presses that filter on and off. Without it each figure links to
-   * the sessions list with its filter on.
+   * Adds running and failed, each a link to the sessions list with that filter
+   * on. The sessions list leaves them out: its status tabs show both.
    */
-  readonly filter?:
-    | {
-        readonly status: string | undefined;
-        readonly onChange: (status: SessionSummaryStatus | null) => void;
-      }
-    | undefined;
+  readonly statusLinks?: boolean;
 }
 
-/** One line over a list: how many sessions, running, failed, and their cost. */
-export function SessionSummary({ counts, filter }: SessionSummaryProps) {
+/** One line over a list: how many sessions and their cost. */
+export function SessionSummary({ counts, statusLinks }: SessionSummaryProps) {
   const { t, locale } = useI18n();
   const number = new Intl.NumberFormat(locale);
   return (
@@ -41,32 +34,17 @@ export function SessionSummary({ counts, filter }: SessionSummaryProps) {
         label={t("sessionList.summary.total")}
         value={number.format(counts.total)}
       />
-      {STATUS_FIGURES.map(([status, dot]) => {
-        const label = t(`sessions.status.${status}`);
-        const value = number.format(counts.counts[status]);
-        if (filter) {
-          const pressed = filter.status === status;
-          return (
+      {statusLinks
+        ? STATUS_FIGURES.map(([status, dot]) => (
             <ListSummaryItem
               key={status}
-              label={label}
-              value={value}
+              label={t(`sessions.status.${status}`)}
+              value={number.format(counts.counts[status])}
               status={dot}
-              pressed={pressed}
-              onPress={() => filter.onChange(pressed ? null : status)}
+              link={<Link to="/sessions" search={{ status }} />}
             />
-          );
-        }
-        return (
-          <ListSummaryItem
-            key={status}
-            label={label}
-            value={value}
-            status={dot}
-            link={<Link to="/sessions" search={{ status }} />}
-          />
-        );
-      })}
+          ))
+        : null}
       {/* A server older than the field sends none: no figure, not $0. */}
       {counts.cost_usd === undefined ? null : (
         <ListSummaryItem
