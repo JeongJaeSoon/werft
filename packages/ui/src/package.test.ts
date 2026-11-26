@@ -39,7 +39,7 @@ const VENDOR = resolve(PACKAGE_ROOT, "../../apps/web/src/vendor");
 
 function vendorImports(file: string, source: string): string[] {
   const specifiers = file.endsWith(".css")
-    ? Array.from(source.matchAll(/["'(]([^"'()\s;]+)/g), (m) => m[1] ?? "")
+    ? Array.from(source.matchAll(/["'(]\s*([^"'()\s;]+)/g), (m) => m[1] ?? "")
     : ts
         .preProcessFile(source, true, true)
         .importedFiles.map((f) => f.fileName);
@@ -110,9 +110,15 @@ describe("패키지 경계", () => {
   });
 
   test("CSS의 vendor @import를 찾고, 고지 주석과 다른 import는 지나친다", () => {
-    const css =
-      '@import "../../../../apps/web/src/vendor/affectui/free/a.css";';
-    expect(vendorImports("src/foundations/x.css", css)).toHaveLength(1);
+    const target = "../../../../apps/web/src/vendor/affectui/free/a.css";
+    for (const css of [
+      `@import "${target}";`,
+      `@import url(${target});`,
+      `@import url( ${target} );`,
+      `@import url(\n  "${target}"\n);`,
+    ]) {
+      expect(vendorImports("src/foundations/x.css", css)).toHaveLength(1);
+    }
     const clean = [
       "// Adapted from AffectUI (MIT): apps/web/src/vendor/affectui/free/LICENSE",
       'import { a } from "./vendor-list.ts";',
