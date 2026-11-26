@@ -35,6 +35,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 약 18초를 넘는 장애에서는 전과 같이 turn이 끊기고 세션은 다음 메시지를 받는다.
   - `HEARTBEAT_TTL_SEC`의 하한이 15초 초과에서 12초 초과(안전 마진 10초 + 간격 2초)로 내려간다. 5초마다 beat하는 앞선 worker 이미지가 남아 있으면 TTL을 15초 이하로 낮추지 않는다.
   - heartbeat가 404를 받은 뒤 다시 묻는 간격도 heartbeat 간격을 넘지 않는다(1초 뒤, 그다음 2초마다).
+- **쉬는 worker가 다음 입력을 기다리는 동안 api가 250 ms마다 세션 행을 잠그지 않고, 알림(LISTEN/NOTIFY)에 깨어난다**(JeongJaeSoon/werft#2275). 쉬는 worker 하나가 내던 세션 행 잠금이 초당 약 4.4회에서 0.6회(그중 0.5회는 heartbeat)로, DB commit이 초당 약 7회에서 4회로 준다. 새 메시지는 수 ms 안에 worker에게 간다. migration은 없고 worker 이미지는 바뀌지 않는다. 따로 할 일은 없다.
+  - 알림은 이미 있는 LISTEN 연결(`werft:api-listen`)로 받는다. DB 연결은 늘지 않는다. 그 연결이 끊기면 다시 붙을 때(1초 뒤부터 다시 시도) 기다리던 요청을 모두 깨우고, 다시 붙지 못하는 동안에는 늦어도 5초 뒤부터 전처럼 250 ms마다 읽는다.
+  - `DATABASE_URL`이 transaction 모드 pooler를 거치면 LISTEN은 성공해도 알림이 오지 않는다. 그때 쉬는 worker는 새 입력을 최대 5초 뒤에 받는다.
+  - 올리는 동안 옛 이미지의 프로세스(아직 바뀌지 않은 slack 역할, scheduler 등)가 넣은 입력과 drain 요청은 알림이 없어, 새 api가 최대 5초 뒤에 worker에게 전한다. 모든 역할이 새 이미지가 되면 사라진다. 앞선 이미지로 되돌려도 된다.
 - **API 권한 판정이 DB를 읽지 못하면 `403 FORBIDDEN`(`reason_code: "error"`) 대신 `503 BACKEND_UNAVAILABLE`(retryable, `Retry-After: 1`)로 답한다**(JeongJaeSoon/werft#2242). 권한이 없다는 답이 아니라 판정하지 못했다는 답이고, 이 답도 허용은 아니다. 저장소 오류가 아닌 판정 실패와 credential에 없는 scope는 전처럼 403이다. worker는 이전 세션 허용을 다시 확인하지 못하면 1·2·4초 간격으로 최대 20초 다시 묻고, 그래도 안 되면 전처럼 사람에게 묻는다. migration은 없고 따로 할 일도 없다.
   - api와 worker 이미지가 모두 이 버전이어야 듣는다. api만 앞선 버전이면 전처럼 403이고, 웹은 그 403도 계속 잠시 다시 붙는다.
   - Slack 이벤트 처리 쪽 판정은 바뀌지 않는다.

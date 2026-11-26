@@ -86,6 +86,9 @@ function work(overrides: Partial<WorkerUnitOfWork>): WorkerUnitOfWork {
     nextInputAtomic: unimplemented,
     heartbeatAtomic: unimplemented,
     commitEventsAtomic: unimplemented,
+    // Whatever a fake leaves out: every re-read is the fenced one, as before
+    // the lock-free question existed.
+    nextInputPending: async () => true,
     peekFinalizeAtomic: async () => ({ outcome: "open" }),
     finalizeAtomic: unimplemented,
     checkpointStateAtomic: unimplemented,
@@ -124,6 +127,80 @@ function gateway(
 }
 
 const TRACEPARENT = "00-49195af5635b4ac7af24c52c73de7491-b7ad6b7169203331-01";
+
+const GO = (at: Date) => ({
+  turnId: "1",
+  inputId: "7",
+  message: "go",
+  deliveryStartedAt: at,
+  actorId: null,
+  traceContext: null,
+});
+
+/**
+ * A gateway with a wakeup, on a clock that stands still: a wait ends only on
+ * a notification (`waiters[n].wake()`) or an abort, never by itself.
+ */
+function notified(stopWaiting?: AbortSignal) {
+  const at = new Date("2026-09-22T00:00:00.000Z");
+  const harness = {
+    order: [] as string[],
+    naps: [] as number[],
+    waiters: [] as { sessionId: string; signal: AbortSignal; wake(): void }[],
+    queued: false,
+    listening: true,
+    async napping(count: number) {
+      for (let tries = 0; harness.naps.length < count; tries += 1) {
+        if (tries > 200) throw new Error(`only ${harness.naps.length} waits`);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+    },
+  };
+  const onAbort = (signal: AbortSignal | undefined, resolve: () => void) =>
+    signal?.addEventListener("abort", () => resolve(), { once: true });
+  const instance = createWorkerGateway({
+    work: work({
+      async nextInputAtomic(input) {
+        harness.order.push("fenced");
+        return {
+          outcome: "ok",
+          leaseExpiresAt: new Date(input.now.getTime() + 30_000),
+          input: harness.queued ? GO(input.now) : null,
+        };
+      },
+      async nextInputPending() {
+        harness.order.push("asked");
+        return harness.queued;
+      },
+    }),
+    wakeup: {
+      get listening() {
+        return harness.listening;
+      },
+      wait(sessionId, signal) {
+        harness.order.push("armed");
+        return new Promise<void>((resolve) => {
+          harness.waiters.push({ sessionId, signal, wake: resolve });
+          onAbort(signal, resolve);
+        });
+      },
+    },
+    catalog: { connections: {}, repositories: {} },
+    checkpoints: acceptAllCheckpoints,
+    options: {
+      sessionBudget: { costUsd: 1_000, tokens: null },
+      leaseTtlMs: 30_000,
+      ...(stopWaiting === undefined ? {} : { stopWaiting }),
+      now: () => at,
+      sleep: (ms, signal) =>
+        new Promise<void>((resolve) => {
+          harness.naps.push(ms);
+          onAbort(signal, resolve);
+        }),
+    },
+  });
+  return Object.assign(harness, { instance });
+}
 
 describe("WorkerGateway", () => {
   test("nextInput polls until input arrives and caps wait_ms at maxWaitMs", async () => {
@@ -365,6 +442,216 @@ describe("WorkerGateway", () => {
     await instance.nextInput(principal, { ...scope, wait_ms: 20_000 });
     expect(calls).toBe(1);
     expect(slept).toEqual([]);
+  });
+
+  test("a waiting nextInput asks without the lock, and reads under the fence only when told to or at its deadline (94S-2243)", async () => {
+    let fencedReads = 0;
+    const asked: unknown[] = [];
+    const answers = [false, false, true];
+    const { instance, slept } = gateway({
+      async nextInputAtomic(input) {
+        fencedReads += 1;
+        return {
+          outcome: "ok",
+          leaseExpiresAt: new Date(input.now.getTime() + 30_000),
+          input: fencedReads === 2 ? GO(input.now) : null,
+        };
+      },
+      async nextInputPending(input) {
+        asked.push(input);
+        return answers.shift() ?? false;
+      },
+    });
+    const response = await instance.nextInput(principal, {
+      ...scope,
+      wait_ms: 60_000,
+    });
+    expect(response.input?.turn_id).toBe("1");
+    // One fenced read to start, one once the question said yes.
+    expect(fencedReads).toBe(2);
+    expect(asked).toEqual(
+      Array.from({ length: 3 }, () => ({
+        fence: {
+          sessionId: scope.session_id,
+          attemptId: "att_1",
+          leaseEpoch: 1,
+          executionGeneration: 1,
+          authRevision: 0,
+        },
+        budget: { costUsd: 1_000, tokens: null },
+      })),
+    );
+    expect(slept).toEqual([100, 100]);
+
+    // Nothing ever pending: the answer at the deadline is still a fenced
+    // read's, so its lease is the one the database holds now.
+    fencedReads = 0;
+    const idle = gateway({
+      async nextInputAtomic(input) {
+        fencedReads += 1;
+        return {
+          outcome: "ok",
+          input: null,
+          leaseExpiresAt: new Date(input.now.getTime() + 30_000),
+        };
+      },
+      nextInputPending: async () => false,
+    });
+    const none = await idle.instance.nextInput(principal, {
+      ...scope,
+      wait_ms: 60_000,
+    });
+    expect(none).toEqual({
+      input: null,
+      lease_expires_at: "2026-09-22T00:00:31.000Z",
+    });
+    expect(fencedReads).toBe(2);
+    expect(idle.slept).toHaveLength(10);
+  });
+
+  test("a fence that stopped holding while the poll waited is refused, not waited out", async () => {
+    let fencedReads = 0;
+    const { instance } = gateway({
+      async nextInputAtomic(input) {
+        fencedReads += 1;
+        return fencedReads === 1
+          ? {
+              outcome: "ok",
+              input: null,
+              leaseExpiresAt: new Date(input.now.getTime() + 30_000),
+            }
+          : { outcome: "stale_epoch" };
+      },
+      // What the lock-free read answers for a fence it cannot vouch for.
+      nextInputPending: async () => true,
+    });
+    await expect(
+      instance.nextInput(principal, { ...scope, wait_ms: 60_000 }),
+    ).rejects.toMatchObject({ status: 409, code: "STALE_EPOCH" });
+    expect(fencedReads).toBe(2);
+  });
+
+  test("with a wakeup, a notification ends the wait and the interval is only the slow fallback", async () => {
+    const poll = notified();
+    const polling = poll.instance.nextInput(principal, {
+      ...scope,
+      wait_ms: 20_000,
+    });
+    await poll.napping(1);
+    // The waiter is armed before the read it guards; nothing being queued,
+    // the wait is the long one.
+    expect(poll.order).toEqual(["armed", "fenced", "asked"]);
+    expect(poll.naps).toEqual([5_000]);
+    expect(poll.waiters[0]?.sessionId).toBe(scope.session_id);
+
+    // A notification that brought no input: asked without the lock, and the
+    // poll goes back to waiting on a waiter of its own.
+    poll.waiters[0]?.wake();
+    await poll.napping(2);
+    expect(poll.order).toEqual(["armed", "fenced", "asked", "armed", "asked"]);
+    expect(poll.waiters[0]?.signal.aborted).toBe(true);
+
+    poll.queued = true;
+    poll.waiters[1]?.wake();
+    expect((await polling).input?.turn_id).toBe("1");
+    expect(poll.order).toEqual([
+      "armed",
+      "fenced",
+      "asked",
+      "armed",
+      "asked",
+      "armed",
+      "asked",
+      "fenced",
+    ]);
+    // Every waiter is given back, the last one too.
+    expect(poll.waiters.map((waiter) => waiter.signal.aborted)).toEqual([
+      true,
+      true,
+      true,
+    ]);
+  });
+
+  test("while the wakeup is not listening, the poll asks again every 250 ms as before", async () => {
+    const poll = notified();
+    poll.listening = false;
+    const polling = poll.instance.nextInput(principal, {
+      ...scope,
+      wait_ms: 20_000,
+    });
+    polling.catch(() => {});
+    await poll.napping(1);
+    expect(poll.naps).toEqual([250]);
+    // Listening again by the next wait: back to the slow fallback.
+    poll.listening = true;
+    poll.waiters[0]?.wake();
+    await poll.napping(2);
+    expect(poll.naps).toEqual([250, 5_000]);
+    poll.queued = true;
+    poll.waiters[1]?.wake();
+    expect((await polling).input?.turn_id).toBe("1");
+  });
+
+  test("stopWaiting ends a notified wait at once, on a fenced read", async () => {
+    const stop = new AbortController();
+    const poll = notified(stop.signal);
+    const polling = poll.instance.nextInput(principal, {
+      ...scope,
+      wait_ms: 20_000,
+    });
+    await poll.napping(1);
+    stop.abort();
+    expect(await polling).toEqual({
+      input: null,
+      lease_expires_at: "2026-09-22T00:00:30.000Z",
+    });
+    expect(poll.order).toEqual(["armed", "fenced", "asked", "armed", "fenced"]);
+  });
+
+  test("something queued that the fenced read holds back is read every 250 ms, as it always was", async () => {
+    // A turn is queued and the session may not be given it (a takeover,
+    // say), then it may: the third fenced read. No notification ever comes.
+    let at = new Date("2026-09-22T00:00:00.000Z");
+    const slept: number[] = [];
+    let fencedReads = 0;
+    const instance = createWorkerGateway({
+      work: work({
+        async nextInputAtomic(input) {
+          fencedReads += 1;
+          return {
+            outcome: "ok",
+            leaseExpiresAt: new Date(input.now.getTime() + 30_000),
+            input: fencedReads === 3 ? GO(input.now) : null,
+          };
+        },
+        nextInputPending: async () => true,
+      }),
+      wakeup: {
+        listening: true,
+        wait: (_sessionId, signal) =>
+          new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          }),
+      },
+      catalog: { connections: {}, repositories: {} },
+      checkpoints: acceptAllCheckpoints,
+      options: {
+        sessionBudget: { costUsd: 1_000, tokens: null },
+        leaseTtlMs: 30_000,
+        now: () => at,
+        sleep: async (ms) => {
+          slept.push(ms);
+          at = new Date(at.getTime() + ms);
+        },
+      },
+    });
+    const response = await instance.nextInput(principal, {
+      ...scope,
+      wait_ms: 20_000,
+    });
+    expect(response.input?.turn_id).toBe("1");
+    // Not the 5 s of a poll with nothing queued.
+    expect(slept).toEqual([250, 250]);
   });
 
   test("fence rejections map to 409 LEASE_EXPIRED / STALE_EPOCH", async () => {
