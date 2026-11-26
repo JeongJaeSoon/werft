@@ -4071,6 +4071,11 @@ export const conversationCalls = pgTable(
       .where(
         sql`${table.state} IN ('reserved', 'in_flight') AND ${table.requesterUserId} IS NOT NULL`,
       ),
+    // The usage reads' period range; an installation's has no workspace to
+    // lead with.
+    index("conversation_calls_period_idx")
+      .on(table.createdAt)
+      .where(sql`${table.state} <> 'released'`),
     // For the topic FK's ON DELETE, so dropping a topic reads no other row.
     index("conversation_calls_topic_idx")
       .on(table.topicId)

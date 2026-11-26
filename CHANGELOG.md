@@ -22,6 +22,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 앞선 이미지로 되돌려도 된다.
 - **저장 한도 경고 지표 셋과 하루 한 번의 카운터 점검을 더한다**(JeongJaeSoon/werft#2282). metrics role이 `werft_input_storage_used_bytes`·`werft_input_storage_limit_bytes`·`werft_input_storage_limit_reached{threshold="0.8"|"1"}`를 낸다. 한도 80%에서 알리려면 `werft_input_storage_limit_reached{threshold="0.8"} == 1`에 경고를 건다. api가 매일 03:30 UTC에 카운터를 `turns`의 실제 bytes와 맞춰 보고, 다르면 `The storage counter differs from the turns` 경고 로그를 남긴다. 카운터를 고치지는 않는다. migration은 없다.
 - **대화 rollout이 `on`인 에이전트가 올리는 글이 모두 AI가 쓴 글이라는 작은 회색 줄(`AI 에이전트 · Werft`)로 끝난다**(JeongJaeSoon/werft#2259). 한 턴의 결과나 요청인 글에는 `<이름> 님 요청`이 붙는다. `off`·`shadow`인 에이전트의 글은 전과 같다. migration은 없고 따로 할 일도 없다.
+- **사용량 화면의 대화 비용 읽기에 쓸 기간 조회 인덱스를 더한다**(JeongJaeSoon/werft#2257). migration `0382_conversation_calls_period_index`가 `conversation_calls`에 부분 인덱스를 `CONCURRENTLY`로 만든다. 쓰기를 막지 않고 따로 할 일은 없다. 앞선 이미지로 되돌려도 된다.
 - **DB가 15초 내려가도 heartbeat 간격의 어느 때에 시작됐든 진행 중인 turn이 끝까지 간다**(JeongJaeSoon/werft#2245). worker의 heartbeat 간격이 5초에서 2초로 준다. 전에는 장애가 간격의 끝 무렵(마지막 heartbeat 뒤 약 4.2초 넘어)에 시작되면 turn이 `worker_ownership_lost`로 끝났다. lease TTL(30초)과 안전 마진(10초)은 그대로이고, migration은 없다.
   - heartbeat 트랜잭션이 worker 하나당 초당 0.2회에서 0.5회로 는다. 동시 worker 50개면 초당 25회다.
   - 약 18초를 넘는 장애에서는 전과 같이 turn이 끊기고 세션은 다음 메시지를 받는다.
