@@ -22,6 +22,11 @@ export const SLACK_INTERACTION_ACTIONS = {
   pushReject: "push.reject",
   /** Goes on from a turn its worker's lost lease ended; `r` is the turn id. */
   turnContinue: "turn.continue",
+  /**
+   * Runs a turn whose outcome is unknown again in a new context, on a
+   * session with no committed checkpoint (start_fresh); `r` is the turn id.
+   */
+  turnStartFresh: "turn.start_fresh",
 } as const;
 export const SLACK_QUESTION_VIEW_CALLBACK = "question.answer";
 export const SLACK_NOTE_VIEW_CALLBACK = "permission.allow_note";

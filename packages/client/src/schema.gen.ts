@@ -2411,7 +2411,7 @@ export interface paths {
          *     - `abandon`: the `outcome_unknown` turn `target_turn_id` becomes `cancelled` and its input receipt fails; the session is `stopped`.
          *     - `confirm_completed`: with `evidence_ref`, the turn becomes `completed` and its input receipt succeeds; it needs a committed checkpoint that reaches the turn. The session is `stopped`.
          *     - `close`: ends the session for good.
-         *     - `start_fresh`: continues on a new engine session that does not remember the turns before; the checkpoints so far are retired and queued input runs.
+         *     - `start_fresh`: continues on a new engine session that does not remember the turns before; the checkpoints so far are retired and queued input runs. On a session with no committed checkpoint (a worker that died during the first turn, say), a turn whose outcome is unknown does not have to be settled first: it ends `cancelled` with `terminal_reason` `operator_start_fresh`, its input receipt fails with `CONTROL_SUPERSEDED`, and a new turn with the same input is queued behind any input already waiting. `target_turn_id`, when sent, must name that turn. `start_fresh_available` on `GET /v1/sessions/{id}` says whether this decision would be taken now.
          *     - `retry_restore`: restores the same checkpoint again after what made the restores fail is fixed; queued input runs.
          *
          *     The decision takes effect in the request: the receipt is `succeeded` in the response, with result `{resulting_admission_state, checkpoint_revision, resumable}`. After `abandon` or `confirm_completed`, resume the session; `resumable: false` means a resume would answer `CHECKPOINT_UNAVAILABLE`. The decision is also recorded as a `system` event on the stream.
@@ -5859,6 +5859,7 @@ export interface components {
             reason: string;
             /** @constant */
             decision: "start_fresh";
+            target_turn_id?: string;
         } | {
             expected_revision: number;
             reason: string;
@@ -7030,6 +7031,8 @@ export interface components {
                 /** @constant */
                 code: "SOURCE_DELETED";
             }) | null;
+            /** @description Whether `POST /v1/sessions/{id}/recovery-decisions` would take `start_fresh` on the session now, judged on its state alone, not on whether the caller may decide it. True also for a session with no committed checkpoint whose turn ended `outcome_unknown`: start_fresh runs that turn's input again. Absent from a server older than the field. */
+            start_fresh_available?: boolean;
             durability: components["schemas"]["SessionDurability"];
             /** @description What the session's worker images ran, as recorded at launch and checkpoint; `runtime.version` is instead the version its agent release pinned. Absent from a server older than the field. */
             worker_runtime?: {
@@ -30602,11 +30605,11 @@ export interface operations {
             /**
              * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
              *     - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
-             *     - `REQUEST_STALE`: The request was made against state that has since moved on. The decision does not apply to the session now: `close` or `start_fresh` on a session not awaiting recovery, `confirm_completed` or `abandon` on a turn whose outcome is not unknown, or `retry_restore` on a session a failed restore did not stop.
+             *     - `REQUEST_STALE`: The request was made against state that has since moved on. The decision does not apply to the session now: `close` or `start_fresh` on a session not awaiting recovery, `confirm_completed`, `abandon` or `start_fresh` with a `target_turn_id` naming a turn whose outcome is not unknown, or `retry_restore` on a session a failed restore did not stop.
              *     - `SESSION_PAUSED`: The session is pausing or paused; resume it first. Reserved: this operation does not currently return it, because it accepts a session in that state. A decision that does not apply to the session answers `REQUEST_STALE`.
              *     - `SESSION_RESUMING`: The session is resuming; wait for the resume receipt. Reserved: this operation does not currently return it, because it accepts a session in that state. A decision that does not apply to the session answers `REQUEST_STALE`.
              *     - `SESSION_STOPPED`: The session is stopping or stopped; resume it first. Reserved: this operation does not currently return it, because it accepts a session in that state. A decision that does not apply to the session answers `REQUEST_STALE`.
-             *     - `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`). The execution is not yet confirmed gone, or `start_fresh` while a turn's outcome is still unknown.
+             *     - `RECOVERY_REQUIRED`: The session needs a recovery decision first (`POST /v1/sessions/{id}/recovery-decisions`). The execution is not yet confirmed gone, or `start_fresh` while a turn's outcome is still unknown on a session with a committed checkpoint.
              *     - `SESSION_CLOSED`: The session is closed and accepts no further commands.
              *     - `CHECKPOINT_UNAVAILABLE`: The session has no committed checkpoint that can serve this request. `confirm_completed` with no committed checkpoint that reaches the target turn.
              *     - `SOURCE_DELETED`: A Slack message the input or the session drew on was deleted, so no turn is made from it. A session stopped for it (attention SOURCE_DELETED) takes no input and does not resume; close is the only control left. `start_fresh` or `retry_restore` on a session stopped because a source of one of its turns was deleted in Slack; `close` is the decision left.

@@ -74,6 +74,7 @@ import {
   slackQuestionAnswers,
   slackQuestionView,
   slackSettledCard,
+  slackStartFreshNotice,
 } from "./slack-prompts.ts";
 
 /** Redraws the card; `via` is "slack" when this press settled it. */
@@ -110,7 +111,10 @@ export type SlackInteractionDeps = {
     "answer" | "listPendingRequests" | "outcome"
   >;
   pushes: Pick<PushRequestService, "decide" | "get">;
-  sessions: Pick<SessionService, "queuePushFollowUp" | "continueTurn">;
+  sessions: Pick<
+    SessionService,
+    "queuePushFollowUp" | "continueTurn" | "startFreshTurn"
+  >;
   followUps: PushFollowUpStore;
   slack: Pick<SlackBotApi, "userInfo"> &
     Required<Pick<SlackBotApi, "updateMessage" | "openView" | "updateView">> &
@@ -870,6 +874,9 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       if (actionId === SLACK_INTERACTION_ACTIONS.turnContinue) {
         return ok(await continueTurn(pressed, payload.message.ts, value));
       }
+      if (actionId === SLACK_INTERACTION_ACTIONS.turnStartFresh) {
+        return ok(await startFreshTurn(pressed, payload.message.ts, value));
+      }
       // A press names its request, which the policy reads for a requester
       // who left a private channel.
       const push =
@@ -1007,6 +1014,69 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       });
     }
     return superseded ? "superseded" : "continued";
+  }
+
+  /**
+   * [Continue in a new context] on the notice of a turn whose outcome is
+   * unknown on a session with no committed checkpoint: a start_fresh
+   * decision that runs the turn again, for the person who pressed, judged as
+   * a message they typed in the thread would be. One decision per turn,
+   * whoever presses and however often.
+   */
+  async function startFreshTurn(
+    pressed: Pressed,
+    ts: string,
+    value: SlackInteractionValue,
+  ): Promise<string> {
+    const turnId = Number(value.r);
+    if (!Number.isSafeInteger(turnId) || turnId < 1) return "ignored";
+    const admitted = await admit(pressed, value.s, {}, "session.submit");
+    if ("refused" in admitted) return `refused:${admitted.refused}`;
+    // The session moved on another way (a decision elsewhere, a close): the
+    // decision no longer applies and nothing is run.
+    const stale = await deps.sessions
+      .startFreshTurn(admitted.caller, value.s, { turnId })
+      .then(
+        () => false,
+        (error: unknown) => {
+          if (
+            error instanceof SessionServiceError &&
+            error.code === "REQUEST_STALE"
+          ) {
+            return true;
+          }
+          throw error;
+        },
+      );
+    if (stale) return "stale";
+    try {
+      const linkUrl = sessionUrl(new URL(deps.connectUrl).origin, value.s);
+      const redrawn = slackStartFreshNotice({
+        locale: pressed.locale,
+        sessionId: value.s,
+        turnId,
+        continued: true,
+        ...(linkUrl === undefined ? {} : { linkUrl }),
+      });
+      const label =
+        (await deps.outbox.aiLabelFor({
+          agentId: pressed.agentId,
+          sessionId: value.s,
+          turnId,
+        })) ?? undefined;
+      await deps.slack.updateMessage(pressed.botToken, {
+        channelId: pressed.channelId,
+        ts,
+        text: redrawn.text + slackAiLabelSuffix(pressed.locale, label),
+        blocks: withSlackAiLabel(redrawn.blocks, pressed.locale, label),
+      });
+    } catch (error) {
+      deps.logger.warn("Slack notice update failed", {
+        agent_id: pressed.agentId,
+        error: messageOf(error),
+      });
+    }
+    return "started_fresh";
   }
 
   async function onSubmit(

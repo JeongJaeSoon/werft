@@ -499,6 +499,66 @@ export function slackOwnershipLostNotice(input: {
   };
 }
 
+/**
+ * The notice of a turn whose outcome is unknown on a session with no
+ * committed checkpoint: what happened, what the button gives up, the button
+ * that runs the turn again in a new context, and the console link.
+ * `continued`: the same notice once someone pressed, with no button left.
+ */
+export function slackStartFreshNotice(input: {
+  locale: UserLocale;
+  sessionId: string;
+  turnId: number;
+  linkUrl?: string;
+  continued?: boolean;
+}): { text: string; blocks: unknown[] } {
+  const copy = SLACK_NOTICE_MESSAGES[input.locale];
+  const value: SlackInteractionValue = {
+    s: input.sessionId,
+    r: String(input.turnId),
+  };
+  const elements = [
+    ...(input.continued
+      ? []
+      : [
+          button(
+            copy.startFreshContinue,
+            SLACK_INTERACTION_ACTIONS.turnStartFresh,
+            JSON.stringify(value),
+            "primary",
+          ),
+        ]),
+    ...(input.linkUrl !== undefined && isSafeLink(input.linkUrl)
+      ? [
+          {
+            type: "button",
+            action_id: SLACK_OPEN_WEB_ACTION,
+            text: plain(
+              SLACK_PROMPT_MESSAGES[input.locale].link,
+              BUTTON_TEXT_MAX,
+            ),
+            url: input.linkUrl,
+          },
+        ]
+      : []),
+  ];
+  return {
+    text: copy.startFresh,
+    blocks: [
+      { type: "section", text: plain(copy.startFresh) },
+      {
+        type: "context",
+        elements: [
+          plain(
+            input.continued ? copy.startFreshContinued : copy.startFreshWarning,
+          ),
+        ],
+      },
+      ...(elements.length === 0 ? [] : [{ type: "actions", elements }]),
+    ],
+  };
+}
+
 export function slackPromptValue(
   prompt: Pick<SlackPrompt, "sessionId" | "requestId">,
   option?: number,

@@ -279,6 +279,11 @@ export type SurfaceUnansweredTurn = SurfaceLinkedTurnTarget & {
   /** The session is paused: a resume that found no room went back to it. */
   sessionPaused?: boolean;
   /**
+   * The turn's outcome is unknown and its session has no committed
+   * checkpoint: its notice offers start_fresh, which runs the turn again.
+   */
+  startFreshOffered?: boolean;
+  /**
    * A failed turn a budget account refused (recordBudgetAccountRefusal):
    * its notice says so in place of "try again". `first`: the session's first
    * refusal while the limit holds (no told refusal on an earlier turn since
