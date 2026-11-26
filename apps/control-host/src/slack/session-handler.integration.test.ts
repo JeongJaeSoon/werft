@@ -29,6 +29,7 @@ import {
   type ConversationInputId,
   type ConversationTurnId,
   type ConversationTurnResult,
+  conversationCallIdSchema,
   conversationDecisionTools,
   conversationRuntimeIdSchema,
   conversationTurnLeaseIdSchema,
@@ -44,6 +45,7 @@ import {
   createDatabaseIdentityReader,
   createPostgresAgentIdentityStore,
   createPostgresAgentStore,
+  createPostgresConversationCalls,
   createPostgresConversationReadToolStore,
   createPostgresConversationStore,
   createPostgresConversationTurnQueue,
@@ -79,10 +81,12 @@ import { createLogger } from "@werft-ai/observability";
 import {
   type Caller,
   callerFor,
+  conversationCallReserve,
   createAgentService,
   createAuthorizationPolicy,
   createSurfaceBindingService,
   createTopicSessionChecks,
+  hashConversationCallToken,
   type MentionTurnStatusStore,
   SecretKey,
   type SessionCatalog,
@@ -5266,6 +5270,196 @@ describe.each(ENGINES)(
       expect(slack.statuses).toEqual([]);
       expect(notices).toEqual([]);
     });
+
+    /** A person's DM to the agent; a thread reply with `thread_ts`. */
+    const dmPost = (ts: string, extra: Record<string, unknown> = {}) => ({
+      type: "message",
+      channel: "D0OWNER",
+      channel_type: "im",
+      user: PERSON,
+      ts,
+      text: "what changed this week",
+      ...extra,
+    });
+    const turnPlacesOf = (fixture: Fixture) =>
+      db
+        .select({
+          conversationId: schema.conversationTurns.conversationId,
+          topicId: schema.conversationTurns.topicId,
+          kind: schema.conversations.kind,
+          personUserId: schema.conversations.personUserId,
+        })
+        .from(schema.conversationTurns)
+        .innerJoin(
+          schema.conversations,
+          eq(schema.conversations.id, schema.conversationTurns.conversationId),
+        )
+        .where(eq(schema.conversationTurns.agentId, fixture.agentId))
+        .orderBy(asc(schema.conversationTurns.createdAt));
+
+    test("rollout on: a top-level DM is one turn of its thread, in the person's DM conversation, and no session", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const { handle, notices } = handler();
+      await deliver(fixture, dmPost("100.000100"));
+      await drain(handle);
+      const [turn, ...others] = await mentionTurnsOf(fixture);
+      expect(others).toEqual([]);
+      expect(turn).toMatchObject({
+        state: "running",
+        requesterKind: "user",
+        requesterId: fixture.ownerId,
+        threadTs: "100.000100",
+      });
+      expect(await turnPlacesOf(fixture)).toMatchObject([
+        { kind: "dm", personUserId: fixture.ownerId },
+      ]);
+      expect(statusesOf("100.000100")).toEqual(["processing"]);
+      expect(await sessionsOf(fixture)).toEqual([]);
+      expect(await links()).toEqual([]);
+      expect(notices).toEqual([]);
+    });
+
+    test("rollout on: two top-level DMs of one person are two topics of one DM conversation, and no session", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const { handle } = handler();
+      await deliver(fixture, dmPost("100.000100"));
+      await deliver(fixture, dmPost("100.000200", { text: "and the budget" }));
+      await drain(handle);
+      expect(
+        (await mentionTurnsOf(fixture)).map((turn) => turn.threadTs),
+      ).toEqual(["100.000100", "100.000200"]);
+      const [first, second] = await turnPlacesOf(fixture);
+      expect(first?.conversationId).toBe(second?.conversationId);
+      expect(first?.topicId).not.toBe(second?.topicId);
+      expect(await sessionsOf(fixture)).toEqual([]);
+    });
+
+    test("rollout on: a reply in a DM thread with no work is a turn of that thread's topic", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const { handle } = handler();
+      await deliver(fixture, dmPost("100.000100"));
+      await deliver(fixture, dmPost("100.000300", { thread_ts: "100.000100" }));
+      await drain(handle);
+      const places = await turnPlacesOf(fixture);
+      expect(places).toHaveLength(2);
+      expect(places[0]?.topicId).toBe(places[1]?.topicId);
+      expect(await sessionsOf(fixture)).toEqual([]);
+    });
+
+    test("rollout on: a DM turn's permit and its model call are charged to the person who wrote it", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      // Another person than the agent's owner, so an owner's root would not
+      // pass; an admin, as a plain member has no right to ask.
+      const memberId = randomUUID();
+      await db.insert(users).values({
+        id: memberId,
+        email: `${memberId}@example.invalid`,
+        displayName: "admin",
+      });
+      await db.insert(memberships).values({
+        workspaceId: fixture.workspaceId,
+        userId: memberId,
+        role: "admin",
+      });
+      await db.insert(linkedAccounts).values({
+        id: randomUUID(),
+        workspaceId: fixture.workspaceId,
+        userId: memberId,
+        provider: "slack",
+        externalTenant: TEAM,
+        externalUserId: "U0MEMBER",
+        verifiedVia: "slack_oidc",
+        verifiedAt: new Date(),
+      });
+      await deliver(
+        fixture,
+        dmPost("100.000100", { channel: "D0MEMBER", user: "U0MEMBER" }),
+      );
+      await drain(handler().handle);
+      expect(await turnPlacesOf(fixture)).toMatchObject([
+        { kind: "dm", personUserId: memberId },
+      ]);
+      const taken = await leased();
+      const [permit] = await db
+        .select({
+          rootKind: schema.conversationTurnPermits.rootKind,
+          requesterUserId: schema.conversationTurnPermits.requesterUserId,
+        })
+        .from(schema.conversationTurnPermits)
+        .where(eq(schema.conversationTurnPermits.turnId, taken.turn_id));
+      expect(permit).toEqual({
+        rootKind: "user",
+        requesterUserId: memberId,
+      });
+      // The call the turn's model request asks for, as the proxy asks.
+      const { auth } = taken.provider;
+      if (auth.kind !== "egress_token") throw new Error(auth.kind);
+      const granted = await createPostgresConversationCalls(
+        db,
+      ).authorizeTurnCallAtomic({
+        tokenHash: hashConversationCallToken(auth.token),
+        exchangeId: randomUUID(),
+        callId: conversationCallIdSchema.parse(randomUUID()),
+        reserveFor: () => ({
+          reserve: conversationCallReserve({
+            model: taken.model,
+            maxTokens: taken.call.max_tokens,
+            maxRequestBytes: 4_096,
+          }),
+          unmetered: false,
+        }),
+      });
+      expect(granted.outcome).toBe("ok");
+      const calls = await db
+        .select({
+          rootKind: schema.conversationCalls.rootKind,
+          requesterUserId: schema.conversationCalls.requesterUserId,
+        })
+        .from(schema.conversationCalls)
+        .where(eq(schema.conversationCalls.agentId, fixture.agentId));
+      expect(calls).toEqual([{ rootKind: "user", requesterUserId: memberId }]);
+      // The runtime takes it: the DM is the instruction and the current post.
+      expect(taken.input.text).toBe("what changed this week");
+      const handed = await createTopicSessionChecks({
+        contexts: createPostgresTopicTurnContexts(db),
+        turns: createPostgresConversationReadToolStore(db),
+      }).handOut(taken);
+      expect(
+        handed.fresh_input.text
+          .split("\n")
+          .filter((line) => line.startsWith("[now] ")),
+      ).toEqual(["[now] what changed this week"]);
+    });
+
+    test("rollout on: a post in a DM thread bound to open work goes to its session, with no turn", async () => {
+      const fixture = await agentInSlack("main", { rollout: "off" });
+      const { handle } = handler();
+      await deliver(fixture, dmPost("100.000100"));
+      await drain(handle);
+      await db
+        .update(agents)
+        .set({ conversationRollout: "on" })
+        .where(eq(agents.id, fixture.agentId));
+      await deliver(fixture, dmPost("100.000300", { thread_ts: "100.000100" }));
+      await drain(handle);
+      const [session, ...more] = await sessionsOf(fixture);
+      expect(more).toEqual([]);
+      expect((await turnsOf(session?.id)).map((turn) => turn.sequence)).toEqual(
+        [1, 2],
+      );
+      expect(await mentionTurnsOf(fixture)).toEqual([]);
+    });
+
+    for (const rollout of ["off", "shadow"] as const) {
+      test(`rollout ${rollout}: a DM opens its session as before, and no conversation turn`, async () => {
+        const fixture = await agentInSlack("main", { rollout });
+        await deliver(fixture, dmPost("100.000100"));
+        await drain(handler().handle);
+        expect(await sessionsOf(fixture)).toHaveLength(1);
+        expect(await mentionTurnsOf(fixture)).toEqual([]);
+        expect(slack.statuses).toEqual([]);
+      });
+    }
 
     for (const rollout of ["off", "shadow"] as const) {
       test(`rollout ${rollout}: a mention opens its session as before, and no conversation turn`, async () => {

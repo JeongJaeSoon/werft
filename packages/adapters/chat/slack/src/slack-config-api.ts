@@ -670,6 +670,7 @@ export interface SlackBotSender {
       userId: string;
       threadTs: string;
       text: string;
+      blocks?: unknown[];
     },
   ): Promise<SlackSendResponse>;
 }
@@ -1084,6 +1085,7 @@ export function createSlackBotApi(
         user: input.userId,
         thread_ts: input.threadTs,
         text: input.text,
+        ...(input.blocks === undefined ? {} : { blocks: input.blocks }),
         link_names: false,
       });
       const body = answer.body as Record<string, unknown> | null;

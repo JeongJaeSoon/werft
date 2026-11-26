@@ -375,13 +375,14 @@ export function createSlackSessionHandler(
     };
 
     /**
-     * What the handling table makes of a mention with no work bound to its
-     * thread (rows 1 and 7), or `current_path` while the agent's rollout
-     * is not on: `off` and `shadow` take the mention as before.
+     * What the handling table makes of a mention or a DM with no work bound
+     * to its thread (rows 1, 7 and 14), or `current_path` while the agent's
+     * rollout is not on: `off` and `shadow` take it as before.
      */
     const mentionTableHandling = async (): Promise<
       TableHandling | "current_path" | "no_binding"
     > => {
+      // A DM has no channel conversation, so its channel state reads active.
       const place = await deps.buffer.place({
         kind: "channel",
         workspaceId: agent.workspaceId,
@@ -390,13 +391,15 @@ export function createSlackSessionHandler(
         channelId: event.channel,
       });
       if (place.rollout !== "on") return "current_path";
-      const live = await deps.bindings.findLiveSlackChannel(
-        agent.installationId,
-        event.channel,
-      );
+      const live = dm
+        ? await deps.bindings.ensureDmBinding(agent.installationId)
+        : await deps.bindings.findLiveSlackChannel(
+            agent.installationId,
+            event.channel,
+          );
       if (live === null) return "no_binding";
       const handling = inboundHandling({
-        place: "channel",
+        place: dm ? "dm" : "channel",
         work: "none",
         engaged: false,
         input: "mention",
@@ -409,9 +412,10 @@ export function createSlackSessionHandler(
     };
 
     /**
-     * The mention as a turn of its thread's topic, the person who wrote it
-     * its requester as the decision recorded them. The thread shows
-     * "processing" until the Slack role's pass ends the turn.
+     * The mention or DM as a turn of its thread's topic, the person who
+     * wrote it its requester as the decision recorded them; a DM's topic is
+     * in that person's DM conversation, one topic per top-level DM. The
+     * thread shows "processing" until the Slack role's pass ends the turn.
      */
     const mentionTurn = async (
       botToken: string,
@@ -432,7 +436,11 @@ export function createSlackSessionHandler(
         throw new SlackInboundDropped("installation_revoked");
       }
       await stopIfLeft();
-      const place = { dm: false, personUserId: null, channelId: event.channel };
+      const place = {
+        dm,
+        personUserId: dm ? requesterUserId : null,
+        channelId: event.channel,
+      };
       const conversation = await conversationOf(place, claim.teamId, agent);
       if (conversation === null) {
         throw new Error("A Slack channel has no conversation");
@@ -602,10 +610,11 @@ export function createSlackSessionHandler(
     // A stray reply is nobody's request in any mode; skip the lookup.
     if (found === null && !mentioned && !dm && event.thread_ts !== undefined)
       return;
-    // A person's mention outside a bound thread, once the agent's rollout is
-    // on: the handling table says whether it becomes a conversation turn.
+    // A person's mention or DM outside a bound thread, once the agent's
+    // rollout is on: the handling table says whether it becomes a
+    // conversation turn. A DM thread bound to work goes to it as before (M0).
     const mentionHandling =
-      found === null && mentioned && !dm && !fromBot
+      found === null && (mentioned || dm) && !fromBot
         ? await mentionTableHandling()
         : "current_path";
     if (mentionHandling !== "current_path" && mentionHandling !== "m2") {
