@@ -5615,7 +5615,10 @@ describe("session steps", () => {
         }),
     });
     const progress = await sessionProgress();
-    await within(progress).findByRole("button", { name: /^단계 / });
+    const toggle = await within(progress).findByRole("button", {
+      name: /^단계 /,
+    });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(headStates(progress)).toEqual([...said]);
   });
 

@@ -60,7 +60,7 @@ export interface SessionProgressProps {
   readonly listId: string;
   readonly listOpen: boolean;
   readonly onListToggle: () => void;
-  /** The session's cost and tokens, drawn last. */
+  /** The session's cost and tokens, drawn after the line's own figures. */
   readonly usage?: ReactNode;
 }
 
