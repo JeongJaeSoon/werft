@@ -862,7 +862,7 @@ export const OPENAPI_TAGS = [
   {
     name: "Recovery",
     description:
-      "Resolve sessions that require a recovery decision. Whoever may write to a session also gives up its unknown turn (`abandon`) or its lost context (`start_fresh`); the other decisions are an operator's. The requester's own decision also takes an API key with `sessions:recover`.",
+      "Resolve sessions that require a recovery decision. Whoever may write to a session also gives up its unknown turn (`abandon`) or its lost context (`start_fresh`); the other decisions are an operator's and take `sessions:recover`, from a cookie session or an API key.",
   },
   {
     name: "Admin",
