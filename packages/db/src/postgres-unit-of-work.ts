@@ -1929,7 +1929,6 @@ export function createPostgresSessionReader(
             sql<boolean>`CASE WHEN ${sessions.status} = 'idle' THEN ${LAST_TURN_CUT_OFF} ELSE false END`.as(
               "cut_off",
             ),
-          costUsd: sessions.costUsd,
         })
         .from(sessions)
         .where(sessionFilter(ownerId, query, viewer))
@@ -1945,8 +1944,6 @@ export function createPostgresSessionReader(
             awaitingInput: listed.awaitingInput,
             cutOff: listed.cutOff,
             count: sql<number>`count(*)::int`,
-            // Every group carries the whole sum, added in numeric, not float.
-            costUsd: sql<string>`(sum(sum(${listed.costUsd})) over ())::text`,
           })
           .from(listed)
           .groupBy(listed.status, listed.awaitingInput, listed.cutOff);
@@ -1961,7 +1958,7 @@ export function createPostgresSessionReader(
         if (status === "idle" && row.cutOff) counts.cut_off += row.count;
         total += row.count;
       }
-      return { counts, total, cost_usd: rows[0]?.costUsd ?? "0" };
+      return { counts, total };
     },
 
     async listSessions(

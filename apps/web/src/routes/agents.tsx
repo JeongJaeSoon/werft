@@ -71,10 +71,8 @@ import { NewAgentFlow } from "../components/new-agent-flow.tsx";
 import { PrivateChannelsPending } from "../components/private-channels-pending.tsx";
 import { OPENS_ROW, TABLE_ROW_LINK } from "../components/row-link.ts";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
-import { SessionSummary } from "../components/session-summary.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
-import { sessionCountsQuery } from "./sessions.tsx";
 
 export interface AgentsSearch {
   /** Absent on the first page. */
@@ -136,7 +134,6 @@ export function AgentsScreen() {
       ) : counts.error ? (
         isApiError(counts.error, "FORBIDDEN") ? (
           <>
-            <AgentsSessionSummary announcePending />
             <p className="web-page__intro">{t("agents.listWithheld")}</p>
             <AdministeredAgents showEmpty />
           </>
@@ -174,7 +171,6 @@ function AgentList({
   );
   const [query, setQuery] = useState("");
   const q = useSearchTerm(query);
-  const sessionCounts = useAgentsSessionCounts();
   const paged = scope !== "administered";
   const pages = useInfiniteQuery({
     ...agentPagesQuery(client, q, AGENTS_PAGE_SIZE, scope === "ownerless"),
@@ -239,7 +235,6 @@ function AgentList({
   const manager = role === "owner" || role === "admin";
   return (
     <div className="flex flex-col gap-4">
-      <AgentsSessionSummary />
       {manager && counts.ownerless > 0 && scope !== "ownerless" ? (
         <Alert variant="amber" className="border-0">
           <AlertTitle>
@@ -303,12 +298,8 @@ function AgentList({
           ? ""
           : t("agents.shown", { count: shown })}
       </output>
-      {/* One notice for the session summary above and the list below. */}
       <PrivateChannelsPending
-        pending={
-          privateChannelsPending(sessionCounts) ||
-          privateChannelsPending(paged ? pages.data : summaries.data)
-        }
+        pending={privateChannelsPending(paged ? pages.data : summaries.data)}
       />
       {paged ? (
         counts.all === 0 ? (
@@ -364,35 +355,6 @@ function AgentList({
       )}
     </div>
   );
-}
-
-/**
- * Every session the caller may read, as the sessions list opens it, the
- * running and failed figures each a way into that list; a refusal or failure,
- * a later one included, leaves the line out rather than claiming none or
- * keeping old figures.
- */
-function AgentsSessionSummary({
-  announcePending = false,
-}: {
-  /** Set where no agent list below says that channels are being confirmed. */
-  readonly announcePending?: boolean;
-}) {
-  const counts = useAgentsSessionCounts();
-  return (
-    <>
-      {counts ? <SessionSummary counts={counts} statusLinks /> : null}
-      {announcePending ? (
-        <PrivateChannelsPending pending={privateChannelsPending(counts)} />
-      ) : null}
-    </>
-  );
-}
-
-function useAgentsSessionCounts() {
-  const { client } = useWerft();
-  const counts = useQuery(sessionCountsQuery(client, undefined, undefined));
-  return counts.isError ? undefined : counts.data;
 }
 
 /**
