@@ -1263,6 +1263,14 @@ const LAST_EVENT_AT = sql<Date | null>`coalesce((
   ORDER BY a.from_id DESC LIMIT 1
 ))`.mapWith(events.createdAt);
 
+// The session's last turn is one its worker's lost lease cut off.
+const LAST_TURN_CUT_OFF = sql<boolean>`coalesce((
+  SELECT t.status = 'failed' AND t.terminal_reason = ${WORKER_OWNERSHIP_LOST_REASON}
+  FROM ${turns} t
+  WHERE t.session_id = ${sessions}.id
+  ORDER BY t.sequence DESC LIMIT 1
+), false)`;
+
 type SessionRow = typeof sessions.$inferSelect;
 type TurnRow = typeof turns.$inferSelect;
 type TurnRead = {
@@ -1659,6 +1667,14 @@ export function createPostgresSessionReader(
           .groupBy(turns.sessionId)
       ).map((row) => [row.sessionId, Math.max(0, Math.round(Number(row.ms)))]),
     );
+    const cutOff = new Set(
+      (
+        await executor
+          .select({ id: sessions.id })
+          .from(sessions)
+          .where(and(inArray(sessions.id, ids), LAST_TURN_CUT_OFF))
+      ).map((row) => row.id),
+    );
     const firstTurnOf = (session: SessionRow) =>
       firstTurns.find((turn) => turn.sessionId === session.id);
     const starterOf = (session: SessionRow) =>
@@ -1810,6 +1826,7 @@ export function createPostgresSessionReader(
         queued_turn_count: mine.filter((turn) => turn.status === "queued")
           .length,
         turn_time_ms: turnTimes.get(row.id) ?? 0,
+        last_turn_cut_off: cutOff.has(row.id),
         last_event_at: lastEventAt?.toISOString() ?? null,
         created_at: row.createdAt.toISOString(),
         updated_at: row.updatedAt.toISOString(),
@@ -1855,6 +1872,11 @@ export function createPostgresSessionReader(
           awaitingInput: sql<boolean>`exists (${actionableOfSession(db)})`.as(
             "awaiting_input",
           ),
+          // Only an idle session is counted as cut off; the rest skip the read.
+          cutOff:
+            sql<boolean>`CASE WHEN ${sessions.status} = 'idle' THEN ${LAST_TURN_CUT_OFF} ELSE false END`.as(
+              "cut_off",
+            ),
         })
         .from(sessions)
         .where(sessionFilter(ownerId, query, viewer))
@@ -1868,18 +1890,20 @@ export function createPostgresSessionReader(
           .select({
             status: listed.status,
             awaitingInput: listed.awaitingInput,
+            cutOff: listed.cutOff,
             count: sql<number>`count(*)::int`,
           })
           .from(listed)
-          .groupBy(listed.status, listed.awaitingInput);
+          .groupBy(listed.status, listed.awaitingInput, listed.cutOff);
       });
       const counts = Object.fromEntries(
-        SESSION_STATUS_VALUES.map((status) => [status, 0]),
+        [...SESSION_STATUS_VALUES, "cut_off"].map((status) => [status, 0]),
       ) as CountSessionsResponse["counts"];
       let total = 0;
       for (const row of rows) {
         const status = publicStatus(row.status, row.awaitingInput);
         counts[status] += row.count;
+        if (status === "idle" && row.cutOff) counts.cut_off += row.count;
         total += row.count;
       }
       return { counts, total };
@@ -1911,6 +1935,11 @@ export function createPostgresSessionReader(
               and(
                 sessionFilter(ownerId, query, viewer),
                 query.status ? publicStatusIs(query.status) : undefined,
+                query.last_turn_cut_off === undefined
+                  ? undefined
+                  : query.last_turn_cut_off === "true"
+                    ? LAST_TURN_CUT_OFF
+                    : not(LAST_TURN_CUT_OFF),
                 query.agent_id
                   ? inArray(
                       sessions.agentReleaseId,
