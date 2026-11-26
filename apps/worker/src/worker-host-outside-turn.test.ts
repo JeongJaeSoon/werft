@@ -407,7 +407,54 @@ describe("WorkerHost checkpoints outside a turn", () => {
     expect(gateway.checkpointRevision).toBeNull();
   });
 
-  test("a server without the commit route leaves the checkpoint to the next turn", async () => {
+  test("a capture refused at the turn's end is taken again before the idle exit, with no background work to wait for", async () => {
+    const { captures, gateway, host } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: resultMessage(SESSION_ID, 1) },
+        { type: "await-input" },
+      ],
+      { failures: [REFUSED] },
+    );
+    gateway.enqueue("write a file over the limit, then remove it");
+
+    const summary = await host.runLoop();
+
+    expect(summary.outcome).toBe("idle");
+    expect(captures).toEqual([
+      { status: "ready", kind: "turn_end" },
+      { status: "ready", kind: "before_idle_exit" },
+    ]);
+    expect(
+      gateway.checkpointCommits.map((call) => [
+        call.turn_id,
+        call.checkpoint.revision,
+      ]),
+    ).toEqual([["1", 0]]);
+  });
+
+  test("the last retry of a hold starts at its limit, not a backoff step past it", async () => {
+    const { gateway, host, log } = harness(twoTurns, {
+      everyTime: INFRASTRUCTURE,
+      outsideTurnCheckpoint: { retryHoldMs: 60, retryBackoffMs: [5_000] },
+    });
+    gateway.enqueue("first");
+    gateway.enqueue("second");
+    const started = performance.now();
+
+    const summary = await host.runLoop();
+
+    // One backoff step is 5 s; the hold gave the second turn its input after
+    // 60 ms.
+    expect(performance.now() - started).toBeLessThan(2_500);
+    expect(log).toContain("worker.checkpoint.hold_ended");
+    expect(summary.turns.map((turn) => turn.status)).toEqual([
+      "completed",
+      "completed",
+    ]);
+  });
+
+  test("a server without the commit route is asked once for a turn: the debt is dropped and what was uploaded is given up", async () => {
     const gateway = new FakeWorkerGateway();
     gateway.checkpointCommitFailure = new WorkerGatewayRequestError(
       404,
@@ -415,7 +462,7 @@ describe("WorkerHost checkpoints outside a turn", () => {
       "Not found",
       false,
     );
-    const { captures, host } = harness(backgroundTurn(20), {
+    const { captures, host, refusals } = harness(backgroundTurn(20), {
       gateway,
       timeouts: { idleTimeoutMs: 150 },
     });
@@ -428,6 +475,7 @@ describe("WorkerHost checkpoints outside a turn", () => {
     expect(
       captures.filter((capture) => capture.status === "ready"),
     ).toHaveLength(1);
+    expect(refusals).toHaveLength(1);
   });
 
   test("an answer the engine gives on its own after the turn's checkpoint is captured again", async () => {

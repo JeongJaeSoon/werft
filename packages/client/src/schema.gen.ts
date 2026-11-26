@@ -7237,6 +7237,11 @@ export interface components {
                     sdk_version?: unknown;
                     /** @description Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead. */
                     correlation_id?: unknown;
+                    /**
+                     * @description Present (`true`) on an event its attempt published while it had no turn open, for example an answer the engine gave on its own once background work ended. The envelope's `turn_id` then names the turn that attempt ended last, and the event came after that turn's `result`. Absent otherwise.
+                     * @constant
+                     */
+                    after_turn?: true;
                 } & {
                     [key: string]: unknown;
                 };
@@ -7275,6 +7280,11 @@ export interface components {
                         name: string;
                         input: unknown;
                     };
+                    /**
+                     * @description Present (`true`) on an event its attempt published while it had no turn open, for example an answer the engine gave on its own once background work ended. The envelope's `turn_id` then names the turn that attempt ended last, and the event came after that turn's `result`. Absent otherwise.
+                     * @constant
+                     */
+                    after_turn?: true;
                 };
             };
         } | {
@@ -7311,6 +7321,11 @@ export interface components {
                         name: string;
                         input: unknown;
                     };
+                    /**
+                     * @description Present (`true`) on an event its attempt published while it had no turn open, for example an answer the engine gave on its own once background work ended. The envelope's `turn_id` then names the turn that attempt ended last, and the event came after that turn's `result`. Absent otherwise.
+                     * @constant
+                     */
+                    after_turn?: true;
                 };
             };
         } | {
@@ -7367,6 +7382,11 @@ export interface components {
                     input: unknown;
                     /** Format: date-time */
                     expires_at?: string;
+                    /**
+                     * @description Present (`true`) on an event its attempt published while it had no turn open, for example an answer the engine gave on its own once background work ended. The envelope's `turn_id` then names the turn that attempt ended last, and the event came after that turn's `result`. Absent otherwise.
+                     * @constant
+                     */
+                    after_turn?: true;
                 };
             };
         } | {
@@ -7409,6 +7429,11 @@ export interface components {
                         kind: string;
                         session_ref: string | null;
                     };
+                    /**
+                     * @description Present (`true`) on an event its attempt published while it had no turn open, for example an answer the engine gave on its own once background work ended. The envelope's `turn_id` then names the turn that attempt ended last, and the event came after that turn's `result`. Absent otherwise.
+                     * @constant
+                     */
+                    after_turn?: true;
                 } & {
                     [key: string]: unknown;
                 };

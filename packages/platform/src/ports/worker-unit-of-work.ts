@@ -467,8 +467,13 @@ export type PeekCheckpointCommitInput = Pick<
   CommitCheckpointInput,
   "fence" | "turnId" | "checkpoint"
 >;
+// Everything the commit would answer from the turn alone, read before the
+// manifest is verified: a verdict on a manifest is recorded on the session,
+// and one for a turn no checkpoint can be put on any more must not be.
 export type PeekCheckpointCommitResult =
   | CheckpointCommitted
+  | { outcome: "turn_not_found" }
+  | { outcome: "turn_refused"; reason: string }
   | { outcome: "open" };
 
 /** A settled turn is read without the limits, so it answers while they cannot be. */

@@ -348,6 +348,48 @@ describe("a checkpoint committed outside a turn", () => {
     });
     expect((await sessionRow(sessionId)).checkpointRevision).toBeNull();
   });
+
+  test("is refused from the turn alone before its manifest is judged, so a verdict on the manifest is never recorded for a turn that takes none", async () => {
+    const sessionId = await sessionWith(A, B);
+    const fence = fenceOf(sessionId, A);
+    await turn(sessionId, 1, "completed", A);
+    const peek = (by: WorkerFence, turnId: string) =>
+      work().peekCheckpointCommitAtomic({
+        fence: by,
+        turnId,
+        checkpoint: ref(0),
+      });
+
+    expect(await peek(fence, "1")).toEqual({ outcome: "open" });
+    expect(await peek(fenceOf(sessionId, B), "1")).toEqual({
+      outcome: "turn_not_found",
+    });
+    await turn(sessionId, 2, "running", A);
+    expect(await peek(fence, "1")).toEqual({
+      outcome: "turn_refused",
+      reason: "a later turn has started",
+    });
+    expect(await peek(fence, "2")).toEqual({
+      outcome: "turn_refused",
+      reason: "the turn is still open; its finalize commits its checkpoint",
+    });
+  });
+
+  test("a resend that names another version of the manifest object is not the commit that landed", async () => {
+    const sessionId = await sessionWith(A);
+    const fence = fenceOf(sessionId, A);
+    await turn(sessionId, 1, "completed", A);
+    await commit(fence, "1", 0);
+
+    expect(
+      await work().commitCheckpointAtomic({
+        fence,
+        now: AT,
+        turnId: "1",
+        checkpoint: { ...ref(0), manifest_version: "version-2" },
+      }),
+    ).toEqual({ outcome: "checkpoint_conflict", currentRevision: 0 });
+  });
 });
 
 describe("coverage, which a commit outside a turn does not change the rules of", () => {
@@ -458,6 +500,26 @@ describe("events an attempt sends for no turn", () => {
       { sequence: 1, turnId: first.id, neutral: { after_turn: true } },
       { sequence: 2, turnId: null, neutral: null },
     ]);
+  });
+
+  test("an event stored for a turn it named is not the same event sent again for no turn", async () => {
+    const sessionId = await sessionWith(A);
+    const fence = fenceOf(sessionId, A);
+    await turn(sessionId, 1, "running", A);
+    await work().commitEventsAtomic({
+      fence,
+      turnId: "1",
+      now: AT,
+      events: [engineEvent(1, "in the turn")],
+    });
+    await db
+      .update(turns)
+      .set({ status: "completed", endedAt: AT })
+      .where(eq(turns.sessionId, sessionId));
+
+    expect(await append(fence, [engineEvent(1, "in the turn")])).toMatchObject({
+      outcome: "event_conflict",
+    });
   });
 
   test("are never put on another attempt's turn", async () => {

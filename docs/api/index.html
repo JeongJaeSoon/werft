@@ -7400,6 +7400,11 @@
                       },
                       "correlation_id": {
                         "description": "Engine-specific and opaque: its shape belongs to the session's runtime and may be absent for another one. Read the engine-neutral fields instead."
+                      },
+                      "after_turn": {
+                        "description": "Present (`true`) on an event its attempt published while it had no turn open, for example an answer the engine gave on its own once background work ended. The envelope's `turn_id` then names the turn that attempt ended last, and the event came after that turn's `result`. Absent otherwise.",
+                        "type": "boolean",
+                        "const": true
                       }
                     },
                     "required": [
@@ -7528,6 +7533,11 @@
                           "input"
                         ],
                         "additionalProperties": false
+                      },
+                      "after_turn": {
+                        "description": "Present (`true`) on an event its attempt published while it had no turn open, for example an answer the engine gave on its own once background work ended. The envelope's `turn_id` then names the turn that attempt ended last, and the event came after that turn's `result`. Absent otherwise.",
+                        "type": "boolean",
+                        "const": true
                       }
                     },
                     "required": [
@@ -7656,6 +7666,11 @@
                           "input"
                         ],
                         "additionalProperties": false
+                      },
+                      "after_turn": {
+                        "description": "Present (`true`) on an event its attempt published while it had no turn open, for example an answer the engine gave on its own once background work ended. The envelope's `turn_id` then names the turn that attempt ended last, and the event came after that turn's `result`. Absent otherwise.",
+                        "type": "boolean",
+                        "const": true
                       }
                     },
                     "required": [
@@ -7845,6 +7860,11 @@
                         "type": "string",
                         "format": "date-time",
                         "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "after_turn": {
+                        "description": "Present (`true`) on an event its attempt published while it had no turn open, for example an answer the engine gave on its own once background work ended. The envelope's `turn_id` then names the turn that attempt ended last, and the event came after that turn's `result`. Absent otherwise.",
+                        "type": "boolean",
+                        "const": true
                       }
                     },
                     "required": [
@@ -8016,6 +8036,11 @@
                           "session_ref"
                         ],
                         "additionalProperties": false
+                      },
+                      "after_turn": {
+                        "description": "Present (`true`) on an event its attempt published while it had no turn open, for example an answer the engine gave on its own once background work ended. The envelope's `turn_id` then names the turn that attempt ended last, and the event came after that turn's `result`. Absent otherwise.",
+                        "type": "boolean",
+                        "const": true
                       }
                     },
                     "required": [

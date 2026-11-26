@@ -677,6 +677,30 @@ describe("event contracts", () => {
       }).success,
     ).toBe(false);
   });
+
+  test("an event published after its turn keeps that mark in its frame, whatever kind an engine sent", () => {
+    for (const event of [
+      "system",
+      "assistant",
+      "tool_use",
+      "question",
+      "result",
+    ] as const) {
+      const frame = sseEventSchema.parse({
+        id: "ev_1",
+        event,
+        data: {
+          schema_version: 1,
+          session_id: SESSION_ID,
+          turn_id: "1",
+          attempt_id: "a1",
+          occurred_at: AT,
+          data: { ...eventData[event], after_turn: true },
+        },
+      });
+      expect(frame.data.data).toMatchObject({ after_turn: true });
+    }
+  });
 });
 
 describe("worker protocol", () => {

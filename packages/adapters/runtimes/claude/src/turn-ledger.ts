@@ -56,7 +56,10 @@ export class TurnLedger {
   private streaming = false;
   /**
    * The engine is answering with no input pending: a background task ended
-   * and it says so on its own. Open until that answer's result, like a turn.
+   * and it says so on its own. Open from the task's notification, which is
+   * what starts that answer, until the answer's result, like a turn: a
+   * checkpoint taken in between holds the notification without the answer,
+   * and the engine restored from it answers again.
    */
   private unprompted = false;
   private readonly toolsInFlight = new Set<string>();
@@ -121,9 +124,10 @@ export class TurnLedger {
     if (message.type !== "result") {
       this.streaming = this.pending.size > 0;
       if (
-        message.type === "assistant" &&
         this.pending.size === 0 &&
-        message.parent_tool_use_id == null
+        ((message.type === "assistant" && message.parent_tool_use_id == null) ||
+          (message.type === "system" &&
+            message.subtype === "task_notification"))
       ) {
         this.unprompted = true;
       }

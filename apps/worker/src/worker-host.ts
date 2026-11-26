@@ -366,8 +366,12 @@ export const OUTSIDE_TURN_CHECKPOINT = {
   afterIdleGrace: "stop" as "stop" | "wait",
   /** From SIGTERM to SIGKILL, and again from SIGKILL to giving up. */
   stopSignalWaitMs: 10_000,
-  /** How long the run gets to go quiet once its background work was stopped. */
-  settleWaitMs: 30_000,
+  /**
+   * How long the run gets to go quiet once its background work was stopped:
+   * the engine is told its task ended and answers on its own, and the
+   * capture waits for that answer.
+   */
+  settleWaitMs: 60_000,
   /**
    * A publish the gateway or the object store failed is tried again on this
    * schedule, the last step repeating, and no next input is asked for
@@ -375,8 +379,10 @@ export const OUTSIDE_TURN_CHECKPOINT = {
    */
   retryBackoffMs: [1_000, 2_000, 4_000, 8_000, 15_000] as readonly number[],
   /**
-   * For this long at most; then the session shows publish_failed and takes
-   * its next turn, and the checkpoint is tried again before the idle exit.
+   * No retry starts later than this after the first failure; then the
+   * session shows publish_failed and takes its next turn, and the checkpoint
+   * is tried again before the idle exit. One turn's debt holds once: a
+   * failure after its hold has been left does not start the time over.
    */
   retryHoldMs: 120_000,
   /** How long one commit keeps answering 5xx before it counts as failed. */
@@ -394,7 +400,8 @@ export type OutsideTurnCheckpoint = typeof OUTSIDE_TURN_CHECKPOINT;
 type OwedCheckpoint = {
   turnId: string;
   mode: "hold" | "quiet" | "deferred";
-  heldSince: number;
+  /** When this debt first held input back; set once. */
+  heldSince?: number;
   failures: number;
   holdSpent: boolean;
 };
@@ -3720,10 +3727,11 @@ export class WorkerHost {
     const mode = refusal === undefined ? earlier?.mode : owedModeOf(refusal);
     if (mode === undefined) return undefined;
     const holdSpent = earlier?.holdSpent ?? false;
+    const held = mode === "hold" && !holdSpent;
     return {
       turnId,
       mode: mode === "hold" && holdSpent ? "deferred" : mode,
-      heldSince: performance.now(),
+      ...(held ? { heldSince: performance.now() } : {}),
       failures: 0,
       holdSpent,
     };
@@ -3734,13 +3742,7 @@ export class WorkerHost {
     if (!this.outputUncaptured || this.owed !== undefined) return;
     const turnId = this.lastFinalizedTurnId;
     if (turnId === undefined) return;
-    this.owed = {
-      turnId,
-      mode: "quiet",
-      heldSince: performance.now(),
-      failures: 0,
-      holdSpent: false,
-    };
+    this.owed = { turnId, mode: "quiet", failures: 0, holdSpent: false };
   }
 
   private get outsideTurn(): OutsideTurnCheckpoint {
@@ -3781,6 +3783,8 @@ export class WorkerHost {
   private async captureOwed(
     run: AgentRun,
     kind: CheckpointCaptureKind,
+    /** When the hold this capture is a retry of runs out. */
+    holdEndsAt = Number.POSITIVE_INFINITY,
   ): Promise<void> {
     const owed = this.owed;
     if (owed === undefined) return;
@@ -3789,9 +3793,17 @@ export class WorkerHost {
       this.owed = undefined;
       return;
     }
-    let captured: Captured;
+    // Bounded as a turn's own capture is: the heartbeat keeps the lease
+    // while this runs, so one that never returns would keep the next input
+    // waiting for good.
+    const budget = this.stageBudget(
+      "Checkpointing outside a turn",
+      this.options.timeouts.startupTimeoutMs,
+    );
+    const capturing = this.capture(run, undefined, kind);
+    let captured: Captured | undefined;
     try {
-      captured = await this.capture(run, undefined, kind);
+      captured = await this.untilAbandoned(capturing);
     } catch (error) {
       if (isOwnershipLost(error)) {
         this.lose(describe(error), error);
@@ -3805,7 +3817,18 @@ export class WorkerHost {
       });
       this.owedFailed(owed, { reason: "publish_failed", infrastructure: true });
       return;
+    } finally {
+      budget.disarm();
     }
+    if (captured === undefined) {
+      // Given up on: the lease goes back whenever the capture does return.
+      capturing.then(
+        ({ lease }) => lease?.release(),
+        () => {},
+      );
+      return;
+    }
+    const lease = captured.lease;
     const ref = captured.ref;
     if (ref === null) {
       // No reason given: nothing here can be captured at all.
@@ -3813,7 +3836,10 @@ export class WorkerHost {
       else this.owedFailed(owed, captured.refusal);
       return;
     }
-    const deadline = performance.now() + this.outsideTurn.commitRetryMs;
+    const deadline = Math.min(
+      performance.now() + this.outsideTurn.commitRetryMs,
+      holdEndsAt,
+    );
     try {
       await this.withRetry(
         () =>
@@ -3841,11 +3867,8 @@ export class WorkerHost {
         });
         return;
       }
-      // A server without the route: the next turn's finalize is what commits.
-      if (error instanceof WorkerGatewayRequestError && error.status === 404) {
-        this.owed = undefined;
-        return;
-      }
+      // What was uploaded is no revision: the next capture starts from the
+      // pointer again.
       try {
         await this.checkpoints.finalizeRefused?.(describe(error), {
           ...this.scope,
@@ -3853,13 +3876,20 @@ export class WorkerHost {
       } catch (refusal) {
         if (isOwnershipLost(refusal)) this.lose(describe(refusal), refusal);
       }
+      // A server without the route, or a turn that is not this attempt's:
+      // no later commit lands either, and the next turn's finalize is what
+      // commits.
+      if (error instanceof WorkerGatewayRequestError && error.status === 404) {
+        if (this.owed === owed) this.owed = undefined;
+        return;
+      }
       this.owedFailed(owed, {
         reason: "publish_failed",
         infrastructure: false,
       });
       return;
     } finally {
-      captured.lease?.release();
+      lease?.release();
     }
     this.checkpointRevision = ref.revision;
     if (this.owed === owed) this.owed = undefined;
@@ -3884,9 +3914,9 @@ export class WorkerHost {
     }
     if (owed.holdSpent) {
       owed.mode = "deferred";
-    } else if (owed.mode !== "hold") {
+    } else {
       owed.mode = "hold";
-      owed.heldSince = performance.now();
+      owed.heldSince ??= performance.now();
     }
   }
 
@@ -3899,6 +3929,8 @@ export class WorkerHost {
     const owed = this.owed;
     if (owed === undefined) return;
     const { retryBackoffMs, retryHoldMs } = this.outsideTurn;
+    owed.heldSince ??= performance.now();
+    const holdEndsAt = owed.heldSince + retryHoldMs;
     const heldMs = performance.now() - owed.heldSince;
     if (heldMs >= retryHoldMs) {
       owed.mode = "deferred";
@@ -3911,9 +3943,11 @@ export class WorkerHost {
       return;
     }
     const step = Math.min(owed.failures, retryBackoffMs.length - 1);
-    await Promise.race([this.sleep(retryBackoffMs[step] ?? 0), this.stopped]);
+    // The last retry starts at the limit, not a backoff step past it.
+    const wait = Math.min(retryBackoffMs[step] ?? 0, retryHoldMs - heldMs);
+    await Promise.race([this.sleep(wait), this.stopped]);
     if (this.stopping !== undefined || this.pauseControl !== undefined) return;
-    await this.captureOwed(run, "between_turns");
+    await this.captureOwed(run, "between_turns", holdEndsAt);
   }
 
   /**
@@ -3966,9 +4000,16 @@ export class WorkerHost {
     const engines = this.options.engines;
     const config = this.outsideTurn;
     const commands = (await engines?.commands?.(below)) ?? [];
-    let left = below;
+    // Named again right before each signal: only what is under the run then.
+    let left = (await engines?.descendants?.()) ?? below;
     for (const signal of ["SIGTERM", "SIGKILL"] as const) {
-      if (left.length === 0 || engines?.signal === undefined) break;
+      if (
+        left.length === 0 ||
+        engines?.signal === undefined ||
+        this.stopping !== undefined
+      ) {
+        break;
+      }
       engines.signal(left, signal);
       const deadline = performance.now() + config.stopSignalWaitMs;
       while (left.length > 0 && performance.now() < deadline) {
@@ -3999,13 +4040,7 @@ export class WorkerHost {
     }
     const turnId = this.lastFinalizedTurnId;
     if (this.owed === undefined && turnId !== undefined) {
-      this.owed = {
-        turnId,
-        mode: "quiet",
-        heldSince: performance.now(),
-        failures: 0,
-        holdSpent: false,
-      };
+      this.owed = { turnId, mode: "quiet", failures: 0, holdSpent: false };
     }
     const deadline = performance.now() + config.settleWaitMs;
     while (

@@ -465,6 +465,9 @@ async function committedOutsideTurn(
         eq(checkpoints.revision, input.checkpoint.revision),
         eq(checkpoints.manifestRef, input.checkpoint.manifest_ref),
         eq(checkpoints.manifestSha256, input.checkpoint.manifest_sha256),
+        input.checkpoint.manifest_version === undefined
+          ? isNull(checkpoints.manifestVersion)
+          : eq(checkpoints.manifestVersion, input.checkpoint.manifest_version),
         eq(turns.sequence, sequence),
         eq(turns.attemptId, input.fence.attemptId),
       ),
@@ -473,6 +476,72 @@ async function committedOutsideTurn(
   return stored === undefined
     ? { outcome: "open" }
     : { outcome: "replayed", turnId: input.turnId, revision: stored.revision };
+}
+
+type OutsideTurnTarget =
+  | { outcome: "ok"; turnRowId: number }
+  | { outcome: "turn_not_found" }
+  | { outcome: "turn_refused"; reason: string };
+
+/**
+ * The turn a commit outside a turn names, while a checkpoint may still be
+ * put on it: the last turn this attempt finalized, and only until the next
+ * one starts. That turn's finalize commits what covers both, and a capture
+ * from before it must not land over it. A turn still queued has not started.
+ */
+async function outsideTurnTarget(
+  tx: Database,
+  fence: WorkerFence,
+  turnId: string,
+  lock: boolean,
+): Promise<OutsideTurnTarget> {
+  const sequence = parseTurnSequence(turnId);
+  if (!sequence) return { outcome: "turn_not_found" };
+  const named = tx
+    .select({
+      id: turns.id,
+      status: turns.status,
+      sequence: turns.sequence,
+      attemptId: turns.attemptId,
+    })
+    .from(turns)
+    .where(
+      and(eq(turns.sessionId, fence.sessionId), eq(turns.sequence, sequence)),
+    )
+    .limit(1);
+  const [turn] = await (lock ? named.for("update") : named);
+  if (!turn || turn.attemptId !== fence.attemptId) {
+    return { outcome: "turn_not_found" };
+  }
+  if (!CHECKPOINTABLE_ENDED_STATUSES.includes(turn.status)) {
+    return {
+      outcome: "turn_refused",
+      reason: OPEN_TURN_STATUSES.includes(turn.status)
+        ? "the turn is still open; its finalize commits its checkpoint"
+        : `a turn that ended ${turn.status} takes no checkpoint`,
+    };
+  }
+  const [later] = await tx
+    .select({ status: turns.status })
+    .from(turns)
+    .where(
+      and(
+        eq(turns.sessionId, fence.sessionId),
+        gt(turns.sequence, turn.sequence),
+        or(isNotNull(turns.attemptId), isNotNull(turns.deliveryStartedAt)),
+      ),
+    )
+    .orderBy(asc(turns.sequence))
+    .limit(1);
+  if (later !== undefined) {
+    return {
+      outcome: "turn_refused",
+      reason: OPEN_TURN_STATUSES.includes(later.status)
+        ? "a later turn has started"
+        : "it is not the last turn this attempt finalized",
+    };
+  }
+  return { outcome: "ok", turnRowId: turn.id };
 }
 
 // Two submissions of one source_sequence are the same event only if every
@@ -3299,6 +3368,7 @@ export function createPostgresWorkerUnitOfWork(
             id: events.id,
             type: events.type,
             payload: events.payload,
+            neutral: events.neutral,
             turnId: events.turnId,
             occurredAt: events.occurredAt,
             sourceSequence: events.sourceSequence,
@@ -3325,8 +3395,19 @@ export function createPostgresWorkerUnitOfWork(
           // would leave the worker holding a cursor for data the stream
           // does not contain. An event sent for no turn is compared on the
           // turn it was stored on: which turn that is was decided here, and
-          // may read differently once a later turn has started.
+          // may read differently once a later turn has started. Only an
+          // event this path put on a turn, though: one stored for a turn it
+          // named is not the same event sent again for none.
           const storedOn = input.turnId === null ? row.turnId : turnRowId;
+          if (
+            input.turnId === null &&
+            row.turnId !== null &&
+            (row.neutral as Record<string, unknown> | null)?.[
+              AFTER_TURN_FIELD
+            ] !== true
+          ) {
+            return { outcome: "event_conflict" };
+          }
           if (
             !sameEvent(row, event, storedOn) &&
             !sameEvent(
@@ -3722,12 +3803,22 @@ export function createPostgresWorkerUnitOfWork(
       });
     },
 
-    // Unfenced, as peekFinalizeAtomic is: it only reads back a commit this
-    // attempt already made, which a retry after the lease lapsed must learn.
-    peekCheckpointCommitAtomic(
+    // Unfenced, as peekFinalizeAtomic is: it reads back a commit this
+    // attempt already made, which a retry after the lease lapsed must learn,
+    // and otherwise what the turn alone already refuses. The commit judges
+    // the turn again under the fence.
+    async peekCheckpointCommitAtomic(
       input: PeekCheckpointCommitInput,
     ): Promise<PeekCheckpointCommitResult> {
-      return committedOutsideTurn(db, input);
+      const settled = await committedOutsideTurn(db, input);
+      if (settled.outcome !== "open") return settled;
+      const target = await outsideTurnTarget(
+        db,
+        input.fence,
+        input.turnId,
+        false,
+      );
+      return target.outcome === "ok" ? { outcome: "open" } : target;
     },
 
     commitCheckpointAtomic(
@@ -3740,71 +3831,17 @@ export function createPostgresWorkerUnitOfWork(
         // Waiting for the fence is when an earlier send of this commit lands.
         const replay = await committedOutsideTurn(tx, input);
         if (replay.outcome !== "open") return replay;
-        const sequence = parseTurnSequence(input.turnId);
-        const [turn] = sequence
-          ? await tx
-              .select({
-                id: turns.id,
-                status: turns.status,
-                sequence: turns.sequence,
-                attemptId: turns.attemptId,
-              })
-              .from(turns)
-              .where(
-                and(
-                  eq(turns.sessionId, fence.sessionId),
-                  eq(turns.sequence, sequence),
-                ),
-              )
-              .limit(1)
-              .for("update")
-          : [];
-        if (!turn || turn.attemptId !== fence.attemptId) {
-          return { outcome: "turn_not_found" };
-        }
-        if (!CHECKPOINTABLE_ENDED_STATUSES.includes(turn.status)) {
-          return {
-            outcome: "turn_refused",
-            reason: OPEN_TURN_STATUSES.includes(turn.status)
-              ? "the turn is still open; its finalize commits its checkpoint"
-              : `a turn that ended ${turn.status} takes no checkpoint`,
-          };
-        }
+        const target = await outsideTurnTarget(tx, fence, input.turnId, true);
+        if (target.outcome !== "ok") return target;
+        // Judged after the wait for the turn's row.
         if (!leaseHeld(fenced.attempt, await dbNow(tx))) {
           return { outcome: "lease_expired" };
-        }
-        // Only the last turn this attempt finalized, and only until the
-        // next one starts: that turn's finalize commits what covers both, and
-        // a capture from before it must not land over it. A turn still
-        // queued has not started.
-        const [later] = await tx
-          .select({ status: turns.status, attemptId: turns.attemptId })
-          .from(turns)
-          .where(
-            and(
-              eq(turns.sessionId, fence.sessionId),
-              gt(turns.sequence, turn.sequence),
-              or(
-                isNotNull(turns.attemptId),
-                isNotNull(turns.deliveryStartedAt),
-              ),
-            ),
-          )
-          .orderBy(asc(turns.sequence))
-          .limit(1);
-        if (later !== undefined) {
-          return {
-            outcome: "turn_refused",
-            reason: OPEN_TURN_STATUSES.includes(later.status)
-              ? "a later turn has started"
-              : "it is not the last turn this attempt finalized",
-          };
         }
         const advanced = await advanceCheckpointPointer(tx, {
           fence,
           session: fenced.session,
           checkpoint: input.checkpoint,
-          turnRowId: turn.id,
+          turnRowId: target.turnRowId,
           now,
           versionsHeld: input.checkpointVersionsHeld === true,
           ...(input.checkpointTranscriptBytes === undefined

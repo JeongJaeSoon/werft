@@ -332,6 +332,21 @@ describe("checkpoint quiescence", () => {
     expect(ledger.prepareCheckpoint()).toEqual(ready);
   });
 
+  test("a background task's notification with no input pending opens the engine's answer to it before a word of it", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.observe({
+      type: "system",
+      subtype: "task_notification",
+      session_id: "s1",
+    });
+    // The transcript holds the notification and not yet the answer.
+    expect(ledger.prepareCheckpoint()).toMatchObject({
+      reason: "turn_in_flight",
+    });
+    ledger.observe({ type: "result", session_id: "s1" });
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
   test("a subagent's output with no input pending opens no answer of the run's own", () => {
     const ledger = new TurnLedger("s1");
     ledger.observe({
