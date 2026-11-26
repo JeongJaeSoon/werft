@@ -239,6 +239,21 @@ describe("the AI line on outbox rows", () => {
     ).toContain("\tKEEP");
   });
 
+  test("a space where code is cut stays the code's", async () => {
+    for (const [open, close] of [
+      ["```\n", "\n```"],
+      ["`", "`"],
+    ] as const) {
+      const body = `const value = "${"a ".repeat(2_000)} KEEP"`;
+      const pieces = await sections(`${open}${body}${close}`);
+      expect(pieces.length).toBeGreaterThan(1);
+      const kept = pieces.map((piece) =>
+        piece.slice(open.length, -close.length),
+      );
+      expect(kept.join("")).toBe(body);
+    }
+  });
+
   test("inline code goes whole to the next section, or is closed across", async () => {
     const span = `\`printf *danger* ${"x".repeat(30)}\``;
     const moved = await sections(`${"a ".repeat(1_489)}${span} end`);

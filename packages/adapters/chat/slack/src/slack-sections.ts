@@ -49,19 +49,15 @@ function codeSpans(text: string): Span[] {
   return spans;
 }
 
-/**
- * Where the piece from `from` ends, at or before `max`, and whether the
- * character there is a break the next piece leaves out. Null when no cut is
- * safe.
- */
+/** Where the piece from `from` ends, at or before `max`; null when no cut is safe. */
 function cutAt(
   text: string,
   spans: Span[],
   from: number,
   max: number,
-): { end: number; skip: 0 | 1 } | null {
+): number | null {
   const line = text.lastIndexOf("\n", max);
-  if (line > from) return { end: line, skip: 1 };
+  if (line > from) return line;
   const space = text.lastIndexOf(" ", max);
   let end = space > from ? space : max;
   // Not inside a control, an escape such as `&lt;`, inline code that fits a
@@ -79,8 +75,7 @@ function cutAt(
   while (end > from && text[end - 1] === "`" && text[end] === "`") end -= 1;
   const code = text.charCodeAt(end - 1);
   if (code >= 0xd800 && code <= 0xdbff) end -= 1;
-  if (end <= from) return null;
-  return { end, skip: text[end] === " " ? 1 : 0 };
+  return end > from ? end : null;
 }
 
 /**
@@ -97,9 +92,8 @@ export function slackTextSections(text: string): unknown[] | null {
   while (reopen.length + linked.length - from > SECTION_TEXT_MAX) {
     // Room for the fence this piece may have to close.
     const room = SECTION_TEXT_MAX - reopen.length - FENCE.length - 1;
-    const cut = cutAt(linked, spans, from, from + room);
-    if (cut === null) return null;
-    const { end, skip } = cut;
+    const end = cutAt(linked, spans, from, from + room);
+    if (end === null) return null;
     const inside = spans.find((span) => span.start < end && end < span.end);
     const close =
       inside === undefined
@@ -114,7 +108,11 @@ export function slackTextSections(text: string): unknown[] | null {
         : inside.mark === FENCE
           ? `${FENCE}\n`
           : inside.mark;
-    from = end + skip;
+    // The section break stands for a line break, and for a space outside
+    // code; inside code a space is the code's own.
+    const breaks =
+      linked[end] === "\n" || (linked[end] === " " && inside === undefined);
+    from = breaks ? end + 1 : end;
   }
   pieces.push(reopen + linked.slice(from));
   // A section of nothing but space is refused.
