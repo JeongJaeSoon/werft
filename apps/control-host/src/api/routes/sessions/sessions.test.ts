@@ -1177,7 +1177,15 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
     }
   });
 
-  test("a principal without sessions:recover is 403 FORBIDDEN, not 404", async () => {
+  // Who may decide: the policy answers each action with `denials`; the
+  // transaction counts what got through and `asked` the recorded asks.
+  async function decideAs(
+    denials: Partial<Record<string, "role" | "not_found">>,
+    body: unknown,
+    headers: Record<string, string> = {},
+  ) {
+    let reached = 0;
+    const asked: string[] = [];
     const service = createSessionService({
       limits: {
         queuedInputLimitPerSession: 1_000,
@@ -1186,22 +1194,17 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
         sessionTokenLimit: null,
       },
       authorization: {
-        authorize: async ({ action }) =>
-          action === "session.recover"
-            ? {
-                outcome: "deny",
-                reason_code: "role",
-                effective_scopes: [],
-                policy_version: "test",
-                decision_id: crypto.randomUUID(),
-              }
-            : {
-                outcome: "allow",
-                reason_code: "ok",
-                effective_scopes: [],
-                policy_version: "test",
-                decision_id: crypto.randomUUID(),
-              },
+        authorize: async ({ action }, options) => {
+          if (options?.record !== false) asked.push(action);
+          const reason = denials[action];
+          return {
+            outcome: reason === undefined ? "allow" : "deny",
+            reason_code: reason ?? "ok",
+            effective_scopes: [],
+            policy_version: "test",
+            decision_id: crypto.randomUUID(),
+          };
+        },
       },
       catalog,
       inputs: {
@@ -1223,7 +1226,14 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
           throw new Error("not reached");
         },
         decideRecoveryAtomic: async () => {
-          throw new Error("must not reach the transaction");
+          reached += 1;
+          return {
+            outcome: "accepted",
+            response: {
+              receipt_id: crypto.randomUUID(),
+              receipt_status: "succeeded",
+            },
+          };
         },
         resumeAtomic: async () => {
           throw new Error("not reached");
@@ -1258,11 +1268,95 @@ describe("POST /v1/sessions/{id}/recovery-decisions validation", () => {
         "Content-Type": "application/json",
         "X-Owner-Id": "owner-a",
         "Idempotency-Key": "key-1",
+        ...headers,
       },
-      body: JSON.stringify(abandon),
+      body: JSON.stringify(body),
     });
-    expect(response.status).toBe(403);
-    expect(await errorCode(response)).toBe("FORBIDDEN");
+    return {
+      status: response.status,
+      code: response.status === 202 ? null : await errorCode(response),
+      reached,
+      asked,
+    };
+  }
+  const writerOnly = { "session.recover": "role" } as const;
+  const startFresh = {
+    decision: "start_fresh",
+    expected_revision: 3,
+    reason: "reviewed",
+  };
+  const operatorOnly = [
+    {
+      decision: "confirm_completed",
+      expected_revision: 3,
+      target_turn_id: "1",
+      evidence_ref: "log",
+      reason: "reviewed",
+    },
+    { decision: "close", expected_revision: 3, reason: "reviewed" },
+    { decision: "retry_restore", expected_revision: 3, reason: "reviewed" },
+  ];
+
+  test("a principal without sessions:recover is 403 FORBIDDEN, not 404, for confirm_completed, close and retry_restore", async () => {
+    for (const body of operatorOnly) {
+      const decided = await decideAs(writerOnly, body);
+      expect(decided, body.decision).toMatchObject({
+        status: 403,
+        code: "FORBIDDEN",
+        reached: 0,
+        asked: ["session.recover"],
+      });
+    }
+  });
+
+  test("abandon and start_fresh are also the call of whoever may write to the session", async () => {
+    for (const body of [abandon, startFresh]) {
+      const decided = await decideAs(writerOnly, body);
+      // The recover probe is not recorded: one decision row, the one that
+      // allowed it.
+      expect(decided, body.decision).toMatchObject({
+        status: 202,
+        reached: 1,
+        asked: ["session.submit"],
+      });
+    }
+  });
+
+  test("an operator's abandon is judged as one, not as a write", async () => {
+    const decided = await decideAs({ "session.submit": "role" }, abandon);
+    expect(decided).toMatchObject({
+      status: 202,
+      reached: 1,
+      asked: ["session.recover"],
+    });
+  });
+
+  test("abandon and start_fresh refuse one who may neither write nor recover", async () => {
+    for (const body of [abandon, startFresh]) {
+      const decided = await decideAs(
+        { "session.recover": "role", "session.submit": "role" },
+        body,
+      );
+      expect(decided, body.decision).toMatchObject({
+        status: 403,
+        code: "FORBIDDEN",
+        reached: 0,
+      });
+    }
+  });
+
+  test("a private channel's session hidden from a non-member is 404 for abandon and start_fresh", async () => {
+    for (const body of [abandon, startFresh]) {
+      const decided = await decideAs(
+        { "session.recover": "not_found", "session.submit": "not_found" },
+        body,
+      );
+      expect(decided, body.decision).toMatchObject({
+        status: 404,
+        code: "NOT_FOUND",
+        reached: 0,
+      });
+    }
   });
 });
 

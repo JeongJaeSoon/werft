@@ -63,6 +63,7 @@ import {
   ContinueTurn,
   focusLost,
   PendingAnswers,
+  RecoveryDecisions,
   type SessionActionProps,
   SessionComposer,
   SessionControls,
@@ -248,6 +249,11 @@ export function SessionDetail({
       ? last.turn_id
       : null;
   const cutOff = lostTurnId !== null && detail.status === "idle";
+  // Abandon settles the earliest first, as the server does. Until the turns
+  // are read, nobody knows whether one is unknown, so nothing is offered.
+  const unknownTurnId =
+    turns.data?.items.find((turn) => turn.status === "outcome_unknown")
+      ?.turn_id ?? null;
   const requests = pending.data?.items ?? [];
   const listCurrent =
     pending.data !== undefined &&
@@ -350,6 +356,17 @@ export function SessionDetail({
           </Button>
         ) : null}
       </div>
+      {turns.data !== undefined && (
+        <RecoveryDecisions
+          // What was decided belongs to this session, not to the revision
+          // another session shares.
+          key={detail.id}
+          session={detail}
+          unknownTurnId={unknownTurnId}
+          unavailable={unavailable}
+          refusal={refusal}
+        />
+      )}
       <BudgetExceeded usage={usage.data} attention={detail.attention} />
       <SessionComposer
         session={detail}

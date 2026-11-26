@@ -2416,6 +2416,8 @@ export interface paths {
          *
          *     The decision takes effect in the request: the receipt is `succeeded` in the response, with result `{resulting_admission_state, checkpoint_revision, resumable}`. After `abandon` or `confirm_completed`, resume the session; `resumable: false` means a resume would answer `CHECKPOINT_UNAVAILABLE`. The decision is also recorded as a `system` event on the stream.
          *
+         *     `abandon` and `start_fresh` are also open to whoever may write to the session: `sessions:write` on a session the credential sees, and for a private channel's session only while its person is a member of the channel. `confirm_completed`, `close` and `retry_restore` need `sessions:recover`.
+         *
          *     **Scope:** `sessions:recover` (API key or cookie session). **Idempotency-Key:** required.
          */
         post: operations["decideSessionRecovery"];
@@ -14977,7 +14979,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, judged once the request is read. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -15101,7 +15103,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, judged once the request is read. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -27417,7 +27419,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`). */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, judged once the request is read. Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`). */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -27617,7 +27619,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`). */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, judged once the request is read. Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`). */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -27815,7 +27817,7 @@ export interface operations {
                 };
             };
             /**
-             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. Also when the principal holds neither `sessions:approve` nor `sessions:submit`, the deployment does not authenticate callers (`AUTH_MODE=none`), or the repository has no GitHub credential (a GitHub App).
+             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, judged once the request is read. Also when the principal holds neither `sessions:approve` nor `sessions:submit`, the deployment does not authenticate callers (`AUTH_MODE=none`), or the repository has no GitHub credential (a GitHub App).
              *     - `GITHUB_REFUSED`: The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409. `merge_off` (the workspace has not allowed agents to merge) is 409 too, and is answered before GitHub is called.
              */
             403: {
@@ -28006,7 +28008,7 @@ export interface operations {
                 };
             };
             /**
-             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. Also when the principal holds neither `sessions:approve` nor `sessions:submit`, the deployment does not authenticate callers, or the repository has no GitHub credential.
+             * @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, judged once the request is read. Also when the principal holds neither `sessions:approve` nor `sessions:submit`, the deployment does not authenticate callers, or the repository has no GitHub credential.
              *     - `GITHUB_REFUSED`: The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409. `merge_off` (the workspace has not allowed agents to merge) is 409 too, and is answered before GitHub is called.
              */
             403: {
@@ -30552,7 +30554,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:recover`, checked before the body or the resource is read. Also when an operator revoked the session's execution authority. */
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:recover`, judged once the request is read. The credential holds neither `sessions:recover` nor, for `abandon` and `start_fresh`, `sessions:write`. Also when an operator revoked the session's execution authority. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
