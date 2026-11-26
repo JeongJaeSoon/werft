@@ -400,15 +400,20 @@ describe("sessionTime", () => {
     expect(sessionTime({ turn_time_ms: MINUTE }, steps, now)).toBe(6 * MINUTE);
   });
 
-  test("keeps the session's count when it is newer than the turns read", () => {
-    const steps = read({
-      session: { current_turn_id: null, status: "idle" },
-      turns: [turn("1", "running")],
+  test("a session read newer than the turns read fixes an ended turn's time, before and after the turns catch up", () => {
+    const session = {
+      current_turn_id: null,
+      status: "idle",
+      turn_time_ms: 5 * MINUTE,
+    } as const;
+    const now = Date.parse(AT) + 6 * MINUTE;
+    const before = read({ session, turns: [turn("1", "running")] });
+    expect(sessionTime(session, before, now)).toBe(5 * MINUTE);
+    const after = read({
+      session,
+      turns: [turn("1", "completed", { ended_at: at(5 * MINUTE) })],
     });
-    const now = Date.parse(AT) + 2 * MINUTE;
-    expect(sessionTime({ turn_time_ms: 3 * MINUTE }, steps, now)).toBe(
-      3 * MINUTE,
-    );
+    expect(sessionTime(session, after, now)).toBe(5 * MINUTE);
   });
 
   test("counts only the finished turns when none runs", () => {
