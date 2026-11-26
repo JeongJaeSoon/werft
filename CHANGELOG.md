@@ -15,7 +15,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **입력을 받는 트랜잭션이 저장 한도를 commit 때 확인한다. 설치 전체의 입력 수락이 트랜잭션 내내 `storage_usage` 한 행의 lock을 기다리지 않고, commit 순간에만 그 행에서 차례를 기다린다**(JeongJaeSoon/werft#2274). migration `0380_storage_charge_at_commit`이 `turns`의 charge trigger를 commit 때 도는 constraint trigger로 다시 만든다. 그 migration 동안 `turns`에 ACCESS EXCLUSIVE lock이 잠깐 걸려 읽기와 쓰기가 기다린다. 표를 훑거나 다시 쓰지는 않는다. 따로 할 일은 없다.
+- **입력을 받는 트랜잭션이 저장 한도를 commit 때 확인한다. 설치 전체의 입력 수락이 트랜잭션 내내 `storage_usage` 한 행의 lock을 기다리지 않고, commit 순간에만 그 행에서 차례를 기다린다**(JeongJaeSoon/werft#2274). migration `0379_storage_charge_at_commit`이 `turns`의 charge trigger를 commit 때 도는 constraint trigger로 다시 만든다. 그 migration 동안 `turns`에 ACCESS EXCLUSIVE lock이 잠깐 걸려 읽기와 쓰기가 기다린다. 표를 훑거나 다시 쓰지는 않는다. 따로 할 일은 없다.
   - 앞선 API 이미지가 남아 있는 동안에도 한도는 정확히 지켜진다. 트랜잭션 내내 기다리는 줄은 앞선 API가 모두 내려가야 없어진다.
   - 앞선 이미지로 되돌려도 된다.
 - **저장 한도 경고 지표 셋과 하루 한 번의 카운터 점검을 더한다**(JeongJaeSoon/werft#2282). metrics role이 `werft_input_storage_used_bytes`·`werft_input_storage_limit_bytes`·`werft_input_storage_limit_reached{threshold="0.8"|"1"}`를 낸다. 한도 80%에서 알리려면 `werft_input_storage_limit_reached{threshold="0.8"} == 1`에 경고를 건다. api가 매일 03:30 UTC에 카운터를 `turns`의 실제 bytes와 맞춰 보고, 다르면 `The storage counter differs from the turns` 경고 로그를 남긴다. 카운터를 고치지는 않는다. migration은 없다.
