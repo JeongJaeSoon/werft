@@ -198,7 +198,7 @@ export function ListFilters({
                   id={bodyId}
                   hidden={!open}
                   aria-label={facet.label}
-                  className="m-0 flex list-none flex-col p-0 ps-4"
+                  className="m-0 flex list-none flex-col p-0 ps-4 [&[hidden]]:hidden"
                 >
                   {facet.choices.map((choice) => {
                     const count = countText(choice);
