@@ -6,6 +6,7 @@ import {
   BodyStallError,
   BodyTruncatedError,
   createCheckpointObjectStore,
+  createObjectRouteClient,
   S3_METADATA_REQUEST_TIMEOUT_MS,
 } from "@werft-ai/storage";
 
@@ -104,6 +105,71 @@ describe("holdingS3Client", () => {
     await request;
     expect(sent).toEqual(["put"]);
   });
+});
+
+describe("a streamed upload the route takes and never answers", () => {
+  test("is cut at the stall bound, and is not sent again once the lease is lost", async () => {
+    const accepted: Socket[] = [];
+    let puts = 0;
+    let lost = false;
+    const server = createServer((socket) => {
+      accepted.push(socket);
+      socket.on("data", (chunk) => {
+        if (!chunk.toString("latin1").startsWith("PUT ")) return;
+        puts += 1;
+        // The lease ends while the first upload is still out.
+        lost = true;
+      });
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    closers.push(() => {
+      for (const socket of accepted) socket.destroy();
+      server.close();
+    });
+    const { port } = server.address() as { port: number };
+    // As `createWorkerObjectStore` builds it, with a stall bound a test can wait out.
+    const store = createCheckpointObjectStore({
+      bucket: base.S3_BUCKET,
+      client: holdingS3Client(
+        createObjectRouteClient({
+          endpoint: `http://127.0.0.1:${port}/object-store`,
+          region: base.AWS_REGION,
+          token: () => "weo_token",
+        }),
+        () =>
+          lost
+            ? Promise.reject(new Error("Not sent: the lease was lost"))
+            : undefined,
+      ),
+      uploadStallMs: 300,
+    });
+    const bytes = new Uint8Array(698).fill(7);
+
+    const startedAt = Date.now();
+    const failure = await store
+      .putImmutable(
+        "sessions/s1/workspace.bundle",
+        {
+          bytes: bytes.byteLength,
+          sha256: new Bun.CryptoHasher("sha256").update(bytes).digest("hex"),
+          async *open() {
+            yield bytes;
+          },
+        },
+        { contentAddressed: true },
+      )
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    // One upload went out and was cut; the retries after it were never sent.
+    expect((failure as Error | undefined)?.message).toContain("Not sent");
+    expect(puts).toBe(1);
+    expect(Date.now() - startedAt).toBeLessThan(5_000);
+  }, 20_000);
 });
 
 describe("objectStoreConfigFromEnv", () => {
@@ -249,6 +315,36 @@ describe("createWorkerObjectStore", () => {
       "outside the scope sessions/s1/",
     );
     expect(route.requests).toEqual([]);
+  });
+
+  test("opens a connection for every request, so an upload never rides one kept from the request before", async () => {
+    let connections = 0;
+    const accepted: Socket[] = [];
+    // Answers on a connection it would gladly keep open.
+    const server = createServer((socket) => {
+      connections += 1;
+      accepted.push(socket);
+      socket.on("data", () =>
+        socket.write("HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\n\r\n"),
+      );
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    closers.push(() => {
+      for (const socket of accepted) socket.destroy();
+      server.close();
+    });
+    const { port } = server.address() as { port: number };
+    const store = createWorkerObjectStore(
+      objectStoreConfigFromEnv(base, `http://127.0.0.1:${port}`),
+      () => "weo_token",
+    );
+
+    expect(await store.head("sessions/s1/a")).toBeUndefined();
+    expect(await store.head("sessions/s1/b")).toBeUndefined();
+    expect(await store.head("sessions/s1/c")).toBeUndefined();
+    expect(connections).toBe(3);
   });
 
   test("sends nothing before the claim hands out its token", async () => {

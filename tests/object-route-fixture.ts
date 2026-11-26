@@ -46,6 +46,8 @@ export type ObjectRouteFixture = {
   authorizerUrl: string;
   authorizerToken: string;
   openSession(): Promise<ObjectRouteSession>;
+  /** The database goes away under a running authorizer, as in an outage. */
+  stopDatabase(): Promise<void>;
   stop(): Promise<void>;
 };
 
@@ -168,9 +170,10 @@ export async function startObjectRouteFixture(options: {
     authorizerUrl: `http://${authorizer.hostname}:${authorizer.port}`,
     authorizerToken,
     openSession,
+    stopDatabase: () => client.close(),
     async stop() {
       authorizer.stop(true);
-      await client.close();
+      if (!client.closed) await client.close();
     },
   };
 }
