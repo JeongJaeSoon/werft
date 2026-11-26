@@ -30,6 +30,7 @@ function snapshot(
     launchQueue: { sessions: 0, oldestWaitSeconds: 0 },
     inputQueueOldestAgeSeconds: 0,
     sessionWorkerImages: [],
+    inputStorage: { usedBytes: 0, limitBytes: null },
     ...overrides,
   };
 }
@@ -128,6 +129,9 @@ const ALLOWED_LABELS: Record<string, string[]> = {
   sessions_waiting_for_capacity: [],
   session_no_capacity_failures_total: [],
   input_queue_oldest_age_seconds: [],
+  input_storage_used_bytes: [],
+  input_storage_limit_bytes: [],
+  input_storage_limit_reached: ["threshold"],
 };
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
@@ -370,5 +374,37 @@ describe("handler", () => {
       (await handler(new Request("http://metrics/metrics", { method: "POST" })))
         .status,
     ).toBe(405);
+  });
+});
+describe("input storage", () => {
+  const lines = (usedBytes: number, limitBytes: number | null) =>
+    renderMetrics(snapshot({ inputStorage: { usedBytes, limitBytes } })).split(
+      "\n",
+    );
+
+  test("warns at 80% of the limit and at the limit", () => {
+    expect(lines(799, 1_000)).toContain(
+      'werft_input_storage_limit_reached{threshold="0.8"} 0',
+    );
+    const at80 = lines(800, 1_000);
+    expect(at80).toContain("werft_input_storage_used_bytes 800");
+    expect(at80).toContain("werft_input_storage_limit_bytes 1000");
+    expect(at80).toContain(
+      'werft_input_storage_limit_reached{threshold="0.8"} 1',
+    );
+    expect(at80).toContain(
+      'werft_input_storage_limit_reached{threshold="1"} 0',
+    );
+    expect(lines(1_000, 1_000)).toContain(
+      'werft_input_storage_limit_reached{threshold="1"} 1',
+    );
+  });
+
+  test("with no readable limit only the used bytes are given", () => {
+    const out = lines(800, null);
+    expect(out).toContain("werft_input_storage_used_bytes 800");
+    expect(
+      out.filter((line) => line.startsWith("werft_input_storage_limit")),
+    ).toEqual([]);
   });
 });

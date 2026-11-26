@@ -39,6 +39,7 @@ import {
   unassignedSessions,
 } from "./schema.ts";
 import { confirmExecutionGone, launchSession } from "./testing/launches.ts";
+import { waitsOn } from "./testing/lock-wait.ts";
 import {
   fixtureRelease,
   TEST_MODEL,
@@ -409,6 +410,73 @@ integration("installation limits on PostgreSQL", () => {
       expect(outcomes.filter((o) => o === "accepted")).toHaveLength(3);
       expect(outcomes.filter((o) => o === "storage_exhausted")).toHaveLength(9);
       expect(await storedBytes()).toBe(before + 30);
+      // A refusal at commit rolled its session back with it.
+      const kept = await db
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(eq(sessions.ownerId, ownerId));
+      expect(kept).toHaveLength(3);
+    }, 30_000);
+
+    test("an open transaction that wrote a turn does not hold up an acceptance", async () => {
+      // Charged at the insert, the storage row stayed locked until that
+      // transaction ended, and every acceptance waited for it.
+      const session = await queuedSession();
+      const open = await pool.connect();
+      try {
+        await open.query("BEGIN");
+        await open.query(
+          "INSERT INTO turns (session_id, sequence, message, status) VALUES ($1, 2, 'not committed yet', 'queued')",
+          [session.session_id],
+        );
+        const accepted = await Promise.race([
+          create(crypto.randomUUID(), "does not wait"),
+          new Promise<"waited">((resolve) =>
+            setTimeout(resolve, 5_000, "waited"),
+          ),
+        ]);
+        expect(accepted).toMatchObject({ outcome: "accepted" });
+      } finally {
+        await open.query("ROLLBACK");
+        open.release();
+      }
+    }, 30_000);
+
+    test("beside an API build from before the charge moved, which checks under the row lock: an acceptance waits for it at commit and counts what it wrote", async () => {
+      const session = await queuedSession();
+      const message = "x".repeat(10);
+      const old = await pool.connect();
+      try {
+        await old.query("BEGIN");
+        const backend = await old.query<{ pid: number }>(
+          "SELECT pg_backend_pid() AS pid",
+        );
+        const usage = await old.query<{ bytes: string }>(
+          "SELECT bytes FROM storage_usage WHERE scope = 'installation' FOR UPDATE",
+        );
+        const before = Number(usage.rows[0]?.bytes);
+        // Room for one of the two messages.
+        const limits = { ...roomy, storageLimitBytes: before + 10 };
+        let settled = false;
+        const racing = create(crypto.randomUUID(), message, limits).finally(
+          () => {
+            settled = true;
+          },
+        );
+        expect(
+          await waitsOn(db, backend.rows[0]?.pid ?? 0, () => settled),
+        ).toBe(true);
+        await old.query(
+          "INSERT INTO turns (session_id, sequence, message, status) VALUES ($1, 2, $2, 'queued')",
+          [session.session_id, message],
+        );
+        await old.query("COMMIT");
+        expect(await racing).toEqual({ outcome: "storage_exhausted" });
+        expect(await storedBytes()).toBe(before + 10);
+      } finally {
+        await old.query("ROLLBACK").catch(() => {});
+        old.release();
+      }
     }, 30_000);
   });
 
