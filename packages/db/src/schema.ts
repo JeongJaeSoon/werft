@@ -1989,6 +1989,12 @@ export const sessions = pgTable(
     index("sessions_workspace_idx")
       .on(table.workspaceId)
       .where(sql`${table.workspaceId} IS NOT NULL`),
+    // An owner's distinct parent conversations, walked one per probe, and
+    // the sessions of one of them: the private channels a read across
+    // sessions asks about (privateChannels).
+    index("sessions_owner_parent_idx")
+      .on(table.ownerId, table.parentConversationId)
+      .where(sql`${table.parentConversationId} IS NOT NULL`),
     index("sessions_created_by_user_idx")
       .on(table.createdByUserId)
       .where(sql`${table.createdByUserId} IS NOT NULL`),
@@ -4065,6 +4071,11 @@ export const conversationCalls = pgTable(
       .where(
         sql`${table.state} IN ('reserved', 'in_flight') AND ${table.requesterUserId} IS NOT NULL`,
       ),
+    // The usage reads' period range; an installation's has no workspace to
+    // lead with.
+    index("conversation_calls_period_idx")
+      .on(table.createdAt)
+      .where(sql`${table.state} <> 'released'`),
     // For the topic FK's ON DELETE, so dropping a topic reads no other row.
     index("conversation_calls_topic_idx")
       .on(table.topicId)
