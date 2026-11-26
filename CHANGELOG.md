@@ -15,6 +15,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **첫 turn 도중 worker가 죽은 세션을 새 세션 없이 `start_fresh`로 같은 입력부터 다시 돌린다**(JeongJaeSoon/werft#2264). 커밋된 checkpoint가 없는 세션에서는 결과를 모르는 turn을 먼저 정하지 않아도 `start_fresh`가 받아진다. 그 turn은 `cancelled`(`operator_start_fresh`)로 닫히고, 같은 입력의 새 turn이 대기열 끝에 들어간다. `start_fresh`는 그때까지의 context를 이어받지 않는다(먼저 기다리던 입력이 있으면 그 뒤에 돌고, 그 입력이 만든 context는 이어받는다). 전에는 `RECOVERY_REQUIRED`로 거절됐고, abandon 뒤에는 같은 요청을 다시 할 길이 새 세션뿐이었다. Slack 스레드에는 [새 문맥으로 계속] 버튼이 붙은 안내가 올라가고, 그 세션에 쓸 수 있는 사람이 누를 수 있다(비공개 채널이면 지금 멤버). 세션 상세에 `start_fresh_available`이 생긴다. migration은 없고 따로 할 일도 없다.
+  - checkpoint가 있는 세션은 그대로다. abandon이나 confirm을 먼저 한다.
+  - 다시 넣는 turn은 이미 받은 입력의 사본이다. 저장 한도와 대기열 한도로 거절하지 않고, bytes는 저장 사용량에 더한다.
+  - api 이미지가 이 버전이어야 듣는다.
 - **저장 한도가 거절한 Slack 입력에 저장 한도 안내가 한 줄 가고, inbox 항목이 `dropped`(`storage_limit_exceeded`)로 닫힌다**(JeongJaeSoon/werft#2280). 채널에서는 요청한 사람에게만 보이는 글, DM에서는 스레드 글이다. 전에는 "잠시 뒤 다시 시도해 주세요" 안내와 `processed`였다. migration `0385_storage_limit_drop_reason`이 `slack_inbound_events`의 drop reason CHECK를 `NOT VALID`로 다시 걸고 따로 확인한다. CHECK를 바꾸는 첫 문장 동안 `slack_inbound_events`의 읽기와 쓰기가 잠깐 기다리고, 확인하는 훑기는 쓰기를 막지 않는다. 따로 할 일은 없다.
 - **slack 역할이 inbox 이벤트를 채널마다 한 줄씩, 동시에 4개까지 처리하고, DB 연결을 최대 7개 연다**(JeongJaeSoon/werft#2273). 전에는 4개였다. Helm 기본값으로 늘 열려 있을 수 있는 연결은 36개에서 39개로, compose는 24개에서 27개로 는다. slack replica를 늘렸다면 replica 하나에 7개로 다시 세어 `max_connections`와 견준다. 같은 채널의 이벤트는 전처럼 차례로 돌고, 느린 workspace 하나가 다른 workspace의 멘션을 더는 막지 않는다. migration은 없다.
 - **DB 정지가 checkpoint 업로드와 겹쳐도 turn이 몇 분씩 `running`에 머물지 않는다**(JeongJaeSoon/werft#2271). egress proxy는 본문이 20초 동안 오지 않는 요청을 `503`과 `Retry-After`로 끝내고, 허용을 받아 열어 둔 upstream 연결도 닫는다. 전에는 본문이 오지 않는 업로드를 저장소가 포기할 때까지(SeaweedFS는 120초) 쥐고 있어서, 5초 정지에 turn이 4분 넘게 `running`이었다. worker는 bundle 업로드가 30초 동안 아무것도 보내지 못하고 답도 받지 못하면 끊고 다시 보낸다(3번까지, lease를 잃은 뒤에는 보내지 않는다). 이미 넘긴 바이트가 가장 느린 허용 속도(256 MiB에 5분)로 가는 데 드는 시간은 그 30초에 더한다. worker의 object store 요청은 요청마다 새 연결을 쓴다. migration은 없고 따로 할 일도 없다.
