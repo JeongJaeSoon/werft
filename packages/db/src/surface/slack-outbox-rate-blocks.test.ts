@@ -278,9 +278,15 @@ describe(`Slack rate limits in the outbox on ${ENGINE}`, () => {
       progress: { ts: "1700000000.000200" },
     });
     expect(await outbox().settle(edit, limited(20_000))).toBe(true);
-    expect((await blocks()).map(({ scope }) => scope)).toEqual([
-      `channel:${BUSY}`,
-    ]);
+    // The 429 is the channel's; chat.update holds only the edit's pace.
+    const [channel, pace] = await blocks();
+    expect(channel?.scope).toBe(`channel:${BUSY}`);
+    expect(channel?.waitMs).toBeGreaterThan(15_000);
+    expect(pace?.scope).toBe("chat.update");
+    expect(pace?.waitMs).toBeLessThanOrEqual(1_300);
+    await client.exec(
+      "UPDATE slack_outbox_rate_blocks SET blocked_until = now() - interval '1 second' WHERE scope = 'chat.update'",
+    );
     await enqueue("other 1", QUIET, { kind: "progress", progressKey: "k2" });
     await enqueue("reply", BUSY);
     expect(names(await claimed())).toEqual(["other 1"]);
@@ -338,19 +344,13 @@ describe(`Slack rate limits in the outbox on ${ENGINE}`, () => {
     return { a2, b2 };
   }
 
-  test("a progress edit holds the install's next edits 1.3 s, in every channel; posts are not held", async () => {
+  test("a progress edit holds the install's next edits 1.3 s as it begins, in every channel; first posts and replies are not held", async () => {
     const { a2, b2 } = await twoPosted();
     // The first posts held nothing.
     expect(await blocks()).toEqual([]);
     expect(await outbox().beginSend(a2)).toMatchObject({
       progress: { ts: "1700000000.000201" },
     });
-    expect(
-      await outbox().settle(a2, {
-        status: "sent",
-        slackTs: "1700000000.000201",
-      }),
-    ).toBe(true);
     const [hold] = await blocks();
     expect(hold?.scope).toBe("chat.update");
     expect(hold?.waitMs).toBeGreaterThan(1_000);
@@ -360,20 +360,21 @@ describe(`Slack rate limits in the outbox on ${ENGINE}`, () => {
     expect(names(await claimed())).toEqual(["reply"]);
   });
 
-  test("edits begun side by side each add 1.3 s after the last", async () => {
+  test("the hold stands whatever comes of the edit, and the next edit's starts from now once it is over", async () => {
     const { a2, b2 } = await twoPosted();
     expect(await outbox().beginSend(a2)).toBeTruthy();
+    expect(
+      await outbox().settle(a2, { status: "failed", errorCode: "fatal_error" }),
+    ).toBe(true);
+    const [held] = await blocks();
+    expect(held?.waitMs).toBeGreaterThan(1_000);
+    expect(held?.waitMs).toBeLessThanOrEqual(1_300);
+    await client.exec(
+      "UPDATE slack_outbox_rate_blocks SET blocked_until = now() - interval '10 seconds'",
+    );
     expect(await outbox().beginSend(b2)).toBeTruthy();
-    for (const [claim, slackTs] of [
-      [a2, "1700000000.000201"],
-      [b2, "1700000000.000202"],
-    ] as const) {
-      expect(await outbox().settle(claim, { status: "sent", slackTs })).toBe(
-        true,
-      );
-    }
-    const [hold] = await blocks();
-    expect(hold?.waitMs).toBeGreaterThan(2_300);
-    expect(hold?.waitMs).toBeLessThanOrEqual(2_600);
+    const [next] = await blocks();
+    expect(next?.waitMs).toBeGreaterThan(1_000);
+    expect(next?.waitMs).toBeLessThanOrEqual(1_300);
   });
 });

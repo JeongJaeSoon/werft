@@ -6552,8 +6552,9 @@ describe.each(ENGINES)("a progress message on %s", (engine) => {
       status: "pending",
       errorCode: "ratelimited",
     });
+    // Past the edit's own pace on chat.update, only the channel is held.
     const { rows: blocks } = (await db.execute(
-      sql`SELECT scope FROM slack_outbox_rate_blocks`,
+      sql`SELECT scope FROM slack_outbox_rate_blocks WHERE blocked_until > now() + interval '5 seconds'`,
     )) as unknown as { rows: { scope: string }[] };
     expect(blocks).toEqual([{ scope: `channel:${CHANNEL}` }]);
     slack.failures.delete("chat.update");
