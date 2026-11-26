@@ -86,6 +86,7 @@ import {
   isNotNull,
   isNull,
   max,
+  ne,
   not,
   notExists,
   or,
@@ -1111,7 +1112,8 @@ export function createPostgresSessionUnitOfWork(
           return { outcome: "not_found" };
         }
         // A turn after the lost one already goes on from it: a message sent
-        // since, or one that waited behind it. The button goes with it.
+        // since, or one that waited behind it. The button goes with it. One
+        // cancelled before it ran (an emergency stop's) goes on from nothing.
         if (input.continueTurn !== undefined) {
           const [later] = await tx
             .select({ sequence: turns.sequence })
@@ -1120,6 +1122,7 @@ export function createPostgresSessionUnitOfWork(
               and(
                 eq(turns.sessionId, sessionId),
                 gt(turns.sequence, input.continueTurn),
+                ne(turns.status, "cancelled"),
               ),
             )
             .limit(1);

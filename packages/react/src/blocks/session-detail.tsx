@@ -216,9 +216,11 @@ export function SessionDetail({
     detail.status === "queued" ||
     detail.status === "needs_input";
   // The last turn cut off (a lost lease, an emergency stop), while nothing
-  // follows it:
+  // follows it but input cancelled before it ran:
   // the session rests, but on work cut short, which the head says.
-  const last = turns.data?.items.at(-1);
+  const last = turns.data?.items
+    .filter((turn) => turn.status !== "cancelled")
+    .at(-1);
   const lostTurnId =
     last?.status === "failed" && isCutOffTurnReason(last.terminal_reason)
       ? last.turn_id

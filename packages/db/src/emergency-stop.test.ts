@@ -1151,3 +1151,22 @@ describe("the same channel id in another Slack team", () => {
     expect(await emergencyStopHolds(db, there.sessionId)).toBe(false);
   });
 });
+
+describe("a stop that cancelled input behind the cut-off turn", () => {
+  test("[Continue] still takes the cut-off turn once the channel is on", async () => {
+    const s = await stage();
+    expect((await send(s, { message: "queued behind" })).outcome).toBe(
+      "accepted",
+    );
+    await db
+      .update(sessions)
+      .set({ workspaceId: s.workspaceId })
+      .where(eq(sessions.id, s.worker.sessionId));
+    await stoppedAndBack(s);
+    expect(await turnsOf(s.worker.sessionId)).toMatchObject([
+      { sequence: 1, status: "failed", reason: "emergency_stopped" },
+      { sequence: 2, status: "cancelled" },
+    ]);
+    expect((await send(s, { continueTurn: 1 })).outcome).toBe("accepted");
+  });
+});

@@ -2570,6 +2570,22 @@ describe("a turn its worker's lost lease cut off", () => {
     expect((await head()).textContent).not.toContain("중단됨");
   });
 
+  test("input cancelled behind the lost turn before it ran leaves the button", async () => {
+    render(() => [
+      lost,
+      {
+        ...lost,
+        turn_id: "2",
+        status: "cancelled",
+        message: "기다리던 입력",
+        terminal_reason: "terminated",
+        started_at: null,
+      },
+    ]);
+    expect(await screen.findByText(CUT)).toBeTruthy();
+    expect(await screen.findByRole("button", CONTINUE)).toBeTruthy();
+  });
+
   test("a session already running again, though its turns lag behind, has no button", async () => {
     render(() => [lost], undefined, {
       ...resting,
