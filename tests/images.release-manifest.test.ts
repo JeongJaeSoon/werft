@@ -810,8 +810,8 @@ describe("images.yml release job", () => {
       '"$' + '{ref#refs/tags/}" release-manifest.json bundle-out',
     );
     // Product plans build and check it without attaching a release. A main
-    // push whose PR Images run built and ran the bundle of the same tree
-    // leaves it out (images-reuse.sh); every other plan that builds keeps it.
+    // push that changes none of its inputs leaves it out
+    // (test-ops-bundle-plan.sh); every other plan that builds keeps it.
     const other = jobs["test-ops-bundle"];
     expect(other?.needs).toBe("plan");
     expect(other?.if).toBe("needs.plan.outputs.ops_bundle == 'build'");

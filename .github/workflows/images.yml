@@ -62,15 +62,11 @@ jobs:
   plan:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 3
-    permissions:
-      contents: read
-      # images-reuse.sh reads the PR run's jobs.
-      actions: read
     outputs:
       images: ${{ steps.images.outputs.images }}
-      # build, skip, or reused: a main push whose PR Images run on the same
-      # tree built and ran the bundle (images-reuse.sh) leaves it out.
-      ops_bundle: ${{ steps.bundle.outputs.reused != '' && 'reused' || steps.images.outputs.images }}
+      # build or skip: the image plan, but a main push that changes no bundle
+      # input leaves the bundle out (test-ops-bundle-plan.sh).
+      ops_bundle: ${{ steps.bundle.outputs.ops_bundle || steps.images.outputs.images }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -122,13 +118,11 @@ jobs:
           fi
           echo "images=$images" >>"$GITHUB_OUTPUT"
       - id: bundle
-        name: Reuse the PR run that built this tree's bundle
+        name: Plan the single-server bundle
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.images.outputs.images == 'build'
         env:
-          GH_REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
           BEFORE_SHA: ${{ github.event.before }}
-        run: bash .github/scripts/images-reuse.sh >>"$GITHUB_OUTPUT"
+        run: bash .github/scripts/test-ops-bundle-plan.sh >>"$GITHUB_OUTPUT"
 
   # A main push builds each image once, in publish-main: it pushes, smokes,
   # license-checks and scans the digest main-<12> promotes, and writes the
@@ -796,7 +790,7 @@ jobs:
 
   # The single-server bundle (scripts/test-ops.sh, its compose files and the
   # manifest, no image) is built and checked on every run that builds images,
-  # but a main push whose PR run already did it on the same tree; only a tag's
+  # but a main push that changes none of its inputs; only a tag's
   # `release` job uploads it. Here it is built twice from a fixed manifest, and
   # the two archives must be the same bytes, which a rerun of a release relies on.
   test-ops-bundle:

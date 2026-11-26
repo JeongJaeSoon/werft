@@ -8,12 +8,11 @@
 # those are the digests the manifest names. Run from the repository root at
 # the tag's commit. GNU tar and gzip make the archive byte-for-byte
 # reproducible, which release-publish.sh relies on for a rerun.
+#
+# `test-ops-bundle.sh --inputs` prints, one per line, every checkout path the
+# bundle is made of (this script included) and builds nothing: images.yml's
+# plan reads it to tell whether a main push changed the bundle.
 set -euo pipefail
-
-tag="$1"
-manifest="$2"
-out="$3"
-name="werft-test-ops-${tag}"
 
 # What a bundle holds beyond the migrations compose.core.yml mounts.
 FILES=(
@@ -31,17 +30,27 @@ FILES=(
   infra/test-ops.release.example.json
 )
 
-tar --version 2>/dev/null | grep -q 'GNU tar' || { echo "::error::GNU tar is required" >&2; exit 1; }
-jq -e '.tag and .commit and .images["control-host"].digest and .images.worker.digest and .images["worker-codex"].digest and .images["egress-proxy"].digest' "$manifest" >/dev/null \
-  || { echo "::error::$manifest is not a release manifest" >&2; exit 1; }
-test "$(jq -r .tag "$manifest")" = "$tag" || { echo "::error::$manifest is the manifest of $(jq -r .tag "$manifest"), not $tag" >&2; exit 1; }
-
 # The migrations core mounts, read from core so the two cannot drift.
 migrations=()
 while IFS= read -r path; do migrations+=("$path"); done < <(
   sed -n 's|^ *- \.\./\(packages/db/migrations/[^:]*\):.*|\1|p' infra/compose.core.yml
 )
 test "${#migrations[@]}" -gt 0 || { echo "::error::compose.core.yml mounts no migration" >&2; exit 1; }
+
+if [ "${1:-}" = --inputs ]; then
+  printf '%s\n' .github/scripts/test-ops-bundle.sh "${FILES[@]}" "${migrations[@]}"
+  exit 0
+fi
+
+tag="$1"
+manifest="$2"
+out="$3"
+name="werft-test-ops-${tag}"
+
+tar --version 2>/dev/null | grep -q 'GNU tar' || { echo "::error::GNU tar is required" >&2; exit 1; }
+jq -e '.tag and .commit and .images["control-host"].digest and .images.worker.digest and .images["worker-codex"].digest and .images["egress-proxy"].digest' "$manifest" >/dev/null \
+  || { echo "::error::$manifest is not a release manifest" >&2; exit 1; }
+test "$(jq -r .tag "$manifest")" = "$tag" || { echo "::error::$manifest is the manifest of $(jq -r .tag "$manifest"), not $tag" >&2; exit 1; }
 
 work="$(mktemp -d)"
 trap 'rm -rf "${work:?}"' EXIT
