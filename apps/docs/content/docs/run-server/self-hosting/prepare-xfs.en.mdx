@@ -103,9 +103,9 @@ findmnt -no TARGET,SOURCE,FSTYPE -T "$DATA"
 sudo blkid -s UUID -o value "$(findmnt -no SOURCE -T "$DATA")"
 ```
 
-Quota options take effect only at the first mount, and `mount -o remount` does not turn them on. So change the configuration and then reboot. Every running container stops, so do this in a maintenance window. A LocalStack test installation loses its checkpoint objects on a reboot. Before changing anything, run `backup --stop` as in the planned restart steps of [Try with LocalStack](/run-server/self-hosting/try-localstack), and after the reboot use `reseed`, not `start`.
+Quota options take effect only at the first mount, and `mount -o remount` does not turn them on. So change the configuration and then reboot. Every running container stops, so do this in a maintenance window. A LocalStack test installation loses its checkpoint objects on a reboot. Before changing anything, run `backup --stop` as in the planned restart steps of [Try with LocalStack](/run-server/self-hosting/try-localstack). Go on only after the command has succeeded and you have seen the backup directory it made; if it fails, change nothing and do not reboot. After the reboot use `reseed`, not `start`.
 
-If the mount point is the root filesystem (`/`), the fstab option alone does not turn the quota on. Add `rootflags=prjquota` to the kernel boot arguments (add to the value if `rootflags` is already there), reboot, and then [check that it is on](#켜졌는지-확인하기). How to change boot arguments differs between distributions. The fstab steps below are only for a mount point other than the root.
+If the mount point is the root filesystem (`/`), the fstab option alone does not turn the quota on. Add `rootflags=prjquota` to the kernel boot arguments (add to the value if `rootflags` is already there), reboot, and then [check that it is on](#켜졌는지-확인하기). How to change boot arguments differs between distributions. Write down the current arguments before you change them. If the host does not boot with the new ones, boot once with the old arguments from the boot menu and then revert the setting. The fstab steps below are only for a mount point other than the root.
 
 Back up `/etc/fstab` before you edit it for the first time. If the backup fails, do not edit.
 
@@ -113,19 +113,19 @@ Back up `/etc/fstab` before you edit it for the first time. If the backup fails,
 sudo cp -n -p /etc/fstab /etc/fstab.before-prjquota
 ```
 
-If there is already an entry for that mount point, do not add a line; add `prjquota` to that entry's options. Otherwise add one line of the following shape. Use the UUID printed above, and put the mount point you found above in place of `/var/lib/docker`.
+If there is already an entry for that mount point, do not add a line; add `prjquota` to that entry's options. If that entry does not point to the device (UUID) you found above, do not edit it; stop and find out why. If there is no entry, add one line of the following shape. Use the UUID printed above, and put the mount point you found above in place of `/var/lib/docker`.
 
 ```text
 UUID=<filesystem-uuid> /var/lib/docker xfs defaults,prjquota 0 0
 ```
 
-Reboot only when `findmnt --verify` shows no errors.
+Reboot only when `findmnt --verify` shows no errors. If it shows errors, fix them right away or restore the backup.
 
 ```bash
 sudo findmnt --verify && sudo reboot
 ```
 
-After the reboot, the check below must show the same mount point as before and `prjquota` among the options. If the boot stops because of fstab, restore the backup from the recovery console.
+After the reboot, run the first command above again to see that the mount point and the device UUID are the same as before, and use the check below to see `prjquota` among the options. If the boot stops because of fstab, restore the backup from the recovery console.
 
 <a id="켜졌는지-확인하기" />
 ## Check that it is on

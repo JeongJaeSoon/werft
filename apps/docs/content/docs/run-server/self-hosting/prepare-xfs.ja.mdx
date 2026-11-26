@@ -103,9 +103,9 @@ findmnt -no TARGET,SOURCE,FSTYPE -T "$DATA"
 sudo blkid -s UUID -o value "$(findmnt -no SOURCE -T "$DATA")"
 ```
 
-quota のオプションは最初の mount でだけ効き、`mount -o remount` では有効になりません。そのため設定を変えてから再起動します。実行中のコンテナはすべて止まるため、メンテナンス時間に行います。LocalStack の試験設置は、再起動で checkpoint object を失います。何も変える前に [LocalStack での試験設置](/run-server/self-hosting/try-localstack)の計画再起動の手順で `backup --stop` を実行し、再起動後は `start` ではなく `reseed` を使います。
+quota のオプションは最初の mount でだけ効き、`mount -o remount` では有効になりません。そのため設定を変えてから再起動します。実行中のコンテナはすべて止まるため、メンテナンス時間に行います。LocalStack の試験設置は、再起動で checkpoint object を失います。何も変える前に [LocalStack での試験設置](/run-server/self-hosting/try-localstack)の計画再起動の手順で `backup --stop` を実行します。このコマンドが成功してバックアップディレクトリができたことを確認してから先へ進み、失敗した場合は何も変えず、再起動もしません。再起動後は `start` ではなく `reseed` を使います。
 
-mount point がルートファイルシステム（`/`）の場合は、fstab のオプションだけでは有効になりません。カーネルの起動引数に `rootflags=prjquota` を加え（`rootflags` がすでにあればその値に足します）、再起動してから[有効になったか確認](#켜졌는지-확인하기)します。起動引数の変え方はディストリビューションごとに異なります。以下の fstab の手順は、ルート以外の mount point にだけ使います。
+mount point がルートファイルシステム（`/`）の場合は、fstab のオプションだけでは有効になりません。カーネルの起動引数に `rootflags=prjquota` を加え（`rootflags` がすでにあればその値に足します）、再起動してから[有効になったか確認](#켜졌는지-확인하기)します。起動引数の変え方はディストリビューションごとに異なります。変える前に現在の引数を控えます。新しい引数で起動できない場合は、ブートメニューでその一回だけ以前の引数で起動してから設定を戻します。以下の fstab の手順は、ルート以外の mount point にだけ使います。
 
 `/etc/fstab` を初めて編集する前にバックアップします。バックアップに失敗した場合は編集しません。
 
@@ -113,19 +113,19 @@ mount point がルートファイルシステム（`/`）の場合は、fstab �
 sudo cp -n -p /etc/fstab /etc/fstab.before-prjquota
 ```
 
-その mount point の項目がすでにあれば行を増やさず、その項目のオプションに `prjquota` を加えます。なければ次の形の行を 1 行追加します。UUID は上で出力された値を使い、`/var/lib/docker` の位置には上で確認した mount point を書きます。
+その mount point の項目がすでにあれば行を増やさず、その項目のオプションに `prjquota` を加えます。その項目が上で確認したデバイス（UUID）を指していなければ編集せず、中止して原因を確認します。項目がなければ次の形の行を 1 行追加します。UUID は上で出力された値を使い、`/var/lib/docker` の位置には上で確認した mount point を書きます。
 
 ```text
 UUID=<filesystem-uuid> /var/lib/docker xfs defaults,prjquota 0 0
 ```
 
-`findmnt --verify` がエラーを示さない場合だけ再起動します。
+`findmnt --verify` がエラーを示さない場合だけ再起動します。エラーがあればすぐに直すか、バックアップに戻します。
 
 ```bash
 sudo findmnt --verify && sudo reboot
 ```
 
-再起動後は、下の確認で mount point が以前と同じで、オプションに `prjquota` がなければなりません。fstab が原因で起動が止まる場合は、復旧コンソールでバックアップに戻します。
+再起動後は上の最初のコマンドをもう一度実行して mount point とデバイスの UUID が以前と同じことを確認し、下の確認でオプションに `prjquota` があることを確認します。fstab が原因で起動が止まる場合は、復旧コンソールでバックアップに戻します。
 
 <a id="켜졌는지-확인하기" />
 ## 有効になったか確認する
