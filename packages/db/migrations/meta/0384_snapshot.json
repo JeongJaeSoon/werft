@@ -1,6 +1,6 @@
 {
-  "id": "9ad3f46f-b328-48f4-890c-705cb67b5f5f",
-  "prevId": "4ffdb946-aa26-446f-9f16-efeac143c337",
+  "id": "0d74597c-4593-455e-ad80-5a33245a73d3",
+  "prevId": "47b459c8-b6d2-4b09-88ec-4d5b983b37db",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -7370,6 +7370,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_turn_queue_ended_idx": {
+          "name": "conversation_turn_queue_ended_idx",
+          "columns": [
+            {
+              "expression": "ended_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_turn_queue\".\"state\" = 'ended'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -16842,6 +16858,65 @@
           "value": "\"session_shares\".\"scope\" IN ('private', 'people', 'team', 'workspace', 'private_channel')"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.session_stops": {
+      "name": "session_stops",
+      "schema": "",
+      "columns": {
+        "session_id": {
+          "name": "session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cancelled": {
+          "name": "cancelled",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "running_turn_id": {
+          "name": "running_turn_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "session_stops_session_id_sessions_id_fk": {
+          "name": "session_stops_session_id_sessions_id_fk",
+          "tableFrom": "session_stops",
+          "tableTo": "sessions",
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "session_stops_session_id_idempotency_key_pk": {
+          "name": "session_stops_session_id_idempotency_key_pk",
+          "columns": ["session_id", "idempotency_key"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.session_title_requests": {
