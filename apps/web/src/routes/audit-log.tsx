@@ -655,7 +655,6 @@ function ExportButton({
         <Button
           type="button"
           variant="outline"
-          size="sm"
           aria-disabled={busy || undefined}
           onClick={() => {
             if (!busy) void run(next);
@@ -667,7 +666,6 @@ function ExportButton({
       <Button
         type="button"
         variant="outline"
-        size="sm"
         aria-disabled={busy || undefined}
         onClick={() => {
           if (!busy) void run(null);
