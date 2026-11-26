@@ -107,7 +107,7 @@ const MIGRATIONS_ONLY = [
   "function slack_thread_status_touch(session uuid) void language sql volatility=v parallel=u body md5 c4d8bde1fd53798d7cd4a18e5187512f",
   // 0107: retained input is charged to storage_usage; storage_charge_at_commit
   // moved the charge to the commit and holds it to the limit there.
-  "function storage_usage_charge_turn() trigger language plpgsql volatility=v parallel=u body md5 827cf7d35f69b1f372c4a4bb2546d224",
+  "function storage_usage_charge_turn() trigger language plpgsql volatility=v parallel=u body md5 6bd3ddd860cb51581176ce4a1d482abd",
   "function tool_call_audits_refuse_update() trigger language plpgsql volatility=v parallel=u body md5 7974f1b42d74d104e14687c272e81d7b",
   "function tool_call_outcomes_add() trigger language plpgsql volatility=v parallel=u body md5 658a9e9cf14c49d749ab3d2d896981e9",
   "function tool_call_outcomes_clear() trigger language plpgsql volatility=v parallel=u body md5 4a1a849f5fa78d7ae7af0811e384d367",

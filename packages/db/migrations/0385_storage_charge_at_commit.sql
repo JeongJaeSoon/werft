@@ -19,11 +19,18 @@ DECLARE
   -- Empty, not null, on a connection whose earlier transaction set it.
   cap text := current_setting('werft.storage_limit_bytes', true);
 BEGIN
-  INSERT INTO "storage_usage" ("scope", "bytes")
-  VALUES ('installation', octet_length(NEW."message"))
-  ON CONFLICT ("scope") DO UPDATE
-    SET "bytes" = "storage_usage"."bytes" + EXCLUDED."bytes", "updated_at" = now()
-  RETURNING "bytes" INTO kept;
+  UPDATE "storage_usage"
+    SET "bytes" = "bytes" + octet_length(NEW."message"), "updated_at" = now()
+    WHERE "scope" = 'installation'
+    RETURNING "bytes" INTO kept;
+  IF NOT FOUND THEN
+    -- No row yet, on a database the 0107 backfill did not seed.
+    INSERT INTO "storage_usage" ("scope", "bytes")
+    VALUES ('installation', octet_length(NEW."message"))
+    ON CONFLICT ("scope") DO UPDATE
+      SET "bytes" = "storage_usage"."bytes" + EXCLUDED."bytes", "updated_at" = now()
+    RETURNING "bytes" INTO kept;
+  END IF;
   IF cap <> '' AND kept > cap::bigint THEN
     RAISE EXCEPTION 'storage limit exceeded: % bytes kept, limit %', kept, cap
       USING ERRCODE = 'WF001';
