@@ -926,3 +926,43 @@ describe("a session that meets an emergency stop as it is made", () => {
     );
   });
 });
+
+describe("a session already paused when the channel is stopped", () => {
+  test("its waiting input is cancelled, so a resume after the stop runs nothing", async () => {
+    const s = await stage();
+    // A message queued behind the running turn, then a person's pause: a
+    // pause keeps what is queued for the resume.
+    expect((await send(s, { message: "queued behind" })).outcome).toBe(
+      "accepted",
+    );
+    // The pause has settled: its turn drained, its execution gone.
+    await db
+      .update(turns)
+      .set({ status: "completed", endedAt: new Date() })
+      .where(
+        and(eq(turns.sessionId, s.worker.sessionId), eq(turns.sequence, 1)),
+      );
+    await executionGone(s.worker);
+    await db
+      .update(sessions)
+      .set({
+        admissionState: "paused",
+        pauseReason: null,
+        workspaceId: s.workspaceId,
+      })
+      .where(eq(sessions.id, s.worker.sessionId));
+    expect(await sessionOf(s.worker.sessionId)).toMatchObject({
+      admissionState: "paused",
+      pauseReason: null,
+    });
+    expect((await stop(s, s.admin)).outcome).toBe("stopped");
+    expect(await sessionOf(s.worker.sessionId)).toMatchObject({
+      admissionState: "paused",
+      pauseReason: "emergency_stopped",
+    });
+    expect((await turnsOf(s.worker.sessionId))[1]).toMatchObject({
+      sequence: 2,
+      status: "cancelled",
+    });
+  });
+});

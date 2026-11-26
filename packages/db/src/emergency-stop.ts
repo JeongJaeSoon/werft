@@ -130,8 +130,10 @@ async function stopSession(
   });
   if (session === null) return { paused: false, cut: 0 };
   const from = session.admissionState;
-  // Paused already: it stays so, under the stop, until the channel is on.
+  // Paused already: it stays so, under the stop, until the channel is on,
+  // and what waited for its resume never runs.
   if (from === "paused") {
+    await stopExecution(tx, session, { now, by: "emergency stop" });
     if (session.pauseReason !== EMERGENCY_STOPPED) {
       await tx
         .update(sessions)
