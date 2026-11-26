@@ -1,11 +1,13 @@
 import { DEFAULT_USER_LOCALE, type UserLocale } from "@werft-ai/contracts";
 import type {
+  SurfaceAiLabel,
   SurfaceOutboxClaim,
   SurfaceOutboxEntry,
+  SurfaceOutboxKind,
   SurfaceOutboxPostedAs,
   SurfaceUnpostedInstruction,
 } from "@werft-ai/platform";
-import { slackAiLabelBlock } from "./slack-ai-label.ts";
+import { slackAiLabelBlock, slackAiLabelMrkdwn } from "./slack-ai-label.ts";
 import { markdownToSlackMrkdwn, markdownToSlackParts } from "./slack-mrkdwn.ts";
 import {
   escapeSlackControls,
@@ -212,9 +214,67 @@ export function sessionUrl(consoleOrigin: string | null, sessionId: string) {
     : new URL(`/sessions/${sessionId}`, consoleOrigin).toString();
 }
 
+/**
+ * Whether a kind goes out as the agent's own words, and so ends with the AI
+ * line. An instruction and its mirror are a person's words under their name,
+ * and a reaction is no post. A new kind has to say.
+ */
+export const SLACK_AI_LABELLED_KINDS: Readonly<
+  Record<SurfaceOutboxKind, boolean>
+> = {
+  instruction: false,
+  reply: true,
+  notice: true,
+  failure_notice: true,
+  input_notice: true,
+  welcome: true,
+  action_notice: true,
+  model_notice: true,
+  input_mirror: false,
+  channel_notice: true,
+  progress: true,
+  reaction: false,
+  conversation_reply: true,
+};
+
+/**
+ * The line a row ends with. `read` is what the store read for it, absent
+ * while the agent's rollout is not `on`; a conversation's answer, which only
+ * exists under `on`, always has one and carries its own name.
+ */
+export function slackOutboxAiLabel(
+  claim: Pick<SurfaceOutboxClaim, "kind" | "body">,
+  read?: SurfaceAiLabel,
+): SurfaceAiLabel | undefined {
+  if (claim.kind === "conversation_reply") {
+    return { requestedBy: claim.body.requested_by ?? null };
+  }
+  return SLACK_AI_LABELLED_KINDS[claim.kind] ? read : undefined;
+}
+
+/** The blocks with the AI line last; as they are without one. */
+export function withSlackAiLabel(
+  blocks: unknown[],
+  locale: UserLocale | undefined,
+  label: SurfaceAiLabel | undefined,
+): unknown[] {
+  return label === undefined
+    ? blocks
+    : [...blocks, slackAiLabelBlock(locale, label.requestedBy ?? undefined)];
+}
+
+/** The line as a post's text takes it after its own words; "" without one. */
+export function slackAiLabelSuffix(
+  locale: UserLocale | undefined,
+  label: SurfaceAiLabel | undefined,
+): string {
+  return label === undefined ? "" : `\n\n${slackAiLabelMrkdwn(locale)}`;
+}
+
 export function slackOutboxPresentation(
   claim: Pick<SurfaceOutboxClaim, "kind" | "body">,
   guard?: SlackTextGuard,
+  label?: SurfaceAiLabel,
 ):
   | {
       kind: "instruction";
@@ -229,34 +289,39 @@ export function slackOutboxPresentation(
   ) {
     return { kind: "instruction", sender };
   }
+  const { locale } = claim.body;
+  // A card's own blocks are far under a message's 50, the line included.
   if (claim.body.blocks !== undefined) {
-    return { kind: "blocks", blocks: claim.body.blocks, fallback: false };
+    return {
+      kind: "blocks",
+      blocks: withSlackAiLabel(claim.body.blocks, locale, label),
+      fallback: false,
+    };
   }
-  if (claim.kind === "conversation_reply") {
-    // The answer, then the AI line; too big for blocks, the text carries both.
-    const answer =
-      slackReplyBlocks(claim.body, guard) ??
-      sectionPieces(slackOutboxText(claim.body, guard))?.map((text) => ({
-        type: "section",
-        text: { type: "mrkdwn", text },
-      })) ??
-      null;
-    return answer === null || answer.length >= 50
+  const table =
+    claim.kind === "reply" || claim.kind === "conversation_reply"
+      ? slackReplyBlocks(claim.body, guard)
+      : null;
+  if (label === undefined) {
+    return table === null
       ? { kind: "text" }
-      : {
-          kind: "blocks",
-          blocks: [
-            ...answer,
-            slackAiLabelBlock(claim.body.locale, claim.body.requested_by),
-          ],
-          fallback: true,
-        };
+      : { kind: "blocks", blocks: table, fallback: true };
   }
-  const blocks =
-    claim.kind === "reply" ? slackReplyBlocks(claim.body, guard) : null;
-  return blocks === null
+  // The text, then the AI line; too big for blocks, the text carries both.
+  const said =
+    table ??
+    sectionPieces(slackOutboxText(claim.body, guard))?.map((text) => ({
+      type: "section",
+      text: { type: "mrkdwn", text },
+    })) ??
+    null;
+  return said === null || said.length >= 50
     ? { kind: "text" }
-    : { kind: "blocks", blocks, fallback: true };
+    : {
+        kind: "blocks",
+        blocks: withSlackAiLabel(said, locale, label),
+        fallback: true,
+      };
 }
 
 // Group notifications as Slack controls, and the bare words an app could
