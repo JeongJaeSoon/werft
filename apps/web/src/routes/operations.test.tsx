@@ -212,7 +212,8 @@ const OUTCOMES = {
   merged_pr_count: 7,
   closed_pr_count: 2,
   cost_of_merged_sessions_usd: "120.000000",
-  cost_per_merged_pr_usd: "149.357142",
+  // Not cost_usd / merged_pr_count: the screen shows the API's figure.
+  cost_per_merged_pr_usd: "17.140000",
 };
 
 const usageRoutes = {
@@ -1012,13 +1013,13 @@ describe("사용량·한도", () => {
       ...usageRoutes,
     });
     const table = await screen.findByRole("table", { name: "성과당 비용" });
-    await within(table).findByText("$149.36");
+    await within(table).findByText("$17.14");
     const row = within(table).getByText("병합된 PR").closest("[role=row]");
     expect(
       [...(row?.querySelectorAll("[role=cell]") ?? [])].map(
         (cell) => cell.textContent,
       ),
-    ).toEqual(["병합된 PR", "7", "$149.36"]);
+    ).toEqual(["병합된 PR", "7", "$17.14"]);
     expect(
       screen.getByText("나눈 비용은 작업 세션 435개의 $1,045.50입니다."),
     ).toBeTruthy();
@@ -1062,7 +1063,7 @@ describe("사용량·한도", () => {
     fail = false;
     await (await setupUser()).click(retry);
     const table = await screen.findByRole("table", { name: "성과당 비용" });
-    await within(table).findByText("$149.36");
+    await within(table).findByText("$17.14");
   });
 
   test("사용량 탭: 비용 보고가 안 끝난 지난 날의 막대만 빗금이다", async () => {

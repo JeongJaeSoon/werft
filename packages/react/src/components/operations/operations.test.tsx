@@ -1317,7 +1317,8 @@ describe("UsageCostTable", () => {
       merged_pr_count: 3,
       closed_pr_count: 1,
       cost_of_merged_sessions_usd: "6.000000",
-      cost_per_merged_pr_usd: "3.333333",
+      // Not cost_usd / merged_pr_count: the screen shows the API's figure.
+      cost_per_merged_pr_usd: "2.500000",
     };
     const rows = (view: ReturnType<typeof withPlatform>) =>
       view
@@ -1331,7 +1332,7 @@ describe("UsageCostTable", () => {
     expect(view.getByRole("table", { name: "성과당 비용" })).toBeTruthy();
     expect(rows(view)).toEqual([
       ["성과", "수", "하나당 비용"],
-      ["병합된 PR", "3", "$3.33"],
+      ["병합된 PR", "3", "$2.50"],
     ]);
     expect(
       view.getByText("나눈 비용은 작업 세션 12개의 $10.00입니다."),
@@ -1368,7 +1369,7 @@ describe("UsageCostTable", () => {
     ).toBeNull();
     loading.unmount();
     const en = withPlatform(<UsageOutcomes data={outcomes} />, "en");
-    expect(rows(en)[1]).toEqual(["Merged PRs", "3", "$3.33"]);
+    expect(rows(en)[1]).toEqual(["Merged PRs", "3", "$2.50"]);
     en.unmount();
   });
 
