@@ -225,7 +225,8 @@ export function SessionDetail({
       ? last.turn_id
       : null;
   const cutOff = lostTurnId !== null && detail.status === "idle";
-  // Abandon settles the earliest first, as the server does.
+  // Abandon settles the earliest first, as the server does. Until the turns
+  // are read, nobody knows whether one is unknown, so nothing is offered.
   const unknownTurnId =
     turns.data?.items.find((turn) => turn.status === "outcome_unknown")
       ?.turn_id ?? null;
@@ -296,12 +297,14 @@ export function SessionDetail({
           </Button>
         ) : null}
       </div>
-      <RecoveryDecisions
-        session={detail}
-        unknownTurnId={unknownTurnId}
-        unavailable={unavailable}
-        refusal={refusal}
-      />
+      {turns.data !== undefined && (
+        <RecoveryDecisions
+          session={detail}
+          unknownTurnId={unknownTurnId}
+          unavailable={unavailable}
+          refusal={refusal}
+        />
+      )}
       <BudgetExceeded usage={usage.data} attention={detail.attention} />
       <SessionComposer
         session={detail}

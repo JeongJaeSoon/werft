@@ -2527,6 +2527,7 @@ describe("a session waiting on a recovery decision", () => {
     decided?: (request: Request) => Response;
     resumed?: (request: Request) => Response;
     scopes?: Parameters<typeof me>[0];
+    turnsDown?: boolean;
   }) {
     return renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
@@ -2537,10 +2538,12 @@ describe("a session waiting on a recovery decision", () => {
       [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
         json(200, { answerable: true, items: [] }),
       [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
-        json(200, {
-          items: options.turns ?? [ran, unknown],
-          next_cursor: null,
-        }),
+        options.turnsDown
+          ? apiError(503, "BACKEND_UNAVAILABLE", "down")
+          : json(200, {
+              items: options.turns ?? [ran, unknown],
+              next_cursor: null,
+            }),
       ...(options.decided ? { [`POST ${decisionPath}`]: options.decided } : {}),
       ...(options.resumed ? { [`POST ${resumePath}`]: options.resumed } : {}),
     });
@@ -2623,6 +2626,20 @@ describe("a session waiting on a recovery decision", () => {
       expect(screen.queryByRole("button", FRESH)).toBeNull();
     });
   }
+
+  test("a context gap offers nothing while its turns cannot be read: one of them may be unknown", async () => {
+    const { api } = render({ session: () => gap, turnsDown: true });
+    await screen.findByRole("heading", { level: 1 });
+    await waitFor(() =>
+      expect(
+        api.calls.some((call) =>
+          call.path.endsWith(`/sessions/${SESSION_ID}/turns`),
+        ),
+      ).toBe(true),
+    );
+    expect(screen.queryByRole("button", FRESH)).toBeNull();
+    expect(screen.queryByRole("button", ABANDON)).toBeNull();
+  });
 
   test("a credential that may not send to sessions has no decision to press", async () => {
     render({ session: () => gap, turns: [ran], scopes: ["sessions:read"] });
@@ -2715,6 +2732,32 @@ describe("a session waiting on a recovery decision", () => {
     const head = await screen.findByRole("heading", { level: 1 });
     await waitFor(() => expect(head.textContent).toContain("종료됨"));
     expect(screen.getByRole("button", { name: "다시 시작" })).toBeTruthy();
+  });
+
+  test("a session someone else moved after the abandon is not resumed", async () => {
+    const user = await setupUser();
+    let session = waiting;
+    const { api } = render({
+      session: () => session,
+      decided: () => {
+        // The abandon made revision 6; a terminate landed before the read.
+        session = {
+          ...waiting,
+          admission_state: "stopped",
+          status: "stopped",
+          revision: 7,
+        } as SessionDetail;
+        return accepted();
+      },
+      resumed: () => accepted(),
+    });
+    await user.click(await screen.findByRole("button", ABANDON));
+    expect(
+      await screen.findByText(
+        "그새 세션 상태가 바뀌었습니다. 바뀐 상태를 보고 다시 시도하세요.",
+      ),
+    ).toBeTruthy();
+    expect(posts(api).map((call) => call.path)).toEqual([decisionPath]);
   });
 
   test("start_fresh is one decision, and the session goes on", async () => {

@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-query";
 import {
   type ApiClient,
-  type ApiError,
+  ApiError,
   type SessionEventFrame as ClientEventFrame,
   type components,
   isApiError,
@@ -389,6 +389,18 @@ export function useRecoveryDecision(id: string) {
       const stopped = await unwrap(
         client.GET("/v1/sessions/{id}", { params: { path: { id } } }),
       );
+      // Someone else moved the session after this abandon (a stop, another
+      // decision): resuming on their revision would undo what they did.
+      if (
+        stopped.revision !== choice.revision + 1 ||
+        stopped.admission_state !== "stopped"
+      ) {
+        throw new ApiError(
+          409,
+          "REVISION_CONFLICT",
+          "The session changed after the abandon; not resuming",
+        );
+      }
       return (await unwrap(
         client.POST("/v1/sessions/{id}/resume", {
           params: {
