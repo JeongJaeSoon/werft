@@ -15,7 +15,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **DB 정지가 checkpoint 업로드와 겹쳐도 turn이 몇 분씩 `running`에 머물지 않는다**(JeongJaeSoon/werft#PRNUMBER). egress proxy는 본문이 20초 동안 오지 않는 요청을 `503`과 `Retry-After`로 끝내고, 허용을 받아 열어 둔 upstream 연결도 닫는다. 전에는 본문이 오지 않는 업로드를 저장소가 포기할 때까지(SeaweedFS는 120초) 쥐고 있어서, 5초 정지에 turn이 4분 넘게 `running`이었다. worker는 bundle 업로드가 30초 동안 아무것도 보내지 못하고 답도 받지 못하면 끊고 다시 보낸다(3번까지, lease를 잃은 뒤에는 보내지 않는다). 이미 넘긴 바이트가 가장 느린 허용 속도(256 MiB에 5분)로 가는 데 드는 시간은 그 30초에 더한다. worker의 object store 요청은 요청마다 새 연결을 쓴다. migration은 없고 따로 할 일도 없다.
+- **DB 정지가 checkpoint 업로드와 겹쳐도 turn이 몇 분씩 `running`에 머물지 않는다**(JeongJaeSoon/werft#2271). egress proxy는 본문이 20초 동안 오지 않는 요청을 `503`과 `Retry-After`로 끝내고, 허용을 받아 열어 둔 upstream 연결도 닫는다. 전에는 본문이 오지 않는 업로드를 저장소가 포기할 때까지(SeaweedFS는 120초) 쥐고 있어서, 5초 정지에 turn이 4분 넘게 `running`이었다. worker는 bundle 업로드가 30초 동안 아무것도 보내지 못하고 답도 받지 못하면 끊고 다시 보낸다(3번까지, lease를 잃은 뒤에는 보내지 않는다). 이미 넘긴 바이트가 가장 느린 허용 속도(256 MiB에 5분)로 가는 데 드는 시간은 그 30초에 더한다. worker의 object store 요청은 요청마다 새 연결을 쓴다. migration은 없고 따로 할 일도 없다.
   - egress-proxy와 worker 이미지가 각각 이 버전이어야 그쪽 제한이 듣는다. 한쪽만 올려도 된다.
 - **대화 rollout이 `on`인 에이전트가 올리는 글이 모두 AI가 쓴 글이라는 작은 회색 줄(`AI 에이전트 · Werft`)로 끝난다**(JeongJaeSoon/werft#2259). 한 턴의 결과나 요청인 글에는 `<이름> 님 요청`이 붙는다. `off`·`shadow`인 에이전트의 글은 전과 같다. migration은 없고 따로 할 일도 없다.
 - **DB가 15초 내려가도 heartbeat 간격의 어느 때에 시작됐든 진행 중인 turn이 끝까지 간다**(JeongJaeSoon/werft#2245). worker의 heartbeat 간격이 5초에서 2초로 준다. 전에는 장애가 간격의 끝 무렵(마지막 heartbeat 뒤 약 4.2초 넘어)에 시작되면 turn이 `worker_ownership_lost`로 끝났다. lease TTL(30초)과 안전 마진(10초)은 그대로이고, migration은 없다.
