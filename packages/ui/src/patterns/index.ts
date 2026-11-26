@@ -90,6 +90,12 @@ export {
   type ListFiltersMessages,
   type ListFiltersProps,
 } from "./list-filters.tsx";
+export {
+  ListSummary,
+  ListSummaryItem,
+  type ListSummaryItemProps,
+  type ListSummaryProps,
+} from "./list-summary.tsx";
 export { MoreLink, type MoreLinkProps } from "./more-link.tsx";
 export {
   PageBreadcrumb,
