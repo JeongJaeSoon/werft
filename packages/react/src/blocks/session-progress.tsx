@@ -83,7 +83,7 @@ export function SessionProgress({
   return (
     <div
       data-slot="session-progress"
-      className="flex min-w-0 flex-wrap items-center gap-x-5 gap-y-1 text-caption text-muted-foreground"
+      className="flex min-w-0 flex-wrap items-center gap-x-[var(--werft-space-4)] gap-y-[var(--werft-space-1)] text-caption text-muted-foreground"
     >
       {steps && steps.steps.length > 0 ? (
         <Button
@@ -120,7 +120,7 @@ export function SessionProgress({
         </Button>
       ) : null}
       {step && step.toolCalls > 0 ? (
-        <span className="inline-flex items-center gap-1.5 tabular-nums">
+        <span className="inline-flex items-center gap-[var(--werft-space-1)] tabular-nums">
           <Wrench
             className="size-3.5 shrink-0"
             strokeWidth={1.5}
@@ -135,7 +135,7 @@ export function SessionProgress({
         </span>
       ) : null}
       {duration ? (
-        <span className="inline-flex items-center gap-1.5 tabular-nums">
+        <span className="inline-flex items-center gap-[var(--werft-space-1)] tabular-nums">
           <Clock
             className="size-3.5 shrink-0"
             strokeWidth={1.5}
@@ -177,9 +177,9 @@ export function SessionInputNeeded({
     <section
       data-slot="session-input-needed"
       aria-labelledby={titleId}
-      className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-control border border-[var(--werft-tone-attention-border)] bg-card px-3 py-2"
+      className="flex min-w-0 flex-wrap items-center justify-between gap-x-[var(--werft-space-4)] gap-y-[var(--werft-space-2)] rounded-control border border-[var(--werft-tone-attention-border)] bg-card px-[var(--werft-space-3)] py-[var(--werft-space-2)]"
     >
-      <p className="m-0 flex min-w-0 flex-wrap items-baseline gap-x-2 text-body">
+      <p className="m-0 flex min-w-0 flex-wrap items-baseline gap-x-[var(--werft-space-2)] text-body">
         <span id={titleId} className="font-medium">
           {t("session.needsInput.title")}
         </span>
@@ -269,7 +269,7 @@ function BlockedNote({
   readonly lead?: string;
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1">
+    <div className="flex min-w-0 flex-col gap-[var(--werft-space-1)]">
       <Text variant="meta" className="m-0 text-destructive">
         {lead ? `${lead} ` : null}
         {blocked.text}
@@ -317,14 +317,17 @@ export function SessionStepList({
         {t("session.steps.title")}
       </h2>
       {steps.steps.length === 0 ? (
-        <Text variant="meta" className="m-0 px-3 py-2">
+        <Text
+          variant="meta"
+          className="m-0 px-[var(--werft-space-3)] py-[var(--werft-space-2)]"
+        >
           {t("session.steps.empty")}
         </Text>
       ) : (
         // A long session scrolls inside its box; the keyboard needs a stop.
         <div
           {...{ role: "group", tabIndex: 0, "aria-labelledby": titleId }}
-          className="max-h-72 overflow-y-auto rounded-card p-1 focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
+          className="max-h-[40dvh] overflow-y-auto rounded-card p-[var(--werft-space-1)] focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
         >
           <ol className="m-0 flex list-none flex-col p-0">
             {steps.steps.map((step, index) => {
@@ -353,7 +356,7 @@ export function SessionStepList({
         </div>
       )}
       {steps.focus === null && blocked ? (
-        <div className="border-t px-3 py-2">
+        <div className="border-t px-[var(--werft-space-3)] py-[var(--werft-space-2)]">
           <BlockedNote
             blocked={blocked}
             agent={session.agent}
@@ -424,12 +427,12 @@ function StepRow({
         aria-expanded={expanded}
         aria-controls={panelId}
         onClick={onToggle}
-        className="flex min-h-[var(--werft-control-height)] w-full min-w-0 items-center gap-3 rounded-control px-2 py-1 text-left text-body hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
+        className="flex min-h-[var(--werft-control-height)] w-full min-w-0 items-center gap-[var(--werft-space-3)] rounded-control px-[var(--werft-space-2)] py-[var(--werft-space-1)] text-left text-body hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
       >
         <span
           aria-hidden="true"
           className={cn(
-            "grid size-6 flex-none place-content-center rounded-full border font-medium text-caption tabular-nums",
+            "grid size-[var(--werft-size-icon-tile)] flex-none place-content-center rounded-[var(--werft-radius-pill)] border font-medium text-caption tabular-nums",
             current
               ? "border-(color:--werft-tone-progress-border) bg-(color:--werft-tone-progress-bg) text-(color:--werft-tone-progress-fg)"
               : waiting
@@ -460,7 +463,11 @@ function StepRow({
       <div
         id={panelId}
         hidden={!expanded}
-        className="flex min-w-0 flex-col gap-1 pr-2 pb-2 pl-11"
+        className={cn(
+          "flex min-w-0 flex-col gap-[var(--werft-space-1)] pr-[var(--werft-space-2)] pb-[var(--werft-space-2)] pl-[calc(var(--werft-size-icon-tile)+var(--werft-space-3)+var(--werft-space-2))]",
+          // A host without Tailwind's preflight would let flex beat hidden.
+          !expanded && "hidden",
+        )}
       >
         {time || step.toolCalls > 0 ? (
           <Text variant="meta" className="m-0 tabular-nums">
@@ -502,7 +509,7 @@ function StepRow({
           </Text>
         ) : null}
         {state === "cut_off" ? (
-          <div className="flex min-w-0 flex-col items-start gap-1">
+          <div className="flex min-w-0 flex-col items-start gap-[var(--werft-space-1)]">
             <Text variant="meta" className="m-0 text-destructive">
               {t("session.steps.cutOff")}
             </Text>

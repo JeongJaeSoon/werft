@@ -247,7 +247,7 @@ export function SessionDetail({
     ? readSessionSteps({
         session: detail,
         turns: turns.data.items,
-        requests,
+        requests: pending.data?.items,
         events: events.events,
         windowFull: events.events.length >= EVENT_WINDOW,
       })
@@ -801,7 +801,7 @@ function AgentRelease({
 function UsageFigures({ usage }: { readonly usage: SessionUsageResponse }) {
   const { t, locale } = useBlockText();
   return (
-    <span className="inline-flex items-center gap-1.5 tabular-nums">
+    <span className="inline-flex items-center gap-[var(--werft-space-1)] tabular-nums">
       <Gauge
         className="size-3.5 shrink-0"
         strokeWidth={1.5}

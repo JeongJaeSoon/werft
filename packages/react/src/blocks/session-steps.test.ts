@@ -139,6 +139,15 @@ describe("readSessionSteps", () => {
     expect(steps.steps[0]?.state).toBe("running");
   });
 
+  test("before the request list is read, a needs_input turn still waits on an answer", () => {
+    const steps = read({
+      session: { current_turn_id: "1", status: "needs_input" },
+      turns: [turn("1", "needs_input")],
+      requests: undefined,
+    });
+    expect(steps.steps[0]?.state).toBe("answer");
+  });
+
   test("with no running turn, the one holding requests is focused but not current", () => {
     const steps = read({
       session: { current_turn_id: null, status: "needs_input" },

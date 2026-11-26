@@ -49,7 +49,8 @@ export interface SessionSteps {
 export interface ReadSessionStepsInput {
   readonly session: Pick<SessionDetail, "current_turn_id" | "status">;
   readonly turns: readonly TurnSummary[];
-  readonly requests: readonly PendingRequest[];
+  /** Undefined until the request list is read: the turns' own status speaks. */
+  readonly requests: readonly PendingRequest[] | undefined;
   readonly events: readonly SessionEventFrame[];
   /** The event window is at its cap, so its oldest events are gone. */
   readonly windowFull: boolean;
@@ -58,6 +59,7 @@ export interface ReadSessionStepsInput {
 function stateOf(
   turn: TurnSummary,
   requests: readonly PendingRequest[],
+  listRead: boolean,
 ): SessionStepState {
   // The list holds only requests still open, whatever the turn's status
   // says: a parked turn waits on them too.
@@ -69,10 +71,10 @@ function stateOf(
       return "queued";
     case "running":
       return "running";
-    // The wait shows only while the request list holds one: a turn read
-    // before the answer still says needs_input.
+    // Once the list is read, the wait shows only while it holds a request:
+    // a turn read before the answer still says needs_input.
     case "needs_input":
-      return "running";
+      return listRead ? "running" : "answer";
     case "completed":
       return "done";
     case "failed":
@@ -109,13 +111,13 @@ export function readSessionSteps({
   // events without a turn (control-plane ones) say nothing about that.
   const oldest = events.find((frame) => frame.turnId !== null)?.turnId ?? null;
   const steps = turns.map((turn, index): SessionStep => {
-    const asked = requests
+    const asked = (requests ?? [])
       .filter((request) => request.turn_id === turn.turn_id)
       .sort((a, b) => a.created_at.localeCompare(b.created_at));
     return {
       turn,
       number: index + 1,
-      state: stateOf(turn, asked),
+      state: stateOf(turn, asked, requests !== undefined),
       requests: asked,
       toolCalls: calls.get(turn.turn_id)?.size ?? 0,
       toolCallsPartial: windowFull && oldest === turn.turn_id,

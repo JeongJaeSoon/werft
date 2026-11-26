@@ -4809,7 +4809,7 @@ describe("session steps", () => {
     checkpoint_revision: null,
     created_at: AT,
     started_at: AT,
-    ended_at: status === "running" ? null : AT,
+    ended_at: status === "running" || status === "needs_input" ? null : AT,
     ...extra,
   });
   const waitingOnTwo = {
@@ -4850,6 +4850,8 @@ describe("session steps", () => {
     expect(
       within(second as HTMLElement).getByText("승인을 기다리는 도구: Bash"),
     ).toBeTruthy();
+    // The open turn's time runs from its start.
+    expect(second?.textContent).toMatch(/시작한 지 /);
     const closed = within(first as HTMLElement).getByRole("button", {
       name: /1단계: 지시 1/,
     });
