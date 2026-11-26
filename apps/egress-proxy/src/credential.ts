@@ -1942,8 +1942,8 @@ export function startCredentialProxy(
     // The route's body as read since admission; null for the object store,
     // whose body streams upstream.
     whole: Promise<UpstreamBody> | null,
-    // When the first byte of a streamed body is due.
-    bodyBy: number,
+    // The object store's body as it has arrived since admission.
+    streamed: ReadableStream<Uint8Array> | null,
     // The exchange's id: the ledger's open and renewals and the usage
     // report all name the call by it.
     exchangeId: string,
@@ -2014,17 +2014,12 @@ export function startCredentialProxy(
     // What a Messages answer that says too little about its usage is
     // charged from.
     let sent: Uint8Array | null = null;
-    // Ends the upstream call itself when a streamed body stops arriving: a
-    // write that is not draining would never read the stream's failure.
-    const stalled = new AbortController();
     try {
       const body =
         typeof route.lfs === "object"
           ? lfsBatchBody([route.lfs])
           : whole === null
-            ? objectBody(request, grant, bodyBy, holdMs, (error) =>
-                stalled.abort(error),
-              )
+            ? objectBody(streamed, grant)
             : await whole;
       if (body instanceof Uint8Array) sent = body;
       const refused = await ledger?.open(sent, signal);
@@ -2047,7 +2042,7 @@ export function startCredentialProxy(
             ] as Array<[string, string]>)
           : [...headers],
         body,
-        signal: AbortSignal.any([signal, stalled.signal]),
+        signal,
       };
       let at = first;
       for (let tried = 0; ; tried++) {
@@ -2093,7 +2088,9 @@ export function startCredentialProxy(
       if (error instanceof BodyTooLargeError) {
         return reply(413, "request body too large", route.purpose);
       }
-      if (error instanceof BodyStalledError || stalled.signal.aborted) {
+      // The stall ended the exchange: its signal carries it to whatever
+      // the upstream call was waiting on, a write that is not draining too.
+      if (signal.reason instanceof BodyStalledError) {
         return stalledReply(route.purpose, fields);
       }
       logger.warn("Credential route upstream failed", {
@@ -2415,7 +2412,6 @@ export function startCredentialProxy(
         );
       }
       const client = server.requestIP(request)?.address ?? "unknown";
-      const bodyBy = performance.now() + holdMs;
       const admitted = admit(client);
       if (admitted === null) {
         logger.warn("Refusing a credential exchange over the cap", { client });
@@ -2431,11 +2427,15 @@ export function startCredentialProxy(
         return reply(503, "too many request bytes in flight", route.purpose);
       }
       const revocation = new AbortController();
+      // Aborted with the `BodyStalledError` once the request's body has
+      // stopped arriving.
+      const bodyStall = new AbortController();
       // Everything that ends an exchange, the wait for a trickled request
       // body included.
       const ends = AbortSignal.any([
         request.signal,
         revocation.signal,
+        bodyStall.signal,
         exchangeDeadline(exchangeTimeoutMs),
       ]);
       let regrant: ReturnType<typeof setTimeout> | undefined;
@@ -2461,25 +2461,36 @@ export function startCredentialProxy(
         admitted();
       };
       ends.addEventListener("abort", hungUp);
+      // Not once the upstream has answered: nothing waits on the rest of the
+      // body then, and its answer is on the way to the worker.
+      const stalled = (error: BodyStalledError) => {
+        if (!answered) bodyStall.abort(error);
+      };
       // Read from admission on, so what Bun takes off the socket moves into
       // the reservation rather than piling up beside it while the
-      // authorizer is asked.
+      // authorizer is asked, and so the body's silence is timed from the
+      // request's arrival: whole for the routes that send it whole, into a
+      // stream for the object store.
+      const arriving = AbortSignal.any([ends, reading.signal]);
       let whole =
         route.purpose === "object_store"
           ? null
-          : readWhole(
-              request.body,
-              AbortSignal.any([ends, reading.signal]),
-              reservation.bytes,
-              holdMs,
-            );
-      whole?.catch(() => {});
-      // Rejects once that read has stalled and otherwise never settles: a
-      // wait for a decision is raced with it, so it ends the request too.
+          : readWhole(request.body, arriving, reservation.bytes, holdMs);
+      whole?.catch((error) => {
+        if (error instanceof BodyStalledError) stalled(error);
+      });
+      const streamed =
+        route.purpose === "object_store"
+          ? arrivingBody(request.body, arriving, holdMs, stalled)
+          : null;
+      // Rejects with the stall and otherwise never settles: what a wait
+      // that does not end with `ends` is raced with.
       const bodyStalled = new Promise<never>((_, reject) => {
-        whole?.catch((error) => {
-          if (error instanceof BodyStalledError) reject(error);
-        });
+        bodyStall.signal.addEventListener(
+          "abort",
+          () => reject(bodyStall.signal.reason),
+          { once: true },
+        );
       });
       bodyStalled.catch(() => {});
       // A definite refusal cuts the exchange at once. An authorizer that
@@ -2587,6 +2598,7 @@ export function startCredentialProxy(
             bodyStalled,
           ]);
         }
+        bodyStall.signal.throwIfAborted();
         if (authorized.kind === "undecided") {
           release();
           return undecidedReply(route.purpose);
@@ -2697,7 +2709,7 @@ export function startCredentialProxy(
           client,
           ends,
           whole,
-          bodyBy,
+          streamed,
           exchangeId,
           ledger,
         );
@@ -2713,7 +2725,7 @@ export function startCredentialProxy(
         if (error instanceof BodyTooLargeError) {
           return reply(413, "request body too large", route.purpose);
         }
-        if (error instanceof BodyStalledError) {
+        if (bodyStall.signal.aborted) {
           return stalledReply(route.purpose, {
             purpose: route.purpose,
             client,
@@ -2848,39 +2860,65 @@ export function bodyReservation(
  * signed. Bun already holds the worker to the length it declared, and the
  * authorizer signed that same declaration; the upstream client checks the
  * stream against it again as it writes.
- *
- * `stalled` hears once the worker sends nothing for `idleMs`, its first byte
- * due at `firstBy`, and the stream fails. The body is taken off the request
- * as it arrives, whatever the upstream's pace, so a gap is the worker's own
- * silence and is seen even while a write upstream is not draining. Bun holds
- * what a worker sent either way, inside the reservation made for it.
  */
 function objectBody(
-  request: Request,
+  streamed: ReadableStream<Uint8Array> | null,
   grant: EgressGrant,
-  firstBy: number,
-  idleMs: number,
-  stalled: (error: BodyStalledError) => void,
 ): UpstreamBody {
   const declared = grant.headers.find(([name]) => name === "content-length");
-  if (declared === undefined || request.body === null) return null;
-  const reader = request.body.getReader();
+  if (declared === undefined || streamed === null) return null;
+  return { stream: streamed, length: Number(declared[1]) };
+}
+
+/**
+ * A request body taken off the request as it arrives, from admission on and
+ * whatever the pace of what reads the stream. Bun holds what a client sent
+ * either way, inside the reservation made for it; taken this way, a gap
+ * between chunks is the client's own silence, and it is seen while the
+ * authorizer is asked, a name is looked up or a write upstream is not
+ * draining. `stalled` hears of a gap of `idleMs`, the first counted from
+ * now. The stream fails when `signal` fires, which is how a stall that ends
+ * the exchange reaches whoever reads it.
+ */
+function arrivingBody(
+  body: ReadableStream<Uint8Array> | null,
+  signal: AbortSignal,
+  idleMs: number,
+  stalled: (error: BodyStalledError) => void,
+): ReadableStream<Uint8Array> | null {
+  if (body === null) return null;
+  const reader = body.getReader();
   let over = false;
-  const stream = new ReadableStream<Uint8Array>({
+  return new ReadableStream<Uint8Array>({
     start(controller) {
+      const stop = () => {
+        over = true;
+        reader.cancel(signal.reason).catch(() => {});
+        controller.error(signal.reason);
+      };
+      if (signal.aborted) return stop();
+      signal.addEventListener("abort", stop, { once: true });
       void (async () => {
         try {
-          for (let due = firstBy - performance.now(); ; due = idleMs) {
-            const next = await arrivingWithin(reader.read(), due);
+          for (;;) {
+            const next = await arrivingWithin(reader.read(), idleMs);
             if (over) return;
             if (next.done) return controller.close();
             controller.enqueue(next.value);
           }
         } catch (error) {
           if (over) return;
-          if (error instanceof BodyStalledError) stalled(error);
+          if (!(error instanceof BodyStalledError)) {
+            return controller.error(error);
+          }
+          // Ends the exchange, and through `signal` this stream. Unless the
+          // upstream has answered: then the rest is no longer waited on, and
+          // the stream is left as it is.
+          stalled(error);
+          over = true;
           reader.cancel(error).catch(() => {});
-          controller.error(error);
+        } finally {
+          signal.removeEventListener("abort", stop);
         }
       })();
     },
@@ -2889,7 +2927,6 @@ function objectBody(
       return reader.cancel(reason);
     },
   });
-  return { stream, length: Number(declared[1]) };
 }
 
 const S3_ERROR_CODES: Record<number, string> = {

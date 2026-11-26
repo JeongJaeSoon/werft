@@ -2446,6 +2446,46 @@ describe("startCredentialProxy", () => {
       await until(() => up.state.closed);
     });
 
+    test("bytes already in hand when the grant comes do not start the clock again", async () => {
+      const up = await rawUpstream();
+      const auth = authorizer(async () => {
+        await Bun.sleep(700);
+        return granted(up.port);
+      });
+      const server = proxy(auth.url, up.port, {
+        undecidedHold: { ms: 1_000 },
+      });
+      const { answer, ms } = await raw(server.port, OBJECT_HEAD, (socket) =>
+        socket.write("1234"),
+      );
+      expect(answer).toStartWith("HTTP/1.1 503");
+      expect(answer).toContain("request body stalled");
+      // 1 s after the four bytes, which came with the request: not 1 s
+      // after the grant handed them on.
+      expect(ms).toBeGreaterThanOrEqual(950);
+      expect(ms).toBeLessThan(1_500);
+      await until(() => up.state.closed);
+    });
+
+    test("a name that is slow to look up does not hide a body that is not coming", async () => {
+      const up = await rawUpstream();
+      const auth = authorizer(() => granted(up.port));
+      const server = proxy(auth.url, up.port, {
+        undecidedHold: { ms: 300 },
+        resolve: async (host) => {
+          await Bun.sleep(2_000);
+          return host === "upstream.test" ? ["127.0.0.1"] : [];
+        },
+      });
+      const { answer, ms } = await raw(server.port, OBJECT_HEAD);
+      expect(answer).toStartWith("HTTP/1.1 503");
+      expect(answer).toContain("request body stalled");
+      expect(ms).toBeGreaterThanOrEqual(250);
+      expect(ms).toBeLessThan(1_500);
+      // Nothing was dialled: the lookup had not answered.
+      expect(up.state.received).toBe("");
+    });
+
     test("an upload that keeps arriving is not cut, however long it takes", async () => {
       const up = await rawUpstream({ answerAt: 10 });
       const auth = authorizer(() => granted(up.port));
