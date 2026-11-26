@@ -968,7 +968,9 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       permissions?: Record<string, string>;
       "runs-on"?: string;
       "timeout-minutes"?: number;
-      strategy?: { matrix: { app: string[]; arch: string[] | string } };
+      strategy?: {
+        matrix: { app: string[] | string; arch: string[] | string };
+      };
       steps: Step[];
     };
     const text = read(".github/workflows/images.yml");

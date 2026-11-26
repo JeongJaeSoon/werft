@@ -154,6 +154,37 @@ describe("test-ops-bundle-plan.sh", () => {
     );
   });
 
+  test("a .gitattributes change, anywhere, builds it", () => {
+    for (const path of [".gitattributes", "scripts/.gitattributes"]) {
+      const before = git("rev-parse", "HEAD");
+      const r = plan(
+        before,
+        commit(path, `*.sh text eol=crlf # ${Math.random()}\n`),
+      );
+      expect(r).toMatchObject({
+        code: 0,
+        out: "ops_bundle=build\n",
+        summary: "",
+      });
+      expect(r.why).toContain(`${path} changed`);
+    }
+  });
+
+  test("a mounted path git would quote is still matched", () => {
+    const odd = "packages/db/migrations/0002_ré b.sql";
+    put(odd, "select 3;\n");
+    put(
+      "infra/compose.core.yml",
+      `${readFileSync(join(repo, "infra/compose.core.yml"), "utf8")}      - ../${odd}:/docker-entrypoint-initdb.d/0002.sql:ro\n`,
+    );
+    git("add", ".");
+    git("commit", "--quiet", "-m", "odd mount");
+    const before = git("rev-parse", "HEAD");
+    const r = plan(before, commit(odd, "select 4;\n"));
+    expect(r).toMatchObject({ code: 0, out: "ops_bundle=build\n" });
+    expect(r.why).toContain("changed");
+  });
+
   test("a list it cannot read builds it", () => {
     const before = git("rev-parse", "HEAD");
     commit("infra/compose.core.yml", "services: {}\n");
@@ -200,8 +231,13 @@ describe("images.yml test-ops-bundle plan", () => {
     // A PR, tag, scheduled or manual run never runs the step, so its plan is
     // the image plan itself, as before.
     expect(jobs.plan?.outputs?.ops_bundle).toBe(
-      "${{ steps.bundle.outputs.ops_bundle || steps.images.outputs.images }}",
+      "${{ steps.bundle.outcome == 'success' && steps.bundle.outputs.ops_bundle == 'skip' && 'skip' || steps.images.outputs.images }}",
     );
+    // A planner that breaks builds the bundle rather than failing the plan.
+    const step = jobs.plan?.steps?.find((s) => s.id === "bundle") as
+      | { "continue-on-error"?: boolean }
+      | undefined;
+    expect(step?.["continue-on-error"]).toBe(true);
     expect(jobs["test-ops-bundle"]?.if).toBe(
       "needs.plan.outputs.ops_bundle == 'build'",
     );

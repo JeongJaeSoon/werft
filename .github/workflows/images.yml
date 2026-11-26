@@ -66,7 +66,8 @@ jobs:
       images: ${{ steps.images.outputs.images }}
       # build or skip: the image plan, but a main push that changes no bundle
       # input leaves the bundle out (test-ops-bundle-plan.sh).
-      ops_bundle: ${{ steps.bundle.outputs.ops_bundle || steps.images.outputs.images }}
+      # Only a planner that succeeded and said skip leaves it out.
+      ops_bundle: ${{ steps.bundle.outcome == 'success' && steps.bundle.outputs.ops_bundle == 'skip' && 'skip' || steps.images.outputs.images }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -120,6 +121,9 @@ jobs:
       - id: bundle
         name: Plan the single-server bundle
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.images.outputs.images == 'build'
+        # A planner that breaks builds the bundle; it must not fail the plan
+        # every other job here needs.
+        continue-on-error: true
         env:
           BEFORE_SHA: ${{ github.event.before }}
         run: bash .github/scripts/test-ops-bundle-plan.sh >>"$GITHUB_OUTPUT"

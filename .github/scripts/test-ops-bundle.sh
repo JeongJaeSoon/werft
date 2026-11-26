@@ -31,10 +31,10 @@ FILES=(
 )
 
 # The migrations core mounts, read from core so the two cannot drift.
+# A command substitution, not a process one: a failed sed stops the script.
+mounts=$(sed -n 's|^ *- \.\./\(packages/db/migrations/[^:]*\):.*|\1|p' infra/compose.core.yml)
 migrations=()
-while IFS= read -r path; do migrations+=("$path"); done < <(
-  sed -n 's|^ *- \.\./\(packages/db/migrations/[^:]*\):.*|\1|p' infra/compose.core.yml
-)
+while IFS= read -r path; do [ -z "$path" ] || migrations+=("$path"); done <<<"$mounts"
 test "${#migrations[@]}" -gt 0 || { echo "::error::compose.core.yml mounts no migration" >&2; exit 1; }
 
 if [ "${1:-}" = --inputs ]; then

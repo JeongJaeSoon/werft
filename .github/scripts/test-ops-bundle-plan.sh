@@ -8,7 +8,9 @@
 # (test-ops-bundle.sh --inputs, the one list) plus the job's: its fixture
 # manifest, images.yml and this script. Anything short of that proof builds:
 # no previous commit (a new branch), a push of several commits or a force push
-# (HEAD^ is not `before`), a diff or list that cannot be read. Files outside
+# (HEAD^ is not `before`), a diff or list that cannot be read, and any
+# .gitattributes change (it can change the bytes a checkout gives the bundle).
+# Files outside
 # the list that still break the bundle surface in the next scheduled or tag
 # run, which always build it.
 #
@@ -36,13 +38,18 @@ inputs+=$'\n'"tests/fixtures/test-ops-release-manifest.json"
 inputs+=$'\n'".github/workflows/images.yml"
 inputs+=$'\n'".github/scripts/test-ops-bundle-plan.sh"
 
-changed=$(git diff --name-only --no-renames "$before" HEAD) || build "cannot diff ${before::12}..${head::12}"
+# Literal pathspecs and git's own exit code: 0 nothing changed, 1 something
+# did, anything else is an error. No name is parsed back out of git's output.
+specs=(':(glob,top).gitattributes' ':(glob,top)**/.gitattributes')
 while IFS= read -r path; do
-  [ -n "$path" ] || continue
-  if grep -Fxq -- "$path" <<<"$inputs"; then
-    build "${path} changed in ${before::12}..${head::12}"
-  fi
-done <<<"$changed"
+  [ -z "$path" ] || specs+=(":(literal,top)${path}")
+done <<<"$inputs"
+git diff --quiet --no-renames "$before" HEAD -- "${specs[@]}"
+case $? in
+  0) ;;
+  1) build "$(git diff --name-only --no-renames "$before" HEAD -- "${specs[@]}" | head -n 1) changed in ${before::12}..${head::12}" ;;
+  *) build "cannot diff ${before::12}..${head::12}" ;;
+esac
 
 echo "test-ops-bundle-plan: skip: no bundle input changed in ${before::12}..${head::12}" >&2
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
