@@ -86,6 +86,10 @@ export const turnSummarySchema = z.object({
       "When Slack deleted the message the instruction came from. Set, the turn's `message` is empty, its `result` and `terminal_reason` null, and its events carry `source_deleted_at` with their text left out: the instruction, the agent's replies and what its tools read and returned. Only the turn the message was the instruction of is withheld; a later turn of the session shows as it is. What is stored is kept until an admin deletes it. Null otherwise, and from a server before the field.",
   }),
   terminal_reason: z.string().min(1).nullable(),
+  prepended_turn_id: turnIdSchema.nullable().default(null).meta({
+    description:
+      "The turn right before this one, which ended `failed` with `terminal_reason` `worker_ownership_lost`, whose input the worker was given first, after a line saying that request was cut off midway: that input came after the checkpoint this turn starts from. Recorded when the turn is first handed to a worker, and a retried delivery gives it once, never twice. Null when no such turn came right before, when the turn was started by continuing it (`POST /v1/sessions/{id}/turns/{turn_id}/continue`), when its message was deleted, when the turn has not yet been handed over, and from a server before the field.",
+  }),
   checkpoint_revision: revisionSchema.nullable().meta({
     description:
       "The newest checkpoint this turn committed that a restore can still reach. A revision garbage collection removed, or one a start_fresh recovery decision retired, is not reported; null when none is left.",

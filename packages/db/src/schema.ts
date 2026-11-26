@@ -2067,6 +2067,19 @@ export const storageUsage = pgTable(
   (table) => [check("storage_usage_bytes_nonneg", sql`${table.bytes} >= 0`)],
 );
 
+/**
+ * Why a cut-off turn's input was left out of the turn after it: the turn is
+ * its continuation ([Continue]), whose input it already is; Slack or an admin
+ * deleted its message; or the web input it came from can no longer be read
+ * where it is kept.
+ */
+export const PREPEND_SKIP_REASONS = [
+  "continuation",
+  "deleted_source",
+  "unreadable_web_input",
+] as const;
+export type PrependSkipReason = (typeof PREPEND_SKIP_REASONS)[number];
+
 export const turns = pgTable(
   "turns",
   {
@@ -2114,6 +2127,12 @@ export const turns = pgTable(
     // What the turn came from (`StoredSourceSet`): Slack places and input
     // ids, never text. Null for none and before 0324.
     sources: jsonb().$type<StoredSourceSet>(),
+    // The turn right before, which its worker's lost lease cut off, as the
+    // first delivery of this turn judged it: its input went in front of this
+    // turn's, or, with a skip reason, was left out. A redelivery reads it
+    // and decides the same. Null when no cut-off turn came right before.
+    prependedTurn: integer("prepended_turn"),
+    prependSkipReason: text("prepend_skip_reason").$type<PrependSkipReason>(),
   },
   (table) => [
     // Which turns a delete mark's place is in, direct or inherited.
@@ -2134,6 +2153,10 @@ export const turns = pgTable(
     check(
       "turns_channel_check",
       sql`${table.channel} IN (${sql.raw(sqlList(SURFACE_KIND_VALUES))})`,
+    ),
+    check(
+      "turns_prepend_skip_reason_check",
+      sql`${table.prependSkipReason} IS NULL OR (${table.prependedTurn} IS NOT NULL AND ${table.prependSkipReason} IN (${sql.raw(sqlList(PREPEND_SKIP_REASONS))}))`,
     ),
   ],
 );
