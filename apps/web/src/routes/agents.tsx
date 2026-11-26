@@ -7,6 +7,7 @@ import type {
   AgentListItem,
   CountAgentsResponse,
 } from "@werft-ai/contracts";
+import { privateChannelsPending } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import { ListToolbar } from "@werft-ai/react/components";
 import {
@@ -67,6 +68,7 @@ import {
 } from "../components/list-pages.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { NewAgentFlow } from "../components/new-agent-flow.tsx";
+import { PrivateChannelsPending } from "../components/private-channels-pending.tsx";
 import { OPENS_ROW, TABLE_ROW_LINK } from "../components/row-link.ts";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
 import { SessionSummary } from "../components/session-summary.tsx";
@@ -134,7 +136,7 @@ export function AgentsScreen() {
       ) : counts.error ? (
         isApiError(counts.error, "FORBIDDEN") ? (
           <>
-            <AgentsSessionSummary />
+            <AgentsSessionSummary announcePending />
             <p className="web-page__intro">{t("agents.listWithheld")}</p>
             <AdministeredAgents showEmpty />
           </>
@@ -172,6 +174,7 @@ function AgentList({
   );
   const [query, setQuery] = useState("");
   const q = useSearchTerm(query);
+  const sessionCounts = useAgentsSessionCounts();
   const paged = scope !== "administered";
   const pages = useInfiniteQuery({
     ...agentPagesQuery(client, q, AGENTS_PAGE_SIZE, scope === "ownerless"),
@@ -300,6 +303,13 @@ function AgentList({
           ? ""
           : t("agents.shown", { count: shown })}
       </output>
+      {/* One notice for the session summary above and the list below. */}
+      <PrivateChannelsPending
+        pending={
+          privateChannelsPending(sessionCounts) ||
+          privateChannelsPending(paged ? pages.data : summaries.data)
+        }
+      />
       {paged ? (
         counts.all === 0 ? (
           <EmptyState title={t("agents.empty")} />
@@ -362,12 +372,27 @@ function AgentList({
  * a later one included, leaves the line out rather than claiming none or
  * keeping old figures.
  */
-function AgentsSessionSummary() {
+function AgentsSessionSummary({
+  announcePending = false,
+}: {
+  /** Set where no agent list below says that channels are being confirmed. */
+  readonly announcePending?: boolean;
+}) {
+  const counts = useAgentsSessionCounts();
+  return (
+    <>
+      {counts ? <SessionSummary counts={counts} statusLinks /> : null}
+      {announcePending ? (
+        <PrivateChannelsPending pending={privateChannelsPending(counts)} />
+      ) : null}
+    </>
+  );
+}
+
+function useAgentsSessionCounts() {
   const { client } = useWerft();
   const counts = useQuery(sessionCountsQuery(client, undefined, undefined));
-  return counts.data && !counts.isError ? (
-    <SessionSummary counts={counts.data} statusLinks />
-  ) : null;
+  return counts.isError ? undefined : counts.data;
 }
 
 /**

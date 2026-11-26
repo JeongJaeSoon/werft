@@ -16,7 +16,15 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 ### 운영자가 할 일
 
 - **slack 역할이 inbox 이벤트를 채널마다 한 줄씩, 동시에 4개까지 처리하고, DB 연결을 최대 7개 연다**(JeongJaeSoon/werft#2273). 전에는 4개였다. Helm 기본값으로 늘 열려 있을 수 있는 연결은 36개에서 39개로, compose는 24개에서 27개로 는다. slack replica를 늘렸다면 replica 하나에 7개로 다시 세어 `max_connections`와 견준다. 같은 채널의 이벤트는 전처럼 차례로 돌고, 느린 workspace 하나가 다른 workspace의 멘션을 더는 막지 않는다. migration은 없다.
+- **DB 정지가 checkpoint 업로드와 겹쳐도 turn이 몇 분씩 `running`에 머물지 않는다**(JeongJaeSoon/werft#2271). egress proxy는 본문이 20초 동안 오지 않는 요청을 `503`과 `Retry-After`로 끝내고, 허용을 받아 열어 둔 upstream 연결도 닫는다. 전에는 본문이 오지 않는 업로드를 저장소가 포기할 때까지(SeaweedFS는 120초) 쥐고 있어서, 5초 정지에 turn이 4분 넘게 `running`이었다. worker는 bundle 업로드가 30초 동안 아무것도 보내지 못하고 답도 받지 못하면 끊고 다시 보낸다(3번까지, lease를 잃은 뒤에는 보내지 않는다). 이미 넘긴 바이트가 가장 느린 허용 속도(256 MiB에 5분)로 가는 데 드는 시간은 그 30초에 더한다. worker의 object store 요청은 요청마다 새 연결을 쓴다. migration은 없고 따로 할 일도 없다.
+  - egress-proxy와 worker 이미지가 각각 이 버전이어야 그쪽 제한이 듣는다. 한쪽만 올려도 된다.
+- **입력을 받는 트랜잭션이 저장 한도를 commit 때 확인한다. 설치 전체의 입력 수락이 트랜잭션 내내 `storage_usage` 한 행의 lock을 기다리지 않고, commit 순간에만 그 행에서 차례를 기다린다**(JeongJaeSoon/werft#2274). migration `0379_storage_charge_at_commit`이 `turns`의 charge trigger를 commit 때 도는 constraint trigger로 다시 만든다. 그 migration 동안 `turns`에 ACCESS EXCLUSIVE lock이 잠깐 걸려 읽기와 쓰기가 기다린다. 표를 훑거나 다시 쓰지는 않는다. 따로 할 일은 없다.
+  - 앞선 API 이미지가 남아 있는 동안에도 한도는 정확히 지켜진다. 트랜잭션 내내 기다리는 줄은 앞선 API가 모두 내려가야 없어진다.
+  - 앞선 이미지로 되돌려도 된다.
+- **저장 한도 경고 지표 셋과 하루 한 번의 카운터 점검을 더한다**(JeongJaeSoon/werft#2282). metrics role이 `werft_input_storage_used_bytes`·`werft_input_storage_limit_bytes`·`werft_input_storage_limit_reached{threshold="0.8"|"1"}`를 낸다. 한도 80%에서 알리려면 `werft_input_storage_limit_reached{threshold="0.8"} == 1`에 경고를 건다. api가 매일 03:30 UTC에 카운터를 `turns`의 실제 bytes와 맞춰 보고, 다르면 `The storage counter differs from the turns` 경고 로그를 남긴다. 카운터를 고치지는 않는다. migration은 없다.
 - **대화 rollout이 `on`인 에이전트가 올리는 글이 모두 AI가 쓴 글이라는 작은 회색 줄(`AI 에이전트 · Werft`)로 끝난다**(JeongJaeSoon/werft#2259). 한 턴의 결과나 요청인 글에는 `<이름> 님 요청`이 붙는다. `off`·`shadow`인 에이전트의 글은 전과 같다. migration은 없고 따로 할 일도 없다.
+- **에이전트의 대화 턴 목록을 여는 데 쓸 인덱스 둘을 더한다**(JeongJaeSoon/werft#2261). migration `0383_conversation_turn_list_indexes`가 `conversation_turns`와 `session_links`에 부분 인덱스를 `CONCURRENTLY`로 만든다. 쓰기를 막지 않고 따로 할 일은 없다. 앞선 이미지로 되돌려도 된다.
+- **사용량 화면의 대화 비용 읽기에 쓸 기간 조회 인덱스를 더한다**(JeongJaeSoon/werft#2257). migration `0382_conversation_calls_period_index`가 `conversation_calls`에 부분 인덱스를 `CONCURRENTLY`로 만든다. 쓰기를 막지 않고 따로 할 일은 없다. 앞선 이미지로 되돌려도 된다.
 - **DB가 15초 내려가도 heartbeat 간격의 어느 때에 시작됐든 진행 중인 turn이 끝까지 간다**(JeongJaeSoon/werft#2245). worker의 heartbeat 간격이 5초에서 2초로 준다. 전에는 장애가 간격의 끝 무렵(마지막 heartbeat 뒤 약 4.2초 넘어)에 시작되면 turn이 `worker_ownership_lost`로 끝났다. lease TTL(30초)과 안전 마진(10초)은 그대로이고, migration은 없다.
   - heartbeat 트랜잭션이 worker 하나당 초당 0.2회에서 0.5회로 는다. 동시 worker 50개면 초당 25회다.
   - 약 18초를 넘는 장애에서는 전과 같이 turn이 끊기고 세션은 다음 메시지를 받는다.

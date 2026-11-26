@@ -6,7 +6,10 @@ import {
   pushAttachedSchema,
 } from "../kollegium/agents.ts";
 import { repositoryRefSchema } from "../musterrolle/github-repository.ts";
-import { receiptIdSchema } from "../shared/index.ts";
+import {
+  privateChannelsPendingSchema,
+  receiptIdSchema,
+} from "../shared/index.ts";
 import { receiptSchema } from "./receipt.ts";
 
 /** Why an optional permission cannot be turned on in the agent's GitHub tab. */
@@ -222,6 +225,7 @@ export const agentGitHubActivityResponseSchema = z.object({
       }),
     )
     .optional(),
+  private_channels_pending: privateChannelsPendingSchema,
 });
 
 export type AgentGitHubResponse = z.infer<typeof agentGitHubResponseSchema>;

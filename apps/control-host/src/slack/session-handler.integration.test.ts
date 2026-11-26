@@ -56,6 +56,7 @@ import {
   createPostgresSessionLinkStore,
   createPostgresSessionReader,
   createPostgresSessionShareStore,
+  createPostgresSessionStops,
   createPostgresSlackAppStore,
   createPostgresSlackInboundEventStore,
   createPostgresSurfaceBindingStore,
@@ -5105,3 +5106,372 @@ describe.each(ENGINES)(
     }
   },
 );
+
+describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
+  useDatabase(engine);
+  let tick = 0;
+  /** A Slack ts `seconds` from now, each one unique. */
+  const at = (seconds: number) => {
+    tick += 1;
+    const second = Math.floor(Date.now() / 1000) + seconds;
+    return `${second}.${String(tick).padStart(6, "0")}`;
+  };
+  const turnStatesOf = (sessionId: string | undefined) =>
+    db
+      .select({
+        sequence: turns.sequence,
+        status: turns.status,
+        terminalReason: turns.terminalReason,
+      })
+      .from(turns)
+      .where(eq(turns.sessionId, sessionId ?? ""))
+      .orderBy(asc(turns.sequence));
+  const interruptsOf = (sessionId: string | undefined) =>
+    db
+      .select({ kind: schema.controlIntents.kind, turnId: turns.sequence })
+      .from(schema.controlIntents)
+      .innerJoin(turns, eq(turns.id, schema.controlIntents.targetTurnId))
+      .where(eq(schema.controlIntents.sessionId, sessionId ?? ""));
+  const setTurn = (
+    sessionId: string,
+    sequence: number,
+    values: Partial<typeof turns.$inferInsert>,
+  ) =>
+    db
+      .update(turns)
+      .set(values)
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, sequence)));
+  const rolloutOn = (fixture: Fixture) =>
+    db
+      .update(agents)
+      .set({ conversationRollout: "on" })
+      .where(eq(agents.id, fixture.agentId));
+  /** Another workspace member, linked to the Slack user `slackUserId`. */
+  async function member(
+    fixture: Fixture,
+    slackUserId: string,
+    role: "admin" | "member" = "admin",
+  ) {
+    const userId = randomUUID();
+    await db.insert(users).values({
+      id: userId,
+      email: `${userId}@example.invalid`,
+      displayName: slackUserId,
+    });
+    await db.insert(memberships).values({
+      workspaceId: fixture.workspaceId,
+      userId,
+      role,
+    });
+    await db.insert(linkedAccounts).values({
+      id: randomUUID(),
+      workspaceId: fixture.workspaceId,
+      userId,
+      provider: "slack",
+      externalTenant: TEAM,
+      externalUserId: slackUserId,
+      verifiedVia: "slack_oidc",
+      verifiedAt: new Date(),
+    });
+    return userId;
+  }
+  /**
+   * A thread's session, opened with rollout off as work is today: turn 1
+   * running on a worker, turn 2 waiting behind it. Rollout goes on after.
+   */
+  async function workingThread(options: { dm?: boolean } = {}) {
+    const fixture = await agentInSlack("main", { rollout: "off" });
+    const view = handler();
+    const root = at(-100);
+    const place = options.dm ? { channel: "D0OWNER", channel_type: "im" } : {};
+    await deliver(
+      fixture,
+      options.dm
+        ? message(root, { ...place, text: "summarize the thread" })
+        : mention(root),
+    );
+    await deliver(
+      fixture,
+      message(at(-90), { ...place, thread_ts: root, text: "and the tests" }),
+    );
+    await drain(view.handle);
+    const [session] = await sessionsOf(fixture);
+    if (session === undefined) throw new Error("no session was opened");
+    await setTurn(session.id, 1, {
+      status: "running",
+      attemptId: "attempt-1",
+      startedAt: new Date(),
+    });
+    await rolloutOn(fixture);
+    const post = (ts: string, extra: Record<string, unknown> = {}) =>
+      message(ts, { ...place, thread_ts: root, ...extra });
+    return { fixture, view, root, session, post };
+  }
+
+  test("the requester's stop word alone stops the work: the running turn is interrupted, waiting input from before it cancelled, one line, and the word is no input", async () => {
+    const { fixture, view, root, session, post } = await workingThread();
+    await deliver(fixture, post(at(1), { text: `<@${BOT_USER}> 멈춰!` }));
+    expect(await drain(view.handle)).toMatchObject({ processed: 1 });
+    // Written after the stop word: it waits as usual.
+    await deliver(fixture, post(at(2), { text: "then the docs" }));
+    await drain(view.handle);
+
+    expect(await turnStatesOf(session.id)).toEqual([
+      { sequence: 1, status: "running", terminalReason: null },
+      { sequence: 2, status: "cancelled", terminalReason: "stop_requested" },
+      { sequence: 3, status: "queued", terminalReason: null },
+    ]);
+    expect(await interruptsOf(session.id)).toEqual([
+      { kind: "interrupt", turnId: 1 },
+    ]);
+    expect(view.threadNotices).toMatchObject([
+      {
+        threadTs: root,
+        sessionId: session.id,
+        notice: { message: "sessionStoppedQueued", count: 1 },
+      },
+    ]);
+    expect(view.notices).toEqual([]);
+    // The session stays open: decision 35.
+    const [after] = await sessionsOf(fixture);
+    expect(after?.admissionState).toBe("active");
+  });
+
+  test("a post written before the stop word but taken after its Slack time is cancelled too", async () => {
+    const { fixture, view, session, post } = await workingThread();
+    // The inbox took the earlier post late: its turn is newer than the stop
+    // word's Slack timestamp, yet it waited when the stop ran.
+    await deliver(fixture, post(at(-40), { text: "then the docs" }));
+    await drain(view.handle);
+    await deliver(fixture, post(at(-30), { text: "stop" }));
+    await drain(view.handle);
+    expect((await turnStatesOf(session.id)).map((turn) => turn.status)).toEqual(
+      ["running", "cancelled", "cancelled"],
+    );
+  });
+
+  test("in a DM thread the requester's stop works the same", async () => {
+    const { session, view, fixture, post } = await workingThread({ dm: true });
+    await deliver(fixture, post(at(1), { text: "stop" }));
+    await drain(view.handle);
+    expect((await turnStatesOf(session.id)).map((turn) => turn.status)).toEqual(
+      ["running", "cancelled"],
+    );
+    expect(await interruptsOf(session.id)).toHaveLength(1);
+    expect(view.threadNotices).toMatchObject([
+      { notice: { message: "sessionStoppedQueued", count: 1 } },
+    ]);
+  });
+
+  test("another member who may write to the session stops it too", async () => {
+    const { fixture, view, session, post } = await workingThread();
+    await member(fixture, "U0MEMBER");
+    await deliver(fixture, post(at(1), { user: "U0MEMBER", text: "그만" }));
+    await drain(view.handle);
+    expect((await turnStatesOf(session.id)).map((turn) => turn.status)).toEqual(
+      ["running", "cancelled"],
+    );
+    expect(await interruptsOf(session.id)).toHaveLength(1);
+    expect(view.notices).toEqual([]);
+  });
+
+  test("someone the session lets write to it but not stop it is told so alone, and the word goes to the work as input", async () => {
+    const { fixture, view, session, post } = await workingThread();
+    await member(fixture, "U0MEMBER");
+    // A channel whose ceiling takes control away from everyone there.
+    await db
+      .update(surfaceBindings)
+      .set({ ceilingActions: ["session.read", "session.submit"] })
+      .where(eq(surfaceBindings.id, fixture.bindingId));
+    await deliver(fixture, post(at(1), { user: "U0MEMBER", text: "stop" }));
+    await drain(view.handle);
+    expect(await turnStatesOf(session.id)).toMatchObject([
+      { sequence: 1, status: "running" },
+      { sequence: 2, status: "queued" },
+      { sequence: 3, status: "queued" },
+    ]);
+    expect((await turnsOf(session.id))[2]?.message).toBe("stop");
+    expect(await interruptsOf(session.id)).toEqual([]);
+    expect(view.notices).toMatchObject([
+      {
+        slackUserId: "U0MEMBER",
+        reason: "stop_not_permitted",
+        notice: { message: "stopNotPermitted" },
+      },
+    ]);
+    expect(view.threadNotices).toEqual([]);
+  });
+
+  test("a stop word from a member the session is hidden from is done in one pass, and the requester's stop behind it takes at once", async () => {
+    const { fixture, view, session, post } = await workingThread();
+    await member(fixture, "U0MEMBER", "member");
+    await deliver(fixture, post(at(1), { user: "U0MEMBER", text: "그만" }));
+    await deliver(fixture, post(at(2), { text: "그만" }));
+    expect(await drain(view.handle)).toMatchObject({
+      processed: 2,
+      retried: 0,
+      failed: 0,
+    });
+
+    expect((await turnStatesOf(session.id)).map((turn) => turn.status)).toEqual(
+      ["running", "cancelled"],
+    );
+    expect(await interruptsOf(session.id)).toHaveLength(1);
+    // Told once that they may not stop it, though the session also refuses
+    // the word as input.
+    expect(view.notices).toMatchObject([
+      { slackUserId: "U0MEMBER", reason: "stop_not_permitted" },
+    ]);
+    expect(view.threadNotices).toMatchObject([
+      { notice: { message: "sessionStoppedQueued", count: 1 } },
+    ]);
+    await deliver(fixture, post(at(3), { user: "U0MEMBER", text: "why?" }));
+    await drain(view.handle);
+    expect(view.notices.map((notice) => notice.reason)).toEqual([
+      "stop_not_permitted",
+      "NOT_FOUND",
+    ]);
+  });
+
+  test("with nothing running or waiting, a stop changes nothing and says so", async () => {
+    const { fixture, view, session, post } = await workingThread();
+    await setTurn(session.id, 1, { status: "completed", endedAt: new Date() });
+    await setTurn(session.id, 2, { status: "completed", endedAt: new Date() });
+    await deliver(fixture, post(at(1), { text: "중지" }));
+    await drain(view.handle);
+    expect((await turnStatesOf(session.id)).map((turn) => turn.status)).toEqual(
+      ["completed", "completed"],
+    );
+    expect(view.threadNotices).toMatchObject([
+      { notice: { message: "nothingToStop" } },
+    ]);
+  });
+
+  test("a stop word with more words, or with rollout off, is input as before", async () => {
+    const { fixture, view, session, post } = await workingThread();
+    await deliver(
+      fixture,
+      post(at(1), { text: "멈춰 주세요, 그런데 테스트는 돌려 줘" }),
+    );
+    await drain(view.handle);
+    await db
+      .update(agents)
+      .set({ conversationRollout: "off" })
+      .where(eq(agents.id, fixture.agentId));
+    await deliver(fixture, post(at(2), { text: "stop" }));
+    await drain(view.handle);
+    expect((await turnsOf(session.id)).map((turn) => turn.message)).toEqual([
+      "summarize the thread",
+      "and the tests",
+      "멈춰 주세요, 그런데 테스트는 돌려 줘",
+      "stop",
+    ]);
+    expect(await interruptsOf(session.id)).toEqual([]);
+    expect(view.threadNotices).toEqual([]);
+  });
+
+  test("a stop retried under its key replays what it did: work that started since is neither cancelled nor interrupted", async () => {
+    const { fixture, view, session, post } = await workingThread();
+    const stops = createPostgresSessionStops(db);
+    const request = {
+      principal: { ownerId: session.ownerId },
+      sessionId: session.id,
+      idempotencyKey: "slack-stop:retried",
+    };
+    const first = await stops.cancelQueued(request);
+    expect(first).toEqual({
+      outcome: "cancelled",
+      cancelled: 1,
+      runningTurnId: "1",
+    });
+    // The process died before the stop was done; meanwhile turn 1 ended and
+    // new work came in and started.
+    await setTurn(session.id, 1, { status: "completed", endedAt: new Date() });
+    await deliver(fixture, post(at(5), { text: "new work" }));
+    await drain(view.handle);
+    await setTurn(session.id, 3, {
+      status: "running",
+      attemptId: "attempt-3",
+      startedAt: new Date(),
+    });
+    await deliver(fixture, post(at(6), { text: "more new work" }));
+    await drain(view.handle);
+
+    expect(await stops.cancelQueued(request)).toEqual(first);
+    expect((await turnStatesOf(session.id)).map((turn) => turn.status)).toEqual(
+      ["completed", "cancelled", "running", "queued"],
+    );
+    // Closed since: the retry still says what the stop did; a new stop finds
+    // the session closed.
+    await db
+      .update(sessions)
+      .set({ admissionState: "closed" })
+      .where(eq(sessions.id, session.id));
+    expect(await stops.cancelQueued(request)).toEqual(first);
+    expect(
+      await stops.cancelQueued({
+        ...request,
+        idempotencyKey: "slack-stop:new",
+      }),
+    ).toEqual({ outcome: "closed" });
+  });
+
+  test("a stop word whose event comes again stops once and says so once", async () => {
+    const { fixture, view, session, post } = await workingThread();
+    const stop = post(at(1), { text: "stop" });
+    await deliver(fixture, stop);
+    await drain(view.handle);
+    await deliver(fixture, stop);
+    await drain(view.handle);
+    expect(await interruptsOf(session.id)).toHaveLength(1);
+    expect(view.threadNotices).toHaveLength(1);
+  });
+
+  test("once the interrupted turn ends, the thread's status goes back to active", async () => {
+    const { fixture, view, root, session, post } = await workingThread();
+    await sendOutbox();
+    expect(
+      slack.statuses.filter((s) => s.threadTs === root).at(-1)?.status,
+    ).toBe("processing");
+    await deliver(fixture, post(at(1), { text: "stop" }));
+    await drain(view.handle);
+    // The worker ends the turn it was told to stop, as its finalize does.
+    await setTurn(session.id, 1, {
+      status: "interrupted",
+      endedAt: new Date(),
+    });
+    await db.execute(
+      sql`SELECT slack_thread_status_touch(${session.id}::uuid)`,
+    );
+    await sendOutbox();
+    expect(
+      slack.statuses.filter((s) => s.threadTs === root).at(-1)?.status,
+    ).toBe("active");
+  });
+
+  /** The outbox pass: the thread status writer and the sends. */
+  function sendOutbox() {
+    const api = createSlackBotApi({ apiUrl: slack.url });
+    const tokenOf = (workspaceId: string, slackAppId: string) =>
+      slackBotToken(
+        createPostgresSecretStore(db, key),
+        workspaceId,
+        slackAppId,
+      );
+    return drainSlackOutbox({
+      outbox: schema.createPostgresSlackOutboxStore(db),
+      slack: api,
+      botToken: tokenOf,
+      delivery: createRowDelivery({
+        slack: api,
+        botToken: tokenOf,
+        consoleOrigin: null,
+      }),
+      logger,
+      consoleOrigin: null,
+      batchSize: 10,
+      leaseMs: 30_000,
+      deadline: Date.now() + 10_000,
+    });
+  }
+});
