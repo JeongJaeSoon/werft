@@ -607,9 +607,9 @@ describe("에이전트 목록", () => {
     renderAt("/agents", {
       ...meOk,
       ...server.routes,
-      "GET /v1/agents": async (request) =>
+      "GET /v1/agents": async () =>
         json(200, {
-          ...(await (await list(request)).json()),
+          ...(await (await list()).json()),
           private_channels_pending: true,
         }),
     });
