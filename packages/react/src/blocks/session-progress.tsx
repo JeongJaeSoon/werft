@@ -492,7 +492,8 @@ function StepRow({
           <Text
             key={request.request_id}
             variant="meta"
-            className="m-0 text-(color:--werft-tone-caution-fg)"
+            // An MCP tool's name can be one long unbroken word.
+            className="m-0 text-(color:--werft-tone-caution-fg) [overflow-wrap:anywhere]"
           >
             {t("session.steps.approvalOf", { tool: request.tool })}
           </Text>

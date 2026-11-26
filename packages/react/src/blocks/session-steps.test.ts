@@ -212,6 +212,22 @@ describe("readSessionSteps", () => {
     expect(steps.steps[0]?.requests).toEqual([]);
   });
 
+  test("outdated requests leave no focus on an ended turn", () => {
+    const steps = read({
+      session: {
+        current_turn_id: null,
+        status: "idle",
+        pending_request_count: 0,
+      },
+      turns: [turn("1", "interrupted", { ended_at: AT })],
+      requests: [permission("1", "req_1")],
+      listCurrent: false,
+    });
+    expect(steps.steps[0]?.state).toBe("stopped");
+    expect(steps.focus).toBeNull();
+    expect(steps.current).toBe(false);
+  });
+
   test("a turn already ended is not current, though a session read before its end names it", () => {
     const steps = read({
       session: {

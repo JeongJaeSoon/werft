@@ -3383,6 +3383,10 @@ describe("session runtime", () => {
     });
     const allow = await screen.findByRole("button", { name: "승인" });
     expect(allow.hasAttribute("disabled")).toBe(true);
+    // A key that may not answer is not told its input is needed.
+    expect(
+      screen.queryByRole("region", { name: "내 입력이 필요합니다" }),
+    ).toBeNull();
     // Beside the buttons, once.
     expect(
       screen.getAllByText("sessions:approve 권한이 있어야 할 수 있습니다."),

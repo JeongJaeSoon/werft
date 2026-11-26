@@ -248,7 +248,9 @@ export function SessionDetail({
   // answer, unless a request says otherwise; a lapsed request takes none,
   // nor does one a newer session read no longer counts.
   const outdated = !listCurrent && detail.pending_request_count === 0;
-  const mine = (outdated ? [] : requests).filter(
+  // A credential without sessions:approve answers nothing, whoever holds it.
+  const canAnswer = unavailable?.answer === undefined;
+  const mine = (outdated || !canAnswer ? [] : requests).filter(
     (request) =>
       Date.parse(request.expires_at) > lapseNow &&
       (request.answerable ?? pending.data?.answerable ?? false),
