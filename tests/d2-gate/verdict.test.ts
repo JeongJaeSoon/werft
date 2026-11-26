@@ -4,11 +4,7 @@ import { join } from "node:path";
 import { verdicts } from "../../.github/scripts/d2-gate-verdict.ts";
 
 const workflow = `
-jobs:
-  integration-domain:
-    strategy:
-      matrix:
-        include:
+domains:
           - domain: worker
             postgres: false
             localstack: false
@@ -66,9 +62,9 @@ describe("d2-gate-verdict", () => {
     ).toEqual(["MISSING", "MISSING", "MISSING"]);
   });
 
-  test("ci.yml declares A–E, R1–R2 and H1–H5", () => {
+  test("the integration domains declare A–E, R1–R2 and H1–H5", () => {
     const ci = readFileSync(
-      join(import.meta.dir, "..", "..", ".github", "workflows", "ci.yml"),
+      join(import.meta.dir, "..", "..", ".github", "integration-domains.yml"),
       "utf8",
     );
     expect(verdicts(ci, []).map(({ test }) => test.split(":")[0])).toEqual([
