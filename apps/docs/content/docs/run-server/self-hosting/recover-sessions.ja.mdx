@@ -15,7 +15,7 @@ outcome: "原因と外部への効果を確認してから復旧判断を適用�
 <a id="준비물" />
 ## 準備
 
-セッション詳細、worker・scheduler・reconciler のログ、sessions:recover scope の API key が必要です。最後の checkpoint と外部ツールの効果を確認します。ストレージが回復したという理由で outcome_unknown の turn を自動再実行しません。
+セッション詳細、worker・scheduler・reconciler のログ、sessions:recover scope の API key が必要です。`abandon` と `start_fresh` は、そのセッションに書き込める人（`sessions:write`。非公開チャンネルのセッションなら、今そのチャンネルのメンバーである人）も送れます。Web のセッション画面の［このターンを破棄して続ける］（abandon のあと resume）と［新しい文脈で続ける］（start_fresh、`CONTEXT_GAP` のとき）がこの判断です。最後の checkpoint と外部ツールの効果を確認します。ストレージが回復したという理由で outcome_unknown の turn を自動再実行しません。
 
 <a id="단계" />
 ## 手順

@@ -1,4 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
+import { Agent } from "node:http";
 import { S3Client } from "@aws-sdk/client-s3";
 import { SignatureV4 } from "@smithy/signature-v4";
 import type {
@@ -412,6 +413,14 @@ const ROUTE_SIGNING_KEY = "object-store-route";
  *
  * The token is read per request: it exists only once the claim is in, and
  * a store used before that fails rather than sending anything.
+ *
+ * A connection per request, never one kept from the request before. Bun
+ * sends a request again by itself when the connection it reused turns out
+ * dead, and a streamed body is spent by then: the route is handed an upload
+ * whose body never comes. It also reuses a connection on which an upload was
+ * answered before its body ended, where the next request is read as the rest
+ * of that body. The route is one hop away on the worker's own network, and
+ * opens its own connection upstream for every request as it is.
  */
 export function createObjectRouteClient(
   route: { endpoint: string; region: string; token: () => string },
@@ -429,7 +438,10 @@ export function createObjectRouteClient(
     forcePathStyle: true,
     maxAttempts: S3_MAX_ATTEMPTS,
     region: route.region,
-    requestHandler: new BoundedNodeHttpHandler(bounds),
+    requestHandler: new BoundedNodeHttpHandler({
+      ...bounds,
+      httpAgent: new Agent({ keepAlive: false }),
+    }),
   });
   return warn === undefined ? client : warnOnS3Timeouts(client, warn);
 }

@@ -1095,9 +1095,10 @@ type MemoryInboundRow = SurfaceInboundEventInput & {
 };
 
 /**
- * Keyed by `app|event`, like the table. The claim side is a plain lease on
- * `now()`, in arrival order, without the table's per-thread ordering; the
- * PostgreSQL store's own tests hold that.
+ * Keyed by `app|event`, like the table. The claim side is a lease on
+ * `now()`, in arrival order, one event per channel at a time as the table's
+ * claim hands them out; the PostgreSQL store's own tests hold the table's
+ * order.
  */
 export function createMemorySlackInboundEventStore(
   options: {
@@ -1152,17 +1153,57 @@ export function createMemorySlackInboundEventStore(
     },
     async claim({ limit, leaseMs, maxAttempts }) {
       const out: SurfaceInboundClaim[] = [];
+      const waiting = (row: MemoryInboundRow) =>
+        row.state === "received" && row.status !== "dropped";
+      const leased = (row: MemoryInboundRow) =>
+        row.claimToken !== null && (row.leaseExpiresAt ?? 0) > now();
+      for (const row of lease.values()) {
+        if (waiting(row) && !leased(row) && row.attempts >= maxAttempts) {
+          release(row, "failed");
+        }
+      }
+      const laneOf = (row: MemoryInboundRow) => {
+        const payload = row.status === "dropped" ? null : row.payload;
+        const channel = (payload?.event as { channel?: unknown } | undefined)
+          ?.channel;
+        const id =
+          typeof channel === "string"
+            ? channel
+            : (channel as { id?: unknown } | undefined)?.id;
+        return typeof id === "string" && id !== ""
+          ? `${row.slackAppId}:${id}`
+          : null;
+      };
+      const backingOff = (row: MemoryInboundRow) =>
+        !leased(row) && row.nextAttemptAt !== null && row.nextAttemptAt > now();
+      // A channel with an event in flight, or one ahead in line, waits.
+      const taken = new Set(
+        [...lease.values()].filter((r) => waiting(r) && leased(r)).map(laneOf),
+      );
+      // A thread whose row waits out its backoff steps aside from there on;
+      // a channel event behind it keeps its place, and its channel waits.
+      const asideThreads = new Set<string>();
+      const asideLanes = new Set<string>();
       for (const row of lease.values()) {
         if (out.length >= limit) break;
         if (row.state !== "received" || row.status === "dropped") continue;
-        if (row.claimToken !== null && (row.leaseExpiresAt ?? 0) > now()) {
-          continue;
+        const lane = laneOf(row);
+        if (lane !== null) {
+          if (taken.has(lane)) continue;
+          const thread = row.conversationKey;
+          if (
+            thread !== null &&
+            (asideThreads.has(thread) || backingOff(row))
+          ) {
+            asideThreads.add(thread);
+            asideLanes.add(lane);
+            continue;
+          }
+          taken.add(lane);
+          if (thread === null && asideLanes.has(lane)) continue;
         }
+        if (leased(row)) continue;
         if (row.nextAttemptAt !== null && row.nextAttemptAt > now()) continue;
-        if (row.attempts >= maxAttempts) {
-          release(row, "failed");
-          continue;
-        }
         row.claimToken = crypto.randomUUID();
         row.leaseExpiresAt = now() + leaseMs;
         row.attempts += 1;

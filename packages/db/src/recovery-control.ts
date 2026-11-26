@@ -42,6 +42,7 @@ import {
   queueMessages,
   receipts,
   sessions,
+  turnContinuations,
   turns,
   unassignedSessions,
   workerLaunches,
@@ -215,8 +216,13 @@ export async function cancelQueuedInput(
   input: {
     sessionId: string;
     terminalReason: string;
-    error: { code: "SESSION_CLOSED"; message: string };
+    error: { code: "SESSION_CLOSED" | "CONTROL_SUPERSEDED"; message: string };
     now: Date;
+    /**
+     * A stop's cut: input only, no turn that carries on a parked one (the
+     * platform's). Every queued turn when unset.
+     */
+    inputOnly?: boolean;
   },
 ) {
   const cancelled = await tx
@@ -227,7 +233,13 @@ export async function cancelQueuedInput(
       terminalReason: input.terminalReason,
     })
     .where(
-      and(eq(turns.sessionId, input.sessionId), eq(turns.status, "queued")),
+      and(
+        eq(turns.sessionId, input.sessionId),
+        eq(turns.status, "queued"),
+        input.inputOnly
+          ? sql`NOT EXISTS (SELECT 1 FROM ${turnContinuations} c WHERE c.turn_id = ${turns.id})`
+          : undefined,
+      ),
     )
     .returning({ id: turns.id, sequence: turns.sequence });
   if (cancelled.length === 0) return cancelled;

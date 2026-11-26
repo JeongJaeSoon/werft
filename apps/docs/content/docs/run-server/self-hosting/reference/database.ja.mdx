@@ -19,14 +19,14 @@ PostgreSQL 16を使います。接続の飽和、遅いSQL、ロックの調査�
 
 | 役割 | プール上限 | 理由 |
 |---|---|---|
-| api | 10 + readiness probe 1 + LISTEN 1 | リクエストを並列処理します。probeは専用プール（上限1）を使い、通常のリクエストと競合しません。イベント通知用LISTEN接続（`werft:api-listen`）はプール外に1本あります |
+| api | 10 + readiness probe 1 + LISTEN 1（conversation runtime有効時は2） | リクエストを並列処理します。probeは専用プール（上限1）を使い、通常のリクエストと競合しません。イベント通知用LISTEN接続（`werft:api-listen`）はプール外に1本あります。conversation runtimeを有効にしたapiは、会話ターンのキューの通知を受けるLISTEN接続（`werft:api-listen-turns`）をもう1本持ちます。LISTENは、DBセッションを1つ保ち続ける接続でだけ通知を受け取ります。transactionモードのpoolerを経由すると通知は届きません。その場合apiは警告 `Conversation turn notices do not arrive on the listening connection` を1回記録し、キューを250 msごとに読みます |
 | metrics | 10 | 1回のscrapeで7つの集計を並列に読みます |
 | scheduler | 4 | pass内のSQLは逐次実行ですが、pass lockが別の接続を保持します |
 | reconciler | 4 | pass内のSQLを逐次実行します |
-| slack | 4 | inboxとoutboxを順番に処理します |
+| slack | 7 | inboxのイベントをチャンネルごとに1つずつ、同時に4つまで処理してからoutboxを処理します。処理中の1つが接続を1つ使うことがあります |
 | checkpoint GC、session archive、upgrade check、migrate、運用CLI（`keys`・`grants`など） | 10 | 1回実行して終了します。既定値（`DEFAULT_POOL_MAX`）を使います |
 
-Helmの既定値（api 2、slack 1、scheduler・reconciler各1、metrics無効）では、常時開き得る接続はapi 24 + scheduler 4 + reconciler 4 + slack 4 = 36です。`metrics.enabled` を有効にすると10が加わります。checkpoint GC（既定は日曜04:00）とsession archive（既定は日曜05:00）はCronJobで `concurrencyPolicy: Forbid` のため、それぞれ同時に1つだけ動きます。upgrade checkとmigrateはHelm hookで、1つが終わってから次が始まるため同時に動くのは1つだけです。この3つが重なると最大30が加わります。既定の日程では、GCが1時間を超えて動くか日程を変えた場合にだけGCとsession archiveが重なります。Composeではapi 12 + scheduler 4 + reconciler 4 + slack 4 = 24です。PostgreSQLの既定 `max_connections` は100で、3はsuperuser用です。apiを増やす場合はreplicaごとに12、slackは4を足し、max_connectionsと比較してください。管理DBはインスタンスによって100未満の場合があるため、実際の値を確認します。
+Helmの既定値（api 2、slack 1、scheduler・reconciler各1、metrics無効）では、常時開き得る接続はapi 24 + scheduler 4 + reconciler 4 + slack 7 = 39です。conversation runtimeを有効にするとapiのreplicaごとに1が加わります。`metrics.enabled` を有効にすると10が加わります。checkpoint GC（既定は日曜04:00）とsession archive（既定は日曜05:00）はCronJobで `concurrencyPolicy: Forbid` のため、それぞれ同時に1つだけ動きます。upgrade checkとmigrateはHelm hookで、1つが終わってから次が始まるため同時に動くのは1つだけです。この3つが重なると最大30が加わります。既定の日程では、GCが1時間を超えて動くか日程を変えた場合にだけGCとsession archiveが重なります。Composeではapi 12 + scheduler 4 + reconciler 4 + slack 7 = 27です。PostgreSQLの既定 `max_connections` は100で、3はsuperuser用です。apiを増やす場合はreplicaごとに12、slackは7を足し、max_connectionsと比較してください。管理DBはインスタンスによって100未満の場合があるため、実際の値を確認します。
 
 <a id="연결마다-거는-세션-설정" />
 ## 接続ごとのセッション設定

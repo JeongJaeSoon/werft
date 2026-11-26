@@ -44,7 +44,7 @@
     },
     {
       "name": "Recovery",
-      "description": "Resolve sessions that require an operator recovery decision. The requester's own decision also takes an API key with `sessions:recover`."
+      "description": "Resolve sessions that require a recovery decision. Whoever may write to a session also gives up its unknown turn (`abandon`) or its lost context (`start_fresh`); the other decisions are an operator's and take `sessions:recover`, from a cookie session or an API key."
     },
     {
       "name": "Admin",
@@ -2747,6 +2747,50 @@
         },
         "additionalProperties": false
       },
+      "CountAuditEventsQuery": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "description": "Keeps rows at or after this time. A time before the retention window reads as the window's start (`retention_start`).",
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "to": {
+            "description": "Keeps rows before this time.",
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "kind": {
+            "description": "`decision` keeps the access decisions, `receipt` the commands. Both without it.",
+            "type": "string",
+            "enum": [
+              "decision",
+              "receipt"
+            ]
+          },
+          "actor_user_id": {
+            "description": "Keeps the rows of what this person did or tried to do.",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "action": {
+            "description": "Keeps one action: a decision's `action` or a receipt's operation.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "outcome": {
+            "description": "Keeps one outcome: a decision's (`allow`, `deny`, `redact`, `require_approval`) or a receipt's status.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "additionalProperties": false
+      },
       "SlackGuestRequest": {
         "type": "object",
         "properties": {
@@ -4816,6 +4860,11 @@
                 "type": "null"
               }
             ]
+          },
+          "private_channels_pending": {
+            "description": "Present and true while some private channel's members are still being confirmed: that channel's sessions are left out of this answer, which may hold more when read again shortly. No count is given.",
+            "type": "boolean",
+            "const": true
           }
         },
         "required": [
@@ -4884,6 +4933,16 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 9007199254740991
+          },
+          "cost_usd": {
+            "description": "The estimated provider cost of the `total` sessions added up: the sum of `cost.amount_usd` from GET /v1/sessions/{id}/usage over the same sessions, read with the counts. An estimate, not a bill; a turn still running adds what it has spent so far. Absent from a server older than the field.",
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+)?$"
+          },
+          "private_channels_pending": {
+            "description": "Present and true while some private channel's members are still being confirmed: that channel's sessions are left out of this answer, which may hold more when read again shortly. No count is given.",
+            "type": "boolean",
+            "const": true
           }
         },
         "required": [
@@ -14250,6 +14309,11 @@
               ],
               "additionalProperties": false
             }
+          },
+          "private_channels_pending": {
+            "description": "Present and true while some private channel's members are still being confirmed: that channel's sessions are left out of this answer, which may hold more when read again shortly. No count is given.",
+            "type": "boolean",
+            "const": true
           }
         },
         "required": [
@@ -16551,6 +16615,84 @@
           "items",
           "next_cursor",
           "retention_start"
+        ],
+        "additionalProperties": false
+      },
+      "CountAuditEventsResponse": {
+        "type": "object",
+        "properties": {
+          "counts": {
+            "type": "object",
+            "properties": {
+              "decision": {
+                "type": "object",
+                "properties": {
+                  "count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000
+                  },
+                  "more": {
+                    "type": "boolean",
+                    "description": "True when more than 1000 rows match: `count` is then 1000."
+                  }
+                },
+                "required": [
+                  "count",
+                  "more"
+                ],
+                "additionalProperties": false
+              },
+              "receipt": {
+                "type": "object",
+                "properties": {
+                  "count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000
+                  },
+                  "more": {
+                    "type": "boolean",
+                    "description": "True when more than 1000 rows match: `count` is then 1000."
+                  }
+                },
+                "required": [
+                  "count",
+                  "more"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "decision",
+              "receipt"
+            ],
+            "additionalProperties": false,
+            "description": "For each `kind`, how many rows GET /v1/audit/events would list with the same filters and that `kind`, read to the last page. A `kind` in the query leaves the other at 0."
+          },
+          "total": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000
+              },
+              "more": {
+                "type": "boolean",
+                "description": "True when more than 1000 rows match: `count` is then 1000."
+              }
+            },
+            "required": [
+              "count",
+              "more"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "counts",
+          "total"
         ],
         "additionalProperties": false
       },
@@ -24260,6 +24402,11 @@
             "minimum": 0,
             "maximum": 9007199254740991
           },
+          "private_channels_pending": {
+            "description": "Present and true while some private channel's members are still being confirmed: that channel's sessions are left out of this answer, which may hold more when read again shortly. No count is given.",
+            "type": "boolean",
+            "const": true
+          },
           "sessions_with_achievement_count": {
             "type": "integer",
             "minimum": 0,
@@ -25299,6 +25446,11 @@
               ],
               "additionalProperties": false
             }
+          },
+          "private_channels_pending": {
+            "description": "Present and true while some private channel's members are still being confirmed: that channel's sessions are left out of this answer, which may hold more when read again shortly. No count is given.",
+            "type": "boolean",
+            "const": true
           }
         },
         "required": [
@@ -25869,6 +26021,11 @@
                 "type": "null"
               }
             ]
+          },
+          "private_channels_pending": {
+            "description": "Present and true while some private channel's members are still being confirmed: that channel's sessions are left out of this answer, which may hold more when read again shortly. No count is given.",
+            "type": "boolean",
+            "const": true
           }
         },
         "required": [
@@ -42375,7 +42532,7 @@
             }
           },
           "403": {
-            "description": "- `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read.",
+            "description": "- `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, judged once the request is read.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -42436,6 +42593,278 @@
                               "type": "string",
                               "enum": [
                                 "RATE_LIMITED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/audit/events/counts": {
+      "get": {
+        "operationId": "countAuditEvents",
+        "tags": [
+          "Audit log"
+        ],
+        "summary": "Count the audit rows a list would return, per kind (owner only)",
+        "description": "Counts, for each `kind`, the rows GET /v1/audit/events would list with the same filters when read to its last page, inside the same retention window; `total` is their sum. Each count stops at 1,000: past it `count` is 1,000 and `more` is true. Only the workspace owner, signed in, reads it; every other member and every API key get 403, and each read, allowed or refused, leaves a decision row (`audit_log.read`). It changes nothing else.\n\n**Scope:** `sessions:read` (API key or cookie session).",
+        "x-scope": "sessions:read",
+        "security": [
+          {
+            "bearerApiKey": [
+              "sessions:read"
+            ]
+          },
+          {
+            "cookieSession": [
+              "sessions:read"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "Keeps rows at or after this time. A time before the retention window reads as the window's start (`retention_start`).",
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "Keeps rows before this time.",
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "`decision` keeps the access decisions, `receipt` the commands. Both without it.",
+              "type": "string",
+              "enum": [
+                "decision",
+                "receipt"
+              ]
+            }
+          },
+          {
+            "name": "actor_user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "Keeps the rows of what this person did or tried to do.",
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "Keeps one action: a decision's `action` or a receipt's operation.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "outcome",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "Keeps one outcome: a decision's (`allow`, `deny`, `redact`, `require_approval`) or a receipt's status.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The number of audit rows per kind, up to 1,000 each.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "counts": {
+                    "decision": {
+                      "count": 1000,
+                      "more": true
+                    },
+                    "receipt": {
+                      "count": 42,
+                      "more": false
+                    }
+                  },
+                  "total": {
+                    "count": 1000,
+                    "more": true
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/CountAuditEventsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, judged once the request is read.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
                               ]
                             }
                           }
@@ -60790,7 +61219,7 @@
           "Sessions"
         ],
         "summary": "Count the sessions a list would return, per status",
-        "description": "Counts, for each status, the sessions `GET /v1/sessions` would list with that `status` and the same `relation` and `q` when read to its last page; `total` is their sum. A session the caller cannot read is never counted. It changes nothing.\n\n**Scope:** `sessions:read` (API key or cookie session).",
+        "description": "Counts, for each status, the sessions `GET /v1/sessions` would list with that `status` and the same `relation` and `q` when read to its last page; `total` is their sum, and `cost_usd` the estimated provider cost of those `total` sessions added up. A session the caller cannot read is never counted, and neither is its cost. It changes nothing.\n\n**Scope:** `sessions:read` (API key or cookie session).",
         "x-scope": "sessions:read",
         "security": [
           {
@@ -60852,7 +61281,8 @@
                     "stopped": 3,
                     "cut_off": 1
                   },
-                  "total": 12
+                  "total": 12,
+                  "cost_usd": "8.421500"
                 },
                 "schema": {
                   "$ref": "#/components/schemas/CountSessionsResponse"
@@ -67653,7 +68083,7 @@
             }
           },
           "403": {
-            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`).",
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, judged once the request is read. Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`).",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -68073,7 +68503,7 @@
             }
           },
           "403": {
-            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`).",
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, judged once the request is read. Also when the principal is not one that may decide, or the deployment does not authenticate callers (`AUTH_MODE=none`).",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -68493,7 +68923,7 @@
             }
           },
           "403": {
-            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. Also when the principal holds neither `sessions:approve` nor `sessions:submit`, the deployment does not authenticate callers (`AUTH_MODE=none`), or the repository has no GitHub credential (a GitHub App).\n- `GITHUB_REFUSED`: The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409. `merge_off` (the workspace has not allowed agents to merge) is 409 too, and is answered before GitHub is called.",
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, judged once the request is read. Also when the principal holds neither `sessions:approve` nor `sessions:submit`, the deployment does not authenticate callers (`AUTH_MODE=none`), or the repository has no GitHub credential (a GitHub App).\n- `GITHUB_REFUSED`: The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409. `merge_off` (the workspace has not allowed agents to merge) is 409 too, and is answered before GitHub is called.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -68893,7 +69323,7 @@
             }
           },
           "403": {
-            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, checked before the body or the resource is read. Also when the principal holds neither `sessions:approve` nor `sessions:submit`, the deployment does not authenticate callers, or the repository has no GitHub credential.\n- `GITHUB_REFUSED`: The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409. `merge_off` (the workspace has not allowed agents to merge) is 409 too, and is answered before GitHub is called.",
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:approve`, judged once the request is read. Also when the principal holds neither `sessions:approve` nor `sessions:submit`, the deployment does not authenticate callers, or the repository has no GitHub credential.\n- `GITHUB_REFUSED`: The platform refused the GitHub work before asking GitHub, or GitHub refused the token it asked for. `error.details.reason_code` says why and `error.details.receipt_id` names the receipt of the refusal. A refusal the workspace or the agent's release decided (`github_disabled`, `repository_not_allowed`, `feature_off`, `workflow_not_allowed`, `agent_ref_refused`, `run_ref_unprovable`) is 403; one an owner fixes outside the release (`over_workspace_ceiling`, `app_required`, `app_permission_missing`, `github_host_unsupported`, `no_reviewer_app`, `github_settings_unsupported`) is 409. `merge_off` (the workspace has not allowed agents to merge) is 409 too, and is answered before GitHub is called.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -74199,7 +74629,7 @@
           "Recovery"
         ],
         "summary": "Operator decision for an unknown outcome or a context no checkpoint covers",
-        "description": "Records an operator's decision where the platform will not guess: a turn whose outcome is unknown, or context no checkpoint covers. Nothing the execution did outside is reverted.\n\n- `abandon`: the `outcome_unknown` turn `target_turn_id` becomes `cancelled` and its input receipt fails; the session is `stopped`.\n- `confirm_completed`: with `evidence_ref`, the turn becomes `completed` and its input receipt succeeds; it needs a committed checkpoint that reaches the turn. The session is `stopped`.\n- `close`: ends the session for good.\n- `start_fresh`: continues on a new engine session that does not remember the turns before; the checkpoints so far are retired and queued input runs. On a session with no committed checkpoint (a worker that died during the first turn, say), a turn whose outcome is unknown does not have to be settled first: it ends `cancelled` with `terminal_reason` `operator_start_fresh`, its input receipt fails with `CONTROL_SUPERSEDED`, and a new turn with the same input is queued behind any input already waiting. `target_turn_id`, when sent, must name that turn. `start_fresh_available` on `GET /v1/sessions/{id}` says whether this decision would be taken now.\n- `retry_restore`: restores the same checkpoint again after what made the restores fail is fixed; queued input runs.\n\nThe decision takes effect in the request: the receipt is `succeeded` in the response, with result `{resulting_admission_state, checkpoint_revision, resumable}`. After `abandon` or `confirm_completed`, resume the session; `resumable: false` means a resume would answer `CHECKPOINT_UNAVAILABLE`. The decision is also recorded as a `system` event on the stream.\n\n**Scope:** `sessions:recover` (API key or cookie session). **Idempotency-Key:** required.",
+        "description": "Records an operator's decision where the platform will not guess: a turn whose outcome is unknown, or context no checkpoint covers. Nothing the execution did outside is reverted.\n\n- `abandon`: the `outcome_unknown` turn `target_turn_id` becomes `cancelled` and its input receipt fails; the session is `stopped`.\n- `confirm_completed`: with `evidence_ref`, the turn becomes `completed` and its input receipt succeeds; it needs a committed checkpoint that reaches the turn. The session is `stopped`.\n- `close`: ends the session for good.\n- `start_fresh`: continues on a new engine session that does not remember the turns before; the checkpoints so far are retired and queued input runs. On a session with no committed checkpoint (a worker that died during the first turn, say), a turn whose outcome is unknown does not have to be settled first: it ends `cancelled` with `terminal_reason` `operator_start_fresh`, its input receipt fails with `CONTROL_SUPERSEDED`, and a new turn with the same input is queued behind any input already waiting. `target_turn_id`, when sent, must name that turn. `start_fresh_available` on `GET /v1/sessions/{id}` says whether this decision would be taken now.\n- `retry_restore`: restores the same checkpoint again after what made the restores fail is fixed; queued input runs.\n\nThe decision takes effect in the request: the receipt is `succeeded` in the response, with result `{resulting_admission_state, checkpoint_revision, resumable}`. After `abandon` or `confirm_completed`, resume the session; `resumable: false` means a resume would answer `CHECKPOINT_UNAVAILABLE`. The decision is also recorded as a `system` event on the stream.\n\n`abandon` and `start_fresh` are also open to whoever may write to the session: `sessions:write` on a session the credential sees, and for a private channel's session only while its person is a member of the channel. `confirm_completed`, `close` and `retry_restore` need `sessions:recover`.\n\n**Scope:** `sessions:recover` (API key or cookie session). **Idempotency-Key:** required.",
         "x-scope": "sessions:recover",
         "security": [
           {
@@ -74356,7 +74786,7 @@
             }
           },
           "403": {
-            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:recover`, checked before the body or the resource is read. Also when an operator revoked the session's execution authority.",
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Scope: the credential does not hold `sessions:recover`, judged once the request is read. The credential holds neither `sessions:recover` nor, for `abandon` and `start_fresh`, `sessions:write`. Also when an operator revoked the session's execution authority.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"

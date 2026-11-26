@@ -15,7 +15,11 @@ import type {
   SurfaceOutboxPostedAs,
   SurfaceOutboxSettle,
 } from "@werft-ai/platform";
-import { SURFACE_PROGRESS_STOPPED_CODE } from "@werft-ai/platform";
+import {
+  SURFACE_EDIT_RATE_LIMITED_CODE,
+  SURFACE_PROGRESS_STOPPED_CODE,
+  SURFACE_RATE_LIMITED_CODE,
+} from "@werft-ai/platform";
 import {
   SlackApiError,
   type SlackBotSender,
@@ -42,16 +46,11 @@ import {
 
 /** The longest Retry-After the outbox honours before asking again. */
 export const SLACK_RETRY_AFTER_MAX_MS = 5 * 60_000;
-/** Claims, rate-limited ones included, before a row gives up. */
-export const SLACK_OUTBOX_MAX_ATTEMPTS = 10;
 
 export function slackOutboxSettleFor(
   attempts: number,
   response: SlackSendResponse,
-  /**
-   * A progress message waits out the whole Retry-After, and its next update
-   * still does once the row gives up.
-   */
+  /** A progress message waits out the whole Retry-After. */
   progress = false,
 ): SurfaceOutboxSettle {
   const retryAfterMaxMs = progress
@@ -78,20 +77,13 @@ export function slackOutboxSettleFor(
       return { status: "sent", slackTs: outcome.ts };
     case "failed":
       return { status: "failed", errorCode: outcome.code };
+    // Never failed: the store does not count the call as an attempt.
     case "retry_after":
-      return attempts >= SLACK_OUTBOX_MAX_ATTEMPTS
-        ? progress
-          ? {
-              status: "failed",
-              errorCode: "ratelimited",
-              retryInMs: outcome.waitMs,
-            }
-          : { status: "failed", errorCode: "ratelimited" }
-        : {
-            status: "pending",
-            errorCode: "ratelimited",
-            retryInMs: Math.min(outcome.waitMs, retryAfterMaxMs),
-          };
+      return {
+        status: "pending",
+        errorCode: SURFACE_RATE_LIMITED_CODE,
+        retryInMs: Math.min(outcome.waitMs, retryAfterMaxMs),
+      };
     case "retry":
       return {
         status: "pending",
@@ -290,6 +282,8 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     postedAs: SurfaceOutboxPostedAs,
     progress: { ts: string; reposted: boolean },
     label: SurfaceAiLabel | undefined,
+    // Told when the edit gives way to a new post.
+    reposting: () => void,
   ): Promise<SlackSendResponse | "stopped"> => {
     const { editMessage } = deps.slack;
     if (editMessage === undefined) return "stopped";
@@ -316,6 +310,7 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     const refused = editRefusal(edited);
     if (refused === null) return edited;
     if (refused === "frozen" || progress.reposted) return "stopped";
+    reposting();
     return postMessage(botToken, claim, text, null, guard, postedAs, label);
   };
 
@@ -478,43 +473,63 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     const text = answer + suffix;
     // The row as it goes out, so its blocks hold what its text does.
     const going = { ...claim, body: shown };
-    try {
+    // Whether the call Slack answered was chat.update: its rate limit is
+    // the install's, a post's the channel's.
+    let edited = false;
+    const send = () => {
       const progress = postedAs?.progress;
-      const response =
-        claim.kind === "notice" && claim.slackUserId !== null
-          ? await postEphemeral(
-              botToken,
-              going,
-              claim.slackUserId,
-              text,
-              guard,
-              label,
-            )
-          : postedAs !== null && progress?.ts != null
-            ? await editProgress(
-                botToken,
-                going,
-                text,
-                guard,
-                postedAs,
-                { ts: progress.ts, reposted: progress.reposted },
-                label,
-              )
-            : await postMessage(
-                botToken,
-                going,
-                text,
-                iconUrl,
-                guard,
-                postedAs,
-                label,
-              );
+      if (claim.kind === "notice" && claim.slackUserId !== null) {
+        return postEphemeral(
+          botToken,
+          going,
+          claim.slackUserId,
+          text,
+          guard,
+          label,
+        );
+      }
+      if (postedAs !== null && progress?.ts != null) {
+        edited = true;
+        return editProgress(
+          botToken,
+          going,
+          text,
+          guard,
+          postedAs,
+          { ts: progress.ts, reposted: progress.reposted },
+          label,
+          () => {
+            edited = false;
+          },
+        );
+      }
+      return postMessage(
+        botToken,
+        going,
+        text,
+        iconUrl,
+        guard,
+        postedAs,
+        label,
+      );
+    };
+    try {
+      const response = await send();
       logDropped();
       if (response === "stopped") {
         return { kind: "failed", code: SURFACE_PROGRESS_STOPPED_CODE };
       }
+      const settle = slackOutboxSettleFor(
+        attempts,
+        response,
+        claim.kind === "progress",
+      );
       return outcomeOf(
-        slackOutboxSettleFor(attempts, response, claim.kind === "progress"),
+        edited &&
+          settle.status === "pending" &&
+          settle.errorCode === SURFACE_RATE_LIMITED_CODE
+          ? { ...settle, errorCode: SURFACE_EDIT_RATE_LIMITED_CODE }
+          : settle,
       );
     } catch (error) {
       logDropped();

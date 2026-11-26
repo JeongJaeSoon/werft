@@ -247,9 +247,12 @@ export function upstreamExchange(
       if (body instanceof Uint8Array) {
         if (length > 0) void writeBody(body);
       } else if (body !== null) {
-        streamBody(body.stream, body.length).catch((error: unknown) =>
-          fail(error instanceof Error ? error : new Error(String(error))),
-        );
+        // Once the upstream has answered, a body that fails only stops
+        // being sent: the answer on its way to the client stays whole.
+        streamBody(body.stream, body.length).catch((error: unknown) => {
+          if (settled) return;
+          fail(error instanceof Error ? error : new Error(String(error)));
+        });
       }
     };
 

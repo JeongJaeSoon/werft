@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-query";
 import {
   type ApiClient,
-  type ApiError,
+  ApiError,
   type SessionEventFrame as ClientEventFrame,
   type components,
   isApiError,
@@ -47,7 +47,8 @@ import { useWerft } from "./provider.tsx";
 
 // Events kept on screen; older ones drop off so a long session does not
 // grow the page without bound.
-const EVENT_WINDOW = 200;
+/** The most events the session screen keeps; older ones drop off. */
+export const EVENT_WINDOW = 200;
 
 export function useSessions() {
   const { client } = useWerft();
@@ -221,6 +222,55 @@ export function useRetryFailedReadsOnStatus(
   }, [queryClient, client, id, status]);
 }
 
+const RECHECK_MS = 1_000;
+
+/**
+ * Reads the session and its turns again while they disagree, until they
+ * agree: a read can come back before the other catches up. A read still in
+ * flight is left to finish rather than cancelled by the next.
+ */
+export function useRecheckSessionReads(
+  id: string,
+  disagree: boolean,
+  lastEventAt: string | null | undefined,
+) {
+  const { client } = useWerft();
+  const queryClient = useQueryClient();
+  // A turn can start and end between two session reads with nothing else
+  // to tell, but the session's newest event moves on with it.
+  const seen = useRef(lastEventAt);
+  useEffect(() => {
+    if (seen.current === lastEventAt) return;
+    const first = seen.current === undefined;
+    seen.current = lastEventAt;
+    if (first) return;
+    const turns = sessionTurnsQuery(client, id);
+    // A turns read already in flight may have started before the event:
+    // join it rather than restart it, so a slow read is not restarted by
+    // every event before it lands, then read once more after it does.
+    const inFlight = queryClient.isFetching(turns) > 0;
+    const options = { cancelRefetch: false };
+    void queryClient
+      .invalidateQueries(turns, options)
+      .then(() =>
+        inFlight ? queryClient.invalidateQueries(turns, options) : undefined,
+      );
+  }, [queryClient, client, id, lastEventAt]);
+  useEffect(() => {
+    if (!disagree) return;
+    const recheck = () => {
+      for (const filter of [
+        { ...sessionQuery(client, id), exact: true },
+        sessionTurnsQuery(client, id),
+      ])
+        void queryClient.invalidateQueries(filter, { cancelRefetch: false });
+    };
+    recheck();
+    const timer = setInterval(recheck, RECHECK_MS);
+    return () => clearInterval(timer);
+  }, [queryClient, client, id, disagree]);
+}
+
 /** Queues a message as the session's next turn. */
 export function useSendMessage(id: string) {
   const { client } = useWerft();
@@ -329,6 +379,98 @@ export function useSessionControl(id: string) {
     // A terminate closes the open requests too.
     onSuccess: () =>
       refreshSession(queryClient, client, id, ["list", "detail", "pending"]),
+  });
+}
+
+/** A recovery decision the web offers whoever may write to the session. */
+export type RecoveryChoice =
+  | {
+      readonly decision: "abandon";
+      readonly turnId: string;
+      readonly revision: number;
+    }
+  | { readonly decision: "start_fresh"; readonly revision: number };
+
+// The audit record's reason; nobody types one on the web.
+const WEB_RECOVERY_REASON = "Decided from the web console";
+
+// The resume that follows an abandon is a command of its own.
+const resumeKeys = new WeakMap<MutationFunctionContext, string>();
+
+/**
+ * Gives up the unknown turn and resumes the session, or starts it fresh. An
+ * abandon leaves the session stopped: the resume is sent on the revision the
+ * abandon made, read back, and may still be refused, which the error says.
+ */
+export function useRecoveryDecision(id: string) {
+  const { client } = useWerft();
+  const queryClient = useQueryClient();
+  return useMutation<ReceiptAcceptedResponse, ApiError, RecoveryChoice>({
+    onMutate: (choice, context) => {
+      newCommand(choice, context);
+      resumeKeys.set(context, crypto.randomUUID());
+    },
+    mutationFn: async (choice, context) => {
+      const params = commandParams(id, context);
+      const reason = WEB_RECOVERY_REASON;
+      if (choice.decision === "start_fresh") {
+        return (await unwrap(
+          client.POST("/v1/sessions/{id}/recovery-decisions", {
+            params,
+            body: {
+              decision: "start_fresh",
+              expected_revision: choice.revision,
+              reason,
+            },
+          }),
+        )) as ReceiptAcceptedResponse;
+      }
+      await unwrap(
+        client.POST("/v1/sessions/{id}/recovery-decisions", {
+          params,
+          body: {
+            decision: "abandon",
+            expected_revision: choice.revision,
+            target_turn_id: choice.turnId,
+            reason,
+          },
+        }),
+      );
+      const stopped = await unwrap(
+        client.GET("/v1/sessions/{id}", { params: { path: { id } } }),
+      );
+      // Someone else moved the session after this abandon (a stop, another
+      // decision): resuming on their revision would undo what they did.
+      if (
+        stopped.revision !== choice.revision + 1 ||
+        stopped.admission_state !== "stopped"
+      ) {
+        throw new ApiError(
+          409,
+          "REVISION_CONFLICT",
+          "The session changed after the abandon; not resuming",
+        );
+      }
+      return (await unwrap(
+        client.POST("/v1/sessions/{id}/resume", {
+          params: {
+            path: { id },
+            header: {
+              "Idempotency-Key": resumeKeys.get(context) ?? crypto.randomUUID(),
+            },
+          },
+          body: { expected_revision: stopped.revision },
+        }),
+      )) as ReceiptAcceptedResponse;
+    },
+    // A refused resume still follows an abandon that took effect.
+    onSettled: () =>
+      refreshSession(queryClient, client, id, [
+        "list",
+        "detail",
+        "turns",
+        "pending",
+      ]),
   });
 }
 

@@ -17,6 +17,7 @@ import type {
   ListAchievementTypesResponse,
   UsageAchievementsResponse,
 } from "@werft-ai/contracts";
+import { refetchWhilePending } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import { OPERATIONS_MESSAGES } from "@werft-ai/react/components";
 import {
@@ -226,6 +227,7 @@ function useUsage(period: "1" | "30" | "month") {
         client.GET("/v1/usage/achievements", { params: { query } }),
       ) as Promise<UsageAchievementsResponse>,
     enabled: allowed,
+    refetchInterval: refetchWhilePending(),
     retry: false,
   });
   return { data: figures.data, readable: allowed && !figures.isError };
