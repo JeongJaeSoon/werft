@@ -11,7 +11,10 @@ export type SessionStopResult =
   /** The running turn was interrupted, or queued input cancelled, or both. */
   | { outcome: "stopped"; interrupted: boolean; cancelled: number }
   | { outcome: "nothing_running" }
-  /** The caller may not control the session: neither its requester nor anyone it lets write to it. */
+  /**
+   * The caller may not control the session, or may not see it: neither its
+   * requester nor anyone it lets write to it.
+   */
   | { outcome: "not_permitted" }
   | { outcome: "closed" };
 
@@ -38,9 +41,11 @@ export function createSessionStop(deps: {
           id: sessionId,
         });
       } catch (error) {
+        // NOT_FOUND is how the policy refuses someone the session is hidden
+        // from; retrying would only hold up the thread's later messages.
         if (
           error instanceof SessionServiceError &&
-          error.code === "FORBIDDEN"
+          (error.code === "FORBIDDEN" || error.code === "NOT_FOUND")
         ) {
           return { outcome: "not_permitted" };
         }
