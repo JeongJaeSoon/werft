@@ -535,8 +535,9 @@ export const leaseRemainingMsSchema = z.number().int().nonnegative();
 // with less, every attempt gives its lease up at or near its first beat.
 // A beat that cannot renew — its session row held by another transaction —
 // costs the next one a whole interval, so the default lease's 20s budget
-// rides out a stall of that budget less one interval: 15s here.
-export const WORKER_HEARTBEAT_INTERVAL_MS = 5_000;
+// rides out a stall of that budget less one interval: 18s here. A database
+// outage is such a stall, so the interval is short rather than the lease long.
+export const WORKER_HEARTBEAT_INTERVAL_MS = 2_000;
 export const WORKER_LEASE_SAFETY_MARGIN_MS = 10_000;
 
 // The worker's exit status once it stopped owning its session, so whoever
