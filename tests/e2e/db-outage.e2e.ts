@@ -14,17 +14,16 @@ import { docker } from "./docker.ts";
  * Stopping postgres is test scaffolding, the one step here that is not
  * public HTTP: it stands in for a restart or a failover. So is reading the
  * attempt's last heartbeat, which only times the stop. A worker gives its
- * lease up 20 s after the last heartbeat that landed and heartbeats are 5 s
- * apart, so an outage of 15 s that began late in that interval outlasts the
- * lease and loses the turn (`worker_ownership_lost`), though not the
- * session. The stop therefore follows a heartbeat that just landed, and a
- * run that still lost its lease is checked for what it must keep and then
- * tried again on a new session.
+ * lease up 20 s after the last heartbeat that landed and heartbeats are 2 s
+ * apart, so the stop comes late in that interval, the worst case: with 5 s
+ * beats an outage of 15 s that began there outlasted the lease and lost the
+ * turn (`worker_ownership_lost`).
  */
 const api = new Api(await e2eStack());
 const TIMEOUT = 600_000;
 const OUTAGE_MS = 15_000;
-const ATTEMPTS = 3;
+/** How old the last heartbeat is when the stop comes: late in a 2 s interval. */
+const LATE_BEAT_S = { from: 1.5, to: 2.5 };
 /** See workspace-loss.e2e.ts: spec ids are read back from the fake by id. */
 const RUN = crypto.randomUUID().slice(0, 8);
 
@@ -126,10 +125,12 @@ async function throughOutage(attempt: number): Promise<boolean> {
 
   const container = await postgres();
   await poll(
-    "a heartbeat that just landed",
+    "a heartbeat late in its interval",
     30_000,
-    async () =>
-      (await heartbeatAge(container, sessionId)) < 0.5 ? true : null,
+    async () => {
+      const age = await heartbeatAge(container, sessionId);
+      return age >= LATE_BEAT_S.from && age < LATE_BEAT_S.to ? true : null;
+    },
     100,
   );
   await must("stop", "-t", "10", container);
@@ -188,14 +189,9 @@ async function throughOutage(attempt: number): Promise<boolean> {
 }
 
 test(
-  "a turn running through fifteen seconds without the database completes with its context, and the session takes its next message",
+  "a turn running through fifteen seconds without the database, stopped late in a heartbeat interval, completes with its context, and the session takes its next message",
   async () => {
-    for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
-      if (await throughOutage(attempt)) return;
-    }
-    throw new Error(
-      `the turn lost its lease to the outage in each of ${ATTEMPTS} attempts`,
-    );
+    expect(await throughOutage(1)).toBe(true);
   },
   TIMEOUT,
 );

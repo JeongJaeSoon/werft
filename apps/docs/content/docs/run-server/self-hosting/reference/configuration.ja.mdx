@@ -30,7 +30,7 @@ API は設置上限以外に次の値を起動時に一つの parser で読み�
 
 | 変数 | 既定値 | 許可範囲 |
 |---|---|---|
-| `HEARTBEAT_TTL_SEC` | 30 | 15 超、86400 以下。worker は lease 終了の 10 秒前に lease を手放し（`WORKER_LEASE_SAFETY_MARGIN_SEC`）、5 秒ごとに heartbeat を送ります（`WORKER_HEARTBEAT_INTERVAL_SEC`）。両値の合計以下なら、attempt は最初の heartbeat 頃に lease を失います。launcher は worker の両値を渡さないため、既定値で判定します。heartbeat が 403 を受けると worker はすぐに終了します。404 を受けると 1 秒後、2 秒後、その後は 4 秒ごとに送り直し、lease を手放す時刻までに受け付けられなければ終了します（既定値では送り直しは 4〜6 回）。送り直している間、worker は gateway のほかの呼び出しと checkpoint のアップロードを送らず、heartbeat が受け付けられると続きを送ります |
+| `HEARTBEAT_TTL_SEC` | 30 | 12 超、86400 以下。worker は lease 終了の 10 秒前に lease を手放し（`WORKER_LEASE_SAFETY_MARGIN_SEC`）、2 秒ごとに heartbeat を送ります（`WORKER_HEARTBEAT_INTERVAL_SEC`）。両値の合計以下なら、attempt は最初の heartbeat 頃に lease を失います。launcher は worker の両値を渡さないため、既定値で判定します。heartbeat が 403 を受けると worker はすぐに終了します。404 を受けると 1 秒後、その後は heartbeat 間隔（2 秒）ごとに送り直し、lease を手放す時刻までに受け付けられなければ終了します（既定値では送り直しは 9〜10 回）。送り直している間、worker は gateway のほかの呼び出しと checkpoint のアップロードを送らず、heartbeat が受け付けられると続きを送ります |
 | `SSE_MAX_STREAMS`・`SSE_MAX_STREAMS_PER_OWNER`・`SSE_REPLAY_MAX_BYTES` | 256・8・1 MiB | 正の整数 |
 | `LOG_LEVEL` | `info` | `debug`・`info`・`warn`・`error`（大文字・小文字不問、空値は `info`）。scheduler・reconciler loop と egress-proxy も同じ規則で起動を拒否します。worker は scheduler の値を受け取ります |
 | `WEB_DIST_DIR` | なし（Web コンソールを配信しない）。control-host イメージは `/app/apps/web/dist` | `index.html` のある絶対パス。Web コンソール（`apps/web`）のビルド結果です |
@@ -204,7 +204,7 @@ API コンテナのメモリは checkpoint bundle 検証によって決まりま
 
 compose の Postgres は `POSTGRES_USER`（`postgres`）・`POSTGRES_PASSWORD`（`dev`）・`POSTGRES_DB`（`sessions`）で作り、すべてのサービスが同じ値で DSN を作ります。
 
-worker は次も env から読みますが、scheduler が渡さないため運用ではコード既定値に固定です。`WORKER_ANSWER_POLL_SEC`（1）、`WORKER_ATTACH_FETCH_TIMEOUT_SEC`（300、セッション途中で追加した一つのリポジトリの取得時間）、`WORKER_ATTACH_FETCH_MAX_MB`（2048、そのリポジトリの scratch mirror サイズ）、`WORKER_CLAIM_TIMEOUT_SEC`（60）、`WORKER_DRAIN_TIMEOUT_SEC`（100、stop 猶予内に短縮）、`WORKER_HEARTBEAT_INTERVAL_SEC`（5）、`WORKER_LEASE_SAFETY_MARGIN_SEC`（10）、`WORKER_NEXT_INPUT_RETRY_SEC`（60）、`WORKER_NEXT_INPUT_WAIT_SEC`（20）、`WORKER_REQUEST_TIMEOUT_SEC`（30）、`WORKER_STARTUP_TIMEOUT_SEC`（3600）、`WORKER_CLAUDE_CONFIG_DIR`（`$HOME/.claude`）。
+worker は次も env から読みますが、scheduler が渡さないため運用ではコード既定値に固定です。`WORKER_ANSWER_POLL_SEC`（1）、`WORKER_ATTACH_FETCH_TIMEOUT_SEC`（300、セッション途中で追加した一つのリポジトリの取得時間）、`WORKER_ATTACH_FETCH_MAX_MB`（2048、そのリポジトリの scratch mirror サイズ）、`WORKER_CLAIM_TIMEOUT_SEC`（60）、`WORKER_DRAIN_TIMEOUT_SEC`（100、stop 猶予内に短縮）、`WORKER_HEARTBEAT_INTERVAL_SEC`（2）、`WORKER_LEASE_SAFETY_MARGIN_SEC`（10）、`WORKER_NEXT_INPUT_RETRY_SEC`（60）、`WORKER_NEXT_INPUT_WAIT_SEC`（20）、`WORKER_REQUEST_TIMEOUT_SEC`（30）、`WORKER_STARTUP_TIMEOUT_SEC`（3600）、`WORKER_CLAUDE_CONFIG_DIR`（`$HOME/.claude`）。
 
 <a id="감독-루프" />
 ## 監督ループ
