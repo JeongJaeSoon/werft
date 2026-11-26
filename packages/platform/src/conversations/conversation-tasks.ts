@@ -154,7 +154,10 @@ const reasonCodeOf = (details: unknown): string | undefined =>
 export async function spawnConversationTask(
   deps: {
     store: ConversationTaskStore;
-    links: Pick<SessionLinkStore, "find" | "reserve" | "attachSession">;
+    links: Pick<
+      SessionLinkStore,
+      "find" | "reserve" | "attachSession" | "openedSession"
+    >;
     authorization: Pick<AuthorizationPolicy, "authorize">;
     sessions: Pick<SessionService, "createSession">;
     /** An ephemeral line to the requester; false when Slack did not take it. */
@@ -182,9 +185,10 @@ export async function spawnConversationTask(
     reason: string,
   ): Promise<ConversationTaskOutcome> => {
     deps.logger.info("Conversation task not started", { ...ids, reason });
-    if ((await deps.store.settle(turnId, effect)) && line !== null) {
-      await deps.store.tellThread(task, line);
-    }
+    // Told before it is settled: a run that dies between the two tells
+    // again under the turn's one key, never not at all.
+    if (line !== null) await deps.store.tellThread(task, line);
+    await deps.store.settle(turnId, effect);
     return effect;
   };
 
@@ -212,8 +216,14 @@ export async function spawnConversationTask(
   if (link !== null && link.openedByTs !== thread.messageTs) {
     return told("failed", "taskFailed", "thread_taken");
   }
-  // Made before a crash: the run that made it settles it.
-  if (link?.sessionId != null) {
+  // Made before a crash, perhaps never tied to the thread: it is the
+  // task, whatever the request or the right since.
+  const made =
+    link === null
+      ? null
+      : (link.sessionId ?? (await deps.links.openedSession(link)));
+  if (link !== null && made !== null) {
+    if (link.sessionId == null) await deps.links.attachSession(link.id, made);
     await deps.store.settle(turnId, "opened");
     return "opened";
   }
@@ -233,12 +243,11 @@ export async function spawnConversationTask(
       ...ids,
       reason: decision.reason_code,
     });
-    if (await deps.store.settle(turnId, "refused")) {
-      const notice = taskRefusalNotice(decision.reason_code, deps.connectUrl);
-      if (!(await deps.tellRequester(task, notice))) {
-        await deps.store.tellThread(task, "taskFailed");
-      }
+    const notice = taskRefusalNotice(decision.reason_code, deps.connectUrl);
+    if (!(await deps.tellRequester(task, notice))) {
+      await deps.store.tellThread(task, "taskFailed");
     }
+    await deps.store.settle(turnId, "refused");
     return "refused";
   }
 

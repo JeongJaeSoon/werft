@@ -4385,6 +4385,75 @@ describe.each(ENGINES)(
       ]);
     });
 
+    test("a session made before a crash is the task on the next run, past the deadline and the right too", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await spawnDecided();
+      // The session is made; tying it to the thread then fails.
+      await db.execute(
+        sql.raw(`CREATE FUNCTION fail_attach() RETURNS trigger LANGUAGE plpgsql
+          AS $$ BEGIN RAISE EXCEPTION 'attach lost'; END $$`),
+      );
+      await db.execute(
+        sql.raw(`CREATE TRIGGER fail_attach BEFORE UPDATE OF session_id
+          ON session_links FOR EACH ROW EXECUTE FUNCTION fail_attach()`),
+      );
+      try {
+        expect(await endings()).toMatchObject({ spawned: 0, failed: 1 });
+      } finally {
+        await db.execute(sql.raw("DROP TRIGGER fail_attach ON session_links"));
+        await db.execute(sql.raw("DROP FUNCTION fail_attach()"));
+      }
+      const [made] = await sessionsOf(fixture);
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({ effect: null });
+      await db.delete(linkedAccounts);
+      expect(await endings(new Date(Date.now() + 61 * 60_000))).toMatchObject({
+        spawned: 1,
+      });
+      expect(await sessionsOf(fixture)).toHaveLength(1);
+      expect((await links())[0]?.sessionId).toBe(made?.id);
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        effect: "opened",
+        nonce: null,
+      });
+      await sendOutbox();
+      expect(slack.messages).toEqual([]);
+    });
+
+    test("a line queued before a crash is not lost and not doubled", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await spawnDecided({ repository: "another-agents-repo" });
+      // Settling fails once, after the line is queued.
+      await db.execute(
+        sql.raw(`CREATE FUNCTION fail_settle() RETURNS trigger LANGUAGE plpgsql
+          AS $$ BEGIN RAISE EXCEPTION 'settle lost'; END $$`),
+      );
+      await db.execute(
+        sql.raw(`CREATE TRIGGER fail_settle BEFORE UPDATE OF task_effect
+          ON conversation_turns FOR EACH ROW EXECUTE FUNCTION fail_settle()`),
+      );
+      try {
+        await endings();
+      } finally {
+        await db.execute(
+          sql.raw("DROP TRIGGER fail_settle ON conversation_turns"),
+        );
+        await db.execute(sql.raw("DROP FUNCTION fail_settle()"));
+      }
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({ effect: null });
+      await endings();
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        effect: "refused",
+      });
+      await sendOutbox();
+      expect(threadPosts().map((post) => post.text)).toEqual([
+        `${SLACK_NOTICE_MESSAGES.en.taskRepository}\n\nAI agent · Werft`,
+      ]);
+    });
+
     test.each(["off", "shadow"] as const)(
       "rollout %s: a mention opens its session as today, no turn, no task",
       async (rollout) => {
