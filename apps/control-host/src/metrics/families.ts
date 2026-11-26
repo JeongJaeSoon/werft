@@ -8,6 +8,15 @@ import { publicStatus } from "@werft-ai/platform";
 /** The one place the metric prefix is set. */
 export const METRIC_PREFIX = "werft";
 
+/**
+ * The shares of the storage limit an operator is warned at, as fractions so
+ * the comparison is exact in integers.
+ */
+export const STORAGE_WARNING_THRESHOLDS = [
+  { label: "0.8", numerator: 4n, denominator: 5n },
+  { label: "1", numerator: 1n, denominator: 1n },
+] as const;
+
 /** Upper bounds of the turn-duration histogram; the turn time defaults to 3600 s. */
 export const TURN_DURATION_BUCKETS = [
   1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600,
@@ -134,6 +143,7 @@ function decimal(value: bigint, scale: number): string {
 }
 
 export function metricFamilies(snapshot: PlatformMetricsSnapshot): Family[] {
+  const { limitBytes } = snapshot.inputStorage;
   const tool = firstSeen(
     snapshot.toolCalls.map((row) => ({
       value: toolLabel(row.name),
@@ -304,6 +314,36 @@ export function metricFamilies(snapshot: PlatformMetricsSnapshot): Family[] {
       type: "gauge",
       help: "Age of the oldest visible input no worker has claimed, 0 when there is none.",
       samples: [{ labels: {}, value: snapshot.inputQueueOldestAgeSeconds }],
+    },
+    {
+      name: "input_storage_used_bytes",
+      type: "gauge",
+      help: "Bytes of input messages the storage limit counts, as the installation's counter holds them.",
+      samples: [{ labels: {}, value: snapshot.inputStorage.usedBytes }],
+    },
+    {
+      name: "input_storage_limit_bytes",
+      type: "gauge",
+      help: "The storage limit (STORAGE_LIMIT_BYTES) input messages are held to; absent while the installation config cannot be read.",
+      samples: limitBytes === null ? [] : [{ labels: {}, value: limitBytes }],
+    },
+    {
+      name: "input_storage_limit_reached",
+      type: "gauge",
+      help: '1 when input_storage_used_bytes is at or past the threshold share of the storage limit, else 0; absent while the limit cannot be read. While threshold="1" is 1, input held to the limit is refused.',
+      samples:
+        limitBytes === null
+          ? []
+          : STORAGE_WARNING_THRESHOLDS.map(
+              ({ label, numerator, denominator }) => ({
+                labels: { threshold: label },
+                value:
+                  BigInt(snapshot.inputStorage.usedBytes) * denominator >=
+                  BigInt(limitBytes) * numerator
+                    ? 1
+                    : 0,
+              }),
+            ),
     },
   ];
 }

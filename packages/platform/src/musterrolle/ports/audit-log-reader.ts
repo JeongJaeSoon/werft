@@ -20,4 +20,14 @@ export interface AuditLogReader {
     cursor: string | undefined,
     limit: number,
   ): Promise<AuditLogPage>;
+  /**
+   * How many of the rows page() would list for this filter come from each
+   * table, each read no further than `stopAt`, so a count of `stopAt` means
+   * at least that many.
+   */
+  count(
+    ownerId: string,
+    filter: AuditLogFilter,
+    stopAt: number,
+  ): Promise<{ decision: number; receipt: number }>;
 }

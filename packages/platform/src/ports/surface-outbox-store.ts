@@ -50,20 +50,22 @@ import type {
  * names it, keyed once per turn. It goes in the turn's topic thread, never at
  * the top of a channel (`threadTs` is never ""), and ends with the AI line.
  */
-export type SurfaceOutboxKind =
-  | "instruction"
-  | "reply"
-  | "notice"
-  | "failure_notice"
-  | "input_notice"
-  | "welcome"
-  | "action_notice"
-  | "model_notice"
-  | "input_mirror"
-  | "channel_notice"
-  | "progress"
-  | "reaction"
-  | "conversation_reply";
+export const SURFACE_OUTBOX_KIND_VALUES = [
+  "instruction",
+  "reply",
+  "notice",
+  "failure_notice",
+  "input_notice",
+  "welcome",
+  "action_notice",
+  "model_notice",
+  "input_mirror",
+  "channel_notice",
+  "progress",
+  "reaction",
+  "conversation_reply",
+] as const;
+export type SurfaceOutboxKind = (typeof SURFACE_OUTBOX_KIND_VALUES)[number];
 
 /**
  * The sends a reaction gets, its lease running out included: asking again
@@ -80,6 +82,17 @@ export const SURFACE_PROGRESS_SUPERSEDED_CODE = "superseded";
  * every later one are never sent.
  */
 export const SURFACE_PROGRESS_STOPPED_CODE = "progress_stopped";
+/**
+ * A send the channel turned away for its rate limit. Its row waits the time
+ * asked, and so does every row of the install that limit covers; the call
+ * does not count as an attempt, so a row never fails from 429s alone.
+ */
+export const SURFACE_RATE_LIMITED_CODE = "ratelimited";
+/**
+ * The same for an edit (chat.update): its limit is the install's, so it holds
+ * the install's progress messages rather than one channel's posts.
+ */
+export const SURFACE_EDIT_RATE_LIMITED_CODE = "ratelimited_edit";
 
 /**
  * `uncertain`: the send was under way when its lease ran out or its answer
@@ -208,12 +221,21 @@ export type SurfaceOutboxPostedAs = {
 };
 
 /**
+ * The AI line a post of an agent whose conversation rollout is `on` ends with.
+ * `requestedBy`: the Werft name of whoever sent the turn the row answers or
+ * asks about; null for a row of no such turn, or a name nobody can read.
+ */
+export type SurfaceAiLabel = { requestedBy: string | null };
+
+/**
  * What beginSend read for a row about to go. `progress`, on a `progress`
  * row: the ts of the post its update edits, null when it posts, and whether
- * the message was already put up again once.
+ * the message was already put up again once. `aiLabel`: absent while the
+ * rollout is `off` or `shadow`.
  */
 export type SurfaceOutboxBegun = SurfaceOutboxPostedAs & {
   progress?: { ts: string | null; reposted: boolean };
+  aiLabel?: SurfaceAiLabel;
 };
 
 /** A row the lease ran out on mid-send, now `uncertain`. */
@@ -563,6 +585,8 @@ export type SurfaceCardClaim = SurfaceCardFence & {
   uncertain: boolean;
   /** Taken over from a writer whose lease ran out: it sends regardless. */
   inherited: boolean;
+  /** The line the redrawn card ends with, read at claim; see `SurfaceOutboxBegun`. */
+  aiLabel?: SurfaceAiLabel;
   /** Failures so far, rate limits not counted. */
   attempts: number;
   /** The session's parent conversation, as the outbox claim reads it. */
@@ -698,6 +722,15 @@ export interface SurfaceOutboxStore {
     slackUserId: string;
   }): Promise<UserLocale | null>;
   /**
+   * The AI line of a notice redrawn after its post, outside the outbox: that
+   * of a turn's own row, as `beginSend` reads it.
+   */
+  aiLabelFor(turn: {
+    agentId: string;
+    sessionId: string;
+    turnId: number;
+  }): Promise<SurfaceAiLabel | null>;
+  /**
    * Moves each live link's mark past the turns that need nothing more: those
    * with their outbox row, interrupted or cancelled, or ended before the
    * link. A turn still running or waiting stops it. Returns links moved.
@@ -799,10 +832,14 @@ export interface SurfaceOutboxStore {
    * row is settled so; nothing may go out. Begun, who the row goes out as
    * when the store reads it, under the same locks: a title whose message
    * Slack deleted is never sent; `true` when it reads none.
+   * `rate_limited`: a rate limit a send of another row ran into covers this
+   * one; it is released, unsent and uncounted, until the limit ends.
    */
   beginSend(
     fence: SurfaceOutboxFence,
-  ): Promise<boolean | "voided_by_delete" | SurfaceOutboxBegun>;
+  ): Promise<
+    boolean | "voided_by_delete" | "rate_limited" | SurfaceOutboxBegun
+  >;
   /** False when the lease was lost: the row is someone else's now. */
   /**
    * False when the lease was lost. A sent `input_mirror` row gives its input

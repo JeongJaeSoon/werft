@@ -1,5 +1,5 @@
 {
-  "id": "225fbc62-17a8-45f5-b708-8cfd8b76019b",
+  "id": "1a819880-452c-4849-872e-97833b1098ce",
   "prevId": "4ffdb946-aa26-446f-9f16-efeac143c337",
   "version": "7",
   "dialect": "postgresql",
@@ -5965,22 +5965,6 @@
           "method": "btree",
           "with": {}
         },
-        "conversation_calls_period_idx": {
-          "name": "conversation_calls_period_idx",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"conversation_calls\".\"state\" <> 'released'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "conversation_calls_topic_idx": {
           "name": "conversation_calls_topic_idx",
           "columns": [
@@ -7386,6 +7370,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_turn_queue_ended_idx": {
+          "name": "conversation_turn_queue_ended_idx",
+          "columns": [
+            {
+              "expression": "ended_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"conversation_turn_queue\".\"state\" = 'ended'",
           "concurrently": false,
           "method": "btree",
           "with": {}

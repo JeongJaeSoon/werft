@@ -71,7 +71,9 @@ function factsFor(
 }
 
 // The insider administers the agent; only C0SECRET has them as a member.
-function policy(options: { fails?: boolean } = {}) {
+function policy(
+  options: { fails?: boolean; pending?: boolean; inline?: string[] } = {},
+) {
   return createAuthorizationPolicy({
     agents: {
       async agentOf(_workspaceId, resource) {
@@ -106,9 +108,16 @@ function policy(options: { fails?: boolean } = {}) {
     },
     channelMembers: {
       async isMember({ channelId, userId }) {
+        options.inline?.push(channelId);
         return channelId === "C0SECRET" && userId === INSIDER;
       },
       async membership({ channelId, userId }) {
+        return channelId === "C0SECRET" && userId === INSIDER
+          ? "member"
+          : "not_member";
+      },
+      async cachedMembership({ channelId, userId }) {
+        if (options.pending) return "pending";
         return channelId === "C0SECRET" && userId === INSIDER
           ? "member"
           : "not_member";
@@ -132,6 +141,23 @@ describe("the status tool", () => {
       "C0PUBLIC",
       "C0SECRET",
     ]);
+    expect(answer).not.toHaveProperty("incomplete");
+  });
+
+  // 94S-2270 (Architect answer): a model's tool call never sends Slack a
+  // question. A private channel whose members are not cached is left out,
+  // and the answer says only that it may be incomplete.
+  test("a private channel not yet confirmed is left out, the answer says incomplete, and Slack is not asked", async () => {
+    const inline: string[] = [];
+    const answer = await status(
+      factsFor(INSIDER),
+      policy({ pending: true, inline }),
+    );
+    expect(answer.slack.channels?.map((channel) => channel.id)).toEqual([
+      "C0PUBLIC",
+    ]);
+    expect(answer.incomplete).toBe(true);
+    expect(inline).toEqual([]);
   });
 
   test("someone outside the agent sees each state and where to set it up, and no name", async () => {
