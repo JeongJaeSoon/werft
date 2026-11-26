@@ -358,6 +358,9 @@ export function SessionDetail({
       </div>
       {turns.data !== undefined && (
         <RecoveryDecisions
+          // What was decided belongs to this session, not to the revision
+          // another session shares.
+          key={detail.id}
           session={detail}
           unknownTurnId={unknownTurnId}
           unavailable={unavailable}

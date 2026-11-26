@@ -3001,6 +3001,58 @@ describe("a session waiting on a recovery decision", () => {
     expect(screen.queryByRole("button", ABANDON)).toBeNull();
   });
 
+  test("a decision on one session leaves another on the same revision its buttons", async () => {
+    const user = await setupUser();
+    const other = { ...gap, id: OTHER_ID } as SessionDetail;
+    const { history } = renderAt(`/sessions/${OTHER_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, gap),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, { items: [ran], next_cursor: null }),
+      [`POST ${decisionPath}`]: accepted,
+      [`GET /v1/sessions/${OTHER_ID}`]: () => json(200, other),
+      [`GET /v1/sessions/${OTHER_ID}/usage`]: () =>
+        json(200, { ...usage, session_id: OTHER_ID }),
+      [`GET /v1/sessions/${OTHER_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${OTHER_ID}/events`]: () =>
+        new Promise<Response>(() => {}),
+      [`GET /v1/sessions/${OTHER_ID}/turns`]: () =>
+        json(200, {
+          items: [{ ...ran, session_id: OTHER_ID }],
+          next_cursor: null,
+        }),
+    });
+    // The other session is read first, so its turns are already held.
+    await screen.findByRole("button", FRESH);
+    act(() => history.push(`/sessions/${SESSION_ID}`));
+    await screen.findByRole("heading", {
+      name: new RegExp(`^${SESSION_ID.slice(0, 8)}`),
+    });
+    await user.click(await screen.findByRole("button", FRESH));
+    await waitFor(() => expect(screen.queryByRole("button", FRESH)).toBeNull());
+    act(() => history.push(`/sessions/${OTHER_ID}`));
+    await screen.findByRole("heading", {
+      name: new RegExp(`^${OTHER_ID.slice(0, 8)}`),
+    });
+    expect(await screen.findByRole("button", FRESH)).toBeTruthy();
+  });
+
+  test("a session with nothing to decide leaves the keyboard where the page put it", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, { items: [ran], next_cursor: null }),
+    });
+    await screen.findByRole("heading", { level: 1 });
+    await waitFor(() =>
+      expect(screen.getAllByText(ran.message).length).toBeGreaterThan(0),
+    );
+    expect(document.activeElement?.tagName).toBe("BODY");
+  });
+
   test("a credential that may not send to sessions has no decision to press", async () => {
     render({ session: () => gap, turns: [ran], scopes: ["sessions:read"] });
     await screen.findByRole("heading", { level: 1 });

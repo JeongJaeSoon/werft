@@ -417,11 +417,18 @@ export function RecoveryDecisions({
   const shown = choices.length;
 
   // The pressed button goes with the state it decided: the line that says
-  // what happened takes the keyboard.
+  // what happened takes the keyboard. A session that never offered one
+  // leaves the keyboard alone.
+  const drawn = useRef(false);
   useLayoutEffect(() => {
-    if (shown === 0 && focusLost(outcomeRef.current)) {
+    if (shown > 0) {
+      drawn.current = true;
+      return;
+    }
+    if (drawn.current && focusLost(outcomeRef.current)) {
       outcomeRef.current?.focus();
     }
+    drawn.current = false;
   }, [shown]);
 
   // A credential that may not send has nothing to press.
