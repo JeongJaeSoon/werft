@@ -128,7 +128,6 @@ export {
 } from "./sessions/session-event-archives.ts";
 export * from "./sessions/session-events.ts";
 export * from "./sessions/session-outcomes.ts";
-export * from "./stop-control.ts";
 export * from "./sessions/task-fields.ts";
 export { expireToolCallAudits } from "./sessions/tool-call-audit.ts";
 export * from "./sessions/tool-calls.ts";
@@ -136,6 +135,7 @@ export { expireOverdueInterrupts } from "./sessions/turn-interrupts.ts";
 export * from "./sessions/workspace-mcp-egress.ts";
 export * from "./settings-document.ts";
 export { notDeleted } from "./soft-delete.ts";
+export * from "./stop-control.ts";
 export * from "./surface/conversation-reactions.ts";
 export * from "./surface/conversation-records.ts";
 export * from "./surface/conversation-replies.ts";
