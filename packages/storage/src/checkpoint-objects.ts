@@ -158,9 +158,13 @@ export function createCheckpointObjectStore(
       let handed = 0;
       let stalledMs: number | undefined;
       let timer: ReturnType<typeof setTimeout> | undefined;
+      let settled = false;
       // Armed again by each chunk the client takes, and left running once
-      // the last is taken: the answer is due within the same bound.
+      // the last is taken: the answer is due within the same bound. Not
+      // once the send has settled: a read still pending then may yet hand
+      // over a chunk.
       const moved = (bytes: number) => {
+        if (settled) return;
         handed += bytes;
         const ms = uploadStallMs + transferBudgetMs(handed, 0);
         clearTimeout(timer);
@@ -195,6 +199,7 @@ export function createCheckpointObjectStore(
               `S3 upload moved nothing for ${stalledMs}ms after ${handed} of ${body.bytes} bytes`,
             );
       } finally {
+        settled = true;
         clearTimeout(timer);
       }
     };
