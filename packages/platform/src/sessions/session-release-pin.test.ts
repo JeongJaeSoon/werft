@@ -1300,6 +1300,7 @@ function sessionOn(): SessionDetailRecord {
     current_turn_id: null,
     queued_turn_count: 0,
     turn_time_ms: 0,
+    last_turn_cut_off: false,
     last_event_at: null,
     created_at: "2026-10-29T00:00:00.000Z",
     updated_at: "2026-10-29T00:00:00.000Z",
