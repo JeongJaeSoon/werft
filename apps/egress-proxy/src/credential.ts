@@ -2913,10 +2913,12 @@ function arrivingBody(
           }
           // Ends the exchange, and through `signal` this stream. Unless the
           // upstream has answered: then the rest is no longer waited on, and
-          // the stream is left as it is.
+          // the stream fails here, which only stops the upload.
           stalled(error);
+          if (over) return;
           over = true;
           reader.cancel(error).catch(() => {});
+          controller.error(error);
         } finally {
           signal.removeEventListener("abort", stop);
         }

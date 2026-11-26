@@ -174,10 +174,11 @@ export function createCheckpointObjectStore(
         }, ms);
       };
       moved(0);
+      const source = pass(body, moved);
       try {
         return await client.send(
           new PutObjectCommand({
-            Body: pass(body, moved),
+            Body: source,
             Bucket: bucket,
             ChecksumSHA256: Buffer.from(body.sha256, "hex").toString("base64"),
             ContentLength: body.bytes,
@@ -201,6 +202,9 @@ export function createCheckpointObjectStore(
       } finally {
         settled = true;
         clearTimeout(timer);
+        // The SDK destroys the request on an abort, not what was piped into
+        // it: the source stays open until this.
+        source.destroy();
       }
     };
     return retried(put);

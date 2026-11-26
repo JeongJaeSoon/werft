@@ -134,7 +134,12 @@ describe("streamed putImmutable over HTTP", () => {
     const received: Received[] = [];
     server = createServer(async (request, response) => {
       const parts: Buffer[] = [];
-      for await (const part of request) parts.push(part as Buffer);
+      try {
+        for await (const part of request) parts.push(part as Buffer);
+      } catch {
+        // Cut by the client before its body ended: never taken whole.
+        return;
+      }
       const entry = {
         body: new Uint8Array(Buffer.concat(parts)),
         headers: request.headers,
@@ -285,6 +290,46 @@ describe("streamed putImmutable over HTTP", () => {
       S3_MAX_ATTEMPTS,
     );
     expect(source.opened()).toBe(S3_MAX_ATTEMPTS);
+  }, 20_000);
+
+  test("an upload cut for a stall closes the source it was reading", async () => {
+    const piece = new Uint8Array(randomBytes(1024));
+    const bytes = new Uint8Array(Buffer.concat([piece, piece]));
+    let opened = 0;
+    let closed = 0;
+    // The second chunk comes after the stall bound, so each attempt is cut
+    // with its source still part read.
+    const source: ImmutableObjectSource = {
+      bytes: bytes.byteLength,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      async *open() {
+        opened += 1;
+        try {
+          yield piece;
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          yield piece;
+        } finally {
+          closed += 1;
+        }
+      },
+    };
+    const { store } = await peer(
+      (request) => (request.method === "GET" ? missing : null),
+      { uploadStallMs: 150 },
+    );
+
+    const failure = await store.putImmutable(KEY, source).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    expect(failure).toBeInstanceOf(BodyStallError);
+    expect(opened).toBe(S3_MAX_ATTEMPTS);
+    const by = Date.now() + 2_000;
+    while (closed < opened && Date.now() < by) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(closed).toBe(opened);
   }, 20_000);
 
   test("an upload that keeps moving is not cut, however long it takes", async () => {
