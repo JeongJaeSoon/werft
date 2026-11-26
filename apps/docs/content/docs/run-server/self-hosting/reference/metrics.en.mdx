@@ -44,6 +44,11 @@ The prefix is `werft_`, defined in one place in the code.
 | `werft_sessions_waiting_for_capacity` | gauge | None | Sessions whose worker Pod is up but has no node with room, so it waits to start. Kubernetes has marked the Pod `Unschedulable` |
 | `werft_session_no_capacity_failures_total` | counter | None | Times a session's waiting input failed with `NO_CAPACITY` because no room freed up within 15 minutes |
 | `werft_input_queue_oldest_age_seconds` | gauge | None | Age of the oldest input not yet taken by a worker; 0 when empty |
+| `werft_input_storage_used_bytes` | gauge | None | Bytes of input messages the storage limit counts, as the installation's counter holds them |
+| `werft_input_storage_limit_bytes` | gauge | None | The storage limit (`STORAGE_LIMIT_BYTES`); absent while the installation config cannot be read |
+| `werft_input_storage_limit_reached` | gauge | `threshold` | 1 when the used bytes are at or past the `threshold` share (`0.8`, `1`) of the limit, else 0; absent while the limit cannot be read. At 1 for `threshold="1"`, new input held to the limit (sessions API, Slack) is refused with `413 STORAGE_LIMIT_EXCEEDED`; turns the platform writes itself are only counted |
+
+To be warned before the storage limit is reached, alert on `werft_input_storage_limit_reached{threshold="0.8"} == 1`. Once a day (03:30 UTC) the api compares the counter with the bytes of the messages `turns` holds. When they differ it logs the warning `The storage counter differs from the turns` with `counter_bytes`, `actual_bytes` and `difference_bytes`; when they match, an info line. It never corrects the counter. With several replicas, no two of them read `turns` at the same time. The statement that reads all of `turns` stops after 15 seconds, and the check logs a warning.
 
 `tool_calls` is a gauge because tool outcomes can change later. A late result changes `unknown` to `ok` or `failed`; an earlier result arriving later can replace the existing outcome. A decrease in a counter would look like a reset and distort increments. Use `tool_calls_total` for call count increases and `tool_calls` for outcome ratios.
 

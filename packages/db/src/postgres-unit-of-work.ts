@@ -125,7 +125,7 @@ import {
 import { DB_NOW } from "./db-clock.ts";
 import { budgetAccountRefused } from "./exchange-budget.ts";
 import { captureGitHubPolicyStart } from "./github/github-settings.ts";
-import { admitInput } from "./input-limits.ts";
+import { acceptanceTransaction, admitInput } from "./input-limits.ts";
 import { readArchivedWorkspaceLimit } from "./limits/workspace-limit.ts";
 import {
   agentNamedInSession,
@@ -511,7 +511,7 @@ export function createPostgresSessionUnitOfWork(
         resource: SESSIONS_RESOURCE,
         key: input.idempotencyKey,
       };
-      return db.transaction(async (tx) => {
+      return acceptanceTransaction(db, async (tx) => {
         await lockIdempotencyScope(tx, scope);
         const existing = await findIdempotent(tx, scope);
         if (existing) {
@@ -869,7 +869,7 @@ export function createPostgresSessionUnitOfWork(
             ? input.idempotencyKey
             : String(input.continueTurn),
       };
-      return db.transaction(async (tx) => {
+      return acceptanceTransaction(db, async (tx) => {
         await lockIdempotencyScope(tx, scope);
         const existing = await findIdempotent(tx, scope);
         if (existing) {
@@ -1874,6 +1874,7 @@ export function createPostgresSessionReader(
             sql<boolean>`CASE WHEN ${sessions.status} = 'idle' THEN ${LAST_TURN_CUT_OFF} ELSE false END`.as(
               "cut_off",
             ),
+          costUsd: sessions.costUsd,
         })
         .from(sessions)
         .where(sessionFilter(ownerId, query, viewer))
@@ -1889,6 +1890,8 @@ export function createPostgresSessionReader(
             awaitingInput: listed.awaitingInput,
             cutOff: listed.cutOff,
             count: sql<number>`count(*)::int`,
+            // Every group carries the whole sum, added in numeric, not float.
+            costUsd: sql<string>`(sum(sum(${listed.costUsd})) over ())::text`,
           })
           .from(listed)
           .groupBy(listed.status, listed.awaitingInput, listed.cutOff);
@@ -1903,7 +1906,7 @@ export function createPostgresSessionReader(
         if (status === "idle" && row.cutOff) counts.cut_off += row.count;
         total += row.count;
       }
-      return { counts, total };
+      return { counts, total, cost_usd: rows[0]?.costUsd ?? "0" };
     },
 
     async listSessions(

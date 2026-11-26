@@ -309,6 +309,7 @@ const store = createPostgresCheckpointStore(db);
 const metricsOptions = {
   budget: { costUsd: 25, tokens: null },
   buckets: [1, 60, 3600],
+  storageLimitBytes: null,
 };
 
 const listed = (await reader.listSessions(OWNER, { limit: LISTED }, VIEWER))
