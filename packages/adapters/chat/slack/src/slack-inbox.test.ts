@@ -407,6 +407,32 @@ describe("drainSlackInbox lines", () => {
     ]);
   });
 
+  test("a store write that throws while the next claim is out still fails the pass", async () => {
+    const inbox = createMemorySlackInboundEventStore();
+    await inChannel(inbox, "Ev1", "app_mention", { channel: "C1", ts: "1.0" });
+    const claim = inbox.store.claim.bind(inbox.store);
+    let claims = 0;
+    inbox.store.claim = async (options) => {
+      claims += 1;
+      // The second claim is still out when Ev1's completion throws.
+      if (claims === 2) await new Promise((wake) => setTimeout(wake, 20));
+      return claim(options);
+    };
+    inbox.store.complete = async () => {
+      throw new Error("database gone");
+    };
+    await expect(
+      drainSlackInbox({
+        inbox: inbox.store,
+        handler: noopSlackInboundHandler,
+        logger: recorder().logger,
+        concurrency: 2,
+        leaseMs: 60_000,
+        deadline: Number.POSITIVE_INFINITY,
+      }),
+    ).rejects.toThrow("database gone");
+  });
+
   test("a store write that throws still fails the pass, after the rest in flight end", async () => {
     const inbox = createMemorySlackInboundEventStore();
     await inChannel(inbox, "Ev1", "app_mention", { channel: "C1", ts: "1.0" });

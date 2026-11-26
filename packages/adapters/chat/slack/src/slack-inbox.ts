@@ -164,39 +164,42 @@ export async function drainSlackInbox(deps: {
   }
 
   const inFlight = new Set<Promise<void>>();
-  try {
-    while (now() < deps.deadline) {
-      const free = deps.concurrency - inFlight.size;
-      const batch =
-        free > 0
-          ? await deps.inbox.claim({
-              limit: free,
-              leaseMs: deps.leaseMs,
-              maxAttempts,
-            })
-          : [];
-      for (const event of batch) {
-        drain.claimed += 1;
-        // settle() catches the handler's throw; a store write that throws
-        // ends the pass, as it did one event at a time.
-        const running: Promise<void> = settle(event).finally(() =>
-          inFlight.delete(running),
-        );
-        // Raced or awaited below; this only keeps a rejection that lands
-        // between those waits from counting as unhandled.
-        running.catch(() => {});
-        inFlight.add(running);
-      }
-      if (inFlight.size === 0) break;
-      // Nothing more to claim until one ends: it may be what its channel's
-      // next event waits for.
-      if (batch.length === 0 || inFlight.size >= deps.concurrency) {
-        await Promise.race(inFlight);
+  // settle() catches the handler's throw; a store write that throws ends
+  // the pass, as it did one event at a time: no new claim, and it is thrown
+  // once the rest in flight end.
+  let broken: { error: unknown } | undefined;
+  while (broken === undefined && now() < deps.deadline) {
+    const free = deps.concurrency - inFlight.size;
+    let batch: SurfaceInboundClaim[] = [];
+    if (free > 0) {
+      try {
+        batch = await deps.inbox.claim({
+          limit: free,
+          leaseMs: deps.leaseMs,
+          maxAttempts,
+        });
+      } catch (error) {
+        broken = { error };
+        break;
       }
     }
-    await Promise.all(inFlight);
-  } finally {
-    await Promise.allSettled(inFlight);
+    for (const event of batch) {
+      drain.claimed += 1;
+      const running: Promise<void> = settle(event)
+        .catch((error: unknown) => {
+          broken ??= { error };
+        })
+        .finally(() => inFlight.delete(running));
+      inFlight.add(running);
+    }
+    if (inFlight.size === 0) break;
+    // Nothing more to claim until one ends: it may be what its channel's
+    // next event waits for.
+    if (batch.length === 0 || inFlight.size >= deps.concurrency) {
+      await Promise.race(inFlight);
+    }
   }
+  await Promise.all(inFlight);
+  if (broken !== undefined) throw broken.error;
   return drain;
 }
