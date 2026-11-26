@@ -46,15 +46,18 @@ export function nextHeartbeatDelay(
 /**
  * How long to wait before asking again after the gateway answered a beat
  * 404: one second, doubling up to four, then every four until the lease is
- * given up. The cap stays under the beat interval, so an unconfirmed lease
- * is never asked about less often than a confirmed one.
+ * given up. The heartbeat caps it at its beat interval, so an unconfirmed
+ * lease is never asked about less often than a confirmed one.
  */
 export const NOT_FOUND_BACKOFF_MS = { first: 1_000, cap: 4_000 } as const;
 
-export function notFoundBackoff(refused: number): number {
+export function notFoundBackoff(
+  refused: number,
+  capMs: number = NOT_FOUND_BACKOFF_MS.cap,
+): number {
   return Math.min(
     NOT_FOUND_BACKOFF_MS.first * 2 ** Math.max(0, refused - 1),
-    NOT_FOUND_BACKOFF_MS.cap,
+    capMs,
   );
 }
 
@@ -278,9 +281,17 @@ export class Heartbeat {
     }
   }
 
+  /** The 404 backoff's current step, never longer than the beat interval. */
+  private backoff(): number {
+    return notFoundBackoff(
+      this.retries,
+      Math.min(NOT_FOUND_BACKOFF_MS.cap, this.options.intervalMs),
+    );
+  }
+
   private nextBeatInMs(): number {
     if (this.notFound > 0) {
-      return Math.min(notFoundBackoff(this.retries), this.leaseLeftMs);
+      return Math.min(this.backoff(), this.leaseLeftMs);
     }
     return nextHeartbeatDelay(this.options.intervalMs, this.leaseLeftMs);
   }
@@ -367,7 +378,7 @@ export class Heartbeat {
       // Unanswered for its whole patience, it used a step of the backoff as
       // a refused one does: the next is due that much after it went out.
       this.retries += 1;
-      this.retryAt = sentAt + notFoundBackoff(this.retries);
+      this.retryAt = sentAt + this.backoff();
     }
     return false;
   }
@@ -417,7 +428,7 @@ export class Heartbeat {
       this.notFound += 1;
       this.notFoundSentAt = Math.max(this.notFoundSentAt, sentAt);
       this.retries += 1;
-      this.retryAt = this.clock() + notFoundBackoff(this.retries);
+      this.retryAt = this.clock() + this.backoff();
       if (this.doubt === undefined) {
         this.doubt = Promise.withResolvers<void>();
         // Nothing may be waiting on it when the lease is lost.
@@ -449,7 +460,7 @@ export class Heartbeat {
     if (this.notFound > 0) {
       // Still unconfirmed: the next beat keeps to the backoff, a step on.
       this.retries += 1;
-      this.retryAt = this.clock() + notFoundBackoff(this.retries);
+      this.retryAt = this.clock() + this.backoff();
       this.rearm?.();
     }
   }
