@@ -6103,6 +6103,10 @@ export const conversationTurnQueue = pgTable(
       .where(sql`${table.state} IN ('queued', 'leased')`),
     // When each topic's last turn out ended.
     index("conversation_turn_queue_topic_idx").on(table.topicId, table.endedAt),
+    // The ended turns a sweep forgets: the few not forgotten yet.
+    index("conversation_turn_queue_ended_idx")
+      .on(table.endedAt)
+      .where(sql`${table.state} = 'ended'`),
     check(
       "conversation_turn_queue_state_check",
       sql`${table.attempt} >= 1 AND ${table.takeMs} >= 0 AND CASE ${table.state}
