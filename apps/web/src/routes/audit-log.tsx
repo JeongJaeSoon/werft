@@ -1,9 +1,7 @@
 import {
   infiniteQueryOptions,
   useInfiniteQuery,
-  useQueries,
   useQuery,
-  useQueryClient,
 } from "@tanstack/react-query";
 import { type ApiClient, isApiError, unwrap } from "@werft-ai/client";
 import type {
@@ -109,17 +107,29 @@ function periodFrom(period: Period, now: number): string | undefined {
     : new Date(now - days * 86_400_000).toISOString();
 }
 
+/**
+ * Every count is itself recorded, so counts read at once would each miss the
+ * others' rows and a longer period could show fewer. One query reads them one
+ * after another, in the order given, so a refetch keeps that order too.
+ */
 function auditCountsQuery(
   client: ApiClient,
-  query: AuditQuery,
+  queries: readonly AuditQuery[],
   enabled: boolean,
 ) {
   return {
-    queryKey: scopedKey(client, "audit-counts", query),
-    queryFn: () =>
-      unwrap(
-        client.GET("/v1/audit/events/counts", { params: { query } }),
-      ) as Promise<CountAuditEventsResponse>,
+    queryKey: scopedKey(client, "audit-counts", queries),
+    queryFn: async () => {
+      const counts: CountAuditEventsResponse[] = [];
+      for (const query of queries) {
+        counts.push(
+          (await unwrap(
+            client.GET("/v1/audit/events/counts", { params: { query } }),
+          )) as CountAuditEventsResponse,
+        );
+      }
+      return counts;
+    },
     enabled,
     // Every count is recorded as a read, as the list is.
     gcTime: 0,
@@ -229,10 +239,8 @@ function AuditLog() {
       from: period === filter.period ? filter.from : periodFrom(period, anchor),
     });
   const kindQuery = queryOf({ ...filter, kind: undefined });
-  // Every count is itself recorded, so counts read at once would each miss
-  // the others' rows and a longer period could show fewer. Read one after
-  // another, shortest window first: each later count includes every earlier
-  // read, so a longer window never shows less.
+  // Shortest window first: each later count includes every earlier read, so
+  // a longer window never shows less.
   const countQueries = [
     ...new Map(
       [...SHORTEST_FIRST.map(periodQuery), kindQuery].map((query) => [
@@ -241,28 +249,13 @@ function AuditLog() {
       ]),
     ).values(),
   ];
-  const queryClient = useQueryClient();
-  const countResults = useQueries({
-    queries: countQueries.map((query, index) => {
-      const before = countQueries[index - 1];
-      // A query that is waiting to be enabled is idle too, so wait for an answer.
-      const state =
-        before &&
-        queryClient.getQueryState(scopedKey(client, "audit-counts", before));
-      const settled =
-        before === undefined ||
-        (state !== undefined &&
-          state.status !== "pending" &&
-          state.fetchStatus === "idle");
-      return auditCountsQuery(client, query, filtersOpen && settled);
-    }),
-  });
+  const counts = useQuery(auditCountsQuery(client, countQueries, filtersOpen));
   const countsFor = (query: AuditQuery) =>
-    countResults[
+    counts.data?.[
       countQueries.findIndex(
         (one) => JSON.stringify(one) === JSON.stringify(query),
       )
-    ]?.data;
+    ];
   const kinds = countsFor(kindQuery);
   const facets: ListFilterFacet[] = [
     {

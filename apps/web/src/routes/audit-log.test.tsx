@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { focusManager } from "@tanstack/react-query";
 import {
   type AuditEvent,
   AUDIT_EXPORT_MAX_ROWS as CONTRACT_MAX_ROWS,
@@ -287,6 +288,15 @@ describe("설정 › 감사 기록", () => {
     const starts = order.map((from) => (from ? Date.parse(from) : 0));
     expect(starts).toEqual([...starts].sort((a, b) => b - a));
     expect(order.at(-1)).toBeNull();
+    // Reopening and coming back to the window read them again, still in turn.
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "필터" }));
+    await waitFor(() => expect(order).toHaveLength(8));
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+    await waitFor(() => expect(order).toHaveLength(12));
+    focusManager.setFocused(undefined);
+    expect(most).toBe(1);
   });
 
   test("1000을 넘는 개수는 1000+로 읽힌다", async () => {
