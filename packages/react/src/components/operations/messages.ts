@@ -1,6 +1,7 @@
 import type { SessionStatus } from "@werft-ai/contracts";
 
 import type { Locale } from "../../messages/index.ts";
+import type { UsageOutcomeKind } from "./usage-outcomes.tsx";
 
 /*
  * The operations parts' own wording and number formats, one set per locale,
@@ -147,6 +148,21 @@ export interface UsageInitiatorSplitMessages {
   /** A person's calls made on a key nobody owns. */
   readonly noPerson: string;
   readonly share: (label: string) => string;
+}
+
+export interface UsageOutcomesMessages {
+  readonly title: string;
+  readonly description: string;
+  readonly outcome: string;
+  readonly count: string;
+  readonly costEach: string;
+  readonly kind: Readonly<Record<UsageOutcomeKind, string>>;
+  /** No outcome of any kind in the period. */
+  readonly empty: string;
+  /** The divided cost: the sessions it covers and their cost. */
+  readonly basis: (sessions: string, cost: string) => string;
+  /** Appended when a session's cost is not reported yet. */
+  readonly incomplete: string;
 }
 
 export interface UsageDailyCostMessages {
@@ -299,6 +315,7 @@ export interface OperationsMessages {
   readonly installationLimits: InstallationLimitsMessages;
   readonly usageCostTable: UsageCostTableMessages;
   readonly usageInitiatorSplit: UsageInitiatorSplitMessages;
+  readonly usageOutcomes: UsageOutcomesMessages;
   readonly usageDailyCost: UsageDailyCostMessages;
   readonly usageTokenMix: UsageTokenMixMessages;
   readonly usageBasis: UsageBasisMessages;
@@ -587,6 +604,19 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         noPerson: "사람 없는 key",
         share: (label) => `${label} 비용 비율`,
       },
+      usageOutcomes: {
+        title: "성과당 비용",
+        description:
+          "이 기간에 시작한 작업 세션의 비용을 그 세션들이 낸 성과 수로 나눕니다",
+        outcome: "성과",
+        count: "수",
+        costEach: "하나당 비용",
+        kind: { merged_pr: "병합된 PR" },
+        empty: "이 기간에 시작한 세션이 병합한 PR이 없습니다.",
+        basis: (sessions, cost) =>
+          `나눈 비용은 작업 세션 ${sessions}개의 ${cost}입니다.`,
+        incomplete: "보고 안 된 비용이 있어 실제 비용은 더 많을 수 있습니다.",
+      },
       usageDailyCost: {
         title: "일자별 비용",
         description: "막대에 올리면 그날의 비용과 세션 수가 나옵니다",
@@ -817,6 +847,20 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         noPerson: "人のいないキー",
         share: (label) => `${label}のコスト比率`,
       },
+      usageOutcomes: {
+        title: "成果あたりのコスト",
+        description:
+          "この期間に始まった作業セッションのコストを、そのセッションが出した成果の数で割ります",
+        outcome: "成果",
+        count: "数",
+        costEach: "1件あたりのコスト",
+        kind: { merged_pr: "マージされたPR" },
+        empty: "この期間に始まったセッションからマージされたPRはありません。",
+        basis: (sessions, cost) =>
+          `割ったコストは作業セッション${sessions}件の${cost}です。`,
+        incomplete:
+          "未報告のコストがあるため、実際のコストはもっと多い可能性があります。",
+      },
       usageDailyCost: {
         title: "日別コスト",
         description:
@@ -1046,6 +1090,20 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         session: "Task sessions",
         noPerson: "Key with no person",
         share: (label) => `${label} cost share`,
+      },
+      usageOutcomes: {
+        title: "Cost per outcome",
+        description:
+          "The cost of the task sessions started in this period, divided by the outcomes those sessions reached",
+        outcome: "Outcome",
+        count: "Count",
+        costEach: "Cost each",
+        kind: { merged_pr: "Merged PRs" },
+        empty: "No PR from sessions started in this period was merged.",
+        basis: (sessions, cost) =>
+          `The divided cost is ${cost} from ${sessions} task sessions.`,
+        incomplete:
+          "Some cost is not reported yet, so the real cost may be higher.",
       },
       usageDailyCost: {
         title: "Cost per day",

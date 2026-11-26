@@ -17,6 +17,7 @@ import type {
   MemberLimitsResponse,
   UsageBreakdownBy,
   UsageBreakdownResponse,
+  UsageOutcomesResponse,
   UsagePeopleResponse,
   UsageSeriesResponse,
   UsageSummaryScope,
@@ -28,6 +29,7 @@ import {
   refetchWhilePending,
   scopedKey,
   usageBreakdownQuery,
+  usageOutcomesQuery,
   usagePeopleQuery,
   usageSeriesQuery,
 } from "@werft-ai/core";
@@ -55,6 +57,7 @@ import {
   UsageFilters,
   UsageInitiatorSplit,
   UsageKpis,
+  UsageOutcomes,
   type UsagePeriod,
   UsageTokenMix,
 } from "@werft-ai/react/components";
@@ -425,6 +428,7 @@ type UsageSet = {
   readonly series: Answer<UsageSeriesResponse>;
   readonly models: Answer<UsageBreakdownResponse>;
   readonly agents: Answer<UsageBreakdownResponse>;
+  readonly outcomes: Answer<UsageOutcomesResponse>;
   /** Absent when the reader may not see each person's share. */
   readonly people: Answer<UsagePeopleResponse> | undefined;
 };
@@ -447,6 +451,11 @@ export function OperationsUsageScreen() {
   });
   const models = useQuery(breakdown("model"));
   const agents = useQuery(breakdown("agent"));
+  const outcomes = useQuery({
+    ...usageOutcomesQuery(client, filters.scope, since, until),
+    placeholderData: keepPreviousData,
+    staleTime: USAGE_STALE_MS,
+  });
   // Each person's share of the person part: the workspace's readers, on the
   // installation scope its figures are.
   const seesPeople =
@@ -457,13 +466,13 @@ export function OperationsUsageScreen() {
     placeholderData: keepPreviousData,
     staleTime: USAGE_STALE_MS,
   });
-  // The three answers are shown as one set (figures, failures and the basis
+  // The answers are shown as one set (figures, failures and the basis
   // line together). A set is taken once every query has answered for the
   // picked scope and period and none is fetching, or at once when the picked
   // period is already cached; otherwise the set on screen stays.
   const queries = seesPeople
-    ? [series, models, agents, people]
-    : [series, models, agents];
+    ? [series, models, agents, outcomes, people]
+    : [series, models, agents, outcomes];
   const key = `${filters.scope} ${since} ${until}`;
   const answered = queries.every(
     (query) => !query.isPlaceholderData && (query.isSuccess || query.isError),
@@ -477,6 +486,7 @@ export function OperationsUsageScreen() {
       series: { data: series.data, error: series.error },
       models: { data: models.data, error: models.error },
       agents: { data: agents.data, error: agents.error },
+      outcomes: { data: outcomes.data, error: outcomes.error },
       people: seesPeople
         ? { data: people.data, error: people.error }
         : undefined,
@@ -583,6 +593,14 @@ export function OperationsUsageScreen() {
                     : null}
                 </div>
               )}
+              <UsageOutcomes
+                data={shown?.outcomes.error ? undefined : shown?.outcomes.data}
+                error={
+                  shown?.outcomes.error
+                    ? failure(shown.outcomes.error, outcomes.refetch)
+                    : undefined
+                }
+              />
               {shown?.models.error ? null : (
                 <UsageTokenMix totals={shown?.models.data?.totals} />
               )}
