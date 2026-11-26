@@ -13,7 +13,10 @@ import {
 import { Fragment, isValidElement, type JSX, type ReactNode } from "react";
 
 import { StatusLabel } from "../status/status-label.tsx";
-import { SessionStatusLabel } from "./session-status-label.tsx";
+import {
+  isSessionCutOff,
+  SessionStatusLabel,
+} from "./session-status-label.tsx";
 import { useMinute } from "./use-minute.ts";
 
 /**
@@ -33,6 +36,8 @@ export interface SessionRowMessages {
   readonly statusAxis: string;
   /** Read in place of the status once the worker has waited long for room. */
   readonly capacityWait?: string | undefined;
+  /** In place of the status of an idle session cut off mid-turn: "중단됨". */
+  readonly cutOff?: string | undefined;
   readonly admissionAxis: string;
   /** Heard before the runtime; the row shows only its value. */
   readonly runtime: string;
@@ -108,6 +113,7 @@ export function SessionRow({
 }: SessionRowProps): JSX.Element {
   const clock = useMinute(now === undefined);
   const { runtime } = session;
+  const cutOff = messages.cutOff !== undefined && isSessionCutOff(session);
   return (
     <GridTableRow
       data-slot="session-row"
@@ -126,8 +132,12 @@ export function SessionRow({
           make the row 1–2px taller than its padding says. */}
       <GridTableCell>
         <SessionStatusLabel
-          status={session.status}
-          label={messages.status(session.status)}
+          status={cutOff ? "failed" : session.status}
+          label={
+            cutOff && messages.cutOff
+              ? messages.cutOff
+              : messages.status(session.status)
+          }
           capacityWait={session}
           capacityWaitLabel={messages.capacityWait}
           axisLabel={messages.statusAxis}

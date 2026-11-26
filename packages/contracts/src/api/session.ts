@@ -588,6 +588,10 @@ export const sessionSummarySchema = z.object({
     description:
       "How long the session's finished turns ran, in milliseconds: the sum of each turn's end minus its start. Time spent idle between turns, waiting for an answer or paused is not counted, and neither is a turn still running. Absent from a server older than the field.",
   }),
+  last_turn_cut_off: z.boolean().default(false).meta({
+    description:
+      "True when the session's last turn failed because its worker lost the session partway (`terminal_reason: worker_ownership_lost`): no turn follows it yet. The session goes on from its last checkpoint with its next input or `POST /v1/sessions/{id}/turns/{turn_id}/continue`. The console shows an `idle` session with this set as cut off. False otherwise, and from a server older than the field.",
+  }),
   last_event_at: timestampSchema.nullable(),
   created_at: timestampSchema,
   updated_at: timestampSchema,
@@ -737,6 +741,10 @@ export const listSessionsQuerySchema = paginationQuerySchema
       description:
         "Filters on the status each item reports, needs_input included as derived when read.",
     }),
+    last_turn_cut_off: z.enum(["true", "false"]).optional().meta({
+      description:
+        "Keeps the sessions whose `last_turn_cut_off` is this value. With `status=idle`, `true` lists what `counts.cut_off` counts and `false` the rest of `counts.idle`.",
+    }),
     agent_id: agentIdSchema.optional().meta({
       description:
         "Keeps the sessions created for this agent, whichever of its releases they are pinned to. An agent with no session the caller can read, or no such agent, gives an empty page.",
@@ -755,7 +763,12 @@ export const countSessionsResponseSchema = z.object({
       idle: sessionCountSchema,
       failed: sessionCountSchema,
       stopped: sessionCountSchema,
-    } satisfies Record<SessionStatus, z.ZodType>)
+      // Defaults so a reader ahead of its server, during a rollout, reads none.
+      cut_off: sessionCountSchema.default(0).meta({
+        description:
+          "How many of the `idle` items have `last_turn_cut_off` set: GET /v1/sessions with `status=idle&last_turn_cut_off=true`. They are counted in `idle` too. Absent from a server older than the field.",
+      }),
+    } satisfies Record<SessionStatus | "cut_off", z.ZodType>)
     .meta({
       description:
         "For each status, how many items GET /v1/sessions would list with that `status` and the same `relation` and `q`, read to the last page.",

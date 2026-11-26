@@ -443,6 +443,11 @@ describe("에이전트 상세 탭", () => {
               admission_state: "paused",
               agent: { id: AGENT_ID, name: "agent", release_version_no: 2 },
             }),
+            // Its last turn a lost lease cut off, and nothing since.
+            session("2b3c4d5e-3d1e-4c7a-9b2f-5e6d7c8a9b03", {
+              status: "idle",
+              last_turn_cut_off: true,
+            }),
           ],
           next_cursor: "c2",
         }),
@@ -467,6 +472,12 @@ describe("에이전트 상세 탭", () => {
         "작업 상태: 쉬는 중",
         "세션 상태: 일시 정지됨",
         "릴리스: 버전 2",
+      ],
+      [
+        "2b3c4d5e",
+        "작업 상태: 중단됨",
+        "세션 상태: 열림",
+        "릴리스: 2026-10-30_14:30:28",
       ],
     ]);
     expect(
