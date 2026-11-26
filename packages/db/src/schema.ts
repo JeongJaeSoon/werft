@@ -1989,6 +1989,12 @@ export const sessions = pgTable(
     index("sessions_workspace_idx")
       .on(table.workspaceId)
       .where(sql`${table.workspaceId} IS NOT NULL`),
+    // An owner's distinct parent conversations, walked one per probe, and
+    // the sessions of one of them: the private channels a read across
+    // sessions asks about (privateChannels).
+    index("sessions_owner_parent_idx")
+      .on(table.ownerId, table.parentConversationId)
+      .where(sql`${table.parentConversationId} IS NOT NULL`),
     index("sessions_created_by_user_idx")
       .on(table.createdByUserId)
       .where(sql`${table.createdByUserId} IS NOT NULL`),
