@@ -21,6 +21,7 @@ import {
   userIdSchema,
   workspaceLimitModeSchema,
 } from "../shared/index.ts";
+import { costUsdSchema } from "../shared/money.ts";
 import {
   RUNTIME_FIXED_TOOLS,
   RUNTIME_KIND_OF_PROVIDER,
@@ -774,6 +775,11 @@ export const countSessionsResponseSchema = z.object({
         "For each status, how many items GET /v1/sessions would list with that `status` and the same `relation` and `q`, read to the last page.",
     }),
   total: sessionCountSchema,
+  // Optional so a reader ahead of its server, during a rollout, shows none.
+  cost_usd: costUsdSchema.optional().meta({
+    description:
+      "The estimated provider cost of the `total` sessions added up: the sum of `cost.amount_usd` from GET /v1/sessions/{id}/usage over the same sessions, read with the counts. An estimate, not a bill; a turn still running adds what it has spent so far. Absent from a server older than the field.",
+  }),
 });
 export const getSessionResponseSchema = sessionDetailSchema;
 
