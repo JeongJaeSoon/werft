@@ -25,6 +25,8 @@ import type {
   UsageToolsResponse,
 } from "@werft-ai/contracts";
 import {
+  privateChannelsPending,
+  refetchWhilePending,
   scopedKey,
   usageBreakdownQuery,
   usageOutcomesQuery,
@@ -70,6 +72,7 @@ import {
 import { useId, useRef, useState } from "react";
 import { useHasPermission } from "../auth/guard.tsx";
 import { LoadFailure } from "../components/load-failure.tsx";
+import { PrivateChannelsPending } from "../components/private-channels-pending.tsx";
 import { useI18n } from "../i18n/i18n.tsx";
 import {
   type OperationsSearch,
@@ -187,6 +190,7 @@ function usageToolCallsQuery(
           },
         }),
       ) as Promise<UsageToolCallsResponse>,
+    refetchInterval: refetchWhilePending(),
     retry: false,
   });
 }
@@ -272,7 +276,7 @@ export function OperationsOverviewScreen() {
       unwrap(
         client.GET("/v1/sessions/counts"),
       ) as Promise<CountSessionsResponse>,
-    refetchInterval: 30_000,
+    refetchInterval: refetchWhilePending(30_000),
     retry: false,
   });
   const limits = useInstallationLimits(filters.operator);
@@ -299,6 +303,7 @@ export function OperationsOverviewScreen() {
       }
       className="flex min-w-0 flex-col gap-8"
     >
+      <PrivateChannelsPending pending={privateChannelsPending(counts.data)} />
       <SessionCounts
         counts={counts.data?.counts}
         slots={
@@ -728,6 +733,7 @@ export function OperationsToolsScreen() {
             period={t("operations.recent", { days: filters.days })}
           />
         )}
+        <PrivateChannelsPending pending={privateChannelsPending(calls.data)} />
         {/* No gap of its own: the picked tool keeps its space from the
             table, and its heading sticks over the table in this box. */}
         <div className="flex min-w-0 flex-col">

@@ -62,6 +62,8 @@ import {
   completeSlackInstallResponseSchema,
   completeWorkspaceMcpOAuthRequestSchema,
   countAgentsResponseSchema,
+  countAuditEventsQuerySchema,
+  countAuditEventsResponseSchema,
   countSessionsQuerySchema,
   countSessionsResponseSchema,
   createAchievementCategoryRequestSchema,
@@ -514,6 +516,7 @@ const requestComponents = {
   SetLoginProviderSecretRequest: setLoginProviderSecretRequestSchema,
   AuditRetentionRequest: auditRetentionRequestSchema,
   ListAuditEventsQuery: listAuditEventsQuerySchema,
+  CountAuditEventsQuery: countAuditEventsQuerySchema,
   SlackGuestRequest: slackGuestRequestSchema,
   CreateAchievementCategoryRequest: createAchievementCategoryRequestSchema,
   UpdateAchievementCategoryRequest: updateAchievementCategoryRequestSchema,
@@ -641,6 +644,7 @@ const responseComponents = {
   IssuePasswordResetResponse: issuePasswordResetResponseSchema,
   AuditRetentionResponse: auditRetentionResponseSchema,
   ListAuditEventsResponse: listAuditEventsResponseSchema,
+  CountAuditEventsResponse: countAuditEventsResponseSchema,
   AuditExportLine: auditExportLineSchema,
   SlackGuestResponse: slackGuestResponseSchema,
   SlackSecretSummary: slackSecretSummarySchema,
@@ -862,7 +866,7 @@ export const OPENAPI_TAGS = [
   {
     name: "Recovery",
     description:
-      "Resolve sessions that require an operator recovery decision. The requester's own decision also takes an API key with `sessions:recover`.",
+      "Resolve sessions that require a recovery decision. Whoever may write to a session also gives up its unknown turn (`abandon`) or its lost context (`start_fresh`); the other decisions are an operator's and take `sessions:recover`, from a cookie session or an API key.",
   },
   {
     name: "Admin",
@@ -2179,6 +2183,32 @@ export const API_ROUTE_DECLARATIONS = [
       RATE_LIMITED:
         "An export of this workspace is already running; `Retry-After` is 60.",
     },
+  },
+  {
+    method: "get",
+    path: "/v1/audit/events/counts",
+    operationId: "countAuditEvents",
+    tag: "Audit log",
+    summary: "Count the audit rows a list would return, per kind (owner only)",
+    description:
+      "Counts, for each `kind`, the rows GET /v1/audit/events would list with the same filters when read to its last page, inside the same retention window; `total` is their sum. Each count stops at 1,000: past it `count` is 1,000 and `more` is true. Only the workspace owner, signed in, reads it; every other member and every API key get 403, and each read, allowed or refused, leaves a decision row (`audit_log.read`). It changes nothing else.",
+    scope: "read",
+    // As the list: the policy refuses an API key and records it.
+    scopeCheckedBy: "service",
+    query: "CountAuditEventsQuery",
+    success: {
+      status: 200,
+      schema: "CountAuditEventsResponse",
+      description: "The number of audit rows per kind, up to 1,000 each.",
+      example: {
+        counts: {
+          decision: { count: 1000, more: true },
+          receipt: { count: 42, more: false },
+        },
+        total: { count: 1000, more: true },
+      },
+    },
+    errors: [400, 401, 403, 503],
   },
   {
     method: "post",
@@ -4178,7 +4208,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "Count the sessions a list would return, per status",
     description:
-      "Counts, for each status, the sessions `GET /v1/sessions` would list with that `status` and the same `relation` and `q` when read to its last page; `total` is their sum. A session the caller cannot read is never counted. It changes nothing.",
+      "Counts, for each status, the sessions `GET /v1/sessions` would list with that `status` and the same `relation` and `q` when read to its last page; `total` is their sum, and `cost_usd` the estimated provider cost of those `total` sessions added up. A session the caller cannot read is never counted, and neither is its cost. It changes nothing.",
     scope: "read",
     query: "CountSessionsQuery",
     success: {
@@ -4196,6 +4226,7 @@ export const API_ROUTE_DECLARATIONS = [
           cut_off: 1,
         },
         total: 12,
+        cost_usd: "8.421500",
       },
     },
     errors: [400, 401, 503],
@@ -5564,8 +5595,11 @@ export const API_ROUTE_DECLARATIONS = [
     summary:
       "Operator decision for an unknown outcome or a context no checkpoint covers",
     description:
-      "Records an operator's decision where the platform will not guess: a turn whose outcome is unknown, or context no checkpoint covers. Nothing the execution did outside is reverted.\n\n- `abandon`: the `outcome_unknown` turn `target_turn_id` becomes `cancelled` and its input receipt fails; the session is `stopped`.\n- `confirm_completed`: with `evidence_ref`, the turn becomes `completed` and its input receipt succeeds; it needs a committed checkpoint that reaches the turn. The session is `stopped`.\n- `close`: ends the session for good.\n- `start_fresh`: continues on a new engine session that does not remember the turns before; the checkpoints so far are retired and queued input runs.\n- `retry_restore`: restores the same checkpoint again after what made the restores fail is fixed; queued input runs.\n\nThe decision takes effect in the request: the receipt is `succeeded` in the response, with result `{resulting_admission_state, checkpoint_revision, resumable}`. After `abandon` or `confirm_completed`, resume the session; `resumable: false` means a resume would answer `CHECKPOINT_UNAVAILABLE`. The decision is also recorded as a `system` event on the stream.",
+      "Records an operator's decision where the platform will not guess: a turn whose outcome is unknown, or context no checkpoint covers. Nothing the execution did outside is reverted.\n\n- `abandon`: the `outcome_unknown` turn `target_turn_id` becomes `cancelled` and its input receipt fails; the session is `stopped`.\n- `confirm_completed`: with `evidence_ref`, the turn becomes `completed` and its input receipt succeeds; it needs a committed checkpoint that reaches the turn. The session is `stopped`.\n- `close`: ends the session for good.\n- `start_fresh`: continues on a new engine session that does not remember the turns before; the checkpoints so far are retired and queued input runs. On a session with no committed checkpoint (a worker that died during the first turn, say), a turn whose outcome is unknown does not have to be settled first: it ends `cancelled` with `terminal_reason` `operator_start_fresh`, its input receipt fails with `CONTROL_SUPERSEDED`, and a new turn with the same input is queued behind any input already waiting. `target_turn_id`, when sent, must name that turn. `start_fresh_available` on `GET /v1/sessions/{id}` says whether this decision would be taken now.\n- `retry_restore`: restores the same checkpoint again after what made the restores fail is fixed; queued input runs.\n\nThe decision takes effect in the request: the receipt is `succeeded` in the response, with result `{resulting_admission_state, checkpoint_revision, resumable}`. After `abandon` or `confirm_completed`, resume the session; `resumable: false` means a resume would answer `CHECKPOINT_UNAVAILABLE`. The decision is also recorded as a `system` event on the stream.\n\n`abandon` and `start_fresh` are also open to whoever may write to the session: `sessions:write` on a session the credential sees, and for a private channel's session only while its person is a member of the channel. `confirm_completed`, `close` and `retry_restore` need `sessions:recover`.",
     scope: "recover",
+    // abandon and start_fresh also take sessions:write, which only the body
+    // says: the policy judges the scope there.
+    scopeCheckedBy: "service",
     body: "RecoveryDecisionRequest",
     requestExample: {
       decision: "abandon",
@@ -5585,12 +5619,12 @@ export const API_ROUTE_DECLARATIONS = [
       SOURCE_DELETED:
         "`start_fresh` or `retry_restore` on a session stopped because a source of one of its turns was deleted in Slack; `close` is the decision left.",
       FORBIDDEN:
-        "Also when an operator revoked the session's execution authority.",
+        "The credential holds neither `sessions:recover` nor, for `abandon` and `start_fresh`, `sessions:write`. Also when an operator revoked the session's execution authority.",
       NOT_FOUND: "Also when `target_turn_id` names no turn of the session.",
       REQUEST_STALE:
-        "The decision does not apply to the session now: `close` or `start_fresh` on a session not awaiting recovery, `confirm_completed` or `abandon` on a turn whose outcome is not unknown, or `retry_restore` on a session a failed restore did not stop.",
+        "The decision does not apply to the session now: `close` or `start_fresh` on a session not awaiting recovery, `confirm_completed`, `abandon` or `start_fresh` with a `target_turn_id` naming a turn whose outcome is not unknown, or `retry_restore` on a session a failed restore did not stop.",
       RECOVERY_REQUIRED:
-        "The execution is not yet confirmed gone, or `start_fresh` while a turn's outcome is still unknown.",
+        "The execution is not yet confirmed gone, or `start_fresh` while a turn's outcome is still unknown on a session with a committed checkpoint.",
       CHECKPOINT_UNAVAILABLE:
         "`confirm_completed` with no committed checkpoint that reaches the target turn.",
       SESSION_PAUSED: `${RESERVED_HERE} A decision that does not apply to the session answers \`REQUEST_STALE\`.`,
@@ -9796,6 +9830,7 @@ function takesIdempotencyKey(route: RouteDeclaration): boolean {
 function errorContext(route: RouteDeclaration): ErrorContext {
   return {
     scope: scopeOf(route),
+    scopeCheckedBy: route.scopeCheckedBy ?? "api",
     auth: route.auth ?? "any",
     csrf:
       route.csrf === "always"

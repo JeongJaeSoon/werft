@@ -76,6 +76,7 @@ import {
   refusedUnlessUndecided,
   requirePermitted,
   SessionServiceError,
+  wouldAllow,
 } from "../musterrolle/index.ts";
 import type {
   CallerLimitDimension,
@@ -83,7 +84,10 @@ import type {
 } from "../musterrolle/ports/agent-caller-limits-store.ts";
 import type { CredentialBindingStore } from "../musterrolle/ports/credential-binding-store.ts";
 import { additionalRepositoryAllowed } from "./additional-repositories.ts";
-import type { SessionControl } from "./ports/session-control.ts";
+import type {
+  RecoveryDecisionResult,
+  SessionControl,
+} from "./ports/session-control.ts";
 import type { SessionViewer } from "./ports/session-share-store.ts";
 import type {
   AppendMessageResult,
@@ -114,17 +118,29 @@ export const viewerOf = (actor: Caller): SessionViewer => ({
 /**
  * viewerOf with the private channels the policy finds the caller a member
  * of now, for a read across sessions. A read that skips this hides every
- * private_channel session.
+ * private_channel session. `pending`: some channel's members are still
+ * being read, so the read may show more soon (`private_channels_pending`).
  */
 export async function viewerFor(
   authorization: Pick<AuthorizationPolicy, "privateChannelsOf">,
   actor: Caller,
-): Promise<SessionViewer> {
-  const privateChannels =
-    (await authorization.privateChannelsOf?.(actor.subject, actor.ownerId)) ??
-    [];
-  return { ...viewerOf(actor), privateChannels };
+): Promise<{ viewer: SessionViewer; pending: boolean }> {
+  const found = await authorization.privateChannelsOf?.(
+    actor.subject,
+    actor.ownerId,
+  );
+  return {
+    viewer: {
+      ...viewerOf(actor),
+      privateChannels: found?.conversationIds ?? [],
+    },
+    pending: found?.pending ?? false,
+  };
 }
+
+/** The response field a read across sessions adds while `pending`. */
+export const pendingField = (pending: boolean) =>
+  pending ? { private_channels_pending: true as const } : {};
 
 function extensionRefusalError(refusal: ExtensionRefusal): SessionServiceError {
   return new SessionServiceError(
@@ -803,6 +819,78 @@ export function createSessionService(deps: {
     }
   }
 
+  function recoveryDecided(
+    result: RecoveryDecisionResult,
+  ): ControlAcceptedResponse {
+    switch (result.outcome) {
+      case "conflict":
+        return idempotencyConflict();
+      case "not_found":
+        throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      case "revision_conflict":
+        return revisionConflict(result.currentRevision);
+      case "rejected": {
+        const rejection = ADMISSION_REJECTIONS[result.admissionState];
+        throw new SessionServiceError(rejection.code, rejection.message);
+      }
+      case "execution_unconfirmed":
+        throw new SessionServiceError(
+          "RECOVERY_REQUIRED",
+          "The previous execution has not been confirmed gone; decide once its termination is observed",
+        );
+      case "turn_not_unknown":
+        if (result.turnStatus === null) {
+          throw new SessionServiceError("NOT_FOUND", "Resource not found");
+        }
+        throw new SessionServiceError(
+          "REQUEST_STALE",
+          `target_turn_id names a turn whose outcome is ${result.turnStatus}, not unknown`,
+        );
+      case "unsupported":
+        throw new SessionServiceError(
+          "UNSUPPORTED_CAPABILITY",
+          "This session runs on a legacy pod binding that has no recovery path",
+        );
+      case "not_in_recovery":
+        throw new SessionServiceError(
+          "REQUEST_STALE",
+          `Session is ${result.admissionState} with nothing to recover; a recovery close applies only to recovery_required, stopping, or a stopped session that cannot be resumed, and start_fresh only to recovery_required or a stopped session that cannot be resumed`,
+        );
+      case "checkpoint_not_covering":
+        throw new SessionServiceError(
+          "CHECKPOINT_UNAVAILABLE",
+          "No committed checkpoint reaches the target turn, so a resume would lose the confirmed work; abandon or close instead",
+        );
+      case "unknown_turn_left":
+        throw new SessionServiceError(
+          "RECOVERY_REQUIRED",
+          `Turn ${result.turnId} has an unknown outcome on a session with a committed checkpoint; abandon or confirm it before starting fresh`,
+        );
+      case "workspace_reclaiming":
+        throw new SessionServiceError(
+          "BACKEND_UNAVAILABLE",
+          "The stopped session's workspace is being reclaimed; retry the same request shortly",
+          { afterSeconds: 10 },
+        );
+      case "pin_required":
+        throw new SessionServiceError(
+          "UNSUPPORTED_CAPABILITY",
+          "This session has no runtime spec pinned on its own model, so it cannot run again; create a new session",
+        );
+      case "execution_revoked":
+        throw executionRevoked();
+      case "source_deleted":
+        throw sessionSourceDeleted();
+      case "not_restore_failed":
+        throw new SessionServiceError(
+          "REQUEST_STALE",
+          `Session is ${result.admissionState} and was not stopped by failed checkpoint restores; retry_restore applies only to a recovery_required session whose RESTORE_FAILED attention reached its limit, reports incompatible_checkpoint or runtime_retired, or reports an engine that does not support the session's settings`,
+        );
+      default:
+        return result.response;
+    }
+  }
+
   return {
     async createSession(
       actor: Caller,
@@ -1252,6 +1340,40 @@ export function createSessionService(deps: {
     },
 
     /**
+     * [Continue in a new context] on the Slack notice of a turn whose outcome
+     * is unknown, on a session with no committed checkpoint: a start_fresh
+     * decision that runs that turn's input again, for anyone who may write
+     * to the session. Pressed twice, by anyone, it decides once.
+     */
+    async startFreshTurn(
+      actor: Caller,
+      sessionId: string,
+      input: { turnId: number },
+    ): Promise<ControlAcceptedResponse> {
+      await requirePermitted(authorization, actor, "session.submit", {
+        kind: "session",
+        id: sessionId,
+      });
+      const turnId = String(input.turnId);
+      const result = await controls.decideRecoveryAtomic({
+        principal: actor,
+        sessionId,
+        idempotencyKey: `start_fresh:${turnId}`,
+        payloadHash: payloadHash({ start_fresh_turn: turnId }),
+        decision: {
+          decision: "start_fresh",
+          // Not compared: byTurn pins the decision on target_turn_id.
+          expected_revision: 0,
+          target_turn_id: turnId,
+          reason: "Continued in a new context from the Slack notice",
+        },
+        byTurn: true,
+        now: now(),
+      });
+      return recoveryDecided(result);
+    },
+
+    /**
      * The turn that follows a push decision, queued as the agent's own work:
      * nothing about a person is judged or recorded, and the session's own
      * checks and limits hold as for any input. Not an API route. Null when
@@ -1483,11 +1605,21 @@ export function createSessionService(deps: {
         justification?: string;
       },
     ): Promise<ControlAcceptedResponse> {
+      // Giving up the unknown turn or the lost context is also the call of
+      // whoever may write to the session (a private channel's only while a
+      // member); confirming an outcome, closing and retrying a restore stay
+      // the operator's. An operator outside the share decides with a reason.
+      const resource = { kind: "session", id: sessionId } as const;
+      const writerMay =
+        (input.body.decision === "abandon" ||
+          input.body.decision === "start_fresh") &&
+        input.justification === undefined &&
+        !(await wouldAllow(authorization, actor, "session.recover", resource));
       await requirePermitted(
         authorization,
         actor,
-        "session.recover",
-        { kind: "session", id: sessionId },
+        writerMay ? "session.submit" : "session.recover",
+        resource,
         input.justification,
       );
       const result = await controls.decideRecoveryAtomic({
@@ -1498,73 +1630,7 @@ export function createSessionService(deps: {
         decision: input.body,
         now: now(),
       });
-      switch (result.outcome) {
-        case "conflict":
-          return idempotencyConflict();
-        case "not_found":
-          throw new SessionServiceError("NOT_FOUND", "Resource not found");
-        case "revision_conflict":
-          return revisionConflict(result.currentRevision);
-        case "rejected": {
-          const rejection = ADMISSION_REJECTIONS[result.admissionState];
-          throw new SessionServiceError(rejection.code, rejection.message);
-        }
-        case "execution_unconfirmed":
-          throw new SessionServiceError(
-            "RECOVERY_REQUIRED",
-            "The previous execution has not been confirmed gone; decide once its termination is observed",
-          );
-        case "turn_not_unknown":
-          if (result.turnStatus === null) {
-            throw new SessionServiceError("NOT_FOUND", "Resource not found");
-          }
-          throw new SessionServiceError(
-            "REQUEST_STALE",
-            `target_turn_id names a turn whose outcome is ${result.turnStatus}, not unknown`,
-          );
-        case "unsupported":
-          throw new SessionServiceError(
-            "UNSUPPORTED_CAPABILITY",
-            "This session runs on a legacy pod binding that has no recovery path",
-          );
-        case "not_in_recovery":
-          throw new SessionServiceError(
-            "REQUEST_STALE",
-            `Session is ${result.admissionState} with nothing to recover; a recovery close applies only to recovery_required, stopping, or a stopped session that cannot be resumed, and start_fresh only to recovery_required or a stopped session that cannot be resumed`,
-          );
-        case "checkpoint_not_covering":
-          throw new SessionServiceError(
-            "CHECKPOINT_UNAVAILABLE",
-            "No committed checkpoint reaches the target turn, so a resume would lose the confirmed work; abandon or close instead",
-          );
-        case "unknown_turn_left":
-          throw new SessionServiceError(
-            "RECOVERY_REQUIRED",
-            `Turn ${result.turnId} has an unknown outcome; abandon or confirm it before starting fresh`,
-          );
-        case "workspace_reclaiming":
-          throw new SessionServiceError(
-            "BACKEND_UNAVAILABLE",
-            "The stopped session's workspace is being reclaimed; retry the same request shortly",
-            { afterSeconds: 10 },
-          );
-        case "pin_required":
-          throw new SessionServiceError(
-            "UNSUPPORTED_CAPABILITY",
-            "This session has no runtime spec pinned on its own model, so it cannot run again; create a new session",
-          );
-        case "execution_revoked":
-          throw executionRevoked();
-        case "source_deleted":
-          throw sessionSourceDeleted();
-        case "not_restore_failed":
-          throw new SessionServiceError(
-            "REQUEST_STALE",
-            `Session is ${result.admissionState} and was not stopped by failed checkpoint restores; retry_restore applies only to a recovery_required session whose RESTORE_FAILED attention reached its limit, reports incompatible_checkpoint or runtime_retired, or reports an engine that does not support the session's settings`,
-          );
-        default:
-          return result.response;
-      }
+      return recoveryDecided(result);
     },
 
     async resumeSession(
@@ -1654,12 +1720,10 @@ export function createSessionService(deps: {
         kind: "session",
         id: null,
       });
-      const page = await reader.listSessions(
-        actor.ownerId,
-        query,
-        await viewerFor(authorization, actor),
-      );
+      const { viewer, pending } = await viewerFor(authorization, actor);
+      const page = await reader.listSessions(actor.ownerId, query, viewer);
       return {
+        ...pendingField(pending),
         items: page.items.map(({ spec, ...item }) => {
           const attached = attachedRepositoriesOf(
             item.attached_repository_ids,
@@ -1685,11 +1749,11 @@ export function createSessionService(deps: {
         kind: "session",
         id: null,
       });
-      return reader.countSessions(
-        actor.ownerId,
-        query,
-        await viewerFor(authorization, actor),
-      );
+      const { viewer, pending } = await viewerFor(authorization, actor);
+      return {
+        ...(await reader.countSessions(actor.ownerId, query, viewer)),
+        ...pendingField(pending),
+      };
     },
 
     async getSession(actor: Caller, sessionId: string): Promise<SessionDetail> {

@@ -28,6 +28,11 @@ const SLACK_NOTICE_MESSAGES_KO = {
     "작업이 중간에 끊겼어요. 서버 연결이 잠시 끊겼어요. 마지막 저장 지점 뒤에 한 일은 확인이 필요해요.",
   ownershipLostContinue: "이어서 하기",
   ownershipLostContinued: "마지막 저장 지점에서 이어서 하고 있어요",
+  startFresh: "작업이 중간에 끊겼어요. 이 대화에는 아직 저장 지점이 없어요.",
+  startFreshWarning:
+    "이전 대화 문맥 없이 같은 요청을 처음부터 다시 해요. 끊기기 전에 한 일은 확인이 필요해요.",
+  startFreshContinue: "새 문맥으로 계속",
+  startFreshContinued: "새 문맥에서 같은 요청을 다시 하고 있어요",
   repositoryRequired:
     "이 에이전트의 릴리스에 쓸 수 있는 저장소가 없거나(저장소를 고르지 않았거나, 카탈로그에서 빠졌거나, 워크스페이스 상한이 허용하지 않아요) 에이전트의 GitHub 설정을 읽을 수 없어 시작하지 못했어요. 에이전트 관리자가 웹 콘솔에서 GitHub 설정을 확인하고, 저장소가 필요하면 골라 새 릴리스를 만들고 활성화해야 해요",
   releaseUnavailable:
@@ -47,12 +52,22 @@ const SLACK_NOTICE_MESSAGES_KO = {
     "이 에이전트를 쓰는 사람에게 걸린 제한 때문에 이 세션이 쓰는 도구를 쓸 수 없어요",
   botTurnLimit:
     "사람 없이 봇끼리 5번 주고받아 여기서 멈춰요. 사람이 이어 가야 해요",
+  // A stop asked for in the work's thread (handling table row 12); `{count}`
+  // is the number of waiting messages it cancelled.
+  sessionStopped:
+    "요청하신 대로 작업을 멈췄어요. 이어서 하려면 이 스레드에 다시 써 주세요.",
+  sessionStoppedQueued:
+    "요청하신 대로 작업을 멈췄어요. 기다리던 글 {count}개도 처리하지 않았어요. 이어서 하려면 이 스레드에 다시 써 주세요.",
+  nothingToStop: "지금 하고 있는 작업이 없어요.",
+  stopNotPermitted: "작업을 맡긴 사람만 멈출 수 있어요",
   // A budget account's refusal, never the session's own limit: whose
   // monthly limit it is, as the ledger charged the call.
   budgetAccountUser:
     "요청한 사람의 이번 달 예산 한도에 닿아 모델을 부르지 못했어요. 다음 달 1일(UTC)에 풀리고, 그 전에는 워크스페이스 관리자가 한도를 올리면 풀려요",
   budgetAccountTeam:
     "에이전트 팀의 이번 달 예산 한도에 닿아 모델을 부르지 못했어요. 다음 달 1일(UTC)에 풀리고, 그 전에는 워크스페이스 관리자가 한도를 올리면 풀려요",
+  storageLimit:
+    "이 설치의 저장 한도에 남은 자리가 모자라 이 요청을 받지 못했어요. 관리자에게 한도를 올려 달라고 요청하세요",
 } as const;
 
 export type SlackNoticeMessage = keyof typeof SLACK_NOTICE_MESSAGES_KO;
@@ -87,6 +102,12 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "作業が途中で途切れました。サーバーとの接続が一時的に切れました。最後の保存地点より後に行ったことは確認が必要です。",
     ownershipLostContinue: "続きから進める",
     ownershipLostContinued: "最後の保存地点から続けています",
+    startFresh:
+      "作業が途中で途切れました。この会話にはまだ保存地点がありません。",
+    startFreshWarning:
+      "前の会話の文脈なしで、同じ依頼を最初からやり直します。途切れる前に行ったことは確認が必要です。",
+    startFreshContinue: "新しい文脈で続ける",
+    startFreshContinued: "新しい文脈で同じ依頼をやり直しています",
     repositoryRequired:
       "このエージェントのリリースで使えるリポジトリがないか(リポジトリが選ばれていない、カタログから外れている、またはワークスペースの上限が許可していません)、エージェントのGitHub設定を読み取れないため、開始できませんでした。エージェントの管理者がWebコンソールでGitHub設定を確認し、リポジトリが必要なら選んで、新しいリリースを作成して有効化する必要があります",
     releaseUnavailable:
@@ -106,10 +127,18 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "このエージェントを使う人に設定された制限のため、このセッションが使うツールは使えません",
     botTurnLimit:
       "人を挟まずにボット同士で5回やり取りしたため、ここで止まります。続きは人が進めてください",
+    sessionStopped:
+      "ご依頼どおり作業を止めました。続けるにはこのスレッドにもう一度書いてください。",
+    sessionStoppedQueued:
+      "ご依頼どおり作業を止めました。待っていた{count}件のメッセージも処理していません。続けるにはこのスレッドにもう一度書いてください。",
+    nothingToStop: "今進めている作業はありません。",
+    stopNotPermitted: "作業を依頼した人だけが止められます",
     budgetAccountUser:
       "依頼した人の今月の予算上限に達したため、モデルを呼び出せませんでした。来月1日（UTC）に解除されます。それより前に使うには、ワークスペースの管理者に上限を上げてもらってください",
     budgetAccountTeam:
       "エージェントのチームの今月の予算上限に達したため、モデルを呼び出せませんでした。来月1日（UTC）に解除されます。それより前に使うには、ワークスペースの管理者に上限を上げてもらってください",
+    storageLimit:
+      "この環境の保存容量の上限に空きが足りず、このリクエストを受け付けられませんでした。管理者に上限を上げるよう依頼してください",
   },
   en: {
     connect: "Link your Slack account on the web",
@@ -135,6 +164,12 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "The work was cut off partway. The connection to the server dropped for a moment. What it did after the last save point needs checking.",
     ownershipLostContinue: "Continue",
     ownershipLostContinued: "Continuing from the last save point",
+    startFresh:
+      "The work was cut off partway. This conversation has no save point yet.",
+    startFreshWarning:
+      "The same request runs again from the start, without the earlier conversation's context. What it did before it was cut off needs checking.",
+    startFreshContinue: "Continue in a new context",
+    startFreshContinued: "Running the same request again in a new context",
     repositoryRequired:
       "The agent couldn't start because its release has no repository it can use (none was chosen, it was removed from the catalog, or the workspace ceiling does not allow it) or its GitHub settings can't be read. An agent admin needs to check the GitHub settings in the web console and, if a repository is needed, choose one, then create and activate a new release",
     releaseUnavailable:
@@ -154,10 +189,18 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "A limit set on the people who use this agent doesn't allow a tool this session uses",
     botTurnLimit:
       "Bots went back and forth 5 times with no person in between, so this stops here. A person needs to take it from here",
+    sessionStopped:
+      "Stopped the task as you asked. Write in this thread again to carry on.",
+    sessionStoppedQueued:
+      "Stopped the task as you asked. {count} waiting messages were not processed either. Write in this thread again to carry on.",
+    nothingToStop: "There's no task running right now.",
+    stopNotPermitted: "Only the person who asked for this task can stop it",
     budgetAccountUser:
       "The requester's monthly budget limit was reached, so the model could not be called. It lifts on the 1st of next month (UTC), or sooner when a workspace admin raises the limit",
     budgetAccountTeam:
       "The agent team's monthly budget limit was reached, so the model could not be called. It lifts on the 1st of next month (UTC), or sooner when a workspace admin raises the limit",
+    storageLimit:
+      "This installation's storage limit has too little room left, so this request was not taken. Ask an administrator to raise the limit",
   },
 };
 
@@ -212,9 +255,22 @@ const NOTICE_FOR: Record<
 /** A notice before its reader is known: the words come in their language. */
 export type SlackNotice = {
   message: SlackNoticeMessage;
+  /** What a message's `{count}` stands for. */
+  count?: number;
   /** The web page where the person links their Slack account. */
   link_url?: string;
 };
+
+/** A notice's words in one language, its `{count}` filled in. */
+export function slackNoticeText(
+  locale: UserLocale,
+  notice: Pick<SlackNotice, "message" | "count">,
+): string {
+  const text = SLACK_NOTICE_MESSAGES[locale][notice.message];
+  return notice.count === undefined
+    ? text
+    : text.replaceAll("{count}", String(notice.count));
+}
 
 /**
  * The notice for a decision, or null when there is nothing to tell: an

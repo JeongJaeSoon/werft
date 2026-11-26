@@ -125,6 +125,38 @@ async function mention(
   return eventId;
 }
 
+/** A received event other than a mention, `event` its fields past `type`. */
+async function channelEvent(
+  app: App,
+  input: {
+    type: string;
+    event: Record<string, unknown>;
+    at: number;
+    conversationKey?: string;
+  },
+) {
+  const eventId = slackId("Ev");
+  await inbox.record({
+    workspaceId: app.workspaceId,
+    agentId: app.agentId,
+    slackAppId: app.slackAppId,
+    teamId: app.teamId,
+    appId: app.appId,
+    eventId,
+    eventType: input.type,
+    eventSubtype: null,
+    eventTime: new Date(input.at * 1000),
+    status: "received",
+    payload: {
+      type: "event_callback",
+      event_id: eventId,
+      event: { type: input.type, ...input.event },
+    },
+    conversationKey: input.conversationKey ?? null,
+  });
+  return eventId;
+}
+
 async function row(eventId: string) {
   const [found] = await db
     .select()
@@ -144,13 +176,49 @@ async function settle() {
 
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
+/** Claims `eventId`, alone, and fails it into its first backoff. */
+async function backOff(eventId: string) {
+  const [claim, ...rest] = await inbox.claim({ limit: 10, ...LEASE });
+  expect(claim?.eventId).toBe(eventId);
+  expect(rest).toEqual([]);
+  if (!claim) throw new Error("not claimed");
+  expect(
+    await inbox.fail(claim, {
+      retryInMs: backoffMs(claim.attempts),
+      maxAttempts: SLACK_INBOUND_MAX_ATTEMPTS,
+    }),
+  ).toBe("retry");
+}
+
+/** Its backoff over, as the database clock will see it. */
+async function backoffOver(eventId: string) {
+  await db
+    .update(slackInboundEvents)
+    .set({ nextAttemptAt: sql`now() - interval '1 second'` })
+    .where(eq(slackInboundEvents.eventId, eventId));
+}
+
+/** Each claim hands out the next of `eventIds` alone, completed in turn. */
+async function expectTurns(eventIds: string[]) {
+  for (const eventId of eventIds) {
+    const [claim, ...rest] = await inbox.claim({ limit: 10, ...LEASE });
+    expect(claim?.eventId).toBe(eventId);
+    expect(rest).toEqual([]);
+    if (!claim) throw new Error("not claimed");
+    expect(await inbox.complete(claim)).toBe(true);
+  }
+  expect(await inbox.claim({ limit: 10, ...LEASE })).toEqual([]);
+}
+
 describe("claiming the Slack inbox", () => {
   test("two workers claiming at once take every row exactly once", async () => {
     await settle();
     const app = await agentApp();
     const ids: string[] = [];
     for (let i = 0; i < 24; i += 1) {
-      ids.push(await mention(app, { ts: `1792800000.${1000 + i}` }));
+      ids.push(
+        await mention(app, { ts: `1792800000.${1000 + i}`, channel: `C${i}` }),
+      );
     }
     const other = createPostgresSlackInboundEventStore(db);
     const taken: string[] = [];
@@ -169,7 +237,7 @@ describe("claiming the Slack inbox", () => {
     for (const id of ids) expect((await row(id)).attempts).toBe(1);
   });
 
-  test("a thread's later event waits for the earlier one; other threads do not", async () => {
+  test("a channel's later event waits for the earlier one; other channels do not", async () => {
     await settle();
     const app = await agentApp();
     const head = await mention(app, { ts: "1792800000.000100", at: 100 });
@@ -203,7 +271,7 @@ describe("claiming the Slack inbox", () => {
     );
   });
 
-  test("a late retry of an older event waits while its thread has one in flight", async () => {
+  test("a late retry of an older event waits while its channel has one in flight", async () => {
     await settle();
     const app = await agentApp();
     const later = await mention(app, { ts: "1792800001.000500", at: 101 });
@@ -221,6 +289,134 @@ describe("claiming the Slack inbox", () => {
     expect(await inbox.complete(inFlight)).toBe(true);
     const next = await inbox.claim({ limit: 10, ...LEASE });
     expect(next.map((claim) => claim.eventId)).toEqual([older]);
+  });
+
+  test("two threads of one channel take turns: a top-level message waits for the one before it", async () => {
+    await settle();
+    const app = await agentApp();
+    const first = await mention(app, { ts: "1792800000.000700", at: 100 });
+    const second = await mention(app, { ts: "1792800001.000800", at: 101 });
+    const [claimed, ...rest] = await inbox.claim({ limit: 10, ...LEASE });
+    expect(claimed?.eventId).toBe(first);
+    expect(rest).toEqual([]);
+    if (!claimed) throw new Error("not claimed");
+    expect(await inbox.complete(claimed)).toBe(true);
+    expect(
+      (await inbox.claim({ limit: 10, ...LEASE })).map((c) => c.eventId),
+    ).toEqual([second]);
+  });
+
+  test("a thread waiting out its backoff holds back only its own later posts; the channel's other threads go on", async () => {
+    await settle();
+    const app = await agentApp();
+    const root = "1792800000.001000";
+    const stuck = await mention(app, { ts: root, at: 100 });
+    const reply = await mention(app, {
+      ts: "1792800001.001100",
+      thread: root,
+      at: 101,
+    });
+    const other = await mention(app, { ts: "1792800002.001200", at: 102 });
+    await backOff(stuck);
+    // Thread 1 waits in its backoff; thread 2 of the same channel does not.
+    const [otherClaim, ...rest] = await inbox.claim({ limit: 10, ...LEASE });
+    expect(otherClaim?.eventId).toBe(other);
+    expect(rest).toEqual([]);
+    if (!otherClaim) throw new Error("not claimed");
+    expect(await inbox.complete(otherClaim)).toBe(true);
+    expect(await inbox.claim({ limit: 10, ...LEASE })).toEqual([]);
+    await backoffOver(stuck);
+    await expectTurns([stuck, reply]);
+  });
+
+  test("a channel event behind a thread in backoff waits for it, and so does the channel behind the event", async () => {
+    await settle();
+    const app = await agentApp();
+    const stuck = await mention(app, { ts: "1792800000.001300", at: 100 });
+    const left = await channelEvent(app, {
+      type: "member_left_channel",
+      event: { user: "U0LEFT", channel: "C0MOCK" },
+      at: 101,
+    });
+    const later = await mention(app, { ts: "1792800002.001400", at: 102 });
+    await backOff(stuck);
+    expect(await inbox.claim({ limit: 10, ...LEASE })).toEqual([]);
+    await backoffOver(stuck);
+    await expectTurns([stuck, left, later]);
+  });
+
+  test("a member leaving after a mention waits for it, in the mention's channel only", async () => {
+    await settle();
+    const app = await agentApp();
+    const asked = await mention(app, { ts: "1792800000.000900", at: 100 });
+    const left = await channelEvent(app, {
+      type: "member_left_channel",
+      event: { user: "U0LEFT", channel: "C0MOCK" },
+      at: 101,
+    });
+    const renamed = await channelEvent(app, {
+      type: "channel_rename",
+      event: { channel: { id: "C0MOCK", name: "renamed" } },
+      at: 102,
+    });
+    const elsewhere = await channelEvent(app, {
+      type: "member_joined_channel",
+      event: { user: "U0JOIN", channel: "C0OTHER" },
+      at: 103,
+    });
+    const first = await inbox.claim({ limit: 10, ...LEASE });
+    expect(first.map((c) => c.eventId)).toEqual([asked, elsewhere]);
+    const [mentionClaim] = first;
+    if (!mentionClaim) throw new Error("not claimed");
+    expect(await inbox.complete(mentionClaim)).toBe(true);
+    const [leftClaim, ...after] = await inbox.claim({ limit: 10, ...LEASE });
+    expect(leftClaim?.eventId).toBe(left);
+    expect(after).toEqual([]);
+    if (!leftClaim) throw new Error("not claimed");
+    expect(await inbox.complete(leftClaim)).toBe(true);
+    expect(
+      (await inbox.claim({ limit: 10, ...LEASE })).map((c) => c.eventId),
+    ).toEqual([renamed]);
+  });
+
+  test("a row stored with its thread's key lines up with the channel's newer rows", async () => {
+    await settle();
+    const app = await agentApp();
+    const old = await mention(app, {
+      ts: "1792800001.001000",
+      thread: "1792800000.000999",
+      at: 100,
+    });
+    const fresh = await channelEvent(app, {
+      type: "message",
+      event: { channel: "C0MOCK", ts: "1792800002.001100", user: "U1" },
+      at: 101,
+      conversationKey: `${app.slackAppId}:C0MOCK`,
+    });
+    expect((await row(old)).conversationKey).not.toBe(
+      (await row(fresh)).conversationKey,
+    );
+    expect(
+      (await inbox.claim({ limit: 10, ...LEASE })).map((c) => c.eventId),
+    ).toEqual([old]);
+  });
+
+  test("events that name no channel each go on their own", async () => {
+    await settle();
+    const app = await agentApp();
+    const a = await channelEvent(app, {
+      type: "app_home_opened",
+      event: {},
+      at: 100,
+    });
+    const b = await channelEvent(app, {
+      type: "app_home_opened",
+      event: {},
+      at: 101,
+    });
+    expect(
+      (await inbox.claim({ limit: 10, ...LEASE })).map((c) => c.eventId),
+    ).toEqual([a, b]);
   });
 
   test("an expired lease is claimed again with attempts + 1, and the late owner writes nothing", async () => {

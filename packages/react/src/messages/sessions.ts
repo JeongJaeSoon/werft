@@ -63,6 +63,56 @@ export const sessionsKo = {
   "session.usage.budgetExceeded": "한도에 도달해 새 턴을 시작하지 않습니다.",
 
   "session.pending": "답변 대기 요청",
+  "session.steps.title": "단계",
+  "session.steps.progress": "단계 {current}/{total}",
+  "session.steps.count": "단계 {total}개",
+  "session.steps.toggle": "단계 목록",
+  "session.steps.step": "{number}단계",
+  "session.steps.now": "지금 단계",
+  "session.steps.state.queued": "대기 중",
+  "session.steps.state.running": "진행 중",
+  "session.steps.state.approval": "승인 대기",
+  "session.steps.state.answer": "답변 대기",
+  "session.steps.state.done": "마침",
+  "session.steps.state.failed": "실패",
+  "session.steps.state.cut_off": "중단됨",
+  "session.steps.state.stopped": "멈춤",
+  "session.steps.state.unknown": "결과 모름",
+  "session.steps.took": "걸린 시간 {duration}",
+  "session.steps.since": "시작한 지 {duration}",
+  "session.steps.tools": "도구 호출 {count}개",
+  "session.steps.toolsAtLeast": "도구 호출 {count}개 이상",
+  "session.steps.approvalOf": "승인을 기다리는 도구: {tool}",
+  "session.steps.questions": "질문 {count}개에 답을 기다립니다.",
+  "session.steps.waitingHint": "대화의 요청에 답하면 이 단계가 이어집니다.",
+  "session.steps.cutOff": "작업자가 세션을 놓쳐 이 단계가 중간에 끊겼습니다.",
+  "session.steps.blocked": "다음 단계를 시작하지 못합니다.",
+  "session.steps.openAgent": "에이전트 설정 열기",
+  "session.steps.continue": "이 단계 이어서 하기",
+  "session.steps.empty": "아직 단계가 없습니다.",
+  "session.blocked.contextGap":
+    "체크포인트가 덮지 못한 턴이 있어 복구 결정을 기다립니다.",
+  "session.blocked.catalogMismatch":
+    "모델 연결이나 저장소 설정이 바뀌어 실행할 수 없습니다.",
+  "session.blocked.noWorkerImage":
+    "이 엔진의 작업 이미지가 모두 내려져 실행할 수 없습니다.",
+  "session.blocked.restoreFailed": "체크포인트에서 복원하지 못했습니다.",
+  "session.blocked.startupFailed": "작업 환경을 시작하지 못했습니다.",
+  "session.blocked.retrying": "잠시 뒤 다시 시도합니다.",
+  "session.blocked.needsDecision": "관리자의 복구 결정을 기다립니다.",
+  "session.blocked.transcriptLimit":
+    "대화 기록이 한도를 넘어 새 턴을 받지 않습니다.",
+  "session.blocked.variableRefused":
+    "에이전트가 쓰는 변수를 받을 수 없어 실행할 수 없습니다.",
+  "session.blocked.sourceDeleted":
+    "원본 Slack 메시지가 지워져 세션이 멈췄습니다.",
+  "session.progress.tools": "도구 호출 {count}",
+  "session.progress.toolsAtLeast": "도구 호출 {count}+",
+  "session.progress.time": "시간 {duration}",
+  "session.needsInput.title": "내 입력이 필요합니다",
+  "session.needsInput.approvals": "승인 {count}건",
+  "session.needsInput.questions": "질문 {count}건",
+  "session.needsInput.show": "요청 보기",
   "session.pending.empty": "답을 기다리는 요청이 없습니다.",
   "session.pending.permission": "권한 요청: {tool}",
   "action.tool.runCommand": "명령 실행",
@@ -183,6 +233,8 @@ export const sessionsKo = {
     "그새 세션 상태가 바뀌었습니다. 바뀐 상태를 보고 다시 시도하세요.",
   "session.refused.PAUSE_COMMITTING":
     "일시 정지를 확정하는 중이라 지금은 취소할 수 없습니다. 멈춘 뒤 다시 시작하세요.",
+  "session.refused.CHECKPOINT_UNAVAILABLE":
+    "이어갈 저장 지점이 없거나 저장이 멈춰 처리하지 못했습니다 — 세션 상세의 안내를 확인하세요.",
   "session.refused.SESSION_PAUSED": "일시 정지된 세션입니다.",
   "session.refused.SESSION_RESUMING": "다시 시작하는 중인 세션입니다.",
   "session.refused.SESSION_STOPPED": "종료된 세션입니다.",
@@ -243,6 +295,11 @@ export const sessionsKo = {
     "작업이 중간에 끊겼습니다. 서버 연결이 잠시 끊겼습니다. 마지막 저장 지점 뒤에 한 일은 확인이 필요합니다.",
   "session.status.ownershipLost": "중단됨",
   "session.chat.continue": "이어서 하기",
+  "session.recovery.abandon": "이 턴을 버리고 이어 가기",
+  "session.recovery.abandon.hint":
+    "마지막 저장 지점 뒤에 한 일은 확인이 필요합니다.",
+  "session.recovery.startFresh": "새 문맥으로 계속",
+  "session.recovery.startFresh.hint": "이전 대화 문맥이 빠집니다.",
   "session.event.error.modelConnectionRemoved":
     "{model}을(를) 쓰던 모델 연결이 꺼지거나 없어져 이 세션의 모델 요청이 차단되었습니다. 관리자에게 연결 복원을 요청하거나, 다른 연결로 만든 릴리스로 새 세션을 시작하세요.",
   "session.event.modelMigrated":
@@ -335,6 +392,60 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.usage.budgetExceeded": "A limit was reached, so no new turn starts.",
 
   "session.pending": "Requests waiting for an answer",
+  "session.steps.title": "Steps",
+  "session.steps.progress": "Step {current}/{total}",
+  "session.steps.count": "{total} steps",
+  "session.steps.toggle": "Step list",
+  "session.steps.step": "Step {number}",
+  "session.steps.now": "Current step",
+  "session.steps.state.queued": "Queued",
+  "session.steps.state.running": "In progress",
+  "session.steps.state.approval": "Awaiting approval",
+  "session.steps.state.answer": "Awaiting answer",
+  "session.steps.state.done": "Done",
+  "session.steps.state.failed": "Failed",
+  "session.steps.state.cut_off": "Cut off",
+  "session.steps.state.stopped": "Stopped",
+  "session.steps.state.unknown": "Outcome unknown",
+  "session.steps.took": "Took {duration}",
+  "session.steps.since": "Started {duration} ago",
+  "session.steps.tools": "{count} tool calls",
+  "session.steps.toolsAtLeast": "{count} or more tool calls",
+  "session.steps.approvalOf": "Tool awaiting approval: {tool}",
+  "session.steps.questions": "Waiting for answers to {count} questions.",
+  "session.steps.waitingHint":
+    "Answer the request in the chat and this step goes on.",
+  "session.steps.cutOff":
+    "The worker lost the session, so this step was cut off partway.",
+  "session.steps.blocked": "The next step cannot start.",
+  "session.steps.openAgent": "Open agent settings",
+  "session.steps.continue": "Continue this step",
+  "session.steps.empty": "No steps yet.",
+  "session.blocked.contextGap":
+    "A turn ran that no checkpoint covers, so the session waits for a recovery decision.",
+  "session.blocked.catalogMismatch":
+    "Its model connection or repository settings changed, so it cannot run.",
+  "session.blocked.noWorkerImage":
+    "Every worker image for this engine was withdrawn, so it cannot run.",
+  "session.blocked.restoreFailed":
+    "The session could not be restored from its checkpoint.",
+  "session.blocked.startupFailed": "The work environment could not start.",
+  "session.blocked.retrying": "It will try again shortly.",
+  "session.blocked.needsDecision":
+    "It waits for an administrator's recovery decision.",
+  "session.blocked.transcriptLimit":
+    "The conversation record is over its limit, so no new turn is taken.",
+  "session.blocked.variableRefused":
+    "A variable the agent uses cannot be given to it, so it cannot run.",
+  "session.blocked.sourceDeleted":
+    "The Slack message it came from was deleted, so the session stopped.",
+  "session.progress.tools": "Tool calls {count}",
+  "session.progress.toolsAtLeast": "Tool calls {count}+",
+  "session.progress.time": "Time {duration}",
+  "session.needsInput.title": "Your input is needed",
+  "session.needsInput.approvals": "{count} approvals",
+  "session.needsInput.questions": "{count} questions",
+  "session.needsInput.show": "View requests",
   "session.pending.empty": "Nothing is waiting for an answer.",
   "session.pending.permission": "Permission request: {tool}",
   "action.tool.runCommand": "Run a command",
@@ -459,6 +570,8 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
     "The session changed in the meantime. Check its state and try again.",
   "session.refused.PAUSE_COMMITTING":
     "The pause is being committed and cannot be cancelled now. Resume once it has stopped.",
+  "session.refused.CHECKPOINT_UNAVAILABLE":
+    "There's no save point to continue from, or saving stalled — see the guidance on the session's page.",
   "session.refused.SESSION_PAUSED": "The session is paused.",
   "session.refused.SESSION_RESUMING": "The session is resuming.",
   "session.refused.SESSION_STOPPED": "The session is stopped.",
@@ -519,6 +632,12 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
     "The work was cut off partway. The connection to the server dropped for a moment. What it did after the last save point needs checking.",
   "session.status.ownershipLost": "Cut off",
   "session.chat.continue": "Continue",
+  "session.recovery.abandon": "Discard this turn and continue",
+  "session.recovery.abandon.hint":
+    "What it did after the last save point needs checking.",
+  "session.recovery.startFresh": "Continue with a fresh context",
+  "session.recovery.startFresh.hint":
+    "The earlier conversation context is left out.",
   "session.event.error.modelConnectionRemoved":
     "Model requests for this session were blocked because the model connection that served {model} was disabled or is gone. Ask an administrator to restore it, or start a new session on a release that uses another connection.",
   "session.event.modelMigrated":
@@ -613,6 +732,58 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
     "上限に達したため、新しいターンは開始しません。",
 
   "session.pending": "回答待ちのリクエスト",
+  "session.steps.title": "ステップ",
+  "session.steps.progress": "ステップ {current}/{total}",
+  "session.steps.count": "ステップ {total}件",
+  "session.steps.toggle": "ステップ一覧",
+  "session.steps.step": "ステップ{number}",
+  "session.steps.now": "現在のステップ",
+  "session.steps.state.queued": "待機中",
+  "session.steps.state.running": "進行中",
+  "session.steps.state.approval": "承認待ち",
+  "session.steps.state.answer": "回答待ち",
+  "session.steps.state.done": "完了",
+  "session.steps.state.failed": "失敗",
+  "session.steps.state.cut_off": "中断",
+  "session.steps.state.stopped": "停止",
+  "session.steps.state.unknown": "結果不明",
+  "session.steps.took": "所要時間 {duration}",
+  "session.steps.since": "開始から {duration}",
+  "session.steps.tools": "ツール呼び出し {count}件",
+  "session.steps.toolsAtLeast": "ツール呼び出し {count}件以上",
+  "session.steps.approvalOf": "承認を待っているツール: {tool}",
+  "session.steps.questions": "{count}件の質問への回答を待っています。",
+  "session.steps.waitingHint":
+    "会話のリクエストに答えると、このステップが続きます。",
+  "session.steps.cutOff":
+    "ワーカーがセッションを失ったため、このステップは途中で中断されました。",
+  "session.steps.blocked": "次のステップを開始できません。",
+  "session.steps.openAgent": "エージェント設定を開く",
+  "session.steps.continue": "このステップを続ける",
+  "session.steps.empty": "まだステップがありません。",
+  "session.blocked.contextGap":
+    "チェックポイントが記録していないターンがあるため、復旧の判断を待っています。",
+  "session.blocked.catalogMismatch":
+    "モデル接続またはリポジトリ設定が変わったため、実行できません。",
+  "session.blocked.noWorkerImage":
+    "このエンジンのワーカーイメージがすべて取り下げられたため、実行できません。",
+  "session.blocked.restoreFailed": "チェックポイントから復元できませんでした。",
+  "session.blocked.startupFailed": "作業環境を起動できませんでした。",
+  "session.blocked.retrying": "しばらくしてから再試行します。",
+  "session.blocked.needsDecision": "管理者の復旧の判断を待っています。",
+  "session.blocked.transcriptLimit":
+    "会話記録が上限を超えたため、新しいターンを受け付けません。",
+  "session.blocked.variableRefused":
+    "エージェントが使う変数を渡せないため、実行できません。",
+  "session.blocked.sourceDeleted":
+    "元の Slack メッセージが削除されたため、セッションは停止しました。",
+  "session.progress.tools": "ツール呼び出し {count}",
+  "session.progress.toolsAtLeast": "ツール呼び出し {count}+",
+  "session.progress.time": "時間 {duration}",
+  "session.needsInput.title": "あなたの入力が必要です",
+  "session.needsInput.approvals": "承認 {count}件",
+  "session.needsInput.questions": "質問 {count}件",
+  "session.needsInput.show": "リクエストを見る",
   "session.pending.empty": "回答を待っているリクエストはありません。",
   "session.pending.permission": "権限リクエスト: {tool}",
   "action.tool.runCommand": "コマンド実行",
@@ -736,6 +907,8 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
     "その間にセッションの状態が変わりました。状態を確認してから、もう一度お試しください。",
   "session.refused.PAUSE_COMMITTING":
     "一時停止を確定しているため、現在は取り消せません。停止したあとで再開してください。",
+  "session.refused.CHECKPOINT_UNAVAILABLE":
+    "続けられる保存地点がないか、保存が止まって処理できませんでした — セッション詳細の案内を確認してください。",
   "session.refused.SESSION_PAUSED": "一時停止中のセッションです。",
   "session.refused.SESSION_RESUMING": "再開中のセッションです。",
   "session.refused.SESSION_STOPPED": "終了したセッションです。",
@@ -789,6 +962,12 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
     "作業が途中で途切れました。サーバーとの接続が一時的に切れました。最後の保存地点より後に行ったことは確認が必要です。",
   "session.status.ownershipLost": "中断",
   "session.chat.continue": "続きから進める",
+  "session.recovery.abandon": "このターンを破棄して続ける",
+  "session.recovery.abandon.hint":
+    "最後の保存地点より後に行ったことは確認が必要です。",
+  "session.recovery.startFresh": "新しい文脈で続ける",
+  "session.recovery.startFresh.hint":
+    "これまでの会話の文脈は引き継がれません。",
   "session.event.error.modelConnectionRemoved":
     "{model} を使っていたモデル接続が無効になったかなくなったため、このセッションのモデルリクエストがブロックされました。管理者に復元を依頼するか、別の接続のリリースで新しいセッションを開始してください。",
   "session.event.modelMigrated":

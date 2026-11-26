@@ -17,6 +17,7 @@ import type {
   AnswerRequestInput,
   WorkerPendingStore,
 } from "../sessions/ports/pending-requests.ts";
+import type { RecoveryDecisionInput } from "../sessions/ports/session-control.ts";
 import type { PrivateChannelPlace } from "../sessions/ports/session-share-store.ts";
 import { createSessionService } from "../sessions/session-service.ts";
 import type { ChannelMemberCheckable } from "../surface/ports/channel-member-checkable.ts";
@@ -110,6 +111,9 @@ const channelMembers: ChannelMemberCheckable = {
     return inChannel(input.userId);
   },
   async membership(input) {
+    return inChannel(input.userId) ? "member" : "not_member";
+  },
+  async cachedMembership(input) {
     return inChannel(input.userId) ? "member" : "not_member";
   },
 };
@@ -383,6 +387,9 @@ describe("approving after the requester left the private channel", () => {
           return answer(input.userId) === "member";
         },
         async membership(input) {
+          return answer(input.userId);
+        },
+        async cachedMembership(input) {
           return answer(input.userId);
         },
       },
@@ -923,6 +930,250 @@ describe("going on from a lost turn through the session service", () => {
     const { press, reached } = continuing();
     expect(await press("requester", PUBLIC_SESSION)).toBe("continued");
     expect(await press("nonmember", PUBLIC_SESSION)).toBe("continued");
+    expect(reached).toEqual([USERS.requester, USERS.nonmember]);
+  });
+});
+
+// 94S-2247: giving up a turn whose outcome is unknown (abandon) or the
+// context no checkpoint covers (start_fresh) is the call of whoever may write
+// to the session, on a private channel's session its current members only;
+// confirming an outcome, closing and retrying a restore stay an operator's.
+describe("recovery decisions through the session service", () => {
+  function deciding() {
+    const reached: string[] = [];
+    // The recorded asks: which action, and the justification it carried.
+    const justified: unknown[] = [];
+    const policy = policyFor(plain);
+    const service = createSessionService({
+      authorization: {
+        authorize: (request, options) => {
+          if (options?.record !== false) {
+            justified.push([request.action, request.subject.justification]);
+          }
+          return policy.authorize(request, options);
+        },
+      },
+      catalog: testCatalog({ repositories: {} }),
+      controls: {
+        async decideRecoveryAtomic(input: RecoveryDecisionInput) {
+          reached.push(
+            `${input.principal.actor?.userId}:${input.decision.decision}`,
+          );
+          return {
+            outcome: "accepted",
+            response: {
+              receipt_id: "019a0000-0000-7000-8000-00000000b0b2",
+              receipt_status: "succeeded",
+            },
+          };
+        },
+      } as never,
+      reader: { getSession: async () => null } as never,
+      limits: {
+        queuedInputLimitPerSession: 10,
+        storageLimitBytes: 1e9,
+        sessionCostLimitUsd: 100,
+        sessionTokenLimit: null,
+      },
+      releases: {} as never,
+      inputs: {} as never,
+    });
+    const bodies = {
+      abandon: {
+        decision: "abandon",
+        expected_revision: 3,
+        target_turn_id: "3",
+        reason: "Decided from the web console",
+      },
+      start_fresh: {
+        decision: "start_fresh",
+        expected_revision: 3,
+        reason: "Decided from the web console",
+      },
+      confirm_completed: {
+        decision: "confirm_completed",
+        expected_revision: 3,
+        target_turn_id: "3",
+        evidence_ref: "log",
+        reason: "checked",
+      },
+      close: { decision: "close", expected_revision: 3, reason: "done" },
+      retry_restore: {
+        decision: "retry_restore",
+        expected_revision: 3,
+        reason: "fixed",
+      },
+    } as const;
+    const press = (
+      who: Caller,
+      sessionId: string,
+      decision: keyof typeof bodies,
+      justification?: string,
+    ) =>
+      service
+        .decideRecovery(who, sessionId, {
+          idempotencyKey: `k-${decision}`,
+          body: bodies[decision],
+          ...(justification === undefined ? {} : { justification }),
+        })
+        .then(
+          () => "decided",
+          (error: { code?: string }) => error.code ?? "error",
+        );
+    return { press, reached, justified };
+  }
+  const reader = callerFor(
+    {
+      kind: "user",
+      id: USERS.member,
+      workspace_id: WORKSPACE,
+      role: "member",
+      scopes: ["sessions:read"],
+    },
+    { kind: "web" },
+    "r",
+  );
+  const owner = callerFor(
+    {
+      kind: "user",
+      id: USERS.nonmember,
+      workspace_id: WORKSPACE,
+      role: "owner",
+      scopes: [...scopesForRole("owner")],
+    },
+    { kind: "web" },
+    "r",
+  );
+
+  test("on a private channel's session, a current member abandons and starts fresh; the requester who left and a non-member do not", async () => {
+    const { press, reached } = deciding();
+    for (const decision of ["abandon", "start_fresh"] as const) {
+      expect(await press(person("member"), PRIVATE_SESSION, decision)).toBe(
+        "decided",
+      );
+      expect(await press(person("requester"), PRIVATE_SESSION, decision)).toBe(
+        "NOT_FOUND",
+      );
+      expect(await press(person("nonmember"), PRIVATE_SESSION, decision)).toBe(
+        "NOT_FOUND",
+      );
+      // A workspace owner outside the channel passes no more than anyone.
+      expect(await press(owner, PRIVATE_SESSION, decision)).toBe("NOT_FOUND");
+    }
+    expect(reached).toEqual([
+      `${USERS.member}:abandon`,
+      `${USERS.member}:start_fresh`,
+    ]);
+  });
+
+  test("on a public channel's session, whoever may write decides; one who may only read does not", async () => {
+    const { press, reached } = deciding();
+    expect(await press(person("requester"), PUBLIC_SESSION, "abandon")).toBe(
+      "decided",
+    );
+    expect(
+      await press(person("nonmember"), PUBLIC_SESSION, "start_fresh"),
+    ).toBe("decided");
+    expect(await press(reader, PUBLIC_SESSION, "abandon")).toBe("FORBIDDEN");
+    expect(await press(reader, PUBLIC_SESSION, "start_fresh")).toBe(
+      "FORBIDDEN",
+    );
+    expect(reached).toEqual([
+      `${USERS.requester}:abandon`,
+      `${USERS.nonmember}:start_fresh`,
+    ]);
+  });
+
+  test("a break-glass abandon is an operator's: a writer does not fall back to writing, an owner's carries the justification", async () => {
+    const { press, reached, justified } = deciding();
+    expect(
+      await press(person("requester"), PUBLIC_SESSION, "abandon", "incident"),
+    ).toBe("FORBIDDEN");
+    expect(await press(owner, PUBLIC_SESSION, "abandon", "incident")).toBe(
+      "decided",
+    );
+    expect(reached).toEqual([`${USERS.nonmember}:abandon`]);
+    // One recorded decision each, both as recover: no write probe, no
+    // fallback to session.submit.
+    expect(justified).toEqual([
+      ["session.recover", "incident"],
+      ["session.recover", "incident"],
+    ]);
+  });
+
+  test("confirm_completed, close and retry_restore stay an operator's", async () => {
+    const { press, reached } = deciding();
+    for (const decision of [
+      "confirm_completed",
+      "close",
+      "retry_restore",
+    ] as const) {
+      expect(await press(person("requester"), PUBLIC_SESSION, decision)).toBe(
+        "FORBIDDEN",
+      );
+      expect(await press(owner, PUBLIC_SESSION, decision)).toBe("decided");
+    }
+    expect(reached).toEqual([
+      `${USERS.nonmember}:confirm_completed`,
+      `${USERS.nonmember}:close`,
+      `${USERS.nonmember}:retry_restore`,
+    ]);
+  });
+});
+
+// 94S-2250: [Continue in a new context] on a turn of unknown outcome is judged
+// as [Continue] is (94S-2247 shares the rule): those who may write to the
+// session, and on a private channel's session its current members only.
+describe("starting an unknown turn fresh through the session service", () => {
+  function startingFresh() {
+    const reached: string[] = [];
+    const service = createSessionService({
+      authorization: policyFor(plain),
+      catalog: testCatalog({ repositories: {} }),
+      controls: {
+        async decideRecoveryAtomic(input: {
+          principal: { subject?: { principal?: { id?: string } } };
+        }) {
+          reached.push(input.principal.subject?.principal?.id ?? "");
+          return {
+            outcome: "accepted",
+            response: {
+              receipt_id: "019a0000-0000-7000-8000-00000000b0b2",
+              receipt_status: "succeeded",
+            },
+          };
+        },
+      } as never,
+      reader: { getSession: async () => null } as never,
+      limits: {
+        queuedInputLimitPerSession: 10,
+        storageLimitBytes: 1e9,
+        sessionCostLimitUsd: 100,
+        sessionTokenLimit: null,
+      },
+      releases: {} as never,
+      inputs: {} as never,
+    });
+    const press = (who: Person, sessionId: string) =>
+      service.startFreshTurn(person(who), sessionId, { turnId: 1 }).then(
+        () => "started",
+        (error: { code?: string }) => error.code ?? "error",
+      );
+    return { press, reached };
+  }
+
+  test("on a private channel's session, a current member starts fresh; the requester who left and a non-member do not", async () => {
+    const { press, reached } = startingFresh();
+    expect(await press("member", PRIVATE_SESSION)).toBe("started");
+    expect(await press("requester", PRIVATE_SESSION)).toBe("NOT_FOUND");
+    expect(await press("nonmember", PRIVATE_SESSION)).toBe("NOT_FOUND");
+    expect(reached).toEqual([USERS.member]);
+  });
+
+  test("on a public channel's session, the requester and a member who may write start fresh", async () => {
+    const { press, reached } = startingFresh();
+    expect(await press("requester", PUBLIC_SESSION)).toBe("started");
+    expect(await press("nonmember", PUBLIC_SESSION)).toBe("started");
     expect(reached).toEqual([USERS.requester, USERS.nonmember]);
   });
 });

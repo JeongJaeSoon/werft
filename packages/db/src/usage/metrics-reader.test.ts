@@ -28,6 +28,7 @@ const read = (budget: typeof BUDGET | null = BUDGET) =>
   readPlatformMetrics(db as unknown as Database, {
     budget,
     buckets: BUCKETS,
+    storageLimitBytes: null,
   });
 
 beforeAll(async () => {
@@ -556,5 +557,35 @@ describe("worker images", () => {
         count: 1,
       },
     ]);
+  });
+});
+describe("input storage", () => {
+  test("reads the installation's counter and gives the limit as passed", async () => {
+    await client.query(
+      "UPDATE storage_usage SET bytes = 4321 WHERE scope = 'installation'",
+    );
+    const snapshot = await readPlatformMetrics(db as unknown as Database, {
+      budget: BUDGET,
+      buckets: BUCKETS,
+      storageLimitBytes: 5_000,
+    });
+    expect(snapshot.inputStorage).toEqual({
+      usedBytes: 4321,
+      limitBytes: 5_000,
+    });
+  });
+
+  test("no counter row reads as zero", async () => {
+    await client.query("DELETE FROM storage_usage");
+    try {
+      expect((await read()).inputStorage).toEqual({
+        usedBytes: 0,
+        limitBytes: null,
+      });
+    } finally {
+      await client.query(
+        "INSERT INTO storage_usage (scope, bytes) VALUES ('installation', 0)",
+      );
+    }
   });
 });

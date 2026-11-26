@@ -301,4 +301,73 @@ integration("audit log reader on PostgreSQL", () => {
       expect(refused, forged).toBeInstanceOf(InvalidCursorError);
     }
   });
+
+  test("counts what a page lists, per table, inside the window and up to where it is told to stop", async () => {
+    const ownerId = await workspace({ audit_retention_days: 30 });
+    const other = await workspace();
+    const userId = randomUUID();
+    await decision(ownerId, instant(1, "000001"), { actorUserId: userId });
+    await decision(ownerId, instant(2, "000002"));
+    // Outside the 30-day window: listed nowhere, so counted nowhere.
+    await decision(ownerId, instant(40, "000003"));
+    await receipt(ownerId, instant(1, "000004"), {
+      actor: { actor_user_id: userId },
+    });
+    // Another workspace's rows are never this owner's.
+    await decision(other, instant(1, "000005"));
+    await receipt(other, instant(1, "000006"));
+
+    const count = (filter: Parameters<ReturnType<typeof reader>["count"]>[1]) =>
+      reader().count(ownerId, filter, 1001);
+    expect(await count({})).toEqual({ decision: 2, receipt: 1 });
+    expect(await count({ kind: "decision" })).toEqual({
+      decision: 2,
+      receipt: 0,
+    });
+    expect(await count({ actor_user_id: userId.toUpperCase() })).toEqual({
+      decision: 1,
+      receipt: 1,
+    });
+    expect(await count({ from: instant(1.5, "000000") })).toEqual({
+      decision: 1,
+      receipt: 1,
+    });
+    // Each count is what reading every page gives.
+    expect((await readAll(ownerId, 2)).length).toBe(3);
+  });
+
+  test("stops counting at the limit it is given", async () => {
+    const ownerId = await workspace();
+    const at = instant(1, "000000");
+    await db.insert(authzDecisions).values(
+      Array.from({ length: 1001 }, () => ({
+        id: randomUUID(),
+        at: sql`${at}::timestamptz`,
+        ownerId,
+        principalKind: "user",
+        principalId: randomUUID(),
+        actorUserId: null,
+        surface: { kind: "web" },
+        action: "member.manage",
+        resourceKind: "workspace",
+        resourceId: ownerId,
+        outcome: "deny",
+        reasonCode: "owner_protected",
+        policyVersion: "m17",
+        requestId: `req-${randomUUID()}`,
+      })),
+    );
+    expect(await reader().count(ownerId, {}, 1000)).toEqual({
+      decision: 1000,
+      receipt: 0,
+    });
+    expect(await reader().count(ownerId, {}, 1001)).toEqual({
+      decision: 1001,
+      receipt: 0,
+    });
+    expect(await reader().count(ownerId, {}, 5000)).toEqual({
+      decision: 1001,
+      receipt: 0,
+    });
+  });
 });

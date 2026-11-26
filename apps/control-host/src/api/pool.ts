@@ -11,7 +11,7 @@ import { Pool } from "pg";
 // short enough that a frozen database turns into 503s within the window a
 // reverse proxy allows (api.md: storage outages are retryable 503s, never
 // requests that hang until the client gives up).
-const API_POOL_TIMEOUTS: PoolTimeouts = {
+export const API_POOL_TIMEOUTS: PoolTimeouts = {
   connectMs: 5_000,
   statementMs: 10_000,
   queryMs: 20_000,
