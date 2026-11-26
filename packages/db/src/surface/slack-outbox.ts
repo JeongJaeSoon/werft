@@ -2286,11 +2286,20 @@ export function createPostgresSlackOutboxStore(
           ? outcome.retryInMs
           : null;
       // The least wait before a progress message's next send: the interval,
-      // longer while more of the install's progress messages wait to go.
+      // longer while more of the install's progress messages move (an update
+      // waiting or going, this one's included).
       const progressGap = sql`greatest(${ms(progressIntervalMs)}, ${ms(SURFACE_PROGRESS_EDIT_SPACING_MS)} * (
-        SELECT count(DISTINCT a.progress_key) FROM slack_outbox a
-        WHERE a.installation_id = ${t.installationId} AND a.status = 'pending'
-          AND a.progress_key IS NOT NULL))`;
+        SELECT count(*) FROM (
+          -- One arm per status, so each reads its partial index
+          -- (slack_outbox_due_idx, slack_outbox_sending_idx), not the
+          -- install's whole progress history.
+          SELECT a.progress_key FROM slack_outbox a
+          WHERE a.status = 'pending' AND a.installation_id = ${t.installationId}
+            AND a.progress_key IS NOT NULL
+          UNION
+          SELECT a.progress_key FROM slack_outbox a
+          WHERE a.status = 'sending' AND a.installation_id = ${t.installationId}
+            AND a.progress_key IS NOT NULL) moving))`;
       const set =
         outcome.status === "sent"
           ? {
