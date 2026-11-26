@@ -38,7 +38,8 @@ import type {
  * thread (`threadTs` "").
  * `progress`: one update of a message edited in place (its `progressKey`):
  * the first goes as a new post, later ones edit it, at most one every
- * `SURFACE_PROGRESS_EDIT_INTERVAL_MS`, and an update a newer one overtakes
+ * `SURFACE_PROGRESS_EDIT_INTERVAL_MS` and an install's edits one per
+ * `SURFACE_PROGRESS_EDIT_SPACING_MS` on average, and an update a newer one overtakes
  * before it goes is dropped (`superseded`). A post Slack lost is put up
  * again once; after that the message stops (`progress_stopped`).
  * `reaction`: the one 👀 on the message `threadTs` names in `channelId`
@@ -75,6 +76,13 @@ export const SURFACE_REACTION_MAX_ATTEMPTS = 5;
 
 /** The least time between two sends of one progress message. */
 export const SURFACE_PROGRESS_EDIT_INTERVAL_MS = 10_000;
+/**
+ * What each progress edit an install begins adds to the wait before its next
+ * one, from every replica, so its edits average one per this long; edits
+ * begun side by side are paid for after. Slack takes about 50 chat.update a
+ * minute per app and workspace (Tier 3).
+ */
+export const SURFACE_PROGRESS_EDIT_SPACING_MS = 1_300;
 /** A progress update a newer one overtook before it went: never sent. */
 export const SURFACE_PROGRESS_SUPERSEDED_CODE = "superseded";
 /**

@@ -7193,10 +7193,11 @@ export const slackOutbox = pgTable(
   ],
 );
 
-// Slack's rate limits, as its 429s told them (94S-2274): until
-// `blocked_until` the outbox sends nothing an install's `scope` covers, from
-// any replica. `scope` is `channel:<id>` (posts into one channel) or a
-// method (`chat.update`, `reactions.add`), whose limit is the install's.
+// Slack's rate limits, as its 429s told them (94S-2274), and the spacing of
+// an install's progress edits: until `blocked_until` the outbox sends nothing
+// an install's `scope` covers, from any replica. `scope` is `channel:<id>`
+// (posts into one channel) or a method (`chat.update`, `reactions.add`),
+// whose limit is the install's.
 export const slackOutboxRateBlocks = pgTable(
   "slack_outbox_rate_blocks",
   {

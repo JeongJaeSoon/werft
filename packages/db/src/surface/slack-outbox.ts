@@ -37,6 +37,7 @@ import type {
 import {
   SURFACE_EDIT_RATE_LIMITED_CODE,
   SURFACE_PROGRESS_EDIT_INTERVAL_MS,
+  SURFACE_PROGRESS_EDIT_SPACING_MS,
   SURFACE_PROGRESS_STOPPED_CODE,
   SURFACE_PROGRESS_SUPERSEDED_CODE,
   SURFACE_RATE_LIMITED_CODE,
@@ -2244,6 +2245,26 @@ export function createPostgresSlackOutboxStore(
           )
           .returning({ id: t.id });
         if (rows.length === 0) return false;
+        // Every progress edit that begins, whatever comes of it, moves the
+        // install's chat.update block one spacing past the later of the block
+        // and now: edits from every replica average one a spacing, and edits
+        // begun side by side are paid for after.
+        if (progress?.ts != null) {
+          const blocks = slackOutboxRateBlocks;
+          await tx
+            .insert(blocks)
+            .values({
+              installationId: row.installationId,
+              scope: "chat.update",
+              blockedUntil: sql`now() + ${ms(SURFACE_PROGRESS_EDIT_SPACING_MS)}`,
+            })
+            .onConflictDoUpdate({
+              target: [blocks.installationId, blocks.scope],
+              set: {
+                blockedUntil: sql`greatest(${blocks.blockedUntil}, now()) + ${ms(SURFACE_PROGRESS_EDIT_SPACING_MS)}`,
+              },
+            });
+        }
         // Who the row goes out as, read under those locks. A task is a
         // session with a Slack link: the row's own, or, for a row sent
         // outside its thread (a direct message), an open one. Its title as a
