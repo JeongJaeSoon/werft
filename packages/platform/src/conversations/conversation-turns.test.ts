@@ -265,14 +265,15 @@ describe("a poll that hears the queue change", () => {
 
   test("it looks again at the queue's next timed change, at the fallback at the latest, and as a poll would when that time is already due", async () => {
     for (const [timed, waitMs, slept] of [
-      [new Date(START.getTime() + 1_000), 20_000, 1_000],
-      [new Date(START.getTime() + 60_000), 20_000, 5_000],
-      [new Date(START.getTime() + 10), 20_000, 10],
-      [START, 20_000, 250],
-      [new Date(START.getTime() - 1_000), 20_000, 250],
-      [null, 20_000, 5_000],
+      // The fallback is always running; a sooner time runs beside it.
+      [new Date(START.getTime() + 1_000), 20_000, [5_000, 1_000]],
+      [new Date(START.getTime() + 60_000), 20_000, [5_000]],
+      [new Date(START.getTime() + 10), 20_000, [5_000, 10]],
+      [START, 20_000, [5_000, 250]],
+      [new Date(START.getTime() - 1_000), 20_000, [5_000, 250]],
+      [null, 20_000, [5_000]],
       // Never past the poll's own wait.
-      [new Date(START.getTime() + 1_000), 100, 100],
+      [new Date(START.getTime() + 1_000), 100, [100]],
     ] as const) {
       const h = heard({ timed: () => timed });
       const stop = new AbortController();
@@ -282,15 +283,15 @@ describe("a poll that hears the queue change", () => {
         stop: stop.signal,
       });
       await looked();
-      expect(h.sleeps.map((sleep) => sleep.ms)).toEqual([slept]);
+      expect(h.sleeps.map((sleep) => sleep.ms)).toEqual([...slept]);
       // A stop ends the wait itself, not only the next look.
       stop.abort();
       expect(await poll).toBeNull();
     }
   });
 
-  test("a notice or a stop while it asks for the next timed change ends the wait without the answer", async () => {
-    for (const end of ["notice", "stop"] as const) {
+  test("a notice, a stop or the fallback ends the wait though the queue never says its next timed change", async () => {
+    for (const end of ["notice", "stop", "fallback"] as const) {
       const base = createMemoryConversationTurnQueue();
       const turn = queued();
       const h = heard({
@@ -304,15 +305,21 @@ describe("a poll that hears the queue change", () => {
         stop: stop.signal,
       });
       await looked();
-      expect(h.sleeps).toEqual([]);
+      expect(h.sleeps.map((sleep) => sleep.ms)).toEqual([5_000]);
       if (end === "notice") {
         await base.enqueue(turn, entryAt(START));
         h.waits[0]?.ring();
         expect((await poll)?.turn_id).toBe(turn.turn_id);
-      } else {
-        stop.abort();
-        expect(await poll).toBeNull();
+        continue;
       }
+      if (end === "fallback") {
+        h.sleeps[0]?.end();
+        await looked();
+        // It looked again, and waits again.
+        expect(h.waits).toHaveLength(2);
+      }
+      stop.abort();
+      expect(await poll).toBeNull();
     }
   });
 

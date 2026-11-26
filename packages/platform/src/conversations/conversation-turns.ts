@@ -645,19 +645,23 @@ export function createConversationRuntimeTurns(deps: {
       // the fallback or `until`, whichever is first. A time already due is
       // looked at as soon as a poll would.
       wait: async (until = Number.POSITIVE_INFINITY) => {
-        const lookup = deps.queue.nextTimedChange?.() ?? Promise.resolve(null);
-        // A notice or a stop during the lookup ends the wait without it.
-        void lookup.catch(() => {});
-        const timed = await Promise.race([
-          lookup,
-          changed.then(() => undefined),
-        ]);
-        if (timed === undefined) return;
-        const at = now().getTime();
-        const due =
-          timed === null ? Number.POSITIVE_INFINITY : timed.getTime() - at;
-        const ms = Math.min(fallbackPollMs, due > 0 ? due : pollMs, until - at);
-        await Promise.race([sleep(Math.max(0, ms), signal), changed]);
+        const cap = Math.max(
+          0,
+          Math.min(fallbackPollMs, until - now().getTime()),
+        );
+        const capped = sleep(cap, signal);
+        // The lookup only ever ends the wait sooner: however long it takes,
+        // the wait is over by the cap, a notice or a stop.
+        const timed = (
+          deps.queue.nextTimedChange?.() ?? Promise.resolve(null)
+        ).then((at) => {
+          if (at === null) return capped;
+          const due = at.getTime() - now().getTime();
+          const ms = due > 0 ? due : pollMs;
+          return ms < cap ? sleep(ms, signal) : capped;
+        });
+        void timed.catch(() => {});
+        await Promise.race([capped, changed, timed]);
       },
       done: () => over.abort(),
     };
