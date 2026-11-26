@@ -560,10 +560,10 @@ describe("events an attempt sends for no turn", () => {
       } as WorkerEvent,
     ]);
 
-    const read = await db.execute(
+    const read = (await db.execute(
       sql`SELECT ${eventWithNeutralFields(sql`e`)} AS payload
           FROM events e WHERE e.session_id = ${sessionId}`,
-    );
+    )) as unknown as { rows: unknown[] };
     expect(read.rows).toEqual([
       {
         payload: { type: "system", subtype: "sdk_event", after_turn: true },
