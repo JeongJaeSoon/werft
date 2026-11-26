@@ -186,6 +186,51 @@ describe("the AI line on outbox rows", () => {
     expect(sent?.text).toEndWith("…\n\nAI agent · Werft");
   });
 
+  const sections = async (text: string) => {
+    const [sent] = await deliver(row("reply", { body: { text } }), ADA);
+    const blocks = (sent?.blocks ?? []) as {
+      type: string;
+      text?: { text: string; verbatim?: boolean };
+    }[];
+    expect<unknown>(blocks.at(-1)).toEqual(slackAiLabelBlock(undefined, "Ada"));
+    return blocks.slice(0, -1).map((block) => {
+      expect(block.text?.verbatim).toBe(true);
+      expect(block.text?.text.length).toBeLessThanOrEqual(3_000);
+      return block.text?.text ?? "";
+    });
+  };
+
+  test("text becomes sections Slack links no name in, bare URLs still links", async () => {
+    expect(
+      await sections(
+        "#general @ada see https://example.com/a?x=1&y=2, `https://c.example`",
+      ),
+    ).toEqual([
+      "#general @ada see <https://example.com/a?x=1&amp;y=2>, `https://c.example`",
+    ]);
+  });
+
+  test("a line too long for one section is cut and keeps the line", async () => {
+    const words = "word ".repeat(1_500).trim();
+    const pieces = await sections(words);
+    expect(pieces.length).toBeGreaterThan(1);
+    expect(pieces.join(" ")).toBe(words);
+
+    const solid = `${"x".repeat(2_990)}&${"🚀".repeat(2_000)}`;
+    const cut = await sections(solid);
+    expect(cut.join("")).toBe(solid.replace("&", "&amp;"));
+  });
+
+  test("a code fence cut across sections is closed and opened again", async () => {
+    const pieces = await sections(
+      `\`\`\`\n${`${"y".repeat(99)}\n`.repeat(60)}\`\`\``,
+    );
+    expect(pieces.length).toBeGreaterThan(1);
+    for (const piece of pieces) {
+      expect(piece.split("```")).toHaveLength(3);
+    }
+  });
+
   for (const kind of ["failure_notice", "notice"] as const) {
     test(`${kind}: refused blocks go again as text that keeps the line`, async () => {
       const sent = await deliver(row(kind), ADA, { refuseBlocks: true });

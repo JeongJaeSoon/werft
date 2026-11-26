@@ -14,6 +14,7 @@ import {
   isSafeLink,
   mapCodeAndText,
 } from "./slack-presentation.ts";
+import { slackTextSections } from "./slack-sections.ts";
 
 /** chat.postMessage truncates `text` past this many characters. */
 export const SLACK_TEXT_MAX = 40_000;
@@ -308,13 +309,15 @@ export function slackOutboxPresentation(
       : { kind: "blocks", blocks: table, fallback: true };
   }
   // The text, then the AI line; too big for blocks, the text carries both.
+  // A conversation's answer is cut at line ends alone, as before.
   const said =
     table ??
-    sectionPieces(slackOutboxText(claim.body, guard))?.map((text) => ({
-      type: "section",
-      text: { type: "mrkdwn", text },
-    })) ??
-    null;
+    (claim.kind === "conversation_reply"
+      ? (sectionPieces(slackOutboxText(claim.body, guard))?.map((text) => ({
+          type: "section",
+          text: { type: "mrkdwn", text },
+        })) ?? null)
+      : slackTextSections(slackOutboxText(claim.body, guard)));
   return said === null || said.length >= 50
     ? { kind: "text" }
     : {

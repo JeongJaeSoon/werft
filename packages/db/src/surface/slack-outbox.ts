@@ -300,8 +300,10 @@ const addressed = (
 
 // The AI line of row `row` (v1-b/G2): null unless its agent's conversation
 // rollout is `on`. Its name is that of whoever sent the turn the row's key
-// names: a turn's answer or failure, a card, a push's result. A row of any
-// other key, or a sender who is no user, has the line alone.
+// names: a turn's answer or failure, a card, a push's result. A push a turn's
+// intent made is that turn's sender's: its `requested_by` is the session's
+// creator. A row of any other key, or a sender who is no user, has the line
+// alone.
 const aiLabelOf = (row: SQL) => sql`(
   SELECT json_build_object('requestedBy', (
     SELECT u.display_name FROM users u WHERE u.id = CASE
@@ -311,10 +313,16 @@ const aiLabelOf = (row: SQL) => sql`(
         WHERE rt.session_id = ${row}.session_id
           AND rt.sequence = ${row}.sources_turn)
       WHEN ${row}.dedupe_key LIKE 'push:%' OR ${row}.dedupe_key LIKE 'action:%' THEN (
-        SELECT (p.requested_by ->> 'actor_user_id')::uuid FROM push_requests p
+        SELECT CASE WHEN pi.id IS NULL
+            THEN (p.requested_by ->> 'actor_user_id')::uuid
+            ELSE it.actor_id END
+        FROM push_requests p
+        LEFT JOIN push_intents pi ON pi.push_request_id = p.id
+        LEFT JOIN turns it ON it.id = pi.turn_id
         WHERE p.session_id = ${row}.session_id
           AND p.id::text = split_part(${row}.dedupe_key, ':',
-            CASE WHEN ${row}.dedupe_key LIKE 'push:%' THEN 3 ELSE 2 END))
+            CASE WHEN ${row}.dedupe_key LIKE 'push:%' THEN 3 ELSE 2 END)
+        ORDER BY pi.turn_id LIMIT 1)
       WHEN ${row}.dedupe_key LIKE 'intent:%' THEN (
         SELECT it.actor_id FROM push_intents pi
         JOIN turns it ON it.id = pi.turn_id

@@ -33,6 +33,8 @@ const ADA = crypto.randomUUID();
 const GRACE = crypto.randomUUID();
 const PUSH = crypto.randomUUID();
 const INTENT = crypto.randomUUID();
+// A push Grace's turn asked for in the session Ada created.
+const INTENT_PUSH = crypto.randomUUID();
 
 beforeAll(async () => {
   if (ENGINE === "PGlite") {
@@ -110,6 +112,23 @@ beforeAll(async () => {
      FROM turns WHERE session_id = $2 AND sequence = 2`,
     [INTENT, SESSION, `agent/${SESSION}`],
   );
+  await client.query(
+    `INSERT INTO push_requests (id, owner_id, session_id, repository_id, checkpoint_revision, git_commit, target_branch, requested_by, request_receipt_id, origin, flow)
+     VALUES ($1, 'owner', $2, 'app', 1, repeat('b', 40), $5, $3, $4, 'intent', 'actions')`,
+    [
+      INTENT_PUSH,
+      SESSION,
+      JSON.stringify({ actor_user_id: ADA }),
+      crypto.randomUUID(),
+      `agent/${SESSION}-b`,
+    ],
+  );
+  await client.query(
+    `INSERT INTO push_intents (id, owner_id, session_id, turn_id, attempt_id, repository_id, target_branch, actor, status, pinned_revision, push_request_id)
+     SELECT $1, 'owner', $2, id, 'attempt', 'app', $3, '{}'::jsonb, 'requested', 1, $4
+     FROM turns WHERE session_id = $2 AND sequence = 2`,
+    [crypto.randomUUID(), SESSION, `agent/${SESSION}-b`, INTENT_PUSH],
+  );
 }, 60_000);
 
 afterAll(() => close(), 60_000);
@@ -165,6 +184,9 @@ describe(`the AI line a row reads on ${ENGINE}`, () => {
       [`push:${LINK}:${PUSH}`, 1, "Grace"],
       [`action:${PUSH}:pushed`, null, "Grace"],
       [`intent:${INTENT}:ended`, null, "Grace"],
+      // An intent's push is its turn's sender's, not the session creator's.
+      [`push:${LINK}:${INTENT_PUSH}`, 1, "Grace"],
+      [`action:${INTENT_PUSH}:pushed`, null, "Grace"],
       // A turn no user sent.
       [`reply:${LINK}:3`, 3, null],
       // Rows that are no one turn's result, even with its sources.
