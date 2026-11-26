@@ -106,8 +106,15 @@ const agents: AgentAuthority = {
   },
 };
 
-function members(answer = (userId: string) => IN_CHANNEL.includes(userId)) {
+// `asked`: the inline checks, which may ask Slack. `cachedAsked`: the
+// cached reads a list makes; `cached` says what the cache holds (warm by
+// default, or `pending` for a list not read yet).
+function members(
+  answer = (userId: string) => IN_CHANNEL.includes(userId),
+  cached: (userId: string) => "warm" | "pending" = () => "warm",
+) {
   const asked: string[] = [];
+  const cachedAsked: string[] = [];
   const check: ChannelMemberCheckable = {
     async isMember(input) {
       asked.push(input.userId);
@@ -116,8 +123,13 @@ function members(answer = (userId: string) => IN_CHANNEL.includes(userId)) {
     async membership(input) {
       return answer(input.userId) ? "member" : "not_member";
     },
+    async cachedMembership(input) {
+      cachedAsked.push(input.userId);
+      if (cached(input.userId) === "pending") return "pending";
+      return answer(input.userId) ? "member" : "not_member";
+    },
   };
-  return { check, asked };
+  return { check, asked, cachedAsked };
 }
 
 const plain: IdentityReader = {
@@ -418,17 +430,50 @@ describe("the private channels a read across sessions takes", () => {
   test("are those whose member may use the agent; a key has none", async () => {
     const of = (caller: Caller, identity: IdentityReader) =>
       policyFor(identity).privateChannelsOf?.(caller.subject, WORKSPACE);
-    expect(await of(person("member"), plain)).toEqual([CONVERSATION]);
+    const none = { conversationIds: [], pending: false };
+    expect(await of(person("member"), plain)).toEqual({
+      conversationIds: [CONVERSATION],
+      pending: false,
+    });
     for (const who of [
       "nonmember",
       "requester",
       "owner",
       "outsider",
     ] as const) {
-      expect(await of(person(who), plain)).toEqual([]);
+      expect(await of(person(who), plain)).toEqual(none);
     }
-    expect(await of(KEYS.personal.caller, KEYS.personal.identity)).toEqual([]);
-    expect(await of(KEYS.agent.caller, KEYS.agent.identity)).toEqual([]);
+    expect(await of(KEYS.personal.caller, KEYS.personal.identity)).toEqual(
+      none,
+    );
+    expect(await of(KEYS.agent.caller, KEYS.agent.identity)).toEqual(none);
+  });
+
+  // 94S-2270 (Architect answer): a list reads the cached member lists only.
+  // A channel with none is hidden and pending, and Slack is not asked while
+  // the list waits; the background read is the check's own.
+  test("hide a channel whose members are not cached, say pending, and never ask Slack inline", async () => {
+    const check = members(undefined, () => "pending");
+    const caller = person("member");
+    expect(
+      await policyFor(plain, { check: check.check }).privateChannelsOf?.(
+        caller.subject,
+        WORKSPACE,
+      ),
+    ).toEqual({ conversationIds: [], pending: true });
+    expect(check.cachedAsked).toEqual([USERS.member]);
+    expect(check.asked).toEqual([]);
+  });
+
+  test("a member opens one session with nothing cached: that decision asks Slack", async () => {
+    const check = members(undefined, () => "pending");
+    expect(
+      await reason(person("member"), plain, "session.read", PRIVATE_SESSION, {
+        check: check.check,
+      }),
+    ).toBe("ok");
+    expect(check.asked).toEqual([USERS.member]);
+    expect(check.cachedAsked).toEqual([]);
   });
 
   test("log why a channel is hidden when the agent may not be used", async () => {
@@ -439,8 +484,9 @@ describe("the private channels a read across sessions takes", () => {
       check: check.check,
       logger: { warn: (message, fields) => warned.push({ message, fields }) },
     }).privateChannelsOf?.(caller.subject, WORKSPACE);
-    expect(seen).toEqual([]);
+    expect(seen).toEqual({ conversationIds: [], pending: false });
     expect(check.asked).toEqual([]);
+    expect(check.cachedAsked).toEqual([]);
     expect(warned).toEqual([
       {
         message: "Private channel hidden; agent usage denied",
@@ -455,18 +501,19 @@ describe("the private channels a read across sessions takes", () => {
     ]);
   });
 
-  test("ask Slack at most 8 channels at once", async () => {
+  test("read at most 8 channels' members at once", async () => {
     let running = 0;
     let most = 0;
     const check: ChannelMemberCheckable = {
-      async isMember() {
+      isMember: async () => true,
+      membership: async () => "member",
+      async cachedMembership() {
         running += 1;
         most = Math.max(most, running);
         await new Promise((resolve) => setTimeout(resolve, 1));
         running -= 1;
-        return true;
+        return "member";
       },
-      membership: async () => "member",
     };
     const places = Array.from({ length: 20 }, (_, i) => ({
       conversationId: `019a0000-0000-7000-8000-${String(i).padStart(12, "0")}`,
@@ -481,7 +528,8 @@ describe("the private channels a read across sessions takes", () => {
     });
     const caller = person("member");
     expect(
-      await policy.privateChannelsOf?.(caller.subject, WORKSPACE),
+      (await policy.privateChannelsOf?.(caller.subject, WORKSPACE))
+        ?.conversationIds,
     ).toHaveLength(20);
     expect(most).toBe(8);
   });

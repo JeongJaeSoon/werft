@@ -112,6 +112,9 @@ const channelMembers: ChannelMemberCheckable = {
   async membership(input) {
     return inChannel(input.userId) ? "member" : "not_member";
   },
+  async cachedMembership(input) {
+    return inChannel(input.userId) ? "member" : "not_member";
+  },
 };
 
 const plain: IdentityReader = {
@@ -383,6 +386,9 @@ describe("approving after the requester left the private channel", () => {
           return answer(input.userId) === "member";
         },
         async membership(input) {
+          return answer(input.userId);
+        },
+        async cachedMembership(input) {
           return answer(input.userId);
         },
       },

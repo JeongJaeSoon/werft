@@ -65,23 +65,27 @@ export function createPostgresChannelMemberStore(
       const [row] = rowsOf<{
         checked_at: Date | string;
         member_ids: string[] | null;
+        fetched_at: Date | string | null;
       }>(
         // A Date holds milliseconds. Cutting the read time down to them keeps
         // it on the safe side: a read in the same millisecond as a void or a
         // verify is refused by remember(), never kept stale.
         await db.execute(sql`
-          SELECT date_trunc('milliseconds', statement_timestamp()) AS checked_at, (
-            SELECT member_ids FROM ${cache}
+          SELECT date_trunc('milliseconds', statement_timestamp()) AS checked_at,
+            kept.member_ids, kept.fetched_at
+          FROM (SELECT 1) one LEFT JOIN (
+            SELECT member_ids, fetched_at FROM ${cache}
             WHERE installation_id = ${installationId}
               AND channel_id = ${channelId}
               AND fetched_at > statement_timestamp() - ${TTL}
               AND (invalidated_at IS NULL OR invalidated_at < fetched_at)
-          ) AS member_ids`),
+          ) kept ON true`),
       );
       if (!row) throw new Error("statement_timestamp() returned no row");
       return {
         memberIds: row.member_ids,
         checkedAt: new Date(row.checked_at),
+        fetchedAt: row.fetched_at === null ? null : new Date(row.fetched_at),
       };
     },
 

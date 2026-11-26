@@ -76,31 +76,22 @@ describe("slackOutboxSettleFor", () => {
   );
 
   test.each([429, 200])(
-    "rate limit at HTTP %p has its own tenth-attempt cap",
+    "rate limit at HTTP %p never fails the row, however many attempts came before",
     (httpStatus) => {
       const limited = response({
         httpStatus,
         retryAfterHeader: "7",
         body: { ok: false, error: "ratelimited" },
       });
-      expect(slackOutboxSettleFor(5, limited)).toEqual({
-        status: "pending",
-        errorCode: "ratelimited",
-        retryInMs: 7_000,
-      });
-      expect(slackOutboxSettleFor(9, limited)).toEqual({
-        status: "pending",
-        errorCode: "ratelimited",
-        retryInMs: 7_000,
-      });
-      expect(slackOutboxSettleFor(10, limited)).toEqual({
-        status: "failed",
-        errorCode: "ratelimited",
-      });
-      expect(slackOutboxSettleFor(11, limited)).toEqual({
-        status: "failed",
-        errorCode: "ratelimited",
-      });
+      for (const attempts of [1, 9, 10, 11, 100]) {
+        for (const progress of [false, true]) {
+          expect(slackOutboxSettleFor(attempts, limited, progress)).toEqual({
+            status: "pending",
+            errorCode: "ratelimited",
+            retryInMs: 7_000,
+          });
+        }
+      }
     },
   );
 
@@ -270,6 +261,7 @@ async function drainFixture(
       return "enqueued";
     },
     readerLocale: async () => null,
+    aiLabelFor: async () => null,
     advanceAnswered: async () => 0,
     closeFinishedLinks: async () => 0,
     unpostedInstructions: async () => [],

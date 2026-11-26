@@ -198,6 +198,25 @@ export function conversationTurnQueueContract(
       });
     });
 
+    test("a poll that ends a turn nobody took hands out the ones behind it, oldest first", async () => {
+      const h = harness(subject);
+      const stale = await h.enqueue({ takeInMs: 10_000 });
+      const second = await h.enqueue({ takeInMs: 60_000 });
+      const third = await h.enqueue({ takeInMs: 60_000 });
+
+      h.advance(10_000);
+
+      expect((await h.take()).turn_id).toBe(second.turn_id);
+      expect(await h.turns.queue.outcome(stale.turn_id, h.at())).toEqual({
+        outcome: "failed",
+        reason: "not_taken",
+      });
+      expect((await h.take(runtimeB)).turn_id).toBe(third.turn_id);
+      expect(
+        await h.turns.nextTurn({ runtimeId: runtimeA, waitMs: 0 }),
+      ).toBeNull();
+    });
+
     test("a topic's second turn waits while its first is out, and is taken once that one ends", async () => {
       const h = harness(subject);
       const first = await h.enqueue();

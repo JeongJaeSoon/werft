@@ -34,9 +34,11 @@ import {
   agentForSlackEvent,
   type Caller,
   inboundHandling,
+  isStopRequest,
   type LifecycleStop,
   type SessionService,
   SessionServiceError,
+  type SessionStop,
   type TableHandling,
 } from "@werft-ai/platform";
 import { z } from "zod";
@@ -168,6 +170,8 @@ export type SlackSessionHandlerDeps = {
     ): Promise<MentionTurnStart>;
   };
   sessions: Pick<SessionService, "createSession" | "appendMessage">;
+  /** Stops a thread's work when its requester asks (handling table row 12). */
+  stops: Pick<SessionStop, "stop">;
   /** The agent's active release, which a new thread's session runs. */
   agentDetails: Pick<AgentStore, "get">;
   /**
@@ -375,13 +379,14 @@ export function createSlackSessionHandler(
     };
 
     /**
-     * What the handling table makes of a mention with no work bound to its
-     * thread (rows 1 and 7), or `current_path` while the agent's rollout
-     * is not on: `off` and `shadow` take the mention as before.
+     * What the handling table makes of a mention or a DM with no work bound
+     * to its thread (rows 1, 7 and 14), or `current_path` while the agent's
+     * rollout is not on: `off` and `shadow` take it as before.
      */
     const mentionTableHandling = async (): Promise<
       TableHandling | "current_path" | "no_binding"
     > => {
+      // A DM has no channel conversation, so its channel state reads active.
       const place = await deps.buffer.place({
         kind: "channel",
         workspaceId: agent.workspaceId,
@@ -390,13 +395,15 @@ export function createSlackSessionHandler(
         channelId: event.channel,
       });
       if (place.rollout !== "on") return "current_path";
-      const live = await deps.bindings.findLiveSlackChannel(
-        agent.installationId,
-        event.channel,
-      );
+      const live = dm
+        ? await deps.bindings.ensureDmBinding(agent.installationId)
+        : await deps.bindings.findLiveSlackChannel(
+            agent.installationId,
+            event.channel,
+          );
       if (live === null) return "no_binding";
       const handling = inboundHandling({
-        place: "channel",
+        place: dm ? "dm" : "channel",
         work: "none",
         engaged: false,
         input: "mention",
@@ -409,9 +416,10 @@ export function createSlackSessionHandler(
     };
 
     /**
-     * The mention as a turn of its thread's topic, the person who wrote it
-     * its requester as the decision recorded them. The thread shows
-     * "processing" until the Slack role's pass ends the turn.
+     * The mention or DM as a turn of its thread's topic, the person who
+     * wrote it its requester as the decision recorded them; a DM's topic is
+     * in that person's DM conversation, one topic per top-level DM. The
+     * thread shows "processing" until the Slack role's pass ends the turn.
      */
     const mentionTurn = async (
       botToken: string,
@@ -431,7 +439,11 @@ export function createSlackSessionHandler(
         throw new SlackInboundDropped("installation_revoked");
       }
       await stopIfLeft();
-      const place = { dm: false, personUserId: null, channelId: event.channel };
+      const place = {
+        dm,
+        personUserId: dm ? requesterUserId : null,
+        channelId: event.channel,
+      };
       const conversation = await conversationOf(place, claim.teamId, agent);
       if (conversation === null) {
         throw new Error("A Slack channel has no conversation");
@@ -486,6 +498,111 @@ export function createSlackSessionHandler(
         ...ids,
         turn_id: started.turnId,
       });
+    };
+
+    /**
+     * What the handling table makes of a stop word in a thread bound to open
+     * work (row 12): `stop_session` once the agent's rollout is on, whatever
+     * the channel listens to.
+     */
+    const stopHandling = async (): Promise<TableHandling | null> => {
+      const place = await deps.buffer.place({
+        kind: "channel",
+        workspaceId: agent.workspaceId,
+        agentId: agent.agentId,
+        teamId: claim.teamId,
+        channelId: event.channel,
+      });
+      const live = dm
+        ? await deps.bindings.ensureDmBinding(agent.installationId)
+        : await deps.bindings.findLiveSlackChannel(
+            agent.installationId,
+            event.channel,
+          );
+      if (live === null) return null;
+      const handling = inboundHandling({
+        place: dm ? "dm" : "channel",
+        work: "open",
+        engaged: true,
+        input: "stop_request",
+        rollout: place.rollout,
+        mode: live.mode,
+        listen: live.listen,
+        lifecycleStop: lifecycleStopOf(place, live),
+      });
+      return handling.kind === "table" ? handling.handling : null;
+    };
+
+    // Set once the poster was told they may not stop the work: if the session
+    // then refuses the word as input too, that is not said a second time.
+    let stopRefused = false;
+
+    /**
+     * Stops the thread's work for the person who wrote the stop word and
+     * says so in the thread. False when the message is input after all: the
+     * person may not stop the work (they are told so, alone), or it closed.
+     */
+    const stopRequest = async (
+      caller: Caller,
+      link: SessionLinkRecord,
+      sessionId: string,
+    ): Promise<boolean> => {
+      const held = await deps.inbox.renew(claim, deps.leaseMs);
+      if (held === null) throw new SlackLeaseLost();
+      if (held.installationStatus === "revoked") {
+        throw new SlackInboundDropped("installation_revoked");
+      }
+      await stopIfLeft();
+      // Input queued until now is cancelled: the thread's earlier posts are
+      // in, and its later ones wait for this event's lease.
+      const stopped = await deps.stops.stop(caller, sessionId, {
+        idempotencyKey: `slack-stop:${claim.teamId}:${event.channel}:${event.ts}`,
+      });
+      deps.logger.info("Slack stop request", {
+        ...ids,
+        session_id: sessionId,
+        outcome: stopped.outcome,
+        ...(stopped.outcome === "stopped"
+          ? { interrupted: stopped.interrupted, cancelled: stopped.cancelled }
+          : {}),
+      });
+      if (stopped.outcome === "closed") return false;
+      if (stopped.outcome === "not_permitted") {
+        await deps.notices.record({
+          workspaceId: agent.workspaceId,
+          agentId: agent.agentId,
+          installationId: agent.installationId,
+          slackAppId: claim.slackAppId,
+          teamId: claim.teamId,
+          channelId: event.channel,
+          threadTs,
+          slackUserId: event.user,
+          reason: "stop_not_permitted",
+          notice: { message: "stopNotPermitted" },
+          onceKey: `${agent.installationId}:${surfaceRef}:${event.user}:stop:${event.ts}`,
+        });
+        stopRefused = true;
+        return false;
+      }
+      await deps.notices.recordInThread({
+        workspaceId: agent.workspaceId,
+        agentId: agent.agentId,
+        installationId: agent.installationId,
+        slackAppId: claim.slackAppId,
+        teamId: claim.teamId,
+        channelId: event.channel,
+        threadTs,
+        sessionId,
+        sessionLinkId: link.id,
+        notice:
+          stopped.outcome === "nothing_running"
+            ? { message: "nothingToStop" }
+            : stopped.cancelled > 0
+              ? { message: "sessionStoppedQueued", count: stopped.cancelled }
+              : { message: "sessionStopped" },
+        onceKey: `${agent.installationId}:${surfaceRef}:stop:${event.ts}`,
+      });
+      return true;
     };
 
     // A person wrote in the thread, whatever becomes of it: the bots there
@@ -600,10 +717,11 @@ export function createSlackSessionHandler(
     // A stray reply is nobody's request in any mode; skip the lookup.
     if (found === null && !mentioned && !dm && event.thread_ts !== undefined)
       return;
-    // A person's mention outside a bound thread, once the agent's rollout is
-    // on: the handling table says whether it becomes a conversation turn.
+    // A person's mention or DM outside a bound thread, once the agent's
+    // rollout is on: the handling table says whether it becomes a
+    // conversation turn. A DM thread bound to work goes to it as before (M0).
     const mentionHandling =
-      found === null && mentioned && !dm && !fromBot
+      found === null && (mentioned || dm) && !fromBot
         ? await mentionTableHandling()
         : "current_path";
     if (mentionHandling !== "current_path" && mentionHandling !== "m2") {
@@ -843,6 +961,19 @@ export function createSlackSessionHandler(
       return;
     }
     const caller = slackCallerOf(decision, requestId);
+    // A stop word alone in a thread its open work is bound to, by its
+    // requester or anyone the session lets control it: the work stops and
+    // the message is no input. Anyone else's goes on as input.
+    if (
+      !fromBot &&
+      found?.sessionId != null &&
+      found.openedByTs !== event.ts &&
+      isStopRequest(message) &&
+      (await stopHandling()) === "stop_session"
+    ) {
+      const stopped = await stopRequest(caller, found, found.sessionId);
+      if (stopped) return;
+    }
     const slackMessage: SlackMessageRef = {
       team_id: claim.teamId,
       channel_id: event.channel,
@@ -993,9 +1124,10 @@ export function createSlackSessionHandler(
         code: error.code,
         reason_code: reasonCodeOf(error.details),
       });
-      // Slack deleted what the turn would come from: nothing is said there,
-      // the warning above is the record.
-      if (error.code === "SOURCE_DELETED") return;
+      // Slack deleted what the turn would come from, or the poster was already
+      // told of the stop's refusal: nothing is said, the warning above is the
+      // record.
+      if (error.code === "SOURCE_DELETED" || stopRefused) return;
       if (
         // GITHUB_REFUSED: unreadable GitHub settings or the workspace ceiling.
         (error.code === "UNSUPPORTED_CAPABILITY" ||

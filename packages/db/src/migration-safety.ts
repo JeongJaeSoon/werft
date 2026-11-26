@@ -54,6 +54,7 @@ export const GROWING_TABLES: readonly string[] = [
   "session_links",
   "session_model_usage",
   "session_outcomes",
+  "session_stops",
   "session_title_requests",
   "sessions",
   "slack_inbound_events",

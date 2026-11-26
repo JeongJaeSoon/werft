@@ -145,6 +145,7 @@ function app(reached: Record<string, unknown> = {}) {
     channelMembers: {
       isMember: async () => true,
       membership: async () => "member",
+      cachedMembership: async () => "member",
     },
     decisions: log,
   });
