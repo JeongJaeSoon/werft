@@ -360,6 +360,8 @@ async function insertQueuedTurn(
     requesterAuth?: RequesterAuth | null;
     /** The sources the caller already judged; read here when left out. */
     sources?: StoredSourceSet | null;
+    /** The lost turn this one continues, whose input it already is. */
+    continues?: number;
   },
 ) {
   // now() is the transaction start, which can precede a competing append
@@ -384,6 +386,13 @@ async function insertQueuedTurn(
       requesterAuth: input.requesterAuth ?? null,
       callerChannel: input.callerChannel ?? null,
       callerLimitDigest: input.callerLimitDigest ?? null,
+      // Decided now: the lost turn's input is this turn's own.
+      ...(input.continues === undefined
+        ? {}
+        : {
+            prependedTurn: input.continues,
+            prependSkipReason: "continuation" as const,
+          }),
       sources:
         input.sources !== undefined
           ? input.sources
@@ -1129,6 +1138,9 @@ export function createPostgresSessionUnitOfWork(
           message,
           traceContext: input.traceContext ?? null,
           sources,
+          ...(input.continueTurn === undefined
+            ? {}
+            : { continues: input.continueTurn }),
           ...(platform === undefined
             ? {
                 actorId: input.principal.actor?.userId ?? null,
@@ -1338,6 +1350,10 @@ function summarizeTurn(
     requester: requesterView(row),
     // A reason an engine wrote may quote what the turn read.
     terminal_reason: sourceDeletedAt === null ? row.terminalReason : null,
+    prepended_turn_id:
+      row.prependedTurn !== null && row.prependSkipReason === null
+        ? String(row.prependedTurn)
+        : null,
     checkpoint_revision: checkpointRevision,
     created_at: row.createdAt.toISOString(),
     started_at: row.startedAt?.toISOString() ?? null,
