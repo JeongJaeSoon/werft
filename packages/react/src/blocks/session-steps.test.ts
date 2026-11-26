@@ -130,7 +130,11 @@ describe("readSessionSteps", () => {
 
   test("a turn holding a permission request waits on approval, a question on an answer", () => {
     const steps = read({
-      session: { current_turn_id: "2", status: "needs_input" },
+      session: {
+        current_turn_id: "2",
+        status: "needs_input",
+        pending_request_count: 3,
+      },
       turns: [turn("1", "needs_input"), turn("2", "needs_input")],
       requests: [question("1"), question("2"), permission("2", "req_2")],
     });
@@ -193,6 +197,21 @@ describe("readSessionSteps", () => {
     expect(steps.steps[0]?.state).toBe("running");
   });
 
+  test("an older list's requests go when a newer session read counts none open", () => {
+    const steps = read({
+      session: {
+        current_turn_id: "1",
+        status: "running",
+        pending_request_count: 0,
+      },
+      turns: [turn("1", "running")],
+      requests: [permission("1", "req_1")],
+      listCurrent: false,
+    });
+    expect(steps.steps[0]?.state).toBe("running");
+    expect(steps.steps[0]?.requests).toEqual([]);
+  });
+
   test("a turn already ended is not current, though a session read before its end names it", () => {
     const steps = read({
       session: {
@@ -228,7 +247,11 @@ describe("readSessionSteps", () => {
 
   test("with no running turn, the one holding requests is focused but not current", () => {
     const steps = read({
-      session: { current_turn_id: null, status: "needs_input" },
+      session: {
+        current_turn_id: null,
+        status: "needs_input",
+        pending_request_count: 1,
+      },
       turns: [turn("1", "completed", { ended_at: AT }), turn("2", "running")],
       requests: [permission("2", "req_2")],
     });

@@ -129,8 +129,12 @@ export function readSessionSteps({
   // The oldest turn still in a full window may have lost its first calls;
   // events without a turn (control-plane ones) say nothing about that.
   const oldest = events.find((frame) => frame.turnId !== null)?.turnId ?? null;
+  // A session read newer than the list that counts nothing open outdates
+  // every request the list still holds.
+  const listed =
+    !listCurrent && session.pending_request_count === 0 ? [] : requests;
   const steps = turns.map((turn, index): SessionStep => {
-    const own = requests.filter((request) => request.turn_id === turn.turn_id);
+    const own = listed.filter((request) => request.turn_id === turn.turn_id);
     const asked = own
       .filter((request) => Date.parse(request.expires_at) > now)
       .sort((a, b) => a.created_at.localeCompare(b.created_at));

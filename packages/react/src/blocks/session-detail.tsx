@@ -241,9 +241,14 @@ export function SessionDetail({
       : null;
   const cutOff = lostTurnId !== null && detail.status === "idle";
   const requests = pending.data?.items ?? [];
+  const listCurrent =
+    pending.data !== undefined &&
+    pending.dataUpdatedAt >= session.dataUpdatedAt;
   // A viewer who only sees the session through its share has nothing to
-  // answer, unless a request says otherwise; a lapsed request takes none.
-  const mine = requests.filter(
+  // answer, unless a request says otherwise; a lapsed request takes none,
+  // nor does one a newer session read no longer counts.
+  const outdated = !listCurrent && detail.pending_request_count === 0;
+  const mine = (outdated ? [] : requests).filter(
     (request) =>
       Date.parse(request.expires_at) > lapseNow &&
       (request.answerable ?? pending.data?.answerable ?? false),
@@ -256,9 +261,7 @@ export function SessionDetail({
         events: events.events,
         windowFull: events.events.length >= EVENT_WINDOW,
         now: lapseNow,
-        listCurrent:
-          pending.data !== undefined &&
-          pending.dataUpdatedAt >= session.dataUpdatedAt,
+        listCurrent,
       })
     : undefined;
   // The requests sit at the chat's end: open the chat and land on them.
