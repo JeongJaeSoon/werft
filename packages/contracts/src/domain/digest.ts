@@ -10,6 +10,7 @@ import {
   turnIdSchema,
   workspaceIdSchema,
 } from "../shared/index.ts";
+import { costUsdSchema } from "../shared/money.ts";
 
 // The title is capped twice: code points keep it one line in the list, bytes
 // keep it inside the column. Korean hits the byte cap long before the other.
@@ -49,8 +50,8 @@ export const digestSummarySchema = boundedText(
 export const DIGEST_WAITING_REASON_VALUES = ["permission", "question"] as const;
 export const digestWaitingReasonSchema = z.enum(DIGEST_WAITING_REASON_VALUES);
 
-/** Money is stored as numeric and travels as a decimal string, never a float. */
-export const costUsdSchema = z.string().regex(/^\d+(\.\d+)?$/);
+// Kept apart so api/session.ts, which this file imports, can use it too.
+export { costUsdSchema };
 
 /**
  * Layer 1 of three: the `session_digests` row.
