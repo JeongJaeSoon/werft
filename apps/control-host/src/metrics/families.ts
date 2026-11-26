@@ -8,6 +8,9 @@ import { publicStatus } from "@werft-ai/platform";
 /** The one place the metric prefix is set. */
 export const METRIC_PREFIX = "werft";
 
+/** The shares of the storage limit an operator is warned at. */
+export const STORAGE_WARNING_THRESHOLDS = [0.8, 1] as const;
+
 /** Upper bounds of the turn-duration histogram; the turn time defaults to 3600 s. */
 export const TURN_DURATION_BUCKETS = [
   1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600,
@@ -134,6 +137,7 @@ function decimal(value: bigint, scale: number): string {
 }
 
 export function metricFamilies(snapshot: PlatformMetricsSnapshot): Family[] {
+  const { limitBytes } = snapshot.inputStorage;
   const tool = firstSeen(
     snapshot.toolCalls.map((row) => ({
       value: toolLabel(row.name),
@@ -304,6 +308,33 @@ export function metricFamilies(snapshot: PlatformMetricsSnapshot): Family[] {
       type: "gauge",
       help: "Age of the oldest visible input no worker has claimed, 0 when there is none.",
       samples: [{ labels: {}, value: snapshot.inputQueueOldestAgeSeconds }],
+    },
+    {
+      name: "input_storage_used_bytes",
+      type: "gauge",
+      help: "Bytes of input messages the storage limit counts, as the installation's counter holds them.",
+      samples: [{ labels: {}, value: snapshot.inputStorage.usedBytes }],
+    },
+    {
+      name: "input_storage_limit_bytes",
+      type: "gauge",
+      help: "The storage limit (STORAGE_LIMIT_BYTES) input messages are held to; absent while the installation config cannot be read.",
+      samples: limitBytes === null ? [] : [{ labels: {}, value: limitBytes }],
+    },
+    {
+      name: "input_storage_limit_reached",
+      type: "gauge",
+      help: "1 when input_storage_used_bytes is at or past the threshold share of the storage limit, else 0; absent while the limit cannot be read. At 1 the limit refuses new input.",
+      samples:
+        limitBytes === null
+          ? []
+          : STORAGE_WARNING_THRESHOLDS.map((threshold) => ({
+              labels: { threshold: String(threshold) },
+              value:
+                snapshot.inputStorage.usedBytes >= threshold * limitBytes
+                  ? 1
+                  : 0,
+            })),
     },
   ];
 }
