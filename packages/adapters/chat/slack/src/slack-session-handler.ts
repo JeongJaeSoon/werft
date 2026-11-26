@@ -425,6 +425,7 @@ export function createSlackSessionHandler(
       botToken: string,
       requesterUserId: string | null,
       text: string,
+      slackSubject: MentionTurnRequest["slackSubject"],
     ): Promise<void> => {
       if (requesterUserId === null) {
         deps.logger.info("Slack mention not made a turn", {
@@ -484,6 +485,7 @@ export function createSlackSessionHandler(
           },
           requesterUserId,
           text,
+          slackSubject,
         },
         processing,
       );
@@ -957,21 +959,35 @@ export function createSlackSessionHandler(
       return;
     }
     if (mentionHandling === "m2") {
-      await mentionTurn(botToken, decision.actorUserId, message);
+      await mentionTurn(
+        botToken,
+        decision.actorUserId,
+        message,
+        event.user
+          ? { subject: decision.subject, slackUserId: event.user }
+          : null,
+      );
       return;
     }
     const caller = slackCallerOf(decision, requestId);
     // A stop word alone in a thread its open work is bound to, by its
     // requester or anyone the session lets control it: the work stops and
     // the message is no input. Anyone else's goes on as input.
+    // The session recovered above counts too: a task's effect makes one
+    // outside this channel's lease, before its link learns it.
     if (
       !fromBot &&
-      found?.sessionId != null &&
+      found !== null &&
+      sessionId !== null &&
       found.openedByTs !== event.ts &&
       isStopRequest(message) &&
       (await stopHandling()) === "stop_session"
     ) {
-      const stopped = await stopRequest(caller, found, found.sessionId);
+      // A stop that takes ends here, so the link learns its session first.
+      if (found.sessionId === null) {
+        await deps.sessionLinks.attachSession(found.id, sessionId);
+      }
+      const stopped = await stopRequest(caller, found, sessionId);
       if (stopped) return;
     }
     const slackMessage: SlackMessageRef = {

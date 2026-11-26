@@ -16,6 +16,21 @@ describe("conversation decision tools by requester (G2)", () => {
         "no_reply",
       ]);
     }
+    // A DM's turn opens no task, whoever asks.
+    expect([...conversationDecisionTools("user", "dm")]).toEqual([
+      "reply",
+      "route_to_task",
+      "no_reply",
+    ]);
+    expect([...conversationDecisionTools("operator", "dm")]).toEqual([
+      "reply",
+      "route_to_task",
+      "no_reply",
+    ]);
+    expect([...conversationDecisionTools("slack_bot", "dm")]).toEqual([
+      "reply",
+      "no_reply",
+    ]);
     expect(CONVERSATION_DECISION_TOOL_NAMES).toEqual(
       all.map((tool) => `mcp__conversation__${tool}`),
     );

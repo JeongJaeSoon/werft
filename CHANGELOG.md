@@ -15,6 +15,9 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **대화 rollout이 `on`인 에이전트의 멘션 턴이 새 작업 만들기로 끝나면, 그 대화를 부모로 한 작업 세션 하나가 열려 그 스레드에 묶인다**(JeongJaeSoon/werft#2265). 요청 원문은 서버가 받은 멘션 글이고, 모델이 쓴 목표와 완료 조건은 해석으로만 남는다. 작업을 열 때 멘션을 판정한 Slack 주체로 `task.spawn`을 다시 판정한다. 대화 하나에 열린 작업은 3개, 에이전트 하나에 10개까지다. 넘거나 에이전트가 쓸 수 없는 저장소를 고르면 열지 않고 그 이유를 스레드에 올린다. migration `0386_conversation_task_spawn`이 `conversation_turns`에 빈 열 셋(`task_draft`, `slack_subject`, `task_effect`)을, `conversation_turn_queue`에 `input_kept_until`과 그 부분 인덱스(`CONCURRENTLY`)를 더하고 두 CHECK를 `NOT VALID` 뒤 `VALIDATE`로 바꾼다. 따로 할 일은 없다.
+  - 큐는 실행 중인 턴의 입력만 봉인해 두고, 새 작업 만들기로 끝난 턴의 입력은 작업이 정해질 때까지 최대 1시간 둔다. egress 토큰은 lease 때 지운다.
+  - 앞선 이미지로 되돌려도 된다. 앞선 이미지는 새 열을 읽지 않는다. 이 버전이 lease한 턴의 입력 사본(봉인된 입력만)은 앞선 이미지가 지우지 않고 남는다. 이 버전을 다시 올리면 기한이 지난 사본부터 지운다.
 - **첫 turn 도중 worker가 죽은 세션을 새 세션 없이 `start_fresh`로 같은 입력부터 다시 돌린다**(JeongJaeSoon/werft#2264). 커밋된 checkpoint가 없는 세션에서는 결과를 모르는 turn을 먼저 정하지 않아도 `start_fresh`가 받아진다. 그 turn은 `cancelled`(`operator_start_fresh`)로 닫히고, 같은 입력의 새 turn이 대기열 끝에 들어간다. `start_fresh`는 그때까지의 context를 이어받지 않는다(먼저 기다리던 입력이 있으면 그 뒤에 돌고, 그 입력이 만든 context는 이어받는다). 전에는 `RECOVERY_REQUIRED`로 거절됐고, abandon 뒤에는 같은 요청을 다시 할 길이 새 세션뿐이었다. Slack 스레드에는 [새 문맥으로 계속] 버튼이 붙은 안내가 올라가고, 그 세션에 쓸 수 있는 사람이 누를 수 있다(비공개 채널이면 지금 멤버). 세션 상세에 `start_fresh_available`이 생긴다. migration은 없고 따로 할 일도 없다.
   - checkpoint가 있는 세션은 그대로다. abandon이나 confirm을 먼저 한다.
   - 다시 넣는 turn은 이미 받은 입력의 사본이다. 저장 한도와 대기열 한도로 거절하지 않고, bytes는 저장 사용량에 더한다.

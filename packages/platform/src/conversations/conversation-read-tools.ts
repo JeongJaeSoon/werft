@@ -363,7 +363,10 @@ export function createConversationReadTools(deps: {
       }
       const { turn } = admitted;
       if (
-        !conversationDecisionTools(turn.requester.kind).includes(decision.tool)
+        !conversationDecisionTools(
+          turn.requester.kind,
+          turn.place.kind,
+        ).includes(decision.tool)
       ) {
         return { outcome: "refused", reason: "tool_not_allowed" };
       }

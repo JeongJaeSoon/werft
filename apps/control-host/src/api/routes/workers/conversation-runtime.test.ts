@@ -287,7 +287,8 @@ describe("the conversation runtime's routes", () => {
       ...call,
       decision: {
         tool: "spawn_task",
-        spec: "write the report",
+        goal: "write the report",
+        done_when: "the report is posted",
         reason: "needs work",
       },
     });
