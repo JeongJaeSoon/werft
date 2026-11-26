@@ -229,9 +229,25 @@ const RECHECK_MS = 1_000;
  * agree: a read can come back before the other catches up. A read still in
  * flight is left to finish rather than cancelled by the next.
  */
-export function useRecheckSessionReads(id: string, disagree: boolean) {
+export function useRecheckSessionReads(
+  id: string,
+  disagree: boolean,
+  lastEventAt: string | null | undefined,
+) {
   const { client } = useWerft();
   const queryClient = useQueryClient();
+  // A turn can start and end between two session reads with nothing else
+  // to tell, but the session's newest event moves on with it.
+  const seen = useRef(lastEventAt);
+  useEffect(() => {
+    if (seen.current === lastEventAt) return;
+    const first = seen.current === undefined;
+    seen.current = lastEventAt;
+    if (!first)
+      void queryClient.invalidateQueries(sessionTurnsQuery(client, id), {
+        cancelRefetch: false,
+      });
+  }, [queryClient, client, id, lastEventAt]);
   useEffect(() => {
     if (!disagree) return;
     const recheck = () => {

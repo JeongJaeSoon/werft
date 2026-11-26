@@ -182,6 +182,7 @@ export function SessionDetail({
     detail !== undefined &&
       turns.data !== undefined &&
       readsDisagree(detail, turns.data.items),
+    detail?.last_event_at,
   );
   // A running turn's time moves on its own.
   const now = useMinute(Boolean(detail?.current_turn_id));

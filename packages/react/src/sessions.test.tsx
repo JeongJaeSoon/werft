@@ -28,7 +28,7 @@ import {
   useSessionEvents,
   WerftProvider,
 } from "./index.ts";
-import { eventToolCallId } from "./sessions.ts";
+import { eventToolCallId, useRecheckSessionReads } from "./sessions.ts";
 
 const { renderHook, waitFor, act } = await setupDom();
 
@@ -178,6 +178,49 @@ function harness(
     invalidated,
   };
 }
+
+describe("useRecheckSessionReads", () => {
+  const T1 = "2026-10-11T08:14:02.000Z";
+  const T2 = "2026-10-11T08:15:02.000Z";
+
+  test("reads the turns again when the session's newest event moves on, not on its first read", () => {
+    const h = harness(receipt);
+    const { rerender } = renderHook(
+      ({ at }: { at: string | null | undefined }) =>
+        useRecheckSessionReads(SESSION_ID, false, at),
+      {
+        wrapper: h.wrapper,
+        initialProps: { at: undefined as string | null | undefined },
+      },
+    );
+    rerender({ at: T1 });
+    expect(h.invalidated()).toEqual([]);
+    rerender({ at: T1 });
+    expect(h.invalidated()).toEqual([]);
+    rerender({ at: T2 });
+    expect(h.invalidated()).toEqual([[h.keys.turns, false]]);
+  });
+
+  test("reads the session and its turns again while they disagree, and stops once they agree", async () => {
+    const h = harness(receipt);
+    const { rerender } = renderHook(
+      ({ disagree }: { disagree: boolean }) =>
+        useRecheckSessionReads(SESSION_ID, disagree, T1),
+      { wrapper: h.wrapper, initialProps: { disagree: true } },
+    );
+    expect(h.invalidated()).toEqual([
+      [h.keys.detail, true],
+      [h.keys.turns, false],
+    ]);
+    await waitFor(() => expect(h.invalidated().length).toBe(4), {
+      timeout: 2_000,
+    });
+    rerender({ disagree: false });
+    const settled = h.invalidated().length;
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    expect(h.invalidated().length).toBe(settled);
+  });
+});
 
 describe("useAnswer", () => {
   test("posts the answer with an idempotency key, then refreshes the detail and the pending list", async () => {
