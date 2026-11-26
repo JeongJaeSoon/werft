@@ -36,6 +36,7 @@ import {
   surfaceBindings,
   turns,
 } from "../schema.ts";
+import { rowsOf } from "../statement-rows.ts";
 import { administers, insideAgent } from "./administers.ts";
 
 // Session share scopes. Lock order: the people involved (users, then
@@ -487,6 +488,59 @@ export async function pendingRequesterOf(
   return row.starter;
 }
 
+/**
+ * privateChannels(ownerId, null): the conversations of every channel the
+ * owner's sessions sit behind the door of, as behindPrivateChannel reads it.
+ * It walks the owner's distinct parent conversations on
+ * sessions_owner_parent_idx, one probe each, rather than every session:
+ * every session of a channel no binding calls public is behind its door, so
+ * one session of it is enough; a public channel's count only through a
+ * session shared `private_channel`.
+ */
+async function ownerPrivateChannels(
+  db: Database,
+  ownerId: string,
+): ReturnType<SessionShareStore["privateChannels"]> {
+  const rows = rowsOf<{
+    conversation_id: string;
+    agent_id: string;
+    channel_id: string;
+    kind_known: boolean;
+  }>(
+    await db.execute(sql`
+      WITH RECURSIVE parents(id) AS (
+        (SELECT parent_conversation_id FROM ${sessions}
+         WHERE owner_id = ${ownerId} AND parent_conversation_id IS NOT NULL
+         ORDER BY parent_conversation_id LIMIT 1)
+        UNION ALL
+        SELECT (SELECT ps.parent_conversation_id FROM ${sessions} ps
+                WHERE ps.owner_id = ${ownerId} AND ps.parent_conversation_id > parents.id
+                ORDER BY ps.parent_conversation_id LIMIT 1)
+        FROM parents WHERE parents.id IS NOT NULL
+      )
+      SELECT c.id AS conversation_id, c.agent_id, c.channel_id,
+             (k.kind IS NOT NULL) AS kind_known
+      FROM parents
+      JOIN ${conversations} c ON c.id = parents.id
+      CROSS JOIN LATERAL (SELECT ${channelKindOf(sql`c`)} AS kind) k
+      WHERE c.kind = 'channel' AND c.channel_id IS NOT NULL
+        AND (k.kind IS DISTINCT FROM 'public_channel' OR EXISTS (
+          SELECT 1 FROM ${sessions} cs
+          JOIN ${sessionShares} csh ON csh.session_id = cs.id
+          WHERE cs.owner_id = ${ownerId} AND cs.parent_conversation_id = c.id
+            AND csh.scope = 'private_channel'))
+      ORDER BY c.id`),
+  );
+  return rows.map((row) => {
+    const place = {
+      conversationId: row.conversation_id,
+      agentId: row.agent_id,
+      channelId: row.channel_id,
+    };
+    return row.kind_known ? place : { ...place, kindUnknown: true as const };
+  });
+}
+
 export function createPostgresSessionShareStore(
   db: Database,
 ): SessionShareStore {
@@ -508,7 +562,8 @@ export function createPostgresSessionShareStore(
     },
 
     async privateChannels(ownerId, sessionId) {
-      if (sessionId !== null && !UUID.test(sessionId)) return [];
+      if (sessionId === null) return ownerPrivateChannels(db, ownerId);
+      if (!UUID.test(sessionId)) return [];
       const rows = await db
         .selectDistinct({
           conversationId: conversations.id,
@@ -527,9 +582,7 @@ export function createPostgresSessionShareStore(
             behindPrivateChannel,
             eq(conversations.kind, "channel"),
             isNotNull(conversations.channelId),
-            ...(sessionId === null
-              ? []
-              : [eq(sessions.id, sessionId.toLowerCase())]),
+            eq(sessions.id, sessionId.toLowerCase()),
           ),
         );
       return rows.map(({ kindKnown, ...place }) =>

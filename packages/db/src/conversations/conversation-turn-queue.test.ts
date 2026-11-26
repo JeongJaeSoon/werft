@@ -12,7 +12,10 @@ import { drizzle } from "drizzle-orm/pglite";
 import type { Database } from "../queries.ts";
 import * as schema from "../schema.ts";
 import { conversationTurnQueueFixture } from "../testing/conversation-turn-queue.ts";
-import { createPostgresConversationTurnQueue } from "./conversation-turn-queue.ts";
+import {
+  CONVERSATION_TURN_QUEUE_CHANNEL,
+  createPostgresConversationTurnQueue,
+} from "./conversation-turn-queue.ts";
 
 const key = () =>
   SecretKey.fromHex(randomBytes(32).toString("hex"), "TEST_KEY");
@@ -146,5 +149,104 @@ describe("the conversation turn queue in the database (0355)", () => {
       turn.turn_id,
     ]);
     expect(await queue.outcome(turn.turn_id, now)).toBeNull();
+  }, 60_000);
+
+  test("tells its channel of a turn queued and of each turn's end, and of nothing else", async () => {
+    const { client, db } = await database();
+    const fixture = await conversationTurnQueueFixture(db);
+    const queue = createPostgresConversationTurnQueue(db, key());
+    const told: string[] = [];
+    await client.listen(CONVERSATION_TURN_QUEUE_CHANNEL, (payload) => {
+      told.push(payload);
+    });
+    const lease = { runtimeId, now, leaseMs: CONVERSATION_TURN_LEASE_MS };
+
+    const reported = await fixture.turn();
+    const attempt = entry();
+    await queue.enqueue(reported, attempt);
+    // The same attempt again queues nothing, and tells nothing.
+    expect(await queue.enqueue(await fixture.turn(reported), attempt)).toBe(
+      "duplicate",
+    );
+    const taken = await queue.lease(lease);
+    if (taken === null) throw new Error("not taken");
+    // A lease is nobody's news: nothing waits for it.
+    expect(told).toEqual(["queued"]);
+    await queue.report({
+      turnId: reported.turn_id,
+      leaseId: taken.lease_id,
+      runtimeId,
+      result: { outcome: "completed", text: "answer" },
+      now,
+    });
+    expect(told).toEqual(["queued", reported.turn_id]);
+
+    const expired = await fixture.turn();
+    await queue.enqueue(expired, entry());
+    await queue.lease(lease);
+    await queue.outcome(
+      expired.turn_id,
+      new Date(now.getTime() + CONVERSATION_TURN_LEASE_MS),
+    );
+    const untaken = await fixture.turn();
+    await queue.enqueue(untaken, entry());
+    await queue.outcome(untaken.turn_id, new Date(now.getTime() + 30_000));
+    expect(told.slice(2)).toEqual([
+      "queued",
+      expired.turn_id,
+      "queued",
+      untaken.turn_id,
+    ]);
+  }, 60_000);
+
+  test("says when it next changes by time alone, and changes then and not before", async () => {
+    const { db } = await database();
+    const fixture = await conversationTurnQueueFixture(db);
+    const queue = createPostgresConversationTurnQueue(db, key());
+    const at = (ms: number) => new Date(now.getTime() + ms);
+    expect(await queue.nextTimedChange?.()).toBeNull();
+
+    // A waiting turn of a free topic: its take time.
+    const first = await fixture.turn();
+    await queue.enqueue(first, entry());
+    expect(await queue.nextTimedChange?.()).toEqual(at(30_000));
+
+    // Out with a runtime: its lease's end. The one behind it has no time yet.
+    const behind = await fixture.turn(first);
+    await queue.enqueue(behind, entry());
+    await queue.lease({ runtimeId, now, leaseMs: CONVERSATION_TURN_LEASE_MS });
+    const leaseEnd = CONVERSATION_TURN_LEASE_MS;
+    expect(await queue.nextTimedChange?.()).toEqual(at(leaseEnd));
+    expect(await queue.outcome(first.turn_id, at(leaseEnd - 1))).toBe(
+      "pending",
+    );
+    expect(await queue.outcome(first.turn_id, at(leaseEnd))).toEqual({
+      outcome: "failed",
+      reason: "lease_expired",
+    });
+
+    // Freed, the one behind waits its take time again from then.
+    expect(await queue.nextTimedChange?.()).toEqual(at(leaseEnd + 30_000));
+    expect(await queue.outcome(behind.turn_id, at(leaseEnd + 30_000 - 1))).toBe(
+      "pending",
+    );
+    expect(await queue.outcome(behind.turn_id, at(leaseEnd + 30_000))).toEqual({
+      outcome: "failed",
+      reason: "not_taken",
+    });
+    expect(await queue.nextTimedChange?.()).toBeNull();
+
+    // A permit a whole lease no longer fits comes before the take time.
+    const permitted = await fixture.turn();
+    await queue.enqueue(permitted, {
+      ...entry(),
+      usableUntil: at(CONVERSATION_TURN_LEASE_MS + 10_000),
+    });
+    expect(await queue.nextTimedChange?.()).toEqual(at(10_001));
+    expect(await queue.outcome(permitted.turn_id, at(10_000))).toBe("pending");
+    expect(await queue.outcome(permitted.turn_id, at(10_001))).toEqual({
+      outcome: "failed",
+      reason: "not_taken",
+    });
   }, 60_000);
 });

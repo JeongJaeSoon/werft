@@ -351,10 +351,12 @@ describe("after apply, over HTTP", () => {
   const noInstall: ChannelMemberCheckable = {
     isMember: async () => false,
     membership: async () => "unconfirmed",
+    cachedMembership: async () => "unconfirmed",
   };
   const reinstalled: ChannelMemberCheckable = {
     isMember: async () => true,
     membership: async () => "member",
+    cachedMembership: async () => "member",
   };
 
   function api(channelMembers: ChannelMemberCheckable) {
