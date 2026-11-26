@@ -794,6 +794,25 @@ describe("protectedCommits trusts what a held pointer already proved", () => {
     ]);
   });
 
+  test("an observer that throws does not take the list away", async () => {
+    await twoRevisions();
+    const throwing = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objects,
+      onProtectedCommits: () => {
+        throw new Error("log sink down");
+      },
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+    expect(
+      await throwing.protectedCommits({
+        sessionId,
+        pointer: checkpoints.pointer(),
+      }),
+    ).toEqual([workspaceBundle.commit]);
+  });
+
   test("an unversioned deployment asks after every object, and reports nothing", async () => {
     const { first, second } = await twoRevisions();
     const {

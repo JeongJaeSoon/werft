@@ -2024,13 +2024,17 @@ export function createCheckpointService(deps: CheckpointServiceDependencies) {
         if (shared.heldSkipped.size > 0) {
           // The pointer that vouched: `verifiedRefs` read it through `reads`.
           const vouching = await reads.pointer().catch(() => null);
-          deps.onProtectedCommits?.({
-            heldSkipped: shared.heldSkipped.size,
-            judgedRevisions: checkpoints.length,
-            pointerRevision: input.pointer?.revision ?? null,
-            sessionId: input.sessionId,
-            vouchingRevision: vouching?.revision ?? null,
-          });
+          try {
+            deps.onProtectedCommits?.({
+              heldSkipped: shared.heldSkipped.size,
+              judgedRevisions: checkpoints.length,
+              pointerRevision: input.pointer?.revision ?? null,
+              sessionId: input.sessionId,
+              vouchingRevision: vouching?.revision ?? null,
+            });
+          } catch {
+            // An observer that fails says nothing about the commits.
+          }
         }
         return outcomes;
       });
@@ -2514,15 +2518,27 @@ async function readBounded(
 ): Promise<Uint8Array | "over" | undefined> {
   const chunks = await objects.stream(key, version);
   if (chunks === undefined) return undefined;
-  const kept: Uint8Array[] = [];
+  // Copied into one buffer of our own as it arrives: a store may refill the
+  // chunk it handed over, and keeping chunk after chunk would let a body
+  // split into tiny pieces cost far more than its bytes.
+  let kept = new Uint8Array(Math.min(limit, 64 * 1024));
   let bytes = 0;
   for await (const chunk of chunks) {
+    if (bytes + chunk.byteLength > limit) return "over";
+    if (bytes + chunk.byteLength > kept.byteLength) {
+      const grown = new Uint8Array(
+        Math.min(
+          limit,
+          Math.max(kept.byteLength * 2, bytes + chunk.byteLength),
+        ),
+      );
+      grown.set(kept.subarray(0, bytes));
+      kept = grown;
+    }
+    kept.set(chunk, bytes);
     bytes += chunk.byteLength;
-    if (bytes > limit) return "over";
-    // A store may refill the chunk it handed over.
-    kept.push(chunk.slice());
   }
-  return Buffer.concat(kept, bytes);
+  return kept.subarray(0, bytes);
 }
 
 /**

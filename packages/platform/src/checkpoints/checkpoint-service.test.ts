@@ -579,6 +579,43 @@ describe("protectedCommits", () => {
     ).rejects.toThrow("protected commits would be incomplete");
   });
 
+  test("a store that refills the chunk it handed over still yields the manifest it stored", async () => {
+    await commitRevision(0);
+    const pointer = checkpoints.pointer();
+    const refilling = new Proxy(objects, {
+      get(target, property) {
+        const value = Reflect.get(target, property, target);
+        if (property !== "stream" || typeof value !== "function") return value;
+        return async (key: string, version?: string) => {
+          const chunks = await value.call(target, key, version);
+          if (chunks === undefined) return undefined;
+          return (async function* () {
+            // One buffer, overwritten for every chunk, as a pooled reader does.
+            const pool = Buffer.alloc(3);
+            for await (const chunk of chunks as AsyncIterable<Uint8Array>) {
+              for (let at = 0; at < chunk.byteLength; at += pool.byteLength) {
+                const piece = chunk.subarray(at, at + pool.byteLength);
+                pool.set(piece);
+                yield pool.subarray(0, piece.byteLength);
+              }
+            }
+          })();
+        };
+      },
+    });
+    const reading = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
+      newPublishId: () => PUBLISH_ID,
+      objects: refilling,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+    expect(await reading.protectedCommits({ sessionId, pointer })).toEqual([
+      workspaceBundle.commit,
+    ]);
+  });
+
   test("a manifest over the limit is refused from a read that stops past the limit, with no HEAD", async () => {
     await commitRevision(0);
     const pointer = checkpoints.pointer();
