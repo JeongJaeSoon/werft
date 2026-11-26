@@ -5546,6 +5546,11 @@ export interface components {
              */
             status?: "queued" | "running" | "needs_input" | "idle" | "failed" | "stopped";
             /**
+             * @description Keeps the sessions whose `last_turn_cut_off` is this value. With `status=idle`, `true` lists what `counts.cut_off` counts and `false` the rest of `counts.idle`.
+             * @enum {string}
+             */
+            last_turn_cut_off?: "true" | "false";
+            /**
              * Format: uuid
              * @description Keeps the sessions created for this agent, whichever of its releases they are pinned to. An agent with no session the caller can read, or no such agent, gives an empty page.
              */
@@ -6584,6 +6589,11 @@ export interface components {
                 idle: number;
                 failed: number;
                 stopped: number;
+                /**
+                 * @description How many of the `idle` items have `last_turn_cut_off` set: GET /v1/sessions with `status=idle&last_turn_cut_off=true`. They are counted in `idle` too. Absent from a server older than the field.
+                 * @default 0
+                 */
+                cut_off: number;
             };
             total: number;
         };
@@ -6713,6 +6723,11 @@ export interface components {
              * @default 0
              */
             turn_time_ms: number;
+            /**
+             * @description True when the session's last turn failed because its worker lost the session partway (`terminal_reason: worker_ownership_lost`): no turn follows it yet. The session goes on from its last checkpoint with its next input or `POST /v1/sessions/{id}/turns/{turn_id}/continue`. The console shows an `idle` session with this set as cut off. False otherwise, and from a server older than the field.
+             * @default false
+             */
+            last_turn_cut_off: boolean;
             last_event_at: string | null;
             /** Format: date-time */
             created_at: string;
@@ -6867,6 +6882,11 @@ export interface components {
              * @default 0
              */
             turn_time_ms: number;
+            /**
+             * @description True when the session's last turn failed because its worker lost the session partway (`terminal_reason: worker_ownership_lost`): no turn follows it yet. The session goes on from its last checkpoint with its next input or `POST /v1/sessions/{id}/turns/{turn_id}/continue`. The console shows an `idle` session with this set as cut off. False otherwise, and from a server older than the field.
+             * @default false
+             */
+            last_turn_cut_off: boolean;
             last_event_at: string | null;
             /** Format: date-time */
             created_at: string;
@@ -23599,6 +23619,7 @@ export interface operations {
                 /** @description How many items a page holds at most. */
                 limit?: number;
                 status?: "queued" | "running" | "needs_input" | "idle" | "failed" | "stopped";
+                last_turn_cut_off?: "true" | "false";
                 agent_id?: string;
                 relation?: "all" | "started" | "shared" | "administered";
                 q?: string;
@@ -23972,7 +23993,8 @@ export interface operations {
                      *         "needs_input": 1,
                      *         "idle": 5,
                      *         "failed": 1,
-                     *         "stopped": 3
+                     *         "stopped": 3,
+                     *         "cut_off": 1
                      *       },
                      *       "total": 12
                      *     }

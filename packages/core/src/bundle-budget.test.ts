@@ -48,8 +48,10 @@ const BUDGET_BYTES: Record<string, number> = {
   // move to 154 and 151. The conversation turn's decision tools then put
   // ./forms 40 bytes over 151, so it moves to 152. The turn's
   // prepended_turn_id put ./schemas 179 bytes over 154, so it moves to 155.
+  // The session list's last_turn_cut_off, its filter and the counts' cut_off
+  // then fit ./schemas but put ./forms 117 bytes over 152, so it moves to 153.
   "./schemas": 155 * 1024,
-  "./forms": 152 * 1024,
+  "./forms": 153 * 1024,
 };
 
 test("every entry has a budget", () => {

@@ -130,6 +130,7 @@ function Sessions({
     admission: (state) => t(`sessions.admission.${state}`),
     statusAxis: t("sessions.column.status"),
     capacityWait: t("sessions.capacityWait"),
+    cutOff: t("session.status.ownershipLost"),
     admissionAxis: t("sessions.column.admission"),
     runtime: t("sessions.column.runtime"),
     lastEvent: t("sessions.column.lastEvent"),

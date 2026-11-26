@@ -4193,6 +4193,7 @@ export const API_ROUTE_DECLARATIONS = [
           idle: 5,
           failed: 1,
           stopped: 3,
+          cut_off: 1,
         },
         total: 12,
       },
