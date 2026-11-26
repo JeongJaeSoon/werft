@@ -9,6 +9,7 @@ import { testCaller } from "@werft-ai/testkit/callers";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
+import { CUT_OFF_INPUT_LINE } from "./cut-off-input.ts";
 import { fromDbNow } from "./db-clock.ts";
 import {
   createPostgresSessionReader,
@@ -22,7 +23,6 @@ import {
   turns,
   workspaces,
 } from "./schema.ts";
-import { CUT_OFF_INPUT_LINE } from "./sessions/cut-off-input.ts";
 import { testWorkerGateway, workerOf } from "./testing/gateway.ts";
 import { launchSession } from "./testing/launches.ts";
 import { claimedSession } from "./testing/sessions.ts";

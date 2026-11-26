@@ -12,6 +12,7 @@ import { testCaller } from "@werft-ai/testkit/callers";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { asc, eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
+import { CUT_OFF_INPUT_LINE } from "./cut-off-input.ts";
 import { fromDbNow } from "./db-clock.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
@@ -28,7 +29,6 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
-import { CUT_OFF_INPUT_LINE } from "./sessions/cut-off-input.ts";
 import { reconcileExpiredLeases } from "./sessions/lease-reconcile.ts";
 import { createPostgresWorkerPendingStore } from "./sessions/pending-control.ts";
 import { createPostgresPendingRequests } from "./sessions/pending-requests.ts";

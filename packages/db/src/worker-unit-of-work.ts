@@ -127,6 +127,7 @@ import {
 } from "./control-shared.ts";
 import { terminateReceiptResult } from "./control-unit-of-work.ts";
 import { encodeEventCursor } from "./cursors.ts";
+import { deliveredTurnInput, recordCutOff } from "./cut-off-input.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import {
   retiredSessionMcpOf,
@@ -193,7 +194,6 @@ import {
   contextGap,
   raiseContextGap,
 } from "./sessions/context-gap.ts";
-import { deliveredTurnInput, recordCutOff } from "./sessions/cut-off-input.ts";
 import {
   CLOSE,
   drainBlocker,
