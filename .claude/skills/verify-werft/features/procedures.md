@@ -4,7 +4,7 @@
 
 ## P-SETUP — 공통 전제
 
-zsh(Claude Code Bash 도구) 또는 bash 4 이상에서 실행한다. macOS `/bin/bash` 3.2는 중첩 command substitution 안의 GATE-SPEC JSON 인용을 깨뜨려 `unterminated GATE-SPEC`·`api_error`를 만들 수 있다.
+zsh(Claude Code Bash 도구) 또는 bash 4 이상에서 실행한다. macOS `/bin/bash` 3.2는 `"$(say "GATE-SPEC {\"id\":…,\"steps\":…}")"`처럼 큰따옴표 안 command substitution에 `\"`로 적은 대본의 중괄호를 brace expansion으로 풀어, 메시지가 `GATE-SPEC "id":"…"`로 줄어든 채 간다. 그 turn은 `api_error`로 끝나고 fake 모델 로그에 `unterminated GATE-SPEC, got: "id":"…"`가 남는다. Bash 도구 안에서도 스크립트 파일을 `bash x.sh`·`sh x.sh`로 돌리면 3.2다. `zsh x.sh`로 돌리거나, 대본을 작은따옴표나 변수에 먼저 담는다(`SPEC="GATE-SPEC {\"id\":\"$TAG\",…}"` 뒤 `"$(say "$SPEC")"`).
 
 `up.sh` 기본 모드로 시작한다. 출력된 id를 아래 `RUN`에 넣는다. 이후 셸 호출마다 아래 doctor 앞의 prelude를 다시 실행한다. ID는 설정 직후 `NAME=값` 줄로 출력되고, 그 줄을 Write 도구로 run의 `ids.sh`에 적는다(Bash의 `>>`·heredoc으로 파일을 만들지 않는다). Write는 파일 전체를 덮어쓰므로 지금까지 출력된 줄을 모두 적는다. 새 셸에서는 이 파일을 복원한다. 각 절차의 `ap_as <who>`는 cookie와 개인 key를 다시 로드한다. 각 `sh` 블록은 앞 절차의 서버·브라우저 상태와 `ids.sh`만 이어받으며, 새 셸에서 prelude만 실행한 뒤 그대로 실행할 수 있다. 인증 API를 호출하는 블록은 블록 안에서 해당 사용자의 `ap_as`를 실행한다. 원시 key와 요청 직전 revision은 사용하는 블록 안에서 준비한다. 자격 파일 내용은 출력하지 않는다.
 

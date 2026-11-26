@@ -224,7 +224,11 @@ export function firstJsonObject(text: string): string {
     else if (char === "{") depth++;
     else if (char === "}" && --depth === 0) return text.slice(0, index + 1);
   }
-  throw new Error(`unterminated ${SPEC_MARKER.trim()}`);
+  // With what arrived: a shell that mangles the quoting (macOS bash 3.2)
+  // sends the marker without the object.
+  throw new Error(
+    `unterminated ${SPEC_MARKER.trim()}, got: ${text.slice(0, 80)}`,
+  );
 }
 
 export function replyFor(

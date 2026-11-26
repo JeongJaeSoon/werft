@@ -70,6 +70,15 @@ describe("scripted Messages API", () => {
     expect(planOf([{ role: "user", content: text }])?.spec).toEqual(spec);
   });
 
+  test("a spec with no complete object fails with the text that arrived", () => {
+    // What macOS bash 3.2 sends for "$(say "GATE-SPEC {\"id\":…,\"steps\":…}")":
+    // brace expansion drops the braces and every member but the first.
+    const text = `${SPEC_MARKER}"id":"a1-t1"`;
+    expect(() => planOf([{ role: "user", content: text }])).toThrow(
+      'unterminated GATE-SPEC, got: "id":"a1-t1"',
+    );
+  });
+
   test("walks the script to its final text", async () => {
     const recorded: GateRequest[] = [];
     const prompt = {
