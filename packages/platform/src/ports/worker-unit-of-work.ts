@@ -622,9 +622,10 @@ export interface WorkerUnitOfWork {
   nextInputAtomic(input: NextInputInput): Promise<NextInputResult>;
   // Whether nextInputAtomic would now answer anything but "nothing yet",
   // read without a lock for a poll that is waiting. Nothing is handed out on
-  // it: true only sends the poll back to the fenced read, so whatever it
-  // cannot tell from an empty queue (a fence that no longer holds, a head it
-  // may not be given) is true.
+  // it: true only sends the poll back to the fenced read. So it errs towards
+  // true: for a fence that no longer holds, and for a queued head whether or
+  // not the session may be given it yet. A head another attempt was handed
+  // and has not finished is false; only its settling changes the answer.
   nextInputPending(input: NextInputPendingInput): Promise<boolean>;
   heartbeatAtomic(input: HeartbeatInput): Promise<HeartbeatResult>;
   commitEventsAtomic(input: CommitEventsInput): Promise<CommitEventsResult>;
