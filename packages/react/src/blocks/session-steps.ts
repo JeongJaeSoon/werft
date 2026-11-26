@@ -82,8 +82,9 @@ function stateOf(
     case "running":
       return "running";
     // The turns and the request list are read apart, so either may lag: a
-    // needs_input turn the list does not name waits only while a session
-    // read newer than the list counts open requests.
+    // needs_input turn the list does not name waits only while it is the
+    // session's current turn and a session read newer than the list counts
+    // open requests.
     case "needs_input":
       return heldOpen ? "answer" : "running";
     case "completed":
@@ -140,9 +141,11 @@ export function readSessionSteps({
       .sort((a, b) => a.created_at.localeCompare(b.created_at));
     // A turn whose requests are known to have lapsed is not held by a count
     // the session read before they did.
+    // The count is the session's, so it can hold only the turn it runs.
     const heldOpen =
       !listCurrent &&
       session.pending_request_count > 0 &&
+      turn.turn_id === session.current_turn_id &&
       own.length === asked.length;
     return {
       turn,

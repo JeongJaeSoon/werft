@@ -212,6 +212,24 @@ describe("readSessionSteps", () => {
     expect(steps.steps[0]?.requests).toEqual([]);
   });
 
+  test("the session's count holds only its current turn, not an earlier one the turns read lags on", () => {
+    const steps = read({
+      session: {
+        current_turn_id: "2",
+        status: "needs_input",
+        pending_request_count: 1,
+      },
+      turns: [turn("1", "needs_input"), turn("2", "needs_input")],
+      requests: [],
+      listCurrent: false,
+    });
+    expect(steps.steps.map((step) => step.state)).toEqual([
+      "running",
+      "answer",
+    ]);
+    expect(steps.focus).toBe(1);
+  });
+
   test("outdated requests leave no focus on an ended turn", () => {
     const steps = read({
       session: {
