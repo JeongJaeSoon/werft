@@ -71,8 +71,9 @@ describe("scripted Messages API", () => {
   });
 
   test("a spec with no complete object fails with the text that arrived", () => {
-    // What macOS bash 3.2 sends for "$(say "GATE-SPEC {\"id\":…,\"steps\":…}")":
-    // brace expansion drops the braces and every member but the first.
+    // What a session gets when macOS bash 3.2 runs
+    // "$(say "GATE-SPEC {\"id\":…,\"steps\":…}")": brace expansion splits the
+    // object into one argument per member, and `say` sends only the first.
     const text = `${SPEC_MARKER}"id":"a1-t1"`;
     expect(() => planOf([{ role: "user", content: text }])).toThrow(
       'unterminated GATE-SPEC, got: "id":"a1-t1"',

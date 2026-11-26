@@ -176,7 +176,7 @@ scripts/verify/janitor.sh --apply         # 목록에 나온 것만 지운다
 
 ## 알려진 함정
 
-- 절차는 zsh(Claude Code Bash 도구) 또는 bash 4 이상에서 실행한다. macOS `/bin/bash` 3.2는 `"$(say "GATE-SPEC {\"id\":…,\"steps\":…}")"`처럼 큰따옴표 안 command substitution에 `\"`로 적은 대본의 중괄호를 brace expansion으로 풀어, 메시지가 `GATE-SPEC "id":"…"`로 줄어든 채 간다. 그 turn은 `api_error`로 끝나고 fake 모델 로그에 `unterminated GATE-SPEC, got: "id":"…"`가 남는다. Bash 도구 안에서도 스크립트 파일을 `bash x.sh`·`sh x.sh`로 돌리면 3.2다. `zsh x.sh`로 돌리거나, 대본을 작은따옴표나 변수에 먼저 담는다(`SPEC="GATE-SPEC {\"id\":\"$TAG\",…}"` 뒤 `"$(say "$SPEC")"`).
+- 절차는 zsh(Claude Code Bash 도구) 또는 bash 4 이상에서 실행한다. macOS 기본 `/bin/bash`·`/bin/sh`(3.2)는 `"$(say "GATE-SPEC {\"id\":…,\"steps\":…}")"`처럼 큰따옴표 안 command substitution에 `\"`로 적은 대본의 중괄호를 brace expansion으로 풀어 칸마다 인자 하나로 나눈다. 받는 함수는 첫 인자만 쓰므로 메시지가 `GATE-SPEC "id":"…"`로 줄어든 채 간다. 그 turn은 `api_error`로 끝나고 fake 모델 로그에 `unterminated GATE-SPEC, got: "id":"…"`가 남는다. Bash 도구 안에서도 스크립트 파일을 `bash x.sh`·`sh x.sh`로 돌리면 `PATH`의 bash가 돌고, bash를 따로 깔지 않은 Mac에서는 그것이 3.2다. `zsh x.sh`로 돌리거나, 대본을 작은따옴표나 변수에 먼저 담는다(`SPEC="GATE-SPEC {\"id\":\"$TAG\",…}"` 뒤 `"$(say "$SPEC")"`).
 
 - host bun이 `package.json`의 `packageManager`(bun 1.3.14)와 다르면 main에서도 실패하는 로컬 테스트가 있다. 이 스킬은 bun을 host에서 쓰지 않는다(key CLI도 api 컨테이너 안에서 돈다). 테스트 판정은 CI가 기준이다.
 - `local.sh status`·`key`·`down`은 env의 `COMPOSE_PROJECT_NAME`·`COMPOSE_FILE`을 따른다. `lib.sh`를 source하지 않은 셸에서 부르면 기본 project `werft`을 건드린다.
