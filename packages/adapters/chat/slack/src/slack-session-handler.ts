@@ -983,6 +983,10 @@ export function createSlackSessionHandler(
       isStopRequest(message) &&
       (await stopHandling()) === "stop_session"
     ) {
+      // A stop that takes ends here, so the link learns its session first.
+      if (found.sessionId === null) {
+        await deps.sessionLinks.attachSession(found.id, sessionId);
+      }
       const stopped = await stopRequest(caller, found, sessionId);
       if (stopped) return;
     }

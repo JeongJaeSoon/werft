@@ -4615,8 +4615,6 @@ describe.each(ENGINES)(
           .from(schema.turns)
           .where(eq(schema.turns.sessionId, made?.id ?? "missing")),
       ).toEqual([{ status: "cancelled" }]);
-      // The link is the effect's to tie, on its next run.
-      await endings();
       expect((await links())[0]?.sessionId).toBe(made?.id);
     });
 
