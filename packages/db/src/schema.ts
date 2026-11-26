@@ -2050,11 +2050,13 @@ export const sessionTitleRequests = pgTable(
   ],
 );
 
-// Retained content the installation holds. A `turns` insert trigger
-// (migration 0107) charges every input in the same transaction that writes
-// it, and admitInput checks STORAGE_LIMIT_BYTES under this row's lock, so no
-// concurrent writer can race past the limit. One row per scope: today only
-// "installation".
+// Retained content the installation holds. A deferred `turns` insert trigger
+// (`storage_usage_charge_turn`) charges every input at the commit of the
+// transaction that writes it, and refuses the commit when the sum it wrote is
+// past the limit the acceptance set (admitInput), so no concurrent acceptance
+// can race past STORAGE_LIMIT_BYTES and this row is locked for the commit
+// alone. A writer that sets no limit (a platform turn) is charged only.
+// One row per scope: today only "installation".
 export const storageUsage = pgTable(
   "storage_usage",
   {
@@ -2968,6 +2970,25 @@ export const turnContinuations = pgTable("turn_continuations", {
     .unique()
     .references(() => turns.id, { onDelete: "cascade" }),
 });
+
+// What a stop did, under the key of the request that asked for it: a retry
+// of that request replays it, so it never cancels or interrupts later work.
+export const sessionStops = pgTable(
+  "session_stops",
+  {
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    cancelled: integer().notNull(),
+    // The turn sequence the stop interrupted; null when none was running.
+    runningTurnId: text("running_turn_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.sessionId, table.idempotencyKey] })],
+);
 
 // A Slack push approval's follow-up turn, held while the session had a turn
 // running: that turn may open the pull request itself, so the next turn end
@@ -6103,6 +6124,10 @@ export const conversationTurnQueue = pgTable(
       .where(sql`${table.state} IN ('queued', 'leased')`),
     // When each topic's last turn out ended.
     index("conversation_turn_queue_topic_idx").on(table.topicId, table.endedAt),
+    // The ended turns a sweep forgets: the few not forgotten yet.
+    index("conversation_turn_queue_ended_idx")
+      .on(table.endedAt)
+      .where(sql`${table.state} = 'ended'`),
     check(
       "conversation_turn_queue_state_check",
       sql`${table.attempt} >= 1 AND ${table.takeMs} >= 0 AND CASE ${table.state}

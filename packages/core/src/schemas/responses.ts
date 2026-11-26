@@ -29,6 +29,7 @@ import {
   completeGitHubInstallationResponseSchema,
   completeSlackInstallResponseSchema,
   countAgentsResponseSchema,
+  countAuditEventsResponseSchema,
   countSessionsResponseSchema,
   createAgentReleaseResponseSchema,
   createApiKeyResponseSchema,
@@ -261,6 +262,7 @@ export const responseSchemas = {
     issuePasswordResetResponseSchema,
   "POST /v1/workspaces/{id}/audit-retention": auditRetentionResponseSchema,
   "GET /v1/audit/events": listAuditEventsResponseSchema,
+  "GET /v1/audit/events/counts": countAuditEventsResponseSchema,
   "POST /v1/workspaces/{id}/slack-guest": slackGuestResponseSchema,
   "GET /v1/workspaces/{id}/slack/config-token": slackConfigTokenSummarySchema,
   "PUT /v1/workspaces/{id}/slack/config-token":

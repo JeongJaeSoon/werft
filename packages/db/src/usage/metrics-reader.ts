@@ -10,6 +10,7 @@ import {
   lte,
   sql,
 } from "drizzle-orm";
+import { INSTALLATION_STORAGE_SCOPE } from "../input-limits.ts";
 import type { Database } from "../queries.ts";
 import { awaitingLaunch } from "../scheduler/index.ts";
 import {
@@ -17,6 +18,7 @@ import {
   providerUsageTotals,
   queueMessages,
   sessions,
+  storageUsage,
   turns,
   unassignedSessions,
   workerLaunches,
@@ -93,6 +95,11 @@ export type PlatformMetricsSnapshot = {
     admission: string;
     count: number;
   }[];
+  /**
+   * The input bytes the storage counter holds, and the limit they are held
+   * to; the limit is null while the installation config cannot be read.
+   */
+  inputStorage: { usedBytes: number; limitBytes: number | null };
 };
 
 export type PlatformMetricsOptions = {
@@ -103,6 +110,8 @@ export type PlatformMetricsOptions = {
   budget: SessionBudget | null;
   /** Ascending upper bounds of the turn-duration histogram, in seconds. */
   buckets: readonly number[];
+  /** STORAGE_LIMIT_BYTES as the API applies it; null while it cannot be read. */
+  storageLimitBytes: number | null;
 };
 
 /**
@@ -125,6 +134,7 @@ export async function readPlatformMetrics(
     launchQueue,
     inputQueueOldestAgeSeconds,
     sessionWorkerImages,
+    storageUsedBytes,
   ] = await Promise.all([
     readSessions(db),
     readSettledTurns(db, options.buckets),
@@ -136,6 +146,7 @@ export async function readPlatformMetrics(
     options.budget === null ? null : readLaunchQueue(db, options.budget),
     readInputQueueOldestAge(db),
     readSessionWorkerImages(db),
+    readStorageUsed(db),
   ]);
   return {
     sessions: sessionRows,
@@ -148,7 +159,19 @@ export async function readPlatformMetrics(
     launchQueue,
     inputQueueOldestAgeSeconds,
     sessionWorkerImages,
+    inputStorage: {
+      usedBytes: storageUsedBytes,
+      limitBytes: options.storageLimitBytes,
+    },
   };
+}
+
+async function readStorageUsed(db: Database) {
+  const [row] = await db
+    .select({ bytes: storageUsage.bytes })
+    .from(storageUsage)
+    .where(eq(storageUsage.scope, INSTALLATION_STORAGE_SCOPE));
+  return row?.bytes ?? 0;
 }
 
 async function readSessionWorkerImages(db: Database) {

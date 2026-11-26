@@ -46,6 +46,22 @@ describe("slackNoticeFor", () => {
     });
   });
 
+  test("a stop's lines are the wording decided for them, the count in each language", () => {
+    expect(SLACK_NOTICE_MESSAGES.ko).toMatchObject({
+      sessionStopped:
+        "요청하신 대로 작업을 멈췄어요. 이어서 하려면 이 스레드에 다시 써 주세요.",
+      sessionStoppedQueued:
+        "요청하신 대로 작업을 멈췄어요. 기다리던 글 {count}개도 처리하지 않았어요. 이어서 하려면 이 스레드에 다시 써 주세요.",
+      nothingToStop: "지금 하고 있는 작업이 없어요.",
+      stopNotPermitted: "작업을 맡긴 사람만 멈출 수 있어요",
+    });
+    for (const locale of USER_LOCALE_VALUES) {
+      const messages = SLACK_NOTICE_MESSAGES[locale];
+      expect(messages.sessionStoppedQueued).toContain("{count}");
+      expect(messages.sessionStopped).not.toContain("{count}");
+    }
+  });
+
   test("every language says every notice, in its own words", () => {
     const keys = Object.keys(SLACK_NOTICE_MESSAGES.ko).sort();
     for (const locale of USER_LOCALE_VALUES) {

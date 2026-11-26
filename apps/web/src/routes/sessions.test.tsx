@@ -16,9 +16,12 @@ import {
   RECEIPT_ID,
 } from "../test-support/fake-api.ts";
 import { appHarness } from "../test-support/render-app.tsx";
+import type { SessionsSearch } from "./sessions.tsx";
 
 const { renderAt, screen, waitFor, act, within, fireEvent } =
   await appHarness();
+// After the harness: the screen's kit has to see the DOM when it loads.
+const { withSessionsFilter } = await import("./sessions.tsx");
 
 const SESSION_ID = "0f8b6a52-3d1e-4c7a-9b2f-5e6d7c8a9b01";
 const OTHER_ID = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
@@ -155,17 +158,43 @@ async function sessionMeta() {
     return meta;
   });
 }
+/** The head's progress line: step, tool calls, time, cost and tokens. */
+async function sessionProgress() {
+  return waitFor(() => {
+    const line = document.querySelector<HTMLElement>(
+      "[data-slot='session-progress']",
+    );
+    if (!line) throw new Error("no session progress line yet");
+    return line;
+  });
+}
 const EVENTS_ROUTE = `GET /v1/sessions/${SESSION_ID}/events`;
 
-/** Opens the relation chip and picks one by its label. */
+/** The filter panel's relation section, unfolded. */
+async function relationChoices(user: Awaited<ReturnType<typeof setupUser>>) {
+  await user.click(screen.getByRole("button", { name: /^필터/ }));
+  const panel = await screen.findByRole("dialog", { name: "필터" });
+  const header = within(panel).getByRole("button", { name: /^관계/ });
+  if (header.getAttribute("aria-expanded") !== "true") await user.click(header);
+  return within(panel).getByRole("list", { name: "관계" });
+}
+
+/** Opens the filters, picks a relation by its label and closes them. */
 async function pickRelation(
   user: Awaited<ReturnType<typeof setupUser>>,
   label: string,
 ) {
-  await user.click(screen.getByRole("button", { name: /^관계 / }));
-  const menu = await screen.findByRole("dialog", { name: "관계" });
-  await user.click(within(menu).getByRole("button", { name: label }));
+  const list = await relationChoices(user);
+  await user.click(
+    within(list).getByRole("button", { name: new RegExp(`^${label}`) }),
+  );
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 }
+
+/** A choice's label without its count. */
+const choiceLabel = (choice: HTMLElement) =>
+  choice.querySelector("span")?.textContent;
 
 function summary(id: string, overrides: Partial<SessionSummary> = {}) {
   return {
@@ -733,7 +762,12 @@ describe("sessions list", () => {
       "GET /v1/sessions/counts": () => json(200, sessionCounts(20)),
     });
     await screen.findByRole("link", { name: opener("세션 16") });
-    await user.click(screen.getByRole("button", { name: /^작업 중/ }));
+    await user.click(
+      within(screen.getByRole("group", { name: "상태로 보기" })).getByRole(
+        "button",
+        { name: /^작업 중/ },
+      ),
+    );
     await screen.findByRole("link", { name: opener("세션 1") });
     expect(history.location.search).toBe("?status=running");
 
@@ -1322,19 +1356,24 @@ describe("sessions list", () => {
       },
     });
     await screen.findByRole("link", { name: opener(SESSION_ID) });
-    await user.click(screen.getByRole("button", { name: "관계 모든 관계" }));
-    const menu = await screen.findByRole("dialog", { name: "관계" });
-    expect(
-      within(menu)
-        .getAllByRole("button")
-        .map((option) => option.textContent),
-    ).toEqual(["모든 관계", "내가 시작", "공유받음", "관리하는 에이전트"]);
+    const menu = await relationChoices(user);
+    expect(within(menu).getAllByRole("button").map(choiceLabel)).toEqual([
+      "모든 관계",
+      "내가 시작",
+      "공유받음",
+      "관리하는 에이전트",
+    ]);
 
-    await user.click(within(menu).getByRole("button", { name: "공유받음" }));
+    await user.click(within(menu).getByRole("button", { name: /^공유받음/ }));
+    await user.keyboard("{Escape}");
     await screen.findByRole("link", { name: opener(OTHER_ID) });
     expect(
-      screen.getByRole("button", { name: "관계 공유받음" }).dataset.filtered,
+      screen.getByRole("button", { name: "필터 1개 적용" }).dataset.filtered,
     ).toBe("");
+    const chips = screen.getByRole("group", { name: "적용한 필터" });
+    expect(within(chips).getByRole("listitem").textContent).toBe(
+      "관계 공유받음",
+    );
     expect(history.location.search).toContain("relation=shared");
     expect(
       api.calls.some(
@@ -1814,9 +1853,250 @@ describe("sessions list", () => {
     }
     await screen.findByRole("link", { name: opener(SESSION_ID) });
     expect(counts()).toHaveLength(1);
+    // The other relations are counted once each, and only once the filters
+    // open; the relation picked is the tabs' own read.
+    await relationChoices(user);
+    await waitFor(() => expect(counts()).toHaveLength(4));
+    expect(counts().map((call) => call.search)).toEqual([
+      "",
+      "?relation=started",
+      "?relation=shared",
+      "?relation=administered",
+    ]);
+    await user.keyboard("{Escape}");
+    for (const tab of ["실패", "전체"]) {
+      await user.click(screen.getByRole("button", { name: tab }));
+    }
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
+    expect(counts()).toHaveLength(4);
+  });
+
+  test("each filter value carries the count the API reads for it, with the tab and search kept", async () => {
+    const user = await setupUser();
+    const byRelation: Record<string, number> = {
+      "": 9,
+      started: 4,
+      shared: 2,
+      administered: 0,
+    };
+    const { api } = renderAt("/sessions?status=failed", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+      "GET /v1/sessions/counts": (request) => {
+        const relation =
+          new URL(request.url).searchParams.get("relation") ?? "";
+        const failed = byRelation[relation] ?? 0;
+        return json(200, {
+          counts: {
+            queued: 0,
+            running: 1,
+            needs_input: 0,
+            idle: 0,
+            failed,
+            stopped: 0,
+            cut_off: 0,
+          },
+          total: failed + 1,
+        });
+      },
+    });
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
+    await user.type(
+      screen.getByRole("searchbox", { name: "제목이나 ID로 찾기" }),
+      "deploy",
+    );
+    const list = await relationChoices(user);
+    // The failed tab is picked, so each relation counts its failed sessions.
+    await waitFor(() =>
+      expect(
+        within(list)
+          .getAllByRole("button")
+          .map(
+            (choice) => choice.getAttribute("aria-label") ?? choice.textContent,
+          ),
+      ).toEqual([
+        "모든 관계 99개",
+        "내가 시작 44개",
+        "공유받음 22개",
+        "관리하는 에이전트 00개",
+      ]),
+    );
+    // Every count was read with the search: the server counts only what the
+    // caller can read, under the list's own rules.
+    const searched = () =>
+      new Set(
+        api.calls
+          .filter((call) => call.path === "/v1/sessions/counts")
+          .map((call) => new URLSearchParams(call.search))
+          .filter((params) => params.get("q") === "deploy")
+          .map((params) => params.get("relation")),
+      );
+    await waitFor(() =>
+      expect(searched()).toEqual(
+        new Set([null, "started", "shared", "administered"]),
+      ),
+    );
+    const panel = screen.getByRole("dialog", { name: "필터" });
+    const status = within(panel).getByRole("list", { name: "상태" });
+    expect(
+      within(status)
+        .getByRole("button", { name: "실패 9개" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
+  test("a new search keeps each relation's last count until its own arrives", async () => {
+    const user = await setupUser();
+    let release: (() => void) | undefined;
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+      "GET /v1/sessions/counts": (request) => {
+        const answer = json(200, sessionCounts(3));
+        // Counts for the search wait until the test lets them go.
+        if (!new URL(request.url).searchParams.has("q")) return answer;
+        return new Promise<Response>((resolve) => {
+          release = () => resolve(json(200, sessionCounts(1)));
+        });
+      },
+    });
+    await screen.findByRole("link", { name: opener(SESSION_ID) });
+    const list = await relationChoices(user);
+    const shown = () =>
+      within(list)
+        .getAllByRole("button")
+        .map((choice) => choice.textContent);
+    await waitFor(() =>
+      expect(shown()).toEqual([
+        "모든 관계 33개",
+        "내가 시작 33개",
+        "공유받음 33개",
+        "관리하는 에이전트 33개",
+      ]),
+    );
+    const search = screen.getByRole("searchbox", {
+      name: "제목이나 ID로 찾기",
+    });
+    await user.type(search, "x");
+    await waitFor(() => expect(release).toBeDefined());
+    expect(shown()).toEqual([
+      "모든 관계 33개",
+      "내가 시작 33개",
+      "공유받음 33개",
+      "관리하는 에이전트 33개",
+    ]);
+    act(() => release?.());
+  });
+
+  test("a chip's × clears that filter alone, and remove all clears them all", async () => {
+    const user = await setupUser();
+    const { history } = renderAt("/sessions?status=failed&relation=shared", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+    });
+    const chips = await screen.findByRole("group", { name: "적용한 필터" });
+    expect(
+      within(chips)
+        .getAllByRole("listitem")
+        .map((chip) => chip.textContent),
+    ).toEqual(["상태 실패", "관계 공유받음"]);
+    await user.click(
+      within(chips).getByRole("button", {
+        name: "관계 필터 빼기: 공유받음",
+      }),
+    );
+    await waitFor(() => expect(history.location.search).toBe("?status=failed"));
+    // Focus moves to the chip left, not to the page.
+    const left = screen.getByRole("button", { name: "상태 필터 빼기: 실패" });
+    await waitFor(() => expect(document.activeElement === left).toBe(true));
+    expect(
+      screen
+        .getByRole("group", { name: "상태로 보기" })
+        .querySelector("[aria-pressed=true]")?.textContent,
+    ).toMatch(/^실패/);
+
+    await user.click(screen.getByRole("button", { name: "모두 지우기" }));
+    await waitFor(() => expect(history.location.search).toBe(""));
+    expect(screen.queryByRole("group", { name: "적용한 필터" })).toBeNull();
+    const button = screen.getByRole("button", { name: "필터" });
+    await waitFor(() => expect(document.activeElement === button).toBe(true));
+  });
+
+  test("the summary line shows the total and cost alone, and follows the relation picked", async () => {
+    const user = await setupUser();
+    const all = { ...sessionCounts(2), total: 9, cost_usd: "12.5" };
+    // Started by me: fewer of each, so the line follows the relation picked.
+    const started = { ...sessionCounts(1), total: 4, cost_usd: "0.004" };
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+      "GET /v1/sessions/counts": (request) =>
+        json(
+          200,
+          new URL(request.url).searchParams.get("relation") === "started"
+            ? started
+            : all,
+        ),
+    });
+    const line = await screen.findByRole("list", { name: "세션 요약" });
+    await waitFor(() =>
+      expect(
+        within(line)
+          .getAllByRole("listitem")
+          .map((item) => item.textContent),
+      ).toEqual(["세션 9", "예상 비용 $12.50"]),
+    );
+    // Running and failed are the status tabs' job: nothing here presses.
+    expect(within(line).queryByRole("button")).toBeNull();
+    expect(within(line).queryByRole("link")).toBeNull();
+
+    // The relation changes the figures, as it does the tabs.
     await pickRelation(user, "내가 시작");
-    await waitFor(() => expect(counts()).toHaveLength(2));
-    expect(counts()[1]?.search).toBe("?relation=started");
+    await waitFor(() =>
+      expect(
+        within(line)
+          .getAllByRole("listitem")
+          .map((item) => item.textContent),
+      ).toEqual(["세션 4", "예상 비용 <$0.01"]),
+    );
+  });
+
+  test("a server older than the cost leaves the cost out instead of showing $0", async () => {
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+      "GET /v1/sessions/counts": () => json(200, sessionCounts(1)),
+    });
+    const line = await screen.findByRole("list", { name: "세션 요약" });
+    expect(
+      within(line)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["세션 1"]);
+  });
+
+  test("withSessionsFilter keeps the other filter, clears with null and drops the page", () => {
+    expect(
+      withSessionsFilter(
+        { status: "failed", relation: "shared" },
+        {
+          relation: null,
+        },
+      ),
+    ).toEqual({ status: "failed" });
+    expect(
+      withSessionsFilter({ relation: "started" }, { status: "running" }),
+    ).toEqual({
+      status: "running",
+      relation: "started",
+    });
+    const paged: SessionsSearch = { status: "idle", page: 3 };
+    expect(withSessionsFilter(paged, {})).toEqual({ status: "idle" });
   });
 
   test("the menu links to it", async () => {
@@ -1914,9 +2194,9 @@ describe("session detail", () => {
     expect(
       await screen.findByText("한도에 도달해 새 턴을 시작하지 않습니다."),
     ).toBeTruthy();
-    const meta = await sessionMeta();
-    await waitFor(() => expect(meta.textContent).toContain("<$0.01"));
-    expect(meta.textContent).toContain("토큰 1,234");
+    const progress = await sessionProgress();
+    await waitFor(() => expect(progress.textContent).toContain("<$0.01"));
+    expect(progress.textContent).toContain("토큰 1,234");
     expect(
       await screen.findByRole("article", { name: "권한 요청: Bash" }),
     ).toBeTruthy();
@@ -2217,8 +2497,13 @@ describe("session detail", () => {
         text: "첫 답",
       });
     });
+    // The step list names each instruction too; these are the chat's.
     const asked = async (text: string) =>
-      (await screen.findByText(text)).closest("[data-slot='chat-message']");
+      (
+        await within(screen.getByRole("list", { name: "이벤트" })).findByText(
+          text,
+        )
+      ).closest("[data-slot='chat-message']");
     const first = await asked("첫 지시");
     expect(first?.getAttribute("data-side")).toBe("self");
     expect(first?.textContent).toContain("김민아");
@@ -2447,14 +2732,14 @@ describe("session detail", () => {
       refused(() => apiError(403, "FORBIDDEN", "may not read")));
   });
 
-  test("cost reads with two decimals in the head's meta line", async () => {
+  test("cost reads with two decimals in the head's progress line", async () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...detailRoutes,
       [`GET /v1/sessions/${SESSION_ID}/usage`]: () =>
         json(200, { ...usage, cost: { ...usage.cost, amount_usd: "1.5" } }),
     });
-    const meta = await sessionMeta();
-    await waitFor(() => expect(meta.textContent).toContain("$1.50"));
+    const progress = await sessionProgress();
+    await waitFor(() => expect(progress.textContent).toContain("$1.50"));
   });
 
   test("a turn that ended without a cost report is not called running", async () => {
@@ -3209,9 +3494,11 @@ describe("session runtime", () => {
     await user.click(await screen.findByRole("textbox", { name: "다음 지시" }));
     await user.keyboard("next step{Control>}{Enter}{/Control}");
     // No worker has started the turn, so no event names it.
-    const bubble = (await screen.findByText("next step")).closest(
-      "[data-slot='chat-message']",
-    );
+    const bubble = (
+      await within(screen.getByRole("list", { name: "이벤트" })).findByText(
+        "next step",
+      )
+    ).closest("[data-slot='chat-message']");
     expect(bubble?.getAttribute("data-side")).toBe("self");
     const notice = await screen.findByText("메시지를 보냈습니다.");
     expect(notice.tagName).toBe("OUTPUT");
@@ -3392,6 +3679,10 @@ describe("session runtime", () => {
     });
     const allow = await screen.findByRole("button", { name: "승인" });
     expect(allow.hasAttribute("disabled")).toBe(true);
+    // A key that may not answer is not told its input is needed.
+    expect(
+      screen.queryByRole("region", { name: "내 입력이 필요합니다" }),
+    ).toBeNull();
     // Beside the buttons, once.
     expect(
       screen.getAllByText("sessions:approve 권한이 있어야 할 수 있습니다."),
@@ -3544,8 +3835,8 @@ describe("세션 상세 레이아웃", () => {
     expect(
       screen.getAllByRole("group", { name: "세션 조작", hidden: true }),
     ).toEqual([controls]);
-    const meta = await sessionMeta();
-    await waitFor(() => expect(meta.textContent).toContain("<$0.01"));
+    const progress = await sessionProgress();
+    await waitFor(() => expect(progress.textContent).toContain("<$0.01"));
   });
 
   // happy-dom lays nothing out, so this pins what keeps the boxes still; the
@@ -4797,6 +5088,379 @@ describe("세션의 릴리스", () => {
       expect(piece.querySelectorAll("[data-slot=text]")).toHaveLength(0);
       // Nor anywhere else on the line, outside the piece.
       expect((meta.textContent ?? "").includes("릴리스")).toBe(false);
+    },
+  );
+});
+
+describe("session steps", () => {
+  const turn = (
+    turn_id: string,
+    status: string,
+    extra: Record<string, unknown> = {},
+  ) => ({
+    turn_id,
+    session_id: SESSION_ID,
+    status,
+    message: `지시 ${turn_id}`,
+    channel: "web",
+    created_by: null,
+    slack_permalink: null,
+    terminal_reason: null,
+    checkpoint_revision: null,
+    created_at: AT,
+    started_at: AT,
+    ended_at: status === "running" || status === "needs_input" ? null : AT,
+    ...extra,
+  });
+  const waitingOnTwo = {
+    ...detailRoutes,
+    [`GET /v1/sessions/${SESSION_ID}`]: () =>
+      json(200, { ...detail, current_turn_id: "2", attention: null }),
+    [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+      json(200, {
+        // As the API projects it: the turn with an open request reads needs_input.
+        items: [turn("1", "completed"), turn("2", "needs_input")],
+        next_cursor: null,
+      }),
+    [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+      json(200, {
+        ...pending,
+        items: pending.items.map((item) => ({
+          ...item,
+          turn_id: "2",
+          expires_at: LATER,
+        })),
+      }),
+  };
+
+  test("reads the turns again when they show a turn running that the session no longer runs", async () => {
+    let turnReads = 0;
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          status: "idle",
+          current_turn_id: null,
+          attention: null,
+        }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () => {
+        turnReads += 1;
+        return json(200, {
+          // The second read still lags; only the third has caught up.
+          items: [turn("1", turnReads <= 2 ? "running" : "completed")],
+          next_cursor: null,
+        });
+      },
+    });
+    const list = await screen.findByRole("region", { name: "단계" });
+    await waitFor(
+      () =>
+        expect(within(list).getByRole("listitem").textContent).toContain(
+          "마침",
+        ),
+      { timeout: 4_000 },
+    );
+    expect(turnReads).toBeGreaterThanOrEqual(3);
+    expect(
+      within(list).getByRole("listitem").getAttribute("aria-current"),
+    ).toBeNull();
+    const reads = turnReads;
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    // Once the reads agree, the rechecks stop.
+    expect(turnReads).toBe(reads);
+  });
+
+  test("reads the turns again when the session counts a queued turn they lack", async () => {
+    let turnReads = 0;
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          status: "running",
+          current_turn_id: "1",
+          queued_turn_count: 1,
+          attention: null,
+        }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () => {
+        turnReads += 1;
+        return json(200, {
+          // Another client queued turn 2; the first read missed it.
+          items:
+            turnReads === 1
+              ? [turn("1", "running")]
+              : [
+                  turn("1", "running"),
+                  turn("2", "queued", { started_at: null }),
+                ],
+          next_cursor: null,
+        });
+      },
+    });
+    const progress = await sessionProgress();
+    await within(progress).findByRole(
+      "button",
+      { name: /^단계 1\/2/ },
+      { timeout: 4_000 },
+    );
+  });
+
+  test("counts the turns as steps, opens only the current one and marks its approval wait", async () => {
+    const user = await setupUser();
+    renderAt(`/sessions/${SESSION_ID}`, waitingOnTwo);
+    const progress = await sessionProgress();
+    const toggle = await within(progress).findByRole("button", {
+      name: /^단계 2\/2/,
+    });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const list = screen.getByRole("region", { name: "단계" });
+    expect(toggle.getAttribute("aria-controls")).toBe(list.id);
+    const [first, second] = within(list).getAllByRole("listitem");
+    expect(second?.getAttribute("aria-current")).toBe("step");
+    expect(first?.getAttribute("aria-current")).toBeNull();
+    const open = within(second as HTMLElement).getByRole("button", {
+      name: /2단계: 지시 2/,
+    });
+    expect(open.getAttribute("aria-expanded")).toBe("true");
+    expect(open.textContent).toContain("승인 대기, 지금 단계");
+    expect(
+      within(second as HTMLElement).getByText("승인을 기다리는 도구: Bash"),
+    ).toBeTruthy();
+    // The open turn's time runs from its start.
+    expect(second?.textContent).toMatch(/시작한 지 /);
+    const closed = within(first as HTMLElement).getByRole("button", {
+      name: /1단계: 지시 1/,
+    });
+    expect(closed.textContent).toContain("마침");
+    expect(closed.textContent).not.toContain("지금 단계");
+    expect(closed.getAttribute("aria-expanded")).toBe("false");
+
+    // Any step opens by its row; the count folds the whole list.
+    await user.click(closed);
+    expect(closed.getAttribute("aria-expanded")).toBe("true");
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(list.hidden).toBe(true);
+  });
+
+  test("says the viewer's input is needed and takes the keyboard to the requests", async () => {
+    const user = await setupUser();
+    renderAt(`/sessions/${SESSION_ID}`, waitingOnTwo);
+    const needed = await screen.findByRole("region", {
+      name: "내 입력이 필요합니다",
+    });
+    expect(needed.textContent).toContain("승인 1건");
+    await screen.findByRole("article", { name: "권한 요청: Bash" });
+    await user.click(within(needed).getByRole("button", { name: "요청 보기" }));
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe("답변 대기 요청"),
+    );
+  });
+
+  test("a viewer who may not answer is not told their input is needed", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...waitingOnTwo,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, {
+          ...pending,
+          answerable: false,
+          items: pending.items.map((item) => ({
+            ...item,
+            turn_id: "2",
+            expires_at: LATER,
+          })),
+        }),
+    });
+    const list = await screen.findByRole("region", { name: "단계" });
+    // The step still waits on approval; it is only not this viewer's to give.
+    await within(list).findByText("승인 대기");
+    expect(
+      screen.queryByRole("region", { name: "내 입력이 필요합니다" }),
+    ).toBeNull();
+  });
+
+  test("an answer read before the turn is read again leaves no wait behind", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...waitingOnTwo,
+      // The session read after the answer: running, nothing open.
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          status: "running",
+          current_turn_id: "2",
+          pending_request_count: 0,
+          attention: null,
+        }),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+    });
+    const list = await screen.findByRole("region", { name: "단계" });
+    await within(list).findByText("진행 중");
+    expect(within(list).queryByText("승인 대기")).toBeNull();
+    expect(within(list).queryByText("답변 대기")).toBeNull();
+  });
+
+  test("a request past its expiry neither asks for input nor holds its step", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...waitingOnTwo,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, {
+          ...pending,
+          // AT is long past.
+          items: pending.items.map((item) => ({ ...item, turn_id: "2" })),
+        }),
+    });
+    const list = await screen.findByRole("region", { name: "단계" });
+    await within(list).findByText("진행 중");
+    expect(within(list).queryByText("승인 대기")).toBeNull();
+    expect(
+      screen.queryByRole("region", { name: "내 입력이 필요합니다" }),
+    ).toBeNull();
+  });
+
+  test("a request that lapses while the screen is open leaves the input line and its step", async () => {
+    const soon = new Date(Date.now() + 1_000).toISOString();
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...waitingOnTwo,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, {
+          ...pending,
+          items: pending.items.map((item) => ({
+            ...item,
+            turn_id: "2",
+            expires_at: soon,
+          })),
+        }),
+    });
+    const needed = await screen.findByRole("region", {
+      name: "내 입력이 필요합니다",
+    });
+    const list = screen.getByRole("region", { name: "단계" });
+    expect(within(list).getByText("승인 대기")).toBeTruthy();
+    await waitFor(() => expect(needed.isConnected).toBe(false), {
+      timeout: 3_000,
+    });
+    expect(within(list).queryByText("승인 대기")).toBeNull();
+  });
+
+  test("a session nothing waits on has no input-needed line", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...waitingOnTwo,
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+    });
+    await within(await sessionProgress()).findByRole("button", {
+      name: /^단계 2\/2/,
+    });
+    expect(
+      within(screen.getByRole("region", { name: "단계" })).queryByText(
+        "승인 대기",
+      ),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("region", { name: "내 입력이 필요합니다" }),
+    ).toBeNull();
+  });
+
+  test("a blocked session says why under its steps, with the fix where it is", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          status: "idle",
+          current_turn_id: null,
+          pending_request_count: 0,
+          attention: {
+            code: "CATALOG_MISMATCH",
+            reason: "connection_disabled",
+          },
+        }),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, { items: [turn("1", "completed")], next_cursor: null }),
+    });
+    await within(await sessionProgress()).findByRole("button", {
+      name: /^단계 1개/,
+    });
+    const list = screen.getByRole("region", { name: "단계" });
+    expect(
+      within(list).getByText(
+        "다음 단계를 시작하지 못합니다. 모델 연결이나 저장소 설정이 바뀌어 실행할 수 없습니다.",
+      ),
+    ).toBeTruthy();
+    // Nothing runs, so no step is current or open.
+    const [only] = within(list).getAllByRole("listitem");
+    expect(only?.getAttribute("aria-current")).toBeNull();
+  });
+
+  test("a step a lost worker cut off offers to continue in its place", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          status: "idle",
+          current_turn_id: null,
+          pending_request_count: 0,
+          attention: null,
+        }),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, {
+          items: [
+            turn("1", "failed", { terminal_reason: "worker_ownership_lost" }),
+          ],
+          next_cursor: null,
+        }),
+    });
+    const list = await screen.findByRole("region", { name: "단계" });
+    const [only] = within(list).getAllByRole("listitem");
+    expect(
+      await within(only as HTMLElement).findByText(
+        "작업자가 세션을 놓쳐 이 단계가 중간에 끊겼습니다.",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(only as HTMLElement).getByRole("button", {
+        name: "이 단계 이어서 하기",
+      }),
+    ).toBeTruthy();
+  });
+
+  test.each([
+    [
+      "en",
+      /^Step 2\/2/,
+      "Awaiting approval",
+      "Your input is needed",
+      "View requests",
+    ],
+    [
+      "ja",
+      /^ステップ 2\/2/,
+      "承認待ち",
+      "あなたの入力が必要です",
+      "リクエストを見る",
+    ],
+  ] as const)(
+    "in %s the steps and the input line speak it",
+    async (locale, count, waiting, needed, show) => {
+      renderAt(`/sessions/${SESSION_ID}`, waitingOnTwo, locale);
+      await within(await sessionProgress()).findByRole("button", {
+        name: count,
+      });
+      const [, second] = within(
+        screen.getByRole("region", {
+          name: locale === "en" ? "Steps" : "ステップ",
+        }),
+      ).getAllByRole("listitem");
+      expect(within(second as HTMLElement).getByText(waiting)).toBeTruthy();
+      const line = await screen.findByRole("region", { name: needed });
+      expect(within(line).getByRole("button", { name: show })).toBeTruthy();
     },
   );
 });

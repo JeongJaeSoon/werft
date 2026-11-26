@@ -336,6 +336,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/audit/events/counts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count the audit rows a list would return, per kind (owner only)
+         * @description Counts, for each `kind`, the rows GET /v1/audit/events would list with the same filters when read to its last page, inside the same retention window; `total` is their sum. Each count stops at 1,000: past it `count` is 1,000 and `more` is true. Only the workspace owner, signed in, reads it; every other member and every API key get 403, and each read, allowed or refused, leaves a decision row (`audit_log.read`). It changes nothing else.
+         *
+         *     **Scope:** `sessions:read` (API key or cookie session).
+         */
+        get: operations["countAuditEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/workspaces/{id}/slack-guest": {
         parameters: {
             query?: never;
@@ -1481,7 +1503,7 @@ export interface paths {
         };
         /**
          * Count the sessions a list would return, per status
-         * @description Counts, for each status, the sessions `GET /v1/sessions` would list with that `status` and the same `relation` and `q` when read to its last page; `total` is their sum. A session the caller cannot read is never counted. It changes nothing.
+         * @description Counts, for each status, the sessions `GET /v1/sessions` would list with that `status` and the same `relation` and `q` when read to its last page; `total` is their sum, and `cost_usd` the estimated provider cost of those `total` sessions added up. A session the caller cannot read is never counted, and neither is its cost. It changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -6123,6 +6145,32 @@ export interface components {
             /** @default 50 */
             limit: number;
         };
+        CountAuditEventsQuery: {
+            /**
+             * Format: date-time
+             * @description Keeps rows at or after this time. A time before the retention window reads as the window's start (`retention_start`).
+             */
+            from?: string;
+            /**
+             * Format: date-time
+             * @description Keeps rows before this time.
+             */
+            to?: string;
+            /**
+             * @description `decision` keeps the access decisions, `receipt` the commands. Both without it.
+             * @enum {string}
+             */
+            kind?: "decision" | "receipt";
+            /**
+             * Format: uuid
+             * @description Keeps the rows of what this person did or tried to do.
+             */
+            actor_user_id?: string;
+            /** @description Keeps one action: a decision's `action` or a receipt's operation. */
+            action?: string;
+            /** @description Keeps one outcome: a decision's (`allow`, `deny`, `redact`, `require_approval`) or a receipt's status. */
+            outcome?: string;
+        };
         SlackGuestRequest: {
             slack_guest_enabled: boolean;
         };
@@ -6599,6 +6647,8 @@ export interface components {
                 cut_off: number;
             };
             total: number;
+            /** @description The estimated provider cost of the `total` sessions added up: the sum of `cost.amount_usd` from GET /v1/sessions/{id}/usage over the same sessions, read with the counts. An estimate, not a bill; a turn still running adds what it has spent so far. Absent from a server older than the field. */
+            cost_usd?: string;
             /**
              * @description Present and true while some private channel's members are still being confirmed: that channel's sessions are left out of this answer, which may hold more when read again shortly. No count is given.
              * @constant
@@ -8997,6 +9047,26 @@ export interface components {
              * @description The start of the workspace's retention window: nothing older is listed or exported.
              */
             retention_start: string;
+        };
+        CountAuditEventsResponse: {
+            /** @description For each `kind`, how many rows GET /v1/audit/events would list with the same filters and that `kind`, read to the last page. A `kind` in the query leaves the other at 0. */
+            counts: {
+                decision: {
+                    count: number;
+                    /** @description True when more than 1000 rows match: `count` is then 1000. */
+                    more: boolean;
+                };
+                receipt: {
+                    count: number;
+                    /** @description True when more than 1000 rows match: `count` is then 1000. */
+                    more: boolean;
+                };
+            };
+            total: {
+                count: number;
+                /** @description True when more than 1000 rows match: `count` is then 1000. */
+                more: boolean;
+            };
         };
         AuditExportLine: {
             /** @enum {string} */
@@ -14934,6 +15004,114 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "RATE_LIMITED";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    countAuditEvents: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+                kind?: "decision" | "receipt";
+                actor_user_id?: string;
+                action?: string;
+                outcome?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The number of audit rows per kind, up to 1,000 each. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "counts": {
+                     *         "decision": {
+                     *           "count": 1000,
+                     *           "more": true
+                     *         },
+                     *         "receipt": {
+                     *           "count": 42,
+                     *           "more": false
+                     *         }
+                     *       },
+                     *       "total": {
+                     *         "count": 1000,
+                     *         "more": true
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CountAuditEventsResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
                         };
                     };
                 };
@@ -24024,7 +24202,8 @@ export interface operations {
                      *         "stopped": 3,
                      *         "cut_off": 1
                      *       },
-                     *       "total": 12
+                     *       "total": 12,
+                     *       "cost_usd": "8.421500"
                      *     }
                      */
                     "application/json": components["schemas"]["CountSessionsResponse"];

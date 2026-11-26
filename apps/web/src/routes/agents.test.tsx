@@ -567,7 +567,132 @@ describe("에이전트 목록", () => {
     expect(document.body.textContent).not.toContain("agent.manage");
     expect(document.body.textContent).not.toContain("does not hold");
   });
+
+  test("맨 위 한 줄 요약은 세션 counts API의 수와 비용이고, 값을 누르면 그 상태로 거른 세션 목록이 칩과 함께 열린다", async () => {
+    const server = agentServer();
+    const { history, api } = renderAt("/agents", {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/sessions/counts": () => json(200, SESSION_COUNTS),
+      "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
+    });
+    const line = await screen.findByRole("list", { name: "세션 요약" });
+    expect(
+      within(line)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["세션 10", "작업 중 2", "실패 3", "예상 비용 $3.20"]);
+    // Every session the caller reads, as the sessions list opens.
+    expect(
+      api.calls.find((call) => call.path === "/v1/sessions/counts")?.search,
+    ).toBe("");
+    const failed = within(line).getByRole("link", { name: "실패 3" });
+    expect(failed.getAttribute("href")).toBe("/sessions?status=failed");
+
+    const user = await setupUser();
+    await user.click(failed);
+    await waitFor(() => expect(history.location.pathname).toBe("/sessions"));
+    expect(history.location.search).toBe("?status=failed");
+    const chips = await screen.findByRole("group", { name: "적용한 필터" });
+    expect(within(chips).getByRole("listitem").textContent).toBe("상태 실패");
+    // The sessions list's line keeps the total and cost; its tabs filter.
+    expect(
+      within(await screen.findByRole("list", { name: "세션 요약" }))
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["세션 10", "예상 비용 $3.20"]);
+  });
+
+  test("전체 목록을 못 보는 구성원도 자기가 볼 수 있는 세션의 요약을 본다", async () => {
+    renderAt("/agents", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/agents": () =>
+        apiError(403, "FORBIDDEN", "This principal does not hold agent.manage"),
+      "GET /v1/administered-agents": () => json(200, { items: [] }),
+      "GET /v1/sessions/counts": () => json(200, SESSION_COUNTS),
+    });
+    expect(
+      await screen.findByRole("link", { name: "작업 중 2" }),
+    ).toBeDefined();
+  });
+
+  test("한 번 읽은 뒤 다시 읽기가 실패하면 옛 수를 두지 않고 요약 줄을 뺀다", async () => {
+    const server = agentServer();
+    let reads = 0;
+    renderAt("/agents", {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/sessions/counts": () =>
+        ++reads === 1
+          ? json(200, SESSION_COUNTS)
+          : apiError(503, "BACKEND_UNAVAILABLE", "down"),
+      "GET /v1/sessions": () => json(200, { items: [], next_cursor: null }),
+    });
+    const line = await screen.findByRole("list", { name: "세션 요약" });
+    const user = await setupUser();
+    // The sessions list reads the same counts again on arrival, and fails.
+    await user.click(within(line).getByRole("link", { name: "실패 3" }));
+    await screen.findByRole("group", { name: "적용한 필터" });
+    await waitFor(() => expect(reads).toBeGreaterThan(1));
+    await waitFor(() =>
+      expect(screen.queryByRole("list", { name: "세션 요약" })).toBeNull(),
+    );
+  });
+
+  test("에이전트 화면에 머문 채 다시 읽기가 실패해도 옛 수를 두지 않는다", async () => {
+    const server = agentServer();
+    let reads = 0;
+    renderAt("/agents", {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/sessions/counts": () =>
+        ++reads === 1
+          ? json(200, SESSION_COUNTS)
+          : apiError(503, "BACKEND_UNAVAILABLE", "down"),
+    });
+    await screen.findByRole("list", { name: "세션 요약" });
+    // Coming back to the window reads the counts again, under the same key.
+    const { focusManager } = await import("@tanstack/react-query");
+    try {
+      act(() => {
+        focusManager.setFocused(false);
+        focusManager.setFocused(true);
+      });
+      await waitFor(() => expect(reads).toBeGreaterThan(1));
+      await waitFor(() =>
+        expect(screen.queryByRole("list", { name: "세션 요약" })).toBeNull(),
+      );
+    } finally {
+      act(() => focusManager.setFocused(undefined));
+    }
+  });
+
+  test("counts를 읽지 못하면 요약 줄을 빼고 0이라 말하지 않는다", async () => {
+    const server = agentServer();
+    renderAt("/agents", {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/sessions/counts": () =>
+        apiError(503, "BACKEND_UNAVAILABLE", "down"),
+    });
+    await screen.findByRole("table", { name: "에이전트" });
+    expect(screen.queryByRole("list", { name: "세션 요약" })).toBeNull();
+  });
 });
+
+const SESSION_COUNTS = {
+  counts: {
+    queued: 0,
+    running: 2,
+    needs_input: 1,
+    idle: 4,
+    failed: 3,
+    stopped: 0,
+    cut_off: 0,
+  },
+  total: 10,
+  cost_usd: "3.2",
+};
 
 describe("에이전트 목록 탭과 검색", () => {
   beforeEach(() => localStorage.clear());
