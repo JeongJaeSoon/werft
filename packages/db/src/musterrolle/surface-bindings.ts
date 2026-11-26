@@ -663,18 +663,48 @@ export function createPostgresSurfaceBindingStore(
           (await removedByEvents(tx, id, channelId, { lock: true }))
             ? "awaiting_invite"
             : "joined";
+        // As a save does: a channel joined while its stop holds (through
+        // another install of the team) starts stopped as the others are.
+        const [identity] = await tx
+          .select({
+            workspaceId: agentIdentities.workspaceId,
+            agentId: agentIdentities.agentId,
+          })
+          .from(agentIdentities)
+          .where(
+            and(
+              eq(agentIdentities.installationId, id),
+              eq(agentIdentities.status, "active"),
+            ),
+          )
+          .limit(1);
+        const stop =
+          identity === undefined
+            ? undefined
+            : (
+                await lockStopScope(
+                  tx,
+                  { ...identity, installationId: id, channelId },
+                  { kinds: false },
+                )
+              ).bindings.find((binding) => binding.emergencyStoppedAt !== null);
         const inserted = rowsOf<{ id: string }>(
           await tx.execute(sql`
             INSERT INTO ${surfaceBindings} (id, workspace_id, agent_id, surface,
               installation_id, external_surface_id, surface_kind, mode, status,
-              ceiling_actions, ceiling_disclosure, membership)
+              ceiling_actions, ceiling_disclosure, membership,
+              emergency_stopped_at, emergency_stopped_by, emergency_stop_reason)
             SELECT ${bindingId}, i.workspace_id, i.agent_id, 'slack',
-              i.installation_id, ${channelId}, ${channelKind}, 'on',
+              i.installation_id, ${channelId}, ${channelKind},
+              ${stop === undefined ? "on" : "off"},
               ${channelKind === "private_channel" ? "pending_approval" : "ready"},
               ARRAY[${sql.join(
                 actions.map((action) => sql`${action}`),
                 sql`, `,
-              )}]::text[], ${disclosure}, ${membership}
+              )}]::text[], ${disclosure}, ${membership},
+              ${stop?.emergencyStoppedAt ?? null}::timestamptz,
+              ${stop?.emergencyStoppedBy ?? null}::uuid,
+              ${stop?.emergencyStopReason ?? null}
             FROM ${agentIdentities} i
             WHERE i.installation_id = ${id} AND i.status = 'active'
             ON CONFLICT DO NOTHING

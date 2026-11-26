@@ -253,7 +253,10 @@ const promptRequestId = (row: SQL, prefix: "prompt:" | "push:") => {
 // not in it.
 const channelNotWaiting = (row: SQL) => sql`(
   NOT ${channelLeft(sql`${row}.installation_id`, sql`${row}.channel_id`)}
-  AND ((${row}.kind = 'notice' AND ${row}.session_id IS NULL) OR NOT EXISTS (
+  -- An emergency stop's line is told to a channel waiting for approval as
+  -- well: the bot may be in it, and only a channel it left is skipped.
+  AND ((${row}.kind = 'notice' AND ${row}.session_id IS NULL)
+    OR ${row}.kind = 'emergency_stop_notice' OR NOT EXISTS (
     SELECT 1 FROM surface_bindings b
     WHERE b.installation_id = ${row}.installation_id
       AND b.external_surface_id = ${row}.channel_id
@@ -2013,6 +2016,19 @@ export function createPostgresSlackOutboxStore(
               AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= now())
               AND c.held_for_input_id IS NULL
               AND NOT EXISTS (${rateBlocks(sql.raw("c"))})
+              -- An emergency stop's line goes after every send to the
+              -- channel already under way through an install it covers,
+              -- a send's own retries included, is done or its lease is.
+              AND (c.kind <> 'emergency_stop_notice' OR NOT EXISTS (
+                SELECT 1 FROM slack_outbox s
+                JOIN slack_installations si ON si.id = s.installation_id
+                WHERE s.channel_id = c.channel_id
+                  AND s.status = 'sending'
+                  AND s.kind <> 'emergency_stop_notice'
+                  AND s.lease_expires_at > now()
+                  AND coalesce(si.team_id, si.id::text) = (
+                    SELECT coalesce(ci.team_id, ci.id::text)
+                    FROM slack_installations ci WHERE ci.id = c.installation_id)))
               AND ${addressed(db, sql.raw("c"), noticeVersions)}
               -- Held while its channel is not one the agent reads.
               AND (c.kind <> 'channel_notice'

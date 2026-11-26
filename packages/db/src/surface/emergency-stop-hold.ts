@@ -20,10 +20,15 @@ export async function emergencyStopHolds(
          AND b.emergency_stopped_at IS NOT NULL
         WHERE s.id = ${sessionId}::uuid
           AND (
+            -- A thread's channel through any install of its Slack team: one
+            -- stop covers them all, so a revoked install's link is held too.
             EXISTS (
               SELECT 1 FROM session_links l
+              JOIN slack_installations li ON li.id = l.installation_id
+              JOIN slack_installations bi ON bi.id = b.installation_id
               WHERE l.session_id = s.id
-                AND l.installation_id = b.installation_id
+                AND coalesce(li.team_id, li.id::text)
+                  = coalesce(bi.team_id, bi.id::text)
                 AND l.channel_id = b.external_surface_id
                 AND l.agent_id = b.agent_id)
             OR EXISTS (

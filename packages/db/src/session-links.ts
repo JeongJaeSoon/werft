@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { SessionLinkRecord, SessionLinkStore } from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { UUID } from "./control-shared.ts";
+import { lockSessionForControl, UUID } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import { markCutTurnsTold, stopJoiningSession } from "./emergency-stop.ts";
 import { CREATE_SESSION, SESSIONS_RESOURCE } from "./postgres-unit-of-work.ts";
@@ -110,21 +110,35 @@ export function createPostgresSessionLinkStore(db: Database): SessionLinkStore {
         if (link?.installationId && link.channelId) {
           await lockChannelKind(tx, link.installationId, link.channelId);
         }
+        // Stopped in any install of the channel's Slack team, as one stop
+        // covers them all.
+        const [stopped] = rowsOf(
+          await tx.execute(sql`
+            SELECT 1 FROM ${t} l
+            JOIN slack_installations li ON li.id = l.installation_id
+            JOIN surface_bindings b ON b.external_surface_id = l.channel_id
+              AND b.agent_id = l.agent_id
+            JOIN slack_installations bi ON bi.id = b.installation_id
+            WHERE l.id = ${linkId}::uuid AND b.revoked_at IS NULL
+              AND coalesce(bi.team_id, bi.id::text)
+                = coalesce(li.team_id, li.id::text)
+              AND b.emergency_stopped_at IS NOT NULL`),
+        );
+        // The session as a control takes it (its launch, then the row),
+        // before the link's key to it, which a claim of its worker would
+        // otherwise wait on in the other order.
+        if (stopped) {
+          await lockSessionForControl(tx, {
+            sessionId: sessionId.toLowerCase(),
+            attempt: 0,
+          });
+        }
         const attached = await tx
           .update(t)
           .set({ sessionId: sessionId.toLowerCase() })
           .where(and(eq(t.id, linkId), isNull(t.sessionId)))
           .returning({ id: t.id });
         if (attached.length === 0) return;
-        const [stopped] = rowsOf(
-          await tx.execute(sql`
-            SELECT 1 FROM ${t} l
-            JOIN surface_bindings b ON b.installation_id = l.installation_id
-              AND b.external_surface_id = l.channel_id
-              AND b.agent_id = l.agent_id
-            WHERE l.id = ${linkId}::uuid AND b.revoked_at IS NULL
-              AND b.emergency_stopped_at IS NOT NULL`),
-        );
         if (stopped) await stopJoiningSession(tx, sessionId.toLowerCase());
         // A turn a stop cut before this thread held the session, the
         // channel on again or not, is never told here as a failure.

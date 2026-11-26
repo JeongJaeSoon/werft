@@ -1205,6 +1205,37 @@ describe("a stop that cancelled input behind the cut-off turn", () => {
   });
 });
 
+describe("the stop's own line", () => {
+  test("the stop's line waits for a send already under way in the channel", async () => {
+    const s = await stage();
+    const outbox = createPostgresSlackOutboxStore(db);
+    const claimed = await outbox.claim({ limit: 10, leaseMs: 30_000 });
+    const sending = claimed.find((row) => row.channelId === CHANNEL);
+    if (!sending) throw new Error("nothing claimed for the channel");
+    expect(await outbox.beginSend(sending)).not.toBe(false);
+    await stop(s, s.admin);
+    const kinds = async () =>
+      (await outbox.claim({ limit: 10, leaseMs: 30_000 })).map(
+        (row) => row.kind,
+      );
+    expect(await kinds()).not.toContain("emergency_stop_notice");
+    await outbox.settle(sending, { status: "sent", slackTs: "100.000200" });
+    expect(await kinds()).toContain("emergency_stop_notice");
+  });
+
+  test("the stop's line is told to a channel waiting for approval", async () => {
+    const s = await stage();
+    await db
+      .update(surfaceBindings)
+      .set({ surfaceKind: "private_channel", status: "pending_approval" })
+      .where(eq(surfaceBindings.id, s.bindingId));
+    expect((await stop(s, s.admin)).outcome).toBe("stopped");
+    const outbox = createPostgresSlackOutboxStore(db);
+    const claimed = await outbox.claim({ limit: 10, leaseMs: 30_000 });
+    expect(claimed.map((row) => row.kind)).toContain("emergency_stop_notice");
+  });
+});
+
 describe("two installs of one Slack team in the channel", () => {
   async function secondInstall(s: Stage) {
     const second = { appId: "A0SECOND", teamId: "T0STOP" };
@@ -1369,6 +1400,60 @@ describe("two installs of one Slack team in the channel", () => {
       { key: "reply:b-after", status: "pending" },
       { key: "reply:b-before", status: "failed" },
     ]);
+  });
+
+  test("a channel the other install's bot is invited to while the stop holds starts stopped", async () => {
+    const s = await stage();
+    const b = await secondInstall(s);
+    expect((await stop(s, s.admin)).outcome).toBe("stopped");
+    const joined = await store().ensureInvitedChannel(
+      b.installationId,
+      CHANNEL,
+      "public_channel",
+    );
+    expect(joined?.emergencyStop?.reason).toBe("a leak suspected");
+    expect(joined?.mode).toBe("off");
+  });
+
+  test("a thread linked through an install whose binding is gone stays held", async () => {
+    const s = await stage();
+    const b = await secondInstall(s);
+    const bound = await turnOn(s, s.owner);
+    if (bound.outcome !== "set") throw new Error(bound.outcome);
+    const [made] = await db
+      .select({ releaseId: sessions.agentReleaseId })
+      .from(sessions)
+      .where(eq(sessions.id, s.worker.sessionId));
+    if (!made?.releaseId) throw new Error("no release");
+    await db
+      .update(sessions)
+      .set({ parentConversationId: null })
+      .where(eq(sessions.id, s.worker.sessionId));
+    const links = createPostgresSessionLinkStore(db);
+    await client.exec("SET session_replication_role = replica");
+    const { link } = await links.reserve({
+      workspaceId: s.workspaceId,
+      installationId: s.installationId,
+      surfaceBindingId: s.bindingId,
+      surfaceRef: `${CHANNEL}:300.000100`,
+      channelId: CHANNEL,
+      threadId: "300.000100",
+      openedByTs: "300.000100",
+      agentId: s.agentId,
+      releaseId: made.releaseId,
+      createdBy: s.owner.userId,
+    });
+    await client.exec("SET session_replication_role = DEFAULT");
+    await links.attachSession(link.id, s.worker.sessionId);
+    expect((await stop(s, s.admin)).outcome).toBe("stopped");
+    expect(await emergencyStopHolds(db, s.worker.sessionId)).toBe(true);
+    // The first install's binding goes, as a revoke of its identity takes it.
+    await db
+      .update(surfaceBindings)
+      .set({ revokedAt: new Date(), status: "revoked" })
+      .where(eq(surfaceBindings.id, s.bindingId));
+    expect(b.installationId).not.toBe(s.installationId);
+    expect(await emergencyStopHolds(db, s.worker.sessionId)).toBe(true);
   });
 
   test("a binding written while the stop holds starts stopped", async () => {
