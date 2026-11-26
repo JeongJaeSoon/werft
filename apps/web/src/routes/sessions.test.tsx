@@ -3004,7 +3004,10 @@ describe("a session waiting on a recovery decision", () => {
   test("a credential that may not send to sessions has no decision to press", async () => {
     render({ session: () => gap, turns: [ran], scopes: ["sessions:read"] });
     await screen.findByRole("heading", { level: 1 });
-    await waitFor(() => expect(screen.getByText(ran.message)).toBeTruthy());
+    // The turn shows in the chat and in the header's step list.
+    await waitFor(() =>
+      expect(screen.getAllByText(ran.message).length).toBeGreaterThan(0),
+    );
     expect(screen.queryByRole("button", FRESH)).toBeNull();
     expect(screen.queryByRole("button", ABANDON)).toBeNull();
   });

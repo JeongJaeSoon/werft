@@ -15071,7 +15071,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, checked before the body or the resource is read. */
+            /** @description - `FORBIDDEN`: Scope: the credential does not hold `sessions:read`, judged once the request is read. */
             403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
