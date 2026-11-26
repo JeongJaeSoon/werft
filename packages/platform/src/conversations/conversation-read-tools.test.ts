@@ -514,6 +514,21 @@ describe("the decision tools as the control host answers them", () => {
     expect(unknown.seen.decisions).toEqual([]);
   });
 
+  test("a DM's turn is refused spawn_task by the server, whatever its runtime loaded", async () => {
+    const spawn = ALL.find((decision) => decision.tool === "spawn_task");
+    if (spawn === undefined) throw new Error("no spawn_task sample");
+    const s = setup(
+      turnOf({ place: { kind: "dm", personUserId: crypto.randomUUID() } }),
+    );
+    expect(await s.decide(spawn)).toEqual({
+      outcome: "refused",
+      reason: "tool_not_allowed",
+    });
+    expect(s.seen.decisions).toEqual([]);
+    // A channel's turn is not.
+    expect(await setup().decide(spawn)).toEqual({ outcome: "accepted" });
+  });
+
   test("route_to_task names an open task the requester sees, behind the private channel's door", async () => {
     const s = setup();
     s.state.tasks = [task(crypto.randomUUID())];

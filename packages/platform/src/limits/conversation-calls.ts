@@ -6,6 +6,7 @@ import {
   type ConversationCallId,
   type ConversationCallKey,
   type ConversationId,
+  type ConversationKind,
   type ConversationTopicId,
   type ConversationTurnCallRefusal,
   type ConversationTurnId,
@@ -123,8 +124,14 @@ export type ConversationTurnPermitIssued =
   | { outcome: "unavailable"; reason: ConversationCallUnavailable };
 
 export type ConversationMentionTurnIssued =
-  | ConversationTurnPermitIssued
-  | Exclude<ConversationMentionTurnIssue, ConversationTurnPermitIssue>;
+  | {
+      outcome: "issued";
+      token: string;
+      expiresAt: Date;
+      place: ConversationKind;
+    }
+  | Exclude<ConversationMentionTurnIssue, { outcome: "issued" }>
+  | { outcome: "unavailable"; reason: ConversationCallUnavailable };
 
 export type ConversationCallIssued =
   | {
@@ -375,7 +382,12 @@ export function createConversationCalls(deps: {
         callKey: conversationCallKeySchema.parse(`${input.turnId}:m2`),
       });
       if (issued.outcome !== "issued") return issued;
-      return { outcome: "issued", token, expiresAt: issued.expiresAt };
+      return {
+        outcome: "issued",
+        token,
+        expiresAt: issued.expiresAt,
+        place: issued.place,
+      };
     },
     /**
      * Ends a turn issued here once its runtime is done with it, and its

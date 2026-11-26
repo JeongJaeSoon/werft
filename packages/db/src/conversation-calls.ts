@@ -565,10 +565,19 @@ export function createPostgresConversationCalls(
             .onConflictDoNothing()
             .returning({ ts: conversationEngagements.ts });
           if (engaged === undefined) throw new MentionEngaged();
-          return insertTurnPermitIn(tx, input, {
+          const permit = await insertTurnPermitIn(tx, input, {
             kind: "user",
             userId: input.requesterUserId,
           });
+          if (permit.outcome !== "issued") return permit;
+          const [conversation] = await tx
+            .select({ kind: conversations.kind })
+            .from(conversations)
+            .where(eq(conversations.id, input.conversationId));
+          if (conversation === undefined) {
+            throw new Error(`conversation ${input.conversationId} is gone`);
+          }
+          return { ...permit, place: conversation.kind };
         })
         .catch((error: unknown) => {
           if (error instanceof MentionEngaged) {

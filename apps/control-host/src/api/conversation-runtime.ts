@@ -387,7 +387,9 @@ export function createMentionConversationTurns(deps: {
             // the turn reads is assembled as data when a runtime takes it.
             input: { id: inputId, text: request.text },
             fresh_input: { id: crypto.randomUUID(), text: request.text },
-            decision_tools: [...conversationDecisionTools("user")],
+            decision_tools: [
+              ...conversationDecisionTools("user", issued.place),
+            ],
           },
           {
             inputId,

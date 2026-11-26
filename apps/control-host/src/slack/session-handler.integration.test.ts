@@ -3813,9 +3813,28 @@ describe.each(ENGINES)(
       claimMs = 60_000,
       statuses?: MentionTurnStatusStore,
     ) => {
-      // As a pass does: the catalog read before the turns it ends.
+      // As a pass does: the catalog read before a task is opened. Read as
+      // the first turn ends, not before the pass looks for turns, so the
+      // pass reads its turns as soon as a pass would.
       const catalog = slackCatalog(db, LIMITS);
-      await catalog.refresh();
+      let refreshed: Promise<unknown> | undefined;
+      const tasks = slackConversationTasks({
+        db,
+        pool: {
+          connect: () => {
+            throw new Error("no session control is asked of this role");
+          },
+        },
+        environment: LIMITS,
+        logger,
+        secretKey: key,
+        catalog,
+        slack: createSlackBotApi({ apiUrl: slack.url }),
+        botToken: (workspaceId, slackAppId) =>
+          slackBotToken(secrets(), workspaceId, slackAppId),
+        outbox: schema.createPostgresSlackOutboxStore(db),
+        slackApiUrl: slack.url,
+      });
       return slackMentionTurnEndings({
         db,
         secretKey: key,
@@ -3824,23 +3843,13 @@ describe.each(ENGINES)(
         botToken: (workspaceId, slackAppId) =>
           slackBotToken(secrets(), workspaceId, slackAppId),
         logger,
-        tasks: slackConversationTasks({
-          db,
-          pool: {
-            connect: () => {
-              throw new Error("no session control is asked of this role");
-            },
+        tasks: {
+          spawn: async (turnId) => {
+            refreshed ??= catalog.refresh();
+            await refreshed;
+            return tasks.spawn(turnId);
           },
-          environment: LIMITS,
-          logger,
-          secretKey: key,
-          catalog,
-          slack: createSlackBotApi({ apiUrl: slack.url }),
-          botToken: (workspaceId, slackAppId) =>
-            slackBotToken(secrets(), workspaceId, slackAppId),
-          outbox: schema.createPostgresSlackOutboxStore(db),
-          slackApiUrl: slack.url,
-        }),
+        },
         limit: 10,
         claimMs,
         ...(statuses === undefined ? {} : { statuses }),
@@ -4423,6 +4432,28 @@ describe.each(ENGINES)(
       });
       await sendOutbox();
       expect(slack.messages).toEqual([]);
+    });
+
+    test("a DM's turn is not offered spawn_task: tasks start in channel threads alone", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, {
+        type: "message",
+        channel: "D0OWNER",
+        channel_type: "im",
+        user: PERSON,
+        ts: "100.000100",
+        text: "start the weekly report",
+      });
+      await drain(handler().handle);
+      const turn = await leased();
+      expect(turn.decision_tools).toEqual([
+        "reply",
+        "route_to_task",
+        "no_reply",
+      ]);
+      expect(turn.decision_tools).toEqual([
+        ...conversationDecisionTools("user", "dm"),
+      ]);
     });
 
     test("a session tied to the thread before a crash stays the task once its link closes", async () => {

@@ -3,6 +3,7 @@ import {
   CONVERSATION_TURN_DECISION_VALUES,
   CONVERSATION_TURN_LIMIT_VALUES,
   CONVERSATION_TURN_REASON_MAX,
+  type ConversationKind,
   type ConversationTurnDecision,
   conversationIdSchema,
   conversationTopicIdSchema,
@@ -101,13 +102,19 @@ const DECISION_TOOLS_BY_REQUESTER: Record<
   operator: ALL_DECISIONS,
   slack_bot: ANSWER_ONLY,
 };
-/** The decision tools of a turn whose requester is of `kind`; a kind not known gets the fewest. */
+/**
+ * The decision tools of a turn whose requester is of `kind`; a kind not
+ * known gets the fewest. A DM's turn opens no task: tasks start in channel
+ * threads alone.
+ */
 export function conversationDecisionTools(
   kind: string,
+  place: ConversationKind = "channel",
 ): readonly ConversationTurnDecision[] {
-  return Object.hasOwn(DECISION_TOOLS_BY_REQUESTER, kind)
+  const tools = Object.hasOwn(DECISION_TOOLS_BY_REQUESTER, kind)
     ? (DECISION_TOOLS_BY_REQUESTER[kind] ?? ANSWER_ONLY)
     : ANSWER_ONLY;
+  return place === "dm" ? tools.filter((tool) => tool !== "spawn_task") : tools;
 }
 
 const decisionReasonSchema = z

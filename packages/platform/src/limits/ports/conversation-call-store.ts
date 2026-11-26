@@ -5,6 +5,7 @@ import type {
   ConversationCallId,
   ConversationCallKey,
   ConversationId,
+  ConversationKind,
   ConversationTopicId,
   ConversationTurnCallRefusal,
   ConversationTurnId,
@@ -226,7 +227,9 @@ export type ConversationMentionTurnInput = Omit<
 };
 
 export type ConversationMentionTurnIssue =
-  | ConversationTurnPermitIssue
+  // `place`: the conversation's kind, which says what the turn may decide.
+  | { outcome: "issued"; expiresAt: Date; place: ConversationKind }
+  | Exclude<ConversationTurnPermitIssue, { outcome: "issued" }>
   // The message is engaged already: its turn was written before.
   | { outcome: "duplicate" }
   // The message is marked deleted.
