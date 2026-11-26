@@ -7037,6 +7037,11 @@ export interface components {
              */
             source_deleted_at: string | null;
             terminal_reason: string | null;
+            /**
+             * @description The turn right before this one, which ended `failed` with `terminal_reason` `worker_ownership_lost`, whose input the worker was given first, after a line saying that request was cut off midway: that input came after the checkpoint this turn starts from. Recorded when the turn is first handed to a worker, and a retried delivery gives it once, never twice. Null when no such turn came right before, when the turn was started by continuing it (`POST /v1/sessions/{id}/turns/{turn_id}/continue`), when its message was deleted, when the turn has not yet been handed over, and from a server before the field.
+             * @default null
+             */
+            prepended_turn_id: string | null;
             /** @description The newest checkpoint this turn committed that a restore can still reach. A revision garbage collection removed, or one a start_fresh recovery decision retired, is not reported; null when none is left. */
             checkpoint_revision: number | null;
             /** Format: date-time */
@@ -7089,6 +7094,11 @@ export interface components {
              */
             source_deleted_at: string | null;
             terminal_reason: string | null;
+            /**
+             * @description The turn right before this one, which ended `failed` with `terminal_reason` `worker_ownership_lost`, whose input the worker was given first, after a line saying that request was cut off midway: that input came after the checkpoint this turn starts from. Recorded when the turn is first handed to a worker, and a retried delivery gives it once, never twice. Null when no such turn came right before, when the turn was started by continuing it (`POST /v1/sessions/{id}/turns/{turn_id}/continue`), when its message was deleted, when the turn has not yet been handed over, and from a server before the field.
+             * @default null
+             */
+            prepended_turn_id: string | null;
             /** @description The newest checkpoint this turn committed that a restore can still reach. A revision garbage collection removed, or one a start_fresh recovery decision retired, is not reported; null when none is left. */
             checkpoint_revision: number | null;
             /** Format: date-time */
