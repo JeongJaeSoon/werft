@@ -270,6 +270,7 @@ async function drainFixture(
       return "enqueued";
     },
     readerLocale: async () => null,
+    aiLabelFor: async () => null,
     advanceAnswered: async () => 0,
     closeFinishedLinks: async () => 0,
     unpostedInstructions: async () => [],
