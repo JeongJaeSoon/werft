@@ -21,9 +21,39 @@ export function leaseHeld(attempt: AttemptRow, at: Date): boolean {
   return attempt.leaseExpiresAt.getTime() > at.getTime();
 }
 
-// Locks the session and attempt rows and classifies why the fence does not
-// hold: an expired lease on the current epoch is LEASE_EXPIRED, anything
-// else (bumped epoch, ended attempt, unknown binding) is STALE_EPOCH.
+// Why the fence does not hold, or null when it does: an expired lease on
+// the current epoch is LEASE_EXPIRED, anything else (bumped epoch, ended
+// attempt) is STALE_EPOCH. `leaseHeld` is judged on the database clock.
+export function fenceRejection(
+  row: {
+    session: Pick<
+      SessionRow,
+      "leaseEpoch" | "executionGeneration" | "authRevision"
+    >;
+    attempt: Pick<
+      AttemptRow,
+      "leaseEpoch" | "executionGeneration" | "authRevision" | "state"
+    >;
+  },
+  fence: WorkerFence,
+  leaseHeld: boolean,
+): FenceRejection | null {
+  const { session, attempt } = row;
+  const epochMatches =
+    session.leaseEpoch === fence.leaseEpoch &&
+    session.executionGeneration === fence.executionGeneration &&
+    session.authRevision === fence.authRevision &&
+    attempt.leaseEpoch === fence.leaseEpoch &&
+    attempt.executionGeneration === fence.executionGeneration &&
+    attempt.authRevision === fence.authRevision &&
+    !ENDED_ATTEMPT_STATES.includes(attempt.state);
+  if (!epochMatches) return { outcome: "stale_epoch" };
+  if (!leaseHeld) return { outcome: "lease_expired" };
+  return null;
+}
+
+// Locks the session and attempt rows and judges the fence on them; an
+// unknown binding is STALE_EPOCH.
 export async function acquireFence(
   tx: Database,
   fence: WorkerFence,
@@ -40,16 +70,8 @@ export async function acquireFence(
   if (!row) return { outcome: "stale_epoch" };
   const at = await dbNow(tx);
   const { session, attempt } = row;
-  const epochMatches =
-    session.leaseEpoch === fence.leaseEpoch &&
-    session.executionGeneration === fence.executionGeneration &&
-    session.authRevision === fence.authRevision &&
-    attempt.leaseEpoch === fence.leaseEpoch &&
-    attempt.executionGeneration === fence.executionGeneration &&
-    attempt.authRevision === fence.authRevision &&
-    !ENDED_ATTEMPT_STATES.includes(attempt.state);
-  if (!epochMatches) return { outcome: "stale_epoch" };
-  if (!leaseHeld(attempt, at)) return { outcome: "lease_expired" };
+  const rejected = fenceRejection(row, fence, leaseHeld(attempt, at));
+  if (rejected) return rejected;
   // The token has now been accepted for something, whatever that was: an
   // event on no turn, a poll that found nothing. That closes the one-shot
   // bootstrap replay, which would otherwise hand this binding to whoever

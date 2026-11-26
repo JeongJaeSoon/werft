@@ -105,7 +105,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
-import { followUpFact, queuePushFollowUps } from "./action/push-follow-ups.ts";
+import { queuePushFollowUps } from "./action/push-follow-ups.ts";
 import { settleTurnPushIntents } from "./action/push-intents.ts";
 import {
   type RuntimeFingerprint,
@@ -127,6 +127,7 @@ import {
 } from "./control-shared.ts";
 import { terminateReceiptResult } from "./control-unit-of-work.ts";
 import { encodeEventCursor } from "./cursors.ts";
+import { deliveredTurnInput, recordCutOff } from "./cut-off-input.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import {
   retiredSessionMcpOf,
@@ -202,6 +203,7 @@ import {
 import {
   type AttemptRow,
   acquireFence,
+  fenceRejection,
   leaseHeld,
   type SessionRow,
 } from "./sessions/fence.ts";
@@ -2068,6 +2070,69 @@ async function revokeCredentials(tx: Database, attemptId: string, now: Date) {
     );
 }
 
+// The attempt's own numbers as the fence: what has to hold is that the
+// session still names this attempt and its lease has not run out, not merely
+// that the token is unexpired. A token outlives a lost lease until the
+// reconciler gets to it; the proxy must not.
+function attemptFence(attempt: AttemptRow): WorkerFence {
+  return {
+    sessionId: attempt.sessionId,
+    attemptId: attempt.id,
+    leaseEpoch: attempt.leaseEpoch,
+    executionGeneration: attempt.executionGeneration,
+    authRevision: attempt.authRevision,
+  };
+}
+
+function egressGrant(
+  binding: string,
+  session: SessionRow,
+  attempt: AttemptRow,
+): EgressAuthorization {
+  return {
+    outcome: "ok",
+    sessionId: session.id,
+    attemptId: attempt.id,
+    binding,
+    // The session's connection, and the model the attempt claimed: a move on
+    // the session since reaches the next attempt, not the turn this one is
+    // running.
+    connectionId: specConnectionId(session),
+    model: attempt.model ?? session.model,
+    repository: sessionRepositoryOf(session),
+    githubPolicySource: session.githubPolicySource,
+    costUsd: session.costUsd,
+    providerTokens: session.providerTokens,
+  };
+}
+
+// The egress check under the session row lock, for the call that moves an
+// attempt out of `allocated`.
+function authorizeEgressLocked(
+  db: Database,
+  input: { tokenHash: Uint8Array; purpose: EgressPurpose },
+): Promise<EgressAuthorization> {
+  return db.transaction(async (tx) => {
+    const [token] = await tx
+      .select({ binding: workerCredentials.binding, attempt: attempts })
+      .from(workerCredentials)
+      .innerJoin(attempts, eq(attempts.id, workerCredentials.attemptId))
+      .where(
+        and(
+          eq(workerCredentials.tokenHash, input.tokenHash),
+          eq(workerCredentials.purpose, input.purpose),
+          isNull(workerCredentials.revokedAt),
+          gt(workerCredentials.expiresAt, DB_NOW),
+        ),
+      )
+      .limit(1);
+    if (!token || token.binding === null) return { outcome: "invalid_token" };
+    const fenced = await acquireFence(tx, attemptFence(token.attempt));
+    if (fenced.outcome !== "ok") return fenced;
+    return egressGrant(token.binding, fenced.session, fenced.attempt);
+  });
+}
+
 export function createPostgresWorkerUnitOfWork(
   db: Database,
   options: { logger?: StructuredLogger } = {},
@@ -2523,57 +2588,53 @@ export function createPostgresWorkerUnitOfWork(
       return launch ? { kind: "bootstrap" } : null;
     },
 
-    authorizeEgressAtomic(input: {
+    async authorizeEgressAtomic(input: {
       tokenHash: Uint8Array;
       purpose: EgressPurpose;
     }): Promise<EgressAuthorization> {
-      return db.transaction(async (tx) => {
-        const [token] = await tx
-          .select({
-            binding: workerCredentials.binding,
-            sessionId: attempts.sessionId,
-            attemptId: attempts.id,
-            leaseEpoch: attempts.leaseEpoch,
-            executionGeneration: attempts.executionGeneration,
-            authRevision: attempts.authRevision,
-          })
-          .from(workerCredentials)
-          .innerJoin(attempts, eq(attempts.id, workerCredentials.attemptId))
-          .where(
-            and(
-              eq(workerCredentials.tokenHash, input.tokenHash),
-              eq(workerCredentials.purpose, input.purpose),
-              isNull(workerCredentials.revokedAt),
-              gt(workerCredentials.expiresAt, DB_NOW),
-            ),
-          )
-          .limit(1);
-        if (!token || token.binding === null) {
-          return { outcome: "invalid_token" };
-        }
-        // The attempt's own numbers as the fence: what has to hold is that
-        // the session still names this attempt and its lease has not run
-        // out, not merely that the token is unexpired. A token outlives a
-        // lost lease until the reconciler gets to it; the proxy must not.
-        const { binding, ...fence } = token;
-        const fenced = await acquireFence(tx, fence);
-        if (fenced.outcome !== "ok") return fenced;
-        return {
-          outcome: "ok",
-          sessionId: fence.sessionId,
-          attemptId: fence.attemptId,
-          binding,
-          // The session's connection, and the model the attempt claimed: a
-          // move on the session since reaches the next attempt, not the turn
-          // this one is running.
-          connectionId: specConnectionId(fenced.session),
-          model: fenced.attempt.model ?? fenced.session.model,
-          repository: sessionRepositoryOf(fenced.session),
-          githubPolicySource: fenced.session.githubPolicySource,
-          costUsd: fenced.session.costUsd,
-          providerTokens: fenced.session.providerTokens,
-        };
-      });
+      // One statement, no lock: token, attempt, session and the database
+      // clock from one snapshot, judged as acquireFence judges them. Nothing
+      // is written, and the proxy acts on the answer after it is returned
+      // whichever way it is read, so waiting on the session row lock would
+      // only order this read after a writer that already holds it. A fence
+      // change committed before the statement starts is seen and refused.
+      const [row] = await db
+        .select({
+          binding: workerCredentials.binding,
+          session: sessions,
+          attempt: attempts,
+          leaseHeld: sql<boolean>`${attempts.leaseExpiresAt} > clock_timestamp()`,
+        })
+        .from(workerCredentials)
+        .innerJoin(attempts, eq(attempts.id, workerCredentials.attemptId))
+        .innerJoin(sessions, eq(sessions.id, attempts.sessionId))
+        .where(
+          and(
+            eq(workerCredentials.tokenHash, input.tokenHash),
+            eq(workerCredentials.purpose, input.purpose),
+            isNull(workerCredentials.revokedAt),
+            gt(workerCredentials.expiresAt, DB_NOW),
+          ),
+        )
+        .limit(1);
+      if (!row || row.binding === null) return { outcome: "invalid_token" };
+      const { session, attempt } = row;
+      const rejected = fenceRejection(
+        { session, attempt },
+        attemptFence(attempt),
+        row.leaseHeld,
+      );
+      if (rejected?.outcome === "lease_expired") {
+        // A renewal may hold the row with its commit still to come; under
+        // the lock the clock is read after it lands, as it always was.
+        return authorizeEgressLocked(db, input);
+      }
+      if (rejected) return rejected;
+      // The first accepted call closes the claim replay, a write: that one
+      // takes the row lock and judges again under it.
+      if (attempt.state === "allocated")
+        return authorizeEgressLocked(db, input);
+      return egressGrant(row.binding, session, attempt);
     },
 
     recordModelCutAtomic(input: {
@@ -2851,8 +2912,19 @@ export function createPostgresWorkerUnitOfWork(
         ) {
           return none;
         }
+        // Reading the input may wait on a delete's source mark locks: the
+        // lease is judged again after it, before anything is handed over.
+        const delivered = await deliveredTurnInput(tx, {
+          turn,
+          workspaceId: fenced.session.workspaceId,
+          redelivery,
+        });
+        if (!leaseHeld(fenced.attempt, await dbNow(tx))) {
+          return { outcome: "lease_expired" };
+        }
         const deliveryStartedAt = turn.deliveryStartedAt ?? now;
         if (!redelivery) {
+          await recordCutOff(tx, turn.id, delivered.record);
           await tx
             .update(queueMessages)
             .set({
@@ -2911,9 +2983,7 @@ export function createPostgresWorkerUnitOfWork(
           input: {
             turnId: String(turn.sequence),
             inputId: String(message.id),
-            // Turns queued before the follow-up wording became facts still
-            // hold the old text; only a message equal to it is rewritten.
-            message: followUpFact(turn.message),
+            message: delivered.message,
             deliveryStartedAt,
             actorId: turn.actorId,
             traceContext: turn.traceContext,

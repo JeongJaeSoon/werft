@@ -5544,6 +5544,11 @@ export interface components {
              */
             status?: "queued" | "running" | "needs_input" | "idle" | "failed" | "stopped";
             /**
+             * @description Keeps the sessions whose `last_turn_cut_off` is this value. With `status=idle`, `true` lists what `counts.cut_off` counts and `false` the rest of `counts.idle`.
+             * @enum {string}
+             */
+            last_turn_cut_off?: "true" | "false";
+            /**
              * Format: uuid
              * @description Keeps the sessions created for this agent, whichever of its releases they are pinned to. An agent with no session the caller can read, or no such agent, gives an empty page.
              */
@@ -6583,6 +6588,11 @@ export interface components {
                 idle: number;
                 failed: number;
                 stopped: number;
+                /**
+                 * @description How many of the `idle` items have `last_turn_cut_off` set: GET /v1/sessions with `status=idle&last_turn_cut_off=true`. They are counted in `idle` too. Absent from a server older than the field.
+                 * @default 0
+                 */
+                cut_off: number;
             };
             total: number;
         };
@@ -6712,6 +6722,11 @@ export interface components {
              * @default 0
              */
             turn_time_ms: number;
+            /**
+             * @description True when the session's last turn failed because its worker lost the session partway (`terminal_reason: worker_ownership_lost`): no turn follows it yet. The session goes on from its last checkpoint with its next input or `POST /v1/sessions/{id}/turns/{turn_id}/continue`. The console shows an `idle` session with this set as cut off. False otherwise, and from a server older than the field.
+             * @default false
+             */
+            last_turn_cut_off: boolean;
             last_event_at: string | null;
             /** Format: date-time */
             created_at: string;
@@ -6866,6 +6881,11 @@ export interface components {
              * @default 0
              */
             turn_time_ms: number;
+            /**
+             * @description True when the session's last turn failed because its worker lost the session partway (`terminal_reason: worker_ownership_lost`): no turn follows it yet. The session goes on from its last checkpoint with its next input or `POST /v1/sessions/{id}/turns/{turn_id}/continue`. The console shows an `idle` session with this set as cut off. False otherwise, and from a server older than the field.
+             * @default false
+             */
+            last_turn_cut_off: boolean;
             last_event_at: string | null;
             /** Format: date-time */
             created_at: string;
@@ -7040,6 +7060,11 @@ export interface components {
              */
             source_deleted_at: string | null;
             terminal_reason: string | null;
+            /**
+             * @description The turn right before this one, which ended `failed` with `terminal_reason` `worker_ownership_lost`, whose input the worker was given first, after a line saying that request was cut off midway: that input came after the checkpoint this turn starts from. Recorded when the turn is first handed to a worker, and a retried delivery gives it once, never twice. Null when no such turn came right before, when the turn was started by continuing it (`POST /v1/sessions/{id}/turns/{turn_id}/continue`), when its message was deleted, when the turn has not yet been handed over, and from a server before the field.
+             * @default null
+             */
+            prepended_turn_id: string | null;
             /** @description The newest checkpoint this turn committed that a restore can still reach. A revision garbage collection removed, or one a start_fresh recovery decision retired, is not reported; null when none is left. */
             checkpoint_revision: number | null;
             /** Format: date-time */
@@ -7092,6 +7117,11 @@ export interface components {
              */
             source_deleted_at: string | null;
             terminal_reason: string | null;
+            /**
+             * @description The turn right before this one, which ended `failed` with `terminal_reason` `worker_ownership_lost`, whose input the worker was given first, after a line saying that request was cut off midway: that input came after the checkpoint this turn starts from. Recorded when the turn is first handed to a worker, and a retried delivery gives it once, never twice. Null when no such turn came right before, when the turn was started by continuing it (`POST /v1/sessions/{id}/turns/{turn_id}/continue`), when its message was deleted, when the turn has not yet been handed over, and from a server before the field.
+             * @default null
+             */
+            prepended_turn_id: string | null;
             /** @description The newest checkpoint this turn committed that a restore can still reach. A revision garbage collection removed, or one a start_fresh recovery decision retired, is not reported; null when none is left. */
             checkpoint_revision: number | null;
             /** Format: date-time */
@@ -23590,6 +23620,7 @@ export interface operations {
                 /** @description How many items a page holds at most. */
                 limit?: number;
                 status?: "queued" | "running" | "needs_input" | "idle" | "failed" | "stopped";
+                last_turn_cut_off?: "true" | "false";
                 agent_id?: string;
                 relation?: "all" | "started" | "shared" | "administered";
                 q?: string;
@@ -23963,7 +23994,8 @@ export interface operations {
                      *         "needs_input": 1,
                      *         "idle": 5,
                      *         "failed": 1,
-                     *         "stopped": 3
+                     *         "stopped": 3,
+                     *         "cut_off": 1
                      *       },
                      *       "total": 12
                      *     }

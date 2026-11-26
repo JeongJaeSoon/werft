@@ -304,6 +304,14 @@
               "stopped"
             ]
           },
+          "last_turn_cut_off": {
+            "description": "Keeps the sessions whose `last_turn_cut_off` is this value. With `status=idle`, `true` lists what `counts.cut_off` counts and `false` the rest of `counts.idle`.",
+            "type": "string",
+            "enum": [
+              "true",
+              "false"
+            ]
+          },
           "agent_id": {
             "description": "Keeps the sessions created for this agent, whichever of its releases they are pinned to. An agent with no session the caller can read, or no such agent, gives an empty page.",
             "type": "string",
@@ -4851,6 +4859,13 @@
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 9007199254740991
+              },
+              "cut_off": {
+                "default": 0,
+                "description": "How many of the `idle` items have `last_turn_cut_off` set: GET /v1/sessions with `status=idle&last_turn_cut_off=true`. They are counted in `idle` too. Absent from a server older than the field.",
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
               }
             },
             "required": [
@@ -4859,7 +4874,8 @@
               "needs_input",
               "idle",
               "failed",
-              "stopped"
+              "stopped",
+              "cut_off"
             ],
             "additionalProperties": false,
             "description": "For each status, how many items GET /v1/sessions would list with that `status` and the same `relation` and `q`, read to the last page."
@@ -5329,6 +5345,11 @@
             "minimum": 0,
             "maximum": 9007199254740991
           },
+          "last_turn_cut_off": {
+            "default": false,
+            "description": "True when the session's last turn failed because its worker lost the session partway (`terminal_reason: worker_ownership_lost`): no turn follows it yet. The session goes on from its last checkpoint with its next input or `POST /v1/sessions/{id}/turns/{turn_id}/continue`. The console shows an `idle` session with this set as cut off. False otherwise, and from a server older than the field.",
+            "type": "boolean"
+          },
           "last_event_at": {
             "anyOf": [
               {
@@ -5372,6 +5393,7 @@
           "current_turn_id",
           "queued_turn_count",
           "turn_time_ms",
+          "last_turn_cut_off",
           "last_event_at",
           "created_at",
           "updated_at"
@@ -5919,6 +5941,11 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 9007199254740991
+          },
+          "last_turn_cut_off": {
+            "default": false,
+            "description": "True when the session's last turn failed because its worker lost the session partway (`terminal_reason: worker_ownership_lost`): no turn follows it yet. The session goes on from its last checkpoint with its next input or `POST /v1/sessions/{id}/turns/{turn_id}/continue`. The console shows an `idle` session with this set as cut off. False otherwise, and from a server older than the field.",
+            "type": "boolean"
           },
           "last_event_at": {
             "anyOf": [
@@ -6490,6 +6517,7 @@
           "current_turn_id",
           "queued_turn_count",
           "turn_time_ms",
+          "last_turn_cut_off",
           "last_event_at",
           "created_at",
           "updated_at",
@@ -6819,6 +6847,19 @@
               }
             ]
           },
+          "prepended_turn_id": {
+            "default": null,
+            "description": "The turn right before this one, which ended `failed` with `terminal_reason` `worker_ownership_lost`, whose input the worker was given first, after a line saying that request was cut off midway: that input came after the checkpoint this turn starts from. Recorded when the turn is first handed to a worker, and a retried delivery gives it once, never twice. Null when no such turn came right before, when the turn was started by continuing it (`POST /v1/sessions/{id}/turns/{turn_id}/continue`), when its message was deleted, when the turn has not yet been handed over, and from a server before the field.",
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "checkpoint_revision": {
             "anyOf": [
               {
@@ -6873,6 +6914,7 @@
           "slack_permalink",
           "source_deleted_at",
           "terminal_reason",
+          "prepended_turn_id",
           "checkpoint_revision",
           "created_at",
           "started_at",
@@ -7034,6 +7076,19 @@
               }
             ]
           },
+          "prepended_turn_id": {
+            "default": null,
+            "description": "The turn right before this one, which ended `failed` with `terminal_reason` `worker_ownership_lost`, whose input the worker was given first, after a line saying that request was cut off midway: that input came after the checkpoint this turn starts from. Recorded when the turn is first handed to a worker, and a retried delivery gives it once, never twice. Null when no such turn came right before, when the turn was started by continuing it (`POST /v1/sessions/{id}/turns/{turn_id}/continue`), when its message was deleted, when the turn has not yet been handed over, and from a server before the field.",
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "checkpoint_revision": {
             "anyOf": [
               {
@@ -7170,6 +7225,7 @@
           "slack_permalink",
           "source_deleted_at",
           "terminal_reason",
+          "prepended_turn_id",
           "checkpoint_revision",
           "created_at",
           "started_at",
@@ -60465,6 +60521,19 @@
             }
           },
           {
+            "name": "last_turn_cut_off",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "description": "Keeps the sessions whose `last_turn_cut_off` is this value. With `status=idle`, `true` lists what `counts.cut_off` counts and `false` the rest of `counts.idle`.",
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
             "name": "agent_id",
             "in": "query",
             "required": false,
@@ -60780,7 +60849,8 @@
                     "needs_input": 1,
                     "idle": 5,
                     "failed": 1,
-                    "stopped": 3
+                    "stopped": 3,
+                    "cut_off": 1
                   },
                   "total": 12
                 },

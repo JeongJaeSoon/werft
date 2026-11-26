@@ -25,6 +25,7 @@ const turn = (
   slack_permalink: null,
   source_deleted_at,
   terminal_reason: null,
+  prepended_turn_id: null,
   checkpoint_revision: null,
   created_at: `2026-11-23T01:0${turn_id}:00.000Z`,
   started_at: null,

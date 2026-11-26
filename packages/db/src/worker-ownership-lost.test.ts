@@ -12,6 +12,7 @@ import { testCaller } from "@werft-ai/testkit/callers";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { asc, eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
+import { CUT_OFF_INPUT_LINE } from "./cut-off-input.ts";
 import { fromDbNow } from "./db-clock.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
@@ -793,7 +794,11 @@ describe("the session after a lost turn", () => {
       },
     );
     expect(delivered.input?.turn_id).toBe("2");
-    expect(delivered.input?.message).toBe("second input");
+    // Turn 2, with the lost turn's input put first: it came after the
+    // checkpoint turn 2 starts from (cut-off-input.test.ts).
+    expect(delivered.input?.message).toBe(
+      `${CUT_OFF_INPUT_LINE}\n\nfirst input\n\nsecond input`,
+    );
     expect((await stateOf(worker.sessionId)).session.admission).toBe("active");
   });
 

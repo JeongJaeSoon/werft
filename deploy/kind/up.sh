@@ -256,6 +256,7 @@ if [ "$KIND_MODEL" = fake ]; then
   kubectl -n "$NAMESPACE" create configmap fake-messages-source \
     --from-file="$testkit/fake-messages-main.ts" \
     --from-file="$testkit/fake-anthropic.ts" \
+    --from-file="$testkit/request-log.ts" \
     --from-file="$testkit/scripted-messages.ts" \
     --dry-run=client -o yaml | kubectl apply -f -
   manifest "$root/deploy/kind/deps-fake-model.yaml" | kubectl -n "$NAMESPACE" apply -f -
