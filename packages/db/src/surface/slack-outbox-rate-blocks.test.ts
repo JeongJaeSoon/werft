@@ -322,35 +322,58 @@ describe(`Slack rate limits in the outbox on ${ENGINE}`, () => {
     });
   });
 
-  test("a progress message's next edit waits 1.3 s for each of the install's messages waiting or going, itself included, ten seconds at least", async () => {
-    for (let s = 0; s < 10; s++) {
-      await enqueue(`p${s}`, s % 2 === 0 ? BUSY : QUIET, {
-        kind: "progress",
-        progressKey: `k${s}`,
-      });
-    }
+  // Two progress messages, k1 in BUSY and k2 in QUIET, each posted once.
+  async function twoPosted() {
+    await enqueue("a1", BUSY, { kind: "progress", progressKey: "k1" });
+    await sendOne("a1", "1700000000.000201");
+    await enqueue("b1", QUIET, { kind: "progress", progressKey: "k2" });
+    await sendOne("b1", "1700000000.000202");
+    await enqueue("a2", BUSY, { kind: "progress", progressKey: "k1" });
+    await enqueue("b2", QUIET, { kind: "progress", progressKey: "k2" });
+    await waitsOver();
     const claims = await claimed();
-    expect(claims).toHaveLength(10);
-    const [first, second] = claims;
-    if (first === undefined || second === undefined) {
-      throw new Error("no claim");
-    }
-    expect(await outbox().beginSend(first)).toBeTruthy();
-    expect(await outbox().beginSend(second)).toBeTruthy();
+    const a2 = claims.find((c) => c.body.text === "a2");
+    const b2 = claims.find((c) => c.body.text === "b2");
+    if (a2 === undefined || b2 === undefined) throw new Error("no claims");
+    return { a2, b2 };
+  }
+
+  test("a progress edit holds the install's next edits 1.3 s, in every channel; posts are not held", async () => {
+    const { a2, b2 } = await twoPosted();
+    // The first posts held nothing.
+    expect(await blocks()).toEqual([]);
+    expect(await outbox().beginSend(a2)).toMatchObject({
+      progress: { ts: "1700000000.000201" },
+    });
     expect(
-      await outbox().settle(first, { status: "sent", slackTs: "1.1" }),
+      await outbox().settle(a2, {
+        status: "sent",
+        slackTs: "1700000000.000201",
+      }),
     ).toBe(true);
-    // Itself, the one going beside it and eight waiting: 10 x 1.3 s.
-    const waitMs = Number((await row(first.body.text))?.wait_ms);
-    expect(waitMs).toBeGreaterThan(12_000);
-    expect(waitMs).toBeLessThanOrEqual(13_000);
+    const [hold] = await blocks();
+    expect(hold?.scope).toBe("chat.update");
+    expect(hold?.waitMs).toBeGreaterThan(1_000);
+    expect(hold?.waitMs).toBeLessThanOrEqual(1_300);
+    expect(await outbox().beginSend(b2)).toBe("rate_limited");
+    await enqueue("reply", QUIET);
+    expect(names(await claimed())).toEqual(["reply"]);
   });
 
-  test("a progress message alone waits the ten-second interval", async () => {
-    await enqueue("alone", BUSY, { kind: "progress", progressKey: "k1" });
-    await sendOne("alone");
-    const waitMs = Number((await row("alone"))?.wait_ms);
-    expect(waitMs).toBeGreaterThan(9_000);
-    expect(waitMs).toBeLessThanOrEqual(10_000);
+  test("edits begun side by side each add 1.3 s after the last", async () => {
+    const { a2, b2 } = await twoPosted();
+    expect(await outbox().beginSend(a2)).toBeTruthy();
+    expect(await outbox().beginSend(b2)).toBeTruthy();
+    for (const [claim, slackTs] of [
+      [a2, "1700000000.000201"],
+      [b2, "1700000000.000202"],
+    ] as const) {
+      expect(await outbox().settle(claim, { status: "sent", slackTs })).toBe(
+        true,
+      );
+    }
+    const [hold] = await blocks();
+    expect(hold?.waitMs).toBeGreaterThan(2_300);
+    expect(hold?.waitMs).toBeLessThanOrEqual(2_600);
   });
 });

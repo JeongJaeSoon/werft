@@ -2285,21 +2285,6 @@ export function createPostgresSlackOutboxStore(
           outcome.errorCode === SURFACE_EDIT_RATE_LIMITED_CODE)
           ? outcome.retryInMs
           : null;
-      // The least wait before a progress message's next send: the interval,
-      // longer while more of the install's progress messages move (an update
-      // waiting or going, this one's included).
-      const progressGap = sql`greatest(${ms(progressIntervalMs)}, ${ms(SURFACE_PROGRESS_EDIT_SPACING_MS)} * (
-        SELECT count(*) FROM (
-          -- One arm per status, so each reads its partial index
-          -- (slack_outbox_due_idx, slack_outbox_sending_idx), not the
-          -- install's whole progress history.
-          SELECT a.progress_key FROM slack_outbox a
-          WHERE a.status = 'pending' AND a.installation_id = ${t.installationId}
-            AND a.progress_key IS NOT NULL
-          UNION
-          SELECT a.progress_key FROM slack_outbox a
-          WHERE a.status = 'sending' AND a.installation_id = ${t.installationId}
-            AND a.progress_key IS NOT NULL) moving))`;
       const set =
         outcome.status === "sent"
           ? {
@@ -2312,7 +2297,7 @@ export function createPostgresSlackOutboxStore(
               // have left the channel before it was posted.
               settleState: sql`CASE WHEN ${t.kind} = 'input_notice' AND ${t.dedupeKey} LIKE 'push:%' THEN 'due' ELSE ${t.settleState} END`,
               // The next update of a progress message waits this long.
-              nextAttemptAt: sql`CASE WHEN ${t.kind} = 'progress' THEN now() + ${progressGap} ELSE ${t.nextAttemptAt} END`,
+              nextAttemptAt: sql`CASE WHEN ${t.kind} = 'progress' THEN now() + ${ms(progressIntervalMs)} ELSE ${t.nextAttemptAt} END`,
             }
           : outcome.status === "pending"
             ? {
@@ -2320,14 +2305,14 @@ export function createPostgresSlackOutboxStore(
                 errorCode: outcome.errorCode,
                 // A progress message's next call, a retry too, waits the
                 // interval at least.
-                nextAttemptAt: sql`now() + CASE WHEN ${t.kind} = 'progress' THEN greatest(${ms(outcome.retryInMs)}, ${progressGap}) ELSE ${ms(outcome.retryInMs)} END`,
+                nextAttemptAt: sql`now() + CASE WHEN ${t.kind} = 'progress' THEN greatest(${ms(outcome.retryInMs)}, ${ms(progressIntervalMs)}) ELSE ${ms(outcome.retryInMs)} END`,
               }
             : {
                 status: outcome.status,
                 errorCode: outcome.errorCode,
                 // A call that ended a progress row still spaces the next, by
                 // the Retry-After it was given up on too.
-                nextAttemptAt: sql`CASE WHEN ${t.kind} = 'progress' THEN now() + greatest(${ms(outcome.status === "failed" ? (outcome.retryInMs ?? 0) : 0)}, ${progressGap}) ELSE ${t.nextAttemptAt} END`,
+                nextAttemptAt: sql`CASE WHEN ${t.kind} = 'progress' THEN now() + greatest(${ms(outcome.status === "failed" ? (outcome.retryInMs ?? 0) : 0)}, ${ms(progressIntervalMs)}) ELSE ${t.nextAttemptAt} END`,
               };
       return db.transaction(async (tx) => {
         const [row] = await tx
@@ -2376,6 +2361,31 @@ export function createPostgresSlackOutboxStore(
               target: [blocks.installationId, blocks.scope],
               set: {
                 blockedUntil: sql`greatest(${blocks.blockedUntil}, excluded.blocked_until)`,
+              },
+            });
+        }
+        // An install's progress edits go one spacing apart, from every
+        // replica: each edit that went moves chat.update's block that far past
+        // the later of the block and now, so edits begun side by side still
+        // add up to the pace.
+        if (
+          outcome.status === "sent" &&
+          row.kind === "progress" &&
+          row.progressTs !== null &&
+          row.progressTs === outcome.slackTs
+        ) {
+          const blocks = slackOutboxRateBlocks;
+          await tx
+            .insert(blocks)
+            .values({
+              installationId: row.installationId,
+              scope: "chat.update",
+              blockedUntil: sql`now() + ${ms(SURFACE_PROGRESS_EDIT_SPACING_MS)}`,
+            })
+            .onConflictDoUpdate({
+              target: [blocks.installationId, blocks.scope],
+              set: {
+                blockedUntil: sql`greatest(${blocks.blockedUntil}, now()) + ${ms(SURFACE_PROGRESS_EDIT_SPACING_MS)}`,
               },
             });
         }
