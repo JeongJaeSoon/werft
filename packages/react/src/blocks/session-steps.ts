@@ -47,10 +47,12 @@ export interface SessionSteps {
 }
 
 export interface ReadSessionStepsInput {
-  readonly session: Pick<SessionDetail, "current_turn_id" | "status">;
+  readonly session: Pick<
+    SessionDetail,
+    "current_turn_id" | "status" | "pending_request_count"
+  >;
   readonly turns: readonly TurnSummary[];
-  /** Undefined until the request list is read: the turns' own status speaks. */
-  readonly requests: readonly PendingRequest[] | undefined;
+  readonly requests: readonly PendingRequest[];
   readonly events: readonly SessionEventFrame[];
   /** The event window is at its cap, so its oldest events are gone. */
   readonly windowFull: boolean;
@@ -59,7 +61,7 @@ export interface ReadSessionStepsInput {
 function stateOf(
   turn: TurnSummary,
   requests: readonly PendingRequest[],
-  listRead: boolean,
+  heldOpen: boolean,
 ): SessionStepState {
   // The list holds only requests still open, whatever the turn's status
   // says: a parked turn waits on them too.
@@ -71,10 +73,12 @@ function stateOf(
       return "queued";
     case "running":
       return "running";
-    // Once the list is read, the wait shows only while it holds a request:
-    // a turn read before the answer still says needs_input.
+    // The turns and the request list are read apart, so either may lag. The
+    // session counts its open requests in the same read as its status: a
+    // needs_input turn the list does not name waits only while that count
+    // says some are open.
     case "needs_input":
-      return listRead ? "running" : "answer";
+      return heldOpen ? "answer" : "running";
     case "completed":
       return "done";
     case "failed":
@@ -88,6 +92,12 @@ function stateOf(
       return "unknown";
   }
 }
+
+const OPEN_TURN: ReadonlySet<TurnSummary["status"]> = new Set([
+  "queued",
+  "running",
+  "needs_input",
+]);
 
 export function readSessionSteps({
   session,
@@ -111,20 +121,24 @@ export function readSessionSteps({
   // events without a turn (control-plane ones) say nothing about that.
   const oldest = events.find((frame) => frame.turnId !== null)?.turnId ?? null;
   const steps = turns.map((turn, index): SessionStep => {
-    const asked = (requests ?? [])
+    const asked = requests
       .filter((request) => request.turn_id === turn.turn_id)
       .sort((a, b) => a.created_at.localeCompare(b.created_at));
     return {
       turn,
       number: index + 1,
-      state: stateOf(turn, asked, requests !== undefined),
+      state: stateOf(turn, asked, session.pending_request_count > 0),
       requests: asked,
       toolCalls: calls.get(turn.turn_id)?.size ?? 0,
       toolCallsPartial: windowFull && oldest === turn.turn_id,
     };
   });
+  // A turn already ended is no longer current, whatever a session read
+  // before its end says.
   const running = steps.findIndex(
-    (step) => step.turn.turn_id === session.current_turn_id,
+    (step) =>
+      step.turn.turn_id === session.current_turn_id &&
+      OPEN_TURN.has(step.turn.status),
   );
   if (running !== -1) return { steps, focus: running, current: true };
   const asking = steps.findIndex((step) => step.requests.length > 0);

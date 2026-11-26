@@ -4902,6 +4902,15 @@ describe("session steps", () => {
   test("an answer read before the turn is read again leaves no wait behind", async () => {
     renderAt(`/sessions/${SESSION_ID}`, {
       ...waitingOnTwo,
+      // The session read after the answer: running, nothing open.
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          status: "running",
+          current_turn_id: "2",
+          pending_request_count: 0,
+          attention: null,
+        }),
       [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
         json(200, { answerable: true, items: [] }),
     });

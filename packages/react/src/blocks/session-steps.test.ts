@@ -84,11 +84,21 @@ function call(id: string, turnId: string, callId: string): SessionEventFrame {
   };
 }
 
-const read = (
-  overrides: Partial<Parameters<typeof readSessionSteps>[0]> = {},
-) =>
+type Input = Parameters<typeof readSessionSteps>[0];
+
+const read = ({
+  session,
+  ...overrides
+}: Partial<Omit<Input, "session">> & {
+  readonly session?: Partial<Input["session"]>;
+} = {}) =>
   readSessionSteps({
-    session: { current_turn_id: null, status: "idle" },
+    session: {
+      current_turn_id: null,
+      status: "idle",
+      pending_request_count: 0,
+      ...session,
+    },
     turns: [],
     requests: [],
     events: [],
@@ -139,13 +149,49 @@ describe("readSessionSteps", () => {
     expect(steps.steps[0]?.state).toBe("running");
   });
 
-  test("before the request list is read, a needs_input turn still waits on an answer", () => {
+  test("a needs_input turn the list has not caught up with waits while the session counts open requests", () => {
     const steps = read({
-      session: { current_turn_id: "1", status: "needs_input" },
+      session: {
+        current_turn_id: "1",
+        status: "needs_input",
+        pending_request_count: 1,
+      },
       turns: [turn("1", "needs_input")],
-      requests: undefined,
     });
     expect(steps.steps[0]?.state).toBe("answer");
+  });
+
+  test("a turn already ended is not current, though a session read before its end names it", () => {
+    const steps = read({
+      session: {
+        current_turn_id: "1",
+        status: "running",
+        pending_request_count: 0,
+      },
+      turns: [turn("1", "completed", { ended_at: AT })],
+    });
+    expect(steps.focus).toBeNull();
+    expect(steps.current).toBe(false);
+  });
+
+  test("a parked turn that ended on its requests waits on approval, focused but not current, its time fixed", () => {
+    const ended = new Date(Date.parse(AT) + 2 * 60_000).toISOString();
+    const steps = read({
+      session: {
+        current_turn_id: null,
+        status: "needs_input",
+        pending_request_count: 1,
+      },
+      turns: [turn("1", "interrupted", { ended_at: ended })],
+      requests: [{ ...permission("1", "req_1"), state: "parked" }],
+    });
+    expect(steps.steps[0]?.state).toBe("approval");
+    expect(steps.focus).toBe(0);
+    expect(steps.current).toBe(false);
+    // Nothing runs, so only the finished turns' time counts.
+    expect(sessionTime({ turn_time_ms: 2 * 60_000 }, steps, Date.now())).toBe(
+      2 * 60_000,
+    );
   });
 
   test("with no running turn, the one holding requests is focused but not current", () => {

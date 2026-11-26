@@ -247,7 +247,7 @@ export function SessionDetail({
     ? readSessionSteps({
         session: detail,
         turns: turns.data.items,
-        requests: pending.data?.items,
+        requests,
         events: events.events,
         windowFull: events.events.length >= EVENT_WINDOW,
       })
