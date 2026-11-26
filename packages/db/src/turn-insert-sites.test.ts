@@ -180,11 +180,11 @@ function unheld(call: ts.CallExpression): string[] {
     (statement) =>
       ts.isVariableStatement(statement) &&
       statement.declarationList.declarations.some(({ initializer }) => {
-        const value =
-          initializer !== undefined && ts.isAwaitExpression(initializer)
-            ? initializer.expression
-            : initializer;
-        return value !== undefined && calls(value, "admitInput");
+        return (
+          initializer !== undefined &&
+          ts.isAwaitExpression(initializer) &&
+          calls(initializer.expression, "admitInput")
+        );
       }),
   );
   return admitted ? [] : ["no admitInput before it in the transaction's body"];
@@ -272,6 +272,12 @@ describe("the scan", () => {
           await insertQueuedTurn(tx, {});
         });
       }
+      function unawaited(db) {
+        return acceptanceTransaction(db, async (tx) => {
+          const refused = admitInput(tx, {});
+          await insertQueuedTurn(tx, {});
+        });
+      }
       function conditional(db) {
         return acceptanceTransaction(db, async (tx) => {
           const refused = strict ? await admitInput(tx, {}) : null;
@@ -296,6 +302,9 @@ describe("the scan", () => {
         "no admitInput before it in the transaction's body",
       ],
       "packages/db/src/sample.ts#skipped": [
+        "no admitInput before it in the transaction's body",
+      ],
+      "packages/db/src/sample.ts#unawaited": [
         "no admitInput before it in the transaction's body",
       ],
       "packages/db/src/sample.ts#conditional": [
