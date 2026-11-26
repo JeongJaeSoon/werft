@@ -131,7 +131,7 @@ curl -X POST "$API/v1/sessions/$SESSION/recovery-decisions" \
 - `abandon`：turn を `cancelled` で閉じます。
 - `confirm_completed`：commit 済み checkpoint がその turn までカバーする場合だけ受け付けます（`evidence_ref` 必須）。`interrupt_checkpoint_unavailable` には通常その checkpoint がないため、409 `CHECKPOINT_UNAVAILABLE` です。
 - `close`：セッションを終了します。元には戻せません。
-- `start_fresh`：commit 済み checkpoint がないセッション（最初の turn の途中で worker が落ちたセッションなど）では、結果が不明な turn を先に決めなくてかまいません。その turn は `cancelled`（`terminal_reason` は `operator_start_fresh`）で閉じ、同じ入力の新しい turn がすでに待っている入力の後ろに入り、空の context で動きます。Slack スレッドと作業領域はそのままです。途切れる前に行ったことは元に戻らないので確認します。Slack スレッドの［新しい文脈で続ける］ボタンも同じ判断で、そのセッションに書き込める人が押せます（非公開チャンネルなら現在のメンバーだけ）。何度押しても判断は一つです。セッション詳細の `start_fresh_available` が今受け付けるかを示します。
+- `start_fresh`：commit 済み checkpoint がないセッション（最初の turn の途中で worker が落ちたセッションなど）では、結果が不明な turn を先に決めなくてかまいません。その turn は `cancelled`（`terminal_reason` は `operator_start_fresh`）で閉じ、同じ入力の新しい turn がすでに待っている入力の後ろに入り、checkpoint を復元しない新しい engine session で動きます（先に動いた待ち入力の context は見えます）。Slack スレッドと作業領域はそのままです。途切れる前に行ったことは元に戻らないので確認します。Slack スレッドの［新しい文脈で続ける］ボタンも同じ判断で、そのセッションに書き込める人が押せます（非公開チャンネルなら現在のメンバーだけ）。何度押しても判断は一つです。セッション詳細の `start_fresh_available` が今受け付けるかを示します。
 
 4. `abandon`・`confirm_completed` 後のセッションは `stopped` です。判断 receipt の `result.resumable` が `true` なら resume します。`false` は、引き継ぐ checkpoint がない、または最後の checkpoint 後に実行した turn があり、その context を引き継げないことを意味します（セッション詳細の attention は `CONTEXT_GAP`）。`start_fresh` でその context なしに継続するか、`close` します。
 
