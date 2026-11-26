@@ -753,8 +753,8 @@ export function render(rows: readonly Row[], base: BaseImage): string {
 
 const BARE_HEADING = "## 라이선스 파일이 없는 npm 패키지";
 
-// Data derived from a third-party file and shipped in the repository, the
-// control-host image and the Helm chart.
+// Third-party material copied, or derived and kept, in the repository, from
+// where it ships in an image or the Helm chart.
 const DERIVED_DATA = [
   "## 저장소에 옮겨 온 외부 데이터",
   "",
@@ -763,6 +763,12 @@ const DERIVED_DATA = [
   "- **출처.** moby/profiles 저장소의 `seccomp/default.json`, commit `245180c51918481c0525424b3ee025d2b435d46c`(https://github.com/moby/profiles).",
   "- **라이선스.** Apache-2.0. 저장소에 NOTICE 파일은 없다. 허락 조건 전문은 https://github.com/moby/profiles/blob/245180c51918481c0525424b3ee025d2b435d46c/LICENSE 에 있다.",
   "- **쓰임.** `scripts/codex-seccomp-profile.ts`가 이 파일을 capability 없는 컨테이너 기준으로 풀어 쓰고, Codex 샌드박스에 필요한 syscall 다섯 개(`clone`, `unshare`, `mount`, `umount2`, `pivot_root`)를 허용하도록 고친 파생물을 만든다. 고친 파일은 `packages/adapters/execution/local-docker/src/codex-sandbox-seccomp.json`과 `deploy/helm/werft/files/codex-sandbox-seccomp.json`이며, control-host 이미지와 Helm 차트에 들어간다.",
+  "",
+  "### AffectUI 무료 컴포넌트 (`apps/web/src/vendor/affectui/free/`)",
+  "",
+  "- **출처.** AffectUI가 MIT로 공개한 무료 컴포넌트. 지금은 옮겨 온 파일이 없다.",
+  "- **라이선스.** MIT. 첫 조각을 들일 때 upstream LICENSE 원문을 저작권 줄까지 그대로 `apps/web/src/vendor/affectui/free/LICENSE`에 복사한다.",
+  "- **쓰임.** 그대로 옮긴 파일은 위 폴더에 두며, 웹 콘솔이 import하면 control-host 이미지의 웹 bundle에 들어간다. Radix와 werft 토큰으로 다시 짠 파일은 packages/ui에 둘 수 있고, 파일 머리에 이 LICENSE를 가리키는 고지 한 줄을 둔다.",
   "",
 ];
 
