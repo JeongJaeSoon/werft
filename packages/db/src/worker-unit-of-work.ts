@@ -105,7 +105,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
-import { followUpFact, queuePushFollowUps } from "./action/push-follow-ups.ts";
+import { queuePushFollowUps } from "./action/push-follow-ups.ts";
 import { settleTurnPushIntents } from "./action/push-intents.ts";
 import {
   type RuntimeFingerprint,
@@ -127,6 +127,7 @@ import {
 } from "./control-shared.ts";
 import { terminateReceiptResult } from "./control-unit-of-work.ts";
 import { encodeEventCursor } from "./cursors.ts";
+import { deliveredTurnInput, recordCutOff } from "./cut-off-input.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import {
   retiredSessionMcpOf,
@@ -2911,8 +2912,19 @@ export function createPostgresWorkerUnitOfWork(
         ) {
           return none;
         }
+        // Reading the input may wait on a delete's source mark locks: the
+        // lease is judged again after it, before anything is handed over.
+        const delivered = await deliveredTurnInput(tx, {
+          turn,
+          workspaceId: fenced.session.workspaceId,
+          redelivery,
+        });
+        if (!leaseHeld(fenced.attempt, await dbNow(tx))) {
+          return { outcome: "lease_expired" };
+        }
         const deliveryStartedAt = turn.deliveryStartedAt ?? now;
         if (!redelivery) {
+          await recordCutOff(tx, turn.id, delivered.record);
           await tx
             .update(queueMessages)
             .set({
@@ -2971,9 +2983,7 @@ export function createPostgresWorkerUnitOfWork(
           input: {
             turnId: String(turn.sequence),
             inputId: String(message.id),
-            // Turns queued before the follow-up wording became facts still
-            // hold the old text; only a message equal to it is rewritten.
-            message: followUpFact(turn.message),
+            message: delivered.message,
             deliveryStartedAt,
             actorId: turn.actorId,
             traceContext: turn.traceContext,
