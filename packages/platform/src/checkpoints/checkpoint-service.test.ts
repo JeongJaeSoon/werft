@@ -579,6 +579,94 @@ describe("protectedCommits", () => {
     ).rejects.toThrow("protected commits would be incomplete");
   });
 
+  test("a store that refills the chunk it handed over still yields the manifest it stored", async () => {
+    await commitRevision(0);
+    const pointer = checkpoints.pointer();
+    const refilling = new Proxy(objects, {
+      get(target, property) {
+        const value = Reflect.get(target, property, target);
+        if (property !== "stream" || typeof value !== "function") return value;
+        return async (key: string, version?: string) => {
+          const chunks = await value.call(target, key, version);
+          if (chunks === undefined) return undefined;
+          return (async function* () {
+            // One buffer, overwritten for every chunk, as a pooled reader does.
+            const pool = Buffer.alloc(3);
+            for await (const chunk of chunks as AsyncIterable<Uint8Array>) {
+              for (let at = 0; at < chunk.byteLength; at += pool.byteLength) {
+                const piece = chunk.subarray(at, at + pool.byteLength);
+                pool.set(piece);
+                yield pool.subarray(0, piece.byteLength);
+              }
+            }
+          })();
+        };
+      },
+    });
+    const reading = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
+      newPublishId: () => PUBLISH_ID,
+      objects: refilling,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+    expect(await reading.protectedCommits({ sessionId, pointer })).toEqual([
+      workspaceBundle.commit,
+    ]);
+  });
+
+  test("a manifest over the limit is refused from a read that stops past the limit, with no HEAD", async () => {
+    await commitRevision(0);
+    const pointer = checkpoints.pointer();
+    if (pointer === null) throw new Error("expected a pointer");
+    const stored = await objects.get(pointer.manifestRef);
+    if (stored === undefined) throw new Error("expected the manifest");
+    const limit = Math.floor(stored.byteLength / 2);
+    const asked: string[] = [];
+    let delivered = 0;
+    const watched = new Proxy(objects, {
+      get(target, property) {
+        const value = Reflect.get(target, property, target);
+        if (typeof value !== "function") return value;
+        if (property !== "stream") {
+          return (...args: unknown[]) => {
+            asked.push(String(property));
+            return value.apply(target, args);
+          };
+        }
+        return async (key: string, version?: string) => {
+          asked.push("stream");
+          const chunks = await value.call(target, key, version);
+          if (chunks === undefined) return undefined;
+          return (async function* () {
+            // One byte at a time, so the read's stop is visible.
+            for await (const chunk of chunks as AsyncIterable<Uint8Array>) {
+              for (const byte of chunk) {
+                delivered += 1;
+                yield Uint8Array.of(byte);
+              }
+            }
+          })();
+        };
+      },
+    });
+    const limited = createCheckpointService({
+      codecs: { [runtime.engine]: codec },
+      objectProtection: "unversioned",
+      newPublishId: () => PUBLISH_ID,
+      maxManifestBytes: limit,
+      objects: watched,
+      store: checkpoints.store,
+      workspaceBundles: structuralBundleVerifier,
+    });
+    await expect(
+      limited.protectedCommits({ sessionId, pointer }),
+    ).rejects.toThrow(`manifest delivered more than the ${limit}-byte limit`);
+    expect(asked).toEqual(["stream"]);
+    expect(delivered).toBe(limit + 1);
+  });
+
   describe("object reads as the session's history grows", () => {
     // Like a long session: revision r names transcript parts 0..r and builds
     // on the bundles of revisions 0..r-1.
@@ -694,16 +782,17 @@ describe("protectedCommits", () => {
           sessionId,
           pointer: checkpoints.pointer(),
         });
-        // Per checkpoint: its manifest (HEAD and GET), its own new part and
-        // its own new bundle link (HEAD and read each), one bundle
-        // verification. Once per call: the pointer's manifest for the
-        // verified set, and the untracked file every revision shares.
-        // Unversioned refs are never in the verified set, so parts are read.
+        // Per checkpoint: its manifest (one bounded read, no HEAD), its own
+        // new part and its own new bundle link (HEAD and read each), one
+        // bundle verification. Once per call: the untracked file every
+        // revision shares. The pointer's manifest, which the verified set
+        // comes from, is the same read as its judgement. Unversioned refs
+        // are never in the verified set, so parts are read.
         expect({ revisions, ...calls }).toEqual({
           revisions,
-          get: revisions + 1,
-          head: 3 * revisions + 1,
-          stream: 2 * revisions + 1,
+          get: 0,
+          head: 2 * revisions + 1,
+          stream: 3 * revisions + 1,
           verify: revisions,
         });
       }
@@ -1072,7 +1161,7 @@ describe("protectedCommits", () => {
         expect(await protect()).toEqual(commits);
         // This store keeps no checksum, so every link is read again, once:
         // the same reads as the first call, without git.
-        expect(calls).toEqual({ head: 19, stream: 13, verify: 0 });
+        expect(calls).toEqual({ head: 13, stream: 19, verify: 0 });
       });
 
       test("a store that keeps a checksum answers for an unchanged bundle from the HEAD: it is not read again", async () => {
@@ -1083,15 +1172,16 @@ describe("protectedCommits", () => {
         await protect();
         reset();
         await protect();
-        // Six parts and the untracked file; no bundle link.
-        expect(calls).toEqual({ head: 19, stream: 7, verify: 0 });
+        // Six manifests, six parts and the untracked file; no bundle link.
+        expect(calls).toEqual({ head: 13, stream: 13, verify: 0 });
 
         await tamper(1);
         reset();
         await expect(protect()).rejects.toThrow(
           `revision 5 does not verify (workspace bundle ${bundleOf(1).ref.key} hashes to`,
         );
-        expect(calls.stream).toBe(7);
+        // Still nothing of a bundle: the manifests and the parts.
+        expect(calls.stream).toBe(13);
       });
 
       test("a bundle that no longer hashes to what passed is damage, whatever is remembered of it", async () => {

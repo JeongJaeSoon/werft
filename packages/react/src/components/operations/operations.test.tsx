@@ -325,6 +325,7 @@ describe("SessionCounts", () => {
       idle: 41,
       failed: 1,
       stopped: 12,
+      cut_off: 0,
     };
     const member = withPlatform(
       <SessionCounts counts={counts} statusLink={link} />,

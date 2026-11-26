@@ -1,25 +1,21 @@
 import { startFakeAnthropicServer } from "./fake-anthropic.ts";
-import { type GateRequest, replyFor, specIdsIn } from "./scripted-messages.ts";
+import { createRequestLog } from "./request-log.ts";
 
 // The local stack's Messages API: the `fake-messages` connection in
 // tests/fixtures/settings/fake-model.json points here, so a session runs end to end without an
 // Anthropic account. A message carrying a GATE-SPEC plays that script
 // (docs/quickstart.md, tests/e2e); any other gets the same short answer.
 const FALLBACK = "Hello from the local fake Messages API.";
-// Bounded, since the stack may run for days.
+// Bounded, since the stack may run for days and under load.
 const KEEP_RECORDED = 1000;
 
 const port = Number(process.env.FAKE_MESSAGES_PORT ?? "4010");
 const controlPort = Number(process.env.FAKE_MESSAGES_CONTROL_PORT ?? "4011");
-const recorded: GateRequest[] = [];
+const log = createRequestLog(KEEP_RECORDED);
 const server = startFakeAnthropicServer(
-  (request) => {
-    if (recorded.length >= KEEP_RECORDED) {
-      recorded.splice(0, KEEP_RECORDED / 2);
-    }
-    return replyFor(request, recorded, FALLBACK);
-  },
-  { listen: { hostname: "0.0.0.0", port } },
+  (request) => log.reply(request, FALLBACK),
+  // The log above is the record; the server keeps no request bodies.
+  { listen: { hostname: "0.0.0.0", port }, keepRequests: 0 },
 );
 
 // Which scripted step a model call has reached, so tests/e2e can act while a
@@ -37,19 +33,7 @@ Bun.serve({
     if (url.pathname !== "/requests") {
       return new Response("not found", { status: 404 });
     }
-    const spec = url.searchParams.get("spec");
-    return Response.json(
-      recorded
-        .filter((entry) => spec === null || entry.specId === spec)
-        .map(({ at, found, messages, specId, step, tools }) => ({
-          at,
-          spec_id: specId,
-          step,
-          history: specIdsIn(messages),
-          tools,
-          found,
-        })),
-    );
+    return Response.json(log.entries(url.searchParams.get("spec")));
   },
 });
 

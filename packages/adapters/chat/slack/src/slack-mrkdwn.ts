@@ -148,7 +148,7 @@ const CONTROL = /<[^<>\n]+>/g;
 const BARE_URL = /\bhttps?:\/\/[^\s<>]+/g;
 
 /** Trailing punctuation belongs to the sentence, a `)` only when unbalanced. */
-function urlEnd(url: string): number {
+export function urlEnd(url: string): number {
   let unbalanced = url.split(")").length - url.split("(").length;
   let end = url.length;
   for (;;) {

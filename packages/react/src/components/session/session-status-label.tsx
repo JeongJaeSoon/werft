@@ -64,3 +64,13 @@ export function SessionStatusLabel({
     />
   );
 }
+
+/**
+ * An idle session whose last turn its worker's lost lease cut off: it shows
+ * as "중단됨" in the failed colour, as the session's own screen does.
+ */
+export function isSessionCutOff(
+  session: Pick<SessionSummary, "status" | "last_turn_cut_off">,
+): boolean {
+  return session.status === "idle" && session.last_turn_cut_off;
+}

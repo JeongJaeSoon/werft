@@ -44,6 +44,7 @@ export function useSessionOverviewRowMessages(): SessionOverviewRowMessages {
     admission: (state) => t(`sessions.admission.${state}`),
     statusAxis: t("sessions.column.status"),
     capacityWait: t("sessions.capacityWait"),
+    cutOff: t("session.status.ownershipLost"),
     channel: (channel) => t(`session.channel.${channel}`),
     inProgress: t("sessionList.inProgress"),
     unknown: t("sessionList.unknown"),
