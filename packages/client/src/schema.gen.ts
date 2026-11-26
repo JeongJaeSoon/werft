@@ -1503,7 +1503,7 @@ export interface paths {
         };
         /**
          * Count the sessions a list would return, per status
-         * @description Counts, for each status, the sessions `GET /v1/sessions` would list with that `status` and the same `relation` and `q` when read to its last page; `total` is their sum, and `cost_usd` the estimated provider cost of those `total` sessions added up. A session the caller cannot read is never counted, and neither is its cost. It changes nothing.
+         * @description Counts, for each status, the sessions `GET /v1/sessions` would list with that `status` and the same `relation` and `q` when read to its last page; `total` is their sum. A session the caller cannot read is never counted. It changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -6650,8 +6650,6 @@ export interface components {
                 cut_off: number;
             };
             total: number;
-            /** @description The estimated provider cost of the `total` sessions added up: the sum of `cost.amount_usd` from GET /v1/sessions/{id}/usage over the same sessions, read with the counts. An estimate, not a bill; a turn still running adds what it has spent so far. Absent from a server older than the field. */
-            cost_usd?: string;
             /**
              * @description Present and true while some private channel's members are still being confirmed: that channel's sessions are left out of this answer, which may hold more when read again shortly. No count is given.
              * @constant
@@ -24207,8 +24205,7 @@ export interface operations {
                      *         "stopped": 3,
                      *         "cut_off": 1
                      *       },
-                     *       "total": 12,
-                     *       "cost_usd": "8.421500"
+                     *       "total": 12
                      *     }
                      */
                     "application/json": components["schemas"]["CountSessionsResponse"];

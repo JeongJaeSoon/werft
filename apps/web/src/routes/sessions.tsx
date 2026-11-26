@@ -50,7 +50,6 @@ import {
 import { LoadFailure } from "../components/load-failure.tsx";
 import { PrivateChannelsPending } from "../components/private-channels-pending.tsx";
 import { SEARCH_MAX, useSearchTerm } from "../components/search-term.ts";
-import { SessionSummary } from "../components/session-summary.tsx";
 import { StatusScreen } from "../components/status-screen.tsx";
 import { errorKey, useI18n } from "../i18n/i18n.tsx";
 import { SessionGitHubWork } from "./session-github-work.tsx";
@@ -309,10 +308,6 @@ export function SessionsScreen() {
           refusal={refusal}
         />
         <div className="flex min-w-0 flex-col gap-4">
-          {/* A failed read keeps its last answer: say nothing rather than old figures. */}
-          {counts.data && !counts.isError ? (
-            <SessionSummary counts={counts.data} />
-          ) : null}
           <ListToolbar
             filter={
               <SegmentedControl
@@ -477,7 +472,7 @@ function useListedSessions(filter: SessionsFilter) {
 }
 
 /** The tabs' numbers, for the relation and search the list is read with. */
-export function sessionCountsQuery(
+function sessionCountsQuery(
   client: ApiClient,
   relation: SessionRelationFilter | undefined,
   q: string | undefined,

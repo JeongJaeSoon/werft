@@ -48,6 +48,31 @@ describe("ListToolbar", () => {
     }
   });
 
+  test("넓은 폭(lg)에서는 분류·필터·검색을 한 줄에 두고, 좁은 폭에서는 오른쪽 묶음을 아래 줄로 내린다", () => {
+    const { container } = render(
+      <ListToolbar
+        filter={<Filter />}
+        filters={<span>칩</span>}
+        search={{ "aria-label": "찾기", type: "search" }}
+      />,
+    );
+    // happy-dom lays nothing out: the breakpoint classes are what is checked.
+    const bar = container.querySelector<HTMLElement>(
+      '[data-slot="list-toolbar"]',
+    );
+    const end = container.querySelector<HTMLElement>(
+      '[data-slot="list-toolbar-end"]',
+    );
+    const classes = (node: HTMLElement | null) =>
+      node?.className.split(" ") ?? [];
+    expect(classes(bar)).toEqual(
+      expect.arrayContaining(["flex", "flex-wrap", "lg:flex-nowrap"]),
+    );
+    expect(classes(end)).toEqual(
+      expect.arrayContaining(["w-full", "sm:w-auto", "lg:shrink-0"]),
+    );
+  });
+
   test("칩만 있어도 오른쪽 묶음을 그린다", () => {
     const { container } = render(
       <ListToolbar filter={<Filter />} filters={<span>칩</span>} />,
