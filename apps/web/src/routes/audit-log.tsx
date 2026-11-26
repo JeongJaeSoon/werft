@@ -119,12 +119,17 @@ function auditCountsQuery(
 ) {
   return {
     queryKey: scopedKey(client, "audit-counts", queries),
-    queryFn: async () => {
+    // Changed filters leave the old pass unused; its signal stops it so it
+    // does not overlap the new one. Reopening reuses a pass still running.
+    queryFn: async ({ signal }: { signal: AbortSignal }) => {
       const counts: CountAuditEventsResponse[] = [];
       for (const query of queries) {
         counts.push(
           (await unwrap(
-            client.GET("/v1/audit/events/counts", { params: { query } }),
+            client.GET("/v1/audit/events/counts", {
+              params: { query },
+              signal,
+            }),
           )) as CountAuditEventsResponse,
         );
       }
