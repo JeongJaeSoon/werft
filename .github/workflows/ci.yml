@@ -162,6 +162,8 @@ jobs:
         run: bun run lint
       - if: '!cancelled() && steps.install.outcome == ''success'''
         run: bun scripts/third-party-notices.ts --check
+      - if: '!cancelled() && steps.install.outcome == ''success'''
+        run: bun .github/scripts/vendor-names.ts
 
   docs-checks:
     needs: changes

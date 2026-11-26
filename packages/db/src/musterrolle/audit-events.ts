@@ -3,7 +3,7 @@ import {
   AUDIT_RETENTION_MIN_DAYS,
   type AuditEvent,
 } from "@werft-ai/contracts";
-import type { AuditLogReader } from "@werft-ai/platform";
+import type { AuditLogFilter, AuditLogReader } from "@werft-ai/platform";
 import { and, desc, eq, type SQL, sql } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import {
@@ -92,21 +92,82 @@ function before(
     : undefined;
 }
 
+// What a filter keeps of each table, so a count reads the rows a page lists.
+function matching(ownerId: string, filter: AuditLogFilter, start: string) {
+  const userId = filter.actor_user_id?.toLowerCase();
+  const window = (at: PgColumn) =>
+    and(
+      sql`${at} >= ${start}::timestamptz`,
+      filter.from ? sql`${at} >= ${filter.from}::timestamptz` : undefined,
+      filter.to ? sql`${at} < ${filter.to}::timestamptz` : undefined,
+    );
+  return {
+    decisions:
+      filter.kind === "receipt"
+        ? undefined
+        : and(
+            eq(authzDecisions.ownerId, ownerId),
+            window(authzDecisions.at),
+            userId ? eq(authzDecisions.actorUserId, userId) : undefined,
+            filter.action
+              ? eq(authzDecisions.action, filter.action)
+              : undefined,
+            filter.outcome
+              ? eq(authzDecisions.outcome, filter.outcome)
+              : undefined,
+          ),
+    receipts:
+      filter.kind === "decision"
+        ? undefined
+        : and(
+            eq(receipts.ownerId, ownerId),
+            window(receipts.createdAt),
+            userId
+              ? sql`${receipts.actor} ->> 'actor_user_id' = ${userId}`
+              : undefined,
+            filter.action ? eq(receipts.operation, filter.action) : undefined,
+            // Text, so an outcome that is no receipt status matches nothing
+            // instead of failing the enum cast.
+            filter.outcome
+              ? sql`${receipts.status}::text = ${filter.outcome}`
+              : undefined,
+          ),
+  };
+}
+
 export function createPostgresAuditLogReader(db: Database): AuditLogReader {
   return {
+    async count(ownerId, filter, stopAt) {
+      const start = await retentionStart(db, ownerId);
+      const where = matching(ownerId, filter, start);
+      // Reads at most stopAt rows of each table: the log grows with every
+      // request, and the screen needs no more than "past the cap".
+      const upTo = async (
+        table: typeof authzDecisions | typeof receipts,
+        condition: SQL | undefined,
+      ) => {
+        const rows = rowsOf<{ n: number }>(
+          await db.execute(sql`
+            SELECT count(*)::int AS n FROM (
+              SELECT 1 FROM ${table} WHERE ${condition} LIMIT ${stopAt}
+            ) AS kept`),
+        );
+        return rows[0]?.n ?? 0;
+      };
+      const [decision, receipt] = await Promise.all([
+        where.decisions ? upTo(authzDecisions, where.decisions) : 0,
+        where.receipts ? upTo(receipts, where.receipts) : 0,
+      ]);
+      return { decision, receipt };
+    },
+
     async page(ownerId, filter, cursorText, limit) {
       const cursor = cursorText ? decodeAuditCursor(cursorText) : null;
       const start = await retentionStart(db, ownerId);
-      const userId = filter.actor_user_id?.toLowerCase();
-      const window = (at: PgColumn) =>
-        and(
-          sql`${at} >= ${start}::timestamptz`,
-          filter.from ? sql`${at} >= ${filter.from}::timestamptz` : undefined,
-          filter.to ? sql`${at} < ${filter.to}::timestamptz` : undefined,
-        );
+      const where = matching(ownerId, filter, start);
 
       const decisions =
-        filter.kind === "receipt"
+        where.decisions === undefined
           ? []
           : await db
               .select({
@@ -129,15 +190,7 @@ export function createPostgresAuditLogReader(db: Database): AuditLogReader {
               .from(authzDecisions)
               .where(
                 and(
-                  eq(authzDecisions.ownerId, ownerId),
-                  window(authzDecisions.at),
-                  userId ? eq(authzDecisions.actorUserId, userId) : undefined,
-                  filter.action
-                    ? eq(authzDecisions.action, filter.action)
-                    : undefined,
-                  filter.outcome
-                    ? eq(authzDecisions.outcome, filter.outcome)
-                    : undefined,
+                  where.decisions,
                   before(
                     cursor,
                     authzDecisions.at,
@@ -151,7 +204,7 @@ export function createPostgresAuditLogReader(db: Database): AuditLogReader {
               .catch(rethrowCursorCastError);
 
       const receiptRows =
-        filter.kind === "decision"
+        where.receipts === undefined
           ? []
           : await db
               .select({
@@ -166,19 +219,7 @@ export function createPostgresAuditLogReader(db: Database): AuditLogReader {
               .from(receipts)
               .where(
                 and(
-                  eq(receipts.ownerId, ownerId),
-                  window(receipts.createdAt),
-                  userId
-                    ? sql`${receipts.actor} ->> 'actor_user_id' = ${userId}`
-                    : undefined,
-                  filter.action
-                    ? eq(receipts.operation, filter.action)
-                    : undefined,
-                  // Text, so an outcome that is no receipt status matches
-                  // nothing instead of failing the enum cast.
-                  filter.outcome
-                    ? sql`${receipts.status}::text = ${filter.outcome}`
-                    : undefined,
+                  where.receipts,
                   before(cursor, receipts.createdAt, "receipt", receipts.id),
                 ),
               )

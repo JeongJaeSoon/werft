@@ -389,6 +389,7 @@ describe("OpenAPI document", () => {
         "/v1/admin/sessions/{id}/terminate",
         "/v1/openapi.json",
         "/v1/audit/events",
+        "/v1/audit/events/counts",
         "/v1/auth/bootstrap",
         "/v1/auth/login",
         "/v1/auth/login-methods",

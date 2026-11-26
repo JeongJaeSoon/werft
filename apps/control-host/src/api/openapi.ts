@@ -62,6 +62,8 @@ import {
   completeSlackInstallResponseSchema,
   completeWorkspaceMcpOAuthRequestSchema,
   countAgentsResponseSchema,
+  countAuditEventsQuerySchema,
+  countAuditEventsResponseSchema,
   countSessionsQuerySchema,
   countSessionsResponseSchema,
   createAchievementCategoryRequestSchema,
@@ -516,6 +518,7 @@ const requestComponents = {
   SetLoginProviderSecretRequest: setLoginProviderSecretRequestSchema,
   AuditRetentionRequest: auditRetentionRequestSchema,
   ListAuditEventsQuery: listAuditEventsQuerySchema,
+  CountAuditEventsQuery: countAuditEventsQuerySchema,
   SlackGuestRequest: slackGuestRequestSchema,
   CreateAchievementCategoryRequest: createAchievementCategoryRequestSchema,
   UpdateAchievementCategoryRequest: updateAchievementCategoryRequestSchema,
@@ -644,6 +647,7 @@ const responseComponents = {
   IssuePasswordResetResponse: issuePasswordResetResponseSchema,
   AuditRetentionResponse: auditRetentionResponseSchema,
   ListAuditEventsResponse: listAuditEventsResponseSchema,
+  CountAuditEventsResponse: countAuditEventsResponseSchema,
   AuditExportLine: auditExportLineSchema,
   SlackGuestResponse: slackGuestResponseSchema,
   SlackSecretSummary: slackSecretSummarySchema,
@@ -2183,6 +2187,32 @@ export const API_ROUTE_DECLARATIONS = [
       RATE_LIMITED:
         "An export of this workspace is already running; `Retry-After` is 60.",
     },
+  },
+  {
+    method: "get",
+    path: "/v1/audit/events/counts",
+    operationId: "countAuditEvents",
+    tag: "Audit log",
+    summary: "Count the audit rows a list would return, per kind (owner only)",
+    description:
+      "Counts, for each `kind`, the rows GET /v1/audit/events would list with the same filters when read to its last page, inside the same retention window; `total` is their sum. Each count stops at 1,000: past it `count` is 1,000 and `more` is true. Only the workspace owner, signed in, reads it; every other member and every API key get 403, and each read, allowed or refused, leaves a decision row (`audit_log.read`). It changes nothing else.",
+    scope: "read",
+    // As the list: the policy refuses an API key and records it.
+    scopeCheckedBy: "service",
+    query: "CountAuditEventsQuery",
+    success: {
+      status: 200,
+      schema: "CountAuditEventsResponse",
+      description: "The number of audit rows per kind, up to 1,000 each.",
+      example: {
+        counts: {
+          decision: { count: 1000, more: true },
+          receipt: { count: 42, more: false },
+        },
+        total: { count: 1000, more: true },
+      },
+    },
+    errors: [400, 401, 403, 503],
   },
   {
     method: "post",
