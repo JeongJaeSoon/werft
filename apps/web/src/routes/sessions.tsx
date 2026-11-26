@@ -306,14 +306,7 @@ export function SessionsScreen() {
         <div className="flex min-w-0 flex-col gap-4">
           {/* A failed read keeps its last answer: say nothing rather than old figures. */}
           {counts.data && !counts.isError ? (
-            <SessionSummary
-              counts={counts.data}
-              filter={{
-                status: address.status,
-                onChange: (status) =>
-                  go(withSessionsFilter(address, { status })),
-              }}
-            />
+            <SessionSummary counts={counts.data} />
           ) : null}
           <ListToolbar
             filter={
