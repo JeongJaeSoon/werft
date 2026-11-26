@@ -1901,13 +1901,18 @@ describe("session detail", () => {
       });
       await screen.findByRole("button", { name: "다시 시도" });
       await waitFor(() => expect(stream.requests).toHaveLength(1));
-
-      read.down = false;
       const before = read.count;
+      await act(async () => stream.open());
+      await waitFor(() => expect(read.count).toBe(before + 1));
+
+      // The server answers again; the stream drops and opens again.
+      read.down = false;
+      act(() => stream.drop());
+      await waitFor(() => expect(stream.requests).toHaveLength(2));
       await act(async () => stream.open());
       await screen.findByText("권한 요청: Bash");
       expect(hasRetry()).toBe(false);
-      expect(read.count).toBe(before + 1);
+      expect(read.count).toBe(before + 2);
     });
 
     test("keeps its card while it keeps failing, read once per reconnect", async () => {
