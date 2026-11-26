@@ -10,3 +10,4 @@ createRoot(container).render(
     <App />
   </StrictMode>,
 );
+// CI probe: a web-only change.
