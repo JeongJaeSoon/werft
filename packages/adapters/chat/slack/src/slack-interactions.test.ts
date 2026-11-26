@@ -13,8 +13,10 @@ import {
   type IdentityReader,
   type LinkedSubject,
   SessionServiceError,
+  type SurfaceAiLabel,
   type SurfacePromptCard,
 } from "@werft-ai/platform";
+import { slackAiLabelBlock } from "./slack-ai-label.ts";
 import {
   createSlackInteractionService,
   type SlackInteractionDeps,
@@ -154,6 +156,8 @@ const record =
     calls.push({ method, args });
     return result;
   };
+// What the store reads for a redrawn notice's AI line; null under `off`.
+let aiLabel: SurfaceAiLabel | null = null;
 const called = (method: string) => calls.filter((c) => c.method === method);
 
 const identity: IdentityReader = {
@@ -346,6 +350,10 @@ function deps(): SlackInteractionDeps {
     },
     botToken: async () => "xoxb-fixture",
     outbox: {
+      aiLabelFor: async (input) => {
+        calls.push({ method: "aiLabel", args: [input] });
+        return aiLabel;
+      },
       promptCard: async (input) => {
         calls.push({ method: "card", args: [input] });
         if (posted === undefined) return null;
@@ -1646,6 +1654,22 @@ describe("the continue button on the notice of a turn its worker's lost lease en
     expect(shown).not.toContain(SLACK_INTERACTION_ACTIONS.turnContinue);
     expect(shown).toContain("Continuing from the last save point");
     expect(shown).toContain(`/sessions/${SESSION}`);
+  });
+
+  test("the redrawn notice keeps the AI line under rollout `on`, and has none without", async () => {
+    await send(pressContinue("3"));
+    aiLabel = { requestedBy: "Ada" };
+    await send(pressContinue("3"));
+    aiLabel = null;
+    expect(called("aiLabel")[0]?.args).toEqual([
+      { agentId: AGENT, sessionId: SESSION, turnId: 3 },
+    ]);
+    const [off, on] = called("update").map(
+      (call) => call.args[1] as { text: string; blocks: unknown[] },
+    );
+    expect(JSON.stringify(off)).not.toContain("Werft");
+    expect(on?.blocks.at(-1)).toEqual(slackAiLabelBlock("en", "Ada"));
+    expect(on?.text).toEndWith("\n\nAI agent · Werft");
   });
 
   test("pressed again, the same turn is asked for again and the store answers it once", async () => {
