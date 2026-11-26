@@ -197,14 +197,17 @@ export function readSessionSteps({
 }
 
 /**
- * The session and its turns name different running turns: one read is
- * behind the other. Each lands when its response does, not when the server
+ * The session and its turns name different running turns, or count
+ * different queued ones: one read is behind the other. Each lands when its response does, not when the server
  * answered it, so only reading both again tells which.
  */
 export function readsDisagree(
-  currentTurnId: string | null,
+  session: Pick<SessionDetail, "current_turn_id" | "queued_turn_count">,
   turns: readonly TurnSummary[],
 ): boolean {
+  const currentTurnId = session.current_turn_id;
+  const queued = turns.filter((turn) => turn.status === "queued").length;
+  if (queued !== session.queued_turn_count) return true;
   const named = turns.find((turn) => turn.turn_id === currentTurnId);
   if (currentTurnId !== null && !(named && OPEN_TURN.has(named.status)))
     return true;

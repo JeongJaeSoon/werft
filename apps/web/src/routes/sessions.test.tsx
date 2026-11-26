@@ -4875,6 +4875,41 @@ describe("session steps", () => {
     expect(turnReads).toBe(reads);
   });
 
+  test("reads the turns again when the session counts a queued turn they lack", async () => {
+    let turnReads = 0;
+    renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () =>
+        json(200, {
+          ...detail,
+          status: "running",
+          current_turn_id: "1",
+          queued_turn_count: 1,
+          attention: null,
+        }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () => {
+        turnReads += 1;
+        return json(200, {
+          // Another client queued turn 2; the first read missed it.
+          items:
+            turnReads === 1
+              ? [turn("1", "running")]
+              : [
+                  turn("1", "running"),
+                  turn("2", "queued", { started_at: null }),
+                ],
+          next_cursor: null,
+        });
+      },
+    });
+    const progress = await sessionProgress();
+    await within(progress).findByRole(
+      "button",
+      { name: /^단계 1\/2/ },
+      { timeout: 4_000 },
+    );
+  });
+
   test("counts the turns as steps, opens only the current one and marks its approval wait", async () => {
     const user = await setupUser();
     renderAt(`/sessions/${SESSION_ID}`, waitingOnTwo);

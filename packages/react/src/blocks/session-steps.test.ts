@@ -413,19 +413,32 @@ describe("readSessionSteps", () => {
 });
 
 describe("readsDisagree", () => {
-  test("agrees when the session's current turn is the open one", () => {
+  const on = (current_turn_id: string | null, queued_turn_count = 0) => ({
+    current_turn_id,
+    queued_turn_count,
+  });
+
+  test("agrees when the session's current turn is the open one and the queues match", () => {
     expect(
-      readsDisagree("2", [turn("1", "completed"), turn("2", "running")]),
+      readsDisagree(on("2", 1), [
+        turn("1", "completed"),
+        turn("2", "running"),
+        turn("3", "queued", { started_at: null }),
+      ]),
     ).toBe(false);
-    expect(readsDisagree(null, [turn("1", "completed")])).toBe(false);
+    expect(readsDisagree(on(null), [turn("1", "completed")])).toBe(false);
   });
 
   test("disagrees when the turns show another turn running, or the session's one ended", () => {
-    expect(readsDisagree(null, [turn("1", "running")])).toBe(true);
+    expect(readsDisagree(on(null), [turn("1", "running")])).toBe(true);
     expect(
-      readsDisagree("1", [turn("1", "completed"), turn("2", "running")]),
+      readsDisagree(on("1"), [turn("1", "completed"), turn("2", "running")]),
     ).toBe(true);
-    expect(readsDisagree("2", [turn("1", "completed")])).toBe(true);
+    expect(readsDisagree(on("2"), [turn("1", "completed")])).toBe(true);
+  });
+
+  test("disagrees when the session counts a queued turn the turns read lacks", () => {
+    expect(readsDisagree(on("1", 1), [turn("1", "running")])).toBe(true);
   });
 });
 
