@@ -420,6 +420,51 @@ describe("superseded revisions", () => {
     expect(kept).toEqual([false, true, true, true, true]);
   });
 
+  test("lifts no hold the pointer or its fallback window names: those versions never reach purge", async () => {
+    const parts: ObjectRef[] = [];
+    const published = [];
+    for (let revision = 0; revision < 8; revision += 1) {
+      parts.push(await transcriptPart(revision));
+      published.push(await commit(revision, "attempt-a", [...parts]));
+    }
+    // A later generation runs the session, so generation 1's parts are
+    // collectible unless something keeps them; one nothing names must go.
+    const orphan = await transcriptPart(99);
+    session.state.generation = 2;
+    const purged: string[] = [];
+    const spying = createCheckpointCollector({
+      codecs: { [runtime.engine]: codec },
+      collector: {
+        listVersions: (prefix) => objects.listVersions(prefix),
+        purge: async (entry) => {
+          purged.push(`${entry.key}@${entry.version}`);
+          await objects.purge(entry);
+        },
+      },
+      objectProtection: "locked",
+      objects,
+      store: session.store,
+    });
+
+    await spying.collectSession(sessionId, { dryRun: false });
+
+    // The pointer (7) and the default window of three below it: every
+    // version their manifests name, and the manifests themselves.
+    const named = published
+      .slice(4)
+      .flatMap((revision) => [
+        ...revision.versions,
+        ...revision.manifest.transcripts.root.parts.map(versionOf),
+      ]);
+    expect(purged).toContain(`${orphan.key}@${orphan.version}`);
+    for (const entry of named) {
+      expect(purged).not.toContain(`${entry.key}@${entry.version}`);
+      expect(await objects.head(entry.key, entry.version)).toMatchObject({
+        held: true,
+      });
+    }
+  });
+
   test("the fallback base a session was restored from stays, even outside the window", async () => {
     const part = await transcriptPart(0);
     const revision0 = await commit(0, "attempt-a", [part]);
