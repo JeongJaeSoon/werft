@@ -13,7 +13,7 @@ import type {
 } from "@werft-ai/platform";
 import { publicStatus, receiptActorOf } from "@werft-ai/platform";
 import { isUnsupportedFeaturesReason } from "@werft-ai/runtime-core";
-import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   controlClock,
   controlReplay,
@@ -212,10 +212,10 @@ export async function cancelQueuedInput(
     error: { code: "SESSION_CLOSED" | "CONTROL_SUPERSEDED"; message: string };
     now: Date;
     /**
-     * A stop's cut: only input queued before it, and no turn that carries
-     * on a parked one (the platform's, not input). Everything when unset.
+     * A stop's cut: input only, no turn that carries on a parked one (the
+     * platform's). Every queued turn when unset.
      */
-    queuedBefore?: Date;
+    inputOnly?: boolean;
   },
 ) {
   const cancelled = await tx
@@ -229,12 +229,9 @@ export async function cancelQueuedInput(
       and(
         eq(turns.sessionId, input.sessionId),
         eq(turns.status, "queued"),
-        input.queuedBefore === undefined
-          ? undefined
-          : and(
-              lt(turns.createdAt, input.queuedBefore),
-              sql`NOT EXISTS (SELECT 1 FROM ${turnContinuations} c WHERE c.turn_id = ${turns.id})`,
-            ),
+        input.inputOnly
+          ? sql`NOT EXISTS (SELECT 1 FROM ${turnContinuations} c WHERE c.turn_id = ${turns.id})`
+          : undefined,
       ),
     )
     .returning({ id: turns.id, sequence: turns.sequence });

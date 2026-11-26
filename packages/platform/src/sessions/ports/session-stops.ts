@@ -18,10 +18,9 @@ export type StopQueuedResult =
 
 export interface SessionStops {
   /**
-   * Cancels the session's input queued before this call, by the database's
-   * clock, in one
-   * transaction, and names the turn still running. A turn that carries on a
+   * Cancels the session's queued input in one transaction, and names the
+   * turn still running. A turn that carries on a
    * parked one is the platform's, not queued input, and stays.
    */
-  cancelQueuedBefore(input: StopQueuedInput): Promise<StopQueuedResult>;
+  cancelQueued(input: StopQueuedInput): Promise<StopQueuedResult>;
 }

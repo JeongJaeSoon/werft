@@ -5154,13 +5154,11 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
 
   test("the requester's stop word alone stops the work: the running turn is interrupted, waiting input from before it cancelled, one line, and the word is no input", async () => {
     const { fixture, view, root, session, post } = await workingThread();
-    // Queued after the stop is taken (its clock is the cut): it stays.
-    await deliver(fixture, post(at(-80), { text: "then the docs" }));
-    await drain(view.handle);
-    await setTurn(session.id, 3, { createdAt: new Date(Date.now() + 60_000) });
-
     await deliver(fixture, post(at(1), { text: `<@${BOT_USER}> 멈춰!` }));
     expect(await drain(view.handle)).toMatchObject({ processed: 1 });
+    // Written after the stop word: it waits as usual.
+    await deliver(fixture, post(at(2), { text: "then the docs" }));
+    await drain(view.handle);
 
     expect(await turnStatesOf(session.id)).toEqual([
       { sequence: 1, status: "running", terminalReason: null },

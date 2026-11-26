@@ -17,7 +17,7 @@ import { touchSlackThreadStatus } from "./surface/slack-thread-status.ts";
 
 export function createPostgresSessionStops(db: Database): SessionStops {
   return {
-    cancelQueuedBefore(input: StopQueuedInput): Promise<StopQueuedResult> {
+    cancelQueued(input: StopQueuedInput): Promise<StopQueuedResult> {
       const sessionId = input.sessionId.toLowerCase();
       return transactionWithBindingRetry(db, async (tx, attempt) => {
         // The lock a dispatch and a finalize take too: no queued turn starts
@@ -43,7 +43,7 @@ export function createPostgresSessionStops(db: Database): SessionStops {
             message: "input cancelled by a stop before it ran",
           },
           now,
-          queuedBefore: now,
+          inputOnly: true,
         });
         if (cancelled.length > 0) await touchSlackThreadStatus(tx, sessionId);
         const [running] = await tx

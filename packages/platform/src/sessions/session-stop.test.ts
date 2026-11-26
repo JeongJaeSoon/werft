@@ -36,7 +36,7 @@ function stopWith(
   const stop = createSessionStop({
     authorization: options.authorization ?? policy("allow"),
     stops: {
-      cancelQueuedBefore: async (input) => {
+      cancelQueued: async (input) => {
         calls.push("cancel");
         cancels.push(input);
         return queued;

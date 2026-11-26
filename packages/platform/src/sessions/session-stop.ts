@@ -47,7 +47,7 @@ export function createSessionStop(deps: {
         throw error;
       }
       // Queued input first: once the running turn ends, the next one starts.
-      const queued = await deps.stops.cancelQueuedBefore({
+      const queued = await deps.stops.cancelQueued({
         principal: actor,
         sessionId,
       });
