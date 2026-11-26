@@ -784,17 +784,25 @@ jobs:
   # The scenario records the tested SHA, images and declared skips.
   # Only a plan with product inputs starts it, so a run with nothing for it
   # takes no runner. The required `e2e` check is not this job: `integration`
-  # reports it, holding this job's result to the plan.
+  # reports it, holding this job's result to the plan. A manual run of this
+  # job alone has no gate, so there the job carries the required name itself.
   e2e:
-    name: e2e (scenario)
+    name: ${{ github.event.inputs.only == 'e2e' && 'e2e' || 'e2e (scenario)' }}
     needs: changes
     if: >-
       !cancelled()
-      && needs.changes.outputs.product == 'true'
+      && (needs.changes.outputs.product == 'true' || github.event.inputs.only == 'e2e')
       && contains(fromJSON('["all","e2e"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
+      # Under the required name, a plan that failed must fail the job, not skip it.
+      - if: github.event.inputs.only == 'e2e'
+        name: Plan of a manual run
+        env:
+          PLAN: ${{ needs.changes.result }}
+          PRODUCT: ${{ needs.changes.outputs.product }}
+        run: '[ "$PLAN" = success ] && [ "$PRODUCT" = true ]'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/bun-setup
       - run: bun install --frozen-lockfile
@@ -866,13 +874,14 @@ jobs:
 
   # Execute both guides as written, with the CI mirror compose overlay.
   # Only a plan that reaches the guides starts it; like e2e, the required
-  # `quickstart` check is `integration`'s report of this job's result.
+  # `quickstart` check is `integration`'s report of this job's result, and
+  # a manual run of this job alone carries the name itself.
   quickstart:
-    name: quickstart (guides)
+    name: ${{ github.event.inputs.only == 'quickstart' && 'quickstart' || 'quickstart (guides)' }}
     needs: changes
     if: >-
       !cancelled()
-      && needs.changes.outputs.quickstart == 'true'
+      && (needs.changes.outputs.quickstart == 'true' || github.event.inputs.only == 'quickstart')
       && contains(fromJSON('["all","quickstart"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -885,6 +894,13 @@ jobs:
     env:
       SCHEDULER_INTERVAL_SEC: "1"
     steps:
+      # Under the required name, a plan that failed must fail the job, not skip it.
+      - if: github.event.inputs.only == 'quickstart'
+        name: Plan of a manual run
+        env:
+          PLAN: ${{ needs.changes.result }}
+          QUICKSTART: ${{ needs.changes.outputs.quickstart }}
+        run: '[ "$PLAN" = success ] && [ "$QUICKSTART" = true ]'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/image-cache
       - id: guide

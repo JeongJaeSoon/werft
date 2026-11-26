@@ -82,4 +82,25 @@ describe("d2-gate-verdict", () => {
       "H5",
     ]);
   });
+
+  test("the CLI reads the same declaration: a run with no report fails every gate test as missing", () => {
+    const run = Bun.spawnSync([
+      "bun",
+      join(
+        import.meta.dir,
+        "..",
+        "..",
+        ".github",
+        "scripts",
+        "d2-gate-verdict.ts",
+      ),
+      join(import.meta.dir, "no-such-report.xml"),
+    ]);
+    const out = run.stdout.toString();
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr.toString()).toBe("");
+    expect(out).toContain("D2 gate verdict:");
+    expect(out).toContain("MISSING tests/d2-gate/gate.e2e.test.ts > A:");
+    expect(out).toContain("0 of 12 passed");
+  });
 });

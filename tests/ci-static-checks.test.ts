@@ -623,13 +623,37 @@ test("e2e and quickstart start only with work, and the gate holds their results 
     ["quickstart", "quickstart (guides)", "quickstart"],
   ] as const) {
     const job = workflow.jobs[name];
-    expect(job?.name).toBe(display);
+    // A manual run of this job alone has no gate to report the required
+    // name, so the job carries it; everywhere else it must not.
+    expect(job?.name).toBe(
+      `\${{ github.event.inputs.only == '${name}' && '${name}' || '${display}' }}`,
+    );
     expect(job?.needs).toBe("changes");
     expect(job?.if).toMatch(
       new RegExp(
-        `^!cancelled\\(\\) && needs\\.changes\\.outputs\\.${flag} == 'true' && `,
+        `^!cancelled\\(\\) && \\(needs\\.changes\\.outputs\\.${flag} == 'true' \\|\\| github\\.event\\.inputs\\.only == '${name}'\\) && `,
       ),
     );
+    // A manual run of the job alone always starts it, and fails on a plan
+    // that failed or left it nothing to do.
+    const manual = job?.steps[0];
+    expect(manual?.name).toBe("Plan of a manual run");
+    expect(manual?.if).toBe(`github.event.inputs.only == '${name}'`);
+    const variable = flag === "product" ? "PRODUCT" : "QUICKSTART";
+    expect(manual?.env?.[variable]).toBe(
+      `\${{ needs.changes.outputs.${flag} }}`,
+    );
+    const plan = (env: Record<string, string>) =>
+      Bun.spawnSync(["bash", "-e", "-c", manual?.run ?? "exit 9"], {
+        env: { PATH: Bun.env.PATH ?? "", ...env },
+      }).exitCode;
+    expect(plan({ PLAN: "success", [variable]: "true" })).toBe(0);
+    for (const state of ["failure", "cancelled", "skipped", ""]) {
+      expect(plan({ PLAN: state, [variable]: "true" })).not.toBe(0);
+    }
+    for (const value of ["false", ""]) {
+      expect(plan({ PLAN: "success", [variable]: value })).not.toBe(0);
+    }
     const gate = workflow.jobs.integration?.steps.find((s) => s.id === name);
     expect(gate?.if).toBe(
       "!cancelled() && (github.event.inputs.only || 'all') == 'all'",
@@ -744,9 +768,14 @@ function report(
 }
 
 test("the required e2e and quickstart names come only from the gate's report", () => {
-  // No job carries those names itself, so a skipped one cannot stand in.
+  // Outside a manual run of e2e or quickstart alone (see above), no job
+  // carries those names itself, so a skipped one cannot stand in.
   for (const [id, job] of Object.entries(workflow.jobs)) {
-    expect(["e2e", "quickstart"]).not.toContain(job.name ?? id);
+    const name = (job.name ?? id).replace(
+      /^\$\{\{ github\.event\.inputs\.only == '(e2e|quickstart)' && '\1' \|\| '(.*)' \}\}$/,
+      "$2",
+    );
+    expect(["e2e", "quickstart"]).not.toContain(name);
   }
   const job = workflow.jobs.integration;
   expect(job?.permissions).toEqual({ checks: "write" });
@@ -1069,7 +1098,7 @@ test("a heavy job that passed ran every step it carries", () => {
     expect(JSON.stringify(workflow.jobs[name])).not.toContain(
       "continue-on-error",
     );
-    for (const step of steps) {
+    for (const step of steps.slice(1)) {
       expect([undefined, "!cancelled()", "always()"]).toContain(step.if);
     }
     expect(steps.some((s) => s.id === "verdict" || s.id === "cancelled")).toBe(
