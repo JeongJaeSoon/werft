@@ -43,7 +43,7 @@ function calls() {
     },
     issueTurnPermitAtomic: async (input: ConversationTurnPermitInput) => {
       permits.push(input);
-      return { outcome: "issued", expiresAt: new Date() };
+      return { outcome: "issued", expiresAt: new Date(), place: "channel" };
     },
   } as unknown as ConversationCallStore;
   return {

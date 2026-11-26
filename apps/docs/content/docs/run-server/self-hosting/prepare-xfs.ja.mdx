@@ -87,6 +87,69 @@ sudo bash scripts/prepare-xfs.sh
 
 スクリプトは最後に data-root、mount オプション、quota probe を確認します。手順 1 のコマンドを再実行すれば、`xfs`・`prjquota` と probe の成功を自分で確認できます。`df -h`、`df -i`、`xfs_quota -x -c 'report -p'` で空き容量を確認します。
 
+<a id="xfs-project-quota를-직접-켜기" />
+## XFS project quota を自分で有効にする
+
+Docker data-root 専用の XFS ディスクかパーティションがすでにあれば、スクリプトの代わりに mount オプションだけを有効にします。条件は次のとおりです。
+
+- `docker info -f '{{.DockerRootDir}}'` が示すパスのファイルシステムが XFS であること。ext4 などほかのファイルシステムは Werft の quota 検査に合格しません。
+- そのファイルシステムが `prjquota`（同じ意味の `pquota`）オプションで mount されていること。
+
+まず data-root が載っている mount point、デバイス、ファイルシステムと、そのデバイスの UUID を確認します。mount point は data-root の上位ディレクトリのこともあります。ファイルシステムが `xfs` でなければここで中止します。
+
+```bash
+DATA="$(docker info -f '{{.DockerRootDir}}')"
+findmnt -no TARGET,SOURCE,FSTYPE -T "$DATA"
+sudo blkid -s UUID -o value "$(findmnt -no SOURCE -T "$DATA")"
+```
+
+quota のオプションは最初の mount でだけ効き、`mount -o remount` では有効になりません。そのため設定を変えてから再起動します。実行中のコンテナはすべて止まるため、メンテナンス時間に行います。LocalStack の試験設置は、再起動で checkpoint object を失います。何も変える前に [LocalStack での試験設置](/run-server/self-hosting/try-localstack)の計画再起動の手順で `backup --stop` を実行します。このコマンドが成功してバックアップディレクトリができたことを確認してから先へ進み、失敗した場合は何も変えず、再起動もしません。再起動後は `start` ではなく `reseed` を使います。
+
+mount point がルートファイルシステム（`/`）の場合は、fstab のオプションだけでは有効になりません。カーネルの起動引数に `rootflags=prjquota` を加え（`rootflags` がすでにあればその値に足します）、再起動してから[有効になったか確認](#켜졌는지-확인하기)します。起動引数の変え方はディストリビューションごとに異なります。変える前に現在の引数を控えます。新しい引数で起動できない場合は、ブートメニューでその一回だけ以前の引数で起動してから設定を戻します。以下の fstab の手順は、ルート以外の mount point にだけ使います。
+
+`/etc/fstab` を初めて編集する前にバックアップします。バックアップに失敗した場合は編集しません。
+
+```bash
+sudo cp -n -p /etc/fstab /etc/fstab.before-prjquota
+```
+
+その mount point の項目がすでにあれば行を増やさず、その項目のオプションに `prjquota` を加えます。その項目が上で確認したデバイス（UUID）を指していなければ編集せず、中止して原因を確認します。項目がなければ次の形の行を 1 行追加します。UUID は上で出力された値を使い、`/var/lib/docker` の位置には上で確認した mount point を書きます。
+
+```text
+UUID=<filesystem-uuid> /var/lib/docker xfs defaults,prjquota 0 0
+```
+
+`findmnt --verify` がエラーを示さない場合だけ再起動します。エラーがあればすぐに直すか、バックアップに戻します。
+
+```bash
+sudo findmnt --verify && sudo reboot
+```
+
+再起動後は上の最初のコマンドをもう一度実行して mount point とデバイスの UUID が以前と同じことを確認し、下の確認でオプションに `prjquota` があることを確認します。fstab が原因で起動が止まる場合は、復旧コンソールでバックアップに戻します。
+
+<a id="켜졌는지-확인하기" />
+## 有効になったか確認する
+
+```bash
+DATA="$(docker info -f '{{.DockerRootDir}}')"
+findmnt -no TARGET,FSTYPE,OPTIONS -T "$DATA"
+sudo xfs_quota -x -c 'state -p' "$(findmnt -no TARGET -T "$DATA")"
+P="quota-probe-$(date +%s)-$$"; docker volume create --driver local --opt size=64m "$P" && docker volume rm "$P"
+```
+
+`findmnt` のファイルシステムが `xfs` で、オプションに `prjquota` が必要です。`xfs_quota` の Project quota の項目は Accounting と Enforcement の両方が `ON` でなければなりません。最後の行は、Docker が `size` オプション付きの volume の作成を受け付けるかを確かめます。新しい名前の volume を作って削除し、名前を 2 回出力すれば成功です。`quota size requested but no quota support` が出る場合は、まだ有効になっていません。
+
+<a id="werft가-quota를-알아내는-방법" />
+## Werft が quota を判定する方法
+
+この節は Docker の設置が対象です。Kubernetes では scheduler は quota を検査しません。その上限は[ストレージと上限](/run-server/self-hosting/reference/storage)で確認します。
+
+`EXECUTION_WORKSPACE_QUOTA=on` の場合、scheduler は mount テーブルや fstab を読んで判断せず、Docker Engine API で `local` ドライバーの `size` オプションを付けた probe volume（名前は `ap-quota-probe-` で始まります）を作ってみます。daemon が `no quota support` で拒否すれば失敗です。作成できると、worker イメージから helper コンテナ（`SYS_ADMIN`・`MKNOD` capability）を起動します。helper は `/proc/self/mountinfo` でその volume が XFS かを見て、`xfs_io` で volume 専用の project を確認し、`xfs_quota` で inode 上限を設定してから `xfs_quota` と `stat -f` で読み戻します。検査の後は probe volume の削除を試みます。残ったものは、古くなった後の検査で再び削除を試みます。`scripts/test-ops.sh` の `preflight` と `deploy` も、同じ `size` オプションの probe volume を作ってみます。
+
+検査に失敗すると、scheduler は worker を起動せず失敗で終了します。**自動で測定方式に切り替わることはありません。**測定で抑えるのは、運用者が `EXECUTION_WORKSPACE_QUOTA=off` を明示した場合だけです。このとき scheduler は probe を省略し、worker は turn の開始時と実行中に作業領域を測り（実行中の定期測定は 1 分に 1 回まで）、turn の間に使用量が増えて上限を超えると、その turn を止めます。二つの測定の間は一時的に上限を超えることがあります。単一サーバー設置の `scripts/test-ops.sh` は `off` を LocalStack の試験設置でだけ受け付けます。リポジトリ checkout のローカル Compose スタックは、値を指定しなければ `off` です。
+
+ワークスペース設定の一般画面に出る quota の通知と `/readyz` の `detail.no_disk_quota` は、ディスクを検査した結果ではなく、api が受け取った `EXECUTION_WORKSPACE_QUOTA` の値が `off` かどうかを示します。ディスクを準備したら値を `on` に変え、api と scheduler に適用し直します。単一サーバー設置では env ファイルを直してから `scripts/test-ops.sh start` を実行します。LocalStack の試験設置を再起動した場合は `start` を使いません。env ファイルを直すと、`reseed` が新しい値で api と scheduler を起動します。`off` のときに作った workspace は `on` のままでは起動しないため、[workspace の移行](/run-server/self-hosting/migrate-workspaces)に従います。
+
 <a id="자주-막히는-곳" />
 ## よくある問題
 

@@ -1560,8 +1560,14 @@ const conversationReadTools = createConversationReadTools({
   door: slackChannelMembers,
   contexts: topicTurnContexts,
 });
+// Wakes SSE streams and waiting worker polls on NOTIFY. Both still re-read
+// on a clock of their own (the keepalive, the poll interval), so a listener
+// that is down only adds latency, never loses an event or an input.
+const notifier = new PostgresSessionNotifier(databaseUrl, logger);
+void notifier.start();
 const workers = createWorkerGateway({
   work: createPostgresWorkerUnitOfWork(db, { logger }),
+  wakeup: notifier,
   telemetry,
   authorization,
   catalog,
@@ -1723,10 +1729,6 @@ if (authorizerListener === undefined) {
   });
 }
 
-// Wakes SSE streams on NOTIFY; streams still re-read on their keepalive
-// clock, so a listener that is down only adds latency, never loses events.
-const notifier = new PostgresSessionNotifier(databaseUrl, logger);
-void notifier.start();
 const identity = new DatabaseIdentityStore(db);
 // Every replica counts in the same table under the same derived key.
 const passwords = new PasswordChecks({

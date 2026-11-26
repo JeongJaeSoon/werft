@@ -15,6 +15,9 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **대화 rollout이 `on`인 에이전트의 멘션 턴이 새 작업 만들기로 끝나면, 그 대화를 부모로 한 작업 세션 하나가 열려 그 스레드에 묶인다**(JeongJaeSoon/werft#2265). 요청 원문은 서버가 받은 멘션 글이고, 모델이 쓴 목표와 완료 조건은 해석으로만 남는다. 작업을 열 때 멘션을 판정한 Slack 주체로 `task.spawn`을 다시 판정한다. 대화 하나에 열린 작업은 3개, 에이전트 하나에 10개까지다. 넘거나 에이전트가 쓸 수 없는 저장소를 고르면 열지 않고 그 이유를 스레드에 올린다. migration `0386_conversation_task_spawn`이 `conversation_turns`에 빈 열 셋(`task_draft`, `slack_subject`, `task_effect`)을, `conversation_turn_queue`에 `input_kept_until`과 그 부분 인덱스(`CONCURRENTLY`)를 더하고 두 CHECK를 `NOT VALID` 뒤 `VALIDATE`로 바꾼다. 따로 할 일은 없다.
+  - 큐는 실행 중인 턴의 입력만 봉인해 두고, 새 작업 만들기로 끝난 턴의 입력은 작업이 정해질 때까지 최대 1시간 둔다. egress 토큰은 lease 때 지운다.
+  - 앞선 이미지로 되돌려도 된다. 앞선 이미지는 새 열을 읽지 않는다. 이 버전이 lease한 턴의 입력 사본(봉인된 입력만)은 앞선 이미지가 지우지 않고 남는다. 이 버전을 다시 올리면 기한이 지난 사본부터 지운다.
 - **첫 turn 도중 worker가 죽은 세션을 새 세션 없이 `start_fresh`로 같은 입력부터 다시 돌린다**(JeongJaeSoon/werft#2264). 커밋된 checkpoint가 없는 세션에서는 결과를 모르는 turn을 먼저 정하지 않아도 `start_fresh`가 받아진다. 그 turn은 `cancelled`(`operator_start_fresh`)로 닫히고, 같은 입력의 새 turn이 대기열 끝에 들어간다. `start_fresh`는 그때까지의 context를 이어받지 않는다(먼저 기다리던 입력이 있으면 그 뒤에 돌고, 그 입력이 만든 context는 이어받는다). 전에는 `RECOVERY_REQUIRED`로 거절됐고, abandon 뒤에는 같은 요청을 다시 할 길이 새 세션뿐이었다. Slack 스레드에는 [새 문맥으로 계속] 버튼이 붙은 안내가 올라가고, 그 세션에 쓸 수 있는 사람이 누를 수 있다(비공개 채널이면 지금 멤버). 세션 상세에 `start_fresh_available`이 생긴다. migration은 없고 따로 할 일도 없다.
   - checkpoint가 있는 세션은 그대로다. abandon이나 confirm을 먼저 한다.
   - 다시 넣는 turn은 이미 받은 입력의 사본이다. 저장 한도와 대기열 한도로 거절하지 않고, bytes는 저장 사용량에 더한다.
@@ -35,6 +38,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 약 18초를 넘는 장애에서는 전과 같이 turn이 끊기고 세션은 다음 메시지를 받는다.
   - `HEARTBEAT_TTL_SEC`의 하한이 15초 초과에서 12초 초과(안전 마진 10초 + 간격 2초)로 내려간다. 5초마다 beat하는 앞선 worker 이미지가 남아 있으면 TTL을 15초 이하로 낮추지 않는다.
   - heartbeat가 404를 받은 뒤 다시 묻는 간격도 heartbeat 간격을 넘지 않는다(1초 뒤, 그다음 2초마다).
+- **쉬는 worker가 다음 입력을 기다리는 동안 api가 250 ms마다 세션 행을 잠그지 않고, 알림(LISTEN/NOTIFY)에 깨어난다**(JeongJaeSoon/werft#2275). 쉬는 worker 하나가 내던 세션 행 잠금이 초당 약 4.4회에서 0.6회(그중 0.5회는 heartbeat)로, DB commit이 초당 약 7회에서 4회로 준다. 새 메시지는 수 ms 안에 worker에게 간다. migration은 없고 worker 이미지는 바뀌지 않는다. 따로 할 일은 없다.
+  - 알림은 이미 있는 LISTEN 연결(`werft:api-listen`)로 받는다. DB 연결은 늘지 않는다. 그 연결이 끊기면 다시 붙을 때(1초 뒤부터 다시 시도) 기다리던 요청을 모두 깨우고, 다시 붙지 못하는 동안에는 늦어도 5초 뒤부터 전처럼 250 ms마다 읽는다.
+  - `DATABASE_URL`이 transaction 모드 pooler를 거치면 LISTEN은 성공해도 알림이 오지 않는다. 그때 쉬는 worker는 새 입력을 최대 5초 뒤에 받는다.
+  - 올리는 동안 옛 이미지의 프로세스(아직 바뀌지 않은 slack 역할, scheduler 등)가 넣은 입력과 drain 요청은 알림이 없어, 새 api가 최대 5초 뒤에 worker에게 전한다. 모든 역할이 새 이미지가 되면 사라진다. 앞선 이미지로 되돌려도 된다.
 - **API 권한 판정이 DB를 읽지 못하면 `403 FORBIDDEN`(`reason_code: "error"`) 대신 `503 BACKEND_UNAVAILABLE`(retryable, `Retry-After: 1`)로 답한다**(JeongJaeSoon/werft#2242). 권한이 없다는 답이 아니라 판정하지 못했다는 답이고, 이 답도 허용은 아니다. 저장소 오류가 아닌 판정 실패와 credential에 없는 scope는 전처럼 403이다. worker는 이전 세션 허용을 다시 확인하지 못하면 1·2·4초 간격으로 최대 20초 다시 묻고, 그래도 안 되면 전처럼 사람에게 묻는다. migration은 없고 따로 할 일도 없다.
   - api와 worker 이미지가 모두 이 버전이어야 듣는다. api만 앞선 버전이면 전처럼 403이고, 웹은 그 403도 계속 잠시 다시 붙는다.
   - Slack 이벤트 처리 쪽 판정은 바뀌지 않는다.
