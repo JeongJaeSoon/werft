@@ -1853,7 +1853,11 @@ export function createPostgresSessionReader(
           awaitingInput: sql<boolean>`exists (${actionableOfSession(db)})`.as(
             "awaiting_input",
           ),
-          cutOff: sql<boolean>`${LAST_TURN_CUT_OFF}`.as("cut_off"),
+          // Only an idle session is counted as cut off; the rest skip the read.
+          cutOff:
+            sql<boolean>`CASE WHEN ${sessions.status} = 'idle' THEN ${LAST_TURN_CUT_OFF} ELSE false END`.as(
+              "cut_off",
+            ),
         })
         .from(sessions)
         .where(sessionFilter(ownerId, query, viewer))

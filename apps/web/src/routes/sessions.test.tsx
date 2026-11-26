@@ -1690,6 +1690,41 @@ describe("sessions list", () => {
     expect(reads).toContain("?status=idle&last_turn_cut_off=false&limit=15");
   });
 
+  test("a server older than cut_off gets no cut-off tab, and its idle tab counts every idle session", async () => {
+    renderAt("/sessions", {
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/sessions": () =>
+        json(200, { items: [summary(SESSION_ID)], next_cursor: null }),
+      "GET /v1/sessions/counts": () =>
+        json(200, {
+          counts: {
+            queued: 0,
+            running: 1,
+            needs_input: 0,
+            idle: 2,
+            failed: 0,
+            stopped: 0,
+          },
+          total: 3,
+        }),
+    });
+    const tabs = await screen.findByRole("group", { name: "상태로 보기" });
+    await waitFor(() =>
+      expect(
+        within(tabs)
+          .getAllByRole("button")
+          .map((tab) => tab.textContent),
+      ).toEqual([
+        "전체 3",
+        "답변 대기 0",
+        "작업 중 1",
+        "쉬는 중 2",
+        "멈춤 0",
+        "실패 0",
+      ]),
+    );
+  });
+
   test("a row whose idle session a lost lease cut off reads 중단됨, and only while idle", async () => {
     renderAt("/sessions", {
       "GET /v1/auth/me": () => json(200, memberMe()),

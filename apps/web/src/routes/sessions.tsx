@@ -217,7 +217,14 @@ export function SessionsScreen() {
                 <SegmentedControlItem value="all" count={counts.data?.total}>
                   {t("sessionList.filter.all")}
                 </SegmentedControlItem>
-                {SESSION_FILTERS.map((name) => (
+                {SESSION_FILTERS.filter(
+                  // A server older than cut_off ignores the filter, so the tab
+                  // would list every idle session; it waits for one that counts.
+                  (name) =>
+                    name !== "cut_off" ||
+                    counts.data?.counts.cut_off !== undefined ||
+                    counts.data === undefined,
+                ).map((name) => (
                   <SegmentedControlItem
                     key={name}
                     value={name}
