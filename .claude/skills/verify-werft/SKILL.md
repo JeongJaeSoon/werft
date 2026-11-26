@@ -103,9 +103,11 @@ run, project, 이미지를 빌드한 소스(`up.sh` 때의 HEAD + 커밋하지 �
 여러 세션을 한꺼번에 돌리는 측정은 시작하기 전에 Docker VM의 여유를 확인한다. VM은 다른 verify 스택·4620 데모와 같이 쓰고, 차면 OOM killer가 컨테이너를 죽인다.
 
 ```sh
-docker stats --no-stream --format '{{.MemUsage}}' | awk -v total="$(docker info --format '{{.MemTotal}}')" \
-  '{ m = $1 ~ /GiB/ ? 1024 : $1 ~ /MiB/ ? 1 : $1 ~ /KiB/ ? 1/1024 : 1/1048576; used += $1 * m }
-   END { vm = total / 1048576; printf "containers %.0f MiB, VM %.0f MiB, headroom %.0f MiB\n", used, vm, vm - used }'
+total=$(docker info --format '{{.MemTotal}}') && usage=$(docker stats --no-stream --format '{{.MemUsage}}') &&
+  printf '%s\n' "$usage" | awk -v total="$total" \
+    '{ m = $1 ~ /GiB/ ? 1024 : $1 ~ /MiB/ ? 1 : $1 ~ /KiB/ ? 1/1024 : 1/1048576; used += $1 * m }
+     END { vm = total / 1048576; printf "containers %.0f MiB, VM %.0f MiB, headroom %.0f MiB\n", used, vm, vm - used }' ||
+  echo "docker를 읽지 못했다: 측정을 시작하지 않는다" >&2
 ```
 
 - headroom은 어림값이다. 커널과 이미지 빌드가 쓰는 몫은 합계에 없어 실제 여유는 더 작다.
