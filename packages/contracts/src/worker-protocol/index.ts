@@ -535,8 +535,9 @@ export const leaseRemainingMsSchema = z.number().int().nonnegative();
 // with less, every attempt gives its lease up at or near its first beat.
 // A beat that cannot renew — its session row held by another transaction —
 // costs the next one a whole interval, so the default lease's 20s budget
-// rides out a stall of that budget less one interval: 15s here.
-export const WORKER_HEARTBEAT_INTERVAL_MS = 5_000;
+// rides out a stall of that budget less one interval: 18s here. A database
+// outage is such a stall, so the interval is short rather than the lease long.
+export const WORKER_HEARTBEAT_INTERVAL_MS = 2_000;
 export const WORKER_LEASE_SAFETY_MARGIN_MS = 10_000;
 
 // The worker's exit status once it stopped owning its session, so whoever
@@ -1382,6 +1383,12 @@ export const restorePlanResponseSchema = z.discriminatedUnion("status", [
 export const TURN_BUDGET_EXCEEDED_REASON = "budget_exceeded";
 
 export const TURN_WORKSPACE_QUOTA_EXCEEDED_REASON = "workspace_quota_exceeded";
+
+/**
+ * The terminal reason of a turn failed because its worker lost the lease
+ * mid-turn: the session stays and goes on from its last checkpoint.
+ */
+export const TURN_WORKER_OWNERSHIP_LOST_REASON = "worker_ownership_lost";
 
 /**
  * The terminal reason of a turn interrupted to park it on unanswered

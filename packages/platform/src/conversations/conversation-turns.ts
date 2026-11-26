@@ -323,19 +323,19 @@ export interface MentionTurnStatusStore {
     turnId: ConversationTurnId,
     claimMs: number,
   ): Promise<"send" | "superseded" | "done">;
-  /** Marks the thread set back, once Slack took it. */
-  confirmReset(turnId: ConversationTurnId): Promise<void>;
+  /**
+   * Marks the thread set back, once Slack took it, and in the same write
+   * leaves it to be set again when a newer mention turn of it is still due,
+   * whose "processing" this turn's `active` may have overtaken; true when
+   * it did.
+   */
+  confirmReset(turnId: ConversationTurnId): Promise<boolean>;
   /**
    * Lets the claim go: a pass's, so a later pass sends again; or the one the
-   * turn is written with, held until it is queued.
+   * turn is written with, held until it is queued. Leaves the thread to be
+   * set again as `confirmReset` does, for a send that may have reached Slack.
    */
   releaseReset(turnId: ConversationTurnId): Promise<void>;
-  /**
-   * Leaves the turn's thread to be set again when a newer mention turn of
-   * it is still due, whose "processing" this turn's `active` may have
-   * overtaken; true when it did.
-   */
-  reprocess(turnId: ConversationTurnId): Promise<boolean>;
   /** Claims, for `claimMs`, up to `limit` threads left to be set again. */
   claimThreads(limit: number, claimMs: number): Promise<MentionThreadDue[]>;
   /**
@@ -521,14 +521,12 @@ export async function endMentionTurns(deps: {
         throw error;
       }
       // Unconfirmed, the claim runs out and a later pass sends again.
-      await deps.statuses.confirmReset(turn.turnId);
-      result.reset += 1;
       // A newer turn written after the claim: its "processing" may have
       // reached Slack before this `active`, so it is said again, below,
       // and on later passes until Slack takes it.
-      if (await deps.statuses.reprocess(turn.turnId)) {
-        result.reprocessing += 1;
-      }
+      const reprocessing = await deps.statuses.confirmReset(turn.turnId);
+      result.reset += 1;
+      if (reprocessing) result.reprocessing += 1;
     } catch (error) {
       // One turn's failure leaves the others going; it is tried next pass.
       result.failed += 1;

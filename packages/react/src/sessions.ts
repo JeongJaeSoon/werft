@@ -209,6 +209,32 @@ export function useSendMessage(id: string) {
   });
 }
 
+/**
+ * Goes on from a turn its worker's lost lease cut off: one new turn with that
+ * turn's input, however often it is asked for.
+ */
+export function useContinueTurn(id: string) {
+  const { client } = useWerft();
+  const queryClient = useQueryClient();
+  return useMutation<
+    PostSessionMessageResponse,
+    ApiError,
+    { readonly turnId: string }
+  >({
+    onMutate: newCommand,
+    mutationFn: ({ turnId }, context) => {
+      const params = commandParams(id, context);
+      return unwrap(
+        client.POST("/v1/sessions/{id}/turns/{turn_id}/continue", {
+          params: { ...params, path: { id, turn_id: turnId } },
+        }),
+      ) as Promise<PostSessionMessageResponse>;
+    },
+    onSuccess: () =>
+      refreshSession(queryClient, client, id, ["list", "detail", "turns"]),
+  });
+}
+
 export type SessionControl =
   | {
       readonly action: "interrupt";
