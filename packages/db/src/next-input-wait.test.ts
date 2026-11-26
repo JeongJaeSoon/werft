@@ -69,6 +69,7 @@ beforeEach(async () => {
     signal?.addEventListener("abort", () => resolve(), { once: true });
   gateway = testWorkerGateway(db, CATALOG, {
     wakeup: {
+      listening: true,
       wait(sessionId, signal) {
         return new Promise<void>((resolve) => {
           const waiter = { sessionId, wake: resolve };

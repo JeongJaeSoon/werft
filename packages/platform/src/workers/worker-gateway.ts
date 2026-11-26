@@ -316,8 +316,9 @@ export type WorkerGatewayOptions = {
   /** Once aborted, nextInput answers with what it has instead of waiting. */
   stopWaiting?: AbortSignal;
   /**
-   * How often a waiting nextInput asks again. With a `wakeup` this only
-   * bounds what no notification announces: 5 s then, 250 ms without one.
+   * How often a waiting nextInput asks again: 250 ms, or 5 s while a
+   * `wakeup` is listening, when it only bounds what no notification
+   * announces.
    */
   pollIntervalMs?: number;
   now?: () => Date;
@@ -723,8 +724,12 @@ export function createWorkerGateway(deps: {
   // Absent when no object store is configured; see CheckpointProtocol.
   checkpointProtocol?: CheckpointProtocol;
   // Ends a nextInput's wait when its session is notified (a turn queued, a
-  // drain asked for). Absent, the poll asks again every pollIntervalMs.
-  wakeup?: { wait(sessionId: string, signal: AbortSignal): Promise<void> };
+  // drain asked for). Absent, or while it is not listening, the poll asks
+  // again as often as it always did.
+  wakeup?: {
+    readonly listening: boolean;
+    wait(sessionId: string, signal: AbortSignal): Promise<void>;
+  };
   // Absent, the pending routes answer 404 and the worker denies what it
   // cannot put to anyone; heartbeat then never reports an answer waiting.
   pending?: WorkerPendingStore;
@@ -1183,11 +1188,12 @@ export function createWorkerGateway(deps: {
     }
   };
   const maxWaitMs = deps.options.maxWaitMs ?? DEFAULT_MAX_WAIT_MS;
-  const pollIntervalMs =
+  // Read at each wait: a listener that went down is polled around at once.
+  const pollIntervalMs = () =>
     deps.options.pollIntervalMs ??
-    (deps.wakeup === undefined
-      ? DEFAULT_POLL_INTERVAL_MS
-      : DEFAULT_NOTIFIED_POLL_INTERVAL_MS);
+    (deps.wakeup?.listening === true
+      ? DEFAULT_NOTIFIED_POLL_INTERVAL_MS
+      : DEFAULT_POLL_INTERVAL_MS);
 
   // Only sessions this host can actually run are claimable: a session whose
   // connection left the catalog, whose model is no longer offered, or whose
@@ -2757,7 +2763,7 @@ export function createWorkerGateway(deps: {
           // Never sleep past the deadline the caller asked for: a one
           // millisecond wait must not cost a whole poll interval.
           const nap = sleep(
-            Math.min(pollIntervalMs, deadline - now().getTime()),
+            Math.min(pollIntervalMs(), deadline - now().getTime()),
             waiting.signal,
           );
           await (notified === undefined ? nap : Promise.race([nap, notified]));

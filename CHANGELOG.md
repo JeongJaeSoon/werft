@@ -15,6 +15,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **쉬는 worker가 다음 입력을 기다리는 동안 api가 250 ms마다 세션 행을 잠그지 않고, 알림(LISTEN/NOTIFY)에 깨어난다**(JeongJaeSoon/werft#2275). 쉬는 worker 하나가 내던 세션 행 잠금이 초당 약 4.4회에서 0.6회(그중 0.5회는 heartbeat)로, DB commit이 초당 약 7회에서 4회로 준다. 새 메시지는 수 ms 안에 worker에게 간다. migration은 없고 worker 이미지는 바뀌지 않는다. 따로 할 일은 없다.
+  - 알림은 이미 있는 LISTEN 연결(`werft:api-listen`)로 받는다. DB 연결은 늘지 않는다. 그 연결이 끊겨 있는 동안에는 전처럼 250 ms마다 읽는다.
+  - `DATABASE_URL`이 transaction 모드 pooler를 거치면 LISTEN은 성공해도 알림이 오지 않는다. 그때 쉬는 worker는 새 입력을 최대 5초 뒤에 받는다.
+  - 올리는 동안 옛 이미지의 프로세스(아직 바뀌지 않은 slack 역할, scheduler 등)가 넣은 입력과 drain 요청은 알림이 없어, 새 api가 최대 5초 뒤에 worker에게 전한다. 모든 역할이 새 이미지가 되면 사라진다. 앞선 이미지로 되돌려도 된다.
 - **DB가 15초 내려가도 heartbeat 간격의 어느 때에 시작됐든 진행 중인 turn이 끝까지 간다**(JeongJaeSoon/werft#2245). worker의 heartbeat 간격이 5초에서 2초로 준다. 전에는 장애가 간격의 끝 무렵(마지막 heartbeat 뒤 약 4.2초 넘어)에 시작되면 turn이 `worker_ownership_lost`로 끝났다. lease TTL(30초)과 안전 마진(10초)은 그대로이고, migration은 없다.
   - heartbeat 트랜잭션이 worker 하나당 초당 0.2회에서 0.5회로 는다. 동시 worker 50개면 초당 25회다.
   - 약 18초를 넘는 장애에서는 전과 같이 turn이 끊기고 세션은 다음 메시지를 받는다.

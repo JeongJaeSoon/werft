@@ -148,6 +148,7 @@ function notified(stopWaiting?: AbortSignal) {
     naps: [] as number[],
     waiters: [] as { sessionId: string; signal: AbortSignal; wake(): void }[],
     queued: false,
+    listening: true,
     async napping(count: number) {
       for (let tries = 0; harness.naps.length < count; tries += 1) {
         if (tries > 200) throw new Error(`only ${harness.naps.length} waits`);
@@ -173,6 +174,9 @@ function notified(stopWaiting?: AbortSignal) {
       },
     }),
     wakeup: {
+      get listening() {
+        return harness.listening;
+      },
       wait(sessionId, signal) {
         harness.order.push("armed");
         return new Promise<void>((resolve) => {
@@ -564,6 +568,26 @@ describe("WorkerGateway", () => {
       true,
       true,
     ]);
+  });
+
+  test("while the wakeup is not listening, the poll asks again every 250 ms as before", async () => {
+    const poll = notified();
+    poll.listening = false;
+    const polling = poll.instance.nextInput(principal, {
+      ...scope,
+      wait_ms: 20_000,
+    });
+    polling.catch(() => {});
+    await poll.napping(1);
+    expect(poll.naps).toEqual([250]);
+    // Listening again by the next wait: back to the slow fallback.
+    poll.listening = true;
+    poll.waiters[0]?.wake();
+    await poll.napping(2);
+    expect(poll.naps).toEqual([250, 5_000]);
+    poll.queued = true;
+    poll.waiters[1]?.wake();
+    expect((await polling).input?.turn_id).toBe("1");
   });
 
   test("stopWaiting ends a notified wait at once, on a fenced read", async () => {
