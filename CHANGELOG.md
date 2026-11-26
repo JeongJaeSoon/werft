@@ -18,6 +18,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 - **입력을 받는 트랜잭션이 저장 한도를 commit 때 확인한다. 설치 전체의 입력 수락이 `storage_usage` 한 행의 lock에서 줄 서지 않는다**(JeongJaeSoon/werft#2274). migration `0385_storage_charge_at_commit`이 `turns`의 charge trigger를 commit 때 도는 constraint trigger로 다시 만든다. 그 migration 동안 `turns`에 ACCESS EXCLUSIVE lock이 잠깐 걸려 읽기와 쓰기가 기다린다. 표를 훑거나 다시 쓰지는 않는다. 따로 할 일은 없다.
   - 앞선 API 이미지가 남아 있는 동안에도 한도는 정확히 지켜진다. 줄 서기는 앞선 API가 모두 내려가야 없어진다.
   - 앞선 이미지로 되돌려도 된다.
+- **저장 한도가 거절한 Slack 입력에 저장 한도 안내가 한 줄 가고, inbox 항목이 `dropped`(`storage_limit_exceeded`)로 닫힌다**(JeongJaeSoon/werft#2280). 채널에서는 요청한 사람에게만 보이는 글, DM에서는 스레드 글이다. 전에는 "잠시 뒤 다시 시도해 주세요" 안내와 `processed`였다. migration `0387_storage_limit_drop_reason`이 `slack_inbound_events`의 drop reason CHECK를 `NOT VALID`로 다시 걸고 따로 확인한다. 쓰기를 막지 않고 따로 할 일은 없다.
 - **대화 rollout이 `on`인 에이전트가 올리는 글이 모두 AI가 쓴 글이라는 작은 회색 줄(`AI 에이전트 · Werft`)로 끝난다**(JeongJaeSoon/werft#2259). 한 턴의 결과나 요청인 글에는 `<이름> 님 요청`이 붙는다. `off`·`shadow`인 에이전트의 글은 전과 같다. migration은 없고 따로 할 일도 없다.
 - **DB가 15초 내려가도 heartbeat 간격의 어느 때에 시작됐든 진행 중인 turn이 끝까지 간다**(JeongJaeSoon/werft#2245). worker의 heartbeat 간격이 5초에서 2초로 준다. 전에는 장애가 간격의 끝 무렵(마지막 heartbeat 뒤 약 4.2초 넘어)에 시작되면 turn이 `worker_ownership_lost`로 끝났다. lease TTL(30초)과 안전 마진(10초)은 그대로이고, migration은 없다.
   - heartbeat 트랜잭션이 worker 하나당 초당 0.2회에서 0.5회로 는다. 동시 worker 50개면 초당 25회다.
