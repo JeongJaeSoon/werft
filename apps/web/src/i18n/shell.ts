@@ -24,6 +24,7 @@ export const shellKo = {
   "shell.noDiskQuota.test": "시험 모드: 디스크 quota 없음, 운영 불가",
   "shell.noDiskQuota":
     "디스크 quota가 꺼져 있습니다. 측정으로만 막아서 한도를 잠깐 넘을 수 있습니다. 운영에서는 XFS quota를 켜세요.",
+  "shell.noDiskQuota.guide": "XFS 디스크 준비 안내",
 };
 
 export const shellEn: Record<keyof typeof shellKo, string> = {
@@ -52,6 +53,7 @@ export const shellEn: Record<keyof typeof shellKo, string> = {
   "shell.noDiskQuota.test": "Test mode: no disk quota, not for production",
   "shell.noDiskQuota":
     "The disk quota is off. Only measurement holds the limit, so a workspace can briefly pass it. Turn the XFS quota on for production.",
+  "shell.noDiskQuota.guide": "How to prepare an XFS disk",
 };
 
 export const shellJa: Record<keyof typeof shellKo, string> = {
@@ -80,4 +82,5 @@ export const shellJa: Record<keyof typeof shellKo, string> = {
   "shell.noDiskQuota.test": "試験モード: ディスク quota なし、運用不可",
   "shell.noDiskQuota":
     "ディスク quota がオフです。測定だけで抑えるため、一時的に上限を超えることがあります。運用では XFS quota をオンにしてください。",
+  "shell.noDiskQuota.guide": "XFS ディスクの準備手順",
 };

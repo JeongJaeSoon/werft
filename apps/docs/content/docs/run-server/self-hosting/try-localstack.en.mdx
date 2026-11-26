@@ -107,7 +107,7 @@ On a server that cannot have XFS (a container-based server, an isolated VM), ins
 - `preflight` and `deploy` skip the quota probe. The `preflight: passed` line shows `no workspace quota (test mode, not for production)`.
 - With no kernel quota, each worker measures its own workspace, at most once a minute. A turn that passes `EXECUTION_WORKSPACE_QUOTA_MB` (default 4096) or `EXECUTION_WORKSPACE_QUOTA_INODES` (default 1,000,000) is stopped, whatever the console's workspace size setting (`WORKSPACE_ENFORCE`) says. The session stays: remove files and send the request again. Between two measurements a workspace can briefly pass the limit.
 - `/readyz` stays 200, and its body has `detail.no_disk_quota` set to `true`.
-- The console shows owners and admins "Test mode: no disk quota, not for production" at the top of every page. It cannot be closed.
+- The console shows owners and admins "Test mode: no disk quota, not for production" on the General screen of workspace settings. It cannot be closed.
 - The api logs a warning at startup, and the scheduler on every pass.
 
 `off` is accepted only with the LocalStack store. With `TEST_OPS_OBJECT_STORE=s3`, `preflight` stops with `off is for the LocalStack store only`.

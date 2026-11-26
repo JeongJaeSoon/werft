@@ -26,7 +26,7 @@ export function noDiskQuotaWarning(profile: InstallationProfile): string {
 }
 
 /**
- * What the console's banner says about the installation itself: owners and
+ * What the console's quota note says about the installation itself: owners and
  * admins read it, signed in, like the other installation notices.
  */
 export function createInstallationStatusReader(deps: {
