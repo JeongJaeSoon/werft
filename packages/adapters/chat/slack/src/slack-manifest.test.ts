@@ -75,6 +75,20 @@ describe("agent app manifest", () => {
     ]);
   });
 
+  test("a DM is heard by message.im alone: the app subscribes to no assistant thread event", () => {
+    const manifest = buildAgentAppManifest({
+      name: "a",
+      botName: "a",
+      description: "a",
+      redirectUrl: REDIRECT,
+      eventsUrl: `https://agents.example.ts.net/v1/slack/events/${AGENT}`,
+    });
+    const events: readonly string[] =
+      manifest.settings.event_subscriptions?.bot_events ?? [];
+    expect(events).toContain("message.im");
+    for (const event of events) expect(event).not.toMatch(/^assistant_thread_/);
+  });
+
   test("the creation manifest, whole", () => {
     expect(
       buildAgentAppManifest({
