@@ -1040,7 +1040,7 @@ describe("사용량·한도", () => {
         }),
     });
     expect(
-      await screen.findByText("이 기간에 병합된 PR이 없습니다."),
+      await screen.findByText("이 기간에 시작한 세션이 병합한 PR이 없습니다."),
     ).toBeTruthy();
     expect(screen.getByRole("heading", { name: "성과당 비용" })).toBeTruthy();
     expect(screen.queryByRole("table", { name: "성과당 비용" })).toBeNull();

@@ -1352,7 +1352,9 @@ describe("UsageCostTable", () => {
         data={{ ...outcomes, merged_pr_count: 0, cost_per_merged_pr_usd: null }}
       />,
     );
-    expect(none.getByText("이 기간에 병합된 PR이 없습니다.")).toBeTruthy();
+    expect(
+      none.getByText("이 기간에 시작한 세션이 병합한 PR이 없습니다."),
+    ).toBeTruthy();
     expect(none.queryByRole("table")).toBeNull();
     none.unmount();
     const loading = withPlatform(<UsageOutcomes data={undefined} />);
@@ -1361,7 +1363,9 @@ describe("UsageCostTable", () => {
         .getByRole("table", { name: "성과당 비용" })
         .getAttribute("aria-busy"),
     ).toBe("true");
-    expect(loading.queryByText("이 기간에 병합된 PR이 없습니다.")).toBeNull();
+    expect(
+      loading.queryByText("이 기간에 시작한 세션이 병합한 PR이 없습니다."),
+    ).toBeNull();
     loading.unmount();
     const en = withPlatform(<UsageOutcomes data={outcomes} />, "en");
     expect(rows(en)[1]).toEqual(["Merged PRs", "3", "$3.33"]);

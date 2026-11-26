@@ -612,7 +612,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         count: "수",
         costEach: "하나당 비용",
         kind: { merged_pr: "병합된 PR" },
-        empty: "이 기간에 병합된 PR이 없습니다.",
+        empty: "이 기간에 시작한 세션이 병합한 PR이 없습니다.",
         basis: (sessions, cost) =>
           `나눈 비용은 작업 세션 ${sessions}개의 ${cost}입니다.`,
         incomplete: "보고 안 된 비용이 있어 실제 비용은 더 많을 수 있습니다.",
@@ -855,7 +855,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         count: "数",
         costEach: "1件あたりのコスト",
         kind: { merged_pr: "マージされたPR" },
-        empty: "この期間にマージされたPRはありません。",
+        empty: "この期間に始まったセッションからマージされたPRはありません。",
         basis: (sessions, cost) =>
           `割ったコストは作業セッション${sessions}件の${cost}です。`,
         incomplete:
@@ -1099,7 +1099,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         count: "Count",
         costEach: "Cost each",
         kind: { merged_pr: "Merged PRs" },
-        empty: "No PR was merged in this period.",
+        empty: "No PR from sessions started in this period was merged.",
         basis: (sessions, cost) =>
           `The divided cost is ${cost} from ${sessions} task sessions.`,
         incomplete:
