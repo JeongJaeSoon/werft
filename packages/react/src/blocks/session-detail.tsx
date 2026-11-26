@@ -188,7 +188,9 @@ export function SessionDetail({
   // A running turn's time moves on its own.
   const now = useMinute(Boolean(detail?.current_turn_id));
   const stepListId = useId();
-  const [stepsOpen, setStepsOpen] = useState(true);
+  // The session whose step list was opened: every other one starts closed.
+  const [stepsOpenFor, setStepsOpenFor] = useState<string | null>(null);
+  const stepsOpen = stepsOpenFor === id;
   const waitingTitle = useRef<HTMLHeadingElement>(null);
   const lapseNow = useLapseClock(pending.data?.items);
   // The event window keeps its length once full, so the newest event's id
@@ -456,7 +458,7 @@ export function SessionDetail({
           now={now}
           listId={stepListId}
           listOpen={stepsOpen}
-          onListToggle={() => setStepsOpen((open) => !open)}
+          onListToggle={() => setStepsOpenFor(stepsOpen ? null : id)}
           usage={usage.data ? <UsageFigures usage={usage.data} /> : null}
         />
         <SessionInputNeeded requests={mine} onShow={showRequests} />

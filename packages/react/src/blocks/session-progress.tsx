@@ -43,6 +43,9 @@ const STATE_TONE: Record<
   unknown: "gray",
 };
 
+/** What a closed list must still say, the viewer's turn to act first. */
+const HEAD_STATES = ["approval", "answer", "running"] as const;
+
 /** The step whose tool calls the head counts: the focused one, else the last. */
 function headStep(steps: SessionSteps): SessionStep | undefined {
   return steps.steps[steps.focus ?? steps.steps.length - 1];
@@ -64,7 +67,8 @@ export interface SessionProgressProps {
 /**
  * The head's progress line: which step of how many, the tool calls of that
  * step, the time the turns have run and what they cost. The step count opens
- * and closes the step list.
+ * and closes the step list; while closed, the line also says which steps run
+ * or wait for an answer, and why the session is blocked.
  */
 export function SessionProgress({
   session,
@@ -77,6 +81,9 @@ export function SessionProgress({
 }: SessionProgressProps) {
   const { t, locale } = useBlockText();
   const step = steps ? headStep(steps) : undefined;
+  // Open, the list says this itself.
+  const closed = !listOpen && steps && steps.steps.length > 0 ? steps : null;
+  const blocked = closed ? blockedReason(t, session.attention) : null;
   const duration = steps
     ? formatDuration(sessionTime(session, steps, now), locale)
     : null;
@@ -119,6 +126,15 @@ export function SessionProgress({
           />
         </Button>
       ) : null}
+      {closed
+        ? HEAD_STATES.filter((state) =>
+            closed.steps.some((each) => each.state === state),
+          ).map((state) => (
+            <Badge key={state} variant={STATE_TONE[state]}>
+              {t(STATE_LABEL[state])}
+            </Badge>
+          ))
+        : null}
       {step && step.toolCalls > 0 ? (
         <span className="inline-flex items-center gap-[var(--werft-space-1)] tabular-nums">
           <Wrench
@@ -145,6 +161,18 @@ export function SessionProgress({
         </span>
       ) : null}
       {usage}
+      {blocked ? (
+        <div className="w-full">
+          <BlockedNote
+            blocked={blocked}
+            agent={session.agent}
+            // With no step to sit in, the reason says what it holds up.
+            {...(closed?.focus === null
+              ? { lead: t("session.steps.blocked") }
+              : {})}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
