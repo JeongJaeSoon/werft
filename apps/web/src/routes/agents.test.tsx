@@ -638,6 +638,31 @@ describe("에이전트 목록", () => {
     );
   });
 
+  test("에이전트 화면에 머문 채 다시 읽기가 실패해도 옛 수를 두지 않는다", async () => {
+    const server = agentServer();
+    let reads = 0;
+    renderAt("/agents", {
+      ...meOk,
+      ...server.routes,
+      "GET /v1/sessions/counts": () =>
+        ++reads === 1
+          ? json(200, SESSION_COUNTS)
+          : apiError(503, "BACKEND_UNAVAILABLE", "down"),
+    });
+    await screen.findByRole("list", { name: "세션 요약" });
+    // Coming back to the window reads the counts again, under the same key.
+    const { focusManager } = await import("@tanstack/react-query");
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    await waitFor(() => expect(reads).toBeGreaterThan(1));
+    await waitFor(() =>
+      expect(screen.queryByRole("list", { name: "세션 요약" })).toBeNull(),
+    );
+    act(() => focusManager.setFocused(undefined));
+  });
+
   test("counts를 읽지 못하면 요약 줄을 빼고 0이라 말하지 않는다", async () => {
     const server = agentServer();
     renderAt("/agents", {
