@@ -100,7 +100,7 @@ When Kubernetes finds no node for a worker Pod (Pod condition `PodScheduled` is 
 
 A worker that cannot keep its lease stops writing outside and exits with exit code 75. When the scheduler saw that exit and the lease has also run out, the running turn ends as `failed` (its `terminal_reason` is `worker_ownership_lost`) and that input's receipt fails with `WORKER_OWNERSHIP_LOST`. The session returns to `idle` and this does not count as a launch failure. There is no recovery decision for an operator to make.
 - While the lease is still live, the scheduler waits for it to run out. Each pass logs `Worker gave its lease up; exit settles once the lease runs out`, and the session stays bound to that worker. The wait is never longer than `HEARTBEAT_TTL_SEC`.
-- The cut-off turn is never run again automatically. The "Continue" button in the Slack thread, or a new message, continues from the last checkpoint. A person checks what the turn did after that checkpoint (a push, a pull request and so on).
+- The cut-off turn is never run again automatically. The "Continue" button on the web session screen or in the Slack thread, or a new message, continues from the last checkpoint. A person checks what the turn did after that checkpoint (a push, a pull request and so on).
 - With either one missing, the turn becomes `outcome_unknown` and the session goes to `recovery_required`. That is a worker that vanished for no stated reason, or one whose lease ran out without its exit being seen.
 
 ### 3. Unknown outcomes after interrupt

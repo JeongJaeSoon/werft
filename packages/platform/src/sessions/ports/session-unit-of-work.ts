@@ -201,7 +201,8 @@ export type AppendMessageInput = {
    * The public id of a turn of this session that its worker's lost lease
    * ended (`WORKER_OWNERSHIP_LOST_REASON`): the new turn takes that turn's
    * input, read from the turn, and `message` is not used. `not_found` for
-   * any other turn. The caller is judged as for any input of their own. The
+   * any other turn, `superseded` once any later turn follows it. The caller is
+   * judged as for any input of their own. The
    * turn is the request's key, apart from every key sent for a message, so
    * `idempotencyKey` is not used either: one lost turn, one continuation.
    */
@@ -213,6 +214,8 @@ export type AppendMessageResult =
   | { outcome: "conflict" | "not_found" }
   /** The push request's follow-up turn is already in the session. */
   | { outcome: "already_queued" }
+  /** A continuation of a lost turn that a later turn of the session follows. */
+  | { outcome: "superseded" }
   /** A session the requester sees, of an agent they may not use. */
   | { outcome: "agent_private" }
   | { outcome: "caller_limited"; dimension: CallerLimitDimension }

@@ -248,6 +248,52 @@ describe("the status tool", () => {
     });
   });
 
+  test("a policy that could not read its store fails the call, to be tried again, instead of hiding names", async () => {
+    const down = new Error("connection terminated");
+    const undecided = createAuthorizationPolicy({
+      agents: {
+        async agentOf() {
+          throw down;
+        },
+        async isAdmin() {
+          return false;
+        },
+      },
+      storageUnavailable: (error) => error === down,
+    });
+    const handle = createWerftMcpServer({
+      parts: [
+        statusPart(
+          { version: "v9.9.9" },
+          {
+            store: { factsOf: async () => factsFor(INSIDER) },
+            authorization: undecided,
+          },
+        ),
+      ],
+      version: "v9.9.9",
+    });
+    const called = await handle(
+      { sessionId: "session-1", attemptId: "att_1" },
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: WERFT_STATUS_TOOL, arguments: {} },
+      },
+      "request-1",
+    );
+    expect(called?.result).toMatchObject({
+      isError: true,
+      content: [
+        {
+          text: "The Werft server could not answer this call. Try it again.",
+        },
+      ],
+    });
+    expect(called?.result).not.toHaveProperty("structuredContent");
+  });
+
   test("a session with no release gets an error answer, not a status", async () => {
     const handle = createWerftMcpServer({
       parts: [

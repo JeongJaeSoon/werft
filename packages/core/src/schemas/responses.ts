@@ -369,6 +369,8 @@ export const responseSchemas = {
   "POST /v1/sessions/{id}/messages": postSessionMessageResponseSchema,
   "GET /v1/sessions/{id}/turns": listTurnsResponseSchema,
   "GET /v1/sessions/{id}/turns/{turn_id}": getTurnResponseSchema,
+  "POST /v1/sessions/{id}/turns/{turn_id}/continue":
+    postSessionMessageResponseSchema,
   "GET /v1/sessions/{id}/pending-requests": listPendingRequestsResponseSchema,
   "POST /v1/sessions/{id}/answers": postSessionAnswerResponseSchema,
   "POST /v1/sessions/{id}/interrupt": receiptAcceptedResponseSchema,

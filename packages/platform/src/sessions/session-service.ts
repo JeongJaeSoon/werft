@@ -73,6 +73,7 @@ import {
   agentPrivateError,
   type Caller,
   isAgentPrivate,
+  refusedUnlessUndecided,
   requirePermitted,
   SessionServiceError,
 } from "../musterrolle/index.ts";
@@ -717,7 +718,7 @@ export function createSessionService(deps: {
       id: null,
       agent_id: target.agentId,
       release_id: target.releaseId,
-    }).catch(() => undefined);
+    }).catch(refusedUnlessUndecided);
     const result = await inputs.acceptInputAtomic({
       principal: actor,
       idempotencyKey: input.idempotencyKey,
@@ -756,6 +757,11 @@ export function createSessionService(deps: {
         throw previewRefused();
       case "not_found":
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      case "superseded":
+        throw new SessionServiceError(
+          "CONTROL_SUPERSEDED",
+          "A later turn of the session already goes on from this one",
+        );
       case "rejected": {
         const rejection = ADMISSION_REJECTIONS[result.admissionState];
         throw new SessionServiceError(rejection.code, rejection.message);

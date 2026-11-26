@@ -8,7 +8,10 @@ import {
   type WorkerCapabilities,
 } from "@werft-ai/contracts";
 import { z } from "zod";
-import type { AuthorizationPolicy } from "../musterrolle/index.ts";
+import {
+  type AuthorizationPolicy,
+  AuthorizationUndecidedError,
+} from "../musterrolle/index.ts";
 import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
 import type { WorkerPendingStore } from "../sessions/ports/pending-requests.ts";
 import { testBinding, testCatalog } from "../testing/catalog-fakes.ts";
@@ -91,6 +94,8 @@ function wired(
   options: {
     grant?: { ownerScope: string; subject: unknown } | null;
     outcome?: "allow" | "deny";
+    /** Thrown by the policy instead of a decision. */
+    failure?: Error;
     authorization?: false;
     /** What the store reads once the policy has answered. */
     after?: "lease_expired" | null;
@@ -106,6 +111,7 @@ function wired(
   const authorization = {
     async authorize(request: AuthorizationRequest) {
       asked.push(request);
+      if (options.failure !== undefined) throw options.failure;
       return {
         outcome: options.outcome ?? "allow",
         reason_code: options.outcome === "deny" ? "not_found" : "ok",
@@ -338,6 +344,23 @@ describe("a session allow judged again before a call it covers", () => {
     const { check, asked } = wired({ after: null });
     expect(await check()).toEqual({ allowed: false });
     expect(asked).toHaveLength(1);
+  });
+
+  test("a policy that could not read its store is a retryable 503, never an allow", async () => {
+    const { check, asked } = wired({
+      failure: new AuthorizationUndecidedError(new Error("down")),
+    });
+    await expect(check()).rejects.toMatchObject({
+      status: 503,
+      code: "BACKEND_UNAVAILABLE",
+      retryable: true,
+    });
+    expect(asked).toHaveLength(1);
+  });
+
+  test("any other policy failure is not turned into a retry", async () => {
+    const failure = new Error("boom");
+    await expect(wired({ failure }).check()).rejects.toBe(failure);
   });
 
   test("a gateway with no policy allows nothing", async () => {

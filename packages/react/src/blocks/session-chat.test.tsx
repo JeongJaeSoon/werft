@@ -191,6 +191,32 @@ describe("chatItems for a turn whose Slack message was deleted", () => {
   });
 });
 
+describe("chatItems for a turn its worker's lost lease cut off", () => {
+  test("says so where the turn ended, naming the turn, for that turn alone", () => {
+    const lost: TurnSummary = {
+      ...turn("1", "Run the ten steps", null),
+      status: "failed",
+      terminal_reason: "worker_ownership_lost",
+      ended_at: "2026-11-23T01:01:30.000Z",
+    };
+    const other: TurnSummary = {
+      ...turn("2", "Follow-up", null),
+      status: "failed",
+      terminal_reason: "runtime_error",
+      ended_at: "2026-11-23T01:06:00.000Z",
+    };
+    const items = chatItems([EVENTS[0]!], [lost, other], () => "");
+    expect(shape(items)).toEqual([
+      ["user", "Run the ten steps", null],
+      ["reply", "Secret answer", false],
+      ["reply", "", false],
+      ["user", "Follow-up", null],
+    ]);
+    expect(items[2]).toMatchObject({ error: true, ownershipLost: "1" });
+    expect(items.filter((item) => "ownershipLost" in item)).toHaveLength(1);
+  });
+});
+
 describe("chatItems for a turn stopped by the workspace limit", () => {
   const format = () => "";
 

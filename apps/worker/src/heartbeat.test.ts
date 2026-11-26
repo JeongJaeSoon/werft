@@ -477,6 +477,130 @@ describe("Heartbeat", () => {
     ).toBeGreaterThanOrEqual(2);
   });
 
+  // A database outage as the gateway meets it: beats answered at once while
+  // it is up, and 503 after a second's wait while it is down.
+  function outage(input: {
+    startsAt: number;
+    lastsMs: number;
+    intervalMs: number;
+  }) {
+    const answers: { sentAt: number; status: number }[] = [];
+    const lost: { at: number; reason: string }[] = [];
+    const instance = new Heartbeat({
+      gateway: {
+        heartbeat: async () => {
+          const sentAt = timer.now();
+          const down = (at: number) =>
+            at >= input.startsAt && at < input.startsAt + input.lastsMs;
+          await timer.sleep(down(sentAt) ? 1_000 : 20);
+          if (down(sentAt)) {
+            answers.push({ sentAt, status: 503 });
+            throw new WorkerGatewayRequestError(
+              503,
+              "BACKEND_UNAVAILABLE",
+              "Storage is unavailable, retry later",
+              true,
+            );
+          }
+          answers.push({ sentAt, status: 200 });
+          return answer(30_000);
+        },
+      },
+      scope: () => scope,
+      attemptState: () => "running",
+      intervalMs: input.intervalMs,
+      lease: { remainingMs: 30_000, sentAt: timer.now() },
+      monotonicNow: timer.now,
+      scheduleTimer: timer.schedule,
+      safetyMarginMs: WORKER_LEASE_SAFETY_MARGIN_MS,
+      onLost: (reason) => lost.push({ at: timer.now(), reason }),
+    });
+    return { answers, heartbeat: instance, lost };
+  }
+
+  test("on the default lease clock, only an accepted beat moves the lease: it is given up 20s after the last one was sent", async () => {
+    const {
+      answers,
+      heartbeat: beat,
+      lost,
+    } = outage({
+      startsAt: 10_000,
+      lastsMs: Number.POSITIVE_INFINITY,
+      intervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
+    });
+    beat.start();
+    await timer.advance(10_000);
+    const accepted = answers.filter((a) => a.status === 200).at(-1)?.sentAt;
+    if (accepted === undefined) throw new Error("no beat was accepted");
+    const deadline = accepted + 30_000 - WORKER_LEASE_SAFETY_MARGIN_MS;
+    expect(beat.leaseLeftMs).toBe(deadline - timer.now());
+
+    // Every beat after that one is refused: none of them moves the lease.
+    await timer.advance(deadline - timer.now() - 1);
+    expect(answers.filter((a) => a.status === 503).length).toBeGreaterThan(4);
+    expect(beat.leaseLeftMs).toBe(1);
+    expect(lost).toEqual([]);
+
+    await timer.advance(1);
+    expect(lost).toHaveLength(1);
+    expect(lost[0]?.at).toBe(deadline);
+    expect(lost[0]?.reason).toContain("BACKEND_UNAVAILABLE");
+    await beat.stop();
+  });
+
+  // The stack's 15s `docker compose stop postgres` keeps it from answering
+  // for up to 16.2s; any instant between two beats can be where it starts.
+  test.each(Array.from({ length: 41 }, (_, step) => step * 50))(
+    "on the default lease clock, a 16.2s database outage starting %ims into a beat interval keeps the lease",
+    async (phase) => {
+      const {
+        answers,
+        heartbeat: beat,
+        lost,
+      } = outage({
+        startsAt: 10_000 + phase,
+        lastsMs: 16_200,
+        intervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
+      });
+      beat.start();
+      await timer.advance(60_000);
+      await beat.stop();
+
+      expect(lost).toEqual([]);
+      expect(answers.some((a) => a.status === 503)).toBe(true);
+      expect(answers.at(-1)?.status).toBe(200);
+    },
+  );
+
+  test("on a 5s interval the same outage loses the lease when it starts late in the interval", async () => {
+    const lostAt: number[] = [];
+    for (let phase = 0; phase <= 5_000; phase += 250) {
+      timer = new FakeClock();
+      const { heartbeat: beat, lost } = outage({
+        startsAt: 10_000 + phase,
+        lastsMs: 16_200,
+        intervalMs: 5_000,
+      });
+      beat.start();
+      await timer.advance(60_000);
+      await beat.stop();
+      if (lost.length > 0) lostAt.push(phase);
+    }
+    expect(lostAt.length).toBeGreaterThan(0);
+  });
+
+  test("on the default lease clock, an outage longer than the 20s budget still gives the lease up", async () => {
+    const { heartbeat: beat, lost } = outage({
+      startsAt: 10_000,
+      lastsMs: 22_000,
+      intervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
+    });
+    beat.start();
+    await timer.advance(60_000);
+    await beat.stop();
+    expect(lost).toHaveLength(1);
+  });
+
   test("a lease given up behind refused beats says what the gateway answered", async () => {
     let clock = 0;
     const { heartbeat: beat, lost } = heartbeat(
@@ -830,9 +954,10 @@ describe("Heartbeat", () => {
 });
 
 describe("a beat answered 404", () => {
-  // The lease as the control plane grants it and the worker's own defaults.
+  // The lease as the control plane grants it and the worker's own margin, on
+  // a 5s interval: long enough for the backoff to reach its 4s cap.
   const defaults = {
-    intervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
+    intervalMs: 5_000,
     remainingMs: 30_000,
     safetyMarginMs: WORKER_LEASE_SAFETY_MARGIN_MS,
   };
@@ -880,6 +1005,49 @@ describe("a beat answered 404", () => {
     );
     await beat.stop();
   });
+
+  test("on the default interval, is asked again after 1s and then every beat interval, until the lease is given up", async () => {
+    const at: number[] = [];
+    const { heartbeat: beat, lost } = heartbeat(
+      async () => {
+        at.push(timer.now());
+        throw notFound();
+      },
+      { ...defaults, intervalMs: WORKER_HEARTBEAT_INTERVAL_MS },
+    );
+    beat.start();
+    await timer.advance(19_999);
+    expect(at).toEqual([
+      2_000, 3_000, 5_000, 7_000, 9_000, 11_000, 13_000, 15_000, 17_000, 19_000,
+    ]);
+    expect(lost).toEqual([]);
+
+    await timer.advance(1);
+    expect(lost).toHaveLength(1);
+    expect(lost[0]).toContain("beats answered 404 in a row: 10");
+    await beat.stop();
+  });
+
+  // An unconfirmed lease is never asked about less often than a confirmed one.
+  test.each([500, 1_000, 2_000, 3_000, 5_000])(
+    "on a %ims interval, no wait between beats answered 404 is longer than the interval",
+    async (intervalMs) => {
+      const at: number[] = [];
+      const { heartbeat: beat } = heartbeat(
+        async () => {
+          at.push(timer.now());
+          throw notFound();
+        },
+        { ...defaults, intervalMs },
+      );
+      beat.start();
+      await timer.advance(19_999);
+      await stop(beat);
+      const gaps = at.slice(1).map((sent, index) => sent - (at[index] ?? 0));
+      expect(gaps.length).toBeGreaterThan(2);
+      expect(Math.max(...gaps)).toBeLessThanOrEqual(intervalMs);
+    },
+  );
 
   test("goes on at its interval once a beat is accepted", async () => {
     const at: number[] = [];

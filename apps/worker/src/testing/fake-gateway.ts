@@ -132,6 +132,9 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   /** Every session-allow check, as sent. */
   readonly sessionAllowChecks: SessionAllowRequest[] = [];
   /** What `/session-allow` answers for each check. */
+  /** Throws what it returns before `sessionAllowed` is asked. */
+  sessionAllowFailure: (request: SessionAllowRequest) => Error | undefined =
+    () => undefined;
   sessionAllowed: (request: SessionAllowRequest) => boolean = () => true;
   /** How long each session-allow check takes to answer. */
   sessionAllowDelayMs = 0;
@@ -541,6 +544,8 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
         setTimeout(resolve, this.sessionAllowDelayMs),
       );
     }
+    const failure = this.sessionAllowFailure(request);
+    if (failure !== undefined) throw failure;
     return { allowed: this.sessionAllowed(request) };
   }
 

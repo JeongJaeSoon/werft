@@ -80,6 +80,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/sessions/{id}/messages",
     "GET /v1/sessions/{id}/turns",
     "GET /v1/sessions/{id}/turns/{turn_id}",
+    "POST /v1/sessions/{id}/turns/{turn_id}/continue",
     "POST /v1/sessions/{id}/terminate",
     "POST /v1/sessions/{id}/resume",
     "POST /v1/sessions/{id}/recovery-decisions",

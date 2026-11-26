@@ -68,7 +68,7 @@ test("a turn its worker's lost lease ended is told as the turn's one failure not
   expect(row?.kind).toBe("failure_notice");
   expect(row?.dedupeKey).toBe("failure:link-1:3");
   expect(row?.body.text).toBe(
-    "작업이 중간에 끊겼어요. 마지막 저장 지점 뒤에 한 일은 확인이 필요해요.",
+    "작업이 중간에 끊겼어요. 서버 연결이 잠시 끊겼어요. 마지막 저장 지점 뒤에 한 일은 확인이 필요해요.",
   );
   expect(row?.body.text).not.toContain(SLACK_NOTICE_MESSAGES.ko.failed);
   const [go, open] = buttons(row?.body.blocks);

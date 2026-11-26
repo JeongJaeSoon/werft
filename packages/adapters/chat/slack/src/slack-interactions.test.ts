@@ -1657,6 +1657,21 @@ describe("the continue button on the notice of a turn its worker's lost lease en
     ]);
   });
 
+  test("a turn a later turn already follows starts nothing, and the button goes", async () => {
+    continueError = new SessionServiceError(
+      "CONTROL_SUPERSEDED",
+      "A later turn of the session already goes on from this one",
+    );
+    const outcome = await send(pressContinue("3"));
+    expect((outcome as { result: string }).result).toBe("superseded");
+    const [update] = called("update");
+    const shown = JSON.stringify(
+      (update?.args[1] as { blocks: unknown[] }).blocks,
+    );
+    expect(shown).not.toContain(SLACK_INTERACTION_ACTIONS.turnContinue);
+    expect(called("ephemeral")).toEqual([]);
+  });
+
   test("a person who may not send to the session goes on from nothing and the notice stays", async () => {
     const outcome = await send(pressContinue("3", "U0STRANGER"));
     expect((outcome as { result: string }).result).toStartWith("refused:");
