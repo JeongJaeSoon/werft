@@ -1587,6 +1587,31 @@ integration("recovery decisions and resume from stopped on PostgreSQL", () => {
       expect(next.input?.message).toBe("first input");
     });
 
+    test("the run again keeps what the first delivery put in front of the input", async () => {
+      const { session } = await unknownSession("fresh-prepended");
+      // As a first delivery records a cut-off turn whose source was deleted.
+      await db
+        .update(turns)
+        .set({ prependedTurn: 1, prependSkipReason: "deleted_source" })
+        .where(
+          and(eq(turns.sessionId, session.session_id), eq(turns.sequence, 1)),
+        );
+      expect((await pressStartFresh(session, "1")).outcome).toBe("accepted");
+      const [rerun] = await db
+        .select({
+          prependedTurn: turns.prependedTurn,
+          prependSkipReason: turns.prependSkipReason,
+        })
+        .from(turns)
+        .where(
+          and(eq(turns.sessionId, session.session_id), eq(turns.sequence, 2)),
+        );
+      expect(rerun).toEqual({
+        prependedTurn: 1,
+        prependSkipReason: "deleted_source",
+      });
+    });
+
     test("pressed twice, one after the other or at once, it decides once and queues one turn", async () => {
       const { session } = await unknownSession("fresh-twice");
       const first = await pressStartFresh(session, "1");

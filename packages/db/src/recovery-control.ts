@@ -669,6 +669,9 @@ async function rerunUnknownTurn(
       callerChannel: old.callerChannel,
       callerLimitDigest: old.callerLimitDigest,
       sources: old.sources,
+      // What the first delivery put in front of the input is put there again.
+      prependedTurn: old.prependedTurn,
+      prependSkipReason: old.prependSkipReason,
     })
     .returning({ id: turns.id });
   if (!turn) throw new Error("Failed to insert turn");
