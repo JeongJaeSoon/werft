@@ -7,6 +7,7 @@ import {
   apiErrorResponseSchema,
   auditExportEndSchema,
   auditExportRowSchema,
+  countAuditEventsResponseSchema,
   listAuditEventsResponseSchema,
   WEB_SESSION_COOKIE_NAME,
 } from "@werft-ai/contracts";
@@ -121,13 +122,29 @@ type Hooks = {
   rows?: number;
   onPage?: (call: number) => Promise<void> | void;
   fail?: unknown;
+  /** What count() finds in each table before the cap it is given. */
+  rowsPerKind?: { decision: number; receipt: number };
 };
 
 // Pages over `rows` rows; the cursor is the next row's index.
-function readerWith(hooks: Hooks): AuditLogReader & { calls: number } {
+function readerWith(hooks: Hooks): AuditLogReader & {
+  calls: number;
+  counted: { filter: unknown; stopAt: number }[];
+} {
   const all = Array.from({ length: hooks.rows ?? 3 }, (_, i) => row(i));
   const reader = {
     calls: 0,
+    counted: [] as { filter: unknown; stopAt: number }[],
+    async count(_ownerId: string, filter: unknown, stopAt: number) {
+      reader.calls += 1;
+      if (hooks.fail) throw hooks.fail;
+      reader.counted.push({ filter, stopAt });
+      const rows = hooks.rowsPerKind ?? { decision: 2, receipt: 1 };
+      return {
+        decision: Math.min(rows.decision, stopAt),
+        receipt: Math.min(rows.receipt, stopAt),
+      };
+    },
     async page(
       _ownerId: string,
       _filter: unknown,
@@ -428,4 +445,98 @@ test("an export past its time limit ends without the end line", async () => {
     await get(app, signIn("owner"), "", AUDIT_EXPORT_MEDIA_TYPE),
   );
   expect(body).toHaveLength(2);
+});
+
+const counts = (
+  app: ReturnType<typeof appWith>["app"],
+  auth: { cookie?: string; key?: string },
+  query = "",
+) =>
+  app.request(`/v1/audit/events/counts${query}`, {
+    headers: {
+      ...(auth.cookie ? { Cookie: auth.cookie } : {}),
+      ...(auth.key ? { Authorization: `Bearer ${auth.key}` } : {}),
+    },
+  });
+
+test("an owner counts each kind for the list's filters, and the count is on record", async () => {
+  const { app, reader } = appWith({ rowsPerKind: { decision: 7, receipt: 3 } });
+  const response = await counts(
+    app,
+    signIn("owner"),
+    "?from=2026-11-01T00:00:00.000Z&actor_user_id=019a0000-0000-7000-8000-0000000000e1",
+  );
+  expect(response.status).toBe(200);
+  expect(countAuditEventsResponseSchema.parse(await response.json())).toEqual({
+    counts: {
+      decision: { count: 7, more: false },
+      receipt: { count: 3, more: false },
+    },
+    total: { count: 10, more: false },
+  });
+  expect(reader.counted).toEqual([
+    {
+      filter: {
+        from: "2026-11-01T00:00:00.000Z",
+        actor_user_id: "019a0000-0000-7000-8000-0000000000e1",
+      },
+      stopAt: 1001,
+    },
+  ]);
+  expect(auditReads()).toEqual([
+    expect.objectContaining({
+      decision: expect.objectContaining({ outcome: "allow" }),
+    }),
+  ]);
+});
+
+test("a count stops at 1000: exactly 1000 is not more, 1001 is, and so is a sum past it", async () => {
+  const owner = signIn("owner");
+  const read = async (decision: number, receipt: number) => {
+    const { app } = appWith({ rowsPerKind: { decision, receipt } });
+    return countAuditEventsResponseSchema.parse(
+      await (await counts(app, owner)).json(),
+    );
+  };
+  expect(await read(1000, 0)).toEqual({
+    counts: {
+      decision: { count: 1000, more: false },
+      receipt: { count: 0, more: false },
+    },
+    total: { count: 1000, more: false },
+  });
+  expect(await read(5000, 0)).toEqual({
+    counts: {
+      decision: { count: 1000, more: true },
+      receipt: { count: 0, more: false },
+    },
+    total: { count: 1000, more: true },
+  });
+  expect((await read(600, 401)).total).toEqual({ count: 1000, more: true });
+});
+
+for (const role of ["admin", "member"] as const) {
+  test(`${role} is refused a count, nothing is read, and the refusal is on record`, async () => {
+    const { app, reader } = appWith();
+    const response = await counts(app, signIn(role));
+    expect(response.status).toBe(403);
+    expect(await errorCode(response)).toBe("FORBIDDEN");
+    expect(reader.calls).toBe(0);
+    expect(auditReads()).toEqual([
+      expect.objectContaining({
+        decision: expect.objectContaining({ outcome: "deny" }),
+      }),
+    ]);
+  });
+}
+
+test("an API key is refused a count, and a bad query is 400", async () => {
+  const { app, reader } = appWith();
+  expect((await counts(app, { key: KEY })).status).toBe(403);
+  expect(reader.calls).toBe(0);
+  expect((await counts(app, {})).status).toBe(401);
+  const owner = signIn("owner");
+  for (const query of ["?kind=other", "?limit=5", "?cursor=x"]) {
+    expect((await counts(app, owner, query)).status, query).toBe(400);
+  }
 });

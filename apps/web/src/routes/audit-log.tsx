@@ -2,28 +2,33 @@ import {
   infiniteQueryOptions,
   useInfiniteQuery,
   useQuery,
+  useQueryClient,
 } from "@tanstack/react-query";
 import { type ApiClient, isApiError, unwrap } from "@werft-ai/client";
 import type {
   AuditEvent,
   AuditEventKind,
   AuditExportEnd,
+  CountAuditEventsResponse,
   ListAuditEventsResponse,
   ListMembersResponse,
 } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
 import { ListToolbar } from "@werft-ai/react/components";
 import {
+  AppliedFilters,
   Button,
   Code,
   EmptyState,
-  FilterMenu,
   formatTableDateTime,
   GridTable,
   GridTableCell,
   GridTableColumnHeader,
   GridTableHeader,
   GridTableRow,
+  type ListFilterChoice,
+  type ListFilterFacet,
+  ListFilters,
   Page,
   RowLines,
   type StatusDotStatus,
@@ -57,6 +62,7 @@ export const AUDIT_EXPORT_MAX_ROWS = 100_000;
 
 const PERIODS = { all: 0, day: 1, week: 7, month: 30 } as const;
 type Period = keyof typeof PERIODS;
+const SHORTEST_FIRST: readonly Period[] = ["day", "week", "month", "all"];
 const PERIOD_LABEL: Record<Period, MessageKey> = {
   all: "auditLog.period.all",
   day: "auditLog.period.day",
@@ -92,6 +98,56 @@ export function queryOf(filter: Filter): AuditQuery {
     ...(filter.kind ? { kind: filter.kind } : {}),
     ...(filter.actor ? { actor_user_id: filter.actor } : {}),
   };
+}
+
+/** Where a period's window starts, counted back from `now`. */
+function periodFrom(period: Period, now: number): string | undefined {
+  const days = PERIODS[period];
+  return days === 0
+    ? undefined
+    : new Date(now - days * 86_400_000).toISOString();
+}
+
+/**
+ * Every count is itself recorded, so counts read at once would each miss the
+ * others' rows and a longer period could show fewer. One query reads them one
+ * after another, in the order given, so a refetch keeps that order too.
+ */
+function auditCountsQuery(
+  client: ApiClient,
+  queries: readonly AuditQuery[],
+  enabled: boolean,
+) {
+  return {
+    queryKey: scopedKey(client, "audit-counts", queries),
+    // Changed filters, or a reopen that moves the window's start, leave the
+    // old pass unused; its signal stops it so it does not overlap the new one.
+    queryFn: async ({ signal }: { signal: AbortSignal }) => {
+      const counts: CountAuditEventsResponse[] = [];
+      for (const query of queries) {
+        counts.push(
+          (await unwrap(
+            client.GET("/v1/audit/events/counts", {
+              params: { query },
+              signal,
+            }),
+          )) as CountAuditEventsResponse,
+        );
+      }
+      return counts;
+    },
+    enabled,
+    // Every count is recorded as a read, as the list is.
+    gcTime: 0,
+    retry: false,
+  };
+}
+
+/** A count as a filter choice shows it; nothing while it is unknown. */
+function counted(
+  count: CountAuditEventsResponse["total"] | undefined,
+): Pick<ListFilterChoice, "count" | "countCapped"> {
+  return count ? { count: count.count, countCapped: count.more } : {};
 }
 
 function auditPagesQuery(client: ApiClient, filter: Filter) {
@@ -176,6 +232,99 @@ function AuditLog() {
     setPage(1);
     setOutcome(null);
   };
+  // Counts are read only while the filters are open, each period's window
+  // counted back from when they opened; the picked period keeps the list's own.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [anchor, setAnchor] = useState(() => Date.now());
+  const filterButton = useRef<HTMLButtonElement>(null);
+  const periods = Object.keys(PERIODS) as Period[];
+  const periodQuery = (period: Period) =>
+    queryOf({
+      ...filter,
+      period,
+      from: period === filter.period ? filter.from : periodFrom(period, anchor),
+    });
+  const kindQuery = queryOf({ ...filter, kind: undefined });
+  // Shortest window first: each later count includes every earlier read, so
+  // a longer window never shows less.
+  const countQueries = [
+    ...new Map(
+      [...SHORTEST_FIRST.map(periodQuery), kindQuery].map((query) => [
+        JSON.stringify(query),
+        query,
+      ]),
+    ).values(),
+  ];
+  const countsQuery = auditCountsQuery(client, countQueries, filtersOpen);
+  const counts = useQuery(countsQuery);
+  const queryClient = useQueryClient();
+  // A failed reread leaves the old numbers in the cache; they are not shown.
+  const countsFor = (query: AuditQuery) =>
+    (counts.isError ? undefined : counts.data)?.[
+      countQueries.findIndex(
+        (one) => JSON.stringify(one) === JSON.stringify(query),
+      )
+    ];
+  const kinds = countsFor(kindQuery);
+  const facets: ListFilterFacet[] = [
+    {
+      id: "period",
+      label: t("auditLog.period.label"),
+      value: filter.period,
+      choices: periods.map((value) => ({
+        value,
+        label: t(PERIOD_LABEL[value]),
+        ...counted(countsFor(periodQuery(value))?.total),
+      })),
+    },
+    {
+      id: "kind",
+      label: t("auditLog.kind.label"),
+      value: filter.kind ?? "all",
+      choices: [
+        {
+          value: "all",
+          label: t("auditLog.kind.all"),
+          ...counted(kinds?.total),
+        },
+        {
+          value: "decision",
+          label: t("auditLog.kind.decision"),
+          ...counted(kinds?.counts.decision),
+        },
+        {
+          value: "receipt",
+          label: t("auditLog.kind.receipt"),
+          ...counted(kinds?.counts.receipt),
+        },
+      ],
+    },
+    {
+      // No count per person: one read per member would grow with the team.
+      id: "actor",
+      label: t("auditLog.actor.label"),
+      value: filter.actor ?? "all",
+      choices: [
+        { value: "all", label: t("auditLog.actor.all") },
+        ...(people.data ?? []).map((member) => ({
+          value: member.user_id,
+          label: member.display_name,
+        })),
+      ],
+    },
+  ];
+  const pickFacet = (facet: string, value: string) => {
+    if (facet === "period") {
+      const period = periods.find((name) => name === value) ?? "all";
+      pick({ period, from: periodFrom(period, anchor) });
+    } else if (facet === "kind") {
+      pick({
+        kind: value === "decision" || value === "receipt" ? value : undefined,
+      });
+    } else {
+      pick({ actor: value === "all" ? undefined : value });
+    }
+  };
   const retentionStart = pages.data?.pages[0]?.retention_start;
 
   return (
@@ -189,57 +338,27 @@ function AuditLog() {
       ) : null}
       <ListToolbar
         filter={
-          <FilterMenu
-            label={t("auditLog.period.label")}
-            options={(Object.keys(PERIODS) as Period[]).map((value) => ({
-              value,
-              label: t(PERIOD_LABEL[value]),
-            }))}
-            value={filter.period}
-            onValueChange={(value) => {
-              const period = value as Period;
-              const days = PERIODS[period];
-              pick({
-                period,
-                from:
-                  days === 0
-                    ? undefined
-                    : new Date(Date.now() - days * 86_400_000).toISOString(),
-              });
+          <ListFilters
+            facets={facets}
+            onValueChange={pickFacet}
+            onOpenChange={(open) => {
+              if (open) setAnchor(Date.now());
+              // Closing stops the pass: nobody sees the rest, yet each is recorded.
+              else {
+                void queryClient.cancelQueries({
+                  queryKey: countsQuery.queryKey,
+                  exact: true,
+                });
+              }
+              setFiltersOpen(open);
+            }}
+            triggerRef={filterButton}
+            messages={{
+              trigger: t("filters.trigger"),
+              count: (count) => t("filters.count", { count }),
+              applied: (count) => t("filters.applied", { count }),
             }}
           />
-        }
-        filters={
-          <>
-            <FilterMenu
-              label={t("auditLog.kind.label")}
-              options={[
-                { value: "all", label: t("auditLog.kind.all") },
-                { value: "decision", label: t("auditLog.kind.decision") },
-                { value: "receipt", label: t("auditLog.kind.receipt") },
-              ]}
-              value={filter.kind ?? "all"}
-              onValueChange={(value) =>
-                pick({
-                  kind: value === "all" ? undefined : (value as AuditEventKind),
-                })
-              }
-            />
-            <FilterMenu
-              label={t("auditLog.actor.label")}
-              options={[
-                { value: "all", label: t("auditLog.actor.all") },
-                ...(people.data ?? []).map((member) => ({
-                  value: member.user_id,
-                  label: member.display_name,
-                })),
-              ]}
-              value={filter.actor ?? "all"}
-              onValueChange={(value) =>
-                pick({ actor: value === "all" ? undefined : value })
-              }
-            />
-          </>
         }
         view={
           <ExportButton
@@ -249,6 +368,17 @@ function AuditLog() {
             onOutcome={setOutcome}
           />
         }
+      />
+      <AppliedFilters
+        facets={facets}
+        onValueChange={pickFacet}
+        onClearAll={() => pick(ALL)}
+        returnFocus={filterButton}
+        messages={{
+          label: t("filters.chips"),
+          remove: (facet, choice) => t("filters.remove", { facet, choice }),
+          clearAll: t("filters.clearAll"),
+        }}
       />
       <OutcomeLine outcome={outcome} live />
       {pages.isPending ? (
