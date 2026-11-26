@@ -12,7 +12,7 @@ import {
   lockSessionForControl,
   OPEN_TURN_STATUSES,
 } from "./control-shared.ts";
-import { stopExecution } from "./control-unit-of-work.ts";
+import { cancelQueuedInput, stopExecution } from "./control-unit-of-work.ts";
 import { dbNow } from "./db-clock.ts";
 import { CREATE_SESSION, SESSIONS_RESOURCE } from "./postgres-unit-of-work.ts";
 import type { Database } from "./queries.ts";
@@ -65,7 +65,7 @@ export async function stopChannelWork(
     await tx.execute(sql`
       SELECT s.id::text AS id FROM sessions s
       WHERE s.workspace_id = ${place.workspaceId}::uuid
-        AND s.admission_state NOT IN ('closing', 'closed', 'stopping', 'stopped')
+        AND s.admission_state NOT IN ('closing', 'closed')
         AND (
           s.id IN (
             SELECT l.session_id FROM session_links l
@@ -146,8 +146,18 @@ async function stopSession(
     }
     return { paused: false, cut: 0 };
   }
-  // Only these run or are about to: recovery waits on an operator, and a
-  // legacy pod binding has no fence to stop it with.
+  // Waiting on an operator's recovery decision or on a resume: nothing
+  // runs, and what waits for one never runs either.
+  if (
+    from === "recovery_required" ||
+    from === "stopping" ||
+    from === "stopped"
+  ) {
+    await cancelQueuedInput(tx, session.id, { now, by: "emergency stop" });
+    return { paused: false, cut: 0 };
+  }
+  // Only these run or are about to; a legacy pod binding has no fence to
+  // stop it with.
   if (from !== "active" && from !== "pausing" && from !== "resuming") {
     return { paused: false, cut: 0 };
   }

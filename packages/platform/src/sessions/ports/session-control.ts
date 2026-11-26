@@ -74,6 +74,9 @@ export type RecoveryDecisionResult =
   // start_fresh or retry_restore on a session stopped for a deleted source:
   // a close is the only decision left.
   | { outcome: "source_deleted" }
+  // start_fresh or retry_restore on a session whose Slack channel is
+  // emergency-stopped, as for resume.
+  | { outcome: "emergency_stopped" }
   // retry_restore on a session its failed restores did not stop: restoring
   // the same checkpoint again answers nothing else.
   | { outcome: "not_restore_failed"; admissionState: AdmissionState };

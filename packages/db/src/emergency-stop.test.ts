@@ -37,7 +37,7 @@ import {
   SESSIONS_RESOURCE,
 } from "./postgres-unit-of-work.ts";
 import type { Database } from "./queries.ts";
-import { resumeAtomic } from "./recovery-control.ts";
+import { decideRecoveryAtomic, resumeAtomic } from "./recovery-control.ts";
 import * as schema from "./schema.ts";
 import {
   agents,
@@ -965,4 +965,49 @@ describe("a session already paused when the channel is stopped", () => {
       status: "cancelled",
     });
   });
+});
+
+describe("a session waiting on a decision when the channel is stopped", () => {
+  for (const state of ["recovery_required", "stopped"] as const) {
+    test(`${state}: its waiting input is cancelled and no decision puts it back to work`, async () => {
+      const s = await stage();
+      expect((await send(s, { message: "queued behind" })).outcome).toBe(
+        "accepted",
+      );
+      await db
+        .update(turns)
+        .set({ status: "completed", endedAt: new Date() })
+        .where(
+          and(eq(turns.sessionId, s.worker.sessionId), eq(turns.sequence, 1)),
+        );
+      await executionGone(s.worker);
+      await db
+        .update(sessions)
+        .set({ admissionState: state, workspaceId: s.workspaceId })
+        .where(eq(sessions.id, s.worker.sessionId));
+      expect((await stop(s, s.admin)).outcome).toBe("stopped");
+      expect(await sessionOf(s.worker.sessionId)).toMatchObject({
+        admissionState: state,
+      });
+      expect((await turnsOf(s.worker.sessionId))[1]).toMatchObject({
+        sequence: 2,
+        status: "cancelled",
+      });
+      for (const decision of ["start_fresh", "retry_restore"] as const) {
+        const decided = await decideRecoveryAtomic(db, {
+          principal: { ...OWNER, requestId: randomUUID() },
+          sessionId: s.worker.sessionId,
+          idempotencyKey: randomUUID(),
+          payloadHash: randomUUID(),
+          decision: {
+            decision,
+            reason: "try again",
+            expected_revision: (await sessionOf(s.worker.sessionId)).revision,
+          },
+          now: new Date(),
+        });
+        expect(decided.outcome).toBe("emergency_stopped");
+      }
+    });
+  }
 });

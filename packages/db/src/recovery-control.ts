@@ -318,6 +318,15 @@ export function decideRecoveryAtomic(
     if (session.podId !== null && session.executionId === null) {
       return { outcome: "unsupported" };
     }
+    // Both put the session back to work, which only turning its channel on
+    // again allows.
+    if (
+      (decision.decision === "start_fresh" ||
+        decision.decision === "retry_restore") &&
+      (await emergencyStopHolds(tx, sessionId))
+    ) {
+      return { outcome: "emergency_stopped" };
+    }
 
     let targetTurnRowId: number | null = null;
     let reset: ContextReset | null = null;

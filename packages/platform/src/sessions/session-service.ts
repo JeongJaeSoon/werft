@@ -1569,6 +1569,8 @@ export function createSessionService(deps: {
           throw executionRevoked();
         case "source_deleted":
           throw sessionSourceDeleted();
+        case "emergency_stopped":
+          throw sessionEmergencyStopped();
         case "not_restore_failed":
           throw new SessionServiceError(
             "REQUEST_STALE",
