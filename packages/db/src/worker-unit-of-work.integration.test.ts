@@ -805,7 +805,8 @@ integration("worker gateway on PostgreSQL", () => {
       cases.map(([name, , , , expected]) => [name, expected]),
     );
     // A token presented for another route than its own.
-    expect(await check("repository")).toBe("invalid_token");  });
+    expect(await check("repository")).toBe("invalid_token");
+  });
 
   test("a fence change not yet committed does not hold the check up, and refuses once committed", async () => {
     const session = await queuedSession(partitionFor("egress-bump"));
