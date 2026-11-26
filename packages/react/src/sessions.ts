@@ -47,7 +47,8 @@ import { useWerft } from "./provider.tsx";
 
 // Events kept on screen; older ones drop off so a long session does not
 // grow the page without bound.
-const EVENT_WINDOW = 200;
+/** The most events the session screen keeps; older ones drop off. */
+export const EVENT_WINDOW = 200;
 
 export function useSessions() {
   const { client } = useWerft();

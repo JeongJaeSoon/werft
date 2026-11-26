@@ -1,0 +1,146 @@
+import {
+  eventToolCall,
+  type PendingRequest,
+  type SessionDetail,
+  TURN_WORKER_OWNERSHIP_LOST_REASON,
+  type TurnSummary,
+} from "@werft-ai/contracts";
+import type { SessionEventFrame } from "../sessions.ts";
+
+/**
+ * Where one turn of the session stands. A turn is a step: the API has no plan,
+ * so the steps are the instructions the session was given, in order.
+ */
+export type SessionStepState =
+  | "queued"
+  | "running"
+  | "approval"
+  | "answer"
+  | "done"
+  | "failed"
+  | "cut_off"
+  | "stopped"
+  | "unknown";
+
+export interface SessionStep {
+  readonly turn: TurnSummary;
+  /** 1 for the session's first turn. */
+  readonly number: number;
+  readonly state: SessionStepState;
+  /** The open requests the turn asked, oldest first. */
+  readonly requests: readonly PendingRequest[];
+  /** Distinct tool calls among the events still in the window. */
+  readonly toolCalls: number;
+  /** The window may have dropped this turn's earlier events. */
+  readonly toolCallsPartial: boolean;
+}
+
+export interface SessionSteps {
+  readonly steps: readonly SessionStep[];
+  /**
+   * The step the session is on, else the one that stopped it (cut off, or
+   * holding requests); null when the session rests on finished work.
+   */
+  readonly focus: number | null;
+  /** `focus` is the turn the session runs now, not one that stopped it. */
+  readonly current: boolean;
+}
+
+export interface ReadSessionStepsInput {
+  readonly session: Pick<SessionDetail, "current_turn_id" | "status">;
+  readonly turns: readonly TurnSummary[];
+  readonly requests: readonly PendingRequest[];
+  readonly events: readonly SessionEventFrame[];
+  /** The event window is at its cap, so its oldest events are gone. */
+  readonly windowFull: boolean;
+}
+
+function stateOf(
+  turn: TurnSummary,
+  requests: readonly PendingRequest[],
+): SessionStepState {
+  // The list holds only requests still open, whatever the turn's status
+  // says: a parked turn waits on them too.
+  if (requests.some((request) => request.kind === "permission"))
+    return "approval";
+  if (requests.length > 0) return "answer";
+  switch (turn.status) {
+    case "queued":
+      return "queued";
+    case "running":
+      return "running";
+    // Derived from an open request the list has not caught up with yet.
+    case "needs_input":
+      return "answer";
+    case "completed":
+      return "done";
+    case "failed":
+      return turn.terminal_reason === TURN_WORKER_OWNERSHIP_LOST_REASON
+        ? "cut_off"
+        : "failed";
+    case "interrupted":
+    case "cancelled":
+      return "stopped";
+    default:
+      return "unknown";
+  }
+}
+
+export function readSessionSteps({
+  session,
+  turns,
+  requests,
+  events,
+  windowFull,
+}: ReadSessionStepsInput): SessionSteps {
+  const calls = new Map<string, Set<string>>();
+  for (const frame of events) {
+    if (frame.turnId === null) continue;
+    const { payload } = frame;
+    if (payload.event !== "tool_use" && payload.event !== "assistant") continue;
+    const call = eventToolCall(payload.data);
+    if (call === null) continue;
+    const seen = calls.get(frame.turnId) ?? new Set<string>();
+    seen.add(call.id);
+    calls.set(frame.turnId, seen);
+  }
+  const oldest = events[0]?.turnId ?? null;
+  const steps = turns.map((turn, index): SessionStep => {
+    const asked = requests
+      .filter((request) => request.turn_id === turn.turn_id)
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    return {
+      turn,
+      number: index + 1,
+      state: stateOf(turn, asked),
+      requests: asked,
+      toolCalls: calls.get(turn.turn_id)?.size ?? 0,
+      toolCallsPartial: windowFull && oldest === turn.turn_id,
+    };
+  });
+  const running = steps.findIndex(
+    (step) => step.turn.turn_id === session.current_turn_id,
+  );
+  if (running !== -1) return { steps, focus: running, current: true };
+  const asking = steps.findIndex((step) => step.requests.length > 0);
+  if (asking !== -1) return { steps, focus: asking, current: false };
+  const last = steps.length - 1;
+  const stopped =
+    session.status === "idle" && steps[last]?.state === "cut_off" ? last : -1;
+  return { steps, focus: stopped === -1 ? null : stopped, current: false };
+}
+
+/** Finished turns' time plus the running one's so far, in milliseconds. */
+export function sessionTime(
+  session: Pick<SessionDetail, "turn_time_ms">,
+  steps: SessionSteps,
+  now: number,
+): number {
+  const step = steps.current ? steps.steps[steps.focus ?? -1] : undefined;
+  const started = step?.turn.started_at;
+  const open =
+    started && step.turn.ended_at === null
+      ? Math.max(0, now - Date.parse(started))
+      : 0;
+  return session.turn_time_ms + open;
+}
