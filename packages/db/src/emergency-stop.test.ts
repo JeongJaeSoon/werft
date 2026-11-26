@@ -1011,3 +1011,70 @@ describe("a session waiting on a decision when the channel is stopped", () => {
     });
   }
 });
+
+describe("a post that meets an emergency stop as it goes", () => {
+  test("one claimed as the stop ran does not begin once it has", async () => {
+    const s = await stage();
+    const outbox = createPostgresSlackOutboxStore(db);
+    const claimed = await outbox.claim({ limit: 10, leaseMs: 30_000 });
+    const row = claimed.find((post) => post.channelId === CHANNEL);
+    if (!row) throw new Error("nothing claimed for the channel");
+    const held = await client.query<{ value: string }>(
+      "SELECT CAST(claim_token AS text) AS value FROM slack_outbox WHERE id = $1",
+      [row.id],
+    );
+    expect((await stop(s, s.admin)).outcome).toBe("stopped");
+    // Written and claimed after the stop's cancel, before it committed.
+    await client.query(
+      `UPDATE slack_outbox SET (status, error_code, claim_token, lease_expires_at)
+        = ('pending', NULL, CAST($2 AS uuid), now() + interval '30 seconds')
+       WHERE id = $1`,
+      [row.id, held.rows[0]?.value],
+    );
+    expect(await outbox.beginSend(row)).toBe(false);
+    const [after] = await db
+      .select({ status: slackOutbox.status, errorCode: slackOutbox.errorCode })
+      .from(slackOutbox)
+      .where(eq(slackOutbox.id, row.id));
+    expect(after).toEqual({ status: "failed", errorCode: "emergency_stopped" });
+  });
+
+  test("a reaction under way when the stop came is not asked for again once its lease lapses", async () => {
+    const s = await stage();
+    await stop(s, s.admin);
+    const [notice] = await db
+      .select({ slackAppId: slackOutbox.slackAppId })
+      .from(slackOutbox)
+      .where(eq(slackOutbox.kind, "emergency_stop_notice"));
+    if (!notice) throw new Error("no notice");
+    const id = randomUUID();
+    await db.insert(slackOutbox).values({
+      id,
+      workspaceId: s.workspaceId,
+      agentId: s.agentId,
+      slackAppId: notice.slackAppId,
+      installationId: s.installationId,
+      kind: "reaction",
+      channelId: CHANNEL,
+      threadTs: "100.000300",
+      body: { name: "eyes", timestamp: "100.000300" } as never,
+      dedupeKey: "reaction:under-way",
+    });
+    // Sending when the stop marked it; the channel is on before its lease
+    // lapses.
+    await client.query(
+      `UPDATE slack_outbox SET status = 'sending', error_code = 'emergency_stopped',
+        attempts = 1, claim_token = gen_random_uuid(),
+        lease_expires_at = now() - interval '1 second'
+       WHERE id = $1`,
+      [id],
+    );
+    expect((await turnOn(s, s.admin, "checked")).outcome).toBe("set");
+    await createPostgresSlackOutboxStore(db).expireSending();
+    const [after] = await db
+      .select({ status: slackOutbox.status })
+      .from(slackOutbox)
+      .where(eq(slackOutbox.id, id));
+    expect(after?.status).not.toBe("pending");
+  });
+});

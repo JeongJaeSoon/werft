@@ -1863,6 +1863,8 @@ export function createPostgresSlackOutboxStore(
               expired,
               eq(t.kind, "reaction"),
               sql`${t.attempts} < ${SURFACE_REACTION_MAX_ATTEMPTS}`,
+              // One an emergency stop marked is not asked for again.
+              sql`${t.errorCode} IS DISTINCT FROM ${TURN_EMERGENCY_STOPPED_REASON}`,
             ),
           );
         const lost = await tx
@@ -2058,6 +2060,8 @@ export function createPostgresSlackOutboxStore(
           .select({
             progressKey: t.progressKey,
             installationId: t.installationId,
+            channelId: t.channelId,
+            kind: t.kind,
           })
           .from(t)
           .where(eq(t.id, fence.id));
@@ -2065,6 +2069,40 @@ export function createPostgresSlackOutboxStore(
           await tx.execute(
             sql`SELECT pg_advisory_xact_lock(hashtextextended(${`slack_outbox_progress:${keyed.installationId}:${keyed.progressKey}`}, 0))`,
           );
+        }
+        // The channel's binding before the row, as an emergency stop takes
+        // them: a stop under way is waited for, and once it holds the row
+        // ends as the stop ended the channel's unsent posts.
+        if (keyed !== undefined && keyed.kind !== "emergency_stop_notice") {
+          const [binding] = rowsOf<{ stopped: boolean }>(
+            await tx.execute(sql`
+              SELECT b.emergency_stopped_at IS NOT NULL AS stopped
+              FROM surface_bindings b
+              WHERE b.installation_id = ${keyed.installationId}::uuid
+                AND b.external_surface_id = ${keyed.channelId}
+                AND b.revoked_at IS NULL
+              FOR SHARE`),
+          );
+          if (binding?.stopped === true) {
+            const ended = await tx
+              .update(t)
+              .set({
+                status: "failed",
+                errorCode: TURN_EMERGENCY_STOPPED_REASON,
+                ...released,
+              })
+              .where(and(fenced(fence), eq(t.status, "pending")))
+              .returning({ inputId: t.inputId });
+            for (const { inputId } of ended) {
+              if (inputId !== null) {
+                await closeHeldOfFailedMirror(
+                  tx,
+                  inputId as ConversationInputId,
+                );
+              }
+            }
+            return false;
+          }
         }
         const [row] = await tx
           .select({
