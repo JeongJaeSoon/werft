@@ -682,7 +682,9 @@ export function SlackChannels({
                               {t("slack.inactive")}
                             </Text>
                           ) : manages ? (
-                            <>
+                            // Stacked on a phone, so the column stays narrow
+                            // enough to leave the channel's name room.
+                            <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center">
                               {row.status === "pending_approval" &&
                               canApprove ? (
                                 <RowAction
@@ -719,7 +721,7 @@ export function SlackChannels({
                                   {t("slack.emergencyStop.action")}
                                 </RowAction>
                               )}
-                            </>
+                            </div>
                           ) : (
                             <Text as="span" variant="sub">
                               {t(row.mode !== "off" ? "slack.on" : "slack.off")}
