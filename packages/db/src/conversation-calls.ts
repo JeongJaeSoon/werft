@@ -61,6 +61,7 @@ import {
   conversationTurns,
   memberTeams,
 } from "./schema.ts";
+import { rowsOf } from "./statement-rows.ts";
 
 // The scale of the cost column, so a replay compares what was stored.
 const toStoredCost = (costUsd: number) => Math.round(costUsd * 1e6) / 1e6;
@@ -369,7 +370,7 @@ async function turnScopeIn(
     .limit(1);
   if (!agent) return { outcome: "unknown_agent" };
   const [conversation] = await tx
-    .select({ id: conversations.id })
+    .select({ id: conversations.id, channelId: conversations.channelId })
     .from(conversations)
     .where(
       and(
@@ -379,6 +380,19 @@ async function turnScopeIn(
       ),
     );
   if (!conversation) return { outcome: "unknown_conversation" };
+  // An emergency stop holds the channel's binding while it ends the turns
+  // there: a turn written first is ended by it, and one after it finds the
+  // channel stopped.
+  const [binding] = rowsOf<{ stopped: boolean }>(
+    await tx.execute(sql`
+      SELECT emergency_stopped_at IS NOT NULL AS stopped
+      FROM surface_bindings
+      WHERE agent_id = ${input.agentId}::uuid
+        AND external_surface_id = ${conversation.channelId}
+        AND revoked_at IS NULL
+      FOR SHARE`),
+  );
+  if (binding?.stopped) return { outcome: "channel_stopped" };
   const [topic] = await tx
     .select({ id: conversationTopics.id })
     .from(conversationTopics)

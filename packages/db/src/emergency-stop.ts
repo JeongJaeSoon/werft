@@ -90,6 +90,18 @@ export async function stopChannelWork(
   return counts;
 }
 
+/**
+ * A session that joins the channel while its agent is stopped there (made
+ * as the stop ran, linked after it) is stopped as it joins, as the stop
+ * would have. The caller holds the channel's lock, as the stop does.
+ */
+export async function stopJoiningSession(
+  tx: Database,
+  sessionId: string,
+): Promise<void> {
+  await stopSession(tx, sessionId, { now: await dbNow(tx), attempt: 0 });
+}
+
 async function stopSession(
   tx: Database,
   sessionId: string,
@@ -339,12 +351,14 @@ async function stopConversationTurns(
 
 /**
  * Every post to the channel from the agent's install that has not gone yet,
- * a progress message's next edit and a held row included, is cancelled. A
- * send already under way is Slack's by now.
+ * a progress message's next edit and a held row included, is cancelled; the
+ * stop's own line is not. A send already under way is Slack's by now, and a
+ * retry of it while the stop holds ends failed (settle). Run again as the
+ * channel is turned on, so nothing held back by the stop goes out late.
  */
-async function cancelChannelPosts(
+export async function cancelChannelPosts(
   tx: Database,
-  place: ChannelWorkPlace,
+  place: Pick<ChannelWorkPlace, "installationId" | "channelId">,
 ): Promise<number> {
   const cancelled = rowsOf<{ input_id: string | null }>(
     await tx.execute(sql`
@@ -354,6 +368,7 @@ async function cancelChannelPosts(
       WHERE installation_id = ${place.installationId}::uuid
         AND channel_id = ${place.channelId}
         AND status = 'pending'
+        AND kind <> 'emergency_stop_notice'
       RETURNING input_id::text AS input_id`),
   );
   // A mirror cancelled here never reached Slack: what it held closes too,

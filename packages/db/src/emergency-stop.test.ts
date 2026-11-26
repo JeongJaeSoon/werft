@@ -3,8 +3,11 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { PGlite } from "@electric-sql/pglite";
 import {
   CONVERSATION_TURN_LEASE_MS,
+  conversationCallKeySchema,
   conversationInputIdSchema,
   conversationRuntimeIdSchema,
+  conversationTopicIdSchema,
+  conversationTurnIdSchema,
   DEFAULT_SURFACE_CEILING,
   SLACK_EMERGENCY_STOP_TEXT,
   scopesForRole,
@@ -13,6 +16,7 @@ import {
 import {
   type Caller,
   callerFor,
+  hashConversationCallToken,
   SecretKey,
   type SessionCatalog,
   type WorkerGateway,
@@ -21,6 +25,7 @@ import { testCaller } from "@werft-ai/testkit/callers";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { and, asc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
+import { createPostgresConversationCalls } from "./conversation-calls.ts";
 import { createPostgresConversationStore } from "./conversations/conversation-store.ts";
 import { createPostgresConversationTurnQueue } from "./conversations/conversation-turn-queue.ts";
 import { stopChannelWork } from "./emergency-stop.ts";
@@ -43,6 +48,7 @@ import {
   users,
   workspaces,
 } from "./schema.ts";
+import { createPostgresSessionLinkStore } from "./session-links.ts";
 import {
   registerSlackInstallation,
   verifySlackInstallation,
@@ -670,6 +676,129 @@ describe("what an emergency stop leaves the channel", () => {
     expect(claimed.map((row) => [row.kind, row.channelId]).sort()).toEqual([
       ["emergency_stop_notice", CHANNEL],
       ["reply", "C0ELSE"],
+    ]);
+  });
+});
+
+describe("work that meets an emergency stop as it runs", () => {
+  test("a session made as the stop ran is stopped as it joins the channel", async () => {
+    const s = await stage();
+    const late = await claimedSession(db, gateway, OWNER);
+    const next = await gateway.nextInput(late.principal, late.scope);
+    if (!next.input) throw new Error("no input delivered");
+    expect((await stop(s, s.admin)).outcome).toBe("stopped");
+    const [made] = await db
+      .select({ releaseId: sessions.agentReleaseId })
+      .from(sessions)
+      .where(eq(sessions.id, late.sessionId));
+    if (!made?.releaseId) throw new Error("no release");
+    const links = createPostgresSessionLinkStore(db);
+    // The link's release need not be the agent's here: not what is tested.
+    await client.exec("SET session_replication_role = replica");
+    const { link } = await links.reserve({
+      workspaceId: s.workspaceId,
+      installationId: s.installationId,
+      surfaceBindingId: s.bindingId,
+      surfaceRef: `${CHANNEL}:200.000100`,
+      channelId: CHANNEL,
+      threadId: "200.000100",
+      openedByTs: "200.000100",
+      agentId: s.agentId,
+      releaseId: made.releaseId,
+      createdBy: s.owner.userId,
+    });
+    await client.exec("SET session_replication_role = DEFAULT");
+    await links.attachSession(link.id, late.sessionId);
+    expect(await turnsOf(late.sessionId)).toMatchObject([
+      { sequence: 1, status: "failed", reason: "emergency_stopped" },
+    ]);
+  });
+
+  test("a conversation turn written after the stop is refused", async () => {
+    const s = await stage();
+    const [conversation] = await db
+      .select({ id: schema.conversations.id })
+      .from(schema.conversations)
+      .where(eq(schema.conversations.agentId, s.agentId));
+    if (!conversation) throw new Error("no conversation");
+    const issue = () => {
+      const turnId = conversationTurnIdSchema.parse(randomUUID());
+      return createPostgresConversationCalls(db).issueTurnPermitAtomic({
+        turnId,
+        tokenHash: hashConversationCallToken(randomUUID()),
+        workspaceId: s.workspaceId,
+        agentId: s.agentId,
+        conversationId: conversation.id as never,
+        topicId: conversationTopicIdSchema.parse(randomUUID()),
+        requester: { kind: "operator", id: "ops@host" },
+        releaseId: null,
+        root: { kind: "key", keyKind: "operator", createdByUserId: null },
+        connectionId: "conn-messages",
+        path: "/v1/messages",
+        model: "claude-sonnet-5",
+        maxTokens: 256,
+        maxRequestBytes: 4_096,
+        callKey: conversationCallKeySchema.parse(`turn-${turnId}:m2`),
+        ttlMs: 180_000,
+      });
+    };
+    // Before the stop the channel takes it as far as its topic.
+    expect((await issue()).outcome).toBe("unknown_conversation");
+    await stop(s, s.admin);
+    expect((await issue()).outcome).toBe("channel_stopped");
+  });
+
+  test("a send under way when the stop came is not tried again, and what waited is cancelled as the channel is turned on", async () => {
+    const s = await stage();
+    const outbox = createPostgresSlackOutboxStore(db);
+    const claimed = await outbox.claim({ limit: 10, leaseMs: 30_000 });
+    const sending = claimed.find((row) => row.channelId === CHANNEL);
+    if (!sending) throw new Error("nothing claimed for the channel");
+    expect(await outbox.beginSend(sending)).not.toBe(false);
+    await stop(s, s.admin);
+    await outbox.settle(sending, {
+      status: "pending",
+      errorCode: "ratelimited",
+      retryInMs: 1_000,
+    });
+    const [notice] = await db
+      .select({ slackAppId: slackOutbox.slackAppId })
+      .from(slackOutbox)
+      .where(eq(slackOutbox.kind, "emergency_stop_notice"));
+    if (!notice) throw new Error("no notice");
+    await db.insert(slackOutbox).values({
+      id: randomUUID(),
+      workspaceId: s.workspaceId,
+      agentId: s.agentId,
+      slackAppId: notice.slackAppId,
+      installationId: s.installationId,
+      kind: "reply",
+      channelId: CHANNEL,
+      threadTs: "100.000300",
+      body: { text: "written while stopped" } as never,
+      dedupeKey: "reply:meanwhile",
+    });
+    expect((await turnOn(s, s.admin, "checked")).outcome).toBe("set");
+    const rows = await db
+      .select({
+        key: slackOutbox.dedupeKey,
+        status: slackOutbox.status,
+        errorCode: slackOutbox.errorCode,
+      })
+      .from(slackOutbox)
+      .where(eq(slackOutbox.channelId, CHANNEL))
+      .orderBy(asc(slackOutbox.seq));
+    expect(rows.filter((row) => row.key.startsWith("reply:"))).toEqual([
+      {
+        key: `reply:${CHANNEL}`,
+        status: "failed",
+        errorCode: "emergency_stopped",
+      },
+      {
+        key: "reply:meanwhile",
+        status: "failed",
+        errorCode: "emergency_stopped",
+      },
     ]);
   });
 });

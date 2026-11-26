@@ -44,6 +44,7 @@ import {
 } from "../conversations/index.ts";
 import { DB_NOW, dbNow } from "../db-clock.ts";
 import {
+  cancelChannelPosts,
   enqueueEmergencyStopNotice,
   stopChannelWork,
 } from "../emergency-stop.ts";
@@ -354,6 +355,14 @@ async function set(
           : {}),
         updatedAt: DB_NOW,
       };
+      // What the stop held back stays unsent: a row written while it held
+      // never goes out late.
+      if (endsStop && input.channelId !== null) {
+        await cancelChannelPosts(tx, {
+          installationId,
+          channelId: input.channelId,
+        });
+      }
       const id = current?.id ?? randomUUID();
       if (current) {
         await tx

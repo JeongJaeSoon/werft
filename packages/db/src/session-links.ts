@@ -3,6 +3,7 @@ import type { SessionLinkRecord, SessionLinkStore } from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { UUID } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
+import { stopJoiningSession } from "./emergency-stop.ts";
 import { CREATE_SESSION, SESSIONS_RESOURCE } from "./postgres-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import { idempotencyKeys, receipts, sessionLinks, turns } from "./schema.ts";
@@ -115,6 +116,16 @@ export function createPostgresSessionLinkStore(db: Database): SessionLinkStore {
           .where(and(eq(t.id, linkId), isNull(t.sessionId)))
           .returning({ id: t.id });
         if (attached.length === 0) return;
+        const [stopped] = rowsOf(
+          await tx.execute(sql`
+            SELECT 1 FROM ${t} l
+            JOIN surface_bindings b ON b.installation_id = l.installation_id
+              AND b.external_surface_id = l.channel_id
+              AND b.agent_id = l.agent_id
+            WHERE l.id = ${linkId}::uuid AND b.revoked_at IS NULL
+              AND b.emergency_stopped_at IS NOT NULL`),
+        );
+        if (stopped) await stopJoiningSession(tx, sessionId.toLowerCase());
         const narrowed = await tx.execute(sql`
           INSERT INTO session_shares (session_id, owner_id, workspace_id, scope,
             updated_by, updated_at, revision)

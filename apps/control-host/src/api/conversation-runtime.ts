@@ -152,6 +152,8 @@ export type OperatorTurnResult =
   | { outcome: "unknown_agent" }
   // The conversation is not the agent's, or the topic not the conversation's.
   | { outcome: "unknown_conversation" }
+  // An admin emergency-stopped the agent in the conversation's channel.
+  | { outcome: "channel_stopped" }
   | { outcome: "no_active_release" }
   // The release's connection is gone, or serves no Messages.
   | { outcome: "connection_unavailable" }
@@ -230,8 +232,11 @@ export function createOperatorConversationTurns(deps: {
       if (issued.outcome === "unavailable") {
         return { outcome: "connection_unavailable" };
       }
-      if (issued.outcome === "unknown_conversation") {
-        return { outcome: "unknown_conversation" };
+      if (
+        issued.outcome === "unknown_conversation" ||
+        issued.outcome === "channel_stopped"
+      ) {
+        return { outcome: issued.outcome };
       }
       let turn: ConversationTurnOutcome | null;
       try {

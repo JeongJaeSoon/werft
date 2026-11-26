@@ -13,6 +13,7 @@ import {
   SLACK_USER_CHANNEL_CODE,
   type SlackNoticeVersionEntry,
   slackOutboxChannelRefused,
+  TURN_EMERGENCY_STOPPED_REASON,
   type UserLocale,
   withStoredNeutralFields,
 } from "@werft-ai/contracts";
@@ -2252,8 +2253,8 @@ export function createPostgresSlackOutboxStore(
       });
     },
 
-    async settle(fence, outcome) {
-      const set =
+    async settle(fence, given) {
+      const setOf = (outcome: typeof given) =>
         outcome.status === "sent"
           ? {
               status: "sent" as const,
@@ -2283,10 +2284,29 @@ export function createPostgresSlackOutboxStore(
                 nextAttemptAt: sql`CASE WHEN ${t.kind} = 'progress' THEN now() + greatest(${ms(outcome.status === "failed" ? (outcome.retryInMs ?? 0) : 0)}, ${ms(progressIntervalMs)}) ELSE ${t.nextAttemptAt} END`,
               };
       return db.transaction(async (tx) => {
+        // A retry put back while the channel's agent is emergency-stopped
+        // ends here instead, so it never goes out once the channel is on.
+        const [stopped] =
+          given.status === "pending"
+            ? rowsOf(
+                await tx.execute(sql`
+                  SELECT 1 FROM slack_outbox o
+                  JOIN surface_bindings b
+                    ON b.installation_id = o.installation_id
+                    AND b.external_surface_id = o.channel_id
+                  WHERE o.id = ${fence.id}::uuid
+                    AND o.kind <> 'emergency_stop_notice'
+                    AND b.revoked_at IS NULL
+                    AND b.emergency_stopped_at IS NOT NULL`),
+              )
+            : [];
+        const outcome: typeof given = stopped
+          ? { status: "failed", errorCode: TURN_EMERGENCY_STOPPED_REASON }
+          : given;
         const [row] = await tx
           .update(t)
           .set({
-            ...set,
+            ...setOf(outcome),
             ...released,
             // SET reads the old status: still pending means beginSend never ran.
             attempts: sql`CASE WHEN ${t.status} = 'pending' THEN ${t.attempts} + 1 ELSE ${t.attempts} END`,
