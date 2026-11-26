@@ -122,8 +122,9 @@ export interface SurfaceInboundEventStore {
   record(event: SurfaceInboundEventInput): Promise<"recorded" | "duplicate">;
   /**
    * Leases up to `limit` received rows that are due and head their
-   * conversation (no earlier received row with the same key), oldest
-   * first, each `attempts + 1`. A row whose lease ran out with
+   * channel (no earlier received row of the same app and channel, and none
+   * of them in flight), oldest first, each `attempts + 1`. An event that
+   * names no channel heads its own line. A row whose lease ran out with
    * `maxAttempts` spent becomes `failed` instead.
    */
   claim(options: {

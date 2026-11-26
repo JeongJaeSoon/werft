@@ -15,6 +15,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **slack 역할이 inbox 이벤트를 채널마다 한 줄씩, 동시에 4개까지 처리하고, DB 연결을 최대 7개 연다**(JeongJaeSoon/werft#2273). 전에는 4개였다. Helm 기본값으로 늘 열려 있을 수 있는 연결은 36개에서 39개로, compose는 24개에서 27개로 는다. slack replica를 늘렸다면 replica 하나에 7개로 다시 세어 `max_connections`와 견준다. 같은 채널의 이벤트는 전처럼 차례로 돌고, 느린 workspace 하나가 다른 workspace의 멘션을 더는 막지 않는다. migration은 없다.
 - **DB 정지가 checkpoint 업로드와 겹쳐도 turn이 몇 분씩 `running`에 머물지 않는다**(JeongJaeSoon/werft#2271). egress proxy는 본문이 20초 동안 오지 않는 요청을 `503`과 `Retry-After`로 끝내고, 허용을 받아 열어 둔 upstream 연결도 닫는다. 전에는 본문이 오지 않는 업로드를 저장소가 포기할 때까지(SeaweedFS는 120초) 쥐고 있어서, 5초 정지에 turn이 4분 넘게 `running`이었다. worker는 bundle 업로드가 30초 동안 아무것도 보내지 못하고 답도 받지 못하면 끊고 다시 보낸다(3번까지, lease를 잃은 뒤에는 보내지 않는다). 이미 넘긴 바이트가 가장 느린 허용 속도(256 MiB에 5분)로 가는 데 드는 시간은 그 30초에 더한다. worker의 object store 요청은 요청마다 새 연결을 쓴다. migration은 없고 따로 할 일도 없다.
   - egress-proxy와 worker 이미지가 각각 이 버전이어야 그쪽 제한이 듣는다. 한쪽만 올려도 된다.
 - **입력을 받는 트랜잭션이 저장 한도를 commit 때 확인한다. 설치 전체의 입력 수락이 트랜잭션 내내 `storage_usage` 한 행의 lock을 기다리지 않고, commit 순간에만 그 행에서 차례를 기다린다**(JeongJaeSoon/werft#2274). migration `0379_storage_charge_at_commit`이 `turns`의 charge trigger를 commit 때 도는 constraint trigger로 다시 만든다. 그 migration 동안 `turns`에 ACCESS EXCLUSIVE lock이 잠깐 걸려 읽기와 쓰기가 기다린다. 표를 훑거나 다시 쓰지는 않는다. 따로 할 일은 없다.
