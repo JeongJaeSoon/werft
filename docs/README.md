@@ -33,3 +33,5 @@ API로 세션을 만들고 쓰는 사람.
 | [플랫폼 지표 (Kubernetes)](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/reference/metrics/) | `/metrics` 지표 이름·라벨·뜻, 켜는 법, 수집기가 읽는 법 |
 | [세션 데이터가 흐르는 길](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/operate/session-data-flow/) | `events` 표, 비밀값 마스킹, 예제 OTLP 수집기 |
 | [저장소와 보존](https://jeongjaesoon.github.io/werft/ko/run-server/self-hosting/reference/storage/) | 데이터별 저장 위치·보존 기간·삭제 조건, 세션 이벤트 보관 |
+
+<!-- ci probe 1 -->
