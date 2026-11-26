@@ -49,6 +49,7 @@ import {
   slackOutbox,
   surfaceBindings,
   turns,
+  unassignedSessions,
   users,
   workspaces,
 } from "./schema.ts";
@@ -655,6 +656,34 @@ describe("going on after an emergency stop", () => {
     expect(await turnsOf(s.worker.sessionId)).toHaveLength(1);
     expect((await turnOn(s, s.admin, "checked")).outcome).toBe("set");
     expect((await send(s, { continueTurn: 1 })).outcome).toBe("accepted");
+  });
+
+  test("a session waiting for its launch is not launched, and reads idle", async () => {
+    const s = await stage({ checkpoint: false });
+    await db
+      .update(turns)
+      .set({ status: "queued", startedAt: null })
+      .where(eq(turns.sessionId, s.worker.sessionId));
+    await db
+      .update(sessions)
+      .set({ status: "queued" })
+      .where(eq(sessions.id, s.worker.sessionId));
+    await db
+      .insert(unassignedSessions)
+      .values({ sessionId: s.worker.sessionId })
+      .onConflictDoNothing();
+    expect((await stop(s, s.admin)).outcome).toBe("stopped");
+    expect(
+      await db
+        .select()
+        .from(unassignedSessions)
+        .where(eq(unassignedSessions.sessionId, s.worker.sessionId)),
+    ).toEqual([]);
+    const [row] = await db
+      .select({ status: sessions.status })
+      .from(sessions)
+      .where(eq(sessions.id, s.worker.sessionId));
+    expect(row?.status).toBe("idle");
   });
 });
 

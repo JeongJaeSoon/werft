@@ -16,7 +16,13 @@ import { cancelQueuedInput, stopExecution } from "./control-unit-of-work.ts";
 import { dbNow } from "./db-clock.ts";
 import { CREATE_SESSION, SESSIONS_RESOURCE } from "./postgres-unit-of-work.ts";
 import type { Database } from "./queries.ts";
-import { queueMessages, receipts, sessions, turns } from "./schema.ts";
+import {
+  queueMessages,
+  receipts,
+  sessions,
+  turns,
+  unassignedSessions,
+} from "./schema.ts";
 import { PAUSE } from "./sessions/drain.ts";
 import { pauseReceiptResult } from "./sessions/pause-control.ts";
 import { hasRestorePoint } from "./sessions/pause-policy.ts";
@@ -259,6 +265,12 @@ async function stopSession(
     by: "emergency stop",
   });
   const cut = await cutRunningTurns(tx, session.id, now);
+  // Nothing is left to run: a launch the scheduler has not made yet is not
+  // made, and a session that only waited for one reads idle.
+  await tx
+    .delete(unassignedSessions)
+    .where(eq(unassignedSessions.sessionId, session.id));
+  const idle = cut.length > 0 || session.status === "queued";
   // A pause stands on a committed checkpoint (pauseBlocker), so one with
   // none could never settle paused: it stays as it is, its run cut and
   // fenced, and takes no input while the stop holds (emergencyStopHolds).
@@ -273,7 +285,8 @@ async function stopSession(
       ...(pauses
         ? { admissionState: into, pauseReason: EMERGENCY_STOPPED }
         : {}),
-      ...(cut.length > 0 ? { status: "idle" as const, lastTurnAt: now } : {}),
+      ...(idle ? { status: "idle" as const } : {}),
+      ...(cut.length > 0 ? { lastTurnAt: now } : {}),
       updatedAt: now,
     })
     .where(eq(sessions.id, session.id));
@@ -296,7 +309,7 @@ async function stopSession(
   await recordStatus(tx, {
     sessionId: session.id,
     phase: publicStatus(
-      cut.length > 0 ? "idle" : session.status,
+      idle ? "idle" : session.status,
       await awaitingInputAt(tx, session.id, await dbNow(tx)),
     ),
     extra: { admission_state: into, reason: EMERGENCY_STOPPED },

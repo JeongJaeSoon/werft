@@ -925,6 +925,25 @@ export function createPostgresSessionUnitOfWork(
             ? await lockRequester(tx, input.principal, "sessions:write")
             : NO_REQUESTER;
         if (!requester) return { outcome: "actor_inactive" };
+        // The M1 gate reads the channel's bindings with the session held; an
+        // emergency stop takes those bindings before the session, so they
+        // are taken here first, in the stop's order, and the two never wait
+        // on each other in a cycle.
+        if (
+          input.slackInput?.judgment !== undefined &&
+          input.slackMessage !== undefined
+        ) {
+          await tx.execute(sql`
+            SELECT 1 FROM surface_bindings b
+            WHERE b.agent_id = (
+                SELECT r.agent_id FROM sessions s
+                JOIN agent_releases r ON r.id = s.agent_release_id
+                WHERE s.id = ${sessionId}::uuid)
+              AND b.surface = 'slack'
+              AND b.external_surface_id = ${input.slackMessage.channel_id}
+            ORDER BY b.id
+            FOR SHARE OF b`);
+        }
         // The session row lock serializes every append to one session, so
         // max(sequence)+1 below cannot be handed out twice or leave a gap.
         const [session] = await tx
