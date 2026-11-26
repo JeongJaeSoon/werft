@@ -42,8 +42,9 @@ export async function turnInputText(
  * The input handed to the worker for a turn: its own, with the input of the
  * cut-off turn right before it (worker_ownership_lost) put first. That input
  * came after the last checkpoint the turn starts from, so the engine would
- * not have it otherwise. The first delivery records what it decided on the
- * turn; a redelivery reads the record and never adds it twice.
+ * not have it otherwise. The first delivery's decision is recorded on the
+ * turn (recordCutOff); a redelivery reads the record and never adds it
+ * twice.
  */
 export async function deliveredTurnInput(
   tx: Database,
@@ -52,11 +53,34 @@ export async function deliveredTurnInput(
     workspaceId: string | null;
     redelivery: boolean;
   },
-): Promise<string> {
+): Promise<DeliveredInput> {
   const own =
     (await turnInputText(tx, input.turn)) ?? followUpFact(input.turn.message);
-  const cutOff = await cutOffInput(tx, input);
-  return cutOff === null ? own : `${CUT_OFF_INPUT_LINE}\n\n${cutOff}\n\n${own}`;
+  const { text, record } = await cutOffInput(tx, input);
+  return {
+    message: text === null ? own : `${CUT_OFF_INPUT_LINE}\n\n${text}\n\n${own}`,
+    record,
+  };
+}
+
+/**
+ * What a first delivery decided, for the caller to write with the rest of
+ * the hand-over: only once the lease is judged again after the source mark
+ * locks the decision may have waited on.
+ */
+export type CutOffRecord = {
+  prependedTurn: number;
+  prependSkipReason: PrependSkipReason | null;
+};
+export type DeliveredInput = { message: string; record: CutOffRecord | null };
+
+export async function recordCutOff(
+  tx: Database,
+  turnRowId: number,
+  record: CutOffRecord | null,
+): Promise<void> {
+  if (record === null) return;
+  await tx.update(turns).set(record).where(eq(turns.id, turnRowId));
 }
 
 async function cutOffInput(
@@ -66,10 +90,11 @@ async function cutOffInput(
     workspaceId: string | null;
     redelivery: boolean;
   },
-): Promise<string | null> {
+): Promise<{ text: string | null; record: CutOffRecord | null }> {
+  const none = { text: null, record: null };
   const { turn } = input;
   if (turn.prependedTurn !== null) {
-    if (turn.prependSkipReason !== null) return null;
+    if (turn.prependSkipReason !== null) return none;
     const [cut] = await tx
       .select({ message: turns.message, sources: turns.sources })
       .from(turns)
@@ -79,15 +104,15 @@ async function cutOffInput(
           eq(turns.sequence, turn.prependedTurn),
         ),
       );
-    if (cut === undefined) return null;
+    if (cut === undefined) return none;
     // Deleted since the first delivery: what was given then stays given,
     // but it is not given again.
     const read = await readCutOff(tx, cut, input.workspaceId);
-    return "text" in read ? read.text : null;
+    return { text: "text" in read ? read.text : null, record: null };
   }
   // Nothing recorded on a redelivery: its first delivery found no cut-off
   // turn to put first, or ran on an image from before the record.
-  if (input.redelivery) return null;
+  if (input.redelivery) return none;
   const [cut] = await tx
     .select({
       sequence: turns.sequence,
@@ -103,16 +128,15 @@ async function cutOffInput(
         eq(turns.terminalReason, WORKER_OWNERSHIP_LOST_REASON),
       ),
     );
-  if (cut === undefined) return null;
+  if (cut === undefined) return none;
   const read = await readCutOff(tx, cut, input.workspaceId);
-  await tx
-    .update(turns)
-    .set({
+  return {
+    text: "text" in read ? read.text : null,
+    record: {
       prependedTurn: cut.sequence,
       prependSkipReason: "skip" in read ? read.skip : null,
-    })
-    .where(eq(turns.id, turn.id));
-  return "text" in read ? read.text : null;
+    },
+  };
 }
 
 /**

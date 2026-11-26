@@ -193,7 +193,7 @@ import {
   contextGap,
   raiseContextGap,
 } from "./sessions/context-gap.ts";
-import { deliveredTurnInput } from "./sessions/cut-off-input.ts";
+import { deliveredTurnInput, recordCutOff } from "./sessions/cut-off-input.ts";
 import {
   CLOSE,
   drainBlocker,
@@ -2852,8 +2852,19 @@ export function createPostgresWorkerUnitOfWork(
         ) {
           return none;
         }
+        // Reading the input may wait on a delete's source mark locks: the
+        // lease is judged again after it, before anything is handed over.
+        const delivered = await deliveredTurnInput(tx, {
+          turn,
+          workspaceId: fenced.session.workspaceId,
+          redelivery,
+        });
+        if (!leaseHeld(fenced.attempt, await dbNow(tx))) {
+          return { outcome: "lease_expired" };
+        }
         const deliveryStartedAt = turn.deliveryStartedAt ?? now;
         if (!redelivery) {
+          await recordCutOff(tx, turn.id, delivered.record);
           await tx
             .update(queueMessages)
             .set({
@@ -2912,11 +2923,7 @@ export function createPostgresWorkerUnitOfWork(
           input: {
             turnId: String(turn.sequence),
             inputId: String(message.id),
-            message: await deliveredTurnInput(tx, {
-              turn,
-              workspaceId: fenced.session.workspaceId,
-              redelivery,
-            }),
+            message: delivered.message,
             deliveryStartedAt,
             actorId: turn.actorId,
             traceContext: turn.traceContext,
