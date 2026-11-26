@@ -1188,6 +1188,8 @@ export function createWorkerGateway(deps: {
     }
   };
   const maxWaitMs = deps.options.maxWaitMs ?? DEFAULT_MAX_WAIT_MS;
+  const shortPollIntervalMs =
+    deps.options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   // Read at each wait: once a listener is down, the waits that follow are
   // short again. One already begun runs out, or ends when it reconnects.
   const pollIntervalMs = () =>
@@ -2696,11 +2698,13 @@ export function createWorkerGateway(deps: {
       const deadline =
         now().getTime() + Math.min(request.wait_ms ?? 0, maxWaitMs);
       const due = () => stop?.aborted === true || now().getTime() >= deadline;
+      const ask = async (budget: SessionBudget) =>
+        work.nextInputPending({ fence, budget });
       // The first read is the fenced one, and so is every read a poll
       // answers on. A poll that waits asks in between, without a lock,
       // whether the fenced read would say anything new: the session row was
       // otherwise locked four times a second for every idle worker.
-      for (let fenced = true; ; fenced = false) {
+      for (let first = true; ; first = false) {
         // Armed before the read, so a notification that lands between the
         // read and the wait still ends the wait.
         const waiting = new AbortController();
@@ -2709,11 +2713,8 @@ export function createWorkerGateway(deps: {
         const notified = deps.wakeup?.wait(fence.sessionId, waiting.signal);
         try {
           const budget = await budgetNow();
-          if (
-            fenced ||
-            due() ||
-            (await work.nextInputPending({ fence, budget }))
-          ) {
+          const pending = first || due() || (await ask(budget));
+          if (pending) {
             const result = await work.nextInputAtomic({
               fence,
               now: now(),
@@ -2761,10 +2762,18 @@ export function createWorkerGateway(deps: {
               };
             }
           }
+          // Something is queued that the fenced read did not hand over: a
+          // pause, a takeover, a checkpoint owed. What holds it back can
+          // lift without a word to this session, so it is read as often as
+          // it always was; only a poll with nothing queued waits long.
+          const held = first ? await ask(budget) : pending;
           // Never sleep past the deadline the caller asked for: a one
           // millisecond wait must not cost a whole poll interval.
           const nap = sleep(
-            Math.min(pollIntervalMs(), deadline - now().getTime()),
+            Math.min(
+              held ? shortPollIntervalMs : pollIntervalMs(),
+              deadline - now().getTime(),
+            ),
             waiting.signal,
           );
           await (notified === undefined ? nap : Promise.race([nap, notified]));

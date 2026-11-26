@@ -148,6 +148,7 @@ function notified(stopWaiting?: AbortSignal) {
     naps: [] as number[],
     waiters: [] as { sessionId: string; signal: AbortSignal; wake(): void }[],
     queued: false,
+    held: false,
     listening: true,
     async napping(count: number) {
       for (let tries = 0; harness.naps.length < count; tries += 1) {
@@ -170,7 +171,7 @@ function notified(stopWaiting?: AbortSignal) {
       },
       async nextInputPending() {
         harness.order.push("asked");
-        return harness.queued;
+        return harness.queued || harness.held;
       },
     }),
     wakeup: {
@@ -481,7 +482,7 @@ describe("WorkerGateway", () => {
         budget: { costUsd: 1_000, tokens: null },
       })),
     );
-    expect(slept).toEqual([100, 100, 100]);
+    expect(slept).toEqual([100, 100]);
 
     // Nothing ever pending: the answer at the deadline is still a fenced
     // read's, so its lease is the one the database holds now.
@@ -538,8 +539,9 @@ describe("WorkerGateway", () => {
       wait_ms: 20_000,
     });
     await poll.napping(1);
-    // The waiter is armed before the read it guards.
-    expect(poll.order).toEqual(["armed", "fenced"]);
+    // The waiter is armed before the read it guards; nothing being queued,
+    // the wait is the long one.
+    expect(poll.order).toEqual(["armed", "fenced", "asked"]);
     expect(poll.naps).toEqual([5_000]);
     expect(poll.waiters[0]?.sessionId).toBe(scope.session_id);
 
@@ -547,7 +549,7 @@ describe("WorkerGateway", () => {
     // poll goes back to waiting on a waiter of its own.
     poll.waiters[0]?.wake();
     await poll.napping(2);
-    expect(poll.order).toEqual(["armed", "fenced", "armed", "asked"]);
+    expect(poll.order).toEqual(["armed", "fenced", "asked", "armed", "asked"]);
     expect(poll.waiters[0]?.signal.aborted).toBe(true);
 
     poll.queued = true;
@@ -556,6 +558,7 @@ describe("WorkerGateway", () => {
     expect(poll.order).toEqual([
       "armed",
       "fenced",
+      "asked",
       "armed",
       "asked",
       "armed",
@@ -603,7 +606,29 @@ describe("WorkerGateway", () => {
       input: null,
       lease_expires_at: "2026-09-22T00:00:30.000Z",
     });
-    expect(poll.order).toEqual(["armed", "fenced", "armed", "fenced"]);
+    expect(poll.order).toEqual(["armed", "fenced", "asked", "armed", "fenced"]);
+  });
+
+  test("something queued that the fenced read holds back is read every 250 ms, as it always was", async () => {
+    const poll = notified();
+    // A turn is queued and the session may not be given it: a takeover, say.
+    poll.held = true;
+    const polling = poll.instance.nextInput(principal, {
+      ...scope,
+      wait_ms: 20_000,
+    });
+    await poll.napping(1);
+    expect(poll.order).toEqual(["armed", "fenced", "asked"]);
+    // The interval, played by hand: each one is a fenced read again.
+    poll.waiters[0]?.wake();
+    await poll.napping(2);
+    expect(poll.order.slice(3)).toEqual(["armed", "asked", "fenced"]);
+    expect(poll.naps).toEqual([250, 250]);
+    // What held it lifts, and no notification says so.
+    poll.held = false;
+    poll.queued = true;
+    poll.waiters[1]?.wake();
+    expect((await polling).input?.turn_id).toBe("1");
   });
 
   test("fence rejections map to 409 LEASE_EXPIRED / STALE_EPOCH", async () => {

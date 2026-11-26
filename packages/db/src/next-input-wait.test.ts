@@ -49,8 +49,9 @@ let db: PgliteDatabase<typeof schema>;
 /** Session ids notified on `session_events`, in order. */
 let notified: string[];
 let waiting: Set<{ sessionId: string; wake(): void }>;
-/** How many waits a poll has begun. */
+/** How many waits a poll has begun, and how long each was to be. */
 let waits: number;
+let naps: number[];
 let gateway: WorkerGateway;
 
 beforeEach(async () => {
@@ -59,6 +60,7 @@ beforeEach(async () => {
   notified = [];
   waiting = new Set();
   waits = 0;
+  naps = [];
   await client.listen("session_events", (sessionId) => {
     notified.push(sessionId);
     for (const waiter of [...waiting]) {
@@ -86,9 +88,10 @@ beforeEach(async () => {
       leaseTtlMs: 60_000,
       // The interval never passes: only a notification ends a wait, so a
       // poll nothing notifies runs into the test's timeout.
-      sleep: (_ms, signal) =>
+      sleep: (ms, signal) =>
         new Promise<void>((resolve) => {
           waits += 1;
+          naps.push(ms);
           onAbort(signal, resolve);
         }),
     },
@@ -280,6 +283,8 @@ describe("a nextInput waiting on an idle session", () => {
   test("is handed a turn queued meanwhile as soon as it commits, and only that once", async () => {
     const idle = await idleSession();
     const { polling } = await waitingPoll(idle);
+    // Nothing queued: only a notification is expected to end this wait.
+    expect(naps.at(-1)).toBe(5_000);
     await append(idle.sessionId, "second input");
     const handed = await polling;
     expect(handed.input?.message).toBe("second input");
@@ -294,6 +299,29 @@ describe("a nextInput waiting on an idle session", () => {
         and(eq(turns.sessionId, idle.sessionId), eq(turns.status, "running")),
       );
     expect(running).toEqual([{ attemptId: idle.fence.attemptId }]);
+  });
+
+  test("reads a queued turn the session holds back at the short interval, and is handed it once the hold lifts", async () => {
+    const idle = await idleSession();
+    await append(idle.sessionId, "held input");
+    await db
+      .update(sessions)
+      .set({ takeoverRequiredAt: new Date() })
+      .where(eq(sessions.id, idle.sessionId));
+    const { polling } = await waitingPoll(idle);
+    // Not the 5 s of a poll with nothing queued: the end of a takeover is
+    // announced to no one.
+    expect(naps.at(-1)).toBe(250);
+    expect(await queuedTurns(idle.sessionId)).toHaveLength(1);
+    await db
+      .update(sessions)
+      .set({ takeoverRequiredAt: null })
+      .where(eq(sessions.id, idle.sessionId));
+    // The interval, played by hand: this sleep never ends by itself.
+    await db.execute(
+      sql`SELECT pg_notify('session_events', ${idle.sessionId})`,
+    );
+    expect((await polling).input?.message).toBe("held input");
   });
 
   test("is told to stop as soon as the scheduler asks the idle worker to", async () => {
