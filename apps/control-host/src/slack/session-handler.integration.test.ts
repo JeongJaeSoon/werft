@@ -5096,7 +5096,11 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
       .set({ conversationRollout: "on" })
       .where(eq(agents.id, fixture.agentId));
   /** Another workspace member, linked to the Slack user `slackUserId`. */
-  async function member(fixture: Fixture, slackUserId: string) {
+  async function member(
+    fixture: Fixture,
+    slackUserId: string,
+    role: "admin" | "member" = "admin",
+  ) {
     const userId = randomUUID();
     await db.insert(users).values({
       id: userId,
@@ -5106,7 +5110,7 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     await db.insert(memberships).values({
       workspaceId: fixture.workspaceId,
       userId,
-      role: "admin",
+      role,
     });
     await db.insert(linkedAccounts).values({
       id: randomUUID(),
@@ -5245,6 +5249,37 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
       },
     ]);
     expect(view.threadNotices).toEqual([]);
+  });
+
+  test("a stop word from a member the session is hidden from is done in one pass, and the requester's stop behind it takes at once", async () => {
+    const { fixture, view, session, post } = await workingThread();
+    await member(fixture, "U0MEMBER", "member");
+    await deliver(fixture, post(at(1), { user: "U0MEMBER", text: "그만" }));
+    await deliver(fixture, post(at(2), { text: "그만" }));
+    expect(await drain(view.handle)).toMatchObject({
+      processed: 2,
+      retried: 0,
+      failed: 0,
+    });
+
+    expect((await turnStatesOf(session.id)).map((turn) => turn.status)).toEqual(
+      ["running", "cancelled"],
+    );
+    expect(await interruptsOf(session.id)).toHaveLength(1);
+    // Told once that they may not stop it, though the session also refuses
+    // the word as input.
+    expect(view.notices).toMatchObject([
+      { slackUserId: "U0MEMBER", reason: "stop_not_permitted" },
+    ]);
+    expect(view.threadNotices).toMatchObject([
+      { notice: { message: "sessionStoppedQueued", count: 1 } },
+    ]);
+    await deliver(fixture, post(at(3), { user: "U0MEMBER", text: "why?" }));
+    await drain(view.handle);
+    expect(view.notices.map((notice) => notice.reason)).toEqual([
+      "stop_not_permitted",
+      "NOT_FOUND",
+    ]);
   });
 
   test("with nothing running or waiting, a stop changes nothing and says so", async () => {
