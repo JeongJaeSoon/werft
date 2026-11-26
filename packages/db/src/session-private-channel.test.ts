@@ -752,8 +752,15 @@ describe("privateChannels for the whole owner", () => {
     unbound: randomUUID(),
     // Only another owner's session comes from it.
     elsewhere: randomUUID(),
+    // Its one binding was private and is revoked: still known private.
+    revoked: randomUUID(),
+    // A revoked private binding and a live public one: the live one says.
+    reopened: randomUUID(),
+    // Another workspace's channel a session of this owner names.
+    foreign: randomUUID(),
   };
   const dm = randomUUID();
+  const otherAgent = randomUUID();
   const sessionIds: string[] = [];
 
   beforeAll(async () => {
@@ -783,43 +790,100 @@ describe("privateChannels for the whole owner", () => {
       appId: "A0PCO",
       teamId: "T0PCO",
     });
-    const channels = [
-      [channel.private, "C0PRIV", "private_channel"],
-      [channel.converted, "C0CONV", "public_channel"],
-      [channel.public, "C0OPEN", "public_channel"],
-      [channel.unbound, "C0NONE", null],
-      [channel.elsewhere, "C0ELSE", "private_channel"],
-    ] as const;
-    for (const [id, channelId, surfaceKind] of channels) {
-      if (surfaceKind !== null) {
+    const revokedAt = new Date("2026-01-01T00:00:00Z");
+    type Bound = {
+      surfaceKind: "private_channel" | "public_channel";
+      revoked?: true;
+    };
+    const place = async (
+      workspaceId: string,
+      agent: string,
+      install: string,
+      teamId: string,
+      id: string,
+      channelId: string,
+      bound: Bound[],
+    ) => {
+      for (const { surfaceKind, revoked } of bound) {
         await db.insert(surfaceBindings).values({
           id: randomUUID(),
-          workspaceId: ws,
-          agentId,
+          workspaceId,
+          agentId: agent,
           surface: "slack",
-          installationId,
+          installationId: install,
           externalSurfaceId: channelId,
           surfaceKind,
           mode: "on",
           ceilingActions: [],
           ceilingDisclosure: "summary",
+          ...(revoked ? { revokedAt, status: "revoked" as const } : {}),
         });
       }
       await db.insert(channelContexts).values({
         id: randomUUID(),
-        workspaceId: ws,
-        teamId: "T0PCO",
+        workspaceId,
+        teamId,
         channelId,
       });
       await db.insert(conversations).values({
         id,
-        workspaceId: ws,
-        agentId,
+        workspaceId,
+        agentId: agent,
         kind: "channel",
-        teamId: "T0PCO",
+        teamId,
         channelId,
       });
+    };
+    const channels: [string, string, Bound[]][] = [
+      [channel.private, "C0PRIV", [{ surfaceKind: "private_channel" }]],
+      [channel.converted, "C0CONV", [{ surfaceKind: "public_channel" }]],
+      [channel.public, "C0OPEN", [{ surfaceKind: "public_channel" }]],
+      [channel.unbound, "C0NONE", []],
+      [channel.elsewhere, "C0ELSE", [{ surfaceKind: "private_channel" }]],
+      [
+        channel.revoked,
+        "C0REVK",
+        [{ surfaceKind: "private_channel", revoked: true }],
+      ],
+      [
+        channel.reopened,
+        "C0REOP",
+        [
+          { surfaceKind: "private_channel", revoked: true },
+          { surfaceKind: "public_channel" },
+        ],
+      ],
+    ];
+    for (const [id, channelId, bound] of channels) {
+      await place(ws, agentId, installationId, "T0PCO", id, channelId, bound);
     }
+    const otherWs = randomUUID();
+    await db
+      .insert(workspaces)
+      .values({ id: otherWs, slug: "ws-pco-other", name: "other" });
+    await db.insert(agents).values({
+      id: otherAgent,
+      workspaceId: otherWs,
+      managingTeamId: await fixtureTeam(db, otherWs),
+      slug: "notes",
+      name: "notes",
+    });
+    const otherInstall = randomUUID();
+    await db.insert(slackInstallations).values({
+      id: otherInstall,
+      workspaceId: otherWs,
+      appId: "A0PCX",
+      teamId: "T0PCX",
+    });
+    await place(
+      otherWs,
+      otherAgent,
+      otherInstall,
+      "T0PCX",
+      channel.foreign,
+      "C0FRGN",
+      [{ surfaceKind: "private_channel" }],
+    );
     await db.insert(conversations).values({
       id: dm,
       workspaceId: ws,
@@ -837,6 +901,9 @@ describe("privateChannels for the whole owner", () => {
       channel.unbound,
       dm,
       null,
+      channel.revoked,
+      channel.reopened,
+      channel.foreign,
     ];
     for (const parent of parents) {
       const id = randomUUID();
@@ -899,9 +966,16 @@ describe("privateChannels for the whole owner", () => {
           channelId: "C0NONE",
           kindUnknown: true as const,
         },
+        { conversationId: channel.revoked, agentId, channelId: "C0REVK" },
+        {
+          conversationId: channel.foreign,
+          agentId: otherAgent,
+          channelId: "C0FRGN",
+        },
       ].sort((a, b) => a.conversationId.localeCompare(b.conversationId)),
     );
     expect(await shares.privateChannels(ws, null)).toEqual(expected);
+    expect(await shares.privateChannels(randomUUID(), null)).toEqual([]);
   });
 
   test("a public channel counts only while a session shared private_channel comes from it", async () => {
@@ -913,7 +987,14 @@ describe("privateChannels for the whole owner", () => {
     try {
       expect(
         (await shares.privateChannels(ws, null)).map((p) => p.conversationId),
-      ).toEqual([channel.private, channel.unbound].sort());
+      ).toEqual(
+        [
+          channel.private,
+          channel.unbound,
+          channel.revoked,
+          channel.foreign,
+        ].sort(),
+      );
     } finally {
       await db
         .update(sessionShares)
