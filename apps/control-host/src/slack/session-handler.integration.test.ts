@@ -4929,8 +4929,37 @@ describe.each(ENGINES)(
 
     test("rollout on: a DM turn's permit and its model call are charged to the person who wrote it", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
-      await deliver(fixture, dmPost("100.000100"));
+      // Another person than the agent's owner, so an owner's root would not
+      // pass; an admin, as a plain member has no right to ask.
+      const memberId = randomUUID();
+      await db.insert(users).values({
+        id: memberId,
+        email: `${memberId}@example.invalid`,
+        displayName: "admin",
+      });
+      await db.insert(memberships).values({
+        workspaceId: fixture.workspaceId,
+        userId: memberId,
+        role: "admin",
+      });
+      await db.insert(linkedAccounts).values({
+        id: randomUUID(),
+        workspaceId: fixture.workspaceId,
+        userId: memberId,
+        provider: "slack",
+        externalTenant: TEAM,
+        externalUserId: "U0MEMBER",
+        verifiedVia: "slack_oidc",
+        verifiedAt: new Date(),
+      });
+      await deliver(
+        fixture,
+        dmPost("100.000100", { channel: "D0MEMBER", user: "U0MEMBER" }),
+      );
       await drain(handler().handle);
+      expect(await turnPlacesOf(fixture)).toMatchObject([
+        { kind: "dm", personUserId: memberId },
+      ]);
       const taken = await leased();
       const [permit] = await db
         .select({
@@ -4941,7 +4970,7 @@ describe.each(ENGINES)(
         .where(eq(schema.conversationTurnPermits.turnId, taken.turn_id));
       expect(permit).toEqual({
         rootKind: "user",
-        requesterUserId: fixture.ownerId,
+        requesterUserId: memberId,
       });
       // The call the turn's model request asks for, as the proxy asks.
       const { auth } = taken.provider;
@@ -4970,7 +4999,7 @@ describe.each(ENGINES)(
         .from(schema.conversationCalls)
         .where(eq(schema.conversationCalls.agentId, fixture.agentId));
       expect(calls).toEqual([
-        { rootKind: "user", requesterUserId: fixture.ownerId },
+        { rootKind: "user", requesterUserId: memberId },
       ]);
       // The runtime takes it: the DM is the instruction and the current post.
       expect(taken.input.text).toBe("what changed this week");
