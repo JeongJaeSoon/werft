@@ -2004,6 +2004,11 @@ export const sessions = pgTable(
       .where(sql`${table.takeoverRequiredAt} IS NOT NULL`),
     // Usage summaries and series pick an installation's sessions by period.
     index("sessions_created_at_idx").on(table.createdAt),
+    // A workspace's in-flight sessions, newest first: the running list and
+    // the agent cards' tally find these few without reading every session.
+    index("sessions_owner_in_flight_idx")
+      .on(table.ownerId, table.createdAt, table.id)
+      .where(sql`${table.status} IN ('running', 'needs_input')`),
     // The reconciler's sweep for waits that ended with no write.
     index("sessions_input_announced_idx")
       .on(table.id)

@@ -2052,6 +2052,13 @@
       "when": 1795694903565,
       "tag": "0383_conversation_turn_list_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 384,
+      "version": "7",
+      "when": 1795697175927,
+      "tag": "0384_session_owner_in_flight_idx",
+      "breakpoints": true
     }
   ]
 }
