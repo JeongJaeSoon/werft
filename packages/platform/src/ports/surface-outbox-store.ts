@@ -88,6 +88,11 @@ export const SURFACE_PROGRESS_STOPPED_CODE = "progress_stopped";
  * does not count as an attempt, so a row never fails from 429s alone.
  */
 export const SURFACE_RATE_LIMITED_CODE = "ratelimited";
+/**
+ * The same for an edit (chat.update): its limit is the install's, so it holds
+ * the install's progress messages rather than one channel's posts.
+ */
+export const SURFACE_EDIT_RATE_LIMITED_CODE = "ratelimited_edit";
 
 /**
  * `uncertain`: the send was under way when its lease ran out or its answer

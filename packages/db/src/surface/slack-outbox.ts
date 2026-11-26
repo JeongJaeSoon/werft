@@ -35,6 +35,7 @@ import type {
   SurfaceUnpostedInstruction,
 } from "@werft-ai/platform";
 import {
+  SURFACE_EDIT_RATE_LIMITED_CODE,
   SURFACE_PROGRESS_EDIT_INTERVAL_MS,
   SURFACE_PROGRESS_STOPPED_CODE,
   SURFACE_PROGRESS_SUPERSEDED_CODE,
@@ -2093,23 +2094,6 @@ export function createPostgresSlackOutboxStore(
           )
           .for("update");
         if (row === undefined) return false;
-        // A 429 another row of this pass, or another replica, ran into after
-        // this one was claimed: released, unsent and uncounted, until then.
-        const [limit] = rowsOf<{ until: string | null }>(
-          await tx.execute(sql`
-            SELECT (SELECT max(blocked_until) FROM (${rateBlocks(sql.raw("o"))}) l)::text AS until
-            FROM slack_outbox o WHERE o.id = ${fence.id}::uuid`),
-        );
-        if (limit?.until != null) {
-          await tx
-            .update(t)
-            .set({
-              ...released,
-              nextAttemptAt: sql`${limit.until}::timestamptz`,
-            })
-            .where(eq(t.id, fence.id));
-          return "rate_limited" as const;
-        }
         // Read again under the message's lock, as a claim made beside
         // another pass's may not have seen it: the update edits the post the
         // last sent one left. A post Slack never confirmed (uncertain, or
@@ -2224,6 +2208,24 @@ export function createPostgresSlackOutboxStore(
             .where(eq(t.id, fence.id));
           return "voided_by_delete" as const;
         }
+        // A 429 another row of this pass, or another replica, ran into since
+        // this one was claimed: released, unsent and uncounted, until then.
+        // Last before the send, after every lock waited for above.
+        const [limit] = rowsOf<{ until: string | null }>(
+          await tx.execute(sql`
+            SELECT (SELECT max(blocked_until) FROM (${rateBlocks(sql.raw("o"))}) l)::text AS until
+            FROM slack_outbox o WHERE o.id = ${fence.id}::uuid`),
+        );
+        if (limit?.until != null) {
+          await tx
+            .update(t)
+            .set({
+              ...released,
+              nextAttemptAt: sql`${limit.until}::timestamptz`,
+            })
+            .where(eq(t.id, fence.id));
+          return "rate_limited" as const;
+        }
         const rows = await tx
           .update(t)
           .set({
@@ -2278,7 +2280,8 @@ export function createPostgresSlackOutboxStore(
     async settle(fence, outcome) {
       const limitedMs =
         outcome.status === "pending" &&
-        outcome.errorCode === SURFACE_RATE_LIMITED_CODE
+        (outcome.errorCode === SURFACE_RATE_LIMITED_CODE ||
+          outcome.errorCode === SURFACE_EDIT_RATE_LIMITED_CODE)
           ? outcome.retryInMs
           : null;
       const set =
@@ -2336,7 +2339,8 @@ export function createPostgresSlackOutboxStore(
           });
         if (row === undefined) return false;
         // The limit holds the install's other rows it covers too (claim,
-        // beginSend): an edit's is chat.update's, a post's its channel's.
+        // beginSend): an edit's is chat.update's, a post's its channel's,
+        // a progress update's post where its edit found none included.
         if (limitedMs !== null) {
           const blocks = slackOutboxRateBlocks;
           await tx
@@ -2346,7 +2350,8 @@ export function createPostgresSlackOutboxStore(
               scope:
                 row.kind === "reaction"
                   ? "reactions.add"
-                  : row.kind === "progress" && row.progressTs !== null
+                  : outcome.status === "pending" &&
+                      outcome.errorCode === SURFACE_EDIT_RATE_LIMITED_CODE
                     ? "chat.update"
                     : `channel:${row.channelId}`,
               blockedUntil: sql`now() + ${ms(limitedMs)}`,

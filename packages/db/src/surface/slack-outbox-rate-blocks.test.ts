@@ -126,6 +126,9 @@ async function sendOne(name: string, slackTs = "1700000000.000200") {
 
 const limited = (retryInMs: number) =>
   ({ status: "pending", errorCode: "ratelimited", retryInMs }) as const;
+// chat.update's own.
+const editLimited = (retryInMs: number) =>
+  ({ status: "pending", errorCode: "ratelimited_edit", retryInMs }) as const;
 
 // Time passes: every wait and every block is over.
 async function waitsOver() {
@@ -255,13 +258,32 @@ describe(`Slack rate limits in the outbox on ${ENGINE}`, () => {
     if (edit === undefined) throw new Error("no claim");
     const begun = await outbox().beginSend(edit);
     expect(begun).toMatchObject({ progress: { ts: "1700000000.000200" } });
-    expect(await outbox().settle(edit, limited(20_000))).toBe(true);
+    expect(await outbox().settle(edit, editLimited(20_000))).toBe(true);
     expect((await blocks()).map(({ scope }) => scope)).toEqual(["chat.update"]);
 
     await enqueue("other 1", QUIET, { kind: "progress", progressKey: "k2" });
     await enqueue("reply", BUSY);
     await enqueue("thumbs", BUSY, { kind: "reaction" });
     expect(names(await claimed())).toEqual(["reply", "thumbs"]);
+  });
+
+  test("a progress update whose edit gave way to a post holds the channel when that post is 429ed", async () => {
+    await enqueue("step 1", BUSY, { kind: "progress", progressKey: "k1" });
+    await sendOne("step 1");
+    await enqueue("step 2", BUSY, { kind: "progress", progressKey: "k1" });
+    await waitsOver();
+    const [edit] = await claimed();
+    if (edit === undefined) throw new Error("no claim");
+    expect(await outbox().beginSend(edit)).toMatchObject({
+      progress: { ts: "1700000000.000200" },
+    });
+    expect(await outbox().settle(edit, limited(20_000))).toBe(true);
+    expect((await blocks()).map(({ scope }) => scope)).toEqual([
+      `channel:${BUSY}`,
+    ]);
+    await enqueue("other 1", QUIET, { kind: "progress", progressKey: "k2" });
+    await enqueue("reply", BUSY);
+    expect(names(await claimed())).toEqual(["other 1"]);
   });
 
   test("a reaction's 429 holds reactions, not the channel's posts", async () => {
@@ -289,7 +311,7 @@ describe(`Slack rate limits in the outbox on ${ENGINE}`, () => {
     const [edit] = await claimed();
     if (edit === undefined) throw new Error("no claim");
     await outbox().beginSend(edit);
-    expect(await outbox().settle(edit, limited(20_000))).toBe(true);
+    expect(await outbox().settle(edit, editLimited(20_000))).toBe(true);
     await enqueue("done", BUSY, { kind: "progress", progressKey: "k1" });
     expect(await claimed()).toEqual([]);
     await waitsOver();
