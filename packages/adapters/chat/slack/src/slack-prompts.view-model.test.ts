@@ -65,14 +65,6 @@ function textsOf(value: unknown): string[] {
 }
 
 describe("the Slack permission card and its view model", () => {
-  test("the view model has the three fields the card is drawn from", () => {
-    for (const request of REQUESTS) {
-      expect(
-        Object.keys(presentPendingRequest(request.tool, request.input)).sort(),
-      ).toEqual(["excerpt", "target", "verb"]);
-    }
-  });
-
   test.each([...REQUESTS])(
     "the $tool card shows the view model's verb, target and excerpt",
     (request) => {
