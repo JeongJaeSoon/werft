@@ -148,6 +148,10 @@ jobs:
     # Pin the OS release to avoid ubuntu-latest switching to a new major version.
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 30
+    # actions: read lists the layer cache (the cache-to step).
+    permissions:
+      contents: read
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -179,6 +183,19 @@ jobs:
           # Debian fixes rather than the first build's.
           echo "apt-upgrade-key=$(date -u +%F)" >>"$GITHUB_OUTPUT"
 
+      # The first build of a UTC day writes the layer cache; later ones only
+      # read it (.github/scripts/image-cache-to.sh). A failed step writes
+      # nothing and fails nothing.
+      - id: cache-to
+        name: Layer cache to write
+        if: matrix.app != 'none' && github.event_name != 'pull_request'
+        continue-on-error: true
+        env:
+          APP: ${{ matrix.app }}
+          ARCH: ${{ matrix.arch }}
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/image-cache-to.sh >>"$GITHUB_OUTPUT"
+
       # `load` puts the image in the runner's daemon for the smoke below.
       # Nothing is pushed from this job; see `publish` and `publish-main`.
       - id: build
@@ -197,9 +214,10 @@ jobs:
           # A pull request reads the cache and never writes it: its code is
           # untrusted, and its ref-scoped entries only crowd the repository's
           # cache quota. An empty value adds no --cache-to flag.
-          # Export only release-stage layers; intermediate build stages crowd
-          # the shared cache quota without being part of the shipped image.
-          cache-to: ${{ github.event_name != 'pull_request' && format('type=gha,scope=images-{0}-{1},mode=min', matrix.app, matrix.arch) || '' }}
+          # Export only release-stage layers (mode=min in the script);
+          # intermediate build stages crowd the shared cache quota without
+          # being part of the shipped image.
+          cache-to: ${{ github.event_name != 'pull_request' && steps.cache-to.outputs.to || '' }}
           build-args: |
             BUN_IMAGE=${{ env.BUN_IMAGE }}
             BUILDKIT_SYNTAX=${{ env.DOCKERFILE_FRONTEND_IMAGE }}
@@ -406,6 +424,18 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # The first build of a UTC day writes the layer cache; later ones only
+      # read it (.github/scripts/image-cache-to.sh). A failed step writes
+      # nothing and fails nothing.
+      - id: cache-to
+        name: Layer cache to write
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          APP: ${{ matrix.app }}
+          ARCH: ${{ matrix.arch }}
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/image-cache-to.sh >>"$GITHUB_OUTPUT"
       - id: push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -420,7 +450,7 @@ jobs:
           # A main push builds here and nowhere else (see `build`), so this is
           # where it writes the cache pull requests read. A tag or a manual run
           # wrote it in `build` already.
-          cache-to: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && format('type=gha,scope=images-{0}-{1},mode=min', matrix.app, matrix.arch) || '' }}
+          cache-to: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache-to.outputs.to || '' }}
           build-args: |
             BUN_IMAGE=${{ env.BUN_IMAGE }}
             BUILDKIT_SYNTAX=${{ env.DOCKERFILE_FRONTEND_IMAGE }}
@@ -665,9 +695,11 @@ jobs:
     if: contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 20
+    # actions: read lists the layer cache (the cache-to step).
     permissions:
       contents: read
       packages: write
+      actions: read
     strategy:
       fail-fast: false
       matrix: *publish-matrix

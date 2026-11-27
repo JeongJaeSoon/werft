@@ -50,7 +50,7 @@ test("bun-setup skips both cache steps for restore-cache false and refuses it wi
       "utf8",
     ),
   ) as { inputs: Record<string, { default: string }>; runs: { steps: Step[] } };
-  expect(action.inputs["restore-cache"]?.default).toBe("true");
+  expect(action.inputs["restore-cache"]?.default).toBe("false");
   const steps = action.runs.steps;
   const guard = steps.find((s) => s.run?.includes("save-cache: true"));
   expect(guard?.if).toBe(
@@ -115,6 +115,29 @@ test("Bun cache restores on PRs but only saves outside PR events", () => {
     expect(result.stdout.toString()).toContain(`exact-hit=${hit}`);
     expect(result.stdout.toString()).toContain("bun-root-test");
   }
+});
+
+// A cold root install (7-11 s) is faster than restoring the cache main kept
+// (about 22 s), so no job restores it; agent-sdk-compat, main only, keeps its
+// own scope. A job that names restore-cache "true" must say why here.
+test("only agent-sdk-compat restores a bun install cache", () => {
+  const dir = join(import.meta.dir, "../.github/workflows");
+  const restoring: string[] = [];
+  for (const file of readdirSync(dir).filter((f) => f.endsWith(".yml"))) {
+    const parsed = Bun.YAML.parse(readFileSync(join(dir, file), "utf8")) as {
+      jobs: Record<string, Job>;
+    };
+    for (const [name, job] of Object.entries(parsed.jobs))
+      for (const step of job.steps ?? [])
+        if (
+          step.uses === "./.github/actions/bun-setup" &&
+          step.with?.["restore-cache"] === "true"
+        )
+          restoring.push(
+            `${file} ${name} ${step.with?.["cache-scope"]} ${step.with?.["save-cache"]}`,
+          );
+  }
+  expect(restoring).toEqual(["ci.yml agent-sdk-compat agent-sdk-compat true"]);
 });
 
 test("a job that skips the bun cache restore installs nothing and saves nothing", () => {
@@ -219,9 +242,7 @@ test("static checks keep one cache writer and report independent failures", () =
   expect(job?.steps.find((step) => step.id === "install")?.run).toBe(
     "bun install --frozen-lockfile",
   );
-  expect(job?.steps.find((step) => step.with?.["save-cache"])?.with).toEqual({
-    "save-cache": "true",
-  });
+  expect(job?.steps.some((step) => step.with?.["save-cache"])).toBe(false);
   expect(parts?.steps.some((step) => step.with?.["save-cache"])).toBe(false);
 });
 
