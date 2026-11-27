@@ -7,6 +7,7 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
 // without a DOM (a plain logic test of a component module) would break every
 // later dialog test. Loading it here, under a window given back at once,
 // makes the choice the same whatever files a run holds and in what order.
+// The whole package, as the first DOM file of a full run loaded it before.
 GlobalRegistrator.register({ url: "https://ui.test/" });
 try {
   await import("@werft-ai/ui");

@@ -1,6 +1,6 @@
-# The integration suite runs as one CI job per domain, each with only the
-# services its tests need. Each entry is one job of ci.yml's
-# `integration-domain` matrix: the services it starts and the test files it
+# The integration suite runs as CI jobs per domain, each with only the
+# services its tests need. Each entry is a domain of ci.yml's
+# `integration-domain` matrix (one job, or one per shard): the services it starts and the test files it
 # owns (path prefixes; when prefixes nest, the longest owns the file).
 # .github/scripts/integration-jobs.ts reads this file: `matrix` gives ci.yml's
 # `changes` job the entries of the planned domains, so a domain no changed path

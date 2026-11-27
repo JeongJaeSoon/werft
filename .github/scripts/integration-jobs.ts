@@ -177,6 +177,14 @@ export function shardFiles(
   return owned.filter((_, index) => index % shards === shard - 1);
 }
 
+/** The job one shard runs: a declared skip belongs to the shard that runs its file. */
+export function forShard(job: IntegrationJob, owned: string[]): IntegrationJob {
+  return {
+    ...job,
+    skips: job.skips.filter((skip) => owned.includes(skip.file)),
+  };
+}
+
 /**
  * Each file goes to the job whose path prefix it starts with; when prefixes
  * nest, the longest one owns it, so a domain split off another (`sessions`
@@ -373,11 +381,7 @@ function main(argv: string[]): void {
     process.exit(2);
   }
   const name = job.shards === 1 ? domain : `${domain} ${shard}/${job.shards}`;
-  // A declared skip belongs to the shard that runs its file.
-  const scoped = {
-    ...job,
-    skips: job.skips.filter((skip) => owned.includes(skip.file)),
-  };
+  const scoped = forShard(job, owned);
 
   if (command === "files") {
     console.error(`${name}: ${owned.length} of ${files.length} files`);

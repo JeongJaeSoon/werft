@@ -190,10 +190,10 @@ test("static checks keep one cache writer and report independent failures", () =
     "plan",
     "sdk",
     "conformance",
-    "reuse",
     "./.github/actions/bun-setup",
-    "units",
     "domains",
+    "reuse",
+    "units",
   ]);
   const job = workflow.jobs.static;
   expect(job?.name).toBe("check (static)");
@@ -1039,10 +1039,16 @@ test("an integration domain no changed path reaches starts no job", () => {
     changes?.steps.find((s) => s.uses === "./.github/actions/bun-setup")?.if,
   ).toBe("steps.plan.outputs.tests == 'true'");
   const step = changes?.steps.find((s) => s.id === "domains");
-  // A reused run plans no domain, and its tests flag is off with it.
-  expect(step?.if).toBe(
-    "steps.plan.outputs.tests == 'true' && steps.reuse.outputs.reused == ''",
-  );
+  // Made before reuse is judged: ci-reuse.sh holds a reused run to these job
+  // names. A reused run still starts no domain, as its tests flag is off.
+  expect(step?.if).toBe("steps.plan.outputs.tests == 'true'");
+  const ids = changes?.steps.map((s) => s.id) ?? [];
+  expect(ids.indexOf("domains")).toBeGreaterThan(-1);
+  expect(ids.indexOf("domains")).toBeLessThan(ids.indexOf("reuse"));
+  expect(changes?.outputs?.tests).toContain("steps.reuse.outputs.reused != ''");
+  expect(
+    changes?.steps.find((s) => s.id === "reuse")?.env?.INTEGRATION_MATRIX,
+  ).toBe("${{ steps.domains.outputs.matrix }}");
   expect(step?.env?.DOMAINS).toBe("${{ steps.plan.outputs.domains }}");
   const plan = (domains: string) => {
     const dir = mkdtempSync(join(tmpdir(), "integration-matrix-"));
