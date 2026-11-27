@@ -1866,7 +1866,7 @@ describe("changelog-release.ts", () => {
     [
       "a reference definition in a quote",
       { "a.md": `${ops("> [q]: ../docs/quickstart.md")}` },
-      "a.md:3: a reference definition",
+      "a.md:3: a block quote",
     ],
     [
       "a fence closed with a no-break space after it",
@@ -1988,6 +1988,16 @@ describe("changelog-release.ts", () => {
       "a setext underline inside an entry",
       { "a.md": `${ops("x")}  ==\n` },
       "a.md:4: a heading inside an entry",
+    ],
+    [
+      "a heading made in a quote",
+      { "a.md": "### 운영자가 할 일\n- > v0.5.0\n  > ---\n" },
+      "a.md:2: a block quote",
+    ],
+    [
+      "inline HTML that closes the list",
+      { "a.md": ops("x </li></ul><ol>") },
+      "a.md:3: raw HTML",
     ],
     [
       "a fence left open",

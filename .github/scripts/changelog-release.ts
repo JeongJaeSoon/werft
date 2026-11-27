@@ -67,6 +67,8 @@ function checkFragmentLine(
   if (/^\s*(([-*+]|\d+[.)]|>)\s*)+(`{3,}|~{3,})/.test(line)) {
     fail("a code fence opens on its own line, two spaces under an entry");
   }
+  // A quote can hide what a line starts with (a setext underline, say).
+  if (/^ *(([-*+]|\d+[.)]) )*>/.test(line)) fail("a block quote");
   // A heading inside an entry would take the anchor of a version section.
   if (
     /^#{1,6}( |$)/.test(line.replace(MARKERS, "")) ||
@@ -84,10 +86,8 @@ function checkFragmentLine(
   if (/\\[`[\]]/.test(line))
     fail("an escaped backtick or bracket; reword or put it in a code span");
   const prose = line.replace(/`[^`]*`/g, "");
-  if (
-    prose.includes("<!--") ||
-    /^<[A-Za-z!/?]/.test(prose.replace(MARKERS, ""))
-  ) {
+  // Any tag, inline too, can close the joined list; an autolink is no tag.
+  if (/<(?!https?:\/\/)[A-Za-z!/?]/.test(prose)) {
     fail("raw HTML; write it as Markdown");
   }
   // A reference definition, also one whose label runs on to the next line or
