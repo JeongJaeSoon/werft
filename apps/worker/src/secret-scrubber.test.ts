@@ -17,6 +17,18 @@ describe("claimSecrets", () => {
     expect(claimSecrets(claim, "nonce")).toContain("wem_1");
   });
 
+  test("holds the egress report token the proxy variables carry", () => {
+    const claim = {
+      session_credential: "wsc_1",
+      runtime_config: { provider: { auth: { token: "wep_1" } } },
+      workspace: { repository: null },
+      object_store: { access: { token: "weo_1" } },
+      packages: { access: { token: "wek_1" } },
+      egress_report: { kind: "egress_token", token: "wed_1" },
+    } as unknown as BootstrapClaimResponse;
+    expect(claimSecrets(claim, "nonce")).toContain("wed_1");
+  });
+
   test("holds an attached repository's token when the session has no repository", () => {
     const claim = {
       session_credential: "wes_1",

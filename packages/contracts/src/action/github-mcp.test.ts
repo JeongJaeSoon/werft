@@ -59,6 +59,7 @@ describe("the tool table", () => {
     "merge_pull_request",
     "dispatch_workflow",
     "get_workflow_run",
+    "get_ci_status",
     "rerun_workflow",
     "submit_review",
     "list_repositories",
@@ -182,11 +183,15 @@ describe("githubMcpTools", () => {
       "reopen_pull_request",
       "merge_pull_request",
       "get_workflow_run",
+      "get_ci_status",
       "list_repositories",
       "attach_repository",
     ]);
     expect(githubMcpTools(settings({ actions: true }))).not.toContain(
       "get_workflow_run",
+    );
+    expect(githubMcpTools(settings({ actions: true }))).not.toContain(
+      "get_ci_status",
     );
     expect<string[]>(
       githubMcpTools(
