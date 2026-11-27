@@ -773,7 +773,7 @@ function repoPaths(text: string) {
     if (!path.includes("/") && !/\.|^[A-Z]+$/.test(path)) continue;
     const stat = statSync(join(repo, path), { throwIfNoEntry: false });
     if (stat?.isFile()) out.add(path);
-    else if (stat?.isDirectory() && path.includes("/")) out.add(`${path}/`);
+    else if (stat?.isDirectory() && token.includes("/")) out.add(`${path}/`);
   }
   return [...out];
 }
