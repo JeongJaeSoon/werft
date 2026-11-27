@@ -38,8 +38,11 @@ import { recordEvent } from "./sessions/session-events.ts";
  * The running turn a provider call of this attempt serves (its public
  * turn_id, for the log of a refusal), and the budget account it is held on: chosen by
  * the root of the turn the attempt is running, the team being the agent's
- * managing team while it is not archived. A call no running turn serves (a
- * title call, a call between turns) is the session's, charged as the
+ * managing team while it is not archived. A call between turns continues
+ * the turn this attempt ended last (a background task of it ended, and the
+ * engine answers), so it is charged as that turn; the public turn_id stays
+ * null, as no turn is running. A call no turn of the attempt serves (a title
+ * call, or one before its first turn ended) is the session's, charged as the
  * session's first turn, the one that created it. Undefined, the call is held
  * on the session's limit alone, as before accounts: a session with no
  * workspace, more than one running turn, or a turn whose requester says
@@ -84,6 +87,7 @@ export async function budgetChoiceOfCall(
       requesterId: turns.requesterId,
       requesterAuth: turns.requesterAuth,
       ...firstTurnColumns(call.sessionId),
+      ...lastEndedTurnColumns(call.sessionId, call.attemptId),
       workspaceId: sessions.workspaceId,
       teamId: sql<
         string | null
@@ -124,6 +128,18 @@ export async function budgetChoiceOfCall(
   if (first.workspaceId === null) return { choice: undefined, turnId };
   const ofRoot = (root: BudgetRoot | null) =>
     root === null ? undefined : chooseBudgetAccount(root, first.teamId);
+  if (call.title !== true && running.length === 0 && first.lastEnded) {
+    return {
+      choice: ofRoot(
+        budgetRootOfTurn({
+          requesterKind: first.lastRequesterKind,
+          requesterId: first.lastRequesterId,
+          requesterAuth: first.lastRequesterAuth,
+        }),
+      ),
+      turnId: null,
+    };
+  }
   if (call.title === true || running.length === 0) {
     return {
       choice: ofRoot(
@@ -151,6 +167,22 @@ function firstTurnColumns(sessionId: string) {
     firstRequesterKind: first(turns.requesterKind) as SQL<string | null>,
     firstRequesterId: first(turns.requesterId) as SQL<string | null>,
     firstRequesterAuth: first(turns.requesterAuth) as SQL<unknown>,
+  };
+}
+
+// The requester of the turn the attempt ended last, and whether it ended one.
+function lastEndedTurnColumns(sessionId: string, attemptId: string) {
+  const last = (column: SQL | AnyColumn) => sql`(
+    SELECT ${column} FROM ${turns}
+    WHERE ${turns.sessionId} = ${sessionId}::uuid
+      AND ${turns.attemptId} = ${attemptId}
+      AND ${turns.endedAt} IS NOT NULL
+    ORDER BY ${turns.sequence} DESC LIMIT 1)`;
+  return {
+    lastEnded: sql<boolean>`coalesce(${last(sql`true`)}, false)`,
+    lastRequesterKind: last(turns.requesterKind) as SQL<string | null>,
+    lastRequesterId: last(turns.requesterId) as SQL<string | null>,
+    lastRequesterAuth: last(turns.requesterAuth) as SQL<unknown>,
   };
 }
 
@@ -239,11 +271,17 @@ function budgetAccountRefusalEvent(): SQL | undefined {
   );
 }
 
-/** The id of the last event of the session's last completed turn, or 0. */
+/**
+ * The id of the last event of the session's last completed turn, or 0. What
+ * was put on the turn after it ended is left out: a refusal between turns is
+ * recorded on no turn, and must still read as newer than the turn.
+ */
 function lastCompletedTurnEventId(sessionId: string): SQL {
   return sql`coalesce((
     SELECT max(e.id) FROM ${events} e
-    WHERE e.session_id = ${sessionId}::uuid AND e.turn_id = (
+    WHERE e.session_id = ${sessionId}::uuid
+      AND e.neutral->>'after_turn' IS NULL
+      AND e.turn_id = (
       SELECT t.id FROM ${turns} t
       WHERE t.session_id = ${sessionId}::uuid AND t.status = 'completed'
       ORDER BY t.sequence DESC LIMIT 1)), 0)`;

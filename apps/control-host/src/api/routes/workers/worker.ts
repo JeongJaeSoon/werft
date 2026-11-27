@@ -106,6 +106,9 @@ export function registerWorkerRoutes(
   call("/checkpoint-request", (principal, body) =>
     gateway.requestCheckpoint(principal, body),
   );
+  call("/checkpoint-commit", (principal, body) =>
+    gateway.commitCheckpoint(principal, body),
+  );
   call("/protected-commits", (principal, body) =>
     gateway.protectedCommits(principal, body),
   );

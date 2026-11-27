@@ -9,6 +9,7 @@ import {
   eventToolCall,
   eventToolResult,
   eventTurnEnd,
+  stoppedBackgroundCommands,
 } from "../api/neutral-event.ts";
 import type { SessionStatus } from "../api/session.ts";
 
@@ -50,6 +51,7 @@ export type TurnEventMessageKey =
   | "session.event.workerImageReplaced"
   | `session.event.approvalCheckpointFailed.${ApprovalCheckpointFailure}`
   | "session.event.repositoryRestoreFailed"
+  | "session.event.backgroundTasksStopped"
   | "session.event.catalogMcpSkipped"
   | "session.event.init"
   | "session.event.vcsChanged"
@@ -327,6 +329,17 @@ function system(data: Record<string, unknown>): TurnEventPresentation {
         label,
         summary: [
           message(`session.event.approvalCheckpointFailed.${data.reason}`),
+        ],
+      };
+    }
+    const stopped = stoppedBackgroundCommands(data);
+    if (stopped !== null && stopped.length > 0) {
+      return {
+        label,
+        summary: [
+          message("session.event.backgroundTasksStopped", {
+            commands: clip(stopped.join(", ")),
+          }),
         ],
       };
     }

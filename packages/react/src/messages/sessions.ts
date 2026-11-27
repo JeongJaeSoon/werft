@@ -318,6 +318,8 @@ export const sessionsKo = {
     "이 승인 대기의 체크포인트를 검증하지 못해 남기지 않았습니다. 뒤에 찍힌 체크포인트가 이 요청을 덮지 않으면, 답하기 전에 실행이 끊길 때 이 요청은 이어 갈 수 없습니다.",
   "session.event.repositoryRestoreFailed":
     "붙인 저장소 {repository}을(를) 이 세션이 기록한 commit {commit}(으)로 다시 받지 못해 붙이지 않았습니다. 에이전트가 다시 붙이면 브랜치의 지금 끝을 받습니다.",
+  "session.event.backgroundTasksStopped":
+    "쉬는 동안 배경 작업을 멈췄습니다: {commands}. 다시 필요하면 띄워 달라고 요청해 주세요.",
   "session.event.catalogMcpSkipped": "없어진 카탈로그 MCP {server}은 건너뜀",
   "session.event.init": "세션 시작",
   "session.event.vcsChanged": "작업 트리 변경",
@@ -658,6 +660,8 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
     "The checkpoint for this approval wait could not be verified, so it was not kept. Unless a later checkpoint covers this request, it cannot be resumed if the run is cut off before an answer.",
   "session.event.repositoryRestoreFailed":
     "The attached repository {repository} could not be fetched again at the commit this session recorded ({commit}), so it was not attached. If the agent attaches it again, it gets the branch's current tip.",
+  "session.event.backgroundTasksStopped":
+    "Background work was stopped while the session was idle: {commands}. Ask the agent to start it again if you still need it.",
   "session.event.catalogMcpSkipped":
     "Skipped the retired catalog MCP server {server}",
   "session.event.init": "Session started",
@@ -990,6 +994,8 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
     "この承認待ちのチェックポイントを検証できなかったため、残しませんでした。後のチェックポイントがこのリクエストを含まない限り、回答前に実行が中断されると再開できません。",
   "session.event.repositoryRestoreFailed":
     "接続したリポジトリ {repository} を、このセッションが記録したコミット {commit} で取得し直せなかったため、接続しませんでした。エージェントが接続し直すと、ブランチの現在の先端を取得します。",
+  "session.event.backgroundTasksStopped":
+    "アイドル中にバックグラウンド作業を停止しました: {commands}。まだ必要な場合は、もう一度起動するよう依頼してください。",
   "session.event.catalogMcpSkipped":
     "廃止されたカタログ MCP {server} をスキップしました",
   "session.event.init": "セッション開始",
