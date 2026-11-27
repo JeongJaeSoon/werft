@@ -65,25 +65,30 @@ const job = (name: string, step?: string, conclusion = "success"): Job => ({
   steps: step ? [{ name: step, conclusion }] : [],
 });
 const fullJobs = (): Job[] => [
+  // Typecheck and lint: a reusing push skips its own.
+  job("check (static)"),
   ...domains.map((d) => job(`integration (${d})`, "Tests of this domain")),
-  job("e2e", "Alpha path against the compose stack"),
+  job("e2e (scenario)", "Alpha path against the compose stack"),
   // No conformance jobs: no pull request runs that suite, and reuse never asks for it.
   job("demo", "Static build"),
   job("ui-pack", "Install, type-check, build and render in an empty app"),
   job("workspace-quota", "Workspace suite against a quota-capable daemon"),
-  job("quickstart", "docs/quickstart.md"),
-  { ...job("quickstart", "reference/api-guide.mdx"), name: "quickstart-2" },
+  job("quickstart (guides)", "docs/quickstart.md"),
+  {
+    ...job("quickstart (guides)", "reference/api-guide.mdx"),
+    name: "quickstart-2",
+  },
   job("helm-chart", "kubeconform"),
 ];
 // The quickstart job carries both guide steps.
 function withGuides(jobs: Job[]): Job[] {
   const rest = jobs.filter(
-    (j) => j.name !== "quickstart" && j.name !== "quickstart-2",
+    (j) => j.name !== "quickstart (guides)" && j.name !== "quickstart-2",
   );
   return [
     ...rest,
     {
-      name: "quickstart",
+      name: "quickstart (guides)",
       conclusion: "success",
       steps: [
         { name: "docs/quickstart.md", conclusion: "success" },
@@ -302,8 +307,12 @@ describe("ci-reuse.sh", () => {
 
   test("a job that passed without running its suite is no evidence", () => {
     const jobs = withGuides(fullJobs()).map((j) =>
-      j.name === "e2e"
-        ? job("e2e", "Alpha path against the compose stack", "skipped")
+      j.name === "e2e (scenario)"
+        ? job(
+            "e2e (scenario)",
+            "Alpha path against the compose stack",
+            "skipped",
+          )
         : j,
     );
     answer({
@@ -312,12 +321,24 @@ describe("ci-reuse.sh", () => {
       runs: runs(),
       jobs: { jobs },
     });
-    refused(run(), "e2e Alpha path");
+    refused(run(), "e2e (scenario) Alpha path");
     const missing = withGuides(fullJobs()).filter(
       (j) => j.name !== "integration (egress)",
     );
     answer({ jobs: { jobs: missing } });
     refused(run(), "integration (egress)");
+    // The push skips its own static job, so the PR's must have passed.
+    for (const statics of [
+      [],
+      [{ ...job("check (static)"), conclusion: "failure" }],
+    ]) {
+      const jobs = [
+        ...withGuides(fullJobs()).filter((j) => j.name !== "check (static)"),
+        ...statics,
+      ];
+      answer({ jobs: { jobs } });
+      refused(run(), "check (static)");
+    }
   });
 
   test("a web-only plan also needs the PR's unit shards", () => {
@@ -328,7 +349,6 @@ describe("ci-reuse.sh", () => {
       jobs: {
         jobs: [
           ...withGuides(fullJobs()),
-          job("check (static)"),
           job("check (packages)", "Tests of this part"),
         ],
       },

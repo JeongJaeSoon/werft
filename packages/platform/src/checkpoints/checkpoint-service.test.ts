@@ -32,7 +32,6 @@ import {
   finalizeCheckpoint,
   structuralBundleVerifier,
 } from "../testing/checkpoints.ts";
-import { MAX_COOLING_BUNDLES } from "./bundle-throttle.ts";
 import {
   bundleVerdictKey,
   createCheckpointService,
@@ -2325,7 +2324,7 @@ describe("a bundle whose verification threw cools down", () => {
     ).toMatchObject({ status: "verified" });
   });
 
-  test("forgets the oldest bundle once the table is full", async () => {
+  test("one bundle's cooldown holds back no other bundle", async () => {
     const verifier = flakyVerifier();
     const cooled = cooledService(verifier, { ms: 0 });
     const checkpointFor = async (index: number) => {
@@ -2350,32 +2349,30 @@ describe("a bundle whose verification threw cools down", () => {
         revision: 0,
       };
     };
-    for (let index = 0; index <= MAX_COOLING_BUNDLES; index += 1) {
-      await expect(
-        cooled.validateManifest({
-          checkpoint: await checkpointFor(index),
-          sessionId,
-        }),
-      ).rejects.toThrow();
-    }
-    expect(verifier.calls).toBe(MAX_COOLING_BUNDLES + 1);
-
-    // The newest is still cooling down; the first one in has been dropped.
-    await expect(
-      cooled.validateManifest({
-        checkpoint: await checkpointFor(MAX_COOLING_BUNDLES),
-        sessionId,
-      }),
-    ).rejects.toThrow(/is not verified again before/);
-    expect(verifier.calls).toBe(MAX_COOLING_BUNDLES + 1);
     await expect(
       cooled.validateManifest({
         checkpoint: await checkpointFor(0),
         sessionId,
       }),
     ).rejects.toThrow("git fetch ran out of memory");
-    expect(verifier.calls).toBe(MAX_COOLING_BUNDLES + 2);
-  }, 30_000);
+    await expect(
+      cooled.validateManifest({
+        checkpoint: await checkpointFor(0),
+        sessionId,
+      }),
+    ).rejects.toThrow(/is not verified again before/);
+    expect(verifier.calls).toBe(1);
+
+    // Another bundle is verified while the first one cools down.
+    verifier.outcome = "restorable";
+    expect(
+      await cooled.validateManifest({
+        checkpoint: await checkpointFor(1),
+        sessionId,
+      }),
+    ).toMatchObject({ status: "verified" });
+    expect(verifier.calls).toBe(2);
+  });
 });
 
 const chain = await createGitBundleChain();

@@ -76,6 +76,25 @@ function sh(
   };
 }
 
+// images.yml's main-push plan (test-ops-bundle-plan.sh) decides from
+// `--inputs`, so that list has to be what the archive is made of.
+test("--inputs lists every checkout path the bundle holds, and the script itself", () => {
+  const run = sh(
+    [join(root, ".github/scripts/test-ops-bundle.sh"), "--inputs"],
+    {
+      cwd: root,
+    },
+  );
+  expect(run.exitCode).toBe(0);
+  const generated = ["BUNDLE", "SHA256SUMS", "release-manifest.json"];
+  expect(run.stdout.trim().split("\n").sort()).toEqual(
+    [
+      ".github/scripts/test-ops-bundle.sh",
+      ...EXPECTED_FILES.filter((f) => !generated.includes(f)),
+    ].sort(),
+  );
+});
+
 describe("the single-server release bundle", () => {
   let work: string;
   let archive: string;

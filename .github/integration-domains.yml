@@ -1,0 +1,276 @@
+# The integration suite runs as one CI job per domain, each with only the
+# services its tests need. Each entry is one job of ci.yml's
+# `integration-domain` matrix: the services it starts and the test files it
+# owns (path prefixes; when prefixes nest, the longest owns the file).
+# .github/scripts/integration-jobs.ts reads this file: `matrix` gives ci.yml's
+# `changes` job the entries of the planned domains, so a domain no changed path
+# reaches takes no runner, and `files` and `verify` give a job its files and
+# check its run.
+# `docker` means the runner's own daemon, not a service container.
+domains:
+  # The PostgreSQL stores and the queue: unit and integration suites.
+  - domain: db
+    postgres: true
+    localstack: false
+    docker: false
+    paths:
+      - packages/db/
+      - packages/testkit/src/postgres.
+  # The session queue on PostgreSQL: sessions and their turns, the
+  # scheduler's claims, worker leases and fencing, parked and pending
+  # requests. Split from `db`, whose suite alone outran every other
+  # job; the longer prefixes take these files from `packages/db/`.
+  - domain: sessions
+    postgres: true
+    localstack: false
+    docker: false
+    paths:
+      - packages/db/src/session
+      - packages/db/src/scheduler/
+      - packages/db/src/worker-unit-of-work.
+      - packages/db/src/parked-requests.
+      - packages/db/src/pending-
+      - packages/db/src/reconcile.
+  # HTTP routes and the control-host flows they drive. Keep their
+  # database and lifecycle checks apart from API consumer suites.
+  - domain: api
+    postgres: true
+    localstack: true
+    docker: false
+    paths:
+      - apps/control-host/src/api/
+      - apps/control-host/src/ingest/
+      - apps/control-host/src/main
+      - apps/control-host/src/metrics/
+      - apps/control-host/src/pass-loop/
+      - apps/control-host/src/reconciler/
+      - apps/control-host/src/wiring/
+      - packages/adapters/forge/
+      - tests/catalog-mismatch.
+      - tests/context-gap-flow.
+      - tests/conversation-call-flow.
+      - tests/drain-park-flow.
+      - tests/feature-gate-flow.
+      - tests/interrupt-flow.
+      - tests/lease-clock.
+      - tests/park-resume-flow.
+      - tests/tool-call-audit.
+      - tests/turn-trace-context.
+  # Slack and the contracts, clients and web apps that consume the API.
+  # PostgreSQL only: no file here reads object storage, and LocalStack
+  # took 30-39s to get ready for nothing. A file that comes to need it
+  # skips without STORAGE_LOCALSTACK_TEST, which `verify` rejects.
+  - domain: surface
+    postgres: true
+    localstack: false
+    docker: false
+    paths:
+      - apps/control-host/src/slack/
+      - packages/adapters/chat/
+      - packages/contracts/
+      - packages/client/
+      - packages/sdk/
+      - examples/
+      - packages/core/
+      - packages/react/
+      - apps/web/
+  # Object storage: checkpoint objects, the S3 transport and its bounds.
+  - domain: storage
+    postgres: false
+    localstack: true
+    docker: false
+    paths:
+      - packages/storage/
+      - packages/testkit/src/localstack.
+      - tests/checkpoint-flow.
+      - tests/checkpoint-pins.
+      - tests/object-store-cli.
+      - tests/object-store-route.
+      - tests/test-ops-bundle.
+      - tests/test-ops.
+      - tests/worker-checkpoint-publish.
+    skips:
+      # skipIf(linux): the runner can enforce the limits.
+      - file: packages/storage/src/git-runner.test.ts
+        test: where limits cannot be enforced git still runs, and says so once
+  # Worker containers: the local-docker backend and its workspaces,
+  # the scheduler that drives it, and the images and compose they run
+  # as. Files are listed one by one under local-docker/src so that the
+  # egress suite can be a job of its own.
+  - domain: docker
+    postgres: true
+    localstack: false
+    docker: true
+    paths:
+      - apps/control-host/src/scheduler/
+      - packages/adapters/execution/local-docker/src/backend.
+      - packages/adapters/execution/local-docker/src/config.
+      - packages/adapters/execution/local-docker/src/docker-client.
+      - packages/adapters/execution/local-docker/src/isolation-contract.
+      - packages/adapters/execution/local-docker/src/workspace
+      - tests/backup-restore.
+      - tests/images.
+      - tests/scheduler-launch-claim.
+  # What a worker may reach: the egress proxy and the isolated worker
+  # networks. Split from `docker` because its suite alone runs ~70s,
+  # most of it pulling the LocalStack image it starts as a container.
+  - domain: egress
+    postgres: false
+    localstack: false
+    docker: true
+    paths:
+      - apps/egress-proxy/
+      - packages/adapters/execution/local-docker/src/egress.
+      - tests/credential-routes.
+      - tests/sdk-egress-proxy.
+      - tests/conversation-runtime-flow.
+  # What runs inside a worker, none of it needing a service: the worker
+  # process, runtime adapters, platform services — plus the UI component
+  # library and the repository's own tooling suites, which need no
+  # service either and are too small for a runner of their own.
+  - domain: worker
+    postgres: false
+    localstack: false
+    docker: false
+    paths:
+      - apps/worker/
+      - packages/adapters/execution/kubernetes/
+      - packages/adapters/runtimes/
+      - packages/observability/
+      - packages/platform/
+      - packages/runtime-core/
+      - packages/system/
+      - packages/ui/
+      - packages/testkit/src/fake-anthropic.
+      - packages/testkit/src/fake-github.
+      - packages/testkit/src/fake-responses.
+      - packages/testkit/src/git-http.
+      - packages/testkit/src/request-log.
+      - packages/testkit/src/scripted-messages.
+      - packages/testkit/src/scripted-responses.
+      - packages/testkit/src/workspace.
+      - tests/agent-sdk-compat/
+      - tests/architecture.
+      - tests/a0-deferred-paths.
+      - tests/module-load.
+      - tests/message-keys.
+      - tests/korean-copy.
+      - tests/ci-concurrency.
+      - tests/ci-images.
+      - tests/ci-services.
+      - tests/ci-plan.
+      - tests/ci-reuse.
+      - tests/ci-static-checks.
+      - tests/install-rehearsal.
+      - tests/receipt-agent-refs.
+      - tests/d2-gate/
+      - tests/dev/
+      - tests/docs-i18n-code.
+      - tests/docs-links.
+      - tests/docs-meta-pairs.
+      - tests/docs-reader-contract.
+      - tests/docs-self-hosting-commands.
+      - tests/docs-self-hosting-facts.
+      - tests/docs-self-hosting-urls.
+      - tests/docs-site-links.
+      - tests/slack-data-page.
+      - tests/e2e/fetch-retry.
+      - tests/e2e/local-model.
+      - tests/e2e/real-model.
+      - tests/execution-backend-env.
+      - tests/fetch-pinned.
+      - tests/forbidden-terms.
+      - tests/soak/
+      - tests/ci-issue-scripts.
+      - tests/integration-jobs.
+      - tests/local-sh.
+      - tests/pages-target.
+      - tests/pages-workflow.
+      - tests/prepare-xfs.
+      - tests/preview-reap.
+      - tests/preview-sync.
+      - tests/verify-werft-response-capture.
+      - tests/verify-werft-keycloak.
+      - tests/release-auto.
+      - tests/release-versions.
+      - tests/schema-subset.
+      - tests/sdk-release.
+      - tests/supply-chain.
+      - tests/test-files.
+      - tests/third-party-notices.
+      - tests/ui-release.
+      - tests/unit-part.
+      - tests/verify-stack.
+      - tests/worker-protocol-compat.
+    skips:
+      # The Kubernetes backend's suites need a kind cluster
+      # (K8S_BACKEND_TEST=1 and a KUBECONFIG); the job that brings one
+      # is `k8s-smoke`. (unnamed) is their beforeAll/afterAll.
+      - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+        test: "(unnamed)"
+      - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+        test: "a delete conditioned on the replaced Pod's UID leaves the replacement running"
+      - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+        test: "a failed worker reports its exit, reason and log tail"
+      - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+        test: "terminating one generation leaves the next generation's Pod untouched"
+      - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+        test: "the nonce is in the Pod's own Secret only, never in the Pod"
+      - file: packages/adapters/execution/kubernetes/src/backend.integration.test.ts
+        test: "terminate and workspace removal leave no Pod, Secret or PVC of the session"
+      - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+        test: "(unnamed)"
+      - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+        test: "ensureExecution twice → one resource, adopted without a new nonce"
+      - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+        test: "inspect: found:false for nothing launched, running for a launch"
+      - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+        test: "listManaged returns what was launched and drops what was terminated"
+      - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+        test: "terminate: generation_mismatch, terminated, absent — only the matching generation"
+      - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+        test: "a resource removed out of band is re-created; terminate conditioned on the old providerRef leaves the replacement"
+      - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+        test: "a resource launched with another spec is refused with LaunchSpecMismatchError and left in place"
+      - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+        test: "workspace pair, when present: lists the session's workspace and removes it only once unused"
+      - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+        test: "assertReplaceable, when present: resolves for a launchable intent and launches nothing"
+      - file: packages/adapters/execution/kubernetes/src/backend.contract.integration.test.ts
+        test: "reconcileNetworks, when present: clears what an out-of-band removal left, then has nothing to do"
+      # The D2 gate needs the whole compose stack and the
+      # images built from the checkout; scripts/d2-gate/run.sh runs it.
+      # (unnamed) is its beforeAll/afterAll.
+      - file: tests/d2-gate/gate.e2e.test.ts
+        test: "(unnamed)"
+      - file: tests/d2-gate/gate.e2e.test.ts
+        test: "A: two turns on one engine, checkpoint, restore onto a clean worker"
+      - file: tests/d2-gate/gate.e2e.test.ts
+        test: "B: a publish that fails at the manifest is never promoted"
+      - file: tests/d2-gate/gate.e2e.test.ts
+        test: "C: a transcript mirror error blocks the checkpoint and new input"
+      - file: tests/d2-gate/gate.e2e.test.ts
+        test: "D: a worker that loses its lease mid-turn promotes nothing"
+      - file: tests/d2-gate/gate.e2e.test.ts
+        test: "E: an accepted interrupt stops its turn, however early it lands"
+      # sweep on the same stack; run against a stack kept by
+      # D2_GATE_UP_ONLY=1 scripts/d2-gate/run.sh.
+      - file: tests/d2-gate/reconciler-sweep.e2e.test.ts
+        test: "(unnamed)"
+      - file: tests/d2-gate/reconciler-sweep.e2e.test.ts
+        test: "R1: a worker whose heartbeat stopped is fenced by the periodic pass and its turn settled unknown"
+      - file: tests/d2-gate/reconciler-sweep.e2e.test.ts
+        test: "R2: an interrupt its heartbeating worker cannot settle is sent to terminate and its receipt ends unknown"
+      # control host roles, on the same kept stack.
+      - file: tests/d2-gate/control-host-roles.e2e.test.ts
+        test: "(unnamed)"
+      - file: tests/d2-gate/control-host-roles.e2e.test.ts
+        test: "H1: one image runs the three roles and only the scheduler holds the Docker socket"
+      - file: tests/d2-gate/control-host-roles.e2e.test.ts
+        test: "H2: a scheduler restarted mid-turn ends no worker and launches none twice"
+      - file: tests/d2-gate/control-host-roles.e2e.test.ts
+        test: "H3: the api and reconciler come back from a restart and the session takes its next turn"
+      - file: tests/d2-gate/control-host-roles.e2e.test.ts
+        test: "H4: with PostgreSQL down the loops fail their passes, and recover once it is back"
+      - file: tests/d2-gate/control-host-roles.e2e.test.ts
+        test: "H5: a scheduler without Docker reserves nothing, and the real one launches the waiting session once"
