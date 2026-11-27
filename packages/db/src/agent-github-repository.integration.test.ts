@@ -116,7 +116,10 @@ integration("turning one repository on or off on PostgreSQL", () => {
           "a".repeat(64),
           sample,
           JSON.stringify({
-            github: options.github ?? { ...PIN, repositories: [sample] },
+            github:
+              options.github === undefined
+                ? { ...PIN, repositories: [sample] }
+                : options.github,
           }),
         ],
       );
@@ -390,10 +393,34 @@ integration("turning one repository on or off on PostgreSQL", () => {
         [f.agentId],
       )
     ).rows[0];
+    // The pin's old actions edits workflows and reads CI; direct runs and
+    // their allow-list start off (94S-2406).
     expect(features).toEqual({
-      features: PIN.features,
-      actions_allow: PIN.actions_allow,
+      features: {
+        ...PIN.features,
+        workflows: true,
+        checks: true,
+        actions: false,
+      },
+      actions_allow: [],
     });
+  });
+
+  test("a release with no pin starts from the default features cut to the workspace ceiling", async () => {
+    const f = await fixture({ github: null });
+    await pool.query(
+      "INSERT INTO github_workspace_settings (workspace_id, ceiling) VALUES ($1, $2)",
+      [
+        f.workspaceId,
+        JSON.stringify({ ...GITHUB_FEATURES_NONE, merge: false }),
+      ],
+    );
+    expect(await toggle(f)).toMatchObject({ outcome: "saved", revision: 1 });
+    const { rows } = await pool.query(
+      "SELECT features FROM agent_github_settings WHERE agent_id = $1",
+      [f.agentId],
+    );
+    expect(rows[0]?.features).toEqual(GITHUB_FEATURES_NONE);
   });
 
   test("turning off the release's own repository first drops it from the start", async () => {

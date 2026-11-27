@@ -34,4 +34,9 @@ export const ACCEPTED: readonly {
     proof:
       "packages/platform/src/workers/worker-gateway-response-language.test.ts",
   },
+  {
+    problem: 'error $.error.code: the receiver refuses "ENDPOINT_RETIRED"',
+    why: "Only the two retired Slack notice routes answer it (POST /v1/agents/{id}/slack/notice/approve and /revoke, 410), public /v1 routes for people and their keys; no worker route answers it and a worker calls neither.",
+    proof: "apps/control-host/src/api/routes/surface/slack-notice.test.ts",
+  },
 ];

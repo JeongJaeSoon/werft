@@ -1,6 +1,7 @@
 export type * from "./agent-run.ts";
 export type * from "./agent-runtime.ts";
 export * from "./approval.ts";
+export * from "./asked-line.ts";
 export type * from "./checkpoint.ts";
 export * from "./checkpoint-bundle.ts";
 export * from "./checkpoint-limits.ts";
@@ -77,6 +78,7 @@ export {
   type WorkspaceObservation,
   type WorkspacePlan,
 } from "./workspace.ts";
+export * from "./workspace-ask-patterns.ts";
 export * from "./workspace-policy.ts";
 export {
   type RestoreRefusal,

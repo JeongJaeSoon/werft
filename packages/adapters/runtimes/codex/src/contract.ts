@@ -92,6 +92,7 @@ export class CodexAgentRuntime implements AgentRuntime {
         ? { resume: start.config.resume }
         : {}),
       precheckTool: this.deps.precheckTool,
+      toolDecisions: start.toolDecisions,
       heldInputs: heldInputsFrom(launch.home),
       descendants: process.descendants,
       kill: process.kill,

@@ -1,14 +1,93 @@
 import { describe, expect, test } from "bun:test";
 import { agentGitHubSchema } from "../kollegium/agents.ts";
 import {
+  GITHUB_CEILING_DEFAULT,
   GITHUB_CEILING_NONE,
+  GITHUB_FEATURES_DEFAULT,
   GITHUB_FEATURES_NONE,
   githubCeilingSchema,
+  githubEffectiveFeatures,
   githubFeaturesSchema,
   githubPermissionsFor,
   githubRefusalStatus,
   pullRequestTemplateNameSchema,
 } from "./github-settings.ts";
+
+describe("the two workflow switches (94S-2406)", () => {
+  test("a new workspace and a new agent start with workflow edits on and direct runs off", () => {
+    expect(GITHUB_FEATURES_DEFAULT).toEqual({
+      ...GITHUB_FEATURES_NONE,
+      workflows: true,
+      checks: true,
+    });
+    expect(GITHUB_CEILING_DEFAULT).toEqual({
+      ...GITHUB_FEATURES_DEFAULT,
+      merge: false,
+    });
+  });
+
+  test("reading CI is the workflow-edit switch's; only dispatch and rerun ask actions:write", () => {
+    const on = { workflows: true };
+    expect(githubPermissionsFor("actions_read", on)).toMatchObject({
+      feature: "workflows",
+      permissions: { actions: "read", checks: "read" },
+    });
+    expect(githubPermissionsFor("push", on).permissions).toEqual({
+      contents: "write",
+      workflows: "write",
+    });
+    for (const purpose of ["dispatch", "rerun"] as const) {
+      expect(githubPermissionsFor(purpose, on)).toMatchObject({
+        feature: "actions",
+        permissions: { actions: "write" },
+      });
+    }
+    const asksActionsWrite = (
+      ["clone", "push", "pull_request", "actions_read"] as const
+    ).filter(
+      (purpose) =>
+        githubPermissionsFor(purpose, on).permissions.actions === "write",
+    );
+    expect(asksActionsWrite).toEqual([]);
+  });
+
+  test("the ceiling turns a switch off whatever the agent holds", () => {
+    const agent = { ...GITHUB_FEATURES_DEFAULT, actions: true };
+    expect(
+      githubEffectiveFeatures(agent, {
+        ...GITHUB_CEILING_DEFAULT,
+        workflows: false,
+      }),
+    ).toMatchObject({ workflows: false, actions: false });
+    expect(
+      githubEffectiveFeatures(agent, GITHUB_CEILING_DEFAULT),
+    ).toMatchObject({ workflows: true, actions: false });
+  });
+
+  test("the stored shape is the one before the switches: old rows read, and a new row reads under the same strict schema", () => {
+    // A row from before, with the old Actions switch on and workflows off.
+    const old = {
+      workflows: false,
+      actions: true,
+      checks: false,
+      issues: false,
+      review: false,
+    };
+    expect(githubFeaturesSchema.parse(old)).toEqual(old);
+    // What the console writes now: checks beside workflows, no new key, so an
+    // image before the switches (strict, five keys) reads it as well.
+    expect(githubFeaturesSchema.parse(GITHUB_FEATURES_DEFAULT)).toEqual(
+      GITHUB_FEATURES_DEFAULT,
+    );
+    expect(Object.keys(GITHUB_FEATURES_DEFAULT).sort()).toEqual(
+      Object.keys(old).sort(),
+    );
+  });
+
+  test("a direct run refused while its switch is off is a policy refusal (403)", () => {
+    expect(githubRefusalStatus("actions_off")).toBe(403);
+  });
+});
 
 describe("the workspace ceiling's merge key", () => {
   test("is off when a stored ceiling lacks it, and on only when saved on", () => {

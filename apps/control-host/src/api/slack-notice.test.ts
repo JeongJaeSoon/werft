@@ -8,15 +8,11 @@ import {
 } from "./slack-notice.ts";
 
 describe("slack-notice arguments", () => {
-  test("show takes an agent and list a workspace", () => {
+  test("show takes an agent, and set-rollout an agent and a value", () => {
     const id = randomUUID();
     expect(
       parseSlackNoticeCommand(["show", "--agent", id.toUpperCase()]),
     ).toEqual({ command: "show", agentId: id });
-    expect(parseSlackNoticeCommand(["list", "--workspace", id])).toEqual({
-      command: "list",
-      workspaceId: id,
-    });
     expect(
       parseSlackNoticeCommand([
         "set-rollout",
@@ -44,6 +40,7 @@ describe("slack-notice arguments", () => {
       [],
       ["show"],
       ["list"],
+      ["list", "--workspace", id],
       ["show", "--workspace", id],
       ["list", "--agent", id],
       ["show", "--agent", id, "--workspace", id],

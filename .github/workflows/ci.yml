@@ -156,6 +156,14 @@ jobs:
           INTEGRATION_MATRIX: ${{ steps.domains.outputs.matrix }}
           DOCS_ONLY: ${{ steps.plan.outputs.docs_only }}
         run: bash .github/scripts/ci-reuse.sh >>"$GITHUB_OUTPUT"
+      # A release reads this step's conclusion (release-auto.sh k8s-smoke):
+      # this push skips k8s-smoke only because the PR run of its tree passed it.
+      - id: reused-k8s
+        name: k8s-smoke passed in the reused PR run
+        if: steps.reuse.outputs.k8s == 'true'
+        env:
+          REUSED: ${{ steps.reuse.outputs.reused }}
+        run: echo "k8s-smoke passed in ${REUSED}"
       - id: units
         if: github.event.inputs.only == 'check' || steps.plan.outputs.domains == '["surface"]'
         env:
@@ -497,14 +505,15 @@ jobs:
   # of this workflow, not check runs created through the API: such a run joins
   # the oldest check suite of the commit, whichever workflow owns it, and the
   # merge gate stops counting it once that workflow runs again on the commit.
-  # Under any other `only` a gate does not run and gives up the name: a
-  # skipped check of a required name would pass for it.
+  # Where a gate does not run it gives up the name: a skipped check of a
+  # required name would pass for it. `e2e-gate` also reports a manual run of
+  # e2e alone, because no single shard can answer for the others.
   e2e-gate:
-    name: ${{ (github.event.inputs.only || 'all') == 'all' && 'e2e' || 'e2e (gate)' }}
+    name: ${{ contains(fromJSON('["all","e2e"]'), github.event.inputs.only || 'all') && 'e2e' || 'e2e (gate)' }}
     needs: [changes, e2e]
     if: >-
       always()
-      && (github.event.inputs.only || 'all') == 'all'
+      && contains(fromJSON('["all","e2e"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
@@ -798,25 +807,22 @@ jobs:
   # The scenario records the tested SHA, images and declared skips.
   # Only a plan with product inputs starts it, so a run with nothing for it
   # takes no runner. The required `e2e` check is not this job: `e2e-gate`
-  # carries it, holding this job's result to the plan. A manual run of this
-  # job alone has no gate, so there the job carries the required name itself.
+  # carries it, holding the result of every shard to the plan. Each shard
+  # runs its suites (tests/e2e/run.sh --shard) on a runner and stack of its own.
   e2e:
-    name: ${{ github.event.inputs.only == 'e2e' && 'e2e' || 'e2e (scenario)' }}
+    name: e2e (scenario ${{ matrix.shard }}/3)
     needs: changes
     if: >-
       !cancelled()
-      && (needs.changes.outputs.product == 'true' || github.event.inputs.only == 'e2e')
+      && needs.changes.outputs.product == 'true'
       && contains(fromJSON('["all","e2e"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
-      # Under the required name, a plan that failed must fail the job, not skip it.
-      - if: github.event.inputs.only == 'e2e'
-        name: Plan of a manual run
-        env:
-          PLAN: ${{ needs.changes.result }}
-          PRODUCT: ${{ needs.changes.outputs.product }}
-        run: '[ "$PLAN" = success ] && [ "$PRODUCT" = true ]'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/bun-setup
       - run: bun install --frozen-lockfile
@@ -827,7 +833,7 @@ jobs:
           E2E_COMPOSE_OVERRIDE: tests/e2e/compose.ci-mirror.yml
           E2E_COMPOSE_CACHE: tests/e2e/compose.ci-cache.yml
           E2E_OUT: ${{ runner.temp }}/e2e
-        run: tests/e2e/run.sh
+        run: tests/e2e/run.sh --shard ${{ matrix.shard }}
       # run.sh removes the images it built; what compose pulled stays.
       - if: '!cancelled()'
         name: Nothing pulled from Docker Hub
@@ -837,7 +843,7 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: e2e-record
+          name: e2e-record-${{ matrix.shard }}
           path: ${{ runner.temp }}/e2e
           if-no-files-found: ignore
           retention-days: 14

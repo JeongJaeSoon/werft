@@ -9,7 +9,11 @@
  * name again.
  */
 
-import { type AddressClass, classifyAddress } from "./ip-address.ts";
+import {
+  type AddressClass,
+  classifyAddress,
+  isMetadataName,
+} from "./ip-address.ts";
 import { messageOf } from "./message-of.ts";
 
 export { type AddressClass, classifyAddress };
@@ -17,10 +21,18 @@ export { type AddressClass, classifyAddress };
 /** Never reachable, whichever list the destination came from. */
 const ALWAYS_DENIED: ReadonlySet<AddressClass> = new Set<AddressClass>([
   "link_local",
+  "metadata",
   "multicast",
   "reserved",
   "unspecified",
 ]);
+
+/** Why `address` is never dialled, whatever list led to it; null if it may be. */
+export function refusedAddress(address: string): string | null {
+  const kind = classifyAddress(address);
+  if (kind === null) return `${address} is not an IP address`;
+  return ALWAYS_DENIED.has(kind) ? `${address} is ${kind}` : null;
+}
 
 export type EgressDestination = { host: string; port: number };
 
@@ -30,7 +42,7 @@ export type EgressPolicy = {
   /**
    * Destinations deliberately inside the private plane — the worker gateway
    * on the daemon host, a self-hosted git remote. Private and loopback
-   * addresses pass here; link-local never does.
+   * addresses pass here; link-local and metadata never do.
    */
   allowPrivate: readonly EgressDestination[];
 };
@@ -114,6 +126,13 @@ export async function decideEgress(
       reason: "destination is not allowlisted",
     };
   }
+  if (isMetadataName(host)) {
+    return {
+      allowed: false,
+      failure: "denied",
+      reason: `${host} is a metadata service`,
+    };
+  }
   let addresses: string[];
   try {
     addresses = await resolve(host);
@@ -134,21 +153,11 @@ export async function decideEgress(
   // All of them, not the first: a name that resolves to one good and one bad
   // address is a rebinding attempt, and the loser of that race is us.
   for (const address of addresses) {
+    const refused = refusedAddress(address);
+    if (refused !== null) {
+      return { allowed: false, failure: "denied", reason: refused };
+    }
     const kind = classifyAddress(address);
-    if (kind === null) {
-      return {
-        allowed: false,
-        failure: "denied",
-        reason: `${address} is not an IP address`,
-      };
-    }
-    if (ALWAYS_DENIED.has(kind)) {
-      return {
-        allowed: false,
-        failure: "denied",
-        reason: `${address} is ${kind}`,
-      };
-    }
     if (scope === "public" && kind !== "public") {
       return {
         allowed: false,

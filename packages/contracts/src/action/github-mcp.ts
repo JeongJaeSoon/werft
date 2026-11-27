@@ -605,7 +605,8 @@ export const GITHUB_MCP_TOOLS = {
       .object({ run_id: runIdSchema, wait_seconds: waitSecondsSchema })
       .strict(),
     output: actionResultSchema(waitedWorkflowRunSchema),
-    feature: "actions",
+    // Reading CI is the workflow-edit switch's, not running workflows.
+    feature: "workflows",
     actionClass: "workflow",
     description: `Read a workflow run of the session's repository. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the run is \`completed\` or the seconds have passed. \`final\` is true when the run is \`completed\`, false when it was still running at the end of the wait.`,
     refusals: GITHUB_WORK_REFUSALS,

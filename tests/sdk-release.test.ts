@@ -44,6 +44,9 @@ const consumer = ci.jobs["sdk-pack-smoke"] as Job;
 const check = build?.steps.find(
   (s) => s.name === "Commit and version can be released",
 ) as Step;
+const smoke = build?.steps.find(
+  (s) => s.name === "main CI passed k8s-smoke on this commit",
+) as Step;
 const runs = (job: Job) => job.steps.map((s) => s.run ?? "").join("\n");
 
 // Evaluate the workflow's actual gate with Actions' default success behavior.
@@ -417,6 +420,103 @@ exit 0
     } finally {
       rmSync(path);
     }
+  });
+  // A main push plans k8s-smoke only for some commits (ci-plan.sh), so a
+  // green main CI run does not prove it ran.
+  test("a release reads k8s-smoke of its commit before the tests, the tag and the publish", () => {
+    const steps = build?.steps ?? [];
+    expect(smoke.if).toBe(check.if as string);
+    expect(smoke.run).toBe(".github/scripts/release-auto.sh k8s-smoke");
+    expect(smoke.env).toEqual({
+      GH_REPO: "$" + "{{ github.repository }}",
+      GH_TOKEN: "$" + "{{ github.token }}",
+    });
+    expect(steps.indexOf(smoke)).toBe(steps.indexOf(check) + 1);
+    expect(build?.permissions?.actions).toBe("read");
+  });
+  // A gh that applies the step's own --jq to API-shaped runs and jobs.
+  const smokeStep = (jobs: object[]) => {
+    const dir = mkdtempSync(join(scratch, "smoke-"));
+    mkdirSync(join(dir, "bin"));
+    writeFileSync(
+      join(dir, "runs"),
+      JSON.stringify({
+        workflow_runs: [
+          { id: 42, head_sha: main, event: "push", conclusion: "success" },
+        ],
+      }),
+    );
+    writeFileSync(join(dir, "jobs"), JSON.stringify({ jobs }));
+    writeFileSync(
+      join(dir, "bin", "gh"),
+      `#!/usr/bin/env bash
+printf '%s\\n' "$*" >>"${dir}/calls.log"
+shift
+while [ $# -gt 0 ]; do
+  case "$1" in --paginate) ;; --jq) q=$2; shift ;; *) path=$1 ;; esac
+  shift
+done
+case "$path" in
+  */actions/workflows/ci.yml/runs*) f=runs ;;
+  */actions/runs/42/jobs*) f=jobs ;;
+  *) exit 9 ;;
+esac
+jq -r "$q" "${dir}/$f"
+`,
+      { mode: 0o755 },
+    );
+    const r = Bun.spawnSync(
+      ["bash", "-eo", "pipefail", "-c", smoke.run as string],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          PATH: `${join(dir, "bin")}:${process.env.PATH}`,
+          GH_REPO: "owner/repo",
+          GITHUB_SHA: main,
+        },
+      },
+    );
+    return {
+      code: r.exitCode,
+      out: r.stdout.toString() + r.stderr.toString(),
+      calls: readFileSync(join(dir, "calls.log"), "utf8"),
+    };
+  };
+  const passed = { name: "deploy/kind/smoke.sh", conclusion: "success" };
+  test("a commit whose green main CI did not run k8s-smoke stops the release", () => {
+    // The main CI push run the gate above accepts: green, k8s-smoke left out
+    // of its plan and not reused from a pull request.
+    const result = smokeStep([
+      {
+        name: "changes",
+        conclusion: "success",
+        run_attempt: 1,
+        steps: [
+          {
+            name: "k8s-smoke passed in the reused PR run",
+            conclusion: "skipped",
+          },
+        ],
+      },
+      { name: "k8s-smoke", conclusion: "skipped", run_attempt: 1, steps: [] },
+    ]);
+    expect(result.code).toBe(1);
+    expect(result.out).toContain("ci.yml run 42 did not pass k8s-smoke");
+    expect(result.out).toContain("only=k8s-smoke");
+    expect(result.calls).toContain("actions/runs/42/jobs");
+  });
+  test("a commit whose main CI ran k8s-smoke passes", () => {
+    const result = smokeStep([
+      {
+        name: "k8s-smoke",
+        conclusion: "success",
+        run_attempt: 1,
+        steps: [passed],
+      },
+    ]);
+    expect(result.code).toBe(0);
+    expect(result.out).toContain("k8s-smoke: passed in ci.yml run 42");
   });
   test("tag creation is atomic at this commit and API failure stops it", () => {
     expect(run({}, tag?.steps[0]).calls.trim()).toBe(

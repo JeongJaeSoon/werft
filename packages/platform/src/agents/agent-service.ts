@@ -349,7 +349,13 @@ export function createAgentService(deps: {
     }
     const ceiling =
       (await deps.githubSettings?.get(ownerId))?.ceiling ?? GITHUB_CEILING_NONE;
-    const [over] = githubFeaturesOverCeiling(github.features, ceiling);
+    // A kept pin's `actions` runs nothing (94S-2406), so a ceiling that
+    // turned direct runs off does not refuse the edit that keeps it; every
+    // other feature is judged as it was when the pin was made.
+    const [over] = githubFeaturesOverCeiling(
+      sent ? github.features : { ...github.features, actions: false },
+      ceiling,
+    );
     if (over !== undefined) {
       throw githubInvalid(`github.features.${over}`, "over_workspace_ceiling");
     }

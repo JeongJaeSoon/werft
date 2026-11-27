@@ -10,6 +10,7 @@ import type {
   SurfaceAfterTurnReply,
   SurfaceOutboxStore,
   SurfacePendingPrompt,
+  SurfaceProgressDue,
   SurfaceUnansweredTurn,
 } from "@werft-ai/platform";
 import { WORKER_OWNERSHIP_LOST_REASON } from "@werft-ai/platform";
@@ -26,6 +27,7 @@ import {
   slackPromptMessage,
   slackStartFreshNotice,
 } from "./slack-prompts.ts";
+import { slackProgressMessage } from "./slack-session-status.ts";
 
 /** Enqueues the instructions sent from the web or the API, once each. */
 export async function enqueueSlackInstructions(deps: {
@@ -207,6 +209,97 @@ export function createOutboxSlackNoticeSink(
 
 /** How long a worker waits for room before its thread hears of it. */
 export const SLACK_CAPACITY_WAIT_NOTICE_MS = 30_000;
+
+/** A progress link's one progress message, for the task's whole life. */
+export function slackProgressKey(sessionLinkId: string): string {
+  return `progress:${sessionLinkId}`;
+}
+
+/** Update `update` (1-based) of a link's progress message, showing `state`. */
+export function slackProgressDedupeKey(
+  sessionLinkId: string,
+  update: number,
+  state: string,
+): string {
+  return `progress:${sessionLinkId}:${update}:${state}`;
+}
+
+/**
+ * Puts up, or updates, each progress link's progress message when what it
+ * should show changed: the first update posts it in the link's thread, the
+ * start notice of the work, and later ones edit it in place, which notifies
+ * no one. A worker's wait for room shows there instead of its own notice.
+ */
+export async function enqueueSlackProgress(deps: {
+  outbox: Pick<SurfaceOutboxStore, "progressDue" | "enqueue">;
+  consoleOrigin: string | null;
+  limit: number;
+}): Promise<number> {
+  const progressDue = deps.outbox.progressDue;
+  if (progressDue === undefined) return 0;
+  let enqueued = 0;
+  // Until none is owed, so a link that closes this pass is not left showing
+  // an old stage behind a full batch of others; a round that adds nothing
+  // (its rows refused or already in) ends it.
+  for (let round = 0; round < SLACK_PROGRESS_ROUNDS; round += 1) {
+    const due = await progressDue.call(
+      deps.outbox,
+      deps.limit,
+      SLACK_CAPACITY_WAIT_NOTICE_MS,
+    );
+    let added = 0;
+    for (const row of due) {
+      if ((await enqueueProgress(deps, row)) === "enqueued") added += 1;
+    }
+    enqueued += added;
+    if (due.length < deps.limit || added === 0) break;
+  }
+  return enqueued;
+}
+
+/** At most this many batches of progress updates a pass. */
+export const SLACK_PROGRESS_ROUNDS = 10;
+
+function enqueueProgress(
+  deps: {
+    outbox: Pick<SurfaceOutboxStore, "enqueue">;
+    consoleOrigin: string | null;
+  },
+  row: SurfaceProgressDue,
+) {
+  const link_url = sessionUrl(deps.consoleOrigin, row.sessionId);
+  const locale = row.locale ?? DEFAULT_USER_LOCALE;
+  const message = slackProgressMessage({
+    locale,
+    state: row.state,
+    startedAt: row.startedAt,
+    ...(link_url === undefined ? {} : { linkUrl: link_url }),
+  });
+  return deps.outbox.enqueue({
+    workspaceId: row.workspaceId,
+    agentId: row.agentId,
+    slackAppId: row.slackAppId,
+    installationId: row.installationId,
+    kind: "progress",
+    channelId: row.channelId,
+    threadTs: row.threadTs,
+    slackUserId: null,
+    sessionId: row.sessionId,
+    sessionLinkId: row.sessionLinkId,
+    body: {
+      text: message.text,
+      locale,
+      blocks: message.blocks,
+      ...(link_url === undefined ? {} : { link_url }),
+    },
+    dedupeKey: slackProgressDedupeKey(
+      row.sessionLinkId,
+      row.updates + 1,
+      row.state,
+    ),
+    progressKey: slackProgressKey(row.sessionLinkId),
+  });
+}
 
 /** One notice per thread per launch that waits: a wait is told once. */
 export function slackCapacityWaitDedupeKey(

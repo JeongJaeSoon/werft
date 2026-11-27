@@ -8,7 +8,6 @@ import {
   expireOverdueTerminations,
   expireParkedGroups,
   expireToolCallAudits,
-  lowerUnapprovedRollouts,
   projectToolCalls,
   pruneChannelSummaryHistory,
   purgeEndedAuthAttemptWindows,
@@ -169,7 +168,6 @@ export function reconcileOnce(
     purgeExpiredEnvStart: (options) => purgeExpiredEnvStart(db, options),
     purgeFailedSlackInboundPayloads: (options) =>
       purgeFailedSlackInboundPayloads(db, options),
-    lowerUnapprovedRollouts: (options) => lowerUnapprovedRollouts(db, options),
     purgeJudgmentBuffer: (options) => purgeJudgmentBuffer(db, options),
     purgeSlackSourceMarks: (options) =>
       purgeUnknownSlackSourceMarks(db, options),

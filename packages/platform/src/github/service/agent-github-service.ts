@@ -7,9 +7,10 @@ import {
   type AgentGitHubResponse,
   type AgentGitHubSettings,
   catalogIdOfRef,
-  GITHUB_FEATURES_NONE,
+  GITHUB_FEATURES_DEFAULT,
   type GitHubAppRole,
   type GitHubFeatures,
+  githubEffectiveFeatures,
   githubFeaturesOverCeiling,
   newSessionGitHubPolicy,
   type PutAgentGitHubEnabledResponse,
@@ -105,6 +106,7 @@ function enterpriseApp(repository: Repository | undefined): boolean {
 
 const writes = (level: string | undefined) =>
   level === "write" || level === "admin";
+const reads = (level: string | undefined) => level === "read" || writes(level);
 
 /**
  * The agent's GitHub tab: the switch that
@@ -290,7 +292,11 @@ export function createAgentGitHubService(deps: {
               // What a first save starts from and what applies until then
               // (owner decision d123, 2026-11-02; Orchestrator item 147).
               push_approval: false,
-              features: { ...GITHUB_FEATURES_NONE },
+              // Cut to the ceiling: a first save must not ask more than it.
+              features: githubEffectiveFeatures(
+                GITHUB_FEATURES_DEFAULT,
+                settings.ceiling,
+              ),
               actions_allow: [],
             }
           : null;
@@ -328,11 +334,17 @@ export function createAgentGitHubService(deps: {
                 (permissions) => !writes(permissions.pull_requests),
               )
             : authors.permissions.some(
-                (permissions) => !writes(permissions[feature]),
+                (permissions) =>
+                  !writes(permissions[feature]) ||
+                  // The switch also reads CI.
+                  (feature === "workflows" &&
+                    !(reads(permissions.actions) && reads(permissions.checks))),
               );
         const reason: AgentGitHubFeatureUnavailable | null = enterprise
           ? "github_host_unsupported"
-          : !settings.ceiling[feature]
+          : !settings.ceiling[feature] ||
+              // Turning workflows on saves checks with it.
+              (feature === "workflows" && !settings.ceiling.checks)
             ? "over_workspace_ceiling"
             : feature === "review" && !reviewers.present
               ? "no_reviewer_app"

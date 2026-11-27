@@ -46,6 +46,9 @@ function stopWith(
         cancels.push(input);
         return queued;
       },
+      stoppedIn: async () => {
+        throw new Error("not asked here");
+      },
     },
     interrupts: {
       interrupt: async (_actor, sessionId, input) => {
@@ -180,5 +183,54 @@ describe("createSessionStop", () => {
     const run = stopWith({ outcome: "closed" });
     expect(await run.result).toEqual({ outcome: "closed" });
     expect(run.calls).toEqual(["cancel"]);
+  });
+});
+
+describe("stoppedBefore", () => {
+  function storeWith(stopped: boolean) {
+    const asked: { sessionIds: readonly string[]; idempotencyKey: string }[] =
+      [];
+    const stop = createSessionStop({
+      // Nothing is authorized: the answer only ends a post read again.
+      authorization: policy("deny"),
+      stops: {
+        cancelQueued: async () => {
+          throw new Error("no stop is made");
+        },
+        stoppedIn: async (input) => {
+          asked.push(input);
+          return stopped;
+        },
+      },
+      interrupts: {
+        interrupt: async () => {
+          throw new Error("no turn is interrupted");
+        },
+      },
+    });
+    return { stop, asked };
+  }
+
+  test("asks the store about the closed sessions under the stop's key", async () => {
+    const { stop, asked } = storeWith(true);
+    expect(
+      await stop.stoppedBefore([SESSION], { idempotencyKey: "stop-1" }),
+    ).toBe(true);
+    expect(asked).toEqual([
+      { sessionIds: [SESSION], idempotencyKey: "stop-1" },
+    ]);
+    expect(
+      await storeWith(false).stop.stoppedBefore([SESSION], {
+        idempotencyKey: "stop-2",
+      }),
+    ).toBe(false);
+  });
+
+  test("a thread with no closed session made no stop, and the store is not asked", async () => {
+    const { stop, asked } = storeWith(true);
+    expect(await stop.stoppedBefore([], { idempotencyKey: "stop-1" })).toBe(
+      false,
+    );
+    expect(asked).toEqual([]);
   });
 });

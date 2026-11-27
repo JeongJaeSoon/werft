@@ -197,7 +197,7 @@ export type SlackSessionHandlerDeps = {
   };
   sessions: Pick<SessionService, "createSession" | "appendMessage">;
   /** Stops a thread's work when its requester asks (handling table row 12). */
-  stops: Pick<SessionStop, "stop">;
+  stops: Pick<SessionStop, "stop" | "stoppedBefore">;
   /** The agent's active release, which a new thread's session runs. */
   agentDetails: Pick<AgentStore, "get">;
   /**
@@ -219,6 +219,8 @@ export type SlackSessionHandlerDeps = {
   logger: SlackInboxLogger;
   /** The web page where a person links their Slack account. */
   connectUrl: string;
+  /** The console's agent list, for a channel with no agent yet; "" for none. */
+  agentsUrl: string;
   newRequestId?: () => string;
 };
 
@@ -429,7 +431,12 @@ export function createSlackSessionHandler(
             agent.installationId,
             event.channel,
           );
-      if (live === null) return { handling: "no_binding" };
+      if (live === null) {
+        return {
+          handling: "no_binding",
+          ...(dm ? {} : { notice: "channelUnbound" as const }),
+        };
+      }
       const lifecycleStop = lifecycleStopOf(place, live);
       const handling = inboundHandling({
         place: dm ? "dm" : "channel",
@@ -449,13 +456,16 @@ export function createSlackSessionHandler(
         : handling.handling === "drop_with_off_notice"
           ? "channelOff"
           : handling.handling === "lifecycle_stopped" &&
-              lifecycleStop !== null &&
-              lifecycleStopOf(
-                { ...place, agentActive: true, agentOwnerless: false },
-                live,
-              ) === null
-            ? UNHEARD_MENTION_NOTICE[lifecycleStop]
-            : undefined;
+              lifecycleStop === "pending_approval"
+            ? "pendingApproval"
+            : handling.handling === "lifecycle_stopped" &&
+                lifecycleStop !== null &&
+                lifecycleStopOf(
+                  { ...place, agentActive: true, agentOwnerless: false },
+                  live,
+                ) === null
+              ? UNHEARD_MENTION_NOTICE[lifecycleStop]
+              : undefined;
       return {
         handling: handling.handling,
         ...(notice === undefined ? {} : { notice }),
@@ -587,6 +597,10 @@ export function createSlackSessionHandler(
       return handling.kind === "table" ? handling.handling : null;
     };
 
+    // A stop's key is its post: the post's two events and every retry of
+    // them are one stop.
+    const stopKey = `slack-stop:${claim.teamId}:${event.channel}:${event.ts}`;
+
     // Set once the poster was told they may not stop the work: if the session
     // then refuses the word as input too, that is not said a second time.
     let stopRefused = false;
@@ -610,7 +624,7 @@ export function createSlackSessionHandler(
       // Input queued until now is cancelled: the thread's earlier posts are
       // in, and its later ones wait for this event's lease.
       const stopped = await deps.stops.stop(caller, sessionId, {
-        idempotencyKey: `slack-stop:${claim.teamId}:${event.channel}:${event.ts}`,
+        idempotencyKey: stopKey,
       });
       deps.logger.info("Slack stop request", {
         ...ids,
@@ -661,7 +675,8 @@ export function createSlackSessionHandler(
           });
         } catch (error) {
           // Not retried: the closed session's link may close before a
-          // retry, which would then take the stop word as a new mention.
+          // retry, which then ends as a stop already made and would not
+          // write the line either.
           deps.logger.warn("Slack stop line lost for a task it closed", {
             ...ids,
             session_id: sessionId,
@@ -779,6 +794,39 @@ export function createSlackSessionHandler(
         await deps.bindings.requireApproval(bound.id);
       }
     }
+    // A stop word alone whose stop was made in work this thread has closed
+    // since: the post read again, by its other event or by a retry of the
+    // pass that lost its lease after the stop. It is done, whatever the
+    // thread holds now: taken on, it would be held for judgment, a mention
+    // of the thread, or a stop of the work opened there since. Only once the
+    // channel's kind is judged, so the post still sends a binding to
+    // approval. A new stop word is another post, under another key.
+    let madeBefore: Promise<boolean> | undefined;
+    const stopMadeBefore = () => {
+      madeBefore ??=
+        !fromBot &&
+        isStopRequest(withoutBotMention(event.text, agent.botUserId))
+          ? deps.sessionLinks
+              .closedSessions(agent.installationId, surfaceRef)
+              .then((sessionIds) =>
+                deps.stops.stoppedBefore(sessionIds, {
+                  idempotencyKey: stopKey,
+                }),
+              )
+          : Promise.resolve(false);
+      return madeBefore;
+    };
+    // An event that says its channel's kind, judged just above, ends here;
+    // so does an unmentioned one headed for the judgment buffer, which never
+    // asks Slack. Any other waits until Slack has said the kind.
+    if (
+      (event.channel_type !== undefined ||
+        (event.type === "message" && found === null && !mentioned)) &&
+      (await stopMadeBefore())
+    ) {
+      deps.logger.info("Slack stop request already made; its work closed", ids);
+      return;
+    }
     if (
       fromBot &&
       (dm || !mentioned || !agent.allowedBotUserIds.includes(event.user))
@@ -882,6 +930,38 @@ export function createSlackSessionHandler(
       });
     };
 
+    // A person's mention outside a bound thread once the rollout is on: its
+    // channel lines go to them alone, once a UTC day per person and line.
+    const rolloutOnMention =
+      found === null &&
+      mentioned &&
+      !dm &&
+      !fromBot &&
+      mentionHandling !== "current_path";
+    const tellOnceADay = async (
+      message: "channelUnbound" | "pendingApproval",
+      reason: string,
+      linkUrl?: string,
+    ) => {
+      const day = new Date(Number(event.ts) * 1000).toISOString().slice(0, 10);
+      await deps.notices.record({
+        workspaceId: agent.workspaceId,
+        agentId: agent.agentId,
+        installationId: agent.installationId,
+        slackAppId: claim.slackAppId,
+        teamId: claim.teamId,
+        channelId: event.channel,
+        threadTs,
+        slackUserId: event.user,
+        reason,
+        notice: {
+          message,
+          ...(linkUrl === undefined ? {} : { link_url: linkUrl }),
+        },
+        onceKey: `${agent.installationId}:${event.channel}:${event.user}:${message}:${day}`,
+      });
+    };
+
     // The bot left a channel this event was queued for: the receipt says so
     // instead of "processed"; nothing is taken or said.
     const stopIfLeft = async (): Promise<void> => {
@@ -915,6 +995,21 @@ export function createSlackSessionHandler(
         deps.logger.warn("Slack channel turned private; waits for approval", {
           ...ids,
         });
+        // Once the rollout is on, the same daily line a mention in a
+        // channel waiting for approval gets, so it is not said twice.
+        if (rolloutOnMention) {
+          // Not over an agent stop the table saw, as a waiting channel's
+          // mention says nothing then.
+          if (
+            (mentionHandling === "m2" ||
+              mentionTable.notice === "channelOff") &&
+            waiting.mode === "on" &&
+            slackUserKindOf(user, claim.teamId) !== "external"
+          ) {
+            await tellOnceADay("pendingApproval", "pending_approval");
+          }
+          return;
+        }
         await notice(
           "pending_approval",
           { message: "pendingApproval" },
@@ -941,6 +1036,68 @@ export function createSlackSessionHandler(
       if (refused !== null) await notice("channel_kind_mismatch", refused);
       return;
     }
+    // A post that named no channel kind (an app_mention, a mentioned message,
+    // a reply in a thread with an open link): done once Slack has said it.
+    if (await stopMadeBefore()) {
+      deps.logger.info("Slack stop request already made; its work closed", ids);
+      return;
+    }
+    // A person's mention in a channel with no binding in use: the bot was
+    // let in, but no agent was set up for the channel there. Once the
+    // rollout is on, a channel waiting for approval as well; before it, the
+    // decision below tells that one. Only the person who wrote sees the
+    // line, once a UTC day in the channel; it names no channel or agent.
+    const unboundLine =
+      mentionTable.notice === "channelUnbound" ||
+      mentionTable.notice === "pendingApproval";
+    if (found === null && mentioned && !dm && !fromBot && binding === null) {
+      // Read again: the table's read may be older than a binding made since.
+      const live = await deps.bindings.findLiveSlackChannel(
+        agent.installationId,
+        event.channel,
+      );
+      const line =
+        live === null
+          ? ("channelUnbound" as const)
+          : // Waiting for approval where the table heard the agent: it said
+            // so, or the binding went from ready to waiting since.
+            live.status === "pending_approval" &&
+              live.mode === "on" &&
+              rolloutOnMention &&
+              (mentionTable.notice === "pendingApproval" ||
+                mentionHandling === "m2")
+            ? ("pendingApproval" as const)
+            : undefined;
+      if (line === undefined) {
+        // A waiting binding the rollout's table did not hear says nothing.
+        if (
+          unboundLine ||
+          (rolloutOnMention && live?.status === "pending_approval")
+        ) {
+          return;
+        }
+      } else {
+        if (slackUserKindOf(user, claim.teamId) === "external") return;
+        // The agent list only for someone who can sign in to the console.
+        const linked =
+          line === "channelUnbound" && deps.agentsUrl !== ""
+            ? await deps.links.resolveLinkedSubject({
+                provider: "slack",
+                externalTenant: claim.teamId,
+                externalUserId: event.user,
+              })
+            : null;
+        const opens =
+          linked?.status === "linked" &&
+          linked.workspaceId === agent.workspaceId;
+        await tellOnceADay(
+          line,
+          line === "channelUnbound" ? "channel_unbound" : "pending_approval",
+          opens ? deps.agentsUrl : undefined,
+        );
+        return;
+      }
+    }
     // A mention the table does not hear, where the checks above still let
     // the bot speak: one line in the thread for all to see, once a UTC day
     // per person in the channel, whichever thread they mention the agent in.
@@ -948,6 +1105,7 @@ export function createSlackSessionHandler(
       // Only on a binding still in use whose kind Slack confirmed above, and
       // never for someone from another organization, as the decision judges.
       if (
+        unboundLine ||
         binding === null ||
         binding.mode !== "on" ||
         eventKind === undefined ||

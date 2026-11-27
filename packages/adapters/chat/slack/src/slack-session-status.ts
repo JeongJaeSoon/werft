@@ -1,3 +1,8 @@
+import {
+  SLACK_NOTICE_MESSAGES,
+  type SlackNoticeMessage,
+  type UserLocale,
+} from "@werft-ai/contracts";
 import type {
   MentionTurnDue,
   SurfaceThreadStatusFacts,
@@ -14,6 +19,7 @@ import {
   SlackRateLimitedError,
 } from "./slack-config-api.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
+import { SLACK_OUTBOX_MESSAGES } from "./slack-outbox-render.ts";
 
 /** What `agents.sessions.setStatus` shows under a Slack thread. */
 export type SlackThreadStatus =
@@ -71,6 +77,83 @@ export function slackSessionStatus(
   if (material.lifecycle === "paused") return "active";
   if (material.runningTurn || material.queuedTurn) return "processing";
   return "active";
+}
+
+/** What a progress message says, from the state `progressDue` reads. */
+export type SlackProgressStage =
+  | "capacity_wait"
+  | "needs_input"
+  | "running"
+  | "queued"
+  | "idle";
+
+const PROGRESS_STAGE_MESSAGES = {
+  // The wait's own words: the message takes the place of its notice.
+  capacity_wait: "capacityWait",
+  needs_input: "progressNeedsInput",
+  running: "progressRunning",
+  queued: "progressQueued",
+  idle: "progressIdle",
+} as const satisfies Record<SlackProgressStage, SlackNoticeMessage>;
+
+export function slackProgressStage(state: string): SlackProgressStage {
+  const stage = state.split(":")[0];
+  if (stage !== undefined && stage in PROGRESS_STAGE_MESSAGES) {
+    return stage as SlackProgressStage;
+  }
+  throw new Error(`Unknown progress state: ${state}`);
+}
+
+/**
+ * When the work started, labelled. Slack draws the time relative ("3 minutes
+ * ago") in each reader's client, so it stays current without an edit; a
+ * client that cannot shows the absolute time in UTC.
+ */
+export function slackProgressStartedAt(
+  locale: UserLocale,
+  startedAtSeconds: number,
+): string {
+  const seconds = Math.floor(startedAtSeconds);
+  const absolute = `${new Date(seconds * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+  return `${SLACK_NOTICE_MESSAGES[locale].progressStarted} <!date^${seconds}^{ago}|${absolute}>`;
+}
+
+/**
+ * A progress message: the stage as its text (the notification and the
+ * fallback), and as blocks with when the work started and the session's link.
+ */
+export function slackProgressMessage(input: {
+  locale: UserLocale;
+  state: string;
+  startedAt: number | null;
+  linkUrl?: string;
+}): { text: string; blocks: unknown[] } {
+  const text =
+    SLACK_NOTICE_MESSAGES[input.locale][
+      PROGRESS_STAGE_MESSAGES[slackProgressStage(input.state)]
+    ];
+  const context = [
+    ...(input.startedAt === null
+      ? []
+      : [slackProgressStartedAt(input.locale, input.startedAt)]),
+    ...(input.linkUrl === undefined
+      ? []
+      : [`<${input.linkUrl}|${SLACK_OUTBOX_MESSAGES[input.locale].link}>`]),
+  ];
+  return {
+    text,
+    blocks: [
+      { type: "section", text: { type: "mrkdwn", text } },
+      ...(context.length === 0
+        ? []
+        : [
+            {
+              type: "context",
+              elements: [{ type: "mrkdwn", text: context.join(" · ") }],
+            },
+          ]),
+    ],
+  };
 }
 
 /** Design slack-approval-ui §4–§5: lease 60s, takeover grace 30s, W 5 min. */

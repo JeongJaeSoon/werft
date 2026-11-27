@@ -333,8 +333,6 @@ export const responseSchemas = {
   "GET /v1/agents/{id}/slack/app/settings": slackAppSettingsSchema,
   "PUT /v1/agents/{id}/slack/app/settings": slackAppSettingsSchema,
   "GET /v1/agents/{id}/slack/notice": getSlackNoticeResponseSchema,
-  "POST /v1/agents/{id}/slack/notice/approve": getSlackNoticeResponseSchema,
-  "POST /v1/agents/{id}/slack/notice/revoke": getSlackNoticeResponseSchema,
   "POST /v1/agents/{id}/slack/notice/rollout": getSlackNoticeResponseSchema,
   "GET /v1/agents/{id}/github": agentGitHubResponseSchema,
   "PUT /v1/agents/{id}/github/enabled": putAgentGitHubEnabledResponseSchema,

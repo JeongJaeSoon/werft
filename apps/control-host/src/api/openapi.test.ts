@@ -904,12 +904,35 @@ describe("OpenAPI document", () => {
     const complete = (route: RouteDeclaration) =>
       Boolean(route.description) &&
       (route.body === undefined || route.requestExample !== undefined) &&
-      Boolean(route.success.description) &&
+      // A retired route lists no success to describe.
+      ("never" in route.success || Boolean(route.success.description)) &&
       (!("schema" in route.success) || route.success.example !== undefined);
     const incomplete = ROUTES.filter(
       (route) => route.path.startsWith("/v1") && !complete(route),
     ).map((route) => route.operationId);
     expect(incomplete.sort()).toEqual([...UNDOCUMENTED_OPERATIONS].sort());
+  });
+
+  test("a retired route lists 410 and no success", () => {
+    const paths = buildOpenApiDocument().paths as Record<
+      string,
+      Record<
+        string,
+        { deprecated?: boolean; responses: Record<string, unknown> }
+      >
+    >;
+    const retired = ROUTES.filter((route) => "never" in route.success);
+    expect(retired.map((route) => route.operationId).sort()).toEqual([
+      "approveSlackNotice",
+      "revokeSlackNotice",
+    ]);
+    for (const route of retired) {
+      const operation = paths[route.path]?.[route.method];
+      expect(operation?.deprecated).toBe(true);
+      const codes = Object.keys(operation?.responses ?? {});
+      expect(codes).toContain("410");
+      expect(codes.filter((code) => code.startsWith("2"))).toEqual([]);
+    }
   });
 
   test("widening the receipt target keeps every alpha response valid", () => {
