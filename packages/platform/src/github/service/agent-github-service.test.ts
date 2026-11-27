@@ -424,6 +424,16 @@ describe("the agent GitHub tab's options", () => {
     expect(saved.legacy_defaults).toBeNull();
   });
 
+  test("legacy defaults are cut to the ceiling, so a first save does not ask over it", async () => {
+    const read = await serviceWith({
+      ceiling: { ...ALL_ON, workflows: false, checks: false },
+    }).get(caller, AGENT);
+    expect(read.legacy_defaults?.features).toMatchObject({
+      workflows: false,
+      checks: false,
+    });
+  });
+
   test("an agent's row answers before the release's pin; one that cannot be read shows as none", async () => {
     const row = {
       repositories: ["ghe-app"],
