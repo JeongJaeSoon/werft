@@ -65,6 +65,9 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BEFORE_SHA: ${{ github.event.before }}
+          # A main push asks whether a release needs its commit.
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/ci-plan.sh
       - id: sdk
         name: Plan SDK consumer check
@@ -72,8 +75,16 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           run=true
+          fetched=false
           if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] && [ "$BASE_SHA" != 0000000000000000000000000000000000000000 ]; then
-            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            # A main push that cannot fetch its before keeps run=true.
+            if git fetch --no-tags --depth=1 origin "$BASE_SHA"; then
+              fetched=true
+            elif [ "$GITHUB_EVENT_NAME" != push ]; then
+              exit 1
+            fi
+          fi
+          if [ "$fetched" = true ]; then
             git diff --name-only --no-renames -z "$BASE_SHA" HEAD >"$RUNNER_TEMP/sdk-pack-paths"
             run=false
             while IFS= read -r -d '' path; do
@@ -113,6 +124,21 @@ jobs:
           esac
           echo "conformance: run=$run"
           echo "run=$run" >>"$GITHUB_OUTPUT"
+      - if: steps.plan.outputs.tests == 'true'
+        uses: ./.github/actions/bun-setup
+        with:
+          restore-cache: "false"
+      # The integration-domain matrix, one entry per shard: only the planned
+      # domains start a job. ci-reuse.sh holds a reused run to these job names
+      # too. An assignment, so a planner failure fails the step.
+      - id: domains
+        name: Integration matrix of the planned domains
+        if: steps.plan.outputs.tests == 'true'
+        env:
+          DOMAINS: ${{ steps.plan.outputs.domains }}
+        run: |
+          matrix=$(bun .github/scripts/integration-jobs.ts matrix "$DOMAINS")
+          echo "matrix=$matrix" >>"$GITHUB_OUTPUT"
       - id: reuse
         name: Reuse the PR run that tested this tree
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -127,12 +153,9 @@ jobs:
           K8S: ${{ steps.plan.outputs.k8s }}
           SDK_PACK: ${{ steps.sdk.outputs.run }}
           DOMAINS: ${{ steps.plan.outputs.domains }}
+          INTEGRATION_MATRIX: ${{ steps.domains.outputs.matrix }}
           DOCS_ONLY: ${{ steps.plan.outputs.docs_only }}
         run: bash .github/scripts/ci-reuse.sh >>"$GITHUB_OUTPUT"
-      - if: steps.plan.outputs.tests == 'true'
-        uses: ./.github/actions/bun-setup
-        with:
-          restore-cache: "false"
       - id: units
         if: github.event.inputs.only == 'check' || steps.plan.outputs.domains == '["surface"]'
         env:
@@ -144,16 +167,6 @@ jobs:
             args+=(--exclude-surface)
           fi
           matrix=$(bun .github/scripts/unit-part.ts matrix "${args[@]}")
-          echo "matrix=$matrix" >>"$GITHUB_OUTPUT"
-      # The integration-domain matrix: only the planned domains start a job.
-      # An assignment, so a planner failure fails the step.
-      - id: domains
-        name: Integration matrix of the planned domains
-        if: steps.plan.outputs.tests == 'true' && steps.reuse.outputs.reused == ''
-        env:
-          DOMAINS: ${{ steps.plan.outputs.domains }}
-        run: |
-          matrix=$(bun .github/scripts/integration-jobs.ts matrix "$DOMAINS")
           echo "matrix=$matrix" >>"$GITHUB_OUTPUT"
 
   # A main push that reuses the PR run of its tree skips it: ci-reuse.sh
@@ -307,7 +320,7 @@ jobs:
   # integration-jobs.ts reads ownership from .github/integration-domains.yml
   # and rejects missing or duplicate files and undeclared skips.
   integration-domain:
-    name: integration (${{ matrix.domain }})
+    name: integration (${{ matrix.name }})
     needs: changes
     if: >-
       needs.changes.outputs.tests == 'true'
@@ -317,8 +330,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Only the domains the plan names: a domain no changed path reaches
-        # takes no runner. `changes` reads each entry from
+        # Only the domains the plan names, one entry per shard: a domain no
+        # changed path reaches takes no runner. `changes` reads each entry from
         # .github/integration-domains.yml (integration-jobs.ts matrix).
         include: ${{ fromJSON(needs.changes.outputs.integration_matrix) }}
     # Every third-party image in this workflow comes from ghcr.io, not Docker
@@ -391,14 +404,15 @@ jobs:
       - name: Tests of this domain
         env:
           DOMAIN: ${{ matrix.domain }}
+          SHARD: ${{ matrix.shard }}
         # An assignment, not process substitution, so a failed assignment
         # fails the step instead of handing `bun test` an empty list — which it
         # would read as the whole suite.
         run: |
-          files=$(bun .github/scripts/integration-jobs.ts files "$DOMAIN")
+          files=$(bun .github/scripts/integration-jobs.ts files "$DOMAIN" "$SHARD")
           mapfile -t files <<<"$files"
           bun test --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit.xml" "${files[@]}"
-          bun .github/scripts/integration-jobs.ts verify "$DOMAIN" "$RUNNER_TEMP/junit.xml"
+          bun .github/scripts/integration-jobs.ts verify "$DOMAIN" "$SHARD" "$RUNNER_TEMP/junit.xml"
       # Whatever the suites pulled, by whatever path: none of it from Docker
       # Hub. Also after a failure — such a pull is worth knowing about anyway.
       - if: '!cancelled()'
@@ -417,7 +431,7 @@ jobs:
       - if: failure() && matrix.docker
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: docker-daemon-${{ matrix.domain }}-${{ github.run_attempt }}
+          name: docker-daemon-${{ matrix.domain }}-${{ matrix.shard }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/docker-events.jsonl
             ${{ runner.temp }}/docker-daemon.log

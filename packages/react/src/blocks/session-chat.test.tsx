@@ -80,7 +80,15 @@ const shape = (items: ReturnType<typeof chatItems>) =>
       ? ["user", item.turn.message, item.turn.source_deleted_at]
       : item.kind === "reply"
         ? ["reply", item.text, item.withheld ?? false]
-        : ["tool", item.name, item.input, item.result, item.withheld ?? false],
+        : item.kind === "notice"
+          ? ["notice", item.text]
+          : [
+              "tool",
+              item.name,
+              item.input,
+              item.result,
+              item.withheld ?? false,
+            ],
   );
 
 describe("chatItems for a turn whose Slack message was deleted", () => {
@@ -285,5 +293,67 @@ describe("chatItems for what the engine said after its turn ended", () => {
       ["user", "", DELETED_AT],
       ["reply", "", true],
     ]);
+  });
+});
+
+describe("chatItems for background work stopped while idle", () => {
+  const format = (part: {
+    key: string;
+    params?: Readonly<Record<string, string | number>>;
+  }) => `${part.key}(${part.params?.commands ?? ""})`;
+  const stopped = (id: string, minute: string, data: Record<string, unknown>) =>
+    frame(id, "1", minute, {
+      event: "system",
+      data: { type: "system", subtype: "background_tasks_stopped", ...data },
+    });
+
+  test("is one line at its time, even when it arrives after later lines", () => {
+    const items = chatItems(
+      [
+        ...EVENTS.filter((event) => event.id === "1" || event.id === "4"),
+        // Streamed last, it happened between turn 1's reply and turn 2.
+        {
+          ...stopped("5", "1", { commands: ["bash", "sleep"] }),
+          occurredAt: "2026-11-23T01:01:30.000Z",
+        },
+      ],
+      [turn("1", "Start a loop", null), turn("2", "Follow-up", null)],
+      format,
+    );
+    expect(shape(items)).toEqual([
+      ["user", "Start a loop", null],
+      ["reply", "Secret answer", false],
+      ["notice", "session.event.backgroundTasksStopped(bash, sleep)"],
+      ["user", "Follow-up", null],
+      ["reply", "Second answer", false],
+    ]);
+    // It shows its own time, not the line before it.
+    expect(items[2]?.at).toBe("2026-11-23T01:01:30.000Z");
+  });
+
+  test("names only the checked commands, whatever else the event carries", () => {
+    const items = chatItems(
+      [
+        stopped("5", "1", {
+          commands: ["bash", "rm -rf /", "sleep"],
+          engine_event: { name: "x".repeat(500), category: "other" },
+        }),
+      ],
+      [],
+      format,
+    );
+    expect(shape(items)).toEqual([
+      ["notice", "session.event.backgroundTasksStopped(bash, sleep)"],
+    ]);
+  });
+
+  test("draws nothing for an event with no command it could name", () => {
+    expect(
+      chatItems(
+        [stopped("5", "1", { commands: [] }), stopped("6", "1", {})],
+        [],
+        format,
+      ),
+    ).toEqual([]);
   });
 });

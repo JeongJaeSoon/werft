@@ -1532,8 +1532,8 @@ node "$B" "$RUN" eval '(() => { const t = document.querySelector("main").innerTe
 | 대화 턴(M2)을 실제 모델로 처음 돌리기 | a1의 M2는 시험 스택(fake 모델)과 통합 시험으로만 확인한다 | v1-b의 완료 조건 |
 | 웹 입력(`createWebInputService`)의 실제 출력 | 공개 route가 없다(P-A0-DEFERRED) | 웹 입력 route를 여는 epic |
 | 실제 모델의 M1 판단과 demo | 이 절차는 fake 모델만 쓴다 | a1/S5 |
-| 게스트의 글(`guest_author`)이 담기지 않는 것 | mock의 `/fake/users`가 게스트를 만들지 못한다 | integration (surface)의 "Slack Connect and guests in the judgment buffer" |
-| 채널 요약의 옛 판이 7일 뒤 지워지는 것 | 스택에서 판을 7일 묵힐 사용자 경로가 없다. DB는 읽기만 한다 | integration (db)의 channel-summaries 시험. 스택에서는 pass 로그와 판의 `made_at`까지 |
+| 게스트의 글(`guest_author`)이 담기지 않는 것 | mock의 `/fake/users`가 게스트를 만들지 못한다 | integration (surface …) shard의 "Slack Connect and guests in the judgment buffer" |
+| 채널 요약의 옛 판이 7일 뒤 지워지는 것 | 스택에서 판을 7일 묵힐 사용자 경로가 없다. DB는 읽기만 한다 | integration (db …) shard의 channel-summaries 시험. 스택에서는 pass 로그와 판의 `made_at`까지 |
 | 릴리스의 지침 스냅숏을 실제 GitHub에서 읽기 | sandbox App이 필요하다(`SANDBOX_APP_ID`, P-GITHUB-SANDBOX) | GitHub sandbox run |
 | 사람이나 에이전트가 청한 턴, 비공개 채널의 읽기 문 | 운영자 명령은 요청자 없는 턴만 낸다 | v1-b(Slack 글이 턴을 일으키는 길) |
 
