@@ -4,6 +4,8 @@ import type {
   WorkerScope,
 } from "@werft-ai/contracts";
 import type {
+  CheckpointBlockReason,
+  CheckpointCaptureKind,
   CheckpointPreparation,
   TranscriptMirror,
   WorkerCheckpointState,
@@ -36,6 +38,16 @@ export type RuntimeResumePlan =
       restoredRevision?: number;
     };
 
+/**
+ * Why a capture produced no ref. `infrastructure` is a publish the gateway or
+ * the object store failed, which the same capture may pass a moment later;
+ * every other refusal is the run's or the workspace's own state.
+ */
+export type CaptureRefusal = {
+  reason: CheckpointBlockReason;
+  infrastructure: boolean;
+};
+
 /** What a capture needs from the turn it runs in. */
 export type CheckpointCaptureContext = {
   /** The fenced identity the checkpoint request is made under. */
@@ -55,6 +67,13 @@ export type CheckpointCaptureContext = {
    * turn's end.
    */
   point?: "approval_wait";
+  /**
+   * Set by a capture outside a turn's end, and written into the manifest;
+   * absent at the turn's end.
+   */
+  captureKind?: CheckpointCaptureKind;
+  /** Told why, whenever the capture answers null for a reason it can name. */
+  refused?(refusal: CaptureRefusal): void;
 };
 
 /**

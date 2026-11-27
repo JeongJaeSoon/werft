@@ -431,6 +431,51 @@ export type FinalizeResult =
 
 export type PeekFinalizeResult = FinalizeResult | { outcome: "open" };
 
+/**
+ * A checkpoint committed outside a turn, onto the turn the attempt finalized
+ * last. The turn stays as it ended: only the pointer moves, and the row it
+ * writes names that turn, so coverage reaches it.
+ */
+export type CommitCheckpointInput = {
+  fence: WorkerFence;
+  now: Date;
+  turnId: string;
+  checkpoint: CheckpointRef;
+  // The verifier's verdict on `checkpoint`, never the worker's say.
+  checkpointVersionsHeld?: boolean;
+  checkpointTranscriptBytes?: number;
+  checkpointOutputs?: readonly CheckpointOutputObject[];
+  checkpointOutputsDigest?: string | null;
+  checkpointRuntime?: RuntimeFingerprint;
+};
+export type CheckpointCommitted = {
+  outcome: "committed" | "replayed";
+  turnId: string;
+  revision: number;
+};
+export type CommitCheckpointResult =
+  | CheckpointCommitted
+  // No such turn of this session, or one this attempt never ran.
+  | { outcome: "turn_not_found" }
+  // Not the turn this attempt finalized last, or not one a checkpoint may be
+  // put on: still open, of unknown outcome, or a later turn has started.
+  | { outcome: "turn_refused"; reason: string }
+  // The checkpoint names a revision other than the pointer's next one.
+  | { outcome: "checkpoint_conflict"; currentRevision: number | null }
+  | FenceRejection;
+export type PeekCheckpointCommitInput = Pick<
+  CommitCheckpointInput,
+  "fence" | "turnId" | "checkpoint"
+>;
+// Everything the commit would answer from the turn alone, read before the
+// manifest is verified: a verdict on a manifest is recorded on the session,
+// and one for a turn no checkpoint can be put on any more must not be.
+export type PeekCheckpointCommitResult =
+  | CheckpointCommitted
+  | { outcome: "turn_not_found" }
+  | { outcome: "turn_refused"; reason: string }
+  | { outcome: "open" };
+
 /** A settled turn is read without the limits, so it answers while they cannot be. */
 export type PeekFinalizeInput = Omit<FinalizeInput, "budget">;
 
@@ -441,6 +486,9 @@ export type CheckpointStateInput = {
   // leaves the stored one alone, and an advisory reason never replaces a
   // blocking one. Only a committed checkpoint clears it (finalizeAtomic).
   pendingReason?: CheckpointBlockReason;
+  // Set for a verdict on a checkpoint committed outside a turn: the reason
+  // is recorded only while that turn still takes one, judged under the fence.
+  outsideTurnId?: string;
 };
 export type ExtensionsStateInput = { fence: WorkerFence; now: Date };
 export type ExtensionsStateResult =
@@ -633,6 +681,14 @@ export interface WorkerUnitOfWork {
   // it lets a caller settle a replay before doing work that can fail.
   peekFinalizeAtomic(input: PeekFinalizeInput): Promise<PeekFinalizeResult>;
   finalizeAtomic(input: FinalizeInput): Promise<FinalizeResult>;
+  // Whether this exact commit already landed, read without the fence as
+  // peekFinalizeAtomic reads a settled turn: a retry learns its own result.
+  peekCheckpointCommitAtomic(
+    input: PeekCheckpointCommitInput,
+  ): Promise<PeekCheckpointCommitResult>;
+  commitCheckpointAtomic(
+    input: CommitCheckpointInput,
+  ): Promise<CommitCheckpointResult>;
   // The fenced read behind the checkpoint protocol: proves the caller still
   // owns the session before a pointer is read on its behalf, and records the
   // runtime's durable refusal when it reports one.

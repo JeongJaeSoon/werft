@@ -6,6 +6,13 @@ import type { RuntimeProcessObserver } from "@werft-ai/runtime-core";
 export type EngineExitWatch = {
   /** Processes still descended from a live engine at a turn boundary. */
   descendants?(): Promise<number[]>;
+  /**
+   * The command name of each of `pids` still there, once each: the kernel's
+   * `comm`, so never an argument or an environment value.
+   */
+  commands?(pids: readonly number[]): Promise<string[]>;
+  /** Signals what `descendants` named; one already gone is passed over. */
+  signal?(pids: readonly number[], signal: "SIGTERM" | "SIGKILL"): void;
   /** Resolves true once every spawned engine has exited, false on timeout. */
   exited(timeoutMs: number): Promise<boolean>;
   /** Engines that have not exited yet. */
@@ -109,6 +116,30 @@ export class EngineProcesses
       }
     }
     return descendants.sort((left, right) => left - right);
+  }
+
+  async commands(pids: readonly number[]): Promise<string[]> {
+    const names: string[] = [];
+    for (const pid of pids) {
+      const comm = await readFile(
+        join(this.procRoot, String(pid), "comm"),
+        "utf8",
+      ).catch(() => "");
+      // A process names its own comm: only what a command name is made of.
+      const name = comm.trim().replace(/[^A-Za-z0-9._+-]/g, "");
+      if (name !== "" && !names.includes(name)) names.push(name);
+    }
+    return names;
+  }
+
+  signal(pids: readonly number[], signal: "SIGTERM" | "SIGKILL"): void {
+    for (const pid of pids) {
+      try {
+        process.kill(pid, signal);
+      } catch {
+        // Gone already, or not ours to signal: the next look decides.
+      }
+    }
   }
 
   async exited(timeoutMs: number): Promise<boolean> {

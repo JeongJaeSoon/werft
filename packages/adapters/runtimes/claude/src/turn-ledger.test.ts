@@ -309,6 +309,97 @@ describe("checkpoint quiescence", () => {
     expect(ledger.prepareCheckpoint()).toEqual(ready);
   });
 
+  test("an answer the engine gives with no input pending is in flight until its result", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.queued("a");
+    ledger.observe({
+      type: "result",
+      session_id: "s1",
+      user_message_uuid: "a",
+    });
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+    // A background task ended and the engine says so on its own.
+    ledger.observe({
+      type: "assistant",
+      session_id: "s1",
+      parent_tool_use_id: null,
+      message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+    });
+    expect(ledger.prepareCheckpoint()).toMatchObject({
+      reason: "turn_in_flight",
+    });
+    ledger.observe({ type: "result", session_id: "s1" });
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
+  test("a background task's notification with no input pending opens the engine's answer to it before a word of it", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.observe({
+      type: "system",
+      subtype: "task_notification",
+      session_id: "s1",
+    });
+    // The transcript holds the notification and not yet the answer.
+    expect(ledger.prepareCheckpoint()).toMatchObject({
+      reason: "turn_in_flight",
+    });
+    ledger.observe({ type: "result", session_id: "s1" });
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
+  test("the notification of an ambient task, or of one kept out of the transcript, opens no answer", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.observe({
+      type: "system",
+      subtype: "task_notification",
+      session_id: "s1",
+      ambient: true,
+    });
+    ledger.observe({
+      type: "system",
+      subtype: "task_notification",
+      session_id: "s1",
+      skip_transcript: true,
+    });
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
+  test("an answer that begins while a checkpoint holds the lease shows through the lease", () => {
+    const ledger = new TurnLedger("s1");
+    const grant = ledger.leaseCheckpoint();
+    expect(ledger.prepareCheckpoint()).toMatchObject({
+      reason: "checkpoint_lease_held",
+    });
+    // The task left the run's list before its notification came.
+    ledger.observe({
+      type: "system",
+      subtype: "task_notification",
+      session_id: "s1",
+    });
+    expect(ledger.prepareCheckpoint()).toMatchObject({
+      reason: "turn_in_flight",
+    });
+    // However soon that answer ends: the capture under this lease may hold
+    // the notification without it.
+    ledger.observe({ type: "result", session_id: "s1" });
+    expect(ledger.prepareCheckpoint()).toMatchObject({
+      reason: "turn_in_flight",
+    });
+    grant.lease?.release();
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
+  test("a subagent's output with no input pending opens no answer of the run's own", () => {
+    const ledger = new TurnLedger("s1");
+    ledger.observe({
+      type: "assistant",
+      session_id: "s1",
+      parent_tool_use_id: "toolu_task",
+      message: { role: "assistant", content: [] },
+    });
+    expect(ledger.prepareCheckpoint()).toEqual(ready);
+  });
+
   test("a lost stream proves nothing about the tools and tasks it left", () => {
     const ledger = new TurnLedger("s1");
     ledger.toolStarting("toolu_1");

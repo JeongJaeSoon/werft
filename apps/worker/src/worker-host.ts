@@ -19,6 +19,7 @@ import type {
   WorkspaceDescriptor,
 } from "@werft-ai/contracts";
 import {
+  BACKGROUND_TASKS_STOPPED_SUBTYPE,
   DEFAULT_WORKSPACE_ENFORCE,
   MAX_TURN_COST_USD,
   REPOSITORY_PINS_MAX,
@@ -32,6 +33,7 @@ import {
   type AnswerResult,
   type ApprovalDecisionPayload,
   type ApprovalRequested,
+  type CheckpointCaptureKind,
   type CheckpointLease,
   type CheckpointPreparation,
   type GitEnvironment,
@@ -54,7 +56,11 @@ import {
 
 import { noteTurnCoAuthor } from "./attribution-repair.ts";
 import { WORKER_CAPABILITIES } from "./capabilities.ts";
-import type { RuntimeResumePlan, WorkerCheckpointPort } from "./checkpoint.ts";
+import type {
+  CaptureRefusal,
+  RuntimeResumePlan,
+  WorkerCheckpointPort,
+} from "./checkpoint.ts";
 import { LEASE_SAFETY_MARGIN_MS, type WorkerTimeouts } from "./config.ts";
 import { createConsoleLogger, type WorkerLogger } from "./console-logger.ts";
 import type { EngineExitWatch } from "./engine-processes.ts";
@@ -186,6 +192,8 @@ export type WorkerHostOptions = {
   sleep?: (ms: number) => Promise<void>;
   /** Absent for engines that spawn no process, like the fake. */
   engines?: EngineExitWatch;
+  /** Overrides of OUTSIDE_TURN_CHECKPOINT, for tests that cannot wait minutes. */
+  outsideTurnCheckpoint?: Partial<OutsideTurnCheckpoint>;
   /** Absent when the checkpoint port is a fake that needs no token. */
   objectStoreAccess?: ObjectStoreAccess;
   /**
@@ -338,6 +346,81 @@ const SESSION_ALLOW_UNDECIDED_HOLD_MS = 20_000;
 type ClaimedLease = { remainingMs: number; sentAt: number };
 const CHECKPOINT_PROCESS_GRACE_MS = 1_000;
 const CHECKPOINT_PROCESS_POLL_MS = 20;
+/**
+ * Everything a checkpoint outside a turn's end is timed by, and what an idle
+ * exit does with background work still running, in one place so either can
+ * change alone.
+ */
+export const OUTSIDE_TURN_CHECKPOINT = {
+  /**
+   * How long past the idle timeout background work may still end by itself.
+   * Five minutes: with the default 30 minute idle timeout the slot is held
+   * at most a sixth longer, and an installation that set a short timeout
+   * still lets a build or a test run started at the turn's end finish.
+   */
+  idleBackgroundGraceMs: 5 * 60_000,
+  /**
+   * What the end of that grace does. `stop` ends the run's descendant
+   * processes, captures and exits; `wait` puts the exit off until they end.
+   */
+  afterIdleGrace: "stop" as "stop" | "wait",
+  /** From SIGTERM to SIGKILL, and again from SIGKILL to giving up. */
+  stopSignalWaitMs: 10_000,
+  /**
+   * How long the run gets to go quiet once its background work was stopped:
+   * the engine is told its task ended and answers on its own, and the
+   * capture waits for that answer.
+   */
+  settleWaitMs: 60_000,
+  /**
+   * A publish the gateway or the object store failed is tried again on this
+   * schedule, the last step repeating, and no next input is asked for
+   * meanwhile.
+   */
+  retryBackoffMs: [1_000, 2_000, 4_000, 8_000, 15_000] as readonly number[],
+  /**
+   * No retry starts later than this after the first failure; then the
+   * session shows publish_failed and takes its next turn, and the checkpoint
+   * is tried again before the idle exit. One turn's debt holds once: a
+   * failure after its hold has been left does not start the time over.
+   */
+  retryHoldMs: 120_000,
+  /** How long one commit keeps answering 5xx before it counts as failed. */
+  commitRetryMs: 30_000,
+};
+export type OutsideTurnCheckpoint = typeof OUTSIDE_TURN_CHECKPOINT;
+
+/**
+ * The checkpoint the last finalized turn went without. `hold`: the publish
+ * infrastructure failed, and input stays queued while it is retried.
+ * `quiet`: taken once the run has gone quiet. `deferred`: the capture itself
+ * refused, or the hold ran out; tried once more before a pause or an idle
+ * exit.
+ */
+type OwedCheckpoint = {
+  turnId: string;
+  mode: "hold" | "quiet" | "deferred";
+  /** When this debt first held input back; set once. */
+  heldSince?: number;
+  failures: number;
+  holdSpent: boolean;
+};
+
+/** Undefined for a refusal no later capture of this run can get past. */
+function owedModeOf(
+  refusal: CaptureRefusal,
+): OwedCheckpoint["mode"] | undefined {
+  switch (refusal.reason) {
+    case "mirror_error":
+    case "transcript_too_large":
+    case "transcript_part_too_large":
+      return undefined;
+    case "publish_failed":
+      return refusal.infrastructure ? "hold" : "deferred";
+    default:
+      return "quiet";
+  }
+}
 /** How long an interrupted engine gets to produce its terminal frame. */
 const INTERRUPT_GRACE_MS = 5_000;
 /**
@@ -409,6 +492,13 @@ export class WorkerHost {
   private claimValue: BootstrapClaimResponse | undefined;
   private turnCoAuthorWritten = false;
   private checkpointRevision: number | null = null;
+  private owed: OwedCheckpoint | undefined;
+  private lastFinalizedTurnId: string | undefined;
+  /** The engine answered on its own since the last capture took its lease. */
+  private outputUncaptured = false;
+  private idleGraceLogged = false;
+  /** The last capture was given up for an answer the engine began during it. */
+  private captureCutInto = false;
   private scrubber: SecretScrubber;
   private tracing: TelemetrySession | undefined;
   private stopping: Stop | undefined;
@@ -1562,14 +1652,26 @@ export class WorkerHost {
         this.stop({ kind: "drain", reason: this.mirrorError });
         return;
       }
+      this.oweForOutput();
       // Between turns, the one safe boundary a pause waits for.
       if (this.pauseControl !== undefined) {
+        // The release is refused while the last turn has no checkpoint.
+        await this.captureOwed(run, "between_turns");
+        if (this.stopping !== undefined || this.pauseControl === undefined) {
+          continue;
+        }
         if ((await this.commitPause(this.pauseControl)) !== "withdrawn") {
           return;
         }
         // The pause was cancelled: the same engine carries on, and the time
         // spent held is not idleness.
         lastInputAt = performance.now();
+        continue;
+      }
+      // Not asked for: an input stays queued until the last turn's
+      // checkpoint is durable, or the hold has run out.
+      if (this.owed?.mode === "hold") {
+        await this.retryHeld(run);
         continue;
       }
       // Not raced with a drain: an input the gateway hands over is this
@@ -1584,6 +1686,10 @@ export class WorkerHost {
       if (next.input === null) {
         // Nothing will come however long this waits: give the slot back now
         // rather than at the idle timeout.
+        if (next.reason === "BUDGET_EXCEEDED" || next.draining === true) {
+          await this.captureOwedWhenQuiet(run, "before_idle_exit");
+          if (this.stopping !== undefined) return;
+        }
         if (next.reason === "BUDGET_EXCEEDED") {
           this.stop({
             kind: "idle",
@@ -1601,14 +1707,22 @@ export class WorkerHost {
         }
         const idleFor = performance.now() - lastInputAt;
         if (idleFor >= this.options.timeouts.idleTimeoutMs) {
+          const ready = await this.readyToIdleOut(
+            run,
+            idleFor - this.options.timeouts.idleTimeoutMs,
+          );
+          if (this.stopping !== undefined) return;
+          if (!ready) continue;
           this.stop({
             kind: "idle",
-            reason: `No input for ${Math.round(idleFor / 1000)}s`,
+            reason: `No input for ${Math.round((performance.now() - lastInputAt) / 1000)}s`,
           });
           return;
         }
+        await this.captureOwedWhenQuiet(run, "between_turns");
         continue;
       }
+      this.idleGraceLogged = false;
       await this.runTurn(run, next.input);
       // Idle is counted from the end of the last turn, not its start: a turn
       // longer than the idle timeout must not end the worker on the next poll.
@@ -2132,6 +2246,7 @@ export class WorkerHost {
     // (no answer, a 5xx): that request may still commit, whatever a later
     // retry is told, until one succeeds and the idempotent key settles both.
     let undecided = false;
+    let refusedAtFinalize = false;
     let captureStageFinished = false;
     const finishInterruptCapture = (fields: Record<string, unknown>): void => {
       if (interruptTurn === undefined || captureStageFinished) return;
@@ -2327,6 +2442,7 @@ export class WorkerHost {
         // Nothing can commit the capture any more; the fallback carries no
         // checkpoint to wait on.
         captured?.lease?.release();
+        refusedAtFinalize = true;
         await this.checkpoints.finalizeRefused?.(describe(error), {
           ...this.scope,
         });
@@ -2339,6 +2455,15 @@ export class WorkerHost {
       if (terminal === settlement && checkpoint !== null) {
         this.checkpointRevision = checkpoint.revision;
       }
+      this.lastFinalizedTurnId = turnId;
+      this.owed = this.owedAfter(
+        turnId,
+        terminal.status,
+        terminal === settlement && checkpoint !== null && !refusedAtFinalize,
+        refusedAtFinalize
+          ? { reason: "publish_failed", infrastructure: false }
+          : captured?.refusal,
+      );
       this.dropGrants(turnId);
       this.turns.push({
         turnId,
@@ -2932,6 +3057,13 @@ export class WorkerHost {
                   : true;
           if (turn?.closed === false && ours) turn.spans.onEvent(event);
           if (event.type === "public") {
+            if (
+              framed == null &&
+              turn?.closed !== false &&
+              event.event.event === "assistant"
+            ) {
+              this.outputUncaptured = true;
+            }
             this.publisher?.publish([event.event], framed ?? null);
           } else if (event.type === "inputs.named") {
             this.frameTurn(event.inputs);
@@ -3520,6 +3652,7 @@ export class WorkerHost {
   private async capture(
     run: AgentRun,
     workerState?: WorkerCheckpointState,
+    kind?: CheckpointCaptureKind,
   ): Promise<Captured> {
     // A run that takes no checkpoints finalizes without one, not as a
     // capture that failed.
@@ -3527,6 +3660,9 @@ export class WorkerHost {
     if (!effective.checkpoint) return { lease: null, ref: null };
     const { lease, preparation: runPreparation } =
       await run.leaseCheckpoint("turn_end");
+    // Whatever the engine said on its own before the lease is in this capture.
+    if (lease !== null) this.outputUncaptured = false;
+    const told: { refusal?: CaptureRefusal } = {};
     let ref: CheckpointRef | null;
     try {
       const deadline = performance.now() + CHECKPOINT_PROCESS_GRACE_MS;
@@ -3560,13 +3696,428 @@ export class WorkerHost {
         scope: { ...this.scope },
         recheck: () => run.prepareCheckpoint("turn_end"),
         ...(workerState === undefined ? {} : { workerState }),
+        ...(kind === undefined ? {} : { captureKind: kind }),
+        refused: (refusal) => {
+          told.refusal = refusal;
+        },
       });
+      // The lease keeps tools and input out, not the engine's own answer to
+      // a task that ended meanwhile (the order of a task leaving the run's
+      // list and its notification is not promised). A capture that answer
+      // began during may hold the notification without the answer.
+      if (ref !== null && lease !== null) {
+        const after = await run.prepareCheckpoint("turn_end");
+        if (after.status === "rejected" && after.reason === "turn_in_flight") {
+          this.captureCutInto = true;
+          this.logger.warn("worker.checkpoint.rejected", {
+            reason: after.reason,
+            detail: "The engine began an answer of its own during the capture",
+          });
+          await this.checkpoints.finalizeRefused?.(
+            "the engine began an answer of its own during the capture",
+            { ...this.scope },
+          );
+          told.refusal = { reason: after.reason, infrastructure: false };
+          ref = null;
+        }
+      }
     } catch (error) {
       lease?.release();
       throw error;
     }
     if (ref === null) lease?.release();
-    return { lease, ref };
+    return {
+      lease,
+      ref,
+      ...(ref !== null || told.refusal === undefined
+        ? {}
+        : { refusal: told.refusal }),
+    };
+  }
+
+  /** What the turn just finalized leaves owed, an earlier debt included. */
+  private owedAfter(
+    turnId: string,
+    status: Settlement["status"],
+    committed: boolean,
+    refusal: CaptureRefusal | undefined,
+  ): OwedCheckpoint | undefined {
+    // An unknown outcome goes to a recovery decision, which a checkpoint
+    // taken afterwards must not pre-empt.
+    if (committed || status === "outcome_unknown") return undefined;
+    const earlier = this.owed;
+    const mode = refusal === undefined ? earlier?.mode : owedModeOf(refusal);
+    if (mode === undefined) return undefined;
+    const holdSpent = earlier?.holdSpent ?? false;
+    const held = mode === "hold" && !holdSpent;
+    return {
+      turnId,
+      mode: mode === "hold" && holdSpent ? "deferred" : mode,
+      ...(held ? { heldSince: performance.now() } : {}),
+      failures: 0,
+      holdSpent,
+    };
+  }
+
+  /** The engine's own answer after the last capture is owed one too. */
+  private oweForOutput(): void {
+    if (!this.outputUncaptured || this.owed !== undefined) return;
+    const turnId = this.lastFinalizedTurnId;
+    if (turnId === undefined) return;
+    this.owed = { turnId, mode: "quiet", failures: 0, holdSpent: false };
+  }
+
+  private get outsideTurn(): OutsideTurnCheckpoint {
+    return {
+      ...OUTSIDE_TURN_CHECKPOINT,
+      ...this.options.outsideTurnCheckpoint,
+    };
+  }
+
+  /**
+   * The run's own word on whether it is quiet, asked under a budget: an
+   * engine that never answers would keep the next input, or the idle exit,
+   * waiting for good. Undefined once the worker has to stop.
+   */
+  private async quietVerdict(
+    run: AgentRun,
+  ): Promise<CheckpointPreparation | undefined> {
+    const budget = this.stageBudget(
+      "Asking the run whether it is quiet",
+      this.options.timeouts.startupTimeoutMs,
+    );
+    try {
+      return await this.untilAbandoned(run.prepareCheckpoint("turn_end"));
+    } finally {
+      budget.disarm();
+    }
+  }
+
+  /** Nothing the run tracks is running, and no process is left under it. */
+  private async quiet(run: AgentRun): Promise<boolean> {
+    const verdict = await this.quietVerdict(run);
+    if (verdict?.status !== "ready") return false;
+    const below = (await this.options.engines?.descendants?.()) ?? [];
+    return below.length === 0;
+  }
+
+  private async captureOwedWhenQuiet(
+    run: AgentRun,
+    kind: CheckpointCaptureKind,
+  ): Promise<void> {
+    this.oweForOutput();
+    const owed = this.owed;
+    if (owed === undefined) return;
+    if (kind === "between_turns" && owed.mode !== "quiet") return;
+    if (!(await this.quiet(run))) return;
+    await this.captureOwed(run, kind);
+  }
+
+  /**
+   * Captures the checkpoint the last finalized turn went without and commits
+   * it onto that turn, which stays as it ended. The gateway takes it only
+   * from the attempt that finalized the turn, under the same lease, and only
+   * while no later turn has started, so a commit that lands late either
+   * pins a capture that was consistent when it was taken or is refused. That
+   * is why the lease is given back here whatever the commit answered.
+   */
+  private async captureOwed(
+    run: AgentRun,
+    kind: CheckpointCaptureKind,
+    /** When the hold this capture is a retry of runs out. */
+    holdEndsAt = Number.POSITIVE_INFINITY,
+  ): Promise<void> {
+    const owed = this.owed;
+    if (owed === undefined) return;
+    const gateway = this.options.gateway;
+    if (gateway.commitCheckpoint === undefined) {
+      this.owed = undefined;
+      return;
+    }
+    // Bounded as a turn's own capture is: the heartbeat keeps the lease
+    // while this runs, so one that never returns would keep the next input
+    // waiting for good.
+    const budget = this.stageBudget(
+      "Checkpointing outside a turn",
+      this.options.timeouts.startupTimeoutMs,
+    );
+    const capturing = this.capture(run, undefined, kind);
+    let captured: Captured | undefined;
+    try {
+      captured = await this.untilAbandoned(capturing);
+    } catch (error) {
+      if (isOwnershipLost(error)) {
+        this.lose(describe(error), error);
+        return;
+      }
+      this.logger.warn("worker.checkpoint.failed", {
+        stage: "capture",
+        capture_kind: kind,
+        reason: describe(error),
+        turn_id: owed.turnId,
+      });
+      this.owedFailed(owed, { reason: "publish_failed", infrastructure: true });
+      return;
+    } finally {
+      budget.disarm();
+    }
+    if (captured === undefined) {
+      // Given up on: the lease goes back whenever the capture does return.
+      capturing.then(
+        ({ lease }) => lease?.release(),
+        () => {},
+      );
+      return;
+    }
+    const lease = captured.lease;
+    const ref = captured.ref;
+    if (ref === null) {
+      // No reason given: nothing here can be captured at all.
+      if (captured.refusal === undefined) this.owed = undefined;
+      else this.owedFailed(owed, captured.refusal);
+      return;
+    }
+    const deadline = Math.min(
+      performance.now() + this.outsideTurn.commitRetryMs,
+      holdEndsAt,
+    );
+    try {
+      await this.withRetry(
+        () =>
+          gateway.commitCheckpoint?.({
+            ...this.scope,
+            turn_id: owed.turnId,
+            checkpoint: ref,
+          }) ?? Promise.reject(new Error("The gateway commits no checkpoint")),
+        () => this.stopping !== undefined || performance.now() >= deadline,
+      );
+    } catch (error) {
+      if (isOwnershipLost(error)) return;
+      this.logger.warn("worker.checkpoint.failed", {
+        stage: "commit",
+        capture_kind: kind,
+        reason: describe(error),
+        revision: ref.revision,
+        manifest_ref: ref.manifest_ref,
+        turn_id: owed.turnId,
+      });
+      if (isRetryable(error)) {
+        this.owedFailed(owed, {
+          reason: "publish_failed",
+          infrastructure: true,
+        });
+        return;
+      }
+      // What was uploaded is no revision: the next capture starts from the
+      // pointer again.
+      try {
+        await this.checkpoints.finalizeRefused?.(describe(error), {
+          ...this.scope,
+        });
+      } catch (refusal) {
+        if (isOwnershipLost(refusal)) this.lose(describe(refusal), refusal);
+      }
+      // A server without the route, or a turn that is not this attempt's:
+      // no later commit lands either, and the next turn's finalize is what
+      // commits.
+      if (error instanceof WorkerGatewayRequestError && error.status === 404) {
+        if (this.owed === owed) this.owed = undefined;
+        return;
+      }
+      this.owedFailed(owed, {
+        reason: "publish_failed",
+        infrastructure: false,
+      });
+      return;
+    } finally {
+      lease?.release();
+    }
+    this.checkpointRevision = ref.revision;
+    if (this.owed === owed) this.owed = undefined;
+    this.logger.info("worker.checkpoint.committed", {
+      capture_kind: kind,
+      turn_id: owed.turnId,
+      revision: ref.revision,
+    });
+  }
+
+  private owedFailed(owed: OwedCheckpoint, refusal: CaptureRefusal): void {
+    if (this.owed !== owed) return;
+    const mode = owedModeOf(refusal);
+    if (mode === undefined) {
+      this.owed = undefined;
+      return;
+    }
+    owed.failures += 1;
+    if (mode !== "hold") {
+      owed.mode = mode;
+      return;
+    }
+    if (owed.holdSpent) {
+      owed.mode = "deferred";
+    } else {
+      owed.mode = "hold";
+      owed.heldSince ??= performance.now();
+    }
+  }
+
+  /**
+   * One step of the hold: a backoff, then the capture again. Past the hold's
+   * limit the debt is left to the pause and the idle exit, and input is
+   * asked for again.
+   */
+  private async retryHeld(run: AgentRun): Promise<void> {
+    const owed = this.owed;
+    if (owed === undefined) return;
+    const { retryBackoffMs, retryHoldMs } = this.outsideTurn;
+    owed.heldSince ??= performance.now();
+    const holdEndsAt = owed.heldSince + retryHoldMs;
+    const step = Math.min(owed.failures, retryBackoffMs.length - 1);
+    const retryAt = performance.now() + (retryBackoffMs[step] ?? 0);
+    // A retry due at the limit or past it is not made: the hold ends at the
+    // limit, with no capture started on the way there. Slept in steps, as a
+    // sleep of under a millisecond can return at once.
+    const until = Math.min(retryAt, holdEndsAt);
+    while (
+      this.stopping === undefined &&
+      this.pauseControl === undefined &&
+      performance.now() < until
+    ) {
+      await Promise.race([
+        this.sleep(Math.max(1, until - performance.now())),
+        this.stopped,
+      ]);
+    }
+    if (this.stopping !== undefined || this.pauseControl !== undefined) return;
+    // By the clock as well: a timer can fire late.
+    if (retryAt >= holdEndsAt || performance.now() >= holdEndsAt) {
+      owed.mode = "deferred";
+      owed.holdSpent = true;
+      this.logger.warn("worker.checkpoint.hold_ended", {
+        turn_id: owed.turnId,
+        held_ms: Math.round(performance.now() - owed.heldSince),
+        failures: owed.failures,
+      });
+      return;
+    }
+    await this.captureOwed(run, "between_turns", holdEndsAt);
+  }
+
+  /** Waits, for the settle time at most, until the run has gone quiet. */
+  private async untilQuiet(run: AgentRun): Promise<void> {
+    const deadline = performance.now() + this.outsideTurn.settleWaitMs;
+    while (
+      this.stopping === undefined &&
+      performance.now() < deadline &&
+      !(await this.quiet(run))
+    ) {
+      await this.sleep(CHECKPOINT_PROCESS_POLL_MS);
+    }
+  }
+
+  /**
+   * Whether an idle worker may exit now. Background work is given the grace
+   * and then stopped (or waited out, by `afterIdleGrace`), so the capture
+   * that follows is of a workspace nothing is writing to; an exit without it
+   * leaves the last turn uncovered and the session to a recovery decision.
+   */
+  private async readyToIdleOut(
+    run: AgentRun,
+    overMs: number,
+  ): Promise<boolean> {
+    // The last turn is covered: nothing to capture, so nothing to wait for.
+    this.oweForOutput();
+    if (this.owed === undefined) return true;
+    const config = this.outsideTurn;
+    const below = (await this.options.engines?.descendants?.()) ?? [];
+    const verdict = await this.quietVerdict(run);
+    if (verdict === undefined) return true;
+    const background =
+      below.length > 0 ||
+      (verdict.status === "rejected" && verdict.reason === "background_writer");
+    if (background) {
+      if (
+        overMs < config.idleBackgroundGraceMs ||
+        config.afterIdleGrace === "wait"
+      ) {
+        if (!this.idleGraceLogged) {
+          this.idleGraceLogged = true;
+          this.logger.info("worker.idle.background_grace", {
+            grace_ms: config.idleBackgroundGraceMs,
+            after: config.afterIdleGrace,
+            processes: below.length,
+          });
+        }
+        return false;
+      }
+      await this.stopBackground(run, below);
+      if (this.stopping !== undefined) return true;
+    }
+    this.captureCutInto = false;
+    await this.captureOwed(run, "before_idle_exit");
+    // A capture the engine's own answer cut into is taken once more, when
+    // that answer has ended.
+    if (this.captureCutInto && this.stopping === undefined) {
+      await this.untilQuiet(run);
+      if (this.stopping === undefined) {
+        await this.captureOwed(run, "before_idle_exit");
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Ends the run's descendant processes and says so on the session's stream,
+   * by command name only. What they wrote since the last commit is owed a
+   * capture, taken once the run has gone quiet.
+   */
+  private async stopBackground(run: AgentRun, below: number[]): Promise<void> {
+    const engines = this.options.engines;
+    const config = this.outsideTurn;
+    const commands = (await engines?.commands?.(below)) ?? [];
+    // Named again right before each signal: only what is under the run then.
+    let left = (await engines?.descendants?.()) ?? below;
+    for (const signal of ["SIGTERM", "SIGKILL"] as const) {
+      if (
+        left.length === 0 ||
+        engines?.signal === undefined ||
+        this.stopping !== undefined
+      ) {
+        break;
+      }
+      engines.signal(left, signal);
+      const deadline = performance.now() + config.stopSignalWaitMs;
+      while (left.length > 0 && performance.now() < deadline) {
+        await this.sleep(CHECKPOINT_PROCESS_POLL_MS);
+        left = (await engines.descendants?.()) ?? [];
+      }
+    }
+    this.logger.warn("worker.idle.background_stopped", {
+      commands,
+      processes: below.length,
+      left: left.length,
+    });
+    if (below.length > 0) {
+      this.publisher?.publish(
+        [
+          {
+            id: `background-stopped:${this.scope.attempt_id}`,
+            event: "system",
+            data: {
+              type: "system",
+              subtype: BACKGROUND_TASKS_STOPPED_SUBTYPE,
+              commands,
+            },
+          },
+        ],
+        null,
+      );
+    }
+    const turnId = this.lastFinalizedTurnId;
+    if (this.owed === undefined && turnId !== undefined) {
+      this.owed = { turnId, mode: "quiet", failures: 0, holdSpent: false };
+    }
+    await this.untilQuiet(run);
   }
 
   /**
@@ -3600,10 +4151,10 @@ export class WorkerHost {
         );
       }
     }
-    // No checkpoint is taken here. One only becomes durable riding a turn's
-    // finalize, and a turn given up on the way out is not finalized; an idle
-    // worker leaves the last committed checkpoint as the one to resume from.
-    // A session-level checkpoint commit would change that, and alpha has none.
+    // No checkpoint is taken here: a turn given up on the way out is not
+    // finalized, and a stop is no time to wait for the run to go quiet. What
+    // the last finalized turn was owed is captured before an idle exit, in
+    // the turn loop (readyToIdleOut), while the lease is still plainly held.
     const closing = run?.close().catch((error) => {
       this.logger.warn("worker.close.failed", { reason: describe(error) });
     });
@@ -3901,7 +4452,12 @@ export class WorkerHost {
   }
 }
 
-type Captured = { lease: CheckpointLease | null; ref: CheckpointRef | null };
+type Captured = {
+  lease: CheckpointLease | null;
+  ref: CheckpointRef | null;
+  /** Why there is no ref, when the port named it. */
+  refusal?: CaptureRefusal;
+};
 
 /**
  * A stable UUID for one delivered input. Derived rather than random so the

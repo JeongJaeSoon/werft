@@ -52,9 +52,11 @@ const BUDGET_BYTES: Record<string, number> = {
   // then fit ./schemas but put ./forms 117 bytes over 152, so it moves to 153.
   // The session detail's start_fresh_available and the start_fresh notice
   // words, on top of main's growth, put ./schemas 32 bytes over 155, so it
-  // moves to 156.
+  // moves to 156. The worker protocol's commit outside a turn and the
+  // events' after_turn mark put ./forms 73 bytes over 153, so it moves to
+  // 154.
   "./schemas": 156 * 1024,
-  "./forms": 153 * 1024,
+  "./forms": 154 * 1024,
 };
 
 test("every entry has a budget", () => {

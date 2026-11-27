@@ -300,6 +300,70 @@ describe("the account a running turn's calls are held on", () => {
     expect((await call()).turnId).toBe("2");
   });
 
+  test("a call between turns is charged as the turn the attempt ended last, not as the session's first", async () => {
+    const who = await sessionOf();
+    const [ana, ben] = [crypto.randomUUID(), crypto.randomUUID()];
+    await who.run(web(ana));
+    await who.run(web(ben));
+    // Both ended: what the engine does now continues the second.
+    await db
+      .update(turns)
+      .set({ status: "completed", endedAt: new Date() })
+      .where(eq(turns.sessionId, who.sessionId));
+
+    const between = await open(who);
+
+    expect(between.opened).toEqual({ outcome: "created" });
+    expect((await reservationOf(between.exchangeId))?.accountId).toBe(
+      (await accountOf(ben))?.id,
+    );
+    expect(await accountOf(ana)).toBeUndefined();
+    // No turn is running, so the choice names none for the refusal's record.
+    expect(
+      (
+        await budgetChoiceOfCall(db, {
+          exchangeId: crypto.randomUUID(),
+          sessionId: who.sessionId,
+          attemptId: who.attemptId,
+        })
+      ).turnId,
+    ).toBeNull();
+  });
+
+  test("a turn another attempt ended is not what this attempt's call between turns continues", async () => {
+    const who = await sessionOf();
+    const [ana, ben] = [crypto.randomUUID(), crypto.randomUUID()];
+    await db.insert(turns).values([
+      {
+        sessionId: who.sessionId,
+        sequence: 1,
+        message: "turn 1",
+        status: "completed",
+        endedAt: new Date(),
+        attemptId: "att-earlier",
+        ...web(ana),
+      },
+      {
+        sessionId: who.sessionId,
+        sequence: 2,
+        message: "turn 2",
+        status: "completed",
+        endedAt: new Date(),
+        attemptId: "att-earlier",
+        ...web(ben),
+      },
+    ]);
+
+    // This attempt has ended none: its call is the session's, as before.
+    const call = await open(who);
+
+    expect(call.opened).toEqual({ outcome: "created" });
+    expect((await reservationOf(call.exchangeId))?.accountId).toBe(
+      (await accountOf(ana))?.id,
+    );
+    expect(await accountOf(ben)).toBeUndefined();
+  });
+
   test("an open's replay keeps the first open's account after its turn ends or the next one starts", async () => {
     const who = await sessionOf();
     const [ana, ben] = [crypto.randomUUID(), crypto.randomUUID()];

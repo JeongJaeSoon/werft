@@ -54,6 +54,20 @@ export class TurnLedger {
   private readonly sent = new Set<string>();
   private sessionId: string | undefined;
   private streaming = false;
+  /**
+   * The engine is answering with no input pending: a background task ended
+   * and it says so on its own. Open from the task's notification, which is
+   * what starts that answer, until the answer's result, like a turn: a
+   * checkpoint taken in between holds the notification without the answer,
+   * and the engine restored from it answers again.
+   */
+  private unprompted = false;
+  /**
+   * The lease such an answer began under. Its capture may hold the task's
+   * notification without the answer however soon the answer ends, so it
+   * stays refused until that lease is given back.
+   */
+  private cutInto: object | undefined;
   private readonly toolsInFlight = new Set<string>();
   /**
    * Calls that ended on this run, whose tool_result an approval-wait
@@ -115,9 +129,23 @@ export class TurnLedger {
     }
     if (message.type !== "result") {
       this.streaming = this.pending.size > 0;
+      if (
+        this.pending.size === 0 &&
+        ((message.type === "assistant" && message.parent_tool_use_id == null) ||
+          // An ambient task's notification (one kept out of the transcript,
+          // a live-update watcher) is not put to the model.
+          (message.type === "system" &&
+            message.subtype === "task_notification" &&
+            message.ambient !== true &&
+            message.skip_transcript !== true))
+      ) {
+        this.unprompted = true;
+        this.cutInto ??= this.lease;
+      }
       return;
     }
     this.streaming = false;
+    this.unprompted = false;
     const last = message.user_message_uuid;
     if (typeof last === "string" && this.pending.has(last)) {
       for (const uuid of [...this.pending]) {
@@ -250,7 +278,17 @@ export class TurnLedger {
     if (point === "approval_wait") return this.prepareApprovalCheckpoint();
     const mirror = this.mirrorRefusal();
     if (mirror !== undefined) return mirror;
-    if (this.streaming || this.pending.size > 0) {
+    const tools = this.toolsInFlight.size + this.asking.length;
+    // The engine's own answer counts ahead of a lease: one that begins while
+    // a capture holds the lease is how that capture learns its transcript
+    // is mid-answer. With a call of that answer still running, the call is
+    // the nearer reason.
+    if (
+      this.streaming ||
+      this.pending.size > 0 ||
+      (this.unprompted && tools === 0) ||
+      (this.lease !== undefined && this.cutInto === this.lease)
+    ) {
       return {
         status: "rejected",
         reason: "turn_in_flight",
@@ -259,7 +297,6 @@ export class TurnLedger {
     }
     const lease = this.leaseRefusal();
     if (lease !== undefined) return lease;
-    const tools = this.toolsInFlight.size + this.asking.length;
     if (tools > 0) {
       return {
         status: "rejected",
@@ -357,6 +394,7 @@ export class TurnLedger {
       lease: {
         release: () => {
           if (this.lease === held) this.lease = undefined;
+          if (this.cutInto === held) this.cutInto = undefined;
         },
       },
     };

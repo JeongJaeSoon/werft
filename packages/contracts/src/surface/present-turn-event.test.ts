@@ -478,6 +478,28 @@ describe("presentTurnEvent", () => {
     ).toMatchObject({ summary: [{ text: "approval_checkpoint_failed" }] });
   });
 
+  test("background work an idle worker stopped is named by command, and nothing else of the event is shown", () => {
+    expect(
+      presentTurnEvent({
+        event: "system",
+        data: {
+          type: "system",
+          subtype: "background_tasks_stopped",
+          commands: ["sleep", "npm run dev --token=abc", "node"],
+          after_turn: true,
+        },
+      }),
+    ).toEqual({
+      label: { key: "session.event.kind.system" },
+      summary: [
+        {
+          key: "session.event.backgroundTasksStopped",
+          params: { commands: "sleep, node" },
+        },
+      ],
+    });
+  });
+
   test("an attached repository not fetched again at its commit names both", () => {
     const commit = "a".repeat(40);
     expect(
