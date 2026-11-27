@@ -1980,6 +1980,16 @@ describe("changelog-release.ts", () => {
       "a.md:2: a control character (a tab too)",
     ],
     [
+      "a heading inside an entry",
+      { "a.md": ops("## v0.5.0") },
+      "a.md:3: a heading inside an entry",
+    ],
+    [
+      "a setext underline inside an entry",
+      { "a.md": `${ops("x")}  ==\n` },
+      "a.md:4: a heading inside an entry",
+    ],
+    [
       "a fence left open",
       { "a.md": `${ops("x")}  \`\`\`sh\n  echo\n` },
       "a.md: a code fence is not closed",

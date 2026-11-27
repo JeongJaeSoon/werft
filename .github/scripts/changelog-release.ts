@@ -67,6 +67,13 @@ function checkFragmentLine(
   if (/^\s*(([-*+]|\d+[.)]|>)\s*)+(`{3,}|~{3,})/.test(line)) {
     fail("a code fence opens on its own line, two spaces under an entry");
   }
+  // A heading inside an entry would take the anchor of a version section.
+  if (
+    /^#{1,6}( |$)/.test(line.replace(MARKERS, "")) ||
+    /^ *(=+|-+) *$/.test(line)
+  ) {
+    fail("a heading inside an entry");
+  }
   // "- - -" is a rule, not an entry, and ends the section's list.
   if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) fail("a thematic break");
   if (marker !== null) {
