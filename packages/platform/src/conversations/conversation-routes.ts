@@ -11,7 +11,6 @@ import {
   SessionServiceError,
 } from "../musterrolle/index.ts";
 import type { SessionService } from "../sessions/index.ts";
-import type { SessionLinkStore } from "../sessions/ports/session-link-store.ts";
 import {
   CONNECT_REASONS,
   type ConversationTurnSurfaceSubject,
@@ -60,6 +59,11 @@ export type ConversationRouteTaskThread = {
 export interface ConversationRouteStore {
   /** The turn's route_to_task decision with no effect yet; null for none. */
   pending(turnId: ConversationTurnId): Promise<PendingConversationRoute | null>;
+  /**
+   * The turn's input is in its task: written by an earlier run, or one
+   * running beside this one, whatever has changed since.
+   */
+  handed(route: PendingConversationRoute): Promise<boolean>;
   /** Check spot ④: a message the turn read is marked deleted. */
   sourceDeleted(route: PendingConversationRoute): Promise<boolean>;
   /** The request as the turn's runtime was given it; null once it is gone. */
@@ -76,7 +80,9 @@ export interface ConversationRouteStore {
    * Records the effect. `line` is a server line for the turn's thread;
    * `mirror`, for a hand-off from another thread, points that thread at the
    * task and, when the thread pointed elsewhere or nowhere before, posts
-   * the pointer line once. True for the run that recorded it.
+   * the pointer line once. True for the run that recorded it; an effect
+   * other than `routed` is not recorded once the turn's input is in its
+   * task.
    */
   settle(
     route: PendingConversationRoute,
@@ -118,7 +124,6 @@ export const conversationRouteInputKey = (turnId: ConversationTurnId) =>
 export async function routeConversationTurn(
   deps: {
     store: ConversationRouteStore;
-    links: Pick<SessionLinkStore, "slackTurn">;
     authorization: Pick<AuthorizationPolicy, "authorize">;
     sessions: Pick<SessionService, "appendMessage">;
     /** An ephemeral line to the requester; false when Slack did not take it. */
@@ -152,8 +157,9 @@ export async function routeConversationTurn(
       ...ids,
       reason,
     });
-    await deps.store.settle(route, effect, line, null);
-    return effect;
+    return (await deps.store.settle(route, effect, line, null))
+      ? effect
+      : "none";
   };
   const routed = async (
     task: ConversationRouteTaskThread | null,
@@ -162,26 +168,23 @@ export async function routeConversationTurn(
       task !== null &&
       (task.channelId !== route.thread.channelId ||
         task.threadTs !== route.thread.threadTs);
-    await deps.store.settle(route, "routed", null, elsewhere ? task : null);
+    if (
+      !(await deps.store.settle(route, "routed", null, elsewhere ? task : null))
+    ) {
+      return "none";
+    }
     deps.logger.info("Conversation turn handed to its task", ids);
     return "routed";
   };
 
+  const task = await deps.store.openTask(route);
+  // Written before a crash: it is the hand-off, whatever has changed since.
+  if (await deps.store.handed(route)) return routed(task);
   // Deleted before the hand-off: nothing is written, and nothing is said.
   if (await deps.store.sourceDeleted(route)) {
     return told("voided", null, "source_deleted");
   }
   const { thread, subject } = route;
-  const task = await deps.store.openTask(route);
-  const message = {
-    teamId: thread.teamId,
-    channelId: thread.channelId,
-    ts: thread.messageTs,
-  };
-  // Written before a crash: it is the hand-off, whatever the right since.
-  if ((await deps.links.slackTurn(route.sessionId, message)) !== null) {
-    return routed(task);
-  }
   if (subject === null || thread.slackAppId === null) {
     return told("failed", "routeFailed", "turn_unbound");
   }
@@ -202,13 +205,14 @@ export async function routeConversationTurn(
       route,
       routeRefusalNotice(reason, deps.connectUrl),
     );
-    await deps.store.settle(
+    return (await deps.store.settle(
       route,
       "refused",
       heard ? null : "routeFailed",
       null,
-    );
-    return "refused" as const;
+    ))
+      ? ("refused" as const)
+      : ("none" as const);
   };
   const decision = await deps.authorization.authorize({
     action: "session.submit",
@@ -232,6 +236,7 @@ export async function routeConversationTurn(
       route.sessionId,
       {
         idempotencyKey: conversationRouteInputKey(turnId),
+        conversationTurnId: turnId,
         // Behind the task's running turn, if it has one.
         body: { message: requestText, mode: "enqueue" },
         slackMessage: {

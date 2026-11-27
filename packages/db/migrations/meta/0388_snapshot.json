@@ -7786,7 +7786,7 @@
         },
         "conversation_turns_task_check": {
           "name": "conversation_turns_task_check",
-          "value": "(\"conversation_turns\".\"task_draft\" IS NULL OR \"conversation_turns\".\"decision\" = 'spawn_task') AND (\"conversation_turns\".\"routed_session_id\" IS NULL OR \"conversation_turns\".\"decision\" = 'route_to_task') AND (\"conversation_turns\".\"task_effect\" IS NULL OR (\"conversation_turns\".\"decision\" = 'spawn_task' AND \"conversation_turns\".\"task_effect\" IN ('opened','refused','failed','voided')) OR (\"conversation_turns\".\"decision\" = 'route_to_task' AND \"conversation_turns\".\"task_effect\" IN ('routed','refused','failed','voided')))"
+          "value": "(\"conversation_turns\".\"task_draft\" IS NULL OR \"conversation_turns\".\"decision\" IS NOT DISTINCT FROM 'spawn_task') AND (\"conversation_turns\".\"routed_session_id\" IS NULL OR \"conversation_turns\".\"decision\" IS NOT DISTINCT FROM 'route_to_task') AND (\"conversation_turns\".\"task_effect\" IS NULL OR (\"conversation_turns\".\"decision\" IS NOT DISTINCT FROM 'spawn_task' AND \"conversation_turns\".\"task_effect\" IN ('opened','refused','failed','voided')) OR (\"conversation_turns\".\"decision\" IS NOT DISTINCT FROM 'route_to_task' AND \"conversation_turns\".\"task_effect\" IN ('routed','refused','failed','voided') AND (\"conversation_turns\".\"task_effect\" <> 'routed' OR \"conversation_turns\".\"routed_session_id\" IS NOT NULL)))"
         },
         "conversation_turns_text_check": {
           "name": "conversation_turns_text_check",

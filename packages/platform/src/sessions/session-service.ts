@@ -1286,6 +1286,8 @@ export function createSessionService(deps: {
         traceContext?: string;
         /** A conversation turn's sources, handed on with its message (v1-b/E4). */
         carriedSources?: StoredSourceSet | null;
+        /** As `AppendMessageInput.conversationTurnId`. */
+        conversationTurnId?: string;
       },
     ): Promise<PostSessionMessageResponse> {
       // A private agent's refusal is kept for the write: a retry of an input
@@ -1325,6 +1327,9 @@ export function createSessionService(deps: {
         ...(input.carriedSources == null
           ? {}
           : { carriedSources: input.carriedSources }),
+        ...(input.conversationTurnId === undefined
+          ? {}
+          : { conversationTurnId: input.conversationTurnId }),
         ...(agentPrivate ? { agentPrivate: true as const } : {}),
       });
       const response = await appended(actor.ownerId, result, agentPrivate);

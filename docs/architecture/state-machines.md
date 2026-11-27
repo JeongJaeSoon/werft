@@ -10,8 +10,8 @@
 
 | 지금 상태 | 다음 상태 | 조건 | 누가 일으키나 |
 | --- | --- | --- | --- |
-| `decided`, `task_effect` 없음 | `routed` | 출처 글이 지워지지 않았고, 대상이 턴과 같은 대화의 열린 작업이고, 글쓴이가 그 작업에 `session.submit` 권한이 있고, 보관한 요청 사본이 있어 그 작업에 입력이 들어갔다. 앞선 실행이 입력을 이미 넣었으면 판정 없이 `routed`다 | 턴 끝내기 pass |
-| `decided`, `task_effect` 없음 | `refused` | 글쓴이의 `session.submit`이 거절됐다. 요청자에게만 알리고, 그 글이 닿지 않으면 스레드에 서버 한 줄을 단다 | 턴 끝내기 pass |
+| `decided`, `task_effect` 없음 | `routed` | 출처 글이 지워지지 않았고, 대상이 턴과 같은 대화의 열린 작업이고, 글쓴이가 그 작업에 `session.submit` 권한이 있고, 보관한 요청 사본이 있어 그 작업에 입력이 들어갔다. 이 턴의 입력이 이미 작업에 있으면(앞선 실행이나 나란히 돈 실행이 넣었다) 그 뒤 글이 지워졌거나 권한이 바뀌었어도 판정 없이 `routed`다 | 턴 끝내기 pass |
+| `decided`, `task_effect` 없음 | `refused` | (아래 셋은 이 턴의 입력이 작업에 없을 때만) 글쓴이의 `session.submit`이 거절됐다. 요청자에게만 알리고, 그 글이 닿지 않으면 스레드에 서버 한 줄을 단다 | 턴 끝내기 pass |
 | `decided`, `task_effect` 없음 | `failed` | 대상이 닫혔거나 다른 대화(다른 채널, 다른 사람의 DM)의 작업이다. 턴이 Slack 앱이나 Slack 주체에 묶여 있지 않다. 출처 집합이 넘쳤다. 요청 사본의 기한(1시간)이 지났다. 그 밖의 세션 거절. 스레드에 서버 한 줄을 단다 | 턴 끝내기 pass |
 | `decided`, `task_effect` 없음 | `voided` | 턴이 읽은 글에 지움 표식이 있다(효과 직전, 또는 입력을 받을 때). 아무것도 쓰지 않고 말하지 않는다 | 턴 끝내기 pass |
 | `routed`, `refused`, `failed`, `voided` | (없음) | 끝 상태다. 다시 돌려도 바뀌지 않는다 | — |
@@ -20,9 +20,10 @@
 
 - 끝 상태는 다른 끝 상태로 가지 않는다. 효과는 `task_effect`가 비어 있을 때만 쓴다.
 - `route_to_task`의 효과는 작업을 새로 만들지 않는다. 대상 작업이 실행 중이면 입력은 그 뒤에 줄을 선다.
-- `routed`면 대상 작업에 그 글의 입력이 하나 있고, 다른 값이면 없다. 같은 턴을 몇 번 돌려도 입력, mirror 줄, 안내 줄은 하나다.
+- `routed`면 대상 작업에 그 글의 입력이 하나 있고, 다른 값이면 없다. 입력은 턴 id를 키로, 호출자가 보내는 어떤 키와도 겹치지 않는 범위에서 받는다. `routed`가 아닌 끝은 그 입력이 없을 때만 쓴다. 같은 턴을 몇 번 돌려도 입력, mirror 줄, 스레드 안내 줄은 하나다.
+- 요청자에게만 보이는 거절 알림은 끝을 쓰기 전에 보낸다. 끝을 쓰기 전에 실행이 멈추거나 두 실행이 나란히 돌면 또 갈 수 있다(`spawn_task`의 거절 알림과 같다).
 - 넘긴 입력은 턴의 출처 집합 전체(direct와 inherited)를 싣는다. 그중 하나가 지워지면 그 출처를 실은 보내기가 막힌다.
-- `spawn_task`의 값(`opened`)과 `route_to_task`의 값(`routed`)은 섞이지 않는다. `routed_session_id`는 `route_to_task` 턴에만 있다(CHECK `conversation_turns_task_check`).
+- `spawn_task`의 값(`opened`)과 `route_to_task`의 값(`routed`)은 섞이지 않는다. `routed_session_id`는 `route_to_task` 턴에만 있고, `routed`면 반드시 있다. 결정이 없는 턴에는 `task_draft`, `routed_session_id`, `task_effect`가 모두 없다(CHECK `conversation_turns_task_check`).
 
 ### `spawn_task`
 
@@ -47,5 +48,5 @@
 
 지키는 성질:
 
-- 안내는 가리키는 작업이 바뀔 때만 단다. A→B→A면 두 번 단다. 안내의 중복 키는 스레드, 대상 작업, `rev`라서 같은 바뀜에 두 번 달리지 않는다.
+- 안내는 가리키는 작업이 바뀔 때만 단다. A→B→A면 두 번 단다. 안내의 중복 키는 mirror 줄의 id와 `rev`라서 같은 바뀜에 두 번 달리지 않는다. cascade로 지워진 뒤 새로 생긴 줄은 id가 달라 `rev` 1부터 다시 안내한다.
 - 줄 바꾸기와 안내 달기는 한 transaction이다. 두 글이 같은 작업으로 동시에 넘어가도 안내는 하나다(스레드의 유일 인덱스가 순서를 정한다).

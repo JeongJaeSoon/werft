@@ -217,7 +217,10 @@ import {
 import { m1GateOpenForWrite } from "./surface/m1-judgments.ts";
 
 export const CREATE_SESSION = "create_session";
-const APPEND_MESSAGE = "append_message";
+export const APPEND_MESSAGE = "append_message";
+/** The receipt scope of the inputs conversation turns hand to a session. */
+export const conversationTurnInputScope = (sessionId: string) =>
+  `${sessionId.toLowerCase()}:conversation_turn`;
 export const SESSIONS_RESOURCE = "sessions";
 
 async function recordAcceptance(
@@ -914,13 +917,15 @@ export function createPostgresSessionUnitOfWork(
         // with whatever key: the turn is the key, in a scope of its own
         // that no key a caller sends for a message can name.
         resource:
-          input.continueTurn === undefined
-            ? sessionId
-            : `${sessionId}:continue`,
+          input.continueTurn !== undefined
+            ? `${sessionId}:continue`
+            : input.conversationTurnId !== undefined
+              ? conversationTurnInputScope(sessionId)
+              : sessionId,
         key:
-          input.continueTurn === undefined
-            ? input.idempotencyKey
-            : String(input.continueTurn),
+          input.continueTurn !== undefined
+            ? String(input.continueTurn)
+            : (input.conversationTurnId ?? input.idempotencyKey),
       };
       return acceptanceTransaction(db, async (tx) => {
         await lockIdempotencyScope(tx, scope);

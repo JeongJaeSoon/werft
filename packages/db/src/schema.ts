@@ -6016,7 +6016,7 @@ export const conversationTurns = pgTable(
     ),
     check(
       "conversation_turns_task_check",
-      sql`(${table.taskDraft} IS NULL OR ${table.decision} = 'spawn_task') AND (${table.routedSessionId} IS NULL OR ${table.decision} = 'route_to_task') AND (${table.taskEffect} IS NULL OR (${table.decision} = 'spawn_task' AND ${table.taskEffect} IN (${sql.raw(sqlList(CONVERSATION_TASK_EFFECT_VALUES))})) OR (${table.decision} = 'route_to_task' AND ${table.taskEffect} IN (${sql.raw(sqlList(CONVERSATION_ROUTE_EFFECT_VALUES))})))`,
+      sql`(${table.taskDraft} IS NULL OR ${table.decision} IS NOT DISTINCT FROM 'spawn_task') AND (${table.routedSessionId} IS NULL OR ${table.decision} IS NOT DISTINCT FROM 'route_to_task') AND (${table.taskEffect} IS NULL OR (${table.decision} IS NOT DISTINCT FROM 'spawn_task' AND ${table.taskEffect} IN (${sql.raw(sqlList(CONVERSATION_TASK_EFFECT_VALUES))})) OR (${table.decision} IS NOT DISTINCT FROM 'route_to_task' AND ${table.taskEffect} IN (${sql.raw(sqlList(CONVERSATION_ROUTE_EFFECT_VALUES))}) AND (${table.taskEffect} <> 'routed' OR ${table.routedSessionId} IS NOT NULL)))`,
     ),
     check(
       "conversation_turns_text_check",

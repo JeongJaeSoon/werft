@@ -4919,6 +4919,14 @@ describe.each(ENGINES)(
           ),
         ),
       ).rejects.toThrow();
+      // A hand-off is routed to the task it names.
+      await expect(
+        Promise.resolve(
+          db.execute(
+            sql`UPDATE conversation_turns SET routed_session_id = NULL WHERE id = ${turn.turn_id}::uuid`,
+          ),
+        ),
+      ).rejects.toThrow();
     });
 
     test("a message handed to a task with a running turn waits behind it, and no task is made", async () => {
@@ -5122,6 +5130,104 @@ describe.each(ENGINES)(
       expect(await mirrors()).toHaveLength(1);
       await sendOutbox();
       expect(mirrorLines("100.000200")).toHaveLength(1);
+    });
+
+    test("a hand-off written before a crash and deleted since is still routed, and its line is stopped", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await openTask(fixture, "100.000100");
+      await followUp(fixture, "100.000200");
+      const turn = await routeDecided(task);
+      await db.execute(
+        sql.raw(`CREATE FUNCTION fail_settle() RETURNS trigger LANGUAGE plpgsql
+          AS $$ BEGIN RAISE EXCEPTION 'settle lost'; END $$`),
+      );
+      await db.execute(
+        sql.raw(`CREATE TRIGGER fail_settle BEFORE UPDATE OF task_effect
+          ON conversation_turns FOR EACH ROW EXECUTE FUNCTION fail_settle()`),
+      );
+      try {
+        expect(await endings()).toMatchObject({ routed: 0, failed: 1 });
+      } finally {
+        await db.execute(
+          sql.raw("DROP TRIGGER fail_settle ON conversation_turns"),
+        );
+        await db.execute(sql.raw("DROP FUNCTION fail_settle()"));
+      }
+      expect(await taskTurns(task)).toHaveLength(2);
+      await schema.createPostgresSlackSourceMarkStore(db).markDeleted({
+        workspaceId: fixture.workspaceId,
+        teamId: TEAM,
+        channelId: CHANNEL,
+        ts: "100.000200",
+        at: new Date(),
+      });
+      // The input is in the task: the turn says so, not voided.
+      expect(await endings()).toMatchObject({ routed: 1 });
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        effect: "routed",
+      });
+      await sendOutbox();
+      expect(postsIn("100.000200")).toEqual([]);
+    });
+
+    test("a caller's key that names a turn's hand-off does not stand in for it", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await openTask(fixture, "100.000100");
+      await followUp(fixture, "100.000200");
+      const turn = await routeDecided(task);
+      // What a person's own API message under that key would have left.
+      const receiptId = crypto.randomUUID();
+      await db.insert(schema.receipts).values({
+        id: receiptId,
+        ownerId: fixture.workspaceId,
+        operation: "append_message",
+        targetRef: { session_id: task, turn_id: "1", request_id: null },
+      });
+      await db.insert(schema.idempotencyKeys).values({
+        principal: fixture.workspaceId,
+        operation: "append_message",
+        resource: task,
+        key: `conversation_route:${turn.turn_id}`,
+        payloadHash: "planted",
+        receiptId,
+      });
+      expect(await endings()).toMatchObject({ routed: 1 });
+      expect(await taskTurns(task)).toHaveLength(2);
+      // The planted key was in the hand-off's own principal and operation.
+      expect(
+        (await db.select().from(schema.idempotencyKeys)).filter(
+          (row) => row.key === turn.turn_id,
+        ),
+      ).toMatchObject([
+        {
+          principal: fixture.workspaceId,
+          operation: "append_message",
+          resource: `${task}:conversation_turn`,
+        },
+      ]);
+    });
+
+    test("a mirror row its task's delete took away starts a new line for the next task", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const a = await openTask(fixture, "100.000100");
+      const b = await openTask(fixture, "100.000300");
+      const step = async (ts: string, to: string) => {
+        await followUp(fixture, ts, "100.000200");
+        await routeDecided(to);
+        expect(await endings()).toMatchObject({ routed: 1 });
+        await sendOutbox();
+      };
+      await step("100.000200", b);
+      await step("100.000210", a);
+      expect(mirrorLines("100.000200")).toHaveLength(1);
+      // As the cascade of a's delete leaves it: no row for the thread.
+      await db.delete(schema.taskThreadMirrors);
+      await step("100.000220", b);
+      expect(await mirrors()).toMatchObject([{ sessionId: b, rev: 1 }]);
+      expect(mirrorLines("100.000200")).toHaveLength(1);
+      expect(mirrorLines("100.000200")[0]?.text).toContain(
+        threadUrl("100.000300"),
+      );
     });
 
     test("the handed input and its line carry the turn's whole source set; a read message deleted stops the line", async () => {

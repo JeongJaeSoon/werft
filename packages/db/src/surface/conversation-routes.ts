@@ -21,6 +21,10 @@ import {
   lockedDeletedSource,
   releaseKeptTurnRequest,
 } from "../conversations/index.ts";
+import {
+  APPEND_MESSAGE,
+  conversationTurnInputScope,
+} from "../postgres-unit-of-work.ts";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
 import { conversationReplyDedupeKey } from "./conversation-replies.ts";
@@ -28,7 +32,7 @@ import { createPostgresSlackOutboxStore } from "./slack-outbox.ts";
 
 /**
  * Points the mirror thread at the task, under the thread's unique index;
- * the thread's new `rev` when the pointer line is due (the thread pointed
+ * the row and its new `rev` when the pointer line is due (the thread pointed
  * nowhere, or at another task: A→B, and A→B→A twice), null when it already
  * pointed at this task. This is where which task a mirror names is decided.
  */
@@ -42,8 +46,8 @@ export async function pointThreadMirror(
     threadTs: string;
     sessionId: string;
   },
-): Promise<number | null> {
-  const [row] = rowsOf<{ rev: number }>(
+): Promise<{ id: string; rev: number } | null> {
+  const [row] = rowsOf<{ id: string; rev: number }>(
     await tx.execute(sql`
       INSERT INTO task_thread_mirrors AS m (workspace_id, agent_id,
         installation_id, channel_id, thread_ts, session_id)
@@ -54,17 +58,24 @@ export async function pointThreadMirror(
         SET session_id = EXCLUDED.session_id, rev = m.rev + 1,
           updated_at = now()
         WHERE m.session_id IS DISTINCT FROM EXCLUDED.session_id
-      RETURNING m.rev`),
+      RETURNING m.id, m.rev`),
   );
-  return row?.rev ?? null;
+  return row ?? null;
 }
 
-/** One pointer line per change of a mirror thread's task. */
-export const taskMirrorDedupeKey = (
-  input: { channelId: string; threadTs: string; sessionId: string },
-  rev: number,
-) =>
-  `task_mirror:${input.channelId}:${input.threadTs}:${input.sessionId}:${rev}`;
+/**
+ * One pointer line per change of a mirror thread's task. The row's id is
+ * in it: a row its task's delete took away starts again at `rev` 1.
+ */
+export const taskMirrorDedupeKey = (mirror: { id: string; rev: number }) =>
+  `task_mirror:${mirror.id}:${mirror.rev}`;
+
+/** The turn's input is in its task: its own receipt, whoever wrote it. */
+const handedInput = (route: PendingConversationRoute) => sql`
+  EXISTS (SELECT 1 FROM idempotency_keys
+    WHERE operation = ${APPEND_MESSAGE}
+      AND resource = ${conversationTurnInputScope(route.sessionId)}
+      AND key = ${route.turnId})`;
 
 /**
  * What a mention turn's route_to_task decision reads and writes (v1-b/E4).
@@ -148,6 +159,13 @@ export function createPostgresConversationRoutes(
       } as PendingConversationRoute;
     },
 
+    async handed(route) {
+      const [row] = rowsOf<{ handed: boolean }>(
+        await db.execute(sql`SELECT ${handedInput(route)} AS handed`),
+      );
+      return row?.handed === true;
+    },
+
     async sourceDeleted(route) {
       return db.transaction(
         async (tx) =>
@@ -195,6 +213,8 @@ export function createPostgresConversationRoutes(
             UPDATE conversation_turns SET task_effect = ${effect}
             WHERE id = ${route.turnId}::uuid AND decision = 'route_to_task'
               AND task_effect IS NULL
+              AND (${effect} = 'routed' OR NOT ${handedInput(route)})
+              -- No other end for a turn whose input its task took.
             RETURNING id`),
         );
         await releaseKeptTurnRequest(tx, route.turnId);
@@ -207,7 +227,7 @@ export function createPostgresConversationRoutes(
           link?: string;
         };
         if (mirror !== null) {
-          const rev = await pointThreadMirror(tx, {
+          const pointed = await pointThreadMirror(tx, {
             workspaceId: route.workspaceId,
             agentId: route.agentId,
             installationId: thread.installationId,
@@ -215,17 +235,10 @@ export function createPostgresConversationRoutes(
             threadTs: thread.threadTs,
             sessionId: route.sessionId,
           });
-          if (rev === null) return true;
+          if (pointed === null) return true;
           post = {
             text: "routeMirror",
-            dedupeKey: taskMirrorDedupeKey(
-              {
-                channelId: thread.channelId,
-                threadTs: thread.threadTs,
-                sessionId: route.sessionId,
-              },
-              rev,
-            ),
+            dedupeKey: taskMirrorDedupeKey(pointed),
             link: slackMessageUrl(mirror.channelId, mirror.threadTs),
           };
         } else if (line !== null) {
