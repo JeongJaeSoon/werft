@@ -38,14 +38,14 @@ function checkFragmentLine(
   const fail = (why: string) => {
     throw new Error(`${where}: ${why}`);
   };
-  if (
-    /[\p{Zl}\p{Zp}]/u.test(line) ||
-    /\p{Cc}/u.test(line.replaceAll("\t", ""))
-  ) {
-    fail("a control character or line separator");
+  if (/[\p{Zl}\p{Zp}]/u.test(line) || /\p{Cc}/u.test(line)) {
+    fail("a control character (a tab too) or line separator");
+  }
+  // Only ASCII spaces indent, so a line Markdown reads as blank is blank here.
+  if (/[^ ]/.test(/^\s*/.exec(line)?.[0] ?? "")) {
+    fail("an indent other than spaces");
   }
   if (line.trim() === "" || line.startsWith("#")) return;
-  if (/^\s*\t/.test(line)) fail("a tab in the indent; indent with spaces");
   if (fence !== null) {
     if (!line.startsWith(fence.indent))
       fail("a line inside a code fence is less indented than the fence");
@@ -58,7 +58,7 @@ function checkFragmentLine(
   }
   // Where an entry's text starts sets how its later lines nest: one space after
   // every list marker, and a fence opens on its own line two spaces in.
-  if (/^\s*([-*+]|\d+[.)]) {2,}/.test(line)) {
+  if (/^ *([-*+]|\d+[.)])(\s{2,}|[^\S ])/.test(line)) {
     fail("more than one space after a list marker");
   }
   if (marker !== null && fence === null && marker[1] !== "  ") {

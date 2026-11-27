@@ -1925,7 +1925,7 @@ describe("changelog-release.ts", () => {
     [
       "a line separator",
       { "a.md": ops(`x${String.fromCharCode(0x2028)}## v999.0.1`) },
-      "a.md:3: a control character or line separator",
+      "a.md:3: a control character (a tab too) or line separator",
     ],
     [
       "a reference definition behind a code span",
@@ -1967,7 +1967,17 @@ describe("changelog-release.ts", () => {
     [
       "a tab in the indent",
       { "a.md": `${ops("x")}\t이어서\n` },
-      "a.md:4: a tab in the indent",
+      "a.md:4: a control character (a tab too)",
+    ],
+    [
+      "a line of a no-break space inside a fence",
+      { "a.md": `${ops("x")}  ~~~\n${String.fromCharCode(160)}\n  ~~~\n` },
+      "a.md:5: an indent other than spaces",
+    ],
+    [
+      "a tab after a list marker",
+      { "a.md": "### 운영자가 할 일\n-\tx\n  ## v0.5.0\n" },
+      "a.md:2: a control character (a tab too)",
     ],
     [
       "a fence left open",
