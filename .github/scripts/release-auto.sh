@@ -8,6 +8,7 @@
 #           not one clean new heading fails, and so does a release commit that
 #           still holds changelog fragments (changelog.d/*.md other than
 #           README.md): changelog-release.ts collects them into the heading.
+#           A retry is refused on a fragment too.
 #           EVENT workflow_dispatch (a retry of a release whose run failed):
 #           AFTER's top `## vX.Y.Z` heading, unless its tag or its Release
 #           already exists. Writes `tag=` to GITHUB_OUTPUT either way.
@@ -81,7 +82,7 @@ detect() {
 # a release whose checks failed has no tag, and the push that fixes it adds
 # no heading. A version already tagged or released is not retried.
 detect_retry() {
-  local after="${AFTER:?}" top dup why intro
+  local after="${AFTER:?}" top dup why
   [[ "$after" =~ ^[0-9a-f]{40}$ ]] || fail "'${after}' is not a commit"
   dup="$(headings "$after" | sort | uniq -d)"
   [ -z "$dup" ] || fail "CHANGELOG.md has more than one section for ${dup//$'\n'/, }"
@@ -94,10 +95,9 @@ detect_retry() {
     echo "${top} is not retried: ${why}"
     return 0
   fi
-  # The oldest commit whose CHANGELOG.md diff has the heading line added it.
-  intro="$(git log --format=%H --reverse -G "^## ${top//./\\.}\$" "$after" -- CHANGELOG.md | awk 'NR == 1')"
-  [ -n "$intro" ] || fail "no commit before ${after} adds the ${top} heading"
-  fragments_collected "$intro" "$after" "$top"
+  # A retry releases main's head, so the pull requests merged after the
+  # refused push ship in this version too: their fragments go in its section.
+  fragments_collected "$after" "$top"
   tag="$top"
 }
 
@@ -124,7 +124,7 @@ detect_push() {
       || fail "this push adds more than one version section: ${added//$'\n'/, }"
     [ -z "$gone" ] || fail "${added} appears where ${gone//$'\n'/, } was: a renamed section is not a release"
     check_version "$added"
-    fragments_collected "$after" "$after" "$added"
+    fragments_collected "$after" "$added"
     tag="$added"
     TAG="$tag" free
   fi
@@ -134,15 +134,13 @@ fragment_names() {
   { git ls-tree --name-only "$1:changelog.d" 2>/dev/null || true; } | { grep -vxF README.md || true; } | sort
 }
 
-# A fragment the commit adding a version heading ($1) held is an entry of that
-# release missing from its section, unless the released commit ($2) no longer
-# holds it (a later merge moved it into the section). A fragment added after $1
-# belongs to the next release.
+# A fragment in the commit released as $2 is an entry of that release missing
+# from its section.
 fragments_collected() {
   local left
-  left="$(comm -12 <(fragment_names "$1") <(fragment_names "$2"))"
+  left="$(fragment_names "$1")"
   [ -z "$left" ] \
-    || fail "the commit that adds $3 still holds changelog fragments (changelog.d/: ${left//$'\n'/, }); a release pull request runs .github/scripts/changelog-release.ts $3, and a refused one moves them into the $3 section"
+    || fail "the commit released as $2 still holds changelog fragments (changelog.d/: ${left//$'\n'/, }); a release pull request runs .github/scripts/changelog-release.ts $2, and after a refusal they are moved into the $2 section"
 }
 
 # Prints why the version $1 is taken, nothing when it is free. Only a

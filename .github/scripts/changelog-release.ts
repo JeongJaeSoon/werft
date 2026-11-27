@@ -28,11 +28,27 @@ export function parseSections(
     throw new Error(`${where}: CRLF line ending; use LF`);
   const sections: Sections = new Map();
   let current: string[] | null = null;
-  let fence = false;
+  let fence: { char: string; length: number } | null = null;
   text.split("\n").forEach((line, i) => {
-    if (/^\s*(```|~~~)/.test(line)) fence = !fence;
-    // A `#` line is refused even inside a fence: release-auto.sh and
-    // migration-safety.ts read `## vX.Y.Z` lines without seeing fences.
+    const marker = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
+    if (marker?.[1] !== undefined) {
+      const run = marker[1];
+      if (fence === null) {
+        fence = { char: run.charAt(0), length: run.length };
+      } else if (
+        run.charAt(0) === fence.char &&
+        run.length >= fence.length &&
+        marker[2]?.trim() === ""
+      ) {
+        fence = null;
+      }
+    }
+    // A `#` line is refused inside a fence: release-auto.sh and
+    // migration-safety.ts read `## vX.Y.Z` lines without seeing fences, and a
+    // section heading there would split the fence.
+    if (line.startsWith("#") && fence !== null) {
+      throw new Error(`${where}:${i + 1}: "${line}" inside a code fence`);
+    }
     if (line.startsWith("#")) {
       const name = /^### (.+)$/.exec(line)?.[1];
       if (

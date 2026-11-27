@@ -738,37 +738,34 @@ esac
           };
         });
 
-      test("a retry holds the version to the fragments its heading's commit left, not to later ones", () => {
+      test("a retry is refused while any fragment is left, including one merged after the refused push", () => {
         const fragment = "### 운영자가 할 일\n\n- x\n";
         const released = {
           "CHANGELOG.md": changelog("v0.1.2", "v0.1.1"),
           "changelog.d/94S-1.md": fragment,
         };
         const first = { "CHANGELOG.md": changelog("v0.1.1") };
-        // The refused release commit itself, and a later one that kept the fragment.
-        for (const trees of [
-          [first, released],
-          [first, released, { "x.txt": "fix" }],
-        ]) {
-          const run = retryAfter(trees);
+        const moved = {
+          "CHANGELOG.md": changelog("v0.1.2", "v0.1.1").replace("text", "- x"),
+          "changelog.d/94S-1.md": null,
+        };
+        // The refused commit, a later one that kept its fragment, and one whose
+        // later merge added another: a retry releases main's head, so all of
+        // them ship in v0.1.2.
+        for (const [trees, left] of [
+          [[first, released], "94S-1.md"],
+          [[first, released, { "x.txt": "fix" }], "94S-1.md"],
+          [
+            [first, released, moved, { "changelog.d/94S-2.md": fragment }],
+            "94S-2.md",
+          ],
+        ] as const) {
+          const run = retryAfter([...trees]);
           expect(run.code).toBe(1);
-          expect(run.err).toContain("changelog.d/: 94S-1.md");
+          expect(run.err).toContain(`changelog.d/: ${left}`);
           expect(run.output).toBe("");
         }
-        // Moved into the section, the release retries; a fragment merged after
-        // the heading is the next release's.
-        const run = retryAfter([
-          first,
-          released,
-          {
-            "CHANGELOG.md": changelog("v0.1.2", "v0.1.1").replace(
-              "text",
-              "- x",
-            ),
-            "changelog.d/94S-1.md": null,
-            "changelog.d/94S-2.md": fragment,
-          },
-        ]);
+        const run = retryAfter([first, released, moved]);
         expect(run.err).toBe("");
         expect(run.code).toBe(0);
         expect(run.output).toBe("tag=v0.1.2\n");
@@ -1835,6 +1832,21 @@ describe("changelog-release.ts", () => {
       "CRLF line endings",
       { "a.md": ops("x").replaceAll("\n", "\r\n") },
       "a.md: CRLF",
+    ],
+    [
+      "a fence closed by a shorter run",
+      { "a.md": `${ops("x")}  \`\`\`\`\n  y\n  \`\`\`\n` },
+      "a code fence is not closed",
+    ],
+    [
+      "a fence closed by the other character",
+      { "a.md": `${ops("x")}  \`\`\`\n  y\n  ~~~\n` },
+      "a code fence is not closed",
+    ],
+    [
+      "a section heading inside a fence",
+      { "a.md": `${ops("x")}  \`\`\`\n### 보안\n  \`\`\`\n` },
+      '"### 보안" inside a code fence',
     ],
     [
       "a fence left open",
