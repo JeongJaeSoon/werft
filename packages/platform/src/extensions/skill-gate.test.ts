@@ -1323,3 +1323,15 @@ describe("seventeenth review", () => {
     ).toEqual([]);
   });
 });
+
+describe("eighteenth review", () => {
+  test("respacing a continued command leaves the call alone", () => {
+    const sh = (body: string) => text("skills/s/scripts/a.sh", body);
+    expect(
+      gate({
+        before: [...licensed("s"), sh('FOO=bar \\\ncurl "$TARGET"\n')],
+        after: [...licensed("s"), sh('FOO=bar  \\\ncurl "$TARGET"\n')],
+      }).warnings,
+    ).toEqual([]);
+  });
+});

@@ -397,13 +397,14 @@ function changedCalls(text: string, at: Changes | null): string[] {
       touched = true;
     parts.push(code);
     if (goesOn) return;
-    if (touched) calls.push(normalized(parts.join(" ")).trim());
+    if (touched)
+      calls.push(normalized(parts.join(" ")).replace(/\s+/g, " ").trim());
     parts = [];
     touched = false;
   });
   if (at?.cuts.has(lines.length)) touched = true;
   if (parts.length > 0 && touched)
-    calls.push(normalized(parts.join(" ")).trim());
+    calls.push(normalized(parts.join(" ")).replace(/\s+/g, " ").trim());
   return calls;
 }
 
