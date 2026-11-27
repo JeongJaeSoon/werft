@@ -112,7 +112,7 @@ How a task (session) reports its work in its thread is set by its report mode (`
 The reports of `progress` and `notify_only`:
 
 - Completion: once no unfinished turn is left, the reply of the turn that ended last goes up once. A turn followed by one that answered or failed posts no reply; when the later turns were only stopped or cancelled, the earlier reply goes up. Nothing the engine says after a turn ends goes up.
-- Person needed: when the task starts to wait on a person's answer, the thread is told once, and not again when a later turn queues behind the wait. The same turn asking more tells it again. A thread that gets approval and question cards (`post_prompts`) is told by the card itself. A task that needs a person to decide whether it goes on (waiting for recovery) is told once each time too. Both mention the person who gave the task.
+- Person needed: when the task starts to wait on a person's answer, the thread is told once, and not again when a later turn queues behind the wait. The same turn asking more tells it again. A thread that gets approval and question cards (`post_prompts`) is told by the card itself. A task that needs a person to decide whether it goes on (waiting for recovery) is told once too; a second hold on the same turn is not told again. Both mention the person who gave the task.
 - Failure: one line for each failed turn.
 - When the task closes, an edit to `This task is done` is left as the progress message's last update and the thread's link closes. That edit still goes after the link closes; nothing edits the message after it.
 

@@ -6233,7 +6233,7 @@ describe.each(ENGINES)("a link's posting columns on %s", (engine) => {
     ).toEqual(["failure_notice:2", "reply:1"]);
   });
 
-  test("a task that needs a person to recover says so each time it is held, per_step not", async () => {
+  test("a task that needs a person to recover says so once per turn, per_step not", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
     const sessionId = await sessionOf(fixture);
@@ -6263,11 +6263,22 @@ describe.each(ENGINES)("a link's posting columns on %s", (engine) => {
       posted().filter((message) =>
         message.text.includes(SLACK_NOTICE_MESSAGES.ko.needsPersonRecovery),
       );
-    expect(await said()).toEqual(["recovery:1:1"]);
+    expect(await said()).toEqual(["recovery:1"]);
     expect(told()).toHaveLength(1);
 
-    // retry_restore lets it go on with the same turns; failing again holds
-    // it again, and the thread is told again.
+    // A rename copies the admission into a status event; an archive takes
+    // the stream's rows away. Neither is a new hold.
+    await db.insert(events).values({
+      sessionId,
+      type: "status",
+      payload: { phase: "failed", admission_state: "recovery_required" },
+    });
+    await outboxPass();
+    await db.delete(events).where(eq(events.sessionId, sessionId));
+    await outboxPass();
+    // retry_restore lets it go on with the same turns, and it fails again:
+    // nothing marks this hold apart from the first, so the thread is not
+    // told again.
     await db
       .update(sessions)
       .set({ admissionState: "active" })
@@ -6275,8 +6286,8 @@ describe.each(ENGINES)("a link's posting columns on %s", (engine) => {
     await outboxPass();
     await hold();
     await outboxPass();
-    expect(await said()).toEqual(["recovery:1:1", "recovery:1:2"]);
-    expect(told()).toHaveLength(2);
+    expect(await said()).toEqual(["recovery:1"]);
+    expect(told()).toHaveLength(1);
 
     await db.update(sessionLinks).set({ reportMode: "per_step" });
     await db.delete(slackOutbox);

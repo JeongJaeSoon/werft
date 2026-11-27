@@ -2144,8 +2144,7 @@ export function createPostgresSlackOutboxStore(
     async workReportsDue(limit) {
       // The keys the adapter's slackWorkReportDedupeKey makes, spelled in
       // SQL: work_start:<link>, needs_person:<link>:<report>:<turn>, and
-      // :<round> after it (a wait on input: the requests the turn has asked;
-      // a recovery: the session's holds for it).
+      // for a wait on input :<round>, the requests the turn has asked.
       const rows = rowsOf<{
         session_link_id: string;
         session_id: string;
@@ -2229,15 +2228,11 @@ export function createPostgresSlackOutboxStore(
                 AND NOT ${postsPrompts(sql.raw('"session_links"'))}
               UNION ALL
               -- Waiting on a person's recovery decision: no card asks it.
-              -- Numbered by the holds the stream recorded, so a retry that
-              -- fails again on the same turn says so again.
+              -- Once per turn: nothing in the schema marks a second hold on
+              -- the same turn apart from the first.
               SELECT 'recovery', (
                 SELECT coalesce(max(rt.sequence), 0) FROM turns rt
-                WHERE rt.session_id = session_links.session_id), (
-                SELECT count(*)::int FROM events re
-                WHERE re.session_id = session_links.session_id
-                  AND re.type = 'status'
-                  AND re.payload ->> 'admission_state' = 'recovery_required')
+                WHERE rt.session_id = session_links.session_id), NULL::int
               WHERE sessions.admission_state = 'recovery_required'
             ) r
             WHERE session_links.session_id IS NOT NULL
