@@ -22,7 +22,8 @@ import type {
  * a thread for everyone there: a turn the model could not finish, a reply
  * whose send nobody can vouch for, a bot's mention the thread's bot-turn
  * limit stopped (no session then when the agent has none there), a worker's
- * wait for room, or a stop's answer. Nothing counts the kind as a failure. `input_notice`:
+ * wait for room, or a stop's answer. Nothing counts a failure by the kind,
+ * only by how its send went. `input_notice`:
  * a request the session waits on, with the buttons that settle it. `notice`: a refusal,
  * ephemeral to the person who typed. `welcome`: a deployment's one message
  * in the agent's home channel, outside any thread (`threadTs` is "").

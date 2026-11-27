@@ -173,8 +173,8 @@ export function createOutboxSlackNoticeSink(
     },
     // Posted like a turn that could not go on: in the thread, for everyone
     // there, in its reader's language when the line names one. The kind
-    // is the thread notice's, a stop's line too: nothing counts it as a
-    // failure.
+    // is the thread notice's, a stop's line too: nothing counts a failure
+    // by kind, only by how the send went.
     async recordInThread(notice) {
       const locale =
         (notice.readerSlackUserId === undefined

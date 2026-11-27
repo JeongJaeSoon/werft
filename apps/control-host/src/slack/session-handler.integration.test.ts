@@ -6099,6 +6099,13 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     );
     expect(await interruptsOf(session.id)).toHaveLength(1);
     expect(view.notices).toEqual([]);
+    // The line answers the member who stopped it, not the requester.
+    expect(view.threadNotices).toMatchObject([
+      {
+        notice: { message: "sessionStoppedQueued", count: 1 },
+        readerSlackUserId: "U0MEMBER",
+      },
+    ]);
   });
 
   test("someone the session lets write to it but not stop it is told so alone, and the word goes to the work as input", async () => {
