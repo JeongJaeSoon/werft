@@ -964,6 +964,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       if?: string;
       needs?: string | string[];
       environment?: string;
+      env?: Record<string, string>;
       concurrency?: { group: string; "cancel-in-progress": boolean };
       permissions?: Record<string, string>;
       "runs-on"?: string;
@@ -1347,6 +1348,13 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(jobs["chart-publish-main"]?.steps).toEqual(
         jobs["chart-publish"]?.steps ?? [],
       );
+      // Only a main chart's push may be tried again (chart-push.sh).
+      expect(
+        Object.entries(jobs)
+          .filter(([, job]) => job.env?.CHART_PUSH_TRIES !== undefined)
+          .map(([name, job]) => [name, job.env?.CHART_PUSH_TRIES]),
+      ).toEqual([["chart-publish-main", "3"]]);
+      expect(text.match(/CHART_PUSH_TRIES:/g)).toHaveLength(1);
 
       const steps = jobs.chart?.steps ?? [];
       const index = (needle: string) =>
@@ -1796,9 +1804,9 @@ case "$1" in
   *) exit 64 ;;
 esac
 `;
-    const mainVersion = "0.1.0-main-0123456789ab";
+    const version = "0.1.0-main-0123456789ab";
 
-    const fixture = (version = mainVersion) => {
+    const fixture = () => {
       const directory = mkdtempSync(join(tmpdir(), "chart-push-"));
       for (const name of ["bin", "store", "out"])
         mkdirSync(join(directory, name));
@@ -1865,15 +1873,17 @@ esac
 
     const tagNotFound =
       'Error: failed to perform "Tag" on destination: sha256:0123: not found';
+    // What images.yml gives chart-publish-main, without the pause.
+    const mainChart = { CHART_PUSH_TRIES: "3", CHART_PUSH_RETRY_SECONDS: "0" };
     const pushes = (log: string) =>
       log.split("\n").filter((line) => line.startsWith("login push ")).length;
 
     test("a push whose tag the registry does not find yet is looked up and pushed again", () => {
       const repo = fixture();
       const run = repo.push({
+        ...mainChart,
         FAKE_PUSH_SAYS: tagNotFound,
         FAKE_PUSH_FAILS: "1",
-        CHART_PUSH_RETRY_SECONDS: "0",
       });
       expect(run.code).toBe(0);
       expect(run.out).toContain("try 1 of 3");
@@ -1884,10 +1894,10 @@ esac
     test("a push that landed although its tag was not found is compared, not written again", () => {
       const repo = fixture();
       const run = repo.push({
+        ...mainChart,
         FAKE_PUSH_SAYS: tagNotFound,
         FAKE_PUSH_FAILS: "1",
         FAKE_PUSH_LANDS: "1",
-        CHART_PUSH_RETRY_SECONDS: "0",
       });
       expect(run.code).toBe(0);
       expect(run.out).toContain("already published");
@@ -1897,9 +1907,9 @@ esac
     test("a tag the registry never finds fails after the third push", () => {
       const repo = fixture();
       const run = repo.push({
+        ...mainChart,
         FAKE_PUSH_SAYS: tagNotFound,
         FAKE_PUSH_FAILS: "3",
-        CHART_PUSH_RETRY_SECONDS: "0",
       });
       expect(run.code).toBe(1);
       expect(pushes(repo.log())).toBe(3);
@@ -1919,17 +1929,17 @@ esac
     ])("a push that fails for %s is not tried again", (_, says) => {
       const repo = fixture();
       const run = repo.push({
+        ...mainChart,
         FAKE_PUSH_SAYS: says,
         FAKE_PUSH_FAILS: "3",
-        CHART_PUSH_RETRY_SECONDS: "0",
       });
       expect(run.code).toBe(1);
       expect(run.out).toContain("500 upstream");
       expect(pushes(repo.log())).toBe(1);
     });
 
-    test("a release version is not pushed again, whatever the registry answered", () => {
-      const repo = fixture("0.1.0");
+    test("a push the workflow did not mark as a main chart's is not tried again, whatever the registry answered", () => {
+      const repo = fixture();
       const run = repo.push({
         FAKE_PUSH_SAYS: tagNotFound,
         FAKE_PUSH_FAILS: "1",
