@@ -430,56 +430,196 @@ function writeKept(place: Place, path: string, narrow: boolean): string | null {
 const startsWith = (words: string[], command: string[]) =>
   command.every((token, index) => words[index] === token);
 
-/** `git config` options that only read. */
-const CONFIG_READS = ["--get", "--get-all", "--get-regexp", "--list", "-l"];
+/** git options before its command that change only how it prints or locks. */
+const GIT_PLAIN_GLOBALS = [
+  "--no-pager",
+  "-P",
+  "--no-optional-locks",
+  "--literal-pathspecs",
+  "--no-replace-objects",
+];
+
+/** `git config` options that only read or shape what is read. */
+const CONFIG_READ_OPTIONS = [
+  "--get",
+  "--get-all",
+  "--get-regexp",
+  "--list",
+  "-l",
+  "--local",
+  "--show-origin",
+  "--show-scope",
+  "--name-only",
+  "-z",
+  "--null",
+  "--all",
+];
+const CONFIG_READ_ACTIONS = [
+  "--get",
+  "--get-all",
+  "--get-regexp",
+  "--list",
+  "-l",
+];
 /** Keys a narrow line may set: who the commits are by, and nothing that runs. */
 const CONFIG_KEYS_SET = ["user.name", "user.email"];
+/** Verbs of the newer `git config <verb>` form. */
+const CONFIG_VERBS = [
+  "get",
+  "list",
+  "set",
+  "unset",
+  "edit",
+  "rename-section",
+  "remove-section",
+];
 
-/** Whether a `git config` after its verb only reads, or sets a key that runs nothing. */
+const configOption = (word: string) =>
+  CONFIG_READ_OPTIONS.includes(word) || /^-[lz]+$/.test(word);
+
+/**
+ * Whether `git config`, after its verb, only reads, or sets who the commits
+ * are by. Anything else may set a key that makes git run a program
+ * (`core.hooksPath`, `core.editor`, `core.fsmonitor`) or open an editor.
+ */
 function configReads(rest: readonly string[]): boolean {
-  const [first, second, third] = rest;
-  if (first === "get" || first === "list") return true;
-  if (rest.length === 1 && !first?.startsWith("-")) return true;
-  if (rest.length === 2 && CONFIG_KEYS_SET.includes(first ?? "")) return true;
+  const options = rest.filter((word) => word.startsWith("-"));
+  const operands = rest.filter((word) => !word.startsWith("-"));
+  const userKey = (key: string | undefined) =>
+    CONFIG_KEYS_SET.includes((key ?? "").toLowerCase());
+  const [first] = operands;
+  if (first !== undefined && CONFIG_VERBS.includes(first)) {
+    if (first === "get" || first === "list") return options.every(configOption);
+    return (
+      first === "set" &&
+      operands.length === 3 &&
+      userKey(operands[1]) &&
+      options.every((word) => word === "--local")
+    );
+  }
   if (
-    rest.length === 3 &&
-    first === "--local" &&
-    CONFIG_KEYS_SET.includes(second ?? "") &&
-    third !== undefined
+    operands.length === 2 &&
+    userKey(first) &&
+    options.every((word) => word === "--local")
   ) {
     return true;
   }
-  return (
-    rest.some((word) => CONFIG_READS.includes(word)) &&
-    rest.every((word) => !word.startsWith("-") || CONFIG_READS.includes(word))
-  );
+  if (options.every(configOption)) {
+    return (
+      options.some(
+        (word) =>
+          CONFIG_READ_ACTIONS.includes(word) || /^-[lz]*l[lz]*$/.test(word),
+      ) || operands.length === 1
+    );
+  }
+  return false;
 }
 
-/** Whether these grep words search a directory tree. */
-function recursive(words: readonly string[]): boolean {
-  return words.some((word, at) => {
-    if (word.startsWith("--")) {
-      const option = word.split("=")[0] as string;
-      if (option.length <= 2) return false;
-      if (option === "--directories" || "--directories".startsWith(option)) {
-        return word.endsWith("=recurse") || words[at + 1] === "recurse";
-      }
-      return ["--recursive", "--dereference-recursive"].some((long) =>
-        long.startsWith(option),
-      );
+/** grep options that take a value; a short one takes the rest of its cluster or the next word. */
+const GREP_SHORT_VALUES = "efmABCdD";
+const GREP_LONG_VALUES = [
+  "--regexp",
+  "--file",
+  "--max-count",
+  "--after-context",
+  "--before-context",
+  "--context",
+  "--directories",
+  "--devices",
+  "--label",
+  "--include",
+  "--exclude",
+  "--exclude-dir",
+  "--exclude-from",
+  "--binary-files",
+];
+const GREP_LONG_FLAGS = ["--recursive", "--dereference-recursive"];
+
+/** A long grep option by its full name, as GNU getopt takes a unique start of one. */
+function grepLong(option: string): string | undefined {
+  const known = [...GREP_LONG_VALUES, ...GREP_LONG_FLAGS];
+  if (known.includes(option)) return option;
+  const starts = known.filter((name) => name.startsWith(option));
+  return starts.length === 1 ? starts[0] : undefined;
+}
+
+/** What grep is given: whether it recurses, the files it reads, and whether a pattern came by option. */
+function grepOperands(words: readonly string[]): {
+  recurses: boolean;
+  /** What it searches. */
+  files: string[];
+  /** Files it reads patterns or names from. */
+  lists: string[];
+} {
+  let recurses = false;
+  let patterned = false;
+  const files: string[] = [];
+  const lists: string[] = [];
+  const positional: string[] = [];
+  const recurse = (value: string) =>
+    value !== "" && "recurse".startsWith(value);
+  for (let i = 1; i < words.length; i += 1) {
+    const word = words[i] as string;
+    if (word === "--") {
+      positional.push(...words.slice(i + 1));
+      break;
     }
-    // A cluster: `-rn`, `-Rl`, `-drecurse`, `-d recurse`.
-    if (!word.startsWith("-")) return false;
-    if (/^-[A-Za-z]*[rR]/.test(word)) return true;
-    return /^-[A-Za-z]*d$/.test(word) && words[at + 1] === "recurse";
-  });
+    if (word.startsWith("--")) {
+      const cut = word.indexOf("=");
+      const option = grepLong(cut === -1 ? word : word.slice(0, cut));
+      if (option === undefined) continue;
+      if (GREP_LONG_FLAGS.includes(option)) {
+        recurses = true;
+        continue;
+      }
+      let value = word.slice(cut + 1);
+      if (cut === -1) {
+        i += 1;
+        value = words[i] ?? "";
+      }
+      if (option === "--directories" && recurse(value)) recurses = true;
+      if (option === "--regexp" || option === "--file") patterned = true;
+      if (option === "--file" || option === "--exclude-from") lists.push(value);
+      continue;
+    }
+    if (word.startsWith("-") && word.length > 1) {
+      for (let at = 1; at < word.length; at += 1) {
+        const letter = word[at] as string;
+        if (letter === "r" || letter === "R") recurses = true;
+        if (!GREP_SHORT_VALUES.includes(letter)) continue;
+        let value = word.slice(at + 1);
+        if (value === "") {
+          i += 1;
+          value = words[i] ?? "";
+        }
+        if (letter === "d" && recurse(value)) recurses = true;
+        if (letter === "e" || letter === "f") patterned = true;
+        if (letter === "f") lists.push(value);
+        break;
+      }
+      continue;
+    }
+    positional.push(word);
+  }
+  files.push(...(patterned ? positional : positional.slice(1)));
+  return { recurses, files, lists };
 }
 
-/** What in a git or gh word may be a path, `@file` (`gh api -F x=@f`) included. */
-const refPathsIn = (word: string) =>
-  pathsIn(word).flatMap((path) =>
-    path.startsWith("@") ? [path, path.slice(1)] : [path],
-  );
+/** What in a git or gh word may be a path: an option's value, a glued cluster's tail, a pathspec, a `rev:` path, `@file`, a `file#label`. */
+function refPathsIn(word: string): string[] {
+  const found = new Set(pathsIn(word));
+  if (/^-[^-]/.test(word)) {
+    for (let at = 2; at < word.length; at += 1) found.add(word.slice(at));
+  }
+  for (const path of [...found]) {
+    if (path.startsWith("@")) found.add(path.slice(1));
+    if (path.includes("#")) found.add(path.slice(0, path.indexOf("#")));
+    const magic = /^:(\([^)]*\)|[^\w./(]*)/.exec(path);
+    if (magic !== null) found.add(path.slice(magic[0].length));
+    if (path.includes(":")) found.add(path.slice(path.lastIndexOf(":") + 1));
+  }
+  return [...found];
+}
 
 /**
  * The narrow reading's own checks of a part the policy allows: what git, gh
@@ -487,23 +627,45 @@ const refPathsIn = (word: string) =>
  */
 function narrowKept(words: readonly string[], place: Place): string | null {
   const [name] = words;
+  const keptPath = (path: string) => {
+    if (path === "") return false;
+    const located = locate(place, path);
+    return located !== undefined && sensitive(located);
+  };
   if (name === "git" || name === "gh") {
     // A secret or engine-settings path given to git or gh: `git checkout
     // HEAD -- .claude/settings.json`, `gh pr create --body-file .env`.
+    // What is given as a message is text.
+    let message = false;
     for (const word of words.slice(1)) {
-      for (const path of refPathsIn(word)) {
-        if (path === "") continue;
-        const located = locate(place, path);
-        if (located !== undefined && sensitive(located)) {
-          return "a path that goes to a person";
-        }
+      if (message) {
+        message = false;
+        continue;
       }
+      if (MESSAGE_FLAGS.includes(word)) {
+        message = true;
+        continue;
+      }
+      if (MESSAGE_FLAGS.some((flag) => word.startsWith(`${flag}=`))) continue;
+      if (refPathsIn(word).some(keptPath))
+        return "a path that goes to a person";
     }
   }
   if (name === "git") {
+    // Only options that change how it prints may come before the command:
+    // others take a value (`--namespace x`) or change what runs.
+    const at = words.findIndex(
+      (word, index) => index > 0 && !word.startsWith("-"),
+    );
+    const globals = words.slice(1, at === -1 ? words.length : at);
+    if (globals.some((word) => !GIT_PLAIN_GLOBALS.includes(word))) {
+      return "a git option before its command";
+    }
+    const end = words.indexOf("--");
+    const options = end === -1 ? words : words.slice(0, end);
     // git takes a long option by any unique start of its name.
     if (
-      words.some((word) => {
+      options.some((word) => {
         const option = word.split("=")[0] as string;
         return (
           option.length > 2 &&
@@ -514,41 +676,31 @@ function narrowKept(words: readonly string[], place: Place): string | null {
     ) {
       return "a path list the line does not show";
     }
-    const at = words.findIndex(
-      (word, index) => index > 0 && !word.startsWith("-"),
-    );
     const verb = words[at];
     // A patch names the paths it writes in its text, not in the line.
     if (verb === "apply" || verb === "am") {
       return "a patch the line does not show";
     }
-    // Some keys make later git commands run a program (`core.hooksPath`,
-    // `core.editor`, `core.fsmonitor`).
     if (verb === "config" && !configReads(words.slice(at + 1))) {
       return "a git setting the workspace policy keeps for a person";
     }
   }
-  if (name === "grep" && recursive(words)) {
-    // A tree searched is read whole, secrets in it as well: the search must
-    // name where it starts, and that may not be the workspace itself.
-    const last = words.at(-1) ?? "";
-    const exists = (path: string) => {
-      try {
-        lstatSync(resolve(place.base, path));
-        return true;
-      } catch {
-        return false;
-      }
-    };
-    if (last.startsWith("-") || !exists(last)) {
-      return "a search of a tree the line does not name";
+  if (name === "grep") {
+    const { recurses, files, lists } = grepOperands(words);
+    for (const file of [...files, ...lists]) {
+      if (keptPath(file)) return "a path that goes to a person";
     }
-    for (const word of words.slice(1)) {
-      if (word.startsWith("-") || !exists(word)) continue;
-      const located = locate(place, word);
-      if (located === undefined) return "a path outside the workspace";
-      if (located.spelled === "" || located.real === "" || sensitive(located)) {
-        return "a search of the workspace or a kept path";
+    if (recurses) {
+      // A tree searched is read whole, secrets in it as well: the search
+      // must name where it starts, and that may not be the workspace itself.
+      if (files.length === 0)
+        return "a search of a tree the line does not name";
+      for (const file of files) {
+        const located = locate(place, file);
+        if (located === undefined) return "a path outside the workspace";
+        if (located.spelled === "" || located.real === "") {
+          return "a search of the workspace or a kept path";
+        }
       }
     }
   }
