@@ -30,6 +30,11 @@ export type SlackThreadNoticeRecord = Omit<
   sessionId: string | null;
   /** The thread's link when it has one; null for none. */
   sessionLinkId: string | null;
+  /**
+   * The Slack user the line answers, whose linked user's language it is
+   * written in; absent, or no one linked, the deployment's.
+   */
+  readerSlackUserId?: string;
 };
 
 export interface SlackNoticeSink {
