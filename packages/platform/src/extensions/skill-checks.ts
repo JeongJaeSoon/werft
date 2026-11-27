@@ -19,7 +19,8 @@ const MAX_SAMPLES = 20;
  * units: ASCII neither composes with what precedes it nor reorders, so the
  * pieces give the whole line's NFKC. One long run with no ASCII (combining
  * marks, or characters that decompose into them) takes time quadratic in its
- * length, so it is cut at 1,024 whatever it holds.
+ * length, so it is cut every 1,024 units from where it starts: the cuts
+ * depend on the run alone, not on what comes before it.
  */
 export function nfkc(line: string): string {
   if (line.length <= 256) return line.normalize("NFKC");
@@ -27,8 +28,15 @@ export function nfkc(line: string): string {
   let at = 0;
   while (at < line.length) {
     let end = Math.min(at + 256, line.length);
-    const hard = Math.min(at + 1024, line.length);
-    while (end < hard && line.charCodeAt(end) > 0x7f) end++;
+    let run = end;
+    while (run > at && line.charCodeAt(run - 1) > 0x7f) run--;
+    while (
+      end < line.length &&
+      line.charCodeAt(end) > 0x7f &&
+      end - run < 1024
+    ) {
+      end++;
+    }
     const last = line.charCodeAt(end - 1);
     if (end < line.length && last >= 0xd800 && last <= 0xdbff) end++;
     pieces.push(line.slice(at, end).normalize("NFKC"));

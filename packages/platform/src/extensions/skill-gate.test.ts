@@ -1444,3 +1444,17 @@ describe("twenty-fourth review", () => {
     ).toEqual([]);
   });
 });
+
+describe("twenty-fifth review", () => {
+  test("a long run without ASCII is cut where the run starts, whatever precedes it", () => {
+    const acute = String.fromCharCode(0x301);
+    const kept = `npm install ${String.fromCharCode(0xe9).repeat(1004)}${String.fromCharCode(0x3b1)}${acute}\n`;
+    const sh = (body: string) => text("skills/s/scripts/a.sh", body);
+    expect(
+      gate({
+        before: [...licensed("s"), sh(`: a; \\\n${kept}`)],
+        after: [...licensed("s"), sh(`: aa; \\\n${kept}`)],
+      }).warnings,
+    ).toEqual([]);
+  });
+});
