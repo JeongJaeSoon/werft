@@ -902,6 +902,11 @@ describe.skipIf(env === null)("D2 gate", () => {
     await chaos.release(holding);
     const turn2 = await api.settle(sessionId, turnId, TURN_MS);
     await chaos.disarm(holding);
+    // The held request itself, read again: a resend of the same key that got
+    // past the spent rule would leave this one refused.
+    const landed = (await chaos.log(sessionId)).find(
+      (entry) => entry.index === heldPut?.index,
+    );
     const checkpoints = await checkpointRows(sessionId);
     const problems = (
       await Promise.all(checkpoints.map((row) => verifyCheckpoint(bucket, row)))
@@ -930,9 +935,10 @@ describe.skipIf(env === null)("D2 gate", () => {
       input:
         "turn 2 sent with the fault armed; the next retry's manifest PUT held, then let through",
       expected:
-        "turn 2 queued and no checkpoint while the retry's PUT is held; that PUT becomes revision 0 on turn 1, committed before turn 2 started; revision 1 on turn 2; both outside the failed directory; pointer 1; digests match; the publish_failed reason cleared",
+        "turn 2 queued and no checkpoint while the retry's PUT is held; that request is stored (200) and is revision 0's manifest, on turn 1, committed before turn 2 started; revision 1 on turn 2; both outside the failed directory; pointer 1; digests match; the publish_failed reason cleared",
       actual: {
         held_put: heldPut?.path,
+        held_put_stored: landed?.upstreamStatus,
         while_held: whileHeld,
         status: turn2.status,
         checkpoints: checkpoints.map(
@@ -949,8 +955,9 @@ describe.skipIf(env === null)("D2 gate", () => {
         heldPut !== undefined &&
         whileHeld.turn_2 === "queued" &&
         whileHeld.checkpoints === 0 &&
-        decodeURIComponent(heldPut.path).includes(
-          checkpoints[0]?.manifest_ref ?? "none committed",
+        landed?.upstreamStatus === 200 &&
+        decodeURIComponent(heldPut.path.split("?")[0] ?? "").endsWith(
+          `/${checkpoints[0]?.manifest_ref ?? "none committed"}`,
         ) &&
         turn2.status === "completed" &&
         settled.checkpoint_pending_reason === null &&
@@ -1183,7 +1190,8 @@ describe.skipIf(env === null)("D2 gate", () => {
     // operator. On a session of its own.
     const killedSpec = {
       id: "D3",
-      // Held far longer than the kill takes: the turn is open when it lands.
+      // Held far longer than the kill takes; the read before the kill says
+      // the turn was still open.
       steps: [
         { ...write("/workspace/d3.txt", "d3 turn 1\n"), delayMs: 240_000 },
       ],
