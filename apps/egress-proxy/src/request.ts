@@ -7,7 +7,12 @@
 import { normalizeHost } from "./policy.ts";
 
 export type ProxyRequest =
-  | { host: string; kind: "connect"; port: number }
+  | {
+      host: string;
+      kind: "connect";
+      port: number;
+      proxyAuthorization?: string;
+    }
   | {
       body: RequestBody;
       head: string;
@@ -19,6 +24,11 @@ export type ProxyRequest =
       keepAlive: boolean;
       kind: "forward";
       port: number;
+      /**
+       * The client's `Proxy-Authorization`, as it came: decoded only for a
+       * refusal's report (denial-report.ts), never forwarded.
+       */
+      proxyAuthorization?: string;
     }
   | { kind: "health" }
   | { kind: "invalid"; reason: string; status: number };
@@ -55,7 +65,7 @@ export function parseRequestHead(head: string): ProxyRequest {
     const authority = splitAuthority(target);
     return authority === null
       ? invalid(400, "CONNECT target must be host:port")
-      : { kind: "connect", ...authority };
+      : { kind: "connect", ...authority, ...proxyAuthorizationOf(headers) };
   }
   if (target.startsWith("/")) {
     return method === "GET" && target === HEALTH_PATH
@@ -82,7 +92,17 @@ export function parseRequestHead(head: string): ProxyRequest {
     keepAlive: version === "HTTP/1.1" && keepAliveOf(headers),
     kind: "forward",
     port,
+    ...proxyAuthorizationOf(headers),
   };
+}
+
+/** One field or none: two are no one's credentials. */
+function proxyAuthorizationOf(headers: Array<[string, string]>): {
+  proxyAuthorization?: string;
+} {
+  const fields = headers.filter(([name]) => name === "proxy-authorization");
+  const field = fields.length === 1 ? fields[0]?.[1] : undefined;
+  return field === undefined ? {} : { proxyAuthorization: field };
 }
 
 /**

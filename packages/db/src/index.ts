@@ -113,6 +113,13 @@ export * from "./sessions/achievement-judgments.ts";
 export * from "./sessions/achievement-rules.ts";
 export * from "./sessions/agentless-close.ts";
 export * from "./sessions/commit-attributions.ts";
+export {
+  deleteAttemptEgressDenials,
+  EGRESS_DENIALS_PER_ATTEMPT,
+  type EgressDenialOutcome,
+  type EgressDenialReport,
+  recordEgressDenial,
+} from "./sessions/egress-denials.ts";
 export * from "./sessions/execution-revocation.ts";
 export * from "./sessions/interrupt-control.ts";
 export * from "./sessions/lease-reconcile.ts";

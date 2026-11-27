@@ -274,6 +274,26 @@ describe("runtime profiles", () => {
     });
   });
 
+  test("puts the egress report token into the proxy variables and not the bypass list", () => {
+    const environment = runtimeEnvironment(
+      { ...baseConfig, egressReportToken: "wed_marker" },
+      {
+        PATH: "/bin",
+        HTTPS_PROXY: "http://egress-proxy:3128",
+        http_proxy: "http://egress-proxy:3128",
+        NO_PROXY: "localhost",
+      },
+    );
+    expect(environment.HTTPS_PROXY).toBe(
+      "http://werft:wed_marker@egress-proxy:3128/",
+    );
+    expect(environment.http_proxy).toBe(
+      "http://werft:wed_marker@egress-proxy:3128/",
+    );
+    expect(environment.NO_PROXY).toBe("localhost");
+    expect("HTTP_PROXY" in environment).toBe(false);
+  });
+
   test("trusts an extra CA bundle only when the config names one", () => {
     // The host's bundle would make whoever holds that CA able to impersonate
     // the Messages endpoint; trust is a composition decision, not ambient.

@@ -2094,6 +2094,13 @@
       "when": 1795768861085,
       "tag": "0389_events_after_turn_result_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 394,
+      "version": "7",
+      "when": 1795775195137,
+      "tag": "0394_egress_denials",
+      "breakpoints": true
     }
   ]
 }

@@ -338,6 +338,7 @@ integration("execution Grant revocation on PostgreSQL", () => {
         }))
         .sort((a, b) => a.purpose.localeCompare(b.purpose)),
     ).toEqual([
+      { purpose: "egress_report", revoked: true },
       { purpose: "gateway", revoked: true },
       { purpose: "object_store", revoked: true },
       { purpose: "packages", revoked: true },

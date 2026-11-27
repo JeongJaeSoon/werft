@@ -60,6 +60,11 @@ import {
   workers,
   workspaces,
 } from "./schema.ts";
+import {
+  EGRESS_DENIALS_PER_ATTEMPT,
+  egressDenialsOf,
+  recordEgressDenial,
+} from "./sessions/egress-denials.ts";
 import { acquireFence } from "./sessions/fence.ts";
 import { pauseBlocker } from "./sessions/pause-control.ts";
 import { commitCheckpoint } from "./testing/checkpoints.ts";
@@ -600,7 +605,7 @@ integration("worker gateway on PostgreSQL", () => {
       });
     }
 
-    // A heartbeat extends all five together.
+    // A heartbeat extends all six together.
     await gateway.heartbeat(principalOf(retry), {
       ...scopeOf(retry),
       attempt_state: "draining",
@@ -610,6 +615,7 @@ integration("worker gateway on PostgreSQL", () => {
       [retry.attempt_id],
     );
     expect(live.rows.map((row) => row.purpose)).toEqual([
+      "egress_report",
       "gateway",
       "object_store",
       "packages",
@@ -807,6 +813,120 @@ integration("worker gateway on PostgreSQL", () => {
     );
     // A token presented for another route than its own.
     expect(await check("repository")).toBe("invalid_token");
+  });
+
+  // The proxy reports a refusal with the attempt's egress_report token. The
+  // token is a lookup key for that report and opens nothing else.
+  test("a refusal the proxy reports is kept once per turn and host, and its token opens no route", async () => {
+    const { claimed, session } = await claimAndDeliver(
+      partitionFor("egress-denial"),
+    );
+    await pool.query(
+      "UPDATE attempts SET lease_expires_at = clock_timestamp() + interval '1 minute' WHERE id = $1",
+      [claimed.attempt_id],
+    );
+    const token = claimed.egress_report?.token;
+    if (token === undefined) throw new Error("the claim carried no token");
+    expect(token.startsWith("wed_")).toBe(true);
+    const tokenHash = hashWorkerToken(token);
+    const report = async (host: string, port = 443, hash = tokenHash) =>
+      (await recordEgressDenial(db, { tokenHash: hash, host, port })).outcome;
+    const [running] = await db
+      .select({ id: turns.id })
+      .from(turns)
+      .where(
+        and(
+          eq(turns.sessionId, session.session_id),
+          eq(turns.status, "running"),
+        ),
+      );
+    if (!running) throw new Error("no running turn");
+
+    expect(await report("example.com")).toBe("recorded");
+    // The same turn and host: one row however often it is refused.
+    expect(await report("example.com")).toBe("duplicate");
+    // Another host, or another port of it: a row of its own.
+    expect(await report("other.example")).toBe("recorded");
+    expect(await report("example.com", 80)).toBe("recorded");
+    expect(await egressDenialsOf(db, claimed.attempt_id)).toEqual([
+      { turnId: running.id, host: "example.com", port: 443 },
+      { turnId: running.id, host: "other.example", port: 443 },
+      { turnId: running.id, host: "example.com", port: 80 },
+    ]);
+
+    // Outside a turn the turn is null, and two nulls are the same row.
+    await pool.query("UPDATE turns SET status = 'needs_input' WHERE id = $1", [
+      running.id,
+    ]);
+    expect(await report("example.com")).toBe("recorded");
+    expect(await report("example.com")).toBe("duplicate");
+    await pool.query("UPDATE turns SET status = 'running' WHERE id = $1", [
+      running.id,
+    ]);
+
+    // Another purpose's token is not this one.
+    expect(
+      await report(
+        "example.com",
+        443,
+        hashWorkerToken(claimed.runtime_config.provider.auth.token),
+      ),
+    ).toBe("invalid_token");
+    expect(
+      await report(
+        "example.com",
+        443,
+        hashWorkerToken(claimed.session_credential),
+      ),
+    ).toBe("invalid_token");
+    // And this one reaches neither the gateway nor any egress route.
+    expect(await failure(gateway.authenticate(token))).toEqual({
+      status: 401,
+      code: "UNAUTHORIZED",
+    });
+    for (const purpose of ["provider", "repository"] as const) {
+      expect(
+        await failure(gateway.authorizeEgress({ token, purpose })),
+      ).toEqual({ status: 401, code: "UNAUTHORIZED" });
+    }
+
+    // An attempt that no longer owns its session reports nothing.
+    await pool.query(
+      "UPDATE sessions SET lease_epoch = lease_epoch + 1 WHERE id = $1",
+      [session.session_id],
+    );
+    expect(await report("stale.example")).toBe("stale");
+    await pool.query(
+      "UPDATE sessions SET lease_epoch = lease_epoch - 1 WHERE id = $1",
+      [session.session_id],
+    );
+    await pool.query(
+      "UPDATE attempts SET lease_expires_at = clock_timestamp() - interval '1 second' WHERE id = $1",
+      [claimed.attempt_id],
+    );
+    expect(await report("stale.example")).toBe("stale");
+    await pool.query(
+      "UPDATE attempts SET lease_expires_at = clock_timestamp() + interval '1 minute' WHERE id = $1",
+      [claimed.attempt_id],
+    );
+
+    // A token in a tool's hands can add only so many rows.
+    const held = (await egressDenialsOf(db, claimed.attempt_id)).length;
+    for (let i = held; i < EGRESS_DENIALS_PER_ATTEMPT; i += 1) {
+      expect(await report(`host-${i}.example`)).toBe("recorded");
+    }
+    expect(await report("one-more.example")).toBe("over_limit");
+    expect(await egressDenialsOf(db, claimed.attempt_id)).toHaveLength(
+      EGRESS_DENIALS_PER_ATTEMPT,
+    );
+
+    // The attempt's end revokes the token and takes its rows with it.
+    await gateway.release(principalOf(claimed), {
+      ...scopeOf(claimed),
+      reason: "idle_timeout",
+    });
+    expect(await egressDenialsOf(db, claimed.attempt_id)).toEqual([]);
+    expect(await report("example.com")).toBe("invalid_token");
   });
 
   test("a fence change not yet committed does not hold the check up, and refuses once committed", async () => {
@@ -2405,6 +2525,7 @@ integration("worker gateway on PostgreSQL", () => {
     // Without a repository of its own it still holds a repository token,
     // bound to the repositories it attaches (the gate decides each fetch).
     expect(issued.map((row) => row.purpose).sort()).toEqual([
+      "egress_report",
       "gateway",
       "object_store",
       "packages",
