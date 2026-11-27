@@ -477,7 +477,10 @@ describe("permission table", () => {
       const author = fakeConnection("author");
       author.refusePermissions();
       const { grant } = harness({
-        author: { ...author, grantedPermissions: lookup },
+        author: {
+          ...author,
+          connection: { ...author.connection, grantedPermissions: lookup },
+        },
         github: settings({ features: features({ workflows: true }) }),
         ceiling: ALL_ON,
       });

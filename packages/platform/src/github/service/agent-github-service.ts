@@ -337,7 +337,9 @@ export function createAgentGitHubService(deps: {
               );
         const reason: AgentGitHubFeatureUnavailable | null = enterprise
           ? "github_host_unsupported"
-          : !settings.ceiling[feature]
+          : !settings.ceiling[feature] ||
+              // Turning workflows on saves checks with it.
+              (feature === "workflows" && !settings.ceiling.checks)
             ? "over_workspace_ceiling"
             : feature === "review" && !reviewers.present
               ? "no_reviewer_app"

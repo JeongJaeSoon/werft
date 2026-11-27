@@ -343,11 +343,22 @@ describe("the agent GitHub tab's options", () => {
       reviewer: "none",
     }).get(caller, AGENT);
     expect(read.options.features).toEqual({
-      workflows: { available: true, reason: null },
+      workflows: { available: false, reason: "over_workspace_ceiling" },
       actions: { available: true, reason: null },
       checks: { available: false, reason: "over_workspace_ceiling" },
       issues: { available: false, reason: "app_permission_missing" },
       review: { available: false, reason: "no_reviewer_app" },
+    });
+  });
+
+  test("workflow files and CI: a ceiling with workflows but not checks cannot offer the switch, which saves both", async () => {
+    const read = await serviceWith({
+      github: WITH_SETTINGS,
+      ceiling: { ...ALL_ON, checks: false },
+    }).get(caller, AGENT);
+    expect(read.options.features.workflows).toEqual({
+      available: false,
+      reason: "over_workspace_ceiling",
     });
   });
 
