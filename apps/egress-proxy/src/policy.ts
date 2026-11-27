@@ -107,6 +107,9 @@ function matches(
   return list.some((entry) => entry.host === host && entry.port === port);
 }
 
+/** The reason of a refusal a change to the allowlist would lift. */
+export const NOT_ALLOWLISTED = "destination is not allowlisted";
+
 export async function decideEgress(
   policy: EgressPolicy,
   destination: EgressDestination,
@@ -123,7 +126,7 @@ export async function decideEgress(
     return {
       allowed: false,
       failure: "denied",
-      reason: "destination is not allowlisted",
+      reason: NOT_ALLOWLISTED,
     };
   }
   if (isMetadataName(host)) {

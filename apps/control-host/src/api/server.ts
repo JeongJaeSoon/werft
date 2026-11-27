@@ -102,6 +102,7 @@ import {
   openLostCheckpointNotices,
   reconcileRetiredCatalogDrafts,
   recordBudgetAccountRefusal,
+  recordEgressDenial,
   slackAppKind,
   tellConversationTurnQueue,
   workspaceRepositoryCeiling,
@@ -280,6 +281,10 @@ import {
   sessionTitleEgressUrlFromEnv,
   werftMcpGrantKeyOf,
 } from "./egress-authorizer.ts";
+import {
+  createEgressDenialHandler,
+  routeEgressDenials,
+} from "./egress-denials.ts";
 import { extensionDepsFor } from "./extension-deps.ts";
 import { githubCallbackUrl } from "./github-link.ts";
 import {
@@ -420,10 +425,15 @@ import {
 } from "./tracing-startup.ts";
 import { werftMcpParts } from "./werft-mcp.ts";
 import {
+  connectionEndpointProblem,
+  connectionModelsOutbound,
+  workspaceMcpAddressCheck,
   workspaceMcpHostsFromEnv,
+  workspaceMcpListed,
   workspaceMcpOutbound,
+  workspaceMcpPolicy,
   workspaceMcpRedirectUri,
-  workspaceMcpUrlProblem,
+  workspaceMcpServerUrlProblem,
 } from "./workspace-mcp.ts";
 
 const authMode = process.env.AUTH_MODE;
@@ -1044,19 +1054,18 @@ const envVariableService = createEnvVariableService({
   store: createPostgresEnvVariableStore(db),
 });
 const workspaceMcpHosts = workspaceMcpHostsFromEnv(process.env);
-const workspaceMcpPolicy = {
-  plainHttp: "refuse" as const,
-  privateHosts: workspaceMcpHosts?.private ?? [],
-};
 const workspaceMcp = createWorkspaceMcpService({
   authorization,
   store: createPostgresWorkspaceMcpStore(db, secretKey),
   secretStoreOn: secretKey !== null,
   remote: {
     http: workspaceMcpOutbound(workspaceMcpHosts),
-    allowsUrl: (url) => endpointProblem(url, workspaceMcpPolicy) === null,
+    allowsUrl: (url) =>
+      endpointProblem(url, workspaceMcpPolicy(workspaceMcpHosts)) === null,
   },
-  serverUrlProblem: (url) => workspaceMcpUrlProblem(workspaceMcpHosts, url),
+  serverUrlProblem: (url) =>
+    workspaceMcpServerUrlProblem(workspaceMcpHosts, url),
+  serverAddressProblem: workspaceMcpAddressCheck(workspaceMcpHosts),
   redirectUriFor: (serverId) =>
     workspaceMcpRedirectUri(consoleOrigin, serverId),
 });
@@ -1107,8 +1116,8 @@ const settingsConsole = createSettingsConsoleService({
   reread: rereadSettings,
   discovery: {
     connection: (id) => catalogRegistry.settings?.connections[id],
-    urlProblem: (url) => workspaceMcpUrlProblem(workspaceMcpHosts, url),
-    http: workspaceMcpOutbound(workspaceMcpHosts),
+    urlProblem: (url) => connectionEndpointProblem(workspaceMcpHosts, url),
+    http: connectionModelsOutbound(workspaceMcpHosts),
     log: (fields) => logger.info("Connection model list read", fields),
   },
 });
@@ -1601,6 +1610,7 @@ const workers = createWorkerGateway({
   workspaceMcp: {
     store: createPostgresWorkspaceMcpEgressStore(db),
     credentialFor: workspaceMcp.credentialFor,
+    operatorListed: (url) => workspaceMcpListed(workspaceMcpHosts, url),
   },
   onMcpReceiptError: (error) =>
     logger.error("MCP refusal receipt not recorded", {
@@ -1691,31 +1701,43 @@ const authorizerListener =
         port: egressAuthorizer.port,
         fetch: ambiguousPaths.front(
           "egress-authorizer",
-          createEgressAuthorizer({
-            gateway: workers,
-            logger,
-            exchanges: createProviderExchangeLedger(db, {
-              admits: async () =>
-                admitsReservations(await installationConfig.sessionBudget()),
+          routeEgressDenials(
+            createEgressDenialHandler({
+              record: (report) => recordEgressDenial(db, report),
+              logger,
+              token: egressAuthorizer.token,
             }),
-            budgetOf: (call) => budgetChoiceOfCall(db, call),
-            recordAccountRefusal: (refusal) =>
-              recordBudgetAccountRefusal(db, refusal),
-            ...(githubMcpGrantKey === null
-              ? {}
-              : {
-                  githubMcp: { handle: githubMcp, grantKey: githubMcpGrantKey },
-                }),
-            ...(werftMcpGrantKey === null
-              ? {}
-              : { werftMcp: { handle: werftMcp, grantKey: werftMcpGrantKey } }),
-            ...(checkpointStorage === "disabled"
-              ? {}
-              : {
-                  objectStore: checkpointObjectRouteSigner(checkpointStorage),
-                }),
-            token: egressAuthorizer.token,
-          }),
+            createEgressAuthorizer({
+              gateway: workers,
+              logger,
+              exchanges: createProviderExchangeLedger(db, {
+                admits: async () =>
+                  admitsReservations(await installationConfig.sessionBudget()),
+              }),
+              budgetOf: (call) => budgetChoiceOfCall(db, call),
+              recordAccountRefusal: (refusal) =>
+                recordBudgetAccountRefusal(db, refusal),
+              ...(githubMcpGrantKey === null
+                ? {}
+                : {
+                    githubMcp: {
+                      handle: githubMcp,
+                      grantKey: githubMcpGrantKey,
+                    },
+                  }),
+              ...(werftMcpGrantKey === null
+                ? {}
+                : {
+                    werftMcp: { handle: werftMcp, grantKey: werftMcpGrantKey },
+                  }),
+              ...(checkpointStorage === "disabled"
+                ? {}
+                : {
+                    objectStore: checkpointObjectRouteSigner(checkpointStorage),
+                  }),
+              token: egressAuthorizer.token,
+            }),
+          ),
         ),
       });
 if (authorizerListener === undefined) {

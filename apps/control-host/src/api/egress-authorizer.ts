@@ -54,6 +54,10 @@ export const EGRESS_EXCHANGE_CALL_HEADER = "x-werft-exchange-call";
 // On a provider authorize, the proxy's id for the exchange asking, which a
 // conversation call's token is bound to. A header for the reason above.
 export const EGRESS_EXCHANGE_ID_HEADER = "x-werft-exchange-id";
+// On an authorize, what the proxy keeps to, comma separated:
+// `registered-upstream`, a grant's `upstream.allow` mark. A header for the
+// reason above; a proxy from before sends none.
+export const EGRESS_FEATURES_HEADER = "x-werft-egress-features";
 // A token, a purpose and, for the object store, one S3 request line and its
 // headers; anything bigger is not a request from the proxy.
 const MAX_BODY_BYTES = 16 * 1024;
@@ -514,7 +518,14 @@ export function createEgressAuthorizer(deps: {
           case "object_store":
             return authorizeObjectStore(body.token, body);
           case "mcp":
-            return deps.gateway.authorizeMcpEgress(body);
+            return deps.gateway.authorizeMcpEgress({
+              ...body,
+              registeredUpstream: (
+                request.headers.get(EGRESS_FEATURES_HEADER) ?? ""
+              )
+                .split(",")
+                .some((feature) => feature.trim() === "registered-upstream"),
+            });
           case "packages":
             return deps.gateway.authorizePackagesEgress(body);
           case "judgment":

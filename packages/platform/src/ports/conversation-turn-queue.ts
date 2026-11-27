@@ -68,12 +68,14 @@ export interface ConversationTurnQueue {
    * turn of its topic, it waits as long again from that turn's end, but is
    * never taken once a whole lease would outlast `usableUntil`, when its
    * permit ends. `duplicate`: that input's attempt is queued already, and
-   * this turn is not. A turn id queued before throws.
+   * this turn is not. `ended`: the turn was ended before it was queued (an
+   * emergency stop between its permit and here), and is not queued. A turn
+   * id queued before throws.
    */
   enqueue(
     turn: QueuedConversationTurn,
     entry: EnqueueConversationTurn,
-  ): Promise<"queued" | "duplicate">;
+  ): Promise<"queued" | "duplicate" | "ended">;
   /** Leases the oldest waiting turn to `runtimeId`, or null when none waits. */
   lease(input: {
     runtimeId: ConversationRuntimeId;
