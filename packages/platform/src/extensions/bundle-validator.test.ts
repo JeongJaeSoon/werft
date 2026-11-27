@@ -821,7 +821,7 @@ describe("description as a block scalar", () => {
   });
 
   test("a character YAML does not allow in a block is refused; NEL and NBSP are text", () => {
-    for (const code of [0x00, 0x1b, 0x7f, 0x80, 0x9f, 0xfffe]) {
+    for (const code of [0x00, 0x1b, 0x7f, 0x80, 0x9f, 0xfeff, 0xfffe]) {
       const char = String.fromCharCode(code);
       expect(
         issuesOf(tree(`description: |-\n  A${char}B\n`), "upload"),
@@ -964,6 +964,28 @@ describe("what passed before passes alike", () => {
       );
       if (!result.ok) throw new Error(JSON.stringify(result.issues));
       expect(result.bundle.digest).toBe(digest);
+    }
+  });
+
+  test("a single-line description keeps taking what it took, a raw DEL included", () => {
+    const del = String.fromCharCode(0x7f);
+    for (const mode of ["upload", "stored"] as const) {
+      const result = validateExtensionBundle(
+        {
+          slug: "research",
+          files: one(
+            `---\nname: research\ndescription: a${del}b\n---\nBody.\n`,
+          ),
+        },
+        DEFAULT_BUNDLE_LIMITS,
+        mode,
+      );
+      if (!result.ok) throw new Error(JSON.stringify(result.issues));
+      expect(
+        new TextDecoder().decode(
+          result.bundle.files.find((f) => f.path === path)?.bytes,
+        ),
+      ).toBe(`---\nname: "research"\ndescription: "a${del}b"\n---\nBody.\n`);
     }
   });
 

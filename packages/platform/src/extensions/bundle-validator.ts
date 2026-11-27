@@ -779,9 +779,9 @@ function metadataBlock(
 const BLOCK_HEADER = /^description:[ ]+([|>])(-?)[ ]*$/;
 const span = (from: number, to: number) =>
   `${String.fromCharCode(from)}-${String.fromCharCode(to)}`;
-/** Outside YAML 1.2's printable set (a line break is already a line). */
+/** Not a YAML 1.2 nb-char: outside the printable set, or a byte order mark. */
 const NOT_PRINTABLE = new RegExp(
-  `[${span(0x00, 0x08)}${span(0x0b, 0x0c)}${span(0x0e, 0x1f)}${span(0x7f, 0x84)}${span(0x86, 0x9f)}${span(0xfffe, 0xffff)}]`,
+  `[${span(0x00, 0x08)}${span(0x0b, 0x0c)}${span(0x0e, 0x1f)}${span(0x7f, 0x84)}${span(0x86, 0x9f)}${span(0xfeff, 0xfeff)}${span(0xfffe, 0xffff)}]`,
 );
 
 /**
