@@ -14,13 +14,13 @@ const write =
   "to=type=gha,scope=images-worker-amd64,mode=min,ignore-error=true\n";
 
 // A fake gh on PATH: answers GH_ANSWER, exits GH_EXIT, records its arguments.
-function run(answer: string, exit = 0) {
+function run(answer: string, exit = 0, extra: Record<string, string> = {}) {
   const dir = mkdtempSync(join(tmpdir(), "image-cache-to-"));
   try {
     const gh = join(dir, "gh");
     writeFileSync(
       gh,
-      `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >"${dir}/args"\nprintf '%s' "$GH_ANSWER"\nexit "$GH_EXIT"\n`,
+      `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >"${dir}/args"\nsleep "\${GH_SLEEP:-0}"\nprintf '%s' "$GH_ANSWER"\nexit "$GH_EXIT"\n`,
     );
     chmodSync(gh, 0o755);
     const result = Bun.spawnSync(["bash", script], {
@@ -33,6 +33,7 @@ function run(answer: string, exit = 0) {
         GITHUB_REF: "refs/heads/main",
         GH_ANSWER: answer,
         GH_EXIT: String(exit),
+        ...extra,
       },
     });
     return {
@@ -46,7 +47,7 @@ function run(answer: string, exit = 0) {
 }
 
 test("a scope already written today on this ref is only read", () => {
-  const result = run("2026-11-28T00:19:30Z");
+  const result = run("2026-11-28T08:19:30Z");
   expect(result).toMatchObject({ exitCode: 0, stdout: "to=\n" });
   expect(result.args).toContain("key=index-images-worker-amd64-");
   expect(result.args).toContain("ref=refs/heads/main");
@@ -62,4 +63,25 @@ test("the first build of the day, or of a scope never written, writes it", () =>
 // fails the build, and the write itself ignores upload errors.
 test("a failed cache listing writes as before and exits 0", () => {
   expect(run("HTTP 403", 1)).toMatchObject({ exitCode: 0, stdout: write });
+});
+
+test("an entry from before 00:30Z may be yesterday's key, so it writes", () => {
+  expect(run("2026-11-28T00:04:00Z")).toMatchObject({
+    exitCode: 0,
+    stdout: write,
+  });
+  expect(run("2026-11-28T00:30:00Z")).toMatchObject({
+    exitCode: 0,
+    stdout: "to=\n",
+  });
+});
+
+test("a listing that hangs is cut at LIST_TIMEOUT and writes as before", () => {
+  const started = Date.now();
+  const result = run("2026-11-28T08:00:00Z", 0, {
+    GH_SLEEP: "30",
+    LIST_TIMEOUT: "1",
+  });
+  expect(result).toMatchObject({ exitCode: 0, stdout: write });
+  expect(Date.now() - started).toBeLessThan(10_000);
 });

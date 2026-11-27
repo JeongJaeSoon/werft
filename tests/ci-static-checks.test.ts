@@ -128,14 +128,21 @@ test("only agent-sdk-compat restores a bun install cache", () => {
       jobs: Record<string, Job>;
     };
     for (const [name, job] of Object.entries(parsed.jobs))
-      for (const step of job.steps ?? [])
-        if (
-          step.uses === "./.github/actions/bun-setup" &&
-          step.with?.["restore-cache"] === "true"
-        )
+      for (const step of job.steps ?? []) {
+        if (step.uses !== "./.github/actions/bun-setup") continue;
+        // The inputs as the action sees them, defaults applied.
+        const restore = step.with?.["restore-cache"] ?? "false";
+        const save = step.with?.["save-cache"] ?? "false";
+        // The action's guard fails this pair: a save with no restore.
+        expect({ at: `${file} ${name}`, restore, save }).not.toMatchObject({
+          restore: "false",
+          save: "true",
+        });
+        if (restore === "true")
           restoring.push(
-            `${file} ${name} ${step.with?.["cache-scope"]} ${step.with?.["save-cache"]}`,
+            `${file} ${name} ${step.with?.["cache-scope"]} ${save}`,
           );
+      }
   }
   expect(restoring).toEqual(["ci.yml agent-sdk-compat agent-sdk-compat true"]);
 });
@@ -199,7 +206,7 @@ test("unit parts isolate slow Slack fixtures and reject every empty part", async
   }
 });
 
-test("static checks keep one cache writer and report independent failures", () => {
+test("static checks write no bun cache and report independent failures", () => {
   const parts = workflow.jobs["check-part"];
   expect(workflow.jobs.changes?.outputs?.unit_parts).toBe(
     `\${{ steps.units.outputs.matrix }}`,
