@@ -959,13 +959,17 @@ export function createSlackSessionHandler(
         });
         // Once the rollout is on, the same daily line a mention in a
         // channel waiting for approval gets, so it is not said twice.
-        await (rolloutOnMention
-          ? tellOnceADay("pendingApproval", "pending_approval")
-          : notice(
-              "pending_approval",
-              { message: "pendingApproval" },
-              { id: waiting.id, revision: waiting.revision },
-            ));
+        if (rolloutOnMention) {
+          if (slackUserKindOf(user, claim.teamId) !== "external") {
+            await tellOnceADay("pendingApproval", "pending_approval");
+          }
+          return;
+        }
+        await notice(
+          "pending_approval",
+          { message: "pendingApproval" },
+          { id: waiting.id, revision: waiting.revision },
+        );
         return;
       }
     }
@@ -1004,7 +1008,13 @@ export function createSlackSessionHandler(
       const line =
         live === null
           ? ("channelUnbound" as const)
-          : live.status === "pending_approval" && rolloutOnMention
+          : // Waiting for approval where the table heard the agent: it said
+            // so, or the binding went from ready to waiting since.
+            live.status === "pending_approval" &&
+              live.mode === "on" &&
+              rolloutOnMention &&
+              (mentionTable.notice === "pendingApproval" ||
+                mentionHandling === "m2")
             ? ("pendingApproval" as const)
             : undefined;
       if (line === undefined) {

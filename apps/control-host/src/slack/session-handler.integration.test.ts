@@ -6438,17 +6438,25 @@ describe.each(ENGINES)(
       const fixture = await agentInSlack("main", { rollout: "on" });
       slack.channels.set(CHANNEL, { isPrivate: true });
       const { handle, notices, threadNotices } = handler();
-      // The first finds the channel private; the second finds it waiting.
-      await deliver(fixture, mention("100.000100"));
+      slack.users.set("U0STRANGER", { teamId: "T0OTHER", isStranger: true });
+      // Someone from another organization finds the channel private and is
+      // told nothing; the next mentions find it waiting.
+      await deliver(fixture, mention("100.000100", { user: "U0STRANGER" }));
+      await deliver(fixture, mention("150.000100"));
       await deliver(fixture, mention("200.000100"));
       await deliver(fixture, mention("86500.000100"));
       await drain(handle);
+      const [row] = await db
+        .select({ status: surfaceBindings.status })
+        .from(surfaceBindings)
+        .where(eq(surfaceBindings.id, fixture.bindingId));
+      expect(row?.status).toBe("pending_approval");
       const waiting = {
         reason: "pending_approval",
         notice: { message: "pendingApproval" },
       };
       expect(told(notices)).toEqual([
-        { threadTs: "100.000100", slackUserId: PERSON, ...waiting },
+        { threadTs: "150.000100", slackUserId: PERSON, ...waiting },
         { threadTs: "86500.000100", slackUserId: PERSON, ...waiting },
       ]);
       expect(threadNotices).toEqual([]);
