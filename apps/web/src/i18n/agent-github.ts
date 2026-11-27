@@ -181,7 +181,7 @@ export const agentGitHubKo = {
   "agentGitHub.refusal.agent_ref_refused": "agent/ 브랜치 실행 거절",
   "agentGitHub.refusal.run_ref_unprovable": "플랫폼이 실행하지 않은 run",
   "agentGitHub.refusal.actions_off":
-    "이 에이전트는 workflow 직접 실행이 꺼져 있어요. 관리자가 에이전트 GitHub 설정에서 켤 수 있어요.",
+    "이 에이전트는 workflow 직접 실행이 꺼져 있습니다. 관리자가 에이전트 GitHub 설정에서 켤 수 있습니다.",
   "agentGitHub.refusal.github_settings_unsupported": "이 서버가 모르는 설정",
   "agentGitHub.refusal.github_host_unsupported": "GitHub Enterprise",
   "agentGitHub.refusal.repository_none": "저장소 없음",
