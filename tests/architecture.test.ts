@@ -3601,7 +3601,7 @@ describe("architecture", () => {
         "utf8",
       ),
     ).toContain("ContextFragmentSource");
-    // Reads every workspace source: CI's integration (worker) job runs it
+    // Reads every workspace source: CI's integration (worker) jobs run it
     // several times slower than a dev machine, past bun's 5 s default.
   }, 60_000);
 
