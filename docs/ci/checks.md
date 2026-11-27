@@ -36,7 +36,8 @@ ruleset의 필수 이름은 아래 일곱 개다. 이름은 그 job이 PR에서 
 
 - 문서만 바꾼 PR은 시험과 제품 job을 계획하지 않는다. 가이드를 바꿨으면 `quickstart (guides)`가, 사이트 내용을 바꿨으면 `docs`와 `pages`가 돈다.
 - main push가 같은 트리를 시험한 PR run을 찾으면 그 run을 재사용하고 아래 job들을 생략한다(`.github/scripts/ci-reuse.sh`). `helm-chart`, `k8s-smoke`, `sdk-pack-smoke`, `demo`, `ui-pack`은 하나씩 본다. PR run이 돌리지 않은 것은 main push가 돌린다.
-- 각 `is_*_path` 목록은 `tests/ci-plan.test.ts`가 지킨다. job이 빌드하는 파일의 import와 상대 경로 문자열을 따라가서 닿은 경로가 목록에 없으면 실패한다.
+- 각 `is_*_path` 목록은 `tests/ci-plan.test.ts`가 지킨다. job의 파일과 그 step이 적은 경로에서 import, 상대 경로 문자열, 셸 스크립트가 적은 경로를 따라가서 닿은 경로가 목록에 없으면 실패한다.
+- 어느 목록도 분류하지 않은 경로(새 최상위 디렉터리, 루트의 문서 아닌 파일), 모든 workflow, 모든 `package.json`을 바꾼 PR은 네 job을 다 돌린다.
 - 수동 run(`workflow_dispatch`)은 `only` 입력으로 job 하나를 고른다. 아래 표의 "도는 때"는 PR과 main push 기준이다.
 
 `e2e`와 `quickstart`는 이 workflow의 job이 낸다. API로 만든 check run은 그 commit의 가장 오래된 check suite에 붙어서, 다른 workflow가 다시 돌면 merge 판정에서 빠진다.

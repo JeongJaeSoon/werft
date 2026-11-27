@@ -266,21 +266,47 @@ describe("ci-reuse.sh", () => {
     expect(run().outputs.k8s).toBe("true");
   });
 
-  test("demo and ui-pack the PR plan left out still run on the push", () => {
+  test.each([
+    ["demo", { demo: "false", ui_pack: "true" }],
+    ["ui-pack", { demo: "true", ui_pack: "false" }],
+  ])(
+    "a %s the PR plan left out still runs on the push, alone",
+    (left, want) => {
+      answer({
+        pulls: pr(),
+        compare: { status: "ahead" },
+        runs: runs(),
+        jobs: { jobs: withGuides(fullJobs()).filter((j) => j.name !== left) },
+      });
+      const r = run();
+      expect(r.outputs.reused).toBe("https://github.invalid/runs/11");
+      expect({ demo: r.outputs.demo, ui_pack: r.outputs.ui_pack }).toEqual(
+        want,
+      );
+    },
+  );
+
+  test.each([
+    ["demo", "Static build", { demo: "false", ui_pack: "true" }],
+    [
+      "ui-pack",
+      "Install, type-check, build and render in an empty app",
+      { demo: "true", ui_pack: "false" },
+    ],
+  ])("a %s whose own step did not pass is no evidence", (name, step, want) => {
     answer({
       pulls: pr(),
       compare: { status: "ahead" },
       runs: runs(),
       jobs: {
-        jobs: withGuides(fullJobs()).filter(
-          (j) => j.name !== "demo" && j.name !== "ui-pack",
+        jobs: withGuides(fullJobs()).map((j) =>
+          j.name === name ? job(name, step, "skipped") : j,
         ),
       },
     });
     const r = run();
     expect(r.outputs.reused).toBe("https://github.invalid/runs/11");
-    expect(r.outputs.demo).toBe("false");
-    expect(r.outputs.ui_pack).toBe("false");
+    expect({ demo: r.outputs.demo, ui_pack: r.outputs.ui_pack }).toEqual(want);
   });
 
   test("a push that plans no demo or ui-pack does not claim them", () => {

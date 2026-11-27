@@ -913,6 +913,13 @@ test("a documentation-only pull request still gets a result from every required 
       readFileSync(join(root, ".github/workflows", row.file), "utf8"),
     ) as { on: unknown; jobs: Record<string, Job> };
     // A path filter on the trigger leaves a required check pending forever.
+    const events =
+      typeof on === "string"
+        ? [on]
+        : Array.isArray(on)
+          ? on
+          : Object.keys((on as Record<string, unknown>) ?? {});
+    expect(events).toContain("pull_request");
     const trigger =
       typeof on === "object" && on !== null && !Array.isArray(on)
         ? (on as Record<string, unknown>).pull_request
@@ -926,8 +933,12 @@ test("a documentation-only pull request still gets a result from every required 
     // starts with always() so a skipped need does not skip it with it.
     const job = jobs[row.id];
     expect(job).toBeDefined();
+    // always() alone, or always() and an `only` choice that holds when a
+    // pull request leaves `only` unset.
     if (job?.if !== undefined || [job?.needs ?? []].flat().length > 0) {
-      expect(String(job?.if ?? "")).toMatch(/^always\(\)/);
+      expect(String(job?.if ?? "")).toMatch(
+        /^always\(\)( && (contains\(fromJSON\('\[[^\]]*"all"[^\]]*\]'\), github\.event\.inputs\.only \|\| 'all'\)|\(github\.event\.inputs\.only \|\| 'all'\) == 'all'))?$/,
+      );
     }
   }
 });

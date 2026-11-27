@@ -175,17 +175,20 @@ const K8S_PATHS = new Set([
   "bun.lock",
   "deploy/helm/werft/values.yaml",
 ]);
-/** Paths every conditional job builds from (ci-plan.sh is_ci_core_path). */
-const CORE_PATHS = new Set([
-  ".github/workflows/ci.yml",
-  ".github/scripts/ci-plan.sh",
-  ".github/actions/setup/README.md",
-  "bun.lock",
-  "package.json",
-]);
+/** Whether every conditional job runs for a path (ci-plan.sh is_ci_core_path). */
+const isCore = (path: string) =>
+  /^(\.github\/(workflows|actions)\/|\.github\/scripts\/ci-(plan|reuse)\.sh$|bun\.lock$)/.test(
+    path,
+  ) ||
+  /(^|\/)package\.json$/.test(path) ||
+  (!path.includes("/") && !path.endsWith(".md")) ||
+  (path.includes("/") &&
+    !/^(apps|packages|tests|docs|deploy|scripts|infra|\.github|\.claude)\//.test(
+      path,
+    ));
 /** The plan of a pull request of one path, for the paths these tests use. */
 function prPlan(path: string) {
-  const on = (own: boolean) => (CORE_PATHS.has(path) || own ? "true" : "false");
+  const on = (own: boolean) => (isCore(path) || own ? "true" : "false");
   return {
     ...full,
     k8s: K8S_PATHS.has(path) ? "true" : "false",
@@ -699,6 +702,12 @@ function reach(entries: string[]) {
     if (seen.has(file)) continue;
     seen.add(file);
     reached.add(file);
+    if (/\.(sh|bash)$/.test(file)) {
+      // A script names what it reads from the repository root.
+      for (const path of repoPaths(readFileSync(join(repo, file), "utf8")))
+        reached.add(path);
+      continue;
+    }
     if (!/\.(m?[jt]sx?|css)$/.test(file)) continue;
     const text = readFileSync(join(repo, file), "utf8");
     const resolve = (spec: string) => normalize(join(dirname(file), spec));
@@ -749,6 +758,33 @@ function reach(entries: string[]) {
   return [...reached].filter((path) => !path.startsWith(".."));
 }
 
+/**
+ * The repository paths a shell text names: each token that is a file or a
+ * directory from the root (a glob is cut at its first *).
+ */
+function repoPaths(text: string) {
+  const repo = join(import.meta.dir, "..");
+  const out = new Set<string>();
+  for (const [token = ""] of text.matchAll(/[\w.-]+(?:\/[\w.*-]+)+/g)) {
+    const path = token.replace(/\/?[^/]*\*.*$/, "").replace(/\/$/, "");
+    if (!path.includes("/") || path.startsWith("..")) continue;
+    const stat = statSync(join(repo, path), { throwIfNoEntry: false });
+    if (stat?.isFile()) out.add(path);
+    else if (stat?.isDirectory()) out.add(`${path}/`);
+  }
+  return [...out];
+}
+
+/** What the steps of these ci.yml jobs name: scripts they run, cache keys, -f values. */
+function stepPaths(...jobs: string[]) {
+  const workflow = Bun.YAML.parse(
+    readFileSync(join(import.meta.dir, "../.github/workflows/ci.yml"), "utf8"),
+  ) as { jobs: Record<string, { steps: unknown[] }> };
+  return jobs.flatMap((id) =>
+    repoPaths(JSON.stringify(workflow.jobs[id]?.steps ?? [])),
+  );
+}
+
 function filesUnder(dir: string): string[] {
   const repo = join(import.meta.dir, "..");
   return readdirSync(join(repo, dir), { withFileTypes: true }).flatMap(
@@ -768,25 +804,42 @@ const source = (dir: string) =>
   filesUnder(dir).filter((file) => !/\.test\.[jt]sx?$/.test(file));
 
 test.each([
-  // The job's own files: what its steps build or run (ci.yml).
-  [
-    "is_site_path",
-    () => [...source("apps/docs"), "scripts/check-docs-self-hosting-export.ts"],
-  ],
-  [
-    "is_helm_path",
-    () => [...filesUnder("deploy/helm"), "scripts/fetch-pinned.ts"],
-  ],
-  [
-    "is_ui_pack_path",
-    () => [...source("packages/ui"), "scripts/ui-pack-smoke.ts"],
-  ],
-  ["is_demo_path", () => source("apps/web")],
-] as const)("%s names every path its job's files reach", (fn, entries) => {
-  const reached = reach(entries());
+  // The job's own files, and what its steps name (ci.yml).
+  ["is_site_path", ["docs", "pages"], () => source("apps/docs")],
+  ["is_helm_path", ["helm-chart"], () => filesUnder("deploy/helm")],
+  ["is_ui_pack_path", ["ui-pack"], () => source("packages/ui")],
+  ["is_demo_path", ["demo"], () => source("apps/web")],
+] as const)("%s names every path its job's files reach", (fn, jobs, own) => {
+  const named = stepPaths(...jobs);
+  // A directory a step names counts whole: its files are what the job reads.
+  const entries = [
+    ...own(),
+    ...named.flatMap((path) =>
+      path.endsWith("/") ? source(path.slice(0, -1)) : [path],
+    ),
+  ];
+  const reached = reach(entries);
   const ok = accepted(fn, reached);
   expect(reached.filter((path) => !ok.has(path))).toEqual([]);
 });
+
+test.each([
+  "new-directory/notes.md",
+  "biome.json",
+  ".github/workflows/pages.yml",
+  "packages/db/package.json",
+  "apps/worker/package.json",
+])(
+  "a pull request of %s, which no list sorts, runs every conditional job",
+  (path) => {
+    expect(plan(fixture(undefined, [path])).output).toMatchObject({
+      site: "true",
+      helm: "true",
+      demo: "true",
+      ui_pack: "true",
+    });
+  },
+);
 
 test("a pull request of a path no conditional job builds from leaves them all out", () => {
   const repo = fixture(undefined, ["packages/db/src/a.ts"]);

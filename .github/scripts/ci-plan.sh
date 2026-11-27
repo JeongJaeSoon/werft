@@ -53,13 +53,19 @@ is_k8s_path() {
   esac
 }
 
-# What every conditional job below is also built from: this plan and the reuse
-# of its runs, the workflow and its actions, the lockfile and root config.
+# What every conditional job below is also built from, or a path nobody has
+# sorted: this plan and the reuse of its runs, any workflow and the actions,
+# the lockfile and every workspace manifest (each job's `bun install
+# --frozen-lockfile` reads them all), root files other than prose, and any
+# top-level directory the lists below and the plan above do not know.
 is_ci_core_path() {
   case "$1" in
-    .github/workflows/ci.yml | .github/scripts/ci-plan.sh | .github/scripts/ci-reuse.sh | \
-      .github/actions/* | bun.lock | package.json | bunfig.toml | tsconfig.json | tsconfig.base.json) return 0 ;;
-    *) return 1 ;;
+    .github/workflows/* | .github/scripts/ci-plan.sh | .github/scripts/ci-reuse.sh | \
+      .github/actions/* | bun.lock | package.json | */package.json) return 0 ;;
+    apps/* | packages/* | tests/* | docs/* | deploy/* | scripts/* | infra/* | .github/* | .claude/*) return 1 ;;
+    */*) return 0 ;;
+    *.md) return 1 ;;
+    *) return 0 ;;
   esac
 }
 
