@@ -322,8 +322,6 @@ const PUBLISH_PATHS = [
   "apps/web/package.json",
   "THIRD_PARTY_NOTICES.md",
   "scripts/third-party-notices.ts",
-  "docs/api/index.html",
-  "docs/api/scalar.js",
   "tests/e2e/owner-cookie.ts",
   "tests/e2e/client.ts",
   "tests/fixtures/settings/fake-model.json",
@@ -349,6 +347,8 @@ test("a main push runs the kind jobs only for chart, image and deploy paths", ()
   const f = fixture(undefined, [
     "packages/db/src/a.ts",
     "apps/control-host/src/api/a.ts",
+    // Generated from the API on most changes to it: image content, like source.
+    "docs/api/index.html",
     "tests/a.test.ts",
   ]);
   expect(plan(f, "push").output).toEqual({

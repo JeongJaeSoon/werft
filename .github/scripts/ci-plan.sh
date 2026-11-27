@@ -62,7 +62,7 @@ is_publish_path() {
       package.json | */package.json | bunfig.toml | tsconfig.base.json | \
       packages/adapters/runtimes/registry/* | packages/runtime-core/src/image-runtime.ts | \
       apps/worker/src/image-runtime.ts | apps/worker/git-hooks/* | \
-      THIRD_PARTY_NOTICES.md | scripts/third-party-notices.ts | docs/api/index.html | docs/api/scalar.js | \
+      THIRD_PARTY_NOTICES.md | scripts/third-party-notices.ts | \
       packages/testkit/src/seed-credentials-main.ts | packages/testkit/src/fake-github.ts | \
       packages/testkit/src/git-http.ts | apps/control-host/src/api/settings.ts | \
       tests/e2e/owner-cookie.ts | tests/e2e/client.ts | tests/fixtures/settings/*-model.json) return 0 ;;
