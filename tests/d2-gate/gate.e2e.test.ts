@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
 import type { Pool } from "pg";
 import { inputUuid } from "../../apps/worker/src/worker-host.ts";
+import { CUT_OFF_INPUT_LINE } from "../../packages/db/src/cut-off-input.ts";
 import {
   Bucket,
   Chaos,
@@ -35,9 +36,12 @@ import {
  * Scenarios run in order on one stack, each on a session of its own:
  * A. two turns on one engine, checkpoint, and a restore onto a clean
  *    workspace volume and HOME, with one append response lost on the way;
- * B. a publish that fails at the manifest, then one that succeeds;
+ * B. a publish that fails at the manifest, the retry that covers its turn
+ *    once the fault is gone, and the next turn held until then;
  * C. a transcript mirror that fails;
- * D. a worker that loses its lease while its turn is open;
+ * D. a worker that loses its lease while its turn is open, a worker killed
+ *    outright whose turn an operator settles, and the next message the first
+ *    session takes;
  * E. interrupts repeated on fresh sessions, as early as the API takes them
  *    and mid-response (D2_GATE_INTERRUPT_REPEAT rounds, 6 by default), and
  *    one that reaches a turn already over.
@@ -818,7 +822,8 @@ describe.skipIf(env === null)("D2 gate", () => {
       times: -1,
     });
     const turn1 = await api.settle(sessionId, created.turn_id, TURN_MS);
-    await chaos.disarm(failing);
+    // The fault stays armed past the reads below: the worker tries the
+    // publish again in its lease, and a retry that lands would be read here.
     const worker = await workers.running(sessionId, 10_000);
     const failed = await logged(worker, "worker.checkpoint.failed");
     const orphanDirectory = String(failed.manifest_ref ?? "").replace(
@@ -868,41 +873,105 @@ describe.skipIf(env === null)("D2 gate", () => {
       steps: [write("/workspace/b.txt", "b turn 2\n")],
       final: "B2 DONE",
     };
+    // Turn 2 is accepted with the fault still armed. The worker owes turn 1
+    // its checkpoint and asks for no input until a retry lands. So the fault
+    // is swapped for a hold: the next retry's manifest PUT stops here, and
+    // while it is held nothing has landed and turn 2 must still be queued.
     const turnId = await api.message(sessionId, prompt("Turn two.", spec2));
+    const holding = await chaos.arm({
+      action: "hold",
+      upstream: "s3",
+      method: "PUT",
+      path: `sessions/${sessionId}/checkpoints/.*/manifest\\.json`,
+      times: 1,
+    });
+    await chaos.disarm(failing);
+    const heldPut = await waitFor(
+      "a retry of turn 1's publish to reach its manifest PUT",
+      async () =>
+        (await chaos.log(sessionId)).find((entry) => entry.rule === holding),
+      60_000,
+      250,
+    ).catch(() => undefined);
+    const rowOf = async (sequence: string) =>
+      (await turnRows(sessionId)).find((t) => String(t.sequence) === sequence);
+    const whileHeld = {
+      turn_2: (await rowOf(turnId))?.status,
+      checkpoints: (await checkpointRows(sessionId)).length,
+    };
+    await chaos.release(holding);
     const turn2 = await api.settle(sessionId, turnId, TURN_MS);
+    await chaos.disarm(holding);
+    // The held request itself, read again: a resend of the same key that got
+    // past the spent rule would leave this one refused.
+    const landed = (await chaos.log(sessionId)).find(
+      (entry) => entry.index === heldPut?.index,
+    );
     const checkpoints = await checkpointRows(sessionId);
-    const committed = checkpoints[0];
-    const verified = committed
-      ? await verifyCheckpoint(bucket, committed)
-      : null;
+    const problems = (
+      await Promise.all(checkpoints.map((row) => verifyCheckpoint(bucket, row)))
+    ).flatMap((verified) => verified.problems);
+    const [order] = await rows<{
+      committed_at: string;
+      delivery_started_at: string | null;
+      retry_first: boolean | null;
+    }>(
+      `SELECT c.committed_at::text, t.delivery_started_at::text,
+              c.committed_at <= t.delivery_started_at AS retry_first
+         FROM checkpoints c JOIN turns t ON t.session_id = c.session_id
+        WHERE c.session_id = $1 AND c.revision = 0 AND t.sequence = $2`,
+      [sessionId, Number(turnId)],
+    );
+    const settled = await sessionRow(sessionId);
+    const turnRowIds = [
+      (await rowOf(created.turn_id))?.id,
+      (await rowOf(turnId))?.id,
+    ];
     report.check({
       id: "B-02",
       criterion: "fault: publish 중 실패",
       title:
-        "the next publish commits in a directory of its own, and only it is pointed at",
-      input: "fault removed, turn 2",
+        "the retry covers the failed turn before the next one starts, each in a directory of its own",
+      input:
+        "turn 2 sent with the fault armed; the next retry's manifest PUT held, then let through",
       expected:
-        "one checkpoint (revision 0, turn 2) outside the failed directory; digests match; the publish_failed reason cleared by the commit",
+        "turn 2 queued and no checkpoint while the retry's PUT is held; that request is stored (200) and is revision 0's manifest, on turn 1, committed before turn 2 started; revision 1 on turn 2; both outside the failed directory; pointer 1; digests match; the publish_failed reason cleared",
       actual: {
+        held_put: heldPut?.path,
+        held_put_stored: landed?.upstreamStatus,
+        while_held: whileHeld,
         status: turn2.status,
-        checkpoints: checkpoints.map((c) => `${c.revision}:${c.manifest_ref}`),
+        checkpoints: checkpoints.map(
+          (c) => `${c.revision}:${c.turn_id}:${c.manifest_ref}`,
+        ),
+        turns: turnRowIds,
+        order,
         failed_directory: orphanDirectory,
-        pointer: (await sessionRow(sessionId)).checkpoint_revision,
-        pending_reason: (await sessionRow(sessionId)).checkpoint_pending_reason,
-        problems: verified?.problems ?? ["none committed"],
+        pointer: settled.checkpoint_revision,
+        pending_reason: settled.checkpoint_pending_reason,
+        problems,
       },
       pass:
+        heldPut !== undefined &&
+        whileHeld.turn_2 === "queued" &&
+        whileHeld.checkpoints === 0 &&
+        landed?.upstreamStatus === 200 &&
+        decodeURIComponent(heldPut.path.split("?")[0] ?? "").endsWith(
+          `/${checkpoints[0]?.manifest_ref ?? "none committed"}`,
+        ) &&
         turn2.status === "completed" &&
-        (await sessionRow(sessionId)).checkpoint_pending_reason === null &&
-        checkpoints.length === 1 &&
-        committed?.revision === 0 &&
-        (await sessionRow(sessionId)).checkpoint_revision === 0 &&
-        committed.turn_id ===
-          (await turnRows(sessionId)).find((t) => String(t.sequence) === turnId)
-            ?.id &&
-        !committed.manifest_ref.startsWith(orphanDirectory) &&
-        verified !== null &&
-        verified.problems.length === 0,
+        settled.checkpoint_pending_reason === null &&
+        settled.checkpoint_revision === 1 &&
+        checkpoints.length === 2 &&
+        checkpoints.every(
+          (c, revision) =>
+            c.revision === revision &&
+            turnRowIds[revision] !== undefined &&
+            c.turn_id === turnRowIds[revision] &&
+            !c.manifest_ref.startsWith(orphanDirectory),
+        ) &&
+        order?.retry_first === true &&
+        problems.length === 0,
     });
 
     await stopWorker(worker);
@@ -992,7 +1061,8 @@ describe.skipIf(env === null)("D2 gate", () => {
       steps: [{ ...write("/workspace/d.txt", "d turn 1\n"), delayMs: 30_000 }],
       final: "D1 DONE",
     };
-    const created = await api.createSession(prompt("Turn one.", spec));
+    const lostPrompt = prompt("Turn one.", spec);
+    const created = await api.createSession(lostPrompt);
     const sessionId = created.session_id;
     report.meta.session_d = sessionId;
     await waitFor(
@@ -1091,7 +1161,7 @@ describe.skipIf(env === null)("D2 gate", () => {
       title: "neither the open turn's work nor the old attempt is promoted",
       input: "DB and bucket after the lost worker exited",
       expected:
-        "turn outcome unknown; recovery_required; no checkpoints row; no pointer",
+        "turn failed(worker_ownership_lost), outcome known; session active; no checkpoints row; no pointer",
       actual: {
         turn: turns.map((t) => ({
           status: t.status,
@@ -1107,19 +1177,60 @@ describe.skipIf(env === null)("D2 gate", () => {
       },
       pass:
         turns.length === 1 &&
-        turns[0]?.outcome_unknown === true &&
-        session.admission_state === "recovery_required" &&
+        turns[0]?.status === "failed" &&
+        turns[0]?.terminal_reason === "worker_ownership_lost" &&
+        turns[0]?.outcome_unknown === false &&
+        session.admission_state === "active" &&
         session.checkpoint_revision === null &&
         checkpoints.length === 0,
     });
 
+    // A worker killed outright leaves no word that it gave its lease up, so
+    // nobody can say what its turn did: the turn is unknown and waits on an
+    // operator. On a session of its own.
+    const killedSpec = {
+      id: "D3",
+      // Held far longer than the kill takes; the read before the kill says
+      // the turn was still open.
+      steps: [
+        { ...write("/workspace/d3.txt", "d3 turn 1\n"), delayMs: 240_000 },
+      ],
+      final: "D3 DONE",
+    };
+    const killedId = (await api.createSession(prompt("Turn one.", killedSpec)))
+      .session_id;
+    report.meta.session_d_killed = killedId;
+    await waitFor(
+      "the model call of D3",
+      async () => (await messages.requests("D3")).length > 0,
+      TURN_MS,
+      250,
+    );
+    const killed = await workers.running(killedId, 10_000);
+    const [open] = await turnRows(killedId);
+    await run(["docker", "kill", killed.name]);
+    const [unknown] = await waitFor(
+      "the killed worker's turn to settle",
+      async () => {
+        const found = await turnRows(killedId);
+        return found.every((t) => t.status !== "running") ? found : null;
+      },
+      120_000,
+    ).catch(() => turnRows(killedId));
+    const held = await sessionRow(killedId);
+    // What the scheduler or the lease sweep wrote; a worker's own word that
+    // it gave the lease up would read worker_lease_lost.
+    const wordless = await rows<{ state: string; end_reason: string | null }>(
+      "SELECT state, end_reason FROM attempts WHERE session_id = $1",
+      [killedId],
+    );
     const decision = await api.call(
       "POST",
-      `/v1/sessions/${sessionId}/recovery-decisions`,
+      `/v1/sessions/${killedId}/recovery-decisions`,
       {
         decision: "abandon",
-        expected_revision: (await api.session(sessionId)).revision,
-        reason: "d2 gate: the lost attempt has no confirmed effect",
+        expected_revision: (await api.session(killedId)).revision,
+        reason: "d2 gate: the killed attempt has no confirmed effect",
         target_turn_id: "1",
       },
     );
@@ -1137,17 +1248,26 @@ describe.skipIf(env === null)("D2 gate", () => {
             250,
           )
         : null;
-    const [cleaned] = await turnRows(sessionId);
-    const cleanedSession = await sessionRow(sessionId);
+    const [cleaned] = await turnRows(killedId);
+    const cleanedSession = await sessionRow(killedId);
     report.check({
       id: "D-03",
       criterion: "outcome_unknown 복구 결정",
       title:
         "an operator decision, not a worker restart, settles the unknown turn",
-      input: "abandon turn 1 after the lost execution is confirmed gone",
+      input:
+        "docker kill a second session's worker mid-turn, then abandon turn 1 once the execution is confirmed gone",
       expected:
-        "202; recovery receipt succeeded; turn cancelled(operator_abandoned); session stopped",
+        "turn running at the kill; attempt lost with no word of a given-up lease; turn outcome_unknown(execution_gone); recovery_required; then 202; recovery receipt succeeded; turn cancelled(operator_abandoned); session stopped",
       actual: {
+        before_kill: open?.status,
+        attempts: wordless,
+        unknown: {
+          status: unknown?.status,
+          reason: unknown?.terminal_reason,
+          unknown: unknown?.outcome_unknown,
+          admission: held.admission_state,
+        },
         response_status: decision.status,
         receipt,
         turn: {
@@ -1158,6 +1278,19 @@ describe.skipIf(env === null)("D2 gate", () => {
         admission: cleanedSession.admission_state,
       },
       pass:
+        open?.status === "running" &&
+        wordless.length === 1 &&
+        wordless.every(
+          (attempt) =>
+            attempt.state === "lost" &&
+            ["execution_gone", "lease_expired"].includes(
+              attempt.end_reason ?? "",
+            ),
+        ) &&
+        unknown?.status === "outcome_unknown" &&
+        unknown.terminal_reason === "execution_gone" &&
+        unknown.outcome_unknown === true &&
+        held.admission_state === "recovery_required" &&
         decision.status === 202 &&
         receipt?.status === "succeeded" &&
         cleaned?.status === "cancelled" &&
@@ -1165,6 +1298,68 @@ describe.skipIf(env === null)("D2 gate", () => {
         cleaned?.outcome_unknown === true &&
         cleanedSession.admission_state === "stopped",
     });
+
+    // The lost turn's session goes on: its next message runs on a new worker,
+    // handed the lost turn's input ahead of its own. The scripted model plays
+    // the first spec a prompt carries, so D1 answers here again, and a D1
+    // call that holds both inputs in that order is the hand-over seen from
+    // outside.
+    const nextTurnId = await api.message(sessionId, "Turn two.");
+    const successor = await workers.running(sessionId);
+    const next = await api.settle(sessionId, nextTurnId, TURN_MS);
+    const [, nextRow] = await turnRows(sessionId);
+    const after = await sessionRow(sessionId);
+    const pointed = (await checkpointRows(sessionId)).find(
+      (row) => row.revision === after.checkpoint_revision,
+    );
+    const executions = new Map(
+      (
+        await rows<{ execution_id: string; id: string }>(
+          "SELECT id, execution_id FROM attempts WHERE session_id = $1",
+          [sessionId],
+        )
+      ).map((attempt) => [attempt.id, attempt.execution_id]),
+    );
+    const lostExecution = executions.get(turns[0]?.attempt_id ?? "");
+    const nextExecution = executions.get(nextRow?.attempt_id ?? "");
+    // As JSON writes it, since the request is searched as JSON.
+    const handed = JSON.stringify(
+      `${CUT_OFF_INPUT_LINE}\n\n${lostPrompt}\n\nTurn two.`,
+    ).slice(1, -1);
+    const handedOver = (await messages.requests("D1")).filter((request) =>
+      JSON.stringify(request.messages).includes(handed),
+    );
+    report.check({
+      id: "D-04",
+      criterion: "fault: lease 상실",
+      title:
+        "the session of the lost turn takes its next message on a new worker",
+      input: "POST a message to the session whose turn failed as lost",
+      expected:
+        "turn 2 completed on another execution, given the cut-off line, the lost turn's input and its own in that order; session active; the pointer's checkpoint is turn 2's",
+      actual: {
+        status: next.status,
+        reason: next.terminal_reason,
+        lost_worker: worker.name,
+        worker: successor.name,
+        executions: [lostExecution, nextExecution],
+        model_calls_with_handed_input: handedOver.length,
+        admission: after.admission_state,
+        pointer: after.checkpoint_revision,
+        pointed_turn: pointed?.turn_id,
+        turn: nextRow?.id,
+      },
+      pass:
+        next.status === "completed" &&
+        handedOver.length > 0 &&
+        lostExecution !== undefined &&
+        nextExecution !== undefined &&
+        nextExecution !== lostExecution &&
+        after.admission_state === "active" &&
+        pointed !== undefined &&
+        pointed.turn_id === nextRow?.id,
+    });
+    await stopWorker(successor);
     expect(report.failed().filter((c) => c.id.startsWith("D-"))).toEqual([]);
   }, 900_000);
 

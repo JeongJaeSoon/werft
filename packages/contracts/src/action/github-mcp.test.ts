@@ -168,6 +168,7 @@ describe("githubMcpTools", () => {
       "list_repositories",
       "attach_repository",
     ]);
+    // Workflow edits read CI; running a workflow is its own switch.
     expect(
       githubMcpTools(settings({ workflows: true, checks: true, issues: true })),
     ).toEqual([
@@ -180,11 +181,17 @@ describe("githubMcpTools", () => {
       "close_pull_request",
       "reopen_pull_request",
       "merge_pull_request",
+      "get_workflow_run",
       "list_repositories",
       "attach_repository",
     ]);
+    expect(githubMcpTools(settings({ actions: true }))).not.toContain(
+      "get_workflow_run",
+    );
     expect<string[]>(
-      githubMcpTools(settings({ actions: true, review: true })),
+      githubMcpTools(
+        settings({ workflows: true, actions: true, review: true }),
+      ),
     ).toEqual(Object.keys(GITHUB_MCP_TOOL_ARGUMENTS));
     expect(
       githubMcpToolNames(githubMcpTools(settings({ review: true }))),

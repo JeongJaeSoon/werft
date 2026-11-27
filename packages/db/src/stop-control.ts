@@ -26,6 +26,24 @@ export const STOP_BEFORE_START = "stop_before_start";
 
 export function createPostgresSessionStops(db: Database): SessionStops {
   return {
+    async stoppedIn({ sessionIds, idempotencyKey }) {
+      if (sessionIds.length === 0) return false;
+      const [row] = await db
+        .select({ sessionId: sessionStops.sessionId })
+        .from(sessionStops)
+        .where(
+          and(
+            inArray(
+              sessionStops.sessionId,
+              sessionIds.map((id) => id.toLowerCase()),
+            ),
+            eq(sessionStops.idempotencyKey, idempotencyKey),
+          ),
+        )
+        .limit(1);
+      return row !== undefined;
+    },
+
     cancelQueued(input: StopQueuedInput): Promise<StopQueuedResult> {
       const sessionId = input.sessionId.toLowerCase();
       return transactionWithBindingRetry(db, async (tx, attempt) => {

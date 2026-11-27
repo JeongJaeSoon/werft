@@ -158,9 +158,18 @@ export function createToolDispatcher(deps: {
 }) {
   return async function dispatch(call: ToolCall) {
     const { grant, tool, args, requestId, startedAt, github, state } = call;
+    // A run started directly has its own switch; the code names it.
+    const off = () =>
+      refusalOf(
+        tool,
+        "feature_off",
+        GITHUB_MCP_TOOL_FEATURES[tool] === "actions"
+          ? { reason_code: "actions_off" }
+          : undefined,
+      );
     if (state.source === "release") {
       if (!githubMcpTools(github).includes(tool)) {
-        return toolAnswer(refused(refusalOf(tool, "feature_off")));
+        return toolAnswer(refused(off()));
       }
     } else {
       // The tool stays listed so the session's config never moves: its
@@ -171,6 +180,7 @@ export function createToolDispatcher(deps: {
         : feature !== null && !github.features[feature]
           ? "feature_off"
           : null;
+      if (code === "feature_off") return toolAnswer(refused(off()));
       if (code !== null) return toolAnswer(refused(refusalOf(tool, code)));
     }
     const parsed = GITHUB_MCP_TOOL_ARGUMENTS[tool].safeParse(args ?? {});

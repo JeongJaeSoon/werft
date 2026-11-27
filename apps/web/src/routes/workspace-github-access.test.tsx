@@ -89,6 +89,68 @@ const checked = (element: HTMLElement) =>
   element.getAttribute("aria-checked") === "true";
 
 describe("GitHub 연결 › 에이전트가 쓸 수 있는 기능", () => {
+  test("workflow 스위치는 둘이고, 직접 실행 아래에는 끌 수 없는 실행을 알리는 도움말이 늘 보인다", async () => {
+    renderAt(
+      PATH,
+      routes(
+        () => json(200, settingsOf()),
+        () => json(500, {}),
+      ),
+    );
+    const edits = await featureSwitch("workflow 파일 수정과 CI 결과 보기");
+    const runs = await featureSwitch(
+      "workflow 직접 실행 \\(실행·재실행·취소\\)",
+    );
+    // Workflow edits come first, then running them; no Checks switch.
+    expect(
+      edits.compareDocumentPosition(runs) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: /^Checks/ }) === null).toBe(
+      true,
+    );
+    expect(
+      screen.getByText(
+        "켜면 에이전트가 스스로 workflow를 실행하고, 다시 돌리고, 취소합니다. push와 PR로 도는 CI는 이 스위치와 상관없이 GitHub가 돌립니다.",
+      ),
+    ).toBeDefined();
+    expect(
+      screen.getByText(
+        "켜면 에이전트가 스스로 workflow 파일을 고쳐 push하고, PR의 CI 결과를 읽습니다.",
+      ),
+    ).toBeDefined();
+  });
+
+  test("workflow 파일 수정 스위치는 옛 이미지가 읽는 checks 칸도 같이 저장한다", async () => {
+    const stored = {
+      ...settingsOf().ceiling,
+      workflows: false,
+      checks: false,
+    };
+    const { api } = renderAt(
+      PATH,
+      routes(
+        () => json(200, settingsOf({ ceiling: stored })),
+        (body) =>
+          json(
+            200,
+            settingsOf({
+              ceiling: (body as GitHubSettingsResponse).ceiling,
+              revision: 5,
+            }),
+          ),
+      ),
+    );
+    const user = await setupUser();
+    await user.click(await featureSwitch("workflow 파일 수정과 CI 결과 보기"));
+    await waitFor(() =>
+      expect(api.calls.filter((call) => call.method === "PUT")).toHaveLength(1),
+    );
+    expect(api.calls.find((call) => call.method === "PUT")?.body).toEqual({
+      ceiling: { ...stored, workflows: true, checks: true },
+      revision: 4,
+    });
+  });
+
   test("스위치는 바로 저장하고, 화면에 없는 상한 칸은 그대로 보낸다", async () => {
     const { api } = renderAt(
       PATH,
@@ -101,7 +163,7 @@ describe("GitHub 연결 › 에이전트가 쓸 수 있는 기능", () => {
       ),
     );
     const user = await setupUser();
-    const workflows = await featureSwitch("워크플로 파일 수정");
+    const workflows = await featureSwitch("workflow 파일 수정과 CI 결과 보기");
     expect(checked(workflows)).toBe(false);
     await user.click(workflows);
     await waitFor(() => expect(checked(workflows)).toBe(true));
@@ -123,7 +185,7 @@ describe("GitHub 연결 › 에이전트가 쓸 수 있는 기능", () => {
     await waitFor(() =>
       expect(workflows.getAttribute("aria-busy") === null).toBe(true),
     );
-    const actions = await featureSwitch("Actions 실행");
+    const actions = await featureSwitch("workflow 직접 실행");
     await user.click(actions);
     await waitFor(() =>
       expect(api.calls.filter((call) => call.method === "PUT")).toHaveLength(2),
@@ -154,7 +216,7 @@ describe("GitHub 연결 › 에이전트가 쓸 수 있는 기능", () => {
       ),
     );
     const user = await setupUser();
-    const actions = await featureSwitch("Actions 실행");
+    const actions = await featureSwitch("workflow 직접 실행");
     expect(checked(actions)).toBe(true);
     await user.click(actions);
     const confirm = await screen.findByRole("dialog", {
@@ -173,7 +235,7 @@ describe("GitHub 연결 › 에이전트가 쓸 수 있는 기능", () => {
         /저장하지 못해 스위치를 저장된 값으로 되돌렸습니다/,
       ),
     ).toHaveLength(2);
-    expect(checked(await featureSwitch("Actions 실행"))).toBe(true);
+    expect(checked(await featureSwitch("workflow 직접 실행"))).toBe(true);
   });
 
   test("다른 곳에서 먼저 바꿨으면(409) 지금 저장된 값을 보인다", async () => {
@@ -197,13 +259,15 @@ describe("GitHub 연결 › 에이전트가 쓸 수 있는 기능", () => {
       ),
     );
     const user = await setupUser();
-    const workflows = await featureSwitch("워크플로 파일 수정");
+    const workflows = await featureSwitch("workflow 파일 수정과 CI 결과 보기");
     await user.click(workflows);
     expect(
       await screen.findAllByText(/다른 곳에서 먼저 바꿨습니다/),
     ).toHaveLength(2);
     await waitFor(() => expect(reads).toBe(2));
-    expect(checked(await featureSwitch("워크플로 파일 수정"))).toBe(false);
+    expect(
+      checked(await featureSwitch("workflow 파일 수정과 CI 결과 보기")),
+    ).toBe(false);
   });
 
   test("기능이 쓰는 권한이 App에 없으면 그 기능에 배지를 단다", async () => {
@@ -221,7 +285,7 @@ describe("GitHub 연결 › 에이전트가 쓸 수 있는 기능", () => {
         () => refusal(503, "BACKEND_UNAVAILABLE"),
       ),
     );
-    const workflows = await featureSwitch("워크플로 파일 수정");
+    const workflows = await featureSwitch("workflow 파일 수정과 CI 결과 보기");
     const row = workflows.closest("[data-slot=setting-row]") as HTMLElement;
     expect(within(row).getByText("App 권한 필요")).toBeDefined();
   });
@@ -253,7 +317,7 @@ describe("GitHub 연결 › 에이전트가 쓸 수 있는 기능", () => {
         () => refusal(503, "BACKEND_UNAVAILABLE"),
       ),
     );
-    const actions = await featureSwitch("Actions 실행");
+    const actions = await featureSwitch("workflow 직접 실행");
     const row = actions.closest("[data-slot=setting-row]") as HTMLElement;
     expect(within(row).getByText("일부 계정 승인 대기")).toBeDefined();
   });
@@ -384,7 +448,7 @@ describe("GitHub 연결 › 에이전트가 쓸 수 있는 기능", () => {
         memberMe(),
       ),
     );
-    const workflows = await featureSwitch("워크플로 파일 수정");
+    const workflows = await featureSwitch("workflow 파일 수정과 CI 결과 보기");
     expect((workflows as HTMLButtonElement).disabled).toBe(true);
     expect(workflows.getAttribute("aria-describedby")).toBeTruthy();
     expect(api.calls.some((call) => call.method === "PUT")).toBe(false);

@@ -29,6 +29,16 @@ const PIN: AgentGitHub = {
   actions_allow: [],
 };
 
+/**
+ * PIN as a session no person saved switches for reads it (94S-2406): its old
+ * `actions` reads CI and edits workflow files, and runs nothing directly.
+ */
+const PIN_READ: AgentGitHub = {
+  ...PIN,
+  features: { ...PIN.features, workflows: true, checks: true, actions: false },
+  actions_allow: [],
+};
+
 const ROW: AgentGitHubSettingsRow = {
   repositories: ["infra"],
   pushApproval: true,
@@ -98,9 +108,9 @@ describe("effectiveGitHubPolicy", () => {
       policy({ source: "release", settings: null }),
     ],
     [
-      "a release session reads its pin",
+      "a release session reads its pin; the pin's actions runs nothing directly",
       { source: "release", releasePin: PIN, agentRow: null },
-      policy({ source: "release", settings: PIN }),
+      policy({ source: "release", settings: PIN_READ }),
     ],
     [
       "a pin this image cannot read is invalid",
@@ -204,6 +214,12 @@ describe("a release session and a row a person saved", () => {
     features: { ...ALL_ON, review: false },
     actions_allow: [{ workflow: "deploy.yml" }],
   };
+  // No saved switch: the pin's direct runs and its allow-list do not apply.
+  const pinRead: AgentGitHub = {
+    ...pin,
+    features: { ...pin.features, actions: false },
+    actions_allow: [],
+  };
 
   test("narrows the pin: lists meet, approval ORs, features AND", () => {
     const read = effectiveGitHubPolicy({
@@ -217,13 +233,30 @@ describe("a release session and a row a person saved", () => {
         settings: {
           repositories: ["app"],
           push_approval: true,
-          features: { ...ALL_ON, issues: false, review: false },
+          // The pin runs nothing directly, whatever the row says (94S-2406).
+          features: { ...ALL_ON, issues: false, review: false, actions: false },
           actions_allow: [{ workflow: "ci.yml" }],
         },
         agentSettingsRevision: 4,
-        startActionsAllow: [{ workflow: "deploy.yml" }],
+        startActionsAllow: [],
       }),
     );
+  });
+
+  test("a first save keeps what the session read from an old pin: CI on, direct runs still off (94S-2406)", () => {
+    const old: AgentGitHub = {
+      ...pin,
+      features: { ...pin.features, workflows: false, checks: false },
+    };
+    const read = effectiveGitHubPolicy({
+      source: "release",
+      releasePin: old,
+      agentRow: { ...human, features: ALL_ON },
+    });
+    expect(read.settings).toMatchObject({
+      features: { workflows: true, checks: true, actions: false },
+    });
+    expect(read.startActionsAllow).toEqual([]);
   });
 
   test("a repository the person added back is not wider than the pin", () => {
@@ -284,7 +317,7 @@ describe("a release session and a row a person saved", () => {
         releasePin: pin,
         agentRow: migrated,
       }),
-    ).toEqual(policy({ source: "release", settings: pin }));
+    ).toEqual(policy({ source: "release", settings: pinRead }));
     expect(
       effectiveGitHubPolicy({
         source: "release",
@@ -301,7 +334,7 @@ describe("a release session and a row a person saved", () => {
         releasePin: pin,
         agentRow: null,
       }),
-    ).toEqual(policy({ source: "release", settings: pin }));
+    ).toEqual(policy({ source: "release", settings: pinRead }));
   });
 
   const unreadable: Array<[string, AgentGitHubSettingsRow]> = [
@@ -701,7 +734,7 @@ describe("push_attached: a push to an attached repository", () => {
 describe("newSessionGitHubPolicy", () => {
   test("no row keeps today's answer: the release", () => {
     expect(newSessionGitHubPolicy(null, PIN).source).toBe("release");
-    expect(newSessionGitHubPolicy(null, PIN).settings).toEqual(PIN);
+    expect(newSessionGitHubPolicy(null, PIN).settings).toEqual(PIN_READ);
     expect(newSessionGitHubPolicy(null, undefined).settings).toBeNull();
   });
 
