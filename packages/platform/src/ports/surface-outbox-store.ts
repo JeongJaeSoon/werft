@@ -388,8 +388,11 @@ export type SurfaceWorkReportDue = SurfaceLinkedTurnTarget & {
   report: "started" | "needs_input" | "recovery";
   /** Null for `started`. */
   turnId: number | null;
-  /** For `needs_input`, the requests that turn has asked; else null. */
-  requests: number | null;
+  /**
+   * For `needs_input`, the requests that turn has asked; for `recovery`,
+   * the holds for recovery the session has had; else null.
+   */
+  round: number | null;
   /** Whoever started the work, to be called on a person needed. */
   requesterSlackUserId: string | null;
 };

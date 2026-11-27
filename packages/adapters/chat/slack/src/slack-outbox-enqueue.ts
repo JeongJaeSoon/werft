@@ -308,11 +308,11 @@ export function slackWorkReportDedupeKey(
   sessionLinkId: string,
   report: SurfaceWorkReportDue["report"],
   turnId: number | null,
-  requests: number | null,
+  round: number | null,
 ): string {
   if (report === "started") return `work_start:${sessionLinkId}`;
   const key = `needs_person:${sessionLinkId}:${report}:${turnId}`;
-  return requests === null ? key : `${key}:${requests}`;
+  return round === null ? key : `${key}:${round}`;
 }
 
 const WORK_REPORT_MESSAGES = {
@@ -361,7 +361,7 @@ export async function enqueueSlackWorkReports(deps: {
         row.sessionLinkId,
         row.report,
         row.turnId,
-        row.requests,
+        row.round,
       ),
     });
   }

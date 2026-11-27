@@ -2115,6 +2115,12 @@ export function createPostgresSlackOutboxStore(
           -- that numbered theirs alike both go in, and the newer state wins.
           WHERE due.state IS NOT NULL
             AND regexp_replace(due.last_key, '^progress:[^:]+:[0-9]+:', '') IS DISTINCT FROM due.state
+            -- After the last word, even one a stale update came in behind.
+            AND NOT EXISTS (
+              SELECT 1 FROM ${t} cl
+              WHERE cl.installation_id = due.installation_id
+                AND cl.progress_key = 'progress:' || due.session_link_id
+                AND cl.dedupe_key LIKE 'progress:%:closed:%')
           ORDER BY due.session_link_id
           LIMIT ${limit}
         `),
@@ -2138,7 +2144,8 @@ export function createPostgresSlackOutboxStore(
     async workReportsDue(limit) {
       // The keys the adapter's slackWorkReportDedupeKey makes, spelled in
       // SQL: work_start:<link>, needs_person:<link>:<report>:<turn>, and
-      // for a wait on input :<requests the turn has asked> after it.
+      // :<round> after it (a wait on input: the requests the turn has asked;
+      // a recovery: the session's holds for it).
       const rows = rowsOf<{
         session_link_id: string;
         session_id: string;
@@ -2152,7 +2159,7 @@ export function createPostgresSlackOutboxStore(
         requester_slack_user_id: string | null;
         report: SurfaceWorkReportDue["report"];
         turn_id: number | null;
-        requests: number | null;
+        round: number | null;
       }>(
         await db.execute(sql`
           SELECT * FROM (
@@ -2178,7 +2185,7 @@ export function createPostgresSlackOutboxStore(
                LIMIT 1) AS requester_slack_user_id,
               r.report,
               r.turn_id,
-              r.requests
+              r.round
             FROM session_links
             JOIN sessions ON sessions.id = session_links.session_id
             JOIN slack_installations i ON i.id = session_links.installation_id
@@ -2187,7 +2194,7 @@ export function createPostgresSlackOutboxStore(
               -- notify_only: one line once its first turn is asked, never
               -- edited. Not for a link whose first turn was answered
               -- before it (one open when the mode was set).
-              SELECT 'started' AS report, NULL::int AS turn_id, NULL::int AS requests
+              SELECT 'started' AS report, NULL::int AS turn_id, NULL::int AS round
               FROM (
                 SELECT f.sequence FROM turns f
                 WHERE f.session_id = session_links.session_id
@@ -2222,9 +2229,15 @@ export function createPostgresSlackOutboxStore(
                 AND NOT ${postsPrompts(sql.raw('"session_links"'))}
               UNION ALL
               -- Waiting on a person's recovery decision: no card asks it.
+              -- Numbered by the holds the stream recorded, so a retry that
+              -- fails again on the same turn says so again.
               SELECT 'recovery', (
                 SELECT coalesce(max(rt.sequence), 0) FROM turns rt
-                WHERE rt.session_id = session_links.session_id), NULL::int
+                WHERE rt.session_id = session_links.session_id), (
+                SELECT count(*)::int FROM events re
+                WHERE re.session_id = session_links.session_id
+                  AND re.type = 'status'
+                  AND re.payload ->> 'admission_state' = 'recovery_required')
               WHERE sessions.admission_state = 'recovery_required'
             ) r
             WHERE session_links.session_id IS NOT NULL
@@ -2241,7 +2254,7 @@ export function createPostgresSlackOutboxStore(
               WHEN 'started' THEN 'work_start:' || due.session_link_id
               ELSE 'needs_person:' || due.session_link_id || ':' || due.report
                 || ':' || due.turn_id
-                || coalesce(':' || due.requests, '') END
+                || coalesce(':' || due.round, '') END
           )
           ORDER BY due.session_link_id, due.report
           LIMIT ${limit}
@@ -2260,7 +2273,7 @@ export function createPostgresSlackOutboxStore(
         requesterSlackUserId: row.requester_slack_user_id,
         report: row.report,
         turnId: row.turn_id === null ? null : Number(row.turn_id),
-        requests: row.requests === null ? null : Number(row.requests),
+        round: row.round === null ? null : Number(row.round),
       }));
     },
 

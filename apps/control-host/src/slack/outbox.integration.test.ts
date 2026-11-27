@@ -6213,13 +6213,11 @@ describe.each(ENGINES)("a link's posting columns on %s", (engine) => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
     const sessionId = await sessionOf(fixture);
-    await db
-      .update(sessionLinks)
-      .set({
-        reportMode: "progress",
-        mirrorInstructions: false,
-        postPrompts: false,
-      });
+    await db.update(sessionLinks).set({
+      reportMode: "progress",
+      mirrorInstructions: false,
+      postPrompts: false,
+    });
     await askFrom(sessionId, 2, "web", "Then this", true);
     await endTurn(sessionId, 1, "completed", [[text("First.")]]);
     await outboxPass();
@@ -6235,15 +6233,24 @@ describe.each(ENGINES)("a link's posting columns on %s", (engine) => {
     ).toEqual(["failure_notice:2", "reply:1"]);
   });
 
-  test("a task that needs a person to recover says so once, per_step not", async () => {
+  test("a task that needs a person to recover says so each time it is held, per_step not", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
     const sessionId = await sessionOf(fixture);
     await db.update(sessionLinks).set({ reportMode: "notify_only" });
-    await db
-      .update(sessions)
-      .set({ admissionState: "recovery_required" })
-      .where(eq(sessions.id, sessionId));
+    // As each path that holds a session records the hold on its stream.
+    const hold = async () => {
+      await db
+        .update(sessions)
+        .set({ admissionState: "recovery_required" })
+        .where(eq(sessions.id, sessionId));
+      await db.insert(events).values({
+        sessionId,
+        type: "status",
+        payload: { phase: "failed", admission_state: "recovery_required" },
+      });
+    };
+    await hold();
     await outboxPass();
     await outboxPass();
     const said = () =>
@@ -6252,12 +6259,24 @@ describe.each(ENGINES)("a link's posting columns on %s", (engine) => {
           .filter((row) => row.dedupeKey.startsWith("needs_person:"))
           .map((row) => row.dedupeKey.split(":").slice(2).join(":")),
       );
-    expect(await said()).toEqual(["recovery:1"]);
-    expect(
+    const told = () =>
       posted().filter((message) =>
         message.text.includes(SLACK_NOTICE_MESSAGES.ko.needsPersonRecovery),
-      ),
-    ).toHaveLength(1);
+      );
+    expect(await said()).toEqual(["recovery:1:1"]);
+    expect(told()).toHaveLength(1);
+
+    // retry_restore lets it go on with the same turns; failing again holds
+    // it again, and the thread is told again.
+    await db
+      .update(sessions)
+      .set({ admissionState: "active" })
+      .where(eq(sessions.id, sessionId));
+    await outboxPass();
+    await hold();
+    await outboxPass();
+    expect(await said()).toEqual(["recovery:1:1", "recovery:1:2"]);
+    expect(told()).toHaveLength(2);
 
     await db.update(sessionLinks).set({ reportMode: "per_step" });
     await db.delete(slackOutbox);
@@ -7877,6 +7896,13 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
       ["sent", "2:closed:1"],
       ["failed", "2:running:1"],
     ]);
+
+    // A link still open behind it, as when a turn's report holds its close:
+    // the stale update being newest does not bring the last word again.
+    await db.update(sessionLinks).set({ closedAt: null, closedReason: null });
+    await intervalOver();
+    await outboxPass();
+    expect(await progressRows()).toHaveLength(3);
   });
 
   // 94S-2477: the message speaks as the agent answers: its card's language,
