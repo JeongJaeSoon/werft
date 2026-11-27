@@ -61,17 +61,19 @@ const told = (payload: unknown) =>
 const notTaken = { outcome: "failed", reason: "not_taken" } as const;
 
 /**
- * How long a turn that ended on spawn_task keeps its request for its task's
- * effect: the effect pass's window to try again (Architect, v1-b/E3). Past
- * it the request is let go, and the effect fails without it.
+ * How long a turn that ended on spawn_task, or on route_to_task (v1-b/E4),
+ * keeps its request for its task's effect: the effect pass's window to try
+ * again (Architect, v1-b/E3). Past it the request is let go, and the effect
+ * fails without it.
  */
 export const SPAWN_INPUT_KEPT_MS = 60 * 60_000;
 
 // A turn ending keeps its sealed input only when it was leased (what is
-// sealed is then the input alone) and decided spawn_task with no effect yet.
+// sealed is then the input alone) and decided a task with no effect yet.
 const keepsInput = sql`(${queue.leaseId} IS NOT NULL AND EXISTS (
   SELECT 1 FROM conversation_turns t
-  WHERE t.id = ${queue.turnId} AND t.decision = 'spawn_task'
+  WHERE t.id = ${queue.turnId}
+    AND t.decision IN ('spawn_task', 'route_to_task')
     AND t.task_effect IS NULL))`;
 const keptInputAt = (now: Date) => ({
   turnNonce: sql`CASE WHEN ${keepsInput} THEN ${queue.turnNonce} END`,
@@ -98,8 +100,9 @@ function outcomeOf(stored: unknown): ConversationTurnOutcome {
 }
 
 /**
- * The request a turn that ended on spawn_task kept for its task: its input
- * as its runtime was given it, the one place a turn's input is read from.
+ * The request a turn that ended on spawn_task or route_to_task kept for its
+ * task: its input as its runtime was given it, the one place a turn's input
+ * is read from.
  * Null once it was let go, past its deadline, or when it cannot be opened.
  */
 export async function keptTurnRequest(

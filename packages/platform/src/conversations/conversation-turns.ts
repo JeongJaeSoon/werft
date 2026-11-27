@@ -16,6 +16,7 @@ import type {
   ConversationTurnReport,
   QueuedConversationTurn,
 } from "../ports/conversation-turn-queue.ts";
+import type { ConversationRouteOutcome } from "./conversation-routes.ts";
 import type {
   ConversationTaskOutcome,
   ConversationTurnSurfaceSubject,
@@ -417,6 +418,8 @@ export type MentionTurnEndings = {
   replied: number;
   /** Turns whose spawn_task decision opened its task. */
   spawned: number;
+  /** Turns whose route_to_task decision handed the message to its task. */
+  routed: number;
   /** Turns that put a 👀 on the message that called them. */
   reacted: number;
   reset: number;
@@ -441,9 +444,10 @@ export async function endMentionTurns(deps: {
   queue: Pick<ConversationTurnQueue, "outcome">;
   replies: ConversationReplyStore;
   reactions: ConversationReactionStore;
-  /** The effect of a spawn_task decision (v1-b/E3). */
+  /** The effects of a spawn_task (v1-b/E3) and a route_to_task (v1-b/E4) decision. */
   tasks: {
     spawn(turnId: ConversationTurnId): Promise<ConversationTaskOutcome>;
+    route(turnId: ConversationTurnId): Promise<ConversationRouteOutcome>;
   };
   calls: {
     endTurn(
@@ -482,6 +486,7 @@ export async function endMentionTurns(deps: {
     ended: 0,
     replied: 0,
     spawned: 0,
+    routed: 0,
     reacted: 0,
     reset: 0,
     superseded: 0,
@@ -525,6 +530,9 @@ export async function endMentionTurns(deps: {
       }
       if ((await deps.tasks.spawn(turn.turnId)) === "opened") {
         result.spawned += 1;
+      }
+      if ((await deps.tasks.route(turn.turnId)) === "routed") {
+        result.routed += 1;
       }
       if ((await deps.replies.post(turn.turnId)) === "enqueued") {
         result.replied += 1;

@@ -1217,7 +1217,10 @@ export function createPostgresSlackOutboxStore(
         await db.execute(sql`
         UPDATE session_links l SET closed_at = now(), closed_reason = c.reason
         FROM (
-          SELECT l2.id, CASE WHEN EXISTS (
+          -- A task's own close reason first: the same four a link takes.
+          SELECT l2.id, CASE WHEN s.task_closed_reason IS NOT NULL
+            THEN s.task_closed_reason
+          WHEN EXISTS (
             SELECT 1 FROM idempotency_keys k
             JOIN receipts r ON r.id = k.receipt_id
             WHERE k.principal = s.owner_id::text

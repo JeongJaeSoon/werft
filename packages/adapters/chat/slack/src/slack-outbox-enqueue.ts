@@ -174,9 +174,18 @@ export function createOutboxSlackNoticeSink(
       });
     },
     // Posted like a turn that could not go on: in the thread, for everyone
-    // there, in the deployment's language since no one reader is named.
+    // there, in its reader's language when the line names one. The kind
+    // is the thread notice's, a stop's line too: nothing counts a failure
+    // by kind, only by how the send went.
     async recordInThread(notice) {
-      const locale = DEFAULT_USER_LOCALE;
+      const locale =
+        (notice.readerSlackUserId === undefined
+          ? null
+          : await outbox.readerLocale({
+              workspaceId: notice.workspaceId,
+              teamId: notice.teamId,
+              slackUserId: notice.readerSlackUserId,
+            })) ?? DEFAULT_USER_LOCALE;
       const { message: _message, count: _count, ...link } = notice.notice;
       await outbox.enqueue({
         workspaceId: notice.workspaceId,

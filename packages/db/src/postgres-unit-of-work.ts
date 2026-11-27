@@ -208,6 +208,7 @@ import {
 import { recordStatus } from "./sessions/session-events.ts";
 import { openTaskLimit, writeTaskRequest } from "./sessions/task-open.ts";
 import { withheldEventPayload } from "./sessions/withheld-events.ts";
+import { rowsOf } from "./statement-rows.ts";
 import {
   channelEmergencyStopped,
   emergencyStopHolds,
@@ -215,7 +216,28 @@ import {
 import { m1GateOpenForWrite } from "./surface/m1-judgments.ts";
 
 export const CREATE_SESSION = "create_session";
-const APPEND_MESSAGE = "append_message";
+export const APPEND_MESSAGE = "append_message";
+/** The receipt scope of the inputs conversation turns hand to a session. */
+export const conversationTurnInputScope = (sessionId: string) =>
+  `${sessionId.toLowerCase()}:conversation_turn`;
+
+/**
+ * Holds the lock a conversation turn's hand-off takes to write its input,
+ * so what is read after it sees that input, or its absence, for good.
+ */
+export function lockConversationTurnInput(
+  tx: Database,
+  input: { workspaceId: string; sessionId: string; turnId: string },
+) {
+  return lockIdempotencyScope(tx, {
+    principal: input.workspaceId,
+    actor: null,
+    requestId: null,
+    operation: APPEND_MESSAGE,
+    resource: conversationTurnInputScope(input.sessionId),
+    key: input.turnId,
+  });
+}
 export const SESSIONS_RESOURCE = "sessions";
 
 async function recordAcceptance(
@@ -912,13 +934,15 @@ export function createPostgresSessionUnitOfWork(
         // with whatever key: the turn is the key, in a scope of its own
         // that no key a caller sends for a message can name.
         resource:
-          input.continueTurn === undefined
-            ? sessionId
-            : `${sessionId}:continue`,
+          input.continueTurn !== undefined
+            ? `${sessionId}:continue`
+            : input.conversationTurnId !== undefined
+              ? conversationTurnInputScope(sessionId)
+              : sessionId,
         key:
-          input.continueTurn === undefined
-            ? input.idempotencyKey
-            : String(input.continueTurn),
+          input.continueTurn !== undefined
+            ? String(input.continueTurn)
+            : (input.conversationTurnId ?? input.idempotencyKey),
       };
       return acceptanceTransaction(db, async (tx) => {
         await lockIdempotencyScope(tx, scope);
@@ -949,6 +973,18 @@ export function createPostgresSessionUnitOfWork(
                 eq(idempotencyKeys.key, scope.key),
               ),
             );
+        }
+        // A turn that ended other than handed hands nothing on (v1-b/E4).
+        if (
+          input.conversationTurnId !== undefined &&
+          rowsOf<{ ended: boolean }>(
+            await tx.execute(sql`
+              SELECT task_effect IS NOT NULL AND task_effect <> 'routed' AS ended
+              FROM conversation_turns
+              WHERE id = ${input.conversationTurnId}::uuid`),
+          )[0]?.ended === true
+        ) {
+          return { outcome: "conflict" };
         }
         const platform = input.platform;
         const requester =
@@ -1199,12 +1235,15 @@ export function createPostgresSessionUnitOfWork(
           if (later) return { outcome: "superseded" };
         }
         const message = lost?.message ?? input.message;
-        // The turn would carry a source Slack deleted: its own message, or
-        // one an earlier turn of the session came from.
+        // The turn would carry a source Slack deleted: its own message, one
+        // an earlier turn of the session came from, or one the conversation
+        // turn that handed it on read.
         const sources = await newTurnSources(tx, {
           sessionId,
           slackMessage:
             platform === undefined ? (input.slackMessage ?? null) : null,
+          carried:
+            platform === undefined ? (input.carriedSources ?? null) : null,
         });
         if (
           session.workspaceId !== null &&

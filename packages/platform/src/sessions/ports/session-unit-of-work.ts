@@ -218,6 +218,17 @@ export type AppendMessageInput = {
   agentPrivate?: true;
   callerSubject?: AuthorizationSubject;
   /**
+   * The sources of the conversation turn that hands this message to the
+   * session (v1-b/E4), carried into the new turn's with its own.
+   */
+  carriedSources?: StoredSourceSet | null;
+  /**
+   * The conversation turn that hands this message to the session (v1-b/E4):
+   * the turn is the request's key, in a scope of its own that no key a
+   * caller sends for a message can name, so `idempotencyKey` is not used.
+   */
+  conversationTurnId?: string;
+  /**
    * The platform queues this input as the agent's own turn after a push
    * decision: nothing about a person is judged or recorded, everything about
    * the session is. One such turn per push request.
