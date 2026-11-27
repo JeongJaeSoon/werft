@@ -45,6 +45,7 @@ function checkFragmentLine(
     fail("a control character or line separator");
   }
   if (line.trim() === "" || line.startsWith("#")) return;
+  if (/^\s*\t/.test(line)) fail("a tab in the indent; indent with spaces");
   if (fence !== null) {
     if (!line.startsWith(fence.indent))
       fail("a line inside a code fence is less indented than the fence");
@@ -54,6 +55,17 @@ function checkFragmentLine(
     fail(
       'a line that is neither an entry ("- " at the start) nor indented under one',
     );
+  }
+  // Where an entry's text starts sets how its later lines nest: one space after
+  // every list marker, and a fence opens on its own line two spaces in.
+  if (/^\s*([-*+]|\d+[.)]) {2,}/.test(line)) {
+    fail("more than one space after a list marker");
+  }
+  if (marker !== null && fence === null && marker[1] !== "  ") {
+    fail("a code fence opens on its own line, two spaces under an entry");
+  }
+  if (/^\s*(([-*+]|\d+[.)]|>)\s*)+(`{3,}|~{3,})/.test(line)) {
+    fail("a code fence opens on its own line, two spaces under an entry");
   }
   // "- - -" is a rule, not an entry, and ends the section's list.
   if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) fail("a thematic break");

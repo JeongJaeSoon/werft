@@ -1948,6 +1948,28 @@ describe("changelog-release.ts", () => {
       "a.md:4: a thematic break",
     ],
     [
+      "a fence after a list marker",
+      {
+        "a.md": `${ops("x")}- \`\`\`\n  \`\`\`\n  [q]: https://example.test/\n  \`\`\`\n`,
+      },
+      "a.md:4: a code fence opens on its own line",
+    ],
+    [
+      "a fence indented deeper than an entry",
+      { "a.md": `${ops("x")}      \`\`\`sh\n      y\n      \`\`\`\n` },
+      "a.md:4: a code fence opens on its own line",
+    ],
+    [
+      "spaces after a list marker",
+      { "a.md": "### 운영자가 할 일\n-   x\n  ## v999.0.1\n" },
+      "a.md:2: more than one space after a list marker",
+    ],
+    [
+      "a tab in the indent",
+      { "a.md": `${ops("x")}\t이어서\n` },
+      "a.md:4: a tab in the indent",
+    ],
+    [
       "a fence left open",
       { "a.md": `${ops("x")}  \`\`\`sh\n  echo\n` },
       "a.md: a code fence is not closed",
