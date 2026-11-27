@@ -74,6 +74,7 @@ describe("workspace", () => {
       idle_pause_minutes: 30,
       audit_retention_days: 90,
       slack_guest_enabled: false,
+      web_fetch_preflight: true,
       achievement_judge: {
         connection_id: null,
         threshold: 0.9,

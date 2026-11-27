@@ -209,6 +209,7 @@ import {
   usageSummaryResponseSchema,
   usageToolCallsResponseSchema,
   usageToolsResponseSchema,
+  webFetchPreflightResponseSchema,
   workspaceMcpServerListSchema,
   workspaceMcpServerSchema,
 } from "@werft-ai/contracts";
@@ -265,6 +266,8 @@ export const responseSchemas = {
   "GET /v1/audit/events": listAuditEventsResponseSchema,
   "GET /v1/audit/events/counts": countAuditEventsResponseSchema,
   "POST /v1/workspaces/{id}/slack-guest": slackGuestResponseSchema,
+  "POST /v1/workspaces/{id}/web-fetch-preflight":
+    webFetchPreflightResponseSchema,
   "GET /v1/workspaces/{id}/slack/config-token": slackConfigTokenSummarySchema,
   "PUT /v1/workspaces/{id}/slack/config-token":
     putSlackConfigTokenResponseSchema,

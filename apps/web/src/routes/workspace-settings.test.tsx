@@ -367,6 +367,78 @@ describe("워크스페이스 설정", () => {
     );
   });
 
+  test("관리자가 WebFetch 사전 도메인 확인을 끄면 서버에 저장하고 다시 읽은 값으로 꺼짐이다", async () => {
+    const PREFLIGHT = `/v1/workspaces/${WORKSPACE_ID}/web-fetch-preflight`;
+    let enabled = true;
+    const withPreflight = () => {
+      const body = adminMe();
+      return {
+        ...body,
+        workspace: body.workspace && {
+          ...body.workspace,
+          settings: {
+            ...body.workspace.settings,
+            web_fetch_preflight: enabled,
+          },
+        },
+      };
+    };
+    const { api } = renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () => json(200, withPreflight()),
+      [`POST ${PREFLIGHT}`]: async (request: Request) => {
+        enabled = ((await request.json()) as { web_fetch_preflight: boolean })
+          .web_fetch_preflight;
+        return json(200, {
+          web_fetch_preflight: enabled,
+          receipt_id: "019a0000-0000-7000-8000-00000000f001",
+        });
+      },
+    });
+    const region = await screen.findByRole("region", {
+      name: "WebFetch 사전 도메인 확인(Anthropic)",
+    });
+    const toggle = within(region).getByRole("switch", {
+      name: "WebFetch 전에 Anthropic에 도메인 확인하기",
+    });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(
+      document.getElementById(toggle.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBe(
+      "켜 두면 worker가 api.anthropic.com에 닿아야 합니다. 모델 연결이 Anthropic이 아니거나 이 주소를 막은 설치에서는 꺼야 WebFetch가 동작합니다.",
+    );
+    const user = await setupUser();
+    await user.click(toggle);
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "이제 WebFetch가 Anthropic 도메인 확인 없이 동작합니다. 가져올 수 있는 주소는 egress 허용 목록이 정합니다.",
+    );
+    expect(
+      api.calls.filter((c) => c.path === PREFLIGHT).map((c) => c.body),
+    ).toEqual([{ web_fetch_preflight: false }]);
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-checked")).toBe("false"),
+    );
+  });
+
+  test("멤버는 WebFetch 사전 도메인 확인을 읽기만 하고, 값이 없던 워크스페이스는 켜짐으로 읽는다", async () => {
+    const body = memberMe();
+    const { web_fetch_preflight: _, ...older } = body.workspace?.settings ?? {};
+    renderAt("/settings/workspace", {
+      "GET /v1/auth/me": () =>
+        json(200, {
+          ...body,
+          workspace: body.workspace && { ...body.workspace, settings: older },
+        }),
+    });
+    const region = await screen.findByRole("region", {
+      name: "WebFetch 사전 도메인 확인(Anthropic)",
+    });
+    expect(within(region).queryByRole("switch")).toBeNull();
+    expect(region.textContent).toContain(
+      "WebFetch 전에 Anthropic에 도메인을 확인합니다.",
+    );
+  });
+
   test("키보드로 스위치에 가서 Space로 켜고 Enter로 끈다", async () => {
     let enabled = false;
     const { api } = renderAt("/settings/workspace/integrations/slack", {

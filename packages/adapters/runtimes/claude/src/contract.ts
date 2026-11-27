@@ -261,6 +261,10 @@ export function claudeStartConfig(
     ...(config.responseLanguage === undefined
       ? {}
       : { responseLanguage: config.responseLanguage }),
+    // Same reason: a workspace may flip the check between two starts.
+    ...(config.skipWebFetchPreflight === undefined
+      ? {}
+      : { skipWebFetchPreflight: config.skipWebFetchPreflight }),
     // Not in claudeProfileConfig: the fingerprint must not move when a
     // claim names another commit author.
     ...(config.gitEnvironment === undefined

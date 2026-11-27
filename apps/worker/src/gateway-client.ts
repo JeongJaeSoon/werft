@@ -66,6 +66,7 @@ const REFUSABLE_CAPABILITIES = [
   "user_env",
   "permission_rules",
   "response_language",
+  "web_fetch_preflight",
   "answer_surface",
   "repository_pins",
   "workspace_mcp",

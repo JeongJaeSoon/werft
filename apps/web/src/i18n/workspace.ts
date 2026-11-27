@@ -34,6 +34,17 @@ export const workspaceKo = {
   "workspace.retentionValue": "감사 기록을 {days}일 보존합니다.",
   "workspace.guestValueOn": "Slack 게스트도 에이전트를 쓸 수 있습니다.",
   "workspace.guestValueOff": "Slack 게스트는 에이전트를 쓸 수 없습니다.",
+  "workspace.webFetch": "WebFetch 사전 도메인 확인(Anthropic)",
+  "workspace.webFetchLabel": "WebFetch 전에 Anthropic에 도메인 확인하기",
+  "workspace.webFetchHint":
+    "켜 두면 worker가 api.anthropic.com에 닿아야 합니다. 모델 연결이 Anthropic이 아니거나 이 주소를 막은 설치에서는 꺼야 WebFetch가 동작합니다.",
+  "workspace.webFetchSavedOn":
+    "이제 WebFetch 전에 Anthropic에 도메인을 확인합니다.",
+  "workspace.webFetchSavedOff":
+    "이제 WebFetch가 Anthropic 도메인 확인 없이 동작합니다. 가져올 수 있는 주소는 egress 허용 목록이 정합니다.",
+  "workspace.webFetchValueOn": "WebFetch 전에 Anthropic에 도메인을 확인합니다.",
+  "workspace.webFetchValueOff":
+    "WebFetch가 Anthropic 도메인 확인 없이 동작합니다.",
   "workspace.general": "일반",
   "integrations.nav": "연동",
   "integrations.title": "연동",
@@ -213,6 +224,18 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.retentionValue": "Audit records are kept for {days} days.",
   "workspace.guestValueOn": "Slack guests can use agents.",
   "workspace.guestValueOff": "Slack guests cannot use agents.",
+  "workspace.webFetch": "WebFetch domain pre-check (Anthropic)",
+  "workspace.webFetchLabel": "Check the domain with Anthropic before WebFetch",
+  "workspace.webFetchHint":
+    "While on, the worker must reach api.anthropic.com. Turn it off for WebFetch to work where the model connection is not Anthropic or that host is blocked.",
+  "workspace.webFetchSavedOn":
+    "WebFetch now checks the domain with Anthropic first.",
+  "workspace.webFetchSavedOff":
+    "WebFetch now runs without the Anthropic domain check. The egress allowlist still decides which hosts it can reach.",
+  "workspace.webFetchValueOn":
+    "WebFetch checks the domain with Anthropic first.",
+  "workspace.webFetchValueOff":
+    "WebFetch runs without the Anthropic domain check.",
   "workspace.general": "General",
   "integrations.nav": "Integrations",
   "integrations.title": "Integrations",
@@ -395,6 +418,18 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.retentionValue": "監査ログを {days} 日間保存します。",
   "workspace.guestValueOn": "Slack ゲストはエージェントを利用できます。",
   "workspace.guestValueOff": "Slack ゲストはエージェントを利用できません。",
+  "workspace.webFetch": "WebFetch の事前ドメイン確認(Anthropic)",
+  "workspace.webFetchLabel": "WebFetch の前に Anthropic でドメインを確認",
+  "workspace.webFetchHint":
+    "オンの場合、worker から api.anthropic.com に接続できる必要があります。モデル接続が Anthropic でない環境や、このホストを遮断している環境では、オフにしないと WebFetch が動作しません。",
+  "workspace.webFetchSavedOn":
+    "WebFetch の前に Anthropic でドメインを確認するようになりました。",
+  "workspace.webFetchSavedOff":
+    "WebFetch は Anthropic のドメイン確認なしで動作するようになりました。取得できるホストは引き続き egress 許可リストで決まります。",
+  "workspace.webFetchValueOn":
+    "WebFetch の前に Anthropic でドメインを確認します。",
+  "workspace.webFetchValueOff":
+    "WebFetch は Anthropic のドメイン確認なしで動作します。",
   "workspace.general": "一般",
   "integrations.nav": "連携",
   "integrations.title": "連携",

@@ -197,6 +197,23 @@ function resumedHistory(config: ClaudeRuntimeConfig): {
   };
 }
 
+// The engine's words when its WebFetch host check with api.anthropic.com
+// got no answer it could use; it then fetches nothing and does not retry.
+const WEB_FETCH_PREFLIGHT_FAILURE =
+  /Unable to verify if domain \S+ is safe to fetch/;
+
+export const WEB_FETCH_PREFLIGHT_REASON =
+  "사전 도메인 확인에 닿지 못함, 설정에서 끌 수 있음";
+
+const WEB_FETCH_PREFLIGHT_NOTE = `This WebFetch call failed before reaching its target: the engine checks each host with api.anthropic.com first, and that check could not be completed. Retrying will not help while the check is unreachable. When you tell the user the fetch failed, give this reason as written: "${WEB_FETCH_PREFLIGHT_REASON}". A workspace owner or admin can turn the check off in the workspace settings; the egress allowlist still limits what can be fetched.`;
+
+export function isWebFetchPreflightFailure(
+  tool: string,
+  error: string,
+): boolean {
+  return tool === "WebFetch" && WEB_FETCH_PREFLIGHT_FAILURE.test(error);
+}
+
 // Marked as the person's so the model neither reads it as tool output nor
 // dismisses it as an injection riding on one.
 function approverNote(note: string): string {
@@ -224,6 +241,9 @@ export function buildSdkOptions(
     ...(config.responseLanguage === undefined
       ? {}
       : { language: ENGINE_LANGUAGE_NAMES[config.responseLanguage] }),
+    ...(config.skipWebFetchPreflight === true
+      ? { skipWebFetchPreflight: true }
+      : {}),
     ...modeSettings({
       cwd: config.cwd,
       permissionMode: config.permissionMode,
@@ -238,7 +258,20 @@ export function buildSdkOptions(
     decisions.ran(input.tool_use_id);
     const note = notes.get(input.tool_use_id);
     notes.delete(input.tool_use_id);
-    if (note === undefined) return {};
+    const preflight =
+      input.hook_event_name === "PostToolUseFailure" &&
+      isWebFetchPreflightFailure(input.tool_name, input.error)
+        ? WEB_FETCH_PREFLIGHT_NOTE
+        : undefined;
+    if (note === undefined) {
+      if (preflight === undefined) return {};
+      return {
+        hookSpecificOutput: {
+          hookEventName: "PostToolUseFailure" as const,
+          additionalContext: preflight,
+        },
+      };
+    }
     if (
       input.hook_event_name !== "PostToolUse" &&
       input.hook_event_name !== "PostToolUseFailure"
@@ -250,7 +283,10 @@ export function buildSdkOptions(
     return {
       hookSpecificOutput: {
         hookEventName: input.hook_event_name,
-        additionalContext: approverNote(note),
+        additionalContext:
+          preflight === undefined
+            ? approverNote(note)
+            : `${approverNote(note)}\n\n${preflight}`,
       },
     };
   };

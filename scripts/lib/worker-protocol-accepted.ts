@@ -20,4 +20,18 @@ export const ACCEPTED: readonly {
     why: "No route answers it: the exit's settle writes it onto the input receipt of a turn whose worker lost its lease, once that worker is gone, and only receipt reads on API and console routes return it; no worker route reads a receipt.",
     proof: "packages/db/src/worker-ownership-lost.test.ts",
   },
+  {
+    problem:
+      "/bootstrap-claim response $.runtime_config.skip_web_fetch_preflight: the receiver refuses this key (additionalProperties: false)",
+    why: "Sent only to a worker that announced web_fetch_preflight, which the baseline worker cannot; without it the claim carries no key and the check stays on.",
+    proof:
+      "packages/platform/src/workers/worker-gateway-response-language.test.ts",
+  },
+  {
+    problem:
+      "/bootstrap-claim response $.restore_runtime_configs[].skip_web_fetch_preflight: the receiver refuses this key (additionalProperties: false)",
+    why: "The gateway adds the key to the claim's current runtime_config only, never to a restore config, and only for a worker that announced web_fetch_preflight.",
+    proof:
+      "packages/platform/src/workers/worker-gateway-response-language.test.ts",
+  },
 ];

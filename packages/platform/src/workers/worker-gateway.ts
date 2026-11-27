@@ -2072,6 +2072,11 @@ export function createWorkerGateway(deps: {
               request.capabilities?.response_language === true
                 ? { response_language: binding.releaseLanguage }
                 : {}),
+              // An older worker refuses the field; it runs with the check on.
+              ...(binding.skipWebFetchPreflight === true &&
+              request.capabilities?.web_fetch_preflight === true
+                ? { skip_web_fetch_preflight: true as const }
+                : {}),
             },
           };
           const githubOwners = await githubOwnersOf(binding.ownerScope);

@@ -120,6 +120,11 @@ export const workerCapabilitiesSchema = z
      */
     response_language: z.literal(true).optional(),
     /**
+     * `runtime_config` may carry `skip_web_fetch_preflight`, which turns off
+     * the engine's check of a WebFetch host with Anthropic.
+     */
+    web_fetch_preflight: z.literal(true).optional(),
+    /**
      * A pending-control answer may carry `answer_surface`, where the
      * person answered.
      */
@@ -473,6 +478,10 @@ export const runtimeConfigSchema = z
     // a worker that announced `response_language`, and not part of any
     // fingerprint: a session must resume whichever worker built it.
     response_language: z.enum(RESPONSE_LANGUAGE_VALUES).optional(),
+    // Present when the workspace turned off the engine's WebFetch host check
+    // (`workspace.settings.web_fetch_preflight`). Only sent to a worker that
+    // announced `web_fetch_preflight`, and not part of any fingerprint.
+    skip_web_fetch_preflight: z.literal(true).optional(),
     permission_mode: permissionModeSchema,
     provider: runtimeProviderSchema,
     project_settings: projectSettingsSchema.optional(),

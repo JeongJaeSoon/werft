@@ -7,12 +7,15 @@ import {
   CSRF_HEADER_VALUE,
   REQUEST_BODY_MAX_BYTES,
   slackGuestResponseSchema,
+  webFetchPreflightResponseSchema,
 } from "@werft-ai/contracts";
 import {
   type AuditRetentionStore,
   createAuthorizationPolicy,
   type DecisionLog,
+  type Principal,
   type SlackGuestSettingStore,
+  type WebFetchPreflightSettingStore,
 } from "@werft-ai/platform";
 import { fakeWebSessions } from "../../../testing/web-session.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
@@ -60,6 +63,23 @@ const slackGuests: SlackGuestSettingStore = {
   },
 };
 
+const preflight = new Map<string, boolean>([[WORKSPACE, true]]);
+const preflightWrites: { principal: Principal; actorUserId: string }[] = [];
+const PREFLIGHT_RECEIPT = "019a0000-0000-7000-8000-00000000f001";
+const webFetchPreflight: WebFetchPreflightSettingStore = {
+  async setWebFetchPreflight({ workspaceId, actorUserId, principal, enabled }) {
+    if (storageDown) {
+      throw Object.assign(new Error("connection refused"), {
+        code: "ECONNREFUSED",
+      });
+    }
+    if (!preflight.has(workspaceId)) return null;
+    preflight.set(workspaceId, enabled);
+    preflightWrites.push({ principal, actorUserId });
+    return PREFLIGHT_RECEIPT;
+  },
+};
+
 const app = createApiApp({
   authMode: "api-key",
   identity,
@@ -68,6 +88,7 @@ const app = createApiApp({
       authorization: createAuthorizationPolicy({ decisions }),
       retention,
       slackGuests,
+      webFetchPreflight,
     }),
 });
 
@@ -260,6 +281,110 @@ test("the Slack guest setting needs a session and a workspace that is the caller
   storageDown = true;
   try {
     expect((await setSlackGuest(cookieFor("owner"), body)).status).toBe(503);
+  } finally {
+    storageDown = false;
+  }
+});
+
+function setWebFetchPreflight(
+  cookie: string | null,
+  body: unknown,
+  workspaceId = WORKSPACE,
+) {
+  return app.request(`/v1/workspaces/${workspaceId}/web-fetch-preflight`, {
+    method: "POST",
+    headers: {
+      ...(cookie === null ? {} : { Cookie: cookie }),
+      [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
+      "Content-Type": "application/json",
+    },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+}
+
+test("an owner or admin turns the WebFetch host check off and on, with the receipt of each change", async () => {
+  for (const [role, enabled] of [
+    ["owner", false],
+    ["admin", true],
+  ] as const) {
+    recorded.length = 0;
+    preflightWrites.length = 0;
+    const response = await setWebFetchPreflight(cookieFor(role), {
+      web_fetch_preflight: enabled,
+    });
+    expect(response.status, role).toBe(200);
+    expect(
+      webFetchPreflightResponseSchema.parse(await response.json()),
+    ).toEqual({ web_fetch_preflight: enabled, receipt_id: PREFLIGHT_RECEIPT });
+    expect(preflight.get(WORKSPACE)).toBe(enabled);
+    expect(recorded).toEqual([
+      expect.objectContaining({
+        action: "workspace.manage",
+        resource: { kind: "workspace", id: WORKSPACE, owner_scope: WORKSPACE },
+      }),
+    ]);
+    // The receipt names the person who changed it.
+    expect(preflightWrites).toEqual([
+      {
+        actorUserId: expect.any(String),
+        principal: expect.objectContaining({
+          actor: expect.objectContaining({
+            userId: preflightWrites[0]?.actorUserId,
+          }),
+        }),
+      },
+    ]);
+  }
+});
+
+test("a member is refused the WebFetch host check before the body is read", async () => {
+  preflight.set(WORKSPACE, true);
+  for (const body of [{ web_fetch_preflight: false }, "not json"]) {
+    const response = await setWebFetchPreflight(cookieFor("member"), body);
+    expect(response.status).toBe(403);
+    expect(
+      apiErrorResponseSchema.parse(await response.json()).error,
+    ).toMatchObject({ code: "FORBIDDEN", details: { reason_code: "role" } });
+  }
+  expect(preflight.get(WORKSPACE)).toBe(true);
+});
+
+test("the WebFetch host check takes a boolean and nothing else", async () => {
+  for (const body of [
+    { web_fetch_preflight: "false" },
+    {},
+    { web_fetch_preflight: false, extra: 1 },
+  ]) {
+    const response = await setWebFetchPreflight(cookieFor("owner"), body);
+    expect(response.status, JSON.stringify(body)).toBe(400);
+  }
+  expect(
+    (
+      await setWebFetchPreflight(
+        cookieFor("owner"),
+        `{"web_fetch_preflight":${" ".repeat(REQUEST_BODY_MAX_BYTES)}false}`,
+      )
+    ).status,
+  ).toBe(413);
+  expect(preflight.get(WORKSPACE)).toBe(true);
+});
+
+test("the WebFetch host check needs a session and a workspace that is the caller's", async () => {
+  const body = { web_fetch_preflight: false };
+  expect((await setWebFetchPreflight(null, body)).status).toBe(401);
+  expect(
+    (await setWebFetchPreflight(cookieFor("owner"), body, OTHER_WORKSPACE))
+      .status,
+  ).toBe(404);
+  const orphan = cookieFor("owner", { workspaceId: OTHER_WORKSPACE });
+  expect(
+    (await setWebFetchPreflight(orphan, body, OTHER_WORKSPACE)).status,
+  ).toBe(404);
+  storageDown = true;
+  try {
+    expect((await setWebFetchPreflight(cookieFor("owner"), body)).status).toBe(
+      503,
+    );
   } finally {
     storageDown = false;
   }
