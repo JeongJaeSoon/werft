@@ -176,7 +176,7 @@ integration("GitHub agent settings, expand", () => {
     expect(rows.find((row) => row.workspace_id === fresh)).toMatchObject({
       revision: 0,
       user_link_connection_id: freshApp,
-      // 0393 moves every ceiling to the two workflow switches; one never
+      // 0391 moves every ceiling to the two workflow switches; one never
       // saved keeps revision 0.
       ceiling: { workflows: true, checks: true, actions: false },
     });
