@@ -13,6 +13,7 @@ import {
   CONVERSATION_TOPIC_SESSION_IDLE_MS,
   type ConversationRuntimeTurn,
   conversationRuntimeTurnSchema,
+  conversationTopicIdSchema,
 } from "@werft-ai/contracts";
 import { installedRuntimes } from "@werft-ai/runtime-registry";
 import {
@@ -509,12 +510,16 @@ describe("a conversation turn on the pinned engine, behind the egress proxy", ()
 
   test("a restarted runtime holds no session: its topics start anew, and run", async () => {
     const s = await stack(() => textReply("noted"));
-    const topic = crypto.randomUUID();
+    const topic = conversationTopicIdSchema.parse(crypto.randomUUID());
     await s.runner.run(s.turn(topic, "first"), s.live);
     expect((await stat(join(s.root, topic))).isDirectory()).toBe(true);
 
     // The old process is gone, its engine with it; its directory is left.
-    await (await s.sessions.get(topic))?.run.close();
+    // Closed, the engine was only told to end: until it has exited it is not
+    // gone, and writes its files back under what the new process removed.
+    const old = await s.sessions.get(topic);
+    await old?.run.close();
+    expect(await old?.engines.exited(10_000)).toBe(true);
     // What a new process does first.
     const restarted = new TopicSessions(s.topics, s.relay);
     await restarted.reset();
@@ -537,7 +542,8 @@ describe("a conversation turn on the pinned engine, behind the egress proxy", ()
 
   test("keeps each topic's files and session to its own directory, and removes them with the topic", async () => {
     const s = await stack(() => textReply("noted"));
-    const [topicA, topicB] = [crypto.randomUUID(), crypto.randomUUID()];
+    const topicA = conversationTopicIdSchema.parse(crypto.randomUUID());
+    const topicB = conversationTopicIdSchema.parse(crypto.randomUUID());
     const markerA = `marker-a-${crypto.randomUUID()}`;
     const markerB = `marker-b-${crypto.randomUUID()}`;
     const turnA = s.turn(topicA, `remember ${markerA}`);
@@ -581,7 +587,12 @@ describe("a conversation turn on the pinned engine, behind the egress proxy", ()
     }
     expect(await readdir(join(s.root, topicA, "work"))).toEqual([]);
 
-    await s.sessions.drop(topicA as never);
+    const [engineA] = (await s.sessions.get(topicA))?.engines.running ?? [];
+    if (engineA === undefined) throw new Error("topic A's engine was not seen");
+    await s.sessions.drop(topicA);
+    // Dropped, its engine has exited: one still running would write the
+    // directory back after this look at it.
+    expect(() => process.kill(engineA, 0)).toThrow();
     expect(await stat(join(s.root, topicA)).catch(() => null)).toBeNull();
     // Dropping one topic leaves the other.
     expect((await stat(join(s.root, topicB))).isDirectory()).toBe(true);

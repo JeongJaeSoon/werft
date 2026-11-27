@@ -14,6 +14,7 @@ import type {
   RuntimeStart,
 } from "@werft-ai/runtime-core";
 import { imageRuntime } from "../composition.ts";
+import { EngineProcesses } from "../engine-processes.ts";
 import { fakeConversationTools } from "../testing/fake-conversation-tools.ts";
 import { fakePermitRelay } from "../testing/fake-permit-relay.ts";
 import { TopicDirectories } from "./topic-directories.ts";
@@ -226,6 +227,8 @@ describe("createConversationTurnRunner", () => {
     expect(seen.deps).toEqual({
       stateDir: join(topic, "home", ".claude"),
       providerMaxRetries: 0,
+      // What its session waits on before the directory goes.
+      processObserver: expect.any(EngineProcesses),
     });
     expect(seen.start?.config).toEqual({
       mode: "new",

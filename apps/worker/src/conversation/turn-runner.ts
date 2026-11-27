@@ -12,7 +12,10 @@ import {
   type ConversationTurnLimit,
   type ConversationTurnResult,
 } from "@werft-ai/contracts";
-import type { RuntimeModule } from "@werft-ai/runtime-core";
+import type {
+  RuntimeModule,
+  RuntimeProcessObserver,
+} from "@werft-ai/runtime-core";
 import type { ConversationTools } from "./conversation-tools.ts";
 import type { PermitRelay } from "./permit-relay.ts";
 import type { TopicSession, TopicSessions } from "./topic-sessions.ts";
@@ -147,12 +150,18 @@ export function createConversationTurnRunner(deps: {
       const topicId = turn.scope.topic_id;
       const live = await sessions.get(topicId);
       const continued = goesOn(live, turn, maxBytes);
-      const start = (directory: TopicSession["directory"], permitKey: string) =>
+      const start = (
+        directory: TopicSession["directory"],
+        permitKey: string,
+        engines: RuntimeProcessObserver,
+      ) =>
         deps.runtime
           .createRuntime({
             stateDir: directory.stateDir,
             // The token is bound to its first request: a retry is another, refused.
             providerMaxRetries: 0,
+            // The session waits on its engine's exit before its directory goes.
+            processObserver: engines,
           })
           .start({
             config: {
