@@ -734,8 +734,8 @@ export function createPostgresConversationCalls(
           }
           // The channel's live binding, held as an admin's change of it waits.
           // It still listens to what was judged: a batch's posts only while
-          // it hears every post, an engaged reply also while it hears
-          // mentions and their threads.
+          // it hears every post, a reply held for its own judgment (engaged,
+          // or of work done) also while it hears mentions and their threads.
           const [binding] = rowsOf<{ installation_id: string }>(
             await tx.execute(sql`
               SELECT b.installation_id
@@ -749,7 +749,7 @@ export function createPostgresConversationCalls(
                 AND (b.listen = 'free' OR (b.listen = 'mention' AND EXISTS (
                   SELECT 1 FROM conversation_judgments j
                   WHERE j.id = ${input.judgmentId}::uuid
-                    AND j.grade = 'm1_engaged')))
+                    AND j.grade IN ('m1_engaged', 'm1'))))
                 AND NOT b.external_shared AND b.emergency_stopped_at IS NULL
               ORDER BY b.id
               LIMIT 1
@@ -778,8 +778,17 @@ export function createPostgresConversationCalls(
               UPDATE conversation_judgments SET turn_id = ${input.turnId}::uuid
               WHERE id = ${input.judgmentId}::uuid
                 AND agent_id = ${input.agentId}::uuid
-                -- A bound session's reply is the session's to answer.
-                AND grade IN ('buffer_m1', 'm1_engaged')
+                -- A post a session's turn took is the session's to answer:
+                -- of a bound thread, only a reply of work done that none
+                -- took (v1-b/U1 B), never one of work going on.
+                AND (grade IN ('buffer_m1', 'm1_engaged') OR (
+                  grade = 'm1' AND NOT EXISTS (
+                    SELECT 1 FROM conversation_inputs i
+                    WHERE i.agent_id = ${input.agentId}::uuid
+                      AND i.slack_team_id = ${input.teamId}
+                      AND i.slack_channel_id = ${input.channelId}
+                      AND i.slack_ts = conversation_judgments.target_ts
+                      AND i.turn_id IS NOT NULL)))
                 AND decision = 'speak' AND target_ts IS NOT NULL
                 AND turn_id IS NULL AND answer IS NULL
               RETURNING id`),

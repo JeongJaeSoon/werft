@@ -11,6 +11,7 @@ export {
   engagedJudgmentsInWindow,
   m1ChannelCap,
   requestReplyJudgment,
+  sessionWorking,
 } from "./conversation-judgments.ts";
 export { createPostgresConversationStore } from "./conversation-store.ts";
 export {

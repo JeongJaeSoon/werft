@@ -56,11 +56,16 @@ export function m1ChannelCap(channel: { agentId: SQL; channelId: SQL }): SQL {
     ORDER BY sb.created_at DESC LIMIT 1), ${M1_JUDGMENTS_PER_CHANNEL_WINDOW})`;
 }
 
+/** Whether a session's status says its work is going on. */
+export function sessionWorking(status: string | undefined): boolean {
+  return WORKING_STATUSES.includes(status ?? "");
+}
+
 /**
  * Writes the waiting judgment of an unmentioned reply, in the transaction
  * that takes it: `m1_to_task` when its session is working, `m1` when not,
- * `m1_engaged` for one held with no session. A reply already waiting or
- * judged adds none.
+ * `m1_engaged` for one held with no session, or the bound thread's grade
+ * a held one names (`heldAs`). A reply already waiting or judged adds none.
  */
 export async function requestReplyJudgment(
   tx: Database,
@@ -72,20 +77,20 @@ export async function requestReplyJudgment(
     ts: string;
     topicId: ConversationTopicId;
     inputId: ConversationInputId;
-    /** The session the reply became a turn of; none for `m1_engaged`. */
+    /** The session the reply became a turn of; none for one held. */
     sessionId: string | null;
+    /** A held reply of a thread bound to work (v1-b/U1). */
+    heldAs?: "m1" | "m1_to_task";
     rule: JudgmentRule;
   },
 ): Promise<void> {
-  let grade = "m1_engaged";
+  let grade: string = input.heldAs ?? "m1_engaged";
   if (input.sessionId !== null) {
     const [session] = rowsOf<{ status: string }>(
       await tx.execute(sql`
         SELECT status FROM sessions WHERE id = ${input.sessionId}::uuid`),
     );
-    grade = WORKING_STATUSES.includes(session?.status ?? "")
-      ? "m1_to_task"
-      : "m1";
+    grade = sessionWorking(session?.status) ? "m1_to_task" : "m1";
   }
   await tx.execute(sql`
     INSERT INTO conversation_judgments (

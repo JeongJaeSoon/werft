@@ -1260,6 +1260,14 @@ export function createMemorySlackInboundEventStore(
       row.nextAttemptAt = spent ? null : now() + retryInMs;
       return spent ? "failed" : "retry";
     },
+    async defer(fence, { retryInMs }) {
+      const row = held(fence);
+      if (row === undefined) return false;
+      release(row, "received");
+      row.attempts = Math.max(row.attempts - 1, 0);
+      row.nextAttemptAt = now() + retryInMs;
+      return true;
+    },
   };
   return { store, rows, lease, calls, faults, inputs };
 }

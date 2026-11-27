@@ -337,6 +337,20 @@ export function createPostgresSlackInboundEventStore(
       if (row === undefined) return "lost";
       return row.status === "failed" ? "failed" : "retry";
     },
+
+    async defer(fence, { retryInMs }) {
+      const rows = await db
+        .update(t)
+        .set({
+          nextAttemptAt: sql`now() + make_interval(secs => ${retryInMs / 1000})`,
+          // The claim that found it waiting is given back.
+          attempts: sql`GREATEST(${t.attempts} - 1, 0)`,
+          ...released,
+        })
+        .where(leaseHeld(fence))
+        .returning({ id: t.id });
+      return rows.length > 0;
+    },
   };
 }
 

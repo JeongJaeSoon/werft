@@ -3,6 +3,7 @@
 import type { StructuredLogger } from "@werft-ai/observability";
 import type {
   AgentIdentityStore,
+  BoundReplyStore,
   ChannelMemberStore,
   JudgmentBufferStore,
   SurfaceBindingStore,
@@ -56,6 +57,9 @@ export interface SlackInboundDeps {
   welcomeApps: Param<typeof createSlackWelcome>["apps"];
   welcomeOutbox: Param<typeof createSlackWelcome>["outbox"];
   buffer: JudgmentBufferStore;
+  boundReplies: BoundReplyStore;
+  /** How long a reply of work going on waits for its judgment. */
+  taskReplyWaitMs?: number;
   mentionTurns: Param<typeof createSlackSessionHandler>["mentionTurns"];
   /** Slack's answers about channels and people, kept across passes. */
   audienceCache?: SlackAudienceCache;
@@ -92,6 +96,10 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
     sessionLinks: deps.sessionLinks,
     conversations: deps.conversations,
     buffer: deps.buffer,
+    boundReplies: deps.boundReplies,
+    ...(deps.taskReplyWaitMs === undefined
+      ? {}
+      : { taskReplyWaitMs: deps.taskReplyWaitMs }),
     mentionTurns: deps.mentionTurns,
     audience,
     sessions: deps.sessions,

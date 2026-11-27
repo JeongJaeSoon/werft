@@ -46,6 +46,18 @@ export type SlackInboundHandler = (
   // biome-ignore lint/suspicious/noConfusingVoidType: most handlers take no input and return nothing.
 ) => Promise<InboundInputReceipt | BufferedInputReceipt | void>;
 
+/**
+ * Thrown by a handler to take the event up again `retryInMs` later, the
+ * claim not counted as an attempt: it waits for something else, as a reply
+ * of work going on waits for its judgment (v1-b/U1). Its thread steps aside
+ * meanwhile; the rest of its channel goes on.
+ */
+export class SlackInboundDeferred extends Error {
+  constructor(readonly retryInMs: number) {
+    super(`Slack event deferred for ${retryInMs} ms`);
+  }
+}
+
 /** Thrown by a handler to end the event `dropped` instead of retrying it. */
 export class SlackInboundDropped extends Error {
   constructor(readonly reason: SlackInboundDropReason) {
@@ -73,6 +85,7 @@ export type SlackInboxDrain = {
   retried: number;
   failed: number;
   lost: number;
+  deferred: number;
 };
 
 /**
@@ -102,6 +115,7 @@ export async function drainSlackInbox(deps: {
     retried: 0,
     failed: 0,
     lost: 0,
+    deferred: 0,
   };
 
   async function settle(event: SurfaceInboundClaim): Promise<void> {
@@ -128,6 +142,14 @@ export async function drainSlackInbox(deps: {
       input = (await deps.handler(event)) ?? undefined;
     } catch (error) {
       failure = { error };
+    }
+    if (failure?.error instanceof SlackInboundDeferred) {
+      if (
+        await deps.inbox.defer(event, { retryInMs: failure.error.retryInMs })
+      ) {
+        drain.deferred += 1;
+      } else lost();
+      return;
     }
     if (failure?.error instanceof SlackInboundDropped) {
       if (await deps.inbox.drop(event, failure.error.reason)) {

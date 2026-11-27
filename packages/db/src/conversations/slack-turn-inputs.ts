@@ -56,6 +56,18 @@ export async function takeSlackTurnInput(
   ) {
     throw new Error(`turn ${turn.id} has no Slack requester`);
   }
+  // A reply held for its judgment before its work's turn (v1-b/U1): the
+  // turn takes that row, the turn's text and requester now its own.
+  await tx.execute(sql`
+    UPDATE conversation_inputs SET turn_id = ${turn.id}::bigint,
+      requester_kind = ${turn.requester_kind},
+      requester_id = ${turn.requester_id},
+      body = NULL, buffer_expires_at = NULL
+    WHERE agent_id = ${place.agentId}::uuid
+      AND slack_team_id = ${place.teamId}
+      AND slack_channel_id = ${input.channelId}
+      AND slack_ts = ${input.ts}
+      AND buffer_expires_at IS NOT NULL AND turn_id IS NULL`);
   await tx.execute(sql`
     INSERT INTO conversation_inputs (
       id, workspace_id, agent_id, topic_id, seq,

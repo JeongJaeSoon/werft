@@ -149,6 +149,7 @@ export * from "./settings-document.ts";
 export { notDeleted } from "./soft-delete.ts";
 export * from "./stop-control.ts";
 export * from "./storage-counter-check.ts";
+export * from "./surface/bound-replies.ts";
 export * from "./surface/conversation-reactions.ts";
 export * from "./surface/conversation-records.ts";
 export * from "./surface/conversation-replies.ts";
