@@ -113,7 +113,7 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" -H "Autho
 | `catalog_changed` | リクエストの後に、運用者がリポジトリの設定を変更した。新しくリクエストする |
 | `non_fast_forward` | リモートブランチがこの commit の祖先ではない |
 | `default_branch`, `target_refused` | デフォルトブランチ、または `agent/<session-id>` ではないブランチである |
-| `push_failed` | トークン発行の失敗、リモートの拒否、ネットワークエラー |
+| `push_failed` | トークン発行の失敗、リモートの拒否、ネットワークエラー。GitHub が workflow ファイル (`.github/workflows/`) の変更を拒否した場合は、receipt の `reason_code` が理由を分ける。`workflows_off`: エージェントの GitHub 設定またはワークスペースの上限で Workflows がオフのため、トークンがその権限を要求しなかった。`workflows_permission_missing`: 要求したが GitHub App に Workflows 権限がない。`workflows_refused`: App トークンで push していないため、どちらか判別できない。このとき Slack スレッドの通知は、コードの代わりに誰に何を依頼するかを伝える |
 
 ## 承認が拒否されるとき
 

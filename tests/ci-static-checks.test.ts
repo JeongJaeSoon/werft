@@ -654,7 +654,6 @@ test("integration refuses cancelled heavy jobs even after every domain passed", 
 
 test("e2e and quickstart start only with work, and the gate holds their results to the plan", () => {
   for (const [name, display, flag] of [
-    ["e2e", "e2e (scenario)", "product"],
     ["quickstart", "quickstart (guides)", "quickstart"],
   ] as const) {
     const job = workflow.jobs[name];
@@ -674,20 +673,19 @@ test("e2e and quickstart start only with work, and the gate holds their results 
     const manual = job?.steps[0];
     expect(manual?.name).toBe("Plan of a manual run");
     expect(manual?.if).toBe(`github.event.inputs.only == '${name}'`);
-    const variable = flag === "product" ? "PRODUCT" : "QUICKSTART";
-    expect(manual?.env?.[variable]).toBe(
+    expect(manual?.env?.QUICKSTART).toBe(
       `\${{ needs.changes.outputs.${flag} }}`,
     );
     const plan = (env: Record<string, string>) =>
       Bun.spawnSync(["bash", "-e", "-c", manual?.run ?? "exit 9"], {
         env: { PATH: Bun.env.PATH ?? "", ...env },
       }).exitCode;
-    expect(plan({ PLAN: "success", [variable]: "true" })).toBe(0);
+    expect(plan({ PLAN: "success", QUICKSTART: "true" })).toBe(0);
     for (const state of ["failure", "cancelled", "skipped", ""]) {
-      expect(plan({ PLAN: state, [variable]: "true" })).not.toBe(0);
+      expect(plan({ PLAN: state, QUICKSTART: "true" })).not.toBe(0);
     }
     for (const value of ["false", ""]) {
-      expect(plan({ PLAN: "success", [variable]: value })).not.toBe(0);
+      expect(plan({ PLAN: "success", QUICKSTART: value })).not.toBe(0);
     }
     const gate = workflow.jobs[`${name}-gate`];
     expect(gate?.needs).toEqual(["changes", name]);
@@ -695,6 +693,10 @@ test("e2e and quickstart start only with work, and the gate holds their results 
       "!cancelled()",
     );
   }
+  expect(workflow.jobs["e2e-gate"]?.needs).toEqual(["changes", "e2e"]);
+  expect(
+    workflow.jobs["e2e-gate"]?.steps.find((s) => s.id === "verdict")?.if,
+  ).toBe("!cancelled()");
   const e2e = (env: Record<string, string>) =>
     verdict("e2e-gate", { PLAN: "success", REUSED: "", ...env });
   expect(
@@ -782,8 +784,15 @@ test("the required e2e and quickstart names are gate jobs of this workflow, neve
   for (const job of Object.values(workflow.jobs)) {
     expect(job.permissions?.checks).toBeUndefined();
   }
-  const all = "(github.event.inputs.only || 'all') == 'all'";
-  for (const name of ["e2e", "quickstart"]) {
+  // A manual run of e2e alone reports through the gate too: a shard under
+  // the required name could cover another shard's failure.
+  for (const [name, all] of [
+    [
+      "e2e",
+      `contains(fromJSON('["all","e2e"]'), github.event.inputs.only || 'all')`,
+    ],
+    ["quickstart", "(github.event.inputs.only || 'all') == 'all'"],
+  ] as const) {
     const gate = workflow.jobs[`${name}-gate`];
     // It runs whenever it carries the name: a skipped check of a required
     // name passes. Skipped under another `only`, GitHub names the check by
@@ -793,13 +802,13 @@ test("the required e2e and quickstart names are gate jobs of this workflow, neve
     expect(gate?.steps.map((s) => s.id)).toEqual(["verdict", "cancelled"]);
     expect(JSON.stringify(gate)).not.toContain("continue-on-error");
   }
-  // Outside the gates and a manual run of e2e or quickstart alone (see
-  // above), no job carries those names, so a skipped one cannot stand in.
+  // Outside the gates and a manual run of quickstart alone (see above), no
+  // job carries those names, so a skipped one cannot stand in.
   for (const [id, job] of Object.entries(workflow.jobs)) {
     if (id === "e2e-gate" || id === "quickstart-gate") continue;
     const name = (job.name ?? id).replace(
-      /^\$\{\{ github\.event\.inputs\.only == '(e2e|quickstart)' && '\1' \|\| '(.*)' \}\}$/,
-      "$2",
+      /^\$\{\{ github\.event\.inputs\.only == 'quickstart' && 'quickstart' \|\| '(.*)' \}\}$/,
+      "$1",
     );
     expect(["e2e", "quickstart"]).not.toContain(name);
   }
@@ -829,12 +838,26 @@ test("docs/ci/checks.md names each required check by the one job that reports it
           job.name ?? "",
         ) ?? [];
       const unset = only === "github.event.inputs.only" ? "" : "all";
-      const name = only ? (unset === value ? chosen : other) : (job.name ?? id);
+      // e2e-gate: `contains(fromJSON('[...]'), only || 'all')`, true on a pull request.
+      const [, listed, listChosen] =
+        /^\$\{\{ contains\(fromJSON\('(\[[^']*\])'\), github\.event\.inputs\.only \|\| 'all'\) && '([^']*)' \|\| '[^']*' \}\}$/.exec(
+          job.name ?? "",
+        ) ?? [];
+      const fromList =
+        listed && (JSON.parse(listed) as string[]).includes("all")
+          ? listChosen
+          : undefined;
+      const name =
+        fromList ??
+        (only ? (unset === value ? chosen : other) : (job.name ?? id));
       // An expression this test does not evaluate may still pick any string
       // it quotes (images.yml's build). One taken from a matrix is not seen.
-      const quoted = only
-        ? []
-        : [...(job.name ?? "").matchAll(/'([^']*)'/g)].map(([, text]) => text);
+      const quoted =
+        only || fromList !== undefined
+          ? []
+          : [...(job.name ?? "").matchAll(/'([^']*)'/g)].map(
+              ([, text]) => text,
+            );
       return { file, id, name, quoted };
     });
   });
@@ -864,6 +887,29 @@ test("docs/ci/checks.md names each required check by the one job that reports it
       ),
     ).toEqual([row]);
   }
+});
+
+test("every e2e shard runs, and the required e2e check waits for all of them", () => {
+  const job = workflow.jobs.e2e;
+  expect(job?.name).toBe(`e2e (scenario \${{ matrix.shard }}/3)`);
+  expect(job?.strategy as unknown).toEqual({
+    "fail-fast": false,
+    matrix: { shard: [1, 2, 3] },
+  });
+  expect(job?.if).toBe(
+    `!cancelled() && needs.changes.outputs.product == 'true' && contains(fromJSON('["all","e2e"]'), github.event.inputs.only || 'all')`,
+  );
+  expect(job?.steps.find((s) => s.id === "scenario")?.run).toBe(
+    `tests/e2e/run.sh --shard \${{ matrix.shard }}`,
+  );
+  // One record per shard: a shared artifact name fails the second upload.
+  expect(
+    job?.steps.find((s) => s.uses?.startsWith("actions/upload-artifact"))?.with
+      ?.name,
+  ).toBe(`e2e-record-\${{ matrix.shard }}`);
+  // The gate reads the matrix's one result, which is success only when every
+  // shard's is; its verdict rejects the others (see below).
+  expect(workflow.jobs["e2e-gate"]?.needs).toEqual(["changes", "e2e"]);
 });
 
 test("all product and site consumers use the same explicit plan", () => {

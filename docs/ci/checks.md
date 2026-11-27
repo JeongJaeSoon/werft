@@ -29,7 +29,7 @@ ruleset의 필수 이름은 아래 일곱 개다. 이름은 그 job이 PR에서 
 | `supply-chain` | `images.yml` · `supply-chain` | 이미지 빌드가 계획됐으면 그 빌드가 끝났다. 빌드한 이미지와 npm 의존성에 고칠 수 있는 high·critical 취약점이 없다. 예외 항목마다 이유와 만료일이 있다. 빌드나 scan이 실패하거나 결과가 없으면 실패다. scan이 돌았지만 advisory 쪽 장애로 답을 얻지 못한 것만 PR과 main push에서 경고로 지나간다 | 모든 PR, main push, 릴리스 tag, 매일 03:17 UTC. 이미지에 닿지 않는 변경은 npm 감사만 한다 | 10분 / 빌드 30분, 판정 10분 |
 | `check` | `ci.yml` · `check` | 집계. 타입, lint, 정책 시험, 제품 산출물, chart ([구성원](#check의-구성원)) | 모든 PR, main push | 구성원 표 / 2분 |
 | `integration` | `ci.yml` · `integration` | 집계. 서비스가 붙는 시험 전체와 `e2e`, `quickstart`, conformance ([구성원](#integration의-구성원)) | 모든 PR, main push | 구성원 표 / 2분 |
-| `e2e` | `ci.yml` · `e2e-gate` | compose 스택에서 세션 한 바퀴가 돈다(`tests/e2e/run.sh`). 판정은 `e2e (scenario)` job의 결과다 | 판정은 모든 PR과 main push. 시나리오 job은 문서만 바꾼 것이 아닐 때 | 9분 / 시나리오 30분, 판정 2분 |
+| `e2e` | `ci.yml` · `e2e-gate` | compose 스택에서 세션 한 바퀴가 돈다(`tests/e2e/run.sh`). 판정은 `e2e (scenario 1/3~3/3)` 세 shard의 결과다 | 판정은 모든 PR과 main push. 시나리오 job은 문서만 바꾼 것이 아닐 때 | 9분 / 시나리오 30분, 판정 2분 |
 | `quickstart` | `ci.yml` · `quickstart-gate` | `docs/quickstart.md`와 API 가이드의 명령이 적힌 대로 돈다. 판정은 `quickstart (guides)` job의 결과다 | 판정은 모든 PR과 main push. 가이드 job은 두 가이드 중 하나를 바꿨거나, 문서나 web console만 바꾼 것이 아닐 때 | 8분 / 가이드 30분, 판정 2분 |
 
 집계 job과 판정 job이 통과로 보는 것은 둘뿐이다. 계획된 job이 성공했거나, 계획에 없어서 생략됐다. 계획된 job이 skipped나 cancelled로 끝나면 실패다.

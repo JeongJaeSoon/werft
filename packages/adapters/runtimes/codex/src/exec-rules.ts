@@ -86,6 +86,9 @@ function askPatterns(policy: WorkspacePolicy): string[] {
       `sed *${c}e *`,
     ]),
     ...policy.fs.ask,
+    ...policy.fs.askWhenSecretNamed.flatMap((command) =>
+      policy.secretNameParts.map((part) => `${command} *${part}*`),
+    ),
     ...read.readers.flatMap((command) => [
       ...names.flatMap((name) => [
         `${command} ${name}*`,
@@ -108,13 +111,23 @@ function askPatterns(policy: WorkspacePolicy): string[] {
 const same = (a: string[], b: string[]) =>
   a.length === b.length && a.every((token, index) => token === b[index]);
 
+/**
+ * The file commands this engine is given. A path that leaves the workspace
+ * has no prefix form, so an allow here covers the command anywhere in the
+ * container: accepted for an empty directory, not for a copy, a move or a
+ * removal, which this engine keeps asking about.
+ */
+const PREFIX_SAFE_FILE_COMMANDS = ["mkdir"];
+
 export function execRulesOf(
   policy: WorkspacePolicy = WORKSPACE_POLICY,
 ): ExecRules {
   const allow = [
     ...policy.git.allow,
     ...policy.read.allow,
-    ...policy.fs.allow,
+    ...policy.fs.allow.filter((command) =>
+      PREFIX_SAFE_FILE_COMMANDS.includes(command),
+    ),
     ...policy.dev.commands,
   ].map((command) => command.split(" "));
   for (const pattern of allow) {
