@@ -7,6 +7,10 @@ import type {
   EngineMessage,
   ScriptedStep,
 } from "@werft-ai/runtime-core/testing";
+import {
+  createMemoryCheckpointObjectStore,
+  type MemoryCheckpointObjectStore,
+} from "@werft-ai/testkit/checkpoint-objects";
 
 import type { CaptureRefusal, WorkerCheckpointPort } from "./checkpoint.ts";
 import type { WorkerTimeouts } from "./config.ts";
@@ -103,6 +107,7 @@ function harness(
     failures?: CaptureRefusal[];
     gateway?: FakeWorkerGateway;
     outsideTurnCheckpoint?: Partial<OutsideTurnCheckpoint>;
+    port?: (gateway: FakeWorkerGateway) => WorkerCheckpointPort;
     sleep?: (ms: number) => Promise<void>;
     timeouts?: Partial<WorkerTimeouts>;
     wrapRun?: (run: AgentRun) => AgentRun;
@@ -131,7 +136,7 @@ function harness(
     overrides.captureMs,
   );
   const host = new WorkerHost({
-    checkpoints: checkpoints.port,
+    checkpoints: overrides.port?.(gateway) ?? checkpoints.port,
     execution: { bootstrapNonce: "wln_test", generation: 1, id: "exec-1" },
     gateway,
     logger,
@@ -724,5 +729,602 @@ describe("WorkerHost checkpoints outside a turn", () => {
         call.checkpoint.revision,
       ]),
     ).toEqual([["1", 1]]);
+  });
+});
+
+/** One process left under the run; a signal ends it. */
+function oneProcess(command = "sleep") {
+  const signals: Array<[string, number[]]> = [];
+  let alive = [4243];
+  const engines: EngineExitWatch = {
+    descendants: async () => alive,
+    commands: async () => [command],
+    signal: (pids, signal) => {
+      signals.push([signal, [...pids]]);
+      alive = [];
+    },
+    exited: async () => true,
+    running: [],
+    kill() {},
+  };
+  return {
+    engines,
+    signals,
+    end: () => {
+      alive = [];
+    },
+  };
+}
+
+const oneTurn: ScriptedStep[] = [
+  { type: "await-input" },
+  { type: "emit", message: resultMessage(SESSION_ID, 1) },
+  { type: "await-input" },
+];
+
+async function eventually(check: () => boolean, ms = 5_000): Promise<void> {
+  const end = performance.now() + ms;
+  while (!check()) {
+    if (performance.now() > end) throw new Error("the condition never held");
+    await Bun.sleep(5);
+  }
+}
+
+/**
+ * A capture in the stages SessionCheckpoints runs: a key from the gateway,
+ * the bundle and the manifest uploaded to the store. A write the store fails
+ * is a request that did not get through (`infrastructure`), as it is there
+ * ("a store that fails an upload" in session-checkpoints.test.ts).
+ */
+function stagedPort(
+  gateway: FakeWorkerGateway,
+  objects: MemoryCheckpointObjectStore,
+) {
+  const captures: Array<Capture & { at: number }> = [];
+  const port: WorkerCheckpointPort = {
+    restorePlan: async () => ({ mode: "new" }),
+    capture: async (preparation, context) => {
+      captures.push({
+        status: preparation.status,
+        kind: context.captureKind ?? "turn_end",
+        at: performance.now(),
+      });
+      if (preparation.status !== "ready") {
+        context.refused?.({
+          reason: preparation.reason,
+          infrastructure: false,
+        });
+        return null;
+      }
+      const answer = await gateway.requestCheckpoint({
+        ...context.scope,
+        preparation: { status: "ready" },
+      });
+      if (answer.status !== "ready") return null;
+      const bytes = new TextEncoder().encode(`revision ${answer.revision}`);
+      try {
+        await objects.putImmutable(
+          answer.manifest_ref.replace(/manifest\.json$/, "workspace.bundle"),
+          bytes,
+        );
+        await objects.putImmutable(answer.manifest_ref, bytes);
+      } catch {
+        context.refused?.({ reason: "publish_failed", infrastructure: true });
+        return null;
+      }
+      return {
+        revision: answer.revision,
+        manifest_ref: answer.manifest_ref,
+        manifest_sha256: "a".repeat(64),
+      };
+    },
+  };
+  return { captures, port };
+}
+
+/** The gateway calls from the first finalize to the last checkpoint commit. */
+function heldStretch(gateway: FakeWorkerGateway): string[] {
+  return gateway.calls.slice(
+    gateway.calls.indexOf("finalize"),
+    gateway.calls.lastIndexOf("commitCheckpoint"),
+  );
+}
+
+describe("WorkerHost drained while it owes the last turn a checkpoint", () => {
+  test("a drain during the background grace stops the work at once and takes the checkpoint before the exit", async () => {
+    const work = oneProcess();
+    const { captures, gateway, host, log } = harness(oneTurn, {
+      engines: work.engines,
+      outsideTurnCheckpoint: { idleBackgroundGraceMs: 60_000 },
+      timeouts: { drainTimeoutMs: 5_000 },
+    });
+    gateway.enqueue("start a dev server and leave it");
+    const loop = host.runLoop();
+    await eventually(() => log.includes("worker.idle.background_grace"));
+
+    const drainedAt = performance.now();
+    host.drain("received SIGTERM");
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("drained");
+    // Not the grace's minute: the work is stopped as soon as the drain comes.
+    expect(performance.now() - drainedAt).toBeLessThan(4_000);
+    expect(work.signals).toEqual([["SIGTERM", [4243]]]);
+    expect(log).toContain("worker.drain.capture_owed");
+    expect(
+      gateway.events
+        .filter((event) => event.event === "system")
+        .map((event) => event.data),
+    ).toContainEqual({
+      type: "system",
+      subtype: "background_tasks_stopped",
+      commands: ["sleep"],
+    });
+    expect(captures).toEqual([
+      { status: "rejected", kind: "turn_end" },
+      { status: "ready", kind: "before_idle_exit" },
+    ]);
+    expect(
+      gateway.checkpointCommits.map((commit) => [
+        commit.turn_id,
+        commit.checkpoint.revision,
+      ]),
+    ).toEqual([["1", 0]]);
+    expect(gateway.checkpointRevision).toBe(0);
+    // Committed while the lease was held, then released as a drain.
+    expect(gateway.calls.lastIndexOf("commitCheckpoint")).toBeLessThan(
+      gateway.calls.indexOf("release"),
+    );
+    expect(gateway.releases.map((release) => release.stop_kind)).toEqual([
+      "drain",
+    ]);
+  });
+
+  test("a drain whose capture fails leaves the turn uncovered and still drains", async () => {
+    const work = oneProcess();
+    const { captures, gateway, host, log } = harness(oneTurn, {
+      engines: work.engines,
+      everyTime: INFRASTRUCTURE,
+      outsideTurnCheckpoint: { idleBackgroundGraceMs: 60_000 },
+      timeouts: { drainTimeoutMs: 5_000 },
+    });
+    gateway.enqueue("start a dev server and leave it");
+    const loop = host.runLoop();
+    await eventually(() => log.includes("worker.idle.background_grace"));
+
+    host.drain("received SIGTERM");
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("drained");
+    expect(work.signals).toEqual([["SIGTERM", [4243]]]);
+    // Tried once, not held: the drain is no time to wait out a store.
+    expect(captures).toEqual([
+      { status: "rejected", kind: "turn_end" },
+      { status: "ready", kind: "before_idle_exit" },
+    ]);
+    expect(gateway.checkpointCommits).toEqual([]);
+    expect(gateway.checkpointRevision).toBeNull();
+    expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("a drain after a covered turn takes no capture", async () => {
+    const { captures, gateway, host, log } = harness(oneTurn, {
+      timeouts: { drainTimeoutMs: 5_000, idleTimeoutMs: 60_000 },
+    });
+    gateway.enqueue("say hi");
+    const loop = host.runLoop();
+    await eventually(() => gateway.finalized.length === 1);
+
+    host.drain("received SIGTERM");
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("drained");
+    expect(log).not.toContain("worker.drain.capture_owed");
+    expect(captures).toEqual([{ status: "ready", kind: "turn_end" }]);
+    expect(gateway.checkpointCommits).toEqual([]);
+  });
+
+  test("a drain capture that never returns is given up at the drain budget", async () => {
+    const work = oneProcess();
+    const { captures, gateway, host, log } = harness(oneTurn, {
+      engines: work.engines,
+      captureMs: 5_000,
+      outsideTurnCheckpoint: { idleBackgroundGraceMs: 60_000 },
+      timeouts: { drainTimeoutMs: 500 },
+    });
+    gateway.enqueue("start a dev server and leave it");
+    const loop = host.runLoop();
+    await eventually(() => log.includes("worker.idle.background_grace"));
+
+    const drainedAt = performance.now();
+    host.drain("received SIGTERM");
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("drained");
+    // The capture had begun, and the worker released while it still ran.
+    expect(captures.at(-1)).toEqual({
+      status: "ready",
+      kind: "before_idle_exit",
+    });
+    expect(performance.now() - drainedAt).toBeLessThan(4_000);
+    expect(gateway.checkpointCommits).toEqual([]);
+    expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("a drain commit the gateway never answers is left at the drain budget, and the release still goes out", async () => {
+    const work = oneProcess();
+    class SilentCommits extends FakeWorkerGateway {
+      override commitCheckpoint(
+        request: Parameters<FakeWorkerGateway["commitCheckpoint"]>[0],
+      ) {
+        this.calls.push("commitCheckpoint");
+        this.checkpointCommits.push(request);
+        return new Promise<never>(() => {});
+      }
+    }
+    const gateway = new SilentCommits();
+    const { host, log } = harness(oneTurn, {
+      engines: work.engines,
+      gateway,
+      outsideTurnCheckpoint: { idleBackgroundGraceMs: 60_000 },
+      timeouts: { drainTimeoutMs: 500 },
+    });
+    gateway.enqueue("start a dev server and leave it");
+    const loop = host.runLoop();
+    await eventually(() => log.includes("worker.idle.background_grace"));
+
+    const drainedAt = performance.now();
+    host.drain("received SIGTERM");
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("drained");
+    expect(gateway.checkpointCommits).toHaveLength(1);
+    expect(performance.now() - drainedAt).toBeLessThan(4_000);
+    expect(log).toContain("worker.checkpoint.failed");
+    expect(log).not.toContain("worker.checkpoint.committed");
+    expect(gateway.calls.indexOf("release")).toBeGreaterThan(
+      gateway.calls.indexOf("commitCheckpoint"),
+    );
+    expect(gateway.releases.map((release) => release.stop_kind)).toEqual([
+      "drain",
+    ]);
+  });
+
+  test("a drain that comes while the idle exit is stopping the work stops what is left and announces it once", async () => {
+    const signals: string[] = [];
+    let alive = [4243];
+    // SIGTERM is ignored; only SIGKILL ends it.
+    const engines: EngineExitWatch = {
+      descendants: async () => alive,
+      commands: async () => ["node"],
+      signal: (_pids, signal) => {
+        signals.push(signal);
+        if (signal === "SIGKILL") alive = [];
+      },
+      exited: async () => true,
+      running: [],
+      kill() {},
+    };
+    const { captures, gateway, host } = harness(oneTurn, {
+      engines,
+      outsideTurnCheckpoint: {
+        idleBackgroundGraceMs: 0,
+        stopSignalWaitMs: 300,
+      },
+      timeouts: { drainTimeoutMs: 5_000 },
+    });
+    gateway.enqueue("start a dev server and leave it");
+    const loop = host.runLoop();
+    await eventually(() => signals.length === 1);
+
+    host.drain("received SIGTERM");
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("drained");
+    expect(signals).toContain("SIGKILL");
+    expect(
+      gateway.events.filter(
+        (event) =>
+          event.event === "system" &&
+          (event.data as { subtype?: string }).subtype ===
+            "background_tasks_stopped",
+      ),
+    ).toHaveLength(1);
+    expect(captures.at(-1)).toEqual({
+      status: "ready",
+      kind: "before_idle_exit",
+    });
+    expect(gateway.checkpointCommits.map((commit) => commit.turn_id)).toEqual([
+      "1",
+    ]);
+  });
+
+  test("a process scan that stalls while the idle exit checks the work does not hold a drain past its budget", async () => {
+    let stalled = false;
+    let entered = 0;
+    const engines: EngineExitWatch = {
+      descendants: () => {
+        if (!stalled) return Promise.resolve([4243]);
+        entered += 1;
+        return new Promise<never>(() => {});
+      },
+      commands: async () => ["sleep"],
+      signal: () => {},
+      exited: async () => true,
+      running: [],
+      kill() {},
+    };
+    const { captures, gateway, host, log } = harness(oneTurn, {
+      engines,
+      outsideTurnCheckpoint: { idleBackgroundGraceMs: 60_000 },
+      timeouts: { drainTimeoutMs: 500 },
+    });
+    gateway.enqueue("start a dev server and leave it");
+    const loop = host.runLoop();
+    await eventually(() => log.includes("worker.idle.background_grace"));
+    stalled = true;
+    // The idle exit's own check is the scan that waits.
+    await eventually(() => entered > 0);
+
+    const drainedAt = performance.now();
+    host.drain("received SIGTERM");
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("drained");
+    expect(performance.now() - drainedAt).toBeLessThan(4_000);
+    // Nothing is known of the tree, so nothing is captured as if it were quiet.
+    expect(captures).toEqual([{ status: "rejected", kind: "turn_end" }]);
+    expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("a scan the drain budget cut short is not read as a quiet run, so no capture starts after the worker gave up", async () => {
+    let stalled = false;
+    let entered = 0;
+    const engines: EngineExitWatch = {
+      descendants: () => {
+        if (!stalled) return Promise.resolve([4243]);
+        entered += 1;
+        return new Promise<never>(() => {});
+      },
+      commands: async () => ["sleep"],
+      signal: () => {},
+      exited: async () => true,
+      running: [],
+      kill() {},
+    };
+    let leases = 0;
+    const { captures, gateway, host } = harness(oneTurn, {
+      engines,
+      timeouts: { drainTimeoutMs: 300, idleTimeoutMs: 60_000 },
+      wrapRun: (run) =>
+        new Proxy(run, {
+          get(target, key, receiver) {
+            if (key === "leaseCheckpoint") leases += 1;
+            const value = Reflect.get(target, key, receiver);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        }),
+    });
+    gateway.enqueue("start a dev server and leave it");
+    const loop = host.runLoop();
+    await eventually(() => gateway.finalized.length === 1);
+    // The between-turns check now waits on a scan that never answers.
+    stalled = true;
+    await eventually(() => entered > 0);
+
+    host.drain("received SIGTERM");
+    const summary = await loop;
+    await Bun.sleep(50);
+
+    expect(summary.outcome).toBe("drained");
+    // The turn's own capture only: none was begun after the budget ran out.
+    expect(leases).toBe(1);
+    expect(captures).toEqual([{ status: "rejected", kind: "turn_end" }]);
+    expect(gateway.checkpointCommits).toEqual([]);
+  });
+
+  test("a scan that stalls after SIGTERM is cut at the signal window, not left to hold the drain's budget", async () => {
+    const signals: string[] = [];
+    // SIGTERM is ignored, and every scan after it never answers.
+    const engines: EngineExitWatch = {
+      descendants: () =>
+        signals.length > 0
+          ? new Promise<never>(() => {})
+          : Promise.resolve([4243]),
+      commands: async () => ["node"],
+      signal: (_pids, signal) => {
+        signals.push(signal);
+      },
+      exited: async () => true,
+      running: [],
+      kill() {},
+    };
+    const { gateway, host, log } = harness(oneTurn, {
+      engines,
+      outsideTurnCheckpoint: { idleBackgroundGraceMs: 60_000 },
+      timeouts: { drainTimeoutMs: 3_000 },
+    });
+    gateway.enqueue("start a dev server and leave it");
+    const loop = host.runLoop();
+    await eventually(() => log.includes("worker.idle.background_grace"));
+
+    const drainedAt = performance.now();
+    host.drain("received SIGTERM");
+    await eventually(() => log.includes("worker.idle.background_stopped"));
+    const stoppedAfter = performance.now() - drainedAt;
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("drained");
+    // Two signal windows (200 ms each here), not the drain's 3 s budget.
+    expect(stoppedAfter).toBeLessThan(1_500);
+    // What is under the run is not known, so nothing is killed blind.
+    expect(signals).toEqual(["SIGTERM"]);
+    expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("a quiet probe that does not answer is cut at the settle window, leaving the drain's capture its time", async () => {
+    const work = oneProcess();
+    let hung = false;
+    const { gateway, host, log } = harness(oneTurn, {
+      engines: work.engines,
+      outsideTurnCheckpoint: { idleBackgroundGraceMs: 60_000 },
+      timeouts: { drainTimeoutMs: 3_000 },
+      wrapRun: (run) =>
+        new Proxy(run, {
+          get(target, key, receiver) {
+            if (key === "prepareCheckpoint") {
+              return (...args: Parameters<AgentRun["prepareCheckpoint"]>) => {
+                // The first probe of the drain's own pass.
+                if (log.includes("worker.drain.capture_owed") && !hung) {
+                  hung = true;
+                  return new Promise<never>(() => {});
+                }
+                return target.prepareCheckpoint(...args);
+              };
+            }
+            const value = Reflect.get(target, key, receiver);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        }),
+    });
+    gateway.enqueue("start a dev server and leave it");
+    const loop = host.runLoop();
+    await eventually(() => log.includes("worker.idle.background_grace"));
+
+    const drainedAt = performance.now();
+    host.drain("received SIGTERM");
+    await eventually(() => gateway.checkpointCommits.length === 1);
+    const committedAfter = performance.now() - drainedAt;
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("drained");
+    expect(hung).toBe(true);
+    // The settle window (200 ms here), not the drain's 3 s budget.
+    expect(committedAfter).toBeLessThan(2_000);
+    expect(gateway.checkpointCommits.map((commit) => commit.turn_id)).toEqual([
+      "1",
+    ]);
+  });
+});
+
+describe("WorkerHost holding a publish one stage of which fails", () => {
+  test("an upload the store fails is retried in the lease on the backoff, and the next input stays queued until it lands", async () => {
+    const objects = createMemoryCheckpointObjectStore();
+    // The turn's own upload and the first retry's.
+    objects.failWrites(2);
+    let staged: ReturnType<typeof stagedPort> | undefined;
+    const { gateway, host } = harness(twoTurns, {
+      outsideTurnCheckpoint: { retryBackoffMs: [40, 80] },
+      port: (gateway) => {
+        staged = stagedPort(gateway, objects);
+        return staged.port;
+      },
+    });
+    gateway.enqueue("first");
+    gateway.enqueue("second, queued while the checkpoint is owed");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns.map((turn) => turn.status)).toEqual([
+      "completed",
+      "completed",
+    ]);
+    expect(gateway.finalized[0]?.checkpoint).toBeNull();
+    const captured = staged?.captures ?? [];
+    expect(captured.slice(0, 4).map(({ at: _at, ...rest }) => rest)).toEqual([
+      { status: "ready", kind: "turn_end" },
+      { status: "ready", kind: "between_turns" },
+      { status: "ready", kind: "between_turns" },
+      { status: "ready", kind: "turn_end" },
+    ]);
+    // On the backoff, not at once: 40 ms, then 80.
+    const [end, first, second] = captured.map((capture) => capture.at);
+    expect((first ?? 0) - (end ?? 0)).toBeGreaterThanOrEqual(35);
+    expect((second ?? 0) - (first ?? 0)).toBeGreaterThanOrEqual(75);
+    // Every retry in the lease the turn ran under, and no input asked for.
+    const held = heldStretch(gateway);
+    expect(held).not.toContain("nextInput");
+    expect(held).not.toContain("release");
+    // The two retries; the turn's own request went out before its finalize.
+    expect(held.filter((call) => call === "requestCheckpoint")).toHaveLength(2);
+    const epoch = gateway.finalized[0]?.lease_epoch;
+    expect(
+      gateway.checkpointCommits.map((commit) => [
+        commit.turn_id,
+        commit.lease_epoch === epoch,
+        commit.checkpoint.revision,
+      ]),
+    ).toEqual([["1", true, 0]]);
+    expect(gateway.finalized[1]?.checkpoint?.revision).toBe(1);
+  });
+
+  test("a commit the gateway fails is retried in the lease on the backoff, and the next input stays queued until it lands", async () => {
+    const work = oneProcess();
+    const failure = new WorkerGatewayRequestError(
+      503,
+      "BACKEND_UNAVAILABLE",
+      "the database is not answering",
+      true,
+    );
+    // The commit fails from its first send until 400 ms later: past one
+    // commit's own retries (commitRetryMs), so the publish counts as failed.
+    let firstCommitAt: number | undefined;
+    class FailingCommits extends FakeWorkerGateway {
+      override async commitCheckpoint(
+        request: Parameters<FakeWorkerGateway["commitCheckpoint"]>[0],
+      ) {
+        firstCommitAt ??= performance.now();
+        this.checkpointCommitFailure =
+          performance.now() - firstCommitAt < 400 ? failure : undefined;
+        return super.commitCheckpoint(request);
+      }
+    }
+    const gateway = new FailingCommits();
+    const { captures, host, log } = harness(twoTurns, {
+      engines: work.engines,
+      gateway,
+      outsideTurnCheckpoint: { retryBackoffMs: [40] },
+      timeouts: { idleTimeoutMs: 60_000 },
+    });
+    gateway.enqueue("start a build in the background");
+    const loop = host.runLoop();
+    // The turn ends with the build running; it ends, and the capture taken
+    // then uploads every time while its commit fails.
+    await eventually(() => gateway.finalized.length === 1);
+    work.end();
+    await eventually(() => gateway.checkpointCommits.length > 0);
+    gateway.enqueue("second, queued while the checkpoint is owed");
+    await eventually(() => gateway.finalized.length === 2);
+    host.drain("test over");
+    const summary = await loop;
+
+    expect(summary.turns.map((turn) => turn.status)).toEqual([
+      "completed",
+      "completed",
+    ]);
+    expect(log).toContain("worker.checkpoint.failed");
+    const between = captures.filter(
+      (capture) => capture.kind === "between_turns",
+    );
+    expect(between.length).toBeGreaterThanOrEqual(2);
+    expect(between.every((capture) => capture.status === "ready")).toBe(true);
+    // From the first commit sent to the one that landed: no input asked for.
+    const calls = gateway.calls;
+    const held = calls.slice(
+      calls.indexOf("commitCheckpoint"),
+      calls.lastIndexOf("commitCheckpoint"),
+    );
+    expect(held.filter((call) => call === "commitCheckpoint").length).toBe(
+      gateway.checkpointCommits.length - 1,
+    );
+    expect(held).not.toContain("nextInput");
+    expect(held).not.toContain("release");
+    const landed = gateway.checkpointCommits.at(-1);
+    expect([landed?.turn_id, landed?.lease_epoch]).toEqual([
+      "1",
+      gateway.finalized[0]?.lease_epoch,
+    ]);
+    expect(gateway.checkpointRevision).toBe(1);
+    expect(gateway.finalized[1]?.checkpoint?.revision).toBe(1);
   });
 });
