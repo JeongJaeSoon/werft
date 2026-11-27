@@ -22,6 +22,7 @@ const RELEASE_TOOLS = [
   "mcp__github__submit_review",
   "mcp__github__dispatch_workflow",
   "mcp__github__get_workflow_run",
+  "mcp__github__get_ci_status",
 ];
 
 // The schema of a worker image from before `platform` and `trusted`: the
@@ -82,14 +83,23 @@ function claimWith(capabilities?: { platform_tool_trust: true }) {
 }
 
 describe("push, pull request and repository read tools, across worker versions", () => {
-  test("the trusted tools are the push, pull request and repository read classes", () => {
+  test("the trusted tools are the push, pull request, CI read and repository read classes, never running a workflow (94S-2398)", () => {
     expect(trustedGitHubTools(RELEASE_TOOLS)).toEqual([
       "mcp__github__request_push",
       "mcp__github__open_pull_request",
       "mcp__github__update_pull_request",
       "mcp__github__list_repositories",
       "mcp__github__attach_repository",
+      "mcp__github__get_workflow_run",
+      "mcp__github__get_ci_status",
     ]);
+    expect(
+      trustedGitHubTools([
+        "mcp__github__get_ci_status",
+        "mcp__github__dispatch_workflow",
+        "mcp__github__rerun_workflow",
+      ]),
+    ).toEqual(["mcp__github__get_ci_status"]);
     // Not another server's tool of the same tool name, and not a name that
     // has no class.
     expect(
@@ -107,6 +117,16 @@ describe("push, pull request and repository read tools, across worker versions",
     expect(server?.trusted).toEqual(trustedGitHubTools(RELEASE_TOOLS));
     expect(server?.trusted).not.toContain("mcp__github__submit_review");
     expect(server?.trusted).not.toContain("mcp__github__dispatch_workflow");
+    // What a requester's change runs through with no card: push, the pull
+    // request, and watching its CI (94S-2398).
+    for (const tool of [
+      "mcp__github__request_push",
+      "mcp__github__open_pull_request",
+      "mcp__github__get_workflow_run",
+      "mcp__github__get_ci_status",
+    ]) {
+      expect(server?.trusted).toContain(tool);
+    }
     expect(bootstrapClaimResponseSchema.safeParse(claim).success).toBe(true);
   });
 

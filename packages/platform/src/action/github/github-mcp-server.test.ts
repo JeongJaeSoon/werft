@@ -192,6 +192,26 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
         html_url: `https://github.com/acme/app/actions/runs/${runId}`,
       };
     },
+    getCommitCi: async () => ({
+      checkRuns: [
+        {
+          name: "test",
+          status: control.runStatus,
+          conclusion: control.runStatus === "completed" ? "success" : null,
+          html_url: "https://github.com/acme/app/runs/9",
+        },
+      ],
+      workflowRuns: [
+        {
+          id: 42,
+          name: "CI",
+          status: control.runStatus,
+          conclusion: control.runStatus === "completed" ? "success" : null,
+          html_url: "https://github.com/acme/app/actions/runs/42",
+        },
+      ],
+      truncated: false,
+    }),
     rerunWorkflow: unused,
     submitReview: async (input) => {
       forge.reviews.push({ commitId: input.commitId, body: input.body });
@@ -691,6 +711,66 @@ describe("a session under the agent's settings", () => {
       retryable: false,
     });
     expect(h.works).toEqual([]);
+  });
+
+  test("with CI reads off, both CI read tools are refused workflows_off, on the agent's settings and on a release alike; the run tools keep actions_off (94S-2398)", async () => {
+    for (const h of [under(), harness({ github: github() })]) {
+      for (const [tool, args] of [
+        ["get_workflow_run", { run_id: 7 }],
+        ["get_ci_status", { pull_request_number: 3 }],
+      ] as const) {
+        expect(payload(await h.call(tool, args))).toEqual({
+          body: {
+            ok: false,
+            refusal: {
+              code: "feature_off",
+              by: "policy",
+              retryable: false,
+              details: { reason_code: "workflows_off" },
+            },
+          },
+        });
+      }
+      expect(
+        payload(await h.call("rerun_workflow", { run_id: 7 })).body.refusal,
+      ).toMatchObject({ details: { reason_code: "actions_off" } });
+      expect(h.works).toEqual([]);
+    }
+  });
+
+  test("with CI reads on and running workflows off, CI reads answer and running stays refused (94S-2398)", async () => {
+    const h = under({ github: github({ workflows: true, checks: true }) });
+    const ci = payload(
+      await h.call("get_ci_status", { commit_sha: "a".repeat(40) }),
+    );
+    expect(ci.body).toMatchObject({
+      ok: true,
+      result: {
+        head_sha: "a".repeat(40),
+        final: true,
+        workflow_runs: [{ id: 42, name: "CI", conclusion: "success" }],
+      },
+    });
+    expect(
+      payload(await h.call("get_workflow_run", { run_id: 7 })).body,
+    ).toMatchObject({ ok: true, result: { id: 7, final: true } });
+    expect(
+      payload(
+        await h.call("dispatch_workflow", { workflow: "ci.yml", ref: "main" }),
+      ).body.refusal,
+    ).toMatchObject({ details: { reason_code: "actions_off" } });
+    // Both reads together, or neither: a pull request number and a sha.
+    expect(
+      payload(
+        await h.call("get_ci_status", {
+          pull_request_number: 3,
+          commit_sha: "a".repeat(40),
+        }),
+      ).body.refusal,
+    ).toMatchObject({ code: "validation_error" });
+    expect(
+      payload(await h.call("get_ci_status", {})).body.refusal,
+    ).toMatchObject({ code: "validation_error" });
   });
 
   test("a feature on reaches the gate, unlike the release's tool off", async () => {

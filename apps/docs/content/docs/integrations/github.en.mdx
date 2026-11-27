@@ -28,7 +28,7 @@ Two switches cover workflows. The workspace ceiling and the agent's GitHub tab h
 | **Edit workflow files and see CI results** | On | `workflows: write` on a push; `actions: read` and `checks: read` to read CI results |
 | **Run workflows directly (run, rerun, cancel)** | Off | `actions: write` to dispatch and rerun |
 
-**Edit workflow files and see CI results**: When on, the agent edits and pushes workflow files and reads CI results on its own.
+**Edit workflow files and see CI results**: When on, the agent edits and pushes workflow files and reads CI results on its own. Reading CI asks no person to approve. After it pushes and opens a pull request, the agent reads the CI again with `get_ci_status` (the check runs and workflow runs of a pull request's head, or of a commit sha), and writes the result to the thread once it is done. While the switch is off, the CI read tools are refused with `feature_off` (`workflows_off`), and the agent reports the pull request and that reason alone.
 
 **Run workflows directly (run, rerun, cancel)**: When on, the agent runs, reruns and cancels workflows on its own. CI that runs on push and pull requests is run by GitHub whatever this switch says. While it is off, the dispatch and rerun tools are refused with `GITHUB_REFUSED` (`actions_off`) before GitHub is called, never passed to a person to approve, and no token asks for `actions: write`. When the agent turns it on but the workspace ceiling turns it off, the refusal is `over_workspace_ceiling`. There is no cancel tool yet.
 

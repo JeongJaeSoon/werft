@@ -774,6 +774,21 @@ describe("pushDecisionOf: one rule for every repository", () => {
     });
   }
 
+  test("a requester's change pushes with no person: push approval off and no push_attached chosen allow it (94S-2398)", () => {
+    expect(
+      pushDecisionOf({
+        settings: { ...PIN, push_approval: false },
+        pushAttached: pushAttachedOf(null),
+      }),
+    ).toBe("allow");
+    expect(
+      pushDecisionOf({
+        settings: GITHUB_POLICY_CLOSED,
+        pushAttached: pushAttachedOf(undefined),
+      }),
+    ).toBe("allow");
+  });
+
   test("settings that cannot be read ask, and deny still denies", () => {
     expect(pushDecisionOf({ settings: "invalid", pushAttached: "allow" })).toBe(
       "ask",

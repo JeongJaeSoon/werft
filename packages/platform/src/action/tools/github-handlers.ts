@@ -1,3 +1,4 @@
+import { ciStatusFinal } from "../github/github-work-service.ts";
 import { done, refused, type ToolHandlers } from "./handler.ts";
 
 /**
@@ -192,6 +193,21 @@ export const GITHUB_TOOL_HANDLERS: ToolHandlers = {
       waitLeft(wait_seconds),
     );
     return done({ ...view, final: view.status === "completed" });
+  },
+
+  get_ci_status: async (
+    { services, actor, sessionId, waitLeft },
+    { pull_request_number, commit_sha, wait_seconds },
+  ) => {
+    const view = await services.githubWork.ciStatus(
+      actor,
+      sessionId,
+      commit_sha === undefined
+        ? { pullRequestNumber: pull_request_number ?? 0 }
+        : { commitSha: commit_sha },
+      waitLeft(wait_seconds),
+    );
+    return done({ ...view, final: ciStatusFinal(view) });
   },
 
   rerun_workflow: async ({ services, actor, sessionId }, { run_id, ...body }) =>

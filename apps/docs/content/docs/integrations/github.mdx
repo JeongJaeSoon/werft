@@ -28,7 +28,7 @@ workflow에 관한 스위치는 둘이다. 워크스페이스 상한과 에이�
 | **workflow 파일 수정과 CI 결과 보기** | 켬 | push에 `workflows: write`, CI 결과 읽기에 `actions: read`·`checks: read` |
 | **workflow 직접 실행 (실행·재실행·취소)** | 끔 | dispatch·재실행에 `actions: write` |
 
-**workflow 파일 수정과 CI 결과 보기**: 켜면 에이전트가 스스로 workflow 파일을 고쳐 push하고, PR의 CI 결과를 읽습니다.
+**workflow 파일 수정과 CI 결과 보기**: 켜면 에이전트가 스스로 workflow 파일을 고쳐 push하고, PR의 CI 결과를 읽습니다. CI 결과를 읽을 때 사람 승인은 묻지 않습니다. 에이전트는 push하고 PR을 연 뒤 `get_ci_status`(PR 번호나 commit sha로 그 head의 check run과 workflow run을 읽습니다)로 CI를 다시 보고, 끝나면 스레드에 결과를 한 번 씁니다. 꺼져 있으면 CI를 읽는 도구는 `feature_off`(`workflows_off`)로 거절되고, 에이전트는 PR과 그 이유만 알립니다.
 
 **workflow 직접 실행 (실행·재실행·취소)**: 켜면 에이전트가 스스로 workflow를 실행하고, 다시 돌리고, 취소합니다. push와 PR로 도는 CI는 이 스위치와 상관없이 GitHub가 돌립니다. 꺼져 있으면 dispatch·재실행 도구는 GitHub를 부르기 전에 `GITHUB_REFUSED`(`actions_off`)로 거절하고, 사람 승인으로 넘기지 않는다. 토큰도 `actions: write`를 청하지 않는다. 에이전트는 켰는데 워크스페이스 상한이 끈 경우는 `over_workspace_ceiling`이다. 취소 도구는 아직 없다.
 

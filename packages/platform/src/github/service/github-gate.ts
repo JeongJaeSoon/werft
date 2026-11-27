@@ -466,6 +466,15 @@ export function createGitHubGate(deps: {
         api: connection.api(repo, gitCredential),
         unit: () => connection.quotaKey(repo),
         allowedBy,
+        ...(work.purpose !== "push" || features.workflows
+          ? {}
+          : {
+              workflowsOff: settings?.features.workflows
+                ? ("ceiling" as const)
+                : context.ceiling.workflows
+                  ? ("agent" as const)
+                  : ("both" as const),
+            }),
         context: {
           ownerId: context.ownerId,
           sessionId: context.sessionId,

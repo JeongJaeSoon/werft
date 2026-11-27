@@ -525,19 +525,19 @@ describe("the platform's push", () => {
     expect(github.tokenRequests.length).toBe(tokensBefore);
   });
 
-  test("a workflow change GitHub refuses says whose switch is off: the token did not ask for workflows, or it asked and the App lacks it", async () => {
+  test("a workflow change GitHub refuses says whose switch is off (the agent's settings, the ceiling or both), or that the token asked and the App lacks it (94S-2453)", async () => {
     const catalog = catalogOf({ app: appRepository() });
     const job = jobFor(catalog, "app");
     const remoteRef = `refs/heads/${job.targetBranch}`;
     const refusedBy = (j: PushJob) =>
       `To ${github.origin}/acme/app.git\n!\t${j.gitCommit}:refs/heads/${j.targetBranch}\t[remote rejected] (refusing to allow a GitHub App to create or update workflow \`.github/workflows/x.yml\` without \`workflows\` permission)\nDone\n`;
-    // Workflows is off in Werft (here: nothing turned it on), so the token
-    // asked for contents alone.
+    // Workflows is off in Werft (here: nothing turned it on, neither the
+    // agent's settings nor the ceiling), so the token asked for contents alone.
     const result = await run(catalog, job, { pushRefusedWith: refusedBy(job) });
     expect(result.outcome).toEqual({
       state: "failed",
       refusal: "push_failed",
-      reasonCode: "workflows_off",
+      reasonCode: "workflows_both_off",
       remoteUrl: `${github.origin}/acme/app.git`,
       remoteRef,
     });
@@ -550,7 +550,7 @@ describe("the platform's push", () => {
     ]);
     // GitHub's own text is not passed on, and the log names the reason.
     expect(result.logged.join("\n")).not.toContain(".github/workflows/x.yml");
-    expect(result.logged.join("\n")).toContain("workflows_off");
+    expect(result.logged.join("\n")).toContain("workflows_both_off");
 
     // The agent's settings and the ceiling both have it on, so the token
     // asked for workflows and GitHub still refused: the App lacks it.
@@ -591,7 +591,24 @@ describe("the platform's push", () => {
         actions_allow: [],
       }),
     });
-    expect(cappedRun.outcome).toMatchObject({ reasonCode: "workflows_off" });
+    expect(cappedRun.outcome).toMatchObject({
+      reasonCode: "workflows_ceiling_off",
+    });
+
+    // On in the ceiling, off in the agent's settings: the agent's switch.
+    const agentOff = jobFor(catalog, "app");
+    const agentOffRun = await run(catalog, agentOff, {
+      pushRefusedWith: refusedBy(agentOff),
+      release: { id: crypto.randomUUID() },
+      policy: releasePolicy({
+        repositories: ["app"],
+        push_approval: false,
+        features: GITHUB_FEATURES_NONE,
+        actions_allow: [],
+      }),
+      ceiling: { ...GITHUB_CEILING_NONE, workflows: true },
+    });
+    expect(agentOffRun.outcome).toMatchObject({ reasonCode: "workflows_off" });
 
     const ordinary = await run(catalog, jobFor(catalog, "app"), {
       pushRefusedWith: `!\t${job.gitCommit}:${remoteRef}\t[remote rejected] (pre-receive hook declined)\n`,

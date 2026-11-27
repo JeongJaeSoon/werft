@@ -14,6 +14,7 @@ import { createAuthorizationPolicy } from "../../musterrolle/policy.ts";
 import { ForgeCredentialError } from "../ports/forge.ts";
 import type { GitHubApi } from "../ports/github-api.ts";
 import {
+  ciStatusFinal,
   createGitHubWorkService,
   type GitHubWorkStore,
 } from "./github-work-service.ts";
@@ -48,6 +49,8 @@ function harness(
     failRead?: GitHubCallError;
     /** The head the forge reports; the reviewed commit by default. */
     head?: string;
+    /** A commit with no CI reported. */
+    noCi?: boolean;
   } = {},
 ) {
   let clock = 0;
@@ -148,6 +151,36 @@ function harness(
         conclusion: status === "completed" ? "success" : null,
         html_url: `https://github.com/acme/app/actions/runs/${runId}`,
       };
+    },
+    getCommitCi: async (sha, perPage) => {
+      calls.push(`ci ${sha} ${perPage}`);
+      fail();
+      const reads = calls.filter((call) => call.startsWith("ci ")).length;
+      const statuses = options.statuses ?? ["completed"];
+      const status = statuses[Math.min(reads, statuses.length) - 1] ?? null;
+      const conclusion = status === "completed" ? "success" : null;
+      return options.noCi
+        ? { checkRuns: [], workflowRuns: [], truncated: false }
+        : {
+            checkRuns: [
+              {
+                name: "test",
+                status: "completed",
+                conclusion: "success",
+                html_url: null,
+              },
+            ],
+            workflowRuns: [
+              {
+                id: 42,
+                name: "CI",
+                status,
+                conclusion,
+                html_url: "https://github.com/acme/app/actions/runs/42",
+              },
+            ],
+            truncated: false,
+          };
     },
     rerunWorkflow: async (runId, failedOnly) => {
       calls.push(`rerun ${runId} ${failedOnly}`);
@@ -477,6 +510,113 @@ describe("reading a run", () => {
       fail: new GitHubCallError("run", status, null),
     });
     expect((await refusal(service.getRun(actor, SESSION, 7))).code).toBe(code);
+  });
+});
+
+describe("reading the CI of a commit (94S-2398)", () => {
+  test("by sha: one actions_read grant, the commit's check runs and workflow runs, no run id", async () => {
+    const { service, works, calls } = harness();
+    const view = await service.ciStatus(actor, SESSION, { commitSha: HEAD });
+    expect(view).toEqual({
+      head_sha: HEAD,
+      pull_request_number: null,
+      check_runs: [
+        {
+          name: "test",
+          status: "completed",
+          conclusion: "success",
+          html_url: null,
+        },
+      ],
+      workflow_runs: [
+        {
+          id: 42,
+          name: "CI",
+          status: "completed",
+          conclusion: "success",
+          html_url: "https://github.com/acme/app/actions/runs/42",
+        },
+      ],
+      truncated: false,
+    });
+    expect(ciStatusFinal(view)).toBe(true);
+    expect(works.map((work) => work.purpose)).toEqual(["actions_read"]);
+    expect(calls).toEqual([`ci ${HEAD} 100`]);
+  });
+
+  test("by pull request: CI's grant first, then the pull request's head is read", async () => {
+    const { service, works, calls } = harness();
+    const view = await service.ciStatus(actor, SESSION, {
+      pullRequestNumber: 12,
+    });
+    expect(view).toMatchObject({ head_sha: HEAD, pull_request_number: 12 });
+    expect(works.map((work) => work.purpose)).toEqual([
+      "actions_read",
+      "pull_request_read",
+    ]);
+    expect(calls).toEqual(["pull 12", `ci ${HEAD} 100`]);
+  });
+
+  test("CI off is the gate's refusal, before the pull request is read", async () => {
+    const { service, calls } = harness({
+      refuse: new GitHubGateError("feature_off", "receipt-off"),
+    });
+    expect(
+      await refusal(
+        service.ciStatus(actor, SESSION, { pullRequestNumber: 12 }),
+      ),
+    ).toEqual({
+      code: "GITHUB_REFUSED",
+      details: { reason_code: "feature_off", receipt_id: "receipt-off" },
+    });
+    expect(calls).toEqual([]);
+  });
+
+  test("waits until every run completes, reading the same head again", async () => {
+    const { service, calls, elapsedMs } = harness({
+      statuses: ["queued", "in_progress", "completed"],
+    });
+    const view = await service.ciStatus(
+      actor,
+      SESSION,
+      { pullRequestNumber: 12 },
+      { waitMs: 8_000 },
+    );
+    expect(ciStatusFinal(view)).toBe(true);
+    expect(calls).toEqual([
+      "pull 12",
+      `ci ${HEAD} 100`,
+      `ci ${HEAD} 100`,
+      `ci ${HEAD} 100`,
+    ]);
+    expect(elapsedMs()).toBe(2_000);
+  });
+
+  test("no run reported yet is not final, so a wait reads to its deadline", async () => {
+    const { service, calls } = harness({ noCi: true });
+    const view = await service.ciStatus(
+      actor,
+      SESSION,
+      { commitSha: HEAD },
+      { waitMs: 2_000 },
+    );
+    expect(view.check_runs).toEqual([]);
+    expect(ciStatusFinal(view)).toBe(false);
+    expect(calls.length).toBe(3);
+  });
+
+  test.each([
+    [404, "NOT_FOUND"],
+    [422, "NOT_FOUND"],
+    [500, "BACKEND_UNAVAILABLE"],
+  ] as const)("a GitHub %d on a CI read is %s", async (status, code) => {
+    const { service } = harness({
+      fail: new GitHubCallError("ci", status, null),
+    });
+    expect(
+      (await refusal(service.ciStatus(actor, SESSION, { commitSha: HEAD })))
+        .code,
+    ).toBe(code);
   });
 });
 

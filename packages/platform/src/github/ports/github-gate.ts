@@ -72,6 +72,12 @@ export interface GitHubGrant {
   unit(): Promise<string>;
   /** dispatch and rerun: the allow-list entry that matched. */
   readonly allowedBy: AgentGitHub["actions_allow"][number] | null;
+  /**
+   * Which side has `workflows` off, when it is off: the agent's GitHub
+   * settings, the workspace ceiling, or both. Only a push names it, so the
+   * thread can say who turns it on.
+   */
+  readonly workflowsOff?: "agent" | "ceiling" | "both";
   /** What the receipts of the work name. */
   readonly context: GitHubWorkContext;
 }

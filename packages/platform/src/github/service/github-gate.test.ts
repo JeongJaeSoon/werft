@@ -114,6 +114,7 @@ function fakeApi(): GitHubApi {
     upsertComment: unused,
     dispatchWorkflow: unused,
     getWorkflowRun: unused,
+    getCommitCi: unused,
     rerunWorkflow: unused,
     submitReview: unused,
   };
