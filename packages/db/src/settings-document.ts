@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   canonicalJson,
+  canonicalJsonOfJson,
   ENDED_SESSION_STATUSES,
   type ReceiptActor,
   type ReceiptOperation,
@@ -570,7 +571,7 @@ function consoleWrites(
     owner: { kind: SettingsKind; id: string },
     value: string,
     actor: TeamActor,
-  ): Promise<void> => {
+  ): Promise<boolean> => {
     if (key === null) {
       throw new Error("the secret store is off: no value can be stored");
     }
@@ -578,7 +579,7 @@ function consoleWrites(
     if (workspaceId === null) {
       throw new Error("no workspace yet to keep a stored value under");
     }
-    await writeSecretInTx(
+    const changed = await writeSecretInTx(
       tx,
       key,
       {
@@ -592,6 +593,7 @@ function consoleWrites(
     if (owner.kind === "repository") {
       await rebindCarriedPushes(tx, owner.id);
     }
+    return changed;
   };
 
   /** The locks, then the actor's role for `kind`, then `write`. */
@@ -664,8 +666,10 @@ function consoleWrites(
         if (!ownStoredOf(owner.kind, owner.id, held)) {
           return { outcome: "conflict" as const, reason: "not_stored" };
         }
-        await sealIn(tx, owner, value, actor);
-        await raiseSettingsGeneration(tx);
+        // The value it already held: no replica has anything to read again.
+        if (await sealIn(tx, owner, value, actor)) {
+          await raiseSettingsGeneration(tx);
+        }
         const receiptId = await consoleReceipt(
           tx,
           actor,
@@ -686,15 +690,32 @@ function consoleWrites(
         if (held.disabled) {
           return { outcome: "conflict" as const, reason: "disabled" };
         }
-        await tx
-          .update(providerConnections)
-          .set({
-            models: [...models.models],
-            ...(models.model_families === undefined
-              ? {}
-              : { modelFamilies: models.model_families }),
+        const [stored] = await tx
+          .select({
+            models: providerConnections.models,
+            modelFamilies: providerConnections.modelFamilies,
           })
+          .from(providerConnections)
           .where(eq(providerConnections.id, id));
+        // The lists it already holds: no row write, so its trigger leaves
+        // the generation and no replica reads again.
+        const same =
+          canonicalJsonOfJson(stored?.models ?? null) ===
+            canonicalJsonOfJson(models.models) &&
+          (models.model_families === undefined ||
+            canonicalJsonOfJson(stored?.modelFamilies ?? null) ===
+              canonicalJsonOfJson(models.model_families));
+        if (!same) {
+          await tx
+            .update(providerConnections)
+            .set({
+              models: [...models.models],
+              ...(models.model_families === undefined
+                ? {}
+                : { modelFamilies: models.model_families }),
+            })
+            .where(eq(providerConnections.id, id));
+        }
         const receiptId = await consoleReceipt(
           tx,
           actor,

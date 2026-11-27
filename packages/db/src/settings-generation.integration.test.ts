@@ -90,8 +90,8 @@ integration("the settings generation two API replicas judge on", () => {
 
   const store = () => createPostgresSettingsDocumentStore(db, KEY);
   const generation = () => readSettingsGeneration(db);
-  // Each registry as an API process will wire it once the gateway asks it
-  // (S8-1's wiring); here the test asks caughtUp itself.
+  // Each registry as an API process wires it; here the test asks caughtUp
+  // itself, where the gateway would before a grant.
   const replica = (): CatalogRegistry => {
     const settings = createPostgresInstallationSettingsStore(db, KEY);
     return createCatalogRegistry({
@@ -127,6 +127,56 @@ integration("the settings generation two API replicas judge on", () => {
         )
       ).outcome,
     ).toBe("not_found");
+    expect(await generation()).toBe(before + 1);
+  });
+
+  test("a key set again to the value it holds leaves the generation; another value raises it by one", async () => {
+    const id = "gen-same-key";
+    const owned = { kind: "connection" as const, id };
+    expect(
+      (await store().create(connection(id), "same-key-1111", owner)).outcome,
+    ).toBe("done");
+    const before = await generation();
+    expect(
+      (await store().setValue(owned, "same-key-1111", owner)).outcome,
+    ).toBe("done");
+    expect(await generation()).toBe(before);
+    expect(
+      (await store().setValue(owned, "next-key-2222", owner)).outcome,
+    ).toBe("done");
+    expect(await generation()).toBe(before + 1);
+  });
+
+  test("a stored value put again as it is leaves the generation; another raises it by one", async () => {
+    const id = "gen-same-put";
+    expect(
+      (await store().create(connection(id), "put-key-1111", owner)).outcome,
+    ).toBe("done");
+    const settings = createPostgresInstallationSettingsStore(db, KEY);
+    const owned = { kind: "connection" as const, id };
+    const before = await generation();
+    await settings.putStoredValue(owned, "put-key-1111", null);
+    expect(await generation()).toBe(before);
+    await settings.putStoredValue(owned, "put-key-2222", null);
+    expect(await generation()).toBe(before + 1);
+    const opened = await settings.read({ openStored: true });
+    expect(opened.stored.get(`connection:${id}`)).toBe("put-key-2222");
+  });
+
+  test("a connection's models set again as they are leave the generation; other models raise it by one", async () => {
+    const id = "gen-same-models";
+    expect(
+      (await store().create(connection(id), "models-key-1111", owner)).outcome,
+    ).toBe("done");
+    const set = (models: string[]) =>
+      store().setConnectionModels(id, { models }, owner);
+    expect((await set(["claude-sonnet-5"])).outcome).toBe("done");
+    const before = await generation();
+    expect((await set(["claude-sonnet-5"])).outcome).toBe("done");
+    expect(await generation()).toBe(before);
+    expect((await set(["claude-sonnet-5", "claude-haiku-5"])).outcome).toBe(
+      "done",
+    );
     expect(await generation()).toBe(before + 1);
   });
 

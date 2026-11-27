@@ -100,6 +100,7 @@ import {
   moveSummaryLinks,
   newSessionGitHubReaders,
   openLostCheckpointNotices,
+  readSettingsGeneration,
   reconcileRetiredCatalogDrafts,
   recordBudgetAccountRefusal,
   slackAppKind,
@@ -544,6 +545,7 @@ const reportLeftOut = leftOutReporter((message, fields) =>
 );
 const catalogRegistry = createCatalogRegistry({
   repositories: catalogRepositoryStore,
+  generation: { read: () => readSettingsGeneration(db) },
   settings: {
     async read() {
       const snapshot = await installationSettings.read();
@@ -1114,6 +1116,7 @@ const settingsConsole = createSettingsConsoleService({
     urlProblem: (url) => connectionEndpointProblem(workspaceMcpHosts, url),
     http: connectionModelsOutbound(workspaceMcpHosts),
     log: (fields) => logger.info("Connection model list read", fields),
+    caughtUp: () => catalogRegistry.caughtUp(),
   },
 });
 const agentAdmins = createAgentAdminService({
@@ -1653,6 +1656,7 @@ const workers = createWorkerGateway({
     store: judgmentEgress,
     upstream: judgeConnections.upstream,
   },
+  settingsCaughtUp: () => catalogRegistry.caughtUp(),
   conversationCalls: { store: conversationCallStore },
   ...(titleEgressUrl === null
     ? {}

@@ -43,8 +43,10 @@ let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
 let gateway: ReturnType<typeof createWorkerGateway>;
 let authorize: (request: Request) => Promise<Response>;
+let settingsCaughtUp: () => Promise<void>;
 
 beforeEach(async () => {
+  settingsCaughtUp = async () => {};
   client = await migratedPGlite();
   db = drizzle(client, { schema });
   gateway = createWorkerGateway({
@@ -68,6 +70,7 @@ beforeEach(async () => {
       },
     }),
     checkpoints: acceptAllCheckpoints,
+    settingsCaughtUp: () => settingsCaughtUp(),
     options: {
       sessionBudget: { costUsd: 1_000, tokens: null },
       leaseTtlMs: 60_000,
@@ -112,6 +115,24 @@ function ask(
 }
 
 describe("egress authorizer", () => {
+  test("a settings read that fails is 503 retryable on the provider route, never a grant on the last read", async () => {
+    const claim = await claimed(db, gateway);
+    settingsCaughtUp = async () => {
+      throw Object.assign(new Error("terminating connection"), {
+        code: "57P01",
+      });
+    };
+    const provider = await ask({
+      token: claim.runtime_config.provider.auth.token,
+      purpose: "provider",
+    });
+    expect(provider.status).toBe(503);
+    expect(await provider.json()).toMatchObject({
+      code: "BACKEND_UNAVAILABLE",
+      retryable: true,
+    });
+  });
+
   test("turns a live token into its upstream and the credential to inject", async () => {
     const claim = await claimed(db, gateway);
     const provider = await ask({
