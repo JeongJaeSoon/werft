@@ -205,6 +205,28 @@ describe("a connection", () => {
   });
 });
 
+// Each cloud's documented metadata address (sources in ip-address.ts).
+const CLOUD_METADATA: readonly [cloud: string, address: string][] = [
+  ["AWS EC2", "169.254.169.254"],
+  ["AWS EC2 IPv6", "fd00:ec2::254"],
+  ["AWS ECS", "169.254.170.2"],
+  ["AWS EKS Pod Identity", "169.254.170.23"],
+  ["AWS EKS Pod Identity IPv6", "fd00:ec2::23"],
+  ["GCP", "169.254.169.254"],
+  ["GCP IPv6", "fd20:ce::254"],
+  ["Azure", "169.254.169.254"],
+  ["Alibaba", "100.100.100.200"],
+  ["Oracle", "169.254.169.254"],
+  ["Oracle Compute Classic", "192.0.0.192"],
+  ["Scaleway", "169.254.42.42"],
+  ["Scaleway IPv6", "fd00:42::42"],
+  ["DigitalOcean", "169.254.169.254"],
+  ["Hetzner", "169.254.169.254"],
+  ["Hetzner IPv6", "fe80::a9fe:a9fe"],
+  ["OpenStack", "169.254.169.254"],
+  ["OpenStack IPv6", "fe80::a9fe:a9fe"],
+];
+
 describe("billing", () => {
   test("none is kept on the connection; per_token, the default, is dropped", () => {
     expect(
@@ -260,6 +282,10 @@ describe("billing", () => {
       "http://metadata.google.internal.",
       "http://metadata",
       "http://instance-data.ec2.internal",
+      "http://metadata.goog",
+      ...CLOUD_METADATA.map(([, address]) =>
+        address.includes(":") ? `http://[${address}]` : `http://${address}`,
+      ),
     ]) {
       expect(billingFitsEndpoint({ billing: "none", endpoint }), endpoint).toBe(
         false,

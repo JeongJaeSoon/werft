@@ -15,6 +15,28 @@ const NARROW: NetworkPolicy = {
 // The narrow policy ignores plainHttp, so "loopback" grants nothing there.
 const NARROW_LOOPBACK: NetworkPolicy = { ...NARROW, plainHttp: "loopback" };
 
+// Each cloud's documented metadata address (sources in ip-address.ts).
+const CLOUD_METADATA: readonly [cloud: string, address: string][] = [
+  ["AWS EC2", "169.254.169.254"],
+  ["AWS EC2 IPv6", "fd00:ec2::254"],
+  ["AWS ECS", "169.254.170.2"],
+  ["AWS EKS Pod Identity", "169.254.170.23"],
+  ["AWS EKS Pod Identity IPv6", "fd00:ec2::23"],
+  ["GCP", "169.254.169.254"],
+  ["GCP IPv6", "fd20:ce::254"],
+  ["Azure", "169.254.169.254"],
+  ["Alibaba", "100.100.100.200"],
+  ["Oracle", "169.254.169.254"],
+  ["Oracle Compute Classic", "192.0.0.192"],
+  ["Scaleway", "169.254.42.42"],
+  ["Scaleway IPv6", "fd00:42::42"],
+  ["DigitalOcean", "169.254.169.254"],
+  ["Hetzner", "169.254.169.254"],
+  ["Hetzner IPv6", "fe80::a9fe:a9fe"],
+  ["OpenStack", "169.254.169.254"],
+  ["OpenStack IPv6", "fe80::a9fe:a9fe"],
+];
+
 describe("endpointProblem", () => {
   const cases: [unknown, NetworkPolicy, ReturnType<typeof endpointProblem>][] =
     [
@@ -198,10 +220,59 @@ describe("provider request", () => {
       expect(sent[0]?.url).toBe("http://10.20.30.40:8080/mcp");
     });
 
+    test.each(CLOUD_METADATA)(
+      "%s: %s is refused on the private list",
+      async (_, address) => {
+        const { request, sent } = harness({
+          "mcp.lan": [{ address, family: address.includes(":") ? 6 : 4 }],
+        });
+        expect(
+          await refusal(request("http://mcp.lan:8080/mcp", {}, NARROW)),
+        ).toBe("address_not_allowed");
+        expect(sent).toHaveLength(0);
+      },
+    );
+
+    test("the private list does not lift the refusal of any link-local address", async () => {
+      for (const address of ["169.254.0.1", "169.254.255.254", "fe80::1"]) {
+        const { request, sent } = harness({
+          "mcp.lan": [{ address, family: address.includes(":") ? 6 : 4 }],
+        });
+        expect(
+          await refusal(request("http://mcp.lan:8080/mcp", {}, NARROW)),
+          address,
+        ).toBe("address_not_allowed");
+        expect(sent).toHaveLength(0);
+      }
+    });
+
+    test("a metadata address written as one decimal, octal or hex number is refused", async () => {
+      const policy: NetworkPolicy = {
+        plainHttp: "refuse",
+        privateHosts: ["100.100.100.200:8080"],
+      };
+      for (const url of [
+        "http://1684301000:8080/mcp",
+        "http://0x646464c8:8080/mcp",
+        "http://0144.0144.0144.0310:8080/mcp",
+        "http://100.100.100.200.:8080/mcp",
+      ]) {
+        const { request, sent } = harness({
+          "100.100.100.200": [{ address: "100.100.100.200", family: 4 }],
+        });
+        expect(await refusal(request(url, {}, policy)), url).toBe(
+          "address_not_allowed",
+        );
+        expect(sent).toHaveLength(0);
+      }
+    });
+
     test("the private list does not lift the metadata refusal", async () => {
       for (const [address, family] of [
         ["100.100.100.200", 4],
         ["fd00:ec2::254", 6],
+        ["fd00:ec2::23", 6],
+        ["169.254.170.2", 4],
         ["::ffff:100.100.100.200", 6],
         ["64:ff9b::6464:64c8", 6],
       ] as const) {
@@ -225,6 +296,7 @@ describe("provider request", () => {
         "http://metadata.google.internal/computeMetadata/v1/",
         "http://METADATA.google.internal./computeMetadata/v1/",
         "http://metadata/latest/meta-data/",
+        "http://metadata.goog/computeMetadata/v1/",
         "https://instance-data.ec2.internal/latest/meta-data/",
       ]) {
         const asked: string[] = [];

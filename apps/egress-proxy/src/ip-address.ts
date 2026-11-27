@@ -29,11 +29,45 @@ export function classifyAddress(address: string): AddressClass | null {
   return classifyIpv6(v6);
 }
 
-// Names cloud providers give their instance metadata service. Compared after
-// lowercasing and dropping a trailing dot, before the name is resolved.
+// Instance metadata services hand out the node's cloud credentials. Each
+// entry is the address or name its provider documents:
+//   AWS EC2 https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
+//   AWS ECS https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-metadata-endpoint-v2.html
+//   AWS EKS https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html
+//   GCP https://docs.cloud.google.com/compute/docs/metadata/querying-metadata
+//   Azure https://learn.microsoft.com/en-us/azure/virtual-machines/instance-metadata-service
+//   Alibaba https://www.alibabacloud.com/help/en/ecs/user-guide/view-instance-metadata
+//   Oracle https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/gettingmetadata.htm
+//   Oracle Classic https://docs.oracle.com/en/cloud/iaas/compute-iaas-cloud/stcsg/retrieving-instance-metadata.html
+//   Scaleway https://www.scaleway.com/en/docs/instances/how-to/use-cloud-init/
+//   DigitalOcean https://docs.digitalocean.com/products/droplets/how-to/access-metadata/
+//   Hetzner https://docs.hetzner.com/cloud/technical-details/hcnet/
+//   OpenStack https://docs.openstack.org/nova/latest/admin/metadata-service.html
+const METADATA_IPV4 = new Set([
+  "169.254.169.254", // AWS, GCP, Azure, Oracle, DigitalOcean, Hetzner, OpenStack
+  "169.254.170.2", // AWS ECS task credentials
+  "169.254.170.23", // AWS EKS Pod Identity
+  "100.100.100.200", // Alibaba, otherwise carrier-grade NAT
+  "192.0.0.192", // Oracle Compute Classic
+  "169.254.42.42", // Scaleway
+]);
+
+// Every group written out, as `fullIpv6` spells the bytes.
+const METADATA_IPV6 = new Set([
+  "fd00:0ec2:0000:0000:0000:0000:0000:0254", // AWS EC2, otherwise private
+  "fd00:0ec2:0000:0000:0000:0000:0000:0023", // AWS EKS Pod Identity
+  "fd20:00ce:0000:0000:0000:0000:0000:0254", // GCP, otherwise private
+  "fd00:0042:0000:0000:0000:0000:0000:0042", // Scaleway, otherwise private
+  "fe80:0000:0000:0000:0000:0000:a9fe:a9fe", // OpenStack, Hetzner
+]);
+
+// Compared after lowercasing and dropping a trailing dot, before the name is
+// resolved. `metadata` and `instance-data.ec2.internal` are no provider's
+// documented name; they are kept as names a resolver may still answer.
 const METADATA_NAMES = new Set([
   "metadata",
-  "metadata.google.internal",
+  "metadata.google.internal", // GCP
+  "metadata.goog", // GCP
   "instance-data.ec2.internal",
 ]);
 
@@ -125,15 +159,8 @@ function bytesOf(groups: number[]): number[] {
 }
 
 function classifyIpv4(octets: number[]): AddressClass {
-  const [a = 0, b = 0, c = 0, d = 0] = octets;
-  // Instance metadata hands out the node's cloud credentials: AWS and GCP at
-  // 169.254.169.254, ECS task credentials at 169.254.170.2 and .23, Alibaba
-  // at 100.100.100.200, which would otherwise be carrier-grade NAT.
-  if (a === 169 && b === 254 && c === 169 && d === 254) return "metadata";
-  if (a === 169 && b === 254 && c === 170 && (d === 2 || d === 23)) {
-    return "metadata";
-  }
-  if (a === 100 && b === 100 && c === 100 && d === 200) return "metadata";
+  if (METADATA_IPV4.has(octets.join("."))) return "metadata";
+  const [a = 0, b = 0, c = 0] = octets;
   if (a === 0) return "unspecified";
   if (a === 127) return "loopback";
   if (a === 10) return "private";
@@ -152,6 +179,15 @@ function classifyIpv4(octets: number[]): AddressClass {
   return "public";
 }
 
+function fullIpv6(bytes: number[]): string {
+  const groups: string[] = [];
+  for (let index = 0; index < 16; index += 2) {
+    const group = ((bytes[index] ?? 0) << 8) | (bytes[index + 1] ?? 0);
+    groups.push(group.toString(16).padStart(4, "0"));
+  }
+  return groups.join(":");
+}
+
 function classifyIpv6(bytes: number[]): AddressClass {
   const at = (index: number): number => bytes[index] ?? 0;
   const zeroUntil = (end: number): boolean =>
@@ -168,11 +204,7 @@ function classifyIpv6(bytes: number[]): AddressClass {
     at(3) === 0x9b &&
     bytes.slice(4, 12).every((byte) => byte === 0);
   if (mapped || nat64) return classifyIpv4(bytes.slice(12));
-  // fd00:ec2::/32 is AWS's IPv6 metadata, DNS and time service, inside
-  // fc00::/7 where it would read as private.
-  if (at(0) === 0xfd && at(1) === 0x00 && at(2) === 0x0e && at(3) === 0xc2) {
-    return "metadata";
-  }
+  if (METADATA_IPV6.has(fullIpv6(bytes))) return "metadata";
   if (at(0) === 0xff) return "multicast";
   if (at(0) === 0xfe && (at(1) & 0xc0) === 0x80) return "link_local";
   if ((at(0) & 0xfe) === 0xfc) return "private";

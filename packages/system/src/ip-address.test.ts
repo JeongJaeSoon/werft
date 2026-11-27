@@ -87,7 +87,7 @@ describe("classifyAddress", () => {
     ["100.100.100.200", "metadata"],
     ["fd00:ec2::254", "metadata"],
     ["fd00:ec2::23", "metadata"],
-    ["fd00:ec2::253", "metadata"],
+    ["fe80::a9fe:a9fe%eth0", "metadata"],
     ["FD00:EC2::254", "metadata"],
     ["fd00:0ec2:0:0:0:0:0:254", "metadata"],
     ["fd00:ec2::254%eth0", "metadata"],
@@ -103,6 +103,14 @@ describe("classifyAddress", () => {
     ["169.254.170.3", "link_local"],
     ["fd00:ec3::254", "private"],
     ["fd01:ec2::254", "private"],
+    // AWS's DNS and time servers hand out no credentials.
+    ["fd00:ec2::253", "private"],
+    ["fd00:ec2::123", "private"],
+    ["fd20:ce::253", "private"],
+    ["fd00:42::43", "private"],
+    ["169.254.42.43", "link_local"],
+    ["fe80::a9fe:a9ff", "link_local"],
+    ["192.0.0.193", "reserved"],
     ["::ffff:100.100.100.201", "private"],
   ])("%s is %s", (address, expected) => {
     expect(classifyAddress(address)).toBe(expected);
@@ -165,10 +173,43 @@ describe("isPrivateAddress", () => {
   });
 });
 
+// Each cloud's documented metadata address (sources in ip-address.ts).
+const CLOUD_METADATA: readonly [cloud: string, address: string][] = [
+  ["AWS EC2", "169.254.169.254"],
+  ["AWS EC2 IPv6", "fd00:ec2::254"],
+  ["AWS ECS", "169.254.170.2"],
+  ["AWS EKS Pod Identity", "169.254.170.23"],
+  ["AWS EKS Pod Identity IPv6", "fd00:ec2::23"],
+  ["GCP", "169.254.169.254"],
+  ["GCP IPv6", "fd20:ce::254"],
+  ["Azure", "169.254.169.254"],
+  ["Alibaba", "100.100.100.200"],
+  ["Oracle", "169.254.169.254"],
+  ["Oracle Compute Classic", "192.0.0.192"],
+  ["Scaleway", "169.254.42.42"],
+  ["Scaleway IPv6", "fd00:42::42"],
+  ["DigitalOcean", "169.254.169.254"],
+  ["Hetzner", "169.254.169.254"],
+  ["Hetzner IPv6", "fe80::a9fe:a9fe"],
+  ["OpenStack", "169.254.169.254"],
+  ["OpenStack IPv6", "fe80::a9fe:a9fe"],
+];
+
+describe("each cloud's metadata address", () => {
+  test.each(CLOUD_METADATA)(
+    "%s: %s is metadata, never private",
+    (_, address) => {
+      expect(classifyAddress(address)).toBe("metadata");
+      expect(isPrivateAddress(address)).toBe(false);
+    },
+  );
+});
+
 describe("isMetadataName", () => {
   test.each<[string, boolean]>([
     ["metadata", true],
     ["metadata.google.internal", true],
+    ["metadata.goog", true],
     ["instance-data.ec2.internal", true],
     ["METADATA.Google.Internal", true],
     ["metadata.google.internal.", true],

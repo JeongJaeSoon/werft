@@ -27,6 +27,13 @@ const ALWAYS_DENIED: ReadonlySet<AddressClass> = new Set<AddressClass>([
   "unspecified",
 ]);
 
+/** Why `address` is never dialled, whatever list led to it; null if it may be. */
+export function refusedAddress(address: string): string | null {
+  const kind = classifyAddress(address);
+  if (kind === null) return `${address} is not an IP address`;
+  return ALWAYS_DENIED.has(kind) ? `${address} is ${kind}` : null;
+}
+
 export type EgressDestination = { host: string; port: number };
 
 export type EgressPolicy = {
@@ -146,21 +153,11 @@ export async function decideEgress(
   // All of them, not the first: a name that resolves to one good and one bad
   // address is a rebinding attempt, and the loser of that race is us.
   for (const address of addresses) {
+    const refused = refusedAddress(address);
+    if (refused !== null) {
+      return { allowed: false, failure: "denied", reason: refused };
+    }
     const kind = classifyAddress(address);
-    if (kind === null) {
-      return {
-        allowed: false,
-        failure: "denied",
-        reason: `${address} is not an IP address`,
-      };
-    }
-    if (ALWAYS_DENIED.has(kind)) {
-      return {
-        allowed: false,
-        failure: "denied",
-        reason: `${address} is ${kind}`,
-      };
-    }
     if (scope === "public" && kind !== "public") {
       return {
         allowed: false,

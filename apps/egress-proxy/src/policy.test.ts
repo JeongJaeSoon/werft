@@ -53,6 +53,28 @@ describe("parseDestination", () => {
   });
 });
 
+// Each cloud's documented metadata address (sources in ip-address.ts).
+const CLOUD_METADATA: readonly [cloud: string, address: string][] = [
+  ["AWS EC2", "169.254.169.254"],
+  ["AWS EC2 IPv6", "fd00:ec2::254"],
+  ["AWS ECS", "169.254.170.2"],
+  ["AWS EKS Pod Identity", "169.254.170.23"],
+  ["AWS EKS Pod Identity IPv6", "fd00:ec2::23"],
+  ["GCP", "169.254.169.254"],
+  ["GCP IPv6", "fd20:ce::254"],
+  ["Azure", "169.254.169.254"],
+  ["Alibaba", "100.100.100.200"],
+  ["Oracle", "169.254.169.254"],
+  ["Oracle Compute Classic", "192.0.0.192"],
+  ["Scaleway", "169.254.42.42"],
+  ["Scaleway IPv6", "fd00:42::42"],
+  ["DigitalOcean", "169.254.169.254"],
+  ["Hetzner", "169.254.169.254"],
+  ["Hetzner IPv6", "fe80::a9fe:a9fe"],
+  ["OpenStack", "169.254.169.254"],
+  ["OpenStack IPv6", "fe80::a9fe:a9fe"],
+];
+
 describe("decideEgress", () => {
   const policy: EgressPolicy = {
     allow: [{ host: "api.example.com", port: 443 }],
@@ -219,9 +241,53 @@ describe("decideEgress", () => {
     }
   });
 
+  test.each(CLOUD_METADATA)(
+    "%s: %s is refused from the private list",
+    async (_, address) => {
+      expect(
+        await decideEgress(
+          policy,
+          { host: "metadata.test", port: 80 },
+          resolver({ "metadata.test": [address] }),
+        ),
+      ).toEqual({
+        allowed: false,
+        failure: "denied",
+        reason: `${address} is metadata`,
+      });
+    },
+  );
+
+  test("all of link-local is refused from the private list", async () => {
+    for (const address of [
+      "169.254.0.1",
+      "169.254.255.254",
+      "fe80::1",
+      "fe80::1%eth0",
+      "febf:ffff::1",
+      "::ffff:169.254.1.1",
+    ]) {
+      expect(
+        await decideEgress(
+          policy,
+          { host: "metadata.test", port: 80 },
+          resolver({ "metadata.test": [address] }),
+        ),
+        address,
+      ).toEqual({
+        allowed: false,
+        failure: "denied",
+        reason: `${address} is link_local`,
+      });
+    }
+  });
+
   test("a metadata name is refused before it is resolved, trailing dot or not", async () => {
     const listed: EgressPolicy = {
-      allow: [{ host: "metadata.google.internal", port: 80 }],
+      allow: [
+        { host: "metadata.google.internal", port: 80 },
+        { host: "metadata.goog", port: 80 },
+      ],
       allowPrivate: [
         { host: "metadata", port: 80 },
         { host: "instance-data.ec2.internal", port: 80 },
@@ -237,6 +303,7 @@ describe("decideEgress", () => {
       "Metadata.Google.Internal.",
       "metadata",
       "metadata.",
+      "metadata.goog",
       "instance-data.ec2.internal",
     ]) {
       expect(
