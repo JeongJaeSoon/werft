@@ -36,7 +36,8 @@ import {
  * Scenarios run in order on one stack, each on a session of its own:
  * A. two turns on one engine, checkpoint, and a restore onto a clean
  *    workspace volume and HOME, with one append response lost on the way;
- * B. a publish that fails at the manifest, then one that succeeds;
+ * B. a publish that fails at the manifest, the retry that covers its turn
+ *    once the fault is gone, and the next turn held until then;
  * C. a transcript mirror that fails;
  * D. a worker that loses its lease while its turn is open, a worker killed
  *    outright whose turn an operator settles, and the next message the first
@@ -821,7 +822,8 @@ describe.skipIf(env === null)("D2 gate", () => {
       times: -1,
     });
     const turn1 = await api.settle(sessionId, created.turn_id, TURN_MS);
-    await chaos.disarm(failing);
+    // The fault stays armed past the reads below: the worker tries the
+    // publish again in its lease, and a retry that lands would be read here.
     const worker = await workers.running(sessionId, 10_000);
     const failed = await logged(worker, "worker.checkpoint.failed");
     const orphanDirectory = String(failed.manifest_ref ?? "").replace(
@@ -871,41 +873,88 @@ describe.skipIf(env === null)("D2 gate", () => {
       steps: [write("/workspace/b.txt", "b turn 2\n")],
       final: "B2 DONE",
     };
+    // Turn 2 is accepted with the fault still armed. The worker owes turn 1
+    // its checkpoint and asks for no input until a retry lands, so a publish
+    // refused after the message, with turn 2 still queued, is that order
+    // seen from outside.
     const turnId = await api.message(sessionId, prompt("Turn two.", spec2));
+    const refused = async () =>
+      (await chaos.log(sessionId)).filter((entry) => entry.rule === failing)
+        .length;
+    const refusedBefore = await refused();
+    const retried = await waitFor(
+      "a retry of turn 1's publish to be refused while turn 2 waits",
+      async () => (await refused()) > refusedBefore,
+      60_000,
+      250,
+    ).then(
+      () => true,
+      () => false,
+    );
+    const rowOf = async (sequence: string) =>
+      (await turnRows(sessionId)).find((t) => String(t.sequence) === sequence);
+    const held = await rowOf(turnId);
+    await chaos.disarm(failing);
     const turn2 = await api.settle(sessionId, turnId, TURN_MS);
     const checkpoints = await checkpointRows(sessionId);
-    const committed = checkpoints[0];
-    const verified = committed
-      ? await verifyCheckpoint(bucket, committed)
-      : null;
+    const problems = (
+      await Promise.all(checkpoints.map((row) => verifyCheckpoint(bucket, row)))
+    ).flatMap((verified) => verified.problems);
+    const [order] = await rows<{
+      committed_at: string;
+      delivery_started_at: string | null;
+      retry_first: boolean | null;
+    }>(
+      `SELECT c.committed_at::text, t.delivery_started_at::text,
+              c.committed_at <= t.delivery_started_at AS retry_first
+         FROM checkpoints c JOIN turns t ON t.session_id = c.session_id
+        WHERE c.session_id = $1 AND c.revision = 0 AND t.sequence = $2`,
+      [sessionId, Number(turnId)],
+    );
+    const settled = await sessionRow(sessionId);
+    const turnRowIds = [
+      (await rowOf(created.turn_id))?.id,
+      (await rowOf(turnId))?.id,
+    ];
     report.check({
       id: "B-02",
       criterion: "fault: publish 중 실패",
       title:
-        "the next publish commits in a directory of its own, and only it is pointed at",
-      input: "fault removed, turn 2",
+        "the retry covers the failed turn before the next one starts, each in a directory of its own",
+      input:
+        "turn 2 sent with the fault armed; fault removed once a retry was refused",
       expected:
-        "one checkpoint (revision 0, turn 2) outside the failed directory; digests match; the publish_failed reason cleared by the commit",
+        "turn 2 queued while a retry is refused; then revision 0 on turn 1, committed before turn 2 started, and revision 1 on turn 2, both outside the failed directory; pointer 1; digests match; the publish_failed reason cleared",
       actual: {
+        retry_refused_after_turn_2: retried,
+        turn_2_then: held?.status,
         status: turn2.status,
-        checkpoints: checkpoints.map((c) => `${c.revision}:${c.manifest_ref}`),
+        checkpoints: checkpoints.map(
+          (c) => `${c.revision}:${c.turn_id}:${c.manifest_ref}`,
+        ),
+        turns: turnRowIds,
+        order,
         failed_directory: orphanDirectory,
-        pointer: (await sessionRow(sessionId)).checkpoint_revision,
-        pending_reason: (await sessionRow(sessionId)).checkpoint_pending_reason,
-        problems: verified?.problems ?? ["none committed"],
+        pointer: settled.checkpoint_revision,
+        pending_reason: settled.checkpoint_pending_reason,
+        problems,
       },
       pass:
+        retried &&
+        held?.status === "queued" &&
         turn2.status === "completed" &&
-        (await sessionRow(sessionId)).checkpoint_pending_reason === null &&
-        checkpoints.length === 1 &&
-        committed?.revision === 0 &&
-        (await sessionRow(sessionId)).checkpoint_revision === 0 &&
-        committed.turn_id ===
-          (await turnRows(sessionId)).find((t) => String(t.sequence) === turnId)
-            ?.id &&
-        !committed.manifest_ref.startsWith(orphanDirectory) &&
-        verified !== null &&
-        verified.problems.length === 0,
+        settled.checkpoint_pending_reason === null &&
+        settled.checkpoint_revision === 1 &&
+        checkpoints.length === 2 &&
+        checkpoints.every(
+          (c, revision) =>
+            c.revision === revision &&
+            turnRowIds[revision] !== undefined &&
+            c.turn_id === turnRowIds[revision] &&
+            !c.manifest_ref.startsWith(orphanDirectory),
+        ) &&
+        order?.retry_first === true &&
+        problems.length === 0,
     });
 
     await stopWorker(worker);
