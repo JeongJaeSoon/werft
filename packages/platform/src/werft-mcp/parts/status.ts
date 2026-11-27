@@ -25,6 +25,15 @@ export type WerftStatusFacts = {
    * when none is a person, such as a key's session.
    */
   requesterUserId: string | null;
+  /**
+   * Where the session's answers go: its parent conversation, a channel's or
+   * a person's DM. Null for a session with none, whose answer goes where no
+   * private channel may be named.
+   */
+  replyTo:
+    | { kind: "channel"; conversationId: string }
+    | { kind: "dm"; personUserId: string }
+    | null;
   github: {
     /** The workspace has a GitHub App with an installation not suspended. */
     app: boolean;
@@ -131,11 +140,37 @@ function subjectOf(
 }
 
 /**
+ * The private channels an answer going to `replyTo` may name: in the
+ * requester's own DM any, in a channel only that channel itself, elsewhere
+ * none. Who is a member is a separate question.
+ */
+function privateChannelsFor(
+  facts: WerftStatusFacts,
+  userId: string,
+): ReadonlySet<string> {
+  const reply = facts.replyTo;
+  const ids = facts.slack.channels.flatMap((channel) =>
+    channel.private && channel.conversationId !== null
+      ? [channel.conversationId.toLowerCase()]
+      : [],
+  );
+  if (reply === null) return new Set();
+  if (reply.kind === "dm") {
+    return reply.personUserId.toLowerCase() === userId.toLowerCase()
+      ? new Set(ids)
+      : new Set();
+  }
+  const here = reply.conversationId.toLowerCase();
+  return new Set(ids.filter((id) => id === here));
+}
+
+/**
  * What the requester may see beyond the states and menus (decision 26):
  * repository and channel names when they are inside the agent, as its
  * settings screen asks, and a private channel only while they are its
- * member. Whatever cannot be confirmed is hidden, save a store that could
- * not be read: the call fails, to be tried again.
+ * member and the answer goes back to that channel or to their own DM.
+ * Whatever cannot be confirmed is hidden, save a store that could not be
+ * read: the call fails, to be tried again.
  */
 async function visibleTo(
   authorization: AuthorizationPolicy,
@@ -173,13 +208,13 @@ async function visibleTo(
     if (error instanceof AuthorizationUndecidedError) throw error;
     return none;
   }
-  const askPrivate = facts.slack.channels.some((channel) => channel.private);
+  const mayName = privateChannelsFor(facts, userId);
   let privateChannels: string[] = [];
   let pending = false;
   // Cached member lists alone: a model's tool call never sends Slack a
   // question. A channel not yet confirmed is left out, and the answer says
   // it may be incomplete.
-  if (askPrivate && authorization.privateChannelsOf !== undefined) {
+  if (mayName.size > 0 && authorization.privateChannelsOf !== undefined) {
     try {
       const found = await authorization.privateChannelsOf(
         subject,
@@ -194,7 +229,11 @@ async function visibleTo(
   }
   return {
     details: true,
-    privateChannels: new Set(privateChannels.map((id) => id.toLowerCase())),
+    privateChannels: new Set(
+      privateChannels
+        .map((id) => id.toLowerCase())
+        .filter((id) => mayName.has(id)),
+    ),
     pending,
   };
 }
@@ -284,7 +323,7 @@ const DESCRIPTION = [
   "What this agent is connected to in Werft and what it may use, read now: GitHub (the workspace's GitHub App, this agent's switch and repositories), Slack (the agent's app, its bot identity and the channels it listens in), the MCP servers, skills and tools this session runs with, and the Werft version.",
   "Each integration says connected, not_connected or not_allowed (connected for the workspace but not for this agent), with the console menu and documentation where it is set up.",
   "Use it before answering how to connect or set up anything in Werft, and whenever it is unclear whether this agent can reach something: it reads only and is cheap. Prefer it over general CLI advice such as gh auth login.",
-  "Repository and channel names appear only when the person asking may see them; a private channel only to its members. It never returns a token, key or other secret, only whether one is set.",
+  "Repository and channel names appear only when the person asking may see them; a private channel only to its members, and only when this answer goes back to that channel or to the person's own DM. It never returns a token, key or other secret, only whether one is set.",
   'Example questions: "Can you use GitHub?", "Which repositories can you push to?", "Which Slack channels do you listen in?", "What tools do you have?", "Which Werft version is this?"',
 ].join(" ");
 

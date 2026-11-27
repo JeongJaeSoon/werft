@@ -48,6 +48,9 @@ export function createPostgresWerftStatusStore(db: Database): WerftStatusStore {
           agentId: agentReleases.agentId,
           effectiveTools: agentReleases.effectiveTools,
           enabled: agents.githubEnabled,
+          replyKind: conversations.kind,
+          replyConversationId: conversations.id,
+          replyPerson: conversations.personUserId,
           ...githubPolicyColumns,
         })
         .from(sessions)
@@ -56,6 +59,11 @@ export function createPostgresWerftStatusStore(db: Database): WerftStatusStore {
         .leftJoin(
           agentGitHubSettings,
           eq(agentGitHubSettings.agentId, agents.id),
+        )
+        // As the outbox claim reads where a session's text goes (A3).
+        .leftJoin(
+          conversations,
+          eq(conversations.id, sessions.parentConversationId),
         )
         .where(eq(sessions.id, call.sessionId))
         .limit(1);
@@ -108,6 +116,7 @@ export function createPostgresWerftStatusStore(db: Database): WerftStatusStore {
         workspaceId,
         agentId,
         requesterUserId: requester,
+        replyTo: replyToOf(session),
         github: {
           app: githubApp,
           // Off now, or off as the session started: both close it.
@@ -126,6 +135,20 @@ export function createPostgresWerftStatusStore(db: Database): WerftStatusStore {
       };
     },
   };
+}
+
+function replyToOf(row: {
+  replyKind: string | null;
+  replyConversationId: string | null;
+  replyPerson: string | null;
+}): WerftStatusFacts["replyTo"] {
+  if (row.replyKind === "channel" && row.replyConversationId !== null) {
+    return { kind: "channel", conversationId: row.replyConversationId };
+  }
+  if (row.replyKind === "dm" && row.replyPerson !== null) {
+    return { kind: "dm", personUserId: row.replyPerson };
+  }
+  return null;
 }
 
 /**

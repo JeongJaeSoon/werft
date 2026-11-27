@@ -24,6 +24,11 @@ function factsFor(
     workspaceId: WORKSPACE,
     agentId: AGENT,
     requesterUserId,
+    // The requester's own DM unless a test moves it.
+    replyTo:
+      requesterUserId === null
+        ? null
+        : { kind: "dm", personUserId: requesterUserId },
     github: {
       app: true,
       agentEnabled: true,
@@ -72,7 +77,12 @@ function factsFor(
 
 // The insider administers the agent; only C0SECRET has them as a member.
 function policy(
-  options: { fails?: boolean; pending?: boolean; inline?: string[] } = {},
+  options: {
+    fails?: boolean;
+    pending?: boolean;
+    inline?: string[];
+    asked?: string[];
+  } = {},
 ) {
   return createAuthorizationPolicy({
     agents: {
@@ -92,6 +102,7 @@ function policy(
         throw new Error("not used");
       },
       async privateChannels() {
+        options.asked?.push("privateChannels");
         return [
           {
             conversationId: PRIVATE_CONVERSATION,
@@ -158,6 +169,84 @@ describe("the status tool", () => {
     ]);
     expect(answer.incomplete).toBe(true);
     expect(inline).toEqual([]);
+  });
+
+  // 94S-2292 (Architect, 2026-11-26): membership is the requester's, and
+  // the place the answer goes is looked at too. A private channel is named
+  // only in that channel itself or in the requester's own DM.
+  describe("names a private channel only where the answer goes", () => {
+    const shownIn = async (
+      replyTo: WerftStatusFacts["replyTo"],
+      authorization = policy(),
+    ) => {
+      const answer = await status(
+        factsFor(INSIDER, { replyTo }),
+        authorization,
+      );
+      expect(answer.details).toBe("shown");
+      return answer.slack.channels?.map((channel) => channel.id);
+    };
+
+    test("the requester's own DM: every private channel they are a member of", async () => {
+      expect(
+        await shownIn({ kind: "dm", personUserId: INSIDER.toUpperCase() }),
+      ).toEqual(["C0PUBLIC", "C0SECRET"]);
+    });
+
+    test("that private channel itself: it, and no other private channel", async () => {
+      expect(
+        await shownIn({
+          kind: "channel",
+          conversationId: PRIVATE_CONVERSATION.toUpperCase(),
+        }),
+      ).toEqual(["C0PUBLIC", "C0SECRET"]);
+    });
+
+    test("a public channel, someone else's DM, or no conversation: no private channel, though the requester is a member, and none is asked about", async () => {
+      for (const replyTo of [
+        { kind: "channel", conversationId: PUBLIC_CONVERSATION },
+        { kind: "dm", personUserId: OUTSIDER },
+        null,
+      ] as const) {
+        const asked: string[] = [];
+        const answer = await status(
+          factsFor(INSIDER, { replyTo }),
+          policy({ pending: true, asked }),
+        );
+        expect(answer.slack.channels?.map((channel) => channel.id)).toEqual([
+          "C0PUBLIC",
+        ]);
+        // Nothing left out could have been shown here, so none is pending.
+        expect(answer).not.toHaveProperty("incomplete");
+        expect(asked).toEqual([]);
+        const text = JSON.stringify(answer);
+        for (const hidden of ["C0SECRET", "launch-plans", "C0OTHER", "board"]) {
+          expect(text).not.toContain(hidden);
+        }
+      }
+    });
+
+    test("another private channel: not the one the requester is a member of, nor that one while they are not its member", async () => {
+      expect(
+        await shownIn({
+          kind: "channel",
+          conversationId: OTHER_PRIVATE_CONVERSATION,
+        }),
+      ).toEqual(["C0PUBLIC"]);
+    });
+
+    test("that private channel itself, not yet confirmed: left out and incomplete", async () => {
+      const answer = await status(
+        factsFor(INSIDER, {
+          replyTo: { kind: "channel", conversationId: PRIVATE_CONVERSATION },
+        }),
+        policy({ pending: true }),
+      );
+      expect(answer.slack.channels?.map((channel) => channel.id)).toEqual([
+        "C0PUBLIC",
+      ]);
+      expect(answer.incomplete).toBe(true);
+    });
   });
 
   test("someone outside the agent sees each state and where to set it up, and no name", async () => {
