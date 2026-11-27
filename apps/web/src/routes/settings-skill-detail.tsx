@@ -412,9 +412,15 @@ function SyncPanel({
       }
     >
       <OutcomeLine outcome={outcome} live />
-      {git.webhook === "ready" ? null : (
+      {git.webhook === "ready" && git.access !== "public" ? null : (
         <Alert variant="amber" role="status">
-          <AlertDescription>{t(WEBHOOK_NOTICE[git.webhook])}</AlertDescription>
+          <AlertDescription>
+            {t(
+              git.access === "public" || git.webhook === "ready"
+                ? "skills.sync.webhook.not_installed"
+                : WEBHOOK_NOTICE[git.webhook],
+            )}
+          </AlertDescription>
         </Alert>
       )}
     </SettingsSection>
