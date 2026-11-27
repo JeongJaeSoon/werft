@@ -3045,6 +3045,49 @@ describe("a session waiting on a recovery decision", () => {
     ]);
   });
 
+  test("a terminate dialog left open while another session takes the screen does not end that session", async () => {
+    const user = await setupUser();
+    const other = { ...gap, id: OTHER_ID, revision: 9 } as SessionDetail;
+    const { api, history } = renderAt(`/sessions/${OTHER_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, gap),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, { items: [ran], next_cursor: null }),
+      [`GET /v1/sessions/${OTHER_ID}`]: () => json(200, other),
+      [`GET /v1/sessions/${OTHER_ID}/usage`]: () => json(200, usage),
+      [`GET /v1/sessions/${OTHER_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${OTHER_ID}/turns`]: () =>
+        json(200, { items: [ran], next_cursor: null }),
+      [`GET /v1/sessions/${OTHER_ID}/events`]: (request: Request) =>
+        stream.route(request),
+      [`POST /v1/sessions/${OTHER_ID}/terminate`]: () =>
+        json(202, { ...TERMINATE_ACCEPTED, receipt_status: "succeeded" }),
+    });
+    // The other session is read first, so going back finds it cached.
+    expect(
+      await screen.findByRole("button", { name: "세션 종료" }),
+    ).toBeTruthy();
+    act(() => history.push(`/sessions/${SESSION_ID}`));
+    await waitFor(() =>
+      expect(history.location.pathname).toBe(`/sessions/${SESSION_ID}`),
+    );
+    expect(await screen.findByRole("button", FRESH)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "세션 종료" }));
+    await screen.findByRole("alertdialog", { name: "세션을 종료할까요?" });
+    act(() => history.back());
+    await waitFor(() =>
+      expect(history.location.pathname).toBe(`/sessions/${OTHER_ID}`),
+    );
+    const left = screen.queryByRole("alertdialog");
+    if (left)
+      await user.click(within(left).getByRole("button", { name: "종료" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(posts(api)).toEqual([]);
+  });
+
   test("a context no checkpoint covers offers to go on without it, and says it is left out", async () => {
     render({ session: () => gap, turns: [ran] });
     expect(await screen.findByRole("button", FRESH)).toBeTruthy();
@@ -3893,6 +3936,8 @@ describe("session runtime", () => {
     } as SessionDetail;
     act(() => stream.emit("ev_1", "status", { phase: "failed" }));
     await waitFor(() => expect(reads()).toBeGreaterThan(before));
+    // Confirm only once the screen shows the new admission.
+    expect((await screen.findAllByText("복구 필요")).length).toBeGreaterThan(0);
     // The dialog keeps the promise it made when it opened.
     expect(dialog.textContent).toContain("다시 시작할 수 있습니다");
     await user.click(within(dialog).getByRole("button", { name: "종료" }));

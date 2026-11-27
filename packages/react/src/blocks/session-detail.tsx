@@ -444,6 +444,8 @@ export function SessionDetail({
             </span>
           </h1>
           <SessionControls
+            // A confirmation open on one session must not act on the next.
+            key={detail.id}
             session={detail}
             unavailable={unavailable}
             refusal={refusal}
