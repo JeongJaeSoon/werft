@@ -2000,6 +2000,16 @@ describe("changelog-release.ts", () => {
       "a.md:3: raw HTML",
     ],
     [
+      "a code span over two lines hiding a tag",
+      { "a.md": "### 보안\n- x `y\n  z` <b>` w\n" },
+      "a.md:2: a code span that is not one backtick",
+    ],
+    [
+      "a double-backtick code span",
+      { "a.md": ops("``a` b``") },
+      "a.md:3: a code span that is not one backtick",
+    ],
+    [
       "a fence left open",
       { "a.md": `${ops("x")}  \`\`\`sh\n  echo\n` },
       "a.md: a code fence is not closed",

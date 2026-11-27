@@ -85,6 +85,11 @@ function checkFragmentLine(
   }
   if (/\\[`[\]]/.test(line))
     fail("an escaped backtick or bracket; reword or put it in a code span");
+  // A code span closes on its own line: one backtick each side, paired here,
+  // so the checks below see what Markdown sees.
+  if (/``/.test(line) || (line.match(/`/g)?.length ?? 0) % 2 === 1) {
+    fail("a code span that is not one backtick each side on one line");
+  }
   const prose = line.replace(/`[^`]*`/g, "");
   // Any tag, inline too, can close the joined list; an autolink is no tag.
   if (/<(?!https?:\/\/)[A-Za-z!/?]/.test(prose)) {
