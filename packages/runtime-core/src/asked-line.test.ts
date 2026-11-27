@@ -479,6 +479,17 @@ const NARROW: [string, string, string | null][] = [
     heredoc("git add -A && git commit -F - <<'EOF'", "msg"),
     null,
   ],
+  ["a heredoc a filter reads", heredoc("grep -c x <<'EOF'", "x"), null],
+  [
+    "a heredoc as a pull request body",
+    heredoc("gh pr create --title x --body-file - <<'EOF'", "body"),
+    null,
+  ],
+  [
+    "a heredoc as an issue comment",
+    heredoc("gh issue comment 1 -F - <<'EOF'", "body"),
+    null,
+  ],
   ["a push in the line", `${OWNER}\ngit push sandbox hello-actions`, null],
   [
     "file commands",
@@ -584,6 +595,29 @@ const NARROW: [string, string, string | null][] = [
   ["a secret read", "git status && cat .env", "ask rule"],
   ["a secret read behind quotes", "git status && cat '.env'", "ask rule"],
   ["a secret copied", "git status && cp .env notes/copy.txt", "ask rule"],
+  // Still asks: a heredoc fed to a command that may take its lines as names,
+  // paths or directives the line does not show.
+  ...[
+    heredoc("git update-index --add --stdin <<'EOF'", ".env"),
+    heredoc("git update-index --add --stdin <<'EOF'", ".git/hooks/pre-commit"),
+    heredoc("git update-index --index-info <<'EOF'", "x"),
+    heredoc("git cat-file --batch <<'EOF'", "HEAD:.env"),
+    heredoc("git hash-object -w --stdin-paths <<'EOF'", ".env"),
+    heredoc("git credential fill <<'EOF'", "protocol=https"),
+    heredoc("git apply <<'EOF'", "+++ b/.claude/settings.json"),
+    heredoc("git fast-import <<'EOF'", "done"),
+    heredoc("git status && git rev-list --stdin <<'EOF'", "HEAD"),
+    heredoc("git commit --pathspec-from-file=- -m x <<'EOF'", ".env"),
+    heredoc("git commit -F - --pathspec-from-file=- <<'EOF'", ".env"),
+    heredoc("git commit -m x <<'EOF'", "x"),
+    heredoc("echo x <<'EOF'", "x"),
+    heredoc("gh secret set TOKEN <<'EOF'", "x"),
+    heredoc("gh pr create --title x <<'EOF'", "body"),
+  ].map((command): [string, string, string] => [
+    `a heredoc fed to ${command.split(" <<")[0]}`,
+    command,
+    "read a heredoc",
+  ]),
   [
     "a runner pointed outside",
     "git status && npm run build --prefix /tmp/x",
@@ -750,6 +784,7 @@ describe("the narrow reading", () => {
         words: ["cat"],
         written: ["cat"],
         redirect: { op: ">", target: "notes/a.txt" },
+        heredoc: true,
       },
     ]);
     expect(

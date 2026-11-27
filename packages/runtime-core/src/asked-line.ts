@@ -63,12 +63,15 @@ type Part = {
   /** The words as they were written, quotes included. */
   written: string[];
   redirect?: { op: ">" | ">>"; target: string };
+  /** The part reads a quoted heredoc's body on its stdin. */
+  heredoc?: true;
 };
 
 type Token =
   | { kind: "word"; text: string; written: string }
   | { kind: "end"; op: "&&" | ";" | "\n" }
-  | { kind: "redirect"; op: ">" | ">>" };
+  | { kind: "redirect"; op: ">" | ">>" }
+  | { kind: "heredoc" };
 
 /** The tokens of a line, or why it cannot be split with certainty. */
 function tokensOf(command: string): Token[] | string {
@@ -133,6 +136,7 @@ function tokensOf(command: string): Token[] | string {
       const delimiter = close === -1 ? "" : command.slice(i + 3, close);
       if (!DELIMITER.test(delimiter)) return "a heredoc delimiter";
       pending = delimiter;
+      tokens.push({ kind: "heredoc" });
       i = close + 1;
       continue;
     }
@@ -176,7 +180,9 @@ export function partsOf(command: string): Part[] | string {
     current.words.length === 0 && current.redirect === undefined;
   for (let i = 0; i < tokens.length; i += 1) {
     const token = tokens[i] as Token;
-    if (token.kind === "word") {
+    if (token.kind === "heredoc") {
+      current.heredoc = true;
+    } else if (token.kind === "word") {
       current.words.push(token.text);
       current.written.push(token.written);
     } else if (token.kind === "redirect") {
@@ -407,6 +413,43 @@ function writeKept(place: Place, path: string, narrow: boolean): string | null {
   return null;
 }
 
+/** Commands that take what comes on stdin as text, never as a name or a path. */
+const TEXT_FILTERS = ["cat", "head", "tail", "wc", "grep"];
+
+/** Where gh takes a pull request's or an issue's body as text. */
+const GH_BODY_TOPICS = ["pr", "issue"];
+const GH_BODY_VERBS = ["create", "comment", "edit", "review"];
+
+/** Whether a value flag in these words is given `-`, stdin. */
+const fromStdin = (words: readonly string[], flags: readonly string[]) =>
+  words.some(
+    (word, at) =>
+      flags.some((flag) => flag.startsWith("--") && word === `${flag}=-`) ||
+      (flags.includes(word) && words[at + 1] === "-"),
+  );
+
+/**
+ * Whether these words read stdin as text only: a filter, a commit message,
+ * or the body of a pull request or an issue.
+ */
+function readsHeredocAsText(words: readonly string[]): boolean {
+  const [name, verb, action] = words;
+  if (TEXT_FILTERS.includes(name ?? "")) return true;
+  if (name === "gh") {
+    return (
+      GH_BODY_TOPICS.includes(verb ?? "") &&
+      GH_BODY_VERBS.includes(action ?? "") &&
+      fromStdin(words, ["--body-file", "-F"])
+    );
+  }
+  if (name !== "git" || verb !== "commit") return false;
+  // `--pathspec-from-file=-` reads the paths to commit from stdin.
+  if (words.some((word) => word.startsWith("--pathspec-from-file"))) {
+    return false;
+  }
+  return fromStdin(words, ["-F", "--file"]);
+}
+
 const startsWith = (words: string[], command: string[]) =>
   command.every((token, index) => words[index] === token);
 
@@ -424,6 +467,13 @@ function partKept(
     if (name === undefined) return "a redirect without a command";
     if (!NARROW.some((command) => startsWith(part.words, command))) {
       return `${name} is not a command the workspace policy allows`;
+    }
+    // A heredoc's body is not read here, and a git command may take it as
+    // names, paths or directives (`git update-index --stdin`,
+    // `git cat-file --batch`, `git apply`): only text and a commit
+    // message read one.
+    if (part.heredoc && !readsHeredocAsText(part.words)) {
+      return `${name} is not a command the workspace policy lets read a heredoc`;
     }
   }
   const redirect = part.redirect;
