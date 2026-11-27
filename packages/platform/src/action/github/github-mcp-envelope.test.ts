@@ -192,6 +192,28 @@ function server(failure: SessionServiceError | null) {
         run: { id: 42, html_url: run.html_url },
       }),
       getRun: answer(run),
+      ciStatus: answer({
+        head_sha: "a".repeat(40),
+        pull_request_number: 7,
+        check_runs: [
+          {
+            name: "test",
+            status: "completed",
+            conclusion: "success",
+            html_url: null,
+          },
+        ],
+        workflow_runs: [
+          {
+            id: 42,
+            name: "CI",
+            status: "completed",
+            conclusion: "success",
+            html_url: run.html_url,
+          },
+        ],
+        truncated: false,
+      }),
       rerun: answer({ receipt_id: RECEIPT }),
       review: answer({
         receipt_id: RECEIPT,
@@ -252,6 +274,7 @@ const ARGUMENTS: Record<GitHubMcpTool, unknown> = {
   reopen_pull_request: { push_request_id: ID },
   dispatch_workflow: { workflow: "ci.yml", ref: "main" },
   get_workflow_run: { run_id: 42 },
+  get_ci_status: { pull_request_number: 7 },
   rerun_workflow: { run_id: 42 },
   submit_review: {
     number: 7,

@@ -1,6 +1,7 @@
 import type {
   SkillAutoApprovalReason,
   SkillCheckFinding,
+  SkillGitAccess,
   SkillSyncResult,
   SkillSyncTriggerKind,
   WorkspaceRole,
@@ -61,6 +62,8 @@ export type SkillGitSource = {
   /** The author App connection that reads it; once removed, checks fail. */
   connectionId: string;
   installationId: number;
+  /** `public`: the App is not installed there; `installationId` is another of its installations. */
+  access: SkillGitAccess;
   repositoryId: number;
   /** `owner/name` when it was registered. */
   repository: string;

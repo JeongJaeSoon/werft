@@ -192,6 +192,7 @@ import {
   workerImageRefusals,
   workerLaunches,
   workers,
+  workspaces,
 } from "./schema.ts";
 import { movedSessionPin } from "./session-spec-pin.ts";
 import { queueAchievementJudgment } from "./sessions/achievement-judgments.ts";
@@ -1921,6 +1922,7 @@ async function bindingOf(
     workspaceMcp: await sessionWorkspaceMcpOf(tx, session),
     githubMcp: await sessionGitHubMcpOf(tx, session),
     ...(await releaseRunOf(tx, session)),
+    skipWebFetchPreflight: await webFetchPreflightSkipped(tx, session),
     platformPrompt: session.platformPrompt,
     ...envOf(session),
     ...(pinnedExtensionsOf(session).length === 0
@@ -1987,6 +1989,22 @@ async function releaseRunOf(
     callerToolsDeny,
     releaseLanguage: responseLanguageOf(release?.snapshot),
   };
+}
+
+// Anything but a stored `false` keeps the check on, as before the setting.
+async function webFetchPreflightSkipped(
+  tx: Database,
+  session: SessionRow,
+): Promise<boolean> {
+  if (session.workspaceId === null) return false;
+  const [row] = await tx
+    .select({
+      skipped: sql<boolean>`coalesce(${workspaces.settings} -> 'web_fetch_preflight' = 'false'::jsonb, false)`,
+    })
+    .from(workspaces)
+    .where(eq(workspaces.id, session.workspaceId))
+    .limit(1);
+  return row?.skipped === true;
 }
 
 // `follow-user`, a value this image does not know and a release made before

@@ -2,6 +2,7 @@ import {
   agentGitHubSchema,
   effectiveGitHubPolicy,
   GITHUB_MCP_FIXED_TOOLS,
+  type GitHubCeiling,
   githubMcpToolNames,
   githubMcpTools,
   githubPolicySourceOf,
@@ -38,7 +39,11 @@ import {
   turns,
   workspaces,
 } from "../schema.ts";
-import { githubPolicyColumns, githubPolicyOfRow } from "./github-settings.ts";
+import {
+  githubPolicyColumns,
+  githubPolicyOfRow,
+  workspaceFeatureCeiling,
+} from "./github-settings.ts";
 
 type ReleaseMcp = {
   agentId: string;
@@ -207,6 +212,23 @@ export function creatorOf(
   return null;
 }
 
+/**
+ * The ceiling of the workspace the gate judges (the agent's, else the
+ * session's), for a refusal to name where a switch is off. A read that fails
+ * leaves it unread: the gate still holds the line.
+ */
+async function ceilingFor(
+  db: Database,
+  workspaceId: string | null,
+): Promise<{ ceiling?: GitHubCeiling }> {
+  if (workspaceId === null) return {};
+  try {
+    return { ceiling: await workspaceFeatureCeiling(db, workspaceId) };
+  } catch {
+    return {};
+  }
+}
+
 export function createPostgresGitHubMcpStore(db: Database): GitHubMcpStore {
   return {
     async sessionState(sessionId) {
@@ -217,6 +239,7 @@ export function createPostgresGitHubMcpStore(db: Database): GitHubMcpStore {
           createdByUserId: sessions.createdByUserId,
           createdByApiKeyId: sessions.createdByApiKeyId,
           workspaceId: sessions.workspaceId,
+          agentWorkspaceId: agents.workspaceId,
           agentId: agentReleases.agentId,
           enabled: agents.githubEnabled,
           ...githubPolicyColumns,
@@ -240,6 +263,10 @@ export function createPostgresGitHubMcpStore(db: Database): GitHubMcpStore {
         github: policy.settings === "invalid" ? null : policy.settings,
         // Off now, or off as the session started: both close it.
         enabled: (session.enabled ?? false) && policy.enabledAtStart,
+        ...(await ceilingFor(
+          db,
+          session.agentWorkspaceId ?? session.workspaceId,
+        )),
         actor: creatorOf(session, session.agentId),
       };
     },

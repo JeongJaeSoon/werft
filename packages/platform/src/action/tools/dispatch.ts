@@ -7,6 +7,7 @@ import {
   GITHUB_MCP_TOOL_DESCRIPTIONS,
   GITHUB_MCP_TOOL_FEATURES,
   GITHUB_MCP_TOOL_OUTPUTS,
+  type GitHubCeiling,
   type GitHubMcpTool,
   type GitHubPolicySource,
   githubMcpTools,
@@ -29,6 +30,43 @@ import {
   type ToolHandlers,
 } from "./handler.ts";
 import { actorFor } from "./session-bound.ts";
+
+/** The console's name of each switch a refusal names (apps/web agentGitHub.feature.*). */
+const SWITCH_LABELS = {
+  actions: {
+    en: "Run workflows directly (run, rerun, cancel)",
+    ko: "workflow 직접 실행 (실행·재실행·취소)",
+    ja: "ワークフローの直接実行 (実行・再実行・キャンセル)",
+  },
+  workflows: {
+    en: "Edit workflow files and see CI results",
+    ko: "workflow 파일 수정과 CI 결과 보기",
+    ja: "ワークフローファイルの変更と CI 結果の確認",
+  },
+} as const;
+
+/**
+ * Where a switch is off, and who turns it on: the agent's GitHub settings
+ * (an admin), the workspace ceiling (an owner or admin only), or both, the
+ * ceiling first.
+ */
+export function switchOffDetails(
+  feature: keyof typeof SWITCH_LABELS,
+  offIn: "agent" | "ceiling" | "both",
+) {
+  const label = SWITCH_LABELS[feature].en;
+  return {
+    reason_code: feature === "actions" ? "actions_off" : "workflows_off",
+    off_in: offIn,
+    switch_labels: SWITCH_LABELS[feature],
+    hint:
+      offIn === "agent"
+        ? `"${label}" is off in this agent's GitHub settings; a workspace admin turns it on there. A session that started with it off keeps it off; a new session takes the change.`
+        : offIn === "ceiling"
+          ? `"${label}" is off in the workspace GitHub ceiling; only a workspace owner or admin turns it on. The ceiling is read on every call, so the next call takes the change.`
+          : `"${label}" is off in both the workspace GitHub ceiling and this agent's GitHub settings; a workspace owner or admin turns on the ceiling first, then the agent's settings. The ceiling applies from the next call; a session that started with the agent's switch off keeps it off, and a new session takes the change.`,
+  };
+}
 
 /**
  * A tool's answer: the envelope as `structuredContent`, and the same JSON as
@@ -142,6 +180,8 @@ export type ToolCall = {
     actor: ReceiptActor;
     source: GitHubPolicySource;
     enabled: boolean;
+    /** The workspace ceiling now; absent when it was not read. */
+    ceiling?: GitHubCeiling;
   };
 };
 
@@ -158,15 +198,22 @@ export function createToolDispatcher(deps: {
 }) {
   return async function dispatch(call: ToolCall) {
     const { grant, tool, args, requestId, startedAt, github, state } = call;
-    // A run started directly has its own switch; the code names it.
-    const off = () =>
-      refusalOf(
+    // A run started directly and reading CI each have their own switch; the
+    // code names it, and where it is off. The agent's side is off here (its
+    // settings are why the tool is refused); the ceiling may be off too.
+    const off = () => {
+      const feature = GITHUB_MCP_TOOL_FEATURES[tool];
+      return refusalOf(
         tool,
         "feature_off",
-        GITHUB_MCP_TOOL_FEATURES[tool] === "actions"
-          ? { reason_code: "actions_off" }
+        feature === "actions" || feature === "workflows"
+          ? switchOffDetails(
+              feature,
+              state.ceiling?.[feature] === false ? "both" : "agent",
+            )
           : undefined,
       );
+    };
     if (state.source === "release") {
       if (!githubMcpTools(github).includes(tool)) {
         return toolAnswer(refused(off()));
@@ -182,6 +229,19 @@ export function createToolDispatcher(deps: {
           : null;
       if (code === "feature_off") return toolAnswer(refused(off()));
       if (code !== null) return toolAnswer(refused(refusalOf(tool, code)));
+    }
+    // On for the agent, off in the ceiling: the same code, naming the
+    // ceiling, before the gate would refuse it as over_workspace_ceiling.
+    const switched = GITHUB_MCP_TOOL_FEATURES[tool];
+    if (
+      (switched === "actions" || switched === "workflows") &&
+      state.ceiling?.[switched] === false
+    ) {
+      return toolAnswer(
+        refused(
+          refusalOf(tool, "feature_off", switchOffDetails(switched, "ceiling")),
+        ),
+      );
     }
     const parsed = GITHUB_MCP_TOOL_ARGUMENTS[tool].safeParse(args ?? {});
     if (!parsed.success) {

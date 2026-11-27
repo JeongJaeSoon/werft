@@ -75,6 +75,7 @@ describe("workspace", () => {
       idle_pause_minutes: 30,
       audit_retention_days: 90,
       slack_guest_enabled: false,
+      web_fetch_preflight: true,
       achievement_judge: {
         connection_id: null,
         threshold: 0.9,
@@ -173,6 +174,37 @@ describe("workspace", () => {
       expect(storedWorkspaceSettingsSchema.safeParse(bad).success).toBe(false);
       expect(workspaceSettingsSchema.safeParse(bad).success).toBe(false);
     }
+  });
+
+  test("web_fetch_preflight is a boolean the write and the read both keep", () => {
+    expect(workspaceSettingsSchema.parse({}).web_fetch_preflight).toBe(true);
+    expect(
+      workspaceSettingsSchema.parse({ web_fetch_preflight: false })
+        .web_fetch_preflight,
+    ).toBe(false);
+    const read = storedWorkspaceSettingsSchema.parse({
+      web_fetch_preflight: false,
+      future_key: 1,
+    });
+    expect(read.web_fetch_preflight).toBe(false);
+    expect("future_key" in read).toBe(false);
+    expect(storedWorkspaceSettingsSchema.parse({}).web_fetch_preflight).toBe(
+      true,
+    );
+    for (const schema of [
+      workspaceSettingsSchema,
+      storedWorkspaceSettingsSchema,
+    ])
+      expect(schema.safeParse({ web_fetch_preflight: "off" }).success).toBe(
+        false,
+      );
+    // A replica built before the key reads a row this build wrote.
+    const older = storedWorkspaceSettingsSchema.omit({
+      web_fetch_preflight: true,
+    });
+    const old = older.parse({ kill_switch: true, web_fetch_preflight: false });
+    expect(old.kill_switch).toBe(true);
+    expect("web_fetch_preflight" in old).toBe(false);
   });
 
   test("separates a suspended account from a disabled membership", () => {

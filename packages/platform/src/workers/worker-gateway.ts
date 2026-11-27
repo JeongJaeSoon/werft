@@ -480,6 +480,7 @@ export const GITHUB_TOOL_ADDITIONS: readonly (readonly GitHubMcpTool[])[] = [
     "attach_repository",
   ],
   ["get_pull_request"],
+  ["get_ci_status"],
 ];
 
 /** The server as it was before each addition it holds, newest first. */
@@ -2099,6 +2100,11 @@ export function createWorkerGateway(deps: {
               ...(binding.releaseLanguage != null &&
               request.capabilities?.response_language === true
                 ? { response_language: binding.releaseLanguage }
+                : {}),
+              // An older worker refuses the field; it runs with the check on.
+              ...(binding.skipWebFetchPreflight === true &&
+              request.capabilities?.web_fetch_preflight === true
+                ? { skip_web_fetch_preflight: true as const }
                 : {}),
             },
           };

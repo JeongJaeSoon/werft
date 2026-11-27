@@ -88,6 +88,7 @@ import {
   createPostgresTopicTurnContexts,
   createPostgresTurnInterrupts,
   createPostgresUsageReader,
+  createPostgresWebFetchPreflightSetting,
   createPostgresWorkerPendingStore,
   createPostgresWorkerUnitOfWork,
   createPostgresWorkspaceKeyStore,
@@ -1891,6 +1892,7 @@ const app = createApiApp({
       authorization,
       retention: createPostgresAuditRetention(db),
       slackGuests,
+      webFetchPreflight: createPostgresWebFetchPreflightSetting(db),
     });
     registerAuditLogRoutes(
       router,

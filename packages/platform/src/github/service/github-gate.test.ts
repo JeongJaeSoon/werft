@@ -114,6 +114,7 @@ function fakeApi(): GitHubApi {
     upsertComment: unused,
     dispatchWorkflow: unused,
     getWorkflowRun: unused,
+    getCommitCi: unused,
     rerunWorkflow: unused,
     submitReview: unused,
   };
@@ -478,9 +479,11 @@ describe("permission table", () => {
       github: settings({ features: features({ workflows: true }) }),
       ceiling: ALL_ON,
     });
-    expect((await grant({ purpose: "push" }))?.permissions).toEqual({
-      contents: "write",
-    });
+    const pushed = await grant({ purpose: "push" });
+    expect(pushed?.permissions).toEqual({ contents: "write" });
+    // Says the App lacks it, so a refused workflow change names the App.
+    expect(pushed?.workflowsUngranted).toBe(true);
+    expect(pushed?.workflowsOff).toBeUndefined();
     expect(author.issued.map(({ permissions }) => permissions)).toEqual([
       { contents: "write", workflows: "write" },
       { contents: "write" },
@@ -1485,7 +1488,7 @@ describe("another repository than the session's", () => {
       ).toBe("repository_not_allowed");
     });
 
-    test("workflows, runs and reviews on another repository are repository_not_allowed even when attached", async () => {
+    test("running workflows and reviews on another repository are repository_not_allowed even when attached", async () => {
       const { grant, receipts } = harness({
         catalog: ATTACHED,
         github: settings({
@@ -1502,7 +1505,6 @@ describe("another repository than the session's", () => {
         attached: ["docs"],
       });
       const works: Array<Omit<GitHubWork, "sessionId">> = [
-        { purpose: "actions_read", repositoryId: "docs" },
         {
           purpose: "dispatch",
           repositoryId: "docs",
@@ -1524,9 +1526,193 @@ describe("another repository than the session's", () => {
           result: { repository_id: "docs", purpose: work.purpose },
         });
       }
-      // The session's own repository keeps them.
+      // The session's own repository keeps them, and a CI read takes the
+      // attached one too.
       expect(await grant({ purpose: "actions_read" })).toMatchObject({
         context: { repositoryId: "app" },
+      });
+      expect(
+        await grant({ purpose: "actions_read", repositoryId: "docs" }),
+      ).toMatchObject({ context: { repositoryId: "docs" } });
+    });
+
+    // 94S-2465, PM decision B: a CI read names any repository the agent may
+    // work on, with or without a repository of the session's own; a write
+    // keeps the session's repository rules.
+    describe("a CI read naming its repository by owner/name", () => {
+      const ciOn = settings({
+        repositories: ["app", "docs", "tools"],
+        features: features({ workflows: true }),
+      });
+      const ceiling = { ...GITHUB_CEILING_NONE, workflows: true };
+
+      test("a session with no repository of its own (a DM) reads an attached, listed one, with a read token for that repository alone", async () => {
+        const { grant, receipts } = harness({
+          catalog: ATTACHED,
+          repositoryId: null,
+          github: ciOn,
+          ceiling,
+          attached: ["docs"],
+        });
+        const ci = await grant({
+          purpose: "actions_read",
+          repositoryName: "acme/docs",
+        });
+        expect(ci).toMatchObject({
+          repo: { owner: "acme", name: "docs" },
+          context: { repositoryId: "docs" },
+        });
+        expect(ci?.permissions).toEqual({ actions: "read", checks: "read" });
+        expect(receipts.at(-1)).toMatchObject({
+          status: "succeeded",
+          result: {
+            repository_id: "docs",
+            repository: "acme/docs",
+            purpose: "actions_read",
+          },
+        });
+        // The head of a pull request: a pull request read, nothing more.
+        const head = await grant({
+          purpose: "pull_request_read",
+          repositoryName: "acme/docs",
+        });
+        expect(head?.repo).toEqual({ owner: "acme", name: "docs" });
+        expect(head?.permissions).toEqual({ pull_requests: "read" });
+        // The service asks for the head by the id the CI read resolved.
+        expect(
+          (await grant({ purpose: "pull_request_read", repositoryId: "docs" }))
+            ?.permissions,
+        ).toEqual({ pull_requests: "read" });
+        // Without a name it stays the session's repository, which it has not.
+        expect((await refused(grant({ purpose: "actions_read" }))).reason).toBe(
+          "workflow_review_need_session_repository",
+        );
+      });
+
+      test("a repository outside what the agent may work on is repository_not_allowed", async () => {
+        const { grant, receipts } = harness({
+          catalog: ATTACHED,
+          repositoryId: null,
+          github: ciOn,
+          ceiling,
+          attached: ["docs"],
+        });
+        // Listed but not attached, and not in the catalog at all.
+        for (const name of ["acme/tools", "acme/elsewhere"]) {
+          expect(
+            (
+              await refused(
+                grant({ purpose: "actions_read", repositoryName: name }),
+              )
+            ).reason,
+          ).toBe("repository_not_allowed");
+          expect(receipts.at(-1)).toMatchObject({
+            status: "failed",
+            result: {
+              repository_id: null,
+              repository: name,
+              reason_code: "repository_not_allowed",
+            },
+          });
+        }
+      });
+
+      test("with a repository of its own, a name reads another allowed one, the session's own name reads its own, and no name reads its own", async () => {
+        const { grant } = harness({
+          catalog: ATTACHED,
+          github: ciOn,
+          ceiling,
+          attached: ["docs"],
+        });
+        expect(
+          (
+            await grant({
+              purpose: "actions_read",
+              repositoryName: "acme/docs",
+            })
+          )?.context.repositoryId,
+        ).toBe("docs");
+        expect(
+          (await grant({ purpose: "actions_read", repositoryName: "acme/app" }))
+            ?.context.repositoryId,
+        ).toBe("app");
+        expect(
+          (await grant({ purpose: "actions_read" }))?.context.repositoryId,
+        ).toBe("app");
+      });
+
+      test("a name matches github.com repositories only: one on another host with the same owner/name is not read", async () => {
+        const { grant } = harness({
+          catalog: {
+            ...ATTACHED,
+            repositories: {
+              ...ATTACHED.repositories,
+              docs: {
+                url: "https://ghe.example.com/acme/docs.git",
+                branch: "main",
+                auth: { kind: "github_app", registered: true },
+              },
+            },
+          },
+          repositoryId: null,
+          github: ciOn,
+          ceiling,
+          attached: ["docs"],
+        });
+        expect(
+          (
+            await refused(
+              grant({ purpose: "actions_read", repositoryName: "acme/docs" }),
+            )
+          ).reason,
+        ).toBe("repository_not_allowed");
+      });
+
+      test("a catalog URL ending in .GIT is not named: its key, token and API path would keep the suffix", async () => {
+        const { grant } = harness({
+          catalog: {
+            ...ATTACHED,
+            repositories: {
+              ...ATTACHED.repositories,
+              docs: {
+                url: "https://github.com/acme/docs.GIT",
+                branch: "main",
+                auth: { kind: "github_app", registered: true },
+              },
+            },
+          },
+          repositoryId: null,
+          github: ciOn,
+          ceiling,
+          attached: ["docs"],
+        });
+        expect(
+          (
+            await refused(
+              grant({ purpose: "actions_read", repositoryName: "acme/docs" }),
+            )
+          ).reason,
+        ).toBe("repository_not_allowed");
+      });
+
+      test("a write never takes a name: push and pull requests keep the session's repository rules", async () => {
+        const { grant } = harness({
+          catalog: ATTACHED,
+          github: ciOn,
+          ceiling,
+          attached: ["docs"],
+        });
+        for (const purpose of ["push", "pull_request"] as const) {
+          expect(
+            (await refused(grant({ purpose, repositoryName: "acme/docs" })))
+              .reason,
+          ).toBe("repository_not_allowed");
+        }
+        // As before: another repository by its catalog id.
+        expect(
+          (await grant({ purpose: "push", repositoryId: "docs" }))?.context
+            .repositoryId,
+        ).toBe("docs");
       });
     });
   });
