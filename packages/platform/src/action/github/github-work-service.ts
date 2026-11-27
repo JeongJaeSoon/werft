@@ -1,6 +1,7 @@
 import type {
   DispatchWorkflowRequest,
   DispatchWorkflowResponse,
+  GitHubCiStatusView,
   GitHubReviewOutcomeMetadata,
   GitHubWorkflowRunView,
   ReceiptActor,
@@ -9,6 +10,7 @@ import type {
   SubmitPullRequestReviewRequest,
   SubmitPullRequestReviewResponse,
 } from "@werft-ai/contracts";
+import { GITHUB_CI_RUNS_MAX } from "@werft-ai/contracts";
 import {
   GitHubCallError,
   type GitHubGate,
@@ -101,6 +103,62 @@ export function createGitHubWorkService(deps: {
     deps.sleep ??
     ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const now = deps.now ?? (() => performance.now());
+
+  /**
+   * `read` after `setup`, again until `done` or until `waitMs`, counted from
+   * the start of the call, has passed; the last value read is answered. A
+   * read still running at the deadline is dropped.
+   */
+  async function readUntil<S, T>(
+    waitMs: number | undefined,
+    setup: () => Promise<S>,
+    read: (held: S) => Promise<T>,
+    done: (value: T) => boolean,
+  ): Promise<T> {
+    const deadline = now() + (waitMs ?? 0);
+    // A waiting call must answer by its deadline even when the setup or the
+    // first read is slow, and a spent budget (0) is a deadline that has
+    // passed; one that asked for no wait (undefined) is left as it was.
+    const bounded = async <V>(work: Promise<V>): Promise<V> => {
+      if (waitMs === undefined) return await work;
+      work.catch(() => {});
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          work,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(unavailable(null)),
+              Math.max(0, deadline - now()),
+            );
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    const held = await bounded(setup());
+    let value = await bounded(read(held));
+    while (!done(value) && now() < deadline) {
+      await sleep(Math.min(pollMs, deadline - now()));
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const pending = read(held);
+      // A read dropped at the deadline must not surface as unhandled.
+      pending.catch(() => {});
+      const next = await Promise.race([
+        pending,
+        new Promise<"late">((resolve) => {
+          timer = setTimeout(
+            () => resolve("late"),
+            Math.max(0, deadline - now()),
+          );
+        }),
+      ]).finally(() => clearTimeout(timer));
+      if (next === "late") break;
+      value = next;
+    }
+    return value;
+  }
 
   async function granted(
     actor: PushActor,
@@ -233,69 +291,71 @@ export function createGitHubWorkService(deps: {
       actor: PushActor,
       sessionId: string,
       runId: number,
-      options: { waitMs?: number } = {},
+      options: { waitMs?: number; repository?: string } = {},
     ): Promise<GitHubWorkflowRunView> {
-      const { waitMs } = options;
-      const deadline = now() + (waitMs ?? 0);
-      // A waiting call must answer by its deadline even when the grant or
-      // the first read is slow, and a spent budget (0) is a deadline that has
-      // passed; one that asked for no wait (undefined) is left as it was.
-      const bounded = async <T>(work: Promise<T>): Promise<T> => {
-        if (waitMs === undefined) return await work;
-        work.catch(() => {});
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        try {
-          return await Promise.race([
-            work,
-            new Promise<never>((_, reject) => {
-              timer = setTimeout(
-                () => reject(unavailable(null)),
-                Math.max(0, deadline - now()),
-              );
-            }),
-          ]);
-        } finally {
-          clearTimeout(timer);
-        }
-      };
-      const grant = await bounded(
-        granted(actor, sessionId, "session.read", {
-          purpose: "actions_read",
-        }),
-      );
-      const read = async () => {
-        try {
-          return await grant.api.getWorkflowRun(runId);
-        } catch (error) {
-          if (error instanceof GitHubCallError) {
-            if (error.status === 404) {
-              throw new SessionServiceError("NOT_FOUND", "Resource not found");
-            }
-            throw unavailable(null);
-          }
-          throw error;
-        }
-      };
-      let run = await bounded(read());
-      while (run.status !== "completed" && now() < deadline) {
-        await sleep(Math.min(pollMs, deadline - now()));
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const pending = read();
-        // A read dropped at the deadline must not surface as unhandled.
-        pending.catch(() => {});
-        const next = await Promise.race([
-          pending,
-          new Promise<"late">((resolve) => {
-            timer = setTimeout(
-              () => resolve("late"),
-              Math.max(0, deadline - now()),
-            );
+      return await readUntil(
+        options.waitMs,
+        () =>
+          granted(actor, sessionId, "session.read", {
+            purpose: "actions_read",
+            ...named(options.repository),
           }),
-        ]).finally(() => clearTimeout(timer));
-        if (next === "late") break;
-        run = next;
-      }
-      return run;
+        (grant) => readGitHub(() => grant.api.getWorkflowRun(runId)),
+        (run) => run.status === "completed",
+      );
+    },
+
+    /**
+     * The check runs and workflow runs of a commit, named by its sha or as
+     * the head of pull request `number`, of the session's repository or the
+     * one `repository` (`owner/name`) names. Waits as `getRun` does, until
+     * `ciStatusFinal`. Each grant is a read of that one repository.
+     */
+    async ciStatus(
+      actor: PushActor,
+      sessionId: string,
+      target: { pullRequestNumber: number } | { commitSha: string },
+      options: { waitMs?: number; repository?: string } = {},
+    ): Promise<GitHubCiStatusView> {
+      const pullRequestNumber =
+        "pullRequestNumber" in target ? target.pullRequestNumber : null;
+      return await readUntil(
+        options.waitMs,
+        async () => {
+          // CI's own switch is judged before the pull request is read.
+          const grant = await granted(actor, sessionId, "session.read", {
+            purpose: "actions_read",
+            ...named(options.repository),
+          });
+          if ("commitSha" in target) return { grant, sha: target.commitSha };
+          // The repository the CI grant resolved, so both reads are of one.
+          const pullRequests = await granted(actor, sessionId, "session.read", {
+            purpose: "pull_request_read",
+            ...(grant.context.repositoryId === null
+              ? {}
+              : { repositoryId: grant.context.repositoryId }),
+          });
+          const { pullRequest } = await readGitHub(() =>
+            pullRequests.api.getPullRequest(target.pullRequestNumber),
+          );
+          return { grant, sha: pullRequest.headSha };
+        },
+        async ({ grant, sha }) => {
+          const ci = await readGitHub(
+            () => grant.api.getCommitCi(sha, GITHUB_CI_RUNS_MAX),
+            // GitHub answers the check runs of a sha it holds no commit for so.
+            { unknownCommit: { status: 422, what: "check run lookup" } },
+          );
+          return {
+            head_sha: sha,
+            pull_request_number: pullRequestNumber,
+            check_runs: ci.checkRuns,
+            workflow_runs: ci.workflowRuns,
+            truncated: ci.truncated,
+          };
+        },
+        ciStatusFinal,
+      );
     },
 
     async rerun(
@@ -426,6 +486,49 @@ export function createGitHubWorkService(deps: {
       return { receipt_id: receiptId, review };
     },
   };
+}
+
+const named = (repository: string | undefined) =>
+  repository === undefined ? {} : { repositoryName: repository };
+
+/**
+ * A read of GitHub: what GitHub does not know (404, or the status a read
+ * answers a commit it does not hold with) is not found.
+ */
+async function readGitHub<T>(
+  read: () => Promise<T>,
+  options: { unknownCommit?: { status: number; what: string } } = {},
+): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    if (error instanceof GitHubCallError) {
+      const { unknownCommit } = options;
+      if (
+        error.status === 404 ||
+        (unknownCommit !== undefined &&
+          error.status === unknownCommit.status &&
+          error.what === unknownCommit.what)
+      ) {
+        throw new SessionServiceError("NOT_FOUND", "Resource not found");
+      }
+      throw unavailable(null);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Some run is reported, every one is completed, and none is left out: a
+ * truncated list may hide one still running.
+ */
+export function ciStatusFinal(view: GitHubCiStatusView): boolean {
+  const runs = [...view.check_runs, ...view.workflow_runs];
+  return (
+    !view.truncated &&
+    runs.length > 0 &&
+    runs.every((run) => run.status === "completed")
+  );
 }
 
 function unavailable(receiptId: string | null): SessionServiceError {

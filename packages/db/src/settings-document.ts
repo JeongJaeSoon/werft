@@ -4,7 +4,7 @@ import {
   ENDED_SESSION_STATUSES,
   type ReceiptActor,
   type ReceiptOperation,
-  workspaceSettingsSchema,
+  storedWorkspaceSettingsSchema,
 } from "@werft-ai/contracts";
 import {
   type CatalogRepositoryConfig,
@@ -187,6 +187,42 @@ const OPERATIONS = {
   repository: "import_repository",
 } as const;
 
+/**
+ * A connection's destination as a receipt keeps it: the endpoint without
+ * userinfo, query or fragment, and its host:port as the egress allowlists
+ * write it. URL already lowers the host and turns an IDN into punycode; the
+ * scheme's port fills a missing one, and the trailing dot and an IPv6
+ * address's brackets go. Both are null for a row whose endpoint is no
+ * http(s) URL.
+ */
+export function receiptDestinationOf(endpoint: unknown): {
+  endpoint: string | null;
+  host_port: string | null;
+} {
+  if (typeof endpoint !== "string" || !URL.canParse(endpoint)) {
+    return { endpoint: null, host_port: null };
+  }
+  const url = new URL(endpoint);
+  // No port of ours to name for a scheme the proxy does not carry.
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return { endpoint: null, host_port: null };
+  }
+  // Userinfo cannot be written without an @, so text with none of these is
+  // kept as written; any other is the parser's own spelling, which also
+  // catches what parses as empty (`https://:@host`, a bare `?`).
+  const bare = !/[@?#]/.test(endpoint);
+  url.username = "";
+  url.password = "";
+  url.search = "";
+  url.hash = "";
+  const host = url.hostname
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.$/, "")
+    .toLowerCase();
+  const port = url.port || (url.protocol === "https:" ? "443" : "80");
+  return { endpoint: bare ? endpoint : url.href, host_port: `${host}:${port}` };
+}
+
 function auditOf(add: SettingsImportAdd): Record<string, unknown> {
   const credential_source = credentialSourceOf(add.entry);
   switch (add.kind) {
@@ -194,7 +230,7 @@ function auditOf(add: SettingsImportAdd): Record<string, unknown> {
       return {
         connection_id: add.id,
         kind: add.entry.kind,
-        endpoint: add.entry.endpoint,
+        ...receiptDestinationOf(add.entry.endpoint),
         credential_source,
       };
     case "repository": {
@@ -439,6 +475,10 @@ const WRITERS: Record<SettingsKind, readonly string[]> = {
   repository: MANAGEMENT_ROLES["workspace.manage"] ?? [],
 };
 
+/** A held connection row's destination for its receipt. */
+const endpointOf = (entry: unknown) =>
+  receiptDestinationOf((entry as { endpoint?: unknown } | null)?.endpoint);
+
 type HeldRow = {
   entry: unknown;
   credentialSource: string | null;
@@ -538,9 +578,8 @@ async function judgeWithFirstDecisionModel(
   const [row] = rowsOf<{ judge: unknown }>(result);
   if (row === undefined) return;
   await consoleReceipt(tx, actor, "set_achievement_judge", {
-    achievement_judge: workspaceSettingsSchema.shape.achievement_judge.parse(
-      row.judge,
-    ),
+    achievement_judge:
+      storedWorkspaceSettingsSchema.shape.achievement_judge.parse(row.judge),
     source: "console",
   });
 }
@@ -738,6 +777,7 @@ function consoleWrites(
           DISABLED[owner.kind],
           {
             [TARGET[owner.kind]]: owner.id,
+            ...(owner.kind === "connection" ? endpointOf(held.entry) : {}),
             source: "console",
           },
         );
@@ -782,6 +822,7 @@ function consoleWrites(
           .where(eq(providerConnections.id, id));
         const receiptId = await consoleReceipt(tx, actor, "enable_connection", {
           connection_id: id,
+          ...endpointOf(held.entry),
           source: "console",
         });
         return { outcome: "done" as const, receiptId };

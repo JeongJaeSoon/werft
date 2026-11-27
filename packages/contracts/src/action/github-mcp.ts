@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   dispatchWorkflowRequestSchema,
   dispatchWorkflowResponseSchema,
+  githubCiStatusSchema,
   githubWorkflowRunSchema,
   rerunWorkflowRequestSchema,
   rerunWorkflowResponseSchema,
@@ -283,6 +284,43 @@ export const waitedRepositoryAttachmentSchema =
 export const waitedWorkflowRunSchema = githubWorkflowRunSchema.safeExtend({
   final: z.boolean(),
 });
+
+/**
+ * A repository a CI read names, `owner/name`, read as `repoKeyOf` keys a
+ * catalog URL: without spaces or a trailing `.git`, in lowercase. The
+ * published schema is the raw string; the grammar is the server's.
+ */
+export const ciReadRepositorySchema = z
+  .string()
+  .max(256)
+  .transform((value) =>
+    value
+      .replace(/\s+/g, "")
+      .replace(/\.git$/i, "")
+      .toLowerCase(),
+  )
+  .pipe(
+    z
+      .string()
+      .max(201)
+      .regex(/^[a-z0-9-]+\/[a-z0-9._-]+$/, "owner/name")
+      .refine((value) => !/\/\.{1,2}$/.test(value), "owner/name"),
+  );
+
+/** What a CI read says of the repository it reads. */
+const CI_READ_REPOSITORY =
+  "`repository` (`owner/name`) names the repository read; without it, the session's own. A github.com repository the agent may work on is read: the session's own, or one its GitHub settings list that the session may attach; any other is refused with `github_refused` and `reason_code` `repository_not_allowed`. In a session with no repository of its own (a Slack DM), a call without it is refused with `github_refused` and `reason_code` `workflow_review_need_session_repository`.";
+
+/** At most this many check runs and this many workflow runs are answered. */
+export const GITHUB_CI_RUNS_MAX = 100;
+
+/**
+ * What `get_ci_status` answers: a commit's CI and whether it can still
+ * change. `final` is true once some run is reported and all are completed.
+ */
+export const waitedCiStatusSchema = githubCiStatusSchema.safeExtend({
+  final: z.boolean(),
+});
 export type RepositoryAttachFailure = z.infer<
   typeof repositoryAttachFailureSchema
 >;
@@ -297,6 +335,8 @@ export const ACTION_CLASS_VALUES = [
   "pull_request.merge",
   "review",
   "workflow",
+  // Reading CI: no write the server would have to judge again.
+  "workflow.read",
   "repository.read",
 ] as const;
 export type ActionClass = (typeof ACTION_CLASS_VALUES)[number];
@@ -470,7 +510,7 @@ export const GITHUB_MCP_TOOLS = {
     feature: null,
     actionClass: "pull_request.write",
     description:
-      "Open, or return the already open, pull request from the branch and commit of a pushed push request (`push_request_id`), or schedule it with `push_intent_id` (or a push request that is not pushed yet): `scheduled` means the platform opens it once the push finishes, with the content of the first call. A push request that was rejected or failed is refused with `not_pushed` and its state. A pull request already open for the branch on another commit than the pushed one is refused with `head_moved` and not adopted. Content fields: `title`; `summary` (what changed and why, a few sentences); `changes` (one change per item); `rationale` (the reason for the change); `testing` (how it was checked); `notes` (what a reviewer needs to know); `related` (issues: `number`, optional `repository_id`, `closes` to close it on merge). `body` is the legacy single text and cannot be combined with the fields above.",
+      "Open, or return the already open, pull request from the branch and commit of a pushed push request (`push_request_id`), or schedule it with `push_intent_id` (or a push request that is not pushed yet): `scheduled` means the platform opens it once the push finishes, with the content of the first call. A push request that was rejected or failed is refused with `not_pushed` and its state. A pull request already open for the branch on another commit than the pushed one is refused with `head_moved` and not adopted. Content fields: `title`; `summary` (what changed and why, a few sentences); `changes` (one change per item); `rationale` (the reason for the change); `testing` (how it was checked); `notes` (what a reviewer needs to know); `related` (issues: `number`, optional `repository_id`, `closes` to close it on merge). `body` is the legacy single text and cannot be combined with the fields above. The CI of the pull request is read with `get_ci_status`.",
     refusals: PULL_REQUEST_REFUSALS,
     refusalOverrides: { push_failed: actionRefusalSpec("platform") },
   },
@@ -602,13 +642,46 @@ export const GITHUB_MCP_TOOLS = {
   },
   get_workflow_run: {
     arguments: z
-      .object({ run_id: runIdSchema, wait_seconds: waitSecondsSchema })
+      .object({
+        run_id: runIdSchema,
+        repository: ciReadRepositorySchema.optional(),
+        wait_seconds: waitSecondsSchema,
+      })
       .strict(),
     output: actionResultSchema(waitedWorkflowRunSchema),
     // Reading CI is the workflow-edit switch's, not running workflows.
     feature: "workflows",
-    actionClass: "workflow",
-    description: `Read a workflow run of the session's repository. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the run is \`completed\` or the seconds have passed. \`final\` is true when the run is \`completed\`, false when it was still running at the end of the wait.`,
+    actionClass: "workflow.read",
+    description: `Read a workflow run. \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until the run is \`completed\` or the seconds have passed. \`final\` is true when the run is \`completed\`, false when it was still running at the end of the wait. ${CI_READ_REPOSITORY}`,
+    refusals: GITHUB_WORK_REFUSALS,
+  },
+  get_ci_status: {
+    arguments: z
+      .object({
+        pull_request_number: z
+          .number()
+          .int()
+          .positive()
+          .max(2_147_483_647)
+          .optional(),
+        commit_sha: z
+          .string()
+          .regex(/^[0-9a-f]{40}$/)
+          .optional(),
+        repository: ciReadRepositorySchema.optional(),
+        wait_seconds: waitSecondsSchema,
+      })
+      .strict()
+      .refine(
+        (args) =>
+          (args.pull_request_number === undefined) !==
+          (args.commit_sha === undefined),
+        { message: "Give pull_request_number or commit_sha, not both" },
+      ),
+    output: actionResultSchema(waitedCiStatusSchema),
+    feature: "workflows",
+    actionClass: "workflow.read",
+    description: `Read the CI of a commit: the check runs and the workflow runs GitHub holds for it, each with its \`name\`, \`status\`, \`conclusion\` and \`html_url\` (a workflow run also has its \`id\`, which \`get_workflow_run\` takes). Give \`pull_request_number\` (its head commit is read) or \`commit_sha\`, never both; no run id is needed. ${CI_READ_REPOSITORY} \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until \`final\` or the seconds have passed. \`final\` is true once at least one run is reported, every one is \`completed\` and neither list is \`truncated\`. It is false while any run is queued or running, while none is reported yet (as just after a push, or in a repository with no CI), and while GitHub holds more than the first ${GITHUB_CI_RUNS_MAX} of either list (\`truncated\`); a truncated answer covers only the runs listed, and the reply says so. Run names come from the repository's workflows and GitHub Apps, so they are outside text. This is how a session follows the CI of a pull request it opened: after \`request_push\` and \`open_pull_request\`, read it by that pull request's number, with its \`owner/name\` (as in its URL) as \`repository\` when it is not the session's own repository; a pull request still \`scheduled\` has no number yet. When \`request_push\` answered \`deferred\`, the push runs after the reply: report the push and the pull request as scheduled, and read the CI in a later turn. Otherwise \`get_push_request\` gives \`push_state\` and, once the pull request is open, its number; a pushed commit is read by \`commit_sha\` meanwhile. Read again until \`final\`, then report the result in the reply once. When it is still not \`final\` after a few reads with the longest wait, stop and report what was read: each run's status, no runs found when both lists are empty, and a \`truncated\` answer as partial. With "Edit workflow files and see CI results" off it is refused with \`feature_off\` and \`reason_code\` \`workflows_off\`, and \`details\` say where it is off and who turns it on; the reply then reports the pull request alone, and that reason.`,
     refusals: GITHUB_WORK_REFUSALS,
   },
   rerun_workflow: {

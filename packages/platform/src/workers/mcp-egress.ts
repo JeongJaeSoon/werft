@@ -29,6 +29,12 @@ export type McpEgressRequest = {
   rpc: { method: string | null; tool: string | null };
   /** An exchange already under way asking again. */
   regrant: boolean;
+  /**
+   * The proxy keeps to a grant's `allow` mark (it sent
+   * `x-werft-egress-features: registered-upstream`); false for one from
+   * before it.
+   */
+  registeredUpstream?: boolean;
 };
 
 export type McpEgressDecision =

@@ -208,6 +208,7 @@ import {
   drainOf,
   openDrainReceipt,
 } from "./sessions/drain.ts";
+import { deleteAttemptEgressDenials } from "./sessions/egress-denials.ts";
 import {
   type AttemptRow,
   acquireFence,
@@ -2211,10 +2212,23 @@ async function issueCredentials(
             expiresAt,
           },
         ]),
+    ...(input.egress.reportHash === undefined
+      ? []
+      : [
+          {
+            tokenHash: input.egress.reportHash,
+            attemptId,
+            purpose: "egress_report",
+            // Names the session only: the token reaches no route.
+            binding: session.id,
+            expiresAt,
+          },
+        ]),
   ]);
 }
 
 async function revokeCredentials(tx: Database, attemptId: string, now: Date) {
+  await deleteAttemptEgressDenials(tx, attemptId);
   await tx
     .update(workerCredentials)
     .set({ revokedAt: now })

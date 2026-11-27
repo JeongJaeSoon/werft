@@ -22,6 +22,7 @@ import {
   inviteSchema,
   memberViewSchema,
   normalizeEmail,
+  storedWorkspaceSettingsSchema,
   updateMemberRequestSchema,
   workspaceSchema,
   workspaceSettingsSchema,
@@ -138,6 +139,41 @@ describe("workspace", () => {
     expect(
       workspaceSettingsSchema.safeParse({ audit_retention_days: 29 }).success,
     ).toBe(false);
+  });
+
+  test("a read leaves out a settings key it does not know, a write refuses it", () => {
+    const stored = {
+      kill_switch: true,
+      future_key: { on: true },
+      achievement_judge: { threshold: 0.5, future_nested: 1 },
+    };
+    const read = storedWorkspaceSettingsSchema.parse(stored);
+    expect(read.kill_switch).toBe(true);
+    expect(read.achievement_judge.threshold).toBe(0.5);
+    expect("future_key" in read).toBe(false);
+    expect("future_nested" in read.achievement_judge).toBe(false);
+    // A row that never named a judge still reads as the defaults.
+    expect(
+      storedWorkspaceSettingsSchema.shape.achievement_judge.parse(undefined),
+    ).toEqual(workspaceSettingsSchema.parse({}).achievement_judge);
+    expect(workspaceSettingsSchema.safeParse(stored).success).toBe(false);
+    expect(workspaceSettingsSchema.safeParse({ future_key: 1 }).success).toBe(
+      false,
+    );
+    expect(
+      achievementJudgeSettingsSchema.safeParse({ future_nested: 1 }).success,
+    ).toBe(false);
+  });
+
+  test("a known key with a bad value is refused by the read and the write alike", () => {
+    for (const bad of [
+      { idle_pause_minutes: 0 },
+      { audit_retention_days: 29 },
+      { achievement_judge: { threshold: 2 } },
+    ]) {
+      expect(storedWorkspaceSettingsSchema.safeParse(bad).success).toBe(false);
+      expect(workspaceSettingsSchema.safeParse(bad).success).toBe(false);
+    }
   });
 
   test("separates a suspended account from a disabled membership", () => {

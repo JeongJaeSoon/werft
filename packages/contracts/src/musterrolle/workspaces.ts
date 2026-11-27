@@ -65,48 +65,75 @@ export const auditRetentionDaysSchema = z
 
 export const ACHIEVEMENT_TRANSCRIPT_VALUES = ["none", "recent"] as const;
 
-/** How the workspace's achievement judge runs. */
+const achievementJudgeFields = {
+  /** An `openai_decisions` connection; null leaves `luna` rules unjudged. */
+  connection_id: z.string().min(1).max(200).nullable().default(null),
+  threshold: z.number().min(0).max(1).default(0.9),
+  on_evidence: z.boolean().default(true),
+  every_n_turns: z.number().int().min(5).max(100).nullable().default(null),
+  on_idle: z.boolean().default(false),
+  transcript: z.enum(ACHIEVEMENT_TRANSCRIPT_VALUES).default("recent"),
+  daily_budget_usd: z.number().nonnegative().default(1),
+  max_per_session: z.number().int().positive().default(20),
+};
+
+/** How the workspace's achievement judge runs. What a write accepts. */
 export const achievementJudgeSettingsSchema = z
-  .object({
-    /** An `openai_decisions` connection; null leaves `luna` rules unjudged. */
-    connection_id: z.string().min(1).max(200).nullable().default(null),
-    threshold: z.number().min(0).max(1).default(0.9),
-    on_evidence: z.boolean().default(true),
-    every_n_turns: z.number().int().min(5).max(100).nullable().default(null),
-    on_idle: z.boolean().default(false),
-    transcript: z.enum(ACHIEVEMENT_TRANSCRIPT_VALUES).default("recent"),
-    daily_budget_usd: z.number().nonnegative().default(1),
-    max_per_session: z.number().int().positive().default(20),
-  })
+  .object(achievementJudgeFields)
   .strict();
 
+/**
+ * The same fields, for reading what is stored: a key this build does not know
+ * (a newer build wrote it) is left out of the result, not refused. A known key
+ * with a bad value is still refused.
+ */
+const storedAchievementJudgeSettingsSchema = z.object(achievementJudgeFields);
+
+const workspaceSettingsFields = (
+  judge:
+    | typeof achievementJudgeSettingsSchema
+    | typeof storedAchievementJudgeSettingsSchema,
+) => ({
+  /** Model the dispatch classifier uses; null falls back to the deployment default. */
+  dispatch_model: z.string().min(1).max(128).nullable().default(null),
+  /** Workspace-wide stop: new dispatches become needs_confirm only. */
+  kill_switch: z.boolean().default(false),
+  daily_cost_limit_usd: z.number().nonnegative().nullable().default(null),
+  /** Minutes of silence before the reconciler pauses a session. */
+  idle_pause_minutes: z.number().int().positive().default(30),
+  /** How long `authz_decisions` rows are kept before the reconciler deletes them. */
+  audit_retention_days: auditRetentionDaysSchema.default(
+    AUDIT_RETENTION_DEFAULT_DAYS,
+  ),
+  /**
+   * Whether a Slack guest may call an agent at all. On, a guest still has
+   * to link their Slack account like anyone else.
+   */
+  slack_guest_enabled: z.boolean().default(false),
+  /**
+   * Whether the engine asks Anthropic (api.anthropic.com) about a host
+   * before WebFetch dials it. Off, sessions skip that check; the egress
+   * allowlist still decides what a session may reach.
+   */
+  web_fetch_preflight: z.boolean().default(true),
+  achievement_judge: judge.prefault({}),
+});
+
+/** What a write accepts: an unknown key is refused. */
 export const workspaceSettingsSchema = z
-  .object({
-    /** Model the dispatch classifier uses; null falls back to the deployment default. */
-    dispatch_model: z.string().min(1).max(128).nullable().default(null),
-    /** Workspace-wide stop: new dispatches become needs_confirm only. */
-    kill_switch: z.boolean().default(false),
-    daily_cost_limit_usd: z.number().nonnegative().nullable().default(null),
-    /** Minutes of silence before the reconciler pauses a session. */
-    idle_pause_minutes: z.number().int().positive().default(30),
-    /** How long `authz_decisions` rows are kept before the reconciler deletes them. */
-    audit_retention_days: auditRetentionDaysSchema.default(
-      AUDIT_RETENTION_DEFAULT_DAYS,
-    ),
-    /**
-     * Whether a Slack guest may call an agent at all. On, a guest still has
-     * to link their Slack account like anyone else.
-     */
-    slack_guest_enabled: z.boolean().default(false),
-    /**
-     * Whether the engine asks Anthropic (api.anthropic.com) about a host
-     * before WebFetch dials it. Off, sessions skip that check; the egress
-     * allowlist still decides what a session may reach.
-     */
-    web_fetch_preflight: z.boolean().default(true),
-    achievement_judge: achievementJudgeSettingsSchema.prefault({}),
-  })
+  .object(workspaceSettingsFields(achievementJudgeSettingsSchema))
   .strict();
+
+/**
+ * What a read of `workspaces.settings` accepts. Every build adds keys to that
+ * jsonb, and an older replica or a rolled-back install meets rows a newer
+ * build wrote, so a key unknown here is left out of the result (the stored row
+ * keeps it) instead of failing GET /v1/auth/me. Reading stays lenient first,
+ * writing strict later, as for migrations.
+ */
+export const storedWorkspaceSettingsSchema = z.object(
+  workspaceSettingsFields(storedAchievementJudgeSettingsSchema),
+);
 
 export const workspaceParamsSchema = z
   .object({ id: workspaceIdSchema })

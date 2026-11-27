@@ -771,6 +771,11 @@ export const bootstrapClaimResponseSchema = workerScopeSchema.extend({
   // it. Top-level so an older
   // worker drops it.
   repository_access: egressTokenAuthSchema.optional(),
+  // The attempt's marker for the forward proxy: the engine's proxy variables
+  // carry it as userinfo, so a refusal the proxy reports names its attempt.
+  // It opens nothing: no route authorizes it, and the proxy reads it only off
+  // a request it already refused. Top-level so an older worker drops it.
+  egress_report: egressTokenAuthSchema.optional(),
 });
 
 export const nextInputRequestSchema = workerScopeSchema
