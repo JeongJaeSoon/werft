@@ -13,12 +13,20 @@ import {
   textResponse,
 } from "@werft-ai/testkit/fake-responses";
 import { OidcUnavailableError } from "./oidc/errors.ts";
-import type { NetworkPolicy, PinnedRequest } from "./oidc/provider-http.ts";
+import type {
+  Lookup,
+  NetworkPolicy,
+  PinnedRequest,
+} from "./oidc/provider-http.ts";
 import {
+  connectionEndpointProblem,
+  connectionModelsOutbound,
+  workspaceMcpAddressCheck,
   workspaceMcpHostsFromEnv,
+  workspaceMcpListed,
   workspaceMcpOutbound,
   workspaceMcpRedirectUri,
-  workspaceMcpUrlProblem,
+  workspaceMcpServerUrlProblem,
 } from "./workspace-mcp.ts";
 
 describe("workspaceMcpHostsFromEnv", () => {
@@ -57,7 +65,7 @@ describe("workspaceMcpHostsFromEnv", () => {
     });
     expect(hosts?.private).toEqual([]);
     expect(
-      hosts && workspaceMcpUrlProblem(hosts, "http://mcp.lan:8080/mcp"),
+      hosts && connectionEndpointProblem(hosts, "http://mcp.lan:8080/mcp"),
     ).toBe("url_insecure");
   });
 
@@ -73,7 +81,7 @@ describe("workspaceMcpHostsFromEnv", () => {
     expect(kept?.credential).toEqual(["mcp.example.com:443"]);
     // Read as a host:port string, [fd00::1:443] would name [fd00::1]:443.
     expect(
-      kept && workspaceMcpUrlProblem(kept, "https://[fd00::1]:443/mcp"),
+      kept && connectionEndpointProblem(kept, "https://[fd00::1]:443/mcp"),
     ).toBe("host_not_allowed");
   });
 
@@ -88,12 +96,13 @@ describe("workspaceMcpHostsFromEnv", () => {
       "fake-messages:4010",
     ]);
     expect(
-      hosts && workspaceMcpUrlProblem(hosts, "https://api.anthropic.com/mcp"),
+      hosts &&
+        connectionEndpointProblem(hosts, "https://api.anthropic.com/mcp"),
     ).toBeNull();
   });
 });
 
-describe("workspaceMcpUrlProblem", () => {
+describe("connectionEndpointProblem", () => {
   const hosts = workspaceMcpHostsFromEnv({
     EGRESS_CREDENTIAL_ALLOWLIST: "mcp.example.com:443",
     EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "mcp.lan:8080",
@@ -111,14 +120,178 @@ describe("workspaceMcpUrlProblem", () => {
   ];
   for (const [url, problem] of cases) {
     test(`${url} is ${problem ?? "allowed"}`, () => {
-      expect(workspaceMcpUrlProblem(hosts, url)).toBe(problem);
+      expect(connectionEndpointProblem(hosts, url)).toBe(problem);
     });
   }
 
   test("no list set refuses every URL", () => {
-    expect(workspaceMcpUrlProblem(null, "https://mcp.example.com/v1/mcp")).toBe(
-      "credential_allowlist_unset",
+    expect(
+      connectionEndpointProblem(null, "https://mcp.example.com/v1/mcp"),
+    ).toBe("credential_allowlist_unset");
+  });
+});
+
+describe("workspaceMcpServerUrlProblem", () => {
+  const hosts = workspaceMcpHostsFromEnv({
+    EGRESS_CREDENTIAL_ALLOWLIST: "mcp.example.com:443",
+    EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "mcp.lan:8080,10.0.0.9:8080",
+  });
+  const cases: [string, "url_insecure" | "url_invalid" | null][] = [
+    // Off both lists: a public https server needs no operator entry.
+    ["https://mcp.atlassian.com/v2/mcp", null],
+    ["https://MCP.Other.example.:8443/mcp", null],
+    ["https://mcp.example.com/v1/mcp", null],
+    ["http://mcp.lan:8080/mcp", null],
+    ["http://10.0.0.9:8080/mcp", null],
+    ["https://mcp.lan:8080/mcp", null],
+    ["http://example.com/mcp", "url_insecure"],
+    ["http://mcp.lan/mcp", "url_insecure"],
+    ["http://mcp.example.com/v1/mcp", "url_insecure"],
+    ["ftp://mcp.lan:8080/mcp", "url_insecure"],
+    // The proxy dials an https upstream by name only.
+    ["https://10.0.0.5/mcp", "url_invalid"],
+    ["https://127.0.0.1/mcp", "url_invalid"],
+    ["https://169.254.169.254/", "url_invalid"],
+    ["https://[::1]/mcp", "url_invalid"],
+    ["https://0x7f.1/mcp", "url_invalid"],
+    ["https://10.0.0.9:8080/mcp", "url_invalid"],
+  ];
+  for (const [url, problem] of cases) {
+    test(`${url} is ${problem ?? "allowed"}`, () => {
+      expect(workspaceMcpServerUrlProblem(hosts, url)).toBe(problem);
+    });
+  }
+
+  test("with no list set a public https server is still allowed, plain http never", () => {
+    expect(
+      workspaceMcpServerUrlProblem(null, "https://mcp.atlassian.com/v2/mcp"),
+    ).toBeNull();
+    expect(workspaceMcpServerUrlProblem(null, "http://mcp.lan:8080/mcp")).toBe(
+      "url_insecure",
     );
+  });
+});
+
+describe("workspaceMcpAddressCheck", () => {
+  const hosts = workspaceMcpHostsFromEnv({
+    EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "mcp.lan:8080",
+  });
+  const answering =
+    (addresses: string[]): Lookup =>
+    async () =>
+      addresses.map((address) => ({
+        address,
+        family: address.includes(":") ? 6 : 4,
+      }));
+  const PUBLIC = "93.184.215.14";
+  const cases: [
+    string,
+    string,
+    string[],
+    "address_not_allowed" | "unreachable" | null,
+  ][] = [
+    ["a public name", "https://mcp.example.com/mcp", [PUBLIC], null],
+    [
+      "a public name over IPv6",
+      "https://mcp.example.com/mcp",
+      ["2606:2800:21f:cb07:6820:80da:af6b:8b2c"],
+      null,
+    ],
+    [
+      "a name that resolves privately",
+      "https://mcp.example.com/mcp",
+      ["10.0.0.5"],
+      "address_not_allowed",
+    ],
+    [
+      "a name with one private answer among public ones",
+      "https://mcp.example.com/mcp",
+      [PUBLIC, "192.168.1.4"],
+      "address_not_allowed",
+    ],
+    [
+      "a loopback name",
+      "https://mcp.example.com/mcp",
+      ["127.0.0.1"],
+      "address_not_allowed",
+    ],
+    [
+      "the metadata address",
+      "https://mcp.example.com/mcp",
+      ["169.254.169.254"],
+      "address_not_allowed",
+    ],
+    [
+      "a private address carried in IPv6",
+      "https://mcp.example.com/mcp",
+      ["::ffff:10.0.0.5"],
+      "address_not_allowed",
+    ],
+    [
+      "a private-list host that resolves privately",
+      "http://mcp.lan:8080/mcp",
+      ["10.0.0.5"],
+      null,
+    ],
+    [
+      "a private-list host that resolves publicly",
+      "http://mcp.lan:8080/mcp",
+      [PUBLIC],
+      "address_not_allowed",
+    ],
+    [
+      "a private-list host's metadata address",
+      "http://mcp.lan:8080/mcp",
+      ["100.100.100.200"],
+      "address_not_allowed",
+    ],
+    [
+      "the private-list host on another port",
+      "https://mcp.lan/mcp",
+      ["10.0.0.5"],
+      "address_not_allowed",
+    ],
+    ["a name with no answer", "https://mcp.example.com/mcp", [], "unreachable"],
+  ];
+  for (const [what, url, addresses, problem] of cases) {
+    test(`${what} is ${problem ?? "allowed"}`, async () => {
+      expect(
+        await workspaceMcpAddressCheck(hosts, answering(addresses))(url),
+      ).toBe(problem);
+    });
+  }
+
+  test("a lookup that fails is unreachable, not allowed", async () => {
+    const lookup: Lookup = async () => {
+      throw new Error("ENOTFOUND");
+    };
+    expect(
+      await workspaceMcpAddressCheck(hosts, lookup)("https://mcp.example.com/"),
+    ).toBe("unreachable");
+  });
+});
+
+describe("workspaceMcpListed", () => {
+  const hosts = workspaceMcpHostsFromEnv({
+    EGRESS_CREDENTIAL_ALLOWLIST: "mcp.example.com:443,both.lan:8080",
+    EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: "mcp.lan:8080,both.lan:8080",
+  });
+  const cases: [string, "public" | "private" | null][] = [
+    ["https://MCP.example.com.:443/v1/mcp", "public"],
+    ["http://mcp.lan:8080/mcp", "private"],
+    // A host on both lists is held to the public one, as the proxy holds it.
+    ["https://both.lan:8080/mcp", "public"],
+    ["https://mcp.example.com:8443/mcp", null],
+    ["https://mcp.atlassian.com/v2/mcp", null],
+  ];
+  for (const [url, listed] of cases) {
+    test(`${url} is ${listed ?? "on neither"}`, () => {
+      expect(workspaceMcpListed(hosts, url)).toBe(listed);
+    });
+  }
+
+  test("with no list set every host is on neither", () => {
+    expect(workspaceMcpListed(null, "https://mcp.example.com/")).toBeNull();
   });
 });
 
@@ -152,7 +325,11 @@ describe("workspaceMcpOutbound", () => {
           headers: { "content-type": "application/json" },
           body: "{}",
         },
-        policy: { plainHttp: "refuse", privateHosts: ["mcp.lan:8080"] },
+        policy: {
+          plainHttp: "refuse",
+          privateHosts: ["mcp.lan:8080"],
+          privateHostsStayPrivate: true,
+        },
       },
     ]);
   });
@@ -167,7 +344,11 @@ describe("workspaceMcpOutbound", () => {
       null,
       request,
     )({ url: "https://a.example/", method: "GET" });
-    expect(policy).toEqual({ plainHttp: "refuse", privateHosts: [] });
+    expect(policy).toEqual({
+      plainHttp: "refuse",
+      privateHosts: [],
+      privateHostsStayPrivate: true,
+    });
   });
 
   const failures: [string, unknown, OutboundRefusedError["reason"]][] = [
@@ -234,7 +415,7 @@ describe("a connection's model list over the outbound policy", () => {
           endpoint: server.url,
           auth: { kind: "api_key", value: KEY, ref },
         },
-        workspaceMcpOutbound(privateTo(server.url)),
+        connectionModelsOutbound(privateTo(server.url)),
       );
       expect(listed).toEqual({
         models: [0, 1, 2].map((index) => ({
@@ -267,7 +448,7 @@ describe("a connection's model list over the outbound policy", () => {
           endpoint: `${server.url}/`,
           auth: { kind: "api_key", value: KEY, ref },
         },
-        workspaceMcpOutbound(privateTo(server.url)),
+        connectionModelsOutbound(privateTo(server.url)),
       );
       expect(listed).toEqual({
         models: [
@@ -294,7 +475,7 @@ describe("a connection's model list over the outbound policy", () => {
             endpoint: server.url,
             auth: { kind: "api_key", value: KEY, ref },
           },
-          workspaceMcpOutbound(
+          connectionModelsOutbound(
             workspaceMcpHostsFromEnv({
               EGRESS_CREDENTIAL_ALLOWLIST: new URL(server.url).host,
             }),

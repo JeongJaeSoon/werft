@@ -34,6 +34,8 @@ const REFUSAL_MESSAGES: Record<WorkspaceMcpRefusalReason, string> = {
     "The workspace MCP server has to be connected again by a workspace admin",
   credential_unavailable:
     "The workspace MCP server has no credential to call it with",
+  egress_proxy_outdated:
+    "The egress proxy is older than the API and cannot reach this server; upgrade the proxy",
 };
 
 export function createWorkspaceMcpEgress(deps: {
@@ -43,6 +45,12 @@ export function createWorkspaceMcpEgress(deps: {
     workspaceId: string,
     serverId: string,
   ) => Promise<WorkspaceMcpCallCredential | null>;
+  /**
+   * Where the operator's credential allowlists put a server URL's host:port:
+   * `private` only on the private one, `public` on the other, null on
+   * neither. A private one is left to the proxy's lists; absent, on neither.
+   */
+  operatorListed?: (url: string) => "public" | "private" | null;
   onReceiptError?: (error: unknown) => void;
 }) {
   const { store } = deps;
@@ -119,6 +127,14 @@ export function createWorkspaceMcpEgress(deps: {
         return forbidden("The workspace does not allow this MCP tool");
       }
     }
+    const at = new URL(state.url);
+    const listed = deps.operatorListed?.(state.url) ?? null;
+    // A proxy from before the mark holds the upstream to its own lists,
+    // which do not name this host: refused here instead, with a reason the
+    // operator reads in the receipt.
+    if (listed === null && request.registeredUpstream !== true) {
+      return refuse("egress_proxy_outdated");
+    }
     const credential = await deps.credentialFor(
       state.workspaceId,
       state.serverId,
@@ -147,7 +163,6 @@ export function createWorkspaceMcpEgress(deps: {
       // new connection's, which the receipt would not name.
       if (!recorded) return refuse("credential_unavailable");
     }
-    const at = new URL(state.url);
     return {
       kind: "granted",
       upstream: {
@@ -156,6 +171,10 @@ export function createWorkspaceMcpEgress(deps: {
         // and refuses a query in it.
         target: `${at.pathname}${at.search}`,
         headers: [["authorization", `Bearer ${token}`]],
+        // The operator's private host stays under the proxy's lists.
+        ...(listed !== "private" && at.protocol === "https:"
+          ? { allow: "public_https" as const }
+          : {}),
       },
     };
   };

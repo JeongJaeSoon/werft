@@ -85316,7 +85316,7 @@
           "Workspace settings"
         ],
         "summary": "Register a remote MCP server for the workspace",
-        "description": "Owners and admins signed in to the console as a person; never an API key. `auth_kind: oauth` pins what discovery finds; connect it with the OAuth start and callback. `auth_kind: bearer` stores the token, connects it under the caller and reads the server's tools. The name is the tool prefix `mcp__<name>__`: one taken by the installation catalog or by another server of this workspace answers 409 ALREADY_EXISTS, and `github` and `browser` are reserved. Writes a `create_workspace_mcp_server` receipt, never the token.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins signed in to the console as a person; never an API key. `auth_kind: oauth` pins what discovery finds; connect it with the OAuth start and callback. `auth_kind: bearer` stores the token, connects it under the caller and reads the server's tools. The name is the tool prefix `mcp__<name>__`: one taken by the installation catalog or by another server of this workspace answers 409 ALREADY_EXISTS, and `github` and `browser` are reserved. The URL is held to discovery's rules; a `bearer` server's name is resolved and judged before anything is stored. Writes a `create_workspace_mcp_server` receipt, never the token.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -85661,7 +85661,7 @@
           "Workspace settings"
         ],
         "summary": "Read what a remote MCP server asks for before registering it",
-        "description": "Owners and admins signed in to the console as a person; never an API key. Sends the server an unauthenticated `initialize` and follows its protected resource metadata to the authorization server's. `oauth` null: the server asks for no OAuth, register it with a static token. The URL must be https and its host:port on the API's `EGRESS_CREDENTIAL_ALLOWLIST` (http only for a host on `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`); with neither set every URL is refused. Writes nothing.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins signed in to the console as a person; never an API key. Sends the server an unauthenticated `initialize` and follows its protected resource metadata to the authorization server's. `oauth` null: the server asks for no OAuth, register it with a static token. The URL must be https with a named host, not an address (400 `url_insecure`, `url_invalid`), and every address it resolves to public (400 `address_not_allowed`); plain http and private addresses only for a host:port on the API's `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`, which must then resolve privately. A name that does not resolve or a server that does not answer is 503 `mcp_unreachable`. Writes nothing.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []

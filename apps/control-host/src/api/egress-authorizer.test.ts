@@ -31,6 +31,7 @@ import {
   EGRESS_AUTHORIZER_PATH,
   EGRESS_EXCHANGE_CALL_HEADER,
   EGRESS_EXCHANGES_PATH,
+  EGRESS_FEATURES_HEADER,
   EGRESS_USAGE_PATH,
   egressAuthorizerConfigFromEnv,
 } from "./egress-authorizer.ts";
@@ -85,7 +86,12 @@ afterEach(async () => {
 
 function ask(
   body: unknown,
-  options: { bearer?: string | null; path?: string; method?: string } = {},
+  options: {
+    bearer?: string | null;
+    path?: string;
+    method?: string;
+    headers?: Record<string, string>;
+  } = {},
 ) {
   const bearer =
     options.bearer === undefined ? AUTHORIZER_TOKEN : options.bearer;
@@ -97,6 +103,7 @@ function ask(
         headers: {
           "content-type": "application/json",
           ...(bearer === null ? {} : { authorization: `Bearer ${bearer}` }),
+          ...options.headers,
         },
         body: typeof body === "string" ? body : JSON.stringify(body),
       },
@@ -1024,9 +1031,38 @@ describe("egress authorizer: remote MCP", () => {
     expect((await ask(body)).status).toBe(200);
     expect((await ask({ ...body, regrant: true })).status).toBe(200);
     expect(asked).toEqual([
-      { ...body, regrant: false },
-      { ...body, regrant: true },
+      { ...body, regrant: false, registeredUpstream: false },
+      { ...body, regrant: true, registeredUpstream: false },
     ]);
+  });
+
+  test("says whether the proxy keeps to the registered-upstream mark", async () => {
+    const asked: unknown[] = [];
+    authorize = withMcp(async (request) => {
+      asked.push(
+        (request as { registeredUpstream: boolean }).registeredUpstream,
+      );
+      return {
+        session_id: "s",
+        attempt_id: "a",
+        upstream: { url: "u", headers: [] },
+      };
+    });
+    for (const features of [
+      "registered-upstream",
+      "later-feature, registered-upstream",
+      "registered-upstream-v2",
+      "",
+    ]) {
+      expect(
+        (
+          await ask(body, {
+            headers: { [EGRESS_FEATURES_HEADER]: features },
+          })
+        ).status,
+      ).toBe(200);
+    }
+    expect(asked).toEqual([true, true, false, false]);
   });
 
   test("a refusal carries its receipt id, and only one with a receipt does", async () => {
