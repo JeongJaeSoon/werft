@@ -167,3 +167,5 @@ export * from "./usage/metrics-reader.ts";
 export * from "./usage/usage-reader.ts";
 export * from "./werft-mcp/status.ts";
 export { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";
+
+// trial: an app change the kind install does not select
