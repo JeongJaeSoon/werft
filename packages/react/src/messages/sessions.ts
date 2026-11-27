@@ -205,6 +205,8 @@ export const sessionsKo = {
   "session.control.terminate.title": "세션을 종료할까요?",
   "session.control.terminate.consequence":
     "기다리는 메시지와 요청이 취소되고 실행이 강제로 멈춥니다. 이미 밖에서 한 일(커밋·푸시 등)은 되돌리지 않습니다. 나중에 마지막 체크포인트에서 다시 시작할 수 있습니다.",
+  "session.control.terminate.consequence.recovery":
+    "세션이 닫히고 다시 열 수 없습니다. 기다리는 메시지와 요청이 취소됩니다. 결과를 알 수 없는 턴은 그대로 남고, 이미 밖에서 한 일(커밋·푸시 등)은 되돌리지 않습니다.",
   "session.control.terminate.confirm": "종료",
   "session.control.cancel": "취소",
   "session.control.sent":
@@ -546,6 +548,8 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
   "session.control.terminate.title": "Terminate this session?",
   "session.control.terminate.consequence":
     "Waiting messages and requests are cancelled and the execution is stopped by force. Nothing it already did outside (commits, pushes) is undone. You can resume later from the last checkpoint.",
+  "session.control.terminate.consequence.recovery":
+    "The session is closed and cannot be reopened. Waiting messages and requests are cancelled. A turn whose result is unknown stays as it is, and nothing already done outside (commits, pushes) is undone.",
   "session.control.terminate.confirm": "Terminate",
   "session.control.cancel": "Cancel",
   "session.control.sent":
@@ -886,6 +890,8 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
   "session.control.terminate.title": "セッションを終了しますか？",
   "session.control.terminate.consequence":
     "待機中のメッセージとリクエストは取り消され、実行は強制的に停止します。すでに外部で行った操作（コミット・プッシュなど）は元に戻りません。あとで最後のチェックポイントから再開できます。",
+  "session.control.terminate.consequence.recovery":
+    "セッションは閉じられ、再び開くことはできません。待機中のメッセージとリクエストは取り消されます。結果が不明なターンはそのまま残り、すでに外部で行った操作（コミット・プッシュなど）は元に戻りません。",
   "session.control.terminate.confirm": "終了",
   "session.control.cancel": "キャンセル",
   "session.control.sent":

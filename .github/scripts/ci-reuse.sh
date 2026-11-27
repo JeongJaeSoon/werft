@@ -11,7 +11,8 @@
 # Reuse is all or nothing for the static checks, the integration domains, the
 # product scenarios and the executable guides, which share the plan's flags. helm-chart,
 # k8s-smoke and sdk-pack-smoke are judged one by one: a PR plan may leave
-# k8s-smoke out where a main push keeps it, and then main still runs it.
+# k8s-smoke out where a main push plans it (a release needs the commit), and
+# then main still runs it.
 # The conformance suite is not reused: no PR runs it, and ci.yml's `changes`
 # plans it for a main push apart from this script.
 # Evidence is the job's own test step having run and passed, not the job's
