@@ -385,7 +385,7 @@ describe("워크스페이스 MCP 서버", () => {
     );
     await user.click(within(dialog).getByRole("button", { name: "탐색" }));
     expect(
-      await within(dialog).findByText(/https가 아니거나 URL 형식이 아니어서/),
+      await within(dialog).findByText(/계정 정보나 #이 들어 있거나/),
     ).toBeDefined();
     expect(within(dialog).queryByLabelText("이름") === null).toBe(true);
   });
