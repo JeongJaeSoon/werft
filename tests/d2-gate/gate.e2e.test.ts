@@ -874,28 +874,34 @@ describe.skipIf(env === null)("D2 gate", () => {
       final: "B2 DONE",
     };
     // Turn 2 is accepted with the fault still armed. The worker owes turn 1
-    // its checkpoint and asks for no input until a retry lands, so a publish
-    // refused after the message, with turn 2 still queued, is that order
-    // seen from outside.
+    // its checkpoint and asks for no input until a retry lands. So the fault
+    // is swapped for a hold: the next retry's manifest PUT stops here, and
+    // while it is held nothing has landed and turn 2 must still be queued.
     const turnId = await api.message(sessionId, prompt("Turn two.", spec2));
-    const refused = async () =>
-      (await chaos.log(sessionId)).filter((entry) => entry.rule === failing)
-        .length;
-    const refusedBefore = await refused();
-    const retried = await waitFor(
-      "a retry of turn 1's publish to be refused while turn 2 waits",
-      async () => (await refused()) > refusedBefore,
+    const holding = await chaos.arm({
+      action: "hold",
+      upstream: "s3",
+      method: "PUT",
+      path: `sessions/${sessionId}/checkpoints/.*/manifest\\.json`,
+      times: 1,
+    });
+    await chaos.disarm(failing);
+    const heldPut = await waitFor(
+      "a retry of turn 1's publish to reach its manifest PUT",
+      async () =>
+        (await chaos.log(sessionId)).find((entry) => entry.rule === holding),
       60_000,
       250,
-    ).then(
-      () => true,
-      () => false,
-    );
+    ).catch(() => undefined);
     const rowOf = async (sequence: string) =>
       (await turnRows(sessionId)).find((t) => String(t.sequence) === sequence);
-    const held = await rowOf(turnId);
-    await chaos.disarm(failing);
+    const whileHeld = {
+      turn_2: (await rowOf(turnId))?.status,
+      checkpoints: (await checkpointRows(sessionId)).length,
+    };
+    await chaos.release(holding);
     const turn2 = await api.settle(sessionId, turnId, TURN_MS);
+    await chaos.disarm(holding);
     const checkpoints = await checkpointRows(sessionId);
     const problems = (
       await Promise.all(checkpoints.map((row) => verifyCheckpoint(bucket, row)))
@@ -922,12 +928,12 @@ describe.skipIf(env === null)("D2 gate", () => {
       title:
         "the retry covers the failed turn before the next one starts, each in a directory of its own",
       input:
-        "turn 2 sent with the fault armed; fault removed once a retry was refused",
+        "turn 2 sent with the fault armed; the next retry's manifest PUT held, then let through",
       expected:
-        "turn 2 queued while a retry is refused; then revision 0 on turn 1, committed before turn 2 started, and revision 1 on turn 2, both outside the failed directory; pointer 1; digests match; the publish_failed reason cleared",
+        "turn 2 queued and no checkpoint while the retry's PUT is held; that PUT becomes revision 0 on turn 1, committed before turn 2 started; revision 1 on turn 2; both outside the failed directory; pointer 1; digests match; the publish_failed reason cleared",
       actual: {
-        retry_refused_after_turn_2: retried,
-        turn_2_then: held?.status,
+        held_put: heldPut?.path,
+        while_held: whileHeld,
         status: turn2.status,
         checkpoints: checkpoints.map(
           (c) => `${c.revision}:${c.turn_id}:${c.manifest_ref}`,
@@ -940,8 +946,12 @@ describe.skipIf(env === null)("D2 gate", () => {
         problems,
       },
       pass:
-        retried &&
-        held?.status === "queued" &&
+        heldPut !== undefined &&
+        whileHeld.turn_2 === "queued" &&
+        whileHeld.checkpoints === 0 &&
+        decodeURIComponent(heldPut.path).includes(
+          checkpoints[0]?.manifest_ref ?? "none committed",
+        ) &&
         turn2.status === "completed" &&
         settled.checkpoint_pending_reason === null &&
         settled.checkpoint_revision === 1 &&
@@ -1173,8 +1183,7 @@ describe.skipIf(env === null)("D2 gate", () => {
     // operator. On a session of its own.
     const killedSpec = {
       id: "D3",
-      // Held far longer than the kill takes, so the turn is open when it
-      // lands however slow the host is.
+      // Held far longer than the kill takes: the turn is open when it lands.
       steps: [
         { ...write("/workspace/d3.txt", "d3 turn 1\n"), delayMs: 240_000 },
       ],

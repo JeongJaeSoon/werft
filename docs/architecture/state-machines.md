@@ -160,7 +160,7 @@ turn은 `queued → running → completed | failed | interrupted | outcome_unkno
 - 끊긴 turn(`worker_ownership_lost`, `emergency_stopped`)은 돈 turn으로 세지 않아 덮이지 않아도 T10을 일으키지 않는다. 그 앞의 turn이 덮이지 않았으면 T10은 그대로 일어난다.
 - 긴급 정지는 열린 turn이 없어도 실행을 fence한다. 정지 뒤에는 그 worker의 T2·T3이 일어나지 않고 새 T4 판정도 거절된다. 정지 전에 이미 허가받은 provider 호출은 정지 뒤에 예산에 잡힐 수 있다. 그때 덮이지 않은 turn은 덮이지 않은 채 남고, 지금의 context gap 판정(실행 종료 확인, claim, `stopped`에서의 재개)을 그대로 받는다.
 - T11로 끊긴 turn은 사람이 [이어서 하기]를 해야만 다시 돈다.
-- T14의 조건은 둘 다 있어야 한다. 기록이 없으면, park되지 않고 열려 있던 turn은 `outcome_unknown`(`execution_gone`)이 되고 세션은 `recovery_required`로 간다(R13). 기록은 있는데 lease가 아직 살아 있으면, kill이 요청되지 않은 실행은 아무것도 닫지 않고 lease가 끝난 뒤의 물음이 닫는다(R14).
+- T14의 조건은 둘 다 있어야 한다. 기록이 없으면, park되지 않고 열려 있던 turn은 `outcome_unknown`(`execution_gone`)이 되고 세션은 `recovery_required`로 간다(이미 `closed`인 세션은 그대로, R13). 기록은 있는데 lease가 아직 살아 있으면, kill이 요청되지 않은 실행은 아무것도 닫지 않고 lease가 끝난 뒤의 물음이 닫는다(R14).
 - T14로 끊긴 turn은 저절로 다시 돌지 않는다. admission이 `active`이고 그 앞에 덮이지 않은 turn이 없으면 세션은 다음 입력을 새 worker에서 받고(P7), 새 입력으로 만든 turn은 끊긴 turn의 입력을 앞에 붙여 받는다. 그 입력의 출처가 지워졌거나 입력을 읽을 수 없으면 붙이지 않고 `prepend_skip_reason`을 적는다. [이어서 하기]로 만든 turn은 끊긴 turn의 입력이 곧 자기 입력이다.
 
 ### 값
