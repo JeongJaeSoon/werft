@@ -1,6 +1,6 @@
 {
-  "id": "2ca38a5a-de05-47c9-bfbd-47545e438e50",
-  "prevId": "22298e15-9907-4d1a-b38e-82ac33b33f1d",
+  "id": "65d61a62-bea9-4932-991d-baff469f3daf",
+  "prevId": "b4bb290c-c7ca-4298-8890-1ee326da9912",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -18298,6 +18298,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "access": {
+          "name": "access",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'installation'"
+        },
         "repository_id": {
           "name": "repository_id",
           "type": "bigint",
@@ -18512,6 +18519,10 @@
         "skill_git_sources_ids_check": {
           "name": "skill_git_sources_ids_check",
           "value": "\"skill_git_sources\".\"installation_id\" > 0 AND \"skill_git_sources\".\"repository_id\" > 0"
+        },
+        "skill_git_sources_access_check": {
+          "name": "skill_git_sources_access_check",
+          "value": "\"skill_git_sources\".\"access\" IN ('installation', 'public')"
         },
         "skill_git_sources_auto_approve_check": {
           "name": "skill_git_sources_auto_approve_check",
