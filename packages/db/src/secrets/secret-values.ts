@@ -187,7 +187,7 @@ export async function openSecretsOf(
  * Seals `value` into the slot inside the caller's transaction, so a store
  * that keeps more than the secret (a Slack app's row, the config token's
  * expiry) commits both together. False when the slot already held this
- * value (it is sealed again all the same).
+ * value, opened under `key` (it is sealed again all the same).
  */
 export async function writeSecretInTx(
   tx: Database,

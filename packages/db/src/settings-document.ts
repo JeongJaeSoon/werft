@@ -666,7 +666,8 @@ function consoleWrites(
         if (!ownStoredOf(owner.kind, owner.id, held)) {
           return { outcome: "conflict" as const, reason: "not_stored" };
         }
-        // The value it already held: no replica has anything to read again.
+        // The value it already held: the generation stays, so no other
+        // replica reads the settings again for it.
         if (await sealIn(tx, owner, value, actor)) {
           await raiseSettingsGeneration(tx);
         }
@@ -698,7 +699,7 @@ function consoleWrites(
           .from(providerConnections)
           .where(eq(providerConnections.id, id));
         // The lists it already holds: no row write, so its trigger leaves
-        // the generation and no replica reads again.
+        // the generation and no other replica reads the settings again.
         const same =
           canonicalJsonOfJson(stored?.models ?? null) ===
             canonicalJsonOfJson(models.models) &&

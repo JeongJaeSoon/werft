@@ -298,6 +298,38 @@ describe("caughtUp", () => {
     expect(registry.settings?.generation).toBe(5);
   });
 
+  test("a read begun later that opened an older snapshot does not replace a newer one", async () => {
+    const { registry, pending, until } = heldReads(5);
+    const first = registry.refresh();
+    const second = registry.refresh();
+    await until(2);
+    // The first read's snapshot opened after 5 committed, the second's
+    // before: the first finishes first and a request resolves on it.
+    pending[0]?.resolve(snapshot(5));
+    await first;
+    await registry.caughtUp();
+    pending[1]?.resolve(snapshot(4));
+    await second;
+    expect(registry.settings?.generation).toBe(5);
+    await registry.caughtUp();
+    expect(pending).toHaveLength(2);
+  });
+
+  test("a read begun after the apply is taken even at a lower generation", async () => {
+    const { registry, state, pending, until } = heldReads(5);
+    const first = registry.refresh();
+    await until(1);
+    pending[0]?.resolve(snapshot(5));
+    await first;
+    // A restored database: the generation went back.
+    state.generation = 2;
+    const again = registry.refresh();
+    await until(2);
+    pending[1]?.resolve(snapshot(2));
+    await again;
+    expect(registry.settings?.generation).toBe(2);
+  });
+
   test("a settings read that fails rejects with its own error; the next request reads again", async () => {
     const { registry, state, pending, until } = heldReads(1);
     const first = registry.refresh();

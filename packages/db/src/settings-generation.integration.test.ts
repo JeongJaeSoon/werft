@@ -168,8 +168,13 @@ integration("the settings generation two API replicas judge on", () => {
     expect(
       (await store().create(connection(id), "models-key-1111", owner)).outcome,
     ).toBe("done");
-    const set = (models: string[]) =>
-      store().setConnectionModels(id, { models }, owner);
+    type Families = Record<string, { family: string; rank: number }>;
+    const set = (models: string[], model_families?: Families) =>
+      store().setConnectionModels(
+        id,
+        model_families === undefined ? { models } : { models, model_families },
+        owner,
+      );
     expect((await set(["claude-sonnet-5"])).outcome).toBe("done");
     const before = await generation();
     expect((await set(["claude-sonnet-5"])).outcome).toBe("done");
@@ -178,6 +183,18 @@ integration("the settings generation two API replicas judge on", () => {
       "done",
     );
     expect(await generation()).toBe(before + 1);
+    // The same models with families they lacked, then again, then others.
+    const sonnet = { "claude-sonnet-5": { family: "sonnet", rank: 5 } };
+    const models = ["claude-sonnet-5", "claude-haiku-5"];
+    expect((await set(models, sonnet)).outcome).toBe("done");
+    expect(await generation()).toBe(before + 2);
+    expect((await set(models, sonnet)).outcome).toBe("done");
+    expect(await generation()).toBe(before + 2);
+    expect((await set(models)).outcome).toBe("done");
+    expect(await generation()).toBe(before + 2);
+    const ranked = { "claude-sonnet-5": { family: "sonnet", rank: 6 } };
+    expect((await set(models, ranked)).outcome).toBe("done");
+    expect(await generation()).toBe(before + 3);
   });
 
   test("what one replica writes, the other judges on at its next request, its periodic read not yet come", async () => {
