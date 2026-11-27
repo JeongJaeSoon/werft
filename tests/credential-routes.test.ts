@@ -201,8 +201,9 @@ async function topology(
       },
     },
     github: {
-      // As the gate answers a session that attached nothing: its own
-      // repository only (github-gate.test.ts pins the gate's side).
+      // As the gate answers a session allowed its own repository only (an
+      // empty attachment list, or a release listing no other); a null list
+      // allows the release's whole (github-gate.test.ts pins the gate's side).
       grant: async ({ repositoryId }) => {
         granted.push(repositoryId);
         if (repositoryId !== undefined) {
@@ -821,6 +822,10 @@ describe("credential routes end to end", () => {
         new Response(child.stderr).text(),
         child.exited,
       ]);
+      // A git the deadline killed has refused nothing.
+      if (child.signalCode !== null) {
+        throw new Error(`git ${args[0]} ended on ${child.signalCode}`);
+      }
       return { status, stdout, stderr };
     }
 
@@ -1097,7 +1102,7 @@ describe("credential routes end to end", () => {
               environment[`GIT_CONFIG_KEY_${index}`],
               environment[`GIT_CONFIG_VALUE_${index}`],
             ] as const,
-        ).filter(([, value]) => value?.startsWith("Authorization:"));
+        ).filter(([, value]) => /^\s*authorization\s*:/i.test(value ?? ""));
       // Which children talk to a remote is read from their arguments, not
       // from whether they were handed a header.
       const subcommand = (args: string[]) => {
