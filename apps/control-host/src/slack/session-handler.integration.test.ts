@@ -3964,6 +3964,7 @@ describe.each(ENGINES)(
       now?: Date,
       claimMs = 60_000,
       statuses?: MentionTurnStatusStore,
+      on: typeof db = db,
     ) => {
       // As a pass does: the catalog read before a task is opened. Read as
       // the first turn ends, not before the pass looks for turns, so the
@@ -3992,7 +3993,7 @@ describe.each(ENGINES)(
       const mentionCatalog = slackCatalog(db, LIMITS);
       await mentionCatalog.refresh();
       return slackMentionTurnEndings({
-        db,
+        db: on,
         secretKey: key,
         catalog: mentionCatalog,
         slack: createSlackBotApi({ apiUrl: slack.url }),
@@ -5999,6 +6000,114 @@ describe.each(ENGINES)(
         line(SLACK_NOTICE_MESSAGES.en.mentionFailed),
       ]);
       expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
+    });
+
+    test("a pass that read the mention before another wrote the next try ends on that try, with no failure line", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      await report(turn, { outcome: "failed", reason: "engine_failed" });
+      // Pass A writes the next try and lets the input go between pass B's
+      // read of the mention and what B reads after it.
+      let other: Promise<unknown> | undefined;
+      const paused = new Proxy(db, {
+        get(target, name, receiver) {
+          if (name !== "execute") return Reflect.get(target, name, receiver);
+          return async (query: Parameters<typeof db.execute>[0]) => {
+            const rows = await target.execute(query);
+            const chunks = (query as { queryChunks?: { value?: unknown }[] })
+              .queryChunks;
+            const text = (chunks ?? [])
+              .map((chunk) =>
+                Array.isArray(chunk.value) ? chunk.value.join("") : "",
+              )
+              .join("");
+            if (
+              other === undefined &&
+              text.includes("q.input_id, q.attempt, e.team_id")
+            ) {
+              other = endings();
+              await other;
+            }
+            return rows;
+          };
+        },
+      });
+      const b = await endings(undefined, 60_000, undefined, paused);
+      expect(other).toBeDefined();
+      expect(await other).toMatchObject({ retried: 1, gaveUp: 0 });
+      // B finds the mention moved: the try is the other pass's, said once.
+      expect(b).toMatchObject({ gaveUp: 0 });
+      expect(await mentionTurnsOf(fixture)).toHaveLength(2);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100").map((post) => post.text)).toEqual([
+        line(SLACK_NOTICE_MESSAGES.en.mentionRetrying),
+      ]);
+    });
+
+    test("a retry line that cannot be written leaves the next try queued", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      await report(turn, { outcome: "failed", reason: "engine_failed" });
+      await db.execute(sql`
+        CREATE FUNCTION refuse_retry_line() RETURNS trigger AS $$
+        BEGIN
+          IF NEW.dedupe_key LIKE 'mention_retry_notice:%' THEN
+            RAISE EXCEPTION 'retry line refused';
+          END IF;
+          RETURN NEW;
+        END $$ LANGUAGE plpgsql`);
+      await db.execute(sql`
+        CREATE TRIGGER refuse_retry_line BEFORE INSERT ON slack_outbox
+        FOR EACH ROW EXECUTE FUNCTION refuse_retry_line()`);
+      try {
+        expect(await endings()).toMatchObject({ retried: 1, gaveUp: 0 });
+      } finally {
+        await db.execute(sql`DROP TRIGGER refuse_retry_line ON slack_outbox`);
+        await db.execute(sql`DROP FUNCTION refuse_retry_line()`);
+      }
+      const next = await leased();
+      expect(next.turn_id).not.toBe(turn.turn_id);
+      expect(await mentionTurnsOf(fixture)).toHaveLength(2);
+    });
+
+    test("a try an emergency stop ended before it was queued is not queued, and nothing follows it", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const {
+        lease_id: _lease,
+        lease_expires_at: _expires,
+        ...turn
+      } = await leased();
+      // As if the stop came between its permit and its queue row.
+      await db.execute(sql`
+        DELETE FROM conversation_turn_queue WHERE turn_id = ${turn.turn_id}::uuid`);
+      await db.execute(sql`
+        UPDATE conversation_turns SET state = 'no_decision',
+          ended_at = clock_timestamp()
+        WHERE id = ${turn.turn_id}::uuid`);
+      expect(
+        await queue().enqueue(turn, {
+          inputId: turn.input.id as ConversationInputId,
+          attempt: 1,
+          takeBy: new Date(Date.now() + 60_000),
+        }),
+      ).toBe("ended");
+      expect(await queue().outcome(turn.turn_id, new Date())).toBeNull();
+      expect(await endings(new Date(Date.now() + 10 * 60_000))).toMatchObject({
+        retried: 0,
+        gaveUp: 0,
+        budgetRefused: 0,
+      });
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100")).toEqual([]);
     });
 
     test("an untaken try sealed under another key ends, keeps nothing, and its thread hears the failure line", async () => {

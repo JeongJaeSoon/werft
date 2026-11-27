@@ -159,6 +159,10 @@ export function createPostgresMentionTurnRetries(
     },
 
     async requestOf(turnId): Promise<MentionTurnRetryRequest | "moved" | null> {
+      // The kept input before the mention: a pass that writes the next try
+      // moves the mention before it lets the input go, so an input another
+      // pass let go is read here as a moved mention, not as one gone.
+      const text = await keptTurnRequest(db, secretKey, turnId);
       const [turn] = rowsOf<{
         workspace_id: string;
         agent_id: string;
@@ -194,7 +198,6 @@ export function createPostgresMentionTurnRetries(
       ) {
         return "moved";
       }
-      const text = await keptTurnRequest(db, secretKey, turnId);
       if (text === null) return null;
       return {
         workspaceId: turn.workspace_id,

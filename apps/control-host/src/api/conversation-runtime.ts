@@ -253,7 +253,7 @@ export function createOperatorConversationTurns(deps: {
         // An operator's input is its own: in no conversation_inputs row,
         // and tried once.
         const inputId = conversationInputIdSchema.parse(crypto.randomUUID());
-        await deps.turns.queue.enqueue(
+        const queued = await deps.turns.queue.enqueue(
           {
             turn_id: turnId,
             scope: {
@@ -285,6 +285,8 @@ export function createOperatorConversationTurns(deps: {
             usableUntil: issued.expiresAt,
           },
         );
+        // Stopped between its permit and the queue: it never runs.
+        if (queued === "ended") return { outcome: "channel_stopped" };
         turn = await deps.turns.ended(turnId);
       } catch (error) {
         // A turn that could not be queued or waited for gets no more calls.
@@ -381,7 +383,7 @@ export function createMentionConversationTurns(deps: {
       await queuing();
       const at = now();
       const { inputId } = tried;
-      await deps.queue.enqueue(
+      const queued = await deps.queue.enqueue(
         {
           turn_id: turnId,
           scope: {
@@ -421,6 +423,8 @@ export function createMentionConversationTurns(deps: {
           usableUntil: issued.expiresAt,
         },
       );
+      // Stopped between its permit and the queue: it never runs.
+      if (queued === "ended") return { outcome: "channel_stopped" };
     } catch (error) {
       // A turn that could not be queued gets no calls.
       await deps.calls.endTurn(turnId);

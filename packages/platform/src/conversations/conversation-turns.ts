@@ -645,9 +645,17 @@ export async function endMentionTurns(deps: {
       return "wait";
     }
     // Said once the next try is written, so a try that cannot be written
-    // never says it, and before the next try can answer.
+    // never says it, and before the next try can answer. A line that cannot
+    // be written does not stop the try: the mention is the next try's now.
     const started = await deps.retry(turnId, async () => {
-      await deps.retries.tell(turnId, "retrying");
+      try {
+        await deps.retries.tell(turnId, "retrying");
+      } catch (error) {
+        deps.logger.warn("Mention turn retry line not written", {
+          turn_id: turnId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     });
     deps.logger.info("Mention turn tried again", {
       turn_id: turnId,

@@ -233,6 +233,9 @@ provider 호출과 예산 원장 줄만으로는 나간 것으로 보지 않는�
 | MR8 | 끝 보고가 상한 뒤에 온 호출의 시도를 다시 하는 것 | `a call that reports past the wait counts as one still out, whichever pass reads it` |
 | MR9 | 다음 시도를 쓰지 못했는데 다시 시도 안내를 다는 것 | `a try whose kept input is gone ends on the failure line alone, with no retry line` |
 | MR10 | 열 수 없는 봉인(다른 key)이 큐 정리를 막거나 남는 것 | `an untaken try sealed under another key ends, keeps nothing, and its thread hears the failure line` |
+| MR11 | 다른 pass가 다음 시도를 쓰고 사본을 놓은 것을 사본이 없어진 것으로 읽고 실패 문구를 다는 것. 사본을 멘션보다 먼저 읽는다 | `a pass that read the mention before another wrote the next try ends on that try, with no failure line` |
+| MR12 | 다시 시도 안내를 쓰지 못해서 이미 옮긴 다음 시도를 잃는 것. 안내 없이 다음 시도를 큐에 넣는다 | `a retry line that cannot be written leaves the next try queued` |
+| MR13 | permit을 쓴 뒤 큐에 넣기 전에 긴급 정지가 끝낸 시도가 큐에 들어가는 것. 큐에 넣을 때 정지와 같은 큐 잠금 아래에서 turn이 이미 끝났는지(`ended_at`) 본다 | `a try an emergency stop ended before it was queued is not queued, and nothing follows it` |
 
 M1·M2는 `a model that fails twice and answers the third time: …`와 MR1의 시험이, M6의 M1 갈래는 `a try whose call reports within the wait is tried again`이 본다.
 
@@ -248,6 +251,8 @@ M1·M2는 `a model that fails twice and answers the third time: …`와 MR1의 �
 - 다음 시도의 permit은 썼는데 큐에 넣기 전에 프로세스가 멈추면, 그 시도는 큐에 없는 turn으로 조용히 끝난다(첫 시도와 같다). 다시 시도 안내는 큐에 넣기 직전에 달므로 이미 나갔을 수 있다.
 - 첫 시도가 밖으로 나간 것이 있어 바로 끝나도 실패 문구는 "세 번 시도했지만"이다(정해진 문구).
 - 롤링 업그레이드 중 앞선 이미지의 pass가 먼저 스레드를 active로 돌린 시도는 다시 시도하지 않는다.
+- 다시 시도 안내를 단 뒤 큐에 넣기 전에 긴급 정지가 들어오면, 시도는 큐에 들어가지 않지만 안내 줄은 outbox에 남는다. 정지된 채널의 outbox는 아무것도 보내지 않고, 정지를 풀면 그 줄이 나갈 수 있다.
+- 호출의 정산이 30초 상한 전의 시각으로 적히고 커밋이 상한 뒤에 되면, 커밋 전에 읽은 pass는 실패 문구로, 커밋 뒤에 읽은 pass는 다시 시도로 갈 수 있다. 상한 경계의 밀리초 창이고, 그때 스레드에는 실패 문구 뒤에 답이 온다.
 
 ## 3. 대화 turn
 

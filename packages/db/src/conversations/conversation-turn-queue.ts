@@ -20,7 +20,10 @@ import {
 } from "@werft-ai/platform";
 import { and, eq, inArray, isNotNull, max, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
-import { conversationTurnQueue as queue } from "../schema.ts";
+import {
+  conversationTurns,
+  conversationTurnQueue as queue,
+} from "../schema.ts";
 import { rowsOf } from "../statement-rows.ts";
 
 const queuedTurnSchema = conversationRuntimeTurnSchema.omit({
@@ -194,7 +197,7 @@ export function createPostgresConversationTurnQueue(
 
   // A turn that ended before a lease took its permit's token out (untaken,
   // or not a turn this key opens) keeps, for a try again, its input alone,
-  // or nothing when it cannot be opened. Run after its end: an open row
+  // or nothing when it cannot be opened. Run after its end: a queued row
   // always holds its turn sealed.
   async function keepInputAlone(tx: Database, turnId: ConversationTurnId) {
     const [sealed] = await tx
@@ -340,31 +343,47 @@ export function createPostgresConversationTurnQueue(
         aadOf(turn.turn_id),
         JSON.stringify(turn),
       );
-      const inserted = await db
-        .insert(queue)
-        .values({
-          turnId: turn.turn_id,
-          inputId,
-          attempt,
-          topicId: turn.scope.topic_id,
-          state: "queued",
-          takeBy,
-          takeMs: Math.max(0, takeBy.getTime() - now.getTime()),
-          usableUntil: usableUntil ?? null,
-          turnNonce: sealed.nonce,
-          turnCiphertext: sealed.ciphertext,
-        })
-        .onConflictDoNothing()
-        .returning({ turnId: queue.turnId, told: told("queued") });
-      if (inserted.length > 0) return "queued";
-      const [same] = await db
-        .select({ turnId: queue.turnId })
-        .from(queue)
-        .where(eq(queue.turnId, turn.turn_id));
-      if (same !== undefined) {
-        throw new Error(`Conversation turn ${turn.turn_id} is already queued`);
-      }
-      return "duplicate";
+      // Under the lock an emergency stop takes before it ends a channel's
+      // turns: one it ended before this row existed is never queued.
+      return locked(async (db) => {
+        const [ended] = await db
+          .select({ id: conversationTurns.id })
+          .from(conversationTurns)
+          .where(
+            and(
+              eq(conversationTurns.id, turn.turn_id),
+              isNotNull(conversationTurns.endedAt),
+            ),
+          );
+        if (ended !== undefined) return "ended" as const;
+        const inserted = await db
+          .insert(queue)
+          .values({
+            turnId: turn.turn_id,
+            inputId,
+            attempt,
+            topicId: turn.scope.topic_id,
+            state: "queued",
+            takeBy,
+            takeMs: Math.max(0, takeBy.getTime() - now.getTime()),
+            usableUntil: usableUntil ?? null,
+            turnNonce: sealed.nonce,
+            turnCiphertext: sealed.ciphertext,
+          })
+          .onConflictDoNothing()
+          .returning({ turnId: queue.turnId, told: told("queued") });
+        if (inserted.length > 0) return "queued";
+        const [same] = await db
+          .select({ turnId: queue.turnId })
+          .from(queue)
+          .where(eq(queue.turnId, turn.turn_id));
+        if (same !== undefined) {
+          throw new Error(
+            `Conversation turn ${turn.turn_id} is already queued`,
+          );
+        }
+        return "duplicate" as const;
+      });
     },
 
     lease: ({ runtimeId, now, leaseMs }) =>
