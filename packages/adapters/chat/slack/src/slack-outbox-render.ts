@@ -23,7 +23,10 @@ export const SLACK_OUTBOX_MESSAGES: Readonly<
   Record<
     UserLocale,
     Readonly<
-      Record<"emptyReply" | "uncertain" | "link" | "web" | "api", string>
+      Record<
+        "emptyReply" | "uncertain" | "link" | "web" | "api" | "afterTurn",
+        string
+      >
     >
   >
 > = {
@@ -33,6 +36,7 @@ export const SLACK_OUTBOX_MESSAGES: Readonly<
     link: "웹에서 열기",
     web: "웹 콘솔",
     api: "API",
+    afterTurn: "배경 작업이 끝나 이어서 알려 드립니다.",
   },
   ja: {
     emptyReply: "回答が完了しました。内容はWebで確認してください",
@@ -40,6 +44,7 @@ export const SLACK_OUTBOX_MESSAGES: Readonly<
     link: "Webで開く",
     web: "Webコンソール",
     api: "API",
+    afterTurn: "バックグラウンド作業が終わったので、続きをお知らせします。",
   },
   en: {
     emptyReply: "The answer is done. See it on the web",
@@ -47,6 +52,7 @@ export const SLACK_OUTBOX_MESSAGES: Readonly<
     link: "Open on the web",
     web: "Web console",
     api: "API",
+    afterTurn: "The background work finished; here is what followed.",
   },
 };
 
