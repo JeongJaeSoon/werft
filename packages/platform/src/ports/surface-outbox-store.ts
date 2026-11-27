@@ -319,6 +319,8 @@ export type SurfaceAfterTurnReply = SurfaceLinkedTurnTarget & {
   requesterSlackUserId: string | null;
   /** The ending result's sequence in its attempt: one follow-up each. */
   resultSequence: number;
+  /** The ending result's event id: where the next page starts. */
+  resultId: string;
   /**
    * The top-level assistant and tool_use payloads after the previous such
    * result of the turn and up to this one, in order.
@@ -823,9 +825,14 @@ export interface SurfaceOutboxStore {
   unansweredTurns(limit: number): Promise<SurfaceUnansweredTurn[]>;
   /**
    * What engines said after their turns ended, in threads that still hear
-   * of turns, that has no follow-up row (`slackAfterTurnDedupeKey`).
+   * of turns, that has no follow-up row (`slackAfterTurnDedupeKey`), oldest
+   * first; with `after` (a `resultId`), only those past it, so a page of
+   * answers with nothing to say is passed.
    */
-  afterTurnReplies(limit: number): Promise<SurfaceAfterTurnReply[]>;
+  afterTurnReplies(
+    limit: number,
+    after?: string,
+  ): Promise<SurfaceAfterTurnReply[]>;
   /**
    * Live linked sessions whose worker has waited at least `waitedMs` for
    * room no node has, and whose thread was not told of that wait

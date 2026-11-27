@@ -35,24 +35,32 @@ const reply = (
   },
   requesterSlackUserId: "U0ASKER",
   resultSequence: 7,
+  resultId: String(over.resultSequence ?? 7),
   events: [said("The build passed.")],
   ...over,
 });
 
-async function rowsFor(replies: SurfaceAfterTurnReply[]) {
+async function rowsFor(replies: SurfaceAfterTurnReply[], limit = 10) {
   const rows: SurfaceOutboxEntry[] = [];
-  const count = await enqueueSlackAfterTurnReplies({
+  const { enqueued: count, complete } = await enqueueSlackAfterTurnReplies({
     outbox: {
-      afterTurnReplies: async () => replies,
+      // As the store pages them: oldest first, past the cursor.
+      afterTurnReplies: async (pageLimit, after) =>
+        replies
+          .filter(
+            (reply) =>
+              after === undefined || Number(reply.resultId) > Number(after),
+          )
+          .slice(0, pageLimit),
       enqueue: async (entry) => {
         rows.push(entry);
         return "enqueued" as const;
       },
     },
     consoleOrigin: "https://console.example",
-    limit: 10,
+    limit,
   });
-  return { rows, count };
+  return { rows, count, complete };
 }
 
 test("an answer after the turn becomes one reply in the turn's thread, under the line that says so, mentioning who asked", async () => {
@@ -106,6 +114,28 @@ test("the text is what the engine said after its last tool call; an answer with 
   expect(rows.map((row) => row.body.text)).toEqual([
     `<@U0ASKER> ${SLACK_OUTBOX_MESSAGES.ko.afterTurn}\n\nAll green.`,
   ]);
+});
+
+test("answers with nothing to say are paged past, so a later one still goes and the pass is complete", async () => {
+  const { rows, count, complete } = await rowsFor(
+    [
+      reply({ resultSequence: 1, events: [said("Looking."), tool] }),
+      reply({ resultSequence: 2, events: [] }),
+      reply({ resultSequence: 3, events: [said("Done.")] }),
+    ],
+    2,
+  );
+  expect([count, complete]).toEqual([1, true]);
+  expect(rows.map((row) => row.dedupeKey)).toEqual(["after_turn:link-1:2:3"]);
+});
+
+test("a pass that fills its limit is not complete, and leaves the rest to the next", async () => {
+  const { rows, complete } = await rowsFor(
+    [reply({ resultSequence: 1 }), reply({ resultSequence: 2 })],
+    1,
+  );
+  expect(complete).toBe(false);
+  expect(rows.map((row) => row.dedupeKey)).toEqual(["after_turn:link-1:2:1"]);
 });
 
 test("the line is in the thread's language, English with none, and no one is mentioned when no Slack account asked", async () => {

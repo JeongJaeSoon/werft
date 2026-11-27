@@ -243,11 +243,12 @@ export async function drainSlackOutbox(deps: {
     limit: deps.batchSize,
   });
   // After the answers: a follow-up waits for its turn's reply to go.
-  drain.enqueued += await enqueueSlackAfterTurnReplies({
+  const afterTurn = await enqueueSlackAfterTurnReplies({
     outbox: deps.outbox,
     consoleOrigin: deps.consoleOrigin,
     limit: deps.batchSize,
   });
+  drain.enqueued += afterTurn.enqueued;
   drain.enqueued += await enqueueSlackPrompts({
     outbox: deps.outbox,
     consoleOrigin: deps.consoleOrigin,
@@ -261,7 +262,11 @@ export async function drainSlackOutbox(deps: {
   // the mark moves first past the rows just enqueued.
   if (deps.closeLinks === true) {
     await deps.outbox.advanceAnswered();
-    drain.linksClosed = await deps.outbox.closeFinishedLinks(deps.batchSize);
+    // A follow-up this pass did not reach could be its link's last row: the
+    // links close on a pass that read them all.
+    if (afterTurn.complete) {
+      drain.linksClosed = await deps.outbox.closeFinishedLinks(deps.batchSize);
+    }
   }
   if (deps.botToken === null) return drain;
 

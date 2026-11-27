@@ -2786,18 +2786,61 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       await sayAfterTurn(sessionId, 1, [text("   ")]);
       const answer = await sayAfterTurn(sessionId, 1, [text("Done.")]);
 
-      expect(
-        (await createPostgresSlackOutboxStore(db).afterTurnReplies(1)).map(
-          (reply) => reply.resultSequence,
-        ),
-      ).toEqual([answer]);
-      await outboxPass();
-      await outboxPass();
+      // One row a pass: the two with nothing to say are paged past.
+      await outboxPass({ batchSize: 1 });
+      await outboxPass({ batchSize: 1 });
       expect(
         posted()
           .slice(1)
           .map((message) => message.text.split("\n\n")[1]),
       ).toEqual(["Done."]);
+      expect((await followUps()).map((row) => row.dedupeKey)).toEqual([
+        expect.stringMatching(new RegExp(`:1:${answer}$`)),
+      ]);
+    });
+
+    test("a closing session's link stays open until every follow-up it owes is in, one a pass", async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("first")]]);
+      expect(await outboxPass()).toMatchObject({ sent: 1 });
+      await sayAfterTurn(sessionId, 1, [text("one")]);
+      await sayAfterTurn(sessionId, 1, [text("two")]);
+      await db
+        .update(sessions)
+        .set({ admissionState: "closed" })
+        .where(eq(sessions.id, sessionId));
+
+      for (let pass = 0; pass < 4; pass += 1) {
+        await outboxPass({ batchSize: 1, closeLinks: true });
+      }
+      expect(
+        posted()
+          .slice(1)
+          .map((message) => message.text.split("\n\n")[1]),
+      ).toEqual(["one", "two"]);
+      const [link] = await db.select().from(sessionLinks);
+      expect(link?.closedAt).not.toBeNull();
+    });
+
+    test("calls no one for a turn a Slack bot asked for, not even who opened the thread", async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("first")]]);
+      expect(await outboxPass()).toMatchObject({ sent: 1 });
+      await db
+        .update(turns)
+        .set({ requesterKind: "slack_bot", actorId: null })
+        .where(eq(turns.sessionId, sessionId));
+      await sayAfterTurn(sessionId, 1, [text("later")]);
+      await outboxPass();
+      await outboxPass();
+      expect(posted()[1]?.text.split("\n\n")[0]).toBe(line);
+      expect((await followUps())[0]?.body).not.toHaveProperty(
+        "mention_user_ids",
+      );
     });
 
     test("is never sent once the message the turn answers is deleted", async () => {

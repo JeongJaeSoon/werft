@@ -1617,7 +1617,7 @@ export function createPostgresSlackOutboxStore(
       );
     },
 
-    async afterTurnReplies(limit) {
+    async afterTurnReplies(limit, after) {
       // An after-turn result names the turn of its attempt (the one it ended
       // last). The key the adapter's slackAfterTurnDedupeKey makes, and the
       // turn's own row's (slackTurnDedupeKey), spelled in SQL.
@@ -1675,6 +1675,7 @@ export function createPostgresSlackOutboxStore(
             AND e.type = 'result'
             AND (e.neutral ->> 'after_turn') IS NOT NULL
             AND e.source_sequence IS NOT NULL
+            AND e.id > ${after ?? "0"}::bigint
             -- A turn from before the thread is not the thread's to answer.
             AND et.created_at >= l.created_at
             -- After the turn's own reply or failure notice, once every send
@@ -1699,41 +1700,16 @@ export function createPostgresSlackOutboxStore(
               SELECT 1 FROM slack_outbox f
               WHERE f.dedupe_key = 'after_turn:' || l.id || ':' || et.sequence
                 || ':' || e.source_sequence)
-            -- Only a result with something to say: one with none leaves no
-            -- row, and taken each pass it would hold a place in the limit
-            -- ahead of every later answer. Text the engine wrote after its
-            -- last tool call since the previous such result, as
-            -- finalReplyText reads it.
-            AND EXISTS (
-              SELECT 1 FROM events w
-              WHERE w.session_id = e.session_id
-                AND w.id < e.id
-                AND w.turn_id = e.turn_id
-                AND w.attempt_id = e.attempt_id
-                AND (w.neutral ->> 'after_turn') IS NOT NULL
-                AND w.type IN ('assistant', 'tool_use')
-                AND w.payload ->> 'parent_tool_use_id' IS NULL
-                AND jsonb_typeof(w.payload -> 'tool_call') IS DISTINCT FROM 'object'
-                AND btrim(w.payload ->> 'text') <> ''
-                AND NOT EXISTS (
-                  SELECT 1 FROM events z
-                  WHERE z.session_id = e.session_id
-                    AND z.id > w.id
-                    AND z.id < e.id
-                    AND z.turn_id = e.turn_id
-                    AND z.attempt_id = e.attempt_id
-                    AND (z.neutral ->> 'after_turn') IS NOT NULL
-                    AND (z.type = 'result'
-                      OR (z.type IN ('assistant', 'tool_use')
-                        AND z.payload ->> 'parent_tool_use_id' IS NULL
-                        AND jsonb_typeof(z.payload -> 'tool_call') = 'object'))))
           ORDER BY e.id
           LIMIT ${limit}
         ) r
         JOIN turns tt ON tt.id = r.turn_id
+        -- A turn a Slack bot asked for has no person to call: not the one
+        -- who opened the thread.
         LEFT JOIN linked_accounts la
           ON la.workspace_id = l.workspace_id
-          AND la.user_id = coalesce(tt.actor_id, l.created_by)
+          AND la.user_id = CASE WHEN tt.requester_kind = 'slack_bot' THEN NULL
+            ELSE coalesce(tt.actor_id, l.created_by) END
           AND la.provider = 'slack'
           AND la.external_tenant = i.team_id
           AND la.status = 'active'
@@ -1785,6 +1761,7 @@ export function createPostgresSlackOutboxStore(
           sources: row.sources,
           requesterSlackUserId: row.requester_slack_user_id,
           resultSequence: row.result_sequence,
+          resultId: String(row.result_id),
           events: said.map(({ type, payload, neutral }) => ({
             type,
             payload:
