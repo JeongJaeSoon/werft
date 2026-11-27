@@ -15,7 +15,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **turn이 끝난 뒤 배경 작업이 끝나며 engine이 스스로 낸 답이 그 turn의 Slack 스레드에 후속 글로 올라간다**(JeongJaeSoon/werft#PRNUM). 답 하나(`after_turn` result 하나)마다 글 하나이고, turn의 본 글이 나간 뒤에 간다. 글 맨 앞에 "배경 작업이 끝나 이어서 알려 드립니다." 한 줄(스레드 언어)이 붙고, 본 답처럼 요청자를 멘션한다. 원본이 지워졌거나 승인 대기·mute된 스레드, `report_mode`가 `none`인 스레드에는 본 답과 같이 올라가지 않는다. 웹 세션 대화에는 같은 답이 앞머리 없이 보인다. migration `0389_events_after_turn_result_idx`가 `events`에 after_turn result만 담는 부분 인덱스를 `CONCURRENTLY`로 더한다. 표와 행은 바뀌지 않고 따로 할 일은 없다.
+- **turn이 끝난 뒤 배경 작업이 끝나며 engine이 스스로 낸 답이 그 turn의 Slack 스레드에 후속 글로 올라간다**(JeongJaeSoon/werft#2314). 답 하나(`after_turn` result 하나)마다 글 하나이고, turn의 본 글이 나간 뒤에 간다. 글 맨 앞에 "배경 작업이 끝나 이어서 알려 드립니다." 한 줄(스레드 언어)이 붙고, 본 답처럼 요청자를 멘션한다. 원본이 지워졌거나 승인 대기·mute된 스레드, `report_mode`가 `none`인 스레드에는 본 답과 같이 올라가지 않는다. 웹 세션 대화에는 같은 답이 앞머리 없이 보인다. migration `0389_events_after_turn_result_idx`가 `events`에 after_turn result만 담는 부분 인덱스를 `CONCURRENTLY`로 더한다. 표와 행은 바뀌지 않고 따로 할 일은 없다.
   - 올린 직후 첫 drain에서, 이 버전 전에 저장된 after_turn 답(앞선 버전 #2301부터 생긴다) 가운데 아직 열린 스레드의 것은 후속 글로 한 번 올라간다.
   - 앞선 이미지로 되돌려도 된다. 앞선 이미지는 후속 글을 만들지 않고, 남은 인덱스는 쓰지 않는다.
 
