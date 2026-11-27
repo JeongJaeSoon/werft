@@ -902,7 +902,8 @@ describe("OpenAPI document", () => {
     const complete = (route: RouteDeclaration) =>
       Boolean(route.description) &&
       (route.body === undefined || route.requestExample !== undefined) &&
-      Boolean(route.success.description) &&
+      // A retired route lists no success to describe.
+      ("never" in route.success || Boolean(route.success.description)) &&
       (!("schema" in route.success) || route.success.example !== undefined);
     const incomplete = ROUTES.filter(
       (route) => route.path.startsWith("/v1") && !complete(route),

@@ -4,7 +4,9 @@
 -- deploying the release that retires the approval, run this read-only query;
 -- lower each listed agent the operator wants to keep closed with
 -- `slack-notice.ts set-rollout --agent <id> --rollout off`.
--- Notice version 1 is the only published one, so any version counts.
+-- The retiring release counts approvals of notice version 1 only (its
+-- published window, oldest counted to current); a row of another version
+-- held the agent closed too.
 SELECT a.workspace_id, a.id AS agent_id, a.conversation_rollout
 FROM agents a
 WHERE a.conversation_rollout <> 'off'
@@ -36,7 +38,7 @@ WHERE a.conversation_rollout <> 'off'
             AND n.agent_id = a.id
             AND n.slack_team_id = si.team_id
             AND n.revoked_at IS NULL
-            AND n.notice_version >= 1
+            AND n.notice_version = 1
         )
     )
   )

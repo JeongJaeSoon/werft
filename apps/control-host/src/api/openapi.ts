@@ -1021,7 +1021,9 @@ export type RouteDeclaration = {
       }
     // A file download: the body is the file's bytes, not JSON.
     | { status: 200; download: true; description: string }
-    | { status: 204; description?: string };
+    | { status: 204; description?: string }
+    // A retired route: it answers only its errors, so no success is listed.
+    | { status: 204; never: true; description?: undefined };
   // A second success status the route can answer, with its own body.
   alsoSucceeds?: {
     status: 202;
@@ -7386,9 +7388,9 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Retired: approve the agent's Slack notice",
     description:
-      "Retired with the Slack notice approval: the conversation switch no longer needs one. A request that reaches the route is answered 410 ENDPOINT_RETIRED with `details.reason_code` `slack_notice_retired`, whatever its body, and changes nothing; the checks every route shares still come first (401 without a login, 403 on a failed CSRF check, 413 for a body over the limit). The route will be removed in a later release. Approvals given before stay stored and are not read.",
+      "Retired with the Slack notice approval: the conversation switch no longer needs one. A request that reaches the route is answered 410 ENDPOINT_RETIRED with `details.reason_code` `slack_notice_retired`, whatever its body, and changes nothing; the checks every route shares still come first (401 without a login, 403 on a failed CSRF check, 413 for a body over the limit). An API key, which the route refused before, is answered the same 410. The route will be removed in a later release. Approvals given before stay stored and are not read.",
     auth: "session",
-    success: { status: 204, description: "Never: the route is retired." },
+    success: { status: 204, never: true },
     errors: [401, 403, 410, 413, 503],
     errorCodes: { 410: ["ENDPOINT_RETIRED"] },
     idempotent: false,
@@ -7421,9 +7423,9 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Retired: revoke the agent's Slack notice approval",
     description:
-      "Retired with the Slack notice approval: the conversation switch no longer needs one. A request that reaches the route is answered 410 ENDPOINT_RETIRED with `details.reason_code` `slack_notice_retired`, whatever its body, and changes nothing; the checks every route shares still come first (401 without a login, 403 on a failed CSRF check, 413 for a body over the limit). The route will be removed in a later release. Approvals given before stay stored and are not read.",
+      "Retired with the Slack notice approval: the conversation switch no longer needs one. A request that reaches the route is answered 410 ENDPOINT_RETIRED with `details.reason_code` `slack_notice_retired`, whatever its body, and changes nothing; the checks every route shares still come first (401 without a login, 403 on a failed CSRF check, 413 for a body over the limit). An API key, which the route refused before, is answered the same 410. The route will be removed in a later release. Approvals given before stay stored and are not read.",
     auth: "session",
-    success: { status: 204, description: "Never: the route is retired." },
+    success: { status: 204, never: true },
     errors: [401, 403, 410, 413, 503],
     errorCodes: { 410: ["ENDPOINT_RETIRED"] },
     idempotent: false,
@@ -10346,6 +10348,7 @@ function createApiRouteConfig(route: RouteDeclaration): ApiRouteConfig {
                   },
             },
   };
+  if ("never" in success) delete responses[success.status];
   if (route.alsoSucceeds !== undefined) {
     responses[route.alsoSucceeds.status] = {
       description: route.alsoSucceeds.description,

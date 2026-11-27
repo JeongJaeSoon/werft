@@ -3931,7 +3931,7 @@ export interface paths {
         /**
          * Retired: approve the agent's Slack notice
          * @deprecated
-         * @description Retired with the Slack notice approval: the conversation switch no longer needs one. A request that reaches the route is answered 410 ENDPOINT_RETIRED with `details.reason_code` `slack_notice_retired`, whatever its body, and changes nothing; the checks every route shares still come first (401 without a login, 403 on a failed CSRF check, 413 for a body over the limit). The route will be removed in a later release. Approvals given before stay stored and are not read.
+         * @description Retired with the Slack notice approval: the conversation switch no longer needs one. A request that reaches the route is answered 410 ENDPOINT_RETIRED with `details.reason_code` `slack_notice_retired`, whatever its body, and changes nothing; the checks every route shares still come first (401 without a login, 403 on a failed CSRF check, 413 for a body over the limit). An API key, which the route refused before, is answered the same 410. The route will be removed in a later release. Approvals given before stay stored and are not read.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3976,7 +3976,7 @@ export interface paths {
         /**
          * Retired: revoke the agent's Slack notice approval
          * @deprecated
-         * @description Retired with the Slack notice approval: the conversation switch no longer needs one. A request that reaches the route is answered 410 ENDPOINT_RETIRED with `details.reason_code` `slack_notice_retired`, whatever its body, and changes nothing; the checks every route shares still come first (401 without a login, 403 on a failed CSRF check, 413 for a body over the limit). The route will be removed in a later release. Approvals given before stay stored and are not read.
+         * @description Retired with the Slack notice approval: the conversation switch no longer needs one. A request that reaches the route is answered 410 ENDPOINT_RETIRED with `details.reason_code` `slack_notice_retired`, whatever its body, and changes nothing; the checks every route shares still come first (401 without a login, 403 on a failed CSRF check, 413 for a body over the limit). An API key, which the route refused before, is answered the same 410. The route will be removed in a later release. Approvals given before stay stored and are not read.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -41439,14 +41439,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Never: the route is retired. */
-            204: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
@@ -41708,14 +41700,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Never: the route is retired. */
-            204: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {

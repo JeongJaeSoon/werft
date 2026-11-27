@@ -375,6 +375,35 @@ describe("the pre-deploy check for raised agents the approval held closed", () =
     return rows.map((row) => row.agent_id);
   };
 
+  test("counts only an approval of the published version, as the retired judgment did", async () => {
+    await forceRollout("shadow");
+    await client.query(
+      `INSERT INTO slack_notice_approvals
+         (id, workspace_id, agent_id, slack_team_id, notice_version, approved_by)
+       VALUES ($1, $2, $3, $4, 2, $5)`,
+      [randomUUID(), ws.id, agentId, TEAM, ws.admin],
+    );
+    expect(await check()).toEqual([agentId]);
+    await storedApproval(false);
+    expect(await check()).toEqual([]);
+  });
+
+  test("lists an agent whose only install was revoked, and leaves out a deleted one", async () => {
+    await forceRollout("shadow");
+    await storedApproval(false);
+    expect(await check()).toEqual([]);
+    await client.query(
+      "UPDATE slack_installations SET status = 'revoked', revoked_at = now() WHERE workspace_id = $1",
+      [ws.id],
+    );
+    expect(await check()).toEqual([agentId]);
+    await client.query(
+      "UPDATE agents SET status = 'archived', deleted_at = now(), deleted_by = $2 WHERE id = $1",
+      [agentId, ws.owner],
+    );
+    expect(await check()).toEqual([]);
+  });
+
   test("lists a raised agent with no approval, a revoked one, an unapproved second team or no live install; not an approved or off one", async () => {
     expect(await check()).toEqual([]); // off, no approval
     await forceRollout("shadow");

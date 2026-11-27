@@ -98253,7 +98253,7 @@
           "Agents"
         ],
         "summary": "Retired: approve the agent's Slack notice",
-        "description": "Retired with the Slack notice approval: the conversation switch no longer needs one. A request that reaches the route is answered 410 ENDPOINT_RETIRED with `details.reason_code` `slack_notice_retired`, whatever its body, and changes nothing; the checks every route shares still come first (401 without a login, 403 on a failed CSRF check, 413 for a body over the limit). The route will be removed in a later release. Approvals given before stay stored and are not read.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Retired with the Slack notice approval: the conversation switch no longer needs one. A request that reaches the route is answered 410 ENDPOINT_RETIRED with `details.reason_code` `slack_notice_retired`, whatever its body, and changes nothing; the checks every route shares still come first (401 without a login, 403 on a failed CSRF check, 413 for a body over the limit). An API key, which the route refused before, is answered the same 410. The route will be removed in a later release. Approvals given before stay stored and are not read.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "deprecated": true,
         "security": [
           {
@@ -98286,14 +98286,6 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "Never: the route is retired.",
-            "headers": {
-              "X-Request-Id": {
-                "$ref": "#/components/headers/RequestId"
-              }
-            }
-          },
           "401": {
             "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
             "headers": {
@@ -98848,7 +98840,7 @@
           "Agents"
         ],
         "summary": "Retired: revoke the agent's Slack notice approval",
-        "description": "Retired with the Slack notice approval: the conversation switch no longer needs one. A request that reaches the route is answered 410 ENDPOINT_RETIRED with `details.reason_code` `slack_notice_retired`, whatever its body, and changes nothing; the checks every route shares still come first (401 without a login, 403 on a failed CSRF check, 413 for a body over the limit). The route will be removed in a later release. Approvals given before stay stored and are not read.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Retired with the Slack notice approval: the conversation switch no longer needs one. A request that reaches the route is answered 410 ENDPOINT_RETIRED with `details.reason_code` `slack_notice_retired`, whatever its body, and changes nothing; the checks every route shares still come first (401 without a login, 403 on a failed CSRF check, 413 for a body over the limit). An API key, which the route refused before, is answered the same 410. The route will be removed in a later release. Approvals given before stay stored and are not read.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "deprecated": true,
         "security": [
           {
@@ -98881,14 +98873,6 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "Never: the route is retired.",
-            "headers": {
-              "X-Request-Id": {
-                "$ref": "#/components/headers/RequestId"
-              }
-            }
-          },
           "401": {
             "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
             "headers": {
