@@ -33,6 +33,22 @@ test("an endpoint carrying a credential is kept without it; a clean one as writt
     endpoint: "https://models.example/v1",
     host_port: "models.example:443",
   });
+  // An empty userinfo parses as none, but its separator is still written.
+  for (const written of [
+    "https://:@models.example/v1",
+    "https://@models.example/v1",
+    "https://models.example/v1#",
+  ]) {
+    expect(receiptDestinationOf(written)).toEqual({
+      endpoint: "https://models.example/v1",
+      host_port: "models.example:443",
+    });
+  }
+  // An @ in the path is not userinfo.
+  expect(receiptDestinationOf("https://models.example/v1/@team")).toEqual({
+    endpoint: "https://models.example/v1/@team",
+    host_port: "models.example:443",
+  });
   // Not rewritten: the receipt shows what the row holds.
   expect(receiptDestinationOf("https://API.example.com")).toEqual({
     endpoint: "https://API.example.com",

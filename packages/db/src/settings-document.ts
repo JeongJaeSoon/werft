@@ -202,11 +202,15 @@ export function receiptDestinationOf(endpoint: unknown): {
     return { endpoint: null, host_port: null };
   }
   const url = new URL(endpoint);
+  // The written text, not the parsed parts: `https://:@host` and a bare `?`
+  // or `#` parse as empty.
+  const authority = endpoint
+    .slice(endpoint.indexOf("//") + 2)
+    .split(/[/?#\\]/, 1)[0];
   const bare =
     url.username === "" &&
     url.password === "" &&
-    url.search === "" &&
-    url.hash === "" &&
+    !authority?.includes("@") &&
     !endpoint.includes("?") &&
     !endpoint.includes("#");
   url.username = "";
