@@ -797,8 +797,16 @@ function narrowKept(words: readonly string[], place: Place): string | null {
     // `*` and `?` may stand for the `/` before it (`apps/web*.env`): any
     // end of the pattern that matches `/<name>` reaches one.
     const pieces = globPieces(name);
+    // An end with more letters than `/<name>` has cannot match it.
+    let letters = 0;
+    const fits = pieces.map((piece) => piece === ".*");
+    for (let at = pieces.length - 1; at >= 0; at -= 1) {
+      if (!fits[at]) letters += 1;
+      fits[at] = letters <= KEPT_ANYWHERE_LONGEST + 1;
+    }
     if (
       pieces.some((_, from) => {
+        if (!fits[from]) return false;
         const end = piecesPattern(pieces.slice(from));
         return KEPT_ANYWHERE.some(
           (kept) => end.test(`/${kept}`) || (from === 0 && end.test(kept)),
@@ -1075,10 +1083,13 @@ const keptSamples = (rule: string) =>
 const KEPT_SAMPLES = policy.sensitiveEditPaths
   .filter((rule) => !rule.startsWith(".git/"))
   .flatMap(keptSamples);
-/** The names kept in any folder. */
+/** The names kept in any folder, and how long the longest is. */
 const KEPT_ANYWHERE = policy.sensitiveEditPaths
   .filter((rule) => rule.startsWith("**/"))
   .flatMap(keptSamples);
+const KEPT_ANYWHERE_LONGEST = Math.max(
+  ...KEPT_ANYWHERE.map((name) => name.length),
+);
 /** The kept folders at the top but `.git`. */
 const KEPT_FOLDERS = policy.sensitiveEditPaths
   .filter((rule) => rule.endsWith("/**") && !rule.startsWith("**/"))
