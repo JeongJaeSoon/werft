@@ -28,13 +28,14 @@ function githubPermissionsMissing(
 }
 
 /**
- * The ceiling features the console offers; checks and issues have no work yet.
- * Only the workspace console reads this, so `merge` never reaches an agent's
- * GitHub tab.
+ * The ceiling features the console offers; issues has no work yet, and
+ * `checks` is saved with `workflows`, one switch for both. Only the
+ * workspace console reads this, so `merge` never reaches an agent's GitHub
+ * tab.
  */
 export const OFFERED_FEATURES = [
-  "actions",
   "workflows",
+  "actions",
   "review",
   "merge",
 ] as const;
@@ -47,7 +48,7 @@ export type Feature = "base" | OfferedFeature;
 const FEATURE_NEED: Record<Feature, GitHubAppPermissions> = {
   base: { contents: "write", pull_requests: "write", metadata: "read" },
   actions: { actions: "write" },
-  workflows: { workflows: "write" },
+  workflows: { workflows: "write", actions: "read", checks: "read" },
   review: { contents: "read", pull_requests: "write" },
   merge: { contents: "write", pull_requests: "read" },
 };

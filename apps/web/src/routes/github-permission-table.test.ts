@@ -28,8 +28,13 @@ describe("GitHub 기능별 권한 판정", () => {
       actions: true,
       workflows: true,
     });
-    expect(short.map((item) => item.feature)).toEqual(["actions", "workflows"]);
-    expect(neededFor(short)).toEqual({ actions: "write", workflows: "write" });
+    expect(short.map((item) => item.feature)).toEqual(["workflows", "actions"]);
+    // Reading CI (actions read) is folded into the run's actions write.
+    expect(neededFor(short)).toEqual({
+      actions: "write",
+      checks: "read",
+      workflows: "write",
+    });
   });
 
   test("머지는 계약이 묻는 권한(Contents 쓰기, Pull requests 읽기)만 요구한다", () => {

@@ -1108,7 +1108,7 @@ export const githubInstallationLinks = pgTable(
 );
 
 // What the workspace lets its agents' GitHub settings reach. No row reads as
-// every ceiling off and no OAuth client secret.
+// the default ceiling (GITHUB_CEILING_DEFAULT) and no OAuth client secret.
 export const githubWorkspaceSettings = pgTable("github_workspace_settings", {
   workspaceId: uuid("workspace_id")
     .primaryKey()

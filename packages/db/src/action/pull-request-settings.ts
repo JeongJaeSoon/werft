@@ -4,7 +4,7 @@ import {
   agentPullRequestSettingsSchema,
   DEFAULT_AGENT_PULL_REQUEST_SETTINGS,
   DEFAULT_PULL_REQUEST_SETTINGS,
-  GITHUB_CEILING_NONE,
+  GITHUB_CEILING_DEFAULT,
   type PullRequestSettings,
   pullRequestSettingsSchema,
 } from "@werft-ai/contracts";
@@ -260,7 +260,7 @@ export function createPostgresPullRequestSettingsStore(
             .insert(githubWorkspaceSettings)
             .values({
               workspaceId: input.workspaceId,
-              ceiling: GITHUB_CEILING_NONE,
+              ceiling: GITHUB_CEILING_DEFAULT,
               revision: 0,
               pullRequest: input.settings,
               pullRequestRevision: revision,

@@ -137,7 +137,9 @@ export function githubAppManifest(input: {
       contents: "write",
       pull_requests: "write",
       metadata: "read",
-      ...(input.actions ? { actions: "write", workflows: "write" } : {}),
+      ...(input.actions
+        ? { actions: "write", workflows: "write", checks: "read" }
+        : {}),
     },
     // GitHub rejects a hook URL it cannot reach, even an inactive one, so a
     // server without a public address asks for no webhook at all.
