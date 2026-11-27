@@ -23,24 +23,42 @@ export function parseSections(
   text: string,
   where: string,
   allowEmpty = false,
+  fragment = !allowEmpty,
 ): Sections {
   if (text.includes("\r"))
     throw new Error(`${where}: CRLF line ending; use LF`);
   const sections: Sections = new Map();
   let current: string[] | null = null;
-  let fence: { char: string; length: number } | null = null;
+  let fence: { indent: number; char: string; length: number } | null = null;
   text.split("\n").forEach((line, i) => {
-    const marker = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
-    if (marker?.[1] !== undefined) {
-      const run = marker[1];
+    // A fence closes only at its own indent: a deeper marker is code text.
+    const marker = /^( *)(`{3,}|~{3,})(.*)$/.exec(line);
+    if (marker?.[1] !== undefined && marker[2] !== undefined) {
+      const indent = marker[1].length;
+      const run = marker[2];
       if (fence === null) {
-        fence = { char: run.charAt(0), length: run.length };
+        fence = { indent, char: run.charAt(0), length: run.length };
       } else if (
+        indent === fence.indent &&
         run.charAt(0) === fence.char &&
         run.length >= fence.length &&
-        marker[2]?.trim() === ""
+        marker[3]?.trim() === ""
       ) {
         fence = null;
+      }
+    }
+    // A fragment moves from changelog.d/ to the root: a relative link would
+    // point elsewhere there.
+    if (fragment) {
+      for (const link of line.matchAll(
+        /\]\(\s*<?([^)\s>]*)|^\s*\[[^\]]+\]:\s*<?([^\s>]*)/g,
+      )) {
+        const target = link[1] ?? link[2] ?? "";
+        if (!/^(https?:|mailto:|#)/.test(target)) {
+          throw new Error(
+            `${where}:${i + 1}: link "${target}" is relative; use an absolute URL`,
+          );
+        }
       }
     }
     // A `#` line is refused inside a fence: release-auto.sh and

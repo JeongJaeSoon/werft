@@ -1849,6 +1849,21 @@ describe("changelog-release.ts", () => {
       '"### 보안" inside a code fence',
     ],
     [
+      "a top-level fence closed at a deeper indent",
+      { "a.md": `${ops("x")}\`\`\`\ny\n    \`\`\`\n` },
+      "a code fence is not closed",
+    ],
+    [
+      "a relative link",
+      { "a.md": ops("[절차](../docs/quickstart.md)") },
+      'a.md:3: link "../docs/quickstart.md" is relative',
+    ],
+    [
+      "a relative reference definition",
+      { "a.md": `${ops("[절차][q]")}\n[q]: docs/quickstart.md\n` },
+      'link "docs/quickstart.md" is relative',
+    ],
+    [
       "a fence left open",
       { "a.md": `${ops("x")}  \`\`\`sh\n  echo\n` },
       "a.md: a code fence is not closed",
@@ -1890,6 +1905,10 @@ describe("changelog-release.ts", () => {
   });
 
   test("a fence that closes is kept, and a CRLF CHANGELOG is refused", () => {
+    const linked = ops("[절차](https://example.test/a) [위](#v060)");
+    expect(
+      collect(head + old, [{ name: "b.md", text: linked }], "v0.6.0"),
+    ).toContain(linked.slice(-40));
     const fenced = `### 운영자가 할 일\n\n- 명령:\n\n  \`\`\`sh\n  run\n  \`\`\`\n`;
     expect(
       collect(head + old, [{ name: "a.md", text: fenced }], "v0.6.0"),
