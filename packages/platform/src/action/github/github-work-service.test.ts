@@ -560,7 +560,7 @@ describe("reading the CI of a commit (94S-2398)", () => {
     expect(calls).toEqual(["pull 12", `ci ${HEAD} 100`]);
   });
 
-  test("a named repository goes to each grant as its owner/name, for the gate to judge (94S-2465)", async () => {
+  test("a named repository goes to the CI grant as its owner/name, for the gate to judge (94S-2465)", async () => {
     const { service, works } = harness();
     await service.ciStatus(
       actor,
@@ -570,10 +570,15 @@ describe("reading the CI of a commit (94S-2398)", () => {
     );
     await service.getRun(actor, SESSION, 7, { repository: "acme/docs" });
     expect(
-      works.map(({ purpose, repositoryName }) => [purpose, repositoryName]),
+      works.map(({ purpose, repositoryId, repositoryName }) => [
+        purpose,
+        repositoryName ?? repositoryId,
+      ]),
     ).toEqual([
       ["actions_read", "acme/docs"],
-      ["pull_request_read", "acme/docs"],
+      // The pull request's head: by the id the CI grant resolved, not a
+      // second lookup of the name.
+      ["pull_request_read", "app"],
       ["actions_read", "acme/docs"],
     ]);
     // None named: the session's own, as before.
@@ -648,19 +653,25 @@ describe("reading the CI of a commit (94S-2398)", () => {
     expect(calls.length).toBe(3);
   });
 
+  // 422 is a commit GitHub does not hold only from the check-run lookup; the
+  // workflow-run list answers it for a bad query, an outage.
   test.each([
-    [404, "NOT_FOUND"],
-    [422, "NOT_FOUND"],
-    [500, "BACKEND_UNAVAILABLE"],
-  ] as const)("a GitHub %d on a CI read is %s", async (status, code) => {
-    const { service } = harness({
-      fail: new GitHubCallError("ci", status, null),
-    });
-    expect(
-      (await refusal(service.ciStatus(actor, SESSION, { commitSha: HEAD })))
-        .code,
-    ).toBe(code);
-  });
+    ["check run lookup", 404, "NOT_FOUND"],
+    ["check run lookup", 422, "NOT_FOUND"],
+    ["workflow run lookup", 422, "BACKEND_UNAVAILABLE"],
+    ["check run lookup", 500, "BACKEND_UNAVAILABLE"],
+  ] as const)(
+    "a GitHub %s %d on a CI read is %s",
+    async (what, status, code) => {
+      const { service } = harness({
+        fail: new GitHubCallError(what, status, null),
+      });
+      expect(
+        (await refusal(service.ciStatus(actor, SESSION, { commitSha: HEAD })))
+          .code,
+      ).toBe(code);
+    },
+  );
 });
 
 describe("rerunning a run", () => {

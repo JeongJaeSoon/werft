@@ -328,9 +328,12 @@ export function createGitHubWorkService(deps: {
             ...named(options.repository),
           });
           if ("commitSha" in target) return { grant, sha: target.commitSha };
+          // The repository the CI grant resolved, so both reads are of one.
           const pullRequests = await granted(actor, sessionId, "session.read", {
             purpose: "pull_request_read",
-            ...named(options.repository),
+            ...(grant.context.repositoryId === null
+              ? {}
+              : { repositoryId: grant.context.repositoryId }),
           });
           const { pullRequest } = await readGitHub(() =>
             pullRequests.api.getPullRequest(target.pullRequestNumber),
@@ -341,7 +344,7 @@ export function createGitHubWorkService(deps: {
           const ci = await readGitHub(
             () => grant.api.getCommitCi(sha, GITHUB_CI_RUNS_MAX),
             // GitHub answers the check runs of a sha it holds no commit for so.
-            { unknownCommit: 422 },
+            { unknownCommit: { status: 422, what: "check run lookup" } },
           );
           return {
             head_sha: sha,
@@ -494,13 +497,19 @@ const named = (repository: string | undefined) =>
  */
 async function readGitHub<T>(
   read: () => Promise<T>,
-  options: { unknownCommit?: number } = {},
+  options: { unknownCommit?: { status: number; what: string } } = {},
 ): Promise<T> {
   try {
     return await read();
   } catch (error) {
     if (error instanceof GitHubCallError) {
-      if (error.status === 404 || error.status === options.unknownCommit) {
+      const { unknownCommit } = options;
+      if (
+        error.status === 404 ||
+        (unknownCommit !== undefined &&
+          error.status === unknownCommit.status &&
+          error.what === unknownCommit.what)
+      ) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
       throw unavailable(null);

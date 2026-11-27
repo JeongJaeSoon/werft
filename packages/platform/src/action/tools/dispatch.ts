@@ -61,10 +61,10 @@ export function switchOffDetails(
     switch_labels: SWITCH_LABELS[feature],
     hint:
       offIn === "agent"
-        ? `"${label}" is off in this agent's GitHub settings; a workspace admin turns it on there.`
+        ? `"${label}" is off in this agent's GitHub settings; a workspace admin turns it on there. A session keeps the switches it started with: the change reaches a new session.`
         : offIn === "ceiling"
-          ? `"${label}" is off in the workspace GitHub ceiling; only a workspace owner or admin turns it on.`
-          : `"${label}" is off in both the workspace GitHub ceiling and this agent's GitHub settings; a workspace owner or admin turns on the ceiling first, then the agent's settings.`,
+          ? `"${label}" is off in the workspace GitHub ceiling; only a workspace owner or admin turns it on. A session keeps the switches it started with: the change reaches a new session.`
+          : `"${label}" is off in both the workspace GitHub ceiling and this agent's GitHub settings; a workspace owner or admin turns on the ceiling first, then the agent's settings. A session keeps the switches it started with: the change reaches a new session.`,
   };
 }
 

@@ -774,7 +774,7 @@ describe("a session under the agent's settings", () => {
           ko: "workflow 파일 수정과 CI 결과 보기",
           ja: "ワークフローファイルの変更と CI 結果の確認",
         },
-        hint: '"Edit workflow files and see CI results" is off in this agent\'s GitHub settings; a workspace admin turns it on there.',
+        hint: '"Edit workflow files and see CI results" is off in this agent\'s GitHub settings; a workspace admin turns it on there. A session keeps the switches it started with: the change reaches a new session.',
       },
     });
 
@@ -784,7 +784,7 @@ describe("a session under the agent's settings", () => {
     ).toMatchObject({
       reason_code: "actions_off",
       off_in: "both",
-      hint: "\"Run workflows directly (run, rerun, cancel)\" is off in both the workspace GitHub ceiling and this agent's GitHub settings; a workspace owner or admin turns on the ceiling first, then the agent's settings.",
+      hint: "\"Run workflows directly (run, rerun, cancel)\" is off in both the workspace GitHub ceiling and this agent's GitHub settings; a workspace owner or admin turns on the ceiling first, then the agent's settings. A session keeps the switches it started with: the change reaches a new session.",
     });
 
     // On for the agent, off in the ceiling: the same code, not the gate's
@@ -800,7 +800,7 @@ describe("a session under the agent's settings", () => {
       });
     }
     expect((await refusalOf(ceilingOff, "get_ci_status")).details.hint).toBe(
-      '"Edit workflow files and see CI results" is off in the workspace GitHub ceiling; only a workspace owner or admin turns it on.',
+      '"Edit workflow files and see CI results" is off in the workspace GitHub ceiling; only a workspace owner or admin turns it on. A session keeps the switches it started with: the change reaches a new session.',
     );
     expect(ceilingOff.works).toEqual([]);
   });
@@ -823,10 +823,13 @@ describe("a session under the agent's settings", () => {
       ).body,
     ).toMatchObject({ ok: true });
     expect(
-      h.works.map(({ purpose, repositoryName }) => [purpose, repositoryName]),
+      h.works.map(({ purpose, repositoryId, repositoryName }) => [
+        purpose,
+        repositoryName ?? repositoryId,
+      ]),
     ).toEqual([
       ["actions_read", "acme/docs"],
-      ["pull_request_read", "acme/docs"],
+      ["pull_request_read", "app"],
       ["actions_read", "acme/docs"],
     ]);
     // Not an owner/name: refused before any grant.

@@ -566,10 +566,20 @@ export function createGitHubGate(deps: {
   };
 }
 
+const isGitHubCom = (url: string): boolean => {
+  try {
+    return new URL(url).hostname.toLowerCase() === "github.com";
+  } catch {
+    return false;
+  }
+};
+
 /**
- * The catalog repository a read names by `owner/name` (lowercase, as the
- * tool argument parses it): the session's own when it is that one, else the
- * first other repository the session may work on. A read may name a
+ * The catalog repository on github.com a read names by `owner/name`
+ * (lowercase, as the tool argument parses it): the session's own when it is
+ * that one, else the first other repository the session may work on. A
+ * GitHub Enterprise host is never matched by name, so a same-named
+ * repository there cannot stand in for one on github.com. A read may name a
  * repository besides the session's own one (PM, 94S-2465); null for one it
  * may not, which is refused as `repository_not_allowed`.
  */
@@ -582,7 +592,8 @@ function namedReadRepositoryOf(
     const entry = Object.hasOwn(catalog.repositories, id)
       ? catalog.repositories[id]
       : undefined;
-    const ref = entry === undefined ? null : repoRefOf(entry.url);
+    if (entry === undefined || !isGitHubCom(entry.url)) return false;
+    const ref = repoRefOf(entry.url);
     return ref !== null && repoKeyOf(ref) === name;
   };
   if (context.repositoryId !== null && matches(context.repositoryId)) {

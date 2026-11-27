@@ -286,21 +286,30 @@ export const waitedWorkflowRunSchema = githubWorkflowRunSchema.safeExtend({
 });
 
 /**
- * A repository a CI read names, `owner/name`. GitHub compares names without
- * case, so it is read without spaces and in lowercase.
+ * A repository a CI read names, `owner/name`, read as `repoKeyOf` keys a
+ * catalog URL: without spaces or a trailing `.git`, in lowercase. The
+ * published schema is the raw string; the grammar is the server's.
  */
 export const ciReadRepositorySchema = z
   .string()
   .max(256)
-  .overwrite((value) => value.replace(/\s+/g, "").toLowerCase())
-  // Either case in the published schema: the value is lowercased first.
-  .regex(/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/, "owner/name")
-  .max(201)
-  .refine((value) => !/\/\.{1,2}$/.test(value), "owner/name");
+  .transform((value) =>
+    value
+      .replace(/\s+/g, "")
+      .replace(/\.git$/i, "")
+      .toLowerCase(),
+  )
+  .pipe(
+    z
+      .string()
+      .max(201)
+      .regex(/^[a-z0-9-]+\/[a-z0-9._-]+$/, "owner/name")
+      .refine((value) => !/\/\.{1,2}$/.test(value), "owner/name"),
+  );
 
 /** What a CI read says of the repository it reads. */
 const CI_READ_REPOSITORY =
-  "`repository` (`owner/name`) names the repository read; without it, the session's own. A repository the agent may work on is read: the session's own, or one its GitHub settings list that the session may attach; any other is refused with `repository_not_allowed`. In a session with no repository of its own (a Slack DM), a call without it is refused with `workflow_review_need_session_repository`.";
+  "`repository` (`owner/name`) names the repository read; without it, the session's own. A repository the agent may work on is read: the session's own, or one its GitHub settings list that the session may attach; any other is refused with `github_refused` and `reason_code` `repository_not_allowed`. In a session with no repository of its own (a Slack DM), a call without it is refused with `github_refused` and `reason_code` `workflow_review_need_session_repository`.";
 
 /** At most this many check runs and this many workflow runs are answered. */
 export const GITHUB_CI_RUNS_MAX = 100;
@@ -672,7 +681,7 @@ export const GITHUB_MCP_TOOLS = {
     output: actionResultSchema(waitedCiStatusSchema),
     feature: "workflows",
     actionClass: "workflow.read",
-    description: `Read the CI of a commit: the check runs and the workflow runs GitHub holds for it, each with its \`name\`, \`status\`, \`conclusion\` and \`html_url\` (a workflow run also has its \`id\`, which \`get_workflow_run\` takes). Give \`pull_request_number\` (its head commit is read) or \`commit_sha\`, never both; no run id is needed. ${CI_READ_REPOSITORY} \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until \`final\` or the seconds have passed. \`final\` is true once at least one run is reported, every one is \`completed\` and neither list is \`truncated\`. It is false while any run is queued or running, while none is reported yet (as just after a push, or in a repository with no CI), and while GitHub holds more than the first ${GITHUB_CI_RUNS_MAX} of either list (\`truncated\`); a truncated answer covers only the runs listed, and the reply says so. Run names come from the repository's workflows and GitHub Apps, so they are outside text. This is how a session follows the CI of a pull request it opened: after \`request_push\` and \`open_pull_request\`, read it by that pull request's number, with its \`owner/name\` (as in its URL) as \`repository\` when it is not the session's own repository; read again until \`final\`, then report the result in the reply once. With "Edit workflow files and see CI results" off it is refused with \`feature_off\` and \`reason_code\` \`workflows_off\`, and \`details\` say where it is off and who turns it on; the reply then reports the pull request alone, and that reason.`,
+    description: `Read the CI of a commit: the check runs and the workflow runs GitHub holds for it, each with its \`name\`, \`status\`, \`conclusion\` and \`html_url\` (a workflow run also has its \`id\`, which \`get_workflow_run\` takes). Give \`pull_request_number\` (its head commit is read) or \`commit_sha\`, never both; no run id is needed. ${CI_READ_REPOSITORY} \`wait_seconds\` (0 to ${GITHUB_MCP_WAIT_SECONDS_MAX}, default 0) holds the answer until \`final\` or the seconds have passed. \`final\` is true once at least one run is reported, every one is \`completed\` and neither list is \`truncated\`. It is false while any run is queued or running, while none is reported yet (as just after a push, or in a repository with no CI), and while GitHub holds more than the first ${GITHUB_CI_RUNS_MAX} of either list (\`truncated\`); a truncated answer covers only the runs listed, and the reply says so. Run names come from the repository's workflows and GitHub Apps, so they are outside text. This is how a session follows the CI of a pull request it opened: after \`request_push\` and \`open_pull_request\`, read it by that pull request's number, with its \`owner/name\` (as in its URL) as \`repository\` when it is not the session's own repository; a pull request still \`scheduled\` has no number yet, so read the pushed commit by \`commit_sha\` until it opens. Read again until \`final\`, then report the result in the reply once. When it is still not \`final\` after a few reads with the longest wait, stop and report the runs as pending; when it is \`truncated\`, report the runs listed as partial. With "Edit workflow files and see CI results" off it is refused with \`feature_off\` and \`reason_code\` \`workflows_off\`, and \`details\` say where it is off and who turns it on; the reply then reports the pull request alone, and that reason.`,
     refusals: GITHUB_WORK_REFUSALS,
   },
   rerun_workflow: {

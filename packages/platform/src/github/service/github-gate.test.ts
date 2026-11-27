@@ -1526,10 +1526,14 @@ describe("another repository than the session's", () => {
           result: { repository_id: "docs", purpose: work.purpose },
         });
       }
-      // The session's own repository keeps them.
+      // The session's own repository keeps them, and a CI read takes the
+      // attached one too.
       expect(await grant({ purpose: "actions_read" })).toMatchObject({
         context: { repositoryId: "app" },
       });
+      expect(
+        await grant({ purpose: "actions_read", repositoryId: "docs" }),
+      ).toMatchObject({ context: { repositoryId: "docs" } });
     });
 
     // 94S-2465, PM decision B: a CI read names any repository the agent may
@@ -1574,6 +1578,11 @@ describe("another repository than the session's", () => {
         });
         expect(head?.repo).toEqual({ owner: "acme", name: "docs" });
         expect(head?.permissions).toEqual({ pull_requests: "read" });
+        // The service asks for the head by the id the CI read resolved.
+        expect(
+          (await grant({ purpose: "pull_request_read", repositoryId: "docs" }))
+            ?.permissions,
+        ).toEqual({ pull_requests: "read" });
         // Without a name it stays the session's repository, which it has not.
         expect((await refused(grant({ purpose: "actions_read" }))).reason).toBe(
           "workflow_review_need_session_repository",
@@ -1630,6 +1639,33 @@ describe("another repository than the session's", () => {
         expect(
           (await grant({ purpose: "actions_read" }))?.context.repositoryId,
         ).toBe("app");
+      });
+
+      test("a name matches github.com repositories only: one on another host with the same owner/name is not read", async () => {
+        const { grant } = harness({
+          catalog: {
+            ...ATTACHED,
+            repositories: {
+              ...ATTACHED.repositories,
+              docs: {
+                url: "https://ghe.example.com/acme/docs.git",
+                branch: "main",
+                auth: { kind: "github_app", registered: true },
+              },
+            },
+          },
+          repositoryId: null,
+          github: ciOn,
+          ceiling,
+          attached: ["docs"],
+        });
+        expect(
+          (
+            await refused(
+              grant({ purpose: "actions_read", repositoryName: "acme/docs" }),
+            )
+          ).reason,
+        ).toBe("repository_not_allowed");
       });
 
       test("a write never takes a name: push and pull requests keep the session's repository rules", async () => {
