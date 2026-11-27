@@ -20,6 +20,43 @@
 | --- | --- | --- | --- |
 | active | recovery_required (status failed, reason context_gap) | 실행이 사라진 것이 확인됐거나 새 worker가 claim했고, 열린 turn이 없고, 마지막으로 돈 turn을 덮는 checkpoint가 없다. 끊긴 turn은 돈 turn으로 세지 않는다 | scheduler(실행 종료 확인), worker의 claim |
 
+### 답을 기다리는 요청이 일으키는 전이
+
+실행 중에 사람의 답이 필요한 요청(pending request)이 오래 답을 받지 못하면 플랫폼이 turn을 park한다. 전이는 요청의 종류와 상관없이 같다.
+
+| 지금 상태 | 다음 상태 | 조건 | 누가 일으키나 |
+| --- | --- | --- | --- |
+| active | pausing (`pause_reason = awaiting_input`) | 열린 요청이 park 시한까지 답을 받지 못했다(`openSystemPark`, `packages/db/src/sessions/pause-control.ts`) | 서버(worker의 pendingControl 응답에 `park`를 싣는다) |
+| pausing (`awaiting_input`) | paused | worker가 turn을 `input_wait_parked`로 끝내고 release했고 실행이 사라졌다 | worker(finalize), scheduler(실행 종료 확인) |
+| paused (`awaiting_input`) | resuming, 그다음 active | park된 요청 묶음의 마지막 답이 왔다. 이어 하는 turn이 queued로 생긴다(`packages/db/src/sessions/parked-group.ts`) | 답한 사람(API, Slack) |
+
+요청을 만드는 것은 둘이다.
+
+- 질문 요청: 에이전트가 사람에게 묻는 질문.
+- 권한 요청: 엔진이 도구 호출을 사람에게 물었고 어댑터가 그 물음에 스스로 답하지 않은 경우.
+
+어댑터는 엔진이 물은 shell 명령과 파일 쓰기를 작업 공간 정책으로 다시 읽고, 사람에게 남길 까닭을 찾지 못하면 스스로 답한다(감사 근거 `sandbox_boundary`). 그런 호출은 요청이 되지 않으므로 위 전이를 일으키지 않는다. 판정은 글자로 하므로 변수·치환이 만드는 경로와 스크립트 안의 동작은 보지 못한다. 사람에게 남는 권한 요청을 묶으면 다음과 같다. 판정기의 시험은 `packages/runtime-core/src/asked-line.test.ts`에 있다.
+
+| 사람에게 남는 것 | 판정하는 곳 |
+| --- | --- |
+| 정책의 묻기 목록에 든 명령 | `packages/runtime-core/src/asked-line.ts`의 `keptForPerson` |
+| 비밀 이름, `.git`, `.claude` 경로에 쓰기 | 같음, 파일 도구는 `writeKeptForPerson` |
+| 작업 공간 밖 경로 | 같음 |
+| 위 셋이 없어도: shell이 어디에 서 있는지 알 수 없을 때(줄이 말하지 않는 이동, 여덟 곳 넘는 자리), 작업 공간 디렉터리 자체에 쓰기, 너무 깊이 감싼 스크립트, 묻기 목록과 대조하기에 너무 긴 줄 | 같음 |
+| Claude 엔진 auto 모드에서 확실히 나뉘지 않는 줄, 목록 밖 명령, 파일 도구 | `askedLineRefusal`(분류기가 뒤에 있어 좁게 읽는다) |
+| 엔진이 물은 MCP 도구(서버가 판정하는 도구 제외), plan 모드에서 엔진이 물은 호출, release가 Bash나 파일 도구를 deny 규칙으로 좁힌 세션, shell의 위치를 모르는 호출 | Claude 어댑터의 `canUseTool` |
+| 읽어 낼 수 없는 명령 꼴(알 수 없는 shell 시작 꼴), 모르는 모양의 파일 변경 기록, 더 넓은 `grantRoot` | Codex 어댑터의 `sandbox-answers.ts` |
+
+- 서버가 판정하는 push 관문(push 요청의 allow·ask·deny)과 토큰 범위는 이 절의 대상이 아니고 바뀌지 않는다.
+
+지킬 성질:
+
+- 권한 요청이 줄어도 질문 요청의 기다림, park, 이어 하기는 그대로 동작한다.
+- 어댑터가 스스로 답한 호출은 요청을 만들지 않고, 감사에는 `sandbox_boundary`로 남는다(Claude는 도구가 끝났다는 hook을 받은 뒤, Codex는 답할 때 보고한다. Claude에서 엔진이 그 뒤 거절했거나 끝 hook이 오지 않으면 줄이 남지 않는다).
+- park는 이미 도착해 처리 중인 답이 있으면 열리지 않는다. 답 없이 모두 만료된 park는 사람의 resume이 있어야 이어진다.
+
+시험: `packages/db/src/parked-requests.integration.test.ts`의 `a parked question waits like a permission, and its answer resumes the park`, `packages/adapters/runtimes/claude/src/sandbox-answers.test.ts`의 `a line the policy does not keep runs without a person, recorded as the sandbox's`와 `… still goes to a person` 표, `packages/adapters/runtimes/codex/src/run.test.ts`의 `work inside the session's sandbox` 묶음, `packages/runtime-core/src/asked-line.test.ts`.
+
 ### 멈춤(stop)이 일으키는 전이
 
 멈춤은 요청자의 Slack 멈춤 낱말 같은 stop 요청이다(`packages/db/src/stop-control.ts`). 기다리던 입력을 취소하고, 도는 턴이 있으면 그 턴을 중단하게 한다.

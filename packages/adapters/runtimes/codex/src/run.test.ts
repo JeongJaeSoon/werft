@@ -1,6 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   isUnsupportedFeaturesReason,
+  type ObservedToolDecision,
   type RuntimeEvent,
 } from "@werft-ai/runtime-core";
 
@@ -827,5 +831,168 @@ describe("abort", () => {
     await t.run.ready();
     t.run.abort();
     expect(t.killed()).toBe(true);
+  });
+});
+
+describe("work inside the session's sandbox", () => {
+  const work = realpathSync(mkdtempSync(join(tmpdir(), "codex-run-")));
+  afterAll(() => rmSync(work, { recursive: true, force: true }));
+
+  function inWork(answers: Answers = "ask") {
+    const observed: ObservedToolDecision[] = [];
+    const t = setup(answers, {
+      cwd: work,
+      toolDecisions: { observe: (decision) => observed.push(decision) },
+    });
+    const command = (script: string) => {
+      t.server.emit("item/started", {
+        threadId: "thread-1",
+        item: { ...COMMAND, command: script, cwd: work },
+      });
+      return t.server.ask("item/commandExecution/requestApproval", {
+        threadId: "thread-1",
+        itemId: "call-1",
+        kind: "command",
+        command: `/bin/zsh -lc '${script}'`,
+        cwd: work,
+      });
+    };
+    const patch = (path: string, grantRoot?: string) => {
+      announcePatch(t, "patch-1", [{ path, kind: "add", diff: "+hi" }]);
+      return t.server.ask("item/fileChange/requestApproval", {
+        threadId: "thread-1",
+        itemId: "patch-1",
+        ...(grantRoot === undefined ? {} : { grantRoot }),
+      });
+    };
+    const asked = () => t.seen.some((e) => e.type === "approval.requested");
+    return { t, observed, command, patch, asked };
+  }
+
+  test("a command the policy keeps for nobody is accepted with no card, and reported", async () => {
+    const { t, observed, command, asked } = inWork();
+    await started(t);
+    expect(await command("echo a | tee a.txt")).toEqual({ decision: "accept" });
+    expect(asked()).toBe(false);
+    expect(observed).toEqual([
+      {
+        toolUseId: "call-1",
+        parentToolUseId: undefined,
+        tool: "exec_command",
+        input: { command: "/bin/zsh -lc 'echo a | tee a.txt'", cwd: work },
+        decision: "allow",
+        basis: "sandbox_boundary",
+      },
+    ]);
+    // The call is still announced before it runs.
+    await t.until(t.ofType("tool.called"));
+  });
+
+  test.each([
+    ["an ask rule", 'echo a | sed -n "w a.txt"'],
+    ["a secret path", "echo x > .env"],
+    ["a path outside", "touch ../out.txt"],
+  ])("%s still waits for a person", async (_name, script) => {
+    const { t, observed, command, asked } = inWork();
+    await started(t);
+    const reply = command(script);
+    const request = await t.until(t.ofType("approval.requested"));
+    if (request.type !== "approval.requested") throw new Error("unreachable");
+    expect(asked()).toBe(true);
+    await t.run.answer({
+      localId: request.request.localId,
+      inputHash: request.request.inputHash,
+      kind: "selected",
+      optionKind: "reject_once",
+    });
+    expect(await reply).toEqual({ decision: "decline" });
+    expect(observed).toEqual([]);
+  });
+
+  test("a file change inside is accepted with no card; a secret path or a wider grant waits", async () => {
+    const inside = inWork();
+    await started(inside.t);
+    expect(await inside.patch("notes/a.txt")).toEqual({ decision: "accept" });
+    expect(inside.asked()).toBe(false);
+    expect(inside.observed.map((d) => [d.tool, d.basis])).toEqual([
+      ["apply_patch", "sandbox_boundary"],
+    ]);
+
+    for (const [path, grantRoot] of [
+      [".env", undefined],
+      ["notes/a.txt", work],
+    ] as const) {
+      const kept = inWork();
+      await started(kept.t);
+      void kept.patch(path, grantRoot);
+      await kept.t.until(kept.t.ofType("approval.requested"));
+      expect(kept.observed).toEqual([]);
+    }
+  });
+
+  test("a move shows where it goes on the card, beside a record that does not read", async () => {
+    const { t, observed } = inWork();
+    await started(t);
+    t.server.emit("item/started", {
+      threadId: "thread-1",
+      item: {
+        type: "fileChange",
+        id: "patch-1",
+        status: "inProgress",
+        changes: [
+          {
+            path: "notes/a.txt",
+            kind: { type: "update", move_path: "../moved.txt" },
+            diff: "",
+          },
+          { path: "notes/b.txt", kind: "update", type: "rename" },
+        ],
+      },
+    });
+    void t.server.ask("item/fileChange/requestApproval", {
+      threadId: "thread-1",
+      itemId: "patch-1",
+    });
+    const asked = await t.until(t.ofType("approval.requested"));
+    if (
+      asked.type !== "approval.requested" ||
+      asked.request.kind !== "permission"
+    ) {
+      throw new Error("unreachable");
+    }
+    expect(asked.request.display).toMatchObject({
+      paths: ["notes/a.txt", "notes/b.txt", "../moved.txt"],
+    });
+    expect(observed).toEqual([]);
+  });
+
+  test("a refusal from the platform's own check comes first", async () => {
+    const observed: ObservedToolDecision[] = [];
+    const t = setup("ask", {
+      cwd: work,
+      precheckTool: async () => "refused",
+      toolDecisions: { observe: (decision) => observed.push(decision) },
+    });
+    await started(t);
+    t.server.emit("item/started", {
+      threadId: "thread-1",
+      item: { ...COMMAND, cwd: work },
+    });
+    expect(
+      await t.server.ask("item/commandExecution/requestApproval", {
+        threadId: "thread-1",
+        itemId: "call-1",
+        command: "/bin/zsh -lc 'touch x'",
+        cwd: work,
+      }),
+    ).toEqual({ decision: "decline" });
+    expect(observed).toEqual([]);
+  });
+
+  test("dontAsk still declines what the sandbox would have answered", async () => {
+    const { t, observed, command, asked } = inWork("none");
+    await started(t);
+    expect(await command("touch a.txt")).toEqual({ decision: "decline" });
+    expect([asked(), observed]).toEqual([false, []]);
   });
 });

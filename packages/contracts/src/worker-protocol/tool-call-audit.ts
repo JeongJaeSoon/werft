@@ -19,6 +19,11 @@ export type ToolAuditDecision = z.infer<typeof toolAuditDecisionSchema>;
 export const TOOL_AUDIT_BASIS_VERDICT = {
   trusted_tool: "allow",
   permission_mode: "allow",
+  // The adapter answered the engine's ask itself: nothing the workspace
+  // policy keeps for a person showed in the call. It records the adapter's
+  // answer, which the Claude adapter reports once the tool ran and the Codex
+  // adapter when it answers.
+  sandbox_boundary: "allow",
   memory_read: "allow",
   approval: "allow",
   not_permitted: "deny",
