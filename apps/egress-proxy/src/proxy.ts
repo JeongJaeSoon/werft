@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import type { Socket, TCPSocketListener } from "bun";
+import { type EgressDenial, reportTokenOf } from "./denial-report.ts";
 import type { ProxyLogger } from "./logger.ts";
 import { createProxyLogger } from "./logger.ts";
 import { messageOf } from "./message-of.ts";
@@ -7,6 +8,7 @@ import {
   decideEgress,
   type EgressPolicy,
   type EgressResolver,
+  NOT_ALLOWLISTED,
 } from "./policy.ts";
 import {
   type BodyFramer,
@@ -85,6 +87,12 @@ export type EgressProxyOptions = {
   maxConnectionsPerClient?: number;
   policy: EgressPolicy;
   port?: number;
+  /**
+   * Told of each destination refused as not allowlisted, when the request
+   * carried an `egress_report` token. Called after the refusal is answered;
+   * it must not throw or wait.
+   */
+  reportDenial?: (denial: EgressDenial) => void;
   /** Reported on `/healthz` and at start; see `sourceDigest`. */
   sourceDigest?: string;
   /** How long a queue may stay over `maxBufferedBytes` before the drop. */
@@ -513,11 +521,46 @@ export async function startEgressProxy(
         port: request.port,
         reason: decision.reason,
       });
-      if (unresolved) reply(socket, 502, decision.reason);
+      if (unresolved) {
+        reply(socket, 502, decision.reason);
+        return;
+      }
+      const destination = { host: request.host, port: request.port };
+      // A CONNECT authority is only split at its last colon, so a malformed
+      // one can carry a path or userinfo, and an absolute-form URL can name
+      // port 0; neither is echoed or reported.
+      const unlisted =
+        decision.reason === NOT_ALLOWLISTED &&
+        nameable(request.host) &&
+        request.port >= 1 &&
+        request.port <= 65_535;
       // npm falls back from a GitHub tarball to `git clone` only on an
       // HTTP error, so a refusal answers rather than drops
-      // (npm-git-dependency.test.ts).
-      else reply(socket, 403, `egress denied: ${decision.reason}`);
+      // (npm-git-dependency.test.ts). The host and port are the client's own
+      // words back; the reason's text stays first for whoever matches it.
+      reply(
+        socket,
+        403,
+        unlisted
+          ? `egress denied: ${decision.reason} (${describe(destination)})`
+          : `egress denied: ${decision.reason}`,
+      );
+      // Only off a refused request, and only for the one refusal the
+      // allowlist decides: an address the proxy never dials is no one's to
+      // add.
+      if (unlisted && options.reportDenial !== undefined) {
+        const token = reportTokenOf(request.proxyAuthorization());
+        if (token !== undefined) {
+          try {
+            options.reportDenial({ token, ...destination });
+          } catch (error) {
+            logger.warn("Egress denial report failed", {
+              ...destination,
+              error: messageOf(error),
+            });
+          }
+        }
+      }
       return;
     }
     // Every address in the decision passed the same policy, so a dead first
@@ -1093,8 +1136,15 @@ export async function startEgressProxy(
   };
 }
 
+/** A DNS name, as normalizeHost leaves it; an IP literal is told by isIP. */
+const DNS_NAME =
+  /^(?=.{1,253}$)[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?(?:\.[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?)*$/;
+const nameable = (host: string) => isIP(host) !== 0 || DNS_NAME.test(host);
+
 function describe(destination: { host: string; port: number }): string {
-  return `${destination.host}:${destination.port}`;
+  return destination.host.includes(":")
+    ? `[${destination.host}]:${destination.port}`
+    : `${destination.host}:${destination.port}`;
 }
 
 // libc, not node:dns: Bun's node:dns answers from c-ares, which keeps a

@@ -10,6 +10,7 @@ import {
   assertUserEnvironment,
   exposedMcpTools,
   fingerprintedMcpServers,
+  proxyUrlWithReportToken,
   type RuntimeHostDeps,
   type RuntimeProfileInput,
   type RuntimeStart,
@@ -361,7 +362,7 @@ export function codexLaunch(
   for (const name of HOST_PROXY_VARIABLES) {
     const value = host[name];
     if (value !== undefined && !name.toLowerCase().startsWith("no_")) {
-      env[name] = value;
+      env[name] = proxyUrlWithReportToken(value, config.egressReportToken);
     }
   }
   // The egress route is plain HTTP on the worker network and not to be sent

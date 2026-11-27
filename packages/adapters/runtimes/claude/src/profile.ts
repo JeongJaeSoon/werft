@@ -4,6 +4,7 @@ import { pinnedClaudeToolCatalog } from "@werft-ai/runtime-claude-codec";
 import {
   assertGitEnvironment,
   assertUserEnvironment,
+  proxyUrlWithReportToken,
 } from "@werft-ai/runtime-core";
 import { z } from "zod";
 
@@ -177,6 +178,7 @@ export function runtimeEnvironment(
     ClaudeRuntimeConfig,
     | "claudeConfigDir"
     | "compactionOff"
+    | "egressReportToken"
     | "gitEnvironment"
     | "home"
     | "maxOutputTokens"
@@ -209,7 +211,10 @@ export function runtimeEnvironment(
   };
   for (const name of HOST_PROXY_VARIABLES) {
     const value = host[name];
-    if (value !== undefined) environment[name] = value;
+    if (value === undefined) continue;
+    environment[name] = name.toLowerCase().startsWith("no_")
+      ? value
+      : proxyUrlWithReportToken(value, config.egressReportToken);
   }
   if (config.gitEnvironment !== undefined) {
     Object.assign(environment, assertGitEnvironment(config.gitEnvironment));

@@ -196,6 +196,7 @@ describe("database schema", () => {
       "credential_bindings",
       "deleted_sources",
       "edited_sources",
+      "egress_denials",
       "env_variable_grants",
       "env_variables",
       "events",

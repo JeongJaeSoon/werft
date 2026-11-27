@@ -2108,6 +2108,13 @@
       "when": 1795792612570,
       "tag": "0391_github_workflow_switches",
       "breakpoints": true
+    },
+    {
+      "idx": 392,
+      "version": "7",
+      "when": 1795800981246,
+      "tag": "0392_egress_denials",
+      "breakpoints": true
     }
   ]
 }
