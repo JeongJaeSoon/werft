@@ -1,6 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { ENDED_ATTEMPT_STATES } from "@werft-ai/contracts";
-import { and, count, desc, eq, gt, isNull, notInArray, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  exists,
+  gt,
+  inArray,
+  isNull,
+  notInArray,
+  sql,
+} from "drizzle-orm";
 
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
@@ -140,6 +151,30 @@ export async function deleteAttemptEgressDenials(
   attemptId: string,
 ): Promise<void> {
   await tx.delete(egressDenials).where(eq(egressDenials.attemptId, attemptId));
+}
+
+/**
+ * Rows an ended attempt still holds. Every end path of this code takes them,
+ * but a control-host from before them (a rolling upgrade, a rollback) ends
+ * attempts and revokes their tokens without, and a later pass sees the
+ * attempt ended and skips it.
+ */
+export async function deleteEndedAttemptEgressDenials(
+  db: Database,
+): Promise<void> {
+  await db.delete(egressDenials).where(
+    exists(
+      db
+        .select({ id: attempts.id })
+        .from(attempts)
+        .where(
+          and(
+            eq(attempts.id, egressDenials.attemptId),
+            inArray(attempts.state, ENDED_ATTEMPT_STATES),
+          ),
+        ),
+    ),
+  );
 }
 
 /** An operator's revocation takes every attempt's tokens of the session. */

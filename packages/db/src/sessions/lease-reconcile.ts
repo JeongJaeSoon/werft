@@ -24,7 +24,10 @@ import {
   workerLaunches,
   workers,
 } from "../schema.ts";
-import { deleteAttemptEgressDenials } from "./egress-denials.ts";
+import {
+  deleteAttemptEgressDenials,
+  deleteEndedAttemptEgressDenials,
+} from "./egress-denials.ts";
 
 export type ReconciledLease = {
   attemptId: string;
@@ -175,6 +178,7 @@ export async function reconcileExpiredLeases(
     });
     if (outcome) reconciled.push(outcome);
   }
+  if (!dryRun) await deleteEndedAttemptEgressDenials(db);
   return reconciled;
 }
 

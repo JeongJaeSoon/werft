@@ -51,7 +51,7 @@ async function exchange(port: number, head: string): Promise<string> {
 describe("reportTokenOf", () => {
   test("reads the password of Basic credentials", () => {
     expect(reportTokenOf(basic("werft", TOKEN))).toBe(TOKEN);
-    expect(reportTokenOf(`basic  ${btoa(`x:${TOKEN}`)}`)).toBe(TOKEN);
+    expect(reportTokenOf(`basic  ${btoa(`werft:${TOKEN}`)}`)).toBe(TOKEN);
   });
 
   test("anything else is no token", () => {
@@ -62,6 +62,8 @@ describe("reportTokenOf", () => {
       "Basic not*base64",
       `Basic ${btoa("no-colon")}`,
       basic("werft", ""),
+      basic("operator", "wed_not-for-us"),
+      basic("werft", "operator-password"),
       basic("werft", "x".repeat(513)),
       basic("werft", "%E0%A4%A"),
     ]) {
@@ -194,12 +196,18 @@ describe("the forward port reports what it refused", () => {
     ]) {
       const answer = await exchange(
         proxy.port,
-        `CONNECT ${authority} HTTP/1.1\r\nproxy-authorization: ${basic("werft", "marker")}`,
+        `CONNECT ${authority} HTTP/1.1\r\nproxy-authorization: ${basic("werft", "wed_marker")}`,
       );
       expect(answer).toStartWith("HTTP/1.1 403");
       expect(answer).toContain("destination is not allowlisted");
       expect(answer).not.toContain(raw);
     }
+    const portZero = await exchange(
+      proxy.port,
+      `GET http://blocked.test:0/ HTTP/1.1\r\nhost: blocked.test\r\nproxy-authorization: ${basic("werft", "wed_marker")}`,
+    );
+    expect(portZero).toStartWith("HTTP/1.1 403");
+    expect(portZero).not.toContain("blocked.test:0");
     expect(reported).toEqual([]);
   });
 
@@ -207,11 +215,11 @@ describe("the forward port reports what it refused", () => {
     reported.length = 0;
     const answer = await exchange(
       proxy.port,
-      `CONNECT [2001:db8::1]:443 HTTP/1.1\r\nproxy-authorization: ${basic("werft", "marker")}`,
+      `CONNECT [2001:db8::1]:443 HTTP/1.1\r\nproxy-authorization: ${basic("werft", "wed_marker")}`,
     );
     expect(answer).toContain("([2001:db8::1]:443)");
     expect(reported).toEqual([
-      { token: "marker", host: "2001:db8::1", port: 443 },
+      { token: "wed_marker", host: "2001:db8::1", port: 443 },
     ]);
   });
 

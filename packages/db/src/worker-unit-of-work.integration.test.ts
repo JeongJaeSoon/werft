@@ -954,6 +954,35 @@ integration("worker gateway on PostgreSQL", () => {
     );
   });
 
+  test("refusals left by a control-host that ended the attempt without them go on the next sweep", async () => {
+    const { claimed } = await claimAndDeliver(partitionFor("egress-leftover"));
+    await pool.query(
+      "UPDATE attempts SET lease_expires_at = clock_timestamp() + interval '1 minute' WHERE id = $1",
+      [claimed.attempt_id],
+    );
+    const reportToken = claimed.egress_report?.token;
+    if (reportToken === undefined) throw new Error("the claim carried none");
+    const report = {
+      tokenHash: hashWorkerToken(reportToken),
+      host: "example.com",
+      port: 443,
+    };
+    expect((await recordEgressDenial(db, report)).outcome).toBe("recorded");
+    // What a release from before egress_denials does: the attempt ends and
+    // its tokens are revoked, and the rows stay.
+    await pool.query(
+      "UPDATE attempts SET state = 'exited', ended_at = now() WHERE id = $1",
+      [claimed.attempt_id],
+    );
+    await pool.query(
+      "UPDATE worker_credentials SET revoked_at = now() WHERE attempt_id = $1",
+      [claimed.attempt_id],
+    );
+    expect(await egressDenialsOf(db, claimed.attempt_id)).toHaveLength(1);
+    await reconcileExpiredLeases(db, { limit: 1 });
+    expect(await egressDenialsOf(db, claimed.attempt_id)).toEqual([]);
+  });
+
   test("a fence change not yet committed does not hold the check up, and refuses once committed", async () => {
     const session = await queuedSession(partitionFor("egress-bump"));
     const claimed = await claim(await launch(session.session_id));

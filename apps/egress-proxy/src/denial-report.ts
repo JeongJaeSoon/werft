@@ -6,11 +6,16 @@ export type EgressDenial = { token: string; host: string; port: number };
 
 const BASIC = /^basic +([A-Za-z0-9+/]+={0,2})$/i;
 const MAX_TOKEN_LENGTH = 512;
+// What the worker writes (runtime-core) and the gateway issues (worker-gateway.ts).
+const REPORT_USER = "werft";
+const REPORT_TOKEN_PREFIX = "wed_";
 
 /**
  * The `egress_report` token in a refused request's `Proxy-Authorization`:
  * the password of its Basic credentials, which an HTTP client builds from
- * the userinfo of its proxy variable. Anything else is no token.
+ * the userinfo the worker put on its proxy variable
+ * (runtime-core/src/egress-report.ts). Anything else, an operator's own proxy
+ * credentials among them, is no token and is not sent on.
  */
 export function reportTokenOf(field: string | undefined): string | undefined {
   if (field === undefined) return undefined;
@@ -23,9 +28,10 @@ export function reportTokenOf(field: string | undefined): string | undefined {
     return undefined;
   }
   const colon = decoded.indexOf(":");
-  if (colon < 0) return undefined;
+  if (colon < 0 || decoded.slice(0, colon) !== REPORT_USER) return undefined;
   const token = decodeURIComponentOrNull(decoded.slice(colon + 1));
-  return token !== null && token.length > 0 && token.length <= MAX_TOKEN_LENGTH
+  return token?.startsWith(REPORT_TOKEN_PREFIX) &&
+    token.length <= MAX_TOKEN_LENGTH
     ? token
     : undefined;
 }

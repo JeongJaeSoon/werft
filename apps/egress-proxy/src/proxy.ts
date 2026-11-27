@@ -527,9 +527,13 @@ export async function startEgressProxy(
       }
       const destination = { host: request.host, port: request.port };
       // A CONNECT authority is only split at its last colon, so a malformed
-      // one can carry a path or userinfo; that is not echoed or reported.
+      // one can carry a path or userinfo, and an absolute-form URL can name
+      // port 0; neither is echoed or reported.
       const unlisted =
-        decision.reason === NOT_ALLOWLISTED && nameable(request.host);
+        decision.reason === NOT_ALLOWLISTED &&
+        nameable(request.host) &&
+        request.port >= 1 &&
+        request.port <= 65_535;
       // npm falls back from a GitHub tarball to `git clone` only on an
       // HTTP error, so a refusal answers rather than drops
       // (npm-git-dependency.test.ts). The host and port are the client's own
