@@ -261,6 +261,33 @@ describe("fake Slack Web API", () => {
     });
   });
 
+  test("a held method takes its call, and answers once its hold is over", async () => {
+    const order: string[] = [];
+    const hold = Promise.withResolvers<void>();
+    const reached = Promise.withResolvers<void>();
+    const before = slack.calls.length;
+    slack.holds.set("tooling.tokens.rotate", async () => {
+      order.push(`held, ${slack.calls.length - before} call taken`);
+      reached.resolve();
+      await hold.promise;
+    });
+    try {
+      const answered = post(`${slack.url}/tooling.tokens.rotate`, {
+        refresh_token: slack.issueConfigToken(),
+      }).then((answer) => {
+        order.push("answered");
+        return answer;
+      });
+      await Promise.race([reached.promise, answered]);
+      order.push("let go");
+      hold.resolve();
+      expect(await answered).toMatchObject({ ok: true });
+    } finally {
+      slack.holds.delete("tooling.tokens.rotate");
+    }
+    expect(order).toEqual(["held, 1 call taken", "let go", "answered"]);
+  });
+
   test("beside the mock IdP, its own bot still answers auth.test", async () => {
     const idp = await startMockSlackOidc({ webApi: createFakeSlackWebApi() });
     try {

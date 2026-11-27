@@ -106,6 +106,11 @@ export type FakeSlackWebApi = {
   missingTs: Set<string>;
   /** A method named here answers ok:false with this error. */
   failures: Map<string, string>;
+  /**
+   * Awaited once a method named here took its call, before its answer goes
+   * out: what happens while the caller waits on Slack.
+   */
+  holds: Map<string, () => Promise<unknown>>;
   /** A block type named here is refused as `invalid_blocks`, as an app without it would be. */
   refusedBlockTypes: Set<string>;
 };
@@ -309,6 +314,7 @@ export function createFakeSlackWebApi(
     return ts;
   };
   const failures = new Map<string, string>();
+  const holds: FakeSlackWebApi["holds"] = new Map();
   const refusedBlockTypes = new Set<string>();
   /** The next call of a method answers exactly this, then it is forgotten. */
   const nextAnswers = new Map<string, { status: number; body: unknown }>();
@@ -942,6 +948,7 @@ export function createFakeSlackWebApi(
     threads,
     missingTs,
     failures,
+    holds,
     refusedBlockTypes,
     authorize,
     sendEvent,
@@ -1506,6 +1513,7 @@ export function createFakeSlackWebApi(
         const answer = run(context);
         if (answer === null) return null;
         calls.push({ method, ok: true });
+        await holds.get(method)?.();
         // Slack names a token's scopes on every answer it gives it.
         const scopes =
           context.token === null ? undefined : tokenScopes.get(context.token);
