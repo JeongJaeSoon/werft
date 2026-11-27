@@ -1836,12 +1836,12 @@ describe("changelog-release.ts", () => {
     [
       "a fence closed by a shorter run",
       { "a.md": `${ops("x")}  \`\`\`\`\n  y\n  \`\`\`\n` },
-      "a code fence is not closed",
+      "a fence-like line inside a code fence",
     ],
     [
       "a fence closed by the other character",
       { "a.md": `${ops("x")}  \`\`\`\n  y\n  ~~~\n` },
-      "a code fence is not closed",
+      "a fence-like line inside a code fence",
     ],
     [
       "a section heading inside a fence",
@@ -1851,7 +1851,7 @@ describe("changelog-release.ts", () => {
     [
       "a top-level fence closed at a deeper indent",
       { "a.md": `${ops("x")}\`\`\`\ny\n    \`\`\`\n` },
-      "a code fence is not closed",
+      "a fence-like line inside a code fence",
     ],
     [
       "a relative link",
@@ -1873,8 +1873,25 @@ describe("changelog-release.ts", () => {
       {
         "a.md": `${ops("x")}  \`\`\`\n  y\n  \`\`\`${String.fromCharCode(160)}\n`,
       },
-      "a code fence is not closed",
+      "a fence-like line inside a code fence",
     ],
+    [
+      "a fence-like line at another indent inside a fence",
+      { "a.md": `${ops("x")}\`\`\`sh\n \`\`\`\n\`\`\`\n` },
+      "a.md:5: a fence-like line inside a code fence",
+    ],
+    [
+      "an escaped bracket",
+      { "a.md": ops("[q\\]x]: ../docs/quickstart.md") },
+      "a.md:3: an escaped backtick or bracket",
+    ],
+    [
+      "an escaped backtick around a link",
+      { "a.md": ops("\\`[절차](../docs/quickstart.md)\\`") },
+      "a.md:3: an escaped backtick or bracket",
+    ],
+    ["an HTML comment", { "a.md": ops("x <!-- 메모") }, "a.md:3: raw HTML"],
+    ["an HTML block", { "a.md": `${ops("x")}\n<pre>\n` }, "a.md:5: raw HTML"],
     [
       "a fence left open",
       { "a.md": `${ops("x")}  \`\`\`sh\n  echo\n` },

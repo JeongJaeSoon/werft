@@ -29,30 +29,48 @@ export function parseSections(
     throw new Error(`${where}: CRLF line ending; use LF`);
   const sections: Sections = new Map();
   let current: string[] | null = null;
-  let fence: { indent: number; char: string; length: number } | null = null;
+  let fence: { indent: string; char: string; length: number } | null = null;
   text.split("\n").forEach((line, i) => {
-    // A fence closes only at its own indent: a deeper marker is code text.
-    const marker = /^( *)(`{3,}|~{3,})(.*)$/.exec(line);
+    // The format is narrower than Markdown so that what passes here renders
+    // the same once the fragments are joined: a fence closes with the same
+    // indent, character and at least the same length, and any other fence-like
+    // line inside it is refused rather than guessed at.
+    const marker = /^(\s*)(`{3,}|~{3,})(.*)$/.exec(line);
     if (marker?.[1] !== undefined && marker[2] !== undefined) {
-      const indent = marker[1].length;
       const run = marker[2];
       if (fence === null) {
-        fence = { indent, char: run.charAt(0), length: run.length };
+        fence = { indent: marker[1], char: run.charAt(0), length: run.length };
       } else if (
-        indent === fence.indent &&
+        marker[1] === fence.indent &&
         run.charAt(0) === fence.char &&
         run.length >= fence.length &&
         /^[ \t]*$/.test(marker[3] ?? "")
       ) {
         fence = null;
+      } else {
+        throw new Error(
+          `${where}:${i + 1}: a fence-like line inside a code fence; close the fence with its opening line's indent and marker`,
+        );
       }
     }
     // A fragment moves from changelog.d/ to the root: a relative link would
     // point elsewhere there.
     // Code is no link, and a reference definition is refused outright: two
     // fragments could define one label, and the first would win for both.
+    if (fragment && /\\[`[\]]/.test(line)) {
+      throw new Error(
+        `${where}:${i + 1}: an escaped backtick or bracket; reword or put it in a code span`,
+      );
+    }
+    // Raw HTML can swallow what follows it (an unclosed comment or <pre>).
     if (fragment && fence === null) {
       const prose = line.replace(/`[^`]*`/g, "");
+      if (
+        prose.includes("<!--") ||
+        /^\s*((>|[-*+]|\d+[.)])\s*)*<[A-Za-z!/?]/.test(prose)
+      ) {
+        throw new Error(`${where}:${i + 1}: raw HTML; write it as Markdown`);
+      }
       if (/^\s*((>|[-*+]|\d+[.)])\s*)*\[[^\]]+\]:/.test(prose)) {
         throw new Error(
           `${where}:${i + 1}: a reference definition; write the link inline with an absolute URL`,
