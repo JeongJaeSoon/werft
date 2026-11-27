@@ -49,10 +49,11 @@ export type SecretScanResult =
     };
 
 /**
- * `scanned` covers every text file given. Binary files are not read:
- * gitleaks tells them by content and skips them, so a caller passes only
- * the binaries the gate lets in (rule 3's media types) and treats what is
- * inside them as unchecked.
+ * `scanned` covers every text file given (rule 3's text: strict UTF-8, no
+ * NUL) in full, whatever it starts with. Any other file is handed to gitleaks
+ * as it is, and gitleaks skips those it types as an application, so a caller
+ * passes only the binaries the gate lets in (rule 3's media types) and treats
+ * what is inside them as unchecked.
  */
 export interface SecretScanner {
   scan(files: readonly SecretScanFile[]): Promise<SecretScanResult>;
