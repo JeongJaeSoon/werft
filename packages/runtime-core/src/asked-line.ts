@@ -19,7 +19,8 @@ import { WORKSPACE_POLICY } from "./workspace-policy.ts";
  * - `askedLineRefusal`: the narrow one, for a mode where another judge (the
  *   Claude engine's auto classifier) stands behind the ask and must not be
  *   overruled. A line passes only when it splits with certainty and every
- *   part is a command the policy allows.
+ *   part is a command the policy allows. A single `|` splits it there: what
+ *   flows through a pipe is data, and each side is judged as its own part.
  *
  * The Claude engine asks about a line its parser does not read to the end (a
  * file redirect and a heredoc after `&&`), and it does not say why it asked
@@ -65,16 +66,22 @@ type Part = {
   redirect?: { op: ">" | ">>"; target: string };
   /** The part reads a quoted heredoc's body on its stdin. */
   heredoc?: true;
+  /** The part reads what a `|` before it gives. */
+  piped?: true;
 };
 
 type Token =
   | { kind: "word"; text: string; written: string }
-  | { kind: "end"; op: "&&" | ";" | "\n" }
+  | { kind: "end"; op: "&&" | ";" | "\n" | "|" }
   | { kind: "redirect"; op: ">" | ">>" }
   | { kind: "heredoc" };
 
-/** The tokens of a line, or why it cannot be split with certainty. */
-function tokensOf(command: string): Token[] | string {
+/**
+ * The tokens of a line, or why it cannot be split with certainty. A single
+ * `|` ends a command only under `pipes`: each side of it is then judged as a
+ * command of its own.
+ */
+function tokensOf(command: string, pipes: boolean): Token[] | string {
   const tokens: Token[] = [];
   let pending: string | undefined;
   let i = 0;
@@ -114,6 +121,14 @@ function tokensOf(command: string): Token[] | string {
     }
     if (char === ";") {
       tokens.push({ kind: "end", op: ";" });
+      i += 1;
+      continue;
+    }
+    if (char === "|" && pipes) {
+      // `||` and `|&` stay unsplit.
+      const next = command[i + 1];
+      if (next === "|" || next === "&") return "a | outside a quote";
+      tokens.push({ kind: "end", op: "|" });
       i += 1;
       continue;
     }
@@ -158,7 +173,7 @@ function tokensOf(command: string): Token[] | string {
         if (/[$`\\!]/.test(quoted)) return "an expansion in a quote";
         text += quoted;
         i = close;
-      } else if (" \t\n;&<>".includes(next)) {
+      } else if (" \t\n;&<>".includes(next) || (pipes && next === "|")) {
         break;
       } else {
         return `a ${next} outside a quote`;
@@ -170,16 +185,18 @@ function tokensOf(command: string): Token[] | string {
 }
 
 /** The parts of a line, or why it is not a plain list of simple commands. */
-export function partsOf(command: string): Part[] | string {
-  const tokens = tokensOf(command);
+export function partsOf(command: string, pipes = false): Part[] | string {
+  const tokens = tokensOf(command, pipes);
   if (typeof tokens === "string") return tokens;
   const parts: Part[] = [];
   let current: Part = { words: [], written: [] };
   let dangling = false;
+  let piped = false;
   const empty = () =>
     current.words.length === 0 && current.redirect === undefined;
   for (let i = 0; i < tokens.length; i += 1) {
     const token = tokens[i] as Token;
+    if (piped) current.piped = true;
     if (token.kind === "heredoc") {
       // A heredoc with no command before it feeds nothing.
       if (!empty()) current.heredoc = true;
@@ -196,7 +213,8 @@ export function partsOf(command: string): Part[] | string {
     } else if (!empty()) {
       parts.push(current);
       current = { words: [], written: [] };
-      dangling = token.op === "&&";
+      dangling = token.op === "&&" || token.op === "|";
+      piped = token.op === "|";
     } else if (token.op !== "\n") {
       return "an empty command";
     }
@@ -429,23 +447,28 @@ const fromStdin = (words: readonly string[], flags: readonly string[]) =>
       (flags.includes(word) && words[at + 1] === "-"),
   );
 
+/** Whether these words are a filter that reads stdin as text only. */
+function filterReadsText(words: readonly string[]): boolean {
+  const [name] = words;
+  if (!TEXT_FILTERS.includes(name ?? "")) return false;
+  // `wc --files0-from=-` reads the names of files from stdin, and wc takes
+  // a long option by any unique start of its name (`--f=-`).
+  return !(
+    name === "wc" &&
+    words.some((word) => {
+      const option = word.split("=")[0] as string;
+      return option.length > 2 && "--files0-from".startsWith(option);
+    })
+  );
+}
+
 /**
  * Whether these words read stdin as text only: a filter, a commit message,
  * or the body of a pull request or an issue.
  */
 function readsHeredocAsText(words: readonly string[]): boolean {
   const [name, verb, action] = words;
-  // `wc --files0-from=-` reads the names of files from stdin, and wc takes
-  // a long option by any unique start of its name (`--f=-`).
-  if (TEXT_FILTERS.includes(name ?? "")) {
-    return !(
-      name === "wc" &&
-      words.some((word) => {
-        const option = word.split("=")[0] as string;
-        return option.length > 2 && "--files0-from".startsWith(option);
-      })
-    );
-  }
+  if (TEXT_FILTERS.includes(name ?? "")) return filterReadsText(words);
   if (name === "gh") {
     return (
       GH_BODY_TOPICS.includes(verb ?? "") &&
@@ -510,6 +533,12 @@ function partKept(
     // message read one.
     if (part.heredoc && !readsHeredocAsText(part.words)) {
       return `${name} is not a command the workspace policy lets read a heredoc`;
+    }
+    // A command fed by a pipe may take what flows in as names, paths or
+    // directives the line never shows (`git cat-file --batch`,
+    // `git update-index --stdin`), so only filters of text read a pipe.
+    if (part.piped && !filterReadsText(part.words)) {
+      return `${name} is not a command the workspace policy lets read a pipe`;
     }
   }
   const redirect = part.redirect;
@@ -828,7 +857,7 @@ export function askedLineRefusal(
   command: string,
   at: LinePlace,
 ): string | null {
-  const parts = partsOf(command);
+  const parts = partsOf(command, true);
   if (typeof parts === "string") return parts;
   const place = placeOf(at);
   if (typeof place === "string") return place;

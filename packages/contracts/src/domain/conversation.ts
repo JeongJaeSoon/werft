@@ -353,6 +353,33 @@ export const JUDGMENT_VOIDED_REASON_VALUES = [
 export type JudgmentVoidedReason =
   (typeof JUDGMENT_VOIDED_REASON_VALUES)[number];
 
+/**
+ * Why an answered batch judgment that spoke is kept quiet: its `speak` named
+ * no message of the batch to answer, or one it did not judge (Architect Q1,
+ * v1-b/U1). Recorded as the judgment's own reason, never the model's.
+ */
+export const JUDGMENT_TARGET_REASON_VALUES = ["invalid_target"] as const;
+export type JudgmentTargetReason =
+  (typeof JUDGMENT_TARGET_REASON_VALUES)[number];
+
+/**
+ * What became of a judgment that spoke once the agent's rollout is on
+ * (v1-b/U1), kept on its record: the unasked turn's end (`replied`,
+ * `no_reply`, `no_decision`, `budget_refused`), or why no turn was made
+ * of it. A turn that ends with no decision is not tried again. None while
+ * the rollout is `shadow`, which makes no turn.
+ */
+export const JUDGMENT_ANSWER_VALUES = [
+  "replied",
+  "no_reply",
+  "no_decision",
+  "budget_refused",
+  "source_deleted",
+  "channel_stopped",
+  "not_started",
+] as const;
+export type JudgmentAnswer = (typeof JUDGMENT_ANSWER_VALUES)[number];
+
 /** A judgment's result: what a record with a decision has. */
 export const JUDGMENT_OUTCOME_VALUES = [
   "judged",
@@ -363,6 +390,7 @@ export type JudgmentOutcome = (typeof JUDGMENT_OUTCOME_VALUES)[number];
 
 export const JUDGMENT_REASON_VALUES = [
   ...M1_MODEL_REASON_VALUES,
+  ...JUDGMENT_TARGET_REASON_VALUES,
   ...JUDGMENT_NOT_CALLED_REASON_VALUES,
   ...JUDGMENT_FAILED_REASON_VALUES,
 ] as const;
@@ -375,6 +403,7 @@ export type JudgmentRecordReason = JudgmentReason | JudgmentVoidedReason;
 /** A judgment's result as its record keeps it; only `judged` can speak. */
 export type JudgmentVerdict =
   | { outcome: "judged"; decision: M1Decision; reason: M1ModelReason }
+  | { outcome: "judged"; decision: "quiet"; reason: JudgmentTargetReason }
   | {
       outcome: "not_called";
       decision: "quiet";
@@ -411,7 +440,7 @@ export type JudgmentRule =
  * system text changes, so judgments under other rules are never compared
  * as one.
  */
-export const M1_PROMPT_VERSION = 2;
+export const M1_PROMPT_VERSION = 3;
 
 /**
  * What became of the summary line a batch judgment gave (a1/J8): added;
