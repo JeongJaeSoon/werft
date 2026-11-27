@@ -1928,6 +1928,26 @@ describe("changelog-release.ts", () => {
       "a.md:3: a control character or line separator",
     ],
     [
+      "a reference definition behind a code span",
+      { "a.md": ops("[q`]: https://example.test/`x](https://example.test)") },
+      "a.md:3: a reference definition",
+    ],
+    [
+      "a blank line between entries",
+      { "a.md": `${ops("x")}\n- y\n` },
+      "a.md:4: a blank line inside a section",
+    ],
+    [
+      "a blank line inside an entry",
+      { "a.md": `${ops("x")}\n  이어서\n` },
+      "a.md:4: a blank line inside a section",
+    ],
+    [
+      "a thematic break",
+      { "a.md": `${ops("x")}- - -\n` },
+      "a.md:4: a thematic break",
+    ],
+    [
       "a fence left open",
       { "a.md": `${ops("x")}  \`\`\`sh\n  echo\n` },
       "a.md: a code fence is not closed",
@@ -1987,7 +2007,7 @@ describe("changelog-release.ts", () => {
     expect(
       collect(head + old, [{ name: "b.md", text: linked }], "v0.6.0"),
     ).toContain(linked.slice(-40));
-    const fenced = `### 운영자가 할 일\n\n- 명령:\n\n  \`\`\`sh\n  run\n  \`\`\`\n`;
+    const fenced = `### 운영자가 할 일\n\n- 명령:\n  \`\`\`sh\n  run\n  \`\`\`\n`;
     expect(
       collect(head + old, [{ name: "a.md", text: fenced }], "v0.6.0"),
     ).toContain("  ```sh\n  run\n  ```\n");

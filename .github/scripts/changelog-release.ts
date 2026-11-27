@@ -55,6 +55,8 @@ function checkFragmentLine(
       'a line that is neither an entry ("- " at the start) nor indented under one',
     );
   }
+  // "- - -" is a rule, not an entry, and ends the section's list.
+  if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) fail("a thematic break");
   if (marker !== null) {
     if (!/^[A-Za-z0-9_+.-]*$/.test((marker[3] ?? "").trim()))
       fail("a fence info string other than one language name");
@@ -69,11 +71,15 @@ function checkFragmentLine(
   ) {
     fail("raw HTML; write it as Markdown");
   }
-  // A reference definition, also one whose label runs on to the next line.
+  // A reference definition, also one whose label runs on to the next line or
+  // hides behind a code span.
   const content = prose.replace(MARKERS, "");
+  const raw = line.replace(MARKERS, "");
   if (
+    /^\[[^\]]*\]:/.test(raw) ||
     /^\[[^\]]*\]:/.test(content) ||
-    (content.startsWith("[") && !content.includes("]("))
+    ((raw.startsWith("[") || content.startsWith("[")) &&
+      !content.includes("]("))
   ) {
     fail(
       "a reference definition or a bracket that starts a paragraph; write the link inline with an absolute URL",
@@ -99,6 +105,9 @@ export function parseSections(
   const sections: Sections = new Map();
   let current: string[] | null = null;
   let fence: { indent: string; char: string; length: number } | null = null;
+  // A blank line inside a section would make the joined list loose, changing
+  // how every other entry renders.
+  let blank: number | null = null;
   text.split("\n").forEach((line, i) => {
     const at = `${where}:${i + 1}`;
     const marker = FENCE.exec(line);
@@ -141,11 +150,19 @@ export function parseSections(
       if (sections.has(name))
         throw new Error(`${at}: "### ${name}" appears twice`);
       current = [];
+      blank = null;
       sections.set(name, current);
     } else if (current === null) {
       if (line.trim() !== "")
         throw new Error(`${at}: text before the first section heading`);
     } else {
+      if (fragment && fence === null && line.trim() === "") {
+        if (current.some((l) => l.trim() !== "")) blank ??= i;
+      } else if (fragment && blank !== null) {
+        throw new Error(
+          `${where}:${blank + 1}: a blank line inside a section; entries follow each other without one`,
+        );
+      }
       current.push(line);
     }
   });
