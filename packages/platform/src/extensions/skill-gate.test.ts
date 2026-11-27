@@ -1355,3 +1355,20 @@ describe("nineteenth review", () => {
     ).toEqual(["package_install"]);
   });
 });
+
+describe("twentieth review", () => {
+  test("& and | also end a command", () => {
+    const sh = (body: string) => text("skills/s/scripts/a.sh", body);
+    const warn = (a: string, b: string) =>
+      gate({
+        before: [...licensed("s"), sh(a)],
+        after: [...licensed("s"), sh(b)],
+      }).warnings;
+    expect(
+      warn('printf a & \\\ncurl "$T"\n', 'printf b & \\\ncurl "$T"\n'),
+    ).toEqual([]);
+    expect(warn('cat a | \\\ncurl "$T"\n', 'cat b | \\\ncurl "$T"\n')).toEqual(
+      [],
+    );
+  });
+});

@@ -408,12 +408,12 @@ function changedCalls(text: string, at: Changes | null): string[] {
 
 /** An odd run of backslashes at the end: "\\\\" is a literal backslash. */
 /**
- * The commands of a logical line, normalized and split at ";", "&&" and "||"
+ * The commands of a logical line, normalized and split at ";", "&" and "|"
  * so a change to one leaves its neighbours alone; spacing is not a change.
  */
 const commandsOf = (line: string) =>
   normalized(line)
-    .split(/;|&&|\|\|/)
+    .split(/[;&|]+/)
     .map((command) => command.replace(/\s+/g, " ").trim())
     .filter((command) => command !== "");
 
