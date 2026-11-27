@@ -127,6 +127,13 @@ export function workspaceRules(cwd: string): WorkspaceRules {
   return { allow, ask };
 }
 
+/** The Bash ask patterns without their `Bash(...)` wrapping. */
+export function bashAskPatterns(): string[] {
+  const ask: string[] = [];
+  addBashRules([], ask);
+  return ask.map((rule) => rule.slice("Bash(".length, -1));
+}
+
 function addBashRules(allow: string[], ask: string[]): void {
   for (const command of [
     ...policy.git.allow,
@@ -166,7 +173,14 @@ function addBashRules(allow: string[], ask: string[]): void {
       ]),
     ].map((pattern) => `Bash(${pattern})`),
   );
-  ask.push(...policy.fs.ask.map((pattern) => `Bash(${pattern})`));
+  ask.push(
+    ...[
+      ...policy.fs.ask,
+      ...policy.fs.askWhenSecretNamed.flatMap((command) =>
+        policy.secretNameParts.map((part) => `${command} *${part}*`),
+      ),
+    ].map((pattern) => `Bash(${pattern})`),
+  );
   for (const command of policy.secretRead.readers) {
     ask.push(...secretReadPatterns(command).map((p) => `Bash(${p})`));
   }

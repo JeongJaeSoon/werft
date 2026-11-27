@@ -3,7 +3,11 @@ import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GITHUB_CEILING_NONE } from "@werft-ai/contracts";
+import {
+  GITHUB_CEILING_NONE,
+  GITHUB_FEATURES_NONE,
+  type GitHubCeiling,
+} from "@werft-ai/contracts";
 import { connectionsOf, createGitPusher } from "@werft-ai/forge-github";
 import {
   createGitHubGate,
@@ -124,6 +128,8 @@ async function run(
     /** Absent: a session with no agent or release, as before the gate. */
     release?: GitHubSessionContext["release"];
     policy?: GitHubSessionContext["policy"];
+    /** Absent: a workspace that never saved one. */
+    ceiling?: GitHubCeiling;
     /** The porcelain output of a `git push` that fails instead of running. */
     pushRefusedWith?: string;
     /** What the session's claims issued; absent, the ledger is empty. */
@@ -153,7 +159,7 @@ async function run(
         agent: null,
         release: options.release ?? null,
         policy: options.policy ?? releasePolicy(null),
-        ceiling: GITHUB_CEILING_NONE,
+        ceiling: options.ceiling ?? GITHUB_CEILING_NONE,
         // The workspace ceiling judges every session's repository; this
         // one reaches every catalog repository.
         repositoryCeiling: {
@@ -519,22 +525,73 @@ describe("the platform's push", () => {
     expect(github.tokenRequests.length).toBe(tokensBefore);
   });
 
-  test("a workflow change GitHub refuses for want of the workflows permission says so in the outcome", async () => {
+  test("a workflow change GitHub refuses says whose switch is off: the token did not ask for workflows, or it asked and the App lacks it", async () => {
     const catalog = catalogOf({ app: appRepository() });
     const job = jobFor(catalog, "app");
     const remoteRef = `refs/heads/${job.targetBranch}`;
-    const result = await run(catalog, job, {
-      pushRefusedWith: `To ${github.origin}/acme/app.git\n!\t${job.gitCommit}:${remoteRef}\t[remote rejected] (refusing to allow a GitHub App to create or update workflow \`.github/workflows/x.yml\` without \`workflows\` permission)\nDone\n`,
-    });
+    const refusedBy = (j: PushJob) =>
+      `To ${github.origin}/acme/app.git\n!\t${j.gitCommit}:refs/heads/${j.targetBranch}\t[remote rejected] (refusing to allow a GitHub App to create or update workflow \`.github/workflows/x.yml\` without \`workflows\` permission)\nDone\n`;
+    // Workflows is off in Werft (here: nothing turned it on), so the token
+    // asked for contents alone.
+    const result = await run(catalog, job, { pushRefusedWith: refusedBy(job) });
     expect(result.outcome).toEqual({
       state: "failed",
       refusal: "push_failed",
-      reasonCode: "workflows_permission_missing",
+      reasonCode: "workflows_off",
       remoteUrl: `${github.origin}/acme/app.git`,
       remoteRef,
     });
-    // GitHub's own text is not passed on.
+    expect(result.receipts).toMatchObject([
+      {
+        operation: "mint_github_token",
+        status: "succeeded",
+        result: { permissions: { contents: "write" } },
+      },
+    ]);
+    // GitHub's own text is not passed on, and the log names the reason.
     expect(result.logged.join("\n")).not.toContain(".github/workflows/x.yml");
+    expect(result.logged.join("\n")).toContain("workflows_off");
+
+    // The agent's settings and the ceiling both have it on, so the token
+    // asked for workflows and GitHub still refused: the App lacks it.
+    const asking = jobFor(catalog, "app");
+    const asked = await run(catalog, asking, {
+      pushRefusedWith: refusedBy(asking),
+      release: { id: crypto.randomUUID() },
+      policy: releasePolicy({
+        repositories: ["app"],
+        push_approval: false,
+        features: { ...GITHUB_FEATURES_NONE, workflows: true },
+        actions_allow: [],
+      }),
+      ceiling: { ...GITHUB_CEILING_NONE, workflows: true },
+    });
+    expect(asked.outcome).toMatchObject({
+      state: "failed",
+      refusal: "push_failed",
+      reasonCode: "workflows_permission_missing",
+    });
+    expect(asked.receipts).toMatchObject([
+      {
+        operation: "mint_github_token",
+        status: "succeeded",
+        result: { permissions: { contents: "write", workflows: "write" } },
+      },
+    ]);
+
+    // On in the agent's settings, off in the ceiling: not asked for.
+    const capped = jobFor(catalog, "app");
+    const cappedRun = await run(catalog, capped, {
+      pushRefusedWith: refusedBy(capped),
+      release: { id: crypto.randomUUID() },
+      policy: releasePolicy({
+        repositories: ["app"],
+        push_approval: false,
+        features: { ...GITHUB_FEATURES_NONE, workflows: true },
+        actions_allow: [],
+      }),
+    });
+    expect(cappedRun.outcome).toMatchObject({ reasonCode: "workflows_off" });
 
     const ordinary = await run(catalog, jobFor(catalog, "app"), {
       pushRefusedWith: `!\t${job.gitCommit}:${remoteRef}\t[remote rejected] (pre-receive hook declined)\n`,

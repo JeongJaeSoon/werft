@@ -14,6 +14,7 @@ import type {
   RuntimeProcessObserver,
   ToolDecisionObserver,
 } from "@werft-ai/runtime-core";
+import { askedBashRefusal } from "./asked-bash.ts";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import type { DriverRun, RuntimeHooks } from "./driver.ts";
 import { modeSettings } from "./engine-settings.ts";
@@ -231,9 +232,18 @@ export function buildSdkOptions(
     }),
   };
   const disallowed = [...(config.disallowedTools ?? [])];
+  // A line the engine did not read to the end was not matched against a deny
+  // rule either, so a release that denies any Bash shape keeps the engine's
+  // ask. Plan mode has no workspace rules to read a line by.
+  const rereadsBash =
+    "permissions" in settings &&
+    !disallowed.some((rule) => /^Bash(\(|$)/.test(rule));
+  /** Where the engine's shell stood when it took each Bash call. */
+  const shellAt = new Map<string, string>();
   const notes = new Map<string, string>();
   const settle: HookCallback = async (input) => {
     if (!("tool_use_id" in input)) return {};
+    shellAt.delete(input.tool_use_id);
     ledger.toolSettled(input.tool_use_id);
     decisions.ran(input.tool_use_id);
     const note = notes.get(input.tool_use_id);
@@ -256,6 +266,7 @@ export function buildSdkOptions(
   };
   const settleRefused: HookCallback = async (input) => {
     if ("tool_use_id" in input) {
+      shellAt.delete(input.tool_use_id);
       if (notes.delete(input.tool_use_id)) {
         hooks.noteSettled?.(input.tool_use_id, false);
       }
@@ -287,6 +298,35 @@ export function buildSdkOptions(
       };
       if (!permittedTools.has(tool)) {
         return deny("Tool is outside the server allowlist", "not_permitted");
+      }
+      const shell = shellAt.get(options.toolUseID);
+      shellAt.delete(options.toolUseID);
+      // The workspace policy reads the line itself and answers for one whose
+      // every part it allows (asked-bash.ts); the engine asks about such a
+      // line when its parser stops short of the end.
+      if (
+        rereadsBash &&
+        tool === "Bash" &&
+        typeof toolInput.command === "string" &&
+        // A call that asks to leave the engine's sandbox is a person's.
+        toolInput.dangerouslyDisableSandbox !== true &&
+        askedBashRefusal(toolInput.command, {
+          workspace: config.cwd,
+          shell,
+          runners: config.permissionMode !== "auto",
+        }) === null
+      ) {
+        decisions.admitted(
+          options.toolUseID,
+          tool,
+          toolInput,
+          "permission_mode",
+        );
+        return {
+          behavior: "allow" as const,
+          updatedInput: toolInput,
+          toolUseID: options.toolUseID,
+        };
       }
       const admission = ledger.permissionStarting(options.toolUseID);
       if (!admission.allowed) return deny(admission.message, "hook_deny");
@@ -401,6 +441,9 @@ export function buildSdkOptions(
               const admission = ledger.toolStarting(input.tool_use_id);
               if (!admission.allowed)
                 return deny(admission.message, "hook_deny");
+              if (rereadsBash && toolName === "Bash") {
+                shellAt.set(input.tool_use_id, input.cwd);
+              }
               // The one judgment this skips is the engine's permission
               // stage (a person's answer, the auto classifier). It comes
               // last so the allowlist, the admission guard and the ledger

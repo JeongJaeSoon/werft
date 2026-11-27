@@ -1,4 +1,8 @@
-import { DEFAULT_USER_LOCALE, type UserLocale } from "@werft-ai/contracts";
+import {
+  DEFAULT_USER_LOCALE,
+  type UserLocale,
+  type WorkflowsPushReason,
+} from "@werft-ai/contracts";
 
 /**
  * What an `action_notice` row tells the thread. One row per result, keyed
@@ -53,11 +57,53 @@ type Copy = Record<ActionNoticeResult, (notice: ActionNotice) => string>;
 const short = (notice: ActionNotice) => (notice.commit ?? "").slice(0, 7);
 const code = (notice: ActionNotice) => notice.reason ?? "unknown";
 
+/**
+ * A push GitHub refused for a workflow file says what to ask for, and of
+ * whom, in place of the code: the reader is the person who asked for the
+ * change, not the one who can turn the permission on.
+ */
+const WORKFLOWS_WHY: Record<UserLocale, Record<WorkflowsPushReason, string>> = {
+  ko: {
+    workflows_off:
+      "workflow 파일을 push하려면 Werft에서 Workflows 변경을 켜야 해요. 워크스페이스 관리자에게 에이전트 GitHub 설정에서 켜 달라고 요청하세요.",
+    workflows_permission_missing:
+      "workflow 파일을 push하려면 GitHub App에 Workflows 권한이 필요해요. 워크스페이스 관리자에게 요청하세요.",
+    workflows_refused:
+      "workflow 파일을 push하려면 Workflows 권한이 필요해요. 워크스페이스 관리자에게 에이전트 GitHub 설정과 GitHub App 권한을 확인해 달라고 요청하세요.",
+  },
+  ja: {
+    workflows_off:
+      "workflowファイルをpushするには、WerftでWorkflowsの変更をオンにする必要があります。ワークスペース管理者に、エージェントのGitHub設定でオンにするよう依頼してください。",
+    workflows_permission_missing:
+      "workflowファイルをpushするには、GitHub AppにWorkflows権限が必要です。ワークスペース管理者に依頼してください。",
+    workflows_refused:
+      "workflowファイルをpushするには、Workflows権限が必要です。ワークスペース管理者に、エージェントのGitHub設定とGitHub Appの権限を確認するよう依頼してください。",
+  },
+  en: {
+    workflows_off:
+      "Pushing a workflow file needs Workflows changes turned on in Werft. Ask a workspace admin to turn it on in the agent's GitHub settings.",
+    workflows_permission_missing:
+      "Pushing a workflow file needs the Workflows permission on the GitHub App. Ask a workspace admin for it.",
+    workflows_refused:
+      "Pushing a workflow file needs the Workflows permission. Ask a workspace admin to check the agent's GitHub settings and the GitHub App's permissions.",
+  },
+};
+
+const workflowsWhy = (locale: UserLocale, notice: ActionNotice) =>
+  Object.hasOwn(WORKFLOWS_WHY[locale], notice.reason ?? "")
+    ? WORKFLOWS_WHY[locale][notice.reason as WorkflowsPushReason]
+    : undefined;
+
+const PUSH_FAILED: Record<UserLocale, (notice: ActionNotice) => string> = {
+  ko: (n) => `push하지 못했어요: ${n.repository} ${n.branch}`,
+  ja: (n) => `pushできませんでした: ${n.repository} ${n.branch}`,
+  en: (n) => `Could not push ${n.repository} ${n.branch}`,
+};
+
 const COPY: Record<UserLocale, Copy> = {
   ko: {
     pushed: (n) => `push했어요: ${n.repository} ${n.branch} (${short(n)})`,
-    push_failed: (n) =>
-      `push하지 못했어요: ${n.repository} ${n.branch} (${code(n)})`,
+    push_failed: (n) => `${PUSH_FAILED.ko(n)} (${code(n)})`,
     opened: (n) => `PR #${n.number}을 열었어요: ${n.repository}`,
     pr_updated: (n) =>
       `열려 있던 PR #${n.number}에 새 push(${short(n)})를 반영했어요: ${n.repository}`,
@@ -72,8 +118,7 @@ const COPY: Record<UserLocale, Copy> = {
   },
   ja: {
     pushed: (n) => `pushしました: ${n.repository} ${n.branch} (${short(n)})`,
-    push_failed: (n) =>
-      `pushできませんでした: ${n.repository} ${n.branch} (${code(n)})`,
+    push_failed: (n) => `${PUSH_FAILED.ja(n)} (${code(n)})`,
     opened: (n) => `PR #${n.number} を作成しました: ${n.repository}`,
     pr_updated: (n) =>
       `作成済みの PR #${n.number} に新しい push (${short(n)}) を反映しました: ${n.repository}`,
@@ -88,8 +133,7 @@ const COPY: Record<UserLocale, Copy> = {
   },
   en: {
     pushed: (n) => `Pushed ${n.repository} ${n.branch} (${short(n)})`,
-    push_failed: (n) =>
-      `Could not push ${n.repository} ${n.branch} (${code(n)})`,
+    push_failed: (n) => `${PUSH_FAILED.en(n)} (${code(n)})`,
     opened: (n) => `Opened PR #${n.number} in ${n.repository}`,
     pr_updated: (n) =>
       `Updated the open PR #${n.number} in ${n.repository} with the new push (${short(n)})`,
@@ -112,5 +156,12 @@ export function actionNoticeText(
   locale: UserLocale | null | undefined,
   notice: ActionNotice,
 ): string {
-  return COPY[locale ?? DEFAULT_USER_LOCALE][notice.result](notice);
+  const language = locale ?? DEFAULT_USER_LOCALE;
+  const why =
+    notice.result === "push_failed"
+      ? workflowsWhy(language, notice)
+      : undefined;
+  return why === undefined
+    ? COPY[language][notice.result](notice)
+    : `${PUSH_FAILED[language](notice)}\n${why}`;
 }

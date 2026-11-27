@@ -148,12 +148,10 @@ const steps: Step[] = [
   bash("git_restore_staged", "git restore --staged notes/sample.txt", false),
   bash("dev_command_inside", "bun test --help", false),
   bash("redirect_inside", "git status > status.txt", false),
-  // The e2e flows, the verify skill and the docs ask for a permission with
-  // these; if the rules ever cover them, those flows hang waiting for a card.
+  // The e2e flows and the conformance suite ask for a permission with these;
+  // if the rules ever cover them, those flows hang waiting for a card.
   bash("ask_vehicle_tee", "echo alpha | tee hello.txt", true),
   bash("ask_vehicle_tee_append", "echo beta | tee -a hello.txt", true),
-  // acceptEdits lets the engine touch files in the working directory itself.
-  { ...bash("ask_vehicle_touch", "touch a.txt", true), onlyIn: "default" },
   // Each of these would delete work that no object or reflog keeps, or leave
   // the repository, with the flag in a place a prefix match would miss.
   bash("git_checkout_discard", "git checkout -- notes/sample.txt", true),
@@ -563,6 +561,109 @@ const steps: Step[] = [
  * the branch protection are what hold them. They change the fixture's
  * repository, so they run after every step that reads it.
  */
+/** A workflow file as a session writes one: text a shell would expand. */
+const WORKFLOW = [
+  "name: Hello",
+  "on:",
+  "  workflow_dispatch:",
+  "jobs:",
+  "  hello:",
+  "    runs-on: ubuntu-latest",
+  "    steps:",
+  '      - run: echo "Hello $GITHUB_REF $(id)"',
+].join("\n");
+
+/**
+ * The file commands of ordinary work, and the lines the engine's parser
+ * stops in: a file redirect and a heredoc after `&&`. They change the
+ * fixture's repository, so they run after every step that reads it.
+ */
+const ORDINARY_WORK: Step[] = [
+  bash("fs_touch", "touch made/t.txt && ls made", false, "t.txt"),
+  bash("fs_cp", "cp made/t.txt made/c.txt && ls made", false, "c.txt"),
+  bash("fs_mv", "mv made/c.txt made/m.txt && ls made", false, "m.txt"),
+  bash("fs_rm", "rm made/m.txt && rm -rf made/sub && ls made", false, "t.txt"),
+  bash("fs_touch_dotdot", "touch ../fs-out.txt", true),
+  bash("fs_touch_abs", "touch /tmp/werft-fs-out.txt", true),
+  bash("fs_cp_outside", "cp notes/sample.txt ../fs-out.txt", true),
+  bash("fs_cp_from_outside", "cp /etc/hosts notes/hosts.txt", true),
+  bash("fs_mv_outside", "mv notes/sample.txt ../fs-out.txt", true),
+  bash("fs_rm_outside", "rm ../keep", true),
+  bash("fs_cp_var", "cp notes/sample.txt $HOME/fs-out.txt", true),
+  bash("fs_cp_symlink_escape", "cp notes/sample.txt link/escaped.txt", true),
+  bash("fs_rm_git", "rm -rf .git", true),
+  bash("fs_rm_git_hooks", "rm -rf .git/hooks", true),
+  bash("fs_cp_git_hook", "cp notes/sample.txt .git/hooks/pre-commit", true),
+  bash("fs_touch_claude", "touch .claude/settings.json", true),
+  bash("fs_cp_secret", "cp .env.secret notes/copy.txt", true),
+  bash("fs_mv_secret", "mv .env.secret notes/moved.txt", true),
+  bash("dev_make", "make --version", false, "Make"),
+  bash("dev_make_outside", "make -C /tmp/werft-probe", true),
+  bash("dev_pytest_outside", "pytest /tmp/werft-probe", true),
+  // The scene a person was asked about (a branch from an attached
+  // repository's remote, then a workflow file), and what follows it.
+  {
+    ...bash(
+      "unread_owner_scene",
+      `git update-ref refs/remotes/sandbox/main HEAD && mkdir -p .github/workflows\ngit switch -c hello-actions sandbox/main && cat > .github/workflows/hello.yml <<'EOF'\n${WORKFLOW}\nEOF\ngit add .github/workflows/hello.yml && git commit -qm "Add hello workflow" && git log --oneline -1`,
+      false,
+      "Add hello workflow",
+    ),
+    effect: fileExists((_, w) => join(w, ".github", "workflows", "hello.yml")),
+  },
+  // A push in such a line is not asked about either. What stops one is not a
+  // person: nothing here reaches GitHub, and the platform's push refuses the
+  // default branch (git-push.ts, push-executor.ts).
+  bash(
+    "unread_with_push",
+    `mkdir -p notes && cat > notes/pushed.txt <<'EOF'\npushed-marker\nEOF\ngit push origin hello-actions; cat notes/pushed.txt`,
+    false,
+    "pushed-marker",
+  ),
+  bash("unread_after_cd", "cd notes", false),
+  bash(
+    "unread_shell_elsewhere",
+    `mkdir -p sub && cat > sub/a.txt <<'EOF'\nx\nEOF`,
+    true,
+  ),
+  bash("unread_cd_back", "cd ..", false),
+  bash(
+    "unread_substitution",
+    `mkdir -p notes && cat > notes/sub.txt <<'EOF'\nx\nEOF\necho $(id)`,
+    true,
+  ),
+  bash(
+    "unread_network",
+    `mkdir -p notes && cat > notes/net.txt <<'EOF'\nx\nEOF\ncurl -s http://127.0.0.1:9/`,
+    true,
+  ),
+  bash(
+    "unread_secret_read",
+    `mkdir -p notes && cat > notes/sec.txt <<'EOF'\nx\nEOF\ncat .env.secret`,
+    true,
+  ),
+  bash(
+    "unread_redirect_outside",
+    `mkdir -p notes && cat > ../unread-out.txt <<'EOF'\nx\nEOF`,
+    true,
+  ),
+  bash(
+    "unread_redirect_link",
+    `mkdir -p notes && cat > link/unread-out.txt <<'EOF'\nx\nEOF`,
+    true,
+  ),
+  bash(
+    "unread_redirect_git",
+    `mkdir -p notes && cat > .git/hooks/pre-commit <<'EOF'\nx\nEOF`,
+    true,
+  ),
+  bash(
+    "unread_unquoted_heredoc",
+    `mkdir -p notes && cat > notes/unq.txt <<EOF\n$(id)\nEOF`,
+    true,
+  ),
+];
+
 const NOW_ALLOWED = new Set([
   "git_checkout_discard",
   "git_restore_worktree",
@@ -604,6 +705,7 @@ const isNowAllowed = (step: Step) =>
 
 const ordered = [
   ...steps.filter((step) => !isNowAllowed(step)),
+  ...ORDINARY_WORK,
   ...steps.filter(isNowAllowed).map((step) => ({ ...step, asks: false })),
 ];
 
@@ -724,7 +826,7 @@ async function run(permissionMode: PermissionMode) {
 }
 
 describe("a session's own workspace", () => {
-  for (const mode of ["default", "acceptEdits"] as const) {
+  for (const mode of ["default", "acceptEdits", "auto"] as const) {
     test(`${mode}: in-workspace writes and local git pass, the rest is asked`, async () => {
       const { asked, results, root, workspace } = await run(mode);
       const active = stepsFor(mode);
