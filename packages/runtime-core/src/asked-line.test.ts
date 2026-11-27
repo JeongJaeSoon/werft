@@ -118,11 +118,6 @@ const WIDE: [string, string, string | null][] = [
     null,
   ],
   ["a message given to git that is a path", "git commit -m /etc/hosts", null],
-  [
-    "a double dash given to git as a message",
-    "git commit -m -- -m /etc/hosts",
-    null,
-  ],
   ["a move written with a double dash", "cd -- notes && ls", null],
   [
     "the same move many times",
@@ -362,6 +357,16 @@ const WIDE: [string, string, string | null][] = [
     "more often",
   ],
   ["a file named like a message flag", "git add -- -m /etc/hosts", "outside"],
+  [
+    "a double dash after a flag that is not a message here",
+    "git grep -e -m -- -m /etc/hosts",
+    "outside",
+  ],
+  [
+    "a double dash given to git as a message",
+    "git commit -m -- -m /etc/hosts",
+    "outside",
+  ],
   [
     "a kept name with a dollar sign, in single quotes",
     "echo x | tee 'notes/$draft.key'",

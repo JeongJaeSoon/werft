@@ -451,17 +451,18 @@ function partKept(
   // The operands of these are known to be paths; any other command's word is
   // kept only when it plainly names a kept place.
   const pathed = !refs && (narrow || writes || READERS.includes(command));
-  // What git or gh is given as a message is text, a `--` given as one
-  // included. The `--` that ends the options ends that reading: past it a
-  // word named like a message flag is an operand.
+  // What git or gh is given as a message is text. Which flag takes a value
+  // is not known here (`git grep -e -m` gives `-m` as a pattern), so any
+  // `--` ends that reading, one given as a message as well: past it every
+  // word is judged.
   let options = refs;
   let message = false;
   for (const word of part.words.slice(1)) {
+    if (word === "--") options = false;
     if (options) {
       const text =
         message || MESSAGE_FLAGS.some((flag) => word.startsWith(`${flag}=`));
       message = !message && MESSAGE_FLAGS.includes(word);
-      if (word === "--" && !text) options = false;
       if (text) continue;
     }
     if (writes && !word.startsWith("-")) {
@@ -653,8 +654,9 @@ function unsplitKept(
       return "a part an ask rule names";
     }
     // Once the text is cut, what a printer is given in its piece is text.
-    // Every `>` of the line is read below as a redirect, one inside a
-    // printed quote as well: a substitution in double quotes runs.
+    // A `>` with a file after it is read below as a redirect wherever it
+    // stands, inside a printed quote as well: a substitution in double
+    // quotes runs.
     if (PRINTERS.includes(nameOf(words[0] as string))) continue;
     const moved = movedTo(words, root, bases);
     if (typeof moved === "string") return moved;
