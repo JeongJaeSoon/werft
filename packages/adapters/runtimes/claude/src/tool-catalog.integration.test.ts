@@ -63,10 +63,15 @@ type Scenario = "allowed" | "outside_allowlist" | "gates_only" | "under_lease";
 type RunOptions = {
   path: Path;
   permissionMode: PermissionMode;
+  /** Leaves the engine's own check of a WebFetch host on, as the product runs it. */
+  hostCheck?: true;
   /** Read stays allowed, for the calls the engine refuses on an unread file. */
   readAllowed?: true;
   scenario: Scenario;
 };
+
+/** A proxy connection's entry in `Observed.outside` and what it sent so far. */
+type ProxySeen = { at: number; done: boolean; head: string };
 
 type HookSeen = { agentId?: string; decision: string; tool: string };
 
@@ -75,6 +80,8 @@ type Observed = {
   /** Connections the WebFetch target accepted. */
   fetched: number;
   offered: Map<Path, string[]>;
+  /** One entry a connection to the engine's proxy: the first line it sent. */
+  outside: string[];
   post: Map<string, HookSeen>;
   pre: Map<string, HookSeen>;
   requests: RecordedRequest[];
@@ -247,6 +254,7 @@ function stepsFor(
 let isolated: IsolatedWorkspace | undefined;
 let server: FakeAnthropicServer | undefined;
 let fetchTarget: Bun.TCPSocketListener<undefined> | undefined;
+let outsideProxy: Bun.TCPSocketListener<ProxySeen> | undefined;
 const report: string[] = [];
 
 afterEach(() => cleanUp());
@@ -254,10 +262,12 @@ afterEach(() => cleanUp());
 async function cleanUp(): Promise<void> {
   server?.stop();
   fetchTarget?.stop(true);
+  outsideProxy?.stop(true);
   await isolated?.dispose();
   isolated = undefined;
   server = undefined;
   fetchTarget = undefined;
+  outsideProxy = undefined;
 }
 
 afterAll(() => {
@@ -351,6 +361,7 @@ async function runScenario(options: RunOptions): Promise<{
     canUseTool: new Map(),
     fetched: 0,
     offered: new Map(),
+    outside: [],
     post: new Map(),
     pre: new Map(),
     requests: [],
@@ -368,6 +379,39 @@ async function runScenario(options: RunOptions): Promise<{
     },
   });
   fetchTarget = target;
+  // The engine's proxy for every address but loopback. It lets nothing
+  // through, so what the engine sends by way of it neither reaches an outside
+  // service nor waits on one, and each connection that came to it is on
+  // record. A connection that ignores the proxy variables is not seen here.
+  const proxy = Bun.listen<ProxySeen>({
+    hostname: "127.0.0.1",
+    port: 0,
+    socket: {
+      open(socket) {
+        socket.data = {
+          at: observed.outside.push("") - 1,
+          done: false,
+          head: "",
+        };
+      },
+      data(socket, chunk) {
+        const seen = socket.data;
+        if (seen.done) return;
+        seen.head += chunk
+          .subarray(0, 1024 - seen.head.length)
+          .toString("latin1");
+        const end = seen.head.indexOf("\r\n");
+        // Written as it comes: a line in pieces fills in, and one that never
+        // ends is on record up to the cut.
+        observed.outside[seen.at] =
+          end === -1 ? seen.head : seen.head.slice(0, end);
+        if (end === -1 && seen.head.length < 1024) return;
+        seen.done = true;
+        socket.end();
+      },
+    },
+  });
+  outsideProxy = proxy;
   const ledger = new TurnLedger(
     options.scenario === "under_lease" ? "seeded" : undefined,
   );
@@ -484,6 +528,30 @@ async function runScenario(options: RunOptions): Promise<{
   if (options.scenario === "gates_only") {
     sdkOptions.tools = [...catalogTools, ...spawn];
   }
+  const proxyUrl = `http://127.0.0.1:${proxy.port}`;
+  const loopback = "127.0.0.1,localhost";
+  sdkOptions.env = {
+    ...sdkOptions.env,
+    HTTP_PROXY: proxyUrl,
+    HTTPS_PROXY: proxyUrl,
+    NO_PROXY: loopback,
+    http_proxy: proxyUrl,
+    https_proxy: proxyUrl,
+    no_proxy: loopback,
+  };
+  // Before it dials a WebFetch host, the engine asks a live Anthropic endpoint
+  // whether it may. The product leaves that on. The harness judges the
+  // platform's gates and the tool's own work, so it turns the check off
+  // rather than hang its verdict on that endpoint answering.
+  if (!options.hostCheck) {
+    if (typeof sdkOptions.settings !== "object") {
+      throw new Error("The harness expects inline engine settings");
+    }
+    sdkOptions.settings = {
+      ...sdkOptions.settings,
+      skipWebFetchPreflight: true,
+    };
+  }
   observe(sdkOptions, observed);
 
   const input = new InputStream();
@@ -510,6 +578,7 @@ async function runScenario(options: RunOptions): Promise<{
     })
     .finally(() => clearTimeout(timer));
   if (timedOut) throw new Error("The harness run did not settle in 50s");
+  if (!options.hostCheck) expect(observed.outside).toEqual([]);
   lease?.release();
   const preparation = ledger.prepareCheckpoint();
   return {
@@ -641,6 +710,27 @@ describe(`engine harness for catalog ${catalog?.id}`, () => {
     const { probes } = stepsFor("main", "/w", "http://127.0.0.1:1/");
     expect(probes.map((step) => step.name)).toEqual(catalogTools);
   });
+
+  // What the proxy is there to catch, and why the runs below turn the check
+  // off: the address is the engine's own, not the profile's endpoint.
+  test("with the engine's host check on, WebFetch asks Anthropic first and does not dial its target when that fails", async () => {
+    const { observed } = await runScenario({
+      path: "main",
+      permissionMode: "default",
+      scenario: "allowed",
+      hostCheck: true,
+    });
+    expect(observed.outside).toEqual([
+      "CONNECT api.anthropic.com:443 HTTP/1.1",
+    ]);
+    expect(observed.fetched).toBe(0);
+    expect(observed.results.get("toolu_main_probe_WebFetch")).toEqual({
+      isError: true,
+      text: expect.stringContaining(
+        "Unable to verify if domain 127.0.0.1 is safe to fetch",
+      ),
+    });
+  }, 120_000);
 
   for (const path of ["main", "subagent"] as const) {
     const agentId = path === "subagent" ? { agentId: expect.any(String) } : {};
