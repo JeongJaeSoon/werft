@@ -20,24 +20,27 @@ tag="staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 
 test "$(ls "$arches"/*.json | wc -l)" -eq 8
 
+errors="$(mktemp)"
+trap 'rm -f "${errors:?}"' EXIT
+
 # Prints the digest of the index a tag names.
 digest_of_new_tag() {
-  local out errors attempt
-  errors="$(mktemp)"
+  local out status attempt
   for attempt in 1 2 3; do
-    if out="$(docker buildx imagetools inspect "$1" --format '{{json .Manifest.Digest}}' 2>"$errors")"; then
-      rm -f "$errors"
-      printf '%s' "$out" | tr -d '"'
+    status=0
+    out="$(docker buildx imagetools inspect "$1" --format '{{json .Manifest.Digest}}' 2>"$errors")" || status=$?
+    if [ "$status" -eq 0 ]; then
+      cat "$errors" >&2
+      printf '%s\n' "${out//\"/}"
       return 0
     fi
-    grep -q "not found" "$errors" || break
+    grep -Fxq "ERROR: $1: not found" "$errors" || break
     [ "$attempt" != 3 ] || break
     echo "::warning::the registry did not find $1, which this run had just written; asking again (try ${attempt} of 3)" >&2
     sleep "${IMAGE_INDEX_RETRY_SECONDS:-10}"
   done
   cat "$errors" >&2
-  rm -f "$errors"
-  return 1
+  return "$status"
 }
 
 mkdir -p "$staged"

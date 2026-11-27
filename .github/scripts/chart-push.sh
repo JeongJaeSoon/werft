@@ -93,10 +93,7 @@ for attempt in 1 2 3; do
   set -e
   printf '%s\n' "$pushed"
   [ "$status" -ne 0 ] || break
-  case "$pushed" in
-    *'failed to perform "Tag"'*'not found'*) ;;
-    *) exit "$status" ;;
-  esac
+  grep -Eq 'failed to perform "Tag" on destination: sha256:[0-9a-f]+: not found$' <<<"$pushed" || exit "$status"
   [ "$attempt" != 3 ] || exit "$status"
   echo "::warning::the registry did not find the manifest this push had just written; looking again (try ${attempt} of 3)"
   sleep "${CHART_PUSH_RETRY_SECONDS:-10}"
