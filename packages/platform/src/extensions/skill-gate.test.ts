@@ -695,3 +695,120 @@ describe("edge cases", () => {
     expect(isSpdxExpression("MIT WITH A WITH B")).toBe(false);
   });
 });
+
+describe("second review", () => {
+  test("a lone carriage return at the end of a file warns", () => {
+    expect(
+      gate({ after: [...licensed("s"), text("skills/s/a.md", "x\r")] })
+        .warnings,
+    ).toEqual([
+      { rule: "hidden_unicode", paths: ["skills/s/a.md"], samples: ["U+000D"] },
+    ]);
+  });
+
+  test("turning CRLF into LF warns nothing again", () => {
+    const old = [
+      ...licensed("s"),
+      text("skills/s/a.md", "Set the system prompt.\r\n"),
+    ];
+    const next = [
+      ...licensed("s"),
+      text("skills/s/a.md", "Set the system prompt.\nok\n"),
+    ];
+    expect(gate({ before: old, after: next }).warnings).toEqual([]);
+  });
+
+  test("a media file that becomes text is read whole", () => {
+    const old = [
+      ...licensed("s"),
+      text("skills/s/a.pdf", "%PDF-1.4\nsystem prompt\n"),
+    ];
+    const next = [
+      ...licensed("s"),
+      text("skills/s/a.pdf", "Notes\nsystem prompt\n"),
+    ];
+    expect(rulesOf(gate({ before: old, after: next }).warnings)).toEqual([
+      "instruction_like",
+    ]);
+  });
+
+  test("two URLs in one line of code are two hosts", () => {
+    const result = gate({
+      allowedHosts: new Set(["second.example"]),
+      after: [
+        ...licensed("s"),
+        text(
+          "skills/s/scripts/a.js",
+          'const urls = ["https://first.example","https://second.example"];\n',
+        ),
+      ],
+    });
+    expect(result.warnings).toEqual([
+      {
+        rule: "host_not_allowlisted",
+        paths: ["skills/s/scripts/a.js"],
+        samples: ["first.example"],
+      },
+    ]);
+  });
+
+  test("LICENSE*, COPYING* and NOTICE* match by prefix", () => {
+    for (const name of ["LICENSES", "LICENCE2026", "COPYINGv2"]) {
+      expect(
+        gate({ after: [skillMd("s"), text(`skills/s/${name}`, "t\n")] })
+          .warnings,
+      ).toEqual([]);
+    }
+    expect(
+      rulesOf(
+        gate({ repositoryRootFiles: ["NOTICE2026"], after: licensed("s") })
+          .warnings,
+      ),
+    ).toEqual(["license_notice_missing"]);
+    expect(
+      gate({
+        repositoryRootFiles: ["NOTICE"],
+        after: [
+          ...licensed("s"),
+          text("skills/s/THIRD_PARTY_NOTICES2026", "n\n"),
+        ],
+      }).warnings,
+    ).toEqual([]);
+    const base = [skillMd("s"), text("skills/s/LICENSES", "a\n")];
+    expect(
+      rulesOf(
+        gate({
+          before: base,
+          after: [skillMd("s"), text("skills/s/LICENSES", "b\n")],
+        }).notices,
+      ),
+    ).toEqual(["license_changed"]);
+  });
+
+  test("a LicenseRef takes no plus; a license id does", () => {
+    expect(isSpdxExpression("LicenseRef-Custom+")).toBe(false);
+    expect(isSpdxExpression("DocumentRef-a:LicenseRef-b+")).toBe(false);
+    expect(isSpdxExpression("GPL-2.0+")).toBe(true);
+  });
+
+  test("media refused for its execute bit notices binary_added once the bit is gone", () => {
+    const pdf = bytes("skills/s/a.pdf", "%PDF-1.4", 0o755);
+    const after = [...licensed("s"), { ...pdf, mode: 0o644 as const }];
+    expect(gate({ before: [...licensed("s"), pdf], after }).notices).toEqual([
+      { rule: "binary_added", paths: [pdf.path], samples: ["pdf"] },
+    ]);
+  });
+
+  test("options between the tool and install still read as an install", () => {
+    const result = gate({
+      after: [
+        ...licensed("s"),
+        text(
+          "skills/s/scripts/a.sh",
+          "pip --quiet install pypdf\nnpm -g i x\n",
+        ),
+      ],
+    });
+    expect(result.warnings[0]?.samples).toEqual(["package_install"]);
+  });
+});

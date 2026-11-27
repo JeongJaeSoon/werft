@@ -50,8 +50,8 @@ const MAX_SAMPLES = 20;
 const MANIFEST = ".claude-plugin/plugin.json";
 const SCRIPTS_DIR = /^skills\/[^/]+\/scripts\//;
 const SKILL_FILE = /^skills\/([^/]+)\/SKILL\.md$/;
-const LICENSE_FILE = /^(?:licen[cs]e|copying)(?:[._-][^/]*)?$/i;
-const NOTICE_FILE = /^(?:notice|third[_-]?party[_-]?notices?)(?:[._-][^/]*)?$/i;
+const LICENSE_FILE = /^(?:licen[cs]e|copying)/i;
+const NOTICE_FILE = /^(?:notice|third[_-]?party[_-]?notices?)/i;
 
 const startsWith = (bytes: Uint8Array, prefix: readonly number[], at = 0) =>
   prefix.every((byte, index) => bytes[at + index] === byte);
@@ -137,7 +137,7 @@ export const NETWORK_CALL_PATTERNS: readonly { id: string; pattern: RegExp }[] =
     {
       id: "package_install",
       pattern:
-        /\b(?:pip3?|uv|npm|npx|pnpm|yarn|bun|bunx|gem|cargo|go|apt(?:-get)?|apk|brew|conda)\s+(?:pip\s+)?(?:install|add|get|i)\b/,
+        /\b(?:pip3?|uv|npm|npx|pnpm|yarn|bun|bunx|gem|cargo|go|apt(?:-get)?|apk|brew|conda)(?:\s+-\S+)*\s+(?:pip\s+)?(?:-\S+\s+)*(?:install|add|get|i)\b/,
     },
     {
       id: "download",
@@ -230,7 +230,7 @@ function licenseOf(text: string | null): string | null {
  * in the SPDX list. Free text such as "Complete terms in LICENSE.txt" fails.
  */
 const SPDX_LICENSE =
-  /^(?:[A-Za-z0-9.-]+\+?|(?:DocumentRef-[A-Za-z0-9.-]+:)?LicenseRef-[A-Za-z0-9.-]+)$/;
+  /^(?:(?:DocumentRef-[A-Za-z0-9.-]+:)?LicenseRef-[A-Za-z0-9.-]+|(?!LicenseRef-|DocumentRef-)[A-Za-z0-9.-]+\+?)$/;
 const SPDX_EXCEPTION = /^[A-Za-z0-9.-]+$/;
 const OPERATORS = new Set(["AND", "OR", "WITH", "(", ")"]);
 export function isSpdxExpression(value: string): boolean {
@@ -312,13 +312,17 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
     }
 
     const earlier = old.get(file.path);
-    if (file.path === MANIFEST || earlier?.sha256 === file.sha256) continue;
+    if (file.path === MANIFEST) continue;
+    const earlierKind = earlier === undefined ? null : kindOf(earlier);
+    // Before the unchanged-bytes skip: media refused only for its execute bit
+    // becomes allowed by a mode change alone.
     if (
       "media" in kind &&
-      (earlier === undefined || !("media" in kindOf(earlier)))
+      (earlierKind === null || !("media" in earlierKind))
     ) {
       flag("binary_added", file.path, kind.media);
     }
+    if (earlier?.sha256 === file.sha256) continue;
     if (earlier === undefined) {
       for (const char of file.path.match(INVISIBLE) ?? []) {
         flag("hidden_unicode", file.path, codePoint(char));
@@ -329,9 +333,16 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
     const script =
       runsAsScript(file.path, file.mode, file.bytes) ||
       SCRIPTS_DIR.test(file.path);
-    const earlierText = earlier === undefined ? null : textOf(earlier);
-    for (const added of addedLines(earlierText, kind.text)) {
-      const line = added.replace(/\r$/, "");
+    // Media was never read as text, so all of a file that became text is new.
+    // CRLF reads as LF: a line end is not a hidden character, a lone CR is.
+    const earlierText =
+      earlierKind !== null && "text" in earlierKind
+        ? earlierKind.text.replace(/\r\n/g, "\n")
+        : null;
+    for (const line of addedLines(
+      earlierText,
+      kind.text.replace(/\r\n/g, "\n"),
+    )) {
       for (const char of line.match(INVISIBLE) ?? []) {
         flag("hidden_unicode", file.path, codePoint(char));
       }
@@ -344,7 +355,8 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
         if (pattern.test(plain)) flag("instruction_like", file.path, id);
       }
       if (!script) continue;
-      for (const host of plainTextHosts(line)) {
+      // Quotes and commas end a URL in code: ["https://a","https://b"] names two hosts.
+      for (const host of plainTextHosts(line.replace(/["'`,]/g, " "))) {
         if (!allowedHosts.has(host))
           flag("host_not_allowlisted", file.path, host);
       }
