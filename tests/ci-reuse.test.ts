@@ -68,7 +68,9 @@ const fullJobs = (): Job[] => [
   // Typecheck and lint: a reusing push skips its own.
   job("check (static)"),
   ...domains.map((d) => job(`integration (${d})`, "Tests of this domain")),
-  job("e2e (scenario)", "Alpha path against the compose stack"),
+  ...[1, 2, 3].map((shard) =>
+    job(`e2e (scenario ${shard}/3)`, "Alpha path against the compose stack"),
+  ),
   // No conformance jobs: no pull request runs that suite, and reuse never asks for it.
   job("demo", "Static build"),
   job("ui-pack", "Install, type-check, build and render in an empty app"),
@@ -365,9 +367,9 @@ describe("ci-reuse.sh", () => {
 
   test("a job that passed without running its suite is no evidence", () => {
     const jobs = withGuides(fullJobs()).map((j) =>
-      j.name === "e2e (scenario)"
+      j.name === "e2e (scenario 2/3)"
         ? job(
-            "e2e (scenario)",
+            "e2e (scenario 2/3)",
             "Alpha path against the compose stack",
             "skipped",
           )
@@ -379,7 +381,12 @@ describe("ci-reuse.sh", () => {
       runs: runs(),
       jobs: { jobs },
     });
-    refused(run(), "e2e (scenario) Alpha path");
+    refused(run(), "e2e (scenario 2/3) Alpha path");
+    const shardless = withGuides(fullJobs()).filter(
+      (j) => j.name !== "e2e (scenario 3/3)",
+    );
+    answer({ jobs: { jobs: shardless } });
+    refused(run(), "e2e (scenario 3/3) Alpha path");
     const missing = withGuides(fullJobs()).filter(
       (j) => j.name !== "integration (egress)",
     );

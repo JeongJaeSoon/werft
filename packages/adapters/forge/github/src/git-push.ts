@@ -316,7 +316,7 @@ export function createGitPusher(
             refusal: "push_failed",
             detail:
               "the remote refused a workflow change without workflows permission",
-            reasonCode: "workflows_permission_missing",
+            reasonCode: "workflows_refused",
           };
         }
         return /^!\t.*\[rejected\]/m.test(pushed.stdout)
