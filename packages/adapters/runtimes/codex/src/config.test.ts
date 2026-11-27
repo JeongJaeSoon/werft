@@ -86,6 +86,20 @@ describe("codexLaunch", () => {
     expect(JSON.stringify(launch.env)).not.toContain("sk-");
   });
 
+  test("the engine's proxy variables carry the egress report token", () => {
+    const launch = codexLaunch(
+      startOf({ egressReportToken: "wed_marker" }),
+      DEPS,
+      { PATH: "/usr/bin", HTTPS_PROXY: "http://proxy:3128" },
+    );
+    expect(launch.env.HTTPS_PROXY).toBe("http://werft:wed_marker@proxy:3128/");
+    const plain = codexLaunch(startOf(), DEPS, {
+      PATH: "/usr/bin",
+      HTTPS_PROXY: "http://proxy:3128",
+    });
+    expect(plain.env.HTTPS_PROXY).toBe("http://proxy:3128");
+  });
+
   test("the egress host bypasses the forward proxy", () => {
     const launch = codexLaunch(startOf(), DEPS, { NO_PROXY: "localhost" });
     expect(launch.env.NO_PROXY).toBe("localhost,egress.internal");

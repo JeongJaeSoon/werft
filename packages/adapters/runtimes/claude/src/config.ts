@@ -87,6 +87,8 @@ export type ClaudeRuntimeConfig = DriverConfig & {
   responseLanguage?: "ko" | "en" | "ja";
   /** Put into the engine's environment as it is; never into its arguments. */
   gitEnvironment?: GitEnvironment;
+  /** The userinfo of the engine's proxy variables (`proxyUrlWithReportToken`). */
+  egressReportToken?: string;
   /**
    * The session's user variables. Merged into the engine's environment
    * before the adapter's own keys, so a platform key always wins. Never in

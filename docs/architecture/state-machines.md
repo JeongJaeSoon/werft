@@ -298,6 +298,96 @@ P4의 turn은 이벤트와 호출이 각각 control plane에 도착한 때로 �
 - 배경 작업 멈춤 알림은 checkpoint commit과 따로 보낸다. commit이 먼저 닿고 알림이 닿기 전에 worker가 fence되면(긴급 정지, 종료 등) 다음 turn의 입력과 세션 상세에 그 줄이 없다.
 - T6에서 멈춘 뒤 engine이 답하면서 새 작업을 시작하면, 알림 이벤트에는 처음 목록의 명령 이름만 들어 있다.
 
+### 멘션 턴의 시도
+
+Slack 멘션 턴이 결정 없이(`no_decision`) 끝나면, slack 역할의 턴 끝내기 pass가 같은 글로 다시 시도한다. 시도는 `conversation_turn_queue`의 한 줄이다. 같은 `input_id`에 `attempt`를 하나 올린 새 turn을 쓰고, 멘션(`conversation_engagements`)을 새 turn으로 옮긴다. 앞 turn은 그 자리에서 끝난 것으로 표시해 다시 집지 않는다.
+
+"밖으로 나간 것"은 다음 가운데 하나다. 나간 것이 있는 시도는 다시 하지 않는다. 같은 말이나 도구 효과가 두 번 나갈 수 있어서다.
+
+- turn에 결정이나 작업 효과(`decision`, `task_effect`)가 적혔다.
+- 그 turn의 `slack_outbox` 줄이 있다(다시 시도 안내 줄은 뺀다).
+- 그 turn의 provider 호출의 끝 보고가 turn이 끝난 뒤 기다림 상한(30초) 안에 오지 않았다. 아직 `in_flight`이거나, 상한이 지난 뒤에 왔다. 정산된 호출은 적힌 끝 시각(`ended_at`)이 상한 뒤면 상한 뒤에 온 것으로 읽는다(그 시각이 상한 전인데 커밋이 상한 뒤인 경우는 알려진 한계).
+
+provider 호출과 예산 원장 줄만으로는 나간 것으로 보지 않는다. 시도마다 자기 호출과 원장 줄을 따로 잡는다.
+
+| # | 지금 상태 | 다음 상태 | 조건 | 누가 |
+| --- | --- | --- | --- | --- |
+| M1 | 시도 N(N < 3)이 `no_decision`으로 끝남 | 시도 N+1 queued, 스레드에 다시 시도 안내 한 줄(글 하나에 한 번), 스레드는 처리 중 그대로 | 나간 것이 없음, 예산 거절이 아님, 긴급 정지가 아님, 글이 지워지지 않음, 앞 시도가 끝난 뒤 간격이 지남 | 턴 끝내기 pass |
+| M2 | 시도 3이 `no_decision`으로 끝남 | 실패 문구 한 줄, 스레드 active | 나간 것이 없음 | 턴 끝내기 pass |
+| M3 | 시도가 `no_decision`으로 끝남, permit의 거절이 `budget` | 그 예산 계정의 문구 한 줄(사람 또는 팀), 스레드 active | — | 턴 끝내기 pass |
+| M4 | 시도가 `no_decision`으로 끝남, 나간 것이 있음 | 실패 문구 한 줄, 스레드 active | 시도 횟수와 상관없음 | 턴 끝내기 pass |
+| M5 | 다시 시도할 수 있는 시도(마지막 시도가 아님)가 끝났고 그 호출이 `in_flight` | 그대로(기다림) | 끝난 때부터 30초 안 | 턴 끝내기 pass |
+| M6 | M5의 기다림 | M1(호출이 보고됨) 또는 M4(30초가 지남) | — | 턴 끝내기 pass |
+| M7 | 시도가 `emergency_stopped`로 끝남, 또는 다음 시도를 쓰기 전에 글이 지워지거나 대화 rollout이 `on`이 아니게 됨 | 아무 말 없이 스레드 active | — | 턴 끝내기 pass |
+
+### 멘션 턴의 시도: 값
+
+값은 `packages/platform/src/conversations/conversation-turns.ts`에 있다.
+
+| 이름 | 값 | 뜻 |
+| --- | --- | --- |
+| `MENTION_TURN_ATTEMPTS` | 3 | 첫 시도를 포함한 시도 수 |
+| `MENTION_TURN_RETRY_DELAYS_MS` | 0, 10초 | 2번째, 3번째 시도 전 간격 |
+| `MENTION_TURN_CALL_SETTLE_WAIT_MS` | 30초 | M5의 기다림 상한. 주제는 호출을 하나만 받으므로, 앞 호출이 남은 채 다시 시도하면 동시성 거절이 난다 |
+
+### 멘션 턴의 시도: 막을 전이와 성질
+
+시험은 모두 `apps/control-host/src/slack/session-handler.integration.test.ts`에 있다.
+
+| # | 막을 전이 | 시험 |
+| --- | --- | --- |
+| MR1 | 네 번째 시도 | `three tries that all fail: one retry line and one failure line, no fourth try, the thread active` |
+| MR2 | 예산 거절된 시도의 다시 시도 | `a try a budget account refused is not tried again: the account's line alone, the thread active` |
+| MR3 | 나간 것이 있는 시도의 다시 시도 | `a try that left a Slack row is not tried again: the failure line at once, the thread active` |
+| MR4 | 호출이 남은 시도의 바로 다시 시도 | `a try whose call is still out waits for its report, and past the wait ends on the failure line` |
+| MR5 | 긴급 정지로 끝난 시도의 다시 시도나 안내 | `a try an emergency stop ended is not tried again and says nothing, the thread active` |
+| MR6 | 지워진 글의 다음 시도 | `a mention deleted before its next try is written ends with nothing said` |
+| MR7 | 나란히 돈 두 pass가 다음 시도를 둘 쓰는 것 | `two passes at once write one next try and one retry line` |
+| MR8 | 끝 보고가 상한 뒤에 온 호출의 시도를 다시 하는 것 | `a call that reports past the wait counts as one still out, whichever pass reads it` |
+| MR9 | 다음 시도를 쓰지 못했는데 다시 시도 안내를 다는 것 | `a try whose kept input is gone ends on the failure line alone, with no retry line` |
+| MR10 | 열 수 없는 봉인(다른 key)이 큐 정리를 막거나 남는 것 | `an untaken try sealed under another key ends, keeps nothing, and its thread hears the failure line` |
+| MR11 | 다른 pass가 다음 시도를 쓰고 사본을 놓은 것을 사본이 없어진 것으로 읽고 실패 문구를 다는 것. 사본을 멘션보다 먼저 읽는다 | `a pass that read the mention before another wrote the next try ends on that try, with no failure line` |
+| MR12 | 다시 시도 안내를 쓰지 못해서 이미 옮긴 다음 시도를 잃는 것. 안내 없이 다음 시도를 큐에 넣는다 | `a retry line that cannot be written leaves the next try queued` |
+| MR13 | permit을 쓴 뒤 큐에 넣기 전에 긴급 정지가 끝낸 시도가 큐에 들어가는 것. 큐에 넣을 때 정지와 같은 큐 잠금 아래에서 turn이 이미 끝났는지(`ended_at`) 본다 | `a try an emergency stop ended before it was queued is not queued, and nothing follows it` |
+| MR15 | 대화 rollout이 꺼진 에이전트의 다음 시도. 다시 시도 요청이 rollout을 읽고 `on`이 아니면 말 없이 끝낸다 | `a try whose agent's rollout went off is not tried again and says nothing, the thread active` |
+| MR16 | pass가 시도의 끝을 읽은 뒤 긴급 정지가 끝낸 시도에 실패 문구를 다는 것. 시도를 읽을 때 큐 결과가 `emergency_stopped`면 없는 시도로 본다 | `a try an emergency stop ended after a pass read its end says nothing once the channel is on` |
+| MR19 | 정지가 끝낸 셋째 시도의 실패 문구를 다시 켠 뒤 다는 것(셋째 시도는 사본이 없다) | `a third try a stop ended after its runtime reported says nothing once the channel is on` |
+| MR20 | 정지 전에 입력을 읽은 pass가 다시 켠 뒤 다음 시도를 쓰는 것. 발급 transaction이 바인딩 잠금 뒤에 앞 시도의 큐 결과를 읽고, `emergency_stopped`면 쓰지 않는다 | `a pass that read the try's input before a stop and the channel on again writes no next try` |
+| MR21 | 정지 전에 입력을 읽은 pass가, 큐가 앞 시도의 끝을 잊은 뒤 다음 시도를 쓰는 것. 발급은 앞 시도의 큐 줄이 `ended`이고 정지 결과가 아닐 때만 쓴다 | `a pass that read the try's input before a stop and the queue forgot it writes no next try` |
+| MR22 | 실패 문구를 고른 pass가 정지와 다시 켜기 뒤에 그 줄을 다는 것. 줄의 데이터를 읽을 때 큐 결과가 `emergency_stopped`면 쓰지 않고, 쓰지 않은 줄은 세지 않는다 | `a pass that chose the failure line before a stop says nothing once the channel is on` |
+| MR23 | 다른 pass가 끝 문구를 단 시도를 이어 다음 시도를 쓰는 것. 발급은 앞 시도의 끝 줄(`conversation_reply:<turn_id>`)이 있으면 쓰지 않고, 끝 문구는 멘션이 다음 시도로 옮겨진 시도에 쓰지 않는다 | `a pass that read the try's input after another wrote its failure line writes no next try` |
+| MR24 | 다른 pass가 먼저 단 끝 문구나 먼저 쓴 다음 시도를 한 번 더 세는 것. 줄이나 시도가 중복 키에 걸린 pass는 그것을 세지 않는다 | `a failure line another pass wrote first is counted once` |
+| MR25 | 멘션이 이미 다음 시도로 넘어간 앞 시도를 정지 건수에 한 번 더 넣는 것. 정지는 입력 사본만 남은 앞 시도를 정리하되, 멘션을 쥔 시도나 그 정지가 끝낸 시도만 센다 | `a try whose mention the next try holds is not counted again by a stop` |
+| MR26 | 끝 문구를 쓰지 못한(outbox 오류) 시도가, 그 뒤 정지했다 다시 켠 채널에서 다음 pass에 끝 문구를 다는 것. 줄을 쓰기 전에 그 시도가 끝난 뒤 생긴 같은 Slack 팀·채널의 정지 알림(정지마다 하나, 다시 켜도 남음. 시각은 정지가 시작한 때가 아니라 알림을 쓴 때)을 보고, 있으면 쓰지 않는다 | `a failure line not written before a stop says nothing once the channel is on` |
+| MR27 | 줄이나 다음 시도를 쓴 뒤 입력 사본을 놓다 실패한 pass가 그것을 세지 않는 것. 쓴 것을 먼저 세고 사본을 놓는다 | `an account's line written before its input could not go is counted` |
+| MR28 | 다른 Slack 팀의 같은 채널 id가 정지돼 끝 문구를 빠뜨리는 것. 정지 알림은 그 시도의 설치와 같은 팀의 것만 본다 | `a stop of the same channel id in another Slack team leaves the failure line` |
+| MR29 | 다음 시도를 큐에 넣은 뒤 스레드 상태 잡기를 놓다 실패해 그 시도를 세지 않는 것. 큐에 넣은 시도는 놓기가 실패해도 `queued`로 돌려준다(놓지 못한 잡기는 기한이 지나면 풀린다) | `a next try queued before its thread claim could not go is counted` |
+| MR17 | 다음 시도를 기다리는(10초) 동안 정지했다 다시 켠 채널에서 그 시도를 하는 것. 정지는 채널의 결정 없이 끝나 입력을 남긴 Slack 멘션 시도(운영자 turn은 빼고)도 `emergency_stopped`로 끝내고 사본을 놓는다 | `a try waiting out its delay when the channel is stopped is not tried again once it is on` |
+| MR18 | 다시 시도 요청이 rollout을 읽은 뒤 꺼진 rollout에서 다음 시도를 쓰는 것. 발급 transaction이 에이전트 줄을 공유 잠금으로 다시 읽는다 | `a rollout turned off after the try was read is not tried again` |
+| MR14 | 런타임이 끝을 보고한 뒤 pass가 끝내기 전에 긴급 정지가 끝낸 시도를, 채널을 다시 켠 뒤 다시 하는 것. 정지는 자기가 끝낸 turn의 이미 끝난 큐 줄을 사본이 있든 없든 `emergency_stopped`로 바꾸고 사본을 놓는다 | `a try its runtime reported before an emergency stop is not tried again once the channel is on` |
+
+M1·M2는 `a model that fails twice and answers the third time: …`와 MR1의 시험이, M6의 M1 갈래는 `a try whose call reports within the wait is tried again`이 본다.
+
+| # | 성질 | 시험 |
+| --- | --- | --- |
+| MP1 | 한 글의 시도는 같은 `input_id`에 attempt 1, 2, 3이고, 시도마다 자기 원장 줄을 잡는다(승인된 provider 호출마다 한 줄) | `a model that fails twice and answers the third time: …` |
+| MP2 | 다시 시도 안내는 글 하나에 한 번, 다음 시도를 쓴 뒤에만 단다. 끝 문구는 마지막 시도에 한 번이다. 모든 줄은 turn의 출처를 실어, 보내기 시작하기 전에 글이 지워지면 나가지 않는다 | MR1, MR7, MR9, MR6의 시험 |
+| MP3 | 시도가 끝나는 모든 길에서 스레드는 active로 돌아간다 | M2, M3, M4, M7의 시험 |
+| MP4 | 다음 시도는 보관한 요청 사본으로 쓴다. 다시 시도하지 않는 turn의 사본은 그 자리에서 놓는다. 놓기 전에 pass가 멈추면 보관 기한(1시간)의 sweep이 놓는다 | MR2의 시험 |
+
+알려진 한계:
+
+- 첫 시도가 밖으로 나간 것이 있어 바로 끝나도 실패 문구는 "세 번 시도했지만"이다(정해진 문구).
+- 줄을 쓰는 pass가 정지 결과를 읽은 뒤 outbox에 넣기 전에 정지와 다시 켜기가 모두 끝나면 그 줄은 나갈 수 있다. pass가 정지와 다시 켜기 전체를 가로질러 멈춰야 생기고, 다음 시도는 발급 가드가 막는다.
+- 턴 끝내기 pass가 10분 넘게 멈췄다 돌아오면, 큐가 그 시도의 끝을 잊어(`forgotten`) 입력 사본이 남았어도 다시 시도나 실패 문구 없이 끝난다.
+- 롤링 업그레이드 중 앞선 이미지의 pass가 먼저 스레드를 active로 돌린 시도는 다시 시도하지 않는다. 앞선 이미지의 큐와 긴급 정지는 끝난 turn을 막거나 런타임이 보고한 큐 줄을 바꾸지 않는다.
+- 다시 시도 안내 줄은 정지가 보내지 않은 채널 글을 거둘 때 함께 거둔다. 정지가 이어지는 동안 쓴 줄도 다시 켤 때 거둔다. 다만 안내를 쓰는 pass가 정지와 다시 켜기를 모두 지난 뒤에 그 줄을 커밋하면, 시도는 큐에 들어가지 않는데(`ended`) 안내 줄만 나갈 수 있다.
+- 다시 해 볼게요 줄의 첫 Slack 보내기가 다시 보낼 수 있는 오류로 끝나 미뤄지거나, 보내기 pass가 그 줄을 잡은 채 마감에 닿아 잡기가 풀리기를 기다리는 사이 다음 시도가 답하면, 답이 먼저 나가고 그 줄이 뒤에 올 수 있다. 같은 스레드의 답을 대기 중인 그 줄 뒤에 세우거나, 답이 나갈 때 그 줄을 거두는 일은 후속으로 둔다.
+- 다음 시도를 기다리는(10초) 사이 같은 스레드의 다른 멘션이 끝나면, 그 멘션의 상태 되돌리기가 스레드를 active로 돌리고, 다음 시도는 처리 중을 다시 보내지 않는다. 다음 시도를 쓸 때 처리 중을 다시 잡는 일은 후속으로 둔다.
+- 호출의 정산이 30초 상한 전의 시각으로 적히고 커밋이 상한 뒤에 되면, 커밋 전에 읽은 pass는 실패 문구로, 커밋 뒤에 읽은 pass는 다시 시도로 갈 수 있다. 두 pass가 나란히 돌고 정산 커밋이 상한을 가로지를 때만 생긴다. 그때 스레드에는 실패 문구와 다시 해 볼게요, 답이 함께 온다(순서는 두 pass의 속도에 따라 다르고, 먼저 끝난 쪽이 스레드를 active로 돌렸으면 다음 시도 동안 처리 중으로 다시 보이지 않는다). 시도 수, 원장 줄, 중복 키는 그대로다.
+- 다음 시도의 permit과 멘션 옮기기를 커밋한 뒤 큐에 넣기 전에 프로세스가 멈추거나 큐 넣기가 SQL 상한(10초)에 걸리면, 앞 시도에서 다시 이을 수 없고 새 시도는 큐에 없는 turn으로 조용히 끝난다(안내 줄이 먼저 커밋됐으면 그 줄만 남고 끝 문구는 없다). 발급과 큐 넣기를 한 transaction으로 묶는 일은 후속으로 둔다.
+- 두 pass가 같은 시도를 서로 다르게 읽으면(릴리스 전환 중 한쪽은 연결을 찾지 못해 끝 문구를, 다른 쪽은 다시 시도를 고름), 두 쪽 모두 상대가 쓰기 전에 읽었을 때 끝 문구와 다음 시도가 함께 갈 수 있다(MR23은 한쪽이 먼저 커밋한 순서만 막는다). 끝 줄 쓰기와 멘션 옮기기를 한 잠금 아래 두는 일은 후속으로 둔다.
+
 ## 3. 대화 turn
 
 ### 작업 효과
