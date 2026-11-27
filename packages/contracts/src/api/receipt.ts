@@ -281,6 +281,9 @@ export const RECEIPT_OPERATION_VALUES = [
   // the console, the operator CLI, or lowered to `off` when its notice
   // approval was revoked or stopped counting.
   "set_conversation_rollout",
+  // An emergency stop of an agent in one Slack channel: the binding, the
+  // stopper's reason and how many sessions, turns and posts it stopped.
+  "emergency_stop_surface_binding",
 ] as const;
 /**
  * Receipts that settle on the observed absence of the execution they asked

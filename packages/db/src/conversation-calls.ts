@@ -61,6 +61,7 @@ import {
   conversationTurns,
   memberTeams,
 } from "./schema.ts";
+import { rowsOf } from "./statement-rows.ts";
 
 // The scale of the cost column, so a replay compares what was stored.
 const toStoredCost = (costUsd: number) => Math.round(costUsd * 1e6) / 1e6;
@@ -369,7 +370,11 @@ async function turnScopeIn(
     .limit(1);
   if (!agent) return { outcome: "unknown_agent" };
   const [conversation] = await tx
-    .select({ id: conversations.id })
+    .select({
+      id: conversations.id,
+      teamId: conversations.teamId,
+      channelId: conversations.channelId,
+    })
     .from(conversations)
     .where(
       and(
@@ -379,6 +384,24 @@ async function turnScopeIn(
       ),
     );
   if (!conversation) return { outcome: "unknown_conversation" };
+  // An emergency stop holds the channel's binding while it ends the turns
+  // there: a turn written first is ended by it, and one after it finds the
+  // channel stopped.
+  const bindings = rowsOf<{ stopped: boolean }>(
+    await tx.execute(sql`
+      SELECT emergency_stopped_at IS NOT NULL AS stopped
+      FROM surface_bindings
+      WHERE agent_id = ${input.agentId}::uuid
+        AND external_surface_id = ${conversation.channelId}
+        AND installation_id IN (
+          SELECT id FROM slack_installations
+          WHERE team_id = ${conversation.teamId})
+        AND (revoked_at IS NULL OR emergency_stopped_at IS NOT NULL)
+      ORDER BY id
+      FOR SHARE`),
+  );
+  if (bindings.some((binding) => binding.stopped))
+    return { outcome: "channel_stopped" };
   const [topic] = await tx
     .select({ id: conversationTopics.id })
     .from(conversationTopics)
@@ -630,6 +653,20 @@ export function createPostgresConversationCalls(
             maxTokens: c.maxTokens,
             maxRequestBytes: c.maxRequestBytes,
           };
+          // Read after the lock, not in its statement (db-clock.ts).
+          const now = await dbNow(tx);
+          // Its own statement: a turn ended while this waited on the permit
+          // reads as running in the statement that took it.
+          const [turn] = await tx
+            .select({ state: t.state })
+            .from(t)
+            .where(eq(t.id, permit.turnId));
+          // A decided turn's engine still closes it: its provider calls only,
+          // as a tool call on it is refused (admit), and none once it ends,
+          // a regrant of one under way included (an emergency stop ends it).
+          if (turn?.state !== "running" && turn?.state !== "decided") {
+            return { outcome: "invalid_token" };
+          }
           // The proxy's regrant of a call already made on the permit.
           const [again] = await tx
             .select(limits)
@@ -644,22 +681,7 @@ export function createPostgresConversationCalls(
             )
             .limit(1);
           if (again) return { outcome: "ok", turnId: permit.turnId, ...again };
-          // Read after the lock, not in its statement (db-clock.ts).
-          const now = await dbNow(tx);
-          // Its own statement: a turn ended while this waited on the permit
-          // reads as running in the statement that took it.
-          const [turn] = await tx
-            .select({ state: t.state })
-            .from(t)
-            .where(eq(t.id, permit.turnId));
-          // A decided turn's engine still closes it: its provider calls only,
-          // as a tool call on it is refused (admit), and none once it ends.
-          if (
-            (turn?.state !== "running" && turn?.state !== "decided") ||
-            permit.expiresAt <= now
-          ) {
-            return { outcome: "invalid_token" };
-          }
+          if (permit.expiresAt <= now) return { outcome: "invalid_token" };
           const [taken] = await tx
             .select({ id: c.id })
             .from(c)

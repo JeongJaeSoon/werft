@@ -43,6 +43,7 @@ const bodies: Record<SurfaceOutboxKind, SurfaceOutboxClaim["body"]> = {
   channel_notice: { text: "The agent reads this channel" },
   reaction: { text: "" },
   conversation_reply: { text: "Done.", requested_by: "Ada" },
+  emergency_stop_notice: { text: "관리자가 이 에이전트를 멈췄어요" },
 };
 
 function rowOf(kind: SurfaceOutboxKind): SurfaceOutboxClaim {
@@ -57,7 +58,11 @@ function rowOf(kind: SurfaceOutboxKind): SurfaceOutboxClaim {
     kind,
     channelId: "C0OPS",
     threadTs:
-      kind === "welcome" || kind === "channel_notice" ? "" : "100.000100",
+      kind === "welcome" ||
+      kind === "channel_notice" ||
+      kind === "emergency_stop_notice"
+        ? ""
+        : "100.000100",
     slackUserId: kind === "notice" ? "U0A" : null,
     sessionId: kind === "model_notice" ? "session-1" : null,
     sessionLinkId: null,

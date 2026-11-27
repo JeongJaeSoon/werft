@@ -7,12 +7,14 @@ import {
   type CountSessionsQuery,
   type CountSessionsResponse,
   type CreateSessionResponse,
+  CUT_OFF_TURN_REASONS,
   checkpointBlockReasonSchema,
   createSessionResponseSchema,
   executionObservationSchema,
   type InputWait,
   type ListSessionsQuery,
   type ListTurnsQuery,
+  PAUSE_REASON_VALUES,
   type PostSessionMessageResponse,
   postSessionMessageResponseSchema,
   type Receipt,
@@ -73,7 +75,6 @@ import {
   sessionRepositoryOf,
   storedPendingReasonHoldsWork,
   transcriptLimitAttention,
-  WORKER_OWNERSHIP_LOST_REASON,
 } from "@werft-ai/platform";
 import {
   and,
@@ -87,6 +88,7 @@ import {
   isNotNull,
   isNull,
   max,
+  ne,
   not,
   notExists,
   or,
@@ -208,6 +210,10 @@ import {
 import { recordStatus } from "./sessions/session-events.ts";
 import { openTaskLimit, writeTaskRequest } from "./sessions/task-open.ts";
 import { withheldEventPayload } from "./sessions/withheld-events.ts";
+import {
+  channelEmergencyStopped,
+  emergencyStopHolds,
+} from "./surface/emergency-stop-hold.ts";
 import { m1GateOpenForWrite } from "./surface/m1-judgments.ts";
 
 export const CREATE_SESSION = "create_session";
@@ -732,6 +738,18 @@ export function createPostgresSessionUnitOfWork(
         ) {
           return { outcome: "source_deleted" };
         }
+        // Last of its locks, so none is taken after the binding's.
+        if (
+          input.slackMessage !== undefined &&
+          input.agentReleaseId !== undefined &&
+          (await channelEmergencyStopped(tx, {
+            releaseId: input.agentReleaseId,
+            teamId: input.slackMessage.team_id,
+            channelId: input.slackMessage.channel_id,
+          }))
+        ) {
+          return { outcome: "emergency_stopped" };
+        }
         const refused = await admitInput(tx, {
           sessionId: null,
           message: input.message,
@@ -907,7 +925,13 @@ export function createPostgresSessionUnitOfWork(
       return acceptanceTransaction(db, async (tx) => {
         await lockIdempotencyScope(tx, scope);
         const existing = await findIdempotent(tx, scope);
-        if (existing) {
+        // A continuation cancelled before it ran (an emergency stop's)
+        // continued nothing: the lost turn may be continued again.
+        const spent =
+          existing !== undefined &&
+          input.continueTurn !== undefined &&
+          (await continuationCancelled(tx, sessionId, existing.result));
+        if (existing && !spent) {
           if (existing.payloadHash !== input.payloadHash) {
             return { outcome: "conflict" };
           }
@@ -916,12 +940,43 @@ export function createPostgresSessionUnitOfWork(
             response: postSessionMessageResponseSchema.parse(existing.result),
           };
         }
+        if (spent) {
+          await tx
+            .delete(idempotencyKeys)
+            .where(
+              and(
+                eq(idempotencyKeys.principal, scope.principal),
+                eq(idempotencyKeys.operation, scope.operation),
+                eq(idempotencyKeys.resource, scope.resource),
+                eq(idempotencyKeys.key, scope.key),
+              ),
+            );
+        }
         const platform = input.platform;
         const requester =
           platform === undefined
             ? await lockRequester(tx, input.principal, "sessions:write")
             : NO_REQUESTER;
         if (!requester) return { outcome: "actor_inactive" };
+        // The M1 gate reads the channel's bindings with the session held; an
+        // emergency stop takes those bindings before the session, so they
+        // are taken here first, in the stop's order, and the two never wait
+        // on each other in a cycle.
+        if (
+          input.slackInput?.judgment !== undefined &&
+          input.slackMessage !== undefined
+        ) {
+          await tx.execute(sql`
+            SELECT 1 FROM surface_bindings b
+            WHERE b.agent_id = (
+                SELECT r.agent_id FROM sessions s
+                JOIN agent_releases r ON r.id = s.agent_release_id
+                WHERE s.id = ${sessionId}::uuid)
+              AND b.surface = 'slack'
+              AND b.external_surface_id = ${input.slackMessage.channel_id}
+            ORDER BY b.id
+            FOR SHARE OF b`);
+        }
         // The session row lock serializes every append to one session, so
         // max(sequence)+1 below cannot be handed out twice or leave a gap.
         const [session] = await tx
@@ -1060,6 +1115,11 @@ export function createPostgresSessionUnitOfWork(
         if (session.sourceDeletedAt !== null) {
           return { outcome: "source_deleted", sessionStopped: true };
         }
+        // An admin stopped the agent in the session's channel: nothing goes
+        // in, a continuation included, until the channel is on again.
+        if (await emergencyStopHolds(tx, sessionId)) {
+          return { outcome: "emergency_stopped" };
+        }
         if (session.admissionState !== "active") {
           return {
             outcome: "rejected",
@@ -1102,8 +1162,9 @@ export function createPostgresSessionUnitOfWork(
           return { outcome: "pin_required" };
         }
         // A continuation carries the input of the turn it goes on from, read
-        // where that turn keeps it. Only a turn its worker's lost lease ended
-        // has one to give: any other turn's end already said what it came to.
+        // where that turn keeps it. Only a cut-off turn (its worker's lost
+        // lease, or an emergency stop of its channel) has one to give: any
+        // other turn's end already said what it came to.
         const [lost] =
           input.continueTurn === undefined
             ? []
@@ -1115,7 +1176,7 @@ export function createPostgresSessionUnitOfWork(
                     eq(turns.sessionId, sessionId),
                     eq(turns.sequence, input.continueTurn),
                     eq(turns.status, "failed"),
-                    eq(turns.terminalReason, WORKER_OWNERSHIP_LOST_REASON),
+                    inArray(turns.terminalReason, [...CUT_OFF_TURN_REASONS]),
                   ),
                 )
                 .limit(1);
@@ -1123,7 +1184,8 @@ export function createPostgresSessionUnitOfWork(
           return { outcome: "not_found" };
         }
         // A turn after the lost one already goes on from it: a message sent
-        // since, or one that waited behind it. The button goes with it.
+        // since, or one that waited behind it. The button goes with it. One
+        // cancelled before it ran (an emergency stop's) goes on from nothing.
         if (input.continueTurn !== undefined) {
           const [later] = await tx
             .select({ sequence: turns.sequence })
@@ -1132,6 +1194,7 @@ export function createPostgresSessionUnitOfWork(
               and(
                 eq(turns.sessionId, sessionId),
                 gt(turns.sequence, input.continueTurn),
+                ne(turns.status, "cancelled"),
               ),
             )
             .limit(1);
@@ -1298,13 +1361,38 @@ const LAST_EVENT_AT = sql<Date | null>`coalesce((
   ORDER BY a.from_id DESC LIMIT 1
 ))`.mapWith(events.createdAt);
 
-// The session's last turn is one its worker's lost lease cut off.
+// The session's last turn was cut off: by its worker's lost lease, or by an
+// emergency stop of its channel. One cancelled before it ran (an emergency
+// stop's) is not the last.
 const LAST_TURN_CUT_OFF = sql<boolean>`coalesce((
-  SELECT t.status = 'failed' AND t.terminal_reason = ${WORKER_OWNERSHIP_LOST_REASON}
+  SELECT t.status = 'failed' AND t.terminal_reason IN (${sql.join(
+    CUT_OFF_TURN_REASONS.map((reason) => sql`${reason}`),
+    sql`, `,
+  )})
   FROM ${turns} t
-  WHERE t.session_id = ${sessions}.id
+  WHERE t.session_id = ${sessions}.id AND t.status <> 'cancelled'
   ORDER BY t.sequence DESC LIMIT 1
 ), false)`;
+
+/** The turn a continuation queued was cancelled before it ran. */
+async function continuationCancelled(
+  tx: Database,
+  sessionId: string,
+  result: unknown,
+): Promise<boolean> {
+  const parsed = postSessionMessageResponseSchema.safeParse(result);
+  if (!parsed.success) return false;
+  const [turn] = await tx
+    .select({ status: turns.status })
+    .from(turns)
+    .where(
+      and(
+        eq(turns.sessionId, sessionId),
+        eq(turns.sequence, Number(parsed.data.turn_id)),
+      ),
+    );
+  return turn?.status === "cancelled";
+}
 
 type SessionRow = typeof sessions.$inferSelect;
 type TurnRow = typeof turns.$inferSelect;
@@ -2229,7 +2317,8 @@ export function createPostgresSessionReader(
               (await readInputWaits(tx, [row], read.readAt)).get(row.id) ??
               null,
             pause_reason:
-              row.pauseReason === "awaiting_input" ? row.pauseReason : null,
+              PAUSE_REASON_VALUES.find((value) => value === row.pauseReason) ??
+              null,
             pending_request_count: read.pendingCount,
             attention:
               (row.sourceDeletedAt === null

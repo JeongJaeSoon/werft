@@ -5,7 +5,7 @@ import type {
   SessionShareView,
   SessionUsageResponse,
 } from "@werft-ai/contracts";
-import { TURN_WORKER_OWNERSHIP_LOST_REASON } from "@werft-ai/contracts";
+import { isCutOffTurnReason } from "@werft-ai/contracts";
 import {
   Badge,
   Button,
@@ -244,12 +244,14 @@ export function SessionDetail({
     detail.status === "running" ||
     detail.status === "queued" ||
     detail.status === "needs_input";
-  // The last turn its worker's lost lease cut off, while nothing follows it:
+  // The last turn cut off (a lost lease, an emergency stop), while nothing
+  // follows it but input cancelled before it ran:
   // the session rests, but on work cut short, which the head says.
-  const last = turns.data?.items.at(-1);
+  const last = turns.data?.items
+    .filter((turn) => turn.status !== "cancelled")
+    .at(-1);
   const lostTurnId =
-    last?.status === "failed" &&
-    last.terminal_reason === TURN_WORKER_OWNERSHIP_LOST_REASON
+    last?.status === "failed" && isCutOffTurnReason(last.terminal_reason)
       ? last.turn_id
       : null;
   const cutOff = lostTurnId !== null && detail.status === "idle";

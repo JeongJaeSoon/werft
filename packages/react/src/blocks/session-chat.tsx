@@ -1,8 +1,9 @@
 import {
   eventToolCall,
   eventToolResult,
+  isCutOffTurnReason,
   presentTurnEvent,
-  TURN_WORKER_OWNERSHIP_LOST_REASON,
+  TURN_EMERGENCY_STOPPED_REASON,
   TURN_WORKSPACE_QUOTA_EXCEEDED_REASON,
   type TurnSummary,
 } from "@werft-ai/contracts";
@@ -49,6 +50,7 @@ export type ChatItem =
        * event says so, and the chat draws none.
        */
       readonly ownershipLost?: string;
+      readonly emergencyStopped?: boolean;
     }
   | {
       readonly kind: "tool";
@@ -219,7 +221,7 @@ export function chatItems(
         workspaceQuotaExceeded: true,
       });
     }
-    if (turn.terminal_reason === TURN_WORKER_OWNERSHIP_LOST_REASON) {
+    if (isCutOffTurnReason(turn.terminal_reason)) {
       items.push({
         kind: "reply",
         id: `lost:${turn.turn_id}`,
@@ -227,6 +229,8 @@ export function chatItems(
         text: "",
         error: true,
         ownershipLost: turn.turn_id,
+        emergencyStopped:
+          turn.terminal_reason === TURN_EMERGENCY_STOPPED_REASON,
       });
     }
   }
@@ -452,7 +456,13 @@ export function SessionChat({
                     t("session.chat.workspaceQuotaExceeded")
                   ) : item.ownershipLost !== undefined ? (
                     <div className="flex flex-col items-start gap-3">
-                      <span>{t("session.event.workerOwnershipLost")}</span>
+                      <span>
+                        {t(
+                          item.emergencyStopped
+                            ? "session.event.emergencyStopped"
+                            : "session.event.workerOwnershipLost",
+                        )}
+                      </span>
                       {lostTurnAction?.(item.ownershipLost)}
                     </div>
                   ) : item.error ? (

@@ -4,7 +4,10 @@ import type {
   SessionEventPayload,
   TurnSummary,
 } from "@werft-ai/contracts";
-import { TURN_WORKER_OWNERSHIP_LOST_REASON } from "@werft-ai/contracts";
+import {
+  TURN_EMERGENCY_STOPPED_REASON,
+  TURN_WORKER_OWNERSHIP_LOST_REASON,
+} from "@werft-ai/contracts";
 import type { SessionEventFrame } from "../sessions.ts";
 import {
   readSessionSteps,
@@ -349,6 +352,24 @@ describe("readSessionSteps", () => {
     });
     expect(steps.steps[1]?.state).toBe("cut_off");
     expect(steps.focus).toBe(1);
+    expect(steps.current).toBe(false);
+  });
+
+  test("an idle session's turn an emergency stop cut off is focused past the input it cancelled", () => {
+    const steps = read({
+      turns: [
+        turn("1", "failed", {
+          ended_at: AT,
+          terminal_reason: TURN_EMERGENCY_STOPPED_REASON,
+        }),
+        turn("2", "cancelled", { ended_at: AT }),
+      ],
+    });
+    expect(steps.steps.map((step) => step.state)).toEqual([
+      "cut_off",
+      "stopped",
+    ]);
+    expect(steps.focus).toBe(0);
     expect(steps.current).toBe(false);
   });
 

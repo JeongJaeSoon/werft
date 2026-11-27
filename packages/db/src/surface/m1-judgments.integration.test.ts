@@ -272,6 +272,24 @@ integration("M1 judgment records", () => {
     ).toBe(false);
   });
 
+  test("an emergency-stopped channel's gate is closed, so no reply waiting for a judgment is called", async () => {
+    const place = await channel();
+    const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+    const at = {
+      workspaceId,
+      agentId,
+      teamId: TEAM,
+      channelId: place.channelId,
+    };
+    expect(await store.gateOpen(at)).toBe(true);
+    await pool.query(
+      `UPDATE surface_bindings SET mode = 'off', emergency_stopped_at = now(),
+         emergency_stop_reason = 'a leak suspected' WHERE external_surface_id = $1`,
+      [place.channelId],
+    );
+    expect(await store.gateOpen(at)).toBe(false);
+  });
+
   test("a batch's record holds refs and codes, and its judged posts leave the buffer", async () => {
     const place = await channel();
     const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
