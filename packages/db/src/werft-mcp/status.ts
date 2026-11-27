@@ -17,6 +17,7 @@ import {
   conversations,
   githubApps,
   githubInstallationSnapshots,
+  sessionShares,
   sessions,
   slackApps,
   slackInstallations,
@@ -51,6 +52,7 @@ export function createPostgresWerftStatusStore(db: Database): WerftStatusStore {
           replyKind: conversations.kind,
           replyConversationId: conversations.id,
           replyPerson: conversations.personUserId,
+          shareScope: sessionShares.scope,
           ...githubPolicyColumns,
         })
         .from(sessions)
@@ -66,6 +68,7 @@ export function createPostgresWerftStatusStore(db: Database): WerftStatusStore {
           conversations,
           eq(conversations.id, sessions.parentConversationId),
         )
+        .leftJoin(sessionShares, eq(sessionShares.sessionId, sessions.id))
         .where(eq(sessions.id, call.sessionId))
         .limit(1);
       if (!session || session.agentReleaseId === null) return null;
@@ -142,12 +145,18 @@ function replyToOf(row: {
   replyKind: string | null;
   replyConversationId: string | null;
   replyPerson: string | null;
+  shareScope: string | null;
 }): WerftStatusFacts["replyTo"] {
   if (row.replyKind === "channel" && row.replyConversationId !== null) {
     return { kind: "channel", conversationId: row.replyConversationId };
   }
   if (row.replyKind === "dm" && row.replyPerson !== null) {
-    return { kind: "dm", personUserId: row.replyPerson };
+    // No share row reads as workspace, as sessionVisibleTo has it.
+    return {
+      kind: "dm",
+      personUserId: row.replyPerson,
+      alone: row.shareScope === "private",
+    };
   }
   return null;
 }

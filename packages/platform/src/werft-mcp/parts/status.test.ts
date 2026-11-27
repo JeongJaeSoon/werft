@@ -28,7 +28,7 @@ function factsFor(
     replyTo:
       requesterUserId === null
         ? null
-        : { kind: "dm", personUserId: requesterUserId },
+        : { kind: "dm", personUserId: requesterUserId, alone: true },
     github: {
       app: true,
       agentEnabled: true,
@@ -196,14 +196,33 @@ describe("the status tool", () => {
 
     test("the requester's own DM: every private channel they are a member of", async () => {
       expect(
-        await shownIn({ kind: "dm", personUserId: INSIDER.toUpperCase() }),
+        await shownIn({
+          kind: "dm",
+          personUserId: INSIDER.toUpperCase(),
+          alone: true,
+        }),
       ).toEqual(["C0PUBLIC", "C0SECRET"]);
+    });
+
+    // Coordinator (2026-11-27): a DM counts only while no one else may read
+    // the session; a shared one is a place whose readers are not known.
+    test("the requester's own DM shared with someone: no private channel, and again once unshared", async () => {
+      const dm = { kind: "dm", personUserId: INSIDER } as const;
+      expect(await shownIn({ ...dm, alone: true })).toEqual([
+        "C0PUBLIC",
+        "C0SECRET",
+      ]);
+      expect(await shownIn({ ...dm, alone: false })).toEqual(["C0PUBLIC"]);
+      expect(await shownIn({ ...dm, alone: true })).toEqual([
+        "C0PUBLIC",
+        "C0SECRET",
+      ]);
     });
 
     test("the requester's own DM, a member of both private channels: both", async () => {
       expect(
         await shownIn(
-          { kind: "dm", personUserId: INSIDER },
+          { kind: "dm", personUserId: INSIDER, alone: true },
           policy({ member: ["C0SECRET", "C0OTHER"] }),
         ),
       ).toEqual(["C0PUBLIC", "C0SECRET", "C0OTHER"]);
@@ -224,7 +243,7 @@ describe("the status tool", () => {
     test("a public channel, someone else's DM, or no conversation, the requester a confirmed member of both: no private channel", async () => {
       for (const replyTo of [
         { kind: "channel", conversationId: PUBLIC_CONVERSATION },
-        { kind: "dm", personUserId: OUTSIDER },
+        { kind: "dm", personUserId: OUTSIDER, alone: true },
         null,
       ] as const) {
         expect(
@@ -250,7 +269,7 @@ describe("the status tool", () => {
     test("a public channel, someone else's DM, or no conversation: no private channel, though the requester is a member, and none is asked about", async () => {
       for (const replyTo of [
         { kind: "channel", conversationId: PUBLIC_CONVERSATION },
-        { kind: "dm", personUserId: OUTSIDER },
+        { kind: "dm", personUserId: OUTSIDER, alone: true },
         null,
       ] as const) {
         const asked: string[] = [];

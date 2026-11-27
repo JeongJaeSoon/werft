@@ -28,11 +28,12 @@ export type WerftStatusFacts = {
   /**
    * Where the session's answers go: its parent conversation, a channel's or
    * a person's DM. Null for a session with none, whose answer goes where no
-   * private channel may be named.
+   * private channel may be named. `alone`: the DM's session is shared with
+   * no one (share scope private), so its person alone reads the answer.
    */
   replyTo:
     | { kind: "channel"; conversationId: string }
-    | { kind: "dm"; personUserId: string }
+    | { kind: "dm"; personUserId: string; alone: boolean }
     | null;
   github: {
     /** The workspace has a GitHub App with an installation not suspended. */
@@ -141,8 +142,9 @@ function subjectOf(
 
 /**
  * The private channels an answer going to `replyTo` may name: in the
- * requester's own DM any, in a channel only that channel itself, elsewhere
- * none. Who is a member is a separate question.
+ * requester's own DM, while no one else may read the session, any; in a
+ * channel only that channel itself; elsewhere none. Who is a member is a
+ * separate question.
  */
 function privateChannelsFor(
   facts: WerftStatusFacts,
@@ -156,7 +158,8 @@ function privateChannelsFor(
   );
   if (reply === null) return new Set();
   if (reply.kind === "dm") {
-    return reply.personUserId.toLowerCase() === userId.toLowerCase()
+    return reply.alone &&
+      reply.personUserId.toLowerCase() === userId.toLowerCase()
       ? new Set(ids)
       : new Set();
   }
@@ -211,9 +214,10 @@ async function visibleTo(
   const mayName = privateChannelsFor(facts, userId);
   let privateChannels: string[] = [];
   let pending = false;
-  // Cached member lists alone: a model's tool call never sends Slack a
-  // question. A channel not yet confirmed is left out, and the answer says
-  // it may be incomplete.
+  // Cached member lists alone: a model's tool call never waits on Slack (a
+  // stale list may be read again in the background). A channel this answer
+  // could name that is not yet confirmed is left out, and the answer says it
+  // may be incomplete.
   if (mayName.size > 0 && authorization.privateChannelsOf !== undefined) {
     try {
       const found = await authorization.privateChannelsOf(
@@ -330,7 +334,7 @@ const DESCRIPTION = [
   "What this agent is connected to in Werft and what it may use, read now: GitHub (the workspace's GitHub App, this agent's switch and repositories), Slack (the agent's app, its bot identity and the channels it listens in), the MCP servers, skills and tools this session runs with, and the Werft version.",
   "Each integration says connected, not_connected or not_allowed (connected for the workspace but not for this agent), with the console menu and documentation where it is set up.",
   "Use it before answering how to connect or set up anything in Werft, and whenever it is unclear whether this agent can reach something: it reads only and is cheap. Prefer it over general CLI advice such as gh auth login.",
-  "Repository and channel names appear only when the person asking may see them; a private channel only to its members, and only when this answer goes back to that channel or to the person's own DM. It never returns a token, key or other secret, only whether one is set.",
+  "Repository and channel names appear only when the person asking may see them; a private channel only to its members, and only when this answer goes back to that channel or to the person's own DM shared with no one. It never returns a token, key or other secret, only whether one is set.",
   'Example questions: "Can you use GitHub?", "Which repositories can you push to?", "Which Slack channels do you listen in?", "What tools do you have?", "Which Werft version is this?"',
 ].join(" ");
 
