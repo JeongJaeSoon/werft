@@ -108,10 +108,43 @@ export type SurfaceBindingRecord = {
   /** Null until Slack was asked; always null on the DM binding. */
   membership: SurfaceMembership | null;
   muted: boolean;
+  /** The emergency stop the channel is under; null when there is none. */
+  emergencyStop?: SurfaceEmergencyStop | null;
   revision: number;
   createdAt: Date;
   revokedAt: Date | null;
 };
+
+export type SurfaceEmergencyStop = {
+  stoppedAt: Date;
+  /** Null once the person is no longer a user. */
+  stoppedBy: { userId: string; name: string } | null;
+  reason: string;
+};
+
+/** What an emergency stop stopped, counted. */
+export type EmergencyStopCounts = {
+  /** Open task sessions of the channel paused. */
+  sessions: number;
+  /** Task and conversation turns cut off while running. */
+  turns: number;
+  /** Posts to the channel that had not gone yet, cancelled. */
+  posts: number;
+};
+
+export type EmergencyStopResult =
+  | {
+      outcome: "stopped";
+      binding: SurfaceBindingRecord;
+      receiptId: string;
+      stopped: EmergencyStopCounts;
+    }
+  | { outcome: "not_found" }
+  // The install's DM binding: no channel to stop.
+  | { outcome: "not_channel" }
+  | { outcome: "already_stopped" }
+  | { outcome: "actor_inactive" }
+  | { outcome: "outranked" };
 
 export type SetSurfaceBindingResult =
   | {
@@ -127,6 +160,8 @@ export type SetSurfaceBindingResult =
   // A concurrent write took the channel, the DM row or the home first.
   | { outcome: "conflict" }
   | { outcome: "pending_home" }
+  // Turning an emergency-stopped channel on again names no reason.
+  | { outcome: "reason_required" }
   | { outcome: "actor_inactive" }
   | { outcome: "outranked" };
 
@@ -174,7 +209,31 @@ export interface SurfaceBindingStore {
     home: boolean;
     ceiling: SurfaceCeiling;
     managerRoles: readonly WorkspaceRole[];
+    /**
+     * Why an emergency-stopped channel is turned on: required then, kept in
+     * the receipt with the stop it ends. Ignored on any other save.
+     */
+    reason?: string;
   }): Promise<SetSurfaceBindingResult>;
+  /**
+   * Stops the agent in one of its channels at once (94S-2205), in one
+   * transaction that re-reads the caller's right: the binding goes off and
+   * records who stopped it and why; every open task session of the channel
+   * is paused (`emergency_stopped`) with its running turn cut off and its
+   * worker fenced out; every running conversation turn there ends; every
+   * post to the channel not yet sent is cancelled; the channel's one line
+   * (`text`) is queued; an `emergency_stop_surface_binding` receipt keeps
+   * the reason and the counts.
+   */
+  emergencyStop(input: {
+    principal: Principal;
+    workspaceId: string;
+    agentId: string;
+    bindingId: string;
+    reason: string;
+    text: string;
+    managerRoles: readonly WorkspaceRole[];
+  }): Promise<EmergencyStopResult>;
   /** The agent's live bindings, home first, then oldest first. */
   list(
     workspaceId: string,

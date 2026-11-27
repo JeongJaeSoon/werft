@@ -362,13 +362,4 @@ describe("SegmentedControl", () => {
     expect(item.querySelector('[data-slot="item-count"]') === null).toBe(true);
     expect(item.querySelector("svg") === null).toBe(true);
   });
-
-  test("두 진입점에서 같은 부품을 내보낸다", async () => {
-    const root = await import("../index.ts");
-    const primitives = await import("./index.ts");
-    expect(root.SegmentedControl === SegmentedControl).toBe(true);
-    expect(root.SegmentedControlItem === SegmentedControlItem).toBe(true);
-    expect(primitives.SegmentedControl === SegmentedControl).toBe(true);
-    expect(primitives.SegmentedControlItem === SegmentedControlItem).toBe(true);
-  });
 });

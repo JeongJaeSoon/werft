@@ -50,6 +50,9 @@ import type {
  * "reply" decision (v1-b/E1), with no session: its turn (`conversationTurnId`)
  * names it, keyed once per turn. It goes in the turn's topic thread, never at
  * the top of a channel (`threadTs` is never ""), and ends with the AI line.
+ * `emergency_stop_notice`: the one line telling a channel its agent was
+ * stopped in an emergency, outside any thread (`threadTs` ""), with no
+ * session; the only row the channel takes while it is stopped.
  */
 export const SURFACE_OUTBOX_KIND_VALUES = [
   "instruction",
@@ -65,6 +68,7 @@ export const SURFACE_OUTBOX_KIND_VALUES = [
   "progress",
   "reaction",
   "conversation_reply",
+  "emergency_stop_notice",
 ] as const;
 export type SurfaceOutboxKind = (typeof SURFACE_OUTBOX_KIND_VALUES)[number];
 

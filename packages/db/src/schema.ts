@@ -2088,13 +2088,15 @@ export const storageUsage = pgTable(
 /**
  * Why a cut-off turn's input was left out of the turn after it: the turn is
  * its continuation ([Continue]), whose input it already is; Slack or an admin
- * deleted its message; or the web input it came from can no longer be read
- * where it is kept.
+ * deleted its message; the web input it came from can no longer be read
+ * where it is kept; or an emergency stop of its channel cut it off, so only
+ * a person's [Continue] goes on from it.
  */
 export const PREPEND_SKIP_REASONS = [
   "continuation",
   "deleted_source",
   "unreadable_web_input",
+  "emergency_stopped",
 ] as const;
 export type PrependSkipReason = (typeof PREPEND_SKIP_REASONS)[number];
 
@@ -5473,6 +5475,15 @@ export const surfaceBindings = pgTable(
      */
     externalShared: boolean("external_shared").notNull().default(false),
     externalSharedAt: timestamp("external_shared_at", { withTimezone: true }),
+    /**
+     * An emergency stop the channel is under: when, by whom and why. Set with
+     * `mode` off by the stop; cleared when the channel is turned on again.
+     */
+    emergencyStoppedAt: timestamp("emergency_stopped_at", {
+      withTimezone: true,
+    }),
+    emergencyStoppedBy: uuid("emergency_stopped_by").references(() => users.id),
+    emergencyStopReason: text("emergency_stop_reason"),
     revision: integer().notNull().default(1),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -5505,6 +5516,11 @@ export const surfaceBindings = pgTable(
       .on(table.agentId)
       .where(sql`${table.home} AND ${table.revokedAt} IS NULL`),
     index("surface_bindings_agent_idx").on(table.agentId),
+    // A stopped channel is off, and its stop says when and why.
+    check(
+      "surface_bindings_emergency_stop_check",
+      sql`(${table.emergencyStoppedAt} IS NULL) = (${table.emergencyStopReason} IS NULL) AND (${table.emergencyStoppedAt} IS NULL OR ${table.mode} = 'off')`,
+    ),
     check(
       "surface_bindings_surface_check",
       sql`${table.surface} IN (${sql.raw(sqlList(SURFACE_KIND_VALUES))})`,
@@ -7170,7 +7186,7 @@ export const slackOutbox = pgTable(
     }),
     check(
       "slack_outbox_kind_check",
-      sql`${table.kind} IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice', 'progress', 'reaction', 'conversation_reply')`,
+      sql`${table.kind} IN ('instruction', 'reply', 'notice', 'failure_notice', 'input_notice', 'welcome', 'action_notice', 'model_notice', 'input_mirror', 'channel_notice', 'progress', 'reaction', 'conversation_reply', 'emergency_stop_notice')`,
     ),
     // A conversation's answer has a turn and no session, and always goes in
     // a thread: never at the top of a channel.

@@ -469,22 +469,14 @@ describe("reading a run", () => {
     expect(performance.now() - started).toBeLessThan(1_000);
   });
 
-  test("a run GitHub does not have is NOT_FOUND", async () => {
+  test.each([
+    [404, "NOT_FOUND"],
+    [500, "BACKEND_UNAVAILABLE"],
+  ] as const)("a GitHub %d on a run read is %s", async (status, code) => {
     const { service } = harness({
-      fail: new GitHubCallError("run", 404, null),
+      fail: new GitHubCallError("run", status, null),
     });
-    expect((await refusal(service.getRun(actor, SESSION, 7))).code).toBe(
-      "NOT_FOUND",
-    );
-  });
-
-  test("another GitHub failure is BACKEND_UNAVAILABLE", async () => {
-    const { service } = harness({
-      fail: new GitHubCallError("run", 500, null),
-    });
-    expect((await refusal(service.getRun(actor, SESSION, 7))).code).toBe(
-      "BACKEND_UNAVAILABLE",
-    );
+    expect((await refusal(service.getRun(actor, SESSION, 7))).code).toBe(code);
   });
 });
 

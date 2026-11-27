@@ -236,6 +236,7 @@ export const SLACK_AI_LABELLED_KINDS: Readonly<
   progress: true,
   reaction: false,
   conversation_reply: true,
+  emergency_stop_notice: true,
 };
 
 /**

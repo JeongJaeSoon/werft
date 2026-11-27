@@ -191,18 +191,18 @@ describe("에이전트 상세의 빠진 모델 경고", () => {
     expect(text).toContain("같은 이유로 막히면 저장 결과에 이유가 나옵니다.");
   });
 
-  test("영어 화면도 실패를 보인다", async () => {
-    failedOn("credential_unbound", "en");
-    await screen.findByText(
+  test.each([
+    [
+      "en",
       "Model claude-opus-5-5 could not move to claude-sonnet-5 automatically",
-    );
-  });
-
-  test("일본어 화면도 실패를 보인다", async () => {
-    failedOn("credential_unbound", "ja");
-    await screen.findByText(
+    ],
+    [
+      "ja",
       "モデル claude-opus-5-5 を claude-sonnet-5 に自動で切り替えられませんでした",
-    );
+    ],
+  ] as const)("%s 화면도 실패를 보인다", async (locale, title) => {
+    failedOn("credential_unbound", locale);
+    await screen.findByText(title);
   });
 
   test("실패 기록이 없으면 실패를 보이지 않는다", async () => {

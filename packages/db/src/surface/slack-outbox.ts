@@ -14,6 +14,7 @@ import {
   SLACK_USER_CHANNEL_CODE,
   type SlackNoticeVersionEntry,
   slackOutboxChannelRefused,
+  TURN_EMERGENCY_STOPPED_REASON,
   type UserLocale,
   withStoredNeutralFields,
 } from "@werft-ai/contracts";
@@ -254,7 +255,10 @@ const promptRequestId = (row: SQL, prefix: "prompt:" | "push:") => {
 // not in it.
 const channelNotWaiting = (row: SQL) => sql`(
   NOT ${channelLeft(sql`${row}.installation_id`, sql`${row}.channel_id`)}
-  AND ((${row}.kind = 'notice' AND ${row}.session_id IS NULL) OR NOT EXISTS (
+  -- An emergency stop's line is told to a channel waiting for approval as
+  -- well: the bot may be in it, and only a channel it left is skipped.
+  AND ((${row}.kind = 'notice' AND ${row}.session_id IS NULL)
+    OR ${row}.kind = 'emergency_stop_notice' OR NOT EXISTS (
     SELECT 1 FROM surface_bindings b
     WHERE b.installation_id = ${row}.installation_id
       AND b.external_surface_id = ${row}.channel_id
@@ -290,6 +294,13 @@ const addressed = (
   )
   -- A channel notice waits on its channel instead: claim holds it.
   AND (${row}.kind = 'channel_notice' OR ${channelNotWaiting(row)})
+  -- A channel whose agent was stopped in an emergency takes nothing from it
+  -- but the line that says so, until it is turned on again.
+  AND (${row}.kind = 'emergency_stop_notice' OR NOT EXISTS (
+    SELECT 1 FROM surface_bindings b
+    JOIN slack_installations bi ON bi.id = b.installation_id
+    WHERE ${stopCovers(row)} AND b.emergency_stopped_at IS NOT NULL
+  ))
   AND (${row}.kind <> 'channel_notice' OR ${channelNoticeCurrent(row, noticeVersions)})
   AND (${row}.session_id IS NULL OR EXISTS (
     SELECT 1 FROM session_links l
@@ -303,6 +314,18 @@ const addressed = (
       AND ${linkTakes(row)}
   )))
 )`;
+
+// Binding `b` (its install `bi`) is one an emergency stop of row `row`'s
+// channel covers: its agent's in the channel in any install of the row's
+// Slack team, as one stop covers them all; a revoked one only while it holds
+// a stop, which outlives its binding.
+const stopCovers = (row: SQL) => sql`(
+  b.external_surface_id = ${row}.channel_id
+  AND (b.revoked_at IS NULL OR b.emergency_stopped_at IS NOT NULL)
+  AND b.agent_id = ${row}.agent_id
+  AND coalesce(bi.team_id, bi.id::text) = (
+    SELECT coalesce(ri.team_id, ri.id::text) FROM slack_installations ri
+    WHERE ri.id = ${row}.installation_id))`;
 
 // The rate limits Slack's 429s set (slack_outbox_rate_blocks) that still
 // cover row `row`: its channel's posts (a reaction: the install's reactions.add) and,
@@ -1877,6 +1900,8 @@ export function createPostgresSlackOutboxStore(
               expired,
               eq(t.kind, "reaction"),
               sql`${t.attempts} < ${SURFACE_REACTION_MAX_ATTEMPTS}`,
+              // One an emergency stop marked is not asked for again.
+              sql`${t.errorCode} IS DISTINCT FROM ${TURN_EMERGENCY_STOPPED_REASON}`,
             ),
           );
         const lost = await tx
@@ -1999,6 +2024,20 @@ export function createPostgresSlackOutboxStore(
               AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= now())
               AND c.held_for_input_id IS NULL
               AND NOT EXISTS (${rateBlocks(sql.raw("c"))})
+              -- An emergency stop's line goes after every send of its agent
+              -- to the channel already under way through an install it covers,
+              -- a send's own retries included, is done or its lease is.
+              AND (c.kind <> 'emergency_stop_notice' OR NOT EXISTS (
+                SELECT 1 FROM slack_outbox s
+                JOIN slack_installations si ON si.id = s.installation_id
+                WHERE s.channel_id = c.channel_id
+                  AND s.agent_id = c.agent_id
+                  AND s.status = 'sending'
+                  AND s.kind <> 'emergency_stop_notice'
+                  AND s.lease_expires_at > now()
+                  AND coalesce(si.team_id, si.id::text) = (
+                    SELECT coalesce(ci.team_id, ci.id::text)
+                    FROM slack_installations ci WHERE ci.id = c.installation_id)))
               AND ${addressed(db, sql.raw("c"), noticeVersions)}
               -- Held while its channel is not one the agent reads.
               AND (c.kind <> 'channel_notice'
@@ -2073,6 +2112,8 @@ export function createPostgresSlackOutboxStore(
           .select({
             progressKey: t.progressKey,
             installationId: t.installationId,
+            channelId: t.channelId,
+            kind: t.kind,
           })
           .from(t)
           .where(eq(t.id, fence.id));
@@ -2080,6 +2121,41 @@ export function createPostgresSlackOutboxStore(
           await tx.execute(
             sql`SELECT pg_advisory_xact_lock(hashtextextended(${`slack_outbox_progress:${keyed.installationId}:${keyed.progressKey}`}, 0))`,
           );
+        }
+        // The channel's bindings before the row, in id order, as an
+        // emergency stop takes them: a stop under way is waited for, and once
+        // it holds the row ends as the stop ended the channel's unsent posts.
+        if (keyed !== undefined && keyed.kind !== "emergency_stop_notice") {
+          const bindings = rowsOf<{ stopped: boolean }>(
+            await tx.execute(sql`
+              SELECT b.emergency_stopped_at IS NOT NULL AS stopped
+              FROM slack_outbox o
+              CROSS JOIN surface_bindings b
+              JOIN slack_installations bi ON bi.id = b.installation_id
+              WHERE o.id = ${fence.id}::uuid AND ${stopCovers(sql.raw("o"))}
+              ORDER BY b.id
+              FOR SHARE OF b`),
+          );
+          if (bindings.some((binding) => binding.stopped)) {
+            const ended = await tx
+              .update(t)
+              .set({
+                status: "failed",
+                errorCode: TURN_EMERGENCY_STOPPED_REASON,
+                ...released,
+              })
+              .where(and(fenced(fence), eq(t.status, "pending")))
+              .returning({ inputId: t.inputId });
+            for (const { inputId } of ended) {
+              if (inputId !== null) {
+                await closeHeldOfFailedMirror(
+                  tx,
+                  inputId as ConversationInputId,
+                );
+              }
+            }
+            return false;
+          }
         }
         const [row] = await tx
           .select({
@@ -2306,14 +2382,8 @@ export function createPostgresSlackOutboxStore(
       });
     },
 
-    async settle(fence, outcome) {
-      const limitedMs =
-        outcome.status === "pending" &&
-        (outcome.errorCode === SURFACE_RATE_LIMITED_CODE ||
-          outcome.errorCode === SURFACE_EDIT_RATE_LIMITED_CODE)
-          ? outcome.retryInMs
-          : null;
-      const set =
+    async settle(fence, given) {
+      const setOf = (outcome: typeof given) =>
         outcome.status === "sent"
           ? {
               status: "sent" as const,
@@ -2343,10 +2413,42 @@ export function createPostgresSlackOutboxStore(
                 nextAttemptAt: sql`CASE WHEN ${t.kind} = 'progress' THEN now() + greatest(${ms(outcome.status === "failed" ? (outcome.retryInMs ?? 0) : 0)}, ${ms(progressIntervalMs)}) ELSE ${t.nextAttemptAt} END`,
               };
       return db.transaction(async (tx) => {
+        // A retry put back while the channel's agent is emergency-stopped
+        // ends here instead, so it never goes out once the channel is on.
+        // The row first, so a stop marking it waits for this: a retry put
+        // back before the mark is cancelled as the channel is turned on.
+        if (given.status === "pending") {
+          await tx.execute(
+            sql`SELECT 1 FROM slack_outbox WHERE id = ${fence.id}::uuid FOR UPDATE`,
+          );
+        }
+        const [stopped] =
+          given.status === "pending"
+            ? rowsOf(
+                await tx.execute(sql`
+                  SELECT 1 FROM slack_outbox o
+                  WHERE o.id = ${fence.id}::uuid
+                    AND o.kind <> 'emergency_stop_notice'
+                    AND (o.error_code = ${TURN_EMERGENCY_STOPPED_REASON} OR EXISTS (
+                      SELECT 1 FROM surface_bindings b
+                      JOIN slack_installations bi ON bi.id = b.installation_id
+                      WHERE ${stopCovers(sql.raw("o"))}
+                        AND b.emergency_stopped_at IS NOT NULL))`),
+              )
+            : [];
+        const outcome: typeof given = stopped
+          ? { status: "failed", errorCode: TURN_EMERGENCY_STOPPED_REASON }
+          : given;
+        const limitedMs =
+          outcome.status === "pending" &&
+          (outcome.errorCode === SURFACE_RATE_LIMITED_CODE ||
+            outcome.errorCode === SURFACE_EDIT_RATE_LIMITED_CODE)
+            ? outcome.retryInMs
+            : null;
         const [row] = await tx
           .update(t)
           .set({
-            ...set,
+            ...setOf(outcome),
             ...released,
             // SET reads the old status: still pending means beginSend never
             // ran. A rate-limited call gives back the attempt beginSend took.

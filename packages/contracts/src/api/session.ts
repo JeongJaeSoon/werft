@@ -396,7 +396,10 @@ export const sessionAttachedRepositorySchema = z.object({
   }),
 });
 
-export const PAUSE_REASON_VALUES = ["awaiting_input"] as const;
+export const PAUSE_REASON_VALUES = [
+  "awaiting_input",
+  "emergency_stopped",
+] as const;
 export const pauseReasonSchema = z.enum(PAUSE_REASON_VALUES);
 /** Why a session's queued input has not started yet. */
 export const SESSION_WAIT_REASON_VALUES = ["waiting_for_capacity"] as const;
@@ -591,7 +594,7 @@ export const sessionSummarySchema = z.object({
   }),
   last_turn_cut_off: z.boolean().default(false).meta({
     description:
-      "True when the session's last turn failed because its worker lost the session partway (`terminal_reason: worker_ownership_lost`): no turn follows it yet. The session goes on from its last checkpoint with its next input or `POST /v1/sessions/{id}/turns/{turn_id}/continue`. The console shows an `idle` session with this set as cut off. False otherwise, and from a server older than the field.",
+      "True when the session's last turn was cut off partway: its worker lost the session (`terminal_reason: worker_ownership_lost`), or an admin emergency-stopped the agent in its Slack channel (`emergency_stopped`). No turn follows it yet. The session goes on from its last checkpoint with its next input or `POST /v1/sessions/{id}/turns/{turn_id}/continue`. The console shows an `idle` session with this set as cut off. False otherwise, and from a server older than the field.",
   }),
   last_event_at: timestampSchema.nullable(),
   created_at: timestampSchema,
@@ -610,7 +613,7 @@ export const sessionDetailSchema = sessionSummarySchema.extend({
   }),
   pause_reason: pauseReasonSchema.nullable().optional().meta({
     description:
-      "Why the platform paused the session: `awaiting_input` while it is `pausing` or `paused` because its turn was parked on requests nobody answered. Null for a pause someone asked for, including one that took a park over, and for every other admission state. Absent from a server older than the field.",
+      "Why the platform paused the session: `awaiting_input` while it is `pausing` or `paused` because its turn was parked on requests nobody answered; `emergency_stopped` when its Slack channel's agent was stopped in an emergency (it resumes only once the channel is on again). Null for a pause someone asked for, including one that took a park over, and for every other admission state. Absent from a server older than the field.",
   }),
   pending_request_count: z.number().int().nonnegative().meta({
     description:

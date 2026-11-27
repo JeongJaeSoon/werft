@@ -193,6 +193,8 @@ export type AcceptSessionResult =
   | { outcome: "variables_refused"; reason: EnvRefusal; receiptId: string }
   /** The Slack message it came from was deleted; no session was created. */
   | { outcome: "source_deleted" }
+  /** An admin emergency-stopped the agent in the message's channel. */
+  | { outcome: "emergency_stopped" }
   /** A task over the open tasks its conversation or its agent may have. */
   | { outcome: "task_limit"; scope: "conversation" | "agent" }
   | InputLimitRefusal;
@@ -252,6 +254,8 @@ export type AppendMessageResult =
   // `reason` is the stored text, which may be one a newer build recorded.
   | { outcome: "checkpoint_unavailable"; reason: string }
   | { outcome: "awaiting_takeover" }
+  // An admin emergency-stopped the agent in the session's Slack channel.
+  | { outcome: "emergency_stopped" }
   | { outcome: "actor_inactive" }
   | { outcome: "credential_unbound"; agentId: string; receiptId: string }
   // The input would revive a failed session that has no spec pin on its own

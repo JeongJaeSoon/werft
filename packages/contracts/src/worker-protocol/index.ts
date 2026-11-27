@@ -1403,6 +1403,24 @@ export const TURN_WORKSPACE_QUOTA_EXCEEDED_REASON = "workspace_quota_exceeded";
 export const TURN_WORKER_OWNERSHIP_LOST_REASON = "worker_ownership_lost";
 
 /**
+ * The terminal reason of a turn an emergency stop of its Slack channel cut
+ * off (POST /v1/agents/{id}/slack-bindings/{binding_id}/emergency-stop): the
+ * session is paused and goes on from its last checkpoint only when a person
+ * continues the turn. The next turn is never given its input on its own.
+ */
+export const TURN_EMERGENCY_STOPPED_REASON = "emergency_stopped";
+
+/** A turn that ended before its result: a person may go on from it. */
+export const CUT_OFF_TURN_REASONS = [
+  TURN_WORKER_OWNERSHIP_LOST_REASON,
+  TURN_EMERGENCY_STOPPED_REASON,
+] as const;
+
+export function isCutOffTurnReason(reason: string | null | undefined) {
+  return (CUT_OFF_TURN_REASONS as readonly unknown[]).includes(reason);
+}
+
+/**
  * The terminal reason of a turn interrupted to park it on unanswered
  * requests. Its requests stay open, and the checkpoint it commits is what an
  * answer resumes from, so it is only ever an `interrupted` turn with one.

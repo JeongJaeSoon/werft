@@ -1,14 +1,17 @@
 #!/usr/bin/env bun
 // The integration suite runs as one CI job per domain, each with
-// only the services its tests need. Which files a job owns is declared once,
-// in the `integration-domain` matrix of .github/workflows/ci.yml; this script
-// reads it from there.
+// only the services its tests need. Which files a job owns and which services
+// it starts are declared once, in .github/integration-domains.yml; this script
+// reads it from there, and gives ci.yml's `changes` job the matrix entries of
+// the planned domains.
 //
 // A job never sees another's list, so the whole assignment is checked on every
-// call before anything is printed: a file that belongs to no job would pass
+// `files` and `verify` call before anything is printed: a file that belongs to no job would pass
 // silently, which is the one failure this split must not have.
 //
 // usage:
+//   integration-jobs.ts matrix <domains>         the matrix entries of those domains (a JSON
+//                                                array of names), as one line of JSON
 //   integration-jobs.ts files <domain>           the files that job runs, one ./path per line
 //   integration-jobs.ts verify <domain> <junit>  fails unless the junit report ran exactly
 //                                                those files and skipped only what the job declares
@@ -25,24 +28,27 @@ export type IntegrationJob = {
   skips: DeclaredSkip[];
 };
 
-const MATRIX_JOB = "integration-domain";
+export type MatrixEntry = {
+  domain: string;
+  postgres: boolean;
+  localstack: boolean;
+  docker: boolean;
+};
 
-/** The matrix entries of the `integration-domain` job in a workflow file. */
-export function readJobs(workflow: string): IntegrationJob[] {
-  const parsed = Bun.YAML.parse(workflow) as {
-    jobs?: Record<
-      string,
-      { strategy?: { matrix?: { include?: Record<string, unknown>[] } } }
-    >;
-  };
-  const include = parsed.jobs?.[MATRIX_JOB]?.strategy?.matrix?.include;
-  if (!Array.isArray(include) || include.length === 0) {
-    throw new Error(`ci.yml has no ${MATRIX_JOB} matrix include list`);
+const DECLARATION = ".github/integration-domains.yml";
+
+function readEntries(declaration: string): (IntegrationJob & MatrixEntry)[] {
+  const parsed = Bun.YAML.parse(declaration) as {
+    domains?: Record<string, unknown>[];
+  } | null;
+  const entries = parsed?.domains;
+  if (!Array.isArray(entries) || entries.length === 0) {
+    throw new Error(`${DECLARATION} has no domains list`);
   }
-  return include.map((entry, index) => {
+  return entries.map((entry, index) => {
     const { domain, paths, skips = [] } = entry;
     if (typeof domain !== "string" || domain === "") {
-      throw new Error(`${MATRIX_JOB} entry ${index + 1} has no domain`);
+      throw new Error(`${DECLARATION} entry ${index + 1} has no domain`);
     }
     for (const flag of ["postgres", "localstack", "docker"]) {
       // The services and opt-in variables key off these; a missing one reads
@@ -67,8 +73,67 @@ export function readJobs(workflow: string): IntegrationJob[] {
     ) {
       throw new Error(`${domain}: skips must be a list of {file, test}`);
     }
-    return { domain, paths, skips };
+    return {
+      domain,
+      postgres: entry.postgres as boolean,
+      localstack: entry.localstack as boolean,
+      docker: entry.docker as boolean,
+      paths,
+      skips: skips as DeclaredSkip[],
+    };
   });
+}
+
+/** The domains declared in .github/integration-domains.yml, in order. */
+export function readJobs(declaration: string): IntegrationJob[] {
+  return readEntries(declaration).map(({ domain, paths, skips }) => ({
+    domain,
+    paths,
+    skips,
+  }));
+}
+
+/**
+ * The `integration-domain` matrix entries of the planned domains, in
+ * declaration order. An empty, malformed or unknown plan throws: Actions would
+ * start no job for an empty matrix, and a name no entry declares would drop
+ * a domain without a word.
+ */
+export function matrix(declaration: string, planned: string): MatrixEntry[] {
+  let names: unknown;
+  try {
+    names = JSON.parse(planned);
+  } catch {
+    names = undefined;
+  }
+  if (
+    !Array.isArray(names) ||
+    names.length === 0 ||
+    !names.every((name) => typeof name === "string")
+  ) {
+    throw new Error(
+      `planned domains must be a non-empty JSON array of names: ${planned}`,
+    );
+  }
+  const wanted: string[] = names;
+  if (new Set(wanted).size !== wanted.length) {
+    throw new Error(`planned domains name one twice: ${planned}`);
+  }
+  const entries = readEntries(declaration);
+  const unknown = wanted.filter(
+    (name) => !entries.some((entry) => entry.domain === name),
+  );
+  if (unknown.length > 0) {
+    throw new Error(`no integration domain named ${unknown.join(", ")}`);
+  }
+  return entries
+    .filter((entry) => wanted.includes(entry.domain))
+    .map(({ domain, postgres, localstack, docker }) => ({
+      domain,
+      postgres,
+      localstack,
+      docker,
+    }));
 }
 
 /**
@@ -216,20 +281,29 @@ function main(argv: string[]): void {
   const [command, domain, junitPath] = argv;
   if (
     !(
+      (command === "matrix" && argv.length === 2) ||
       (command === "files" && argv.length === 2) ||
       (command === "verify" && argv.length === 3)
     )
   ) {
     console.error(
-      "usage: integration-jobs.ts files <domain> | verify <domain> <junit.xml>",
+      "usage: integration-jobs.ts matrix <domains> | files <domain> | verify <domain> <junit.xml>",
     );
     process.exit(2);
   }
 
   const cwd = join(import.meta.dir, "..", "..");
-  const jobs = readJobs(
-    readFileSync(join(cwd, ".github", "workflows", "ci.yml"), "utf8"),
-  );
+  const declaration = readFileSync(join(cwd, DECLARATION), "utf8");
+  if (command === "matrix") {
+    try {
+      console.log(JSON.stringify(matrix(declaration, domain!)));
+    } catch (error) {
+      console.error((error as Error).message);
+      process.exit(1);
+    }
+    return;
+  }
+  const jobs = readJobs(declaration);
   const files = suiteFiles(cwd);
   let assigned: Map<string, string[]>;
   try {

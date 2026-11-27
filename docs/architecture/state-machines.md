@@ -53,6 +53,8 @@ turn은 `queued → running → completed | failed | interrupted | outcome_unkno
 | T8 | T7의 보류가 상한에 닿음 | 새 turn 시작. pending = `publish_failed`는 남음 | 첫 실패부터 `retryHoldMs`가 지남 | worker |
 | T9 | turn completed, pending = `publish_failed`(결정적 거절) 또는 `background_writer`, 새 입력 도착 | 새 turn 시작. 그 turn의 finalize가 checkpoint를 commit하면 pending 없음 | 사유가 advisory다 | worker |
 | T10 | attempt exited, 덮이지 않은 turn 있음 | 세션 recovery_required | 1번 절의 조건 | scheduler |
+| T11 | turn running | turn failed(`emergency_stopped`). 대기 중인 입력은 cancelled. 실행이 있으면 lease epoch가 올라감 | 관리자가 그 세션이 일하는 Slack 채널에서 에이전트를 긴급 정지함 | 긴급 정지 트랜잭션 |
+| T12 | 앞의 turn(cancelled 제외)이 failed(`emergency_stopped`), 새 turn의 첫 전달 | 새 turn 시작. 끊긴 입력은 앞에 붙이지 않고 `prepend_skip_reason` = `emergency_stopped` | 정지를 풀고 세션을 재개한 뒤 | worker의 next-input |
 
 빚진 checkpoint는 worker가 기억하는 값이다. 마지막으로 끝낸 turn이 checkpoint 없이 끝났거나, 마지막 캡처 뒤에 engine이 스스로 답을 냈으면 빚이 있다.
 
@@ -65,6 +67,9 @@ turn은 `queued → running → completed | failed | interrupted | outcome_unkno
 - T7의 보류는 turn 하나의 빚에 한 번이고, 첫 실패부터 센다. 보류를 벗어난 뒤 다시 인프라 실패가 나도 시간을 새로 세지 않는다. 상한에 닿거나 넘는 재시도는 하지 않고, 상한에서 보류를 끝낸다. 그때 진행 중이던 캡처와 commit은 끝까지 가므로 다음 입력은 그만큼 더 기다릴 수 있다. 캡처가 끝나지 않으면 turn 끝 캡처와 같은 단계 예산(worker 시작 timeout)에서 worker가 실패로 끝난다.
 - T8 뒤의 빚은 pause 직전과 idle 종료 직전에 한 번씩 다시 시도한다. 그래도 덮지 못하면 T10으로 간다.
 - T10의 판정(context gap, claim gate)은 이 절의 전이가 바꾸지 않는다.
+- 끊긴 turn(`worker_ownership_lost`, `emergency_stopped`)은 돈 turn으로 세지 않아 덮이지 않아도 T10을 일으키지 않는다. 그 앞의 turn이 덮이지 않았으면 T10은 그대로 일어난다.
+- 긴급 정지는 열린 turn이 없어도 실행을 fence한다. 정지 뒤에는 그 worker의 T2·T3·T4가 일어나지 않는다. 그때 덮이지 않은 turn은 덮이지 않은 채 남고, 재개할 때 같은 context gap 판정을 받는다.
+- T11로 끊긴 turn은 사람이 [이어서 하기]를 해야만 다시 돈다.
 
 ### 값
 
@@ -90,14 +95,16 @@ turn은 `queued → running → completed | failed | interrupted | outcome_unkno
 | R4 | blocking 사유(`mirror_error`)를 그 사유를 낸 attempt의 turn 밖 commit이 지우는 것 | commit은 되지만 사유는 남고, pointer는 복원 지점으로 믿지 않는다 | `does not clear the blocking reason of the attempt that raised it, so the pointer stays untrusted` |
 | R5 | revision이 pointer의 다음 번호가 아닌 commit | 409 `REVISION_CONFLICT` | `is refused when its revision is not the pointer's next` |
 | R6 | 다른 attempt가 끝낸 turn에 이벤트를 `after_turn`으로 붙이는 것 | 이벤트는 어느 turn에도 붙지 않는다 | `are never put on another attempt's turn` |
+| R7 | 긴급 정지가 fence한 worker의 turn 밖 commit(끊긴 turn은 `failed`라 상태만으로는 checkpoint를 받는다) | 409 `STALE_EPOCH`, pointer 그대로 | `packages/db/src/emergency-stop.test.ts`의 `the fenced worker puts no checkpoint outside a turn on the turn the stop cut off` |
+| R8 | 긴급 정지로 끊긴 turn의 입력이 다음 turn 앞에 저절로 붙는 것 | 붙지 않고 `prepend_skip_reason`만 적힌다 | `packages/db/src/emergency-stop.test.ts`의 `the next message is not given the stopped turn's input, and the skip is recorded`, `the next message after input the stop cancelled is not given the stopped turn's input either` |
+
+R7과 R8을 뺀 시험은 `packages/db/src/worker-unit-of-work.outside-turn.test.ts`에 있다.
 
 열린 turn, `outcome_unknown` turn, `cancelled` turn에 하는 commit도 409 `REQUEST_STALE`로 거절한다(`is refused on a turn that is %s`).
 
 turn만 보고 거절할 수 있는 commit(R2, R3, 위 문장)은 manifest를 읽기 전에, lease를 보기 전에 거절한다. 그래서 lease를 잃은 attempt가 R1의 답 대신 409 `REQUEST_STALE`나 404를 먼저 받을 수 있다. pointer와 pending 사유를 쓰는 일은 언제나 fence 아래에서 한다.
 
 turn을 이름으로 가진 채 저장된 이벤트를 turn 없이 다시 보내면 같은 이벤트로 받지 않는다(409, `an event stored for a turn it named is not the same event sent again for no turn`). 같은 commit의 재전송은 revision, manifest 위치, digest, object version이 모두 같을 때만 저장된 답을 돌려준다(`a resend that names another version of the manifest object is not the commit that landed`).
-
-시험은 `packages/db/src/worker-unit-of-work.outside-turn.test.ts`에 있다.
 
 ### 지킬 성질
 

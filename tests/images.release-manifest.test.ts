@@ -809,10 +809,12 @@ describe("images.yml release job", () => {
     expect(text).toContain(
       '"$' + '{ref#refs/tags/}" release-manifest.json bundle-out',
     );
-    // Product plans build and check it without attaching a release.
+    // Product plans build and check it without attaching a release. A main
+    // push that changes none of its inputs leaves it out
+    // (test-ops-bundle-plan.sh); every other plan that builds keeps it.
     const other = jobs["test-ops-bundle"];
     expect(other?.needs).toBe("plan");
-    expect(other?.if).toBe("needs.plan.outputs.images == 'build'");
+    expect(other?.if).toBe("needs.plan.outputs.ops_bundle == 'build'");
     expect(other?.permissions).toBeUndefined();
     const otherRuns = (other?.steps ?? [])
       .map((step) => step.run ?? "")

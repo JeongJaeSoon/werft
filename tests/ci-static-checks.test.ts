@@ -21,6 +21,7 @@ type Step = {
 type Job = {
   if?: string;
   name?: string;
+  permissions?: Record<string, string>;
   "timeout-minutes"?: number;
   needs?: string | string[];
   outputs?: Record<string, string>;
@@ -32,10 +33,9 @@ const workflow = Bun.YAML.parse(
   readFileSync(join(import.meta.dir, "../.github/workflows/ci.yml"), "utf8"),
 ) as { jobs: Record<string, Job> };
 
-function verdict(job: string, env: Record<string, string>, stepId?: string) {
+function verdict(job: string, env: Record<string, string>, stepId = "verdict") {
   const steps = workflow.jobs[job]?.steps;
-  const command = (stepId ? steps?.find((s) => s.id === stepId) : steps?.[0])
-    ?.run;
+  const command = steps?.find((s) => s.id === stepId)?.run;
   if (!command) throw new Error(`no verdict command in ${job}`);
   return Bun.spawnSync(["bash", "-c", command], {
     env: { ...Bun.env, ...env },
@@ -193,10 +193,13 @@ test("static checks keep one cache writer and report independent failures", () =
     "reuse",
     "./.github/actions/bun-setup",
     "units",
+    "domains",
   ]);
   const job = workflow.jobs.static;
   expect(job?.name).toBe("check (static)");
-  expect(job?.needs).toBeUndefined();
+  // A main push that reuses the PR run of its tree skips it.
+  expect(job?.needs).toBe("changes");
+  expect(job?.if).toMatch(/^needs\.changes\.outputs\.reused == '' && /);
   for (const command of [
     "bun run typecheck",
     "bun run lint",
@@ -231,13 +234,14 @@ test("required check only accepts verified product or documentation results", ()
     "docs",
     "demo",
     "ui-pack",
+    "sdk-pack-smoke",
     "workspace-quota",
     "helm-chart",
     "k8s-smoke",
     "pages",
   ]);
   expect(job?.if).toMatch(/^always\(\)/);
-  expect(job?.steps[0]?.env?.RESULT).toBe(
+  expect(job?.steps.find((s) => s.id === "verdict")?.env?.RESULT).toBe(
     `\${{ (github.event.inputs.only == 'check' || needs.changes.outputs.domains == '["surface"]') && needs.check-part.result || needs.integration-domain.result }}`,
   );
   const product = {
@@ -282,6 +286,7 @@ const plannedConsumers = [
   "pages",
   "demo",
   "ui-pack",
+  "sdk-pack-smoke",
   "workspace-quota",
 ] as const;
 
@@ -292,6 +297,7 @@ function productNeeds() {
       outputs: {
         helm: "true",
         k8s: "true",
+        sdk_pack: "true",
         site: "true",
         product: "true",
         domains:
@@ -308,6 +314,7 @@ function productNeeds() {
     pages: { result: "success" },
     demo: { result: "success" },
     "ui-pack": { result: "success" },
+    "sdk-pack-smoke": { result: "success" },
     "workspace-quota": { result: "success" },
   };
 }
@@ -338,9 +345,15 @@ test("product results bind named jobs to the plan and selection", () => {
   Object.assign(web.changes.outputs, {
     helm: "false",
     k8s: "false",
+    sdk_pack: "false",
     domains: '["surface"]',
   });
-  for (const job of ["helm-chart", "k8s-smoke", "workspace-quota"] as const)
+  for (const job of [
+    "helm-chart",
+    "k8s-smoke",
+    "sdk-pack-smoke",
+    "workspace-quota",
+  ] as const)
     web[job].result = "skipped";
   web["check-part"].result = "success";
   expect(productVerdict(web)).toBe(0);
@@ -348,6 +361,7 @@ test("product results bind named jobs to the plan and selection", () => {
   Object.assign(docs.changes.outputs, {
     helm: "false",
     k8s: "false",
+    sdk_pack: "false",
     site: "false",
     product: "false",
     domains: "[]",
@@ -380,7 +394,7 @@ test.each(plannedConsumers)(
   },
 );
 
-test.each(["helm", "k8s", "site", "product"])(
+test.each(["helm", "k8s", "sdk_pack", "site", "product"])(
   "the %s plan accepts only explicit boolean strings",
   (flag) => {
     for (const value of ["", "TRUE", "unknown", true, false, null, undefined]) {
@@ -388,6 +402,7 @@ test.each(["helm", "k8s", "site", "product"])(
       const consumers = {
         helm: ["helm-chart"],
         k8s: ["k8s-smoke"],
+        sdk_pack: ["sdk-pack-smoke"],
         site: ["docs", "pages"],
         product: ["demo", "ui-pack", "workspace-quota"],
       } as const;
@@ -412,6 +427,7 @@ test("omitted consumers must be skipped and workspace requires a product Docker 
     Object.assign(needs.changes.outputs, {
       helm: "false",
       k8s: "false",
+      sdk_pack: "false",
       site: "false",
       product: "false",
       domains: "[]",
@@ -478,7 +494,7 @@ test("required integration never treats an unplanned skip as success", () => {
     "quickstart",
   ]);
   expect(job?.if).toMatch(/^always\(\)/);
-  expect(job?.steps[0]?.env?.RESULT).toBe(
+  expect(job?.steps.find((s) => s.id === "verdict")?.env?.RESULT).toBe(
     `\${{ needs.integration-domain.result }}`,
   );
   const product = {
@@ -599,78 +615,242 @@ test("integration refuses cancelled heavy jobs even after every domain passed", 
   for (const key of ["EVENT", "ONLY"]) {
     expect(verdict("integration", { ...passed, [key]: "" })).not.toBe(0);
   }
-  const env = workflow.jobs.integration?.steps[0]?.env;
-  expect(env?.E2E).toBe(`\${{ needs.e2e.result }}`);
+  // The scenario and guide verdicts are this job's own steps, which hold
+  // those jobs' results to the plan.
+  const env = workflow.jobs.integration?.steps.find(
+    (s) => s.id === "verdict",
+  )?.env;
+  expect(env?.E2E).toBe(`\${{ steps.e2e.outcome }}`);
   expect(env?.CONFORMANCE).toBe(`\${{ needs.conformance.result }}`);
   expect(env?.CONFORMANCE_PLAN).toBe(
     `\${{ needs.changes.outputs.conformance }}`,
   );
-  expect(env?.QUICKSTART).toBe(`\${{ needs.quickstart.result }}`);
+  expect(env?.QUICKSTART).toBe(`\${{ steps.quickstart.outcome }}`);
   expect(env?.EVENT).toBe(`\${{ github.event_name }}`);
   expect(env?.ONLY).toBe(`\${{ github.event.inputs.only || 'all' }}`);
 });
 
-test("e2e and quickstart validate the plan but stop when the workflow is cancelled", () => {
-  for (const [name, flag, variable] of [
-    ["e2e", "product", "PRODUCT"],
-    ["quickstart", "quickstart", "QUICKSTART"],
-  ]) {
-    if (!name || !flag || !variable) throw new Error("missing guard case");
+test("e2e and quickstart start only with work, and the gate holds their results to the plan", () => {
+  for (const [name, display, flag] of [
+    ["e2e", "e2e (scenario)", "product"],
+    ["quickstart", "quickstart (guides)", "quickstart"],
+  ] as const) {
     const job = workflow.jobs[name];
+    // A manual run of this job alone has no gate to report the required
+    // name, so the job carries it; everywhere else it must not.
+    expect(job?.name).toBe(
+      `\${{ github.event.inputs.only == '${name}' && '${name}' || '${display}' }}`,
+    );
     expect(job?.needs).toBe("changes");
-    expect(job?.if).toMatch(/^!cancelled\(\)/);
+    expect(job?.if).toMatch(
+      new RegExp(
+        `^!cancelled\\(\\) && \\(needs\\.changes\\.outputs\\.${flag} == 'true' \\|\\| github\\.event\\.inputs\\.only == '${name}'\\) && `,
+      ),
+    );
+    // A manual run of the job alone always starts it, and fails on a plan
+    // that failed or left it nothing to do.
+    const manual = job?.steps[0];
+    expect(manual?.name).toBe("Plan of a manual run");
+    expect(manual?.if).toBe(`github.event.inputs.only == '${name}'`);
+    const variable = flag === "product" ? "PRODUCT" : "QUICKSTART";
+    expect(manual?.env?.[variable]).toBe(
+      `\${{ needs.changes.outputs.${flag} }}`,
+    );
+    const plan = (env: Record<string, string>) =>
+      Bun.spawnSync(["bash", "-e", "-c", manual?.run ?? "exit 9"], {
+        env: { PATH: Bun.env.PATH ?? "", ...env },
+      }).exitCode;
+    expect(plan({ PLAN: "success", [variable]: "true" })).toBe(0);
+    for (const state of ["failure", "cancelled", "skipped", ""]) {
+      expect(plan({ PLAN: state, [variable]: "true" })).not.toBe(0);
+    }
+    for (const value of ["false", ""]) {
+      expect(plan({ PLAN: "success", [variable]: value })).not.toBe(0);
+    }
+    const gate = workflow.jobs.integration?.steps.find((s) => s.id === name);
+    expect(gate?.if).toBe(
+      "!cancelled() && (github.event.inputs.only || 'all') == 'all'",
+    );
+  }
+  const e2e = (env: Record<string, string>) =>
+    verdict("integration", { PLAN: "success", REUSED: "", ...env }, "e2e");
+  expect(
+    e2e({ PRODUCT: "true", DOCS_ONLY: "false", SCENARIO: "success" }),
+  ).toBe(0);
+  expect(
+    e2e({ PRODUCT: "false", DOCS_ONLY: "true", SCENARIO: "skipped" }),
+  ).toBe(0);
+  for (const state of ["failure", "cancelled", "skipped", ""]) {
     expect(
-      verdict(name, {
-        PLAN: "success",
-        [variable]: "true",
-        DOCS_ONLY: "false",
-      }),
-    ).toBe(0);
+      e2e({ PRODUCT: "true", DOCS_ONLY: "false", SCENARIO: state }),
+    ).not.toBe(0);
+    // A plan that never came: the job skipped with it.
     expect(
-      verdict(name, {
-        PLAN: "success",
-        [variable]: "false",
+      e2e({
+        PLAN: state,
+        PRODUCT: "false",
         DOCS_ONLY: "true",
+        SCENARIO: "skipped",
       }),
+    ).not.toBe(0);
+  }
+  // e2e is never off outside a prose PR, and never runs when it is off.
+  expect(
+    e2e({ PRODUCT: "false", DOCS_ONLY: "false", SCENARIO: "skipped" }),
+  ).not.toBe(0);
+  expect(
+    e2e({ PRODUCT: "false", DOCS_ONLY: "true", SCENARIO: "success" }),
+  ).not.toBe(0);
+  expect(e2e({ PRODUCT: "", DOCS_ONLY: "true", SCENARIO: "skipped" })).not.toBe(
+    0,
+  );
+
+  const guides = (env: Record<string, string>) =>
+    verdict("integration", { PLAN: "success", ...env }, "quickstart");
+  for (const docs of ["true", "false"]) {
+    expect(
+      guides({ QUICKSTART: "true", DOCS_ONLY: docs, GUIDES: "success" }),
     ).toBe(0);
+    // Only the guide plan may be off outside a prose PR: a leaf-app change
+    // reaches neither the images nor the guides.
+    expect(
+      guides({ QUICKSTART: "false", DOCS_ONLY: docs, GUIDES: "skipped" }),
+    ).toBe(0);
+    expect(
+      guides({ QUICKSTART: "false", DOCS_ONLY: docs, GUIDES: "success" }),
+    ).not.toBe(0);
     for (const state of ["failure", "cancelled", "skipped", ""]) {
       expect(
-        verdict(name, {
+        guides({ QUICKSTART: "true", DOCS_ONLY: docs, GUIDES: state }),
+      ).not.toBe(0);
+      expect(
+        guides({
           PLAN: state,
-          [variable]: "false",
-          DOCS_ONLY: "true",
+          QUICKSTART: "false",
+          DOCS_ONLY: docs,
+          GUIDES: "skipped",
         }),
       ).not.toBe(0);
     }
-    // Only the guide plan may be off outside a prose PR: a leaf-app change
-    // reaches neither the images nor the guides. e2e never is.
-    const off = verdict(name, {
-      PLAN: "success",
-      [variable]: "false",
-      DOCS_ONLY: "false",
-    });
-    if (name === "quickstart") expect(off).toBe(0);
-    else expect(off).not.toBe(0);
-    expect(
-      verdict(name, {
-        PLAN: "success",
-        [variable]: "",
-        DOCS_ONLY: "true",
-      }),
-    ).not.toBe(0);
-    for (const step of job?.steps
-      .slice(1)
-      .filter((s) => s.id !== "verdict" && s.id !== "cancelled") ?? []) {
-      expect(step.if).toContain(`needs.changes.outputs.${flag} == 'true'`);
-    }
   }
   expect(
-    verdict("quickstart", {
-      PLAN: "success",
-      QUICKSTART: "true",
-      DOCS_ONLY: "true",
-    }),
-  ).toBe(0);
+    guides({ QUICKSTART: "", DOCS_ONLY: "true", GUIDES: "skipped" }),
+  ).not.toBe(0);
+
+  const steps = workflow.jobs.integration?.steps ?? [];
+  expect(steps.find((s) => s.id === "e2e")?.env?.SCENARIO).toBe(
+    `\${{ needs.e2e.result }}`,
+  );
+  expect(steps.find((s) => s.id === "quickstart")?.env?.GUIDES).toBe(
+    `\${{ needs.quickstart.result }}`,
+  );
+});
+
+// What a fake `gh` was called with by the report step, and how the step ended.
+function report(
+  env: Record<string, string>,
+  gh = 'printf "%s\\n" "$*" >>"$CALLS"',
+) {
+  const step = workflow.jobs.integration?.steps.find((s) => s.id === "report");
+  if (!step?.run) throw new Error("no report step");
+  const dir = mkdtempSync(join(tmpdir(), "ci-report-"));
+  try {
+    writeFileSync(join(dir, "gh"), `#!/usr/bin/env bash\n${gh}\n`, {
+      mode: 0o755,
+    });
+    const calls = join(dir, "calls");
+    writeFileSync(calls, "");
+    const run = Bun.spawnSync(["bash", "-e", "-c", step.run], {
+      env: {
+        PATH: `${dir}:${Bun.env.PATH ?? ""}`,
+        CALLS: calls,
+        GH_REPO: "o/r",
+        HEAD_SHA: "a".repeat(40),
+        RUN_URL: "https://github.invalid/o/r/actions/runs/1",
+        REPORT_RETRY_SECONDS: "0",
+        ...env,
+      },
+    });
+    return {
+      exitCode: run.exitCode,
+      calls: readFileSync(calls, "utf8").split("\n").filter(Boolean),
+    };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("the required e2e and quickstart names come only from the gate's report", () => {
+  // Outside a manual run of e2e or quickstart alone (see above), no job
+  // carries those names itself, so a skipped one cannot stand in.
+  for (const [id, job] of Object.entries(workflow.jobs)) {
+    const name = (job.name ?? id).replace(
+      /^\$\{\{ github\.event\.inputs\.only == '(e2e|quickstart)' && '\1' \|\| '(.*)' \}\}$/,
+      "$2",
+    );
+    expect(["e2e", "quickstart"]).not.toContain(name);
+  }
+  const job = workflow.jobs.integration;
+  expect(job?.permissions).toEqual({ checks: "write" });
+  expect(job?.steps.map((s) => s.id)).toEqual([
+    "e2e",
+    "quickstart",
+    "verdict",
+    "report",
+    "cancelled",
+  ]);
+  const step = job?.steps.find((s) => s.id === "report");
+  expect(step?.if).toBe(
+    "!cancelled() && (github.event.inputs.only || 'all') == 'all'",
+  );
+  expect(step?.env?.E2E).toBe(`\${{ steps.e2e.outcome }}`);
+  expect(step?.env?.QUICKSTART).toBe(`\${{ steps.quickstart.outcome }}`);
+  // A pull request's required checks read its head, not the merge commit.
+  expect(step?.env?.HEAD_SHA).toBe(
+    `\${{ github.event.pull_request.head.sha || github.sha }}`,
+  );
+
+  const passed = report({ E2E: "success", QUICKSTART: "success" });
+  expect(passed.exitCode).toBe(0);
+  expect(passed.calls).toHaveLength(2);
+  for (const [index, name] of ["e2e", "quickstart"].entries()) {
+    const call = passed.calls[index] ?? "";
+    expect(call).toStartWith("api --method POST repos/o/r/check-runs ");
+    expect(call).toContain(`-f name=${name} `);
+    expect(call).toContain(`-f head_sha=${"a".repeat(40)} `);
+    expect(call).toContain("-f status=completed ");
+    expect(call).toContain("-f conclusion=success ");
+  }
+  // Anything but a passed verdict reports a failure, never a pass or a skip.
+  for (const outcome of ["failure", "cancelled", "skipped", ""]) {
+    const failed = report({ E2E: outcome, QUICKSTART: "success" });
+    expect(failed.exitCode).toBe(0);
+    expect(failed.calls[0]).toContain("-f conclusion=failure ");
+    expect(failed.calls[1]).toContain("-f conclusion=success ");
+    const guide = report({ E2E: "success", QUICKSTART: outcome });
+    expect(guide.calls[0]).toContain("-f conclusion=success ");
+    expect(guide.calls[1]).toContain("-f conclusion=failure ");
+  }
+  // A report that does not land fails the gate, after three tries, and
+  // leaves the other name's report standing.
+  const refused = report(
+    { E2E: "success", QUICKSTART: "success" },
+    'printf "%s\\n" "$*" >>"$CALLS"; case "$*" in *"name=e2e "*) exit 1 ;; esac',
+  );
+  expect(refused.exitCode).not.toBe(0);
+  expect(refused.calls.filter((c) => c.includes("-f name=e2e "))).toHaveLength(
+    3,
+  );
+  expect(
+    refused.calls.filter((c) => c.includes("-f name=quickstart ")),
+  ).toHaveLength(1);
+  // A request refused once and then accepted still reports.
+  const flaky = report(
+    { E2E: "success", QUICKSTART: "success" },
+    'printf "%s\\n" "$*" >>"$CALLS"; [ "$(wc -l <"$CALLS")" -gt 1 ]',
+  );
+  expect(flaky.exitCode).toBe(0);
+  expect(flaky.calls).toHaveLength(3);
 });
 
 test("all product and site consumers use the same explicit plan", () => {
@@ -682,6 +862,8 @@ test("all product and site consumers use the same explicit plan", () => {
     ["ui-pack", "product"],
     ["workspace-quota", "product"],
     ["agent-sdk-compat", "product"],
+    ["e2e", "product"],
+    ["quickstart", "quickstart"],
     ["helm-chart", "helm"],
     ["k8s-smoke", "k8s"],
   ]) {
@@ -763,23 +945,32 @@ test("a reused PR run passes the required gates only with its URL", () => {
   expect(
     verdict("integration", { ...integration, REUSED: "" }, "verdict"),
   ).not.toBe(0);
-  // conformance is planned apart from reuse (see the conformance plan test).
-  for (const job of ["e2e"]) {
-    const plan = { PLAN: "success", PRODUCT: "false", DOCS_ONLY: "false" };
-    expect(verdict(job, { ...plan, REUSED: reused })).toBe(0);
-    expect(verdict(job, { ...plan, REUSED: "" })).not.toBe(0);
-    const final = { ...plan, SCENARIO: "skipped" };
-    expect(verdict(job, { ...final, REUSED: reused }, "verdict")).toBe(0);
-    expect(verdict(job, { ...final, REUSED: "" }, "verdict")).not.toBe(0);
-    // Reuse never excuses a scenario that ran and failed.
+  // The push skips its own static job only on reuse; a failed one never passes.
+  const unreused = { ...check, STATIC: "skipped" };
+  expect(verdict("check", { ...unreused, REUSED: reused })).toBe(0);
+  expect(verdict("check", { ...unreused, REUSED: "" })).not.toBe(0);
+  for (const state of ["failure", "cancelled", ""]) {
     expect(
-      verdict(
-        job,
-        { ...final, PRODUCT: "true", SCENARIO: "failure", REUSED: reused },
-        "verdict",
-      ),
+      verdict("check", { ...check, STATIC: state, REUSED: reused }),
     ).not.toBe(0);
   }
+  // conformance is planned apart from reuse (see the conformance plan test).
+  const final = {
+    PLAN: "success",
+    PRODUCT: "false",
+    DOCS_ONLY: "false",
+    SCENARIO: "skipped",
+  };
+  expect(verdict("integration", { ...final, REUSED: reused }, "e2e")).toBe(0);
+  expect(verdict("integration", { ...final, REUSED: "" }, "e2e")).not.toBe(0);
+  // Reuse never excuses a scenario that ran and failed.
+  expect(
+    verdict(
+      "integration",
+      { ...final, PRODUCT: "true", SCENARIO: "failure", REUSED: reused },
+      "e2e",
+    ),
+  ).not.toBe(0);
   // The non-blocking probe has no PR run to reuse, so it still runs.
   expect(workflow.jobs["agent-sdk-compat"]?.if).toContain(
     "(needs.changes.outputs.product == 'true' || needs.changes.outputs.reused != '')",
@@ -833,17 +1024,50 @@ test("the conformance suite runs on a release push or a manual run, never on a p
   expect(plan(push, "exit 1")).toBe("run=true\n");
 });
 
-test("an integration domain no changed path reaches runs no step but its gate", () => {
-  const steps = workflow.jobs["integration-domain"]?.steps ?? [];
-  expect(steps[0]?.id).toBe("gate");
-  expect(steps[0]?.env?.PLANNED).toBe(
-    "${{ contains(fromJSON(needs.changes.outputs.domains), matrix.domain) }}",
+test("an integration domain no changed path reaches starts no job", () => {
+  const job = workflow.jobs["integration-domain"];
+  expect(job?.strategy?.matrix.include).toBe(
+    "${{ fromJSON(needs.changes.outputs.integration_matrix) }}",
   );
-  expect(steps[0]?.run).toBe('echo "run=$PLANNED" >>"$GITHUB_OUTPUT"');
-  // A step that only runs after another one failed needs no gate of its own.
-  for (const step of steps.slice(1)) {
-    if (step.if?.startsWith("failure()")) continue;
-    expect(step.if).toContain("steps.gate.outputs.run == 'true'");
+  expect(JSON.stringify(job?.steps)).not.toContain("steps.gate");
+  const changes = workflow.jobs.changes;
+  expect(changes?.outputs?.integration_matrix).toBe(
+    "${{ steps.domains.outputs.matrix }}",
+  );
+  // The bun the planner needs, wherever a matrix of either kind is made.
+  expect(
+    changes?.steps.find((s) => s.uses === "./.github/actions/bun-setup")?.if,
+  ).toBe("steps.plan.outputs.tests == 'true'");
+  const step = changes?.steps.find((s) => s.id === "domains");
+  // A reused run plans no domain, and its tests flag is off with it.
+  expect(step?.if).toBe(
+    "steps.plan.outputs.tests == 'true' && steps.reuse.outputs.reused == ''",
+  );
+  expect(step?.env?.DOMAINS).toBe("${{ steps.plan.outputs.domains }}");
+  const plan = (domains: string) => {
+    const dir = mkdtempSync(join(tmpdir(), "integration-matrix-"));
+    try {
+      const output = join(dir, "output");
+      writeFileSync(output, "");
+      const run = Bun.spawnSync(["bash", "-e", "-c", step?.run ?? "exit 9"], {
+        cwd: join(import.meta.dir, ".."),
+        env: { ...Bun.env, GITHUB_OUTPUT: output, DOMAINS: domains },
+      });
+      return { exitCode: run.exitCode, output: readFileSync(output, "utf8") };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const web = plan('["surface"]');
+  expect(web.exitCode).toBe(0);
+  expect(web.output).toBe(
+    'matrix=[{"domain":"surface","postgres":true,"localstack":false,"docker":false}]\n',
+  );
+  // A plan the declaration cannot meet fails `changes`, and with it the gates.
+  for (const domains of ['["nope"]', "[]", ""]) {
+    const bad = plan(domains);
+    expect(bad.exitCode).not.toBe(0);
+    expect(bad.output).toBe("");
   }
   expect(workflow.jobs["workspace-quota"]?.if).toContain(
     "contains(fromJSON(needs.changes.outputs.domains), 'docker')",
@@ -851,7 +1075,7 @@ test("an integration domain no changed path reaches runs no step but its gate", 
 });
 
 test("cancelled workflows fail without unsupported status functions in env", () => {
-  for (const name of ["check", "integration", "e2e", "quickstart"]) {
+  for (const name of ["check", "integration"]) {
     const job = workflow.jobs[name];
     expect(job?.steps.at(-1)?.id).toBe("cancelled");
     const cancelled = job?.steps.find((s) => s.id === "cancelled");
@@ -872,71 +1096,26 @@ test("cancelled workflows fail without unsupported status functions in env", () 
   }
 });
 
-test("required heavy jobs verify actual outcomes after planned steps", () => {
-  const e2e = {
-    PLAN: "success",
-    PRODUCT: "true",
-    DOCS_ONLY: "false",
-    SCENARIO: "success",
-  };
-  expect(verdict("e2e", e2e, "verdict")).toBe(0);
-  for (const state of ["failure", "cancelled", "skipped", ""]) {
-    expect(verdict("e2e", { ...e2e, SCENARIO: state }, "verdict")).not.toBe(0);
-  }
-  expect(
-    verdict(
-      "e2e",
-      {
-        ...e2e,
-        PRODUCT: "false",
-        DOCS_ONLY: "true",
-        SCENARIO: "skipped",
-      },
-      "verdict",
-    ),
-  ).toBe(0);
-  expect(verdict("e2e", {}, "cancelled")).not.toBe(0);
-
-  const quickstart = {
-    PLAN: "success",
-    QUICKSTART: "true",
-    DOCS_ONLY: "false",
-    GUIDE: "success",
-    API_GUIDE: "success",
-  };
-  expect(verdict("quickstart", quickstart, "verdict")).toBe(0);
-  for (const key of ["GUIDE", "API_GUIDE"]) {
-    for (const state of ["failure", "cancelled", "skipped", ""]) {
-      expect(
-        verdict("quickstart", { ...quickstart, [key]: state }, "verdict"),
-      ).not.toBe(0);
+test("a heavy job that passed ran every step it carries", () => {
+  // The gate reads the job's result, so no step may skip itself on a plan or
+  // a status: only the after-the-fact checks and uploads have conditions.
+  for (const [name, ran] of [
+    ["e2e", ["scenario"]],
+    ["quickstart", ["guide", "api-guide"]],
+  ] as const) {
+    const steps = workflow.jobs[name]?.steps ?? [];
+    for (const id of ran) {
+      expect(steps.filter((s) => s.id === id)).toHaveLength(1);
     }
+    // Nor may a step or the job swallow a failure.
+    expect(JSON.stringify(workflow.jobs[name])).not.toContain(
+      "continue-on-error",
+    );
+    for (const step of steps.slice(1)) {
+      expect([undefined, "!cancelled()", "always()"]).toContain(step.if);
+    }
+    expect(steps.some((s) => s.id === "verdict" || s.id === "cancelled")).toBe(
+      false,
+    );
   }
-  expect(
-    verdict(
-      "quickstart",
-      {
-        PLAN: "success",
-        QUICKSTART: "false",
-        DOCS_ONLY: "true",
-        GUIDE: "skipped",
-        API_GUIDE: "skipped",
-      },
-      "verdict",
-    ),
-  ).toBe(0);
-  expect(verdict("quickstart", {}, "cancelled")).not.toBe(0);
-
-  for (const name of ["e2e", "quickstart"]) {
-    const final = workflow.jobs[name]?.steps.find((s) => s.id === "verdict");
-    expect(final?.if).toBe("always() && !cancelled()");
-  }
-  expect(
-    workflow.jobs.e2e?.steps.find((s) => s.id === "verdict")?.env?.SCENARIO,
-  ).toBe(`\${{ steps.scenario.outcome }}`);
-  const finalGuide = workflow.jobs.quickstart?.steps.find(
-    (s) => s.id === "verdict",
-  );
-  expect(finalGuide?.env?.GUIDE).toBe(`\${{ steps.guide.outcome }}`);
-  expect(finalGuide?.env?.API_GUIDE).toBe(`\${{ steps.api-guide.outcome }}`);
 });

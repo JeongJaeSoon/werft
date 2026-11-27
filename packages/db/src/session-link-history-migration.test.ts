@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
+import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "./migrate.ts";
 import { MIGRATIONS_FOLDER, readJournal } from "./migration-journal.ts";
@@ -185,8 +186,12 @@ describe("0313 session link history", () => {
   });
 
   test("this release's store reserves, replays and attaches as before", async () => {
+    // The store runs on the schema of its own release: it reads columns
+    // later migrations add, so it is not run on the half-migrated one here.
+    const current = await migratedPGlite();
+    await current.exec("SET session_replication_role = replica");
     const store = createPostgresSessionLinkStore(
-      drizzle(client, { schema }) as unknown as Database,
+      drizzle(current, { schema }) as unknown as Database,
     );
     const input = {
       workspaceId: randomUUID(),
@@ -210,11 +215,12 @@ describe("0313 session link history", () => {
     // A second link cannot take a session another link holds.
     const other = await store.reserve({ ...input, surfaceRef: "T1:C1:4.4" });
     await expect(
-      client.query("UPDATE session_links SET session_id = $1 WHERE id = $2", [
+      current.query("UPDATE session_links SET session_id = $1 WHERE id = $2", [
         sessionId,
         other.link.id,
       ]),
     ).rejects.toThrow(/session_links_(open_)?session_uniq/);
+    await current.close();
   });
 
   test("a closed link stays held by the old unique until a later migration drops it", async () => {

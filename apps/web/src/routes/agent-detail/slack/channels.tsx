@@ -54,6 +54,11 @@ import { reasonCodeOf } from "../../workspace-slack.tsx";
 import type { SlackApp } from "./actions.ts";
 import { Outcome, RecheckButton, RecheckError } from "./app.tsx";
 import {
+  EmergencyStopDialog,
+  EmergencyStopLine,
+  type EmergencyStopTarget,
+} from "./emergency-stop.tsx";
+import {
   slackKey,
   useSlackBindings,
   useSlackChannels,
@@ -227,6 +232,7 @@ export function SlackChannels({
     if (locked) setPicking(false);
   }, [locked]);
   const [notice, setNotice] = useState("");
+  const [stopTarget, setStopTarget] = useState<EmergencyStopTarget>(null);
   const [names, setNames] = useState<
     Record<string, { readonly name: string; readonly member: boolean }>
   >({});
@@ -327,7 +333,12 @@ export function SlackChannels({
       },
     });
   };
-  const change = (row: Binding, mode: Binding["mode"]) => {
+  const change = (row: Binding, mode: Binding["mode"], name: string) => {
+    // Turning a stopped channel on again asks why, for the audit.
+    if (mode === "on" && row.emergency_stop && !locked) {
+      setStopTarget({ kind: "resume", row, name });
+      return;
+    }
     if (!update.isPending && !locked)
       update.mutate({
         kind: "reaction",
@@ -544,6 +555,8 @@ export function SlackChannels({
                       <Text as="span" variant="sub">
                         {t("slack.pendingApprovalHint")}
                       </Text>
+                    ) : row.emergency_stop ? (
+                      <EmergencyStopLine row={row} />
                     ) : awaitsInvite(row, known) ? (
                       <span className="flex flex-wrap items-center gap-1">
                         <Badge variant="gray">{t("slack.privateInvite")}</Badge>
@@ -567,6 +580,11 @@ export function SlackChannels({
                             )}
                             {row.home ? (
                               <Badge variant="gray">{t("slack.home")}</Badge>
+                            ) : null}
+                            {row.emergency_stop ? (
+                              <Badge variant="red">
+                                {t("slack.emergencyStop.badge")}
+                              </Badge>
                             ) : null}
                             {row.status === "pending_approval" ? (
                               <Badge variant="amber">
@@ -664,7 +682,9 @@ export function SlackChannels({
                               {t("slack.inactive")}
                             </Text>
                           ) : manages ? (
-                            <>
+                            // Stacked on a phone, so the column stays narrow
+                            // enough to leave the channel's name room.
+                            <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center">
                               {row.status === "pending_approval" &&
                               canApprove ? (
                                 <RowAction
@@ -684,10 +704,24 @@ export function SlackChannels({
                                 checked={row.mode !== "off"}
                                 aria-disabled={update.isPending}
                                 onCheckedChange={(checked) =>
-                                  change(row, checked ? "on" : "off")
+                                  change(row, checked ? "on" : "off", name)
                                 }
                               />
-                            </>
+                              {row.emergency_stop ? null : (
+                                <RowAction
+                                  aria-label={t(
+                                    "slack.emergencyStop.actionOf",
+                                    { channel: name },
+                                  )}
+                                  disabled={update.isPending}
+                                  onClick={() =>
+                                    setStopTarget({ kind: "stop", row, name })
+                                  }
+                                >
+                                  {t("slack.emergencyStop.action")}
+                                </RowAction>
+                              )}
+                            </div>
                           ) : (
                             <Text as="span" variant="sub">
                               {t(row.mode !== "off" ? "slack.on" : "slack.off")}
@@ -703,6 +737,12 @@ export function SlackChannels({
           </div>
         )}
       </SettingsSection>
+      <EmergencyStopDialog
+        agentId={agentId}
+        target={stopTarget}
+        onClose={() => setStopTarget(null)}
+        onDone={setNotice}
+      />
       <Dialog open={picking} onOpenChange={setPicking}>
         <DialogContent
           onCloseAutoFocus={(event) => {

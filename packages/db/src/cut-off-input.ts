@@ -1,6 +1,10 @@
-import { stoppedBackgroundCommands } from "@werft-ai/contracts";
-import { sourceSetOf, WORKER_OWNERSHIP_LOST_REASON } from "@werft-ai/platform";
-import { and, desc, eq, isNotNull, lt, sql } from "drizzle-orm";
+import {
+  isCutOffTurnReason,
+  stoppedBackgroundCommands,
+  TURN_EMERGENCY_STOPPED_REASON,
+} from "@werft-ai/contracts";
+import { sourceSetOf } from "@werft-ai/platform";
+import { and, desc, eq, isNotNull, lt, ne, sql } from "drizzle-orm";
 import { followUpFact } from "./action/push-follow-ups.ts";
 import { lockedDeletedSource } from "./conversations/deleted-sources.ts";
 import { inputTexts } from "./conversations/input-texts.ts";
@@ -54,7 +58,9 @@ export async function turnInputText(
 
 /**
  * The input handed to the worker for a turn: its own, with the input of the
- * cut-off turn right before it (worker_ownership_lost) put first. That input
+ * cut-off turn right before it (worker_ownership_lost) put first. A turn an
+ * emergency stop cut off is never put first: what goes on from it is a
+ * person's continuation, so the skip is recorded instead. That input
  * came after the last checkpoint the turn starts from, so the engine would
  * not have it otherwise. The first delivery's decision is recorded on the
  * turn (recordCutOff); a redelivery reads the record and never adds it
@@ -190,17 +196,36 @@ async function cutOffInput(
       sequence: turns.sequence,
       message: turns.message,
       sources: turns.sources,
+      terminalReason: turns.terminalReason,
+      status: turns.status,
     })
     .from(turns)
     .where(
       and(
         eq(turns.sessionId, turn.sessionId),
-        eq(turns.sequence, turn.sequence - 1),
-        eq(turns.status, "failed"),
-        eq(turns.terminalReason, WORKER_OWNERSHIP_LOST_REASON),
+        lt(turns.sequence, turn.sequence),
+        // One cancelled before it ran (an emergency stop's) is passed over.
+        ne(turns.status, "cancelled"),
       ),
-    );
-  if (cut === undefined) return none;
+    )
+    .orderBy(desc(turns.sequence))
+    .limit(1);
+  if (
+    cut === undefined ||
+    cut.status !== "failed" ||
+    !isCutOffTurnReason(cut.terminalReason)
+  ) {
+    return none;
+  }
+  if (cut.terminalReason === TURN_EMERGENCY_STOPPED_REASON) {
+    return {
+      text: null,
+      record: {
+        prependedTurn: cut.sequence,
+        prependSkipReason: TURN_EMERGENCY_STOPPED_REASON,
+      },
+    };
+  }
   const read = await readCutOff(tx, cut, input.workspaceId);
   return {
     text: "text" in read ? read.text : null,

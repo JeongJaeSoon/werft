@@ -238,7 +238,9 @@ export type ConversationTurnPermitIssue =
   | { outcome: "issued"; expiresAt: Date; place: ConversationKind }
   | { outcome: "unknown_agent" }
   // The conversation is not the agent's, or the topic not the conversation's.
-  | { outcome: "unknown_conversation" };
+  | { outcome: "unknown_conversation" }
+  // An admin stopped the agent in the conversation's channel.
+  | { outcome: "channel_stopped" };
 
 /** The limit that ended a turn, and who held the turn there. */
 export type ConversationTurnLimitReached = {

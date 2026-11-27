@@ -293,6 +293,8 @@ export const sessionsKo = {
     "이 설치에는 Codex sandbox가 없어 시작하지 못했습니다. 기다리던 입력은 실패했습니다. 관리자에게 알려 주세요.",
   "session.event.workerOwnershipLost":
     "작업이 중간에 끊겼습니다. 서버 연결이 잠시 끊겼습니다. 마지막 저장 지점 뒤에 한 일은 확인이 필요합니다.",
+  "session.event.emergencyStopped":
+    "관리자가 이 채널에서 에이전트를 긴급 정지했습니다. 채널이 다시 켜지면 세션을 재개하고 이어서 할 수 있습니다.",
   "session.status.ownershipLost": "중단됨",
   "session.chat.continue": "이어서 하기",
   "session.recovery.abandon": "이 턴을 버리고 이어 가기",
@@ -632,6 +634,8 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
     "This installation has no Codex sandbox, so the session could not start. The waiting input failed. Tell an administrator.",
   "session.event.workerOwnershipLost":
     "The work was cut off partway. The connection to the server dropped for a moment. What it did after the last save point needs checking.",
+  "session.event.emergencyStopped":
+    "An admin emergency-stopped this agent in its channel. Once the channel is turned on again, resume the session to continue.",
   "session.status.ownershipLost": "Cut off",
   "session.chat.continue": "Continue",
   "session.recovery.abandon": "Discard this turn and continue",
@@ -964,6 +968,8 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
     "この環境には Codex サンドボックスがないため、開始できませんでした。待っていた入力は失敗しました。管理者に知らせてください。",
   "session.event.workerOwnershipLost":
     "作業が途中で途切れました。サーバーとの接続が一時的に切れました。最後の保存地点より後に行ったことは確認が必要です。",
+  "session.event.emergencyStopped":
+    "管理者がこのチャンネルでエージェントを緊急停止しました。チャンネルが再びオンになったら、セッションを再開して続きから進められます。",
   "session.status.ownershipLost": "中断",
   "session.chat.continue": "続きから進める",
   "session.recovery.abandon": "このターンを破棄して続ける",

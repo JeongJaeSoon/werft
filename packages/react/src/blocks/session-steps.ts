@@ -1,8 +1,8 @@
 import {
   eventToolCall,
+  isCutOffTurnReason,
   type PendingRequest,
   type SessionDetail,
-  TURN_WORKER_OWNERSHIP_LOST_REASON,
   type TurnSummary,
 } from "@werft-ai/contracts";
 import type { SessionEventFrame } from "../sessions.ts";
@@ -95,9 +95,7 @@ function stateOf(
     case "completed":
       return "done";
     case "failed":
-      return turn.terminal_reason === TURN_WORKER_OWNERSHIP_LOST_REASON
-        ? "cut_off"
-        : "failed";
+      return isCutOffTurnReason(turn.terminal_reason) ? "cut_off" : "failed";
     case "interrupted":
     case "cancelled":
       return "stopped";
@@ -201,7 +199,10 @@ export function readSessionSteps({
   if (live !== -1) return { steps, focus: live, current: true };
   const asking = steps.findIndex((step) => step.requests.length > 0);
   if (asking !== -1) return { steps, focus: asking, current: false };
-  const last = steps.length - 1;
+  // One cancelled before it ran (an emergency stop's) leaves the turn before
+  // it the last.
+  let last = steps.length - 1;
+  while (steps[last]?.turn.status === "cancelled") last -= 1;
   const stopped =
     session.status === "idle" && steps[last]?.state === "cut_off" ? last : -1;
   return { steps, focus: stopped === -1 ? null : stopped, current: false };

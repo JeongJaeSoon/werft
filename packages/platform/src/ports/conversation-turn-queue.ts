@@ -20,7 +20,10 @@ export type QueuedConversationTurn = Omit<
  */
 export type ConversationTurnOutcome =
   | ConversationTurnResult
-  | { outcome: "failed"; reason: "not_taken" | "lease_expired" };
+  | {
+      outcome: "failed";
+      reason: "not_taken" | "lease_expired" | "emergency_stopped";
+    };
 
 export type ConversationTurnReport =
   | "recorded"
