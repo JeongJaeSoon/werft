@@ -449,6 +449,7 @@ function handler(
   inbox?: Pick<SurfaceInboundEventStore, "renew">,
   log: typeof logger = logger,
   audienceCache?: SlackAudienceCache,
+  environment: Record<string, string> = LIMITS,
 ) {
   const notices = createMemorySlackNoticeSink();
   // A pass reads the catalog before its first event (main); here each event
@@ -462,7 +463,7 @@ function handler(
         throw new Error("no session control is asked of this role");
       },
     },
-    environment: LIMITS,
+    environment,
     logger: log,
     secretKey: key,
     leaseMs: 30_000,
@@ -6261,6 +6262,222 @@ describe.each(ENGINES)(
       expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
     });
 
+    /** The channel's binding no longer in use; the bot stays in it. */
+    const unbind = (fixture: Fixture) =>
+      db
+        .update(surfaceBindings)
+        .set({ status: "revoked", revokedAt: new Date() })
+        .where(eq(surfaceBindings.id, fixture.bindingId));
+    const unbound = (link?: string) => ({
+      reason: "channel_unbound",
+      notice: {
+        message: "channelUnbound",
+        ...(link === undefined ? {} : { link_url: link }),
+      },
+    });
+    const told = (
+      records: {
+        reason: string;
+        notice: unknown;
+        threadTs: string;
+        slackUserId: string;
+      }[],
+    ) =>
+      records
+        .map(({ reason, notice, threadTs, slackUserId }) => ({
+          threadTs,
+          slackUserId,
+          reason,
+          notice,
+        }))
+        .sort((a, b) => Number(a.threadTs) - Number(b.threadTs));
+
+    for (const rollout of ["off", "shadow", "on"] as const) {
+      test(`rollout ${rollout}: a mention in a channel with no binding tells its writer alone, once a UTC day per person, with no turn, call or session`, async () => {
+        const fixture = await agentInSlack("main", { rollout });
+        await unbind(fixture);
+        const { handle, notices, threadNotices } = handler();
+        await deliver(fixture, mention("100.000100"));
+        // The same person again that day, in another thread and in a reply.
+        await deliver(fixture, mention("200.000100"));
+        await deliver(
+          fixture,
+          mention("200.000200", { thread_ts: "100.000100" }),
+        );
+        // Someone else that day, and the first person the next UTC day.
+        await deliver(fixture, mention("300.000100", { user: "U0OTHER" }));
+        await deliver(fixture, mention("86500.000100"));
+        await drain(handle);
+        expect(told(notices)).toEqual([
+          { threadTs: "100.000100", slackUserId: PERSON, ...unbound() },
+          { threadTs: "300.000100", slackUserId: "U0OTHER", ...unbound() },
+          { threadTs: "86500.000100", slackUserId: PERSON, ...unbound() },
+        ]);
+        expect(threadNotices).toEqual([]);
+        expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
+        expect(await sessionsOf(fixture)).toEqual([]);
+        expect(slack.statuses).toEqual([]);
+        // No decision is made of it: the line is not a refusal.
+        expect(
+          await db
+            .select({ id: authzDecisions.id })
+            .from(authzDecisions)
+            .where(eq(authzDecisions.workspaceId, fixture.workspaceId)),
+        ).toEqual([]);
+      });
+    }
+
+    test("a mention in a channel with no binding links the agent list for a linked member alone, and names no agent or channel", async () => {
+      const fixture = await agentInSlack("main", {
+        rollout: "on",
+        channelKind: "private_channel",
+      });
+      await unbind(fixture);
+      slack.channels.set(CHANNEL, { isPrivate: true });
+      const { handle, notices } = handler(undefined, logger, undefined, {
+        ...LIMITS,
+        CONSOLE_ORIGIN: "https://console.example",
+      });
+      await deliver(fixture, mention("100.000100", { channel_type: "group" }));
+      await deliver(
+        fixture,
+        mention("200.000100", { channel_type: "group", user: "U0OTHER" }),
+      );
+      await drain(handle);
+      expect(told(notices)).toEqual([
+        {
+          threadTs: "100.000100",
+          slackUserId: PERSON,
+          ...unbound("https://console.example/agents"),
+        },
+        { threadTs: "200.000100", slackUserId: "U0OTHER", ...unbound() },
+      ]);
+      for (const locale of ["ko", "ja", "en"] as const) {
+        const text = SLACK_NOTICE_MESSAGES[locale].channelUnbound;
+        for (const name of [CHANNEL, "notes", "Notes", fixture.agentId]) {
+          expect(text).not.toContain(name);
+        }
+      }
+      expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
+    });
+
+    test("a mention in a channel with no binding tells no one from another organization", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await unbind(fixture);
+      slack.users.set("U0STRANGER", { teamId: "T0OTHER", isStranger: true });
+      slack.users.set("U0EXTERNAL", { isExternal: true });
+      const { handle, notices } = handler();
+      await deliver(fixture, mention("100.000100", { user: "U0STRANGER" }));
+      await deliver(fixture, mention("150.000100", { user: "U0EXTERNAL" }));
+      await deliver(fixture, mention("200.000100"));
+      await drain(handle);
+      expect(told(notices)).toEqual([
+        { threadTs: "200.000100", slackUserId: PERSON, ...unbound() },
+      ]);
+    });
+
+    test("rollout on: a mention in a bound channel is a turn as before, with no line", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const { handle, notices, threadNotices } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await drain(handle);
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      expect(notices).toEqual([]);
+      expect(threadNotices).toEqual([]);
+    });
+
+    test("rollout on: a mention in a channel waiting for approval tells its writer alone, once a UTC day", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await createPostgresSurfaceBindingStore(db).requireApproval(
+        fixture.bindingId,
+      );
+      const { handle, notices, threadNotices } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await deliver(fixture, mention("200.000100"));
+      await deliver(fixture, mention("300.000100", { user: "U0OTHER" }));
+      await deliver(fixture, mention("86500.000100"));
+      await drain(handle);
+      const waiting = {
+        reason: "pending_approval",
+        notice: { message: "pendingApproval" },
+      };
+      expect(told(notices)).toEqual([
+        { threadTs: "100.000100", slackUserId: PERSON, ...waiting },
+        { threadTs: "300.000100", slackUserId: "U0OTHER", ...waiting },
+        { threadTs: "86500.000100", slackUserId: PERSON, ...waiting },
+      ]);
+      expect(threadNotices).toEqual([]);
+      expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
+    });
+
+    test("a channel binding switched off on the web stays silent to a mention", async () => {
+      const fixture = await agentInSlack("main", {
+        rollout: "on",
+        mode: "off",
+      });
+      const { handle, notices, threadNotices } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await drain(handle);
+      expect(notices).toEqual([]);
+      expect(threadNotices).toEqual([]);
+      expect(
+        await db
+          .select({ status: slackInboundEvents.status })
+          .from(slackInboundEvents)
+          .where(eq(slackInboundEvents.agentId, fixture.agentId)),
+      ).toEqual([{ status: "processed" }]);
+      expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
+      expect(await sessionsOf(fixture)).toEqual([]);
+    });
+
+    test("rollout on: a paused agent's channel Slack now reports private waits for approval and says nothing", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await db
+        .update(agents)
+        .set({ status: "paused" })
+        .where(eq(agents.id, fixture.agentId));
+      slack.channels.set(CHANNEL, { isPrivate: true });
+      const { handle, notices, threadNotices } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await drain(handle);
+      const [row] = await db
+        .select({ status: surfaceBindings.status })
+        .from(surfaceBindings)
+        .where(eq(surfaceBindings.id, fixture.bindingId));
+      expect(row?.status).toBe("pending_approval");
+      expect(notices).toEqual([]);
+      expect(threadNotices).toEqual([]);
+    });
+
+    test("rollout on: a channel Slack now reports private tells a person waiting for approval once a UTC day, the next mention included", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      slack.channels.set(CHANNEL, { isPrivate: true });
+      const { handle, notices, threadNotices } = handler();
+      slack.users.set("U0STRANGER", { teamId: "T0OTHER", isStranger: true });
+      // Someone from another organization finds the channel private and is
+      // told nothing; the next mentions find it waiting.
+      await deliver(fixture, mention("100.000100", { user: "U0STRANGER" }));
+      await deliver(fixture, mention("150.000100"));
+      await deliver(fixture, mention("200.000100"));
+      await deliver(fixture, mention("86500.000100"));
+      await drain(handle);
+      const [row] = await db
+        .select({ status: surfaceBindings.status })
+        .from(surfaceBindings)
+        .where(eq(surfaceBindings.id, fixture.bindingId));
+      expect(row?.status).toBe("pending_approval");
+      const waiting = {
+        reason: "pending_approval",
+        notice: { message: "pendingApproval" },
+      };
+      expect(told(notices)).toEqual([
+        { threadTs: "150.000100", slackUserId: PERSON, ...waiting },
+        { threadTs: "86500.000100", slackUserId: PERSON, ...waiting },
+      ]);
+      expect(threadNotices).toEqual([]);
+      expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
+    });
+
     for (const rollout of ["off", "shadow"] as const) {
       test(`rollout ${rollout}: a mention where the channel listens to nothing opens its session as before, with no line`, async () => {
         const fixture = await agentInSlack("main", { rollout, listen: "off" });
@@ -6777,7 +6994,7 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     await rolloutOn(fixture);
     const post = (ts: string, extra: Record<string, unknown> = {}) =>
       message(ts, { thread_ts: root, ...extra });
-    return { fixture, view, session, post };
+    return { fixture, view, session, post, root };
   }
 
   test("a task's stop before its first turn closes the task, nothing left to launch, and the thread is told it was closed", async () => {
@@ -6846,6 +7063,249 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
         .from(schema.conversationTurns)
         .where(eq(schema.conversationTurns.agentId, fixture.agentId)),
     ).toEqual([]);
+  });
+
+  const conversationTurnsOf = (fixture: Fixture) =>
+    db
+      .select({ id: schema.conversationTurns.id })
+      .from(schema.conversationTurns)
+      .where(eq(schema.conversationTurns.agentId, fixture.agentId));
+  /** The task's one link, closed by the outbox pass as its stop closed it. */
+  const expectLinkClosed = async (session: { id: string }) => {
+    const rows = await db
+      .select({
+        closedAt: sessionLinks.closedAt,
+        closedReason: sessionLinks.closedReason,
+      })
+      .from(sessionLinks)
+      .where(eq(sessionLinks.sessionId, session.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.closedAt).toBeInstanceOf(Date);
+    expect(rows[0]?.closedReason).toBe("cancelled");
+  };
+  const stopKeysOf = async (session: { id: string }) =>
+    (
+      await db
+        .select({ key: schema.sessionStops.idempotencyKey })
+        .from(schema.sessionStops)
+        .where(eq(schema.sessionStops.sessionId, session.id))
+    ).map((row) => row.key);
+
+  test("a task's stop whose app_mention comes after an outbox pass closed the link stops once and opens no mention turn", async () => {
+    const { fixture, view, session, post, root } = await unstartedTask();
+    const ts = at(1);
+    const text = `<@${BOT_USER}> stop`;
+    await deliver(fixture, post(ts, { text }));
+    expect(await drain(view.handle)).toMatchObject({ processed: 1, failed: 0 });
+    // The outbox pass closes the finished task's link before the post's
+    // other event is taken.
+    await sendOutbox({ closeLinks: true });
+    await expectLinkClosed(session);
+    await deliver(fixture, mention(ts, { text, thread_ts: root }));
+    expect(await drain(view.handle)).toMatchObject({
+      processed: 1,
+      retried: 0,
+      failed: 0,
+    });
+
+    expect(await turnStatesOf(session.id)).toHaveLength(1);
+    expect(await conversationTurnsOf(fixture)).toEqual([]);
+    expect(await sessionsOf(fixture)).toHaveLength(1);
+    expect(await stopKeysOf(session)).toEqual([
+      `slack-stop:${TEAM}:${CHANNEL}:${ts}`,
+    ]);
+    expect(view.threadNotices.map((notice) => notice.notice.message)).toEqual([
+      "taskStoppedBeforeStart",
+    ]);
+  });
+
+  test("a task's stop whose pass lost its lease after the stop is retried once its link closed, and is done without a mention turn", async () => {
+    const { fixture, view, session, post } = await unstartedTask();
+    const ts = at(1);
+    await deliver(fixture, post(ts, { text: `<@${BOT_USER}> stop` }));
+    const [claim] = await claimAll(30_000);
+    if (claim === undefined) throw new Error("nothing claimed");
+    // The stop commits; the row's lease runs out before it completes.
+    await handler(shortLease).handle(claim);
+    const key = `slack-stop:${TEAM}:${CHANNEL}:${ts}`;
+    expect(await stopKeysOf(session)).toEqual([key]);
+    await Bun.sleep(100);
+    expect(await createPostgresSlackInboundEventStore(db).complete(claim)).toBe(
+      false,
+    );
+    await sendOutbox({ closeLinks: true });
+    await expectLinkClosed(session);
+    expect(await drain(view.handle)).toMatchObject({
+      processed: 1,
+      retried: 0,
+      failed: 0,
+    });
+
+    const [after] = await sessionsOf(fixture);
+    expect(after).toMatchObject({
+      admissionState: "closed",
+      taskClosedReason: "cancelled",
+    });
+    expect(await turnStatesOf(session.id)).toHaveLength(1);
+    expect(await conversationTurnsOf(fixture)).toEqual([]);
+    expect(await sessionsOf(fixture)).toHaveLength(1);
+    expect(await stopKeysOf(session)).toEqual([key]);
+  });
+
+  test("a task's stop read again after the thread opened new work stops nothing there; a new stop word stops it", async () => {
+    const { fixture, view, session, post, root } = await unstartedTask();
+    const ts = at(1);
+    const text = `<@${BOT_USER}> stop`;
+    await deliver(fixture, post(ts, { text }));
+    await drain(view.handle);
+    await sendOutbox({ closeLinks: true });
+    await expectLinkClosed(session);
+    // New work in the same thread: a mention opens its session, made a task
+    // waiting for its first turn as the first one was.
+    await db
+      .update(agents)
+      .set({ conversationRollout: "off" })
+      .where(eq(agents.id, fixture.agentId));
+    await deliver(fixture, mention(at(2), { thread_ts: root }));
+    await drain(view.handle);
+    const next = (await sessionsOf(fixture)).find(
+      (row) => row.id !== session.id,
+    );
+    if (next === undefined) throw new Error("no new session was opened");
+    await db
+      .update(sessions)
+      .set({ taskClosing: TASK_CLOSING_DEFAULT })
+      .where(eq(sessions.id, next.id));
+    await rolloutOn(fixture);
+
+    await deliver(fixture, mention(ts, { text, thread_ts: root }));
+    expect(await drain(view.handle)).toMatchObject({
+      processed: 1,
+      retried: 0,
+      failed: 0,
+    });
+    expect(await turnStatesOf(next.id)).toEqual([
+      { sequence: 1, status: "queued", terminalReason: null },
+    ]);
+    expect(await stopKeysOf(next)).toEqual([]);
+    expect(await conversationTurnsOf(fixture)).toEqual([]);
+
+    await deliver(fixture, post(at(3), { text: "그만" }));
+    await drain(view.handle);
+    expect(await turnStatesOf(next.id)).toEqual([
+      { sequence: 1, status: "cancelled", terminalReason: "stop_requested" },
+    ]);
+  });
+
+  test.each([["app_mention"], ["message with no channel_type"]])(
+    "a task's stop read again in a channel turned private sends its binding to approval, and is no mention turn (%s)",
+    async (replay) => {
+      const { fixture, view, session, post, root } = await unstartedTask();
+      const ts = at(1);
+      const text = `<@${BOT_USER}> stop`;
+      await deliver(fixture, post(ts, { text }));
+      await drain(view.handle);
+      await sendOutbox({ closeLinks: true });
+      await expectLinkClosed(session);
+      // Read again with no channel kind, the post asks Slack, which says the
+      // channel is private now.
+      slack.channels.set(CHANNEL, { isPrivate: true });
+      await deliver(
+        fixture,
+        replay === "app_mention"
+          ? mention(ts, { text, thread_ts: root })
+          : post(ts, { text, channel_type: undefined }),
+      );
+      expect(await drain(view.handle)).toMatchObject({
+        processed: 1,
+        failed: 0,
+      });
+      const [binding] = await db
+        .select()
+        .from(surfaceBindings)
+        .where(eq(surfaceBindings.id, fixture.bindingId));
+      expect(binding).toMatchObject({
+        status: "pending_approval",
+        surfaceKind: "private_channel",
+      });
+      expect(await conversationTurnsOf(fixture)).toEqual([]);
+      expect(await stopKeysOf(session)).toHaveLength(1);
+    },
+  );
+
+  test.each([["channel"], [undefined]])(
+    "an unmentioned stop word retried after its link closed is held for no judgment, in a channel listening to everything (channel_type %p)",
+    async (channelType) => {
+      const { fixture, session, post: threadPost } = await unstartedTask();
+      const post = (ts: string, extra: Record<string, unknown> = {}) =>
+        threadPost(ts, { channel_type: channelType, ...extra });
+      await db
+        .update(surfaceBindings)
+        .set({ listen: "free" })
+        .where(eq(surfaceBindings.id, fixture.bindingId));
+      const ts = at(1);
+      await deliver(fixture, post(ts, { text: "그만" }));
+      const [claim] = await claimAll(30_000);
+      if (claim === undefined) throw new Error("nothing claimed");
+      await handler(shortLease).handle(claim);
+      expect(await stopKeysOf(session)).toHaveLength(1);
+      await Bun.sleep(100);
+      await sendOutbox({ closeLinks: true });
+      await expectLinkClosed(session);
+      const messages: string[] = [];
+      const log = createLogger({
+        level: "info",
+        sinks: [{ write: ({ message }) => void messages.push(message) }],
+      });
+      expect(await drain(handler(undefined, log).handle)).toMatchObject({
+        processed: 1,
+        retried: 0,
+        failed: 0,
+      });
+      // The engaged thread's replies are judged for the record; this one,
+      // already the stop, is not held for it.
+      expect(messages).not.toContain("Slack message held for the judgment");
+      expect(messages).toContain(
+        "Slack stop request already made; its work closed",
+      );
+      expect(await conversationTurnsOf(fixture)).toEqual([]);
+    },
+  );
+
+  test("a new stop word mentioned in a thread whose task the stop closed is a mention turn, as any mention there", async () => {
+    const { fixture, view, session, post, root } = await unstartedTask();
+    await deliver(fixture, post(at(1), { text: "그만" }));
+    await drain(view.handle);
+    await sendOutbox({ closeLinks: true });
+    await expectLinkClosed(session);
+    await deliver(
+      fixture,
+      mention(at(2), {
+        text: `<@${BOT_USER}> stop`,
+        thread_ts: root,
+      }),
+    );
+    expect(await drain(view.handle)).toMatchObject({ processed: 1, failed: 0 });
+    expect(await conversationTurnsOf(fixture)).toHaveLength(1);
+  });
+
+  test("a thread's closed links are read by their partial index", async () => {
+    await db.execute(sql`SET enable_seqscan = off`);
+    try {
+      const result = await db.execute(
+        sql`EXPLAIN SELECT session_id FROM session_links
+          WHERE installation_id = ${randomUUID()}::uuid
+            AND surface_ref = 'C1:1.000100' AND closed_at IS NOT NULL
+            AND session_id IS NOT NULL`,
+      );
+      const rows = (result as unknown as { rows: Record<string, string>[] })
+        .rows;
+      expect(JSON.stringify(rows)).toContain(
+        "session_links_closed_surface_ref_idx",
+      );
+    } finally {
+      await db.execute(sql`RESET enable_seqscan`);
+    }
   });
 
   test("a task whose first turn started stays open, and the thread gets the stop line it always had", async () => {
@@ -6991,7 +7451,7 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
   });
 
   /** The outbox pass: the thread status writer and the sends. */
-  function sendOutbox() {
+  function sendOutbox(options: { closeLinks?: boolean } = {}) {
     const api = createSlackBotApi({ apiUrl: slack.url });
     const tokenOf = (workspaceId: string, slackAppId: string) =>
       slackBotToken(
@@ -7013,6 +7473,7 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
       batchSize: 10,
       leaseMs: 30_000,
       deadline: Date.now() + 10_000,
+      ...options,
     });
   }
 });

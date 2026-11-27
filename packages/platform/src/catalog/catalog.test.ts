@@ -205,6 +205,49 @@ describe("a connection", () => {
   });
 });
 
+// Each cloud's documented metadata address (sources in ip-address.ts).
+const CLOUD_METADATA: readonly [cloud: string, address: string][] = [
+  ["AWS EC2", "169.254.169.254"],
+  ["AWS EC2 IPv6", "fd00:ec2::254"],
+  ["AWS ECS", "169.254.170.2"],
+  ["AWS EKS Pod Identity", "169.254.170.23"],
+  ["AWS EKS Pod Identity IPv6", "fd00:ec2::23"],
+  ["GCP", "169.254.169.254"],
+  ["GCP IPv6", "fd20:ce::254"],
+  ["Azure", "169.254.169.254"],
+  ["Alibaba", "100.100.100.200"],
+  ["Oracle", "169.254.169.254"],
+  ["Oracle IPv6", "fd00:c1::a9fe:a9fe"],
+  ["Oracle Compute Classic", "192.0.0.192"],
+  ["Scaleway", "169.254.42.42"],
+  ["Scaleway IPv6", "fd00:42::42"],
+  ["DigitalOcean", "169.254.169.254"],
+  ["Hetzner", "169.254.169.254"],
+  ["Hetzner IPv6", "fe80::a9fe:a9fe"],
+  ["OpenStack", "169.254.169.254"],
+  ["OpenStack IPv6", "fe80::a9fe:a9fe"],
+  ["Akamai", "169.254.169.254"],
+  ["Akamai IPv6", "fd00:a9fe:a9fe::1"],
+];
+
+// A ULA carrying a9fe:a9fe (169.254.169.254) as two adjacent groups is
+// metadata wherever the pair sits; the class each address should get.
+const ULA_A9FE: readonly [
+  address: string,
+  kind: "metadata" | "private" | "public",
+][] = [
+  ["fd00:c1::a9fe:a9fe", "metadata"],
+  ["fd00:a9fe:a9fe::1", "metadata"],
+  ["fd12:3456::a9fe:a9fe", "metadata"],
+  ["fc00:a9fe:a9fe::", "metadata"],
+  ["FD12:3456:0:0:0:0:A9FE:A9FE", "metadata"],
+  ["fd12:3456::a9fe:a9fe%eth0", "metadata"],
+  ["fd12:a9fe::1", "private"],
+  ["fd12:a9fe:1:a9fe::1", "private"],
+  ["fd12:3:a9:fea9:fe00::", "private"],
+  ["2606:4700::a9fe:a9fe", "public"],
+];
+
 describe("billing", () => {
   test("none is kept on the connection; per_token, the default, is dropped", () => {
     expect(
@@ -251,11 +294,46 @@ describe("billing", () => {
       "http://[64:ff9b::a00:1]:4000",
       "http://[2002:a00:1::1]:4000",
       "http://[fec0::1]:4000",
+      // A metadata service is never the operator's own model server.
+      "http://100.100.100.200:4000",
+      "http://169.254.169.254",
+      "http://[fd00:ec2::254]",
+      "http://[::ffff:100.100.100.200]",
+      "http://metadata.google.internal",
+      "http://metadata.google.internal.",
+      "http://metadata",
+      "http://instance-data.ec2.internal",
+      "http://metadata.goog",
+      ...CLOUD_METADATA.map(([, address]) =>
+        address.includes(":") ? `http://[${address}]` : `http://${address}`,
+      ),
     ]) {
       expect(billingFitsEndpoint({ billing: "none", endpoint }), endpoint).toBe(
         false,
       );
     }
+    // A ULA carrying 169.254.169.254 is metadata, any other ULA is private.
+    for (const [address, kind] of ULA_A9FE.filter(([a]) => !a.includes("%"))) {
+      expect(
+        billingFitsEndpoint({
+          billing: "none",
+          endpoint: `http://[${address}]:4000`,
+        }),
+        address,
+      ).toBe(kind === "private");
+    }
+    expect(
+      billingFitsEndpoint({
+        billing: "none",
+        endpoint: "http://metadata.tencentyun.com",
+      }),
+    ).toBe(false);
+    expect(
+      billingFitsEndpoint({
+        billing: "none",
+        endpoint: "http://metadata.exoscale.com",
+      }),
+    ).toBe(false);
     // per_token fits anywhere.
     expect(billingFitsEndpoint({ endpoint: "https://api.anthropic.com" })).toBe(
       true,

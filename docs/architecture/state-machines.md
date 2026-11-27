@@ -20,6 +20,43 @@
 | --- | --- | --- | --- |
 | active | recovery_required (status failed, reason context_gap) | 실행이 사라진 것이 확인됐거나 새 worker가 claim했고, 열린 turn이 없고, 마지막으로 돈 turn을 덮는 checkpoint가 없다. 끊긴 turn은 돈 turn으로 세지 않는다 | scheduler(실행 종료 확인), worker의 claim |
 
+### 답을 기다리는 요청이 일으키는 전이
+
+실행 중에 사람의 답이 필요한 요청(pending request)이 오래 답을 받지 못하면 플랫폼이 turn을 park한다. 전이는 요청의 종류와 상관없이 같다.
+
+| 지금 상태 | 다음 상태 | 조건 | 누가 일으키나 |
+| --- | --- | --- | --- |
+| active | pausing (`pause_reason = awaiting_input`) | 열린 요청이 park 시한까지 답을 받지 못했다(`openSystemPark`, `packages/db/src/sessions/pause-control.ts`) | 서버(worker의 pendingControl 응답에 `park`를 싣는다) |
+| pausing (`awaiting_input`) | paused | worker가 turn을 `input_wait_parked`로 끝내고 release했고 실행이 사라졌다 | worker(finalize), scheduler(실행 종료 확인) |
+| paused (`awaiting_input`) | resuming, 그다음 active | park된 요청 묶음의 마지막 답이 왔다. 이어 하는 turn이 queued로 생긴다(`packages/db/src/sessions/parked-group.ts`) | 답한 사람(API, Slack) |
+
+요청을 만드는 것은 둘이다.
+
+- 질문 요청: 에이전트가 사람에게 묻는 질문.
+- 권한 요청: 엔진이 도구 호출을 사람에게 물었고 어댑터가 그 물음에 스스로 답하지 않은 경우.
+
+어댑터는 엔진이 물은 shell 명령과 파일 쓰기를 작업 공간 정책으로 다시 읽고, 사람에게 남길 까닭을 찾지 못하면 스스로 답한다(감사 근거 `sandbox_boundary`). 그런 호출은 요청이 되지 않으므로 위 전이를 일으키지 않는다. 판정은 글자로 하므로 변수·치환이 만드는 경로와 스크립트 안의 동작은 보지 못한다. 사람에게 남는 권한 요청을 묶으면 다음과 같다. 판정기의 시험은 `packages/runtime-core/src/asked-line.test.ts`에 있다.
+
+| 사람에게 남는 것 | 판정하는 곳 |
+| --- | --- |
+| 정책의 묻기 목록에 든 명령 | `packages/runtime-core/src/asked-line.ts`의 `keptForPerson` |
+| 비밀 이름, `.git`, `.claude` 경로에 쓰기 | 같음, 파일 도구는 `writeKeptForPerson` |
+| 작업 공간 밖 경로 | 같음 |
+| 위 셋이 없어도: shell이 어디에 서 있는지 알 수 없을 때(줄이 말하지 않는 이동, 여덟 곳 넘는 자리), 작업 공간 디렉터리 자체에 쓰기, 너무 깊이 감싼 스크립트, 묻기 목록과 대조하기에 너무 긴 줄 | 같음 |
+| Claude 엔진 auto 모드에서 확실히 나뉘지 않는 줄, 목록 밖 명령, 파일 도구 | `askedLineRefusal`(분류기가 뒤에 있어 좁게 읽는다) |
+| 엔진이 물은 MCP 도구(서버가 판정하는 도구 제외), plan 모드에서 엔진이 물은 호출, release가 Bash나 파일 도구를 deny 규칙으로 좁힌 세션, shell의 위치를 모르는 호출 | Claude 어댑터의 `canUseTool` |
+| 읽어 낼 수 없는 명령 꼴(알 수 없는 shell 시작 꼴), 모르는 모양의 파일 변경 기록, 더 넓은 `grantRoot` | Codex 어댑터의 `sandbox-answers.ts` |
+
+- 서버가 판정하는 push 관문(push 요청의 allow·ask·deny)과 토큰 범위는 이 절의 대상이 아니고 바뀌지 않는다.
+
+지킬 성질:
+
+- 권한 요청이 줄어도 질문 요청의 기다림, park, 이어 하기는 그대로 동작한다.
+- 어댑터가 스스로 답한 호출은 요청을 만들지 않고, 감사에는 `sandbox_boundary`로 남는다(Claude는 도구가 끝났다는 hook을 받은 뒤, Codex는 답할 때 보고한다. Claude에서 엔진이 그 뒤 거절했거나 끝 hook이 오지 않으면 줄이 남지 않는다).
+- park는 이미 도착해 처리 중인 답이 있으면 열리지 않는다. 답 없이 모두 만료된 park는 사람의 resume이 있어야 이어진다.
+
+시험: `packages/db/src/parked-requests.integration.test.ts`의 `a parked question waits like a permission, and its answer resumes the park`, `packages/adapters/runtimes/claude/src/sandbox-answers.test.ts`의 `a line the policy does not keep runs without a person, recorded as the sandbox's`와 `… still goes to a person` 표, `packages/adapters/runtimes/codex/src/run.test.ts`의 `work inside the session's sandbox` 묶음, `packages/runtime-core/src/asked-line.test.ts`.
+
 ### 멈춤(stop)이 일으키는 전이
 
 멈춤은 요청자의 Slack 멈춤 낱말 같은 stop 요청이다(`packages/db/src/stop-control.ts`). 기다리던 입력을 취소하고, 도는 턴이 있으면 그 턴을 중단하게 한다.
@@ -38,12 +75,12 @@
 - 시작된 턴이 하나라도 있는 세션은 멈춤으로 닫히지 않는다. 멈춘 세션은 열린 채로 다음 입력을 받는다.
 - 멈춤으로 닫힌 작업은 열린 작업 상한(`openTaskLimit`)의 칸을 그 트랜잭션에서 돌려준다.
 - 멈춤으로 닫힌 세션에는 새 launch가 나지 않는다. scheduler가 예약할 수 없다. 멈춤 전에 provider 호출에 들어간 launch는 kill intent(`desired_state = terminated`)를 보고 거둔다. close와 terminate도 같은 방식으로 거둔다.
-- 세션을 닫은 멈춤의 Slack 안내를 쓰지 못하면 그 줄은 잃고, 그 실패로 이벤트를 다시 처리하게 하지 않는다. 다시 처리하면 그 사이 닫힌 링크 때문에 멈춤 낱말이 새 멘션으로 들어갈 수 있다. 같은 글이 다른 길로 다시 처리되는 경우(같은 글의 `message`와 `app_mention`이 따로 도착할 때, 멈춤 커밋 뒤 inbox lease가 끝났을 때)는 아직 막지 않는다(후속 작업).
+- 세션을 닫은 멈춤의 Slack 안내를 쓰지 못하면 그 줄은 잃고, 그 실패로 이벤트를 다시 처리하게 하지 않는다. 링크가 닫힌 뒤의 재시도는 뒤에 적은 대로 이미 한 멈춤으로 끝나 그 줄을 쓰지 않는다. 같은 글이 다른 길로 다시 처리되는 경우(같은 글의 `message`와 `app_mention`이 outbox pass를 사이에 두고 따로 도착할 때, 멈춤 커밋 뒤 inbox complete 전에 lease가 끝났을 때)도 멘션이 되지 않는다. 멈춤 낱말 하나뿐인 글이 오면, receive path는 그 스레드의 닫힌 링크 세션(`session_links_closed_surface_ref_idx`)에서 이 글의 멈춤 키(`session_stops`, `slack-stop:<team>:<channel>:<ts>`)를 찾고, 있으면 처리된 것으로 끝낸다. 어디서 끝내는지는 이벤트가 채널 종류를 담았는지에 따른다. `channel_type`을 담은 이벤트는 판정 버퍼(`m1_engaged` 포함)보다 먼저 끝낸다. `group`이면 그 앞에서 공개 binding을 승인 대기로 바꾸되 안내는 쓰지 않는다. `channel_type`이 없는 멘션 없는 `message`가 열린 링크 없이 판정 버퍼로 가는 길이면 그 앞에서 끝낸다. 그 길은 원래 Slack에 채널 종류를 묻지 않는다. 그 밖의 `channel_type` 없는 글(`app_mention`, 멘션한 `message`, 열린 링크가 있는 스레드의 멘션 없는 답글)은 binding이 있고 DM의 것이 아니면 Slack에 채널 종류를 묻는다. 비공개로 바뀌었으면 승인 대기로 바꾸고 승인 대기 안내를 쓴 뒤 끝내고, 종류가 다르면 거절 안내(안내 조건을 채울 때)를 쓴 뒤 끝낸다. 둘 다 아니면 멘션 처리표의 안내·입력 권한 판단·작업의 멈춤과 입력보다 먼저 끝낸다. 멘션 처리표의 조용한 반환은 이 확인보다 앞선다. 그 사이 같은 스레드에 새 작업이 열렸어도 같다: 앞 작업을 닫은 글은 새 작업을 멈추지 않는다. 멈춤 안내는 다시 쓰지 않는다. 닫힌 스레드에 사람이 새로 쓴 멈춤 낱말은 다른 글(다른 키)이라 다른 글과 같이 다뤄진다: 봇을 멘션했거나 DM이면 멘션 처리표로 간다.
 - 멈춤의 Slack 안내(닫힘 안내와 옛 멈춤 안내)는 멈춤 낱말을 쓴 사람의 Werft 사용자 locale로 쓴다. 연결된 사용자가 없으면 배포 기본 locale이다. outbox kind는 스레드 안내의 `failure_notice`이다. kind로 실패를 세는 곳은 없고, outbox 집계(`sent`·`failed`)는 kind와 상관없이 전송 결과로 센다.
 - 멈춤으로 닫힌 작업의 스레드 링크는 세션의 `task_closed_reason`(`cancelled`)으로 닫힌다(`closeFinishedLinks`). 작업 사유가 없는 세션만 close receipt로 `completed`·`abandoned`를 가른다.
 - 같은 멈춤을 같은 키로 다시 보내면 처음 결과를 돌려준다. 닫혔는지는 세션 행에서 다시 읽으므로, 이 변경 전에 요청이 취소된 채 열려 있던 작업을 나중 멈춤이 닫았다면 앞선 멈춤의 재시도도 닫힘으로 답한다.
 
-시험: `packages/db/src/stop-control.test.ts`, `apps/control-host/src/slack/session-handler.integration.test.ts`의 Slack stop 시험.
+시험: `packages/db/src/stop-control.test.ts`, `apps/control-host/src/slack/session-handler.integration.test.ts`의 Slack stop 시험(재처리 두 경우는 `… after an outbox pass closed the link stops once …`, `… lost its lease after the stop …`, 다시 열린 스레드는 `… after the thread opened new work stops nothing there …`, 판정 버퍼는 `an unmentioned stop word retried after its link closed is held for no judgment …`, 비공개 전환은 `… in a channel turned private sends its binding to approval …`, 닫힌 스레드의 새 멈춤 낱말은 `a new stop word mentioned in a thread whose task the stop closed …`).
 
 ### terminate가 일으키는 전이
 
@@ -85,12 +122,15 @@ terminate는 사람이 세션을 강제로 끝내는 제어다(`POST /v1/session
 | 위와 같고 듣기 `off` | 멘션 | 버림(`drop_with_off_notice`) | 스레드에 `channelOff` 한 줄 |
 | 에이전트 `paused`, 채널 사용 중 | 멘션 | 정지(`lifecycle_stopped`, `agent_inactive`) | 스레드에 `agentInactive` 한 줄 |
 | 소유자 없음이 유예를 넘김, 채널 사용 중 | 멘션 | 정지(`lifecycle_stopped`, `agent_ownerless`) | 스레드에 `agentOwnerless` 한 줄 |
-| 채널 보관·강퇴·승인 대기(에이전트 정지와 겹쳐도), 또는 Slack이 이제 비공개라고 알리는 공개 채널 | 멘션 | 정지(`lifecycle_stopped`) 또는 승인 대기 | 없음(승인 대기는 멘션한 사람에게만 `pendingApproval`) |
+| 채널 승인 대기(바인딩 `mode` `on`, 채널 사용 중), 에이전트 활성(소유자 없음은 유예 안) | 묶인 스레드 밖 사람의 멘션 | 정지(`lifecycle_stopped`, `pending_approval`) | 멘션한 사람에게만 `pendingApproval` 한 줄 |
+| 채널 보관·강퇴, 또는 승인 대기와 에이전트 정지가 겹침, 또는 Slack이 이제 비공개라고 알리는 공개 채널 | 멘션 | 정지(`lifecycle_stopped`) 또는 승인 대기 | 없음(비공개로 바뀐 채널은 멘션한 사람에게만 `pendingApproval`) |
+| 채널에 쓰이는 바인딩 없음(비공개 채널 승인 거절 뒤, 봇 입장 이벤트를 받지 못함), 봇은 채널에 있음 | 멘션 | 받지 않음(`no_binding`) | 멘션한 사람에게만 `channelUnbound` 한 줄 |
 | 에이전트 `archived` | 멘션 | 처리표 앞에서 버림(보관이 바인딩과 identity를 취소한다) | 없음 |
 | 에이전트 정지 또는 소유자 없음이 유예를 넘김 | 멘션 없는 글 | 정지 | 판단 버퍼에 담지 않음 |
 | 소유자 없음이 유예를 넘김, 열린 작업에 묶인 스레드 | 요청자의 중단 말 | 작업 중단(`stop_session`) | 중단 안내 |
 | DM, 에이전트 정지 | DM | 정지 | 없음 |
 | rollout `off`·`shadow` | 멘션 | 지금 길(세션). 멘션은 처리표를 묻지 않는다 | 안내 없음 |
+| rollout `off`·`shadow`, 채널에 바인딩 없음 | 묶인 스레드 밖 사람의 멘션 | 인가 판정 앞에서 버림 | 멘션한 사람에게만 `channelUnbound` 한 줄 |
 
 지켜야 할 성질:
 
@@ -106,6 +146,8 @@ terminate는 사람이 세션을 강제로 끝내는 제어다(`POST /v1/session
 - 공유 채널에서는 내부 사람이 일으킨 안내를 다른 조직 사람도 같은 스레드에서 본다.
 - 판정은 inbox가 이벤트를 처리할 때의 상태로 한다. 안내를 큐에 넣은 뒤 에이전트가 다시 켜지거나 바인딩이 바뀌어도 그 안내는 취소하지 않는다.
 - dedupe 키는 설치·채널·사람·문구·이벤트의 UTC 날짜다. 한 판정에 듣기 `off`와 에이전트 정지가 겹치면 정지 안내가 이긴다. 같은 날 다른 판정에서 다른 문구가 나오면 문구마다 한 번씩 나간다.
+- 바인딩 없는 채널과 승인 대기 채널의 안내는 멘션한 사람에게만 보이는 ephemeral이다(outbox kind `notice`). 인가 판정을 만들지 않는다. 다른 조직 사람에게는 쓰지 않는다. 문구는 채널이나 에이전트 이름을 넣지 않는다. 바인딩 없는 채널의 안내에는 그 사람이 이 워크스페이스의 활성 사용자에 연결돼 있을 때만 콘솔의 에이전트 목록 링크를 단다. rollout `on`에서 Slack이 공개 채널을 이제 비공개라고 알려 승인 대기로 바뀔 때의 `pendingApproval`도 같은 하루 한 번 키를 쓰고, 다른 조직 사람에게는 쓰지 않는다. rollout `off`·`shadow`의 승인 대기 채널과 묶인 스레드의 안내는 지금처럼 인가 판정이 스레드 키로 단다(하루 한 번이 아니라 스레드마다 한 번). rollout `on`에서 처리표가 에이전트 정지를 본 채널이 비공개로 바뀌면 승인 대기로만 바꾸고 아무것도 달지 않는다. 그래서 같은 사람이 같은 날 그 채널에서 다시 멘션해도 승인 대기 안내는 한 번이다. 앞의 다른 성질(승인 시각, 다시 읽은 바인딩, 채널 종류 확인, 공유 채널에서 함께 봄)은 스레드 공개 줄의 것이다.
+- 웹에서 `mode` `off`로 끈 바인딩은 이 안내를 받지 않는다. rollout `on`에서는 조용하고, `off`·`shadow`에서는 지금처럼 인가 판정의 거절 안내가 나간다.
 - 소유자 없음이 되기 전에 버퍼에 담긴 글은 지우지 않는다. 버퍼의 수명(10분)이 지나면 사라진다. 비활성은 버퍼의 정리 길이 따로 지운다.
 
 ## 2. turn·attempt

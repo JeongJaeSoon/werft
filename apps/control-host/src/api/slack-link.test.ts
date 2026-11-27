@@ -209,7 +209,7 @@ describe("exchangeSlackCode on the platform's OIDC client", () => {
   });
 
   // Before, the request went out without a look at the address.
-  test("Slack's name resolving to link-local is refused before anything is sent", async () => {
+  test("Slack's name resolving to a metadata address is refused before anything is sent", async () => {
     const sent: string[] = [];
     const request = createProviderRequest({
       lookup: async () => [{ address: "169.254.169.254", family: 4 }],
@@ -227,7 +227,7 @@ describe("exchangeSlackCode on the platform's OIDC client", () => {
       ),
     ).rejects.toThrow(
       new SlackOidcUnavailableError(
-        "address_not_allowed: Provider resolves to a link_local address",
+        "address_not_allowed: Provider resolves to a metadata address",
       ),
     );
     expect(sent).toEqual([]);

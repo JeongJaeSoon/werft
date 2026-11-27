@@ -363,12 +363,24 @@ export const PUSH_REFUSAL_VALUES = [
 export const pushRefusalSchema = z.enum(PUSH_REFUSAL_VALUES);
 
 /**
- * Why, more narrowly: the gate's refusal, or GitHub refusing a push that
- * changes `.github/workflows/` with a token lacking `workflows`.
+ * GitHub refused a push that changes `.github/workflows/`, and which side
+ * lacks `workflows`: the token did not ask for it, because the agent's GitHub
+ * settings or the workspace ceiling have it off (`workflows_off`); it asked
+ * and the App does not hold the permission (`workflows_permission_missing`);
+ * or the push did not go by an App token, so which cannot be told
+ * (`workflows_refused`).
  */
+export const WORKFLOWS_PUSH_REASON_VALUES = [
+  "workflows_off",
+  "workflows_permission_missing",
+  "workflows_refused",
+] as const;
+export type WorkflowsPushReason = (typeof WORKFLOWS_PUSH_REASON_VALUES)[number];
+
+/** Why, more narrowly: the gate's refusal, or one of the workflow reasons. */
 export const pushReasonCodeSchema = z.union([
   githubRefusalSchema,
-  z.literal("workflows_permission_missing"),
+  z.enum(WORKFLOWS_PUSH_REASON_VALUES),
 ]);
 
 /** One commit whose attribution is wrong, and which parts are. */
