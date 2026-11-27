@@ -32,7 +32,10 @@ import {
 import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
 import { lockPeople } from "./control-shared.ts";
 import { lockCatalogWrites } from "./github/catalog-repositories.ts";
-import { rebindCarriedPushes } from "./installation-settings.ts";
+import {
+  raiseSettingsGeneration,
+  rebindCarriedPushes,
+} from "./installation-settings.ts";
 import type { Database } from "./queries.ts";
 import {
   catalogRepositories,
@@ -662,6 +665,7 @@ function consoleWrites(
           return { outcome: "conflict" as const, reason: "not_stored" };
         }
         await sealIn(tx, owner, value, actor);
+        await raiseSettingsGeneration(tx);
         const receiptId = await consoleReceipt(
           tx,
           actor,

@@ -867,14 +867,35 @@ const UNSET = {
 } as const;
 
 /**
+ * A release pin where no person saved the agent's switches (94S-2406). Its
+ * `actions` once also read CI, so it turns on workflow edits and CI reads as
+ * the migration did for saved rows; it never runs workflows directly, which
+ * only a saved row turns on.
+ */
+export function pinUnderSwitches<T extends AgentGitHub>(pin: T): T {
+  const { features } = pin;
+  return {
+    ...pin,
+    features: {
+      ...features,
+      workflows: features.workflows || features.actions,
+      checks: features.checks || features.actions,
+      actions: false,
+    },
+    actions_allow: [],
+  };
+}
+
+/**
  * The one answer to what GitHub work a session may do (design
  * github 4.2). Everything that judges a session's GitHub work reads
  * this. A value this image cannot read is "invalid", which every reader
  * refuses.
  *
- * - `release`: the pin it started on. A row a person saved narrows it
- *   further (meet with the pin; with no pin only `currentRepositories`). A
- *   row a migration wrote (`updatedBy` null) and no row change nothing.
+ * - `release`: the pin it started on, under `pinUnderSwitches`. A row a
+ *   person saved narrows it further (meet; with no pin only
+ *   `currentRepositories`). A row a migration wrote (`updatedBy` null) and
+ *   no row change nothing.
  * - `agent`: the agent's row now, met with the settings the session started
  *   under (`start`), except that a session with its own attached list
  *   (`attachedRepositoryIds` an array) reads the repository list from the row
@@ -920,7 +941,11 @@ export function effectiveGitHubPolicy(input: {
     if (agentRow === null || current === null) {
       if (pin === null) return { ...UNSET, source: "release", settings: null };
       if (!pin.success) return invalid("release");
-      return { ...UNSET, source: "release", settings: pin.data };
+      return {
+        ...UNSET,
+        source: "release",
+        settings: pinUnderSwitches(pin.data),
+      };
     }
     // A row this image cannot read closes the session whoever wrote it.
     if (
@@ -935,7 +960,7 @@ export function effectiveGitHubPolicy(input: {
       return {
         ...UNSET,
         source: "release",
-        settings: pin === null ? null : pin.data,
+        settings: pin === null ? null : pinUnderSwitches(pin.data),
       };
     }
     if (pin === null) {
@@ -953,12 +978,13 @@ export function effectiveGitHubPolicy(input: {
         ),
       };
     }
+    const started = pinUnderSwitches(pin.data);
     return {
       ...UNSET,
       source: "release",
-      settings: meetGitHubSettings(pin.data, current.data),
+      settings: meetGitHubSettings(started, current.data),
       agentSettingsRevision: agentRow.revision,
-      startActionsAllow: pin.data.actions_allow,
+      startActionsAllow: started.actions_allow,
       pushAttached: releasePushAttached(agentRow),
     };
   }

@@ -537,11 +537,15 @@ describe("tools/list", () => {
       "reopen_pull_request",
       "merge_pull_request",
       "dispatch_workflow",
-      "get_workflow_run",
       "rerun_workflow",
       "list_repositories",
       "attach_repository",
     ]);
+    // Reading CI rides on the workflow-edit switch; running stays off.
+    const edits = toolNames(await list({ workflows: true, checks: true }));
+    expect(edits).toContain("get_workflow_run");
+    expect(edits).not.toContain("dispatch_workflow");
+    expect(edits).not.toContain("rerun_workflow");
     expect(toolNames(await list({ review: true }))).toContain("submit_review");
     expect(toolNames(await list({ review: true }))).not.toContain(
       "dispatch_workflow",
@@ -657,15 +661,34 @@ describe("a session under the agent's settings", () => {
 
   test("a tool of a feature off is refused in the turn, not hidden", async () => {
     const h = under();
+    for (const [tool, args] of [
+      ["dispatch_workflow", { workflow: "ci.yml", ref: "main" }],
+      ["rerun_workflow", { run_id: 7 }],
+    ] as const) {
+      expect(payload(await h.call(tool, args))).toEqual({
+        body: {
+          ok: false,
+          refusal: {
+            code: "feature_off",
+            by: "policy",
+            retryable: false,
+            details: { reason_code: "actions_off" },
+          },
+        },
+      });
+    }
     expect(
       payload(
-        await h.call("dispatch_workflow", { workflow: "ci.yml", ref: "main" }),
-      ),
+        await h.call("submit_review", {
+          number: 1,
+          event: "COMMENT",
+          commit_id: "a".repeat(40),
+        }),
+      ).body.refusal,
     ).toEqual({
-      body: {
-        ok: false,
-        refusal: { code: "feature_off", by: "policy", retryable: false },
-      },
+      code: "feature_off",
+      by: "policy",
+      retryable: false,
     });
     expect(h.works).toEqual([]);
   });
@@ -685,7 +708,12 @@ describe("a session under the agent's settings", () => {
     ).toEqual({
       body: {
         ok: false,
-        refusal: { code: "feature_off", by: "policy", retryable: false },
+        refusal: {
+          code: "feature_off",
+          by: "policy",
+          retryable: false,
+          details: { reason_code: "actions_off" },
+        },
       },
     });
   });
@@ -886,7 +914,12 @@ describe("tools/call", () => {
     expect(answer).toEqual({
       body: {
         ok: false,
-        refusal: { code: "feature_off", by: "policy", retryable: false },
+        refusal: {
+          code: "feature_off",
+          by: "policy",
+          retryable: false,
+          details: { reason_code: "actions_off" },
+        },
       },
     });
     expect(h.works).toEqual([]);
@@ -1506,8 +1539,9 @@ describe("attach_repository", () => {
 });
 
 describe("get_workflow_run", () => {
+  // Reading a run is the workflow-edit switch's (94S-2406).
   const actionsOn = () =>
-    harness({ github: github({ actions: true }) as never });
+    harness({ github: github({ workflows: true }) as never });
 
   test("without wait_seconds answers at once; a finished run is final", async () => {
     const h = actionsOn();

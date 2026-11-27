@@ -9,6 +9,13 @@ import { rowsOf } from "./statement-rows.ts";
 const unmovedSummary = (link: SQL) =>
   sql`(${link}.visibility = 'summary' AND ${link}.report_mode IS NULL)`;
 
+// A link's own `report_mode` wins, else its binding's.
+const reportModeOf = (link: SQL) => sql`coalesce(
+  ${link}.report_mode,
+  (SELECT pb.report_mode FROM surface_bindings pb WHERE pb.id = ${link}.surface_binding_id),
+  ${DEFAULT_REPORT_MODE}
+)`;
+
 /**
  * Whether a link's thread hears of its turns: replies, failures and notices.
  * A link's own `report_mode` wins, else its binding's. Only `none` (a moved
@@ -16,12 +23,12 @@ const unmovedSummary = (link: SQL) =>
  * one posts once per turn, as `full` did.
  */
 export const reportsTurns = (link: SQL) => sql`(
-  NOT ${unmovedSummary(link)}
-  AND coalesce(
-    ${link}.report_mode,
-    (SELECT pb.report_mode FROM surface_bindings pb WHERE pb.id = ${link}.surface_binding_id),
-    ${DEFAULT_REPORT_MODE}
-  ) <> 'none'
+  NOT ${unmovedSummary(link)} AND ${reportModeOf(link)} <> 'none'
+)`;
+
+/** Whether a link's thread keeps a progress message (`report_mode` progress). */
+export const reportsProgress = (link: SQL) => sql`(
+  NOT ${unmovedSummary(link)} AND ${reportModeOf(link)} = 'progress'
 )`;
 
 /** Whether inputs asked from the web or the API show in the link's thread. */

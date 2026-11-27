@@ -226,7 +226,20 @@ export function createProviderRequest(
     // host cannot reach. Each was judged above, so the next one is as safe.
     for (const { address, family } of pinned ? answers : [first]) {
       const target = new URL(url);
-      if (pinned) target.hostname = family === 6 ? `[${address}]` : address;
+      if (pinned) {
+        const literal = family === 6 ? `[${address}]` : address;
+        target.hostname = literal;
+        // The setter keeps the name when it cannot take the address (an IPv6
+        // zone id, say, or a malformed answer); sending then would resolve
+        // the name again. A kept name is never an IP literal, so one check
+        // covers both.
+        if (isIP(target.hostname.replace(/^\[|\]$/g, "")) === 0) {
+          throw new OidcUnavailableError(
+            "address_not_allowed",
+            "Provider address cannot be pinned",
+          );
+        }
+      }
       try {
         response = await send(target, {
           method: init.method ?? "GET",

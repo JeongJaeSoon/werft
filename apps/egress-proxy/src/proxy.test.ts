@@ -1033,6 +1033,48 @@ describe("egress proxy", () => {
     }
   });
 
+  test("CONNECT to a listed numeric spelling or IPv6 literal of metadata opens no tunnel", async () => {
+    const authorities: [
+      authority: string,
+      entry: { host: string; port: number },
+    ][] = [
+      ["1684301000:80", { host: "1684301000", port: 80 }],
+      ["0x646464c8:80", { host: "0x646464c8", port: 80 }],
+      ["0144.0144.0144.0310:80", { host: "0144.0144.0144.0310", port: 80 }],
+      ["[fd00:ec2::254]:80", { host: "fd00:ec2::254", port: 80 }],
+      ["[fd00:a9fe:a9fe::1]:80", { host: "fd00:a9fe:a9fe::1", port: 80 }],
+      ["[fd00:100::100:200]:80", { host: "fd00:100::100:200", port: 80 }],
+      [
+        "[::ffff:100.100.100.200]:80",
+        { host: "::ffff:100.100.100.200", port: 80 },
+      ],
+    ];
+    const listed = await startEgressProxy({
+      logger: silent,
+      policy: {
+        allow: [],
+        allowPrivate: authorities.map(([, entry]) => entry),
+      },
+      port: 0,
+      // libc itself, as in production: it reads the numeric spellings.
+      resolve: systemResolver,
+    });
+    try {
+      for (const [authority] of authorities) {
+        const talk = await connect(listed.port);
+        talk.send(
+          `CONNECT ${authority} HTTP/1.1\r\nHost: ${authority}\r\n\r\n`,
+        );
+        const answer = await talk.waitFor("403");
+        expect(answer, authority).toContain("is metadata");
+        expect(answer, authority).not.toContain(" 200 ");
+        talk.close();
+      }
+    } finally {
+      listed.stop();
+    }
+  });
+
   test("an absolute URL spelling a metadata address as one number is refused as metadata", async () => {
     const listed = await startEgressProxy({
       logger: silent,

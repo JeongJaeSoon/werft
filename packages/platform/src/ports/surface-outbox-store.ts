@@ -332,9 +332,9 @@ export type SurfaceAfterTurnReply = SurfaceLinkedTurnTarget & {
 
 /**
  * A channel the agent now reads every message of (`stillListened`): its
- * switch is raised under a counted notice approval, the binding is `ready`,
+ * switch is raised, the binding is `ready`,
  * `on`, listening `free`, not shared with another organization, and the bot
- * is in it. `noticeVersion`: the latest version that asked for approval, so
+ * is in it. `noticeVersion`: the latest version that asked to tell channels anew, so
  * a version that only rewords it is told nothing new. `attempt`: how many
  * rows the channel took for it before, all failed unsent.
  */
@@ -356,6 +356,21 @@ export type SurfaceChannelNoticeTarget = {
 export type SurfaceCapacityWait = SurfaceLinkedTurnTarget & {
   executionId: string;
   generation: number;
+};
+
+/**
+ * What a progress link's progress message should show now, when that is not
+ * what its last update showed. `state` is one of
+ * `capacity_wait:<execution>:<generation>`, `<turn status>:<turn>` for the
+ * first unfinished turn (`queued`, `running`, `needs_input`), or
+ * `idle:<last turn>` once a message is up and no turn is unfinished.
+ */
+export type SurfaceProgressDue = SurfaceLinkedTurnTarget & {
+  state: string;
+  /** Updates the message has had so far. */
+  updates: number;
+  /** When the session's first turn was asked, in epoch seconds. */
+  startedAt: number | null;
 };
 
 /**
@@ -844,6 +859,14 @@ export interface SurfaceOutboxStore {
     limit: number,
     waitedMs: number,
   ): Promise<SurfaceCapacityWait[]>;
+  /**
+   * Live primary links that keep a progress message (`report_mode`
+   * progress) and have a thread, whose message is owed an update: its
+   * session has an unfinished turn or its message is up, and what it should
+   * show differs from its last update. A worker counts as waiting for room
+   * past `waitedMs`.
+   */
+  progressDue?(limit: number, waitedMs: number): Promise<SurfaceProgressDue[]>;
   /**
    * Channels the agent reads every message of that have not been told so
    * under the current notice (`slackChannelNoticeDedupeKey`).

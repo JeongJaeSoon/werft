@@ -472,7 +472,7 @@ describe("Slack management", () => {
         .map((link) => link.textContent),
     ).toEqual([
       "Slack",
-      "고지 승인",
+      "대화 스위치",
       "채널",
       "판단 기록",
       "기본",
@@ -706,7 +706,7 @@ describe("Slack management", () => {
       [`GET ${PATH}/slack/notice`]: () =>
         json(200, {
           notice: null,
-          state: "not_approved",
+          state: "no_notice",
           rollout: "off",
           can_approve: true,
           approvals: [],
@@ -722,7 +722,7 @@ describe("Slack management", () => {
       [`GET ${PATH}/slack/notice`]: () =>
         json(200, {
           notice: null,
-          state: "approved",
+          state: "no_notice",
           rollout: "shadow",
           can_approve: true,
           approvals: [],
@@ -754,7 +754,7 @@ describe("Slack management", () => {
   test("drops the listening hint when the owner raises the switch", async () => {
     let current = {
       notice: null,
-      state: "approved",
+      state: "no_notice",
       rollout: "off",
       can_approve: true,
       approvals: [],
@@ -1654,7 +1654,7 @@ describe("Slack management", () => {
       .getAllByRole("heading", { level: 3 })
       .map((heading) => heading.textContent);
     expect(headings).toEqual([
-      "고지 승인",
+      "대화 스위치",
       "연결된 채널",
       "판단 기록",
       "기본",
@@ -2966,7 +2966,7 @@ describe("Slack management", () => {
           .map((link) => link.textContent),
       ).toEqual([
         "Slack",
-        ...(installed ? ["고지 승인", "채널", "판단 기록", "기본"] : []),
+        ...(installed ? ["대화 스위치", "채널", "판단 기록", "기본"] : []),
         "Slack 앱 생성",
         ...(app ? ["Slack 앱에 넣을 주소"] : []),
         "자동으로 만든 Slack 앱",

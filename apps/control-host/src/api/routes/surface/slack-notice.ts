@@ -1,6 +1,5 @@
 import {
   agentIdParamsSchema,
-  approveSlackNoticeRequestSchema,
   getSlackNoticeResponseSchema,
   setConversationRolloutRequestSchema,
 } from "@werft-ai/contracts";
@@ -15,10 +14,7 @@ import { mapped, requireParams } from "../errors.ts";
 
 export function registerSlackNoticeRoutes(
   router: ApiRouter,
-  notices: Pick<
-    SlackNoticeService,
-    "read" | "approve" | "revoke" | "setRollout"
-  >,
+  notices: Pick<SlackNoticeService, "read" | "setRollout" | "retired">,
 ) {
   apiRoute(router, "getSlackNotice", async (context) => {
     const params = requireParams(context, agentIdParamsSchema);
@@ -28,14 +24,10 @@ export function registerSlackNoticeRoutes(
     return jsonWithSchema(context, getSlackNoticeResponseSchema, read);
   });
 
-  apiRoute(router, "approveSlackNotice", async (context) => {
-    const params = requireParams(context, agentIdParamsSchema);
-    const body = await parseJsonBody(context, approveSlackNoticeRequestSchema);
-    const approved = await mapped(() =>
-      notices.approve(context.get("caller"), params.id, body),
-    );
-    return jsonWithSchema(context, getSlackNoticeResponseSchema, approved);
-  });
+  // Retired with the notice approval; 410 until the routes are removed.
+  apiRoute(router, "approveSlackNotice", (context) =>
+    mapped(async () => notices.retired(context.get("caller"))),
+  );
 
   apiRoute(router, "setConversationRollout", async (context) => {
     const params = requireParams(context, agentIdParamsSchema);
@@ -49,11 +41,7 @@ export function registerSlackNoticeRoutes(
     return jsonWithSchema(context, getSlackNoticeResponseSchema, set);
   });
 
-  apiRoute(router, "revokeSlackNotice", async (context) => {
-    const params = requireParams(context, agentIdParamsSchema);
-    const revoked = await mapped(() =>
-      notices.revoke(context.get("caller"), params.id),
-    );
-    return jsonWithSchema(context, getSlackNoticeResponseSchema, revoked);
-  });
+  apiRoute(router, "revokeSlackNotice", (context) =>
+    mapped(async () => notices.retired(context.get("caller"))),
+  );
 }

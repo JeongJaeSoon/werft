@@ -1,11 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import {
-  type SlackNoticeVersionEntry,
-  scopesForRole,
-  slackNoticeVersionSchema,
-  type WorkspaceRole,
-} from "@werft-ai/contracts";
+import { scopesForRole, type WorkspaceRole } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   agentAdmins,
@@ -32,28 +27,12 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, asc, eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createSlackNoticeService } from "./slack-notice-service.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
-
-const textOf = (words: string) => ({
-  body: [words],
-  policyLink: { label: "Data", href: "https://docs.example.test/data" },
-});
-const entry = (
-  version: number,
-  requiresReapproval: boolean,
-): SlackNoticeVersionEntry => ({
-  version: slackNoticeVersionSchema.parse(version),
-  text: { ko: textOf(`ko ${version}`), ja: textOf(`ja ${version}`) },
-  requiresReapproval,
-});
-const V1 = [entry(1, true)];
-/** Version 2 asks for a new approval. */
-const V2 = [...V1, entry(2, true)];
 
 async function refusal(work: Promise<unknown>) {
   const error = await work.then(
@@ -85,14 +64,13 @@ integration("Slack notice service on PostgreSQL", () => {
     await database?.drop();
   });
 
-  const service = (versions: readonly SlackNoticeVersionEntry[]) =>
+  const service = () =>
     createSlackNoticeService({
       authorization: createAuthorizationPolicy({
         identity: createDatabaseIdentityReader(db),
         agents: createDatabaseAgentAuthority(db),
       }),
       db,
-      versions,
     });
 
   async function person(
@@ -174,243 +152,79 @@ integration("Slack notice service on PostgreSQL", () => {
         ),
       );
 
-  test("an owner or admin approves the current version; the record and a receipt with the language shown are written", async () => {
-    const ws = await setUp();
-    const notices = service(V1);
-    const before = await notices.read(ws.admin.caller, ws.agentId);
-    expect(before).toMatchObject({
-      notice: {
-        version: 1,
-        requires_reapproval: true,
-        text: {
-          ko: {
-            body: ["ko 1"],
-            policy_link: { href: "https://docs.example.test/data" },
-          },
-          ja: { body: ["ja 1"] },
-        },
-      },
-      state: "not_approved",
-      can_approve: true,
-      approvals: [],
+  /** An approval row as the retired approval left it; nothing reads it now. */
+  const storedApproval = (
+    ws: Awaited<ReturnType<typeof setUp>>,
+    revoked: boolean,
+  ) =>
+    db.insert(slackNoticeApprovals).values({
+      id: randomUUID(),
+      workspaceId: ws.workspaceId,
+      agentId: ws.agentId,
+      slackTeamId: ws.teamId,
+      noticeVersion: 1,
+      approvedBy: ws.admin.userId,
+      ...(revoked ? { revokedAt: new Date(), revokedBy: ws.admin.userId } : {}),
     });
 
-    const approved = await notices.approve(ws.admin.caller, ws.agentId, {
-      notice_version: slackNoticeVersionSchema.parse(1),
-      locale: "ja",
-    });
-    expect(approved.state).toBe("approved");
-    expect(approved.approvals).toEqual([
-      {
-        id: expect.any(String),
-        slack_team_id: ws.teamId,
-        notice_version: 1,
-        counts: true,
-        approved_by: {
-          user_id: ws.admin.userId,
-          display_name: "admin person",
-          email: ws.admin.email,
-        },
-        approved_at: expect.any(String),
-      },
-    ] as never);
-    const rows = await db
+  const approvalRows = (agentId: string) =>
+    db
       .select()
       .from(slackNoticeApprovals)
-      .where(eq(slackNoticeApprovals.agentId, ws.agentId));
-    expect(
-      rows.map((row) => [row.slackTeamId, row.noticeVersion, row.approvedBy]),
-    ).toEqual([[ws.teamId, 1, ws.admin.userId]]);
-    const written = await receiptsOf(ws.agentId, "approve_slack_notice");
-    expect(written.map((row) => row.result)).toEqual([
-      {
-        agent_id: ws.agentId,
-        approval_id: rows[0]?.id,
-        slack_team_id: ws.teamId,
-        notice_version: 1,
-        notice_locale: "ja",
-      },
-    ]);
+      .where(eq(slackNoticeApprovals.agentId, agentId));
 
-    // The owner approving again writes nothing more.
-    expect(
-      (
-        await notices.approve(ws.owner.caller, ws.agentId, {
-          notice_version: slackNoticeVersionSchema.parse(1),
-          locale: "ko",
-        })
-      ).state,
-    ).toBe("approved");
-    expect(await receiptsOf(ws.agentId, "approve_slack_notice")).toHaveLength(
-      1,
-    );
-  });
-
-  test("the agent's admin reads the notice without the approvers' email and is refused approve and revoke", async () => {
+  test("read answers the switch, with the retired notice fields empty whatever rows are stored", async () => {
     const ws = await setUp();
-    const notices = service(V1);
-    await notices.approve(ws.owner.caller, ws.agentId, {
-      notice_version: slackNoticeVersionSchema.parse(1),
-      locale: "ko",
+    const notices = service();
+    const empty = {
+      notice: null,
+      state: "no_notice" as const,
+      rollout: "off" as const,
+      approvals: [],
+    };
+    expect(await notices.read(ws.admin.caller, ws.agentId)).toEqual({
+      ...empty,
+      can_approve: true,
     });
-    const read = await notices.read(ws.agentAdmin.caller, ws.agentId);
-    expect(read.can_approve).toBe(false);
-    expect(read.state).toBe("approved");
-    expect(read.approvals.map((a) => a.approved_by)).toEqual([
-      { user_id: ws.owner.userId, display_name: "owner person", email: null },
-    ] as never);
-    for (const work of [
-      () =>
-        notices.approve(ws.agentAdmin.caller, ws.agentId, {
-          notice_version: slackNoticeVersionSchema.parse(1),
-          locale: "ko",
-        }),
-      // A stale version is still a refusal of the person, not of the version.
-      () =>
-        notices.approve(ws.agentAdmin.caller, ws.agentId, {
-          notice_version: slackNoticeVersionSchema.parse(2),
-          locale: "ko",
-        }),
-      () => notices.revoke(ws.agentAdmin.caller, ws.agentId),
-    ]) {
-      expect(await refusal(work())).toEqual({
-        code: "FORBIDDEN",
-        reason: "workspace_admin_required",
-      });
-    }
-    expect((await notices.read(ws.owner.caller, ws.agentId)).state).toBe(
-      "approved",
-    );
+    await storedApproval(ws, false);
+    expect(await notices.read(ws.owner.caller, ws.agentId)).toEqual({
+      ...empty,
+      can_approve: true,
+    });
+    expect(await notices.read(ws.agentAdmin.caller, ws.agentId)).toEqual({
+      ...empty,
+      can_approve: false,
+    });
   });
 
-  test("another workspace's agent is not found, and an API key is refused", async () => {
+  test("approve and revoke are retired: 410 to a console session, 403 to an API key, nothing written", async () => {
     const ws = await setUp();
-    const other = await setUp();
-    const notices = service(V1);
-    for (const work of [
-      () => notices.read(other.owner.caller, ws.agentId),
-      () =>
-        notices.approve(other.owner.caller, ws.agentId, {
-          notice_version: slackNoticeVersionSchema.parse(1),
-          locale: "ko",
-        }),
-      () => notices.revoke(other.owner.caller, ws.agentId),
-    ]) {
-      expect((await refusal(work())).code).toBe("NOT_FOUND");
+    await storedApproval(ws, false);
+    const before = await approvalRows(ws.agentId);
+    const notices = service();
+    for (const caller of [ws.owner.caller, ws.agentAdmin.caller]) {
+      expect(
+        await refusal(Promise.resolve().then(() => notices.retired(caller))),
+      ).toEqual({ code: "ENDPOINT_RETIRED", reason: "slack_notice_retired" });
     }
     const viaKey = await person(ws.workspaceId, "owner", "api");
-    expect(await refusal(notices.read(viaKey.caller, ws.agentId))).toEqual({
-      code: "FORBIDDEN",
-      reason: "web_session_required",
-    });
     expect(
-      await db
-        .select()
-        .from(slackNoticeApprovals)
-        .where(eq(slackNoticeApprovals.agentId, ws.agentId)),
-    ).toEqual([]);
+      await refusal(
+        Promise.resolve().then(() => notices.retired(viaKey.caller)),
+      ),
+    ).toEqual({ code: "FORBIDDEN", reason: "web_session_required" });
+    expect(await approvalRows(ws.agentId)).toEqual(before);
+    expect(await receiptsOf(ws.agentId, "approve_slack_notice")).toEqual([]);
+    expect(await receiptsOf(ws.agentId, "revoke_slack_notice")).toEqual([]);
   });
 
-  test("a revoke leaves no approval and writes a receipt", async () => {
+  test("an owner or admin raises the switch to shadow with no approval and no Slack install; on is refused", async () => {
     const ws = await setUp();
-    const notices = service(V1);
-    await notices.approve(ws.admin.caller, ws.agentId, {
-      notice_version: slackNoticeVersionSchema.parse(1),
-      locale: "ko",
-    });
-    const revoked = await notices.revoke(ws.owner.caller, ws.agentId);
-    expect(revoked).toMatchObject({ state: "not_approved", approvals: [] });
-    const written = await receiptsOf(ws.agentId, "revoke_slack_notice");
-    expect(written).toHaveLength(1);
-    expect(written[0]?.result).toMatchObject({
-      agent_id: ws.agentId,
-      slack_team_ids: [ws.teamId],
-      notice_versions: [1],
-    });
-    // Nothing live: a second revoke writes nothing.
-    await notices.revoke(ws.owner.caller, ws.agentId);
-    expect(await receiptsOf(ws.agentId, "revoke_slack_notice")).toHaveLength(1);
-  });
-
-  test("a version that asks anew shows the old approval as not counting until it is given", async () => {
-    const ws = await setUp();
-    await service(V1).approve(ws.admin.caller, ws.agentId, {
-      notice_version: slackNoticeVersionSchema.parse(1),
-      locale: "ko",
-    });
-    const notices = service(V2);
-    const read = await notices.read(ws.admin.caller, ws.agentId);
-    expect(read.state).toBe("reapproval_required");
-    expect(read.notice?.version).toBe(2 as never);
-    expect(read.approvals.map((a) => [a.notice_version, a.counts])).toEqual([
-      [1, false],
-    ] as never);
-    expect(
-      await refusal(
-        notices.approve(ws.admin.caller, ws.agentId, {
-          notice_version: slackNoticeVersionSchema.parse(1),
-          locale: "ko",
-        }),
-      ),
-    ).toEqual({ code: "REVISION_CONFLICT", reason: "notice_version_stale" });
-    const again = await notices.approve(ws.admin.caller, ws.agentId, {
-      notice_version: slackNoticeVersionSchema.parse(2),
-      locale: "ko",
-    });
-    expect(again.state).toBe("approved");
-    expect(again.approvals.map((a) => [a.notice_version, a.counts])).toEqual([
-      [2, true],
-      [1, false],
-    ] as never);
-  });
-
-  test("before a version is published the notice is null and approve is refused", async () => {
-    const ws = await setUp();
-    const notices = service([]);
-    expect(await notices.read(ws.owner.caller, ws.agentId)).toEqual({
-      notice: null,
-      state: "no_notice",
-      rollout: "off",
-      can_approve: true,
-      approvals: [],
-    });
-    expect(
-      await refusal(
-        notices.approve(ws.owner.caller, ws.agentId, {
-          notice_version: slackNoticeVersionSchema.parse(1),
-          locale: "ko",
-        }),
-      ),
-    ).toEqual({ code: "REVISION_CONFLICT", reason: "no_notice" });
-    expect(
-      await refusal(
-        notices.approve(ws.agentAdmin.caller, ws.agentId, {
-          notice_version: slackNoticeVersionSchema.parse(1),
-          locale: "ko",
-        }),
-      ),
-    ).toEqual({ code: "FORBIDDEN", reason: "workspace_admin_required" });
-  });
-
-  test("an owner or admin raises the switch to shadow only once the notice is approved, and on never", async () => {
-    const ws = await setUp();
-    const notices = service(V1);
-    expect(
-      await refusal(
-        notices.setRollout(ws.admin.caller, ws.agentId, { rollout: "shadow" }),
-      ),
-    ).toEqual({ code: "REVISION_CONFLICT", reason: "notice_not_approved" });
-    expect(
-      await refusal(
-        service([]).setRollout(ws.admin.caller, ws.agentId, {
-          rollout: "shadow",
-        }),
-      ),
-    ).toEqual({ code: "REVISION_CONFLICT", reason: "no_notice" });
-    await notices.approve(ws.owner.caller, ws.agentId, {
-      notice_version: slackNoticeVersionSchema.parse(1),
-      locale: "ko",
-    });
+    await db
+      .update(agentIdentities)
+      .set({ status: "revoked", revokedAt: new Date() })
+      .where(eq(agentIdentities.agentId, ws.agentId));
+    const notices = service();
     expect(
       await refusal(
         notices.setRollout(ws.admin.caller, ws.agentId, { rollout: "on" }),
@@ -423,15 +237,19 @@ integration("Slack notice service on PostgreSQL", () => {
     const raised = await notices.setRollout(ws.admin.caller, ws.agentId, {
       rollout: "shadow",
     });
-    expect(raised.rollout).toBe("shadow");
+    expect(raised).toMatchObject({ rollout: "shadow", state: "no_notice" });
     expect((await notices.read(ws.agentAdmin.caller, ws.agentId)).rollout).toBe(
       "shadow",
     );
+    expect(
+      await refusal(
+        notices.setRollout(ws.owner.caller, ws.agentId, { rollout: "on" }),
+      ),
+    ).toEqual({ code: "BAD_REQUEST", reason: "rollout_on_unavailable" });
     await notices.setRollout(ws.owner.caller, ws.agentId, {
       rollout: "shadow",
     });
-    const written = await receiptsOf(ws.agentId, "set_conversation_rollout");
-    expect(written).toEqual([
+    expect(await receiptsOf(ws.agentId, "set_conversation_rollout")).toEqual([
       {
         result: {
           agent_id: ws.agentId,
@@ -448,27 +266,32 @@ integration("Slack notice service on PostgreSQL", () => {
         },
       },
     ]);
-
-    // A revoke takes the switch back to off in its transaction.
-    const revoked = await notices.revoke(ws.owner.caller, ws.agentId);
-    expect(revoked.rollout).toBe("off");
-    expect(
-      (await receiptsOf(ws.agentId, "set_conversation_rollout")).at(-1)?.result,
-    ).toMatchObject({
-      before: "shadow",
-      after: "off",
-      reason: "notice_revoked",
+    const lowered = await notices.setRollout(ws.owner.caller, ws.agentId, {
+      rollout: "off",
     });
+    expect(lowered.rollout).toBe("off");
+  });
+
+  test("a revoked approval from before does not refuse a raise", async () => {
+    const ws = await setUp();
+    await storedApproval(ws, true);
+    const notices = service();
+    expect(
+      (
+        await notices.setRollout(ws.owner.caller, ws.agentId, {
+          rollout: "shadow",
+        })
+      ).rollout,
+    ).toBe("shadow");
+    expect((await notices.read(ws.owner.caller, ws.agentId)).rollout).toBe(
+      "shadow",
+    );
   });
 
   test("the agent's admin may not change the switch, another workspace's agent is not found, and an API key is refused", async () => {
     const ws = await setUp();
     const other = await setUp();
-    const notices = service(V1);
-    await notices.approve(ws.owner.caller, ws.agentId, {
-      notice_version: slackNoticeVersionSchema.parse(1),
-      locale: "ko",
-    });
+    const notices = service();
     for (const rollout of ["shadow", "off"] as const) {
       expect(
         await refusal(
@@ -476,68 +299,31 @@ integration("Slack notice service on PostgreSQL", () => {
         ),
       ).toEqual({ code: "FORBIDDEN", reason: "workspace_admin_required" });
     }
-    expect(
-      (
-        await refusal(
-          notices.setRollout(other.owner.caller, ws.agentId, {
-            rollout: "shadow",
-          }),
-        )
-      ).code,
-    ).toBe("NOT_FOUND");
+    for (const work of [
+      () => notices.read(other.owner.caller, ws.agentId),
+      () =>
+        notices.setRollout(other.owner.caller, ws.agentId, {
+          rollout: "shadow",
+        }),
+    ]) {
+      expect((await refusal(work())).code).toBe("NOT_FOUND");
+    }
     const viaKey = await person(ws.workspaceId, "owner", "api");
-    expect(
-      await refusal(
+    for (const work of [
+      () => notices.read(viaKey.caller, ws.agentId),
+      () =>
         notices.setRollout(viaKey.caller, ws.agentId, { rollout: "shadow" }),
-      ),
-    ).toEqual({ code: "FORBIDDEN", reason: "web_session_required" });
+    ]) {
+      expect(await refusal(work())).toEqual({
+        code: "FORBIDDEN",
+        reason: "web_session_required",
+      });
+    }
     expect((await notices.read(ws.owner.caller, ws.agentId)).rollout).toBe(
       "off",
     );
     expect(await receiptsOf(ws.agentId, "set_conversation_rollout")).toEqual(
       [],
     );
-  });
-
-  test("an agent without a live Slack install cannot be raised", async () => {
-    const ws = await setUp();
-    const notices = service(V1);
-    await notices.approve(ws.owner.caller, ws.agentId, {
-      notice_version: slackNoticeVersionSchema.parse(1),
-      locale: "ko",
-    });
-    await db
-      .update(agentIdentities)
-      .set({ status: "revoked", revokedAt: new Date() })
-      .where(eq(agentIdentities.agentId, ws.agentId));
-    expect(
-      await refusal(
-        notices.setRollout(ws.owner.caller, ws.agentId, {
-          rollout: "shadow",
-        }),
-      ),
-    ).toEqual({ code: "SLACK_NOT_INSTALLED", reason: "not_installed" });
-  });
-
-  test("an agent without a live Slack install cannot be approved", async () => {
-    const ws = await setUp();
-    await db
-      .update(agentIdentities)
-      .set({ status: "revoked", revokedAt: new Date() })
-      .where(and(eq(agentIdentities.agentId, ws.agentId)));
-    const notices = service(V1);
-    expect((await notices.read(ws.owner.caller, ws.agentId)).state).toBe(
-      "not_installed",
-    );
-    expect(
-      (
-        await refusal(
-          notices.approve(ws.owner.caller, ws.agentId, {
-            notice_version: slackNoticeVersionSchema.parse(1),
-            locale: "ko",
-          }),
-        )
-      ).code,
-    ).toBe("SLACK_NOT_INSTALLED");
   });
 });

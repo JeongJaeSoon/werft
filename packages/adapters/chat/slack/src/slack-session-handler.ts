@@ -197,7 +197,7 @@ export type SlackSessionHandlerDeps = {
   };
   sessions: Pick<SessionService, "createSession" | "appendMessage">;
   /** Stops a thread's work when its requester asks (handling table row 12). */
-  stops: Pick<SessionStop, "stop">;
+  stops: Pick<SessionStop, "stop" | "stoppedBefore">;
   /** The agent's active release, which a new thread's session runs. */
   agentDetails: Pick<AgentStore, "get">;
   /**
@@ -597,6 +597,10 @@ export function createSlackSessionHandler(
       return handling.kind === "table" ? handling.handling : null;
     };
 
+    // A stop's key is its post: the post's two events and every retry of
+    // them are one stop.
+    const stopKey = `slack-stop:${claim.teamId}:${event.channel}:${event.ts}`;
+
     // Set once the poster was told they may not stop the work: if the session
     // then refuses the word as input too, that is not said a second time.
     let stopRefused = false;
@@ -620,7 +624,7 @@ export function createSlackSessionHandler(
       // Input queued until now is cancelled: the thread's earlier posts are
       // in, and its later ones wait for this event's lease.
       const stopped = await deps.stops.stop(caller, sessionId, {
-        idempotencyKey: `slack-stop:${claim.teamId}:${event.channel}:${event.ts}`,
+        idempotencyKey: stopKey,
       });
       deps.logger.info("Slack stop request", {
         ...ids,
@@ -671,7 +675,8 @@ export function createSlackSessionHandler(
           });
         } catch (error) {
           // Not retried: the closed session's link may close before a
-          // retry, which would then take the stop word as a new mention.
+          // retry, which then ends as a stop already made and would not
+          // write the line either.
           deps.logger.warn("Slack stop line lost for a task it closed", {
             ...ids,
             session_id: sessionId,
@@ -788,6 +793,39 @@ export function createSlackSessionHandler(
       if (bound !== null && bound.channelKind === "public_channel") {
         await deps.bindings.requireApproval(bound.id);
       }
+    }
+    // A stop word alone whose stop was made in work this thread has closed
+    // since: the post read again, by its other event or by a retry of the
+    // pass that lost its lease after the stop. It is done, whatever the
+    // thread holds now: taken on, it would be held for judgment, a mention
+    // of the thread, or a stop of the work opened there since. Only once the
+    // channel's kind is judged, so the post still sends a binding to
+    // approval. A new stop word is another post, under another key.
+    let madeBefore: Promise<boolean> | undefined;
+    const stopMadeBefore = () => {
+      madeBefore ??=
+        !fromBot &&
+        isStopRequest(withoutBotMention(event.text, agent.botUserId))
+          ? deps.sessionLinks
+              .closedSessions(agent.installationId, surfaceRef)
+              .then((sessionIds) =>
+                deps.stops.stoppedBefore(sessionIds, {
+                  idempotencyKey: stopKey,
+                }),
+              )
+          : Promise.resolve(false);
+      return madeBefore;
+    };
+    // An event that says its channel's kind, judged just above, ends here;
+    // so does an unmentioned one headed for the judgment buffer, which never
+    // asks Slack. Any other waits until Slack has said the kind.
+    if (
+      (event.channel_type !== undefined ||
+        (event.type === "message" && found === null && !mentioned)) &&
+      (await stopMadeBefore())
+    ) {
+      deps.logger.info("Slack stop request already made; its work closed", ids);
+      return;
     }
     if (
       fromBot &&
@@ -996,6 +1034,12 @@ export function createSlackSessionHandler(
         { connectUrl: deps.connectUrl },
       );
       if (refused !== null) await notice("channel_kind_mismatch", refused);
+      return;
+    }
+    // A post that named no channel kind (an app_mention, a mentioned message,
+    // a reply in a thread with an open link): done once Slack has said it.
+    if (await stopMadeBefore()) {
+      deps.logger.info("Slack stop request already made; its work closed", ids);
       return;
     }
     // A person's mention in a channel with no binding in use: the bot was
