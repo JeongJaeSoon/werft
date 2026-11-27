@@ -428,12 +428,10 @@ export function createMentionConversationTurns(deps: {
       );
       ended = queued === "ended";
     } catch (error) {
-      // A turn that could not be queued gets no calls.
-      try {
-        await deps.calls.endTurn(turnId);
-      } finally {
-        await deps.statuses.releaseReset(turnId);
-      }
+      // A turn that could not be queued gets no calls. The queue's error is
+      // the one thrown: what fails tidying up after it would hide it.
+      await deps.calls.endTurn(turnId).catch(() => undefined);
+      await deps.statuses.releaseReset(turnId).catch(() => undefined);
       throw error;
     }
     // Unreleased, the claim runs out and the next pass after it ends the
