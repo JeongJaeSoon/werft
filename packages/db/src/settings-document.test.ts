@@ -38,15 +38,18 @@ test("an endpoint carrying a credential is kept without it; a clean one as writt
     "https://:@models.example/v1",
     "https://@models.example/v1",
     "https://models.example/v1#",
+    "https:///@models.example/v1",
+    "https:\\\\@models.example/v1",
+    "https:user:secret@models.example/v1",
   ]) {
     expect(receiptDestinationOf(written)).toEqual({
       endpoint: "https://models.example/v1",
       host_port: "models.example:443",
     });
   }
-  // An @ in the path is not userinfo.
-  expect(receiptDestinationOf("https://models.example/v1/@team")).toEqual({
-    endpoint: "https://models.example/v1/@team",
+  // An @ in the path is not userinfo: the parser's spelling keeps it.
+  expect(receiptDestinationOf("https:models.example/v1//@team")).toEqual({
+    endpoint: "https://models.example/v1//@team",
     host_port: "models.example:443",
   });
   // Not rewritten: the receipt shows what the row holds.

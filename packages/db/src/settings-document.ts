@@ -202,17 +202,10 @@ export function receiptDestinationOf(endpoint: unknown): {
     return { endpoint: null, host_port: null };
   }
   const url = new URL(endpoint);
-  // The written text, not the parsed parts: `https://:@host` and a bare `?`
-  // or `#` parse as empty.
-  const authority = endpoint
-    .slice(endpoint.indexOf("//") + 2)
-    .split(/[/?#\\]/, 1)[0];
-  const bare =
-    url.username === "" &&
-    url.password === "" &&
-    !authority?.includes("@") &&
-    !endpoint.includes("?") &&
-    !endpoint.includes("#");
+  // Userinfo cannot be written without an @, so text with none of these is
+  // kept as written; any other is the parser's own spelling, which also
+  // catches what parses as empty (`https://:@host`, a bare `?`).
+  const bare = !/[@?#]/.test(endpoint);
   url.username = "";
   url.password = "";
   url.search = "";
