@@ -4,6 +4,7 @@ import {
   type ConversationInputId,
   type ConversationTopicId,
   JUDGMENT_BUFFER_LIMIT_PER_CHANNEL,
+  M1_PROMPT_VERSION,
 } from "@werft-ai/contracts";
 import {
   type JudgmentBatch,
@@ -313,7 +314,7 @@ integration("M1 judgment records", () => {
       outcome: "judged",
       decision: "quiet",
       reason: "human_conversation",
-      prompt_version: 2,
+      prompt_version: M1_PROMPT_VERSION,
       attempts: 1,
       release_id: releaseId,
     });
@@ -437,7 +438,10 @@ integration("M1 judgment records", () => {
       );
       expect(rows).toEqual([]);
       const [row] = await rowsOf(place.channelId);
-      expect(row).toMatchObject({ summary: "written", prompt_version: 2 });
+      expect(row).toMatchObject({
+        summary: "written",
+        prompt_version: M1_PROMPT_VERSION,
+      });
     });
 
     test("a channel delete and a write under the gate take the binding, then the summary, so neither waits on the other", async () => {
