@@ -136,12 +136,13 @@ export const NETWORK_CALL_PATTERNS: readonly { id: string; pattern: RegExp }[] =
   [
     {
       id: "package_runner",
-      pattern: /\b(?:npx|bunx|uvx|(?:pnpm|yarn)\s+dlx|npm\s+exec)\b/,
+      pattern:
+        /\b(?:npx|bunx|uvx|(?:pnpm|yarn)\s+dlx|npm(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6}\s+exec)\b/,
     },
     {
       id: "package_install",
       pattern:
-        /\b(?:pip3?|uv|npm|npx|pnpm|yarn|bun|bunx|gem|cargo|go|apt(?:-get)?|apk|brew|conda)(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6}(?:\s+pip(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6})?\s+(?:install|add|get|i|ci|sync)\b/,
+        /\b(?:pip3?|uv|npm|npx|pnpm|yarn|bun|bunx|gem|cargo|go|apt(?:-get)?|apk|brew|conda)(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6}(?:\s+(?:pip|tool)(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6})?\s+(?:install|add|get|i|ci|sync)\b/,
     },
     {
       id: "download",
@@ -199,19 +200,22 @@ function kindOf(file: CanonicalBundleFile): Kind {
 const codePoint = (char: string) =>
   `U+${(char.codePointAt(0) as number).toString(16).toUpperCase().padStart(4, "0")}`;
 
+/** Where a new text changed, by 0-based new line index. */
+type Changes = { adds: Set<number>; cuts: Set<number> };
+
 /**
- * What the new text changed: the lines it adds, and the 0-based indexes of
- * new lines an addition or a removal sits at (null: every line, when there is
- * no old text or the two are too large to compare).
+ * What the new text changed: the lines it adds, the indexes of added lines,
+ * and the index of the new line each removal sits before (null: every line,
+ * when there is no old text or the two are too large to compare).
  */
 function changesOf(
   earlier: string | null,
   text: string,
-): { added: string[]; at: Set<number> | null } {
+): { added: string[]; at: Changes | null } {
   const diff = earlier === null ? null : unifiedLineDiff(earlier, text);
   if (diff === null) return { added: text.split("\n"), at: null };
   const added: string[] = [];
-  const at = new Set<number>();
+  const at: Changes = { adds: new Set(), cuts: new Set() };
   let next = 0;
   for (const line of diff.split("\n")) {
     const hunk = /^@@ -\d+(?:,\d+)? \+(\d+),(\d+) @@$/.exec(line);
@@ -220,9 +224,9 @@ function changesOf(
       next = Number(hunk[2]) === 0 ? start : start - 1;
     } else if (line.startsWith("+")) {
       added.push(line.slice(1));
-      at.add(next++);
+      at.adds.add(next++);
     } else if (line.startsWith("-")) {
-      at.add(next);
+      at.cuts.add(next);
     } else {
       next++;
     }
@@ -355,21 +359,28 @@ const normalized = (line: string) =>
 /**
  * The commands of a script the update touched. A line ending in "\\" goes on
  * in the next ("npm \\" then "ci"), so the whole new text is read as logical
- * lines, and one counts when any of its lines is at a change. Comments are
- * left out: a comment line (as written: a fullwidth "＃" starts none), and a
- * "#" or "//" after a space up to the line's end.
+ * lines, and one counts when any of its lines was added, or a removal sits
+ * inside it. Comments are left out: a comment line (as written: a fullwidth
+ * "＃" starts none), and a "#" or "//" after a space, outside quotes, up to
+ * the line's end.
  */
-function changedCalls(text: string, at: Set<number> | null): string[] {
+function changedCalls(text: string, at: Changes | null): string[] {
   const calls: string[] = [];
   let parts: string[] = [];
   let touched = false;
-  text.split("\n").forEach((line, index) => {
-    if (at === null || at.has(index)) touched = true;
+  const lines = text.split("\n");
+  lines.forEach((line, index) => {
+    if (
+      at === null ||
+      at.adds.has(index) ||
+      (parts.length > 0 && at.cuts.has(index))
+    )
+      touched = true;
     if (parts.length === 0 && COMMENT.test(line)) {
       touched = false;
       return;
     }
-    const comment = line.search(/(?:^|\s)(?:#|\/\/)/);
+    const comment = commentStart(line);
     if (comment === -1 && line.endsWith("\\")) {
       parts.push(line.slice(0, -1));
       return;
@@ -379,8 +390,29 @@ function changedCalls(text: string, at: Set<number> | null): string[] {
     parts = [];
     touched = false;
   });
+  if (at?.cuts.has(lines.length)) touched = true;
   if (parts.length > 0 && touched) calls.push(normalized(parts.join(" ")));
   return calls;
+}
+
+/** Where a "#" or "//" comment starts outside quotes, or -1. */
+function commentStart(line: string): number {
+  let quote = "";
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (quote !== "") {
+      if (c === quote) quote = "";
+      else if (c === "\\" && quote !== "'") i++;
+    } else if (c === '"' || c === "'" || c === "`") {
+      quote = c;
+    } else if (
+      (c === "#" || (c === "/" && line[i + 1] === "/")) &&
+      (i === 0 || /\s/.test(line[i - 1] ?? ""))
+    ) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 /** Judges one version of a repository skill; never throws on content. */

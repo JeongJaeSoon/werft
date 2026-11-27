@@ -1155,3 +1155,42 @@ describe("ninth review", () => {
     expect(isSpdxExpression("MIT WITH LicenseRef-Custom")).toBe(false);
   });
 });
+
+describe("tenth review", () => {
+  const sh = (body: string) => text("skills/s/scripts/a.sh", body);
+  const calls = (before: string | null, after: string) =>
+    gate({
+      before: before === null ? null : [...licensed("s"), sh(before)],
+      after: [...licensed("s"), sh(after)],
+    }).warnings.find((w) => w.rule === "network_call")?.samples ?? [];
+
+  test("removing a line before a kept command does not count the command", () => {
+    expect(calls("echo ready\nnpm ci\n", "npm ci\n")).toEqual([]);
+    expect(calls("npm ci\necho ready\n", "npm ci\n")).toEqual([]);
+  });
+
+  test("a quoted # or // is not a comment", () => {
+    expect(calls(null, "printf '%s' 'Build # 42'; npm ci\n")).toEqual([
+      "package_install",
+    ]);
+    expect(
+      gate({
+        before: null,
+        after: [
+          ...licensed("s"),
+          text(
+            "skills/s/scripts/a.js",
+            'console.log("build // ready"); fetch(url)\n',
+          ),
+        ],
+      }).warnings.find((w) => w.rule === "network_call")?.samples,
+    ).toEqual(["http_call"]);
+  });
+
+  test("uv tool install and npm exec after options are calls", () => {
+    expect(calls(null, "uv tool install ruff\n")).toEqual(["package_install"]);
+    expect(calls(null, "npm --prefix ./frontend exec -- prettier\n")).toEqual([
+      "package_runner",
+    ]);
+  });
+});
