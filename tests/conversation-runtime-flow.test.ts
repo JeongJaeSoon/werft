@@ -72,17 +72,20 @@ let provider: FakeAnthropicServer | undefined;
 let authorizer: ReturnType<typeof Bun.serve> | undefined;
 let proxy: CredentialProxyServer | undefined;
 let relay: PermitRelay | undefined;
-let opened: TopicSessions | undefined;
+const opened: TopicSessions[] = [];
 
 afterEach(async () => {
-  // First: an engine left running writes under the root removed below.
-  await opened?.dropAll();
-  relay?.stop();
-  proxy?.stop();
-  authorizer?.stop(true);
-  provider?.stop();
-  if (root !== undefined) await rm(root, { force: true, recursive: true });
-  root = provider = authorizer = proxy = relay = opened = undefined;
+  try {
+    // First: an engine left running writes under the root removed below.
+    for (const sessions of opened.splice(0)) await sessions.dropAll();
+  } finally {
+    relay?.stop();
+    proxy?.stop();
+    authorizer?.stop(true);
+    provider?.stop();
+    if (root !== undefined) await rm(root, { force: true, recursive: true });
+    root = provider = authorizer = proxy = relay = undefined;
+  }
 });
 
 async function stack(
@@ -160,7 +163,7 @@ async function stack(
   let clock = 0;
   relay = new PermitRelay(`http://127.0.0.1:${proxy.port}/provider`);
   const sessions = new TopicSessions(topics, relay, { now: () => clock });
-  opened = sessions;
+  opened.push(sessions);
   const tools = fakeConversationTools();
   const runner = createConversationTurnRunner({
     runtime,
@@ -526,6 +529,7 @@ describe("a conversation turn on the pinned engine, behind the egress proxy", ()
     expect(await old?.engines.exited(10_000)).toBe(true);
     // What a new process does first.
     const restarted = new TopicSessions(s.topics, s.relay);
+    opened.push(restarted);
     await restarted.reset();
     expect(await stat(join(s.root, topic)).catch(() => null)).toBeNull();
     const runner = createConversationTurnRunner({

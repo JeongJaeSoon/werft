@@ -49,7 +49,8 @@ export type TopicSession = {
  * restart starts with none. A session is dropped when its topic has been idle
  * for `idleMs`, when one more is opened past `limit` (the one idle longest),
  * or when its turn asks; dropping kills its engine and, once it has exited,
- * removes its directory. Nothing is resumed from disk.
+ * removes its directory. An engine whose exit is not seen keeps its topic
+ * closed. Nothing is resumed from disk.
  */
 export class TopicSessions {
   private readonly live = new Map<ConversationTopicId, TopicSession>();
@@ -90,7 +91,9 @@ export class TopicSessions {
 
   /** The topic's session, when it is alive and its idle time is not up. */
   async get(topicId: ConversationTopicId): Promise<TopicSession | null> {
-    await this.sweep();
+    // Another topic's engine that will not end is not this topic's failure;
+    // its own, if it had one, is met again when the topic is opened.
+    await this.sweep().catch(() => undefined);
     return this.live.get(topicId) ?? null;
   }
 
@@ -110,11 +113,16 @@ export class TopicSessions {
     startedFor = "",
   ): Promise<TopicSession> {
     await this.drop(topicId);
-    while (this.live.size >= this.limit) {
+    // An engine still ending is still an engine the runtime holds.
+    while (
+      this.live.size > 0 &&
+      this.live.size + this.ending.size >= this.limit
+    ) {
       const oldest = [...this.live.values()].reduce((a, b) =>
         b.lastUsedAt < a.lastUsedAt ? b : a,
       );
-      await this.drop(oldest.topicId);
+      // One that will not end does not fail this topic's turn.
+      await this.drop(oldest.topicId).catch(() => undefined);
     }
     const directory = await this.topics.open(topicId);
     const permitKey = this.relay.open();
@@ -124,9 +132,11 @@ export class TopicSessions {
       run = start(directory, permitKey, engines);
     } catch (error) {
       this.relay.close(permitKey);
-      // What the start left running, if anything, ends before its directory goes.
+      // What the start left running, if anything, ends before its directory
+      // goes; the start's own failure is the one the caller is told.
       this.ending.set(topicId, engines);
-      await this.drop(topicId);
+      engines.kill();
+      await this.drop(topicId).catch(() => undefined);
       throw error;
     }
     const session: TopicSession = {
@@ -147,25 +157,33 @@ export class TopicSessions {
   /**
    * Ends the topic's engine, when it has a live one, and removes the topic's
    * directory once that engine has exited. A dropped session has nothing left
-   * to save, so its engine is killed, not waited on: one still running writes
-   * into its directory, and so back into a removed one. Throws, the directory
-   * left, when the exit is not seen; the next drop of the topic tries again.
+   * to save, so its engine is not given time to end: it is killed, and its
+   * exit waited for up to `waitMs`. One still running writes into its
+   * directory, and so back into a removed one. Throws, the directory left,
+   * when the exit is not seen; a later drop of the topic looks again.
    */
-  async drop(topicId: ConversationTopicId): Promise<void> {
+  async drop(
+    topicId: ConversationTopicId,
+    waitMs = ENGINE_EXIT_WAIT_MS,
+  ): Promise<void> {
     const session = this.live.get(topicId);
     this.live.delete(topicId);
     if (session !== undefined) {
       this.relay.close(session.permitKey);
+      // Held from here: whatever fails next, its directory waits for its exit.
+      this.ending.set(topicId, session.engines);
       try {
         session.run.finishInput();
       } catch {}
-      await session.run.close().catch(() => undefined);
-      this.ending.set(topicId, session.engines);
+      try {
+        await session.run.close();
+      } catch {}
+      // Once: a later signal could reach a process given its pid since.
+      session.engines.kill();
     }
     const engines = this.ending.get(topicId);
     if (engines !== undefined) {
-      engines.kill();
-      if (!(await engines.exited(ENGINE_EXIT_WAIT_MS))) {
+      if (!(await engines.exited(waitMs))) {
         throw new Error("A topic's engine did not exit after it was killed");
       }
       this.ending.delete(topicId);
@@ -173,17 +191,36 @@ export class TopicSessions {
     await this.topics.drop(topicId);
   }
 
-  /** Drops every session whose topic has been idle for its lifetime. */
+  /**
+   * Drops every session whose topic has been idle for its lifetime, and looks
+   * again at the engines still ending.
+   */
   async sweep(): Promise<void> {
     const now = this.now();
-    for (const session of [...this.live.values()]) {
-      if (now - session.lastUsedAt >= this.idleMs) {
-        await this.drop(session.topicId);
-      }
-    }
+    await this.each([
+      // Without a wait: the drop that killed them gave them theirs.
+      ...[...this.ending.keys()].map((topicId) => this.drop(topicId, 0)),
+      ...[...this.live.values()]
+        .filter((session) => now - session.lastUsedAt >= this.idleMs)
+        .map((session) => this.drop(session.topicId)),
+    ]);
   }
 
   async dropAll(): Promise<void> {
-    for (const topicId of [...this.live.keys()]) await this.drop(topicId);
+    await this.each(
+      [...this.ending.keys(), ...this.live.keys()].map((topicId) =>
+        this.drop(topicId),
+      ),
+    );
+  }
+
+  /**
+   * Waits for every drop, their engines' exits together and not one after
+   * another, then throws the first failure.
+   */
+  private async each(drops: Promise<void>[]): Promise<void> {
+    for (const drop of await Promise.allSettled(drops)) {
+      if (drop.status === "rejected") throw drop.reason;
+    }
   }
 }
