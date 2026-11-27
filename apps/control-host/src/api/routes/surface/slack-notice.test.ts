@@ -16,39 +16,15 @@ const WORKSPACE = "019a0000-0000-7000-8000-0000000000f1";
 const AGENT = "019a0000-0000-7000-8000-0000000000b1";
 const PATH = `/v1/agents/${AGENT}/slack/notice`;
 
-const TEXT = {
-  body: ["Werft does not train any model on what it reads in Slack."],
-  policy_link: { label: "Data", href: "https://docs.example.test/data" },
-};
 const VIEW: GetSlackNoticeResponse = getSlackNoticeResponseSchema.parse({
-  notice: {
-    version: 1,
-    requires_reapproval: true,
-    text: { ko: TEXT, ja: TEXT },
-  },
-  state: "approved",
+  notice: null,
+  state: "no_notice",
   rollout: "off",
   can_approve: true,
-  approvals: [
-    {
-      id: "019a0000-0000-7000-8000-0000000000a1",
-      slack_team_id: "T0NOTICE",
-      notice_version: 1,
-      counts: true,
-      approved_by: {
-        user_id: "019a0000-0000-7000-8000-0000000000c1",
-        display_name: "Admin",
-        email: "admin@example.test",
-      },
-      approved_at: "2026-11-24T00:00:00.000Z",
-    },
-  ],
+  approvals: [],
 });
 
-type Notices = Pick<
-  SlackNoticeService,
-  "read" | "approve" | "revoke" | "setRollout"
->;
+type Notices = Pick<SlackNoticeService, "read" | "setRollout" | "retired">;
 
 function request(
   notices: Partial<Notices>,
@@ -93,39 +69,75 @@ describe("Slack notice routes", () => {
     expect(asked).toEqual([AGENT]);
   });
 
-  test("POST approve hands the service the version and language shown", async () => {
-    const asked: unknown[] = [];
-    const response = await request(
-      {
-        approve: async (_caller, agentId, body) => {
-          asked.push([agentId, body]);
-          return VIEW;
+  for (const [suffix, body] of [
+    ["/approve", { notice_version: 1, locale: "ja" }],
+    ["/approve", { anything: true }],
+    ["/approve", undefined],
+    ["/revoke", undefined],
+  ] as const) {
+    test(`POST ${suffix} ${JSON.stringify(body)} answers 410 ENDPOINT_RETIRED, whatever its body`, async () => {
+      const response = await request(
+        {
+          retired: () => {
+            throw new SessionServiceError(
+              "ENDPOINT_RETIRED",
+              "gone",
+              undefined,
+              { reason_code: "slack_notice_retired" },
+            );
+          },
         },
-      },
-      "POST",
-      `${PATH}/approve`,
-      { notice_version: 1, locale: "ja" },
-    );
-    expect(response.status).toBe(200);
-    expect(getSlackNoticeResponseSchema.parse(await response.json())).toEqual(
-      VIEW,
-    );
-    expect(asked).toEqual([[AGENT, { notice_version: 1, locale: "ja" }]]);
-  });
+        "POST",
+        `${PATH}${suffix}`,
+        body,
+      );
+      expect(response.status).toBe(410);
+      const { error } = apiErrorResponseSchema.parse(await response.json());
+      expect(error.code).toBe("ENDPOINT_RETIRED");
+      expect(error.details).toEqual({ reason_code: "slack_notice_retired" });
+    });
+  }
 
-  test("POST revoke answers the notice after the revoke", async () => {
-    const response = await request(
-      {
-        revoke: async () => ({ ...VIEW, state: "not_approved", approvals: [] }),
-      },
-      "POST",
-      `${PATH}/revoke`,
-    );
-    expect(response.status).toBe(200);
-    expect(
-      getSlackNoticeResponseSchema.parse(await response.json()).state,
-    ).toBe("not_approved");
-  });
+  for (const suffix of ["/approve", "/revoke"]) {
+    test(`POST ${suffix} hands the service the caller and answers its 403`, async () => {
+      const callers: unknown[] = [];
+      const response = await request(
+        {
+          retired: (caller) => {
+            callers.push(caller);
+            return refusing("FORBIDDEN", {
+              reason_code: "web_session_required",
+            })() as never;
+          },
+        },
+        "POST",
+        `${PATH}${suffix}`,
+      );
+      expect(response.status).toBe(403);
+      const { error } = apiErrorResponseSchema.parse(await response.json());
+      expect(error.details).toEqual({ reason_code: "web_session_required" });
+      expect(callers).toHaveLength(1);
+    });
+  }
+
+  for (const suffix of ["/approve", "/revoke"]) {
+    test(`POST ${suffix} with a body over the limit answers 413 before the route`, async () => {
+      let asked = false;
+      const response = await request(
+        {
+          retired: () => {
+            asked = true;
+            throw new Error("not reached");
+          },
+        },
+        "POST",
+        `${PATH}${suffix}`,
+        { pad: "x".repeat(REQUEST_BODY_MAX_BYTES) },
+      );
+      expect(response.status).toBe(413);
+      expect(asked).toBe(false);
+    });
+  }
 
   test("POST rollout hands the service the value asked for", async () => {
     const asked: unknown[] = [];
@@ -178,9 +190,6 @@ describe("Slack notice routes", () => {
 
   for (const [code, details, status] of [
     ["BAD_REQUEST", { reason_code: "rollout_on_unavailable" }, 400],
-    ["REVISION_CONFLICT", { reason_code: "notice_not_approved" }, 409],
-    ["REVISION_CONFLICT", { reason_code: "no_notice" }, 409],
-    ["SLACK_NOT_INSTALLED", {}, 409],
   ] as const) {
     test(`POST rollout answers ${status} ${code} ${JSON.stringify(details)}`, async () => {
       const response = await request(
@@ -196,76 +205,11 @@ describe("Slack notice routes", () => {
     });
   }
 
-  for (const invalid of [
-    {},
-    { notice_version: 1 },
-    { notice_version: 1, locale: "en" },
-    { notice_version: 0, locale: "ko" },
-    { notice_version: 1, locale: "ko", extra: true },
-  ]) {
-    test(`POST approve refuses ${JSON.stringify(invalid)} before the service`, async () => {
-      let called = false;
-      const response = await request(
-        {
-          approve: async () => {
-            called = true;
-            return VIEW;
-          },
-        },
-        "POST",
-        `${PATH}/approve`,
-        invalid,
-      );
-      expect(response.status).toBe(400);
-      expect(called).toBe(false);
-    });
-  }
-
-  test("POST approve refuses a body over the limit", async () => {
-    const response = await request(
-      { approve: async () => VIEW },
-      "POST",
-      `${PATH}/approve`,
-      {
-        notice_version: 1,
-        locale: "ko",
-        pad: "x".repeat(REQUEST_BODY_MAX_BYTES),
-      },
-    );
-    expect(response.status).toBe(413);
-  });
-
-  for (const [code, details, status] of [
-    ["REVISION_CONFLICT", { reason_code: "no_notice" }, 409],
-    ["REVISION_CONFLICT", { reason_code: "notice_version_stale" }, 409],
-    ["SLACK_NOT_INSTALLED", {}, 409],
-  ] as const) {
-    test(`POST approve answers ${status} ${code} ${JSON.stringify(details)}`, async () => {
-      const response = await request(
-        { approve: refusing(code, details) },
-        "POST",
-        `${PATH}/approve`,
-        { notice_version: 1, locale: "ko" },
-      );
-      expect(response.status).toBe(status);
-      const { error } = apiErrorResponseSchema.parse(await response.json());
-      expect(error.code).toBe(code);
-      expect(error.details ?? {}).toMatchObject(details);
-    });
-  }
-
   for (const [method, service, suffix] of [
     ["GET", "read", ""],
-    ["POST", "approve", "/approve"],
-    ["POST", "revoke", "/revoke"],
     ["POST", "setRollout", "/rollout"],
   ] as const) {
-    const body =
-      service === "approve"
-        ? { notice_version: 1, locale: "ko" }
-        : service === "setRollout"
-          ? { rollout: "off" }
-          : undefined;
+    const body = service === "setRollout" ? { rollout: "off" } : undefined;
     test(`${method} ${suffix || "/"} answers 403 when the service refuses the caller`, async () => {
       const response = await request(
         {

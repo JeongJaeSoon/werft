@@ -42,29 +42,9 @@ const LISTENS_TO_EVERY_MESSAGE = sql`b.surface = 'slack' AND b.status = 'ready'
       AND c.team_id = i.team_id AND c.channel_id = b.external_surface_id
       AND c.channel_state <> 'active')`;
 
-type NoticeWindow = NonNullable<ReturnType<typeof slackNoticeWindow>>;
-
-// `judgeSlackNotice` for the agent of `b`: every Slack team of its live
-// installs has a live approval within the counted versions.
-const approvedUnder = (window: NoticeWindow) => sql`NOT EXISTS (
-  SELECT 1 FROM agent_identities ai2
-  JOIN slack_installations i2 ON i2.id = ai2.installation_id
-    AND i2.workspace_id = ai2.workspace_id
-  WHERE ai2.workspace_id = b.workspace_id
-    AND ai2.agent_id = b.agent_id AND ai2.status = 'active'
-    AND i2.status <> 'revoked'
-    AND NOT EXISTS (
-      SELECT 1 FROM slack_notice_approvals n
-      WHERE n.workspace_id = b.workspace_id
-        AND n.agent_id = b.agent_id
-        AND n.slack_team_id = i2.team_id
-        AND n.revoked_at IS NULL
-        AND n.notice_version BETWEEN ${window.oldestCounted}::int
-          AND ${window.current}::int))`;
-
 /**
  * Whether the channel of a `channel_notice` outbox row (alias `row`) is still
- * one its agent reads every message of, under a counted approval. A row
+ * one its agent reads every message of. A row
  * whose channel is not is held, unsent, and goes once the channel is again:
  * it was never told.
  */
@@ -79,7 +59,7 @@ export function channelNoticeListening(
     WHERE b.agent_id = ${row}.agent_id
       AND b.installation_id = ${row}.installation_id
       AND b.external_surface_id = ${row}.channel_id
-      AND ${LISTENS_TO_EVERY_MESSAGE} AND ${approvedUnder(window)})`;
+      AND ${LISTENS_TO_EVERY_MESSAGE})`;
 }
 
 /**
@@ -100,8 +80,7 @@ export function channelNoticeCurrent(
 /**
  * Channels whose every message the agent now reads that were not told so
  * under the latest notice version that asked for approval, oldest binding
- * first, at most `limit`. Every Slack team of the agent's live installs has
- * a counted approval, as `judgeSlackNotice` asks. Whichever condition
+ * first, at most `limit`. Whichever condition
  * turned true last, the next pass finds the channel, so joining, listening
  * `free` and raising the switch all lead here. A row pending (held
  * included), being sent, sent or of unknown outcome counts as told, and so
@@ -137,7 +116,7 @@ export async function unnoticedSlackChannels(
             WHERE o.dedupe_key = ANY(${keys})
               AND (o.status <> 'failed' OR o.error_code = 'missing_ts')) AS told
         FROM ${LISTENING_FROM}
-        WHERE ${LISTENS_TO_EVERY_MESSAGE} AND ${approvedUnder(window)}
+        WHERE ${LISTENS_TO_EVERY_MESSAGE}
       ) due
       WHERE NOT due.told AND due.attempt < ${SLACK_CHANNEL_NOTICE_ATTEMPTS}::int
       ORDER BY due.created_at, due.id

@@ -19,8 +19,8 @@ import { SlackAllowedBots } from "./slack/bots.tsx";
 import { SlackChannels } from "./slack/channels.tsx";
 import { SlackSkeleton } from "./slack/connect.tsx";
 import { SlackJudgments } from "./slack/judgments.tsx";
-import { SlackNoticeSection } from "./slack/notice.tsx";
 import { unverifiedApp, useSlackBindings } from "./slack/queries.ts";
+import { SlackRolloutSection } from "./slack/rollout.tsx";
 import {
   SECTION,
   SECTION_LABEL,
@@ -100,7 +100,7 @@ export default function SlackTab({
   // revoke or delete. Before the first install there are no channels yet.
   const keys: readonly SectionKey[] = [
     "slack",
-    ...(connected ? (["notice", "channels"] as const) : []),
+    ...(connected ? (["rollout", "channels"] as const) : []),
     ...(connected && !homeStep ? (["judgments", "basic"] as const) : []),
     ...(manages ? (["token"] as const) : []),
     // Before an app there is no address to put in it.
@@ -129,7 +129,7 @@ export default function SlackTab({
           connected={connected}
         />
         {connected ? (
-          <SlackNoticeSection agentId={agentId} notify={notify} />
+          <SlackRolloutSection agentId={agentId} notify={notify} />
         ) : null}
         {connected ? (
           <SlackChannels

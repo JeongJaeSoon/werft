@@ -1,8 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { slackNoticeVersionSchema } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
-import { approveSlackNotice, revokeSlackNotice } from "@werft-ai/db";
 import { fixtureTeamSql } from "@werft-ai/db/testing/fixture-team";
 import {
   createTempDatabase,
@@ -15,22 +13,6 @@ import { runSlackNotice, SLACK_NOTICE_EXIT } from "./slack-notice.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
-const V1 = [
-  {
-    version: slackNoticeVersionSchema.parse(1),
-    text: {
-      ko: {
-        body: ["notice"],
-        policyLink: { label: "policy", href: "https://docs.example.test/data" },
-      },
-      ja: {
-        body: ["notice"],
-        policyLink: { label: "policy", href: "https://docs.example.test/data" },
-      },
-    },
-    requiresReapproval: true,
-  },
-];
 /** Stored where the command could reach it; it must never be printed. */
 const CREDENTIAL_REF = "slack/notice-cli-bot-token";
 
@@ -42,7 +24,7 @@ integration("slack-notice command on PostgreSQL", () => {
   const agentId = randomUUID();
   const admin = randomUUID();
 
-  async function command(argv: string[], versions?: typeof V1) {
+  async function command(argv: string[]) {
     const out: string[] = [];
     const err: string[] = [];
     const code = await runSlackNotice(argv, {
@@ -50,7 +32,6 @@ integration("slack-notice command on PostgreSQL", () => {
       out: (line) => out.push(line),
       err: (line) => err.push(line),
       openDatabase: async () => ({ db, close: async () => {} }),
-      ...(versions === undefined ? {} : { versions }),
     });
     return { code, out, err };
   }
@@ -94,74 +75,37 @@ integration("slack-notice command on PostgreSQL", () => {
     await database?.drop();
   }, 60_000);
 
-  test("show and list print the approval rows, ids, versions and times only", async () => {
-    // With no version published, so the approvals below never count.
-    const empty = await command(["show", "--agent", agentId], []);
-    expect(empty.code).toBe(SLACK_NOTICE_EXIT.ok);
-    expect(JSON.parse(empty.out[0] ?? "")).toEqual({
+  test("show prints the switch, ids and values only; no approval is read", async () => {
+    // An approval row left from before the approval was retired: never printed.
+    await pool.query(
+      `INSERT INTO slack_notice_approvals
+         (id, workspace_id, agent_id, slack_team_id, notice_version, approved_by)
+       VALUES ($1, $2, $3, 'T0NOTICECLI', 1, $4)`,
+      [randomUUID(), workspaceId, agentId, admin],
+    );
+    const shown = await command(["show", "--agent", agentId]);
+    expect(shown.code).toBe(SLACK_NOTICE_EXIT.ok);
+    expect(shown.out).toHaveLength(1);
+    expect(JSON.parse(shown.out[0] ?? "")).toEqual({
       outcome: "shown",
       agent_id: agentId,
       workspace_id: workspaceId,
       rollout: "off",
-      approved: false,
-      reason: "no_notice",
-      approvals: [],
     });
-
-    const approved = await approveSlackNotice(
-      db,
-      { workspaceId, agentId, by: admin, locale: "ko" },
-      V1,
-    );
-    if (approved.outcome !== "approved") throw new Error(approved.outcome);
-    const [first] = approved.added;
-    await revokeSlackNotice(db, { workspaceId, agentId, by: admin });
-    await approveSlackNotice(
-      db,
-      { workspaceId, agentId, by: admin, locale: "ko" },
-      V1,
-    );
-
-    const shown = await command(["show", "--agent", agentId], []);
-    expect(shown.code).toBe(SLACK_NOTICE_EXIT.ok);
-    expect(shown.out).toHaveLength(1);
-    const line = JSON.parse(shown.out[0] ?? "");
-    expect(line).toMatchObject({ approved: false, reason: "no_notice" });
-    expect(line.approvals).toHaveLength(2);
-    expect(line.approvals[0]).toEqual({
-      id: first?.approvalId,
-      agent_id: agentId,
-      slack_team_id: "T0NOTICECLI",
-      notice_version: 1,
-      approved_by: admin,
-      approved_at: expect.any(String),
-      revoked_by: admin,
-      revoked_at: expect.any(String),
-    });
-    expect(line.approvals[1]).toMatchObject({
-      revoked_by: null,
-      revoked_at: null,
-    });
-
-    const listed = await command(["list", "--workspace", workspaceId]);
-    expect(listed.code).toBe(SLACK_NOTICE_EXIT.ok);
-    const list = JSON.parse(listed.out[0] ?? "");
-    expect(list).toMatchObject({
-      outcome: "listed",
-      workspace_id: workspaceId,
-    });
-    expect(list.approvals).toEqual(line.approvals);
-
-    for (const output of [shown, listed]) {
-      const text = output.out.join("\n");
-      expect(text).not.toContain(CREDENTIAL_REF);
-      expect(text).not.toContain("U0NOTICECLI");
-      expect(text).not.toContain("@example.invalid");
-      expect(output.err).toEqual([]);
-    }
+    const text = shown.out.join("\n");
+    expect(text).not.toContain(CREDENTIAL_REF);
+    expect(text).not.toContain("U0NOTICECLI");
+    expect(text).not.toContain("@example.invalid");
+    expect(shown.err).toEqual([]);
   });
 
-  test("set-rollout raises the switch of an approved agent and records by operator_cli; on and an unapproved raise exit 4", async () => {
+  test("list is gone with the approval", async () => {
+    const listed = await command(["list", "--workspace", workspaceId]);
+    expect(listed.code).toBe(SLACK_NOTICE_EXIT.usage);
+    expect(listed.out).toEqual([]);
+  });
+
+  test("set-rollout raises the switch without any approval and records by operator_cli; on exits 4", async () => {
     const rolloutReceipts = async () =>
       (
         await pool.query(
@@ -169,34 +113,31 @@ integration("slack-notice command on PostgreSQL", () => {
           [agentId],
         )
       ).rows;
-    await revokeSlackNotice(db, { workspaceId, agentId, by: admin });
-    const refused = await command(
-      ["set-rollout", "--agent", agentId, "--rollout", "shadow"],
-      V1,
+    // No live approval: the one row there is revoked.
+    await pool.query(
+      "UPDATE slack_notice_approvals SET revoked_at = now(), revoked_by = $2 WHERE agent_id = $1",
+      [agentId, admin],
     );
-    expect(refused.code).toBe(SLACK_NOTICE_EXIT.refused);
-    expect(JSON.parse(refused.out[0] ?? "")).toEqual({
+    const on = await command([
+      "set-rollout",
+      "--agent",
+      agentId,
+      "--rollout",
+      "on",
+    ]);
+    expect(on.code).toBe(SLACK_NOTICE_EXIT.refused);
+    expect(JSON.parse(on.out[0] ?? "")).toEqual({
       outcome: "refused",
       agent_id: agentId,
-      reason_code: "not_approved",
-    });
-    await approveSlackNotice(
-      db,
-      { workspaceId, agentId, by: admin, locale: "ko" },
-      V1,
-    );
-    const on = await command(
-      ["set-rollout", "--agent", agentId, "--rollout", "on"],
-      V1,
-    );
-    expect(on.code).toBe(SLACK_NOTICE_EXIT.refused);
-    expect(JSON.parse(on.out[0] ?? "")).toMatchObject({
       reason_code: "rollout_on_unavailable",
     });
-    const raised = await command(
-      ["set-rollout", "--agent", agentId, "--rollout", "shadow"],
-      V1,
-    );
+    const raised = await command([
+      "set-rollout",
+      "--agent",
+      agentId,
+      "--rollout",
+      "shadow",
+    ]);
     expect(raised.code).toBe(SLACK_NOTICE_EXIT.ok);
     expect(JSON.parse(raised.out[0] ?? "")).toEqual({
       outcome: "changed",
@@ -205,22 +146,27 @@ integration("slack-notice command on PostgreSQL", () => {
       after: "shadow",
       buffered_dropped: 0,
     });
-    const again = await command(
-      ["set-rollout", "--agent", agentId, "--rollout", "shadow"],
-      V1,
-    );
+    const again = await command([
+      "set-rollout",
+      "--agent",
+      agentId,
+      "--rollout",
+      "shadow",
+    ]);
     expect(JSON.parse(again.out[0] ?? "")).toMatchObject({
       outcome: "unchanged",
     });
-    const shown = await command(["show", "--agent", agentId], V1);
+    const shown = await command(["show", "--agent", agentId]);
     expect(JSON.parse(shown.out[0] ?? "")).toMatchObject({
       rollout: "shadow",
-      approved: true,
     });
-    const lowered = await command(
-      ["set-rollout", "--agent", agentId, "--rollout", "off"],
-      V1,
-    );
+    const lowered = await command([
+      "set-rollout",
+      "--agent",
+      agentId,
+      "--rollout",
+      "off",
+    ]);
     expect(JSON.parse(lowered.out[0] ?? "")).toMatchObject({
       outcome: "changed",
       after: "off",
@@ -251,10 +197,9 @@ integration("slack-notice command on PostgreSQL", () => {
     ]);
   });
 
-  test("an unknown agent or workspace exits 3", async () => {
+  test("an unknown agent exits 3", async () => {
     for (const argv of [
       ["show", "--agent", randomUUID()],
-      ["list", "--workspace", randomUUID()],
       ["set-rollout", "--agent", randomUUID(), "--rollout", "off"],
     ]) {
       const result = await command(argv);
