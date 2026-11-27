@@ -190,10 +190,10 @@ test("static checks keep one cache writer and report independent failures", () =
     "plan",
     "sdk",
     "conformance",
-    "reuse",
     "./.github/actions/bun-setup",
-    "units",
     "domains",
+    "reuse",
+    "units",
   ]);
   const job = workflow.jobs.static;
   expect(job?.name).toBe("check (static)");
@@ -974,10 +974,16 @@ test("an integration domain no changed path reaches starts no job", () => {
     changes?.steps.find((s) => s.uses === "./.github/actions/bun-setup")?.if,
   ).toBe("steps.plan.outputs.tests == 'true'");
   const step = changes?.steps.find((s) => s.id === "domains");
-  // A reused run plans no domain, and its tests flag is off with it.
-  expect(step?.if).toBe(
-    "steps.plan.outputs.tests == 'true' && steps.reuse.outputs.reused == ''",
-  );
+  // Made before reuse is judged: ci-reuse.sh holds a reused run to these job
+  // names. A reused run still starts no domain, as its tests flag is off.
+  expect(step?.if).toBe("steps.plan.outputs.tests == 'true'");
+  const ids = changes?.steps.map((s) => s.id) ?? [];
+  expect(ids.indexOf("domains")).toBeGreaterThan(-1);
+  expect(ids.indexOf("domains")).toBeLessThan(ids.indexOf("reuse"));
+  expect(changes?.outputs?.tests).toContain("steps.reuse.outputs.reused != ''");
+  expect(
+    changes?.steps.find((s) => s.id === "reuse")?.env?.INTEGRATION_MATRIX,
+  ).toBe("${{ steps.domains.outputs.matrix }}");
   expect(step?.env?.DOMAINS).toBe("${{ steps.plan.outputs.domains }}");
   const plan = (domains: string) => {
     const dir = mkdtempSync(join(tmpdir(), "integration-matrix-"));
@@ -995,8 +1001,22 @@ test("an integration domain no changed path reaches starts no job", () => {
   };
   const web = plan('["surface"]');
   expect(web.exitCode).toBe(0);
-  expect(web.output).toBe(
-    'matrix=[{"domain":"surface","postgres":true,"localstack":false,"docker":false}]\n',
+  // One line, one entry per shard of the one planned domain.
+  expect(web.output).toStartWith("matrix=[");
+  expect(web.output.split("\n")).toEqual([expect.any(String), ""]);
+  const entries = JSON.parse(web.output.slice("matrix=".length)) as {
+    domain: string;
+    name: string;
+    postgres: boolean;
+  }[];
+  expect(entries.length).toBeGreaterThan(0);
+  for (const entry of entries) {
+    expect(entry).toMatchObject({ domain: "surface", postgres: true });
+  }
+  expect(entries.map((e) => e.name)).toEqual(
+    entries.length === 1
+      ? ["surface"]
+      : entries.map((_, i) => `surface ${i + 1}/${entries.length}`),
   );
   // A plan the declaration cannot meet fails `changes`, and with it the gates.
   for (const domains of ['["nope"]', "[]", ""]) {
