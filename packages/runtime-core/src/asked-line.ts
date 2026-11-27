@@ -654,8 +654,8 @@ function unsplitKept(
       return "a part an ask rule names";
     }
     // Once the text is cut, what a printer is given in its piece is text.
-    // A `>` with a file after it is read below as a redirect wherever it
-    // stands, inside a printed quote as well: a substitution in double
+    // The redirect targets the scan below matches are read wherever they
+    // stand, inside a printed quote as well: a substitution in double
     // quotes runs.
     if (PRINTERS.includes(nameOf(words[0] as string))) continue;
     const moved = movedTo(words, root, bases);
