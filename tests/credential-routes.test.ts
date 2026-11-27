@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { isIP } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +17,7 @@ import { createLogger } from "@werft-ai/observability";
 import {
   admitsReservations,
   createWorkerGateway,
+  GitHubGateError,
   type GitHubGrant,
   priceProviderUsage,
   type WorkerGateway,
@@ -56,10 +57,12 @@ import {
 import {
   type CredentialProxyServer,
   DEFAULT_AUTHORIZE_TIMEOUT_MS,
+  PUSH_NOTICE,
   startCredentialProxy,
 } from "../apps/egress-proxy/src/credential.ts";
 import { createProxyLogger } from "../apps/egress-proxy/src/logger.ts";
 import { engineProfile } from "../apps/worker/src/composition.ts";
+import { writeRepositoryRoutes } from "../apps/worker/src/repository-routes.ts";
 import {
   claimSecrets,
   SecretScrubber,
@@ -89,6 +92,8 @@ let authorizer: ReturnType<typeof Bun.serve> | undefined;
 let proxy: CredentialProxyServer | undefined;
 let isolated: IsolatedWorkspace | undefined;
 let scratch: string | undefined;
+// The repositories the gateway asked the gate for, one entry per grant.
+let granted: Array<string | undefined> = [];
 
 beforeEach(async () => {
   client = await migratedPGlite();
@@ -112,6 +117,7 @@ afterEach(async () => {
   repository = undefined;
   isolated = undefined;
   scratch = undefined;
+  granted = [];
 });
 
 type Topology = {
@@ -145,6 +151,10 @@ async function topology(
   repository = await startGitHttpServer({ authorization: basic });
   await createServedRepository(repository, "app", {
     "README.md": "hello\n",
+  });
+  // In the catalog, on the same server, and never attached to the session.
+  await createServedRepository(repository, "other", {
+    "README.md": "not yours\n",
   });
   const repositoryUrl = `http://${REPOSITORY_HOST}:${repository.port}/app.git`;
 
@@ -183,16 +193,28 @@ async function topology(
           branch: "main",
           auth: { kind: "github_app", registered: true },
         },
+        other: {
+          url: `http://${REPOSITORY_HOST}:${repository.port}/other.git`,
+          branch: "main",
+          auth: { kind: "github_app", registered: true },
+        },
       },
     },
     github: {
-      grant: async () =>
-        ({
+      // As the gate answers a session that attached nothing: its own
+      // repository only (github-gate.test.ts pins the gate's side).
+      grant: async ({ repositoryId }) => {
+        granted.push(repositoryId);
+        if (repositoryId !== undefined) {
+          throw new GitHubGateError("repository_not_allowed", null);
+        }
+        return {
           gitCredential: {
             username: "x-access-token",
             password: repositoryPassword,
           },
-        }) as GitHubGrant,
+        } as GitHubGrant;
+      },
     },
     checkpoints: acceptAllCheckpoints,
     options: {
@@ -778,4 +800,285 @@ describe("credential routes end to end", () => {
     });
     expect(other.status).toBe(401);
   }, 60_000);
+
+  describe("the sandbox's repository token fetches the session's repository and nothing else", () => {
+    // Not spawnSync: the proxy and the authorizer answer git from this process.
+    async function git(
+      args: string[],
+      cwd: string,
+      env: Record<string, string>,
+    ) {
+      const child = Bun.spawn(["git", ...args], {
+        cwd,
+        env,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [stdout, stderr, status] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ]);
+      return { status, stdout, stderr };
+    }
+
+    /**
+     * Everything a holder of the token could try besides the fetch: a push,
+     * an LFS upload, a GitHub API call, another repository, every other route
+     * of the proxy and the worker gateway. Nothing reaches an upstream.
+     */
+    async function onlyFetches(
+      topology: Topology,
+      token: string,
+      sandbox: { cwd: string; env: Record<string, string> },
+    ) {
+      const { credentialUrl, gateway } = topology;
+      if (repository === undefined || messages === undefined) {
+        throw new Error("no topology");
+      }
+      const bearer = { authorization: `Bearer ${token}` };
+      const asked = granted.length;
+
+      // A push from the checkout ends at the notice, before any upstream.
+      const commit = await git(
+        [
+          "-c",
+          "user.name=sandbox",
+          "-c",
+          "user.email=sandbox@example.invalid",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "from the sandbox",
+        ],
+        sandbox.cwd,
+        sandbox.env,
+      );
+      expect(commit.status).toBe(0);
+      for (const ref of ["HEAD:refs/heads/agent/sandbox", "HEAD:main"]) {
+        const push = await git(
+          ["push", "origin", ref],
+          sandbox.cwd,
+          sandbox.env,
+        );
+        expect(push.status).not.toBe(0);
+        expect(push.stderr).toContain(PUSH_NOTICE);
+      }
+
+      // Another catalog repository, through the same route and header git
+      // sends anywhere under it: the gate is asked and refuses.
+      const route = `${credentialUrl}/repository/other/.git`;
+      const other = await git(["ls-remote", route], sandbox.cwd, sandbox.env);
+      expect(other.status).not.toBe(0);
+      expect(other.stdout).toBe("");
+      expect(granted.slice(asked)).toContain("other");
+
+      const refused: Array<[string, RequestInit, number]> = [
+        // receive-pack itself, and an LFS upload, have no route.
+        [
+          "/repository/git-receive-pack",
+          { method: "POST", headers: bearer, body: "0000" },
+          404,
+        ],
+        [
+          "/repository/app/.git/git-receive-pack",
+          { method: "POST", headers: bearer, body: "0000" },
+          404,
+        ],
+        [
+          "/repository/app/.git/info/lfs/objects/batch",
+          {
+            method: "POST",
+            headers: {
+              ...bearer,
+              "content-type": "application/vnd.git-lfs+json",
+            },
+            body: JSON.stringify({
+              operation: "upload",
+              objects: [{ oid: "0".repeat(64), size: 1 }],
+            }),
+          },
+          400,
+        ],
+        // GitHub's API has no route here, whatever path it is put under.
+        [
+          "/repos/acme/app/pulls",
+          { method: "POST", headers: bearer, body: "{}" },
+          404,
+        ],
+        [
+          "/repository/app/.git/repos/acme/app/contents/README.md",
+          { method: "PUT", headers: bearer, body: "{}" },
+          404,
+        ],
+        // Every other route judges it a token for another route.
+        [
+          "/provider/v1/messages",
+          {
+            method: "POST",
+            headers: { "x-api-key": token, "content-type": "application/json" },
+            body: "{}",
+          },
+          401,
+        ],
+        [
+          "/provider/v1/messages",
+          {
+            method: "POST",
+            headers: { ...bearer, "content-type": "application/json" },
+            body: "{}",
+          },
+          401,
+        ],
+        [
+          "/mcp/github",
+          {
+            method: "POST",
+            headers: { ...bearer, "content-type": "application/json" },
+            body: "{}",
+          },
+          401,
+        ],
+        ["/packages/npm/left-pad", { headers: bearer }, 401],
+        [
+          "/decisions/v1/decisions",
+          { method: "POST", headers: bearer, body: "{}" },
+          401,
+        ],
+      ];
+      const statuses = [];
+      for (const [path, init] of refused) {
+        const response = await fetch(`${credentialUrl}${path}`, init);
+        statuses.push([path, response.status]);
+      }
+      expect(statuses).toEqual(
+        refused.map(([path, , status]) => [path, status]),
+      );
+
+      // Nor is it a worker credential: the gateway's own API refuses it.
+      await expect(gateway.authenticate(token)).rejects.toMatchObject({
+        status: 401,
+      });
+
+      expect(messages.requests).toEqual([]);
+      for (const request of repository.requests) {
+        expect(request.path).toMatch(
+          /^\/app\.git\/(info\/refs\?service=git-upload-pack|git-upload-pack)$/,
+        );
+      }
+    }
+
+    test("as the engine's git reads it from its user-level config", async () => {
+      const shape = await topology();
+      const { claim, credentialUrl, repositoryUrl } = shape;
+      const token = claim.workspace.repository?.access?.token;
+      if (token === undefined) throw new Error("no repository token");
+      scratch = await mkdtemp(join(tmpdir(), "sandbox-token-"));
+      const home = join(scratch, "home");
+      expect(
+        await writeRepositoryRoutes(home, credentialUrl, claim.workspace),
+      ).toBe(true);
+      // What a Bash tool call's git has: HOME and PATH, no system config.
+      const env = {
+        PATH: process.env.PATH ?? "",
+        HOME: home,
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_TERMINAL_PROMPT: "0",
+      };
+      const clone = await git(
+        ["clone", repositoryUrl, "checkout"],
+        scratch,
+        env,
+      );
+      expect(clone.status).toBe(0);
+      const checkout = join(scratch, "checkout");
+      expect(await readFile(join(checkout, "README.md"), "utf8")).toBe(
+        "hello\n",
+      );
+
+      await onlyFetches(shape, token, { cwd: checkout, env });
+    }, 60_000);
+
+    test("as the worker's own git children carry it in their environment", async () => {
+      const shape = await topology();
+      const { claim, bootstrapNonce, credentialUrl, repositoryUrl } = shape;
+      const token = claim.workspace.repository?.access?.token;
+      if (token === undefined) throw new Error("no repository token");
+      scratch = await mkdtemp(join(tmpdir(), "worker-git-env-"));
+      const real = Bun.which("git");
+      if (real === null) throw new Error("no git on PATH");
+      // A git first on PATH that writes down its environment, then is git.
+      const shims = join(scratch, "bin");
+      const dumps = join(scratch, "env");
+      await Bun.write(join(dumps, ".keep"), "");
+      await Bun.write(
+        join(shims, "git"),
+        `#!/bin/sh\nenv > "${dumps}/$$.txt"\nexec "${real}" "$@"\n`,
+      );
+      await chmod(join(shims, "git"), 0o755);
+      const root = join(scratch, "workspace");
+      const path = process.env.PATH;
+      process.env.PATH = `${shims}:${path ?? ""}`;
+      try {
+        await new GitWorkspace(root, "CLAUDE.md", credentialUrl).prepare({
+          descriptor: claim.workspace,
+          restore: null,
+          signal: AbortSignal.timeout(60_000),
+        });
+      } finally {
+        process.env.PATH = path;
+      }
+
+      const environments = await Promise.all(
+        (await readdir(dumps))
+          .filter((name) => name.endsWith(".txt"))
+          .map((name) => readFile(join(dumps, name), "utf8")),
+      );
+      const carried = new Set(
+        environments.flatMap((dump) =>
+          [...dump.matchAll(/Authorization: Bearer (\S+)/g)].map(
+            ([, value]) => value,
+          ),
+        ),
+      );
+      // The clone and fetch children carry the claim's repository token,
+      // and no other secret of the attempt is in any child's environment.
+      expect([...carried]).toEqual([token]);
+      const others = claimSecrets(claim, bootstrapNonce).filter(
+        (value): value is string => value !== undefined && value !== token,
+      );
+      expect(others.length).toBeGreaterThan(0);
+      for (const dump of environments) {
+        for (const value of others) expect(dump).not.toContain(value);
+      }
+
+      // The same token from the sandbox's side: a checkout of its own whose
+      // git takes the worker's header, and nothing beyond the fetch.
+      const config = environments
+        .flatMap((dump) => dump.split("\n"))
+        .find((line) => line.includes(`Authorization: Bearer ${token}`));
+      expect(config).toBeDefined();
+      const env = {
+        PATH: process.env.PATH ?? "",
+        HOME: join(scratch, "home"),
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_TERMINAL_PROMPT: "0",
+        GIT_CONFIG_COUNT: "3",
+        GIT_CONFIG_KEY_0: `url.${credentialUrl}/repository.insteadOf`,
+        GIT_CONFIG_VALUE_0: repositoryUrl,
+        GIT_CONFIG_KEY_1: `http.${credentialUrl}/.extraHeader`,
+        GIT_CONFIG_VALUE_1: `Authorization: Bearer ${[...carried][0]}`,
+        GIT_CONFIG_KEY_2: "http.followRedirects",
+        GIT_CONFIG_VALUE_2: "false",
+      };
+      const clone = await git(
+        ["clone", repositoryUrl, "checkout"],
+        scratch,
+        env,
+      );
+      expect(clone.status).toBe(0);
+
+      await onlyFetches(shape, token, { cwd: join(scratch, "checkout"), env });
+    }, 60_000);
+  });
 });
