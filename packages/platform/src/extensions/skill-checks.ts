@@ -40,7 +40,7 @@ export const INSTRUCTION_PATTERNS: readonly { id: string; pattern: RegExp }[] =
     {
       id: "ignore_instructions_ko",
       pattern:
-        /(?:이전|앞의|위의|기존|모든)\s*(?:의\s*)?(?:모든\s*)?(?:지시|지침|명령|규칙)\S{0,4}\s*(?:을|를)?\s*(?:무시|잊)/,
+        /(?:이전|앞의|위의|기존|모든)\s*(?:의\s*)?(?:모든\s*)?(?:지시|지침|명령|규칙)\S{0,4}\s*(?:(?:을|를)\s*)?(?:무시|잊)/,
     },
     {
       id: "send_credentials_ko",

@@ -1027,3 +1027,39 @@ describe("sixth review", () => {
     }
   });
 });
+
+describe("seventh review", () => {
+  const warn = (body: string, allowed: string[] = []) =>
+    gate({
+      allowedHosts: new Set(allowed),
+      after: [...licensed("s"), text("skills/s/scripts/a.sh", body)],
+    }).warnings;
+
+  test("a command continued over lines reads as one", () => {
+    expect(warn("npm \\\n  ci\n")[0]?.samples).toEqual(["package_install"]);
+    expect(warn(`${"echo \\\n".repeat(50_000)}done\n`)).toEqual([]);
+  });
+
+  test("a template URL with an interpolated path names its host", () => {
+    expect(
+      warn(
+        [
+          'const path = "/v1"; fetch(`https://outside.example',
+          "{path}`);\n",
+        ].join("$"),
+      ).find((w) => w.rule === "host_not_allowlisted")?.samples,
+    ).toEqual(["outside.example"]);
+  });
+
+  test("the Korean instruction pattern stays linear on a long run of spaces", () => {
+    const started = performance.now();
+    const result = gate({
+      after: [
+        ...licensed("s"),
+        text("skills/s/a.md", `이전 지시${" ".repeat(160_000)}X\n`),
+      ],
+    });
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(result.warnings).toEqual([]);
+  });
+});

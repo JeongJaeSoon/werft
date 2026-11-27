@@ -311,7 +311,7 @@ function codeHosts(line: string): Set<string> {
       [...plainTextHosts(text)].find((host) => CLEAN_HOST.test(host));
     // Userinfo reached across a quote or comma is another string of code.
     const crossed = userinfoCrossesCode(segment);
-    const split = clean(segment.replace(/["'`,(){}]/g, " "));
+    const split = clean(segment.replace(/["'`,(){}$]/g, " "));
     const host = crossed
       ? (split ?? clean(segment))
       : (clean(segment) ?? split);
@@ -380,6 +380,7 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
       earlierKind !== null && "text" in earlierKind
         ? earlierKind.text.replace(/\r\n/g, "\n")
         : null;
+    let carried = "";
     for (const line of addedLines(
       earlierText,
       kind.text.replace(/\r\n/g, "\n"),
@@ -401,9 +402,20 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
           flag("host_not_allowlisted", file.path, host);
       }
       // As written: a fullwidth "＃" starts no comment, though NFKC makes it "#".
-      if (COMMENT.test(line)) continue;
+      if (COMMENT.test(line)) {
+        carried = "";
+        continue;
+      }
+      // A line ending in "\" goes on in the next: "npm \" then "ci". Only the
+      // tail is carried, so a long run of such lines stays linear.
+      const call = carried + plain;
+      if (call.endsWith("\\")) {
+        carried = `${call.slice(-1000, -1)} `;
+        continue;
+      }
+      carried = "";
       for (const { id, pattern } of NETWORK_CALL_PATTERNS) {
-        if (pattern.test(plain)) flag("network_call", file.path, id);
+        if (pattern.test(call)) flag("network_call", file.path, id);
       }
     }
   }
