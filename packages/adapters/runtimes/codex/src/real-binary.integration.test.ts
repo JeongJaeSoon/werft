@@ -348,7 +348,8 @@ describe.skipIf(!available)("the pinned codex app-server", () => {
               call_id: CALL,
               name: "exec_command",
               arguments: JSON.stringify({
-                cmd: "echo pending | tee asked.txt",
+                // On the workspace ask list, so the run leaves it to a person.
+                cmd: 'echo pending | sed -n "w asked.txt"',
               }),
             },
           ]
@@ -576,10 +577,10 @@ describe.skipIf(!available)("the pinned codex app-server", () => {
     );
   }, 120_000);
 
-  test("a command no rule names asks, and a repository's own .codex/rules grants nothing", async () => {
+  test("a command the policy keeps asks, and a repository's own .codex/rules grants nothing", async () => {
     const { work, asked } = await firstAsk(
       "repo-rules",
-      ["touch ruled.txt"],
+      ["touch ../ruled.txt"],
       async (dir) => {
         expect(Bun.spawnSync(["git", "init", "-q", dir]).exitCode).toBe(0);
         await Bun.write(
@@ -589,8 +590,26 @@ describe.skipIf(!available)("the pinned codex app-server", () => {
       },
     );
     expect(asked).toBe("call_1");
-    expect(await Bun.file(join(work, "ruled.txt")).exists()).toBe(false);
+    expect(await Bun.file(join(work, "..", "ruled.txt")).exists()).toBe(false);
   }, 60_000);
+
+  test("work inside the workspace that no rule names runs without a person; a path outside asks", async () => {
+    const inside = await firstAsk("sandbox-inside", [
+      "echo own | tee own.txt",
+      "touch made.txt && cp made.txt copy.txt && rm made.txt",
+    ]);
+    expect(inside.asked).toBeNull();
+    expect(await Bun.file(join(inside.work, "own.txt")).text()).toBe("own\n");
+    expect(await Bun.file(join(inside.work, "copy.txt")).exists()).toBe(true);
+    expect(await Bun.file(join(inside.work, "made.txt")).exists()).toBe(false);
+    const outside = await firstAsk("sandbox-outside", [
+      "touch ../sandbox-escaped.txt",
+    ]);
+    expect(outside.asked).toBe("call_1");
+    expect(await Bun.file(join(root, "sandbox-escaped.txt")).exists()).toBe(
+      false,
+    );
+  }, 120_000);
 
   test("keeps no memory of its own: none written, none read on a new or restored session", async () => {
     const seen: Seen[] = [];

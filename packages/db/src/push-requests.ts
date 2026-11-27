@@ -19,6 +19,7 @@ import {
   pushDecisionOf,
   type ReceiptActor,
   repositoryCeilingOf,
+  WORKFLOWS_PUSH_REASON_VALUES,
 } from "@werft-ai/contracts";
 import {
   PUSH_REFUSAL_ERRORS,
@@ -1129,7 +1130,15 @@ export function createPostgresPushRequests(
               repository: row.repositoryId,
               branch: row.targetBranch,
               commit: row.gitCommit,
-              ...(pushed ? {} : { reason: outcome.refusal }),
+              // A workflow refusal has words of its own for the thread.
+              ...(pushed
+                ? {}
+                : {
+                    reason:
+                      WORKFLOWS_PUSH_REASON_VALUES.find(
+                        (reason) => reason === outcome.reasonCode,
+                      ) ?? outcome.refusal,
+                  }),
             },
           });
         }

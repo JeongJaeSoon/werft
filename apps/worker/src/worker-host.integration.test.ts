@@ -384,7 +384,9 @@ describe("WorkerHost interrupt against the actual Claude SDK", () => {
       server = startFakeAnthropicServer(async (request, index) => {
         if (moment === "tool" && index === 0) {
           return toolReply("Bash", {
-            command: "touch interrupted.txt",
+            // sed's `w` is on the workspace ask list, so the call waits for
+            // a person.
+            command: 'echo x | sed -n "w interrupted.txt"',
             description: "Create a file",
           });
         }

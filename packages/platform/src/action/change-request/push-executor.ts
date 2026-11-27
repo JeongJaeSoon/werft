@@ -192,12 +192,22 @@ export function createPushExecutor(deps: {
         deadline,
       });
       if (pushed.status === "refused") {
+        // The token asks for `workflows` only when the agent's settings and
+        // the workspace ceiling have it on, so what it asked for says which
+        // side lacks it. A push without an App token cannot tell.
+        const reasonCode =
+          pushed.reasonCode === undefined || grant === null
+            ? pushed.reasonCode
+            : grant.permissions.workflows === undefined
+              ? "workflows_off"
+              : "workflows_permission_missing";
         logger.warn("Push refused", {
           push_request_id: job.id,
           refusal: pushed.refusal,
           detail: pushed.detail,
+          ...(reasonCode === undefined ? {} : { reason_code: reasonCode }),
         });
-        const refusal = refuse(pushed.refusal, remote, pushed.reasonCode);
+        const refusal = refuse(pushed.refusal, remote, reasonCode);
         return pushed.mismatches === undefined || refusal.state !== "failed"
           ? refusal
           : { ...refusal, mismatches: pushed.mismatches };
