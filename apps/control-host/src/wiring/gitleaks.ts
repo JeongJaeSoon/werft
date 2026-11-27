@@ -41,8 +41,9 @@ export const GITLEAKS_CONFIG = "[extend]\nuseDefault = true\n";
  * types as application/*, and text can start that way: "%PDF-", "PK" + 3 + 4
  * and "MZ" are valid UTF-8. A text copy starts with newlines past the deepest
  * byte filetype reads (32773, the ISO 9660 mark), so every text file is read;
- * report lines are shifted back. This moves gitleaks' first fragment cut that
- * many bytes earlier; against an unprefixed run of the real binary, findings
+ * report lines are shifted back. This moves where gitleaks' first 100 kB read
+ * ends that many bytes earlier (its cut is the next blank line, at most 25 kB
+ * on); against an unprefixed run of the real binary, findings
  * at byte 0 and around the cuts were the same.
  */
 const TEXT_PREFIX = Buffer.alloc(32_774, 0x0a);
