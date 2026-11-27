@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { WORKER_EXIT_LEASE_LOST } from "@werft-ai/contracts";
 import type { Pool } from "pg";
 import { inputUuid } from "../../apps/worker/src/worker-host.ts";
+import { CUT_OFF_INPUT_LINE } from "../../packages/db/src/cut-off-input.ts";
 import {
   Bucket,
   Chaos,
@@ -47,8 +48,6 @@ import {
 
 const env = gateEnv();
 const TURN_MS = 300_000;
-/** What `docker kill` leaves: 128 + SIGKILL. */
-const SIGKILL_EXIT = 137;
 const report = new GateReport();
 
 let api: PublicApi;
@@ -1124,8 +1123,10 @@ describe.skipIf(env === null)("D2 gate", () => {
     // operator. On a session of its own.
     const killedSpec = {
       id: "D3",
+      // Held far longer than the kill takes, so the turn is open when it
+      // lands however slow the host is.
       steps: [
-        { ...write("/workspace/d3.txt", "d3 turn 1\n"), delayMs: 30_000 },
+        { ...write("/workspace/d3.txt", "d3 turn 1\n"), delayMs: 240_000 },
       ],
       final: "D3 DONE",
     };
@@ -1184,7 +1185,8 @@ describe.skipIf(env === null)("D2 gate", () => {
         "an operator decision, not a worker restart, settles the unknown turn",
       input:
         "docker kill a second session's worker mid-turn, then abandon turn 1 once the execution is confirmed gone",
-      expected: `exit ${SIGKILL_EXIT}; turn outcome unknown; recovery_required; then 202; recovery receipt succeeded; turn cancelled(operator_abandoned); session stopped`,
+      expected:
+        "turn outcome_unknown(execution_gone); recovery_required; then 202; recovery receipt succeeded; turn cancelled(operator_abandoned); session stopped",
       actual: {
         exit: killedCode,
         unknown: {
@@ -1203,8 +1205,9 @@ describe.skipIf(env === null)("D2 gate", () => {
         admission: cleanedSession.admission_state,
       },
       pass:
-        killedCode === SIGKILL_EXIT &&
-        unknown?.outcome_unknown === true &&
+        unknown?.status === "outcome_unknown" &&
+        unknown.terminal_reason === "execution_gone" &&
+        unknown.outcome_unknown === true &&
         held.admission_state === "recovery_required" &&
         decision.status === 202 &&
         receipt?.status === "succeeded" &&
@@ -1214,17 +1217,32 @@ describe.skipIf(env === null)("D2 gate", () => {
         cleanedSession.admission_state === "stopped",
     });
 
-    // The lost turn's session goes on: its next message runs on a new worker.
-    // That turn is handed the lost turn's input ahead of its own.
-    const nextTurnId = await api.message(
-      sessionId,
-      prompt("Turn two.", { id: "D4", steps: [], final: "D4 DONE" }),
-    );
+    // The lost turn's session goes on: its next message runs on a new worker,
+    // handed the lost turn's input ahead of its own. The scripted model plays
+    // the first spec a prompt carries, so D1 answers here again, and a D1
+    // call that holds both inputs is that hand-over seen from outside.
+    const nextTurnId = await api.message(sessionId, "Turn two.");
     const successor = await workers.running(sessionId);
     const next = await api.settle(sessionId, nextTurnId, TURN_MS);
     const [, nextRow] = await turnRows(sessionId);
     const after = await sessionRow(sessionId);
-    const covering = (await checkpointRows(sessionId)).at(-1);
+    const pointed = (await checkpointRows(sessionId)).find(
+      (row) => row.revision === after.checkpoint_revision,
+    );
+    const executions = new Map(
+      (
+        await rows<{ execution_id: string; id: string }>(
+          "SELECT id, execution_id FROM attempts WHERE session_id = $1",
+          [sessionId],
+        )
+      ).map((attempt) => [attempt.id, attempt.execution_id]),
+    );
+    const lostExecution = executions.get(turns[0]?.attempt_id ?? "");
+    const nextExecution = executions.get(nextRow?.attempt_id ?? "");
+    const handedOver = (await messages.requests("D1")).filter((request) => {
+      const sent = JSON.stringify(request.messages);
+      return sent.includes(CUT_OFF_INPUT_LINE) && sent.includes("Turn two.");
+    });
     report.check({
       id: "D-04",
       criterion: "fault: lease 상실",
@@ -1232,26 +1250,28 @@ describe.skipIf(env === null)("D2 gate", () => {
         "the session of the lost turn takes its next message on a new worker",
       input: "POST a message to the session whose turn failed as lost",
       expected:
-        "turn 2 completed on another worker and attempt; session active; the pointer's checkpoint covers turn 2",
+        "turn 2 completed on another execution, given the lost turn's input ahead of its own; session active; the pointer's checkpoint is turn 2's",
       actual: {
         status: next.status,
         reason: next.terminal_reason,
         lost_worker: worker.name,
         worker: successor.name,
-        attempts: [turns[0]?.attempt_id, nextRow?.attempt_id],
+        executions: [lostExecution, nextExecution],
+        model_calls_with_both_inputs: handedOver.length,
         admission: after.admission_state,
         pointer: after.checkpoint_revision,
-        covered_turn: covering?.turn_id,
+        pointed_turn: pointed?.turn_id,
         turn: nextRow?.id,
       },
       pass:
         next.status === "completed" &&
-        successor.name !== worker.name &&
-        typeof nextRow?.attempt_id === "string" &&
-        nextRow.attempt_id !== turns[0]?.attempt_id &&
+        handedOver.length > 0 &&
+        lostExecution !== undefined &&
+        nextExecution !== undefined &&
+        nextExecution !== lostExecution &&
         after.admission_state === "active" &&
-        after.checkpoint_revision !== null &&
-        covering?.turn_id === nextRow.id,
+        pointed !== undefined &&
+        pointed.turn_id === nextRow?.id,
     });
     await stopWorker(successor);
     expect(report.failed().filter((c) => c.id.startsWith("D-"))).toEqual([]);
