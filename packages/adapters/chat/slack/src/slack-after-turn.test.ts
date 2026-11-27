@@ -42,7 +42,7 @@ const reply = (
 
 async function rowsFor(replies: SurfaceAfterTurnReply[], limit = 10) {
   const rows: SurfaceOutboxEntry[] = [];
-  const { enqueued: count, complete } = await enqueueSlackAfterTurnReplies({
+  const count = await enqueueSlackAfterTurnReplies({
     outbox: {
       // As the store pages them: oldest first, past the cursor.
       afterTurnReplies: async (pageLimit, after) =>
@@ -60,7 +60,7 @@ async function rowsFor(replies: SurfaceAfterTurnReply[], limit = 10) {
     consoleOrigin: "https://console.example",
     limit,
   });
-  return { rows, count, complete };
+  return { rows, count };
 }
 
 test("an answer after the turn becomes one reply in the turn's thread, under the line that says so, mentioning who asked", async () => {
@@ -116,8 +116,8 @@ test("the text is what the engine said after its last tool call; an answer with 
   ]);
 });
 
-test("answers with nothing to say are paged past, so a later one still goes and the pass is complete", async () => {
-  const { rows, count, complete } = await rowsFor(
+test("answers found to have nothing to say are paged past, so a later one still goes", async () => {
+  const { rows, count } = await rowsFor(
     [
       reply({ resultSequence: 1, events: [said("Looking."), tool] }),
       reply({ resultSequence: 2, events: [] }),
@@ -125,17 +125,32 @@ test("answers with nothing to say are paged past, so a later one still goes and 
     ],
     2,
   );
-  expect([count, complete]).toEqual([1, true]);
+  expect(count).toBe(1);
   expect(rows.map((row) => row.dedupeKey)).toEqual(["after_turn:link-1:2:3"]);
 });
 
-test("a pass that fills its limit is not complete, and leaves the rest to the next", async () => {
-  const { rows, complete } = await rowsFor(
+test("a pass stops once it has filled its limit, and leaves the rest to the next", async () => {
+  const { rows } = await rowsFor(
     [reply({ resultSequence: 1 }), reply({ resultSequence: 2 })],
     1,
   );
-  expect(complete).toBe(false);
   expect(rows.map((row) => row.dedupeKey)).toEqual(["after_turn:link-1:2:1"]);
+});
+
+test("a pass reads at most its page limit of answers with nothing to say", async () => {
+  let pages = 0;
+  const count = await enqueueSlackAfterTurnReplies({
+    outbox: {
+      afterTurnReplies: async (_limit, after) => {
+        pages += 1;
+        return [reply({ resultSequence: Number(after ?? 0) + 1, events: [] })];
+      },
+      enqueue: async () => "enqueued" as const,
+    },
+    consoleOrigin: null,
+    limit: 1,
+  });
+  expect([count, pages]).toEqual([0, 20]);
 });
 
 test("the line is in the thread's language, English with none, and no one is mentioned when no Slack account asked", async () => {

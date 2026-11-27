@@ -344,6 +344,82 @@ const rateBlocks = (row: SQL) => sql`
       CASE WHEN ${row}.kind = 'progress' THEN 'chat.update' END)
     AND b.blocked_until > now()`;
 
+// What String.prototype.trim removes, as finalReplyText trims.
+const JS_WHITESPACE = String.fromCharCode(
+  9,
+  10,
+  11,
+  12,
+  13,
+  32,
+  160,
+  5760,
+  8192,
+  8193,
+  8194,
+  8195,
+  8196,
+  8197,
+  8198,
+  8199,
+  8200,
+  8201,
+  8202,
+  8232,
+  8233,
+  8239,
+  8287,
+  12288,
+  65279,
+);
+// Field `key` of event `x` as a reader reads it (withStoredNeutralFields):
+// the payload's own when it has one, else the one stored beside it.
+const readField = (x: SQL, key: "text" | "tool_call") =>
+  sql`coalesce(${x}.payload -> ${sql.raw(`'${key}'`)}, ${x}.neutral -> ${sql.raw(`'${key}'`)})`;
+// Event `x` is a tool call as eventToolCall reads one.
+const isToolCall = (x: SQL) => {
+  const call = readField(x, "tool_call");
+  return sql`(jsonb_typeof(${x}.payload) = 'object'
+    AND jsonb_typeof(${call}) = 'object'
+    AND jsonb_typeof(${call} -> 'id') = 'string'
+    AND ${call} ->> 'id' <> ''
+    AND jsonb_typeof(${call} -> 'name') = 'string'
+    AND ${call} -> 'input' IS NOT NULL)`;
+};
+// After-turn result `e` has something to say: as finalReplyText reads its
+// events, text after the last tool call since the turn's previous such
+// result.
+const afterTurnSays = (e: SQL) => {
+  const w = sql.raw("w");
+  const z = sql.raw("z");
+  const text = readField(w, "text");
+  return sql`EXISTS (
+    SELECT 1 FROM events w
+    WHERE w.session_id = ${e}.session_id
+      AND w.id < ${e}.id
+      AND w.turn_id = ${e}.turn_id
+      AND w.attempt_id = ${e}.attempt_id
+      AND (w.neutral ->> 'after_turn') IS NOT NULL
+      AND w.type IN ('assistant', 'tool_use')
+      AND w.payload ->> 'parent_tool_use_id' IS NULL
+      AND jsonb_typeof(w.payload) = 'object'
+      AND jsonb_typeof(${text}) = 'string'
+      AND btrim(${text} #>> '{}', ${JS_WHITESPACE}) <> ''
+      AND NOT ${isToolCall(w)}
+      AND NOT EXISTS (
+        SELECT 1 FROM events z
+        WHERE z.session_id = ${e}.session_id
+          AND z.id > w.id
+          AND z.id < ${e}.id
+          AND z.turn_id = ${e}.turn_id
+          AND z.attempt_id = ${e}.attempt_id
+          AND (z.neutral ->> 'after_turn') IS NOT NULL
+          AND (z.type = 'result'
+            OR (z.type IN ('assistant', 'tool_use')
+              AND z.payload ->> 'parent_tool_use_id' IS NULL
+              AND ${isToolCall(z)}))))`;
+};
+
 // The AI line of row `row` (v1-b/G2): null unless its agent's conversation
 // rollout is `on`. Its name is that of whoever sent the turn the row's key
 // names: a turn's answer, failure or follow-up, a card, a push's result. A push a turn's
@@ -1156,24 +1232,36 @@ export function createPostgresSlackOutboxStore(
                         || ':' || l2.id || ':' || t.sequence
                     )))
               ) AND NOT EXISTS (
-                -- An answer the engine gave after a turn whose own row is
-                -- still being sent: its follow-up is enqueued once that send
-                -- is over (afterTurnReplies), and a closed link gets none.
+                -- A follow-up the link still owes (afterTurnReplies): its
+                -- turn's own row is being sent, or is in and the follow-up
+                -- is not. A closed link takes no new row. Held a day at most.
                 SELECT 1 FROM ${events} e
                 JOIN ${turns} et ON et.id = e.turn_id
                   AND et.attempt_id = e.attempt_id
-                JOIN ${t} own ON own.dedupe_key IN (
-                    'reply:' || l2.id || ':' || et.sequence,
-                    'failure:' || l2.id || ':' || et.sequence)
+                JOIN ${slackInstallations} i ON i.id = l2.installation_id
+                  AND i.status <> 'revoked'
                 WHERE e.session_id = l2.session_id
                   AND e.type = 'result'
                   AND (e.neutral ->> 'after_turn') IS NOT NULL
+                  AND e.source_sequence IS NOT NULL
+                  AND e.created_at > now() - interval '1 day'
                   AND et.created_at >= l2.created_at
-                  AND own.status IN ('pending', 'sending')
+                  AND EXISTS (
+                    SELECT 1 FROM ${t} own
+                    WHERE own.dedupe_key IN (
+                      'reply:' || l2.id || ':' || et.sequence,
+                      'failure:' || l2.id || ':' || et.sequence))
+                  AND NOT EXISTS (
+                    SELECT 1 FROM ${t} own
+                    WHERE own.dedupe_key IN (
+                        'reply:' || l2.id || ':' || et.sequence,
+                        'failure:' || l2.id || ':' || et.sequence)
+                      AND own.slack_user_id IS NOT NULL)
                   AND NOT EXISTS (
                     SELECT 1 FROM ${t} f
                     WHERE f.dedupe_key = 'after_turn:' || l2.id || ':'
-                      || et.sequence || ':' || e.source_sequence))
+                      || et.sequence || ':' || e.source_sequence)
+                  AND ${afterTurnSays(sql.raw("e"))})
               ELSE NOT EXISTS (
                 SELECT 1 FROM ${turns} ot
                 WHERE ot.session_id = l2.session_id
@@ -1700,16 +1788,17 @@ export function createPostgresSlackOutboxStore(
               SELECT 1 FROM slack_outbox f
               WHERE f.dedupe_key = 'after_turn:' || l.id || ':' || et.sequence
                 || ':' || e.source_sequence)
+            -- One with nothing to say leaves no row: never a candidate.
+            AND ${afterTurnSays(sql.raw("e"))}
           ORDER BY e.id
           LIMIT ${limit}
         ) r
         JOIN turns tt ON tt.id = r.turn_id
-        -- A turn a Slack bot asked for has no person to call: not the one
-        -- who opened the thread.
+        -- Whoever sent the turn, and no one for a turn no person sent (a
+        -- Slack bot's, an agent's): not the one who opened the thread.
         LEFT JOIN linked_accounts la
           ON la.workspace_id = l.workspace_id
-          AND la.user_id = CASE WHEN tt.requester_kind = 'slack_bot' THEN NULL
-            ELSE coalesce(tt.actor_id, l.created_by) END
+          AND la.user_id = tt.actor_id
           AND la.provider = 'slack'
           AND la.external_tenant = i.team_id
           AND la.status = 'active'

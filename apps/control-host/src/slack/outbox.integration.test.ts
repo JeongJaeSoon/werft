@@ -2799,6 +2799,62 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       ]);
     });
 
+    test("reads what the engine said from the fields stored beside its payload, as the codec stores them", async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("first")]]);
+      expect(await outboxPass()).toMatchObject({ sent: 1 });
+      await sayAfterTurn(sessionId, 1, [text("Checking."), toolUse]);
+      const answer = await sayAfterTurn(sessionId, 1, [text("Done.")]);
+      for (const field of ["text", "tool_call"]) {
+        await db.execute(sql`
+          UPDATE events
+          SET neutral = neutral || jsonb_build_object(${field}::text, payload -> ${field}::text),
+            payload = payload - ${field}::text
+          WHERE session_id = ${sessionId}::uuid
+            AND payload -> ${field}::text IS NOT NULL
+            AND neutral ->> 'after_turn' IS NOT NULL`);
+      }
+
+      expect(
+        (await createPostgresSlackOutboxStore(db).afterTurnReplies(1)).map(
+          (reply) => reply.resultSequence,
+        ),
+      ).toEqual([answer]);
+      await outboxPass();
+      expect(posted()[1]?.text.split("\n\n")[1]).toBe("Done.");
+    });
+
+    test("a link is not closed under a follow-up whose reply another pass just sent", async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("first")]]);
+      await outboxPass({ botToken: null });
+      await sayAfterTurn(sessionId, 1, [text("later")]);
+      await db
+        .update(sessions)
+        .set({ admissionState: "closed" })
+        .where(eq(sessions.id, sessionId));
+      // Another pass sent the reply after this one looked for follow-ups.
+      await db
+        .update(slackOutbox)
+        .set({ status: "sent", slackTs: "1792800010.000009" })
+        .where(eq(slackOutbox.kind, "reply"));
+      const outbox = createPostgresSlackOutboxStore(db);
+      await outbox.advanceAnswered();
+      expect(await outbox.closeFinishedLinks(10)).toBe(0);
+
+      await outboxPass({ closeLinks: true });
+      await outboxPass({ closeLinks: true });
+      expect(posted().map((message) => message.text.split("\n\n")[1])).toEqual([
+        "later",
+      ]);
+      const [link] = await db.select().from(sessionLinks);
+      expect(link?.closedAt).not.toBeNull();
+    });
+
     test("a closing session's link stays open until every follow-up it owes is in, one a pass", async () => {
       const fixture = await agentInSlack();
       await mention(fixture, THREAD);

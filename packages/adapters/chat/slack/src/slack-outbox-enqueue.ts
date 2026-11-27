@@ -368,7 +368,8 @@ export function slackAfterTurnDedupeKey(
   return `after_turn:${sessionLinkId}:${turnId}:${resultSequence}`;
 }
 
-// Pages a pass reads past answers with nothing to say, which leave no row.
+// Pages a pass reads past answers the store took for ones with something to
+// say and finalReplyText finds empty (its last 500 events hold no text).
 const AFTER_TURN_PAGES_MAX = 20;
 
 /** Whether a follow-up mentions whoever asked for its turn, as the turn's reply does. */
@@ -383,7 +384,7 @@ export async function enqueueSlackAfterTurnReplies(deps: {
   outbox: Pick<SurfaceOutboxStore, "afterTurnReplies" | "enqueue">;
   consoleOrigin: string | null;
   limit: number;
-}): Promise<{ enqueued: number; complete: boolean }> {
+}): Promise<number> {
   let enqueued = 0;
   let after: string | undefined;
   for (let page = 0; page < AFTER_TURN_PAGES_MAX; page += 1) {
@@ -395,10 +396,9 @@ export async function enqueueSlackAfterTurnReplies(deps: {
       after = reply.resultId;
       if (await enqueueAfterTurnReply(deps, reply)) enqueued += 1;
     }
-    if (replies.length < deps.limit) return { enqueued, complete: true };
-    if (enqueued >= deps.limit) break;
+    if (replies.length < deps.limit || enqueued >= deps.limit) break;
   }
-  return { enqueued, complete: false };
+  return enqueued;
 }
 
 async function enqueueAfterTurnReply(
