@@ -250,6 +250,13 @@ describe("chatItems for a turn stopped by the workspace limit", () => {
 describe("chatItems for what the engine said after its turn ended", () => {
   const format = () => "";
   // As the API streams it: the turn's own event, then one marked after_turn.
+  // The client's payload type leaves the mark out, so it rides on a value
+  // rather than a literal.
+  const afterTurn = {
+    type: "assistant" as const,
+    text: "The build passed.",
+    after_turn: true,
+  };
   const after: SessionEventFrame[] = [
     frame("1", "1", "1", {
       event: "assistant",
@@ -257,11 +264,7 @@ describe("chatItems for what the engine said after its turn ended", () => {
     }),
     frame("2", "1", "3", {
       event: "assistant",
-      data: {
-        type: "assistant",
-        text: "The build passed.",
-        after_turn: true as const,
-      },
+      data: afterTurn,
     }),
   ];
 
