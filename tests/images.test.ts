@@ -964,6 +964,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       if?: string;
       needs?: string | string[];
       environment?: string;
+      env?: Record<string, string>;
       concurrency?: { group: string; "cancel-in-progress": boolean };
       permissions?: Record<string, string>;
       "runs-on"?: string;
@@ -1347,6 +1348,13 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(jobs["chart-publish-main"]?.steps).toEqual(
         jobs["chart-publish"]?.steps ?? [],
       );
+      // Only a main chart's push may be tried again (chart-push.sh).
+      expect(
+        Object.entries(jobs)
+          .filter(([, job]) => job.env?.CHART_PUSH_TRIES !== undefined)
+          .map(([name, job]) => [name, job.env?.CHART_PUSH_TRIES]),
+      ).toEqual([["chart-publish-main", "3"]]);
+      expect(text.match(/CHART_PUSH_TRIES/g)).toHaveLength(1);
 
       const steps = jobs.chart?.steps ?? [];
       const index = (needle: string) =>
@@ -1786,7 +1794,12 @@ case "$1" in
     if [ ! -f "$stored" ]; then echo "failed to perform: not found" >&2; exit 1; fi
     cp "$stored" "$dest/"
     ;;
-  push) touch "$FAKE/pushed"; cp "$2" "$FAKE/store/" ;;
+  push)
+    if [ -n "\${FAKE_PUSH_SAYS:-}" ] && [ "$(grep -c '^login push ' "$FAKE/log")" -le "\${FAKE_PUSH_FAILS:-0}" ]; then
+      [ -z "\${FAKE_PUSH_LANDS:-}" ] || cp "$2" "$FAKE/store/"
+      echo "$FAKE_PUSH_SAYS" >&2; exit 1
+    fi
+    touch "$FAKE/pushed"; cp "$2" "$FAKE/store/" ;;
   show) echo "name: werft" ;;
   *) exit 64 ;;
 esac
@@ -1856,6 +1869,85 @@ esac
       expect(last.map((line) => line.split(" ")[1])).toEqual(["pull", "show"]);
       // Helm falls back to Docker's credentials unless they are cleared too.
       for (const line of last) expect(line).toContain("/no-login");
+    });
+
+    const tagNotFound =
+      'Error: failed to perform "Tag" on destination: sha256:0123: not found';
+    // What images.yml gives chart-publish-main, without the pause.
+    const mainChart = { CHART_PUSH_TRIES: "3", CHART_PUSH_RETRY_SECONDS: "0" };
+    const pushes = (log: string) =>
+      log.split("\n").filter((line) => line.startsWith("login push ")).length;
+
+    test("a push whose tag the registry does not find yet is looked up and pushed again", () => {
+      const repo = fixture();
+      const run = repo.push({
+        ...mainChart,
+        FAKE_PUSH_SAYS: tagNotFound,
+        FAKE_PUSH_FAILS: "1",
+      });
+      expect(run.code).toBe(0);
+      expect(run.out).toContain("try 1 of 3");
+      expect(pushes(repo.log())).toBe(2);
+      expect(repo.pushed()).toBe(true);
+    });
+
+    test("a push that landed although its tag was not found is compared, not written again", () => {
+      const repo = fixture();
+      const run = repo.push({
+        ...mainChart,
+        FAKE_PUSH_SAYS: tagNotFound,
+        FAKE_PUSH_FAILS: "1",
+        FAKE_PUSH_LANDS: "1",
+      });
+      expect(run.code).toBe(0);
+      expect(run.out).toContain("already published");
+      expect(pushes(repo.log())).toBe(1);
+    });
+
+    test("a tag the registry never finds fails after the third push", () => {
+      const repo = fixture();
+      const run = repo.push({
+        ...mainChart,
+        FAKE_PUSH_SAYS: tagNotFound,
+        FAKE_PUSH_FAILS: "3",
+      });
+      expect(run.code).toBe(1);
+      expect(pushes(repo.log())).toBe(3);
+      expect(repo.pushed()).toBe(false);
+    });
+
+    test.each([
+      ["another reason", "Error: 500 upstream"],
+      [
+        "not found on another line than the tag",
+        'Error: failed to perform "Tag" on destination: 500 upstream\ncache marker not found',
+      ],
+      [
+        "another reason after a warning about the tag",
+        `Warning: ${tagNotFound.slice("Error: ".length)}\nError: 500 upstream`,
+      ],
+    ])("a push that fails for %s is not tried again", (_, says) => {
+      const repo = fixture();
+      const run = repo.push({
+        ...mainChart,
+        FAKE_PUSH_SAYS: says,
+        FAKE_PUSH_FAILS: "3",
+      });
+      expect(run.code).toBe(1);
+      expect(run.out).toContain("500 upstream");
+      expect(pushes(repo.log())).toBe(1);
+    });
+
+    test("a push the workflow did not mark as a main chart's is not tried again, whatever the registry answered", () => {
+      const repo = fixture();
+      const run = repo.push({
+        FAKE_PUSH_SAYS: tagNotFound,
+        FAKE_PUSH_FAILS: "1",
+        CHART_PUSH_RETRY_SECONDS: "0",
+      });
+      expect(run.code).toBe(1);
+      expect(pushes(repo.log())).toBe(1);
+      expect(repo.pushed()).toBe(false);
     });
 
     test("the same files under a new package time are a rerun, not a write", () => {
@@ -2314,6 +2406,13 @@ case "$3" in
           jq '{manifests: map({platform: {os: "linux", architecture: .[0]}, digest: .[1]})}'
         ;;
       *)
+        [ -z "\${FAKE_INSPECT_WARNS:-}" ] || echo "$FAKE_INSPECT_WARNS" >&2
+        if [ -n "\${FAKE_INSPECT_SAYS:-}" ]; then
+          echo x >>"$FAKE/inspects"
+          if [ "$(wc -l <"$FAKE/inspects")" -le "\${FAKE_INSPECT_FAILS:-0}" ]; then
+            echo "$FAKE_INSPECT_SAYS" >&2; exit 1
+          fi
+        fi
         app="$4"; app="\${app#*werft-}"; app="\${app%:*}"
         printf '"sha256:index-%s"\\n' "$app"
         ;;
@@ -2384,8 +2483,68 @@ esac
           JSON.parse(readFileSync(stagedFile(app), "utf8")),
         hasRecord: (app: string) => existsSync(stagedFile(app)),
         creates: existsSync(creates) ? readFileSync(creates, "utf8") : "",
+        inspects: existsSync(join(directory, "inspects"))
+          ? readFileSync(join(directory, "inspects"), "utf8").length / 2
+          : 0,
       };
     };
+
+    const tagNotFound =
+      "ERROR: ghcr.io/o/werft-control-host:staging-7-1: not found";
+
+    test("a staging tag the registry does not find yet is asked for again, and the index is not rebuilt", () => {
+      const result = run({
+        FAKE_INSPECT_SAYS: tagNotFound,
+        FAKE_INSPECT_FAILS: "2",
+        IMAGE_INDEX_RETRY_SECONDS: "0",
+      });
+      expect(result.code).toBe(0);
+      expect(result.out).toContain("try 2 of 3");
+      expect(result.creates.trim().split("\n")).toHaveLength(apps3.length);
+      expect(result.record("control-host").digest).toBe(
+        indexOf("control-host"),
+      );
+    });
+
+    test("a staging tag the registry never finds is not staged", () => {
+      const result = run({
+        FAKE_INSPECT_SAYS: tagNotFound,
+        FAKE_INSPECT_FAILS: "3",
+        IMAGE_INDEX_RETRY_SECONDS: "0",
+      });
+      expect(result.code).toBe(1);
+      expect(result.out).toContain("not found");
+      expect(result.inspects).toBe(3);
+      expect(result.hasRecord("control-host")).toBe(false);
+    });
+
+    test("a tag read that fails for another reason, not found or not, is not asked again", () => {
+      const result = run({
+        FAKE_INSPECT_SAYS: "ERROR: credentials file not found",
+        FAKE_INSPECT_FAILS: "3",
+        IMAGE_INDEX_RETRY_SECONDS: "0",
+      });
+      expect(result.code).toBe(1);
+      expect(result.out).toContain("credentials file not found");
+      expect(result.inspects).toBe(1);
+    });
+
+    test("what a tag read that is asked again wrote to stderr is kept", () => {
+      const result = run({
+        FAKE_INSPECT_SAYS: `WARNING: mirror is slow\n${tagNotFound}`,
+        FAKE_INSPECT_FAILS: "1",
+        IMAGE_INDEX_RETRY_SECONDS: "0",
+      });
+      expect(result.code).toBe(0);
+      expect(result.out).toContain("mirror is slow");
+    });
+
+    test("what a tag read that succeeds wrote to stderr is kept", () => {
+      const result = run({ FAKE_INSPECT_WARNS: "WARNING: token expires soon" });
+      expect(result.code).toBe(0);
+      expect(result.out).toContain("token expires soon");
+      expect(result.record("worker").digest).toBe(indexOf("worker"));
+    });
 
     test("each image gets one index on its staging tag, amd64 first", () => {
       const result = run();
