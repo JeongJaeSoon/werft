@@ -336,6 +336,7 @@ describe("the agent GitHub tab's options", () => {
       author: {
         contents: "write",
         actions: "write",
+        checks: "read",
         issues: "read",
         workflows: "admin",
       },
@@ -347,6 +348,18 @@ describe("the agent GitHub tab's options", () => {
       checks: { available: false, reason: "over_workspace_ceiling" },
       issues: { available: false, reason: "app_permission_missing" },
       review: { available: false, reason: "no_reviewer_app" },
+    });
+  });
+
+  test("workflow files and CI: an author App without Checks read lacks the switch's permission", async () => {
+    const read = await serviceWith({
+      github: WITH_SETTINGS,
+      ceiling: ALL_ON,
+      author: { contents: "write", actions: "read", workflows: "write" },
+    }).get(caller, AGENT);
+    expect(read.options.features.workflows).toEqual({
+      available: false,
+      reason: "app_permission_missing",
     });
   });
 

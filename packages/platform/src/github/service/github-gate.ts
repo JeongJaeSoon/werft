@@ -392,11 +392,16 @@ export function createGitHubGate(deps: {
             !(error instanceof GitHubPermissionError) ||
             work.purpose !== "push" ||
             needs.permissions.workflows === undefined ||
-            connection.grantedPermissions === undefined ||
-            (await connection.grantedPermissions(repo))?.workflows === "write"
+            connection.grantedPermissions === undefined
           ) {
             throw error;
           }
+          // Not installed there, another installation, or GitHub not
+          // answering: nothing shows Workflows is missing, so the refusal stands.
+          const granted = await connection
+            .grantedPermissions(repo)
+            .catch(() => null);
+          if (granted === null || granted.workflows === "write") throw error;
           needs.permissions = { contents: "write" };
           ({ credential: gitCredential, fresh } = await connection.credential(
             repo,

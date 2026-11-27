@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
+  GITHUB_CEILING_DEFAULT,
   GITHUB_CEILING_NONE,
   type GitHubCeiling,
   type ReceiptActor,
@@ -158,7 +159,7 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
         enabledAtStart: true,
         pushAttached: "allow",
       },
-      ceiling: GITHUB_CEILING_NONE,
+      ceiling: GITHUB_CEILING_DEFAULT,
       repositoryCeiling: null,
       ceilingRevision: 0,
     });
@@ -358,7 +359,7 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
     const ceiling: GitHubCeiling = { ...GITHUB_CEILING_NONE, actions: true };
 
     expect(await store.get(workspaceId)).toEqual({
-      ceiling: GITHUB_CEILING_NONE,
+      ceiling: GITHUB_CEILING_DEFAULT,
       revision: 0,
     });
     const put = (revision: number, next: GitHubCeiling) =>
@@ -431,7 +432,7 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
     ]);
     expect(await put()).toEqual({ outcome: "actor_inactive" });
     expect(await store.get(workspaceId)).toEqual({
-      ceiling: GITHUB_CEILING_NONE,
+      ceiling: GITHUB_CEILING_DEFAULT,
       revision: 0,
     });
     const { rows } = await pool.query(

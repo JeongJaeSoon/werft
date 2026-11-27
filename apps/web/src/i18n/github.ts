@@ -123,7 +123,7 @@ export const githubKo = {
     "다른 조직도 설치할 수 있게 됩니다. 콘솔은 에이전트가 고른 저장소에만 토큰을 받습니다.",
   "github.newApp.actions": "Actions·워크플로 권한도 받기",
   "github.newApp.actionsHint":
-    "에이전트가 워크플로를 실행하고 워크플로 파일을 고칠 수 있게 actions·workflows 쓰기를 더합니다. 나중에 더해도 다시 설치할 필요는 없습니다.",
+    "에이전트가 워크플로를 실행하고 워크플로 파일을 고칠 수 있게 actions·workflows 쓰기와 CI 결과를 읽을 checks 읽기를 더합니다. 나중에 더해도 다시 설치할 필요는 없습니다.",
   "github.newApp.next":
     "GitHub로 이동해 이름을 확인하고 Create를 누릅니다. 콘솔로 돌아오면 키가 저장됩니다(1시간 안에 마쳐야 합니다). 그다음 설치 화면에서 저장소를 고릅니다.",
   "github.newApp.submit": "GitHub에서 만들기",
@@ -482,7 +482,7 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
     "Other organizations can install it too. The console gets tokens only for the repositories agents pick.",
   "github.newApp.actions": "Also ask for Actions and workflow permissions",
   "github.newApp.actionsHint":
-    "Adds actions and workflows write so agents can run workflows and change workflow files. Adding them later needs no reinstall.",
+    "Adds actions and workflows write so agents can run workflows and change workflow files, and checks read to see CI results. Adding them later needs no reinstall.",
   "github.newApp.next":
     "On GitHub, check the name and click Create. Back in the console the key is stored (finish within an hour). Then pick repositories on the install screen.",
   "github.newApp.submit": "Create on GitHub",
@@ -846,7 +846,7 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
     "ほかの組織もインストールできるようになります。コンソールはエージェントが選んだリポジトリにだけトークンを取得します。",
   "github.newApp.actions": "Actions・ワークフローの権限も取得する",
   "github.newApp.actionsHint":
-    "エージェントがワークフローを実行し、ワークフローファイルを変更できるよう actions・workflows の書き込みを追加します。あとで追加しても再インストールは不要です。",
+    "エージェントがワークフローを実行し、ワークフローファイルを変更できるよう actions・workflows の書き込みと、CI 結果を読む checks の読み取りを追加します。あとで追加しても再インストールは不要です。",
   "github.newApp.next":
     "GitHub で名前を確認して Create を押します。コンソールに戻ると鍵が保存されます (1 時間以内に完了してください)。続いてインストール画面でリポジトリを選びます。",
   "github.newApp.submit": "GitHub で作成",

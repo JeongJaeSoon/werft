@@ -145,7 +145,7 @@ export type GitHubSessionContext = {
   release: { id: string } | null;
   /** What judges the session's GitHub work: read nothing else for it. */
   policy: EffectiveGitHubPolicy;
-  /** The agent workspace's ceiling; all false without a settings row. */
+  /** The agent workspace's ceiling; GITHUB_CEILING_DEFAULT without a settings row. */
   ceiling: GitHubCeiling;
   /** The session workspace's repositories; null allows none. */
   repositoryCeiling: RepositoryCeiling | null;

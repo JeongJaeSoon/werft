@@ -105,6 +105,7 @@ function enterpriseApp(repository: Repository | undefined): boolean {
 
 const writes = (level: string | undefined) =>
   level === "write" || level === "admin";
+const reads = (level: string | undefined) => level === "read" || writes(level);
 
 /**
  * The agent's GitHub tab: the switch that
@@ -328,7 +329,11 @@ export function createAgentGitHubService(deps: {
                 (permissions) => !writes(permissions.pull_requests),
               )
             : authors.permissions.some(
-                (permissions) => !writes(permissions[feature]),
+                (permissions) =>
+                  !writes(permissions[feature]) ||
+                  // The switch also reads CI.
+                  (feature === "workflows" &&
+                    !(reads(permissions.actions) && reads(permissions.checks))),
               );
         const reason: AgentGitHubFeatureUnavailable | null = enterprise
           ? "github_host_unsupported"

@@ -467,6 +467,27 @@ describe("permission table", () => {
     expect(author.issued).toHaveLength(1);
   });
 
+  test("a push whose installation permissions cannot be read keeps app_permission_missing", async () => {
+    for (const lookup of [
+      async () => null,
+      async () => {
+        throw new Error("GitHub 502");
+      },
+    ]) {
+      const author = fakeConnection("author");
+      author.refusePermissions();
+      const { grant } = harness({
+        author: { ...author, grantedPermissions: lookup },
+        github: settings({ features: features({ workflows: true }) }),
+        ceiling: ALL_ON,
+      });
+      expect((await refused(grant({ purpose: "push" }))).reason).toBe(
+        "app_permission_missing",
+      );
+      expect(author.issued).toHaveLength(1);
+    }
+  });
+
   test("only a push falls back: reading CI without the installation's checks is app_permission_missing", async () => {
     const author = fakeConnection("author", {
       granted: { contents: "write", actions: "read" },

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
+  GITHUB_CEILING_DEFAULT,
   GITHUB_CEILING_NONE,
   GITHUB_FEATURES_NONE,
   GITHUB_POLICY_CLOSED,
@@ -1257,7 +1258,7 @@ integration("the readers of an agent's GitHub settings", () => {
         )
       ).rows[0]?.revision;
 
-    test("no row: writes the ceiling and leaves everything else closed; a repeat is a no-op", async () => {
+    test("no row: writes the ceiling with the default features; a repeat is a no-op", async () => {
       const workspaceId = await workspaceOnly();
       expect(await ensureInstalledRepositoryCeiling(db, workspaceId)).toEqual({
         changed: true,
@@ -1270,7 +1271,7 @@ integration("the readers of an agent's GitHub settings", () => {
         "SELECT ceiling FROM github_workspace_settings WHERE workspace_id = $1",
         [workspaceId],
       );
-      expect(rows[0]?.ceiling).toEqual(GITHUB_CEILING_NONE);
+      expect(rows[0]?.ceiling).toEqual(GITHUB_CEILING_DEFAULT);
       const revision = await revisionOf(workspaceId);
       expect(await ensureInstalledRepositoryCeiling(db, workspaceId)).toEqual({
         changed: false,
