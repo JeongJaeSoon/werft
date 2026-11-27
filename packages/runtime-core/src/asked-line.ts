@@ -534,15 +534,33 @@ const GIT_RUNNING_OPTIONS = [
   "--exec",
   "--upload-pack",
   "--receive-pack",
+  "--authors-prog",
 ];
-/** The short options of those, by the git command that has one. */
-const GIT_RUNNING_SHORT: Readonly<Record<string, string>> = {
-  grep: "O",
-  difftool: "x",
-  rebase: "x",
+/**
+ * The short options of those, by the git command that has one, with the
+ * letters whose value is the rest of a cluster (`git grep -eFOO` is a pattern).
+ */
+const GIT_RUNNING_SHORT: Readonly<Record<string, [string, string]>> = {
+  grep: ["O", "efABCm"],
+  difftool: ["x", "t"],
+  rebase: ["x", "sXCS"],
+  "ls-remote": ["u", "o"],
 };
 /** git commands that run what the line gives them, whatever the options. */
-const GIT_RUNNING_VERBS = ["filter-branch", "send-email"];
+const GIT_RUNNING_VERBS = ["filter-branch", "send-email", "instaweb", "daemon"];
+
+/** Whether a short-option cluster sets `letter` before a letter that takes the rest as its value. */
+function clusterSets(
+  word: string,
+  [letter, values]: [string, string],
+): boolean {
+  if (!/^-[^-]/.test(word)) return false;
+  for (const char of word.slice(1)) {
+    if (char === letter) return true;
+    if (values.includes(char)) return false;
+  }
+  return false;
+}
 
 /** `git config` options that only read or shape what is read. */
 const CONFIG_READ_OPTIONS = [
@@ -769,22 +787,21 @@ function narrowKept(words: readonly string[], place: Place): string | null {
       return true;
     }
     // A pathspec is a pattern to git (`.claud[e]/settings.json`, `*.json`),
-    // and `*` crosses `/`: it is kept when a kept name in the folder its
-    // pattern starts in begins as the pattern does.
-    const glob = name.search(/[*?[]/);
-    if (glob === -1) return false;
-    const lead = name.slice(0, glob);
-    const folder = lead.slice(0, lead.lastIndexOf("/") + 1);
-    let names: string[];
-    try {
-      names = readdirSync(resolve(place.root, folder || "."));
-    } catch {
-      return false;
-    }
-    return names.some(
-      (entry) =>
-        entry.startsWith(lead.slice(folder.length)) &&
-        keptPath(`${folder}${entry}`, place.root),
+    // and `*` crosses `/`: it is kept when it matches a kept name. git never
+    // takes what is in `.git` as a path of the work tree.
+    if (!/[*?[]/.test(name)) return false;
+    const pattern = globPattern(name);
+    const names = [...KEPT_SAMPLES, ...keptNames(place.root)];
+    if (names.some((kept) => pattern.test(kept))) return true;
+    // A file under a kept folder may be gone from the work tree and come
+    // back from the index (`git restore '.claud?/settings.json'`).
+    const slash = name.indexOf("/");
+    const head = slash === -1 ? undefined : globPattern(name.slice(0, slash));
+    return (
+      head !== undefined &&
+      [...KEPT_FOLDERS, ...names.filter((kept) => !kept.includes("/"))].some(
+        (folder) => head.test(folder),
+      )
     );
   };
   if (name === "git" || name === "gh") {
@@ -798,7 +815,13 @@ function narrowKept(words: readonly string[], place: Place): string | null {
         option.length > 2 &&
         option.startsWith("--") &&
         (full.startsWith(option) || option.startsWith(full));
-      if (name === "git" && longStart("--pathspec-from-file")) {
+      // Every command with it has `--pathspec-file-nul` too, so git takes
+      // no start shorter than `--pathspec-fr` for it.
+      if (
+        name === "git" &&
+        option.length >= "--pathspec-fr".length &&
+        longStart("--pathspec-from-file")
+      ) {
         return "a path list the line does not show";
       }
       if (name === "git" && GIT_RUNNING_OPTIONS.some(longStart)) {
@@ -849,13 +872,26 @@ function narrowKept(words: readonly string[], place: Place): string | null {
     const rest = at === -1 ? [] : words.slice(at + 1);
     const short = GIT_RUNNING_SHORT[verb ?? ""];
     if (
-      (short !== undefined &&
-        rest.some((word) => /^-[^-]/.test(word) && word.includes(short))) ||
+      (short !== undefined && rest.some((word) => clusterSets(word, short))) ||
       GIT_RUNNING_VERBS.includes(verb ?? "") ||
       (verb === "bisect" && rest.includes("run")) ||
-      (verb === "submodule" && rest.includes("foreach"))
+      // `git submodule--helper foreach` is what `git submodule foreach` runs.
+      ((verb ?? "").startsWith("submodule") && rest.includes("foreach"))
     ) {
       return "a git option that runs a program";
+    }
+    // Files git leaves out by .gitignore are where secrets live; a search
+    // that takes them in reads every one (`git grep --untracked
+    // --no-exclude-standard KEY`).
+    if (
+      verb === "grep" &&
+      rest.some(
+        (word) =>
+          word.length >= "--no-exc".length &&
+          "--no-exclude-standard".startsWith(word.split("=")[0] as string),
+      )
+    ) {
+      return "a search of the workspace or a kept path";
     }
   }
   if (name === "grep") {
@@ -888,11 +924,76 @@ function ghBodyFiles(words: readonly string[]): string[] {
     if (word === "--body-file") files.push(next);
     else if (word.startsWith("--body-file=")) files.push(word.slice(12));
     else if (/^-[^-]/.test(word) && word.includes("F")) {
-      files.push(word.slice(word.indexOf("F") + 1) || next);
+      // pflag takes `-F=x` as `x`.
+      files.push(word.slice(word.indexOf("F") + 1).replace(/^=/, "") || next);
     }
   });
   return files.filter((file) => file !== "");
 }
+
+/** A git pathspec pattern as a regular expression: `*` crosses `/`, case aside. */
+function globPattern(glob: string): RegExp {
+  let source = "";
+  for (let at = 0; at < glob.length; at += 1) {
+    const char = glob[at] as string;
+    const close = char === "[" ? glob.indexOf("]", at + 2) : -1;
+    if (char === "*") source += ".*";
+    else if (char === "?") source += ".";
+    else if (close !== -1) {
+      const inner = glob
+        .slice(at + 1, close)
+        .replace(/\\/g, "\\\\")
+        .replace(/^([!^]?)\]/, "$1\\]");
+      source += /^[!^]/.test(inner) ? `[^${inner.slice(1)}]` : `[${inner}]`;
+      at = close;
+    } else source += char.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+  }
+  try {
+    return new RegExp(`^${source}$`, "i");
+  } catch {
+    return /^$/;
+  }
+}
+
+/** Kept names a pattern may reach: the kept entries at the top and what is below them, but not `.git`. */
+function keptNames(root: string): string[] {
+  const names: string[] = [];
+  const walk = (folder: string, depth: number) => {
+    let entries: string[];
+    try {
+      entries = readdirSync(resolve(root, folder || "."));
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const name = folder === "" ? entry : `${folder}/${entry}`;
+      if (name === ".git" || names.length >= KEPT_NAMES_READ) continue;
+      const located = locate({ root, base: root }, name);
+      const kept = located !== undefined && sensitive(located);
+      if (kept) names.push(name);
+      if ((kept || depth > 0) && depth < 3) walk(name, depth + 1);
+    }
+  };
+  walk("", 0);
+  return names;
+}
+// One name for each kept rule but those of `.git`: `**/*.pem` gives `.pem`,
+// `.claude/**` gives `.claude/settings.json`.
+const KEPT_SAMPLES = policy.sensitiveEditPaths
+  .filter((rule) => !rule.startsWith(".git/"))
+  .map((rule) =>
+    rule
+      .replace(/^\*\*\//, "")
+      .replace(/\/\*\*$/, "/settings.json")
+      .replaceAll("*", ""),
+  );
+/** The kept folders at the top but `.git`. */
+const KEPT_FOLDERS = policy.sensitiveEditPaths
+  .filter((rule) => rule.endsWith("/**") && !rule.startsWith("**/"))
+  .map((rule) => rule.slice(0, -3))
+  .filter((folder) => folder !== ".git");
+/** More kept names than this are not read for a pattern. */
+const KEPT_NAMES_READ = 500;
 
 /** A word quoted this deep is not read further. */
 const NESTED_SCRIPTS = 3;
