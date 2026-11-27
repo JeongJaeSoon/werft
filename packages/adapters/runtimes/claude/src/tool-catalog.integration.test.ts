@@ -397,7 +397,9 @@ async function runScenario(options: RunOptions): Promise<{
       data(socket, chunk) {
         const seen = socket.data;
         if (seen.done) return;
-        seen.head = (seen.head + chunk.toString("latin1")).slice(0, 1024);
+        seen.head += chunk
+          .subarray(0, 1024 - seen.head.length)
+          .toString("latin1");
         const end = seen.head.indexOf("\r\n");
         // Written as it comes: a line in pieces fills in, and one that never
         // ends is on record up to the cut.
