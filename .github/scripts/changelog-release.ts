@@ -24,9 +24,15 @@ export function parseSections(
   where: string,
   allowEmpty = false,
 ): Sections {
+  if (text.includes("\r"))
+    throw new Error(`${where}: CRLF line ending; use LF`);
   const sections: Sections = new Map();
   let current: string[] | null = null;
+  let fence = false;
   text.split("\n").forEach((line, i) => {
+    if (/^\s*(```|~~~)/.test(line)) fence = !fence;
+    // A `#` line is refused even inside a fence: release-auto.sh and
+    // migration-safety.ts read `## vX.Y.Z` lines without seeing fences.
     if (line.startsWith("#")) {
       const name = /^### (.+)$/.exec(line)?.[1];
       if (
@@ -56,6 +62,7 @@ export function parseSections(
     if (lines.length === 0)
       throw new Error(`${where}: "### ${name}" has no entries`);
   }
+  if (fence) throw new Error(`${where}: a code fence is not closed`);
   if (sections.size === 0 && !allowEmpty)
     throw new Error(`${where}: no section`);
   return sections;
@@ -92,10 +99,21 @@ export function collect(
   fragments: { name: string; text: string }[],
   version: string,
 ): string | null {
+  // The same refusals as release-auto.sh check_version, before anything is written.
   if (!VERSION.test(version))
     throw new Error(
       `'${version}' is not v<major>.<minor>.<patch>[-<prerelease>]`,
     );
+  if (
+    /[0-9]{19}/.test(version) ||
+    !/[0-9A-Za-z]$/.test(version) ||
+    version.length > 58
+  )
+    throw new Error(
+      `'${version}' cannot be a chart version (release-auto.sh check_version)`,
+    );
+  if (changelog.includes("\r"))
+    throw new Error("CHANGELOG.md: CRLF line ending; use LF");
   const lines = changelog.split("\n");
   if (lines.includes(`## ${version}`))
     throw new Error(`CHANGELOG.md already has a section for ${version}`);

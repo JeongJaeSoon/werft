@@ -704,6 +704,76 @@ esac
       });
 
     describe("a manual run (a retry)", () => {
+      /** Commits each tree in turn (path -> body, null deletes) and retries the last. */
+      const retryAfter = (trees: Record<string, string | null>[]) =>
+        sandbox((directory) => {
+          const repo = join(directory, "repo");
+          mkdirSync(repo);
+          git(repo, "init", "-q", "-b", "main");
+          trees.forEach((tree, i) => {
+            for (const [path, body] of Object.entries(tree)) {
+              if (body === null) {
+                rmSync(join(repo, path));
+              } else {
+                mkdirSync(join(repo, path, ".."), { recursive: true });
+                writeFileSync(join(repo, path), body);
+              }
+            }
+            git(repo, "add", "-A");
+            git(repo, "commit", "-q", "-m", `c${i}`);
+          });
+          const head = git(repo, "rev-parse", "HEAD");
+          const calls = fakeGh(directory, [absent, noRelease]);
+          const output = join(directory, "github-output");
+          const run = sh(
+            directory,
+            [script("release-auto.sh"), "detect"],
+            { EVENT: "workflow_dispatch", AFTER: head, GITHUB_OUTPUT: output },
+            repo,
+          );
+          return {
+            ...run,
+            calls: calls(),
+            output: existsSync(output) ? readFileSync(output, "utf8") : "",
+          };
+        });
+
+      test("a retry holds the version to the fragments its heading's commit left, not to later ones", () => {
+        const fragment = "### 운영자가 할 일\n\n- x\n";
+        const released = {
+          "CHANGELOG.md": changelog("v0.1.2", "v0.1.1"),
+          "changelog.d/94S-1.md": fragment,
+        };
+        const first = { "CHANGELOG.md": changelog("v0.1.1") };
+        // The refused release commit itself, and a later one that kept the fragment.
+        for (const trees of [
+          [first, released],
+          [first, released, { "x.txt": "fix" }],
+        ]) {
+          const run = retryAfter(trees);
+          expect(run.code).toBe(1);
+          expect(run.err).toContain("changelog.d/: 94S-1.md");
+          expect(run.output).toBe("");
+        }
+        // Moved into the section, the release retries; a fragment merged after
+        // the heading is the next release's.
+        const run = retryAfter([
+          first,
+          released,
+          {
+            "CHANGELOG.md": changelog("v0.1.2", "v0.1.1").replace(
+              "text",
+              "- x",
+            ),
+            "changelog.d/94S-1.md": null,
+            "changelog.d/94S-2.md": fragment,
+          },
+        ]);
+        expect(run.err).toBe("");
+        expect(run.code).toBe(0);
+        expect(run.output).toBe("tag=v0.1.2\n");
+      });
+
       test("retries the top version heading when its tag and Release are free", () => {
         const run = retry(base);
         expect(run.code).toBe(0);
@@ -1761,6 +1831,21 @@ describe("changelog-release.ts", () => {
     ],
     ["an empty fragment", { "a.md": "\n" }, "a.md: no section"],
     ["a file that is no .md", { "a.txt": ops("x") }, "changelog.d/a.txt"],
+    [
+      "CRLF line endings",
+      { "a.md": ops("x").replaceAll("\n", "\r\n") },
+      "a.md: CRLF",
+    ],
+    [
+      "a fence left open",
+      { "a.md": `${ops("x")}  \`\`\`sh\n  echo\n` },
+      "a.md: a code fence is not closed",
+    ],
+    [
+      "a version heading inside a fence",
+      { "a.md": `${ops("x")}  \`\`\`\n## v9.9.9\n  \`\`\`\n` },
+      '"## v9.9.9"',
+    ],
   ])("%s fails, and nothing is written or deleted", (_, fragments, message) => {
     const changelog = head + unreleased + old;
     const run = release(
@@ -1780,6 +1865,8 @@ describe("changelog-release.ts", () => {
       ["v1.2", "is not v"],
       ["v1.2.3+b", "is not v"],
       ["v0.5.0", "already has a section for v0.5.0"],
+      ["v1.2.3-rc-", "cannot be a chart version"],
+      [`v1.2.3-${"a".repeat(60)}`, "cannot be a chart version"],
     ] as const) {
       const run = release(changelog, { "a.md": ops("x") }, version);
       expect(run.code).toBe(1);
@@ -1788,6 +1875,16 @@ describe("changelog-release.ts", () => {
       expect(run.left).toEqual(["a.md"]);
     }
     expect(release(changelog, {}).code).toBe(2);
+  });
+
+  test("a fence that closes is kept, and a CRLF CHANGELOG is refused", () => {
+    const fenced = `### 운영자가 할 일\n\n- 명령:\n\n  \`\`\`sh\n  run\n  \`\`\`\n`;
+    expect(
+      collect(head + old, [{ name: "a.md", text: fenced }], "v0.6.0"),
+    ).toContain("  ```sh\n  run\n  ```\n");
+    expect(() =>
+      collect((head + unreleased + old).replaceAll("\n", "\r\n"), [], "v0.6.0"),
+    ).toThrow("CRLF");
   });
 
   test("an unreleased section outside the two sections is refused", () => {
@@ -1808,6 +1905,8 @@ describe("changelog-release.ts", () => {
       expect(parseSections(text, name).size).toBeGreaterThan(0);
     }
     const changelog = readFileSync(join(root, "CHANGELOG.md"), "utf8");
-    expect(collect(changelog, fragments, "v999.0.0")).not.toBeNull();
+    // A release pull request's tree has no fragment and no unreleased entry.
+    const next = collect(changelog, fragments, "v999.0.0");
+    expect(next === null || collect(next, [], "v999.0.1") === null).toBe(true);
   });
 });

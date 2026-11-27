@@ -81,7 +81,7 @@ detect() {
 # a release whose checks failed has no tag, and the push that fixes it adds
 # no heading. A version already tagged or released is not retried.
 detect_retry() {
-  local after="${AFTER:?}" top dup why
+  local after="${AFTER:?}" top dup why intro
   [[ "$after" =~ ^[0-9a-f]{40}$ ]] || fail "'${after}' is not a commit"
   dup="$(headings "$after" | sort | uniq -d)"
   [ -z "$dup" ] || fail "CHANGELOG.md has more than one section for ${dup//$'\n'/, }"
@@ -94,6 +94,10 @@ detect_retry() {
     echo "${top} is not retried: ${why}"
     return 0
   fi
+  # The oldest commit whose CHANGELOG.md diff has the heading line added it.
+  intro="$(git log --format=%H --reverse -G "^## ${top//./\\.}\$" "$after" -- CHANGELOG.md | awk 'NR == 1')"
+  [ -n "$intro" ] || fail "no commit before ${after} adds the ${top} heading"
+  fragments_collected "$intro" "$after" "$top"
   tag="$top"
 }
 
@@ -120,20 +124,25 @@ detect_push() {
       || fail "this push adds more than one version section: ${added//$'\n'/, }"
     [ -z "$gone" ] || fail "${added} appears where ${gone//$'\n'/, } was: a renamed section is not a release"
     check_version "$added"
-    fragments_collected "$after" "$added"
+    fragments_collected "$after" "$after" "$added"
     tag="$added"
     TAG="$tag" free
   fi
 }
 
-# A fragment left beside a new version heading is an entry of that release
-# missing from its section. A retry is not held to this: fragments merged after
-# the release commit belong to the next release.
+fragment_names() {
+  { git ls-tree --name-only "$1:changelog.d" 2>/dev/null || true; } | { grep -vxF README.md || true; } | sort
+}
+
+# A fragment the commit adding a version heading ($1) held is an entry of that
+# release missing from its section, unless the released commit ($2) no longer
+# holds it (a later merge moved it into the section). A fragment added after $1
+# belongs to the next release.
 fragments_collected() {
   local left
-  left="$(git ls-tree --name-only "$1:changelog.d" 2>/dev/null | grep -vxF README.md || true)"
+  left="$(comm -12 <(fragment_names "$1") <(fragment_names "$2"))"
   [ -z "$left" ] \
-    || fail "the commit that adds $2 still holds changelog fragments (changelog.d/: ${left//$'\n'/, }); a release pull request runs .github/scripts/changelog-release.ts $2"
+    || fail "the commit that adds $3 still holds changelog fragments (changelog.d/: ${left//$'\n'/, }); a release pull request runs .github/scripts/changelog-release.ts $3, and a refused one moves them into the $3 section"
 }
 
 # Prints why the version $1 is taken, nothing when it is free. Only a
