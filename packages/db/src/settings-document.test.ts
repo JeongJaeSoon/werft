@@ -59,8 +59,12 @@ test("an endpoint carrying a credential is kept without it; a clean one as writt
   });
 });
 
-test("an endpoint that is no URL leaves both out rather than guessing", () => {
+test("an endpoint that is no http(s) URL leaves both out rather than guessing", () => {
   expect(receiptDestinationOf("not a url")).toEqual({
+    endpoint: null,
+    host_port: null,
+  });
+  expect(receiptDestinationOf("file:///tmp/model")).toEqual({
     endpoint: null,
     host_port: null,
   });

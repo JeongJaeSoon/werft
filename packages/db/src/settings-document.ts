@@ -192,7 +192,8 @@ const OPERATIONS = {
  * userinfo, query or fragment, and its host:port as the egress allowlists
  * write it. URL already lowers the host and turns an IDN into punycode; the
  * scheme's port fills a missing one, and the trailing dot and an IPv6
- * address's brackets go. Both are null for a row whose endpoint is no URL.
+ * address's brackets go. Both are null for a row whose endpoint is no
+ * http(s) URL.
  */
 export function receiptDestinationOf(endpoint: unknown): {
   endpoint: string | null;
@@ -202,6 +203,10 @@ export function receiptDestinationOf(endpoint: unknown): {
     return { endpoint: null, host_port: null };
   }
   const url = new URL(endpoint);
+  // No port of ours to name for a scheme the proxy does not carry.
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return { endpoint: null, host_port: null };
+  }
   // Userinfo cannot be written without an @, so text with none of these is
   // kept as written; any other is the parser's own spelling, which also
   // catches what parses as empty (`https://:@host`, a bare `?`).
