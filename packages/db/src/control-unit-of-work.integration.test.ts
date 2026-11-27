@@ -848,7 +848,7 @@ integration("session terminate on PostgreSQL", () => {
     );
   });
 
-  test("a session already waiting on recovery keeps that barrier through a terminate", async () => {
+  test("a session already waiting on recovery is closed by a terminate, and the kill settles its receipt", async () => {
     const { session, launch: l, claimed } = await bound("recovery");
     await deliver(claimed);
     await gateway.finalize(principalOf(claimed), {
@@ -875,14 +875,13 @@ integration("session terminate on PostgreSQL", () => {
     if (result.outcome !== "accepted") throw new Error(result.outcome);
     expect(result.response.receipt_status).toBe("accepted");
     expect((await sessionRow(session.session_id)).admissionState).toBe(
-      "recovery_required",
+      "closed",
     );
     await confirmExecutionGone(db, l.executionId);
     const after = await sessionRow(session.session_id);
-    expect(after.admissionState).toBe("recovery_required");
-    // It failed before anyone asked it to stop: the terminate does not turn
-    // that failure into a stop.
-    expect(after.status).toBe("failed");
+    // The observed exit does not reopen what the terminate closed.
+    expect(after.admissionState).toBe("closed");
+    expect(after.status).toBe("stopped");
     expect(after.executionId).toBeNull();
     // The turn it is recovering from was unknown before this terminate; the
     // receipt still names it rather than claiming nothing is unconfirmed.
@@ -891,17 +890,13 @@ integration("session terminate on PostgreSQL", () => {
       result: { unconfirmed_turn_id: "1" },
     });
 
-    // Terminating again, now with no execution, completes at once and keeps
-    // naming that turn.
-    const again = await terminate(session, after.revision);
-    if (again.outcome !== "accepted") throw new Error(again.outcome);
-    expect(again.response.receipt_status).toBe("succeeded");
-    expect(await receiptRow(again.response.receipt_id)).toMatchObject({
-      status: "succeeded",
-      result: { unconfirmed_turn_id: "1" },
+    // A closed session takes no further terminate.
+    expect(await terminate(session, after.revision)).toEqual({
+      outcome: "rejected",
+      admissionState: "closed",
     });
-    expect((await sessionRow(session.session_id)).admissionState).toBe(
-      "recovery_required",
+    expect((await sessionRow(session.session_id)).revision).toBe(
+      after.revision,
     );
   });
 

@@ -287,10 +287,12 @@ OpenAPI: [`closeSession`](/reference/http-api/session-control/closeSession)、[`
 | scope | `sessions:control` | `sessions:control` | `sessions:recover` |
 | 受け付ける状態 | `active`、`paused`、resume できる `stopped` | `closed` 以外すべて | `recovery_required`、`stopping`、resume できない `stopped` |
 | 進行中の turn | 最後まで実行してチェックポイントを確定する。強制終了はしない | 実行を強制終了する。turn は `outcome_unknown` のまま残ることがある | 対象はすでに停止したセッション |
-| キュー内の入力 | `closed` にするトランザクションでキャンセル(`SESSION_CLOSED`) | 受け付けた時点でキャンセル(`SESSION_STOPPED`) | 判断した時点でキャンセル(`SESSION_CLOSED`) |
-| 結果の状態 | `closing`、そのあと `closed`(不可逆) | `stopping`、そのあと `stopped`(resume できる) | `closed`(不可逆) |
+| キュー内の入力 | `closed` にするトランザクションでキャンセル(`SESSION_CLOSED`) | 受け付けた時点でキャンセル(`SESSION_STOPPED`)。`recovery_required` を閉じるときは `SESSION_CLOSED` | 判断した時点でキャンセル(`SESSION_CLOSED`) |
+| 結果の状態 | `closing`、そのあと `closed`(不可逆) | `stopping`、そのあと `stopped`(resume できる)。`recovery_required` からはすぐ `closed`(不可逆) | `closed`(不可逆) |
 | receipt の `operation` と `result` | `close`、`{resulting_admission_state, checkpoint_revision, cancelled_turn_count}` | `terminate`、`{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}` | `recovery_decision`、`{resulting_admission_state, checkpoint_revision, resumable}` |
-| イベント | `status` `closing`、`closed`、`system` `subtype: session_closed`(`closed_by: "close"`) | `status` `stopping`、`stopped` | `system` `subtype: recovery_decision`、`decision: "close"` |
+| イベント | `status` `closing`、`closed`、`system` `subtype: session_closed`(`closed_by: "close"`) | `status` `stopping`、`stopped`。`recovery_required` からは `status`(`phase: stopped`、`admission_state: closed`)と `system` `subtype: session_closed`(`closed_by: "terminate"`) | `system` `subtype: recovery_decision`、`decision: "close"` |
+
+terminate に `expected_admission_state` で判断した時点の admission を一緒に送ると、その間にセッションが別の admission になっていた場合、下記の先の確認を通った新しいリクエストは 409 `REVISION_CONFLICT`(メッセージに現在の admission)で拒否され、セッションはそのままです。確認の順序は次のとおりです。使用済みの Idempotency-Key は、本文が同じならその receipt を現在の状態で返し、本文が違えば `IDEMPOTENCY_CONFLICT` です。次に `closed` のセッションは `SESSION_CLOSED`、次に `expected_revision`、最後に `expected_admission_state` を確認します。revision と admission がどちらも違う場合、メッセージは revision について述べます。`recovery_required` への遷移がすべて revision を上げるわけではないので、確認ダイアログを出してから送るクライアントはこの値を送ります。
 
 close は pause と同じように drain します。worker が付いた `active` のセッションは `closing` になり、進行中の turn が終わり、チェックポイントが確定し、実行が消えたのを確認してから `closed` になります。そのとき receipt が `succeeded` になります。worker のないセッション、`paused`、resume できる `stopped` のセッションは、リクエストの中でそのまま閉じます。drain が 60 秒を超えると、セッションの `attention` に `CLOSE_BLOCKED` と理由(`long_turn`、`pending_request`、`mirror_error`、`checkpoint_unavailable`、`execution_pending`)が出ます。開いている承認や質問は close を塞ぎます。答えるか interrupt すると解けます。それでも閉じなければ receipt は失敗し、セッションは `active` に戻ります。キューの入力はそのままです。その状態から抜けるには terminate を使います。進行中の close は `CONTROL_SUPERSEDED` で失敗します。
 

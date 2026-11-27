@@ -2356,7 +2356,7 @@ export interface paths {
         put?: never;
         /**
          * Block dispatch and force the execution down
-         * @description Stops the session by force, in any admission state but `closed`: dispatch is blocked, queued input is cancelled (each input's receipt fails with `SESSION_STOPPED`), open requests close and the execution is killed. The session goes `stopping` until the kill is observed, then `stopped`; with nothing to kill it is `stopped` at once and the receipt is `succeeded` in the response. A `recovery_required` session keeps that state. A turn the kill cut short may end `outcome_unknown`, which holds the session in `recovery_required` until `POST /v1/sessions/{id}/recovery-decisions`; its `status` is then `stopped`, not `failed`, because the stop was asked for (a turn left `outcome_unknown` by an execution lost with no kill requested makes the session `failed`). The kill reverts nothing the execution already did outside (commits, pushes, API calls): the response and the receipt say `external_effects_reverted: false`. The receipt result is `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`. Resume a `stopped` session from its last checkpoint with `POST /v1/sessions/{id}/resume`. A pause or close still draining is overtaken: its receipt fails with `CONTROL_SUPERSEDED`. To end a session whose work is done, close it instead (`POST /v1/sessions/{id}/close`).
+         * @description Stops the session by force, in any admission state but `closed`: dispatch is blocked, queued input is cancelled (each input's receipt fails with `SESSION_STOPPED`, or `SESSION_CLOSED` when the terminate closes a `recovery_required` session), open requests close and the execution is killed. The session goes `stopping` until the kill is observed, then `stopped`; with nothing to kill it is `stopped` at once and the receipt is `succeeded` in the response. A `recovery_required` session is closed instead (`closed`, as a recovery `close` decision leaves it, with a `session_closed` event whose `closed_by` is `terminate`); its unknown turns stay `outcome_unknown`, and a bound execution still gets the kill, which settles the receipt. Send `expected_admission_state` with the admission the decision rests on: not every move into `recovery_required` moves the revision, so a new request that gets past the checks before it and finds the session in another admission is refused with 409 `REVISION_CONFLICT` (the message names the current admission) and the session is left as it is. The checks go in this order: an Idempotency-Key already used replays its receipt, with the receipt's current status, when the body is the same, and is `IDEMPOTENCY_CONFLICT` when the body differs; then a `closed` session answers `SESSION_CLOSED`; then a stale `expected_revision` is `REVISION_CONFLICT` about the revision; then a differing `expected_admission_state` is `REVISION_CONFLICT` about the admission. A turn the kill cut short may end `outcome_unknown`, which holds the session in `recovery_required` until `POST /v1/sessions/{id}/recovery-decisions` decides or a second terminate closes it; its `status` is then `stopped`, not `failed`, because the stop was asked for (a turn left `outcome_unknown` by an execution lost with no kill requested makes the session `failed`). The kill reverts nothing the execution already did outside (commits, pushes, API calls): the response and the receipt say `external_effects_reverted: false`. The receipt result is `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`. Resume a `stopped` session from its last checkpoint with `POST /v1/sessions/{id}/resume`. A pause or close still draining is overtaken: its receipt fails with `CONTROL_SUPERSEDED`. To end a session whose work is done, close it instead (`POST /v1/sessions/{id}/close`).
          *
          *     **Scope:** `sessions:control` (API key or cookie session). **Idempotency-Key:** required.
          */
@@ -5850,6 +5850,8 @@ export interface components {
         TerminateSessionRequest: {
             expected_revision: number;
             reason?: string;
+            /** @enum {string} */
+            expected_admission_state?: "active" | "pausing" | "paused" | "resuming" | "stopping" | "stopped" | "recovery_required" | "closing" | "closed";
         };
         CloseSessionRequest: {
             expected_revision: number;
@@ -30262,7 +30264,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The terminate is stored (`accepted`), or there was nothing to kill and the session is `stopped` (`succeeded`). */
+            /** @description The terminate is stored (`accepted`), or there was nothing to kill and the session is `stopped`, or `closed` from `recovery_required` (`succeeded`). */
             202: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -30356,7 +30358,7 @@ export interface operations {
             };
             /**
              * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
-             *     - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
+             *     - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. Here it is also the answer when the revision matches but `expected_admission_state` is not the session's admission (the message names the current one): rereading for a new revision is not enough, decide again on the admission the session is in now. When both differ, the message is about the revision.
              *     - `SESSION_PAUSED`: The session is pausing or paused; resume it first. Reserved: this operation does not currently return it, because it accepts a session in that state.
              *     - `SESSION_RESUMING`: The session is resuming; wait for the resume receipt. Reserved: this operation does not currently return it, because it accepts a session in that state.
              *     - `SESSION_STOPPED`: The session is stopping or stopped; resume it first. Reserved: this operation does not currently return it, because it accepts a session in that state.
