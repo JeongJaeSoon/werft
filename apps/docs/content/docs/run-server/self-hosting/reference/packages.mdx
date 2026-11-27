@@ -14,10 +14,10 @@ outcome: "이미지와 chart와 manifest의 필드 의미를 확인한다"
 | 패키지 | 주소 | `main` 머지 | `v*` 태그 |
 | --- | --- | --- | --- |
 | 이미지 | `ghcr.io/jeongjaesoon/werft-control-host`, `werft-worker`, `werft-worker-codex`, `werft-egress-proxy` | 태그 `main-<12>` | 태그 `v<버전>` |
-| Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | 버전 `<Chart.yaml version>-main-<12>` | 버전 `<버전>`(`v` 없음) |
+| Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | 버전 `<Chart.yaml version>-main-<12>`(chart를 게시하는 commit만) | 버전 `<버전>`(`v` 없음) |
 | SDK | npm `@werft-ai/sdk` | main 이미지 게시와 별도. [SDK 설치](/getting-started/install)에서 배포 버전 확인 | SDK 배포 버전을 별도로 확인 |
 
-이미지는 `linux/amd64`와 `linux/arm64`를 담은 index이고, 설치에는 digest로 고정한다. chart는 세 이미지의 digest와 worker runtime을 담는다. 패키지는 로그인 없이 받는다. `<12>`는 commit SHA의 앞 12자이고, `main` 버전끼리는 순서에 뜻이 없으므로 Images workflow에서 초록색으로 끝난 run의 commit을 골라 정확히 적는다.
+이미지는 `linux/amd64`와 `linux/arm64`를 담은 index이고, 설치에는 digest로 고정한다. chart는 세 이미지의 digest와 worker runtime을 담는다. 패키지는 로그인 없이 받는다. `<12>`는 commit SHA의 앞 12자이고, `main` 버전끼리는 순서에 뜻이 없으므로 Images workflow에서 초록색으로 끝난 run의 commit(chart는 그 run이 chart까지 게시한 commit)을 골라 정확히 적는다.
 
 | 이미지 | 내용 | 실행 주체 |
 |---|---|---|
@@ -58,6 +58,8 @@ helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(
 설치하는 운영자는 이 manifest에서 [단일 서버 설치](/run-server/self-hosting/single-server)에 넣을 이미지 줄을 얻는다.
 
 ## main 패키지와 릴리스
+
+`main` 머지는 이미지를 게시하지만(문서만 바꾼 push 제외), chart는 그 push가 chart·이미지 빌드 입력·배포 파일을 바꿨거나 아직 태그가 없는 릴리스가 있을 때(판정하지 못한 때 포함)에만 kind에 설치해 보고 게시한다. 그래서 chart가 없는 `main` commit이 있다.
 
 `main-<12>`는 릴리스가 아니다. 해당 commit의 Images 실행에서 세 이미지·chart가 모두 게시됐는지 확인하고 정확한 버전을 선택한다. SHA 문자열은 시간순 버전이 아니므로 Helm의 `--devel`로 최신을 고르지 않는다. main 게시의 `unverifiedSources`가 빈 배열이면 모든 소스 보관을 확인한 것이고, 필드가 없으면 확인 기록이 없는 것이다. 공식 릴리스는 소스 보관을 모두 확인해야 게시된다.
 

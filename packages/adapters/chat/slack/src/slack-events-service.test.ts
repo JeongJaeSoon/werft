@@ -1077,6 +1077,8 @@ describe("Slack events service", () => {
     expect(result).toMatchObject({ status: "dropped", reason: "bot_message" });
   });
 
+  // The text these tests look for is a word, not digits: an event id is
+  // random hex, and a digit run can turn up in one.
   test("in a channel waiting for approval, talk is dropped unread and a mention is kept without its text, files or blocks", async () => {
     const w = world();
     await w.install();
@@ -1086,7 +1088,7 @@ describe("Slack events service", () => {
         w.event({
           type: "message",
           user: "U0P",
-          text: "the launch code is 1234",
+          text: "the launch code is swordfish",
           channel: "G0WAIT",
           channel_type: "group",
           ts: "1.1",
@@ -1098,8 +1100,8 @@ describe("Slack events service", () => {
       reason: "channel_pending_approval",
     });
     for (const [type, text] of [
-      ["app_mention", `<@${BOT_USER}> the launch code is 1234`],
-      ["message", `hey <@${BOT_USER}> the launch code is 1234`],
+      ["app_mention", `<@${BOT_USER}> the launch code is swordfish`],
+      ["message", `hey <@${BOT_USER}> the launch code is swordfish`],
     ] as const) {
       const mention = await w.service.receive(
         w.signed(
@@ -1135,7 +1137,7 @@ describe("Slack events service", () => {
         "user",
       ]);
       expect(event.text).toBe(`<@${BOT_USER}>`);
-      expect(JSON.stringify(row.payload)).not.toContain("1234");
+      expect(JSON.stringify(row.payload)).not.toContain("swordfish");
       expect(JSON.stringify(row.payload)).not.toContain("secret");
     }
   });
@@ -1151,7 +1153,7 @@ describe("Slack events service", () => {
           type: "app_mention",
           user: "U0REVIEW",
           bot_id: "B0REVIEW",
-          text: `<@${BOT_USER}> the launch code is 1234`,
+          text: `<@${BOT_USER}> the launch code is swordfish`,
           channel: "G0WAIT",
           channel_type: "group",
           ts: "1.2",
@@ -1185,7 +1187,7 @@ describe("Slack events service", () => {
             type: "message",
             subtype,
             user: "U0P",
-            text: "made this channel private: the launch code is 1234",
+            text: "made this channel private: the launch code is swordfish",
             channel,
             channel_type: channelType,
             ts,
@@ -1205,7 +1207,9 @@ describe("Slack events service", () => {
       ["C0CHAN", "channel_convert_to_private", ""],
       ["G0WAIT", "channel_convert_to_public", ""],
     ]);
-    expect(JSON.stringify([...w.inbox.rows.values()])).not.toContain("1234");
+    expect(JSON.stringify([...w.inbox.rows.values()])).not.toContain(
+      "swordfish",
+    );
   });
 
   test("a pending channel changes nothing for a DM, another channel, or once it is approved", async () => {
@@ -1257,7 +1261,7 @@ describe("Slack events service", () => {
           w.event({
             type,
             user: "U0P",
-            text: `<@${BOT_USER}> the launch code is 1234`,
+            text: `<@${BOT_USER}> the launch code is swordfish`,
             channel: "G0GONE",
             ...(channelType === undefined ? {} : { channel_type: channelType }),
             ts: "1.1",
@@ -1269,7 +1273,9 @@ describe("Slack events service", () => {
         reason: "channel_left",
       });
     }
-    expect(JSON.stringify([...w.inbox.rows.values()])).not.toContain("1234");
+    expect(JSON.stringify([...w.inbox.rows.values()])).not.toContain(
+      "swordfish",
+    );
   });
 
   test("a private channel keeps no text unless a ready private binding holds it: rejected and unbound are dropped, bound as public is kept without text", async () => {
@@ -1284,7 +1290,7 @@ describe("Slack events service", () => {
           w.event({
             type: "message",
             user: "U0P",
-            text: "the launch code is 1234",
+            text: "the launch code is swordfish",
             channel,
             channel_type: "group",
             ts: "1.1",
@@ -1306,7 +1312,7 @@ describe("Slack events service", () => {
         : [],
     );
     expect(stored).toHaveLength(1);
-    expect(JSON.stringify(stored[0])).not.toContain("1234");
+    expect(JSON.stringify(stored[0])).not.toContain("swordfish");
     expect(outcomes.G0OK).toMatchObject({ status: "received" });
 
     w.rejectedChannels.add("G0REJECTED");
@@ -1315,7 +1321,7 @@ describe("Slack events service", () => {
         w.event({
           type: "app_mention",
           user: "U0P",
-          text: `<@${BOT_USER}> the launch code is 1234`,
+          text: `<@${BOT_USER}> the launch code is swordfish`,
           channel: "G0REJECTED",
           ts: "1.2",
         }),
@@ -1349,7 +1355,7 @@ describe("Slack events service", () => {
         : [],
     );
     expect(kept).toHaveLength(1);
-    expect(JSON.stringify(kept[0])).not.toContain("1234");
+    expect(JSON.stringify(kept[0])).not.toContain("swordfish");
   });
 
   test("channel archive, rename and delete events are received for the handler, whatever the binding", async () => {
@@ -1407,7 +1413,7 @@ describe("Slack events service", () => {
           w.event({
             type,
             user: "U0P",
-            text: `<@${BOT_USER}> the launch code is 1234`,
+            text: `<@${BOT_USER}> the launch code is swordfish`,
             channel: "C0GONE",
             ...(channelType === undefined ? {} : { channel_type: channelType }),
             ts: "1.1",
@@ -1419,7 +1425,9 @@ describe("Slack events service", () => {
         reason: "channel_gone",
       });
     }
-    expect(JSON.stringify([...w.inbox.rows.values()])).not.toContain("1234");
+    expect(JSON.stringify([...w.inbox.rows.values()])).not.toContain(
+      "swordfish",
+    );
   });
 
   test("app_uninstalled and tokens_revoked revoke the install", async () => {

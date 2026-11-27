@@ -68,7 +68,9 @@ const fullJobs = (): Job[] => [
   // Typecheck and lint: a reusing push skips its own.
   job("check (static)"),
   ...domains.map((d) => job(`integration (${d})`, "Tests of this domain")),
-  job("e2e (scenario)", "Alpha path against the compose stack"),
+  ...[1, 2, 3].map((shard) =>
+    job(`e2e (scenario ${shard}/3)`, "Alpha path against the compose stack"),
+  ),
   // No conformance jobs: no pull request runs that suite, and reuse never asks for it.
   job("demo", "Static build"),
   job("ui-pack", "Install, type-check, build and render in an empty app"),
@@ -152,6 +154,9 @@ function run(env: Record<string, string> = {}, at = sha.merge) {
       SDK_PACK: "false",
       DOCS_ONLY: "false",
       DOMAINS: JSON.stringify(domains),
+      INTEGRATION_MATRIX: JSON.stringify(
+        domains.map((domain) => ({ domain, name: domain })),
+      ),
       ...env,
     },
   });
@@ -305,11 +310,66 @@ describe("ci-reuse.sh", () => {
     answer({ fail: false });
   });
 
+  test("a sharded domain is evidence only as its complete set of passed shards", () => {
+    const sharded = (shards: Job[]) => [
+      ...withGuides(fullJobs()).filter((j) => j.name !== "integration (db)"),
+      ...shards,
+    ];
+    const shard = (name: string, conclusion = "success") =>
+      job(`integration (db ${name})`, "Tests of this domain", conclusion);
+    const all = [shard("1/3"), shard("2/3"), shard("3/3")];
+    // This tree declares db as three shards.
+    const env = {
+      INTEGRATION_MATRIX: JSON.stringify(
+        domains.flatMap((domain) =>
+          domain === "db"
+            ? ["1/3", "2/3", "3/3"].map((n) => ({ domain, name: `db ${n}` }))
+            : [{ domain, name: domain }],
+        ),
+      ),
+    };
+    answer({
+      pulls: pr(),
+      compare: { status: "ahead" },
+      runs: runs(),
+      jobs: { jobs: sharded(all) },
+    });
+    expect(run(env).outputs.reused).toBe("https://github.invalid/runs/11");
+
+    for (const jobs of [
+      [shard("1/3"), shard("3/3")],
+      [shard("1/3"), shard("2/3", "skipped"), shard("3/3")],
+      [...all, shard("4/3")],
+      [shard("1/2"), shard("2/3"), shard("3/3")],
+      [...all, job("integration (db)", "Tests of this domain")],
+      // Complete, but not the set this tree declares.
+      [shard("1/2"), shard("2/2")],
+      [job("integration (db)", "Tests of this domain")],
+    ]) {
+      answer({ jobs: { jobs: sharded(jobs) } });
+      refused(run(env), "did not run and pass: integration (db)");
+    }
+    // And the other way: shards where this tree declares one job.
+    answer({ jobs: { jobs: sharded(all) } });
+    refused(run(), "did not run and pass: integration (db)");
+  });
+
+  test("a plan with tests and no integration matrix is malformed", () => {
+    hit();
+    for (const matrix of ["", "[]", "{}", '[{"domain":"db"}]', "nope"]) {
+      const r = run({ INTEGRATION_MATRIX: matrix });
+      expect(r.code).toBe(2);
+      expect(r.why).toContain("INTEGRATION_MATRIX is not the planned matrix");
+    }
+    // Without tests there is no integration matrix to hold a run to.
+    expect(run({ TESTS: "false", INTEGRATION_MATRIX: "" }).code).toBe(0);
+  });
+
   test("a job that passed without running its suite is no evidence", () => {
     const jobs = withGuides(fullJobs()).map((j) =>
-      j.name === "e2e (scenario)"
+      j.name === "e2e (scenario 2/3)"
         ? job(
-            "e2e (scenario)",
+            "e2e (scenario 2/3)",
             "Alpha path against the compose stack",
             "skipped",
           )
@@ -321,7 +381,12 @@ describe("ci-reuse.sh", () => {
       runs: runs(),
       jobs: { jobs },
     });
-    refused(run(), "e2e (scenario) Alpha path");
+    refused(run(), "e2e (scenario 2/3) Alpha path");
+    const shardless = withGuides(fullJobs()).filter(
+      (j) => j.name !== "e2e (scenario 3/3)",
+    );
+    answer({ jobs: { jobs: shardless } });
+    refused(run(), "e2e (scenario 3/3) Alpha path");
     const missing = withGuides(fullJobs()).filter(
       (j) => j.name !== "integration (egress)",
     );
