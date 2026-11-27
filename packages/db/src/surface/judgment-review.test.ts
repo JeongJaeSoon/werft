@@ -260,3 +260,57 @@ test("a voided record is neither counted nor listed: it has no result", async ()
     ).map((item) => item.outcome),
   ).toEqual(["judged"]);
 });
+
+test("recent with a reason is that reason's records only, newest first, inside the same limit", async () => {
+  for (const [reason, ago] of [
+    ["human_conversation", "4 hours"],
+    ["needs_agent", "3 hours"],
+    ["human_conversation", "2 hours"],
+    ["human_conversation", "1 hour"],
+  ] as const) {
+    await judgment({
+      channel: "C0PUBLIC",
+      outcome: "judged",
+      reason,
+      judgedAgo: ago,
+    });
+  }
+  // Another channel not named, and a record of a reason nobody asked for.
+  await judgment({ channel: "C0OTHER", outcome: "judged" });
+  const store = createPostgresJudgmentReviewStore(db);
+  const input = {
+    workspaceId: WORKSPACE,
+    agentId: AGENT,
+    since: since(),
+    channels: [{ teamId: TEAM, channelId: "C0PUBLIC" }],
+  };
+  const ago = (items: { judgedAt: Date }[]) =>
+    items.map((item) =>
+      Math.round((Date.now() - item.judgedAt.getTime()) / 3_600_000),
+    );
+  const filtered = await store.recent({
+    ...input,
+    reason: "human_conversation",
+    limit: 50,
+  });
+  expect(filtered.map((item) => item.reason)).toEqual([
+    "human_conversation",
+    "human_conversation",
+    "human_conversation",
+  ]);
+  expect(ago(filtered)).toEqual([1, 2, 4]);
+  // The limit counts the filtered records, not the unfiltered ones.
+  expect(
+    ago(
+      await store.recent({ ...input, reason: "human_conversation", limit: 2 }),
+    ),
+  ).toEqual([1, 2]);
+  expect(
+    (await store.recent({ ...input, reason: "needs_agent", limit: 50 })).length,
+  ).toBe(1);
+  expect(
+    await store.recent({ ...input, reason: "rate_limited", limit: 50 }),
+  ).toEqual([]);
+  // No reason: every record of the channel, as before.
+  expect((await store.recent({ ...input, limit: 50 })).length).toBe(4);
+});

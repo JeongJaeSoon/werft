@@ -3702,7 +3702,7 @@ export interface paths {
         };
         /**
          * M1's judgments in the agent's Slack channels
-         * @description What the conversation layer's first judge (M1) decided in the agent's Slack channels in the last 7 days (`since`), judged records only. Per channel (`channels`, most judgments first): how many judgments had a result (`judgments`), how many of them were `speak`, how many had each reason code (`reasons`, most first; `rate_limited` and `budget_refused` among them), the kind the channel's live binding records and that binding's `m1_judgments_per_hour` (null without one). Then the newest 50 judgments (`recent`) with their reason code and `url`, the link to the newest message the judgment read, made from its channel and `ts`: the message's text is read in Slack, never here. Private channels are in both like the rest, whether or not the caller is a member of them. Owners, admins and the agent's admins; API keys are refused. It changes nothing.
+         * @description What the conversation layer's first judge (M1) decided in the agent's Slack channels in the last 7 days (`since`), judged records only. Per channel (`channels`, most judgments first): how many judgments had a result (`judgments`), how many of them were `speak`, how many had each reason code (`reasons`, most first; `rate_limited` and `budget_refused` among them), the kind the channel's live binding records and that binding's `m1_judgments_per_hour` (null without one). Then the newest 50 judgments (`recent`), only those with the reason code `reason` names when it is given (any other value is 400; the counts above stay whole), with their reason code and `url`, the link to the newest message the judgment read, made from its channel and `ts`: the message's text is read in Slack, never here. Private channels are in both like the rest, whether or not the caller is a member of them. Owners, admins and the agent's admins; API keys are refused. It changes nothing.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -6341,6 +6341,10 @@ export interface components {
             page: number;
             /** @default 30 */
             per_page: number;
+        };
+        GetSlackJudgmentsQuery: {
+            /** @enum {string} */
+            reason?: "not_for_agent" | "human_conversation" | "already_handled" | "out_of_scope" | "needs_agent" | "unclear" | "invalid_target" | "budget_refused" | "concurrency_limited" | "rate_limited" | "input_too_large" | "no_active_release" | "model_unavailable" | "timed_out" | "unreachable" | "provider_error" | "malformed";
         };
         PatchGitHubRepositoryRequest: {
             branch: string;
@@ -40034,7 +40038,9 @@ export interface operations {
     };
     getSlackJudgments: {
         parameters: {
-            query?: never;
+            query?: {
+                reason?: "not_for_agent" | "human_conversation" | "already_handled" | "out_of_scope" | "needs_agent" | "unclear" | "invalid_target" | "budget_refused" | "concurrency_limited" | "rate_limited" | "input_too_large" | "no_active_release" | "model_unavailable" | "timed_out" | "unreachable" | "provider_error" | "malformed";
+            };
             header?: never;
             path: {
                 /** @description The agent's id. */
@@ -40092,6 +40098,21 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["GetSlackJudgmentsResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: a query parameter or the page cursor is invalid. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */

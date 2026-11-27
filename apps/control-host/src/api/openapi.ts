@@ -117,6 +117,7 @@ import {
   getSlackAppManifestResponseSchema,
   getSlackAppResponseSchema,
   getSlackInstructionsHeadResponseSchema,
+  getSlackJudgmentsQuerySchema,
   getSlackJudgmentsResponseSchema,
   getSlackNoticeResponseSchema,
   getTurnResponseSchema,
@@ -541,6 +542,7 @@ const requestComponents = {
   CompleteGitHubAppManifestRequest: completeGitHubAppManifestRequestSchema,
   CompleteGitHubInstallationRequest: completeGitHubInstallationRequestSchema,
   GitHubRepositoryPageQuery: githubRepositoryPageQuerySchema,
+  GetSlackJudgmentsQuery: getSlackJudgmentsQuerySchema,
   PatchGitHubRepositoryRequest: patchGitHubRepositoryRequestSchema,
   PickAgentGitHubRepositoryRequest: pickAgentGitHubRepositoryRequestSchema,
   CreateSlackAppRequest: createSlackAppRequestSchema,
@@ -7053,10 +7055,11 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1/agents/{id}/slack/judgments",
     operationId: "getSlackJudgments",
+    query: "GetSlackJudgmentsQuery",
     tag: "Agents",
     summary: "M1's judgments in the agent's Slack channels",
     description:
-      "What the conversation layer's first judge (M1) decided in the agent's Slack channels in the last 7 days (`since`), judged records only. Per channel (`channels`, most judgments first): how many judgments had a result (`judgments`), how many of them were `speak`, how many had each reason code (`reasons`, most first; `rate_limited` and `budget_refused` among them), the kind the channel's live binding records and that binding's `m1_judgments_per_hour` (null without one). Then the newest 50 judgments (`recent`) with their reason code and `url`, the link to the newest message the judgment read, made from its channel and `ts`: the message's text is read in Slack, never here. Private channels are in both like the rest, whether or not the caller is a member of them. Owners, admins and the agent's admins; API keys are refused. It changes nothing.",
+      "What the conversation layer's first judge (M1) decided in the agent's Slack channels in the last 7 days (`since`), judged records only. Per channel (`channels`, most judgments first): how many judgments had a result (`judgments`), how many of them were `speak`, how many had each reason code (`reasons`, most first; `rate_limited` and `budget_refused` among them), the kind the channel's live binding records and that binding's `m1_judgments_per_hour` (null without one). Then the newest 50 judgments (`recent`), only those with the reason code `reason` names when it is given (any other value is 400; the counts above stay whole), with their reason code and `url`, the link to the newest message the judgment read, made from its channel and `ts`: the message's text is read in Slack, never here. Private channels are in both like the rest, whether or not the caller is a member of them. Owners, admins and the agent's admins; API keys are refused. It changes nothing.",
     auth: "session",
     success: {
       status: 200,
@@ -7096,7 +7099,7 @@ export const API_ROUTE_DECLARATIONS = [
         ],
       },
     },
-    errors: [401, 403, 404, 503],
+    errors: [400, 401, 403, 404, 503],
   },
   {
     method: "get",

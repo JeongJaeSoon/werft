@@ -3859,6 +3859,77 @@ describe("M1 shadow records on the Slack tab (a1/S3)", () => {
     );
   });
 
+  test("picking a reason asks the server for it, keeps it in the URL, and clearing drops it", async () => {
+    const needsAgent = {
+      ...JUDGMENTS,
+      recent: JUDGMENTS.recent.filter((row) => row.reason === "needs_agent"),
+    };
+    const { api, history } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+      [`GET ${PATH}/slack/judgments?reason=needs_agent`]: () =>
+        json(200, needsAgent),
+      [`GET ${PATH}/slack/judgments?reason=timed_out`]: () =>
+        json(200, { ...JUDGMENTS, recent: [] }),
+    });
+    const user = await setupUser();
+    const select = await screen.findByLabelText("이유로 거르기");
+    const names = (select as HTMLSelectElement).options.length;
+    // "All reasons" and each of the 17 codes the contract lists.
+    expect(names).toBe(18);
+    await user.selectOptions(select, "needs_agent");
+    await waitFor(() =>
+      expect(history.location.search).toContain("judgment_reason=needs_agent"),
+    );
+    expect(history.location.search).toContain("tab=slack");
+    await waitFor(() =>
+      expect(
+        api.calls.some((call) => call.search === "?reason=needs_agent"),
+      ).toBe(true),
+    );
+    await user.selectOptions(select, "timed_out");
+    expect(
+      await screen.findByText("고른 이유의 판단이 최근 목록에 없습니다"),
+    ).toBeDefined();
+    expect(screen.queryByRole("table", { name: "최근 판단" })).toBeNull();
+    // The counts per channel stay on screen.
+    expect(screen.getByRole("table", { name: "채널별 판단" })).toBeDefined();
+    await user.selectOptions(select, "");
+    await waitFor(() =>
+      expect(history.location.search).not.toContain("judgment_reason"),
+    );
+    expect(screen.getByRole("table", { name: "최근 판단" })).toBeDefined();
+  });
+
+  test("a reason in the opening URL is asked for and shown chosen", async () => {
+    const { api } = renderAt(`${DETAIL}&judgment_reason=needs_agent`, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments?reason=needs_agent`]: () =>
+        json(200, JUDGMENTS),
+    });
+    const select = await screen.findByLabelText("이유로 거르기");
+    expect((select as HTMLSelectElement).value).toBe("needs_agent");
+    expect(
+      api.calls
+        .filter((call) => call.path.endsWith("/slack/judgments"))
+        .map((call) => call.search),
+    ).toEqual(["?reason=needs_agent"]);
+  });
+
+  test("an unknown reason in the URL is not sent to the server", async () => {
+    const { api } = renderAt(`${DETAIL}&judgment_reason=nope`, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+    });
+    const select = await screen.findByLabelText("이유로 거르기");
+    expect((select as HTMLSelectElement).value).toBe("");
+    expect(
+      api.calls
+        .filter((call) => call.path.endsWith("/slack/judgments"))
+        .map((call) => call.search),
+    ).toEqual([""]);
+  });
+
   test("says there is nothing to see, and which release has no instructions", async () => {
     renderAt(DETAIL, {
       ...routes(APP, true),

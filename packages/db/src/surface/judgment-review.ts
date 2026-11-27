@@ -136,6 +136,9 @@ export function createPostgresJudgmentReviewStore(
         .where(
           and(
             judged(input),
+            input.reason === undefined
+              ? undefined
+              : eq(conversationJudgments.reason, input.reason),
             or(
               ...input.channels.map((channel) =>
                 and(

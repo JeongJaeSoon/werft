@@ -1,5 +1,6 @@
 import {
   type ConversationJudgmentId,
+  type GetSlackJudgmentsQuery,
   type GetSlackJudgmentsResponse,
   type JudgmentGrade,
   type JudgmentOutcome,
@@ -52,6 +53,8 @@ export interface JudgmentReviewStore {
     agentId: string;
     since: Date;
     channels: readonly { teamId: string; channelId: string }[];
+    /** Only the records with this reason. */
+    reason?: JudgmentReason;
     limit: number;
   }): Promise<JudgmentReviewItem[]>;
 }
@@ -74,6 +77,7 @@ export function createJudgmentReviewService(deps: {
     async getSlackJudgments(
       caller: Caller,
       agentId: string,
+      query: GetSlackJudgmentsQuery = {},
     ): Promise<GetSlackJudgmentsResponse> {
       await requirePermitted(authorization, caller, "judgment.read", {
         kind: "agent",
@@ -131,6 +135,7 @@ export function createJudgmentReviewService(deps: {
                 teamId: channel.slack_team_id,
                 channelId: channel.channel_id,
               })),
+              ...(query.reason === undefined ? {} : { reason: query.reason }),
               limit: SLACK_JUDGMENT_RECENT_LIMIT,
             });
       return {

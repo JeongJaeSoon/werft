@@ -1,5 +1,9 @@
 import { type RefObject, useEffect, useState } from "react";
 import type { Place } from "./placement.tsx";
+import {
+  type JudgmentReason,
+  judgmentReasonOf,
+} from "./slack/judgment-reasons.ts";
 
 export const AGENT_TABS = [
   "overview",
@@ -17,15 +21,19 @@ export interface AgentSearch {
   readonly notice?: "created";
   /** Absent for the overview, so a plain agent link opens it. */
   readonly tab?: Exclude<AgentTab, "overview">;
+  /** The Slack tab's judgment list, narrowed to this reason. */
+  readonly judgment_reason?: JudgmentReason;
 }
 
 export function agentSearch(search: Record<string, unknown>): AgentSearch {
   const tab = AGENT_TABS.find(
     (name) => name !== "overview" && name === search.tab,
   ) as AgentSearch["tab"];
+  const judgment_reason = judgmentReasonOf(search.judgment_reason);
   return {
     ...(search.notice === "created" ? { notice: "created" as const } : {}),
     ...(tab ? { tab } : {}),
+    ...(judgment_reason ? { judgment_reason } : {}),
   };
 }
 

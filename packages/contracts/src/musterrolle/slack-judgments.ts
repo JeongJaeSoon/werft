@@ -68,6 +68,14 @@ export const slackJudgmentItemSchema = z
   .strict();
 
 /**
+ * Narrows `recent` to the judgments with this reason. The per-channel counts
+ * stay whole, so they still say what the list was cut from.
+ */
+export const getSlackJudgmentsQuerySchema = z
+  .object({ reason: z.enum(JUDGMENT_REASON_VALUES).optional() })
+  .strict();
+
+/**
  * The agent's judged records of the last SLACK_JUDGMENT_WINDOW_DAYS days:
  * per channel counts, and the newest SLACK_JUDGMENT_RECENT_LIMIT. Private
  * channels are in both; a reader needs only judgment.read.
@@ -117,6 +125,9 @@ export type GetSlackInstructionsHeadResponse = z.infer<
 >;
 export type SlackJudgmentChannel = z.infer<typeof slackJudgmentChannelSchema>;
 export type SlackJudgmentItem = z.infer<typeof slackJudgmentItemSchema>;
+export type GetSlackJudgmentsQuery = z.infer<
+  typeof getSlackJudgmentsQuerySchema
+>;
 export type GetSlackJudgmentsResponse = z.infer<
   typeof getSlackJudgmentsResponseSchema
 >;
