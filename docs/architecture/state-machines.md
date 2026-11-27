@@ -155,6 +155,10 @@ turn은 `queued → running → completed | failed | interrupted | outcome_unkno
 | R10 | 같은 답(같은 `after_turn` result)에 후속 글이 둘 생기는 것 | dedupe 키가 하나만 받는다. 두 drain이 동시에 읽어도 행은 하나 | 같은 파일의 `taken again, the same answer is one post; two answers are two, in order` |
 | R11 | 원본이 지워졌거나, 비공개 채널이 승인 대기이거나, 스레드가 mute된 turn의 후속 글이 나가는 것 | turn의 sources를 그대로 실어 지운 원본은 `voided_by_delete`, 승인 대기는 `not_addressed`로 끝나고, mute된 스레드에는 행을 만들지 않는다(본 답과 같은 규칙) | 같은 파일의 `is never sent once the message the turn answers is deleted`, `is not sent to a private channel waiting for approval, nor to a muted thread` |
 | R12 | turn 자신의 result나 `after_turn` 표시 없는 이벤트로 후속 글이 생기는 것 | 후속 글 없음 | 같은 파일의 `a turn's own result, or one not marked after it, posts nothing` |
+| R13 | turn의 실패 안내가 끝났지만 그 뒤 생긴 본 답(`reply:`)이 아직 보내는 중일 때 후속 글이 먼저 나가는 것 | 본 글 두 키 가운데 하나라도 `pending`·`sending`이면 기다린다 | 같은 파일의 `waits too while a reply comes after the turn's failure notice, and goes once it is sent` |
+| R14 | 요청자 한 사람에게만 보인 안내 뒤의 후속 글이 스레드 전체에 나가는 것 | 후속 글 없음 | 같은 파일의 `does not follow a notice shown to the requester alone` |
+| R15 | 본 글을 보내는 동안 세션이 닫혀 링크가 먼저 닫히고 후속 글이 사라지는 것 | 그동안 링크를 닫지 않는다 | 같은 파일의 `keeps a closed session's link open until the follow-up it owes is enqueued` |
+| R16 | 텍스트 없는 답이 한 번에 읽는 수를 차지해 뒤의 답이 나가지 못하는 것 | 텍스트 없는 답은 후보에서 빠진다 | 같은 파일의 `one with nothing to say holds no place ahead of a later answer` |
 
 R7과 R8을 빼면, 파일을 적지 않은 시험은 `packages/db/src/worker-unit-of-work.outside-turn.test.ts`에 있다.
 
@@ -175,7 +179,7 @@ turn을 이름으로 가진 채 저장된 이벤트를 turn 없이 다시 보내
 | P5 | 인프라 실패 pending 동안 다음 turn은 시작하지 않는다. 결정적 거절은 다음 turn을 막지 않고, 보류는 상한에서 끝난다 | `apps/worker/src/worker-host-outside-turn.test.ts`의 `a publish the infrastructure failed is retried in the lease, …`, `a capture the workspace itself refuses does not hold the next turn, …`, `past the hold's limit input is asked for again …`, 흐름 시험 `a publish the store failed is retried in the lease while the next message stays queued, …` |
 | P6 | turn이 끝난 뒤 engine이 스스로 낸 답은 그 turn의 스레드에 답 하나당 후속 글 한 번, 본 글 뒤에 간다. 웹 대화에도 같은 답이 앞머리 없이 보인다 | `outbox.integration.test.ts`의 `goes once into the turn's thread, after its reply, under the line that says so`, `packages/adapters/chat/slack/src/slack-after-turn.test.ts`, `packages/react/src/blocks/session-chat.test.tsx`의 `shows it as the agent's next message in the turn, …` |
 
-T13의 후속 글은 답 하나(engine이 입력 없이 내고 `result`로 끝낸 것)마다 하나다. 본문은 같은 turn의 앞선 `after_turn` result 다음부터 이 result까지의 top-level assistant 이벤트에서, 마지막 도구 호출 뒤의 텍스트다(본 답과 같은 `finalReplyText`). 맨 앞에 스레드 언어의 한 줄(`SLACK_OUTBOX_MESSAGES.*.afterTurn`)을 붙이고, 요청자를 본 답과 같은 규칙으로 멘션한다(`SLACK_AFTER_TURN_MENTIONS_REQUESTER`). 텍스트가 없는 답(도구 호출만 한 답)은 올리지 않는다. 찾는 일은 `events_after_turn_result_idx`(after_turn result만 담은 부분 인덱스)로 링크마다 한다. turn의 본 답 판정은 바뀌지 않는다: 본 답은 여전히 `after_turn` 이벤트를 빼고 읽는다.
+T13의 후속 글은 답 하나(engine이 입력 없이 내고 `result`로 끝낸 것)마다 하나다. 본문은 같은 turn의 앞선 `after_turn` result 다음부터 이 result까지의 top-level assistant 이벤트에서, 마지막 도구 호출 뒤의 텍스트다(본 답과 같은 `finalReplyText`). 맨 앞에 요청자 멘션과 스레드 언어의 한 줄(`SLACK_OUTBOX_MESSAGES.*.afterTurn`)을 붙인다. 멘션은 질문 카드처럼 검사한 `<@…>`를 본문에 넣는 것이고, 요청자의 Slack 계정이 연결돼 있을 때만 붙는다(`SLACK_AFTER_TURN_MENTIONS_REQUESTER`로 끈다). 본 답은 멘션을 허용만 하고 넣지는 않는다. 본 글 두 키(`reply:`·`failure:`) 가운데 하나라도 보내는 중이면 기다리고, 본 글이 요청자 한 사람에게만 보인 안내(`notice`)면 후속 글은 없다. 세션이 닫혀도 링크는 본 글을 보내는 동안 닫히지 않아, 그 뒤 후속 글 행이 생긴다. 텍스트가 없는 답(도구 호출만 한 답)은 올리지 않는다. 그런 답은 찾을 때부터 빠지므로, 행을 남기지 않아도 뒤의 답 앞에서 한 번에 읽는 수를 차지하지 않는다. 찾는 일은 `events_after_turn_result_idx`(after_turn result만 담은 부분 인덱스)로 링크마다 한다. turn의 본 답 판정은 바뀌지 않는다: 본 답은 여전히 `after_turn` 이벤트를 빼고 읽는다.
 
 P4에는 예외가 하나 있다. 그 attempt가 아직 끝낸 turn이 없으면(시작 직후) 이벤트는 어느 turn에도 붙지 않고, 호출은 세션의 첫 turn의 예산 root로 잡힌다.
 
@@ -185,9 +189,10 @@ P4의 turn은 이벤트와 호출이 각각 control plane에 도착한 때로 �
 
 ### 알려진 한계
 
-- 이미 checkpoint가 있는 turn 뒤에 engine이 스스로 답을 냈는데 그 답을 다시 캡처하지 못한 채 worker가 끝나면, pointer는 여전히 그 turn을 덮는다고 읽힌다. 다음 worker는 그 답이 없는 transcript에서 이어 간다. 답은 세션의 이벤트(`after_turn`)로 남고, T13으로 Slack 스레드와 웹 대화에도 보이므로 사람은 그 답을 잃지 않는다. engine의 문맥에서는 빠진다. worker는 그 답을 다시 캡처하려고 시도하지만, 판정(context gap)은 이 경우를 보지 않는다.
+- 이미 checkpoint가 있는 turn 뒤에 engine이 스스로 답을 냈는데 그 답을 다시 캡처하지 못한 채 worker가 끝나면, pointer는 여전히 그 turn을 덮는다고 읽힌다. 다음 worker는 그 답이 없는 transcript에서 이어 간다. 답은 세션의 이벤트(`after_turn`)로 남고, 웹 대화와 (T13이 올리는 스레드라면) Slack 스레드에 보인다. engine의 문맥에서는 빠진다. worker는 그 답을 다시 캡처하려고 시도하지만, 판정(context gap)은 이 경우를 보지 않는다.
 - T13은 답이 `result`로 끝나야 후속 글을 만든다. result 전에 worker가 끝나면 그 답의 글은 없다(이벤트와 웹 대화에는 남는다).
-- 텍스트가 없는 답은 후속 글 행을 만들지 않으므로, drain마다 그 답을 다시 읽고 건너뛴다. 부분 인덱스로 읽어 세션 하나에 몇 행이다.
+- 텍스트가 없는 답은 후속 글 행을 만들지 않으므로 drain마다 다시 검사되고 후보에서 빠진다. 부분 인덱스로 읽어 세션 하나에 몇 행이다.
+- 같은 turn의 답 둘이 함께 기다리다 따로 claim되거나 앞의 것이 다시 보내기를 기다리면, 뒤의 답이 먼저 올라갈 수 있다.
 - 살아 있는 run에서 engine이 입력 없이 답하는 중에 다음 입력이 전달되고, 그 답의 result가 입력을 이름으로 갖지 않으면 worker는 새 turn을 `outcome_unknown`으로 닫는다(전부터 있던 동작). 배경 작업이 끝난 직후에 메시지가 들어오면 일어날 수 있다. 이 절의 전이는 복원한 engine이 같은 알림에 다시 답하는 경우만 막는다.
 - ambient가 아닌 알림 뒤에 engine이 result를 내지 않으면, 그 run은 다음 turn의 result가 올 때까지 조용하지 않다고 읽힌다. 그동안 turn 밖 캡처는 거절되고, 덮이지 않은 turn이 있으면 idle 종료는 T10으로 간다.
 - 배경 작업 멈춤 알림은 checkpoint commit과 따로 보낸다. commit이 먼저 닿고 알림이 닿기 전에 worker가 fence되면(긴급 정지, 종료 등) 다음 turn의 입력과 세션 상세에 그 줄이 없다.

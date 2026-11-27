@@ -1154,7 +1154,25 @@ export function createPostgresSlackOutboxStore(
                           THEN 'reply' ELSE 'failure' END)
                         || ':' || l2.id || ':' || t.sequence
                     )))
-              )
+              ) AND NOT EXISTS (
+                -- An answer the engine gave after a turn whose own row is
+                -- still being sent: its follow-up is enqueued once that send
+                -- is over (afterTurnReplies), and a closed link gets none.
+                SELECT 1 FROM ${events} e
+                JOIN ${turns} et ON et.id = e.turn_id
+                  AND et.attempt_id = e.attempt_id
+                JOIN ${t} own ON own.dedupe_key IN (
+                    'reply:' || l2.id || ':' || et.sequence,
+                    'failure:' || l2.id || ':' || et.sequence)
+                WHERE e.session_id = l2.session_id
+                  AND e.type = 'result'
+                  AND (e.neutral ->> 'after_turn') IS NOT NULL
+                  AND et.created_at >= l2.created_at
+                  AND own.status IN ('pending', 'sending')
+                  AND NOT EXISTS (
+                    SELECT 1 FROM ${t} f
+                    WHERE f.dedupe_key = 'after_turn:' || l2.id || ':'
+                      || et.sequence || ':' || e.source_sequence))
               ELSE NOT EXISTS (
                 SELECT 1 FROM ${turns} ot
                 WHERE ot.session_id = l2.session_id
@@ -1658,18 +1676,56 @@ export function createPostgresSlackOutboxStore(
             AND e.source_sequence IS NOT NULL
             -- A turn from before the thread is not the thread's to answer.
             AND et.created_at >= l.created_at
-            -- After the turn's own reply or failure notice, once its sends
-            -- are over: a follow-up never goes ahead of what it follows.
+            -- After the turn's own reply or failure notice, once every send
+            -- of either is over: a follow-up never goes ahead of what it
+            -- follows. Only under one the whole thread was shown: a notice
+            -- to the requester alone keeps what follows it from the thread.
             AND EXISTS (
               SELECT 1 FROM slack_outbox own
               WHERE own.dedupe_key IN (
                   'reply:' || l.id || ':' || et.sequence,
                   'failure:' || l.id || ':' || et.sequence)
-                AND own.status NOT IN ('pending', 'sending'))
+                AND own.status NOT IN ('pending', 'sending')
+                AND own.slack_user_id IS NULL)
+            AND NOT EXISTS (
+              SELECT 1 FROM slack_outbox own
+              WHERE own.dedupe_key IN (
+                  'reply:' || l.id || ':' || et.sequence,
+                  'failure:' || l.id || ':' || et.sequence)
+                AND (own.status IN ('pending', 'sending')
+                  OR own.slack_user_id IS NOT NULL))
             AND NOT EXISTS (
               SELECT 1 FROM slack_outbox f
               WHERE f.dedupe_key = 'after_turn:' || l.id || ':' || et.sequence
                 || ':' || e.source_sequence)
+            -- Only a result with something to say: one with none leaves no
+            -- row, and taken each pass it would hold a place in the limit
+            -- ahead of every later answer. Text the engine wrote after its
+            -- last tool call since the previous such result, as
+            -- finalReplyText reads it.
+            AND EXISTS (
+              SELECT 1 FROM events w
+              WHERE w.session_id = e.session_id
+                AND w.id < e.id
+                AND w.turn_id = e.turn_id
+                AND w.attempt_id = e.attempt_id
+                AND (w.neutral ->> 'after_turn') IS NOT NULL
+                AND w.type IN ('assistant', 'tool_use')
+                AND w.payload ->> 'parent_tool_use_id' IS NULL
+                AND jsonb_typeof(w.payload -> 'tool_call') IS DISTINCT FROM 'object'
+                AND btrim(w.payload ->> 'text') <> ''
+                AND NOT EXISTS (
+                  SELECT 1 FROM events z
+                  WHERE z.session_id = e.session_id
+                    AND z.id > w.id
+                    AND z.id < e.id
+                    AND z.turn_id = e.turn_id
+                    AND z.attempt_id = e.attempt_id
+                    AND (z.neutral ->> 'after_turn') IS NOT NULL
+                    AND (z.type = 'result'
+                      OR (z.type IN ('assistant', 'tool_use')
+                        AND z.payload ->> 'parent_tool_use_id' IS NULL
+                        AND jsonb_typeof(z.payload -> 'tool_call') = 'object'))))
           ORDER BY e.id
           LIMIT ${limit}
         ) r

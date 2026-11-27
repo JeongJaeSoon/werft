@@ -21,6 +21,7 @@ import {
   slackOutboxGuard,
 } from "./slack-outbox-render.ts";
 import {
+  mention,
   slackOwnershipLostNotice,
   slackPromptMessage,
   slackStartFreshNotice,
@@ -389,6 +390,12 @@ export async function enqueueSlackAfterTurnReplies(deps: {
     if (said === "") continue;
     const link_url = sessionUrl(deps.consoleOrigin, reply.sessionId);
     const locale = reply.locale ?? DEFAULT_USER_LOCALE;
+    // It comes after the requester has moved on, so it calls them by name.
+    const asker =
+      SLACK_AFTER_TURN_MENTIONS_REQUESTER && reply.requesterSlackUserId !== null
+        ? reply.requesterSlackUserId
+        : null;
+    const who = asker === null ? "" : mention(asker);
     await deps.outbox.enqueue({
       workspaceId: reply.workspaceId,
       agentId: reply.agentId,
@@ -401,13 +408,10 @@ export async function enqueueSlackAfterTurnReplies(deps: {
       sessionId: reply.sessionId,
       sessionLinkId: reply.sessionLinkId,
       body: {
-        text: `${SLACK_OUTBOX_MESSAGES[locale].afterTurn}\n\n${said}`,
+        text: `${who === "" ? "" : `${who} `}${SLACK_OUTBOX_MESSAGES[locale].afterTurn}\n\n${said}`,
         locale,
         ...(link_url === undefined ? {} : { link_url }),
-        ...(!SLACK_AFTER_TURN_MENTIONS_REQUESTER ||
-        reply.requesterSlackUserId === null
-          ? {}
-          : { mention_user_ids: [reply.requesterSlackUserId] }),
+        ...(asker === null ? {} : { mention_user_ids: [asker] }),
       },
       dedupeKey: slackAfterTurnDedupeKey(
         reply.sessionLinkId,

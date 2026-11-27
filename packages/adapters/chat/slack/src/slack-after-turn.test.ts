@@ -71,7 +71,7 @@ test("an answer after the turn becomes one reply in the turn's thread, under the
       sessionId: SESSION,
       sessionLinkId: "link-1",
       body: {
-        text: "배경 작업이 끝나 이어서 알려 드립니다.\n\nThe build passed.",
+        text: "<@U0ASKER> 배경 작업이 끝나 이어서 알려 드립니다.\n\nThe build passed.",
         locale: "ko",
         link_url: `https://console.example/sessions/${SESSION}`,
         mention_user_ids: ["U0ASKER"],
@@ -104,7 +104,7 @@ test("the text is what the engine said after its last tool call; an answer with 
   ]);
   expect(count).toBe(1);
   expect(rows.map((row) => row.body.text)).toEqual([
-    `${SLACK_OUTBOX_MESSAGES.ko.afterTurn}\n\nAll green.`,
+    `<@U0ASKER> ${SLACK_OUTBOX_MESSAGES.ko.afterTurn}\n\nAll green.`,
   ]);
 });
 
@@ -114,7 +114,7 @@ test("the line is in the thread's language, English with none, and no one is men
     reply({ locale: null, requesterSlackUserId: null, resultSequence: 8 }),
   ]);
   expect(rows[0]?.body.text).toStartWith(
-    "バックグラウンド作業が終わったので、続きをお知らせします。\n\n",
+    "<@U0ASKER> バックグラウンド作業が終わったので、続きをお知らせします。\n\n",
   );
   expect(rows[1]?.body.text).toStartWith(
     "The background work finished; here is what followed.\n\n",
