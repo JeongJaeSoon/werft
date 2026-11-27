@@ -66,6 +66,9 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BEFORE_SHA: ${{ github.event.before }}
           PROBE_DOCS_ONLY: "true"
+          # A main push asks whether a release needs its commit.
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/ci-plan.sh
       - id: sdk
         name: Plan SDK consumer check
@@ -73,8 +76,16 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           run=true
+          fetched=false
           if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] && [ "$BASE_SHA" != 0000000000000000000000000000000000000000 ]; then
-            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            # A main push that cannot fetch its before keeps run=true.
+            if git fetch --no-tags --depth=1 origin "$BASE_SHA"; then
+              fetched=true
+            elif [ "$GITHUB_EVENT_NAME" != push ]; then
+              exit 1
+            fi
+          fi
+          if [ "$fetched" = true ]; then
             git diff --name-only --no-renames -z "$BASE_SHA" HEAD >"$RUNNER_TEMP/sdk-pack-paths"
             run=false
             while IFS= read -r -d '' path; do
