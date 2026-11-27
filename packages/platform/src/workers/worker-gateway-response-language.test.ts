@@ -32,7 +32,7 @@ const binding = testBinding({
 
 function claimWith(
   result: ClaimResult,
-  capabilities?: { response_language: true },
+  capabilities?: { response_language?: true; web_fetch_preflight?: true },
 ): { claim: Promise<unknown>; asked: ClaimInput[] } {
   const asked: ClaimInput[] = [];
   const work = new Proxy(
@@ -118,6 +118,55 @@ describe("the answer language in the claim, across worker versions", () => {
       for (const language of [null, undefined]) {
         const config = await configOf(language, capabilities);
         expect(Object.keys(config)).not.toContain("response_language");
+      }
+    }
+  });
+});
+describe("the WebFetch host check in the claim, across worker versions", () => {
+  const configOf = async (
+    skipWebFetchPreflight: boolean | undefined,
+    capabilities?: { web_fetch_preflight: true },
+  ) => {
+    const { claim } = claimWith(
+      {
+        outcome: "claimed",
+        binding: {
+          ...binding,
+          ...(skipWebFetchPreflight === undefined
+            ? {}
+            : { skipWebFetchPreflight }),
+        },
+      },
+      capabilities,
+    );
+    return ((await claim) as { runtime_config: Record<string, unknown> })
+      .runtime_config;
+  };
+
+  test("a worker that announced web_fetch_preflight is told to skip the check when the workspace turned it off", async () => {
+    const config = await configOf(true, { web_fetch_preflight: true });
+    expect(config.skip_web_fetch_preflight).toBe(true);
+    expect(runtimeConfigSchema.safeParse(config).success).toBe(true);
+  });
+
+  test("a worker that did not announce it gets no key and runs with the check on", async () => {
+    const config = await configOf(true);
+    expect(Object.keys(config)).not.toContain("skip_web_fetch_preflight");
+    expect(
+      runtimeConfigSchema
+        .omit({ skip_web_fetch_preflight: true })
+        .safeParse(config).success,
+    ).toBe(true);
+  });
+
+  test("with the check on, neither kind of worker gets the key", async () => {
+    for (const capabilities of [
+      undefined,
+      { web_fetch_preflight: true as const },
+    ]) {
+      for (const skip of [false, undefined]) {
+        const config = await configOf(skip, capabilities);
+        expect(Object.keys(config)).not.toContain("skip_web_fetch_preflight");
       }
     }
   });

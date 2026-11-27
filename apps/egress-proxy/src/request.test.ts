@@ -11,7 +11,12 @@ describe("parseRequestHead", () => {
       parseRequestHead(
         head("CONNECT api.example.com:443 HTTP/1.1", "host: api.example.com"),
       ),
-    ).toEqual({ host: "api.example.com", kind: "connect", port: 443 });
+    ).toEqual({
+      host: "api.example.com",
+      kind: "connect",
+      port: 443,
+      proxyAuthorization: expect.any(Function),
+    });
   });
 
   test("a CONNECT without a port is refused", () => {

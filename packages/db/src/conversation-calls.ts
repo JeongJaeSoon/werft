@@ -21,6 +21,7 @@ import {
   type ConversationTurnCallAuthorization,
   type ConversationTurnPermitInput,
   type ConversationTurnPermitIssue,
+  type ConversationUnsolicitedTurnIssue,
   chooseBudgetAccount,
   placeSource,
   reservationTokens,
@@ -62,6 +63,7 @@ import {
   memberTeams,
 } from "./schema.ts";
 import { rowsOf } from "./statement-rows.ts";
+import { conversationReplyDedupeKey } from "./surface/conversation-replies.ts";
 
 // The scale of the cost column, so a replay compares what was stored.
 const toStoredCost = (costUsd: number) => Math.round(costUsd * 1e6) / 1e6;
@@ -345,6 +347,9 @@ function issueIn(
 /** Thrown to take back a mention's turn whose message another turn engaged first. */
 class MentionEngaged extends Error {}
 
+/** Thrown to take back an unasked turn whose judgment another one took first. */
+class JudgmentTaken extends Error {}
+
 /**
  * Why a turn cannot be written in its scope, or null when it can: the agent,
  * its conversation, and the topic, held so the buffer does not drop it
@@ -567,6 +572,35 @@ export function createPostgresConversationCalls(
             throughTurn: null,
           });
           if (deleted !== null) return { outcome: "source_deleted" as const };
+          // A first try is taken only under the agent's rollout on; a try
+          // again is written only while it still is. Shared, as a change of
+          // the rollout writes the agent's row: one waits for the other.
+          if (input.retryOf !== undefined) {
+            const [agent] = await tx
+              .select({ rollout: agents.conversationRollout })
+              .from(agents)
+              .where(eq(agents.id, input.agentId))
+              .for("share");
+            if (agent?.rollout !== "on")
+              return { outcome: "rollout_off" as const };
+            // The try it follows must still be ended as its pass read it,
+            // read after the binding's lock, so after any stop: one a stop
+            // ended (the channel on again since, or the binding above would
+            // refuse) or one the queue forgot, its end no longer known,
+            // leaves no try to follow it.
+            const [before] = rowsOf<{ followed: boolean }>(
+              await tx.execute(sql`
+                SELECT state = 'ended'
+                  AND outcome ->> 'reason' IS DISTINCT FROM 'emergency_stopped'
+                  -- Nor one whose last line another pass wrote.
+                  AND NOT EXISTS (SELECT 1 FROM slack_outbox o
+                    WHERE o.dedupe_key = ${conversationReplyDedupeKey(input.retryOf)}) AS followed
+                FROM conversation_turn_queue
+                WHERE turn_id = ${input.retryOf}::uuid`),
+            );
+            if (before?.followed !== true)
+              return { outcome: "channel_stopped" as const };
+          }
           await tx.insert(conversationTurns).values({
             id: input.turnId,
             workspaceId: input.workspaceId,
@@ -586,20 +620,54 @@ export function createPostgresConversationCalls(
           });
           // A retry of the event, or two passes at once, meets the first
           // turn's engagement: this turn goes back with the transaction.
-          const [engaged] = await tx
-            .insert(conversationEngagements)
-            .values({
-              workspaceId: input.workspaceId,
-              agentId: input.agentId,
-              teamId: message.teamId,
-              channelId: message.channelId,
-              ts: message.ts,
-              kind: "mention",
-              conversationTurnId: input.turnId,
-            })
-            .onConflictDoNothing()
-            .returning({ ts: conversationEngagements.ts });
+          const [engaged] =
+            input.retryOf === undefined
+              ? await tx
+                  .insert(conversationEngagements)
+                  .values({
+                    workspaceId: input.workspaceId,
+                    agentId: input.agentId,
+                    teamId: message.teamId,
+                    channelId: message.channelId,
+                    ts: message.ts,
+                    kind: "mention",
+                    conversationTurnId: input.turnId,
+                  })
+                  .onConflictDoNothing()
+                  .returning({ ts: conversationEngagements.ts })
+              : // A try again moves the engagement off the try it follows,
+                // once: a second pass finds it moved and takes this one back.
+                await tx
+                  .update(conversationEngagements)
+                  .set({ conversationTurnId: input.turnId })
+                  .where(
+                    and(
+                      eq(conversationEngagements.agentId, input.agentId),
+                      eq(conversationEngagements.teamId, message.teamId),
+                      eq(conversationEngagements.channelId, message.channelId),
+                      eq(conversationEngagements.ts, message.ts),
+                      eq(conversationEngagements.kind, "mention"),
+                      eq(
+                        conversationEngagements.conversationTurnId,
+                        input.retryOf,
+                      ),
+                    ),
+                  )
+                  .returning({ ts: conversationEngagements.ts });
           if (engaged === undefined) throw new MentionEngaged();
+          if (input.retryOf !== undefined) {
+            // The try it follows no longer holds the thread's "processing":
+            // this one does, until it ends.
+            await tx
+              .update(conversationTurns)
+              .set({ slackStatusResetAt: sql`now()` })
+              .where(
+                and(
+                  eq(conversationTurns.id, input.retryOf),
+                  isNull(conversationTurns.slackStatusResetAt),
+                ),
+              );
+          }
           return insertTurnPermitIn(tx, input, {
             kind: "user",
             userId: input.requesterUserId,
@@ -607,6 +675,120 @@ export function createPostgresConversationCalls(
         })
         .catch((error: unknown) => {
           if (error instanceof MentionEngaged) {
+            return { outcome: "duplicate" as const };
+          }
+          throw error;
+        });
+    },
+
+    issueUnsolicitedTurnAtomic(input) {
+      const sources = storedSourceSet({
+        direct: input.sources.map((ts) =>
+          placeSource({ teamId: input.teamId, channelId: input.channelId, ts }),
+        ),
+        inherited: [],
+        overflow: false,
+      });
+      return db
+        .transaction(async (tx): Promise<ConversationUnsolicitedTurnIssue> => {
+          // Unlocked, before the scope: a record of `shadow` kept no topic
+          // for a turn. Read again under its lock below.
+          const [before] = await tx
+            .select({ rollout: agents.conversationRollout })
+            .from(agents)
+            .where(eq(agents.id, input.agentId));
+          if (before !== undefined && before.rollout !== "on") {
+            return { outcome: "rollout_off" };
+          }
+          const refused = await turnScopeIn(tx, input);
+          if (refused !== null) return refused;
+          // The posts' mark locks first, as a mention's turn takes its own: a
+          // delete under way refuses the turn, one after it finds it.
+          const deleted = await lockedDeletedSource(tx, {
+            workspaceId: input.workspaceId,
+            sessionId: null,
+            sources,
+            throughTurn: null,
+          });
+          if (deleted !== null) return { outcome: "source_deleted" };
+          // Only under the rollout on; `shadow` judges for the record alone.
+          // Locks in a mention's try again order: the scope's, the marks,
+          // the agent.
+          const [agent] = await tx
+            .select({
+              rollout: agents.conversationRollout,
+              status: agents.status,
+            })
+            .from(agents)
+            .where(eq(agents.id, input.agentId))
+            .for("share");
+          if (agent?.rollout !== "on") return { outcome: "rollout_off" };
+          // Still heard as the buffer hears it: an active agent in a channel
+          // not archived.
+          const [heard] = await tx
+            .select({ state: conversations.channelState })
+            .from(conversations)
+            .where(eq(conversations.id, input.conversationId));
+          if (agent.status !== "active" || heard?.state !== "active") {
+            return { outcome: "no_binding" };
+          }
+          // The channel's live binding, held as an admin's change of it waits.
+          // It still listens to what was judged: a batch's posts only while
+          // it hears every post, an engaged reply also while it hears
+          // mentions and their threads.
+          const [binding] = rowsOf<{ installation_id: string }>(
+            await tx.execute(sql`
+              SELECT b.installation_id
+              FROM surface_bindings b
+              JOIN slack_installations i ON i.id = b.installation_id
+              WHERE b.agent_id = ${input.agentId}::uuid AND b.surface = 'slack'
+                AND b.external_surface_id = ${input.channelId}
+                AND i.team_id = ${input.teamId}
+                AND b.revoked_at IS NULL AND b.status = 'ready'
+                AND b.mode = 'on'
+                AND (b.listen = 'free' OR (b.listen = 'mention' AND EXISTS (
+                  SELECT 1 FROM conversation_judgments j
+                  WHERE j.id = ${input.judgmentId}::uuid
+                    AND j.grade = 'm1_engaged')))
+                AND NOT b.external_shared AND b.emergency_stopped_at IS NULL
+              ORDER BY b.id
+              LIMIT 1
+              FOR SHARE OF b`),
+          );
+          if (binding === undefined) return { outcome: "no_binding" };
+          await tx.insert(conversationTurns).values({
+            id: input.turnId,
+            workspaceId: input.workspaceId,
+            agentId: input.agentId,
+            conversationId: input.conversationId,
+            topicId: input.topicId,
+            origin: "m2",
+            state: "running",
+            // No one asked: the agent's own turn, charged as root none.
+            requesterKind: "agent",
+            requesterId: input.agentId,
+            sources,
+            releaseId: input.releaseId,
+            slackInstallationId: binding.installation_id,
+            // Its writer's until queued: no pass ends it in between.
+            slackStatusClaimedAt: sql`now()`,
+          });
+          const taken = rowsOf(
+            await tx.execute(sql`
+              UPDATE conversation_judgments SET turn_id = ${input.turnId}::uuid
+              WHERE id = ${input.judgmentId}::uuid
+                AND agent_id = ${input.agentId}::uuid
+                -- A bound session's reply is the session's to answer.
+                AND grade IN ('buffer_m1', 'm1_engaged')
+                AND decision = 'speak' AND target_ts IS NOT NULL
+                AND turn_id IS NULL AND answer IS NULL
+              RETURNING id`),
+          );
+          if (taken.length === 0) throw new JudgmentTaken();
+          return insertTurnPermitIn(tx, input, { kind: "none" });
+        })
+        .catch((error: unknown) => {
+          if (error instanceof JudgmentTaken) {
             return { outcome: "duplicate" as const };
           }
           throw error;

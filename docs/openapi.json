@@ -2817,6 +2817,18 @@
         ],
         "additionalProperties": false
       },
+      "WebFetchPreflightRequest": {
+        "type": "object",
+        "properties": {
+          "web_fetch_preflight": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "web_fetch_preflight"
+        ],
+        "additionalProperties": false
+      },
       "CreateAchievementCategoryRequest": {
         "type": "object",
         "properties": {
@@ -9384,6 +9396,10 @@
                     "default": false,
                     "type": "boolean"
                   },
+                  "web_fetch_preflight": {
+                    "default": true,
+                    "type": "boolean"
+                  },
                   "achievement_judge": {
                     "type": "object",
                     "properties": {
@@ -9467,6 +9483,7 @@
                   "idle_pause_minutes",
                   "audit_retention_days",
                   "slack_guest_enabled",
+                  "web_fetch_preflight",
                   "achievement_judge"
                 ],
                 "additionalProperties": false
@@ -14553,6 +14570,7 @@
               "disable_achievement_rule",
               "enable_achievement_rule",
               "set_achievement_judge",
+              "set_web_fetch_preflight",
               "rejudge_session",
               "review_achievement",
               "set_env_variable",
@@ -15018,6 +15036,10 @@
                     "default": false,
                     "type": "boolean"
                   },
+                  "web_fetch_preflight": {
+                    "default": true,
+                    "type": "boolean"
+                  },
                   "achievement_judge": {
                     "type": "object",
                     "properties": {
@@ -15101,6 +15123,7 @@
                   "idle_pause_minutes",
                   "audit_retention_days",
                   "slack_guest_enabled",
+                  "web_fetch_preflight",
                   "achievement_judge"
                 ],
                 "additionalProperties": false
@@ -16934,6 +16957,24 @@
         },
         "required": [
           "slack_guest_enabled"
+        ],
+        "additionalProperties": false
+      },
+      "WebFetchPreflightResponse": {
+        "type": "object",
+        "properties": {
+          "web_fetch_preflight": {
+            "type": "boolean"
+          },
+          "receipt_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "web_fetch_preflight",
+          "receipt_id"
         ],
         "additionalProperties": false
       },
@@ -23603,6 +23644,10 @@
                         "default": false,
                         "type": "boolean"
                       },
+                      "web_fetch_preflight": {
+                        "default": true,
+                        "type": "boolean"
+                      },
                       "achievement_judge": {
                         "type": "object",
                         "properties": {
@@ -23686,6 +23731,7 @@
                       "idle_pause_minutes",
                       "audit_retention_days",
                       "slack_guest_enabled",
+                      "web_fetch_preflight",
                       "achievement_judge"
                     ],
                     "additionalProperties": false
@@ -33983,6 +34029,13 @@
                           "exclusiveMinimum": 0,
                           "maximum": 9007199254740991
                         },
+                        "access": {
+                          "type": "string",
+                          "enum": [
+                            "installation",
+                            "public"
+                          ]
+                        },
                         "repository_id": {
                           "type": "integer",
                           "exclusiveMinimum": 0,
@@ -34245,6 +34298,7 @@
                       "required": [
                         "connection_id",
                         "installation_id",
+                        "access",
                         "repository_id",
                         "repository",
                         "path",
@@ -35114,6 +35168,13 @@
                 "exclusiveMinimum": 0,
                 "maximum": 9007199254740991
               },
+              "access": {
+                "type": "string",
+                "enum": [
+                  "installation",
+                  "public"
+                ]
+              },
               "repository_id": {
                 "type": "integer",
                 "exclusiveMinimum": 0,
@@ -35376,6 +35437,7 @@
             "required": [
               "connection_id",
               "installation_id",
+              "access",
               "repository_id",
               "repository",
               "path",
@@ -38017,6 +38079,7 @@
                           "out_of_scope",
                           "needs_agent",
                           "unclear",
+                          "invalid_target",
                           "budget_refused",
                           "concurrency_limited",
                           "rate_limited",
@@ -38115,6 +38178,7 @@
                     "out_of_scope",
                     "needs_agent",
                     "unclear",
+                    "invalid_target",
                     "budget_refused",
                     "concurrency_limited",
                     "rate_limited",
@@ -38281,6 +38345,19 @@
                         "kind": {
                           "type": "string",
                           "const": "operator"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "agent"
                         }
                       },
                       "required": [
@@ -40161,6 +40238,7 @@
                       "idle_pause_minutes": 30,
                       "audit_retention_days": 90,
                       "slack_guest_enabled": false,
+                      "web_fetch_preflight": true,
                       "achievement_judge": {
                         "connection_id": null,
                         "threshold": 0.9,
@@ -43514,6 +43592,324 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SlackGuestResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "- `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "PAYLOAD_TOO_LARGE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspaces/{id}/web-fetch-preflight": {
+      "post": {
+        "operationId": "setWebFetchPreflight",
+        "tags": [
+          "Workspace settings"
+        ],
+        "summary": "Turn the engine's WebFetch host check with Anthropic on or off (owner or admin)",
+        "description": "On by default. While on, the engine asks api.anthropic.com whether it may fetch a host before WebFetch dials it, so the worker must reach that host; when the check cannot be made, the call fails without fetching. While off, sessions the workspace starts or resumes from then on skip the check. Either way the egress allowlist decides which hosts a session may reach. Writes a `set_web_fetch_preflight` receipt. The current value is `workspace.settings.web_fetch_preflight` in GET /v1/auth/me.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The workspace's id.",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `werft-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "werft-web"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebFetchPreflightRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebFetchPreflightResponse"
                 }
               }
             }
@@ -59859,6 +60255,7 @@
                       "idle_pause_minutes": 30,
                       "audit_retention_days": 90,
                       "slack_guest_enabled": false,
+                      "web_fetch_preflight": true,
                       "achievement_judge": {
                         "connection_id": null,
                         "threshold": 0.9,
@@ -88136,7 +88533,7 @@
           "Workspace settings"
         ],
         "summary": "List the workspace's skills and their versions",
-        "description": "Every skill name with all its versions, oldest first, and the version and mode the workspace scope names. A bundle registered before skills shows with `version: null`. `source` is the skill's one source (`upload` or `github`); a GitHub skill carries `git`: where it syncs from, whether sync is on, whether this installation can take its push webhook (`webhook`: `ready`, `no_public_url`, or `no_secret` when the App's webhook secret is not stored), and its last check. `pending_count` is how many of its versions wait for review. Every member of the workspace reads it.\n\n**Auth:** cookie session only; no scope.",
+        "description": "Every skill name with all its versions, oldest first, and the version and mode the workspace scope names. A bundle registered before skills shows with `version: null`. `source` is the skill's one source (`upload` or `github`); a GitHub skill carries `git`: where it syncs from, whether sync is on, whether this installation can take its push webhook (`webhook`: `ready`, `no_public_url`, or `no_secret` when the App's webhook secret is not stored; a public repository the App is not installed on (`access` `public`) takes no push and is `no_public_url`), and its last check. `pending_count` is how many of its versions wait for review. Every member of the workspace reads it.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
@@ -89315,6 +89712,7 @@
                   "git": {
                     "connection_id": "019a0000-0000-7000-8000-0000000000b1",
                     "installation_id": 4242,
+                    "access": "installation",
                     "repository_id": 123456789,
                     "repository": "acme/skills",
                     "path": "skills/release-notes",
@@ -89643,6 +90041,7 @@
                   "git": {
                     "connection_id": "019a0000-0000-7000-8000-0000000000b1",
                     "installation_id": 4242,
+                    "access": "installation",
                     "repository_id": 123456789,
                     "repository": "acme/skills",
                     "path": "skills/release-notes",

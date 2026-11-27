@@ -302,7 +302,7 @@ export function createPostgresInstallationSettingsStore(
         if (workspaceId === null) {
           throw new Error("no workspace yet to keep a stored value under");
         }
-        await writeSecretInTx(
+        const changed = await writeSecretInTx(
           tx,
           key,
           { workspaceId, owner, purpose: PURPOSE },
@@ -312,7 +312,7 @@ export function createPostgresInstallationSettingsStore(
         if (owner.kind === "repository") {
           await rebindCarriedPushes(tx, owner.id);
         }
-        await raiseSettingsGeneration(tx);
+        if (changed) await raiseSettingsGeneration(tx);
       });
     },
   };

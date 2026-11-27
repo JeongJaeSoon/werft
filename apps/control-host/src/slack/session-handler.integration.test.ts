@@ -36,6 +36,7 @@ import {
   DEFAULT_SURFACE_CEILING,
   GITHUB_CEILING_NONE,
   SESSION_SCOPE_VALUES,
+  SLACK_EMERGENCY_STOP_TEXT,
   SLACK_INBOUND_MAX_ATTEMPTS,
   SLACK_NOTICE_MESSAGES,
   TASK_CLOSING_DEFAULT,
@@ -90,6 +91,9 @@ import {
   createSurfaceBindingService,
   createTopicSessionChecks,
   hashConversationCallToken,
+  MENTION_TURN_ATTEMPTS,
+  MENTION_TURN_CALL_SETTLE_WAIT_MS,
+  MENTION_TURN_RETRY_DELAYS_MS,
   type MentionTurnStatusStore,
   placeSource,
   SecretKey,
@@ -3962,6 +3966,7 @@ describe.each(ENGINES)(
       now?: Date,
       claimMs = 60_000,
       statuses?: MentionTurnStatusStore,
+      on: typeof db = db,
     ) => {
       // As a pass does: the catalog read before a task is opened. Read as
       // the first turn ends, not before the pass looks for turns, so the
@@ -3985,10 +3990,14 @@ describe.each(ENGINES)(
         outbox: schema.createPostgresSlackOutboxStore(db),
         slackApiUrl: slack.url,
       });
+      // A try again reads the release's connection from the catalog, which
+      // a pass reads before its endings.
+      const mentionCatalog = slackCatalog(db, LIMITS);
+      await mentionCatalog.refresh();
       return slackMentionTurnEndings({
-        db,
+        db: on,
         secretKey: key,
-        catalog: slackCatalog(db, LIMITS),
+        catalog: mentionCatalog,
         slack: createSlackBotApi({ apiUrl: slack.url }),
         botToken: (workspaceId, slackAppId) =>
           slackBotToken(secrets(), workspaceId, slackAppId),
@@ -4038,6 +4047,20 @@ describe.each(ENGINES)(
         runtimeId: RUNTIME,
         decision: { tool: "reply", body, reason: "asked" },
       });
+    // Ends a turn on staying quiet: a decision, so it is not tried again.
+    const quiet = async (
+      turn: { turn_id: ConversationTurnId; lease_id: string },
+      text: string,
+    ) => {
+      const decision = { tool: "no_reply", reason: "nothing to add" } as const;
+      await createPostgresConversationReadToolStore(db).recordDecision({
+        turnId: turn.turn_id,
+        leaseId: conversationTurnLeaseIdSchema.parse(turn.lease_id),
+        runtimeId: RUNTIME,
+        decision,
+      });
+      return report(turn, { outcome: "completed", text, decision });
+    };
 
     test("rollout on: a mention is one turn of its thread, for the person who mentioned, the thread processing, and no session", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
@@ -4293,13 +4316,22 @@ describe.each(ENGINES)(
       ]);
     });
 
-    test("no decision but a reply posts", async () => {
+    test("a turn that ends with text but no decision is tried again: the retry line alone, not its text", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       await deliver(fixture, mention("100.000100"));
       await drain(handler().handle);
       await report(await leased(), { outcome: "completed", text: "hm" });
-      expect(await endings()).toMatchObject({ ended: 1, replied: 0 });
-      expect(await conversationRepliesOf(fixture)).toEqual([]);
+      expect(await endings()).toMatchObject({
+        ended: 1,
+        replied: 0,
+        retried: 1,
+      });
+      // No answer: the one line says it is tried again.
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100").map((post) => post.text)).toEqual([
+        `${SLACK_NOTICE_MESSAGES.en.mentionRetrying}\n\nAI agent · Werft`,
+      ]);
     });
 
     // v1-b/E3: a turn that decides spawn_task opens a task session.
@@ -4416,6 +4448,42 @@ describe.each(ENGINES)(
         slack.messages.filter((posted) => posted.text.includes("MODEL-TEXT")),
       ).toEqual([]);
       expect(await conversationRepliesOf(fixture)).toEqual([]);
+    });
+
+    test("a stop word mentioned in an idle task's thread makes no turn: only whoever wrote it is told nothing is running (94S-2472)", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await spawnDecided();
+      expect(await endings()).toMatchObject({ spawned: 1 });
+      const [session] = await sessionsOf(fixture);
+      if (session === undefined) throw new Error("no task opened");
+      await db
+        .update(turns)
+        .set({
+          status: "completed",
+          startedAt: new Date(),
+          endedAt: new Date(),
+        })
+        .where(eq(turns.sessionId, session.id));
+      const view = handler();
+      const stopWord = {
+        thread_ts: "100.000100",
+        text: `<@${BOT_USER}> 그만`,
+      };
+      await deliver(fixture, message("100.000300", stopWord));
+      await deliver(fixture, mention("100.000300", stopWord));
+      expect(await drain(view.handle)).toMatchObject({ failed: 0 });
+      const taskTurns = await db
+        .select({ sequence: turns.sequence, status: turns.status })
+        .from(turns)
+        .where(eq(turns.sessionId, session.id));
+      expect(taskTurns).toEqual([{ sequence: 1, status: "completed" }]);
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      expect(view.threadNotices).toEqual([]);
+      expect(view.notices).toMatchObject([
+        { slackUserId: PERSON, notice: { message: "nothingToStop" } },
+      ]);
     });
 
     test("a repository outside the agent's is refused with a line in the thread, nothing opened (G3)", async () => {
@@ -4965,7 +5033,7 @@ describe.each(ENGINES)(
         (row) => row.kind === "dm",
       );
       if (dm === undefined) throw new Error("no DM conversation");
-      await report(await leased(), { outcome: "completed", text: "hm" });
+      await quiet(await leased(), "hm");
       await endings();
       await db
         .update(sessions)
@@ -5465,7 +5533,8 @@ describe.each(ENGINES)(
       expect(slack.reactions).toEqual([]);
     });
 
-    // Each way a turn ends sets its thread back once.
+    // Each way a turn ends sets its thread back once: a try that ends with
+    // no decision and nothing out of it is tried again first, to its third.
     const ends: [
       string,
       (turn: Awaited<ReturnType<typeof leased>>) => Promise<unknown>,
@@ -5483,26 +5552,26 @@ describe.each(ENGINES)(
           });
         },
         { state: "decided", decision: "reply" },
-        0,
+        1,
       ],
       [
         "no decision",
         (turn) => report(turn, { outcome: "completed", text: "hm" }),
         { state: "no_decision", limitReached: null },
-        0,
+        3,
       ],
       [
         "a failure",
         (turn) => report(turn, { outcome: "failed", reason: "engine_failed" }),
         { state: "no_decision", limitReached: null },
-        0,
+        3,
       ],
       [
         "the model call cap",
         (turn) =>
           report(turn, { outcome: "failed", reason: "model_call_limit" }),
         { state: "no_decision", limitReached: "model_call_limit" },
-        0,
+        3,
       ],
       [
         "a refused budget",
@@ -5515,48 +5584,1353 @@ describe.each(ENGINES)(
           await report(turn, { outcome: "failed", reason: "engine_failed" });
         },
         { state: "no_decision", limitReached: null },
-        0,
+        1,
       ],
       [
         "the time limit, with no report",
-        async () => {},
+        async (turn) => {
+          // Still within its time: nothing is set back.
+          await endings();
+          expect(statusesOf("100.000100")).toEqual(["processing"]);
+          // Its lease runs out, as no report came.
+          await db
+            .update(schema.conversationTurnQueue)
+            .set({ leaseExpiresAt: new Date(Date.now() - 1_000) })
+            .where(eq(schema.conversationTurnQueue.turnId, turn.turn_id));
+        },
         { state: "no_decision", limitReached: "time_limit" },
-        CONVERSATION_TURN_LEASE_MS + 1_000,
+        3,
       ],
     ];
-    for (const [name, end, recorded, laterMs] of ends) {
+    for (const [name, end, recorded, tries] of ends) {
       test(`a turn ended by ${name} sets its thread back to active once`, async () => {
         const fixture = await agentInSlack("main", { rollout: "on" });
         await deliver(fixture, mention("100.000100"));
         await drain(handler().handle);
-        const turn = await leased();
-        await end(turn);
-        if (laterMs > 0) {
-          // Still within its time: nothing is set back.
+        for (let tried = 1; tried <= tries; tried += 1) {
+          await end(await leased());
           await endings();
-          expect(statusesOf("100.000100")).toEqual(["processing"]);
+          // Past the wait before the third try.
+          await endings(
+            new Date(Date.now() + MENTION_TURN_RETRY_DELAYS_MS[1] + 1),
+          );
+          // A try again keeps the thread processing: nothing is said to Slack.
+          expect(statusesOf("100.000100").at(-1)).toBe(
+            tried === tries ? "active" : "processing",
+          );
         }
-        const at = new Date(Date.now() + laterMs);
-        await endings(at);
-        await endings(at);
         expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
-        const [row] = await mentionTurnsOf(fixture);
-        expect(row).toMatchObject(recorded);
-        expect(row?.resetAt).not.toBeNull();
+        const rows = await mentionTurnsOf(fixture);
+        expect(rows).toHaveLength(tries);
+        for (const row of rows) {
+          expect(row).toMatchObject(recorded);
+          expect(row.resetAt).not.toBeNull();
+        }
       });
     }
 
-    test("a turn no runtime takes ends when its wait does, and sets its thread back once", async () => {
+    test("a turn no runtime takes ends when its wait does, is tried again to its third, and sets its thread back once", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       await deliver(fixture, mention("100.000100"));
       await drain(handler().handle);
       await endings();
       expect(statusesOf("100.000100")).toEqual(["processing"]);
-      const at = new Date(Date.now() + OPERATOR_TURN_TAKE_MS + 1_000);
-      await endings(at);
-      await endings(at);
+      let at = new Date();
+      for (let tried = 1; tried <= MENTION_TURN_ATTEMPTS; tried += 1) {
+        at = new Date(at.getTime() + OPERATOR_TURN_TAKE_MS + 1_000);
+        await endings(at);
+        at = new Date(at.getTime() + MENTION_TURN_RETRY_DELAYS_MS[1] + 1);
+        await endings(at);
+        await endings(at);
+      }
       expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
-      expect((await mentionTurnsOf(fixture))[0]?.state).toBe("no_decision");
+      expect((await mentionTurnsOf(fixture)).map((turn) => turn.state)).toEqual(
+        ["no_decision", "no_decision", "no_decision"],
+      );
+    });
+
+    // v1-b/F1: a mention's try that ends with no decision is tried again.
+    /** The call a try's model request asks for, as the proxy asks it. */
+    const callOn = async (turn: Awaited<ReturnType<typeof leased>>) => {
+      const { auth } = turn.provider;
+      if (auth.kind !== "egress_token") throw new Error(auth.kind);
+      const exchangeId = randomUUID();
+      const callId = conversationCallIdSchema.parse(randomUUID());
+      const granted = await createPostgresConversationCalls(
+        db,
+      ).authorizeTurnCallAtomic({
+        tokenHash: hashConversationCallToken(auth.token),
+        exchangeId,
+        callId,
+        reserveFor: () => ({
+          reserve: conversationCallReserve({
+            model: turn.model,
+            maxTokens: turn.call.max_tokens,
+            maxRequestBytes: 4_096,
+          }),
+          unmetered: false,
+        }),
+      });
+      return {
+        outcome: granted.outcome,
+        // The proxy's report of the call once the provider answered, an
+        // error included.
+        settle: () =>
+          createPostgresConversationCalls(db).settleAtomic({
+            callId,
+            exchangeId,
+            usage: {
+              model: turn.model,
+              inputTokens: 900,
+              outputTokens: 0,
+              cacheCreationInputTokens: 0,
+              cacheCreation1hInputTokens: 0,
+              cacheReadInputTokens: 0,
+              speed: "standard",
+              inferenceGeo: "unknown",
+              webSearchRequests: 0,
+              webFetchRequests: 0,
+              codeExecutionRequests: 0,
+              estimated: false,
+            },
+            priceFor: () => ({ costUsd: 0.001 }),
+          }),
+      };
+    };
+    /** Each try's input and attempt as the queue holds them, oldest first. */
+    const triesOf = async (fixture: Fixture) =>
+      db
+        .select({
+          inputId: schema.conversationTurnQueue.inputId,
+          attempt: schema.conversationTurnQueue.attempt,
+        })
+        .from(schema.conversationTurnQueue)
+        .innerJoin(
+          schema.conversationTurns,
+          eq(schema.conversationTurns.id, schema.conversationTurnQueue.turnId),
+        )
+        .where(eq(schema.conversationTurns.agentId, fixture.agentId))
+        .orderBy(asc(schema.conversationTurnQueue.attempt));
+    /** The ledger's rows: each call reserved on its account. */
+    const ledgerOf = async (fixture: Fixture) =>
+      db
+        .select({ callId: schema.budgetReservations.callId })
+        .from(schema.budgetReservations)
+        .innerJoin(
+          schema.conversationCalls,
+          // The ledger keys a call by its id as text.
+          sql`${schema.conversationCalls.id}::text = ${schema.budgetReservations.callId}`,
+        )
+        .where(eq(schema.conversationCalls.agentId, fixture.agentId));
+    /** A pass, and one past the wait before a third try. */
+    const endingsPastWait = async () => {
+      await endings();
+      await endings(new Date(Date.now() + MENTION_TURN_RETRY_DELAYS_MS[1] + 1));
+    };
+    const line = (text: string) => `${text}\n\nAI agent · Werft`;
+
+    test("a model that fails twice and answers the third time: one retry line and the answer, three tries of one input, three ledger rows, the thread active", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const inputs: string[] = [];
+      const messageIds = new Set<string>();
+      for (let tried = 1; tried <= MENTION_TURN_ATTEMPTS; tried += 1) {
+        const turn = await leased();
+        inputs.push(turn.input.text);
+        messageIds.add(turn.input.id);
+        const call = await callOn(turn);
+        expect(call.outcome).toBe("ok");
+        await call.settle();
+        if (tried < MENTION_TURN_ATTEMPTS) {
+          await report(turn, { outcome: "failed", reason: "engine_failed" });
+        } else {
+          expect(await decide(turn, "Here it is.")).toMatchObject({
+            outcome: "recorded",
+          });
+          await report(turn, {
+            outcome: "completed",
+            text: "Here it is.",
+            decision: { tool: "reply", body: "Here it is.", reason: "asked" },
+          });
+        }
+        await endingsPastWait();
+        expect(statusesOf("100.000100").at(-1)).toBe(
+          tried === MENTION_TURN_ATTEMPTS ? "active" : "processing",
+        );
+      }
+      // The same input each time, under the next attempt number (v1-b/Q1),
+      // sent to the engine as a message of its own each time: one it has
+      // seen in the topic's live session it would skip.
+      expect(new Set(inputs).size).toBe(1);
+      expect(messageIds.size).toBe(MENTION_TURN_ATTEMPTS);
+      const tries = await triesOf(fixture);
+      expect(tries.map((row) => row.attempt)).toEqual([1, 2, 3]);
+      expect(new Set(tries.map((row) => row.inputId)).size).toBe(1);
+      expect((await mentionTurnsOf(fixture)).map((turn) => turn.state)).toEqual(
+        ["no_decision", "no_decision", "decided"],
+      );
+      expect(await ledgerOf(fixture)).toHaveLength(3);
+      // The mention is the last try's: a delete of it reaches that one.
+      const [engaged] = await db
+        .select({ turnId: schema.conversationEngagements.conversationTurnId })
+        .from(schema.conversationEngagements)
+        .where(eq(schema.conversationEngagements.agentId, fixture.agentId));
+      expect(engaged?.turnId).toBe((await mentionTurnsOf(fixture))[2]?.id);
+      slack.messages.length = 0;
+      await sendOutbox();
+      const posts = postsIn("100.000100");
+      expect(posts.map((post) => post.text)).toHaveLength(2);
+      expect(posts[0]?.text).toBe(
+        line(SLACK_NOTICE_MESSAGES.en.mentionRetrying),
+      );
+      expect(posts[1]?.text).toContain("Here it is.");
+      expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
+    });
+
+    test("three tries that all fail: one retry line and one failure line, no fourth try, the thread active", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const ended: Record<string, number>[] = [];
+      for (let tried = 1; tried <= MENTION_TURN_ATTEMPTS; tried += 1) {
+        const turn = await leased();
+        const call = await callOn(turn);
+        expect(call.outcome).toBe("ok");
+        await call.settle();
+        await report(turn, { outcome: "failed", reason: "engine_failed" });
+        ended.push(await endings());
+        await endings(
+          new Date(Date.now() + MENTION_TURN_RETRY_DELAYS_MS[1] + 1),
+        );
+      }
+      expect(ended.map((pass) => [pass.retried, pass.gaveUp])).toEqual([
+        [1, 0],
+        // The third try waits out its delay on a later pass.
+        [0, 0],
+        [0, 1],
+      ]);
+      // Nothing is left for a fourth.
+      await endingsPastWait();
+      expect(
+        await queue().lease({
+          runtimeId: RUNTIME,
+          now: new Date(),
+          leaseMs: CONVERSATION_TURN_LEASE_MS,
+        }),
+      ).toBeNull();
+      expect((await triesOf(fixture)).map((row) => row.attempt)).toEqual([
+        1, 2, 3,
+      ]);
+      expect(await ledgerOf(fixture)).toHaveLength(3);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100").map((post) => post.text)).toEqual([
+        line(SLACK_NOTICE_MESSAGES.en.mentionRetrying),
+        line(SLACK_NOTICE_MESSAGES.en.mentionFailed),
+      ]);
+      expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
+    });
+
+    test("a try a budget account refused is not tried again: the account's line alone, the thread active", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      // The proxy's grant refused its call on the person's account.
+      await db
+        .update(schema.conversationTurnPermits)
+        .set({ refusal: "budget" })
+        .where(eq(schema.conversationTurnPermits.turnId, turn.turn_id));
+      await report(turn, { outcome: "failed", reason: "engine_failed" });
+      expect(await endings()).toMatchObject({ budgetRefused: 1, retried: 0 });
+      await endingsPastWait();
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100").map((post) => post.text)).toEqual([
+        line(SLACK_NOTICE_MESSAGES.en.budgetAccountUser),
+      ]);
+      expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
+      // Its kept input is let go with it.
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        nonce: null,
+        keptUntil: null,
+      });
+    });
+
+    test("a try that left a Slack row is not tried again: the failure line at once, the thread active", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      await report(turn, { outcome: "failed", reason: "engine_failed" });
+      // Something of the try is on its way to Slack: trying it again could
+      // say or do it twice.
+      const [app] = await db
+        .select({ id: schema.slackApps.id, appId: schema.slackApps.appId })
+        .from(schema.slackApps)
+        .where(eq(schema.slackApps.agentId, fixture.agentId));
+      const [installation] = await db
+        .select({ id: schema.slackInstallations.id })
+        .from(schema.slackInstallations)
+        .where(eq(schema.slackInstallations.appId, app?.appId ?? ""));
+      if (app === undefined || installation === undefined) {
+        throw new Error("no Slack app");
+      }
+      await schema.createPostgresSlackOutboxStore(db).enqueue({
+        workspaceId: fixture.workspaceId,
+        agentId: fixture.agentId,
+        slackAppId: app.id,
+        installationId: installation.id,
+        kind: "conversation_reply",
+        channelId: CHANNEL,
+        threadTs: "100.000100",
+        slackUserId: null,
+        sessionLinkId: null,
+        sessionId: null,
+        body: { text: "partly said" },
+        dedupeKey: `went-out:${turn.turn_id}`,
+        sources: null,
+        conversationTurnId: turn.turn_id,
+      });
+      expect(await endings()).toMatchObject({ gaveUp: 1, retried: 0 });
+      await endingsPastWait();
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100").map((post) => post.text)).toEqual([
+        line("partly said"),
+        line(SLACK_NOTICE_MESSAGES.en.mentionFailed),
+      ]);
+      expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
+    });
+
+    test("a try whose call is still out waits for its report, and past the wait ends on the failure line", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      expect((await callOn(turn)).outcome).toBe("ok");
+      await report(turn, { outcome: "failed", reason: "time_limit" });
+      // A try again now would be refused beside it: the topic takes one call.
+      expect(await endings()).toMatchObject({ retried: 0, gaveUp: 0 });
+      expect(statusesOf("100.000100")).toEqual(["processing"]);
+      expect(
+        await endings(
+          new Date(Date.now() + MENTION_TURN_CALL_SETTLE_WAIT_MS + 1),
+        ),
+      ).toMatchObject({ retried: 0, gaveUp: 1 });
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100").map((post) => post.text)).toEqual([
+        line(SLACK_NOTICE_MESSAGES.en.mentionFailed),
+      ]);
+      expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
+    });
+
+    test("a try whose call reports within the wait is tried again", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      const call = await callOn(turn);
+      await report(turn, { outcome: "failed", reason: "engine_failed" });
+      expect(await endings()).toMatchObject({ retried: 0, gaveUp: 0 });
+      await call.settle();
+      expect(await endings()).toMatchObject({ retried: 1 });
+      expect((await callOn(await leased())).outcome).toBe("ok");
+    });
+
+    test("two passes at once write one next try and one retry line", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      await Promise.all([endings(), endings()]);
+      await endings();
+      expect((await triesOf(fixture)).map((row) => row.attempt)).toEqual([
+        1, 2,
+      ]);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100").map((post) => post.text)).toEqual([
+        line(SLACK_NOTICE_MESSAGES.en.mentionRetrying),
+      ]);
+      expect(statusesOf("100.000100")).toEqual(["processing"]);
+    });
+
+    test("a try an emergency stop ended is not tried again and says nothing, the thread active", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      // As the channel's stop ends it: the turn without a decision, its queue
+      // row ended on the stop.
+      await db.execute(sql`
+        UPDATE conversation_turns SET state = 'no_decision',
+          ended_at = clock_timestamp()
+        WHERE id = ${turn.turn_id}::uuid`);
+      await db.execute(sql`
+        UPDATE conversation_turn_queue SET state = 'ended',
+          outcome = ${JSON.stringify({ outcome: "failed", reason: "emergency_stopped" })}::jsonb,
+          ended_at = clock_timestamp(), turn_nonce = NULL, turn_ciphertext = NULL
+        WHERE turn_id = ${turn.turn_id}::uuid`);
+      expect(await endings()).toMatchObject({
+        retried: 0,
+        gaveUp: 0,
+        budgetRefused: 0,
+      });
+      await endingsPastWait();
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100")).toEqual([]);
+      expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
+    });
+
+    test("a call that reports past the wait counts as one still out, whichever pass reads it", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      const call = await callOn(turn);
+      await report(turn, { outcome: "failed", reason: "engine_failed" });
+      expect(await endings()).toMatchObject({ retried: 0, gaveUp: 0 });
+      await call.settle();
+      // Its report came 31 s after the try ended: a pass that reads it only
+      // now ends on the failure line, as one that read it out would have.
+      await db.execute(sql`
+        UPDATE conversation_calls c
+        SET ended_at = q.ended_at + interval '31 seconds'
+        FROM conversation_turn_queue q
+        WHERE q.turn_id = c.conversation_turn_id
+          AND c.conversation_turn_id = ${turn.turn_id}::uuid`);
+      expect(await endings()).toMatchObject({ retried: 0, gaveUp: 1 });
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100").map((post) => post.text)).toEqual([
+        line(SLACK_NOTICE_MESSAGES.en.mentionFailed),
+      ]);
+    });
+
+    test("a try whose kept input is gone ends on the failure line alone, with no retry line", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      await report(turn, { outcome: "failed", reason: "engine_failed" });
+      // As the sweep lets it go at its deadline.
+      await db.execute(sql`
+        UPDATE conversation_turn_queue
+        SET turn_nonce = NULL, turn_ciphertext = NULL, input_kept_until = NULL
+        WHERE turn_id = ${turn.turn_id}::uuid`);
+      expect(await endings()).toMatchObject({ retried: 0, gaveUp: 1 });
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100").map((post) => post.text)).toEqual([
+        line(SLACK_NOTICE_MESSAGES.en.mentionFailed),
+      ]);
+      expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
+    });
+
+    test("a pass that read the mention before another wrote the next try ends on that try, with no failure line", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      await report(turn, { outcome: "failed", reason: "engine_failed" });
+      // Pass A writes the next try and lets the input go between pass B's
+      // read of the mention and what B reads after it.
+      let other: Promise<unknown> | undefined;
+      const paused = new Proxy(db, {
+        get(target, name, receiver) {
+          if (name !== "execute") return Reflect.get(target, name, receiver);
+          return async (query: Parameters<typeof db.execute>[0]) => {
+            const rows = await target.execute(query);
+            const chunks = (query as { queryChunks?: { value?: unknown }[] })
+              .queryChunks;
+            const text = (chunks ?? [])
+              .map((chunk) =>
+                Array.isArray(chunk.value) ? chunk.value.join("") : "",
+              )
+              .join("");
+            if (
+              other === undefined &&
+              text.includes("q.input_id, q.attempt, e.team_id")
+            ) {
+              other = endings();
+              await other;
+            }
+            return rows;
+          };
+        },
+      });
+      const b = await endings(undefined, 60_000, undefined, paused);
+      expect(other).toBeDefined();
+      expect(await other).toMatchObject({ retried: 1, gaveUp: 0 });
+      // B finds the mention moved: the try is the other pass's, said once.
+      expect(b).toMatchObject({ gaveUp: 0 });
+      expect(await mentionTurnsOf(fixture)).toHaveLength(2);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100").map((post) => post.text)).toEqual([
+        line(SLACK_NOTICE_MESSAGES.en.mentionRetrying),
+      ]);
+    });
+
+    test("a retry line that cannot be written leaves the next try queued", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      await report(turn, { outcome: "failed", reason: "engine_failed" });
+      await db.execute(sql`
+        CREATE FUNCTION refuse_retry_line() RETURNS trigger AS $$
+        BEGIN
+          IF NEW.dedupe_key LIKE 'mention_retry_notice:%' THEN
+            RAISE EXCEPTION 'retry line refused';
+          END IF;
+          RETURN NEW;
+        END $$ LANGUAGE plpgsql`);
+      await db.execute(sql`
+        CREATE TRIGGER refuse_retry_line BEFORE INSERT ON slack_outbox
+        FOR EACH ROW EXECUTE FUNCTION refuse_retry_line()`);
+      try {
+        expect(await endings()).toMatchObject({ retried: 1, gaveUp: 0 });
+      } finally {
+        await db.execute(sql`DROP TRIGGER refuse_retry_line ON slack_outbox`);
+        await db.execute(sql`DROP FUNCTION refuse_retry_line()`);
+      }
+      const next = await leased();
+      expect(next.turn_id).not.toBe(turn.turn_id);
+      expect(await mentionTurnsOf(fixture)).toHaveLength(2);
+    });
+
+    test("a try an emergency stop ended before it was queued is not queued, and nothing follows it", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const {
+        lease_id: _lease,
+        lease_expires_at: _expires,
+        ...turn
+      } = await leased();
+      // As if the stop came between its permit and its queue row.
+      await db.execute(sql`
+        DELETE FROM conversation_turn_queue WHERE turn_id = ${turn.turn_id}::uuid`);
+      await db.execute(sql`
+        UPDATE conversation_turns SET state = 'no_decision',
+          ended_at = clock_timestamp()
+        WHERE id = ${turn.turn_id}::uuid`);
+      expect(
+        await queue().enqueue(turn, {
+          inputId: turn.input.id as ConversationInputId,
+          attempt: 1,
+          takeBy: new Date(Date.now() + 60_000),
+        }),
+      ).toBe("ended");
+      expect(await queue().outcome(turn.turn_id, new Date())).toBeNull();
+      expect(await endings(new Date(Date.now() + 10 * 60_000))).toMatchObject({
+        retried: 0,
+        gaveUp: 0,
+        budgetRefused: 0,
+      });
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100")).toEqual([]);
+    });
+
+    test("a try its runtime reported before an emergency stop is not tried again once the channel is on", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      // Stopped before a pass ends the turn, then turned on again.
+      const stopped = await createPostgresSurfaceBindingStore(db).emergencyStop(
+        {
+          principal: fixture.owner,
+          workspaceId: fixture.workspaceId,
+          agentId: fixture.agentId,
+          bindingId: fixture.bindingId,
+          reason: "test",
+          text: SLACK_EMERGENCY_STOP_TEXT,
+          managerRoles: MANAGERS,
+        },
+      );
+      expect(stopped.outcome).toBe("stopped");
+      await db.execute(sql`
+        UPDATE surface_bindings SET emergency_stopped_at = NULL,
+          emergency_stopped_by = NULL, emergency_stop_reason = NULL
+        WHERE id = ${fixture.bindingId}::uuid`);
+      expect(await endings()).toMatchObject({ retried: 0, gaveUp: 0 });
+      await endingsPastWait();
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100")).toEqual([]);
+    });
+
+    test("a try whose agent's rollout went off is not tried again and says nothing, the thread active", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      await db.execute(sql`
+        UPDATE agents SET conversation_rollout = 'off'
+        WHERE id = ${fixture.agentId}::uuid`);
+      expect(await endings()).toMatchObject({ retried: 0, gaveUp: 0 });
+      await endingsPastWait();
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100")).toEqual([]);
+      expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
+    });
+
+    test("a try an emergency stop ended after a pass read its end says nothing once the channel is on", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      await report(turn, { outcome: "failed", reason: "engine_failed" });
+      // The stop lands (and the channel goes on again) after the pass read
+      // the try's end and before it reads the try: as the stop leaves it.
+      let stopped = false;
+      const late = new Proxy(db, {
+        get(target, name, receiver) {
+          if (name !== "execute") return Reflect.get(target, name, receiver);
+          return async (query: Parameters<typeof db.execute>[0]) => {
+            const chunks = (query as { queryChunks?: { value?: unknown }[] })
+              .queryChunks;
+            const text = (chunks ?? [])
+              .map((chunk) =>
+                Array.isArray(chunk.value) ? chunk.value.join("") : "",
+              )
+              .join("");
+            if (!stopped && text.includes("AS went_out")) {
+              stopped = true;
+              await target.execute(sql`
+                UPDATE conversation_turn_queue
+                SET outcome = ${JSON.stringify({ outcome: "failed", reason: "emergency_stopped" })}::jsonb,
+                  turn_nonce = NULL, turn_ciphertext = NULL, input_kept_until = NULL
+                WHERE turn_id = ${turn.turn_id}::uuid`);
+            }
+            return target.execute(query);
+          };
+        },
+      });
+      expect(await endings(undefined, 60_000, undefined, late)).toMatchObject({
+        retried: 0,
+        gaveUp: 0,
+      });
+      expect(stopped).toBe(true);
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100")).toEqual([]);
+    });
+
+    test("a try waiting out its delay when the channel is stopped is not tried again once it is on", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      expect(await endings()).toMatchObject({ retried: 1 });
+      await sendOutbox();
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      // The second try waits 10 s for the third.
+      expect(await endings()).toMatchObject({ retried: 0, gaveUp: 0 });
+      const stopped = await createPostgresSurfaceBindingStore(db).emergencyStop(
+        {
+          principal: fixture.owner,
+          workspaceId: fixture.workspaceId,
+          agentId: fixture.agentId,
+          bindingId: fixture.bindingId,
+          reason: "test",
+          text: SLACK_EMERGENCY_STOP_TEXT,
+          managerRoles: MANAGERS,
+        },
+      );
+      // The waiting try counts among the turns the stop ended.
+      expect(stopped).toMatchObject({
+        outcome: "stopped",
+        stopped: { turns: 1 },
+      });
+      await db.execute(sql`
+        UPDATE surface_bindings SET emergency_stopped_at = NULL,
+          emergency_stopped_by = NULL, emergency_stop_reason = NULL
+        WHERE id = ${fixture.bindingId}::uuid`);
+      await endingsPastWait();
+      expect((await triesOf(fixture)).map((row) => row.attempt)).toEqual([
+        1, 2,
+      ]);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100")).toEqual([]);
+    });
+
+    test("a failure line not written before a stop says nothing once the channel is on", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      for (let tried = 1; tried < MENTION_TURN_ATTEMPTS; tried += 1) {
+        await report(await leased(), {
+          outcome: "failed",
+          reason: "engine_failed",
+        });
+        await endingsPastWait();
+      }
+      await sendOutbox();
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      await db.execute(sql`
+        CREATE FUNCTION refuse_last_line() RETURNS trigger AS $$
+        BEGIN
+          IF NEW.dedupe_key LIKE 'conversation_reply:%' THEN
+            RAISE EXCEPTION 'last line refused';
+          END IF;
+          RETURN NEW;
+        END $$ LANGUAGE plpgsql`);
+      await db.execute(sql`
+        CREATE TRIGGER refuse_last_line BEFORE INSERT ON slack_outbox
+        FOR EACH ROW EXECUTE FUNCTION refuse_last_line()`);
+      try {
+        expect(await endings()).toMatchObject({ gaveUp: 0 });
+      } finally {
+        await db.execute(sql`DROP TRIGGER refuse_last_line ON slack_outbox`);
+        await db.execute(sql`DROP FUNCTION refuse_last_line()`);
+      }
+      const stopped = await createPostgresSurfaceBindingStore(db).emergencyStop(
+        {
+          principal: fixture.owner,
+          workspaceId: fixture.workspaceId,
+          agentId: fixture.agentId,
+          bindingId: fixture.bindingId,
+          reason: "test",
+          text: SLACK_EMERGENCY_STOP_TEXT,
+          managerRoles: MANAGERS,
+        },
+      );
+      expect(stopped.outcome).toBe("stopped");
+      await db.execute(sql`
+        UPDATE surface_bindings SET emergency_stopped_at = NULL,
+          emergency_stopped_by = NULL, emergency_stop_reason = NULL
+        WHERE id = ${fixture.bindingId}::uuid`);
+      expect(await endings()).toMatchObject({ gaveUp: 0 });
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100")).toEqual([]);
+    });
+
+    test("an account's line written before its input could not go is counted", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      await db
+        .update(schema.conversationTurnPermits)
+        .set({ refusal: "budget" })
+        .where(eq(schema.conversationTurnPermits.turnId, turn.turn_id));
+      await report(turn, { outcome: "failed", reason: "engine_failed" });
+      await db.execute(sql`
+        CREATE FUNCTION refuse_let_go() RETURNS trigger AS $$
+        BEGIN
+          IF OLD.turn_ciphertext IS NOT NULL AND NEW.turn_ciphertext IS NULL THEN
+            RAISE EXCEPTION 'let go refused';
+          END IF;
+          RETURN NEW;
+        END $$ LANGUAGE plpgsql`);
+      await db.execute(sql`
+        CREATE TRIGGER refuse_let_go BEFORE UPDATE ON conversation_turn_queue
+        FOR EACH ROW EXECUTE FUNCTION refuse_let_go()`);
+      try {
+        expect(await endings()).toMatchObject({ budgetRefused: 1 });
+      } finally {
+        await db.execute(
+          sql`DROP TRIGGER refuse_let_go ON conversation_turn_queue`,
+        );
+        await db.execute(sql`DROP FUNCTION refuse_let_go()`);
+      }
+    });
+
+    test("a stop of the same channel id in another Slack team leaves the failure line", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      for (let tried = 1; tried < MENTION_TURN_ATTEMPTS; tried += 1) {
+        await report(await leased(), {
+          outcome: "failed",
+          reason: "engine_failed",
+        });
+        await endingsPastWait();
+      }
+      await sendOutbox();
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      // Its line not written on the first pass: the try has ended.
+      await db.execute(sql`
+        CREATE FUNCTION refuse_last_line() RETURNS trigger AS $$
+        BEGIN
+          IF NEW.dedupe_key LIKE 'conversation_reply:%' THEN
+            RAISE EXCEPTION 'last line refused';
+          END IF;
+          RETURN NEW;
+        END $$ LANGUAGE plpgsql`);
+      await db.execute(sql`
+        CREATE TRIGGER refuse_last_line BEFORE INSERT ON slack_outbox
+        FOR EACH ROW EXECUTE FUNCTION refuse_last_line()`);
+      try {
+        expect(await endings()).toMatchObject({ gaveUp: 0 });
+      } finally {
+        await db.execute(sql`DROP TRIGGER refuse_last_line ON slack_outbox`);
+        await db.execute(sql`DROP FUNCTION refuse_last_line()`);
+      }
+      // The agent's install in another team, whose channel of the same id
+      // was stopped after this try ended.
+      const {
+        rows: [mine],
+      } = (await db.execute(sql`
+          SELECT installation_id::text, slack_app_id::text, channel_id FROM slack_outbox
+          WHERE agent_id = ${fixture.agentId}::uuid AND kind = 'conversation_reply'
+          LIMIT 1`)) as unknown as {
+        rows: {
+          installation_id: string;
+          slack_app_id: string;
+          channel_id: string;
+        }[];
+      };
+      const other = randomUUID();
+      await db.execute(sql`
+        INSERT INTO slack_installations
+        SELECT (jsonb_populate_record(i, jsonb_build_object('id', ${other}::text,
+          'team_id', 'T-ELSEWHERE'))).*
+        FROM slack_installations i WHERE i.id = ${mine?.installation_id}::uuid`);
+      await db.execute(sql`
+        INSERT INTO slack_outbox (id, workspace_id, agent_id, slack_app_id,
+          installation_id, kind, channel_id, thread_ts, body, dedupe_key)
+        VALUES (${randomUUID()}::uuid, ${fixture.workspaceId}::uuid,
+          ${fixture.agentId}::uuid, ${mine?.slack_app_id}::uuid, ${other}::uuid,
+          'emergency_stop_notice', ${mine?.channel_id}, '', '{"text":"x"}'::jsonb,
+          ${`emergency-stop:${randomUUID()}`})`);
+      expect(await endings()).toMatchObject({ gaveUp: 1 });
+    });
+
+    test("a next try queued before its thread claim could not go is counted", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      await db.execute(sql`
+        CREATE FUNCTION refuse_release() RETURNS trigger AS $$
+        BEGIN
+          IF OLD.slack_status_claimed_at IS NOT NULL
+            AND NEW.slack_status_claimed_at IS NULL
+            AND EXISTS (SELECT 1 FROM conversation_turn_queue q
+              WHERE q.turn_id = NEW.id AND q.attempt = 2) THEN
+            RAISE EXCEPTION 'release refused';
+          END IF;
+          RETURN NEW;
+        END $$ LANGUAGE plpgsql`);
+      await db.execute(sql`
+        CREATE TRIGGER refuse_release BEFORE UPDATE ON conversation_turns
+        FOR EACH ROW EXECUTE FUNCTION refuse_release()`);
+      try {
+        expect(await endings()).toMatchObject({ retried: 1 });
+      } finally {
+        await db.execute(
+          sql`DROP TRIGGER refuse_release ON conversation_turns`,
+        );
+        await db.execute(sql`DROP FUNCTION refuse_release()`);
+      }
+      expect(await mentionTurnsOf(fixture)).toHaveLength(2);
+    });
+
+    test("a failure line another pass wrote first is counted once", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      for (let tried = 1; tried < MENTION_TURN_ATTEMPTS; tried += 1) {
+        await report(await leased(), {
+          outcome: "failed",
+          reason: "engine_failed",
+        });
+        await endingsPastWait();
+      }
+      await sendOutbox();
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      let other: Awaited<ReturnType<typeof endings>> | undefined;
+      const late = new Proxy(db, {
+        get(target, name, receiver) {
+          if (name !== "execute") return Reflect.get(target, name, receiver);
+          return async (query: Parameters<typeof db.execute>[0]) => {
+            const rows = await target.execute(query);
+            const chunks = (query as { queryChunks?: { value?: unknown }[] })
+              .queryChunks;
+            const text = (chunks ?? [])
+              .map((chunk) =>
+                Array.isArray(chunk.value) ? chunk.value.join("") : "",
+              )
+              .join("");
+            if (other === undefined && text.includes("AS went_out")) {
+              other = await endings();
+            }
+            return rows;
+          };
+        },
+      });
+      const mine = await endings(undefined, 60_000, undefined, late);
+      expect(other).toMatchObject({ gaveUp: 1 });
+      expect(mine).toMatchObject({ gaveUp: 0, retried: 0 });
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100")).toHaveLength(1);
+    });
+
+    test("a try whose mention the next try holds is not counted again by a stop", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      expect(await endings()).toMatchObject({ retried: 1 });
+      // As if the pass had not let the first try's input go yet.
+      await db.execute(sql`
+        UPDATE conversation_turn_queue
+        SET turn_nonce = decode('00', 'hex'), turn_ciphertext = decode('00', 'hex'),
+          input_kept_until = now() + interval '1 minute'
+        WHERE attempt = 1 AND turn_id IN (SELECT id FROM conversation_turns
+          WHERE agent_id = ${fixture.agentId}::uuid)`);
+      const stopped = await createPostgresSurfaceBindingStore(db).emergencyStop(
+        {
+          principal: fixture.owner,
+          workspaceId: fixture.workspaceId,
+          agentId: fixture.agentId,
+          bindingId: fixture.bindingId,
+          reason: "test",
+          text: SLACK_EMERGENCY_STOP_TEXT,
+          managerRoles: MANAGERS,
+        },
+      );
+      // The second try, queued; the first is already that try's.
+      expect(stopped).toMatchObject({
+        outcome: "stopped",
+        stopped: { turns: 1 },
+      });
+    });
+
+    test("a rollout turned off after the try was read is not tried again", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      let turnedOff = false;
+      const late = new Proxy(db, {
+        get(target, name, receiver) {
+          if (name !== "execute") return Reflect.get(target, name, receiver);
+          return async (query: Parameters<typeof db.execute>[0]) => {
+            const rows = await target.execute(query);
+            const chunks = (query as { queryChunks?: { value?: unknown }[] })
+              .queryChunks;
+            const text = (chunks ?? [])
+              .map((chunk) =>
+                Array.isArray(chunk.value) ? chunk.value.join("") : "",
+              )
+              .join("");
+            if (
+              !turnedOff &&
+              text.includes("a.conversation_rollout AS rollout")
+            ) {
+              turnedOff = true;
+              await target.execute(sql`
+                UPDATE agents SET conversation_rollout = 'off'
+                WHERE id = ${fixture.agentId}::uuid`);
+            }
+            return rows;
+          };
+        },
+      });
+      expect(await endings(undefined, 60_000, undefined, late)).toMatchObject({
+        retried: 0,
+        gaveUp: 0,
+      });
+      expect(turnedOff).toBe(true);
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100")).toEqual([]);
+    });
+
+    test("a third try a stop ended after its runtime reported says nothing once the channel is on", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      for (let tried = 1; tried < MENTION_TURN_ATTEMPTS; tried += 1) {
+        await report(await leased(), {
+          outcome: "failed",
+          reason: "engine_failed",
+        });
+        await endingsPastWait();
+      }
+      await sendOutbox();
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      const stopped = await createPostgresSurfaceBindingStore(db).emergencyStop(
+        {
+          principal: fixture.owner,
+          workspaceId: fixture.workspaceId,
+          agentId: fixture.agentId,
+          bindingId: fixture.bindingId,
+          reason: "test",
+          text: SLACK_EMERGENCY_STOP_TEXT,
+          managerRoles: MANAGERS,
+        },
+      );
+      expect(stopped.outcome).toBe("stopped");
+      await db.execute(sql`
+        UPDATE surface_bindings SET emergency_stopped_at = NULL,
+          emergency_stopped_by = NULL, emergency_stop_reason = NULL
+        WHERE id = ${fixture.bindingId}::uuid`);
+      expect(await endings()).toMatchObject({ retried: 0, gaveUp: 0 });
+      expect((await triesOf(fixture)).map((row) => row.attempt)).toEqual([
+        1, 2, 3,
+      ]);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100")).toEqual([]);
+    });
+
+    test("a pass that read the try's input before a stop and the channel on again writes no next try", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      let stoppedOnce = false;
+      const late = new Proxy(db, {
+        get(target, name, receiver) {
+          if (name !== "execute") return Reflect.get(target, name, receiver);
+          return async (query: Parameters<typeof db.execute>[0]) => {
+            const rows = await target.execute(query);
+            const chunks = (query as { queryChunks?: { value?: unknown }[] })
+              .queryChunks;
+            const text = (chunks ?? [])
+              .map((chunk) =>
+                Array.isArray(chunk.value) ? chunk.value.join("") : "",
+              )
+              .join("");
+            if (
+              !stoppedOnce &&
+              text.includes("a.conversation_rollout AS rollout")
+            ) {
+              stoppedOnce = true;
+              const stopped = await createPostgresSurfaceBindingStore(
+                target,
+              ).emergencyStop({
+                principal: fixture.owner,
+                workspaceId: fixture.workspaceId,
+                agentId: fixture.agentId,
+                bindingId: fixture.bindingId,
+                reason: "test",
+                text: SLACK_EMERGENCY_STOP_TEXT,
+                managerRoles: MANAGERS,
+              });
+              if (stopped.outcome !== "stopped")
+                throw new Error(stopped.outcome);
+              await target.execute(sql`
+                UPDATE surface_bindings SET emergency_stopped_at = NULL,
+                  emergency_stopped_by = NULL, emergency_stop_reason = NULL
+                WHERE id = ${fixture.bindingId}::uuid`);
+            }
+            return rows;
+          };
+        },
+      });
+      expect(await endings(undefined, 60_000, undefined, late)).toMatchObject({
+        retried: 0,
+        gaveUp: 0,
+      });
+      expect(stoppedOnce).toBe(true);
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100")).toEqual([]);
+    });
+
+    test("a pass that read the try's input before a stop and the queue forgot it writes no next try", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      await report(turn, { outcome: "failed", reason: "engine_failed" });
+      let forgot = false;
+      const late = new Proxy(db, {
+        get(target, name, receiver) {
+          if (name !== "execute") return Reflect.get(target, name, receiver);
+          return async (query: Parameters<typeof db.execute>[0]) => {
+            const rows = await target.execute(query);
+            const chunks = (query as { queryChunks?: { value?: unknown }[] })
+              .queryChunks;
+            const text = (chunks ?? [])
+              .map((chunk) =>
+                Array.isArray(chunk.value) ? chunk.value.join("") : "",
+              )
+              .join("");
+            if (!forgot && text.includes("a.conversation_rollout AS rollout")) {
+              forgot = true;
+              // As the queue forgets an end ten minutes on: its outcome goes.
+              await target.execute(sql`
+                UPDATE conversation_turn_queue
+                SET state = 'forgotten', outcome = NULL
+                WHERE turn_id = ${turn.turn_id}::uuid`);
+            }
+            return rows;
+          };
+        },
+      });
+      expect(await endings(undefined, 60_000, undefined, late)).toMatchObject({
+        retried: 0,
+        gaveUp: 0,
+      });
+      expect(forgot).toBe(true);
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+    });
+
+    test("a pass that chose the failure line before a stop says nothing once the channel is on", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      await report(turn, { outcome: "failed", reason: "engine_failed" });
+      // Something of the try is on its way: its pass gives up on it.
+      const [app] = await db
+        .select({ id: schema.slackApps.id, appId: schema.slackApps.appId })
+        .from(schema.slackApps)
+        .where(eq(schema.slackApps.agentId, fixture.agentId));
+      const [installation] = await db
+        .select({ id: schema.slackInstallations.id })
+        .from(schema.slackInstallations)
+        .where(eq(schema.slackInstallations.appId, app?.appId ?? ""));
+      if (app === undefined || installation === undefined) {
+        throw new Error("no Slack app");
+      }
+      await schema.createPostgresSlackOutboxStore(db).enqueue({
+        workspaceId: fixture.workspaceId,
+        agentId: fixture.agentId,
+        slackAppId: app.id,
+        installationId: installation.id,
+        kind: "conversation_reply",
+        channelId: CHANNEL,
+        threadTs: "100.000100",
+        slackUserId: null,
+        sessionLinkId: null,
+        sessionId: null,
+        body: { text: "partly said" },
+        dedupeKey: `went-out:${turn.turn_id}`,
+        sources: null,
+        conversationTurnId: turn.turn_id,
+      });
+      // The stop and the channel on again land after the pass read the try.
+      let stoppedOnce = false;
+      const late = new Proxy(db, {
+        get(target, name, receiver) {
+          if (name !== "execute") return Reflect.get(target, name, receiver);
+          return async (query: Parameters<typeof db.execute>[0]) => {
+            const rows = await target.execute(query);
+            const chunks = (query as { queryChunks?: { value?: unknown }[] })
+              .queryChunks;
+            const text = (chunks ?? [])
+              .map((chunk) =>
+                Array.isArray(chunk.value) ? chunk.value.join("") : "",
+              )
+              .join("");
+            if (!stoppedOnce && text.includes("AS went_out")) {
+              stoppedOnce = true;
+              const stopped = await createPostgresSurfaceBindingStore(
+                target,
+              ).emergencyStop({
+                principal: fixture.owner,
+                workspaceId: fixture.workspaceId,
+                agentId: fixture.agentId,
+                bindingId: fixture.bindingId,
+                reason: "test",
+                text: SLACK_EMERGENCY_STOP_TEXT,
+                managerRoles: MANAGERS,
+              });
+              if (stopped.outcome !== "stopped")
+                throw new Error(stopped.outcome);
+              await target.execute(sql`
+                UPDATE surface_bindings SET emergency_stopped_at = NULL,
+                  emergency_stopped_by = NULL, emergency_stop_reason = NULL
+                WHERE id = ${fixture.bindingId}::uuid`);
+            }
+            return rows;
+          };
+        },
+      });
+      // Not said, so not counted as said.
+      expect(await endings(undefined, 60_000, undefined, late)).toMatchObject({
+        gaveUp: 0,
+        budgetRefused: 0,
+      });
+      expect(stoppedOnce).toBe(true);
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100")).toEqual([]);
+    });
+
+    test("a pass that read the try's input after another wrote its failure line writes no next try", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      await report(turn, { outcome: "failed", reason: "engine_failed" });
+      const [app] = await db
+        .select({ id: schema.slackApps.id, appId: schema.slackApps.appId })
+        .from(schema.slackApps)
+        .where(eq(schema.slackApps.agentId, fixture.agentId));
+      const [installation] = await db
+        .select({ id: schema.slackInstallations.id })
+        .from(schema.slackInstallations)
+        .where(eq(schema.slackInstallations.appId, app?.appId ?? ""));
+      if (app === undefined || installation === undefined) {
+        throw new Error("no Slack app");
+      }
+      // Another pass, one that read another catalog, gives the try up and
+      // writes its last line between this pass's read and its write.
+      let toldOnce = false;
+      const late = new Proxy(db, {
+        get(target, name, receiver) {
+          if (name !== "execute") return Reflect.get(target, name, receiver);
+          return async (query: Parameters<typeof db.execute>[0]) => {
+            const rows = await target.execute(query);
+            const chunks = (query as { queryChunks?: { value?: unknown }[] })
+              .queryChunks;
+            const text = (chunks ?? [])
+              .map((chunk) =>
+                Array.isArray(chunk.value) ? chunk.value.join("") : "",
+              )
+              .join("");
+            if (
+              !toldOnce &&
+              text.includes("a.conversation_rollout AS rollout")
+            ) {
+              toldOnce = true;
+              await schema.createPostgresSlackOutboxStore(target).enqueue({
+                workspaceId: fixture.workspaceId,
+                agentId: fixture.agentId,
+                slackAppId: app.id,
+                installationId: installation.id,
+                kind: "conversation_reply",
+                channelId: CHANNEL,
+                threadTs: "100.000100",
+                slackUserId: null,
+                sessionLinkId: null,
+                sessionId: null,
+                body: { text: SLACK_NOTICE_MESSAGES.en.mentionFailed },
+                dedupeKey: `conversation_reply:${turn.turn_id}`,
+                sources: null,
+                conversationTurnId: turn.turn_id,
+              });
+            }
+            return rows;
+          };
+        },
+      });
+      expect(await endings(undefined, 60_000, undefined, late)).toMatchObject({
+        retried: 0,
+      });
+      expect(toldOnce).toBe(true);
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+    });
+
+    test("an untaken try sealed under another key ends, keeps nothing, and its thread hears the failure line", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const [queued] = await mentionTurnsOf(fixture);
+      if (queued === undefined) throw new Error("no turn");
+      await db.execute(sql`
+        UPDATE conversation_turn_queue SET turn_ciphertext = ${randomBytes(96)}
+        WHERE turn_id = ${queued.id}::uuid`);
+      const at = new Date(Date.now() + OPERATOR_TURN_TAKE_MS + 1_000);
+      expect(await endings(at)).toMatchObject({ failed: 0, gaveUp: 1 });
+      const { rows } = (await db.execute(sql`
+        SELECT state, turn_nonce IS NULL AS no_nonce, input_kept_until IS NULL AS not_kept
+        FROM conversation_turn_queue WHERE turn_id = ${queued.id}::uuid`)) as {
+        rows: { state: string; no_nonce: boolean; not_kept: boolean }[];
+      };
+      expect(rows).toEqual([
+        { state: "ended", no_nonce: true, not_kept: true },
+      ]);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100").map((post) => post.text)).toEqual([
+        line(SLACK_NOTICE_MESSAGES.en.mentionFailed),
+      ]);
+    });
+
+    test("a mention deleted before its next try is written ends with nothing said", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      // As a first try: a deleted mention is no turn, and says nothing.
+      await schema.createPostgresSlackSourceMarkStore(db).markDeleted({
+        workspaceId: fixture.workspaceId,
+        teamId: TEAM,
+        channelId: CHANNEL,
+        ts: "100.000100",
+        at: new Date(),
+      });
+      await endingsPastWait();
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100")).toEqual([]);
+      expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
     });
 
     test("a turn that ends while a newer one of its thread runs leaves the thread processing", async () => {
@@ -5570,11 +6944,11 @@ describe.each(ENGINES)(
         mention("100.000300", { thread_ts: "100.000100" }),
       );
       await drain(handle);
-      await report(first, { outcome: "completed", text: "one" });
+      await quiet(first, "one");
       await endings();
       expect(statusesOf("100.000100")).toEqual(["processing", "processing"]);
       const second = await leased();
-      await report(second, { outcome: "completed", text: "two" });
+      await quiet(second, "two");
       await endings();
       await endings();
       expect(statusesOf("100.000100")).toEqual([
@@ -5591,7 +6965,7 @@ describe.each(ENGINES)(
       const fixture = await agentInSlack("main", { rollout: "on" });
       await deliver(fixture, mention("100.000100"));
       await drain(handler().handle);
-      await report(await leased(), { outcome: "completed", text: "ok" });
+      await quiet(await leased(), "ok");
       slack.failures.set("agents.sessions.setStatus", "internal_error");
       await endings();
       expect((await mentionTurnsOf(fixture))[0]?.resetAt).toBeNull();
@@ -5605,7 +6979,7 @@ describe.each(ENGINES)(
       const fixture = await agentInSlack("main", { rollout: "on" });
       await deliver(fixture, mention("100.000100"));
       await drain(handler().handle);
-      await report(await leased(), { outcome: "completed", text: "ok" });
+      await quiet(await leased(), "ok");
       const [turn] = await mentionTurnsOf(fixture);
       // The dead pass's claim, with no status sent after it.
       expect(
@@ -5626,7 +7000,7 @@ describe.each(ENGINES)(
       const fixture = await agentInSlack("main", { rollout: "on" });
       await deliver(fixture, mention("100.000100"));
       await drain(handler().handle);
-      await report(await leased(), { outcome: "completed", text: "ok" });
+      await quiet(await leased(), "ok");
       await Promise.all([endings(), endings()]);
       expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
     });
@@ -5686,7 +7060,7 @@ describe.each(ENGINES)(
       const { handle } = handler();
       await deliver(fixture, mention("100.000100"));
       await drain(handle);
-      await report(await leased(), { outcome: "completed", text: "one" });
+      await quiet(await leased(), "one");
       // The newer mention lands just after the older turn's claim.
       const store = createPostgresMentionTurnStatuses(db);
       const statuses: MentionTurnStatusStore = {
@@ -5708,7 +7082,7 @@ describe.each(ENGINES)(
         "active",
         "processing",
       ]);
-      await report(await leased(), { outcome: "completed", text: "two" });
+      await quiet(await leased(), "two");
       await endings();
       await endings();
       expect(statusesOf("100.000100")).toEqual([
@@ -5757,7 +7131,7 @@ describe.each(ENGINES)(
       const { handle } = handler();
       await deliver(fixture, mention("100.000100"));
       await drain(handle);
-      await report(await leased(), { outcome: "completed", text: "one" });
+      await quiet(await leased(), "one");
       await corrective(fixture, handle);
       expect(statusesOf("100.000100")).toEqual([
         "processing",
@@ -5773,7 +7147,7 @@ describe.each(ENGINES)(
         "processing",
       ]);
       expect(await threadsLeft()).toEqual([]);
-      await report(await leased(), { outcome: "completed", text: "two" });
+      await quiet(await leased(), "two");
       await endings();
       await endings();
       expect(statusesOf("100.000100")).toEqual([
@@ -5790,7 +7164,7 @@ describe.each(ENGINES)(
       const { handle } = handler();
       await deliver(fixture, mention("100.000100"));
       await drain(handle);
-      await report(await leased(), { outcome: "completed", text: "one" });
+      await quiet(await leased(), "one");
       await corrective(fixture, handle);
       // The retry reads "processing", then the newer turn ends and its
       // `active` reaches Slack before the retry's send.
@@ -5799,7 +7173,7 @@ describe.each(ENGINES)(
         ...store,
         async claimThreads(limit, claimMs) {
           const claimed = await store.claimThreads(limit, claimMs);
-          await report(await leased(), { outcome: "completed", text: "two" });
+          await quiet(await leased(), "two");
           await endings();
           return claimed;
         },
@@ -5830,9 +7204,9 @@ describe.each(ENGINES)(
       const { handle } = handler();
       await deliver(fixture, mention("100.000100"));
       await drain(handle);
-      await report(await leased(), { outcome: "completed", text: "one" });
+      await quiet(await leased(), "one");
       await corrective(fixture, handle);
-      await report(await leased(), { outcome: "completed", text: "two" });
+      await quiet(await leased(), "two");
       // Another pass sends the newer turn's `active` after this one read
       // "processing", and marks it only after this one's send is in.
       const store = createPostgresMentionTurnStatuses(db);
@@ -5926,7 +7300,7 @@ describe.each(ENGINES)(
         const { handle } = handler();
         await deliver(fixture, mention("100.000100"));
         await drain(handle);
-        await report(await leased(), { outcome: "completed", text: "one" });
+        await quiet(await leased(), "one");
         await dies(fixture, handle, past);
         expect(statusesOf("100.000100")).toEqual([
           "processing",
@@ -5942,7 +7316,7 @@ describe.each(ENGINES)(
           "processing",
         ]);
         expect(await threadsLeft()).toEqual([]);
-        await report(await leased(), { outcome: "completed", text: "two" });
+        await quiet(await leased(), "two");
         await endings();
         await endings();
         expect(statusesOf("100.000100")).toEqual([
@@ -5965,7 +7339,7 @@ describe.each(ENGINES)(
       const { handle } = handler();
       await deliver(fixture, mention("100.000100"));
       await drain(handle);
-      await report(await leased(), { outcome: "completed", text: "one" });
+      await quiet(await leased(), "one");
       await corrective(fixture, handle);
       const [conversation] = await db
         .select({ id: schema.conversations.id })
@@ -7333,17 +8707,60 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     ]);
   });
 
-  test("with nothing running or waiting, a stop changes nothing and says so", async () => {
-    const { fixture, view, session, post } = await workingThread();
+  test("with nothing running or waiting, a stop makes no turn and tells only whoever wrote it, mentioned or not", async () => {
+    const { fixture, view, session, post, root } = await workingThread();
     await setTurn(session.id, 1, { status: "completed", endedAt: new Date() });
     await setTurn(session.id, 2, { status: "completed", endedAt: new Date() });
     await deliver(fixture, post(at(1), { text: "중지" }));
     await drain(view.handle);
+    // A mentioned stop word: its message event and its app_mention, one post.
+    const mentioned = at(2);
+    await deliver(fixture, post(mentioned, { text: `<@${BOT_USER}> 그만` }));
+    await deliver(
+      fixture,
+      mention(mentioned, { thread_ts: root, text: `<@${BOT_USER}> 그만` }),
+    );
+    expect(await drain(view.handle)).toMatchObject({ failed: 0 });
     expect((await turnStatesOf(session.id)).map((turn) => turn.status)).toEqual(
       ["completed", "completed"],
     );
-    expect(view.threadNotices).toMatchObject([
-      { notice: { message: "nothingToStop" } },
+    expect(await interruptsOf(session.id)).toEqual([]);
+    expect(view.threadNotices).toEqual([]);
+    expect(view.notices.length).toBeGreaterThanOrEqual(2);
+    expect(
+      view.notices.every(
+        (line) =>
+          line.slackUserId === PERSON &&
+          line.threadTs === root &&
+          line.notice.message === "nothingToStop",
+      ),
+    ).toBe(true);
+    // One line per post: the post's two events and its retries share a key.
+    expect(new Set(view.notices.map((line) => line.onceKey)).size).toBe(2);
+  });
+
+  test("a task whose turns have all ended takes a mentioned stop word as no turn either", async () => {
+    const { fixture, view, session, post, root } = await unstartedTask();
+    await setTurn(session.id, 1, {
+      status: "completed",
+      attemptId: "attempt-1",
+      startedAt: new Date(),
+      endedAt: new Date(),
+    });
+    await deliver(fixture, post(at(1), { text: `<@${BOT_USER}> 그만` }));
+    expect(await drain(view.handle)).toMatchObject({ failed: 0 });
+    expect((await turnStatesOf(session.id)).map((turn) => turn.status)).toEqual(
+      ["completed"],
+    );
+    const [after] = await sessionsOf(fixture);
+    expect(after?.admissionState).toBe("active");
+    expect(view.threadNotices).toEqual([]);
+    expect(view.notices).toMatchObject([
+      {
+        slackUserId: PERSON,
+        threadTs: root,
+        notice: { message: "nothingToStop" },
+      },
     ]);
   });
 

@@ -13,6 +13,7 @@ import {
   createSummaryFolder,
   judgmentCallOf,
   type M1Release,
+  type M1Speaker,
   type SessionCatalog,
 } from "@werft-ai/platform";
 import { wireConversationCallExecutor } from "./conversation-calls.ts";
@@ -21,6 +22,8 @@ type ExecutorDeps = Parameters<typeof wireConversationCallExecutor>[0];
 type Deps = Omit<ExecutorDeps, "logger"> & {
   agents: Pick<AgentStore, "get">;
   catalog: Pick<SessionCatalog, "connections">;
+  /** Makes the agent's unasked turn of a judgment that spoke (v1-b/U1). */
+  speaker?: M1Speaker;
   logger: ExecutorDeps["logger"] &
     Parameters<typeof createM1JudgmentRunner>[0]["logger"];
 };
@@ -48,9 +51,10 @@ export function m1ReleaseOf(
 }
 
 /**
- * M1's shadow judge over PostgreSQL (a1/J5): the buffer's batches and the
+ * M1's judge over PostgreSQL (a1/J5): the buffer's batches and the
  * replies of bound or lately engaged threads, judged on the agent's active
- * release and recorded, never answered. A summary a batch's line takes past
+ * release and recorded; one that spoke goes to `speaker`, which answers it
+ * once the agent's rollout is on (v1-b/U1). A summary a batch's line takes past
  * its cap is folded on the same release's judgment model (a1/J10).
  */
 export function wireM1JudgmentRunner(deps: Deps) {
@@ -84,6 +88,7 @@ export function wireM1JudgmentRunner(deps: Deps) {
       store: createPostgresSummaryFoldStore(deps.db),
       executor,
     }),
+    ...(deps.speaker === undefined ? {} : { speaker: deps.speaker }),
     logger: deps.logger,
   });
 }

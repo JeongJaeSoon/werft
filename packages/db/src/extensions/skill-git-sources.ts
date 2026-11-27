@@ -196,6 +196,7 @@ export function sourceOf(row: Row): SkillGitSource {
     name: row.name,
     connectionId: row.connectionId,
     installationId: row.installationId,
+    access: row.access === "public" ? "public" : "installation",
     repositoryId: row.repositoryId,
     repository: row.repository,
     path: row.path,

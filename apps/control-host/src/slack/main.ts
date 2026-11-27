@@ -26,8 +26,10 @@ import {
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresInstallationSettingsStore,
+  createPostgresJudgmentAnswers,
   createPostgresJudgmentBufferStore,
   createPostgresLinkedAccountStore,
+  createPostgresMentionTurnRetries,
   createPostgresMentionTurnStatuses,
   createPostgresSecretStore,
   createPostgresSessionControl,
@@ -484,9 +486,25 @@ export function slackMentionTurnEndings(deps: {
   tasks: Parameters<typeof endMentionTurns>[0]["tasks"];
 }) {
   const { db } = deps;
+  const statuses = deps.statuses ?? createPostgresMentionTurnStatuses(db);
+  const queue = createPostgresConversationTurnQueue(db, deps.secretKey);
+  const calls = createConversationCalls({
+    store: createPostgresConversationCalls(db),
+    catalog: deps.catalog,
+  });
+  const retries = createPostgresMentionTurnRetries(db, deps.secretKey);
+  const mentionTurns = createMentionConversationTurns({
+    calls,
+    queue,
+    statuses,
+    agents: createPostgresAgentStore(db),
+    catalog: deps.catalog,
+    retries,
+    ...(deps.now === undefined ? {} : { now: deps.now }),
+  });
   return endMentionTurns({
-    statuses: deps.statuses ?? createPostgresMentionTurnStatuses(db),
-    queue: createPostgresConversationTurnQueue(db, deps.secretKey),
+    statuses,
+    queue,
     reactions: createPostgresConversationReactions(
       db,
       createPostgresSlackOutboxStore(db),
@@ -497,10 +515,10 @@ export function slackMentionTurnEndings(deps: {
       createPostgresSlackOutboxStore(db),
     ),
     tasks: deps.tasks,
-    calls: createConversationCalls({
-      store: createPostgresConversationCalls(db),
-      catalog: deps.catalog,
-    }),
+    calls,
+    retries,
+    answers: createPostgresJudgmentAnswers(db),
+    retry: (turnId, queuing) => mentionTurns.retry(turnId, queuing),
     setStatus: (turn, status) =>
       setMentionThreadStatus(
         { slack: deps.slack, botToken: deps.botToken },

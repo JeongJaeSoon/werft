@@ -180,6 +180,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
   "routes/musterrolle/workspaces.test.ts": [
     "POST /v1/workspaces/{id}/audit-retention",
     "POST /v1/workspaces/{id}/slack-guest",
+    "POST /v1/workspaces/{id}/web-fetch-preflight",
   ],
   "routes/musterrolle/audit-log.test.ts": [
     "GET /v1/audit/events",

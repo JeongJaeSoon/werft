@@ -254,6 +254,7 @@ function harness(
     ...repository.reads,
     dispatchWorkflow: unused,
     getWorkflowRun: unused,
+    getCommitCi: unused,
     rerunWorkflow: unused,
     submitReview: unused,
     findPullRequestsForBranch: unused,

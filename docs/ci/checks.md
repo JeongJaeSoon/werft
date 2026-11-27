@@ -35,7 +35,9 @@ ruleset의 필수 이름은 아래 일곱 개다. 이름은 그 job이 PR에서 
 집계 job과 판정 job이 통과로 보는 것은 둘뿐이다. 계획된 job이 성공했거나, 계획에 없어서 생략됐다. 계획된 job이 skipped나 cancelled로 끝나면 실패다.
 
 - 문서만 바꾼 PR은 시험과 제품 job을 계획하지 않는다. 가이드를 바꿨으면 `quickstart (guides)`가, 사이트 내용을 바꿨으면 `docs`와 `pages`가 돈다.
-- main push가 같은 트리를 시험한 PR run을 찾으면 그 run을 재사용하고 아래 job들을 생략한다(`.github/scripts/ci-reuse.sh`).
+- main push가 같은 트리를 시험한 PR run을 찾으면 그 run을 재사용하고 아래 job들을 생략한다(`.github/scripts/ci-reuse.sh`). `helm-chart`, `k8s-smoke`, `sdk-pack-smoke`, `demo`, `ui-pack`은 하나씩 본다. PR run이 돌리지 않은 것은 main push가 돌린다.
+- 각 `is_*_path` 목록은 `tests/ci-plan.test.ts`가 지킨다. job의 파일과 그 step이 적은 경로에서 import, 상대 경로 문자열, 셸 스크립트가 적은 경로를 따라가서 닿은 경로가 목록에 없으면 실패한다.
+- 어느 목록도 분류하지 않은 경로(새 최상위 디렉터리, 루트의 문서 아닌 파일), 모든 workflow, 모든 `package.json`을 바꾼 PR은 네 job을 다 돌린다.
 - 수동 run(`workflow_dispatch`)은 `only` 입력으로 job 하나를 고른다. 아래 표의 "도는 때"는 PR과 main push 기준이다.
 
 `e2e`와 `quickstart`는 이 workflow의 job이 낸다. API로 만든 check run은 그 commit의 가장 오래된 check suite에 붙어서, 다른 workflow가 다시 돌면 merge 판정에서 빠진다.
@@ -49,13 +51,13 @@ ruleset의 필수 이름은 아래 일곱 개다. 이름은 그 job이 PR에서 
 | `docs-checks` | `tests/`의 저장소 정책·문서 시험 | 문서만 바꾼 PR과 push | 6분 / 12분 |
 | `check (<묶음>)` | `surface` domain이 맡지 않는 시험을 네 묶음으로(`unit: packages`, `unit: db`, `unit: worker, web`, `unit: other apps, tests`) | web console만 바꾼 PR과 push | 11분 / 12분 |
 | `integration (<domain>)` | [integration의 구성원](#integration의-구성원)과 같은 job이다. `check`도 읽는다 | 아래 | 아래 |
-| `docs` | 문서 사이트가 빌드되고 self-hosting URL 규칙을 지킨다 | PR에서만. 문서만 바꾼 PR은 사이트 내용을 바꿨을 때 | 3분 / 10분 |
+| `docs` | 문서 사이트가 빌드되고 self-hosting URL 규칙을 지킨다 | PR에서만. 사이트가 빌드에 쓰는 경로(`ci-plan.sh`의 `is_site_path`)나 사이트 내용을 바꿨을 때 | 3분 / 10분 |
 | `pages` | Pages에 올릴 사이트의 구조와 크기 예산 | `docs` 뒤 | 1분 / 5분 |
-| `demo` | demo가 빌드된다 | 문서만 바꾼 것이 아닌 PR과 push | 2분 / 10분 |
-| `ui-pack` | UI 패키지의 tarball 내용, 빈 앱에서의 설치·타입·빌드·렌더 | 문서만 바꾼 것이 아닌 PR과 push | 2분 / 10분 |
+| `demo` | demo가 빌드된다 | demo가 빌드에 쓰는 경로(`is_demo_path`)를 바꾼 PR. 재사용하지 않은 main push | 2분 / 10분 |
+| `ui-pack` | UI 패키지의 tarball 내용, 빈 앱에서의 설치·타입·빌드·렌더 | UI 패키지가 쓰는 경로(`is_ui_pack_path`)를 바꾼 PR. 재사용하지 않은 main push | 2분 / 10분 |
 | `sdk-pack-smoke` | SDK 번들의 버전, 빈 프로젝트에서의 설치·타입·샘플 실행 | `packages/sdk`, `packages/client`, `packages/contracts`, `examples`, lockfile처럼 SDK를 받는 쪽에 닿는 것을 바꾼 PR과 push | 2분 / 15분 |
 | `workspace-quota` | quota가 되는 daemon에서 workspace 시험 | `docker` domain이 계획된 때 | 3분 / 15분 |
-| `helm-chart` | `helm lint`, render 검사, kubeconform | 문서나 web console만 바꾼 것이 아닌 PR과 push | 1분 / 10분 |
+| `helm-chart` | `helm lint`, render 검사, kubeconform | chart 검사가 쓰는 경로(`is_helm_path`)를 바꾼 PR. 재사용하지 않은 main push | 1분 / 10분 |
 | `k8s-smoke` | kind에 chart를 설치하고 install, session, reclaim, egress, upgrade, contract 단계를 지난다 | `deploy/` 아래, 실행 backend, scheduler, kind가 쓰는 stand-in, Dockerfile, lockfile, CI 계획 파일을 바꾼 PR. main push는 게시물을 이루는 경로와 릴리스가 필요한 commit도. 목록은 `.github/scripts/ci-plan.sh`의 `is_k8s_path`, `is_publish_path` | 9분 / 30분 |
 
 `pages`와 `k8s-smoke`도 실패하면 `check`가 빨갛다. 필수 이름은 아니지만 필수 check를 막는다.
