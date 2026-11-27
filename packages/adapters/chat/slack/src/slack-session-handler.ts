@@ -960,7 +960,14 @@ export function createSlackSessionHandler(
         // Once the rollout is on, the same daily line a mention in a
         // channel waiting for approval gets, so it is not said twice.
         if (rolloutOnMention) {
-          if (slackUserKindOf(user, claim.teamId) !== "external") {
+          // Not over an agent stop the table saw, as a waiting channel's
+          // mention says nothing then.
+          if (
+            (mentionHandling === "m2" ||
+              mentionTable.notice === "channelOff") &&
+            waiting.mode === "on" &&
+            slackUserKindOf(user, claim.teamId) !== "external"
+          ) {
             await tellOnceADay("pendingApproval", "pending_approval");
           }
           return;
@@ -1018,7 +1025,13 @@ export function createSlackSessionHandler(
             ? ("pendingApproval" as const)
             : undefined;
       if (line === undefined) {
-        if (unboundLine) return;
+        // A waiting binding the rollout's table did not hear says nothing.
+        if (
+          unboundLine ||
+          (rolloutOnMention && live?.status === "pending_approval")
+        ) {
+          return;
+        }
       } else {
         if (slackUserKindOf(user, claim.teamId) === "external") return;
         // The agent list only for someone who can sign in to the console.

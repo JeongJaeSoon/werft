@@ -6434,6 +6434,25 @@ describe.each(ENGINES)(
       expect(await sessionsOf(fixture)).toEqual([]);
     });
 
+    test("rollout on: a paused agent's channel Slack now reports private waits for approval and says nothing", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await db
+        .update(agents)
+        .set({ status: "paused" })
+        .where(eq(agents.id, fixture.agentId));
+      slack.channels.set(CHANNEL, { isPrivate: true });
+      const { handle, notices, threadNotices } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await drain(handle);
+      const [row] = await db
+        .select({ status: surfaceBindings.status })
+        .from(surfaceBindings)
+        .where(eq(surfaceBindings.id, fixture.bindingId));
+      expect(row?.status).toBe("pending_approval");
+      expect(notices).toEqual([]);
+      expect(threadNotices).toEqual([]);
+    });
+
     test("rollout on: a channel Slack now reports private tells a person waiting for approval once a UTC day, the next mention included", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       slack.channels.set(CHANNEL, { isPrivate: true });
