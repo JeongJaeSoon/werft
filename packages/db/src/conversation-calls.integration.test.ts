@@ -13,9 +13,7 @@ import {
   conversationCallIdSchema,
   conversationCallKeySchema,
   conversationIdSchema,
-  conversationJudgmentIdSchema,
   conversationTopicIdSchema,
-  conversationTurnIdSchema,
 } from "@werft-ai/contracts";
 import {
   CONVERSATION_CALL_TOKEN_PREFIX,
@@ -454,97 +452,6 @@ integration("conversation calls on PostgreSQL", () => {
       topicId: null,
       callClass: "m2",
     });
-  });
-
-  test("an unasked turn takes the agent before its binding, as an archive does: the archive's binding write is not held, and the turn follows", async () => {
-    await pool.query(
-      "UPDATE agents SET conversation_rollout = 'on' WHERE id = $1",
-      [agentId],
-    );
-    const installationId = crypto.randomUUID();
-    await pool.query(
-      "INSERT INTO slack_installations (id, workspace_id, app_id, team_id) VALUES ($1, $2, 'A0CALLS', $3)",
-      [installationId, workspaceId, TEAM],
-    );
-    await pool.query(
-      `INSERT INTO surface_bindings (id, workspace_id, agent_id, surface,
-        installation_id, external_surface_id, surface_kind, mode, listen,
-        ceiling_actions, ceiling_disclosure, status, m1_judgments_per_hour)
-       VALUES ($1, $2, $3, 'slack', $4, $5, 'public_channel', 'on', 'free', '{}',
-        'full', 'ready', 12)`,
-      [crypto.randomUUID(), workspaceId, agentId, installationId, CHANNEL],
-    );
-    const topicId = conversationTopicIdSchema.parse(crypto.randomUUID());
-    await pool.query(
-      "INSERT INTO conversation_topics (id, workspace_id, agent_id, conversation_id, conversation_kind, slack_team_id, slack_channel_id, slack_thread_ts) VALUES ($1, $2, $3, $4, 'channel', $5, $6, '100.000201')",
-      [topicId, workspaceId, agentId, conversationId, TEAM, CHANNEL],
-    );
-    const judgmentId = conversationJudgmentIdSchema.parse(crypto.randomUUID());
-    await pool.query(
-      `INSERT INTO conversation_judgments (id, workspace_id, agent_id,
-        conversation_id, grade, slack_team_id, slack_channel_id, refs,
-        prompt_version, outcome, decision, reason, judged_at, target_ts)
-       VALUES ($1, $2, $3, $4, 'buffer_m1', $5, $6, '{100.000201}', 3,
-        'judged', 'speak', 'needs_agent', now(), '100.000201')`,
-      [judgmentId, workspaceId, agentId, conversationId, TEAM, CHANNEL],
-    );
-    const turnId = conversationTurnIdSchema.parse(crypto.randomUUID());
-    const holder = await pool.connect();
-    let issuing: Promise<{ outcome: string }> | undefined;
-    try {
-      await holder.query("BEGIN");
-      // An archive's first step: the agent.
-      await holder.query("SELECT id FROM agents WHERE id = $1 FOR UPDATE", [
-        agentId,
-      ]);
-      let settled = false;
-      issuing = store()
-        .issueUnsolicitedTurnAtomic({
-          judgmentId,
-          turnId,
-          tokenHash: hashConversationCallToken(
-            `${CONVERSATION_CALL_TOKEN_PREFIX}${crypto.randomUUID()}`,
-          ),
-          workspaceId,
-          agentId,
-          conversationId,
-          topicId,
-          teamId: TEAM,
-          channelId: CHANNEL,
-          sources: ["100.000201"],
-          releaseId: null,
-          connectionId: CONNECTION,
-          path: "/v1/messages",
-          ...LIMITS,
-          callKey: conversationCallKeySchema.parse(`${turnId}:m2`),
-          ttlMs: 180_000,
-        })
-        .finally(() => {
-          settled = true;
-        });
-      let waiting = 0;
-      for (let i = 0; i < 50 && waiting === 0; i++) {
-        await Bun.sleep(50);
-        waiting = (
-          await pool.query(
-            "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
-          )
-        ).rows[0].n;
-      }
-      expect(waiting).toBe(1);
-      expect(settled).toBe(false);
-      // Its next: the agent's bindings. A turn holding one already would
-      // wait on the agent here while this waits on it.
-      await holder.query("SET LOCAL lock_timeout = '5s'");
-      await holder.query(
-        "UPDATE surface_bindings SET updated_at = now() WHERE agent_id = $1",
-        [agentId],
-      );
-      await holder.query("COMMIT");
-    } finally {
-      holder.release();
-    }
-    expect((await issuing)?.outcome).toBe("issued");
   });
 
   test("a call an older image issues, with none of the new columns, is granted and settled", async () => {

@@ -6982,7 +6982,7 @@
         },
         "conversation_judgments_answer_check": {
           "name": "conversation_judgments_answer_check",
-          "value": "(\"conversation_judgments\".\"target_ts\" IS NULL OR (\"conversation_judgments\".\"outcome\" = 'judged' AND \"conversation_judgments\".\"decision\" = 'speak' AND (\"conversation_judgments\".\"target_ts\" = ANY(\"conversation_judgments\".\"refs\")) IS TRUE)) AND (\"conversation_judgments\".\"turn_id\" IS NULL OR \"conversation_judgments\".\"target_ts\" IS NOT NULL) AND (\"conversation_judgments\".\"answer\" IS NULL OR (\"conversation_judgments\".\"target_ts\" IS NOT NULL AND \"conversation_judgments\".\"answer\" IN ('replied','no_reply','no_decision','budget_refused','source_deleted','channel_stopped','not_started')))"
+          "value": "(\"conversation_judgments\".\"target_ts\" IS NULL OR (\"conversation_judgments\".\"outcome\" = 'judged' AND \"conversation_judgments\".\"decision\" = 'speak' AND \"conversation_judgments\".\"target_ts\" = ANY(\"conversation_judgments\".\"refs\")) IS TRUE) AND (\"conversation_judgments\".\"turn_id\" IS NULL OR \"conversation_judgments\".\"target_ts\" IS NOT NULL) AND (\"conversation_judgments\".\"answer\" IS NULL OR (\"conversation_judgments\".\"target_ts\" IS NOT NULL AND \"conversation_judgments\".\"answer\" IN ('replied','no_reply','no_decision','budget_refused','source_deleted','channel_stopped','not_started')))"
         }
       },
       "isRLSEnabled": false

@@ -691,17 +691,13 @@ export function createPostgresConversationCalls(
       });
       return db
         .transaction(async (tx): Promise<ConversationUnsolicitedTurnIssue> => {
-          // Only under the rollout on; `shadow` judges for the record alone,
-          // and its record kept no topic for a turn, so this comes before the
-          // scope. Shared, as a change of the rollout writes the agent's row,
-          // and taken before any binding, as an archive takes the agent and
-          // then its bindings.
-          const [agent] = await tx
+          // Unlocked, before the scope: a record of `shadow` kept no topic
+          // for a turn. Read again under its lock below.
+          const [before] = await tx
             .select({ rollout: agents.conversationRollout })
             .from(agents)
-            .where(eq(agents.id, input.agentId))
-            .for("share");
-          if (agent !== undefined && agent.rollout !== "on") {
+            .where(eq(agents.id, input.agentId));
+          if (before !== undefined && before.rollout !== "on") {
             return { outcome: "rollout_off" };
           }
           const refused = await turnScopeIn(tx, input);
@@ -715,6 +711,27 @@ export function createPostgresConversationCalls(
             throughTurn: null,
           });
           if (deleted !== null) return { outcome: "source_deleted" };
+          // Only under the rollout on; `shadow` judges for the record alone.
+          // Locks in a mention's try again order: the scope's, the marks,
+          // the agent.
+          const [agent] = await tx
+            .select({
+              rollout: agents.conversationRollout,
+              status: agents.status,
+            })
+            .from(agents)
+            .where(eq(agents.id, input.agentId))
+            .for("share");
+          if (agent?.rollout !== "on") return { outcome: "rollout_off" };
+          // Still heard as the buffer hears it: an active agent in a channel
+          // not archived.
+          const [heard] = await tx
+            .select({ state: conversations.channelState })
+            .from(conversations)
+            .where(eq(conversations.id, input.conversationId));
+          if (agent.status !== "active" || heard?.state !== "active") {
+            return { outcome: "no_binding" };
+          }
           // The channel's live binding, held as an admin's change of it waits.
           // It still listens to what was judged: a batch's posts only while
           // it hears every post, an engaged reply also while it hears

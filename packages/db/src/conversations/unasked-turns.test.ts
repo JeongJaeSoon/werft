@@ -148,13 +148,14 @@ async function spoke(
   at: Place,
   target = "100.000001",
   refs = ["100.000001", "100.000002"],
-  grade: "buffer_m1" | "m1_engaged" | "m1" = "buffer_m1",
+  grade: "buffer_m1" | "m1_engaged" | "m1" | "m1_to_task" = "buffer_m1",
 ): Promise<ConversationJudgmentId> {
   const id = conversationJudgmentIdSchema.parse(randomUUID());
   const rule = {
     buffer_m1: [null, null],
     m1_engaged: ["none", "stray_reply"],
     m1: ["reply", "default_reply"],
+    m1_to_task: ["reply", "default_reply"],
   }[grade];
   await client.query(
     `INSERT INTO conversation_judgments (id, workspace_id, agent_id,
@@ -192,7 +193,7 @@ function issue(
 ) {
   const turnId =
     overrides.turnId ?? conversationTurnIdSchema.parse(randomUUID());
-  const token = `[REDACTED]`;
+  const token = `call-${turnId}`;
   return {
     turnId,
     token,
@@ -358,16 +359,34 @@ describe("the unasked turn of a judgment that spoke (v1-b/U1)", () => {
     expect((await issue(at, judgmentId).issued).outcome).toBe("issued");
   });
 
-  test("a bound session's reply that spoke makes none: the session answers it", async () => {
-    const at = await place();
-    const judgmentId = await spoke(at, "100.000002", ["100.000002"], "m1");
-    expect((await issue(at, judgmentId).issued).outcome).toBe("duplicate");
-    expect((await turnsOf()).rows).toEqual([]);
-    expect(await judgmentOf(judgmentId)).toEqual({
-      turn_id: null,
-      answer: null,
+  for (const grade of ["m1", "m1_to_task"] as const) {
+    test(`a bound session's reply that spoke (${grade}) makes none: the session answers it`, async () => {
+      const at = await place();
+      const judgmentId = await spoke(at, "100.000002", ["100.000002"], grade);
+      expect((await issue(at, judgmentId).issued).outcome).toBe("duplicate");
+      expect((await turnsOf()).rows).toEqual([]);
+      expect(await judgmentOf(judgmentId)).toEqual({
+        turn_id: null,
+        answer: null,
+      });
     });
-  });
+  }
+
+  for (const [name, change] of [
+    [
+      "the channel archived",
+      "UPDATE conversations SET channel_state = 'archived' WHERE agent_id = $1",
+    ],
+    ["the agent paused", "UPDATE agents SET status = 'paused' WHERE id = $1"],
+  ] as const) {
+    test(`${name} since the judgment: no turn`, async () => {
+      const at = await place();
+      const judgmentId = await spoke(at);
+      await client.query(change, [AGENT]);
+      expect((await issue(at, judgmentId).issued).outcome).toBe("no_binding");
+      expect((await turnsOf()).rows).toEqual([]);
+    });
+  }
 
   test("its calls are the agent's team's, refused past 80% of the account", async () => {
     const reserve = conversationCallReserve(LIMITS);
@@ -576,7 +595,7 @@ describe("the endings pass and an unasked turn", () => {
 
 describe("conversation_judgments' unasked columns (migration)", () => {
   const insert = (fields: {
-    decision: "speak" | "quiet";
+    decision: "speak" | "quiet" | null;
     reason: string;
     target?: string | null;
     turnId?: string | null;
@@ -615,6 +634,12 @@ describe("conversation_judgments' unasked columns (migration)", () => {
     await insert({ decision: "quiet", reason: "invalid_target" });
     await expect(
       insert({ decision: "speak", reason: "invalid_target" }),
+    ).rejects.toThrow();
+  });
+
+  test("a judged record with no decision holds no target", async () => {
+    await expect(
+      insert({ decision: null, reason: "needs_agent", target: "100.000002" }),
     ).rejects.toThrow();
   });
 
