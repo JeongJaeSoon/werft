@@ -875,7 +875,15 @@ function commandFor(
     case "pause":
       return { action, body: { expected_revision } };
     case "terminate":
-      return { action, body: { expected_revision } };
+      return {
+        action,
+        // What the dialog said rests on it: from recovery_required the
+        // terminate closes for good.
+        body: {
+          expected_revision,
+          expected_admission_state: session.admission_state,
+        },
+      };
     case "resume":
       return { action, body: { expected_revision } };
   }

@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
-import type { SseEvent } from "@werft-ai/contracts";
-import type { SessionCatalog, WorkerGateway } from "@werft-ai/platform";
+import type { AdmissionState, SseEvent } from "@werft-ai/contracts";
+import {
+  type SessionCatalog,
+  type WorkerGateway,
+  WorkerGatewayError,
+} from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { asc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
@@ -77,6 +81,7 @@ function terminate(
   session: Session,
   revision: number,
   idempotencyKey?: string,
+  expectedAdmissionState?: AdmissionState,
 ) {
   return createPostgresSessionControl(db).terminateAtomic({
     principal: { ownerId: session.ownerId },
@@ -84,6 +89,7 @@ function terminate(
     idempotencyKey: idempotencyKey ?? crypto.randomUUID(),
     payloadHash: "terminate-hash",
     expectedRevision: revision,
+    ...(expectedAdmissionState === undefined ? {} : { expectedAdmissionState }),
     reason: "operator",
     now: new Date(),
   });
@@ -133,6 +139,25 @@ async function streamed(session: Session) {
   });
 }
 
+function dispatchSignals(sessionId: string) {
+  return db
+    .select()
+    .from(unassignedSessions)
+    .where(eq(unassignedSessions.sessionId, sessionId));
+}
+
+async function failure(work: Promise<unknown>) {
+  try {
+    await work;
+  } catch (error) {
+    if (error instanceof WorkerGatewayError) {
+      return { status: error.status, code: error.code };
+    }
+    throw error;
+  }
+  throw new Error("expected the call to fail");
+}
+
 async function detail(session: Session) {
   const read = await createPostgresSessionReader(db).getSession(
     session.ownerId,
@@ -174,6 +199,12 @@ async function lostMidTurn() {
 
 test("terminate closes a failed recovery_required session at once, and pressing it again changes nothing", async () => {
   const { session, queuedReceipt } = await lostMidTurn();
+  // A session waiting on dispatch, so its signal has something to leave.
+  await db
+    .insert(unassignedSessions)
+    .values({ sessionId: session.sessionId })
+    .onConflictDoNothing();
+  expect(await dispatchSignals(session.sessionId)).toHaveLength(1);
   const before = await sessionRow(session.sessionId);
   const framesBefore = await streamed(session);
 
@@ -211,12 +242,7 @@ test("terminate closes a failed recovery_required session at once, and pressing 
     status: "failed",
     error: { code: "SESSION_CLOSED" },
   });
-  expect(
-    await db
-      .select()
-      .from(unassignedSessions)
-      .where(eq(unassignedSessions.sessionId, session.sessionId)),
-  ).toEqual([]);
+  expect(await dispatchSignals(session.sessionId)).toEqual([]);
   expect(await receiptRow(first.response.receipt_id)).toMatchObject({
     operation: "terminate",
     status: "succeeded",
@@ -285,6 +311,16 @@ test("terminate closes a recovery_required session still bound to its execution,
   expect(result.response.receipt_status).toBe("accepted");
   const closed = await sessionRow(session.sessionId);
   expect(closed.admissionState).toBe("closed");
+  expect(closed.leaseEpoch).toBe(before.leaseEpoch + 1);
+  // The worker still up is fenced out before its exit is even seen.
+  expect(
+    await failure(
+      gateway.heartbeat(session.principal, {
+        ...session.scope,
+        attempt_state: "running",
+      }),
+    ),
+  ).toEqual({ status: 409, code: "STALE_EPOCH" });
   const [execution] = await db
     .select({ desiredState: executions.desiredState })
     .from(executions)
@@ -306,6 +342,37 @@ test("terminate closes a recovery_required session still bound to its execution,
     status: "succeeded",
     result: { execution_gone: true, unconfirmed_turn_id: "1" },
   });
+});
+
+test("a terminate decided on another admission is a revision conflict once the session went to recovery unseen", async () => {
+  const { session } = await lostMidTurn();
+  const row = await sessionRow(session.sessionId);
+  // The caller read the session while it was active, at this same revision:
+  // losing the worker moved the admission, not the revision.
+  expect(await terminate(session, row.revision, undefined, "active")).toEqual({
+    outcome: "revision_conflict",
+    currentRevision: row.revision,
+  });
+  const untouched = await sessionRow(session.sessionId);
+  expect({
+    admissionState: untouched.admissionState,
+    revision: untouched.revision,
+    leaseEpoch: untouched.leaseEpoch,
+  }).toEqual({
+    admissionState: "recovery_required",
+    revision: row.revision,
+    leaseEpoch: row.leaseEpoch,
+  });
+
+  // Read again, the same press closes it.
+  const closing = await terminate(
+    session,
+    untouched.revision,
+    undefined,
+    "recovery_required",
+  );
+  if (closing.outcome !== "accepted") throw new Error(closing.outcome);
+  expect((await sessionRow(session.sessionId)).admissionState).toBe("closed");
 });
 
 test("a terminate that cut a running turn leaves recovery_required; the next terminate closes it", async () => {

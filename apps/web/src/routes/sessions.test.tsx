@@ -3032,8 +3032,16 @@ describe("a session waiting on a recovery decision", () => {
     );
     expect(screen.queryByRole("button", FRESH)).toBeNull();
     expect(screen.queryByRole("button", ABANDON)).toBeNull();
-    expect(posts(api).map((call) => call.path)).toEqual([
-      `/v1/sessions/${SESSION_ID}/terminate`,
+    expect(
+      posts(api).map((call) => ({ path: call.path, body: call.body })),
+    ).toEqual([
+      {
+        path: `/v1/sessions/${SESSION_ID}/terminate`,
+        body: {
+          expected_revision: 5,
+          expected_admission_state: "recovery_required",
+        },
+      },
     ]);
   });
 
@@ -3850,6 +3858,7 @@ describe("session runtime", () => {
     await waitFor(() =>
       expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({
         expected_revision: 3,
+        expected_admission_state: "active",
       }),
     );
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());

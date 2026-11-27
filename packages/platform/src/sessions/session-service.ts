@@ -1489,6 +1489,9 @@ export function createSessionService(deps: {
             : { ...input.body, justification: input.justification },
         ),
         expectedRevision: input.body.expected_revision,
+        ...(input.body.expected_admission_state === undefined
+          ? {}
+          : { expectedAdmissionState: input.body.expected_admission_state }),
         reason: input.body.reason ?? input.justification ?? null,
         now: now(),
       });

@@ -553,6 +553,18 @@ export function createPostgresSessionControl(
         });
         if ("done" in opened) return opened.done;
         const { session, now } = opened;
+        // Not every move into recovery_required moves the revision, and from
+        // there a terminate closes for good: a caller who decided on another
+        // admission must read the session again first.
+        if (
+          input.expectedAdmissionState !== undefined &&
+          input.expectedAdmissionState !== session.admissionState
+        ) {
+          return {
+            outcome: "revision_conflict",
+            currentRevision: session.revision,
+          };
+        }
         // A session on the legacy pod lifecycle (pod_id without an
         // execution) has no kill outbox and no epoch its worker honours.
         // Accepting would promise a kill nothing can deliver, so it is

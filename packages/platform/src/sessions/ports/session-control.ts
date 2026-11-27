@@ -11,6 +11,8 @@ export type TerminateSessionInput = {
   idempotencyKey: string;
   payloadHash: string;
   expectedRevision: number;
+  // When given, a session in another admission is a revision conflict.
+  expectedAdmissionState?: AdmissionState;
   reason: string | null;
   now: Date;
 };
