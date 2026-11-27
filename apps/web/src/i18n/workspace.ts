@@ -39,9 +39,9 @@ export const workspaceKo = {
   "workspace.webFetchHint":
     "켜 두면 worker가 api.anthropic.com에 닿아야 합니다. 모델 연결이 Anthropic이 아니거나 이 주소를 막은 설치에서는 꺼야 WebFetch가 동작합니다.",
   "workspace.webFetchSavedOn":
-    "이제 WebFetch 전에 Anthropic에 도메인을 확인합니다.",
+    "이제부터 시작하거나 이어지는 세션은 WebFetch 전에 Anthropic에 도메인을 확인합니다.",
   "workspace.webFetchSavedOff":
-    "이제 WebFetch가 Anthropic 도메인 확인 없이 동작합니다. 가져올 수 있는 주소는 egress 허용 목록이 정합니다.",
+    "이제부터 시작하거나 이어지는 세션은 Anthropic 도메인 확인 없이 WebFetch를 씁니다. 가져올 수 있는 주소는 egress 허용 목록이 정합니다.",
   "workspace.webFetchValueOn": "WebFetch 전에 Anthropic에 도메인을 확인합니다.",
   "workspace.webFetchValueOff":
     "WebFetch가 Anthropic 도메인 확인 없이 동작합니다.",
@@ -229,9 +229,9 @@ export const workspaceEn: Record<keyof typeof workspaceKo, string> = {
   "workspace.webFetchHint":
     "While on, the worker must reach api.anthropic.com. Turn it off for WebFetch to work where the model connection is not Anthropic or that host is blocked.",
   "workspace.webFetchSavedOn":
-    "WebFetch now checks the domain with Anthropic first.",
+    "Sessions that start or resume from now on check the domain with Anthropic before WebFetch.",
   "workspace.webFetchSavedOff":
-    "WebFetch now runs without the Anthropic domain check. The egress allowlist still decides which hosts it can reach.",
+    "Sessions that start or resume from now on use WebFetch without the Anthropic domain check. The egress allowlist still decides which hosts it can reach.",
   "workspace.webFetchValueOn":
     "WebFetch checks the domain with Anthropic first.",
   "workspace.webFetchValueOff":
@@ -423,9 +423,9 @@ export const workspaceJa: Record<keyof typeof workspaceKo, string> = {
   "workspace.webFetchHint":
     "オンの場合、worker から api.anthropic.com に接続できる必要があります。モデル接続が Anthropic でない環境や、このホストを遮断している環境では、オフにしないと WebFetch が動作しません。",
   "workspace.webFetchSavedOn":
-    "WebFetch の前に Anthropic でドメインを確認するようになりました。",
+    "これから開始または再開するセッションは、WebFetch の前に Anthropic でドメインを確認します。",
   "workspace.webFetchSavedOff":
-    "WebFetch は Anthropic のドメイン確認なしで動作するようになりました。取得できるホストは引き続き egress 許可リストで決まります。",
+    "これから開始または再開するセッションは、Anthropic のドメイン確認なしで WebFetch を使います。取得できるホストは引き続き egress 許可リストで決まります。",
   "workspace.webFetchValueOn":
     "WebFetch の前に Anthropic でドメインを確認します。",
   "workspace.webFetchValueOff":

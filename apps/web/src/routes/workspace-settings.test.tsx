@@ -410,7 +410,7 @@ describe("워크스페이스 설정", () => {
     const user = await setupUser();
     await user.click(toggle);
     expect((await screen.findByRole("status")).textContent).toBe(
-      "이제 WebFetch가 Anthropic 도메인 확인 없이 동작합니다. 가져올 수 있는 주소는 egress 허용 목록이 정합니다.",
+      "이제부터 시작하거나 이어지는 세션은 Anthropic 도메인 확인 없이 WebFetch를 씁니다. 가져올 수 있는 주소는 egress 허용 목록이 정합니다.",
     );
     expect(
       api.calls.filter((c) => c.path === PREFLIGHT).map((c) => c.body),
