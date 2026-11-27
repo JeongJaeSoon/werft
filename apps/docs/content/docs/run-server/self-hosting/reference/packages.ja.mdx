@@ -18,7 +18,7 @@ outcome: "イメージ、chart、manifest のフィールドの意味を確認�
 | Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | バージョン `<Chart.yaml version>-main-<12>`（chart を公開する commit のみ） | バージョン `<version>`（`v` なし） |
 | SDK | npm `@werft-ai/sdk` | main イメージの公開とは別です。[SDK のインストール](/getting-started/install)で配布バージョンを確認します | SDK の配布バージョンを別途確認します |
 
-イメージは `linux/amd64` と `linux/arm64` を含む index で、設置では digest で固定します。chart には三つのイメージの digest と worker runtime が含まれます。パッケージはログインなしで取得できます。`<12>` は commit SHA の先頭 12 文字です。`main` バージョン同士の順序には意味がないため、Images workflow で正常終了した run の commit を選んで正確に指定します。
+イメージは `linux/amd64` と `linux/arm64` を含む index で、設置では digest で固定します。chart には三つのイメージの digest と worker runtime が含まれます。パッケージはログインなしで取得できます。`<12>` は commit SHA の先頭 12 文字です。`main` バージョン同士の順序には意味がないため、Images workflow で正常終了した run の commit（chart の場合は、その run が chart まで公開した commit）を選んで正確に指定します。
 
 | イメージ | 内容 | 実行主体 |
 |---|---|---|

@@ -236,6 +236,12 @@ test("a web-only PR drops the domains, chart jobs and guides no changed path rea
   }
 });
 
+test("a web-only PR still drops k8s-smoke for a path its list would match", () => {
+  for (const path of ["apps/web/Dockerfile", "apps/web/package.json"]) {
+    expect(plan(fixture(undefined, [path])).output.k8s).toBe("false");
+  }
+});
+
 test("the egress proxy stays on the full plan: service-backed suites import it", () => {
   const result = plan(fixture(undefined, ["apps/egress-proxy/src/a.ts"]));
   expect(result.output).toEqual(shared);

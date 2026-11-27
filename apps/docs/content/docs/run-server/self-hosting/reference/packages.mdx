@@ -17,7 +17,7 @@ outcome: "이미지와 chart와 manifest의 필드 의미를 확인한다"
 | Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | 버전 `<Chart.yaml version>-main-<12>`(chart를 게시하는 commit만) | 버전 `<버전>`(`v` 없음) |
 | SDK | npm `@werft-ai/sdk` | main 이미지 게시와 별도. [SDK 설치](/getting-started/install)에서 배포 버전 확인 | SDK 배포 버전을 별도로 확인 |
 
-이미지는 `linux/amd64`와 `linux/arm64`를 담은 index이고, 설치에는 digest로 고정한다. chart는 세 이미지의 digest와 worker runtime을 담는다. 패키지는 로그인 없이 받는다. `<12>`는 commit SHA의 앞 12자이고, `main` 버전끼리는 순서에 뜻이 없으므로 Images workflow에서 초록색으로 끝난 run의 commit을 골라 정확히 적는다.
+이미지는 `linux/amd64`와 `linux/arm64`를 담은 index이고, 설치에는 digest로 고정한다. chart는 세 이미지의 digest와 worker runtime을 담는다. 패키지는 로그인 없이 받는다. `<12>`는 commit SHA의 앞 12자이고, `main` 버전끼리는 순서에 뜻이 없으므로 Images workflow에서 초록색으로 끝난 run의 commit(chart는 그 run이 chart까지 게시한 commit)을 골라 정확히 적는다.
 
 | 이미지 | 내용 | 실행 주체 |
 |---|---|---|

@@ -159,8 +159,8 @@ if [ -n "$base" ]; then
       # is the work no changed path can reach. The surface domain owns apps/web.
       site=true
       helm=false
-      # Only a main push can match here: the web package.json is in its list.
-      [ "$k8s_path" = true ] || k8s=false
+      # A main push lists the web package.json among what the images build from.
+      if [ "$event" != push ] || [ "$k8s_path" = false ]; then k8s=false; fi
       quickstart=$guide
       domains='["surface"]'
     else
