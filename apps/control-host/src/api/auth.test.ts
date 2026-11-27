@@ -1218,6 +1218,24 @@ describe("login, logout, me", () => {
     expect(workspace.settings).toEqual(stored);
   });
 
+  test("me reads web_fetch_preflight off beside a key this build does not know", async () => {
+    const h = harness();
+    await h.bootstrap();
+    const workspace = h.identity.workspaces[0];
+    if (!workspace) throw new Error("no workspace");
+    workspace.settings = { web_fetch_preflight: false, future_key: 1 };
+
+    const me = await h.app.request("/v1/auth/me", {
+      headers: { Cookie: cookieOf(await h.login()) },
+    });
+    expect(me.status).toBe(200);
+    const raw = (await me.json()) as {
+      workspace: { settings: Record<string, unknown> };
+    };
+    expect(raw.workspace.settings.web_fetch_preflight).toBe(false);
+    expect("future_key" in raw.workspace.settings).toBe(false);
+  });
+
   test("me returns the user principal, user and workspace; logout revokes", async () => {
     const h = harness();
     await h.bootstrap();

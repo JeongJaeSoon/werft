@@ -3,6 +3,7 @@ import { type ApiError, unwrap } from "@werft-ai/client";
 import type {
   AuditRetentionRequest,
   SlackGuestRequest,
+  WebFetchPreflightResponse,
 } from "@werft-ai/contracts";
 import { useWerft } from "@werft-ai/react";
 import {
@@ -73,7 +74,10 @@ export function WorkspaceSettingsScreen() {
       <OutcomeLine outcome={outcome} />
       <Basics />
       {editable ? (
-        <AuditRetention onOutcome={setOutcome} />
+        <>
+          <AuditRetention onOutcome={setOutcome} />
+          <WebFetchPreflight onOutcome={setOutcome} />
+        </>
       ) : (
         <ReadOnlySettings />
       )}
@@ -163,6 +167,19 @@ function ReadOnlySettings() {
             settings?.slack_guest_enabled
               ? "workspace.guestValueOn"
               : "workspace.guestValueOff",
+          )}
+        </div>
+      </SettingsSection>
+      <SettingsSection
+        title={t("workspace.webFetch")}
+        description={t("workspace.webFetchHint")}
+        box
+      >
+        <div>
+          {t(
+            (settings?.web_fetch_preflight ?? true)
+              ? "workspace.webFetchValueOn"
+              : "workspace.webFetchValueOff",
           )}
         </div>
       </SettingsSection>
@@ -288,6 +305,92 @@ function AuditRetention({ onOutcome }: { readonly onOutcome: OnOutcome }) {
         <FieldDescription>{t("workspace.retentionFoot")}</FieldDescription>
       </Field>
     </SettingsSection>
+  );
+}
+
+/**
+ * Whether the engine checks a WebFetch host with Anthropic first. On by
+ * default; owners and admins flip it, and the switch sends the opposite of
+ * what the server last said, as the Slack guest switch does.
+ */
+function WebFetchPreflight({ onOutcome }: { readonly onOutcome: OnOutcome }) {
+  const { t } = useI18n();
+  const { client } = useWerft();
+  const queryClient = useQueryClient();
+  const me = useMe();
+  const role = useRole();
+  const workspaceId = me?.workspace?.id ?? "";
+  const enabled = me?.workspace?.settings.web_fetch_preflight ?? true;
+  const hintId = useId();
+  const reasonId = useId();
+  const reason = useHasPermission("workspace.manage")
+    ? undefined
+    : permissionReason(t, "workspace.manage", role);
+
+  const save = useMutation<WebFetchPreflightResponse, ApiError, boolean>({
+    mutationFn: (value) =>
+      unwrap(
+        client.POST("/v1/workspaces/{id}/web-fetch-preflight", {
+          params: { path: { id: workspaceId } },
+          body: { web_fetch_preflight: value },
+        }),
+      ),
+    onMutate: () => onOutcome(null),
+    onSuccess: async ({ web_fetch_preflight }) => {
+      onOutcome({
+        kind: "notice",
+        text: t(
+          web_fetch_preflight
+            ? "workspace.webFetchSavedOn"
+            : "workspace.webFetchSavedOff",
+        ),
+      });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    },
+    onError: (error) =>
+      onOutcome({
+        kind: "error",
+        text: refusalText(t, error, "workspace.manage", role),
+      }),
+  });
+
+  return (
+    <SettingsSection
+      title={t("workspace.webFetch")}
+      description={t("workspace.webFetchHint")}
+      descriptionId={hintId}
+      rows={
+        <SettingRow
+          title={t("workspace.webFetchLabel")}
+          meta={
+            reason === undefined ? null : (
+              <Text as="div" variant="meta" id={reasonId}>
+                {reason}
+              </Text>
+            )
+          }
+          status={
+            <Text
+              as="div"
+              variant="meta"
+              aria-hidden="true"
+              className="min-w-6 text-right"
+            >
+              {t(enabled ? "workspace.guestOn" : "workspace.guestOff")}
+            </Text>
+          }
+          control={
+            <Switch
+              checked={enabled}
+              aria-describedby={reason === undefined ? hintId : reasonId}
+              aria-disabled={save.isPending || undefined}
+              disabled={reason !== undefined || me?.workspace === undefined}
+              onCheckedChange={(next) => save.mutate(next)}
+            />
+          }
+        />
+      }
+    />
   );
 }
 
