@@ -1,13 +1,16 @@
 import {
   CONVERSATION_TURN_LEASE_MS,
   type ConversationId,
+  type ConversationInputId,
   type ConversationRuntimeId,
   type ConversationRuntimeTurn,
   type ConversationTopicId,
+  type ConversationTurnCallRefusal,
   type ConversationTurnDecision,
   type ConversationTurnId,
   type ConversationTurnLeaseId,
   type ConversationTurnResult,
+  type ConversationTurnState,
   conversationTurnLeaseIdSchema,
 } from "@werft-ai/contracts";
 import type {
@@ -286,6 +289,8 @@ export type MentionTurnStart =
   | { outcome: "unknown_conversation" }
   // An admin emergency-stopped the agent in the channel.
   | { outcome: "channel_stopped" }
+  // A try again whose agent's rollout went off since its first try.
+  | { outcome: "rollout_off" }
   | { outcome: "no_active_release" }
   | { outcome: "connection_unavailable" }
   // Longer than a turn's input may be.
@@ -412,6 +417,89 @@ export interface ConversationReactionStore {
   react(turnId: ConversationTurnId): Promise<ConversationReactionEffect>;
 }
 
+/**
+ * How many times a mention's turn is tried, the first included (v1-b/F1):
+ * one that ends with no decision and nothing out of it is tried again with
+ * the same input under the next attempt number, up to this.
+ */
+export const MENTION_TURN_ATTEMPTS = 3;
+/**
+ * How long after a try ended the next one is queued, by the attempt that
+ * ended: the second at once, the third this long after the second.
+ */
+export const MENTION_TURN_RETRY_DELAYS_MS = [0, 10_000] as const;
+/**
+ * How long after a try ended its call still out is waited for: a topic takes
+ * one call at a time, so a try again would be refused beside it. Past this
+ * the try ends on the failure line.
+ */
+export const MENTION_TURN_CALL_SETTLE_WAIT_MS = 30_000;
+
+/** Where a mention turn stands as a try of its input. */
+export type MentionTurnAttempt = {
+  inputId: ConversationInputId;
+  attempt: number;
+  /** When its queue ended it; null while the queue has not. */
+  endedAt: Date | null;
+  /**
+   * Whether anything of it left the turn: a decision or a task's effect
+   * recorded, or a Slack row written for it (its 👀, answer or a thread
+   * line). Provider calls do not count: each try reserves its own.
+   */
+  wentOut: boolean;
+  /** Whether a call of it is still out, its report not in. */
+  callInFlight: boolean;
+};
+
+/**
+ * A thread line a mention's try ends on: `retrying` once per input, as it is
+ * tried again; `failed` once its last try ended with no decision; `budget`,
+ * the account's refusal (v1-b/F2), with no try again.
+ */
+export type MentionTurnLine = "retrying" | "failed" | "budget";
+
+/** A mention's input, as its next try is written from it. */
+export type MentionTurnRetryRequest = MentionTurnRequest & {
+  inputId: ConversationInputId;
+  /** The attempt of the try it follows. */
+  attempt: number;
+};
+
+export interface MentionTurnRetryStore {
+  /** Null for a turn its queue never held. */
+  attemptOf(turnId: ConversationTurnId): Promise<MentionTurnAttempt | null>;
+  /**
+   * Enqueues the line in the turn's topic thread: `no_thread` when there is
+   * no thread, or Slack app, to say it in; `silent` when the try is not
+   * one to speak for: an emergency stop ended it, or (for its last line)
+   * its mention is a next try's now.
+   */
+  tell(
+    turnId: ConversationTurnId,
+    line: MentionTurnLine,
+  ): Promise<"enqueued" | "duplicate" | "no_thread" | "silent">;
+  /** Lets go of the input the try kept for one after it. */
+  letGo(turnId: ConversationTurnId): Promise<void>;
+}
+
+/** Where a mention's next try is written from. */
+export interface MentionTurnRetryRequests {
+  /**
+   * The input of the turn's try as it was given: null once its input is no
+   * longer kept; `moved` when its mention's engagement is another try's,
+   * one written after it; `off` when the agent's rollout is no longer on.
+   */
+  requestOf(
+    turnId: ConversationTurnId,
+  ): Promise<MentionTurnRetryRequest | "moved" | "off" | null>;
+}
+
+/** What starting a mention's next try did. */
+export type MentionTurnRetryStart =
+  | MentionTurnStart
+  // The try kept no input to try again with: past its deadline, say.
+  | { outcome: "input_gone" };
+
 export type MentionTurnEndings = {
   ended: number;
   /** Turns whose reply decision enqueued its answer. */
@@ -422,6 +510,12 @@ export type MentionTurnEndings = {
   routed: number;
   /** Turns that put a 👀 on the message that called them. */
   reacted: number;
+  /** Mention turns tried again, their next try queued. */
+  retried: number;
+  /** Mention turns ended on the failure line, their tries used up or unsafe to repeat. */
+  gaveUp: number;
+  /** Mention turns a budget account refused, told so once. */
+  budgetRefused: number;
   reset: number;
   superseded: number;
   /** Threads left to be told "processing" again for a newer turn after an `active`. */
@@ -453,8 +547,19 @@ export async function endMentionTurns(deps: {
     endTurn(
       turnId: ConversationTurnId,
       outcome?: ConversationTurnOutcome,
-    ): Promise<unknown>;
+    ): Promise<{
+      state: ConversationTurnState | null;
+      refusal: ConversationTurnCallRefusal | null;
+    }>;
   };
+  /** A mention's tries (v1-b/F1): what each left, and its thread lines. */
+  retries: MentionTurnRetryStore;
+  /** Writes and queues the next try of the turn's input. */
+  /** `queuing` runs once the next try is written, before a runtime can take it. */
+  retry(
+    turnId: ConversationTurnId,
+    queuing: () => Promise<void>,
+  ): Promise<MentionTurnRetryStart>;
   /**
    * Sets the thread's status: false when the thread shows none (the app is
    * gone, or Slack shows none there); throws when Slack may not have taken
@@ -488,12 +593,107 @@ export async function endMentionTurns(deps: {
     spawned: 0,
     routed: 0,
     reacted: 0,
+    retried: 0,
+    gaveUp: 0,
+    budgetRefused: 0,
     reset: 0,
     superseded: 0,
     reprocessing: 0,
     threads: 0,
     failed: 0,
   };
+  // What a mention turn that ended with no decision goes on to (v1-b/F1):
+  // its next try, a line in its thread, or nothing. Run again on a later
+  // pass, it does what is left: each line is keyed, and a try is written once.
+  async function triedAgain(
+    turnId: ConversationTurnId,
+    outcome: ConversationTurnOutcome | undefined,
+    ended: { state: ConversationTurnState | null; refusal: unknown },
+    at: Date,
+  ): Promise<"retried" | "wait" | "told" | "none"> {
+    // Never queued, decided, voided by a delete, or stopped by an admin:
+    // nothing is said (an unasked judgment's failure, M1, never comes here).
+    if (outcome === undefined || ended.state !== "no_decision") return "none";
+    if ("reason" in outcome && outcome.reason === "emergency_stopped") {
+      return "none";
+    }
+    const attempt = await deps.retries.attemptOf(turnId);
+    if (attempt === null) return "none";
+    const giveUp = async (line: "failed" | "budget") => {
+      const told = await deps.retries.tell(turnId, line);
+      // Counted as written, before the input goes (which may fail). Not
+      // said: counted as nothing was. Said by another pass: its count.
+      if (told === "enqueued") {
+        if (line === "budget") result.budgetRefused += 1;
+        else result.gaveUp += 1;
+      }
+      await deps.retries.letGo(turnId);
+      if (told === "silent") return "none" as const;
+      return "told" as const;
+    };
+    // The account would refuse the next try as it did this one.
+    if (ended.refusal === "budget") return giveUp("budget");
+    if (attempt.wentOut || attempt.attempt >= MENTION_TURN_ATTEMPTS) {
+      return giveUp("failed");
+    }
+    if (attempt.callInFlight) {
+      if (
+        attempt.endedAt !== null &&
+        at.getTime() <
+          attempt.endedAt.getTime() + MENTION_TURN_CALL_SETTLE_WAIT_MS
+      ) {
+        return "wait";
+      }
+      return giveUp("failed");
+    }
+    const delay = MENTION_TURN_RETRY_DELAYS_MS[attempt.attempt - 1] ?? 0;
+    if (
+      attempt.endedAt !== null &&
+      at.getTime() < attempt.endedAt.getTime() + delay
+    ) {
+      return "wait";
+    }
+    // Said once the next try's permit is written and the mention moved to
+    // it, before it is queued: a try that cannot be issued never says it,
+    // and the line comes before the next try can answer. A line that cannot
+    // be written does not stop the try: the mention is the next try's now.
+    const started = await deps.retry(turnId, async () => {
+      try {
+        await deps.retries.tell(turnId, "retrying");
+      } catch (error) {
+        deps.logger.warn("Mention turn retry line not written", {
+          turn_id: turnId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
+    deps.logger.info("Mention turn tried again", {
+      turn_id: turnId,
+      attempt: attempt.attempt + 1,
+      retry_outcome: started.outcome,
+    });
+    if (started.outcome === "queued" || started.outcome === "duplicate") {
+      // Written by another pass: its count. Counted before the input goes.
+      if (started.outcome === "queued") result.retried += 1;
+      await deps.retries.letGo(turnId);
+      return "retried";
+    }
+    // Deleted since, the channel stopped, or the rollout off: as a first
+    // try, nothing said. An input gone with a stop that came after this
+    // pass read the try's end (and the channel on again) is said nothing too.
+    if (
+      started.outcome === "source_deleted" ||
+      started.outcome === "channel_stopped" ||
+      started.outcome === "rollout_off" ||
+      (started.outcome === "input_gone" &&
+        (await deps.retries.attemptOf(turnId)) === null)
+    ) {
+      await deps.retries.letGo(turnId);
+      return "none";
+    }
+    return giveUp("failed");
+  }
+
   for (const turn of await deps.statuses.due(deps.limit, deps.claimMs)) {
     // The pass's own time, whatever clock the turns are judged by.
     if (Date.now() >= deps.deadline) break;
@@ -513,7 +713,7 @@ export async function endMentionTurns(deps: {
       } else {
         outcome = queued;
       }
-      await deps.calls.endTurn(turn.turnId, outcome);
+      const ended = await deps.calls.endTurn(turn.turnId, outcome);
       result.ended += 1;
       deps.logger.info("Mention turn ended", {
         ...ids,
@@ -537,6 +737,11 @@ export async function endMentionTurns(deps: {
       if ((await deps.replies.post(turn.turnId)) === "enqueued") {
         result.replied += 1;
       }
+      const tried = await triedAgain(turn.turnId, outcome, ended, at);
+      // Not due yet: the turn stays due, its thread "processing".
+      if (tried === "wait") continue;
+      // The next try holds the thread now; this one was marked set back.
+      if (tried === "retried") continue;
       const claim = await deps.statuses.claimReset(turn.turnId, deps.claimMs);
       if (claim === "superseded") result.superseded += 1;
       if (claim !== "send") continue;

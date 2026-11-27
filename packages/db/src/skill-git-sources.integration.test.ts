@@ -238,7 +238,8 @@ integration("Git skill sources on PostgreSQL", () => {
       db
         .update(skillGitSources)
         .set({ access: "anonymous" })
-        .where(eq(skillGitSources.workspaceId, workspaceId)),
+        .where(eq(skillGitSources.workspaceId, workspaceId))
+        .execute(),
     ).rejects.toThrow();
   });
 
