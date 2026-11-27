@@ -150,6 +150,7 @@ export * from "./surface/conversation-routes.ts";
 export * from "./surface/conversation-tasks.ts";
 export * from "./surface/judgment-review.ts";
 export * from "./surface/m1-judgments.ts";
+export * from "./surface/mention-turn-retries.ts";
 export * from "./surface/model-notices-off-people.ts";
 export * from "./surface/slack-app-close.ts";
 export * from "./surface/slack-apps.ts";

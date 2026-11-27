@@ -352,6 +352,8 @@ export function createConversationCalls(deps: {
       slackInstallationId: string;
       message: { teamId: string; channelId: string; ts: string };
       slackSubject: ConversationTurnSurfaceSubject | null;
+      /** The mention's earlier try this turn tries again. */
+      retryOf?: ConversationTurnId;
       releaseId: string | null;
       connectionId: string;
       model: string;
