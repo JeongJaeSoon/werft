@@ -32,7 +32,11 @@ import {
 } from "./control-shared.ts";
 import { dbNow, fromDbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
-import { decideRecoveryAtomic, resumeAtomic } from "./recovery-control.ts";
+import {
+  closeSessionRow,
+  decideRecoveryAtomic,
+  resumeAtomic,
+} from "./recovery-control.ts";
 import { openResumeReceipt } from "./resume-control.ts";
 import * as schema from "./schema.ts";
 import {
@@ -51,6 +55,10 @@ import { closeAtomic } from "./sessions/close-control.ts";
 import { drainOf, openDrainReceipt } from "./sessions/drain.ts";
 import { pauseAtomic } from "./sessions/pause-control.ts";
 import {
+  hasRestorePoint,
+  restoreBaseRevision,
+} from "./sessions/pause-policy.ts";
+import {
   cancelParkedRequests,
   closeWorkerRequests,
   recordLostInputWait,
@@ -59,6 +67,7 @@ import { awaitingInputAt } from "./sessions/pending-status.ts";
 import {
   announceInputWaitEnded,
   inputWaitBefore,
+  recordEvent,
   recordStatus,
 } from "./sessions/session-events.ts";
 import { rowsOf } from "./statement-rows.ts";
@@ -544,6 +553,19 @@ export function createPostgresSessionControl(
         });
         if ("done" in opened) return opened.done;
         const { session, now } = opened;
+        // Not every move into recovery_required moves the revision, and from
+        // there a terminate closes for good: a caller who decided on another
+        // admission must read the session again first.
+        if (
+          input.expectedAdmissionState !== undefined &&
+          input.expectedAdmissionState !== session.admissionState
+        ) {
+          return {
+            outcome: "admission_conflict",
+            admissionState: session.admissionState,
+            currentRevision: session.revision,
+          };
+        }
         // A session on the legacy pod lifecycle (pod_id without an
         // execution) has no kill outbox and no epoch its worker honours.
         // Accepting would promise a kill nothing can deliver, so it is
@@ -552,39 +574,85 @@ export function createPostgresSessionControl(
           return { outcome: "unsupported" };
         }
 
-        const { pendingKill, inputWait } = await stopExecution(tx, session, {
-          now,
-          by: TERMINATE,
-          measure,
-        });
-        const into = stoppedAdmission(session, pendingKill);
-        // a stopped session with nothing to kill is already where
-        // this leads. Moving its revision would only turn away the next
-        // control of a client that read it, over a change that never was.
-        if (session.admissionState !== "stopped" || pendingKill) {
-          await measure("update_session_ms", () =>
-            tx
-              .update(sessions)
-              .set({
-                revision: sql`${sessions.revision} + 1`,
-                leaseEpoch: sql`${sessions.leaseEpoch} + 1`,
-                updatedAt: now,
-                ...into,
-              })
-              .where(eq(sessions.id, sessionId)),
+        const extra = {
+          reason: input.reason,
+          actor: { owner_id: input.principal.ownerId },
+        };
+        let pendingKill: boolean;
+        if (session.admissionState === "recovery_required") {
+          // A stop has nowhere to lead a session waiting on a recovery
+          // decision, so a person's terminate closes it as a recovery close
+          // does. A bound execution gets the kill intent, and the receipt
+          // settles once its absence is observed; the session stays closed.
+          pendingKill = session.executionId !== null;
+          const { cancelledTurnCount } = await measure("close_session_ms", () =>
+            closeSessionRow(
+              tx,
+              session,
+              now,
+              "superseded by a terminate that closed the session",
+            ),
           );
+          await recordStatus(tx, {
+            sessionId,
+            phase: "stopped",
+            extra: {
+              admission_state: "closed",
+              closed_by: TERMINATE,
+              ...extra,
+            },
+            measure,
+            turnRowId: null,
+            now,
+          });
+          await recordEvent(tx, {
+            sessionId,
+            type: "system",
+            payload: {
+              type: "system",
+              subtype: "session_closed",
+              closed_by: TERMINATE,
+              checkpoint_revision: hasRestorePoint(session)
+                ? restoreBaseRevision(session)
+                : null,
+              cancelled_turn_count: cancelledTurnCount,
+            },
+            turnRowId: null,
+            now,
+          });
+        } else {
+          const stopped = await stopExecution(tx, session, {
+            now,
+            by: TERMINATE,
+            measure,
+          });
+          pendingKill = stopped.pendingKill;
+          const into = stoppedAdmission(session, pendingKill);
+          // a stopped session with nothing to kill is already where
+          // this leads. Moving its revision would only turn away the next
+          // control of a client that read it, over a change that never was.
+          if (session.admissionState !== "stopped" || pendingKill) {
+            await measure("update_session_ms", () =>
+              tx
+                .update(sessions)
+                .set({
+                  revision: sql`${sessions.revision} + 1`,
+                  leaseEpoch: sql`${sessions.leaseEpoch} + 1`,
+                  updatedAt: now,
+                  ...into,
+                })
+                .where(eq(sessions.id, sessionId)),
+            );
+          }
+          await announceStopped(tx, {
+            session,
+            into,
+            inputWait: stopped.inputWait,
+            extra,
+            measure,
+            now,
+          });
         }
-        await announceStopped(tx, {
-          session,
-          into,
-          inputWait,
-          extra: {
-            reason: input.reason,
-            actor: { owner_id: input.principal.ownerId },
-          },
-          measure,
-          now,
-        });
 
         const receiptId = randomUUID();
         const response: ControlAcceptedResponse = {
