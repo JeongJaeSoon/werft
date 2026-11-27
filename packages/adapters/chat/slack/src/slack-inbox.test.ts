@@ -490,6 +490,10 @@ describe("drainSlackInbox lines", () => {
     const lane = gated();
     const claim = inbox.store.claim.bind(inbox.store);
     let claims = 0;
+    let answered = () => {};
+    const handled = new Promise<void>((done) => {
+      answered = done;
+    });
     inbox.store.claim = async (options) => {
       claims += 1;
       const rows = await claim(options);
@@ -497,6 +501,8 @@ describe("drainSlackInbox lines", () => {
       if (claims === 2) {
         lane.open("Ev1");
         await new Promise((wake) => setTimeout(wake, 20));
+        // Looked at once the drain has acted on this answer.
+        setTimeout(answered, 0);
       }
       return rows;
     };
@@ -508,7 +514,7 @@ describe("drainSlackInbox lines", () => {
       leaseMs: 60_000,
       deadline: Number.POSITIVE_INFINITY,
     });
-    await new Promise((wake) => setTimeout(wake, 60));
+    await handled;
     const startedBeforeEv2Ended = [...lane.started];
     lane.open("Ev2");
     await lane.until(() => lane.started.includes("Ev3"));
