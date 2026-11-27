@@ -92,6 +92,9 @@ export type WorkerBinding = {
   // only ko, en or ja. Null, or absent, for `follow-user`, a release made
   // before the field, and a session without a release.
   releaseLanguage?: "ko" | "en" | "ja" | null;
+  // True when the session's workspace turned the engine's WebFetch host
+  // check off, read at every claim. Absent or false: the check stays on.
+  skipWebFetchPreflight?: boolean;
   // The session row's platform prompt as stored. Null, or absent, for a
   // revision 0 session.
   platformPrompt?: PlatformPrompt | null;

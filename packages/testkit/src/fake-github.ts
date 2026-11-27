@@ -132,8 +132,11 @@ export type FakeGitHub = {
     owner: string,
     name: string,
     files: Record<string, string>,
-    options?: { branch?: string; private?: boolean },
-  ): Promise<void>;
+    /** `ownerId`: the owning account's id; unset, one per owner login. */
+    options?: { branch?: string; private?: boolean; ownerId?: number },
+  ): Promise<number>;
+  /** Makes a served repository private or public, as its owner can. */
+  setPrivate(owner: string, name: string, on: boolean): void;
   /** Points `branch` at a bundle's commit (`seedServedBranch`). */
   seedBranch(
     owner: string,
@@ -246,6 +249,11 @@ export type FakeGitHubOptions = {
   now?: () => Date;
   /** The one installation `GET /app/installations` and lookups report. */
   installationId?: number;
+  /**
+   * `owner/name` that installation covers; unset: every served repository.
+   * Its token still reads a public repository it does not cover.
+   */
+  installedOn?: string[];
   slug?: string;
   /** See `setPermissions`. */
   permissions?: FakeGitHubPermissions;
@@ -284,6 +292,7 @@ type Issued = {
 
 type Served = {
   id: number;
+  ownerId: number;
   defaultBranch: string;
   private: boolean;
   pulls: FakeGitHubPullRequest[];
@@ -467,11 +476,9 @@ export async function startFakeGitHub(
   }
 
   function installedOn(appId: number, repository: string): boolean {
-    return (
-      appId !== second?.appId ||
-      second.installedOn === undefined ||
-      second.installedOn.includes(repository)
-    );
+    const on =
+      appId === second?.appId ? second.installedOn : options.installedOn;
+    return on === undefined || on.includes(repository);
   }
 
   function installationRepository(key: string): Record<string, unknown> {
@@ -481,10 +488,11 @@ export async function startFakeGitHub(
       id: repo?.id,
       name,
       full_name: key,
-      owner: { login: owner },
+      owner: { login: owner, id: repo?.ownerId },
       html_url: `${origin()}/${key}`,
       default_branch: repo?.defaultBranch,
       private: repo?.private ?? true,
+      visibility: repo?.private === false ? "public" : "private",
     };
   }
 
@@ -585,7 +593,16 @@ export async function startFakeGitHub(
     const [owner, name, rest = ""] = [match?.[1], match?.[2], match?.[3]];
     const found = owner && name ? served.get(`${owner}/${name}`) : undefined;
     const grant = carried?.[1];
-    if (!owner || !name || !found || !grant || !reaches(grant, owner, name)) {
+    // Any token reads a public repository, with no permission asked.
+    const outside =
+      !!owner && !!name && !!grant && !reaches(grant, owner, name);
+    if (
+      !owner ||
+      !name ||
+      !found ||
+      !grant ||
+      (outside && (method !== "GET" || found.private))
+    ) {
       return notFound();
     }
     const limit = rateLimited();
@@ -602,6 +619,7 @@ export async function startFakeGitHub(
       );
     }
     const can = (permission: string, level: "read" | "write") =>
+      (outside && level === "read") ||
       grant.permissions[permission] === "write" ||
       (level === "read" && grant.permissions[permission] === "read");
     const htmlBase = `${origin()}/${owner}/${name}`;
@@ -612,8 +630,10 @@ export async function startFakeGitHub(
         id: found.id,
         name,
         full_name: `${owner}/${name}`,
+        owner: { login: owner, id: found.ownerId },
         default_branch: found.defaultBranch,
         private: found.private,
+        visibility: found.private ? "private" : "public",
       });
     }
     const pullJson = (pull: FakeGitHubPullRequest) => ({
@@ -1364,6 +1384,7 @@ export async function startFakeGitHub(
     },
   });
   let nextId = 1000;
+  const ownerIds = new Map<string, number>();
   return {
     origin: origin(),
     port: server.port ?? 0,
@@ -1491,8 +1512,12 @@ export async function startFakeGitHub(
         branch,
       );
       nextId += 1;
+      if (!ownerIds.has(owner)) {
+        ownerIds.set(owner, repoOptions.ownerId ?? 5000 + ownerIds.size);
+      }
       served.set(`${owner}/${name}`, {
         id: nextId,
+        ownerId: repoOptions.ownerId ?? (ownerIds.get(owner) as number),
         defaultBranch: branch,
         private: repoOptions.private ?? true,
         pulls: [],
@@ -1500,6 +1525,12 @@ export async function startFakeGitHub(
         runs: [],
         reviews: [],
       });
+      return nextId;
+    },
+    setPrivate(owner, name, on) {
+      const found = served.get(`${owner}/${name}`);
+      if (!found) throw new Error(`no repository ${owner}/${name}`);
+      found.private = on;
     },
     seedBranch(owner, name, branch, bundle) {
       return seedServedBranch(

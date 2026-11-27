@@ -100,6 +100,12 @@ export type RuntimeStartConfig = RuntimeMode & {
    * checkpoint's fingerprint, so a session resumes on any worker.
    */
   responseLanguage?: "ko" | "en" | "ja";
+  /**
+   * The workspace turned off the engine's check of a WebFetch host with
+   * Anthropic (`runtime_config.skip_web_fetch_preflight`). Absent: the check
+   * stays on. Never part of a checkpoint's fingerprint.
+   */
+  skipWebFetchPreflight?: true;
   tools: readonly string[];
 };
 

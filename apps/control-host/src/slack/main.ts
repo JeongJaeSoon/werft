@@ -26,6 +26,7 @@ import {
   createPostgresCredentialBindingStore,
   createPostgresDecisionLog,
   createPostgresInstallationSettingsStore,
+  createPostgresJudgmentAnswers,
   createPostgresJudgmentBufferStore,
   createPostgresLinkedAccountStore,
   createPostgresMentionTurnRetries,
@@ -516,6 +517,7 @@ export function slackMentionTurnEndings(deps: {
     tasks: deps.tasks,
     calls,
     retries,
+    answers: createPostgresJudgmentAnswers(db),
     retry: (turnId, queuing) => mentionTurns.retry(turnId, queuing),
     setStatus: (turn, status) =>
       setMentionThreadStatus(

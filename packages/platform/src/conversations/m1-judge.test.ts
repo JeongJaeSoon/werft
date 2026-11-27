@@ -402,7 +402,8 @@ describe("the request", () => {
     expect(run?.system).toBe(m1System(""));
     expect(run?.system).not.toContain(p.body);
     expect(run?.messages).toHaveLength(1);
-    expect(run?.messages[0]?.content).toContain(`| [now] ${p.body}`);
+    expect(run?.messages[0]?.content).toContain(`| [now ts=1.1] ${p.body}`);
+    expect(run?.system).toContain('"reply_to"');
   });
 
   test("the judgment again after a void has a call key of its own, its attempts from 1", async () => {
@@ -432,7 +433,7 @@ describe("createM1Judge", () => {
       {
         outcome: "answered",
         callId: callId(),
-        value: { decision: "speak", reason: "needs_agent" },
+        value: { decision: "speak", reason: "needs_agent", reply_to: "1.2" },
       },
     ]);
     const judged = await judge.judge(subject);
@@ -444,8 +445,68 @@ describe("createM1Judge", () => {
       reason: "needs_agent",
     });
     expect(judged.record?.refs).toEqual(["1.1", "1.2"]);
+    expect(judged.record?.target).toBe("1.2");
     expect(judged.record?.attempts).toBe(1);
     expect(judged.record?.releaseId).toBe("release-1");
+  });
+
+  test("a batch's speak that names no judged post is quiet, invalid_target", async () => {
+    for (const replyTo of [undefined, null, "9.9", ""]) {
+      const { judge } = judgeWith([
+        {
+          outcome: "answered",
+          callId: callId(),
+          value: {
+            decision: "speak",
+            reason: "needs_agent",
+            ...(replyTo === undefined ? {} : { reply_to: replyTo }),
+          },
+        },
+      ]);
+      const judged = await judge.judge(
+        subjectOf(post("a", "1.1"), post("b", "1.2")),
+      );
+      expect(judged.record?.verdict).toEqual({
+        outcome: "judged",
+        decision: "quiet",
+        reason: "invalid_target",
+      });
+      expect(judged.record?.target).toBeNull();
+      expect(judged.record?.refs).toEqual(["1.1", "1.2"]);
+    }
+  });
+
+  test("a quiet answer has no target even when it names one", async () => {
+    const { judge } = judgeWith([
+      {
+        outcome: "answered",
+        callId: callId(),
+        value: { decision: "quiet", reason: "unclear", reply_to: "1.1" },
+      },
+    ]);
+    const judged = await judge.judge(subjectOf(post("a", "1.1")));
+    expect(judged.record?.verdict.decision).toBe("quiet");
+    expect(judged.record?.target).toBeNull();
+  });
+
+  test("a reply's speak answers the reply itself, whatever it names", async () => {
+    const { judge } = judgeWith([
+      {
+        outcome: "answered",
+        callId: callId(),
+        value: { decision: "speak", reason: "needs_agent", reply_to: "9.9" },
+      },
+    ]);
+    const judged = await judge.judge({
+      ...subjectOf(post("a", "1.1")),
+      grade: "m1_engaged",
+    });
+    expect(judged.record?.verdict).toEqual({
+      outcome: "judged",
+      decision: "speak",
+      reason: "needs_agent",
+    });
+    expect(judged.record?.target).toBe("1.1");
   });
 
   test("retries a retryable failure once, then records it failed", async () => {

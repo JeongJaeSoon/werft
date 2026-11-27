@@ -88,12 +88,15 @@ import {
   type GitHubCeiling,
   type GitHubFeatures,
   type GitHubPackagesAllowEntry,
+  JUDGMENT_ANSWER_VALUES,
   JUDGMENT_FAILED_REASON_VALUES,
   JUDGMENT_GRADE_VALUES,
   JUDGMENT_NOT_CALLED_REASON_VALUES,
   JUDGMENT_RULE_DECISION_VALUES,
   JUDGMENT_RULE_REASON_VALUES,
+  JUDGMENT_TARGET_REASON_VALUES,
   JUDGMENT_VOIDED_REASON_VALUES,
+  type JudgmentAnswer,
   type JudgmentGrade,
   type JudgmentRecordOutcome,
   type JudgmentRecordReason,
@@ -6519,6 +6522,13 @@ export const conversationJudgments = pgTable(
     ruleReason: text("rule_reason").$type<JudgmentRuleReason>(),
     // What became of the summary line a batch's judgment gave; null: none.
     summary: text().$type<M1SummaryOutcome>(),
+    // The one message a `speak` answers, of refs (v1-b/U1); null otherwise,
+    // and on records written before it.
+    targetTs: text("target_ts"),
+    // The agent's unasked turn made of it once the rollout was on: at most one.
+    turnId: uuid("turn_id").$type<ConversationTurnId>(),
+    // What became of it then: the turn's end, or why no turn was made.
+    answer: text().$type<JudgmentAnswer>(),
     // A reply's judge took it; one taken too long ago is given up.
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -6552,6 +6562,13 @@ export const conversationJudgments = pgTable(
       columns: [table.inputId],
       foreignColumns: [conversationInputs.id],
     }).onDelete("set null"),
+    // A delete of the conversation's records takes the turn and keeps the
+    // judgment's record, as it keeps a batch's.
+    foreignKey({
+      name: "conversation_judgments_turn_fk",
+      columns: [table.turnId],
+      foreignColumns: [conversationTurns.id],
+    }).onDelete("set null"),
     check(
       "conversation_judgments_grade_check",
       sql`${table.grade} IN (${sql.raw(sqlList(JUDGMENT_GRADE_VALUES))})`,
@@ -6566,7 +6583,7 @@ export const conversationJudgments = pgTable(
     check(
       "conversation_judgments_verdict_check",
       sql`CASE ${table.outcome}
-        WHEN 'judged' THEN ${table.decision} IN (${sql.raw(sqlList(M1_DECISION_VALUES))}) AND ${table.reason} IN (${sql.raw(sqlList(M1_MODEL_REASON_VALUES))})
+        WHEN 'judged' THEN ${table.decision} IN (${sql.raw(sqlList(M1_DECISION_VALUES))}) AND (${table.reason} IN (${sql.raw(sqlList(M1_MODEL_REASON_VALUES))}) OR (${table.decision} = 'quiet' AND ${table.reason} IN (${sql.raw(sqlList(JUDGMENT_TARGET_REASON_VALUES))})))
         WHEN 'not_called' THEN ${table.decision} = 'quiet' AND ${table.reason} IN (${sql.raw(sqlList(JUDGMENT_NOT_CALLED_REASON_VALUES))})
         WHEN 'failed' THEN ${table.decision} = 'quiet' AND ${table.reason} IN (${sql.raw(sqlList(JUDGMENT_FAILED_REASON_VALUES))})
         WHEN 'voided' THEN ${table.decision} IS NULL AND ${table.reason} IN (${sql.raw(sqlList(JUDGMENT_VOIDED_REASON_VALUES))})
@@ -6591,6 +6608,16 @@ export const conversationJudgments = pgTable(
       "conversation_judgments_summary_check",
       sql`${table.summary} IS NULL OR (${table.summary} IN (${sql.raw(sqlList(M1_SUMMARY_OUTCOME_VALUES))}) AND ${table.grade} = 'buffer_m1' AND ${table.outcome} = 'judged')`,
     ),
+    // Only a judgment that spoke names what it answers, one it judged; a
+    // turn and its end follow from that alone.
+    check(
+      "conversation_judgments_answer_check",
+      sql`(${table.targetTs} IS NULL OR (${table.outcome} = 'judged' AND ${table.decision} = 'speak' AND ${table.targetTs} = ANY(${table.refs})) IS TRUE) AND (${table.turnId} IS NULL OR ${table.targetTs} IS NOT NULL) AND (${table.answer} IS NULL OR (${table.targetTs} IS NOT NULL AND ${table.answer} IN (${sql.raw(sqlList(JUDGMENT_ANSWER_VALUES))})))`,
+    ),
+    // One unasked turn per judgment.
+    uniqueIndex("conversation_judgments_turn_uniq")
+      .on(table.turnId)
+      .where(sql`${table.turnId} IS NOT NULL`),
     // A reply is judged once.
     uniqueIndex("conversation_judgments_input_uniq")
       .on(table.inputId)
@@ -7557,6 +7584,10 @@ export const skillGitSources = pgTable(
       .notNull()
       .references(() => githubApps.id),
     installationId: bigint("installation_id", { mode: "number" }).notNull(),
+    // `installation`: that installation covers the repository. `public`: the
+    // App is not installed there, and the installation is another of its own
+    // whose token reads the public repository.
+    access: text().notNull().default("installation"),
     repositoryId: bigint("repository_id", { mode: "number" }).notNull(),
     repository: text().notNull(),
     path: text().notNull(),
@@ -7611,6 +7642,10 @@ export const skillGitSources = pgTable(
     check(
       "skill_git_sources_ids_check",
       sql`${table.installationId} > 0 AND ${table.repositoryId} > 0`,
+    ),
+    check(
+      "skill_git_sources_access_check",
+      sql`${table.access} IN ('installation', 'public')`,
     ),
     check(
       "skill_git_sources_auto_approve_check",

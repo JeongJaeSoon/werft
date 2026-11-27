@@ -60,6 +60,7 @@ function recordOf(
     callKey: `${subject.key}:m1` as never,
     attempts: verdict.outcome === "not_called" ? 0 : 1,
     summary: null,
+    target: null,
   };
 }
 
@@ -122,7 +123,12 @@ function batchStore(writes: M1BatchWrite[] = [], lineWrites: LineWrite[] = []) {
         final: options.final === true,
         ...(options.readAt === undefined ? {} : { readAt: options.readAt }),
       });
-      return writes.shift() ?? { outcome: "written" };
+      return (
+        writes.shift() ?? {
+          outcome: "written",
+          judgmentId: randomUUID() as never,
+        }
+      );
     },
   };
   return { recorded, lines, order, store };
