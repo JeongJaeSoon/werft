@@ -71,6 +71,8 @@ const services = (
       SERVICES_WAIT_SECONDS: "30",
       ...env,
     },
+    // A wait that ignored its deadline fails here, not at the job's limit.
+    timeout: 60_000,
   });
   return { code: result.exitCode, out: result.stdout.toString() };
 };
@@ -135,6 +137,13 @@ describe("ci-services.sh", () => {
   test("keeps its deadline when the daemon stops answering", () => {
     const env = { LOCALSTACK: "false", SERVICES_CALL_TIMEOUT: "1" };
     services("start", env);
+    // Once the launch has finished, the wait below gets as far as its probe.
+    expect(services("wait", env).code).toBe(0);
+    const probes = () =>
+      calls()
+        .split("\n")
+        .filter((line) => line.startsWith("exec ")).length;
+    const before = probes();
     const started = Date.now();
     const { code, out } = services("wait", {
       ...env,
@@ -143,8 +152,9 @@ describe("ci-services.sh", () => {
     });
     expect(code).toBe(1);
     expect(out).toContain("::error::postgres service not ready after 2s");
+    expect(probes()).toBeGreaterThan(before);
     expect(Date.now() - started).toBeLessThan(10_000);
-  });
+  }, 20_000);
 });
 
 describe("ci-services.sh service image pull", () => {
