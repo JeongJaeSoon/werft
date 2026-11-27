@@ -46,6 +46,7 @@ export { inputTexts } from "./input-texts.ts";
 export {
   dropBufferedInputs,
   dropBufferedMessage,
+  dropTopicIfEmpty,
   dropUnlistenedBuffer,
   editBufferedMessage,
   holdBufferedInput,

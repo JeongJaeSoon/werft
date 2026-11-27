@@ -79,11 +79,16 @@ export const rowColumns = {
  * topics they leave with no input. A topic another transaction holds is
  * left: it is taking an input. Returns how many rows went.
  */
-async function dropBuffered(tx: Database, where: SQL): Promise<number> {
-  return (await dropBufferedRows(tx, where)).length;
+async function dropBuffered(
+  tx: Database,
+  where: SQL,
+  keepTopicOf?: string,
+): Promise<number> {
+  return (await dropBufferedRows(tx, where, keepTopicOf)).length;
 }
 
 type DroppedRow = SlackChannelOf<{
+  id: string;
   topic_id: string;
   agentId: string;
   judged: boolean;
@@ -92,12 +97,13 @@ type DroppedRow = SlackChannelOf<{
 async function dropBufferedRows(
   tx: Database,
   where: SQL,
+  keepTopicOf?: string,
 ): Promise<DroppedRow[]> {
   const gone = rowsOf<DroppedRow>(
     await tx.execute(sql`
       DELETE FROM conversation_inputs i
       WHERE i.buffer_expires_at IS NOT NULL AND ${where}
-      RETURNING i.topic_id, i.workspace_id AS "workspaceId",
+      RETURNING i.id, i.topic_id, i.workspace_id AS "workspaceId",
         i.agent_id AS "agentId", i.slack_team_id AS "teamId",
         i.slack_channel_id AS "channelId",
         EXISTS (
@@ -106,9 +112,12 @@ async function dropBufferedRows(
             AND b.model_called) AS judged`),
   );
   if (gone.length === 0) return gone;
+  const kept = gone.find((row) => row.id === keepTopicOf)?.topic_id;
   // In one order, so two removals never wait on each other.
   const topics = [...new Set(gone.map((row) => row.topic_id))].sort();
-  for (const topicId of topics) await dropTopicIfEmpty(tx, topicId);
+  for (const topicId of topics) {
+    if (topicId !== kept) await dropTopicIfEmpty(tx, topicId);
+  }
   return gone;
 }
 
@@ -145,7 +154,7 @@ async function tallyUnjudged(tx: Database, gone: readonly DroppedRow[]) {
  * one's rows are gone. A topic another transaction holds is left: it is
  * taking an input, or will judge the topic itself.
  */
-async function dropTopicIfEmpty(tx: Database, topicId: string) {
+export async function dropTopicIfEmpty(tx: Database, topicId: string) {
   await tx.execute(
     sql`SELECT pg_advisory_xact_lock(hashtext('conversation_topic_drop'), hashtext(${topicId}::text))`,
   );
@@ -180,10 +189,15 @@ export function dropUnlistenedBuffer(
   );
 }
 
-/** Removes the buffered rows named, with the topics they leave empty. */
+/**
+ * Removes the buffered rows named, with the topics they leave empty but
+ * the topic of `keepTopicOf`: the post a judgment's unasked turn is to
+ * answer, whose turn is written after this.
+ */
 export function dropBufferedInputs(
   tx: Database,
   ids: readonly string[],
+  keepTopicOf?: string,
 ): Promise<number> {
   if (ids.length === 0) return Promise.resolve(0);
   return dropBuffered(
@@ -192,6 +206,7 @@ export function dropBufferedInputs(
       ids.map((id) => sql`${id}::uuid`),
       sql`, `,
     )})`,
+    keepTopicOf,
   );
 }
 

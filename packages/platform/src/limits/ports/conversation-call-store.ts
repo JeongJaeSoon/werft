@@ -5,6 +5,7 @@ import type {
   ConversationCallId,
   ConversationCallKey,
   ConversationId,
+  ConversationJudgmentId,
   ConversationKind,
   ConversationTopicId,
   ConversationTurnCallRefusal,
@@ -57,6 +58,17 @@ export interface ConversationCallStore {
   issueMentionTurnAtomic(
     input: ConversationMentionTurnInput,
   ): Promise<ConversationMentionTurnIssue>;
+  /**
+   * The agent's unasked turn of a judgment that spoke (v1-b/U1): writes the
+   * turn `running`, the agent its requester and root none, its sources
+   * the posts whose text it holds, its permit, and the turn on the
+   * judgment, together or not at all, and only while the agent's rollout is
+   * `on` and no source is marked deleted. A judgment with a turn adds
+   * nothing.
+   */
+  issueUnsolicitedTurnAtomic(
+    input: ConversationUnsolicitedTurnInput,
+  ): Promise<ConversationUnsolicitedTurnIssue>;
   /**
    * The proxy's grant question on a turn's permit. A new exchange is a new
    * call of the turn: counted by the call limits, reserved on the account the
@@ -231,6 +243,26 @@ export type ConversationMentionTurnInput = Omit<
    */
   retryOf?: ConversationTurnId;
 };
+
+export type ConversationUnsolicitedTurnInput = Omit<
+  ConversationTurnPermitInput,
+  "requester" | "root"
+> & {
+  judgmentId: ConversationJudgmentId;
+  teamId: string;
+  channelId: string;
+  /** Slack ts of the channel's posts whose text the turn holds. */
+  sources: readonly string[];
+};
+
+export type ConversationUnsolicitedTurnIssue =
+  | ConversationTurnPermitIssue
+  // The judgment has its turn already.
+  | { outcome: "duplicate" }
+  | { outcome: "source_deleted" }
+  | { outcome: "rollout_off" }
+  // The channel has no live binding of the agent's to answer through.
+  | { outcome: "no_binding" };
 
 export type ConversationMentionTurnIssue =
   | ConversationTurnPermitIssue

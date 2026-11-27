@@ -19,7 +19,8 @@ import { WORKSPACE_POLICY } from "./workspace-policy.ts";
  * - `askedLineRefusal`: the narrow one, for a mode where another judge (the
  *   Claude engine's auto classifier) stands behind the ask and must not be
  *   overruled. A line passes only when it splits with certainty and every
- *   part is a command the policy allows.
+ *   part is a command the policy allows. A single `|` splits it there: what
+ *   flows through a pipe is data, and each side is judged as its own part.
  *
  * The Claude engine asks about a line its parser does not read to the end (a
  * file redirect and a heredoc after `&&`), and it does not say why it asked
@@ -33,6 +34,8 @@ const policy = WORKSPACE_POLICY;
  * them. Here nothing has judged the line, so they are named.
  */
 const READERS = ["cat", "head", "tail", "wc", "ls", "pwd", "grep"];
+/** What reads a pipe in the narrow reading: text in, text out. */
+const PIPE_READERS = ["cat", "head", "tail", "wc", "grep"];
 /** Their operands are text, never a path. */
 const PRINTERS = ["echo", "printf"];
 /** `a..b` is a range and `origin/main` a ref there; the ask patterns guard them. */
@@ -63,15 +66,21 @@ type Part = {
   /** The words as they were written, quotes included. */
   written: string[];
   redirect?: { op: ">" | ">>"; target: string };
+  /** The part reads what a `|` before it gives. */
+  piped?: true;
 };
 
 type Token =
   | { kind: "word"; text: string; written: string }
-  | { kind: "end"; op: "&&" | ";" | "\n" }
+  | { kind: "end"; op: "&&" | ";" | "\n" | "|" }
   | { kind: "redirect"; op: ">" | ">>" };
 
-/** The tokens of a line, or why it cannot be split with certainty. */
-function tokensOf(command: string): Token[] | string {
+/**
+ * The tokens of a line, or why it cannot be split with certainty. A single
+ * `|` ends a command only under `pipes`: each side of it is then judged as a
+ * command of its own.
+ */
+function tokensOf(command: string, pipes: boolean): Token[] | string {
   const tokens: Token[] = [];
   let pending: string | undefined;
   let i = 0;
@@ -111,6 +120,14 @@ function tokensOf(command: string): Token[] | string {
     }
     if (char === ";") {
       tokens.push({ kind: "end", op: ";" });
+      i += 1;
+      continue;
+    }
+    if (char === "|" && pipes) {
+      // `||` and `|&` stay unsplit.
+      const next = command[i + 1];
+      if (next === "|" || next === "&") return "a | outside a quote";
+      tokens.push({ kind: "end", op: "|" });
       i += 1;
       continue;
     }
@@ -154,7 +171,7 @@ function tokensOf(command: string): Token[] | string {
         if (/[$`\\!]/.test(quoted)) return "an expansion in a quote";
         text += quoted;
         i = close;
-      } else if (" \t\n;&<>".includes(next)) {
+      } else if (" \t\n;&<>".includes(next) || (pipes && next === "|")) {
         break;
       } else {
         return `a ${next} outside a quote`;
@@ -166,16 +183,18 @@ function tokensOf(command: string): Token[] | string {
 }
 
 /** The parts of a line, or why it is not a plain list of simple commands. */
-export function partsOf(command: string): Part[] | string {
-  const tokens = tokensOf(command);
+export function partsOf(command: string, pipes = false): Part[] | string {
+  const tokens = tokensOf(command, pipes);
   if (typeof tokens === "string") return tokens;
   const parts: Part[] = [];
   let current: Part = { words: [], written: [] };
   let dangling = false;
+  let piped = false;
   const empty = () =>
     current.words.length === 0 && current.redirect === undefined;
   for (let i = 0; i < tokens.length; i += 1) {
     const token = tokens[i] as Token;
+    if (piped) current.piped = true;
     if (token.kind === "word") {
       current.words.push(token.text);
       current.written.push(token.written);
@@ -189,7 +208,8 @@ export function partsOf(command: string): Part[] | string {
     } else if (!empty()) {
       parts.push(current);
       current = { words: [], written: [] };
-      dangling = token.op === "&&";
+      dangling = token.op === "&&" || token.op === "|";
+      piped = token.op === "|";
     } else if (token.op !== "\n") {
       return "an empty command";
     }
@@ -424,6 +444,12 @@ function partKept(
     if (name === undefined) return "a redirect without a command";
     if (!NARROW.some((command) => startsWith(part.words, command))) {
       return `${name} is not a command the workspace policy allows`;
+    }
+    // A command fed by a pipe may take what flows in as names, paths or
+    // directives the line never shows (`git cat-file --batch`,
+    // `git update-index --stdin`), so only filters of text read a pipe.
+    if (part.piped && !PIPE_READERS.includes(name)) {
+      return `${name} is not a command the workspace policy lets read a pipe`;
     }
   }
   const redirect = part.redirect;
@@ -742,7 +768,7 @@ export function askedLineRefusal(
   command: string,
   at: LinePlace,
 ): string | null {
-  const parts = partsOf(command);
+  const parts = partsOf(command, true);
   if (typeof parts === "string") return parts;
   const place = placeOf(at);
   if (typeof place === "string") return place;

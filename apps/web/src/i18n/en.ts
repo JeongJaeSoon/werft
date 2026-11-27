@@ -256,6 +256,7 @@ export const slackEn = {
   "slack.judgments.reason.out_of_scope": "Out of scope",
   "slack.judgments.reason.needs_agent": "Needs the agent",
   "slack.judgments.reason.unclear": "Unclear",
+  "slack.judgments.reason.invalid_target": "No message to answer",
   "slack.judgments.reason.budget_refused": "Budget refused",
   "slack.judgments.reason.concurrency_limited": "Concurrency limit",
   "slack.judgments.reason.rate_limited": "Over the hourly cap",
