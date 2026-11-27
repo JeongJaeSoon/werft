@@ -6942,11 +6942,16 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
       ["failed", "2:running:1"],
     ]);
 
-    // Back on progress: the stage the closed update held goes after all.
+    // Back on progress, a closed update counts as said, as one Slack refused
+    // does (a channel the bot left would otherwise refill it every pass):
+    // the message moves on at the next stage.
     await db.update(sessionLinks).set({ reportMode: "progress" });
     await outboxPass();
+    expect(slack.updates).toEqual([]);
+    await setTurn(sessionId, "needs_input");
+    await outboxPass();
     expect(slack.updates.map(({ text }) => text.split("\n")[0])).toEqual([
-      ko.progressRunning,
+      ko.progressNeedsInput,
     ]);
   });
 
