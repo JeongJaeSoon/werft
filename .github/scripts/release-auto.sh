@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The release steps of a main Images run (a push, or a manual retry), one subcommand each, in the
-# order the jobs run them: `release-auto.sh detect|ci|main-chain|conformance|free|tag`.
+# order the jobs run them: `release-auto.sh detect|ci|main-chain|conformance|k8s-smoke|free|tag`.
 #
 #   detect  EVENT push: BEFORE and AFTER (the push's two commits): the one
 #           CHANGELOG.md heading `## vX.Y.Z` that AFTER has and BEFORE lacks is
@@ -15,6 +15,11 @@
 #           push run of the commit (it promotes no main-<12> of its own)
 #   conformance  a ci.yml push or manual run of GITHUB_SHA passed the
 #           conformance suite on every engine (no pull request runs it)
+#   k8s-smoke  a ci.yml push or manual run of GITHUB_SHA passed k8s-smoke, or
+#           is the main push that skipped it for the PR run of its tree that
+#           passed it. A main push plans it only for some commits (ci-plan.sh),
+#           so a pushed v* tag and an sdk-v release hold their commit to it
+#           here; none found stops the release, it is not run in its place
 #   free    TAG has no tag ref and no Release (also run again right before tagging)
 #   tag     creates the annotated tag TAG at GITHUB_SHA and reads it back
 #
@@ -229,6 +234,31 @@ conformance() {
   fail "no ci.yml push or manual run of ${sha} passed the conformance suite on every engine; run ci.yml by hand with only=conformance on it"
 }
 
+# The pass is the smoke step itself, not the job: a job can end green
+# without it. ci.yml's `changes` runs its reuse step only when ci-reuse.sh
+# found that same step passed in the PR run of this tree.
+k8s_smoke() {
+  local sha="${GITHUB_SHA:?}" ids id passed
+  ids="$(gh api "repos/${repo}/actions/workflows/ci.yml/runs?head_sha=${sha}&status=completed&per_page=100" \
+    --jq "[.workflow_runs[] | select(.head_sha == \"${sha}\" and (.event == \"push\" or .event == \"workflow_dispatch\")) | .id] | sort | reverse | .[]")" \
+    || fail "could not read the ci.yml runs of ${sha}"
+  for id in $ids; do
+    passed="$(gh api --paginate "repos/${repo}/actions/runs/${id}/jobs?filter=latest&per_page=100" \
+      --jq '.jobs[] | select(.conclusion == "success") | .name as $job | .steps[]? | select(.conclusion == "success") | "\($job): \(.name)"')" \
+      || fail "could not read the jobs of ci.yml run ${id}"
+    if grep -qxF "k8s-smoke: deploy/kind/smoke.sh" <<<"$passed"; then
+      echo "k8s-smoke: passed in ci.yml run ${id}"
+      return 0
+    fi
+    if grep -qxF "changes: k8s-smoke passed in the reused PR run" <<<"$passed"; then
+      echo "k8s-smoke: ci.yml run ${id} reused the pull request run of this tree that passed it"
+      return 0
+    fi
+    echo "ci.yml run ${id} did not pass k8s-smoke"
+  done
+  fail "no ci.yml push or manual run of ${sha} passed k8s-smoke; run ci.yml by hand with only=k8s-smoke on a ref at ${sha} (gh workflow run ci.yml --ref <tag> -f only=k8s-smoke), then re-run the failed jobs"
+}
+
 tag() {
   local tag="${TAG:?}" sha="${GITHUB_SHA:?}" run="${GITHUB_RUN_ID:?}" obj peeled message
   message="$(printf '%s\n\nCreated by the Images run %s after the release approval' "$tag" "$run")"
@@ -259,10 +289,11 @@ case "${1:-}" in
   ci) ci ;;
   main-chain) main_chain ;;
   conformance) conformance ;;
+  k8s-smoke) k8s_smoke ;;
   free) free ;;
   tag) tag ;;
   *)
-    echo "usage: release-auto.sh detect|ci|main-chain|conformance|free|tag" >&2
+    echo "usage: release-auto.sh detect|ci|main-chain|conformance|k8s-smoke|free|tag" >&2
     exit 2
     ;;
 esac

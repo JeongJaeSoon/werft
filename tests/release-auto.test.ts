@@ -212,6 +212,7 @@ describe("the release jobs of a main run", () => {
       ".github/scripts/release-auto.sh ci",
       ".github/scripts/release-auto.sh main-chain",
       ".github/scripts/release-auto.sh conformance",
+      ".github/scripts/release-auto.sh k8s-smoke",
       ".github/scripts/release-auto.sh free",
     ]);
     expect(
@@ -986,30 +987,33 @@ esac
     });
   });
 
-  describe("conformance", () => {
-    // A gh that applies the script's own --jq to API-shaped answers: runs (the
-    // ci.yml runs list) and jobs-<id> (that run's jobs); no file, a failed call.
-    type Run = { id: number; head_sha: string; event: string };
-    type JobRow = { name: string; conclusion: string };
-    type Answers = { runs?: Run[]; jobs?: Record<string, JobRow[]> };
-    const conformanceRun = (answers: Answers) =>
-      sandbox((directory) => {
-        mkdirSync(join(directory, "bin"));
-        if (answers.runs !== undefined) {
-          writeFileSync(
-            join(directory, "runs"),
-            JSON.stringify({ workflow_runs: answers.runs }),
-          );
-        }
-        for (const [id, rows] of Object.entries(answers.jobs ?? {})) {
-          writeFileSync(
-            join(directory, `jobs-${id}`),
-            JSON.stringify({ jobs: rows }),
-          );
-        }
+  // A gh that applies the script's own --jq to API-shaped answers: runs (the
+  // ci.yml runs list) and jobs-<id> (that run's jobs); no file, a failed call.
+  type Run = { id: number; head_sha: string; event: string };
+  type JobRow = {
+    name: string;
+    conclusion: string;
+    steps?: { name: string; conclusion: string }[];
+  };
+  type Answers = { runs?: Run[]; jobs?: Record<string, JobRow[]> };
+  const apiRun = (command: string, answers: Answers) =>
+    sandbox((directory) => {
+      mkdirSync(join(directory, "bin"));
+      if (answers.runs !== undefined) {
         writeFileSync(
-          join(directory, "bin", "gh"),
-          `#!/usr/bin/env bash
+          join(directory, "runs"),
+          JSON.stringify({ workflow_runs: answers.runs }),
+        );
+      }
+      for (const [id, rows] of Object.entries(answers.jobs ?? {})) {
+        writeFileSync(
+          join(directory, `jobs-${id}`),
+          JSON.stringify({ jobs: rows }),
+        );
+      }
+      writeFileSync(
+        join(directory, "bin", "gh"),
+        `#!/usr/bin/env bash
 printf '%s\\n' "$*" >>"${directory}/calls.log"
 shift
 q=.
@@ -1025,18 +1029,21 @@ esac
 [ -e "${directory}/$f" ] || { echo "gh: HTTP 502" >&2; exit 1; }
 jq -r "$q" "${directory}/$f"
 `,
-          { mode: 0o755 },
-        );
-        const run = sh(directory, [script("release-auto.sh"), "conformance"], {
-          GITHUB_SHA: sha,
-        });
-        return {
-          ...run,
-          calls: readFileSync(join(directory, "calls.log"), "utf8")
-            .split("\n")
-            .filter(Boolean),
-        };
+        { mode: 0o755 },
+      );
+      const run = sh(directory, [script("release-auto.sh"), command], {
+        GITHUB_SHA: sha,
       });
+      return {
+        ...run,
+        calls: readFileSync(join(directory, "calls.log"), "utf8")
+          .split("\n")
+          .filter(Boolean),
+      };
+    });
+
+  describe("conformance", () => {
+    const conformanceRun = (answers: Answers) => apiRun("conformance", answers);
     const engines = ["claude_agent_sdk", "codex_app_server", "two_engines"];
     const run = (id: number, event = "push", head = sha): Run => ({
       id,
@@ -1150,6 +1157,173 @@ jq -r "$q" "${directory}/$f"
       expect(jobs["tag-conformance"]?.steps.map((s) => s.run)).toContain(
         ".github/scripts/release-auto.sh conformance",
       );
+      expect(ancestors("release-approve").has("release-gate")).toBe(true);
+    });
+  });
+
+  describe("k8s-smoke", () => {
+    // A main push plans k8s-smoke only for some commits (ci-plan.sh), so its
+    // green run proves nothing about it: every release path reads the pass.
+    const smokeRun = (answers: Answers) => apiRun("k8s-smoke", answers);
+    const run = (id: number, event = "push", head = sha): Run => ({
+      id,
+      head_sha: head,
+      event,
+    });
+    const step = (name: string, conclusion = "success") => ({
+      name,
+      conclusion,
+    });
+    const smoke = (job = "success", smokeStep = "success"): JobRow => ({
+      name: "k8s-smoke",
+      conclusion: job,
+      steps: [step("Set up job"), step("deploy/kind/smoke.sh", smokeStep)],
+    });
+    const reusedStep = "k8s-smoke passed in the reused PR run";
+    const changes = (reuse: string): JobRow => ({
+      name: "changes",
+      conclusion: "success",
+      steps: [
+        step("Reuse the PR run that tested this tree"),
+        step(reusedStep, reuse),
+      ],
+    });
+    const ci = Bun.YAML.parse(
+      readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"),
+    ) as { jobs: Record<string, Job & { if?: string }> };
+
+    test("the steps it reads are ci.yml's: the smoke itself and the reuse of a PR run that passed it", () => {
+      const text = readFileSync(script("release-auto.sh"), "utf8");
+      const smokeSteps = ci.jobs["k8s-smoke"]?.steps.map((s) => s.name) ?? [];
+      expect(smokeSteps).toContain("deploy/kind/smoke.sh");
+      expect(text).toContain('"k8s-smoke: deploy/kind/smoke.sh"');
+      const reuse = ci.jobs.changes?.steps.find((s) => s.name === reusedStep) as
+        | { if?: string }
+        | undefined;
+      // The same condition that drops k8s-smoke from the push's plan.
+      expect(reuse?.if).toBe("steps.reuse.outputs.k8s == 'true'");
+      expect(JSON.stringify(ci.jobs.changes)).toContain(
+        "steps.reuse.outputs.k8s == 'true' && 'false' || steps.plan.outputs.k8s",
+      );
+      expect(text).toContain(`"changes: ${reusedStep}"`);
+    });
+
+    test("passes on a push or manual run of this commit whose smoke step passed", () => {
+      for (const event of ["push", "workflow_dispatch"]) {
+        const passed = smokeRun({
+          runs: [run(42, event)],
+          jobs: { "42": [changes("skipped"), smoke()] },
+        });
+        expect(passed.code).toBe(0);
+        expect(passed.out).toContain("k8s-smoke: passed in ci.yml run 42");
+        expect(passed.calls[0]).toContain(`head_sha=${sha}`);
+        expect(passed.calls[0]).toContain("status=completed");
+      }
+    });
+
+    test("passes on the main push that skipped it for the PR run of its tree", () => {
+      const passed = smokeRun({
+        runs: [run(42)],
+        jobs: {
+          "42": [
+            changes("success"),
+            { name: "k8s-smoke", conclusion: "skipped" },
+          ],
+        },
+      });
+      expect(passed.code).toBe(0);
+      expect(passed.out).toContain("reused the pull request run");
+    });
+
+    test("an older run counts when the newest lacks it", () => {
+      const result = smokeRun({
+        runs: [run(42, "workflow_dispatch"), run(43)],
+        jobs: { "43": [changes("skipped")], "42": [smoke()] },
+      });
+      expect(result.code).toBe(0);
+      expect(result.out.indexOf("run 43 did not pass k8s-smoke")).toBeLessThan(
+        result.out.indexOf("passed in ci.yml run 42"),
+      );
+    });
+
+    test("a green run that skipped it, a failed smoke, a pull_request run or another commit is no pass", () => {
+      // The commit this PR is about: main CI green, k8s-smoke left out of its plan.
+      const skipped = smokeRun({
+        runs: [run(42)],
+        jobs: {
+          "42": [
+            changes("skipped"),
+            { name: "k8s-smoke", conclusion: "skipped" },
+          ],
+        },
+      });
+      expect(skipped.code).toBe(1);
+      expect(skipped.out).toContain("ci.yml run 42 did not pass k8s-smoke");
+      expect(skipped.err).toContain("only=k8s-smoke");
+      for (const [job, smokeStep] of [
+        ["failure", "failure"],
+        ["success", "skipped"],
+        ["failure", "success"],
+        ["cancelled", "success"],
+      ]) {
+        const result = smokeRun({
+          runs: [run(42)],
+          jobs: { "42": [smoke(job, smokeStep)] },
+        });
+        expect(result.code).toBe(1);
+      }
+      const reuseFailed = smokeRun({
+        runs: [run(42)],
+        jobs: { "42": [{ ...changes("success"), conclusion: "failure" }] },
+      });
+      expect(reuseFailed.code).toBe(1);
+      const pr = smokeRun({
+        runs: [run(42, "pull_request")],
+        jobs: { "42": [smoke()] },
+      });
+      expect(pr.code).toBe(1);
+      expect(pr.calls.some((call) => call.includes("runs/42/jobs"))).toBe(
+        false,
+      );
+      const other = smokeRun({
+        runs: [run(42, "push", "f".repeat(40))],
+        jobs: { "42": [smoke()] },
+      });
+      expect(other.code).toBe(1);
+      const near = smokeRun({
+        runs: [run(42)],
+        jobs: { "42": [{ ...smoke(), name: "k8s-smoke x" }] },
+      });
+      expect(near.code).toBe(1);
+    });
+
+    test("no run or a failed lookup stops the release", () => {
+      const none = smokeRun({ runs: [] });
+      expect(none.code).toBe(1);
+      expect(none.err).toContain("no ci.yml push or manual run");
+      expect(none.err).toContain("only=k8s-smoke");
+      const lookup = smokeRun({});
+      expect(lookup.code).toBe(1);
+      expect(lookup.err).toContain("could not read the ci.yml runs");
+      const jobs = smokeRun({ runs: [run(42)] });
+      expect(jobs.code).toBe(1);
+      expect(jobs.err).toContain("could not read the jobs of ci.yml run 42");
+    });
+
+    test("a pushed tag checks it before its approval, and the release push and retry in release-gate", () => {
+      expect(needsOf("publish")).toContain("tag-conformance");
+      expect(jobs["tag-conformance"]?.steps.map((s) => s.run)).toContain(
+        ".github/scripts/release-auto.sh k8s-smoke",
+      );
+      for (const name of ["tag-conformance", "release-gate"]) {
+        const env = jobs[name]?.steps.find(
+          (s) => s.run === ".github/scripts/release-auto.sh k8s-smoke",
+        )?.env;
+        expect(env).toEqual({
+          GH_REPO: "$" + "{{ github.repository }}",
+          GH_TOKEN: "$" + "{{ github.token }}",
+        });
+      }
       expect(ancestors("release-approve").has("release-gate")).toBe(true);
     });
   });

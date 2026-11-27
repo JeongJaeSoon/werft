@@ -191,6 +191,7 @@ test("static checks keep one cache writer and report independent failures", () =
     "sdk",
     "conformance",
     "reuse",
+    "reused-k8s",
     "./.github/actions/bun-setup",
     "units",
     "domains",

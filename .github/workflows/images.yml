@@ -502,6 +502,8 @@ jobs:
   # must have passed it in a ci.yml run of its own: the main push of a
   # CHANGELOG release heading runs it, and a manual run with only=conformance
   # covers any other commit. Before `publish`, so before its approval.
+  # k8s-smoke likewise: a main push runs it only for some commits, so the
+  # tag's commit must have passed it (only=k8s-smoke for any other).
   tag-conformance:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
@@ -518,6 +520,11 @@ jobs:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: .github/scripts/release-auto.sh conformance
+      - name: ci.yml passed k8s-smoke on this commit
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/release-auto.sh k8s-smoke
 
   sources:
     needs: publish
@@ -1014,6 +1021,13 @@ jobs:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: .github/scripts/release-auto.sh conformance
+      # ci-plan.sh plans it for every commit a release needs; this holds the
+      # release to the pass itself.
+      - name: ci.yml passed k8s-smoke on this commit
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/release-auto.sh k8s-smoke
       - name: The version is still free
         env:
           TAG: ${{ needs.release-detect.outputs.tag }}

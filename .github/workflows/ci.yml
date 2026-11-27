@@ -140,6 +140,14 @@ jobs:
           DOMAINS: ${{ steps.plan.outputs.domains }}
           DOCS_ONLY: ${{ steps.plan.outputs.docs_only }}
         run: bash .github/scripts/ci-reuse.sh >>"$GITHUB_OUTPUT"
+      # A release reads this step's conclusion (release-auto.sh k8s-smoke):
+      # this push skips k8s-smoke only because the PR run of its tree passed it.
+      - id: reused-k8s
+        name: k8s-smoke passed in the reused PR run
+        if: steps.reuse.outputs.k8s == 'true'
+        env:
+          REUSED: ${{ steps.reuse.outputs.reused }}
+        run: echo "k8s-smoke passed in ${REUSED}"
       - if: steps.plan.outputs.tests == 'true'
         uses: ./.github/actions/bun-setup
         with:
