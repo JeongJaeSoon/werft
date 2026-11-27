@@ -238,9 +238,11 @@ provider 호출과 예산 원장 줄만으로는 나간 것으로 보지 않는�
 | MR13 | permit을 쓴 뒤 큐에 넣기 전에 긴급 정지가 끝낸 시도가 큐에 들어가는 것. 큐에 넣을 때 정지와 같은 큐 잠금 아래에서 turn이 이미 끝났는지(`ended_at`) 본다 | `a try an emergency stop ended before it was queued is not queued, and nothing follows it` |
 | MR15 | 대화 rollout이 꺼진 에이전트의 다음 시도. 다시 시도 요청이 rollout을 읽고 `on`이 아니면 말 없이 끝낸다 | `a try whose agent's rollout went off is not tried again and says nothing, the thread active` |
 | MR16 | pass가 시도의 끝을 읽은 뒤 긴급 정지가 끝낸 시도에 실패 문구를 다는 것. 시도를 읽을 때 큐 결과가 `emergency_stopped`면 없는 시도로 본다 | `a try an emergency stop ended after a pass read its end says nothing once the channel is on` |
+| MR19 | 정지가 끝낸 셋째 시도의 실패 문구를 다시 켠 뒤 다는 것(셋째 시도는 사본이 없다) | `a third try a stop ended after its runtime reported says nothing once the channel is on` |
+| MR20 | 정지 전에 입력을 읽은 pass가 다시 켠 뒤 다음 시도를 쓰는 것. 발급 transaction이 바인딩 잠금 뒤에 앞 시도의 큐 결과를 읽고, `emergency_stopped`면 쓰지 않는다 | `a pass that read the try's input before a stop and the channel on again writes no next try` |
 | MR17 | 다음 시도를 기다리는(10초) 동안 정지했다 다시 켠 채널에서 그 시도를 하는 것. 정지는 채널의 결정 없이 끝나 입력을 남긴 멘션 시도도 `emergency_stopped`로 끝내고 사본을 놓는다 | `a try waiting out its delay when the channel is stopped is not tried again once it is on` |
 | MR18 | 다시 시도 요청이 rollout을 읽은 뒤 꺼진 rollout에서 다음 시도를 쓰는 것. 발급 transaction이 에이전트 줄을 공유 잠금으로 다시 읽는다 | `a rollout turned off after the try was read is not tried again` |
-| MR14 | 런타임이 끝을 보고한 뒤 pass가 끝내기 전에 긴급 정지가 끝낸 시도를, 채널을 다시 켠 뒤 다시 하는 것. 정지는 자기가 끝낸 turn의 이미 끝난 큐 줄도 `emergency_stopped`로 바꾸고 사본을 놓는다 | `a try its runtime reported before an emergency stop is not tried again once the channel is on` |
+| MR14 | 런타임이 끝을 보고한 뒤 pass가 끝내기 전에 긴급 정지가 끝낸 시도를, 채널을 다시 켠 뒤 다시 하는 것. 정지는 자기가 끝낸 turn의 이미 끝난 큐 줄을 사본이 있든 없든 `emergency_stopped`로 바꾸고 사본을 놓는다 | `a try its runtime reported before an emergency stop is not tried again once the channel is on` |
 
 M1·M2는 `a model that fails twice and answers the third time: …`와 MR1의 시험이, M6의 M1 갈래는 `a try whose call reports within the wait is tried again`이 본다.
 

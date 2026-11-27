@@ -458,7 +458,7 @@ async function stopConversationTurns(
       ORDER BY ct.id`),
   ).map((row) => row.id);
   if (open.length === 0) {
-    await endWaitingMentionTries(tx, place);
+    await endWaitingMentionTries(tx, place, []);
     return 0;
   }
   const ids = sql.join(
@@ -493,17 +493,33 @@ async function stopConversationTurns(
     WHERE turn_id IN (${ids}) AND state IN ('queued', 'leased')
     RETURNING turn_id::text AS id`),
   );
-  await endWaitingMentionTries(tx, place);
+  await endWaitingMentionTries(
+    tx,
+    place,
+    ended.map((row) => row.id),
+  );
   return new Set([...ended, ...dequeued].map((row) => row.id)).size;
 }
 
 /**
- * A mention's try in the channel that ended with no decision and keeps its
- * input for a try again (one its runtime reported before the stop, ended
- * by it, or one waiting out its delay) is ended by the stop: no try follows
- * it once the channel is on, and its input goes.
+ * A mention's try in the channel that ended with no decision and is not
+ * done with is ended by the stop: one it ended just above whose runtime
+ * reported first, and one that keeps its input for a try again (waiting
+ * out its delay). No try or line follows it once the channel is on, and
+ * its input goes.
  */
-async function endWaitingMentionTries(tx: Database, place: ChannelWorkPlace) {
+async function endWaitingMentionTries(
+  tx: Database,
+  place: ChannelWorkPlace,
+  endedHere: readonly string[],
+) {
+  const here =
+    endedHere.length === 0
+      ? sql`false`
+      : sql`q.turn_id IN (${sql.join(
+          endedHere.map((id) => sql`${id}::uuid`),
+          sql`, `,
+        )})`;
   await tx.execute(sql`
     UPDATE conversation_turn_queue q
     SET outcome = ${JSON.stringify({ outcome: "failed", reason: EMERGENCY_STOPPED })}::jsonb,
@@ -511,7 +527,7 @@ async function endWaitingMentionTries(tx: Database, place: ChannelWorkPlace) {
     FROM conversation_turns ct
     JOIN conversations c ON c.id = ct.conversation_id
     WHERE q.turn_id = ct.id AND q.state = 'ended'
-      AND q.turn_ciphertext IS NOT NULL
+      AND (q.turn_ciphertext IS NOT NULL OR ${here})
       AND ct.origin = 'm2' AND ct.state = 'no_decision'
       AND ct.workspace_id = ${place.workspaceId}::uuid
       AND ct.agent_id = ${place.agentId}::uuid

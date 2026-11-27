@@ -6293,6 +6293,106 @@ describe.each(ENGINES)(
       expect(postsIn("100.000100")).toEqual([]);
     });
 
+    test("a third try a stop ended after its runtime reported says nothing once the channel is on", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      for (let tried = 1; tried < MENTION_TURN_ATTEMPTS; tried += 1) {
+        await report(await leased(), {
+          outcome: "failed",
+          reason: "engine_failed",
+        });
+        await endingsPastWait();
+      }
+      await sendOutbox();
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      const stopped = await createPostgresSurfaceBindingStore(db).emergencyStop(
+        {
+          principal: fixture.owner,
+          workspaceId: fixture.workspaceId,
+          agentId: fixture.agentId,
+          bindingId: fixture.bindingId,
+          reason: "test",
+          text: SLACK_EMERGENCY_STOP_TEXT,
+          managerRoles: MANAGERS,
+        },
+      );
+      expect(stopped.outcome).toBe("stopped");
+      await db.execute(sql`
+        UPDATE surface_bindings SET emergency_stopped_at = NULL,
+          emergency_stopped_by = NULL, emergency_stop_reason = NULL
+        WHERE id = ${fixture.bindingId}::uuid`);
+      expect(await endings()).toMatchObject({ retried: 0, gaveUp: 0 });
+      expect((await triesOf(fixture)).map((row) => row.attempt)).toEqual([
+        1, 2, 3,
+      ]);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100")).toEqual([]);
+    });
+
+    test("a pass that read the try's input before a stop and the channel on again writes no next try", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      let stoppedOnce = false;
+      const late = new Proxy(db, {
+        get(target, name, receiver) {
+          if (name !== "execute") return Reflect.get(target, name, receiver);
+          return async (query: Parameters<typeof db.execute>[0]) => {
+            const rows = await target.execute(query);
+            const chunks = (query as { queryChunks?: { value?: unknown }[] })
+              .queryChunks;
+            const text = (chunks ?? [])
+              .map((chunk) =>
+                Array.isArray(chunk.value) ? chunk.value.join("") : "",
+              )
+              .join("");
+            if (
+              !stoppedOnce &&
+              text.includes("a.conversation_rollout AS rollout")
+            ) {
+              stoppedOnce = true;
+              const stopped = await createPostgresSurfaceBindingStore(
+                target,
+              ).emergencyStop({
+                principal: fixture.owner,
+                workspaceId: fixture.workspaceId,
+                agentId: fixture.agentId,
+                bindingId: fixture.bindingId,
+                reason: "test",
+                text: SLACK_EMERGENCY_STOP_TEXT,
+                managerRoles: MANAGERS,
+              });
+              if (stopped.outcome !== "stopped")
+                throw new Error(stopped.outcome);
+              await target.execute(sql`
+                UPDATE surface_bindings SET emergency_stopped_at = NULL,
+                  emergency_stopped_by = NULL, emergency_stop_reason = NULL
+                WHERE id = ${fixture.bindingId}::uuid`);
+            }
+            return rows;
+          };
+        },
+      });
+      expect(await endings(undefined, 60_000, undefined, late)).toMatchObject({
+        retried: 0,
+        gaveUp: 0,
+      });
+      expect(stoppedOnce).toBe(true);
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100")).toEqual([]);
+    });
+
     test("an untaken try sealed under another key ends, keeps nothing, and its thread hears the failure line", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       await deliver(fixture, mention("100.000100"));
