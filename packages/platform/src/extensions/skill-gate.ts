@@ -137,12 +137,12 @@ export const NETWORK_CALL_PATTERNS: readonly { id: string; pattern: RegExp }[] =
     {
       id: "package_install",
       pattern:
-        /\b(?:pip3?|uv|npm|npx|pnpm|yarn|bun|bunx|gem|cargo|go|apt(?:-get)?|apk|brew|conda)(?:\s+-\S+(?:\s+[^\s-]\S*)??)*\s+(?:pip\s+)?(?:-\S+\s+)*(?:install|add|get|i|ci)\b/,
+        /\b(?:pip3?|uv|npm|npx|pnpm|yarn|bun|bunx|gem|cargo|go|apt(?:-get)?|apk|brew|conda)(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6}(?:\s+pip(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6})?\s+(?:install|add|get|i|ci|sync)\b/,
     },
     {
       id: "download",
       pattern:
-        /\b(?:curl|wget|invoke-webrequest|invoke-restmethod|git(?:\s+-\S+(?:\s+[^\s-]\S*)??)*\s+(?:clone|fetch|pull|ls-remote))\b/,
+        /\b(?:curl|wget|invoke-webrequest|invoke-restmethod|git(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6}\s+(?:clone|fetch|pull|ls-remote))\b/,
     },
     {
       id: "http_call",
@@ -282,6 +282,7 @@ const NOTICE_RULES: readonly SkillGateRule[] = [
 ];
 
 const URL_START = /https?:\/\//gi;
+const URL_ONE = /https?:\/\//i;
 const CLEAN_HOST = /^(?:[a-z0-9_-]+(?:\.[a-z0-9_-]+)*|\[[0-9a-f:.]+\])$/;
 
 /**
@@ -289,6 +290,17 @@ const CLEAN_HOST = /^(?:[a-z0-9_-]+(?:\.[a-z0-9_-]+)*|\[[0-9a-f:.]+\])$/;
  * written first (a quote may sit inside userinfo), and when that gives no
  * clean host, with the quotes, commas and brackets of code read as ends.
  */
+/** Linear: a line can be a megabyte, and the gate runs on the event loop. */
+function userinfoCrossesCode(segment: string): boolean {
+  const start = segment.search(URL_ONE);
+  if (start === -1) return false;
+  const rest = segment.slice(start).replace(URL_ONE, "");
+  const space = rest.search(/\s/);
+  const authority = space === -1 ? rest : rest.slice(0, space);
+  const at = authority.indexOf("@");
+  return at > 0 && /["`,]/.test(authority.slice(0, at));
+}
+
 function codeHosts(line: string): Set<string> {
   const starts = [...line.matchAll(URL_START)].map((match) => match.index);
   const hosts = new Set<string>();
@@ -298,7 +310,7 @@ function codeHosts(line: string): Set<string> {
     const clean = (text: string) =>
       [...plainTextHosts(text)].find((host) => CLEAN_HOST.test(host));
     // Userinfo reached across a quote or comma is another string of code.
-    const crossed = /^[^\s@]*?https?:\/\/[^\s@]*["`,][^\s]*@/i.test(segment);
+    const crossed = userinfoCrossesCode(segment);
     const split = clean(segment.replace(/["'`,(){}]/g, " "));
     const host = crossed
       ? (split ?? clean(segment))

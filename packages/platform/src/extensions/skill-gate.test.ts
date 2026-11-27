@@ -993,3 +993,37 @@ describe("fifth review", () => {
     expect(rulesOf(warn("＃; curl x"))).toEqual(["network_call"]);
   });
 });
+
+describe("sixth review", () => {
+  const warn = (line: string, allowed: string[] = []) =>
+    gate({
+      allowedHosts: new Set(allowed),
+      after: [...licensed("s"), text("skills/s/scripts/a.sh", `${line}\n`)],
+    }).warnings;
+
+  test("uv sync and quoted option values read as network calls", () => {
+    expect(warn("uv sync")[0]?.samples).toEqual(["package_install"]);
+    expect(warn('git -C "my repo" fetch origin')[0]?.samples).toEqual([
+      "download",
+    ]);
+    expect(warn("npm --prefix 'a b' install x")[0]?.samples).toEqual([
+      "package_install",
+    ]);
+  });
+
+  // The gate runs on the control plane's event loop; a line near the file
+  // limit must not take quadratic time.
+  test("long adversarial lines stay fast", () => {
+    const lines = [
+      `const a=["https://example.com",${'"x",'.repeat(60_000)}"y"]; // user@example.org`,
+      `npm${" -a".repeat(100_000)}`,
+      `git${" -C x".repeat(60_000)}`,
+      `npm${' -a "'.repeat(60_000)}`,
+    ];
+    for (const line of lines) {
+      const started = performance.now();
+      warn(line);
+      expect(performance.now() - started).toBeLessThan(1_000);
+    }
+  });
+});
