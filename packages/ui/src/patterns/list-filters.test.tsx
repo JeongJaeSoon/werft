@@ -329,11 +329,4 @@ describe("AppliedFilters", () => {
     });
     expect(document.activeElement === next).toBe(true);
   });
-
-  test("두 진입점에서 같은 부품을 내보낸다", async () => {
-    const root = await import("../index.ts");
-    const patterns = await import("./index.ts");
-    expect(root.ListFilters === ListFilters).toBe(true);
-    expect(patterns.AppliedFilters === AppliedFilters).toBe(true);
-  });
 });

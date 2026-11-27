@@ -8,8 +8,8 @@
 # is then the head's tree too. So the push's tree was tested, file for file.
 # A branch merged behind main gets a tree nobody tested, and runs everything.
 #
-# Reuse is all or nothing for the integration domains, the product scenarios
-# and the executable guides, which share the plan's flags. helm-chart,
+# Reuse is all or nothing for the static checks, the integration domains, the
+# product scenarios and the executable guides, which share the plan's flags. helm-chart,
 # k8s-smoke and sdk-pack-smoke are judged one by one: a PR plan may leave
 # k8s-smoke out where a main push keeps it, and then main still runs it.
 # The conformance suite is not reused: no PR runs it, and ci.yml's `changes`
@@ -104,6 +104,8 @@ job_passed() {
 core=true
 missing=
 need() { "$@" || { core=false; missing="${missing:+$missing, }${*:2}"; }; }
+# Typecheck and lint: the push skips its own static job on reuse.
+need job_passed "check (static)"
 if [ "$TESTS" = true ]; then
   while IFS= read -r domain; do
     need step_passed "integration (${domain})" "Tests of this domain"
@@ -118,7 +120,7 @@ if [ "$TESTS" = true ]; then
   fi
 fi
 if [ "$PRODUCT" = true ]; then
-  need step_passed e2e "Alpha path against the compose stack"
+  need step_passed "e2e (scenario)" "Alpha path against the compose stack"
   need step_passed demo "Static build"
   need step_passed ui-pack "Install, type-check, build and render in an empty app"
   if jq -e 'index("docker") != null' <<<"$domains" >/dev/null; then
@@ -126,8 +128,8 @@ if [ "$PRODUCT" = true ]; then
   fi
 fi
 if [ "$QUICKSTART" = true ]; then
-  need step_passed quickstart "docs/quickstart.md"
-  need step_passed quickstart "reference/api-guide.mdx"
+  need step_passed "quickstart (guides)" "docs/quickstart.md"
+  need step_passed "quickstart (guides)" "reference/api-guide.mdx"
 fi
 [ "$core" = true ] || none "PR #${number}'s run ${run_id} did not run and pass: ${missing}"
 

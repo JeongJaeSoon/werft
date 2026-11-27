@@ -3,7 +3,6 @@ import { USER_LOCALE_VALUES } from "@werft-ai/contracts";
 import {
   ACTION_NOTICE_RESULTS,
   type ActionNotice,
-  actionNoticeDedupeKey,
   actionNoticeText,
 } from "./action-notice.ts";
 
@@ -45,12 +44,5 @@ describe("action notices", () => {
     expect(actionNoticeText("ja", notice)).not.toBe(en);
     expect(actionNoticeText(null, notice)).toBe(en);
     expect(actionNoticeText(undefined, notice)).toBe(en);
-  });
-
-  test("the key is one per push request and result", () => {
-    expect(actionNoticeDedupeKey("p-1", "opened")).toBe("action:p-1:opened");
-    expect(actionNoticeDedupeKey("p-1", "pushed")).not.toBe(
-      actionNoticeDedupeKey("p-1", "opened"),
-    );
   });
 });

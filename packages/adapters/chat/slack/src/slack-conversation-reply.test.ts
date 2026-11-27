@@ -117,6 +117,7 @@ describe("a conversation reply row", () => {
     ]);
     await deliver(row({ text: "Done.", locale: "en", requested_by: name }));
     expect(JSON.stringify(posted[0]?.blocks)).toContain(name);
+    expect(posted).toHaveLength(2);
     expect(posted[1]?.blocks).toBeUndefined();
     expect(posted[1]?.text).toBe("Done.\n\nAI agent · Werft");
   });
@@ -140,16 +141,6 @@ describe("a conversation reply row", () => {
     expect(text).not.toContain("C0OTHER9");
     expect(text).toContain("C0ROOM1");
     expect(JSON.stringify(posted[0]?.blocks)).not.toContain("C0OTHER9");
-  });
-
-  test("blocks Slack refuses go once more as text that keeps the AI line", async () => {
-    const { deliver, posted } = deliveryAnswering([
-      { ok: false, error: "invalid_blocks" },
-    ]);
-    await deliver(row({ text: "Done.", locale: "en" }));
-    expect(posted).toHaveLength(2);
-    expect(posted[1]?.blocks).toBeUndefined();
-    expect(posted[1]?.text).toBe("Done.\n\nAI agent · Werft");
   });
 });
 

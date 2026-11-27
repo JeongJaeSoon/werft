@@ -3,6 +3,11 @@ import { resolve } from "node:path";
 import { Glob } from "bun";
 import ts from "typescript";
 
+import { setupDom } from "./test-support/dom.ts";
+
+// The export check below loads the components; Radix must find a DOM then.
+await setupDom();
+
 /*
  * packages/ui draws; it does not fetch, route, or decide. The boundary is a
  * property of the package, so it is checked as one rather than left to review.
@@ -264,5 +269,20 @@ describe("패키지 경계", () => {
       expect(layerIndex).toContain(`from "./${name}"`);
       expect(index).toContain(`export * from "./${dir}/index.ts"`);
     }
+  });
+
+  test("루트는 세 층 index가 내보내는 것을 같은 값으로, 그것만 내보낸다", async () => {
+    // A subpath (`@werft-ai/ui/patterns`) losing a name the root still
+    // exports, or the root swapping in another value, passes the path check
+    // above and every consumer's typecheck.
+    const root: Record<string, unknown> = await import("./index.ts");
+    const layers: Record<string, unknown> = {};
+    for (const dir of ["foundations", "primitives", "patterns"])
+      Object.assign(layers, await import(`./${dir}/index.ts`));
+    const differ = [
+      ...new Set([...Object.keys(root), ...Object.keys(layers)]),
+    ].filter((key) => root[key] !== layers[key]);
+    expect(Object.keys(root).length).toBeGreaterThan(0);
+    expect(differ).toEqual([]);
   });
 });
