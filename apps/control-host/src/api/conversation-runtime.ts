@@ -285,7 +285,7 @@ export function createOperatorConversationTurns(deps: {
             usableUntil: issued.expiresAt,
           },
         );
-        // Stopped between its permit and the queue: it never runs.
+        // Ended between its permit and the queue (a stop): it never runs.
         if (queued === "ended") return { outcome: "channel_stopped" };
         turn = await deps.turns.ended(turnId);
       } catch (error) {
@@ -423,7 +423,8 @@ export function createMentionConversationTurns(deps: {
           usableUntil: issued.expiresAt,
         },
       );
-      // Stopped between its permit and the queue: it never runs.
+      // Ended between its permit and the queue (a stop, or a pass that took
+      // it for one whose writer died): it never runs, and nothing is said.
       if (queued === "ended") return { outcome: "channel_stopped" };
     } catch (error) {
       // A turn that could not be queued gets no calls.

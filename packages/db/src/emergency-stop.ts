@@ -472,6 +472,19 @@ async function stopConversationTurns(
       WHERE id IN (${ids}) AND state = 'running'
       RETURNING id::text AS id`),
   );
+  // One its runtime reported before the stop, not yet ended here: the stop
+  // ends it, so its report is not read as a try to make again once the
+  // channel is on, and the input kept for that try goes.
+  if (ended.length > 0) {
+    await tx.execute(sql`
+      UPDATE conversation_turn_queue
+      SET outcome = ${JSON.stringify({ outcome: "failed", reason: EMERGENCY_STOPPED })}::jsonb,
+        turn_nonce = NULL, turn_ciphertext = NULL, input_kept_until = NULL
+      WHERE turn_id IN (${sql.join(
+        ended.map((row) => sql`${row.id}::uuid`),
+        sql`, `,
+      )}) AND state = 'ended'`);
+  }
   await tx.execute(sql`
     UPDATE conversation_turn_permits
     SET expires_at = LEAST(expires_at, clock_timestamp())

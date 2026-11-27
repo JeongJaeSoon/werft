@@ -36,6 +36,7 @@ import {
   DEFAULT_SURFACE_CEILING,
   GITHUB_CEILING_NONE,
   SESSION_SCOPE_VALUES,
+  SLACK_EMERGENCY_STOP_TEXT,
   SLACK_INBOUND_MAX_ATTEMPTS,
   SLACK_NOTICE_MESSAGES,
   TASK_CLOSING_DEFAULT,
@@ -6104,6 +6105,39 @@ describe.each(ENGINES)(
         gaveUp: 0,
         budgetRefused: 0,
       });
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100")).toEqual([]);
+    });
+
+    test("a try its runtime reported before an emergency stop is not tried again once the channel is on", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      // Stopped before a pass ends the turn, then turned on again.
+      const stopped = await createPostgresSurfaceBindingStore(db).emergencyStop(
+        {
+          principal: fixture.owner,
+          workspaceId: fixture.workspaceId,
+          agentId: fixture.agentId,
+          bindingId: fixture.bindingId,
+          reason: "test",
+          text: SLACK_EMERGENCY_STOP_TEXT,
+          managerRoles: MANAGERS,
+        },
+      );
+      expect(stopped.outcome).toBe("stopped");
+      await db.execute(sql`
+        UPDATE surface_bindings SET emergency_stopped_at = NULL,
+          emergency_stopped_by = NULL, emergency_stop_reason = NULL
+        WHERE id = ${fixture.bindingId}::uuid`);
+      expect(await endings()).toMatchObject({ retried: 0, gaveUp: 0 });
+      await endingsPastWait();
       expect(await mentionTurnsOf(fixture)).toHaveLength(1);
       slack.messages.length = 0;
       await sendOutbox();

@@ -644,8 +644,9 @@ export async function endMentionTurns(deps: {
     ) {
       return "wait";
     }
-    // Said once the next try is written, so a try that cannot be written
-    // never says it, and before the next try can answer. A line that cannot
+    // Said once the next try's permit is written and the mention moved to
+    // it, before it is queued: a try that cannot be issued never says it,
+    // and the line comes before the next try can answer. A line that cannot
     // be written does not stop the try: the mention is the next try's now.
     const started = await deps.retry(turnId, async () => {
       try {

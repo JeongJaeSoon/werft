@@ -193,7 +193,7 @@ Slack 멘션 턴이 결정 없이(`no_decision`) 끝나면, slack 역할의 턴 
 
 - turn에 결정이나 작업 효과(`decision`, `task_effect`)가 적혔다.
 - 그 turn의 `slack_outbox` 줄이 있다(다시 시도 안내 줄은 뺀다).
-- 그 turn의 provider 호출의 끝 보고가 turn이 끝난 뒤 기다림 상한(30초) 안에 오지 않았다. 아직 `in_flight`이거나, 상한이 지난 뒤에 왔다. 어느 pass가 언제 읽어도 같게 판정한다.
+- 그 turn의 provider 호출의 끝 보고가 turn이 끝난 뒤 기다림 상한(30초) 안에 오지 않았다. 아직 `in_flight`이거나, 상한이 지난 뒤에 왔다. 상한 뒤에 커밋된 정산도 상한 뒤에 온 것으로 읽는다(정산 시각이 상한 전이고 커밋이 상한 뒤인 경우는 알려진 한계).
 
 provider 호출과 예산 원장 줄만으로는 나간 것으로 보지 않는다. 시도마다 자기 호출과 원장 줄을 따로 잡는다.
 
@@ -236,6 +236,7 @@ provider 호출과 예산 원장 줄만으로는 나간 것으로 보지 않는�
 | MR11 | 다른 pass가 다음 시도를 쓰고 사본을 놓은 것을 사본이 없어진 것으로 읽고 실패 문구를 다는 것. 사본을 멘션보다 먼저 읽는다 | `a pass that read the mention before another wrote the next try ends on that try, with no failure line` |
 | MR12 | 다시 시도 안내를 쓰지 못해서 이미 옮긴 다음 시도를 잃는 것. 안내 없이 다음 시도를 큐에 넣는다 | `a retry line that cannot be written leaves the next try queued` |
 | MR13 | permit을 쓴 뒤 큐에 넣기 전에 긴급 정지가 끝낸 시도가 큐에 들어가는 것. 큐에 넣을 때 정지와 같은 큐 잠금 아래에서 turn이 이미 끝났는지(`ended_at`) 본다 | `a try an emergency stop ended before it was queued is not queued, and nothing follows it` |
+| MR14 | 런타임이 끝을 보고한 뒤 pass가 끝내기 전에 긴급 정지가 끝낸 시도를, 채널을 다시 켠 뒤 다시 하는 것. 정지는 자기가 끝낸 turn의 이미 끝난 큐 줄도 `emergency_stopped`로 바꾸고 사본을 놓는다 | `a try its runtime reported before an emergency stop is not tried again once the channel is on` |
 
 M1·M2는 `a model that fails twice and answers the third time: …`와 MR1의 시험이, M6의 M1 갈래는 `a try whose call reports within the wait is tried again`이 본다.
 
@@ -248,11 +249,11 @@ M1·M2는 `a model that fails twice and answers the third time: …`와 MR1의 �
 
 알려진 한계:
 
-- 다음 시도의 permit은 썼는데 큐에 넣기 전에 프로세스가 멈추면, 그 시도는 큐에 없는 turn으로 조용히 끝난다(첫 시도와 같다). 다시 시도 안내는 큐에 넣기 직전에 달므로 이미 나갔을 수 있다.
 - 첫 시도가 밖으로 나간 것이 있어 바로 끝나도 실패 문구는 "세 번 시도했지만"이다(정해진 문구).
-- 롤링 업그레이드 중 앞선 이미지의 pass가 먼저 스레드를 active로 돌린 시도는 다시 시도하지 않는다.
-- 다시 시도 안내를 단 뒤 큐에 넣기 전에 긴급 정지가 들어오면, 시도는 큐에 들어가지 않지만 안내 줄은 outbox에 남는다. 정지된 채널의 outbox는 아무것도 보내지 않고, 정지를 풀면 그 줄이 나갈 수 있다.
-- 호출의 정산이 30초 상한 전의 시각으로 적히고 커밋이 상한 뒤에 되면, 커밋 전에 읽은 pass는 실패 문구로, 커밋 뒤에 읽은 pass는 다시 시도로 갈 수 있다. 상한 경계의 밀리초 창이고, 그때 스레드에는 실패 문구 뒤에 답이 온다.
+- 롤링 업그레이드 중 앞선 이미지의 pass가 먼저 스레드를 active로 돌린 시도는 다시 시도하지 않는다. 앞선 이미지의 큐와 긴급 정지는 끝난 turn을 막거나 런타임이 보고한 큐 줄을 바꾸지 않는다.
+- 다시 시도 안내 줄은 정지가 보내지 않은 채널 글을 거둘 때 함께 거둔다. 정지가 이어지는 동안 쓴 줄도 다시 켤 때 거둔다. 다만 안내를 쓰는 pass가 정지와 다시 켜기를 모두 지난 뒤에 그 줄을 커밋하면, 시도는 큐에 들어가지 않는데(`ended`) 안내 줄만 나갈 수 있다.
+- 호출의 정산이 30초 상한 전의 시각으로 적히고 커밋이 상한 뒤에 되면, 커밋 전에 읽은 pass는 실패 문구로, 커밋 뒤에 읽은 pass는 다시 시도로 갈 수 있다. 두 pass가 나란히 돌고 정산 커밋이 상한을 가로지를 때만 생긴다. 그때 스레드에는 실패 문구 뒤에 다시 해 볼게요와 답이 온다. 시도 수, 원장 줄, 중복 키는 그대로다.
+- 다음 시도의 permit과 멘션 옮기기를 커밋한 뒤 큐에 넣기 전에 프로세스가 멈추면, 앞 시도에서 다시 이을 수 없고 새 시도는 큐에 없는 turn으로 조용히 끝난다(안내 줄이 먼저 커밋됐으면 그 줄만 남는다). 발급과 큐 넣기를 한 transaction으로 묶는 일은 후속으로 둔다.
 
 ## 3. 대화 turn
 

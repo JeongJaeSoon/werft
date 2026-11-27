@@ -346,6 +346,15 @@ export function createPostgresConversationTurnQueue(
       // Under the lock an emergency stop takes before it ends a channel's
       // turns: one it ended before this row existed is never queued.
       return locked(async (db) => {
+        const [queuedBefore] = await db
+          .select({ turnId: queue.turnId })
+          .from(queue)
+          .where(eq(queue.turnId, turn.turn_id));
+        if (queuedBefore !== undefined) {
+          throw new Error(
+            `Conversation turn ${turn.turn_id} is already queued`,
+          );
+        }
         const [ended] = await db
           .select({ id: conversationTurns.id })
           .from(conversationTurns)
@@ -372,17 +381,8 @@ export function createPostgresConversationTurnQueue(
           })
           .onConflictDoNothing()
           .returning({ turnId: queue.turnId, told: told("queued") });
-        if (inserted.length > 0) return "queued";
-        const [same] = await db
-          .select({ turnId: queue.turnId })
-          .from(queue)
-          .where(eq(queue.turnId, turn.turn_id));
-        if (same !== undefined) {
-          throw new Error(
-            `Conversation turn ${turn.turn_id} is already queued`,
-          );
-        }
-        return "duplicate" as const;
+        // Under the lock, a conflict is that input's attempt alone.
+        return inserted.length > 0 ? "queued" : ("duplicate" as const);
       });
     },
 
