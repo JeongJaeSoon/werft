@@ -230,7 +230,7 @@ export type M1Judgment = {
 };
 
 type Deps = {
-  /** The switch is raised and the notice approved, asked before each call. */
+  /** The switch is raised, asked before each call. */
   gate(subject: M1Subject): Promise<boolean>;
   release(subject: M1Subject): Promise<M1Release>;
   context: JudgmentContexts;

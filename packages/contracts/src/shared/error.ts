@@ -190,6 +190,8 @@ export const API_ERROR_CODE_VALUES = [
   // An achievement write while the installation has no decision model (an
   // enabled openai_decisions connection).
   "DECISION_MODEL_REQUIRED",
+  // A route kept only to tell old callers it is gone for good (410).
+  "ENDPOINT_RETIRED",
 ] as const;
 
 export const apiErrorCodeSchema = z.enum(API_ERROR_CODE_VALUES);
