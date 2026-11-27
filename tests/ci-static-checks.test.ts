@@ -190,10 +190,10 @@ test("static checks keep one cache writer and report independent failures", () =
     "plan",
     "sdk",
     "conformance",
-    "reuse",
     "./.github/actions/bun-setup",
-    "units",
     "domains",
+    "reuse",
+    "units",
   ]);
   const job = workflow.jobs.static;
   expect(job?.name).toBe("check (static)");
@@ -275,8 +275,30 @@ test("required check only accepts verified product or documentation results", ()
     "needs.changes.outputs.docs_only == 'true'",
   );
   expect(workflow.jobs["docs-checks"]?.steps.at(-1)?.run).toBe(
-    "bun test ./tests",
+    "bun test --timeout=15000 ./tests",
   );
+});
+
+test("the suite steps give a test 15 s where bun gives 5, and only CI does", () => {
+  const runs = [
+    workflow.jobs["docs-checks"]?.steps.at(-1)?.run,
+    workflow.jobs["check-part"]?.steps.find(
+      (step) => step.name === "Tests of this part",
+    )?.run,
+    workflow.jobs["integration-domain"]?.steps.find(
+      (step) => step.name === "Tests of this domain",
+    )?.run,
+  ];
+  for (const run of runs) {
+    // One run of the suite, with one limit.
+    expect(run?.match(/\bbun test\b/g)).toHaveLength(1);
+    expect(run?.match(/--timeout\S*/g)).toEqual(["--timeout=15000"]);
+  }
+  // A limit in bunfig.toml would also hide a slow test on a developer's
+  // machine; integration-jobs.ts names the tests over bun's own 5 s.
+  expect(
+    readFileSync(join(import.meta.dir, "../bunfig.toml"), "utf8"),
+  ).not.toMatch(/^\s*timeout\s*=/m);
 });
 
 const plannedConsumers = [
@@ -489,9 +511,9 @@ test("required integration never treats an unplanned skip as success", () => {
   expect(job?.needs).toEqual([
     "changes",
     "integration-domain",
-    "e2e",
+    "e2e-gate",
     "conformance",
-    "quickstart",
+    "quickstart-gate",
   ]);
   expect(job?.if).toMatch(/^always\(\)/);
   expect(job?.steps.find((s) => s.id === "verdict")?.env?.RESULT).toBe(
@@ -615,17 +637,17 @@ test("integration refuses cancelled heavy jobs even after every domain passed", 
   for (const key of ["EVENT", "ONLY"]) {
     expect(verdict("integration", { ...passed, [key]: "" })).not.toBe(0);
   }
-  // The scenario and guide verdicts are this job's own steps, which hold
+  // The scenario and guide verdicts are the two gate jobs, which hold
   // those jobs' results to the plan.
   const env = workflow.jobs.integration?.steps.find(
     (s) => s.id === "verdict",
   )?.env;
-  expect(env?.E2E).toBe(`\${{ steps.e2e.outcome }}`);
+  expect(env?.E2E).toBe(`\${{ needs.e2e-gate.result }}`);
   expect(env?.CONFORMANCE).toBe(`\${{ needs.conformance.result }}`);
   expect(env?.CONFORMANCE_PLAN).toBe(
     `\${{ needs.changes.outputs.conformance }}`,
   );
-  expect(env?.QUICKSTART).toBe(`\${{ steps.quickstart.outcome }}`);
+  expect(env?.QUICKSTART).toBe(`\${{ needs.quickstart-gate.result }}`);
   expect(env?.EVENT).toBe(`\${{ github.event_name }}`);
   expect(env?.ONLY).toBe(`\${{ github.event.inputs.only || 'all' }}`);
 });
@@ -667,13 +689,14 @@ test("e2e and quickstart start only with work, and the gate holds their results 
     for (const value of ["false", ""]) {
       expect(plan({ PLAN: "success", [variable]: value })).not.toBe(0);
     }
-    const gate = workflow.jobs.integration?.steps.find((s) => s.id === name);
-    expect(gate?.if).toBe(
-      "!cancelled() && (github.event.inputs.only || 'all') == 'all'",
+    const gate = workflow.jobs[`${name}-gate`];
+    expect(gate?.needs).toEqual(["changes", name]);
+    expect(gate?.steps.find((s) => s.id === "verdict")?.if).toBe(
+      "!cancelled()",
     );
   }
   const e2e = (env: Record<string, string>) =>
-    verdict("integration", { PLAN: "success", REUSED: "", ...env }, "e2e");
+    verdict("e2e-gate", { PLAN: "success", REUSED: "", ...env });
   expect(
     e2e({ PRODUCT: "true", DOCS_ONLY: "false", SCENARIO: "success" }),
   ).toBe(0);
@@ -706,7 +729,7 @@ test("e2e and quickstart start only with work, and the gate holds their results 
   );
 
   const guides = (env: Record<string, string>) =>
-    verdict("integration", { PLAN: "success", ...env }, "quickstart");
+    verdict("quickstart-gate", { PLAN: "success", ...env });
   for (const docs of ["true", "false"]) {
     expect(
       guides({ QUICKSTART: "true", DOCS_ONLY: docs, GUIDES: "success" }),
@@ -737,120 +760,53 @@ test("e2e and quickstart start only with work, and the gate holds their results 
     guides({ QUICKSTART: "", DOCS_ONLY: "true", GUIDES: "skipped" }),
   ).not.toBe(0);
 
-  const steps = workflow.jobs.integration?.steps ?? [];
-  expect(steps.find((s) => s.id === "e2e")?.env?.SCENARIO).toBe(
-    `\${{ needs.e2e.result }}`,
-  );
-  expect(steps.find((s) => s.id === "quickstart")?.env?.GUIDES).toBe(
+  const env = (job: string) =>
+    workflow.jobs[job]?.steps.find((s) => s.id === "verdict")?.env;
+  expect(env("e2e-gate")?.SCENARIO).toBe(`\${{ needs.e2e.result }}`);
+  expect(env("quickstart-gate")?.GUIDES).toBe(
     `\${{ needs.quickstart.result }}`,
   );
 });
 
-// What a fake `gh` was called with by the report step, and how the step ended.
-function report(
-  env: Record<string, string>,
-  gh = 'printf "%s\\n" "$*" >>"$CALLS"',
-) {
-  const step = workflow.jobs.integration?.steps.find((s) => s.id === "report");
-  if (!step?.run) throw new Error("no report step");
-  const dir = mkdtempSync(join(tmpdir(), "ci-report-"));
-  try {
-    writeFileSync(join(dir, "gh"), `#!/usr/bin/env bash\n${gh}\n`, {
-      mode: 0o755,
-    });
-    const calls = join(dir, "calls");
-    writeFileSync(calls, "");
-    const run = Bun.spawnSync(["bash", "-e", "-c", step.run], {
-      env: {
-        PATH: `${dir}:${Bun.env.PATH ?? ""}`,
-        CALLS: calls,
-        GH_REPO: "o/r",
-        HEAD_SHA: "a".repeat(40),
-        RUN_URL: "https://github.invalid/o/r/actions/runs/1",
-        REPORT_RETRY_SECONDS: "0",
-        ...env,
-      },
-    });
-    return {
-      exitCode: run.exitCode,
-      calls: readFileSync(calls, "utf8").split("\n").filter(Boolean),
-    };
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+test("the required e2e and quickstart names are gate jobs of this workflow, never check runs it creates", () => {
+  // A check run created through the API joins the oldest check suite of the
+  // commit, whichever workflow owns it. Once that workflow runs again on the
+  // commit the merge gate no longer counts the check, and the pull request
+  // stays blocked with every required name green. A job reports in the suite
+  // of its own run.
+  const source = readFileSync(
+    join(import.meta.dir, "../.github/workflows/ci.yml"),
+    "utf8",
+  );
+  expect(source).not.toContain("check-runs");
+  for (const job of Object.values(workflow.jobs)) {
+    expect(job.permissions?.checks).toBeUndefined();
   }
-}
-
-test("the required e2e and quickstart names come only from the gate's report", () => {
-  // Outside a manual run of e2e or quickstart alone (see above), no job
-  // carries those names itself, so a skipped one cannot stand in.
+  const all = "(github.event.inputs.only || 'all') == 'all'";
+  for (const name of ["e2e", "quickstart"]) {
+    const gate = workflow.jobs[`${name}-gate`];
+    // It runs whenever it carries the name: a skipped check of a required
+    // name passes. Skipped under another `only`, GitHub names the check by
+    // this expression (unevaluated, or its other branch), not by the name.
+    expect(gate?.name).toBe(`\${{ ${all} && '${name}' || '${name} (gate)' }}`);
+    expect(gate?.if).toBe(`always() && ${all}`);
+    expect(gate?.steps.map((s) => s.id)).toEqual(["verdict", "cancelled"]);
+    expect(JSON.stringify(gate)).not.toContain("continue-on-error");
+  }
+  // Outside the gates and a manual run of e2e or quickstart alone (see
+  // above), no job carries those names, so a skipped one cannot stand in.
   for (const [id, job] of Object.entries(workflow.jobs)) {
+    if (id === "e2e-gate" || id === "quickstart-gate") continue;
     const name = (job.name ?? id).replace(
       /^\$\{\{ github\.event\.inputs\.only == '(e2e|quickstart)' && '\1' \|\| '(.*)' \}\}$/,
       "$2",
     );
     expect(["e2e", "quickstart"]).not.toContain(name);
   }
-  const job = workflow.jobs.integration;
-  expect(job?.permissions).toEqual({ checks: "write" });
-  expect(job?.steps.map((s) => s.id)).toEqual([
-    "e2e",
-    "quickstart",
+  expect(workflow.jobs.integration?.steps.map((s) => s.id)).toEqual([
     "verdict",
-    "report",
     "cancelled",
   ]);
-  const step = job?.steps.find((s) => s.id === "report");
-  expect(step?.if).toBe(
-    "!cancelled() && (github.event.inputs.only || 'all') == 'all'",
-  );
-  expect(step?.env?.E2E).toBe(`\${{ steps.e2e.outcome }}`);
-  expect(step?.env?.QUICKSTART).toBe(`\${{ steps.quickstart.outcome }}`);
-  // A pull request's required checks read its head, not the merge commit.
-  expect(step?.env?.HEAD_SHA).toBe(
-    `\${{ github.event.pull_request.head.sha || github.sha }}`,
-  );
-
-  const passed = report({ E2E: "success", QUICKSTART: "success" });
-  expect(passed.exitCode).toBe(0);
-  expect(passed.calls).toHaveLength(2);
-  for (const [index, name] of ["e2e", "quickstart"].entries()) {
-    const call = passed.calls[index] ?? "";
-    expect(call).toStartWith("api --method POST repos/o/r/check-runs ");
-    expect(call).toContain(`-f name=${name} `);
-    expect(call).toContain(`-f head_sha=${"a".repeat(40)} `);
-    expect(call).toContain("-f status=completed ");
-    expect(call).toContain("-f conclusion=success ");
-  }
-  // Anything but a passed verdict reports a failure, never a pass or a skip.
-  for (const outcome of ["failure", "cancelled", "skipped", ""]) {
-    const failed = report({ E2E: outcome, QUICKSTART: "success" });
-    expect(failed.exitCode).toBe(0);
-    expect(failed.calls[0]).toContain("-f conclusion=failure ");
-    expect(failed.calls[1]).toContain("-f conclusion=success ");
-    const guide = report({ E2E: "success", QUICKSTART: outcome });
-    expect(guide.calls[0]).toContain("-f conclusion=success ");
-    expect(guide.calls[1]).toContain("-f conclusion=failure ");
-  }
-  // A report that does not land fails the gate, after three tries, and
-  // leaves the other name's report standing.
-  const refused = report(
-    { E2E: "success", QUICKSTART: "success" },
-    'printf "%s\\n" "$*" >>"$CALLS"; case "$*" in *"name=e2e "*) exit 1 ;; esac',
-  );
-  expect(refused.exitCode).not.toBe(0);
-  expect(refused.calls.filter((c) => c.includes("-f name=e2e "))).toHaveLength(
-    3,
-  );
-  expect(
-    refused.calls.filter((c) => c.includes("-f name=quickstart ")),
-  ).toHaveLength(1);
-  // A request refused once and then accepted still reports.
-  const flaky = report(
-    { E2E: "success", QUICKSTART: "success" },
-    'printf "%s\\n" "$*" >>"$CALLS"; [ "$(wc -l <"$CALLS")" -gt 1 ]',
-  );
-  expect(flaky.exitCode).toBe(0);
-  expect(flaky.calls).toHaveLength(3);
 });
 
 test("all product and site consumers use the same explicit plan", () => {
@@ -961,15 +917,16 @@ test("a reused PR run passes the required gates only with its URL", () => {
     DOCS_ONLY: "false",
     SCENARIO: "skipped",
   };
-  expect(verdict("integration", { ...final, REUSED: reused }, "e2e")).toBe(0);
-  expect(verdict("integration", { ...final, REUSED: "" }, "e2e")).not.toBe(0);
+  expect(verdict("e2e-gate", { ...final, REUSED: reused })).toBe(0);
+  expect(verdict("e2e-gate", { ...final, REUSED: "" })).not.toBe(0);
   // Reuse never excuses a scenario that ran and failed.
   expect(
-    verdict(
-      "integration",
-      { ...final, PRODUCT: "true", SCENARIO: "failure", REUSED: reused },
-      "e2e",
-    ),
+    verdict("e2e-gate", {
+      ...final,
+      PRODUCT: "true",
+      SCENARIO: "failure",
+      REUSED: reused,
+    }),
   ).not.toBe(0);
   // The non-blocking probe has no PR run to reuse, so it still runs.
   expect(workflow.jobs["agent-sdk-compat"]?.if).toContain(
@@ -1039,10 +996,16 @@ test("an integration domain no changed path reaches starts no job", () => {
     changes?.steps.find((s) => s.uses === "./.github/actions/bun-setup")?.if,
   ).toBe("steps.plan.outputs.tests == 'true'");
   const step = changes?.steps.find((s) => s.id === "domains");
-  // A reused run plans no domain, and its tests flag is off with it.
-  expect(step?.if).toBe(
-    "steps.plan.outputs.tests == 'true' && steps.reuse.outputs.reused == ''",
-  );
+  // Made before reuse is judged: ci-reuse.sh holds a reused run to these job
+  // names. A reused run still starts no domain, as its tests flag is off.
+  expect(step?.if).toBe("steps.plan.outputs.tests == 'true'");
+  const ids = changes?.steps.map((s) => s.id) ?? [];
+  expect(ids.indexOf("domains")).toBeGreaterThan(-1);
+  expect(ids.indexOf("domains")).toBeLessThan(ids.indexOf("reuse"));
+  expect(changes?.outputs?.tests).toContain("steps.reuse.outputs.reused != ''");
+  expect(
+    changes?.steps.find((s) => s.id === "reuse")?.env?.INTEGRATION_MATRIX,
+  ).toBe("${{ steps.domains.outputs.matrix }}");
   expect(step?.env?.DOMAINS).toBe("${{ steps.plan.outputs.domains }}");
   const plan = (domains: string) => {
     const dir = mkdtempSync(join(tmpdir(), "integration-matrix-"));
@@ -1060,8 +1023,22 @@ test("an integration domain no changed path reaches starts no job", () => {
   };
   const web = plan('["surface"]');
   expect(web.exitCode).toBe(0);
-  expect(web.output).toBe(
-    'matrix=[{"domain":"surface","postgres":true,"localstack":false,"docker":false}]\n',
+  // One line, one entry per shard of the one planned domain.
+  expect(web.output).toStartWith("matrix=[");
+  expect(web.output.split("\n")).toEqual([expect.any(String), ""]);
+  const entries = JSON.parse(web.output.slice("matrix=".length)) as {
+    domain: string;
+    name: string;
+    postgres: boolean;
+  }[];
+  expect(entries.length).toBeGreaterThan(0);
+  for (const entry of entries) {
+    expect(entry).toMatchObject({ domain: "surface", postgres: true });
+  }
+  expect(entries.map((e) => e.name)).toEqual(
+    entries.length === 1
+      ? ["surface"]
+      : entries.map((_, i) => `surface ${i + 1}/${entries.length}`),
   );
   // A plan the declaration cannot meet fails `changes`, and with it the gates.
   for (const domains of ['["nope"]', "[]", ""]) {
@@ -1075,7 +1052,7 @@ test("an integration domain no changed path reaches starts no job", () => {
 });
 
 test("cancelled workflows fail without unsupported status functions in env", () => {
-  for (const name of ["check", "integration"]) {
+  for (const name of ["check", "integration", "e2e-gate", "quickstart-gate"]) {
     const job = workflow.jobs[name];
     expect(job?.steps.at(-1)?.id).toBe("cancelled");
     const cancelled = job?.steps.find((s) => s.id === "cancelled");
