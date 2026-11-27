@@ -15,13 +15,22 @@ export const LARGE_CHANGE_LINES = 300;
 const MAX_SAMPLES = 20;
 
 /**
- * NFKC of a line in stream-safe form (UAX #15): a run of combining marks is
- * cut to 30, since reordering a long run takes time quadratic in its length.
+ * NFKC of a line, 256 code units at a time: one long run of combining marks
+ * (or of characters that decompose into them) takes time quadratic in its
+ * length. A sequence split at a piece's end stays unnormalized there.
  */
-export const nfkc = (line: string) =>
-  line
-    .replace(/\p{M}{31,}/gu, (run) => Array.from(run).slice(0, 30).join(""))
-    .normalize("NFKC");
+export function nfkc(line: string): string {
+  if (line.length <= 256) return line.normalize("NFKC");
+  const pieces: string[] = [];
+  for (let at = 0; at < line.length; ) {
+    let end = Math.min(at + 256, line.length);
+    const last = line.charCodeAt(end - 1);
+    if (end < line.length && last >= 0xd800 && last <= 0xdbff) end++;
+    pieces.push(line.slice(at, end).normalize("NFKC"));
+    at = end;
+  }
+  return pieces.join("");
+}
 
 /**
  * Sentences that read as an instruction to the agent rather than to the
