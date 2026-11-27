@@ -1668,6 +1668,34 @@ describe("another repository than the session's", () => {
         ).toBe("repository_not_allowed");
       });
 
+      test("a catalog URL ending in .GIT is named without it", async () => {
+        const { grant } = harness({
+          catalog: {
+            ...ATTACHED,
+            repositories: {
+              ...ATTACHED.repositories,
+              docs: {
+                url: "https://github.com/acme/docs.GIT",
+                branch: "main",
+                auth: { kind: "github_app", registered: true },
+              },
+            },
+          },
+          repositoryId: null,
+          github: ciOn,
+          ceiling,
+          attached: ["docs"],
+        });
+        expect(
+          (
+            await grant({
+              purpose: "actions_read",
+              repositoryName: "acme/docs",
+            })
+          )?.context.repositoryId,
+        ).toBe("docs");
+      });
+
       test("a write never takes a name: push and pull requests keep the session's repository rules", async () => {
         const { grant } = harness({
           catalog: ATTACHED,

@@ -594,7 +594,8 @@ function namedReadRepositoryOf(
       : undefined;
     if (entry === undefined || !isGitHubCom(entry.url)) return false;
     const ref = repoRefOf(entry.url);
-    return ref !== null && repoKeyOf(ref) === name;
+    // The catalog parser strips a lowercase `.git` only; the name lost any.
+    return ref !== null && repoKeyOf(ref).replace(/\.git$/, "") === name;
   };
   if (context.repositoryId !== null && matches(context.repositoryId)) {
     return context.repositoryId;

@@ -774,7 +774,7 @@ describe("a session under the agent's settings", () => {
           ko: "workflow 파일 수정과 CI 결과 보기",
           ja: "ワークフローファイルの変更と CI 結果の確認",
         },
-        hint: '"Edit workflow files and see CI results" is off in this agent\'s GitHub settings; a workspace admin turns it on there. A session keeps the switches it started with: the change reaches a new session.',
+        hint: '"Edit workflow files and see CI results" is off in this agent\'s GitHub settings; a workspace admin turns it on there. A session that started with it off keeps it off; a new session takes the change.',
       },
     });
 
@@ -784,7 +784,7 @@ describe("a session under the agent's settings", () => {
     ).toMatchObject({
       reason_code: "actions_off",
       off_in: "both",
-      hint: "\"Run workflows directly (run, rerun, cancel)\" is off in both the workspace GitHub ceiling and this agent's GitHub settings; a workspace owner or admin turns on the ceiling first, then the agent's settings. A session keeps the switches it started with: the change reaches a new session.",
+      hint: "\"Run workflows directly (run, rerun, cancel)\" is off in both the workspace GitHub ceiling and this agent's GitHub settings; a workspace owner or admin turns on the ceiling first, then the agent's settings. The ceiling applies from the next call; a session that started with the agent's switch off keeps it off, and a new session takes the change.",
     });
 
     // On for the agent, off in the ceiling: the same code, not the gate's
@@ -800,7 +800,7 @@ describe("a session under the agent's settings", () => {
       });
     }
     expect((await refusalOf(ceilingOff, "get_ci_status")).details.hint).toBe(
-      '"Edit workflow files and see CI results" is off in the workspace GitHub ceiling; only a workspace owner or admin turns it on. A session keeps the switches it started with: the change reaches a new session.',
+      '"Edit workflow files and see CI results" is off in the workspace GitHub ceiling; only a workspace owner or admin turns it on. The ceiling is read on every call, so the next call takes the change.',
     );
     expect(ceilingOff.works).toEqual([]);
   });
@@ -818,7 +818,7 @@ describe("a session under the agent's settings", () => {
       payload(
         await h.call("get_workflow_run", {
           run_id: 7,
-          repository: "ACME/docs",
+          repository: "ACME/docs.git",
         }),
       ).body,
     ).toMatchObject({ ok: true });
