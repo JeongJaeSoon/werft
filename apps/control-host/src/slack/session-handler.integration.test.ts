@@ -6252,6 +6252,84 @@ describe.each(ENGINES)(
       expect(postsIn("100.000100")).toEqual([]);
     });
 
+    test("a failure line another pass wrote first is counted once", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      for (let tried = 1; tried < MENTION_TURN_ATTEMPTS; tried += 1) {
+        await report(await leased(), {
+          outcome: "failed",
+          reason: "engine_failed",
+        });
+        await endingsPastWait();
+      }
+      await sendOutbox();
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      let other: Awaited<ReturnType<typeof endings>> | undefined;
+      const late = new Proxy(db, {
+        get(target, name, receiver) {
+          if (name !== "execute") return Reflect.get(target, name, receiver);
+          return async (query: Parameters<typeof db.execute>[0]) => {
+            const rows = await target.execute(query);
+            const chunks = (query as { queryChunks?: { value?: unknown }[] })
+              .queryChunks;
+            const text = (chunks ?? [])
+              .map((chunk) =>
+                Array.isArray(chunk.value) ? chunk.value.join("") : "",
+              )
+              .join("");
+            if (other === undefined && text.includes("AS went_out")) {
+              other = await endings();
+            }
+            return rows;
+          };
+        },
+      });
+      const mine = await endings(undefined, 60_000, undefined, late);
+      expect(other).toMatchObject({ gaveUp: 1 });
+      expect(mine).toMatchObject({ gaveUp: 0, retried: 0 });
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100")).toHaveLength(1);
+    });
+
+    test("a try whose mention the next try holds is not counted again by a stop", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      expect(await endings()).toMatchObject({ retried: 1 });
+      // As if the pass had not let the first try's input go yet.
+      await db.execute(sql`
+        UPDATE conversation_turn_queue
+        SET turn_nonce = decode('00', 'hex'), turn_ciphertext = decode('00', 'hex'),
+          input_kept_until = now() + interval '1 minute'
+        WHERE attempt = 1 AND turn_id IN (SELECT id FROM conversation_turns
+          WHERE agent_id = ${fixture.agentId}::uuid)`);
+      const stopped = await createPostgresSurfaceBindingStore(db).emergencyStop(
+        {
+          principal: fixture.owner,
+          workspaceId: fixture.workspaceId,
+          agentId: fixture.agentId,
+          bindingId: fixture.bindingId,
+          reason: "test",
+          text: SLACK_EMERGENCY_STOP_TEXT,
+          managerRoles: MANAGERS,
+        },
+      );
+      // The second try, queued; the first is already that try's.
+      expect(stopped).toMatchObject({
+        outcome: "stopped",
+        stopped: { turns: 1 },
+      });
+    });
+
     test("a rollout turned off after the try was read is not tried again", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       await deliver(fixture, mention("100.000100"));

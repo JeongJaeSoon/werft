@@ -518,7 +518,9 @@ async function endWaitingMentionTries(
           endedHere.map((id) => sql`${id}::uuid`),
           sql`, `,
         )})`;
-  return rowsOf<{ id: string }>(
+  // Counted as stopped only while it holds its mention (or ended here):
+  // one whose mention a next try holds already is that try's.
+  return rowsOf<{ id: string; held: boolean }>(
     await tx.execute(sql`
     UPDATE conversation_turn_queue q
     SET outcome = ${JSON.stringify({ outcome: "failed", reason: EMERGENCY_STOPPED })}::jsonb,
@@ -534,8 +536,10 @@ async function endWaitingMentionTries(
       AND ct.agent_id = ${place.agentId}::uuid
       AND c.channel_id = ${place.channelId}
       AND c.team_id = (SELECT i.team_id FROM slack_installations i WHERE i.id = ${place.installationId}::uuid)
-    RETURNING q.turn_id::text AS id`),
-  );
+    RETURNING q.turn_id::text AS id,
+      (${here} OR EXISTS (SELECT 1 FROM conversation_engagements e
+        WHERE e.conversation_turn_id = q.turn_id AND e.kind = 'mention')) AS held`),
+  ).filter((row) => row.held);
 }
 
 /**

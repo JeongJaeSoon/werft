@@ -622,10 +622,12 @@ export async function endMentionTurns(deps: {
     const giveUp = async (line: "failed" | "budget") => {
       const told = await deps.retries.tell(turnId, line);
       await deps.retries.letGo(turnId);
-      // Not said: counted as nothing was.
+      // Not said: counted as nothing was. Said by another pass: its count.
       if (told === "silent") return "none" as const;
-      if (line === "budget") result.budgetRefused += 1;
-      else result.gaveUp += 1;
+      if (told === "enqueued") {
+        if (line === "budget") result.budgetRefused += 1;
+        else result.gaveUp += 1;
+      }
       return "told" as const;
     };
     // The account would refuse the next try as it did this one.
@@ -671,7 +673,8 @@ export async function endMentionTurns(deps: {
     });
     if (started.outcome === "queued" || started.outcome === "duplicate") {
       await deps.retries.letGo(turnId);
-      result.retried += 1;
+      // Written by another pass: its count.
+      if (started.outcome === "queued") result.retried += 1;
       return "retried";
     }
     // Deleted since, the channel stopped, or the rollout off: as a first

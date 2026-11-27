@@ -243,6 +243,8 @@ provider 호출과 예산 원장 줄만으로는 나간 것으로 보지 않는�
 | MR21 | 정지 전에 입력을 읽은 pass가, 큐가 앞 시도의 끝을 잊은 뒤 다음 시도를 쓰는 것. 발급은 앞 시도의 큐 줄이 `ended`이고 정지 결과가 아닐 때만 쓴다 | `a pass that read the try's input before a stop and the queue forgot it writes no next try` |
 | MR22 | 실패 문구를 고른 pass가 정지와 다시 켜기 뒤에 그 줄을 다는 것. 줄의 데이터를 읽을 때 큐 결과가 `emergency_stopped`면 쓰지 않고, 쓰지 않은 줄은 세지 않는다 | `a pass that chose the failure line before a stop says nothing once the channel is on` |
 | MR23 | 다른 pass가 끝 문구를 단 시도를 이어 다음 시도를 쓰는 것. 발급은 앞 시도의 끝 줄(`conversation_reply:<turn_id>`)이 있으면 쓰지 않고, 끝 문구는 멘션이 다음 시도로 옮겨진 시도에 쓰지 않는다 | `a pass that read the try's input after another wrote its failure line writes no next try` |
+| MR24 | 다른 pass가 먼저 단 끝 문구나 먼저 쓴 다음 시도를 한 번 더 세는 것. 줄이나 시도가 중복 키에 걸린 pass는 그것을 세지 않는다 | `a failure line another pass wrote first is counted once` |
+| MR25 | 멘션이 이미 다음 시도로 넘어간 앞 시도를 정지 건수에 한 번 더 넣는 것. 정지는 입력 사본만 남은 앞 시도를 정리하되, 멘션을 쥔 시도나 그 정지가 끝낸 시도만 센다 | `a try whose mention the next try holds is not counted again by a stop` |
 | MR17 | 다음 시도를 기다리는(10초) 동안 정지했다 다시 켠 채널에서 그 시도를 하는 것. 정지는 채널의 결정 없이 끝나 입력을 남긴 Slack 멘션 시도(운영자 turn은 빼고)도 `emergency_stopped`로 끝내고 사본을 놓는다 | `a try waiting out its delay when the channel is stopped is not tried again once it is on` |
 | MR18 | 다시 시도 요청이 rollout을 읽은 뒤 꺼진 rollout에서 다음 시도를 쓰는 것. 발급 transaction이 에이전트 줄을 공유 잠금으로 다시 읽는다 | `a rollout turned off after the try was read is not tried again` |
 | MR14 | 런타임이 끝을 보고한 뒤 pass가 끝내기 전에 긴급 정지가 끝낸 시도를, 채널을 다시 켠 뒤 다시 하는 것. 정지는 자기가 끝낸 turn의 이미 끝난 큐 줄을 사본이 있든 없든 `emergency_stopped`로 바꾸고 사본을 놓는다 | `a try its runtime reported before an emergency stop is not tried again once the channel is on` |
@@ -264,7 +266,8 @@ M1·M2는 `a model that fails twice and answers the third time: …`와 MR1의 �
 - 롤링 업그레이드 중 앞선 이미지의 pass가 먼저 스레드를 active로 돌린 시도는 다시 시도하지 않는다. 앞선 이미지의 큐와 긴급 정지는 끝난 turn을 막거나 런타임이 보고한 큐 줄을 바꾸지 않는다.
 - 다시 시도 안내 줄은 정지가 보내지 않은 채널 글을 거둘 때 함께 거둔다. 정지가 이어지는 동안 쓴 줄도 다시 켤 때 거둔다. 다만 안내를 쓰는 pass가 정지와 다시 켜기를 모두 지난 뒤에 그 줄을 커밋하면, 시도는 큐에 들어가지 않는데(`ended`) 안내 줄만 나갈 수 있다.
 - 호출의 정산이 30초 상한 전의 시각으로 적히고 커밋이 상한 뒤에 되면, 커밋 전에 읽은 pass는 실패 문구로, 커밋 뒤에 읽은 pass는 다시 시도로 갈 수 있다. 두 pass가 나란히 돌고 정산 커밋이 상한을 가로지를 때만 생긴다. 그때 스레드에는 실패 문구와 다시 해 볼게요, 답이 함께 온다(순서는 두 pass의 속도에 따라 다르고, 먼저 끝난 쪽이 스레드를 active로 돌렸으면 다음 시도 동안 처리 중으로 다시 보이지 않는다). 시도 수, 원장 줄, 중복 키는 그대로다.
-- 다음 시도의 permit과 멘션 옮기기를 커밋한 뒤 큐에 넣기 전에 프로세스가 멈추면, 앞 시도에서 다시 이을 수 없고 새 시도는 큐에 없는 turn으로 조용히 끝난다(안내 줄이 먼저 커밋됐으면 그 줄만 남는다). 발급과 큐 넣기를 한 transaction으로 묶는 일은 후속으로 둔다.
+- 다음 시도의 permit과 멘션 옮기기를 커밋한 뒤 큐에 넣기 전에 프로세스가 멈추거나 큐 넣기가 SQL 상한(10초)에 걸리면, 앞 시도에서 다시 이을 수 없고 새 시도는 큐에 없는 turn으로 조용히 끝난다(안내 줄이 먼저 커밋됐으면 그 줄만 남고 끝 문구는 없다). 발급과 큐 넣기를 한 transaction으로 묶는 일은 후속으로 둔다.
+- 두 pass가 같은 시도를 서로 다르게 읽으면(릴리스 전환 중 한쪽은 연결을 찾지 못해 끝 문구를, 다른 쪽은 다시 시도를 고름), 두 쪽 모두 상대가 쓰기 전에 읽었을 때 끝 문구와 다음 시도가 함께 갈 수 있다(MR23은 한쪽이 먼저 커밋한 순서만 막는다). 끝 줄 쓰기와 멘션 옮기기를 한 잠금 아래 두는 일은 후속으로 둔다.
 
 ## 3. 대화 turn
 
