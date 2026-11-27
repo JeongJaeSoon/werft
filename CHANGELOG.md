@@ -15,6 +15,8 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **대화 rollout이 `on`인 에이전트의 멘션 턴이 열린 작업에 넘기기로 끝나면, 그 멘션 글이 같은 대화의 열린 작업에 입력으로 들어간다**(JeongJaeSoon/werft#2308). 새 작업은 만들지 않고, 작업이 실행 중이면 그 뒤에 줄을 선다. 넘길 때 같은 대화의 열린 작업인지와 글쓴이의 `session.submit`을 다시 확인한다. 다른 스레드에서 넘기면 그 스레드에 원래 스레드를 가리키는 한 줄만 달고(가리키는 작업이 바뀔 때마다 한 번), 작업 보고는 원래 스레드에만 간다. migration `0388_conversation_task_route`가 새 표 `task_thread_mirrors`와 `conversation_turns.routed_session_id`(빈 열)를 더하고, `conversation_turns_task_check`를 `NOT VALID` 뒤 `VALIDATE`로 바꾼다. 따로 할 일은 없다.
+  - 앞선 이미지로 되돌려도 스키마는 맞는다. 앞선 이미지는 새 열과 새 표를 읽지 않는다. 다만 되돌린 동안 앞선 이미지가 끝낸 넘기기 턴은 효과 없이 끝나고, 이 버전을 다시 올려도 다시 처리되지 않는다. 섞여 도는 동안 앞선 API가 기록한 넘기기 결정도 대상 작업 id가 없어 효과를 내지 않는다. 그 턴의 입력이 작업에 없으면 그 멘션 글은 넘어가지 않은 것이니, 필요하면 글쓴이가 작업의 스레드에 다시 쓴다.
 - **turn이 checkpoint 없이 끝나도 다음 메시지를 기다리지 않고 다시 찍는다. 쉬는 세션이 배경 작업 때문에 '실패 · 복구 필요'가 되지 않는다**(JeongJaeSoon/werft#2301). 전에는 배경 작업(배경으로 돌린 명령, dev server)이 살아 있는 채 끝난 turn의 checkpoint를 다음 turn만 찍을 수 있었다. 다음 turn 없이 worker가 idle로 끝나면 세션이 `recovery_required`(context gap)가 됐다. 이제 worker가 그 turn의 checkpoint를 turn 사이에, 늦어도 idle 종료 전에 찍는다. migration은 없다.
   - **쉬는 세션의 배경 작업은 idle 종료 때 멈춘다.** idle 시간이 찼을 때 배경 작업이 살아 있으면 worker가 5분을 더 기다린 뒤 그 프로세스를 멈추고(SIGTERM, 10초 뒤 SIGKILL), engine이 그 사실에 답하기를 최대 1분 기다렸다가 checkpoint를 찍고 끝난다. 그동안 worker 자리는 5분 남짓 더 잡혀 있다. 그 1분 안에 engine이 조용해지지 않으면 checkpoint 없이 끝나고 전처럼 복구 결정으로 간다. 세션에는 `system` 이벤트(`background_tasks_stopped`, 명령 이름만)가 남고, 다음 turn의 engine 입력 맨 앞에 같은 사실이 한 줄 붙는다. dev server는 다음 turn에서 다시 띄워야 한다.
   - checkpoint 발행이 저장소나 control plane의 일시 오류로 실패하면(`publish_failed`) worker가 같은 turn의 checkpoint를 1~15초 간격으로 다시 시도하고, 그동안 다음 메시지는 queue에 남는다. 첫 실패부터 2분이 지나면 새 재시도를 시작하지 않고(하던 시도는 마친다) 전처럼 `publish_failed`가 보이는 채로 다음 turn을 받는다.

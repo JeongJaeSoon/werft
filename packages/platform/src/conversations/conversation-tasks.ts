@@ -109,7 +109,7 @@ export type ConversationTaskOutcome = "none" | ConversationTaskEffect;
 
 // What a refused requester is told, by the policy's reason: never which
 // right was missing (Architect, v1-b/E3).
-const CONNECT_REASONS: ReadonlySet<AuthorizationReason> = new Set([
+export const CONNECT_REASONS: ReadonlySet<AuthorizationReason> = new Set([
   "unlinked",
   "stale_link",
   "requester_unresolved",
@@ -133,12 +133,12 @@ export function taskRefusalNotice(
 }
 
 // A session refusal that waiting may clear: the next pass tries again.
-const RETRYABLE_SESSION_CODES = new Set([
+export const RETRYABLE_SESSION_CODES = new Set([
   "RATE_LIMITED",
   "BACKEND_UNAVAILABLE",
 ]);
 
-const reasonCodeOf = (details: unknown): string | undefined =>
+export const reasonCodeOf = (details: unknown): string | undefined =>
   typeof details === "object" &&
   details !== null &&
   "reason_code" in details &&
@@ -351,9 +351,11 @@ export async function spawnConversationTask(
 
 // The Slack caller the message was judged as: its installation, for the
 // person its linked account names.
-function callerOf(
+export function callerOf(
   subject: AuthorizationSubject,
-  task: PendingConversationTask,
+  task: Pick<PendingConversationTask, "workspaceId" | "requesterUserId"> & {
+    thread: Pick<PendingConversationTask["thread"], "installationId">;
+  },
   requestId: string,
 ): Caller {
   const link = subject.linked_account;

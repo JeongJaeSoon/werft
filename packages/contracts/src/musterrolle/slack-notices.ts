@@ -90,6 +90,14 @@ const SLACK_NOTICE_MESSAGES_KO = {
     "이 에이전트에 열린 작업이 10개라 새 작업을 시작하지 않았어요. 열린 작업이 끝나면 다시 요청해 주세요",
   taskRepository:
     "고른 저장소는 이 에이전트가 쓸 수 없어서 작업을 시작하지 않았어요",
+  // A message a conversation turn hands to an open task (v1-b/E4). The two
+  // refusals go to the requester alone and name no permission; the failure
+  // and the pointer to the task's thread are the thread's.
+  routeConnect:
+    "작업에 이어서 맡기려면 웹 콘솔에서 Slack 계정을 연결해 주세요.",
+  routeNoRight: "이 작업에 이어서 맡길 권한이 없어요",
+  routeFailed: "작업에 넘기지 못했어요.",
+  routeMirror: "원래 스레드에서 이어서 할게요 ↗",
   storageLimit:
     "이 설치의 저장 한도에 남은 자리가 모자라 이 요청을 받지 못했어요. 관리자에게 한도를 올려 달라고 요청하세요",
 } as const;
@@ -179,6 +187,11 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "このエージェントには進行中の作業が10件あるため、新しい作業は始めませんでした。進行中の作業が終わってから、もう一度依頼してください",
     taskRepository:
       "選ばれたリポジトリはこのエージェントでは使えないため、作業を始めませんでした",
+    routeConnect:
+      "作業に続けて任せるには、Webコンソールで Slack アカウントを連携してください。",
+    routeNoRight: "この作業に続けて任せる権限がありません",
+    routeFailed: "作業に引き継げませんでした。",
+    routeMirror: "元のスレッドで続けます ↗",
     storageLimit:
       "この環境の保存容量の上限に空きが足りず、このリクエストを受け付けられませんでした。管理者に上限を上げるよう依頼してください",
   },
@@ -257,6 +270,11 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "This agent already has 10 open tasks, so a new one wasn't started. Ask again once one of them finishes",
     taskRepository:
       "The chosen repository isn't one this agent can use, so the task wasn't started",
+    routeConnect:
+      "To hand this to the task, link your Slack account in the web console.",
+    routeNoRight: "This request doesn't have permission to add to that task",
+    routeFailed: "This couldn't be handed to the task.",
+    routeMirror: "Continuing in the original thread ↗",
     storageLimit:
       "This installation's storage limit has too little room left, so this request was not taken. Ask an administrator to raise the limit",
   },

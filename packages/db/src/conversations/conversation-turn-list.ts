@@ -76,7 +76,12 @@ export function createPostgresConversationTurnListStore(
               ct.requester_kind, ct.requester_id, ct.decision,
               place.team_id, place.channel_id, tp.slack_thread_ts AS thread_ts,
               calls.models, calls.input_tokens, calls.output_tokens,
-              calls.cost_usd, calls.unpriced_calls, link.session_id
+              calls.cost_usd, calls.unpriced_calls,
+              -- A turn that handed its message to a task names that task.
+              CASE WHEN ct.decision = 'route_to_task'
+                  AND ct.task_effect = 'routed'
+                THEN ct.routed_session_id ELSE link.session_id
+              END AS session_id
             ${FROM_TURNS}
             CROSS JOIN LATERAL (
               SELECT
