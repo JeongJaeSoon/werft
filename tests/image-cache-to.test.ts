@@ -20,7 +20,7 @@ function run(answer: string, exit = 0, extra: Record<string, string> = {}) {
     const gh = join(dir, "gh");
     writeFileSync(
       gh,
-      `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >"${dir}/args"\nsleep "\${GH_SLEEP:-0}"\nprintf '%s' "$GH_ANSWER"\nexit "$GH_EXIT"\n`,
+      `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >"${dir}/args"\n[ -n "\${GH_IGNORE_TERM:-}" ] && trap '' TERM\nsleep "\${GH_SLEEP:-0}"\nprintf '%s' "$GH_ANSWER"\nexit "$GH_EXIT"\n`,
     );
     chmodSync(gh, 0o755);
     const result = Bun.spawnSync(["bash", script], {
@@ -80,6 +80,17 @@ test("a listing that hangs is cut at LIST_TIMEOUT and writes as before", () => {
   const started = Date.now();
   const result = run("2026-11-28T08:00:00Z", 0, {
     GH_SLEEP: "30",
+    LIST_TIMEOUT: "1",
+  });
+  expect(result).toMatchObject({ exitCode: 0, stdout: write });
+  expect(Date.now() - started).toBeLessThan(10_000);
+});
+
+test("a listing that ignores TERM is killed and writes as before", () => {
+  const started = Date.now();
+  const result = run("2026-11-28T08:00:00Z", 0, {
+    GH_SLEEP: "30",
+    GH_IGNORE_TERM: "1",
     LIST_TIMEOUT: "1",
   });
   expect(result).toMatchObject({ exitCode: 0, stdout: write });

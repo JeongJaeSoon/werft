@@ -29,7 +29,8 @@ gh api -X GET "repos/${GITHUB_REPOSITORY:?}/actions/caches" \
   -f sort=created_at -f direction=desc -f per_page=1 \
   --jq '.actions_caches[0].created_at // ""' >"$out" 2>&1 &
 pid=$!
-(sleep "$limit" && kill "$pid") >/dev/null 2>&1 &
+# TERM first; KILL two seconds later, for a gh that ignores TERM.
+(sleep "$limit" && kill "$pid" && sleep 2 && kill -9 "$pid") >/dev/null 2>&1 &
 killer=$!
 wait "$pid"
 status=$?
