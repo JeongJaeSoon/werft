@@ -137,17 +137,17 @@ export const NETWORK_CALL_PATTERNS: readonly { id: string; pattern: RegExp }[] =
     {
       id: "package_runner",
       pattern:
-        /\b(?:npx|bunx|uvx|uv\s+tool\s+run|(?:pnpm|yarn)\s+dlx|npm(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6}\s+exec)\b/,
+        /\b(?:npx|bunx|uvx|uv(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6}\s+tool\s+run|(?:pnpm|yarn)\s+dlx|npm(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6}\s+exec)\b/,
     },
     {
       id: "package_install",
       pattern:
-        /\b(?:pip3?|uv|npm|npx|pnpm|yarn|bun|bunx|gem|cargo|go|apt(?:-get)?|apk|brew|conda)(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6}(?:\s+(?:pip|tool)(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6})?\s+(?:install|add|get|i|ci|sync)\b/,
+        /\b(?:pip[3x]?|uv|npm|npx|pnpm|yarn|bun|bunx|gem|cargo|go|apt(?:-get)?|apk|brew|conda)(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6}(?:\s+(?:pip|tool)(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6})?\s+(?:install|add|get|i|ci|sync)\b/,
     },
     {
       id: "download",
       pattern:
-        /\b(?:curl|wget|invoke-webrequest|invoke-restmethod|git(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6}\s+(?:clone|fetch|pull|ls-remote))\b/,
+        /\b(?:curl|wget|invoke-webrequest|invoke-restmethod|git(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6}\s+(?:clone|fetch|pull|ls-remote|submodule\s+update))\b/,
     },
     {
       id: "http_call",
@@ -227,7 +227,8 @@ function changesOf(
       at.adds.add(next++);
     } else if (line.startsWith("-")) {
       at.cuts.add(next);
-      if (line.endsWith("\\")) at.joins.add(next);
+      if (line.endsWith("\\") && !COMMENT.test(line.slice(1)))
+        at.joins.add(next);
     } else {
       next++;
     }
@@ -264,8 +265,9 @@ const SPDX_LICENSE =
 const SPDX_EXCEPTION = /^[A-Za-z0-9.-]+$/;
 const OPERATORS = new Set(["AND", "OR", "WITH", "(", ")"]);
 export function isSpdxExpression(value: string): boolean {
-  // SPDX expressions are ASCII, split by spaces.
-  if (/[^ -~]/.test(value)) return false;
+  // SPDX expressions are ASCII, split by spaces; nesting past the validator's
+  // 1,024-character field would only exhaust the parser's stack.
+  if (value.length > 1024 || /[^ -~]/.test(value)) return false;
   // Operators are words: "MIT AND(Apache-2.0)" is not an expression.
   if (/(?:AND|OR|WITH)\(|\)(?:AND|OR|WITH)\b/.test(value)) return false;
   const tokens = value.replace(/[()]/g, " $& ").trim().split(/ +/);

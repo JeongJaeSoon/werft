@@ -1213,3 +1213,31 @@ describe("eleventh review", () => {
     expect(calls(null, "uv tool run ruff\n")).toEqual(["package_runner"]);
   });
 });
+
+describe("twelfth review", () => {
+  const sh = (body: string) => text("skills/s/scripts/a.sh", body);
+  const calls = (before: string | null, after: string) =>
+    gate({
+      before: before === null ? null : [...licensed("s"), sh(before)],
+      after: [...licensed("s"), sh(after)],
+    }).warnings.find((w) => w.rule === "network_call")?.samples ?? [];
+
+  test("removing a comment that ends in a backslash does not count the next command", () => {
+    expect(calls("# Setup notes \\\nnpm ci\n", "npm ci\n")).toEqual([]);
+  });
+
+  test("uv options before tool run, pipx install and git submodule update are calls", () => {
+    expect(calls(null, "uv --quiet tool run ruff\n")).toEqual([
+      "package_runner",
+    ]);
+    expect(calls(null, "pipx install black\n")).toEqual(["package_install"]);
+    expect(calls(null, "git submodule update --init --recursive\n")).toEqual([
+      "download",
+    ]);
+  });
+
+  test("an over-long license value is not an expression and does not exhaust the stack", () => {
+    const deep = `${"(".repeat(500_000)}MIT${")".repeat(500_000)}`;
+    expect(isSpdxExpression(deep)).toBe(false);
+  });
+});
