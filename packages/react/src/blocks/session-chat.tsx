@@ -3,6 +3,7 @@ import {
   eventToolResult,
   isCutOffTurnReason,
   presentTurnEvent,
+  stoppedBackgroundCommands,
   TURN_EMERGENCY_STOPPED_REASON,
   TURN_WORKSPACE_QUOTA_EXCEEDED_REASON,
   type TurnSummary,
@@ -63,6 +64,13 @@ export type ChatItem =
         readonly error: boolean;
       } | null;
       readonly withheld?: true;
+    }
+  | {
+      /** A line the control plane wrote into the session, such as stopped work. */
+      readonly kind: "notice";
+      readonly id: string;
+      readonly at: string;
+      readonly text: string;
     };
 
 /**
@@ -154,6 +162,22 @@ export function chatItems(
           at: frame.occurredAt,
           text,
           error: true,
+        });
+      }
+      continue;
+    }
+    if (payload.event === "system") {
+      const stopped = stoppedBackgroundCommands(payload.data);
+      const text =
+        stopped !== null && stopped.length > 0
+          ? turnSummaryText(presentTurnEvent(payload).summary, formatMessage)
+          : "";
+      if (text) {
+        items.push({
+          kind: "notice",
+          id: frame.id,
+          at: frame.occurredAt,
+          text,
         });
       }
       continue;
@@ -420,7 +444,11 @@ export function SessionChat({
             </li>
           ) : (
             <li key={item.id}>
-              {item.kind === "user" ? (
+              {item.kind === "notice" ? (
+                <Text variant="meta" className="text-center">
+                  {time(item.at)} · {item.text}
+                </Text>
+              ) : item.kind === "user" ? (
                 <ChatMessage
                   side="self"
                   author={

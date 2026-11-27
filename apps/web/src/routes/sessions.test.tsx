@@ -2281,6 +2281,50 @@ describe("session detail", () => {
     expect(screen.queryByRole("button", { name: "다시 연결" })).toBeNull();
   });
 
+  test("draws background work stopped while idle as one line where it happened", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    act(() => {
+      stream.emit("ev_b1", "assistant", {
+        type: "assistant",
+        text: "Started it",
+      });
+      stream.emit("ev_b2", "system", {
+        type: "system",
+        subtype: "background_tasks_stopped",
+        commands: ["bash", "sleep"],
+        after_turn: true,
+      });
+      stream.emit("ev_b3", "assistant", {
+        type: "assistant",
+        text: "It stopped",
+      });
+      // A resumed stream replays the frame; the line stays one.
+      stream.emit("ev_b2", "system", {
+        type: "system",
+        subtype: "background_tasks_stopped",
+        commands: ["bash", "sleep"],
+        after_turn: true,
+      });
+    });
+    const words =
+      "쉬는 동안 배경 작업을 멈췄습니다: bash, sleep. 다시 필요하면 띄워 달라고 요청해 주세요.";
+    const line = await screen.findByText(words, { exact: false });
+    expect(screen.getAllByText(words, { exact: false })).toHaveLength(1);
+    // One plain line: no bubble and nothing to unfold.
+    expect(line.closest("[data-slot='chat-message']")).toBeNull();
+    expect(line.closest("li")?.querySelector("details, button")).toBeNull();
+    const rows = [
+      ...screen
+        .getByRole("list", { name: "이벤트" })
+        .querySelectorAll(":scope > li"),
+    ].map((row) => row.textContent ?? "");
+    const at = (text: string) => rows.findIndex((row) => row.includes(text));
+    expect(at("Started it")).toBeLessThan(at(words));
+    expect(at(words)).toBeLessThan(at("It stopped"));
+  });
+
   describe("a read that failed under the chat", () => {
     const PENDING_ROUTE = `GET /v1/sessions/${SESSION_ID}/pending-requests`;
     const failingPending = () => {
