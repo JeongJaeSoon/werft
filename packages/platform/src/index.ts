@@ -221,6 +221,7 @@ export * from "./workers/worker-gateway.ts";
 export * from "./extensions/bundle-service.ts";
 export * from "./extensions/bundle-validator.ts";
 export * from "./extensions/resolve.ts";
+export * from "./extensions/secret-scan.ts";
 export * from "./extensions/session-extensions.ts";
 export * from "./extensions/skill-service.ts";
 export {
