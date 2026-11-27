@@ -693,4 +693,27 @@ describe("the next turn's input after an idle worker stopped background work", (
     await turn(since, 2, "completed", B);
     expect(await delivered(since, 3)).toBe("turn 3");
   });
+
+  test("keeps the line past a cut-off turn, however much that turn wrote: nothing is restored from it", async () => {
+    const sessionId = await sessionWith(A, B);
+    await turn(sessionId, 1, "completed", A);
+    await append(fenceOf(sessionId, A), [stopped(1, ["sleep"])]);
+    const cut = await turn(sessionId, 2, "failed", B);
+    await db
+      .update(turns)
+      .set({ terminalReason: "emergency_stopped" })
+      .where(eq(turns.id, cut.id));
+    await db.insert(events).values(
+      Array.from({ length: 201 }, () => ({
+        sessionId,
+        turnId: cut.id,
+        type: "assistant",
+        payload: {},
+      })),
+    );
+
+    expect(await delivered(sessionId, 3)).toBe(
+      `${stoppedBackgroundLine(["sleep"])}\n\nturn 3`,
+    );
+  });
 });

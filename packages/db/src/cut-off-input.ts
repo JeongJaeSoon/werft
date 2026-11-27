@@ -1,10 +1,11 @@
 import {
+  CUT_OFF_TURN_REASONS,
   isCutOffTurnReason,
   stoppedBackgroundCommands,
   TURN_EMERGENCY_STOPPED_REASON,
 } from "@werft-ai/contracts";
 import { sourceSetOf } from "@werft-ai/platform";
-import { and, desc, eq, isNotNull, lt, ne, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, lt, lte, ne, sql } from "drizzle-orm";
 import { followUpFact } from "./action/push-follow-ups.ts";
 import { lockedDeletedSource } from "./conversations/deleted-sources.ts";
 import { inputTexts } from "./conversations/input-texts.ts";
@@ -90,8 +91,9 @@ export async function deliveredTurnInput(
 }
 
 /**
- * The commands an idle worker stopped after the turn that ran right before
- * this one, or null: the engine restored for this turn would otherwise go on
+ * The commands an idle worker stopped after the last turn before this one
+ * that was not cut off (a cut-off turn leaves nothing to restore from), or
+ * null: the engine restored for this turn would otherwise go on
  * as if they were still running. Read from the stored notice, so every
  * delivery of the turn says the same.
  */
@@ -107,6 +109,10 @@ async function stoppedBackground(
         eq(turns.sessionId, turn.sessionId),
         lt(turns.sequence, turn.sequence),
         isNotNull(turns.deliveryStartedAt),
+        sql`coalesce(${turns.terminalReason}, '') NOT IN (${sql.join(
+          CUT_OFF_TURN_REASONS.map((reason) => sql`${reason}`),
+          sql`, `,
+        )})`,
       ),
     )
     .orderBy(desc(turns.sequence))
@@ -120,7 +126,10 @@ async function stoppedBackground(
       id: events.id,
     })
     .from(events)
-    .where(eq(events.sessionId, turn.sessionId))
+    // What a cut-off turn wrote since does not push the notice out of reach.
+    .where(
+      and(eq(events.sessionId, turn.sessionId), lte(events.turnId, before.id)),
+    )
     .orderBy(desc(events.id))
     .limit(STOPPED_BACKGROUND_LOOKBACK)
     .as("recent");
