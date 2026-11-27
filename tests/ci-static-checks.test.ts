@@ -194,6 +194,7 @@ test("static checks keep one cache writer and report independent failures", () =
     "./.github/actions/bun-setup",
     "domains",
     "reuse",
+    "reused-k8s",
     "units",
   ]);
   const job = workflow.jobs.static;
