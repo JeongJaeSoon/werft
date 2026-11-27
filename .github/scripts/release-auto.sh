@@ -236,21 +236,29 @@ conformance() {
 
 # The pass is the smoke step itself, not the job: a job can end green
 # without it. ci.yml's `changes` runs its reuse step only when ci-reuse.sh
-# found that same step passed in the PR run of this tree.
+# found that same step passed in the PR run of this tree. Every attempt is
+# read, as check-agent-sdk-compat-job.sh does: a rerun of another job alone
+# leaves an attempt without these jobs. Each job is judged by its newest
+# attempt, so a rerun of k8s-smoke that failed is no pass. Pages of 30: a
+# jobs page carries every step, and pages of 100 often come back as a 502.
 k8s_smoke() {
-  local sha="${GITHUB_SHA:?}" ids id passed
+  local sha="${GITHUB_SHA:?}" ids id lines conclusion passed
   ids="$(gh api "repos/${repo}/actions/workflows/ci.yml/runs?head_sha=${sha}&status=completed&per_page=100" \
     --jq "[.workflow_runs[] | select(.head_sha == \"${sha}\" and (.event == \"push\" or .event == \"workflow_dispatch\")) | .id] | sort | reverse | .[]")" \
     || fail "could not read the ci.yml runs of ${sha}"
   for id in $ids; do
-    passed="$(gh api --paginate "repos/${repo}/actions/runs/${id}/jobs?filter=latest&per_page=100" \
-      --jq '.jobs[] | select(.conclusion == "success") | .name as $job | .steps[]? | select(.conclusion == "success") | "\($job): \(.name)"')" \
+    lines="$(gh api --paginate "repos/${repo}/actions/runs/${id}/jobs?filter=all&per_page=30" \
+      --jq '.jobs[] | select(.name == "k8s-smoke" or .name == "changes")
+        | (if .name == "k8s-smoke" then "deploy/kind/smoke.sh" else "k8s-smoke passed in the reused PR run" end) as $step
+        | "\(.run_attempt) \(.name) \(.conclusion // "none") \(any(.steps[]?; .name == $step and .conclusion == "success"))"')" \
       || fail "could not read the jobs of ci.yml run ${id}"
-    if grep -qxF "k8s-smoke: deploy/kind/smoke.sh" <<<"$passed"; then
+    read -r _ _ conclusion passed <<<"$(awk '$2 == "k8s-smoke"' <<<"$lines" | sort -n | tail -n 1)"
+    if [ "${conclusion:-}" = success ] && [ "${passed:-}" = true ]; then
       echo "k8s-smoke: passed in ci.yml run ${id}"
       return 0
     fi
-    if grep -qxF "changes: k8s-smoke passed in the reused PR run" <<<"$passed"; then
+    read -r _ _ conclusion passed <<<"$(awk '$2 == "changes"' <<<"$lines" | sort -n | tail -n 1)"
+    if [ "${conclusion:-}" = success ] && [ "${passed:-}" = true ]; then
       echo "k8s-smoke: ci.yml run ${id} reused the pull request run of this tree that passed it"
       return 0
     fi

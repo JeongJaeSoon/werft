@@ -994,6 +994,7 @@ esac
     name: string;
     conclusion: string;
     steps?: { name: string; conclusion: string }[];
+    run_attempt?: number;
   };
   type Answers = { runs?: Run[]; jobs?: Record<string, JobRow[]> };
   const apiRun = (command: string, answers: Answers) =>
@@ -1196,7 +1197,9 @@ jq -r "$q" "${directory}/$f"
       const text = readFileSync(script("release-auto.sh"), "utf8");
       const smokeSteps = ci.jobs["k8s-smoke"]?.steps.map((s) => s.name) ?? [];
       expect(smokeSteps).toContain("deploy/kind/smoke.sh");
-      expect(text).toContain('"k8s-smoke: deploy/kind/smoke.sh"');
+      expect(text).toContain(
+        '(if .name == "k8s-smoke" then "deploy/kind/smoke.sh" else "k8s-smoke passed in the reused PR run" end)',
+      );
       const reuse = ci.jobs.changes?.steps.find((s) => s.name === reusedStep) as
         | { if?: string }
         | undefined;
@@ -1205,7 +1208,45 @@ jq -r "$q" "${directory}/$f"
       expect(JSON.stringify(ci.jobs.changes)).toContain(
         "steps.reuse.outputs.k8s == 'true' && 'false' || steps.plan.outputs.k8s",
       );
-      expect(text).toContain(`"changes: ${reusedStep}"`);
+      expect(text).toContain(`"${reusedStep}"`);
+    });
+
+    test("every attempt is read, and each job by its newest attempt", () => {
+      // A rerun of another job alone leaves attempt 2 without k8s-smoke.
+      const other = smokeRun({
+        runs: [run(42)],
+        jobs: {
+          "42": [
+            { ...smoke(), run_attempt: 1 },
+            { ...changes("skipped"), run_attempt: 1 },
+            { ...changes("skipped"), run_attempt: 2 },
+          ],
+        },
+      });
+      expect(other.code).toBe(0);
+      expect(other.calls[1]).toContain("filter=all");
+      // A rerun of k8s-smoke that failed is no pass, whatever attempt 1 did.
+      const rerun = smokeRun({
+        runs: [run(42)],
+        jobs: {
+          "42": [
+            { ...smoke(), run_attempt: 1 },
+            { ...smoke("failure", "failure"), run_attempt: 2 },
+          ],
+        },
+      });
+      expect(rerun.code).toBe(1);
+      // and one that passed after a failure is.
+      const fixed = smokeRun({
+        runs: [run(42)],
+        jobs: {
+          "42": [
+            { ...smoke("failure", "failure"), run_attempt: 1 },
+            { ...smoke(), run_attempt: 2 },
+          ],
+        },
+      });
+      expect(fixed.code).toBe(0);
     });
 
     test("passes on a push or manual run of this commit whose smoke step passed", () => {
@@ -1241,6 +1282,7 @@ jq -r "$q" "${directory}/$f"
         jobs: { "43": [changes("skipped")], "42": [smoke()] },
       });
       expect(result.code).toBe(0);
+      expect(result.out).toContain("ci.yml run 43 did not pass k8s-smoke");
       expect(result.out.indexOf("run 43 did not pass k8s-smoke")).toBeLessThan(
         result.out.indexOf("passed in ci.yml run 42"),
       );
