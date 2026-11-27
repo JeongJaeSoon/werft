@@ -94,6 +94,7 @@ export function createPostgresMentionTurnRetries(
         locale: UserLocale | null;
         input_id: ConversationInputId | null;
         user_root: boolean | null;
+        stopped: boolean;
       }>(
         await db.execute(sql`
           SELECT t.workspace_id, t.agent_id, t.sources,
@@ -105,7 +106,8 @@ export function createPostgresMentionTurnRetries(
               WHERE i.id = t.slack_installation_id
                 AND sa.agent_id = t.agent_id) AS slack_app_id,
             u.locale, q.input_id,
-            p.requester_user_id IS NOT NULL AS user_root
+            p.requester_user_id IS NOT NULL AS user_root,
+            coalesce(q.outcome ->> 'reason' = 'emergency_stopped', false) AS stopped
           FROM conversation_turns t
           JOIN conversation_topics tp ON tp.id = t.topic_id
           LEFT JOIN users u
@@ -124,6 +126,9 @@ export function createPostgresMentionTurnRetries(
       ) {
         return "no_thread";
       }
+      // A try an emergency stop ended, read by its pass before the stop,
+      // says nothing, the channel on again or not.
+      if (turn.stopped) return "no_thread";
       // Whose account refused, as the call's grant chose it (v1-b/F2).
       const text: SlackNoticeMessage =
         line === "retrying"

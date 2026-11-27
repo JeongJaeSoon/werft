@@ -578,16 +578,19 @@ export function createPostgresConversationCalls(
               .for("share");
             if (agent?.rollout !== "on")
               return { outcome: "rollout_off" as const };
-            // A stop that ended the try it follows (the channel on again
-            // since, or the binding read above would refuse) leaves no try
-            // to follow it: read after the binding's lock, so after the stop.
-            const [before] = rowsOf<{ stopped: boolean }>(
+            // The try it follows must still be ended as its pass read it,
+            // read after the binding's lock, so after any stop: one a stop
+            // ended (the channel on again since, or the binding above would
+            // refuse) or one the queue forgot, its end no longer known,
+            // leaves no try to follow it.
+            const [before] = rowsOf<{ followed: boolean }>(
               await tx.execute(sql`
-                SELECT outcome ->> 'reason' IS NOT DISTINCT FROM 'emergency_stopped' AS stopped
+                SELECT state = 'ended'
+                  AND outcome ->> 'reason' IS DISTINCT FROM 'emergency_stopped' AS followed
                 FROM conversation_turn_queue
                 WHERE turn_id = ${input.retryOf}::uuid`),
             );
-            if (before?.stopped === true)
+            if (before?.followed !== true)
               return { outcome: "channel_stopped" as const };
           }
           await tx.insert(conversationTurns).values({

@@ -529,6 +529,8 @@ async function endWaitingMentionTries(
     WHERE q.turn_id = ct.id AND q.state = 'ended'
       AND (q.turn_ciphertext IS NOT NULL OR ${here})
       AND ct.origin = 'm2' AND ct.state = 'no_decision'
+      -- A Slack mention's, not an operator's: its report stays as it came.
+      AND ct.slack_installation_id IS NOT NULL
       AND ct.workspace_id = ${place.workspaceId}::uuid
       AND ct.agent_id = ${place.agentId}::uuid
       AND c.channel_id = ${place.channelId}
