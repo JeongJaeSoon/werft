@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import {
   existsSync,
   mkdirSync,
@@ -57,11 +57,28 @@ function fixture(before: string[] = ["README.md"], after: string[] = []) {
   return { repo, base, temporary, output: join(temporary, "output") };
 }
 
+/** A `gh` that answers every tag lookup the same way. */
+function fakeGh(answer: "tagged" | "untagged" | "down") {
+  const directory = mkdtempSync(join(root, "gh-"));
+  const body = {
+    tagged: "exit 0",
+    // No tag (a confirmed 404) and no Release.
+    untagged:
+      'case "$*" in */git/ref/tags/*) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;; esac',
+    down: "echo 'gh: HTTP 502' >&2; exit 1",
+  }[answer];
+  writeFileSync(join(directory, "gh"), `#!/usr/bin/env bash\n${body}\n`, {
+    mode: 0o755,
+  });
+  return directory;
+}
+
 function plan(
   f: ReturnType<typeof fixture>,
   event = "pull_request",
   base = f.base,
   baseRef = "main",
+  gh: Parameters<typeof fakeGh>[0] = "tagged",
 ) {
   const result = Bun.spawnSync(["bash", script], {
     cwd: f.repo,
@@ -74,6 +91,8 @@ function plan(
       GITHUB_REF: "refs/heads/main",
       RUNNER_TEMP: f.temporary,
       GITHUB_OUTPUT: f.output,
+      GH_REPO: "owner/repo",
+      PATH: `${fakeGh(gh)}:${Bun.env.PATH}`,
     },
   });
   const output = existsSync(f.output) ? readFileSync(f.output, "utf8") : "";
@@ -217,6 +236,12 @@ test("a web-only PR drops the domains, chart jobs and guides no changed path rea
   }
 });
 
+test("a web-only PR still drops k8s-smoke for a path its list would match", () => {
+  for (const path of ["apps/web/Dockerfile", "apps/web/package.json"]) {
+    expect(plan(fixture(undefined, [path])).output.k8s).toBe("false");
+  }
+});
+
 test("the egress proxy stays on the full plan: service-backed suites import it", () => {
   const result = plan(fixture(undefined, ["apps/egress-proxy/src/a.ts"]));
   expect(result.output).toEqual(shared);
@@ -271,9 +296,147 @@ test("a pull request runs k8s-smoke only for what the kind install builds or run
   }
 });
 
-test("a main push keeps k8s-smoke whatever it touches", () => {
-  const f = fixture(undefined, ["packages/db/src/a.ts"]);
-  expect(plan(f, "push").output.k8s).toBe("true");
+/** Paths only a main push runs the kind jobs for (ci-plan.sh is_publish_path). */
+const PUBLISH_PATHS = [
+  ".github/workflows/images.yml",
+  ".github/scripts/chart-package.ts",
+  ".github/scripts/chart-push.sh",
+  ".github/scripts/image-promote.sh",
+  ".github/scripts/release-auto.sh",
+  "scripts/k8s-api.sh",
+  "scripts/lib/seed-credentials.sh",
+  "scripts/image-prune.sh",
+  "scripts/fetch-pinned.ts",
+  "package.json",
+  "apps/worker/package.json",
+  "bunfig.toml",
+  "tsconfig.base.json",
+  "packages/adapters/runtimes/registry/src/index.ts",
+  "packages/runtime-core/src/image-runtime.ts",
+  "apps/worker/src/image-runtime.ts",
+  "apps/worker/git-hooks/pre-push",
+  "packages/testkit/src/seed-credentials-main.ts",
+  "packages/testkit/src/fake-github.ts",
+  "packages/testkit/src/git-http.ts",
+  "apps/control-host/src/api/settings.ts",
+  "apps/web/package.json",
+  "THIRD_PARTY_NOTICES.md",
+  "scripts/third-party-notices.ts",
+  "tests/e2e/owner-cookie.ts",
+  "tests/e2e/client.ts",
+  "tests/fixtures/settings/fake-model.json",
+];
+
+test("a main push runs the kind jobs only for chart, image and deploy paths", () => {
+  for (const path of [
+    "deploy/helm/werft/values.yaml",
+    "deploy/kind/smoke.sh",
+    "apps/worker/Dockerfile",
+    ".dockerignore",
+    "bun.lock",
+    ".github/workflows/ci.yml",
+    ...PUBLISH_PATHS,
+  ]) {
+    // Alone: no other path may be what selects it.
+    const f = fixture(undefined, [path]);
+    expect({ path, k8s: plan(f, "push").output.k8s }).toEqual({
+      path,
+      k8s: "true",
+    });
+  }
+  const f = fixture(undefined, [
+    "packages/db/src/a.ts",
+    "apps/control-host/src/api/a.ts",
+    // Generated from the API on most changes to it: image content, like source.
+    "docs/api/index.html",
+    "tests/a.test.ts",
+  ]);
+  expect(plan(f, "push").output).toEqual({
+    ...full,
+    site: "false",
+    k8s: "false",
+  });
+});
+
+test("the paths a main push adds leave a pull request's selection alone", () => {
+  for (const path of PUBLISH_PATHS) {
+    expect({ path, k8s: plan(fixture(undefined, [path])).output.k8s }).toEqual({
+      path,
+      k8s: "false",
+    });
+  }
+});
+
+describe("a main commit a release needs runs the kind jobs", () => {
+  const changelog = (...versions: string[]) =>
+    ["# Changelog", ...versions.map((v) => `## ${v}`), ""].join("\n");
+  /** A push of `path` onto a main whose CHANGELOG already holds `before`. */
+  function push(
+    before: string[],
+    gh: Parameters<typeof fakeGh>[0],
+    path = "packages/db/src/a.ts",
+    after = before,
+  ) {
+    const f = fixture();
+    put(f.repo, "CHANGELOG.md", changelog(...before));
+    const base = commit(f.repo);
+    put(f.repo, "CHANGELOG.md", changelog(...after));
+    put(f.repo, path, "after\n");
+    commit(f.repo);
+    const result = plan(f, "push", base, "main", gh);
+    expect(result.exitCode).toBe(0);
+    return result.output.k8s;
+  }
+
+  test("the push that adds the version heading", () => {
+    expect(
+      push(["v0.1.0"], "untagged", "docs/a.md", ["v0.2.0", "v0.1.0"]),
+    ).toBe("true");
+  });
+
+  test("a heading added below the top one", () => {
+    expect(
+      push(["v0.2.0"], "untagged", "packages/a.ts", ["v0.2.0", "v0.1.1"]),
+    ).toBe("true");
+  });
+
+  test("a later push while that version has no tag, a docs-only one too", () => {
+    for (const path of ["packages/db/src/a.ts", "docs/a.md"]) {
+      expect(push(["v0.2.0"], "untagged", path)).toBe("true");
+    }
+  });
+
+  test("a failed lookup, or a heading that is no version", () => {
+    expect(push(["v0.2.0"], "down")).toBe("true");
+    expect(push(["vNext"], "tagged")).toBe("true");
+  });
+
+  test("not an ordinary push after the release is tagged", () => {
+    expect(push(["v0.2.0"], "tagged")).toBe("false");
+    expect(push(["v0.2.0"], "tagged", "docs/a.md")).toBe("false");
+  });
+});
+
+test("both workflows give the plan what the release lookup needs", () => {
+  for (const [file, job] of [
+    ["ci.yml", "changes"],
+    ["images.yml", "plan"],
+  ] as const) {
+    const workflow = Bun.YAML.parse(
+      readFileSync(join(import.meta.dir, "../.github/workflows", file), "utf8"),
+    ) as {
+      jobs: Record<
+        string,
+        { steps: { id?: string; env?: Record<string, string> }[] }
+      >;
+    };
+    expect(
+      workflow.jobs[job]?.steps.find((step) => step.id === "plan")?.env,
+    ).toMatchObject({
+      GH_REPO: "$" + "{{ github.repository }}",
+      GH_TOKEN: "$" + "{{ github.token }}",
+    });
+  }
 });
 
 test("site content keeps the current docs and assembly chain", () => {
@@ -395,6 +558,15 @@ test("invalid bases and failed fetches fail before publishing any plan", () => {
   expect(failed.output).toEqual({});
 });
 
+test("a main push whose before cannot be read keeps the full plan", () => {
+  const f = fixture(undefined, ["docs/intro.md"]);
+  for (const base of ["not-a-sha", "1".repeat(40)]) {
+    const result = plan(f, "push", base);
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toEqual({ ...full, site: "false" });
+  }
+});
+
 test("main push plans the entire before-to-head range, including multiple commits", () => {
   const docs = fixture(undefined, ["docs/first.md"]);
   put(docs.repo, "docs/second.md", "prose\n");
@@ -403,7 +575,7 @@ test("main push plans the entire before-to-head range, including multiple commit
   const mixed = fixture(undefined, ["packages/core/src/a.ts"]);
   put(mixed.repo, "docs/second.md", "prose\n");
   commit(mixed.repo);
-  expect(plan(mixed, "push").output).toEqual({ ...full, site: "false" });
+  expect(plan(mixed, "push").output).toEqual({ ...shared, site: "false" });
 });
 
 test("new main branch and manual runs retain full validation", () => {

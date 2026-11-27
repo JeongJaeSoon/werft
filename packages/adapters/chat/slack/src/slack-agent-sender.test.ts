@@ -317,6 +317,7 @@ describe("the name read when the send begins", () => {
       unmirroredInputs: async () => [],
       closeOverdueHeld: async () => 0,
       unansweredTurns: async () => [],
+      afterTurnReplies: async () => [],
       unpromptedRequests: async () => [],
       expireSending: async () => [],
       closeUnaddressed: async () => [],

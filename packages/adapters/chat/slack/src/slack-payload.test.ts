@@ -706,6 +706,7 @@ describe("Slack payload fixtures: what the drain sends", () => {
       unpostedInstructions: async () => [],
       unmirroredInputs: async () => [],
       unansweredTurns: async () => [],
+      afterTurnReplies: async () => [],
       promptCard: async () => null,
       unpromptedRequests: async () => [],
       expireSending: async () => [],
