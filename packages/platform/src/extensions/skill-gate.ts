@@ -397,18 +397,26 @@ function changedCalls(text: string, at: Changes | null): string[] {
       touched = true;
     parts.push(code);
     if (goesOn) return;
-    if (touched)
-      calls.push(normalized(parts.join(" ")).replace(/\s+/g, " ").trim());
+    if (touched) calls.push(...commandsOf(parts.join(" ")));
     parts = [];
     touched = false;
   });
   if (at?.cuts.has(lines.length)) touched = true;
-  if (parts.length > 0 && touched)
-    calls.push(normalized(parts.join(" ")).replace(/\s+/g, " ").trim());
+  if (parts.length > 0 && touched) calls.push(...commandsOf(parts.join(" ")));
   return calls;
 }
 
 /** An odd run of backslashes at the end: "\\\\" is a literal backslash. */
+/**
+ * The commands of a logical line, normalized and split at ";", "&&" and "||"
+ * so a change to one leaves its neighbours alone; spacing is not a change.
+ */
+const commandsOf = (line: string) =>
+  normalized(line)
+    .split(/;|&&|\|\|/)
+    .map((command) => command.replace(/\s+/g, " ").trim())
+    .filter((command) => command !== "");
+
 function codeOf(line: string): string {
   const comment = commentStart(line);
   return comment === -1 ? line : line.slice(0, comment);

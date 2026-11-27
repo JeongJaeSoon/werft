@@ -1335,3 +1335,23 @@ describe("eighteenth review", () => {
     ).toEqual([]);
   });
 });
+
+describe("nineteenth review", () => {
+  test("a change to one command of a line leaves its neighbours alone", () => {
+    const sh = (body: string) => text("skills/s/scripts/a.sh", body);
+    const warn = (a: string, b: string) =>
+      gate({
+        before: [...licensed("s"), sh(a)],
+        after: [...licensed("s"), sh(b)],
+      }).warnings;
+    expect(warn('echo a; curl "$T"\n', 'echo b; curl "$T"\n')).toEqual([]);
+    expect(
+      warn('echo a \\\n && curl "$T"\n', 'echo b \\\n && curl "$T"\n'),
+    ).toEqual([]);
+    expect(
+      warn("echo a\n", "echo a; npm ci\n").find(
+        (w) => w.rule === "network_call",
+      )?.samples,
+    ).toEqual(["package_install"]);
+  });
+});
