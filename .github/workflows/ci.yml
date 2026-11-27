@@ -237,7 +237,7 @@ jobs:
 
   # A skipped required job counts as passing, so always emit an explicit verdict.
   check:
-    needs: [changes, static, check-part, integration-domain, docs-checks, docs, demo, ui-pack, workspace-quota, helm-chart, k8s-smoke, pages]
+    needs: [changes, static, check-part, integration-domain, docs-checks, docs, demo, ui-pack, sdk-pack-smoke, workspace-quota, helm-chart, k8s-smoke, pages]
     if: >-
       always()
       && contains(fromJSON('["all","check"]'), github.event.inputs.only || 'all')
@@ -284,12 +284,13 @@ jobs:
                 "pages": ($plan.site == "true"),
                 "demo": ($plan.product == "true"),
                 "ui-pack": ($plan.product == "true"),
+                "sdk-pack-smoke": ($plan.sdk_pack == "true"),
                 "workspace-quota": ($plan.product == "true" and ($domains | index("docker") != null))
               } as $expected
             | (["all", "check"] | index($only) != null)
               and (.changes.result == "success")
               and all(.[]; .result == "success" or .result == "skipped")
-              and (["helm", "k8s", "site", "product"] | all(.[]; $plan[.] == "true" or $plan[.] == "false"))
+              and (["helm", "k8s", "sdk_pack", "site", "product"] | all(.[]; $plan[.] == "true" or $plan[.] == "false"))
               and ($domains | type == "array" and all(.[]; type == "string"))
               and ($expected | to_entries | all(.[];
                 $needs[.["key"]].result == (if $only == "all" and .value then "success" else "skipped" end)))
