@@ -325,6 +325,29 @@ describe("decideEgress", () => {
     }
   });
 
+  test("a name under a metadata name is not a metadata name, but its address is judged", async () => {
+    const asked: string[] = [];
+    const resolve = async (host: string) => {
+      asked.push(host);
+      return ["169.254.169.254"];
+    };
+    expect(
+      await decideEgress(
+        {
+          allow: [],
+          allowPrivate: [{ host: "x.api.metadata.cloud.ibm.com", port: 80 }],
+        },
+        { host: "x.api.metadata.cloud.ibm.com", port: 80 },
+        resolve,
+      ),
+    ).toEqual({
+      allowed: false,
+      failure: "denied",
+      reason: "169.254.169.254 is metadata",
+    });
+    expect(asked).toEqual(["x.api.metadata.cloud.ibm.com"]);
+  });
+
   test("a metadata name is refused before it is resolved, trailing dot or not", async () => {
     const listed: EgressPolicy = {
       allow: [
