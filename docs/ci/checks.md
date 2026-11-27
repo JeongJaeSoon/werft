@@ -13,20 +13,20 @@
 | T0 빠른 필수 | 모든 PR과 main push | `gitleaks`, `forbidden-terms`, `supply-chain`, `changes`(계획) | 2분. `supply-chain`은 이미지를 빌드하면 10분 |
 | T1 PR 필수 | 모든 PR. 네 이름은 늘 판정을 내고, 그 아래의 job은 바뀐 경로가 닿는 것만 돈다 | `check`, `integration`, `e2e`, `quickstart` | 아래 표 |
 | T2 경로 한정 gate | 그 gate의 경로를 바꾼 PR | D2 gate, K8s 검사 셋, Keycloak login, Worker compatibility, Install rehearsal | 각 workflow의 한도 |
-| T3 main | main push | CI(같은 트리를 시험한 PR run이 있으면 재사용), 계획된 이미지와 chart 게시, `agent-sdk-compat` | - |
+| T3 main | main push | CI(같은 트리를 시험한 PR run이 있으면 재사용), 계획된 이미지와 chart 게시, 제품을 바꾼 push의 `agent-sdk-compat` | - |
 | T4 릴리스와 야간 | 릴리스가 필요한 commit, schedule | conformance, 릴리스 gate, 야간 gate, 취약점 재검사 | - |
 
 T2와 T4의 gate는 PR의 merge를 막지 않는다. 실패가 어디에 남는지는 [필수가 아닌 gate](#필수가-아닌-gate)의 표에 있다.
 
 ## 필수 check
 
-ruleset의 필수 이름은 아래 일곱 개다. 이름은 그 job이 PR에서 내는 check 이름이다. `tests/ci-static-checks.test.ts`가 이 표의 이름이 표에 적힌 job의 이름과 같은지, PR에서 도는 workflow에 같은 이름의 job이 둘이 아닌지를 확인한다. job의 `if`와 `paths`는 그 시험이 보지 않는다.
+ruleset의 필수 이름은 아래 일곱 개다. 이름은 그 job이 PR에서 내는 check 이름이다. `tests/ci-static-checks.test.ts`가 이 표의 이름이 표에 적힌 job의 이름과 같은지, PR에서 도는 workflow에 같은 이름의 job이 둘이 아닌지를 확인한다. 그 시험은 job의 `if`와 `paths`, matrix 값에서 오는 이름을 보지 않는다.
 
 | 이름 | 내는 job | 지키는 것 | 도는 때 | 실행 시간 예산 (p90) / 한도 |
 | --- | --- | --- | --- | --- |
 | `gitleaks` | `gitleaks.yml` · `gitleaks` | 새 commit 범위에 secret이 없다. 범위 안 merge commit의 diff도 본다. 클라우드 agent의 commit처럼 로컬 hook을 거치지 않은 commit에는 이것이 유일한 secret 검사다 | 모든 PR, main push | 2분 / 10분 |
 | `forbidden-terms` | `forbidden-terms.yml` · `forbidden-terms` | 트리, 그 run의 commit 메시지, PR의 제목·본문·댓글·리뷰 중 소유자·멤버·협력자가 쓴 것에 비공개 금지어가 없다. 금지어 목록이 없으면 실패한다 | 모든 PR(제목·본문을 고칠 때도), main push | 2분 / 5분 |
-| `supply-chain` | `images.yml` · `supply-chain` | 이미지 빌드가 계획됐으면 그 빌드가 끝났다. 빌드한 이미지와 npm 의존성에 고칠 수 있는 high·critical 취약점이 없다. 예외 항목마다 이유와 만료일이 있다. PR과 main push에서는 scanner가 답을 내지 못하면 경고로 지나간다 | 모든 PR, main push, 릴리스 tag, 매일 03:17 UTC. 이미지에 닿지 않는 변경은 npm 감사만 한다 | 10분 / 빌드 30분, 판정 10분 |
+| `supply-chain` | `images.yml` · `supply-chain` | 이미지 빌드가 계획됐으면 그 빌드가 끝났다. 빌드한 이미지와 npm 의존성에 고칠 수 있는 high·critical 취약점이 없다. 예외 항목마다 이유와 만료일이 있다. 빌드나 scan이 실패하거나 결과가 없으면 실패다. scan이 돌았지만 advisory 쪽 장애로 답을 얻지 못한 것만 PR과 main push에서 경고로 지나간다 | 모든 PR, main push, 릴리스 tag, 매일 03:17 UTC. 이미지에 닿지 않는 변경은 npm 감사만 한다 | 10분 / 빌드 30분, 판정 10분 |
 | `check` | `ci.yml` · `check` | 집계. 타입, lint, 정책 시험, 제품 산출물, chart ([구성원](#check의-구성원)) | 모든 PR, main push | 구성원 표 / 2분 |
 | `integration` | `ci.yml` · `integration` | 집계. 서비스가 붙는 시험 전체와 `e2e`, `quickstart`, conformance ([구성원](#integration의-구성원)) | 모든 PR, main push | 구성원 표 / 2분 |
 | `e2e` | `ci.yml` · `e2e-gate` | compose 스택에서 세션 한 바퀴가 돈다(`tests/e2e/run.sh`). 판정은 `e2e (scenario)` job의 결과다 | 판정은 모든 PR과 main push. 시나리오 job은 문서만 바꾼 것이 아닐 때 | 9분 / 시나리오 30분, 판정 2분 |
@@ -64,7 +64,7 @@ ruleset의 필수 이름은 아래 일곱 개다. 이름은 그 job이 PR에서 
 
 | job | 지키는 것 | 도는 때 | 실행 시간 예산 (p90) / 한도 |
 | --- | --- | --- | --- |
-| `integration (<domain>)` 또는 `integration (<domain> i/N)` | 그 domain의 시험 파일 전부. junit을 읽어, 맡은 파일이 모두 돌았고 선언된 skip만 건너뛰었는지 확인한다 | 문서만 바꾼 PR은 없음. web console만 바꾼 PR은 `surface`. 그 밖은 전부 | 6분 / 15분 |
+| `integration (<domain>)` 또는 `integration (<domain> i/N)` | 그 domain의 시험 파일 전부. junit을 읽어, 맡은 파일이 모두 돌았고 선언된 skip만 건너뛰었는지 확인한다 | 문서만 바꾼 변경은 없음. web console만 바꾼 변경은 `surface`. 그 밖은 전부 | 6분 / 15분 |
 | `e2e` (`e2e-gate`) | 위 표 | 위 표 | 위 표 |
 | `quickstart` (`quickstart-gate`) | 위 표 | 위 표 | 위 표 |
 | `conformance (<engine>)` | 엔진 셋의 conformance suite | PR에서는 돌지 않는다. 릴리스가 필요한 main push(릴리스 여부를 읽지 못한 push도)와 수동 run | - / 30분 |
@@ -84,7 +84,7 @@ domain과 그 서비스는 `.github/integration-domains.yml`에 한 번 적는�
 
 ## 필수가 아닌 gate
 
-PR의 merge를 막지 않는다. 경로가 닿는 PR에서 돌고, 일부는 밤마다 main에서 돈다. 실패가 남는 곳은 gate마다 다르다. 이슈를 여는 gate는 label로 같은 신호를 열린 이슈 하나에 모은다.
+PR의 merge를 막지 않는다. 경로가 닿는 PR에서 돌고, 일부는 밤마다 main에서 돈다. 실패가 남는 곳은 gate마다 다르다. 이슈를 여는 gate는 label로 같은 신호를 열린 이슈 하나에 모은다. 빠진 push run만 commit마다 이슈를 하나씩 연다.
 
 | workflow | 지키는 것 | PR에서 도는 경로 | 야간 (UTC) | 야간·수동 run이 실패하면 |
 | --- | --- | --- | --- | --- |
@@ -97,14 +97,14 @@ PR의 merge를 막지 않는다. 경로가 닿는 PR에서 돌고, 일부는 밤
 | `install-rehearsal.yml` | 게시된 릴리스를 바깥 운영자처럼(로그인과 token 없이) compose와 kind에 설치하면 `/readyz`가 200을 낸다 | workflow 자신, `rehearsal-release.sh` | 없음. 수동(릴리스 tag를 줄 수 있다) | 빨간 run뿐 |
 | `litellm-price-drift.yml` | 모델 가격표가 LiteLLM의 가격에서 벗어나지 않았다. 적어 둔 의도한 차이는 허용한다 | 가격표와 비교 스크립트 | 월요일 00:17 | 이슈 `litellm-price-drift` |
 | `package-retention.yml` | 패키지 보존 규칙의 시험과 dry run | 스크립트, 그 시험, workflow 자신 | 일요일 20:41 | 빨간 run뿐 |
-| `forbidden-terms-threads.yml` | 댓글·리뷰·이슈는 push 없이 바뀌므로, 새 글이 올라오면 그 PR이나 이슈의 글을 다시 본다 | 경로가 아니라 댓글·리뷰·이슈 이벤트 | 없음 | 빨간 run뿐. PR의 필수 `forbidden-terms`가 다음 run에서 다시 읽는다 |
+| `forbidden-terms-threads.yml` | 댓글·리뷰·이슈는 push 없이 바뀌므로, 소유자·멤버·협력자가 글을 쓰거나 고치면 그 PR이나 이슈의 글을 다시 본다 | 경로가 아니라 댓글·리뷰·이슈 이벤트 | 없음 | 빨간 run뿐. PR의 필수 `forbidden-terms`가 다음 run에서 다시 읽는다 |
 | `images.yml`의 야간 run | checkout의 Dockerfile로 두 아키텍처의 이미지를 빌드해 취약점을 다시 본다(게시하지 않는다). npm 감사도 한다 | - | 매일 03:17 | 이슈 `ci-supply-chain` |
-| `images.yml`의 릴리스 경로(`release-gate`, `worker-compat-release`) | 릴리스할 commit에서 `ci.yml`이 green이고, main의 게시 chain이 chart 게시까지 갔고, 이전 worker와 호환된다 | - | 릴리스가 필요한 main push | 릴리스가 멈춘다 |
-| `main-push-run.yml` | 최근 36시간의 main commit마다 CI push run이 있다. 그 run에서 `agent-sdk-compat`이 실패했으면 이슈가 있다 | - | 매일 03:23, 15:23 | 이슈 `ci-missing-push-run`, `ci-agent-sdk-compat-failure` |
+| `images.yml`의 릴리스 경로(`release-gate`, `worker-compat-release`) | 릴리스할 commit에서 `ci.yml`의 push run이 green이고, 세 엔진의 conformance가 통과했고, main의 게시 chain이 chart 게시까지 갔고, 이전 worker와 호환된다 | - | 릴리스가 필요한 main push | 릴리스가 멈춘다 |
+| `main-push-run.yml` | 최근 36시간의 main commit마다 CI push run이 있다(15분이 안 된 commit과, 다른 push에 실려 들어온 commit은 뺀다). 그 run의 `agent-sdk-compat`이 마지막 시도에서 실패했으면 이슈가 있다 | - | 매일 03:23, 15:23 | 이슈 `ci-missing-push-run`, `ci-agent-sdk-compat-failure` |
 
 ### filter 밖 경로는 야간만 본다
 
-경로 filter는 선을 그은 것이지 증명이 아니다. gate가 지키는 동작은 filter 밖의 코드도 바꿀 수 있다. 그런 변경은 PR에서 그 gate를 돌리지 않는다. 야간 run이 있는 gate는 그날 밤에 걸린다. 야간이 없는 gate는 다음에 경로가 닿는 PR이나 수동 run까지 모른다. 야간 이슈가 열리면, 마지막으로 성공한 야간 run 뒤에 merge된 PR 중 아래 경로를 바꾼 것부터 본다.
+경로 filter는 선을 그은 것이지 증명이 아니다. gate가 지키는 동작은 filter 밖의 코드도 바꿀 수 있다. filter 밖 경로만 바꾼 PR에서는 그 gate가 돌지 않는다. 야간 run이 있는 gate는 그날 밤 run이 처음 본다. 야간이 없는 gate는 다음에 경로가 닿는 PR이나 수동 run까지 아무도 보지 않는다. 야간 이슈가 열리면, 마지막으로 성공한 야간 run 뒤에 merge된 PR 중 아래 경로를 바꾼 것부터 본다.
 
 | gate | PR에서 보지 않는 경로 | 뒤를 받치는 것 |
 | --- | --- | --- |
@@ -142,7 +142,7 @@ PR의 merge를 막지 않는다. 경로가 닿는 PR에서 돌고, 일부는 밤
 - 이 저장소는 job이 약 20개까지 동시에 돈다. 공유 코드를 바꾼 PR run 하나가 job 27개, 약 76 job-분을 쓴다. 그래서 시간당 약 16 run이 한계다. PR run은 시간당 p50 9개, p90 26개, 최대 60개가 생긴다. 바쁜 시간에는 대기가 실행보다 길다.
 - job을 더 잘게 나누면 job 하나는 짧아지지만 총량은 줄지 않는다. shard마다 설치와 서비스 기동이 반복되어 조금 는다(나누기 전 약 71 job-분). 대기를 줄이는 것은 run의 수와 run당 job-분이다. job을 더할 때 이 두 수를 PR 본문에 적는다.
 
-`ci.yml`의 성공한 PR run의 길이는 이렇게 본다. `check`와 `integration`이 이 run에 있다. 나머지 필수 이름은 다른 workflow가 내고 보통 먼저 끝난다. 실패한 라운드는 들어 있지 않다.
+`ci.yml`의 성공한 PR run의 길이는 이렇게 본다. `check`, `integration`, `e2e`, `quickstart`가 이 run에 있다. `gitleaks`, `forbidden-terms`, `supply-chain`은 다른 workflow가 내고 보통 먼저 끝난다. 실패한 라운드는 들어 있지 않다.
 
 ```sh
 gh run list --workflow ci.yml --event pull_request --status success --limit 100 \
@@ -161,7 +161,7 @@ gh run list --workflow ci.yml --event pull_request --status success --limit 100 
 ### 재시도
 
 - 새로 넣는 재시도는 infra 단계에만 둔다: 이미지 pull, 서비스 기동, registry에 올린 직후의 읽기, 배포 API.
-- 오류 문장이 정해진 것과 같을 때만, 횟수와 간격의 상한을 두고 다시 한다. 다른 오류는 바로 실패한다. 예전 것 하나가 예외다. `pages.yml`의 deploy는 오류를 가리지 않고 한 번 다시 한다.
+- 오류 문장이 정해진 것과 같을 때만, 횟수와 간격의 상한을 두고 다시 한다. 다른 오류는 바로 실패한다. 오류를 가리지 않고 다시 하는 예전 것이 둘 있다: `pages.yml`의 deploy(한 번), `check-agent-sdk-compat-job.sh`의 API 호출(세 번까지). 새로 넣는 것은 이 규칙을 따른다.
 - 시험 assertion은 다시 하지 않는다. 실패한 suite를 통과할 때까지 돌리는 step은 두지 않는다. 상태가 자리 잡기를 기다리는 probe(서비스 준비, NetworkPolicy가 node에 닿기)는 재시도가 아니라 그 검사의 일부다.
 
 ### timeout
@@ -181,19 +181,22 @@ gh run list --workflow ci.yml --event pull_request --status success --limit 100 
 
 ### 새 시험과 새 gate
 
-- `bun test`가 찾는 새 시험 파일은 integration domain 하나에 속해야 한다. 어디에도 속하지 않으면 그 run에서 도는 모든 `integration (<domain>)` job이 실패한다.
+- `bun run test`가 도는 폴더(`tests`, `packages`, `apps`, `examples`)의 새 시험 파일은 integration domain 하나에 속해야 한다. 어디에도 속하지 않으면 그 run에서 도는 모든 `integration (<domain>)` job이 실패한다.
 - 경로 한정 gate를 새로 더할 때는 야간 schedule과 실패 이슈를 함께 넣고, 위 두 표에 줄을 더한다.
 - secret, 보안, 타입, 시험 gate는 빠르게 하려고 약하게 하지 않는다.
 
 ## ruleset과 맞추기
 
-ruleset의 필수 이름과 이 문서의 표가 같은지는 아래 명령으로 본다. bash나 zsh에서 돌린다. `같다`가 나오면 같다. 아무것도 나오지 않으면 두 목록 중 하나를 읽지 못한 것이다.
+ruleset의 필수 이름과 이 문서의 표가 같은지는 아래 명령으로 본다. bash나 zsh에서 돌린다. `같다`가 나오면 같다. 다르면 `diff`가 차이를 보인다. 둘 다 아니면 두 목록 중 하나를 읽지 못한 것이다.
 
 ```bash
-want=$(gh api repos/JeongJaeSoon/werft/rules/branches/main \
-  --jq '[.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context] | sort | .[]') &&
-  have=$(sed -n '/^## 필수 check$/,/^### /p' docs/ci/checks.md | grep -oE '^\| `[a-z0-9-]+`' | tr -d '| `' | sort) &&
-  [ -n "$want" ] && [ -n "$have" ] && diff <(echo "$want") <(echo "$have") && echo 같다
+(
+  set -o pipefail
+  want=$(gh api repos/JeongJaeSoon/werft/rules/branches/main \
+    --jq '[.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context] | sort | .[]') &&
+    have=$(sed -n '/^## 필수 check$/,/^### /p' docs/ci/checks.md | grep -oE '^\| `[a-z0-9-]+`' | tr -d '| `' | sort) &&
+    [ -n "$want" ] && [ -n "$have" ] && diff <(echo "$want") <(echo "$have") && echo 같다
+)
 ```
 
 ruleset은 저장소 설정이라 시험이 읽지 못한다. 필수 이름을 바꾸는 PR은 이 명령의 출력을 본문에 붙인다.
