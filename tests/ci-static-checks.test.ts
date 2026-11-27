@@ -1139,3 +1139,43 @@ test("a heavy job that passed ran every step it carries", () => {
     );
   }
 });
+
+test.each(["k8s-replicas", "k8s-upgrade"])(
+  "%s runs every night and opens an issue when it fails outside a pull request",
+  (name) => {
+    const nightly = Bun.YAML.parse(
+      readFileSync(
+        join(import.meta.dir, `../.github/workflows/${name}.yml`),
+        "utf8",
+      ),
+    ) as {
+      on: { schedule?: { cron: string }[] };
+      permissions: Record<string, string>;
+      jobs: Record<
+        string,
+        {
+          needs?: string;
+          if?: string;
+          permissions?: Record<string, string>;
+          steps: { run?: string }[];
+        }
+      >;
+    };
+    expect(nightly.on.schedule).toHaveLength(1);
+    const [checked] = Object.keys(nightly.jobs).filter(
+      (job) => job !== "report-failure",
+    );
+    const report = nightly.jobs["report-failure"];
+    expect(report?.needs).toBe(checked);
+    // A hung or cancelled run is reported too; a pull request's red check
+    // already says it.
+    expect(report?.if).toBe(
+      `always() && needs.${checked}.result != 'success' && github.event_name != 'pull_request'`,
+    );
+    expect(nightly.permissions).toEqual({ contents: "read" });
+    expect(report?.permissions).toEqual({ contents: "read", issues: "write" });
+    expect(report?.steps.at(-1)?.run).toContain(
+      `.github/scripts/upsert-ci-issue.sh ci-${name}-failure`,
+    );
+  },
+);
