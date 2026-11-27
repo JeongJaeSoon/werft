@@ -11,6 +11,7 @@ export {
   actionableOfTurn,
   actionableRequest,
   awaitingInputAt,
+  publicStatusSql,
 } from "./pending-status.ts";
 export {
   channelBindingKind,

@@ -1,5 +1,5 @@
 import { ENDED_ATTEMPT_STATES } from "@werft-ai/contracts";
-import { IN_FLIGHT_STATUSES } from "@werft-ai/platform";
+import { IN_FLIGHT_STATUSES, publicStatus } from "@werft-ai/platform";
 import {
   and,
   eq,
@@ -15,6 +15,7 @@ import {
 import { DB_NOW } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import { attempts, pendingRequests, sessions, turns } from "../schema.ts";
+import { sqlLiterals } from "../sql-literals.ts";
 
 /**
  * The attempt that asked still owns the session and is still inside the
@@ -121,6 +122,30 @@ export function actionableOfTurn(db: Database) {
         actionable(STATEMENT_NOW),
       ),
     );
+}
+
+/**
+ * publicStatus as SQL, for a statement that must compare or filter on the
+ * status a read shows. Its arms are publicStatus's own answers for each of
+ * `values`, the stored statuses `stored` can hold there, so the rule is
+ * written once.
+ */
+export function publicStatusSql(
+  stored: SQL,
+  awaitingInput: SQL,
+  values: readonly string[],
+): SQL<string> {
+  const arms = values.flatMap((value) =>
+    [true, false].flatMap((awaiting) => {
+      const shown = publicStatus(value, awaiting);
+      if (shown === value) return [];
+      const when = awaiting ? awaitingInput : sql`NOT ${awaitingInput}`;
+      return [
+        sql`WHEN ${stored} = ${sqlLiterals([value])} AND ${when} THEN ${sqlLiterals([shown])}`,
+      ];
+    }),
+  );
+  return sql`(CASE ${sql.join(arms, sql` `)} ELSE ${stored} END)`;
 }
 
 /**

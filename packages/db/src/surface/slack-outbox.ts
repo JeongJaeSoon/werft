@@ -38,6 +38,8 @@ import type {
   SurfaceUnpostedInstruction,
 } from "@werft-ai/platform";
 import {
+  AWAITABLE_STATUSES,
+  IN_FLIGHT_STATUSES,
   SURFACE_EDIT_RATE_LIMITED_CODE,
   SURFACE_PROGRESS_EDIT_INTERVAL_MS,
   SURFACE_PROGRESS_EDIT_SPACING_MS,
@@ -102,10 +104,12 @@ import {
 } from "../schema.ts";
 import {
   actionableNow,
+  actionableOfSession,
   actionableOfTurn,
   actionableRequest,
   CLOSE,
   createPostgresPendingRequests,
+  publicStatusSql,
 } from "../sessions/index.ts";
 import { sqlLiterals } from "../sql-literals.ts";
 import { rowsOf } from "../statement-rows.ts";
@@ -1948,6 +1952,19 @@ export function createPostgresSlackOutboxStore(
     },
 
     async progressDue(limit, waitedMs) {
+      // Each stage at the status a read of the session shows: needs_input is
+      // never stored, but derived from the requests a person can answer.
+      const unfinished = ["queued", ...IN_FLIGHT_STATUSES];
+      const turnShown = publicStatusSql(
+        sql`${turns.status}`,
+        sql`EXISTS (${actionableOfTurn(db)})`,
+        unfinished,
+      );
+      const sessionShown = publicStatusSql(
+        sql`${sessions.status}`,
+        sql`EXISTS (${actionableOfSession(db)})`,
+        AWAITABLE_STATUSES,
+      );
       // The keys the adapter's slackProgressDedupeKey makes, spelled in SQL:
       // progress:<link>:<update>:<state>, under progress key progress:<link>.
       const rows = rowsOf<{
@@ -1990,19 +2007,20 @@ export function createPostgresSlackOutboxStore(
                    AND wl.capacity_wait_since <= clock_timestamp() - make_interval(secs => ${waitedMs / 1_000})
                  ORDER BY wl.capacity_wait_since
                  LIMIT 1),
-                (SELECT ot.status || ':' || ot.sequence FROM turns ot
-                 WHERE ot.session_id = session_links.session_id
-                   AND ot.status IN ('queued', 'running', 'needs_input')
-                 ORDER BY ot.sequence
+                (SELECT ${turnShown} || ':' || ${turns.sequence} FROM ${turns}
+                 WHERE ${turns.sessionId} = session_links.session_id
+                   AND ${turns.status} IN (${sqlLiterals(unfinished)})
+                 ORDER BY ${turns.sequence}
                  LIMIT 1),
                 -- Nothing unfinished: only a message Slack holds is told so,
-                -- so a first post still waiting is not overtaken by it.
+                -- so a first post still waiting is not overtaken by it. A
+                -- turn parked on a request still waits on a person.
                 CASE WHEN EXISTS (
                   SELECT 1 FROM ${t} s
                   WHERE s.installation_id = session_links.installation_id
                     AND s.progress_key = 'progress:' || session_links.id
                     AND s.status = 'sent'
-                ) THEN 'idle:' || (
+                ) THEN (CASE ${sessionShown} WHEN 'needs_input' THEN 'needs_input' ELSE 'idle' END) || ':' || (
                   SELECT coalesce(max(mt.sequence), 0) FROM turns mt
                   WHERE mt.session_id = session_links.session_id
                 ) END
@@ -2010,6 +2028,7 @@ export function createPostgresSlackOutboxStore(
               last.dedupe_key AS last_key,
               coalesce(last.updates, 0) AS updates
             FROM session_links
+            JOIN ${sessions} ON ${sessions.id} = session_links.session_id
             JOIN slack_installations i ON i.id = session_links.installation_id
             JOIN slack_apps a ON a.app_id = i.app_id
             LEFT JOIN LATERAL (

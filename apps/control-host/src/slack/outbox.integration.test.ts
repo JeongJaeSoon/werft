@@ -17,6 +17,7 @@ import {
   reconcileSlackThreadStatuses,
   SLACK_CARD_SETTLE_TIMING,
   SLACK_OUTBOX_MESSAGES,
+  SLACK_PROMPT_MESSAGES,
   SLACK_RETRY_AFTER_MAX_MS,
   SLACK_THREAD_STATUS_TIMING,
   SlackApiError,
@@ -38,6 +39,8 @@ import {
   SESSION_SCOPE_VALUES,
   SLACK_NOTICE_MESSAGES,
   slackMirrorCorrelationIdSchema,
+  TURN_INPUT_WAIT_PARKED_REASON,
+  type WorkerScope,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
@@ -46,6 +49,7 @@ import {
   createPostgresAgentIdentityStore,
   createPostgresAgentStore,
   createPostgresCredentialBindingStore,
+  createPostgresPendingRequests,
   createPostgresPullRequestDrain,
   createPostgresPushRequests,
   createPostgresSecretStore,
@@ -53,6 +57,8 @@ import {
   createPostgresSlackInboundEventStore,
   createPostgresSlackOutboxStore,
   createPostgresSurfaceBindingStore,
+  createPostgresWorkerPendingStore,
+  createPostgresWorkerUnitOfWork,
   type Database,
   events,
   linkedAccounts,
@@ -82,10 +88,13 @@ import {
   callerFor,
   createAgentService,
   createAuthorizationPolicy,
+  createPendingRequestService,
+  createWorkerGateway,
   type PushSource,
   SecretKey,
   SURFACE_PROGRESS_EDIT_INTERVAL_MS,
   SURFACE_REACTION_MAX_ATTEMPTS,
+  type WorkerPrincipal,
 } from "@werft-ai/platform";
 import {
   slackEventEnvelope,
@@ -3532,7 +3541,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     });
     const [turn] = await db
       .update(turns)
-      .set({ status: "needs_input", attemptId })
+      .set({ status: "running", attemptId })
       .where(eq(turns.sessionId, sessionId))
       .returning({ id: turns.id });
     await outboxPass();
@@ -4394,7 +4403,7 @@ describe.each(ENGINES)("the Slack thread status on %s", (engine) => {
     });
     const [turn] = await db
       .update(turns)
-      .set({ status: "needs_input", attemptId })
+      .set({ status: "running", attemptId })
       .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 1)))
       .returning({ id: turns.id });
     await db.insert(pendingRequests).values({
@@ -5093,7 +5102,7 @@ describe.each(ENGINES)("the Slack card settle on %s", (engine) => {
     });
     const [turn] = await db
       .update(turns)
-      .set({ status: "needs_input", attemptId })
+      .set({ status: "running", attemptId })
       .where(eq(turns.sessionId, sessionId))
       .returning({ id: turns.id, actorId: turns.actorId });
     await db.insert(pendingRequests).values({
@@ -5891,7 +5900,7 @@ describe.each(ENGINES)("a link's posting columns on %s", (engine) => {
     });
     const [turn] = await db
       .update(turns)
-      .set({ status: "needs_input", attemptId })
+      .set({ status: "running", attemptId })
       .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, sequence)))
       .returning({ id: turns.id });
     await db.insert(pendingRequests).values({
@@ -7327,14 +7336,96 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
       .where(eq(slackOutbox.kind, "progress"))
       .orderBy(asc(slackOutbox.seq));
 
-  const setTurn = (
-    sessionId: string,
-    status: "queued" | "running" | "needs_input",
-  ) =>
+  const setTurn = (sessionId: string, status: "queued" | "running") =>
     db
       .update(turns)
       .set({ status })
       .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 1)));
+
+  // The worker as the product runs it: the claim that starts turn 1, and the
+  // requests it raises through the gateway. Nothing stores needs_input; a
+  // read derives it from a request a person can still answer.
+  const workerGateway = async () =>
+    createWorkerGateway({
+      work: createPostgresWorkerUnitOfWork(db),
+      catalog: await settingsCatalog(db),
+      checkpoints: {
+        async verify() {
+          return { status: "verified" };
+        },
+      },
+      pending: createPostgresWorkerPendingStore(db),
+      options: {
+        sessionBudget: { costUsd: 1_000, tokens: null },
+        leaseTtlMs: 60_000,
+        sleep: async () => {},
+      },
+    });
+
+  async function claimTurn(sessionId: string) {
+    const gateway = await workerGateway();
+    const launch = await launchSession(db, { sessionId });
+    const claimed = await gateway.bootstrapClaim(
+      { kind: "bootstrap" },
+      {
+        execution_id: launch.executionId,
+        execution_generation: launch.generation,
+        credential: { kind: "launch_nonce", nonce: launch.nonce },
+      },
+    );
+    const principal: WorkerPrincipal = {
+      kind: "session",
+      attemptId: claimed.attempt_id,
+      sessionId: claimed.session_id,
+      leaseEpoch: claimed.lease_epoch,
+      executionGeneration: claimed.execution_generation,
+      authRevision: claimed.auth_revision,
+    };
+    const scope: WorkerScope = {
+      session_id: claimed.session_id,
+      turn_id: null,
+      attempt_id: claimed.attempt_id,
+      lease_epoch: claimed.lease_epoch,
+      execution_generation: claimed.execution_generation,
+      auth_revision: claimed.auth_revision,
+    };
+    const next = await gateway.nextInput(principal, scope);
+    const turnId = next.input?.turn_id;
+    if (turnId !== "1") throw new Error("turn 1 was not delivered");
+    return { gateway, principal, scope: { ...scope, turn_id: turnId } };
+  }
+
+  async function askPermission({
+    gateway,
+    principal,
+    scope,
+  }: Awaited<ReturnType<typeof claimTurn>>) {
+    const requestId = `req_${randomUUID()}`;
+    await gateway.registerPending(principal, {
+      ...scope,
+      request_id: requestId,
+      input_hash: "a".repeat(64),
+      request: { kind: "permission", tool: "Bash", input: { command: "ls" } },
+    });
+    return requestId;
+  }
+
+  const allow = (fixture: Fixture, sessionId: string, requestId: string) =>
+    createPendingRequestService({
+      authorization: createAuthorizationPolicy(),
+      store: createPostgresPendingRequests(db),
+    }).answer(fixture.owner, sessionId, {
+      idempotencyKey: randomUUID(),
+      body: { kind: "permission", request_id: requestId, decision: "allow" },
+    });
+
+  const storedTurnStatus = async (sessionId: string) => {
+    const [turn] = await db
+      .select({ status: turns.status })
+      .from(turns)
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 1)));
+    return turn?.status;
+  };
 
   // The first line of each post: the stage, ahead of the link.
   const postedLines = () =>
@@ -7367,10 +7458,19 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
     expect(blocks).toMatch(/\|\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC>/);
     expect(blocks).toContain(`<${CONSOLE}/sessions/${sessionId}|`);
 
-    await setTurn(sessionId, "running");
+    const worker = await claimTurn(sessionId);
     await intervalOver();
     await outboxPass();
-    await setTurn(sessionId, "needs_input");
+    // A real permission request: the stored turn stays running.
+    const requestId = await askPermission(worker);
+    expect(await storedTurnStatus(sessionId)).toBe("running");
+    await intervalOver();
+    await outboxPass();
+    // Nothing changed while it waits: no new update.
+    await intervalOver();
+    await outboxPass();
+    // Answered, the work goes on.
+    await allow(fixture, sessionId, requestId);
     await intervalOver();
     await outboxPass();
     await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
@@ -7379,14 +7479,25 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
     await intervalOver();
     await outboxPass();
 
-    // One post of the message; the turn's reply is a post of its own.
-    expect(postedLines()).toEqual([ko.progressQueued, "Done."]);
+    // One post of the message; the request's card and the turn's reply are
+    // posts of their own.
+    expect(postedLines()).toEqual([
+      ko.progressQueued,
+      `<@${PERSON}> ${SLACK_PROMPT_MESSAGES.ko.permissionTitle}`,
+      "Done.",
+    ]);
     expect(posted().every((message) => message.threadTs === THREAD)).toBe(true);
+    // The card's own edit (allowed on the web) aside, every edit is the
+    // message's.
+    const card = posted()[1];
     expect(
-      slack.updates.map(({ ts, text }) => [ts, text.split("\n")[0]]),
+      slack.updates
+        .filter(({ ts }) => ts !== card?.ts)
+        .map(({ ts, text }) => [ts, text.split("\n")[0]]),
     ).toEqual([
       [post.ts, ko.progressRunning],
       [post.ts, ko.progressNeedsInput],
+      [post.ts, ko.progressRunning],
       [post.ts, ko.progressIdle],
     ]);
     expect(
@@ -7399,8 +7510,58 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
       ["sent", "1:queued:1", THREAD],
       ["sent", "2:running:1", THREAD],
       ["sent", "3:needs_input:1", THREAD],
-      ["sent", "4:idle:1", THREAD],
+      ["sent", "4:running:1", THREAD],
+      ["sent", "5:idle:1", THREAD],
     ]);
+  });
+
+  test("a turn parked on a request shows the wait until it is answered", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.update(sessionLinks).set({ reportMode: "progress" });
+    const worker = await claimTurn(sessionId);
+    await outboxPass();
+    const requestId = await askPermission(worker);
+    // The worker parks the turn: the turn ends, its request still open.
+    await worker.gateway.finalize(worker.principal, {
+      ...worker.scope,
+      finalize_key: `${worker.scope.attempt_id}:${worker.scope.turn_id}`,
+      final_source_sequence: 0,
+      terminal: {
+        status: "interrupted",
+        reason: TURN_INPUT_WAIT_PARKED_REASON,
+        result: null,
+        usage: null,
+      },
+      checkpoint: {
+        revision: 0,
+        manifest_ref: `manifests/${sessionId}/0`,
+        manifest_sha256: "c".repeat(64),
+      },
+    });
+    expect(await storedTurnStatus(sessionId)).toBe("interrupted");
+    // Nothing is unfinished, yet the session waits on a person, not idle.
+    await intervalOver();
+    await outboxPass();
+    await intervalOver();
+    await outboxPass();
+
+    // The answer resumes it as a turn of its own.
+    await allow(fixture, sessionId, requestId);
+    await intervalOver();
+    await outboxPass();
+    expect(
+      (await progressRows()).map(({ dedupeKey }) =>
+        dedupeKey.replace(/^progress:[^:]+:/, ""),
+      ),
+    ).toEqual(["1:running:1", "2:needs_input:1", "3:queued:2"]);
+    const [post] = posted();
+    expect(
+      slack.updates
+        .filter(({ ts }) => ts === post?.ts)
+        .map(({ text }) => text.split("\n")[0]),
+    ).toEqual([ko.progressNeedsInput, ko.progressQueued]);
   });
 
   test("a worker waiting for room shows the wait as the message, with no notice of its own", async () => {
@@ -7477,7 +7638,7 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
     await db.update(sessionLinks).set({ reportMode: "progress" });
     await setTurn(sessionId, "queued");
     await outboxPass();
-    await setTurn(sessionId, "running");
+    const worker = await claimTurn(sessionId);
     await outboxPass();
     await db.update(sessionLinks).set({ reportMode: "per_step" });
     await intervalOver();
@@ -7500,7 +7661,7 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
     await db.update(sessionLinks).set({ reportMode: "progress" });
     await outboxPass();
     expect(slack.updates).toEqual([]);
-    await setTurn(sessionId, "needs_input");
+    await askPermission(worker);
     await outboxPass();
     expect(slack.updates.map(({ text }) => text.split("\n")[0])).toEqual([
       ko.progressNeedsInput,
