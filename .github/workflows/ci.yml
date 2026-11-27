@@ -447,61 +447,23 @@ jobs:
         run: .github/scripts/ci-services.sh stop
 
   # Heavy jobs stay cancellable; this required gate rejects missing or cancelled results.
-  # It also reports the required `e2e` and `quickstart` checks. Those jobs
-  # start only when the plan gives them work, so a run with nothing for them
-  # takes no runner; the verdicts here hold each result to the plan, and a
-  # skip passes only where the plan says so. A gate that never reports leaves
-  # them expected on a new commit, which blocks a merge rather than passing it.
+  # The scenario and the guides reach it as the verdicts of their own gates.
   integration:
-    needs: [changes, integration-domain, e2e, conformance, quickstart]
+    needs: [changes, integration-domain, e2e-gate, conformance, quickstart-gate]
     if: >-
       always()
       && contains(fromJSON('["all","integration"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 2
-    permissions:
-      checks: write
     steps:
-      - id: e2e
-        name: e2e verdict
-        if: "!cancelled() && (github.event.inputs.only || 'all') == 'all'"
-        env:
-          PLAN: ${{ needs.changes.result }}
-          PRODUCT: ${{ needs.changes.outputs.product }}
-          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
-          REUSED: ${{ needs.changes.outputs.reused }}
-          SCENARIO: ${{ needs.e2e.result }}
-        run: |
-          [ "$PLAN" = success ] || exit 1
-          case "$PRODUCT:$DOCS_ONLY:$SCENARIO:${REUSED:+reused}" in
-            true:false:success:) echo "e2e: scenario passed" ;;
-            false:true:skipped:) echo "e2e: intentionally omitted for documentation-only inputs" ;;
-            false:false:skipped:reused) echo "e2e: passed in the PR run that tested this exact tree: ${REUSED}" ;;
-            *) echo "::error::required e2e scenario did not pass"; exit 1 ;;
-          esac
-      - id: quickstart
-        name: quickstart verdict
-        if: "!cancelled() && (github.event.inputs.only || 'all') == 'all'"
-        env:
-          PLAN: ${{ needs.changes.result }}
-          QUICKSTART: ${{ needs.changes.outputs.quickstart }}
-          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
-          GUIDES: ${{ needs.quickstart.result }}
-        run: |
-          [ "$PLAN" = success ] || exit 1
-          case "$QUICKSTART:$DOCS_ONLY:$GUIDES" in
-            true:false:success | true:true:success) echo "quickstart: both guides passed" ;;
-            false:true:skipped | false:false:skipped) echo "quickstart: intentionally omitted; executable guides unchanged" ;;
-            *) echo "::error::required executable guide did not pass"; exit 1 ;;
-          esac
       - id: verdict
         if: '!cancelled()'
         env:
           RESULT: ${{ needs.integration-domain.result }}
-          E2E: ${{ steps.e2e.outcome }}
+          E2E: ${{ needs.e2e-gate.result }}
           CONFORMANCE: ${{ needs.conformance.result }}
           CONFORMANCE_PLAN: ${{ needs.changes.outputs.conformance }}
-          QUICKSTART: ${{ steps.quickstart.outcome }}
+          QUICKSTART: ${{ needs.quickstart-gate.result }}
           EVENT: ${{ github.event_name }}
           ONLY: ${{ github.event.inputs.only || 'all' }}
           PLAN: ${{ needs.changes.result }}
@@ -523,42 +485,74 @@ jobs:
             false:false:skipped:reused) echo "integration: the PR run that tested this exact tree passed every domain: ${REUSED}" ;;
             *) echo "::error::invalid or failed integration plan/results"; exit 1 ;;
           esac
-      # On the commit the required checks read: a pull request's head, not
-      # the merge commit the run checked out. Only success reports success.
-      - id: report
-        name: Report the required e2e and quickstart checks
-        if: "!cancelled() && (github.event.inputs.only || 'all') == 'all'"
-        env:
-          E2E: ${{ steps.e2e.outcome }}
-          QUICKSTART: ${{ steps.quickstart.outcome }}
-          GH_REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        # Each name is tried on its own, three times, so one refused request
-        # does not leave the other unreported; any that never lands fails the
-        # gate.
+      - id: cancelled
+        if: cancelled()
         run: |
-          unreported=
-          for name in e2e quickstart; do
-            if [ "$name" = e2e ]; then outcome=$E2E; else outcome=$QUICKSTART; fi
-            conclusion=failure
-            [ "$outcome" != success ] || conclusion=success
-            for attempt in 1 2 3; do
-              if gh api --method POST "repos/${GH_REPO}/check-runs" --silent \
-                -f name="$name" -f head_sha="$HEAD_SHA" -f status=completed \
-                -f conclusion="$conclusion" -f details_url="$RUN_URL" \
-                -f "output[title]=${name}: ${conclusion}" \
-                -f "output[summary]=The \`${name} verdict\` step of the \`integration\` job in ${RUN_URL} ended ${outcome:-unrun}."; then
-                echo "${name}: reported ${conclusion}"
-                continue 2
-              fi
-              [ "$attempt" = 3 ] || sleep "${REPORT_RETRY_SECONDS:-5}"
-            done
-            echo "::error::could not report the required ${name} check"
-            unreported="${unreported} ${name}"
-          done
-          [ -z "$unreported" ]
+          echo "::error::workflow was cancelled"
+          exit 1
+
+  # The required `e2e` and `quickstart` checks. The scenario and guide jobs
+  # start only when the plan gives them work; each gate holds that job's result
+  # to the plan, and a skip passes only where the plan says so. They are jobs
+  # of this workflow, not check runs created through the API: such a run joins
+  # the oldest check suite of the commit, whichever workflow owns it, and the
+  # merge gate stops counting it once that workflow runs again on the commit.
+  # Under any other `only` a gate does not run and gives up the name: a
+  # skipped check of a required name would pass for it.
+  e2e-gate:
+    name: ${{ (github.event.inputs.only || 'all') == 'all' && 'e2e' || 'e2e (gate)' }}
+    needs: [changes, e2e]
+    if: >-
+      always()
+      && (github.event.inputs.only || 'all') == 'all'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - id: verdict
+        if: '!cancelled()'
+        env:
+          PLAN: ${{ needs.changes.result }}
+          PRODUCT: ${{ needs.changes.outputs.product }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          REUSED: ${{ needs.changes.outputs.reused }}
+          SCENARIO: ${{ needs.e2e.result }}
+        run: |
+          [ "$PLAN" = success ] || exit 1
+          case "$PRODUCT:$DOCS_ONLY:$SCENARIO:${REUSED:+reused}" in
+            true:false:success:) echo "e2e: scenario passed" ;;
+            false:true:skipped:) echo "e2e: intentionally omitted for documentation-only inputs" ;;
+            false:false:skipped:reused) echo "e2e: passed in the PR run that tested this exact tree: ${REUSED}" ;;
+            *) echo "::error::required e2e scenario did not pass"; exit 1 ;;
+          esac
+      - id: cancelled
+        if: cancelled()
+        run: |
+          echo "::error::workflow was cancelled"
+          exit 1
+
+  quickstart-gate:
+    name: ${{ (github.event.inputs.only || 'all') == 'all' && 'quickstart' || 'quickstart (gate)' }}
+    needs: [changes, quickstart]
+    if: >-
+      always()
+      && (github.event.inputs.only || 'all') == 'all'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - id: verdict
+        if: '!cancelled()'
+        env:
+          PLAN: ${{ needs.changes.result }}
+          QUICKSTART: ${{ needs.changes.outputs.quickstart }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          GUIDES: ${{ needs.quickstart.result }}
+        run: |
+          [ "$PLAN" = success ] || exit 1
+          case "$QUICKSTART:$DOCS_ONLY:$GUIDES" in
+            true:false:success | true:true:success) echo "quickstart: both guides passed" ;;
+            false:true:skipped | false:false:skipped) echo "quickstart: intentionally omitted; executable guides unchanged" ;;
+            *) echo "::error::required executable guide did not pass"; exit 1 ;;
+          esac
       - id: cancelled
         if: cancelled()
         run: |
@@ -803,8 +797,8 @@ jobs:
   # Exercise the real worker CLI against the compose fake Messages API.
   # The scenario records the tested SHA, images and declared skips.
   # Only a plan with product inputs starts it, so a run with nothing for it
-  # takes no runner. The required `e2e` check is not this job: `integration`
-  # reports it, holding this job's result to the plan. A manual run of this
+  # takes no runner. The required `e2e` check is not this job: `e2e-gate`
+  # carries it, holding this job's result to the plan. A manual run of this
   # job alone has no gate, so there the job carries the required name itself.
   e2e:
     name: ${{ github.event.inputs.only == 'e2e' && 'e2e' || 'e2e (scenario)' }}
@@ -894,8 +888,8 @@ jobs:
 
   # Execute both guides as written, with the CI mirror compose overlay.
   # Only a plan that reaches the guides starts it; like e2e, the required
-  # `quickstart` check is `integration`'s report of this job's result, and
-  # a manual run of this job alone carries the name itself.
+  # `quickstart` check is `quickstart-gate`'s verdict on this job's result,
+  # and a manual run of this job alone carries the name itself.
   quickstart:
     name: ${{ github.event.inputs.only == 'quickstart' && 'quickstart' || 'quickstart (guides)' }}
     needs: changes
