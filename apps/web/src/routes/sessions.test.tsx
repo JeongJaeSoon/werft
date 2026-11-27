@@ -3047,7 +3047,12 @@ describe("a session waiting on a recovery decision", () => {
 
   test("a terminate dialog left open while another session takes the screen does not end that session", async () => {
     const user = await setupUser();
-    const other = { ...gap, id: OTHER_ID, revision: 9 } as SessionDetail;
+    const other = {
+      ...gap,
+      id: OTHER_ID,
+      revision: 9,
+      title: "세션 B",
+    } as SessionDetail;
     const { api, history } = renderAt(`/sessions/${OTHER_ID}`, {
       ...detailRoutes,
       [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, gap),
@@ -3081,6 +3086,7 @@ describe("a session waiting on a recovery decision", () => {
     await waitFor(() =>
       expect(history.location.pathname).toBe(`/sessions/${OTHER_ID}`),
     );
+    await screen.findByRole("heading", { name: /세션 B/ });
     const left = screen.queryByRole("alertdialog");
     if (left)
       await user.click(within(left).getByRole("button", { name: "종료" }));
@@ -3090,7 +3096,12 @@ describe("a session waiting on a recovery decision", () => {
 
   test("a terminate still running when the screen goes to another session and back keeps its button held and shows its answer", async () => {
     const user = await setupUser();
-    const other = { ...gap, id: OTHER_ID, revision: 9 } as SessionDetail;
+    const other = {
+      ...gap,
+      id: OTHER_ID,
+      revision: 9,
+      title: "세션 B",
+    } as SessionDetail;
     let release!: (response: Response) => void;
     const held = new Promise<Response>((resolve) => {
       release = resolve;
@@ -3125,9 +3136,13 @@ describe("a session waiting on a recovery decision", () => {
     await waitFor(() =>
       expect(history.location.pathname).toBe(`/sessions/${OTHER_ID}`),
     );
+    await screen.findByRole("heading", { name: /세션 B/ });
     act(() => history.forward());
     await waitFor(() =>
       expect(history.location.pathname).toBe(`/sessions/${SESSION_ID}`),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: /세션 B/ })).toBeNull(),
     );
     // Back on the session it was sent for, the press is still in flight.
     expect(
