@@ -241,6 +241,8 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
     "`If-Match` names another version than the current one, the variable does not exist, or `If-None-Match: *` met one that does. Read it again and retry.",
   PRECONDITION_REQUIRED:
     "The write sent neither `If-Match` nor `If-None-Match: *`.",
+  ENDPOINT_RETIRED:
+    "The route is retired and does nothing; its description names what replaced it, if anything. Stop calling it.",
   DECISION_MODEL_REQUIRED:
     "The installation has no decision model (an enabled `openai_decisions` connection). Achievement rules, categories, types, judge settings and reviews stay read only until the installation owner sets one up.",
   CREDENTIAL_UNBOUND:

@@ -5,8 +5,6 @@ import {
   type ConversationInputId,
   type ConversationTopicId,
   JUDGMENT_BUFFER_LIMIT_PER_CHANNEL,
-  type SlackNoticeVersionEntry,
-  slackNoticeVersionSchema,
 } from "@werft-ai/contracts";
 import {
   createConversationCallExecutor,
@@ -47,24 +45,6 @@ import {
 import { createPostgresSlackSourceMarkStore } from "./slack-source-marks.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
-
-// No notice is published yet; one is put in so the gate can open.
-const VERSIONS: readonly SlackNoticeVersionEntry[] = [
-  {
-    version: slackNoticeVersionSchema.parse(1),
-    text: {
-      ko: {
-        body: ["k"],
-        policyLink: { label: "l", href: "https://example.invalid" },
-      },
-      ja: {
-        body: ["j"],
-        policyLink: { label: "l", href: "https://example.invalid" },
-      },
-    },
-    requiresReapproval: true,
-  },
-];
 
 const MODEL = "claude-haiku-4-5";
 const CONNECTION = "conn-fold";
@@ -128,7 +108,7 @@ integration("channel summary folds (a1/J10)", () => {
     installationId: string;
   };
 
-  /** An agent heard in shadow, approved, on a team with or without a limit. */
+  /** An agent heard in shadow, on a team with or without a limit. */
   async function newAgent(limited = true): Promise<Agent> {
     const agentId = randomUUID();
     const teamId = randomUUID();
@@ -183,11 +163,6 @@ integration("channel summary folds (a1/J10)", () => {
         `U0BOT${appSeq}`,
         `slack/bot-fold-${appSeq}`,
       ],
-    );
-    await pool.query(
-      `INSERT INTO slack_notice_approvals (id, workspace_id, agent_id, slack_team_id, notice_version, approved_by)
-       VALUES ($1, $2, $3, $4, 1, $5)`,
-      [randomUUID(), workspaceId, agentId, TEAM, randomUUID()],
     );
     return { agentId, teamId, releaseId, installationId };
   }
@@ -354,7 +329,7 @@ integration("channel summary folds (a1/J10)", () => {
       http,
       logger: { warn: () => {} },
     });
-    const gates = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+    const gates = createPostgresM1JudgmentStore(db);
     const folder = createSummaryFolder({
       gate: (subject) => gates.gateOpen(subject),
       release: async (subject) => {
@@ -371,7 +346,7 @@ integration("channel summary folds (a1/J10)", () => {
         };
       },
       context: createPostgresSummaryFoldContexts(db),
-      store: createPostgresSummaryFoldStore(db, { versions: VERSIONS }),
+      store: createPostgresSummaryFoldStore(db),
       executor,
     });
     return { folder, calls: () => calls };
@@ -528,14 +503,6 @@ integration("channel summary folds (a1/J10)", () => {
         pool.query(
           "UPDATE agents SET conversation_rollout = 'off' WHERE id = $1",
           [agent.agentId],
-        ),
-    ],
-    [
-      "the approval revoked",
-      (agent: Agent) =>
-        pool.query(
-          "UPDATE slack_notice_approvals SET revoked_at = now(), revoked_by = $2 WHERE agent_id = $1",
-          [agent.agentId, randomUUID()],
         ),
     ],
   ] as const) {

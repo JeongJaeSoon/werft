@@ -3905,8 +3905,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read the agent's Slack notice and its approval
-         * @description The notice an owner or admin approves before the agent listens in Slack, and whether its organization approved it. `notice` is the current version with its words in Korean and Japanese (`text.ko`, `text.ja`), drawn as written, or null before the first version is published. `state`: `no_notice`; `not_installed` (the agent's app has no live Slack install); `not_approved`; `reapproval_required` (an approval of an older version is live, but the current version asks for a new one: the agent does not listen until it is given); `approved` (every Slack team of the agent's live installs has a live approval of a counted version). `approvals` are the unrevoked approvals in those teams, by team, newest version first; `counts` is false for one the current version no longer counts. `approved_by.email` is null unless the reader is a workspace owner or admin, which `can_approve` says. `rollout` is the agent's conversation switch (`off`, `shadow`, `on`), which only those may change. Owners, admins, the agent's admins and the live members of its managing team, with a web session only.
+         * Read the agent's conversation switch
+         * @description The agent's conversation switch (`rollout`: `off`, `shadow`, `on`) and whether the reader may change it (`can_approve`: a workspace owner or admin). The Slack notice approval this route once answered is retired: `notice` is always null, `state` always `no_notice` and `approvals` always empty; these fields are deprecated and will be removed. Owners, admins, the agent's admins and the live members of its managing team, with a web session only.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -3929,8 +3929,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Approve the agent's Slack notice
-         * @description Approves the current notice version for each Slack team of the agent's live installs that has no live approval of it yet, writing one `approve_slack_notice` receipt per team with the version and the language it was shown in (`locale`). `notice_version` is the version the caller was shown: another current version answers 409 REVISION_CONFLICT with `details.reason_code` `notice_version_stale`, and no published version answers 409 REVISION_CONFLICT with `no_notice`. An app with no live install answers 409 SLACK_NOT_INSTALLED. Approving again writes nothing. Answers the notice as GET does. Workspace owners and admins only, not the agent's admins (403 with `details.reason_code` `workspace_admin_required`), with a web session only.
+         * Retired: approve the agent's Slack notice
+         * @deprecated
+         * @description Retired with the Slack notice approval: the conversation switch no longer needs one. A signed-in console session is answered 410 ENDPOINT_RETIRED with `details.reason_code` `slack_notice_retired`, whatever its body, and no approval, switch or receipt changes; the checks the protected `/v1` routes share come first (401 without a login, 403 on a failed CSRF check, 408 and 413 while the body is read). An API key is refused with 403 `details.reason_code` `web_session_required`: the route stays console-only, but it no longer reads the agent or the body first, so a key once answered 404, 400 or a role 403 gets this 403 now. The route will be removed in a later release. Approvals given before stay stored and are not read.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3952,7 +3953,7 @@ export interface paths {
         put?: never;
         /**
          * Change the agent's conversation switch
-         * @description Sets the agent's conversation switch to `off` or `shadow`. In `shadow` the agent holds the messages of the channels it listens to all of and records its judgment of them; it answers nothing more than before. `on` is refused 400 BAD_REQUEST with `details.reason_code` `rollout_on_unavailable`: it is not open yet. Leaving `off` needs the agent approved under the current notice (`state` `approved`): otherwise 409 REVISION_CONFLICT with `notice_not_approved` (also while a new approval is required) or `no_notice`, or 409 SLACK_NOT_INSTALLED. A change writes one `set_conversation_rollout` receipt in its transaction; setting the value it holds writes nothing. `off` removes every message the agent holds for judgment and stops new judgments; its judgment records and channel summaries stay. The switch also goes to `off` by itself when the approval is revoked or the current version asks for a new one. Answers the notice as GET does. Workspace owners and admins only, not the agent's admins (403 with `details.reason_code` `workspace_admin_required`), with a web session only.
+         * @description Sets the agent's conversation switch to `off` or `shadow`. In `shadow` the agent holds for judgment the messages its work path does not take: in a channel it listens to every message of (`free`), unmentioned messages and replies in threads not tied to its work; in any channel it listens to, replies in a thread it took part in lately that no work holds. Each one judged before it expires gets a judgment record; nothing is posted to Slack for them. Once raised, it posts one line in each such `free` channel it may post in, once per notice version that asks channels to be told again; the post can fail. `on` is refused 400 BAD_REQUEST with `details.reason_code` `rollout_on_unavailable`: it is not open yet, from `off` or from `shadow`. No approval is asked: the 409 answers this route gave while the Slack notice approval stood (`notice_not_approved`, `no_notice`, SLACK_NOT_INSTALLED) are no longer sent, and the switch no longer goes to `off` by itself. A change writes one `set_conversation_rollout` receipt in its transaction; setting the value it holds writes nothing. `off` removes every message the agent holds for judgment and stops new judgments; its judgment records and channel summaries stay. Answers the switch as GET does. Workspace owners and admins only, not the agent's admins (403 with `details.reason_code` `workspace_admin_required`), with a web session only.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3973,8 +3974,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Revoke the agent's Slack notice approval
-         * @description Revokes every live approval of the agent in any Slack team, with one `revoke_slack_notice` receipt naming them; with none live it writes nothing. The agent then has no approval and stops listening: a raised conversation switch goes to `off` in the same transaction, with its `set_conversation_rollout` receipt (`reason` `notice_revoked`), and the messages it held for judgment are removed. Answers the notice as GET does. Workspace owners and admins only, not the agent's admins (403 with `details.reason_code` `workspace_admin_required`), with a web session only.
+         * Retired: revoke the agent's Slack notice approval
+         * @deprecated
+         * @description Retired with the Slack notice approval: the conversation switch no longer needs one. A signed-in console session is answered 410 ENDPOINT_RETIRED with `details.reason_code` `slack_notice_retired`, whatever its body, and no approval, switch or receipt changes; the checks the protected `/v1` routes share come first (401 without a login, 403 on a failed CSRF check, 408 and 413 while the body is read). An API key is refused with 403 `details.reason_code` `web_session_required`: the route stays console-only, but it no longer reads the agent or the body first, so a key once answered 404, 400 or a role 403 gets this 403 now. The route will be removed in a later release. Approvals given before stay stored and are not read.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -5532,9 +5534,8 @@ export interface paths {
          *     - `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.
          *     - `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.
          *     - `set_slack_allowed_bots`: `{agent_id, added, removed, count_before, count_after, by}`; `by` is `web` for a save in the console (the user is the receipt's `actor`) and `operator_cli` for a change made with the `slack-app.ts` bot commands; both write it only when the list changed.
-         *     - `approve_slack_notice`: `{agent_id, approval_id, slack_team_id, notice_version}`; a workspace owner or admin (the receipt's `actor`) approved the Slack notice at that version for the agent's app in that Slack team.
-         *     - `revoke_slack_notice`: `{agent_id, approval_ids, slack_team_ids, notice_versions}`: the approvals the revoke ended; written only when one was live.
-         *     - `set_conversation_rollout`: `{agent_id, before, after, by, reason, buffered_dropped}`; `by` is `web` (a workspace owner or admin, the receipt's `actor`), `operator_cli` (`slack-notice.ts set-rollout`) or `reconciler`; `reason` is null for a change asked for, `notice_revoked` when a revoke lowered it, or `not_approved`, `not_installed` or `no_notice` when a pass found the agent no longer approved; `buffered_dropped` counts the held messages a change to `off` removed.
+         *     - `approve_slack_notice`, `revoke_slack_notice`: no longer written, since the Slack notice approval is retired; ones written before still read, with `{agent_id, approval_id, slack_team_id, notice_version, notice_locale}` and `{agent_id, approval_ids, slack_team_ids, notice_versions}`.
+         *     - `set_conversation_rollout`: `{agent_id, before, after, by, reason, buffered_dropped}`; `by` is `web` (a workspace owner or admin, the receipt's `actor`) or `operator_cli` (`slack-notice.ts set-rollout`), and `reason` is null. Receipts written while the approval stood may also say `reason` `notice_revoked` (`by` `web`: a revoke lowered the switch) or `not_approved`, `not_installed` or `no_notice` (`by` `reconciler`: the switch lowered to `off` by itself); no new receipt does. `buffered_dropped` counts the held messages a change to `off` removed.
          *     - `delete_slack_app`: `{slack_app_id, app_id, kind, agent_id, closed, slack_cleanup}`: a Slack app deleted through the API, by the receipt's `actor`. `closed` counts what the delete closed in Werft (`installations`, `identities`, `bindings`, `outbox` messages cancelled as `app_deleted`, `buffered` messages dropped); `slack_cleanup` is null until Slack's side was tried, then `{outcome, failed_steps, message}` as the delete answered. No token is in it.
          *     - `resolve_unknown_budget`: `{call_id, call_kind, session_id, agent_id, conversation_turn_id, account_id, owner_kind, owner_id, period_start, resolution, reason, held_cost_usd, held_tokens, charged_cost_usd, charged_tokens, unknown_at, run_id, by}`, written by the `budget-unknown.ts` operator command for each budget reservation of unknown end it resolves, or by the reconciler (`by` `reconciler`, no `actor`) for one whose turn ended and whose call can no longer run; `resolution` is `spent` (charged at what it held), `refunded` (charged nothing, with its `reason`) or `estimated` (the reconciler's: charged at what it held), and `target_ref` is the account's owner (a person, or a team) or, with no account, the workspace.
          *
@@ -6601,7 +6602,7 @@ export interface components {
         ApiErrorResponse: {
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "WORKSPACE_QUOTA_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "NO_CAPACITY" | "CODEX_SANDBOX_NOT_INSTALLED" | "WORKER_OWNERSHIP_LOST" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SOURCE_DELETED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "CREDENTIAL_UNBOUND" | "AGENT_NOT_RUNNABLE" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "RELEASE_SPEC_UNAVAILABLE" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "PULL_REQUEST_MERGED" | "PULL_REQUEST_MERGE_BLOCKED" | "PULL_REQUEST_CLOSED" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_LIMIT" | "TEAM_MANAGES_AGENTS" | "VARIABLE_NAME_INVALID" | "VARIABLE_NAME_RESERVED" | "VARIABLE_VALUE_INVALID" | "VARIABLE_VALUE_TOO_LARGE" | "VARIABLE_QUOTA_EXCEEDED" | "MCP_SERVER_QUOTA_EXCEEDED" | "VARIABLE_UNRESOLVED" | "SECRET_ACK_REQUIRED" | "SECRET_GRANT_ALL_FORBIDDEN" | "SECRET_ENV_UNSUPPORTED" | "VERSION_MISMATCH" | "PRECONDITION_REQUIRED" | "DECISION_MODEL_REQUIRED";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "WORKSPACE_QUOTA_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "NO_CAPACITY" | "CODEX_SANDBOX_NOT_INSTALLED" | "WORKER_OWNERSHIP_LOST" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SOURCE_DELETED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "CREDENTIAL_UNBOUND" | "AGENT_NOT_RUNNABLE" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "RELEASE_SPEC_UNAVAILABLE" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "PULL_REQUEST_MERGED" | "PULL_REQUEST_MERGE_BLOCKED" | "PULL_REQUEST_CLOSED" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_LIMIT" | "TEAM_MANAGES_AGENTS" | "VARIABLE_NAME_INVALID" | "VARIABLE_NAME_RESERVED" | "VARIABLE_VALUE_INVALID" | "VARIABLE_VALUE_TOO_LARGE" | "VARIABLE_QUOTA_EXCEEDED" | "MCP_SERVER_QUOTA_EXCEEDED" | "VARIABLE_UNRESOLVED" | "SECRET_ACK_REQUIRED" | "SECRET_GRANT_ALL_FORBIDDEN" | "SECRET_ENV_UNSUPPORTED" | "VERSION_MISMATCH" | "PRECONDITION_REQUIRED" | "DECISION_MODEL_REQUIRED" | "ENDPOINT_RETIRED";
                 message: string;
                 retryable: boolean;
                 request_id: string;
@@ -8726,7 +8727,7 @@ export interface components {
             result: unknown | null;
             error: {
                 /** @enum {string} */
-                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "WORKSPACE_QUOTA_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "NO_CAPACITY" | "CODEX_SANDBOX_NOT_INSTALLED" | "WORKER_OWNERSHIP_LOST" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SOURCE_DELETED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "CREDENTIAL_UNBOUND" | "AGENT_NOT_RUNNABLE" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "RELEASE_SPEC_UNAVAILABLE" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "PULL_REQUEST_MERGED" | "PULL_REQUEST_MERGE_BLOCKED" | "PULL_REQUEST_CLOSED" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_LIMIT" | "TEAM_MANAGES_AGENTS" | "VARIABLE_NAME_INVALID" | "VARIABLE_NAME_RESERVED" | "VARIABLE_VALUE_INVALID" | "VARIABLE_VALUE_TOO_LARGE" | "VARIABLE_QUOTA_EXCEEDED" | "MCP_SERVER_QUOTA_EXCEEDED" | "VARIABLE_UNRESOLVED" | "SECRET_ACK_REQUIRED" | "SECRET_GRANT_ALL_FORBIDDEN" | "SECRET_ENV_UNSUPPORTED" | "VERSION_MISMATCH" | "PRECONDITION_REQUIRED" | "DECISION_MODEL_REQUIRED";
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "WORKSPACE_QUOTA_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "NO_CAPACITY" | "CODEX_SANDBOX_NOT_INSTALLED" | "WORKER_OWNERSHIP_LOST" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SOURCE_DELETED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "CREDENTIAL_UNBOUND" | "AGENT_NOT_RUNNABLE" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "RELEASE_SPEC_UNAVAILABLE" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "PULL_REQUEST_MERGED" | "PULL_REQUEST_MERGE_BLOCKED" | "PULL_REQUEST_CLOSED" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_LIMIT" | "TEAM_MANAGES_AGENTS" | "VARIABLE_NAME_INVALID" | "VARIABLE_NAME_RESERVED" | "VARIABLE_VALUE_INVALID" | "VARIABLE_VALUE_TOO_LARGE" | "VARIABLE_QUOTA_EXCEEDED" | "MCP_SERVER_QUOTA_EXCEEDED" | "VARIABLE_UNRESOLVED" | "SECRET_ACK_REQUIRED" | "SECRET_GRANT_ALL_FORBIDDEN" | "SECRET_ENV_UNSUPPORTED" | "VERSION_MISMATCH" | "PRECONDITION_REQUIRED" | "DECISION_MODEL_REQUIRED" | "ENDPOINT_RETIRED";
                 message: string;
             } | null;
             /** Format: date-time */
@@ -41340,7 +41341,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The current notice and the approvals. */
+            /** @description The agent's conversation switch. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -41349,47 +41350,11 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "notice": {
-                     *         "version": 1,
-                     *         "requires_reapproval": true,
-                     *         "text": {
-                     *           "ko": {
-                     *             "body": [
-                     *               "…"
-                     *             ],
-                     *             "policy_link": {
-                     *               "label": "…",
-                     *               "href": "https://docs.example.test/data"
-                     *             }
-                     *           },
-                     *           "ja": {
-                     *             "body": [
-                     *               "…"
-                     *             ],
-                     *             "policy_link": {
-                     *               "label": "…",
-                     *               "href": "https://docs.example.test/data"
-                     *             }
-                     *           }
-                     *         }
-                     *       },
-                     *       "state": "approved",
+                     *       "notice": null,
+                     *       "state": "no_notice",
                      *       "rollout": "off",
                      *       "can_approve": true,
-                     *       "approvals": [
-                     *         {
-                     *           "id": "019a0000-0000-7000-8000-0000000000a1",
-                     *           "slack_team_id": "T0EXAMPLE",
-                     *           "notice_version": 1,
-                     *           "counts": true,
-                     *           "approved_by": {
-                     *             "user_id": "019a0000-0000-7000-8000-0000000000b1",
-                     *             "display_name": "Admin",
-                     *             "email": "admin@example.test"
-                     *           },
-                     *           "approved_at": "2026-11-24T00:00:00.000Z"
-                     *         }
-                     *       ]
+                     *       "approvals": []
                      *     }
                      */
                     "application/json": components["schemas"]["GetSlackNoticeResponse"];
@@ -41472,88 +41437,8 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                /**
-                 * @example {
-                 *       "notice_version": 1,
-                 *       "locale": "ja"
-                 *     }
-                 */
-                "application/json": components["schemas"]["ApproveSlackNoticeRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description The notice with the approvals after this one. */
-            200: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "notice": {
-                     *         "version": 1,
-                     *         "requires_reapproval": true,
-                     *         "text": {
-                     *           "ko": {
-                     *             "body": [
-                     *               "…"
-                     *             ],
-                     *             "policy_link": {
-                     *               "label": "…",
-                     *               "href": "https://docs.example.test/data"
-                     *             }
-                     *           },
-                     *           "ja": {
-                     *             "body": [
-                     *               "…"
-                     *             ],
-                     *             "policy_link": {
-                     *               "label": "…",
-                     *               "href": "https://docs.example.test/data"
-                     *             }
-                     *           }
-                     *         }
-                     *       },
-                     *       "state": "approved",
-                     *       "rollout": "off",
-                     *       "can_approve": true,
-                     *       "approvals": [
-                     *         {
-                     *           "id": "019a0000-0000-7000-8000-0000000000a1",
-                     *           "slack_team_id": "T0EXAMPLE",
-                     *           "notice_version": 1,
-                     *           "counts": true,
-                     *           "approved_by": {
-                     *             "user_id": "019a0000-0000-7000-8000-0000000000b1",
-                     *             "display_name": "Admin",
-                     *             "email": "admin@example.test"
-                     *           },
-                     *           "approved_at": "2026-11-24T00:00:00.000Z"
-                     *         }
-                     *       ]
-                     *     }
-                     */
-                    "application/json": components["schemas"]["GetSlackNoticeResponse"];
-                };
-            };
-            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
-            400: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "BAD_REQUEST";
-                        };
-                    };
-                };
-            };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
@@ -41584,21 +41469,6 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
-            404: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "NOT_FOUND";
-                        };
-                    };
-                };
-            };
             /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
@@ -41614,11 +41484,8 @@ export interface operations {
                     };
                 };
             };
-            /**
-             * @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
-             *     - `SLACK_NOT_INSTALLED`: The workspace has no verified Slack install for this team.
-             */
-            409: {
+            /** @description - `ENDPOINT_RETIRED`: The route is retired and does nothing; its description names what replaced it, if anything. Stop calling it. */
+            410: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
                     [name: string]: unknown;
@@ -41627,7 +41494,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "REVISION_CONFLICT" | "SLACK_NOT_INSTALLED";
+                            code?: "ENDPOINT_RETIRED";
                         };
                     };
                 };
@@ -41690,7 +41557,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The notice with the switch after this change. */
+            /** @description The switch after this change. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -41699,47 +41566,11 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "notice": {
-                     *         "version": 1,
-                     *         "requires_reapproval": true,
-                     *         "text": {
-                     *           "ko": {
-                     *             "body": [
-                     *               "…"
-                     *             ],
-                     *             "policy_link": {
-                     *               "label": "…",
-                     *               "href": "https://docs.example.test/data"
-                     *             }
-                     *           },
-                     *           "ja": {
-                     *             "body": [
-                     *               "…"
-                     *             ],
-                     *             "policy_link": {
-                     *               "label": "…",
-                     *               "href": "https://docs.example.test/data"
-                     *             }
-                     *           }
-                     *         }
-                     *       },
-                     *       "state": "approved",
+                     *       "notice": null,
+                     *       "state": "no_notice",
                      *       "rollout": "shadow",
                      *       "can_approve": true,
-                     *       "approvals": [
-                     *         {
-                     *           "id": "019a0000-0000-7000-8000-0000000000a1",
-                     *           "slack_team_id": "T0EXAMPLE",
-                     *           "notice_version": 1,
-                     *           "counts": true,
-                     *           "approved_by": {
-                     *             "user_id": "019a0000-0000-7000-8000-0000000000b1",
-                     *             "display_name": "Admin",
-                     *             "email": "admin@example.test"
-                     *           },
-                     *           "approved_at": "2026-11-24T00:00:00.000Z"
-                     *         }
-                     *       ]
+                     *       "approvals": []
                      *     }
                      */
                     "application/json": components["schemas"]["GetSlackNoticeResponse"];
@@ -41820,24 +41651,6 @@ export interface operations {
                     };
                 };
             };
-            /**
-             * @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
-             *     - `SLACK_NOT_INSTALLED`: The workspace has no verified Slack install for this team.
-             */
-            409: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "REVISION_CONFLICT" | "SLACK_NOT_INSTALLED";
-                        };
-                    };
-                };
-            };
             /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
             413: {
                 headers: {
@@ -41887,48 +41700,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The notice with no live approval left. */
-            200: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "notice": {
-                     *         "version": 1,
-                     *         "requires_reapproval": true,
-                     *         "text": {
-                     *           "ko": {
-                     *             "body": [
-                     *               "…"
-                     *             ],
-                     *             "policy_link": {
-                     *               "label": "…",
-                     *               "href": "https://docs.example.test/data"
-                     *             }
-                     *           },
-                     *           "ja": {
-                     *             "body": [
-                     *               "…"
-                     *             ],
-                     *             "policy_link": {
-                     *               "label": "…",
-                     *               "href": "https://docs.example.test/data"
-                     *             }
-                     *           }
-                     *         }
-                     *       },
-                     *       "state": "not_approved",
-                     *       "rollout": "off",
-                     *       "can_approve": true,
-                     *       "approvals": []
-                     *     }
-                     */
-                    "application/json": components["schemas"]["GetSlackNoticeResponse"];
-                };
-            };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
             401: {
                 headers: {
@@ -41959,21 +41730,6 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
-            404: {
-                headers: {
-                    "X-Request-Id": components["headers"]["RequestId"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"] & {
-                        error?: {
-                            /** @enum {string} */
-                            code?: "NOT_FOUND";
-                        };
-                    };
-                };
-            };
             /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
             408: {
                 headers: {
@@ -41985,6 +41741,36 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `ENDPOINT_RETIRED`: The route is retired and does nothing; its description names what replaced it, if anything. Stop calling it. */
+            410: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "ENDPOINT_RETIRED";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
                         };
                     };
                 };
