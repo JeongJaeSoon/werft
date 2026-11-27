@@ -9,8 +9,10 @@
 # the version must then read back without any login and match the candidate.
 #
 # ghcr can answer `not found` for the manifest a push has just written, at the
-# moment the push tags it. Only that answer is tried again, twice, each after a
-# pause and a new look: the push may have landed, and a version is written once.
+# moment the push tags it. For a main chart only that answer is tried again,
+# twice, each after a pause and a new look, since the push may have landed. A
+# main version carries its commit, so no other commit writes it in between; a
+# release version is not tried again.
 set -euo pipefail
 
 candidate="$1"
@@ -71,7 +73,9 @@ same_files() {
 printf '%s' "${REGISTRY_TOKEN:?}" |
   helm registry login "${registry%%/*}" --username "${GITHUB_ACTOR:?}" --password-stdin ${plain[@]+"${plain[@]}"}
 
-for attempt in 1 2 3; do
+tries=1
+case "$version" in *-main-*) tries=3 ;; esac
+for ((attempt = 1; attempt <= tries; attempt++)); do
   state="$(fetch "$work/login-${attempt}")"
   fetched="$work/login-${attempt}"
   # ghcr may answer `denied` for a package that does not exist yet. The token
@@ -93,9 +97,9 @@ for attempt in 1 2 3; do
   set -e
   printf '%s\n' "$pushed"
   [ "$status" -ne 0 ] || break
-  grep -Eq 'failed to perform "Tag" on destination: sha256:[0-9a-f]+: not found$' <<<"$pushed" || exit "$status"
-  [ "$attempt" != 3 ] || exit "$status"
-  echo "::warning::the registry did not find the manifest this push had just written; looking again (try ${attempt} of 3)"
+  grep -Eq '^Error: failed to perform "Tag" on destination: sha256:[0-9a-f]+: not found$' <<<"$pushed" || exit "$status"
+  [ "$attempt" -lt "$tries" ] || exit "$status"
+  echo "::warning::the registry did not find the manifest this push had just written; looking again (try ${attempt} of ${tries})"
   sleep "${CHART_PUSH_RETRY_SECONDS:-10}"
 done
 

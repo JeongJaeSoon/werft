@@ -36,6 +36,7 @@ digest_of_new_tag() {
     fi
     grep -Fxq "ERROR: $1: not found" "$errors" || break
     [ "$attempt" != 3 ] || break
+    cat "$errors" >&2
     echo "::warning::the registry did not find $1, which this run had just written; asking again (try ${attempt} of 3)" >&2
     sleep "${IMAGE_INDEX_RETRY_SECONDS:-10}"
   done

@@ -1779,9 +1779,9 @@ case "$1" in
   *) exit 64 ;;
 esac
 `;
-    const version = "0.1.0-main-0123456789ab";
+    const mainVersion = "0.1.0-main-0123456789ab";
 
-    const fixture = () => {
+    const fixture = (version = mainVersion) => {
       const directory = mkdtempSync(join(tmpdir(), "chart-push-"));
       for (const name of ["bin", "store", "out"])
         mkdirSync(join(directory, name));
@@ -1895,6 +1895,10 @@ esac
         "not found on another line than the tag",
         'Error: failed to perform "Tag" on destination: 500 upstream\ncache marker not found',
       ],
+      [
+        "another reason after a warning about the tag",
+        `Warning: ${tagNotFound.slice("Error: ".length)}\nError: 500 upstream`,
+      ],
     ])("a push that fails for %s is not tried again", (_, says) => {
       const repo = fixture();
       const run = repo.push({
@@ -1905,6 +1909,18 @@ esac
       expect(run.code).toBe(1);
       expect(run.out).toContain("500 upstream");
       expect(pushes(repo.log())).toBe(1);
+    });
+
+    test("a release version is not pushed again, whatever the registry answered", () => {
+      const repo = fixture("0.1.0");
+      const run = repo.push({
+        FAKE_PUSH_SAYS: tagNotFound,
+        FAKE_PUSH_FAILS: "1",
+        CHART_PUSH_RETRY_SECONDS: "0",
+      });
+      expect(run.code).toBe(1);
+      expect(pushes(repo.log())).toBe(1);
+      expect(repo.pushed()).toBe(false);
     });
 
     test("the same files under a new package time are a rerun, not a write", () => {
@@ -2484,6 +2500,16 @@ esac
       expect(result.code).toBe(1);
       expect(result.out).toContain("credentials file not found");
       expect(result.inspects).toBe(1);
+    });
+
+    test("what a tag read that is asked again wrote to stderr is kept", () => {
+      const result = run({
+        FAKE_INSPECT_SAYS: `WARNING: mirror is slow\n${tagNotFound}`,
+        FAKE_INSPECT_FAILS: "1",
+        IMAGE_INDEX_RETRY_SECONDS: "0",
+      });
+      expect(result.code).toBe(0);
+      expect(result.out).toContain("mirror is slow");
     });
 
     test("what a tag read that succeeds wrote to stderr is kept", () => {
