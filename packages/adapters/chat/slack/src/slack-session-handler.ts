@@ -366,7 +366,8 @@ export function createSlackSessionHandler(
       ) {
         return null;
       }
-      if (!messageTextSchema.safeParse(event.text).success) return null;
+      const bufferedBody = unescapeSlackText(event.text);
+      if (!messageTextSchema.safeParse(bufferedBody).success) return null;
       const unheard = await deps.audience.unheardReason({
         agentId: agent.agentId,
         teamId: claim.teamId,
@@ -403,7 +404,7 @@ export function createSlackSessionHandler(
         channelId: event.channel,
         ts: event.ts,
         buffered: {
-          body: unescapeSlackText(event.text),
+          body: bufferedBody,
           slackUserId: event.user,
         },
         ...(judged === "m1" ? { judgment: "m1_engaged" as const } : {}),

@@ -175,9 +175,11 @@ describe("an unbound thread the agent took part in lately", () => {
       rollout: "shadow",
       linked: false,
       engaged: true,
-      text: "&lt;@U2&gt; A &amp;&amp; B",
+      text: `&lt;@${BOT}&gt; A &amp;&amp; B &amp;lt;`,
     });
-    expect(receipt).toMatchObject({ buffered: { body: "<@U2> A && B" } });
+    expect(receipt).toMatchObject({
+      buffered: { body: `<@${BOT}> A && B &lt;` },
+    });
   });
 
   test("a thread not engaged under mention-only is not held", async () => {
