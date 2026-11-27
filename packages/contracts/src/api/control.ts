@@ -21,7 +21,15 @@ export const pauseSessionRequestSchema = z
     reason: z.string().min(1).optional(),
   })
   .strict();
-export const terminateSessionRequestSchema = pauseSessionRequestSchema;
+export const terminateSessionRequestSchema = z
+  .object({
+    expected_revision: revisionSchema,
+    reason: z.string().min(1).optional(),
+    // The admission the caller decided on: a terminate closes a session
+    // waiting on recovery, so one that got there unseen is refused.
+    expected_admission_state: admissionStateSchema.optional(),
+  })
+  .strict();
 export const closeSessionRequestSchema = pauseSessionRequestSchema;
 export const resumeSessionRequestSchema = z
   .object({ expected_revision: revisionSchema })

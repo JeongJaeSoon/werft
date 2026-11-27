@@ -7,6 +7,7 @@ import {
   slackNoticeText,
 } from "@werft-ai/contracts";
 import type {
+  SurfaceAfterTurnReply,
   SurfaceOutboxStore,
   SurfacePendingPrompt,
   SurfaceProgressDue,
@@ -21,6 +22,7 @@ import {
   slackOutboxGuard,
 } from "./slack-outbox-render.ts";
 import {
+  mention,
   slackOwnershipLostNotice,
   slackPromptMessage,
   slackStartFreshNotice,
@@ -457,6 +459,93 @@ export async function enqueueSlackTurnAnswers(deps: {
     });
   }
   return turns.length;
+}
+
+/** One follow-up per thread for each answer an engine gave after its turn. */
+export function slackAfterTurnDedupeKey(
+  sessionLinkId: string,
+  turnId: number,
+  resultSequence: number,
+): string {
+  return `after_turn:${sessionLinkId}:${turnId}:${resultSequence}`;
+}
+
+// Pages a pass reads past answers the store took for ones with something to
+// say and finalReplyText finds empty (its last 500 events hold no text).
+const AFTER_TURN_PAGES_MAX = 20;
+
+/** Whether a follow-up mentions whoever asked for its turn, as the turn's reply does. */
+export const SLACK_AFTER_TURN_MENTIONS_REQUESTER = true;
+
+/**
+ * Enqueues, under the turn's reply, what the engine said on its own after
+ * the turn ended: once per answer, with the turn's sources, link and
+ * reader. An answer with no text to show posts nothing.
+ */
+export async function enqueueSlackAfterTurnReplies(deps: {
+  outbox: Pick<SurfaceOutboxStore, "afterTurnReplies" | "enqueue">;
+  consoleOrigin: string | null;
+  limit: number;
+}): Promise<number> {
+  let enqueued = 0;
+  let after: string | undefined;
+  for (let page = 0; page < AFTER_TURN_PAGES_MAX; page += 1) {
+    const replies: SurfaceAfterTurnReply[] = await deps.outbox.afterTurnReplies(
+      deps.limit,
+      after,
+    );
+    for (const reply of replies) {
+      after = reply.resultId;
+      if (await enqueueAfterTurnReply(deps, reply)) enqueued += 1;
+    }
+    if (replies.length < deps.limit || enqueued >= deps.limit) break;
+  }
+  return enqueued;
+}
+
+async function enqueueAfterTurnReply(
+  deps: Pick<
+    Parameters<typeof enqueueSlackAfterTurnReplies>[0],
+    "outbox" | "consoleOrigin"
+  >,
+  reply: SurfaceAfterTurnReply,
+): Promise<boolean> {
+  const said = finalReplyText(reply.events);
+  if (said === "") return false;
+  const link_url = sessionUrl(deps.consoleOrigin, reply.sessionId);
+  const locale = reply.locale ?? DEFAULT_USER_LOCALE;
+  // It comes after the requester has moved on, so it calls them by name.
+  const asker =
+    SLACK_AFTER_TURN_MENTIONS_REQUESTER && reply.requesterSlackUserId !== null
+      ? reply.requesterSlackUserId
+      : null;
+  const who = asker === null ? "" : mention(asker);
+  const result = await deps.outbox.enqueue({
+    workspaceId: reply.workspaceId,
+    agentId: reply.agentId,
+    slackAppId: reply.slackAppId,
+    installationId: reply.installationId,
+    kind: "reply",
+    channelId: reply.channelId,
+    threadTs: reply.threadTs,
+    slackUserId: null,
+    sessionId: reply.sessionId,
+    sessionLinkId: reply.sessionLinkId,
+    body: {
+      text: `${who === "" ? "" : `${who} `}${SLACK_OUTBOX_MESSAGES[locale].afterTurn}\n\n${said}`,
+      locale,
+      ...(link_url === undefined ? {} : { link_url }),
+      ...(asker === null ? {} : { mention_user_ids: [asker] }),
+    },
+    dedupeKey: slackAfterTurnDedupeKey(
+      reply.sessionLinkId,
+      reply.turnId,
+      reply.resultSequence,
+    ),
+    sources: reply.sources,
+    sourcesTurn: reply.turnId,
+  });
+  return result === "enqueued";
 }
 
 export async function enqueueSlackPrompts(deps: {
