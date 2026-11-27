@@ -354,4 +354,31 @@ P4의 turn은 이벤트와 호출이 각각 control plane에 도착한 때로 �
 
 ## 4. rollout 스위치
 
-이 절은 rollout 스위치 전이를 바꾸는 변경이 채운다.
+에이전트의 `conversation_rollout`(`off`, `shadow`, `on`)이다. 바꾸는 길은 웹의 `POST /v1/agents/{id}/slack/notice/rollout`(워크스페이스 owner·admin, 웹 세션)과 운영자 명령 `slack-notice.ts set-rollout` 두 가지이고, 둘 다 `setConversationRollout`(`packages/db/src/surface/conversation-rollout.ts`)을 지난다. 바뀔 때마다 같은 transaction에서 `set_conversation_rollout` receipt를 하나 쓴다(`reason`은 null). 순서는 `off`→`shadow`→`on`이고, 지금은 `shadow`까지만 연다. shadow→on은 W1이 연다.
+
+### 전이 표
+
+| 지금 상태 | 다음 상태 | 조건 | 누가 일으키나 | 시험(`packages/db/src/surface/conversation-rollout.test.ts`) |
+| --- | --- | --- | --- | --- |
+| `off` | `shadow` | 없음. 고지 승인도 살아 있는 Slack 설치도 묻지 않는다 | owner·admin(웹), 운영자 CLI | "off → shadow needs no approval…", "off → shadow needs no live Slack install either" |
+| `shadow` | `off` | 없음. 그 에이전트가 판단하려고 쥔 글을 모두 지운다. 판단 기록과 채널 요약은 남는다 | 같음 | "shadow → off empties the buffer and holds nothing new" |
+| `on` | `shadow`, `off` | 없음(SQL로 `on`이 된 에이전트를 내리는 길) | 같음 | "on → shadow and on → off are taken, for a switch SQL left on" |
+| `off`, `shadow` | 같은 값 | 바뀌지 않는다. receipt를 쓰지 않는다. `on`인 에이전트에 `on`을 주면 아래처럼 거절된다 | 같음 | "the value it holds changes nothing and writes no receipt" |
+
+### 막을 전이
+
+| 전이 | 거절 | 시험 |
+| --- | --- | --- |
+| `off` → `on` | 400 `BAD_REQUEST`, `rollout_on_unavailable`(CLI는 exit 4). 아무것도 바꾸지 않고 receipt도 쓰지 않는다 | "off → on is refused, from the web and the operator CLI, and changes nothing" |
+| `shadow` → `on`, `on` → `on` | 같음. W1이 열 때까지 | "shadow → on is refused until W1 opens it"(`on` → `on`도 같은 시험) |
+| 워크스페이스 owner·admin이 아닌 사람의 변경 | 403 `workspace_admin_required`(에이전트 admin도) | "owners and admins change it…" |
+
+없앤 전이: 고지 승인 철회 → `off`, 다시 승인이 필요해짐(고지 판 바뀜, 승인한 Slack 팀이 설치에서 빠짐) → `off`. 둘 다 reconciler와 철회 경로가 스위치를 스스로 내리던 전이다. 이제 스위치는 사람이 바꿀 때만 바뀐다. 전에 쓰인 `by: reconciler` receipt는 그대로 읽힌다.
+
+### 지킬 성질
+
+- 대화 gate(`conversationGate`)는 스위치만 본다. `off`면 닫히고(`rollout_off`) `shadow`·`on`이면 열린다. 시험: "it follows the switch alone".
+- 이 변경은 저장된 스위치 값을 바꾸지 않는다. `off`인 에이전트는 승인 줄이 있든 없든 배포 뒤에도 `off`로 남아 글을 쥐지 않고 채널 안내도 쓰지 않는다. 시험: "an agent at off, approved or not, stays off and does not listen".
+- 승인이 서 있던 동안에는 세 길(올릴 때 판단, 철회, reconciler)이 승인 없는 에이전트의 스위치를 `off`로 두었다. 다만 gate는 바로 닫혀도 저장값은 reconciler가 내릴 때까지 올라가 있었다. 승인 없는 Slack 팀이 더해졌거나 살아 있는 설치가 없어졌는데 reconciler가 아직 내리지 못한 에이전트(다음 pass 전, dry-run, 실패)는 배포 뒤 gate가 열린다. 옛 gate가 닫은 것은 판단과 채널 안내뿐이고 버퍼에 담는 일은 저장값을 봤으므로, 기한이 남은 버퍼의 글도 판단된다. 설치와 듣는 채널이 있으면 새 글도 담긴다. 배포 바로 전에 `packages/db/src/surface/raised-without-notice-approval.sql`로 그런 에이전트를 찾는다. 쿼리와 배포 사이에 승인 충족이나 대상을 바꾸는 설치·연결·스위치 변경이 있으면 다시 돌린다. 옛 reconciler가 남아 있는 동안(배포 중, 되돌림) dry-run이 아닌 그 pass는 승인 없이 올라간 에이전트를 다시 보고 스위치를 `off`로 내리고 담긴 글을 지운다. 그래서 스위치는 옛 reconciler가 모두 내려간 뒤에 올린다. 설치가 없어 목록에 오른 에이전트는 gate가 열려도 설치가 되살아나기 전에는 글을 받지 않는다. 시험: "the pre-deploy check for raised agents the approval held closed".
+- 승인된 `shadow` 에이전트는 `shadow`로 남아 계속 듣는다. 철회된 승인 줄은 스위치를 내리지 않는다. 시험: "an approved agent at shadow stays at shadow and keeps listening", "a revoked approval row neither closes the gate nor lowers a raised switch".
+- 채널 안내(`slack_outbox`의 `channel_notice` 행)는 스위치가 올라간 에이전트가 '모든 글'을 듣는 적격 채널마다 승인 없이 한 번 쓴다. 같은 판으로는 다시 쓰지 않고, 다시 알리라는 고지 판이 오면 그 판에서 한 번 더 쓴다. 문구만 바뀐 판에는 쓰지 않는다. 전송이 확정 실패하면 같은 판으로 다른 키의 행을 다시 쓴다. 한 판의 행은 첫 시도를 포함해 5개까지다(다시 시도는 4번). 시험: `apps/control-host/src/slack/channel-notice.integration.test.ts`의 "an agent raised with no approval tells its channels as one approved did".

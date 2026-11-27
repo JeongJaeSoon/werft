@@ -59,7 +59,10 @@ export const slackNoticeApprovalViewSchema = z
 
 export const getSlackNoticeResponseSchema = z
   .object({
-    /** The current version; null before the first one is published. */
+    /**
+     * Deprecated: the notice approval is retired. Always null; kept so older
+     * readers still parse the response.
+     */
     notice: z
       .object({
         version: slackNoticeVersionSchema,
@@ -70,22 +73,18 @@ export const getSlackNoticeResponseSchema = z
       })
       .strict()
       .nullable(),
+    /** Deprecated: the notice approval is retired. Always `no_notice`. */
     state: slackNoticeStateSchema,
-    /**
-     * The agent's conversation switch. It leaves `off` only while `state`
-     * is `approved`, and goes back to `off` when the approval is revoked or
-     * the current version asks for a new one.
-     */
+    /** The agent's conversation switch. */
     rollout: conversationRolloutSchema,
-    /**
-     * The reader may approve, revoke and change `rollout`: a workspace owner
-     * or admin.
-     */
+    /** The reader may change `rollout`: a workspace owner or admin. */
     can_approve: z.boolean(),
+    /** Deprecated: the notice approval is retired. Always empty. */
     approvals: z.array(slackNoticeApprovalViewSchema),
   })
   .strict();
 
+/** Deprecated: the approve route answers 410 whatever it is sent. */
 export const approveSlackNoticeRequestSchema = z
   .object({
     /** The version the approver was shown; another current one is refused. */
@@ -97,7 +96,7 @@ export const approveSlackNoticeRequestSchema = z
 
 export const setConversationRolloutRequestSchema = z
   .object({
-    /** `on` parses but is refused: it is not open yet. */
+    /** `on` parses but is refused: it is not open yet. No approval is asked. */
     rollout: conversationRolloutSchema,
   })
   .strict();
