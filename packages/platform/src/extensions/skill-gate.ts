@@ -42,7 +42,11 @@ export type SkillGateInput = {
   after: readonly CanonicalBundleFile[];
   /** Hosts of the egress allowlist, compared as text: no DNS, no port. */
   allowedHosts: ReadonlySet<string>;
-  /** File names at the root of the source repository, outside the skill. */
+  /**
+   * File names at the root of the source repository, outside the skill. Only
+   * this version's: a root NOTICE that appears while the skill's license and
+   * notice files stay the same raises no new license_notice_missing.
+   */
   repositoryRootFiles: readonly string[];
 };
 
