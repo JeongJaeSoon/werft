@@ -258,6 +258,7 @@ case "$app" in
     [ "$gitleaks_version" = 8.30.1 ] || { echo "expected gitleaks 8.30.1" >&2; exit 1; }
     docker run --rm "$image" test -s /usr/local/share/doc/gitleaks/LICENSE
     docker run --rm "$image" test -s /usr/local/share/doc/gitleaks/GO-LICENSE
+    docker run --rm "$image" test -s /usr/local/share/doc/gitleaks/modules/github.com/andybalholm/brotli@v1.2.7/LICENSE
     docker run --rm "$image" bun -e "$gitleaks_probe"
     api_init_smoke "$image"
     # The docs the built-in `werft` MCP server answers from, in all three

@@ -104,7 +104,16 @@ RUN mkdir /tmp/gitleaks \
     -ldflags="-s -w -X github.com/zricethezav/gitleaks/v8/version.Version=${GITLEAKS_VERSION}" \
     -o /tmp/gitleaks/gitleaks . \
   && cp LICENSE /tmp/gitleaks/LICENSE \
-  && cp /usr/local/go/LICENSE /tmp/gitleaks/GO-LICENSE
+  && cp /usr/local/go/LICENSE /tmp/gitleaks/GO-LICENSE \
+  && mods="$(go version -m /tmp/gitleaks/gitleaks | awk '$1 == "dep" { print $2 "@" $3 }')" \
+  && cache="$(go env GOMODCACHE)" \
+  && for mod in $mods; do \
+    dir="$cache/$(printf '%s' "$mod" | sed 's/[A-Z]/!\l&/g')"; \
+    mkdir -p "/tmp/gitleaks/modules/$mod"; \
+    find "$dir" -maxdepth 1 -type f \( -iname 'licen[cs]e*' -o -iname 'copying*' -o -iname 'notice*' \) \
+      -exec cp '{}' "/tmp/gitleaks/modules/$mod/" ';'; \
+    [ -n "$(ls -A "/tmp/gitleaks/modules/$mod")" ] || { echo "no license file in $mod" >&2; exit 1; }; \
+  done
 
 FROM ${BUN_IMAGE} AS runtime
 # git: the checkpoint verifier fetches each workspace bundle into a scratch
@@ -125,6 +134,7 @@ RUN test "$(id -u bun)" = 1000
 COPY --from=gitleaks --chmod=0755 /tmp/gitleaks/gitleaks /usr/local/bin/gitleaks
 COPY --from=gitleaks /tmp/gitleaks/LICENSE /usr/local/share/doc/gitleaks/LICENSE
 COPY --from=gitleaks /tmp/gitleaks/GO-LICENSE /usr/local/share/doc/gitleaks/GO-LICENSE
+COPY --from=gitleaks /tmp/gitleaks/modules /usr/local/share/doc/gitleaks/modules
 WORKDIR /app
 COPY --from=pruned --chown=1000:1000 /app /app
 COPY --from=web --chown=1000:1000 /app/apps/web/dist /app/apps/web/dist

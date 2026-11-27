@@ -399,7 +399,10 @@ describe("app Dockerfiles", () => {
       "COPY --from=gitleaks --chmod=0755 /tmp/gitleaks/gitleaks /usr/local/bin/gitleaks",
       "COPY --from=gitleaks /tmp/gitleaks/LICENSE /usr/local/share/doc/gitleaks/LICENSE",
       "COPY --from=gitleaks /tmp/gitleaks/GO-LICENSE /usr/local/share/doc/gitleaks/GO-LICENSE",
+      "COPY --from=gitleaks /tmp/gitleaks/modules /usr/local/share/doc/gitleaks/modules",
     ]);
+    // Each linked module's license files, or the build fails.
+    expect(stage).toContain('echo "no license file in $mod" >&2; exit 1;');
     expect(read(".github/scripts/image-smoke.sh")).toContain(
       `[ "$gitleaks_version" = ${GITLEAKS_VERSION} ]`,
     );
