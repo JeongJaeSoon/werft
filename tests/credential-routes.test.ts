@@ -811,6 +811,8 @@ describe("credential routes end to end", () => {
       const child = Bun.spawn(["git", ...args], {
         cwd,
         env,
+        // Well inside the test's own deadline, so none outlives its scratch.
+        timeout: 20_000,
         stdout: "pipe",
         stderr: "pipe",
       });
@@ -969,14 +971,18 @@ describe("credential routes end to end", () => {
       }
       // The same SigV4 carrier with the attempt's own object store token
       // gets past the token, so the 401s above are the purpose's.
-      const own = await fetch(`${credentialUrl}/object-store/bucket/key`, {
-        headers: {
-          authorization: `AWS4-HMAC-SHA256 Credential=${topology.claim.object_store.access.token}/20261127/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=${"0".repeat(64)}`,
-          "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
-          "x-amz-date": "20261127T000000Z",
-        },
-      });
-      expect(own.status).toBe(503);
+      for (const method of ["GET", "PUT"]) {
+        const own = await fetch(`${credentialUrl}/object-store/bucket/key`, {
+          method,
+          headers: {
+            authorization: `AWS4-HMAC-SHA256 Credential=${topology.claim.object_store.access.token}/20261127/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=${"0".repeat(64)}`,
+            "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+            "x-amz-date": "20261127T000000Z",
+          },
+          ...(method === "PUT" ? { body: "x" } : {}),
+        });
+        expect({ method, status: own.status }).toEqual({ method, status: 503 });
+      }
       expect(statuses).toEqual(
         refused.map(([path, , status]) => [path, status]),
       );
@@ -1092,8 +1098,21 @@ describe("credential routes end to end", () => {
               environment[`GIT_CONFIG_VALUE_${index}`],
             ] as const,
         ).filter(([, value]) => value?.startsWith("Authorization:"));
-      const network = worker.filter((child) => headers(child).length > 0);
-      expect(network.map(({ args }) => args[0])).toContain("clone");
+      // Which children talk to a remote is read from their arguments, not
+      // from whether they were handed a header.
+      const subcommand = (args: string[]) => {
+        for (let index = 0; index < args.length; index += 1) {
+          const arg = args[index] ?? "";
+          if (arg === "-C" || arg === "-c") index += 1;
+          else if (!arg.startsWith("-")) return arg;
+        }
+        return undefined;
+      };
+      const NETWORK = new Set(["clone", "fetch", "ls-remote", "pull"]);
+      const network = worker.filter(({ args }) =>
+        NETWORK.has(subcommand(args) ?? ""),
+      );
+      expect(network.map(({ args }) => subcommand(args))).toContain("clone");
       // Each network child is given the claim's repository token, in one
       // header scoped to the repository route and nowhere else on the proxy.
       for (const child of network) {
@@ -1108,6 +1127,14 @@ describe("credential routes end to end", () => {
       // The local ones get no token at all, and no child gets any other
       // secret of the attempt.
       expect(worker.length).toBeGreaterThan(network.length);
+      for (const child of worker) {
+        if (!network.includes(child)) {
+          expect({ args: child.args, headers: headers(child) }).toEqual({
+            args: child.args,
+            headers: [],
+          });
+        }
+      }
       const others = claimSecrets(claim, bootstrapNonce).filter(
         (value): value is string => value !== undefined && value !== token,
       );
@@ -1121,7 +1148,7 @@ describe("credential routes end to end", () => {
 
       // The worker's clone child's environment, as it was, from the
       // sandbox's side: what it fetched it fetches again, and nothing more.
-      const cloned = network.find(({ args }) => args[0] === "clone");
+      const cloned = network.find(({ args }) => subcommand(args) === "clone");
       if (cloned === undefined) throw new Error("no clone child");
       const env = {
         ...cloned.environment,
