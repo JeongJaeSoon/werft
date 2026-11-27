@@ -337,6 +337,36 @@ echo " 0 fail"
     expect(result.stderr).not.toContain(PROBE);
   });
 
+  test("CI's shards run each scripted suite exactly once", async () => {
+    const suites = async (name: string, args: string[]) => {
+      const result = run(name, {}, args);
+      expect(result.status).toBe(0);
+      const argv = await result.argv;
+      const command = /^bun test (.*) --timeout /m.exec(argv)?.[1];
+      const record = await Bun.file(join(result.out, "record.txt")).text();
+      expect(record).toContain(
+        `command: tests/e2e/run.sh${args.map((arg) => ` ${arg}`).join("")}\n`,
+      );
+      return (command ?? "").split(" ").sort();
+    };
+    const shards = await Promise.all(
+      ["1", "2", "3"].map((n) => suites(`shard-${n}`, ["--shard", n])),
+    );
+    // Every file of tests/e2e but the paid run's, so a new one needs a shard.
+    const files = [...new Bun.Glob("tests/e2e/*.e2e.ts").scanSync(ROOT)]
+      .filter((file) => file !== "tests/e2e/real-model.e2e.ts")
+      .map((file) => `./${file}`)
+      .sort();
+    expect(shards.flat().sort()).toEqual(files);
+    expect(await suites("unsharded", [])).toEqual(files);
+    for (const shard of shards) expect(shard).not.toEqual([""]);
+    for (const args of [["--shard", "0"], ["--shard", "4"], ["--shard"]]) {
+      const refused = run(`bad-shard-${args.join("")}`, {}, args);
+      expect(refused.status).toBe(2);
+      expect(await refused.argv).toBe("");
+    }
+  });
+
   test("the scripted run keeps its suites on the fake overlay", async () => {
     const result = run("fake", { [KEY_VARIABLE]: PROBE }, []);
     expect(result.status).toBe(0);
