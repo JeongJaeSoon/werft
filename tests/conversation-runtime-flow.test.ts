@@ -75,17 +75,21 @@ let relay: PermitRelay | undefined;
 const opened: TopicSessions[] = [];
 
 afterEach(async () => {
-  try {
-    // First: an engine left running writes under the root removed below.
-    for (const sessions of opened.splice(0)) await sessions.dropAll();
-  } finally {
-    relay?.stop();
-    proxy?.stop();
-    authorizer?.stop(true);
-    provider?.stop();
-    if (root !== undefined) await rm(root, { force: true, recursive: true });
-    root = provider = authorizer = proxy = relay = undefined;
+  // First: an engine left running writes under the root removed below. The
+  // newest first: a restarted runtime's topics are under the old one's paths.
+  let failure: unknown;
+  for (const sessions of opened.splice(0).reverse()) {
+    await sessions.dropAll().catch((error) => {
+      failure ??= error;
+    });
   }
+  relay?.stop();
+  proxy?.stop();
+  authorizer?.stop(true);
+  provider?.stop();
+  if (root !== undefined) await rm(root, { force: true, recursive: true });
+  root = provider = authorizer = proxy = relay = undefined;
+  if (failure !== undefined) throw failure;
 });
 
 async function stack(

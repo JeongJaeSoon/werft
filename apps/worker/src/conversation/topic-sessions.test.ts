@@ -351,12 +351,14 @@ function held(options: { limit?: number } = {}) {
   const log: string[] = [];
   let clock = 0;
   const answers: ((exited: boolean) => void)[] = [];
+  const waits: number[] = [];
   let wake = () => {};
   const engines: TopicEngines = {
     onSpawn: (pid) => void log.push(`spawned ${pid}`),
     running: [],
-    exited: () =>
+    exited: (waitMs) =>
       new Promise((resolve) => {
+        waits.push(waitMs);
         log.push("exit awaited");
         answers.push(resolve);
         wake();
@@ -382,6 +384,8 @@ function held(options: { limit?: number } = {}) {
   } as unknown as AgentRun;
   return {
     log,
+    /** How long each wait for an exit was given, in order. */
+    waits,
     sessions,
     relay,
     run,
@@ -566,6 +570,8 @@ describe("a dropped session's directory", () => {
     await s.asked();
     s.answer(true);
     await again;
+    expect(s.waits.at(-1)).toBe(0);
+    expect(s.waits.slice(0, 2).every((ms) => ms > 0)).toBe(true);
     expect(s.log.filter((entry) => entry === "killed")).toHaveLength(2);
     expect(await readdir(root)).toEqual([fresh]);
   });
