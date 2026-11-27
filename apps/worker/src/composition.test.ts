@@ -517,6 +517,29 @@ describe("user variables from the claim", () => {
     expect(other).toEqual(plain);
   });
 
+  test("runtimeStart passes the workspace's WebFetch host check off, and the fingerprint does not move", () => {
+    const off = {
+      ...launch(),
+      runtimeConfig: {
+        ...runtimeConfig,
+        skip_web_fetch_preflight: true as const,
+      },
+    };
+    expect(runtimeStart(config, claude, off).config.skipWebFetchPreflight).toBe(
+      true,
+    );
+    expect(
+      "skipWebFetchPreflight" in runtimeStart(config, claude, launch()).config,
+    ).toBe(false);
+    const fingerprint = claimFingerprint(config);
+    expect(
+      fingerprint({
+        principal,
+        runtime_config: { ...runtimeConfig, skip_web_fetch_preflight: true },
+      }),
+    ).toEqual(fingerprint({ principal, runtime_config: runtimeConfig }));
+  });
+
   const engineSettings = {
     permissions: { deny: ["Bash(rm:*)"] },
     autoMode: { hard_deny: ["Never touch billing."] },

@@ -10,6 +10,7 @@ import * as schema from "@werft-ai/db";
 import {
   createPostgresSessionUnitOfWork,
   createPostgresWorkerUnitOfWork,
+  createPostgresWorkspaceMcpEgressStore,
   createProviderExchangeLedger,
 } from "@werft-ai/db";
 import { launchSession } from "@werft-ai/db/testing/launches";
@@ -30,6 +31,11 @@ import {
   textReply,
 } from "@werft-ai/testkit/fake-anthropic";
 import {
+  type FakeMcp,
+  sha256Hex,
+  startFakeMcp,
+} from "@werft-ai/testkit/fake-mcp";
+import {
   type FakeResponsesServer,
   startFakeResponsesServer,
 } from "@werft-ai/testkit/fake-responses";
@@ -49,7 +55,12 @@ import {
   AUTHORIZE_DEADLINE_MS,
   createEgressAuthorizer,
   EGRESS_AUTHORIZER_PATH,
+  EGRESS_FEATURES_HEADER,
 } from "../apps/control-host/src/api/egress-authorizer.ts";
+import {
+  workspaceMcpHostsFromEnv,
+  workspaceMcpListed,
+} from "../apps/control-host/src/api/workspace-mcp.ts";
 import {
   releaseOnConnection,
   TEST_OWNER,
@@ -1183,4 +1194,299 @@ describe("credential routes end to end", () => {
       await onlyFetches(shape, token, { cwd: join(scratch, "checkout"), env });
     }, 60_000);
   });
+});
+
+describe("workspace MCP servers: the authorizer's grant through the proxy", () => {
+  // Any `fms_` token is a static token the fake's /static/mcp accepts.
+  const SERVER_TOKEN = `fms_${crypto.randomUUID().replaceAll("-", "")}`;
+  const OUTSIDE_HOST = "mcp.outside.test";
+  let mcp: FakeMcp | undefined;
+
+  afterEach(async () => {
+    await mcp?.stop();
+    mcp = undefined;
+  });
+
+  /**
+   * One session with two workspace servers on: `inside`, the fake on the
+   * operator's private list, and `outside`, an https name on neither list
+   * that resolves to a private address. Between the proxy and the authorizer,
+   * `features` can play a proxy from before the mark (`none`);
+   * `grants` keeps what the authorizer granted.
+   */
+  async function workspaceTopology() {
+    if (client === undefined) throw new Error("no database");
+    const db = drizzle(client, { schema });
+    mcp = await startFakeMcp({ bearer: "catalog-bearer", marker: "unused" });
+    const insideUrl = `http://127.0.0.1:${mcp.port}/static/mcp`;
+    const hosts = workspaceMcpHostsFromEnv({
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: `127.0.0.1:${mcp.port}`,
+    });
+    const endpoint = "https://api.anthropic.invalid";
+    const releaseId = await releaseOnConnection(db, {
+      model: "claude-sonnet-4-5",
+      connection: {
+        id: CLAUDE_CONNECTION,
+        kind: "anthropic",
+        endpoint,
+        billing: "per_token",
+      },
+      spec: { tools: [] },
+    });
+    const [release] = await db
+      .select({ agentId: schema.agentReleases.agentId })
+      .from(schema.agentReleases)
+      .where(eq(schema.agentReleases.id, releaseId));
+    if (!release) throw new Error("no release");
+    const adminId = crypto.randomUUID();
+    await db.insert(schema.users).values({
+      id: adminId,
+      email: `${adminId}@example.invalid`,
+      passwordHash: "argon2id$placeholder",
+      displayName: "admin",
+    });
+    const servers = {
+      inside: insideUrl,
+      outside: `https://${OUTSIDE_HOST}/mcp`,
+    };
+    const ids: Record<string, string> = {};
+    for (const [name, url] of Object.entries(servers)) {
+      const id = crypto.randomUUID();
+      ids[name] = id;
+      await db.insert(schema.workspaceMcpServers).values({
+        id,
+        workspaceId: TEST_OWNER,
+        name,
+        url,
+        authKind: "bearer",
+        tools: [{ name: "whoami", description: null }],
+      });
+      await db.insert(schema.workspaceMcpConnections).values({
+        serverId: id,
+        subject: "workspace",
+        state: "active",
+        generation: 1,
+        connectedByUserId: adminId,
+        connectedAt: new Date(),
+      });
+      await db.insert(schema.agentWorkspaceMcpServers).values({
+        agentId: release.agentId,
+        workspaceId: TEST_OWNER,
+        serverId: id,
+      });
+    }
+
+    const gateway = createWorkerGateway({
+      work: createPostgresWorkerUnitOfWork(db),
+      catalog: {
+        connections: {
+          [CLAUDE_CONNECTION]: {
+            provider: {
+              kind: "anthropic",
+              endpoint,
+              auth: {
+                kind: "api_key",
+                value: "catalog-provider",
+                ref: { stored: `connection:${CLAUDE_CONNECTION}` },
+              },
+            },
+            models: ["claude-sonnet-4-5"],
+          },
+        },
+        repositories: {},
+      },
+      checkpoints: acceptAllCheckpoints,
+      options: {
+        sessionBudget: { costUsd: SESSION_COST_LIMIT_USD, tokens: null },
+        leaseTtlMs: 60_000,
+      },
+      workspaceMcp: {
+        store: createPostgresWorkspaceMcpEgressStore(db),
+        credentialFor: async () => ({ kind: "bearer", token: SERVER_TOKEN }),
+        operatorListed: (url) => workspaceMcpListed(hosts, url),
+      },
+    });
+    const answer = createEgressAuthorizer({
+      gateway,
+      logger: createLogger({ sinks: [] }),
+      token: AUTHORIZER_BEARER,
+    });
+    const relay = {
+      features: "as sent" as "as sent" | "none",
+      grants: [] as Array<{ upstream: Record<string, unknown> }>,
+      // The header as the proxy itself sent it, before the relay changed it.
+      sent: [] as Array<string | null>,
+      resolved: [] as string[],
+    };
+    authorizer = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        relay.sent.push(request.headers.get(EGRESS_FEATURES_HEADER));
+        const headers = new Headers(request.headers);
+        if (relay.features === "none") headers.delete(EGRESS_FEATURES_HEADER);
+        const sent = await request.text();
+        const response = await answer(
+          new Request(request.url, {
+            method: request.method,
+            headers,
+            body: sent,
+          }),
+        );
+        if (response.ok) relay.grants.push(await response.clone().json());
+        return response;
+      },
+    });
+    proxy = startCredentialProxy({
+      authorizer: {
+        url: `http://127.0.0.1:${authorizer.port}`,
+        token: AUTHORIZER_BEARER,
+      },
+      hostname: "127.0.0.1",
+      logger: silentProxy,
+      policy: {
+        allow: [],
+        allowPrivate: [{ host: "127.0.0.1", port: mcp.port }],
+      },
+      port: 0,
+      // The registered name now answers a private address: rebinding.
+      resolve: async (host) => {
+        relay.resolved.push(host);
+        return isIP(host) !== 0
+          ? [host]
+          : host === OUTSIDE_HOST
+            ? ["10.0.0.5"]
+            : [];
+      },
+    });
+
+    const accepted = await createPostgresSessionUnitOfWork(
+      db,
+    ).acceptInputAtomic({
+      limits: { queuedInputLimitPerSession: 1_000, storageLimitBytes: 1e15 },
+      principal: { ownerId: TEST_OWNER },
+      idempotencyKey: crypto.randomUUID(),
+      payloadHash: "hash",
+      agentReleaseId: releaseId,
+      model: "claude-sonnet-4-5",
+      repository: "none",
+      message: "hello",
+    });
+    if (accepted.outcome !== "accepted") throw new Error(accepted.outcome);
+    const sessionId = accepted.response.session_id;
+    await db
+      .update(schema.sessions)
+      .set({ workspaceId: TEST_OWNER })
+      .where(eq(schema.sessions.id, sessionId));
+    const launch = await launchSession(db, { sessionId });
+    const claim = await gateway.bootstrapClaim(
+      { kind: "bootstrap" },
+      {
+        execution_id: launch.executionId,
+        execution_generation: launch.generation,
+        credential: { kind: "launch_nonce", nonce: launch.nonce },
+        capabilities: { workspace_mcp: true },
+      },
+    );
+    const access = claim.runtime_config.mcp_servers?.find(
+      (server) => server.name === "inside",
+    )?.access;
+    if (access?.kind !== "egress_token") throw new Error("no MCP token");
+    const call = (name: string) =>
+      fetch(`http://127.0.0.1:${proxy?.port}/mcp/${name}`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${access.token}`,
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: "test", version: "1" },
+          },
+        }),
+      });
+    const refusals = async () =>
+      (
+        await db
+          .select({ result: schema.receipts.result })
+          .from(schema.receipts)
+          .where(eq(schema.receipts.operation, "call_mcp"))
+      ).map((row) => (row.result as { reason?: string }).reason);
+    return {
+      db,
+      ids,
+      adminId,
+      relay,
+      call,
+      refusals,
+      workerToken: access.token,
+    };
+  }
+
+  test("a server on the operator's private list is reached with its credential, unmarked, by either proxy", async () => {
+    const { relay, call, workerToken } = await workspaceTopology();
+    for (const features of ["as sent", "none"] as const) {
+      relay.features = features;
+      const response = await call("inside");
+      expect(response.status).toBe(200);
+      await response.body?.cancel();
+    }
+    expect(relay.grants.map((grant) => grant.upstream.allow)).toEqual([
+      undefined,
+      undefined,
+    ]);
+    const seen = mcp?.workspaceCalls().static.authorization_sha256;
+    expect(seen).toEqual([sha256Hex(SERVER_TOKEN)]);
+    expect(seen).not.toContain(sha256Hex(workerToken));
+  }, 30_000);
+
+  test("a proxy from before the mark is refused a server on neither list, with egress_proxy_outdated", async () => {
+    const { relay, call, refusals } = await workspaceTopology();
+    relay.features = "none";
+    const response = await call("outside");
+    expect(response.status).toBe(403);
+    await response.body?.cancel();
+    expect(relay.grants).toEqual([]);
+    expect(await refusals()).toEqual(["egress_proxy_outdated"]);
+  }, 30_000);
+
+  test("the proxy keeps to the mark: granted the server marked, its private answer never reaches it", async () => {
+    const { relay, call, refusals } = await workspaceTopology();
+    const response = await call("outside");
+    expect(response.status).toBe(403);
+    const refusal = await response.text();
+    expect(relay.grants.map((grant) => grant.upstream.allow)).toEqual([
+      "public_https",
+    ]);
+    expect(
+      relay.sent[0]?.split(",").map((feature) => feature.trim()),
+    ).toContain("registered-upstream");
+    // It resolves the name and refuses the private answer, rather than its
+    // lists refusing the name.
+    expect(relay.resolved).toContain(OUTSIDE_HOST);
+    expect(refusal).toContain("is private, not public");
+    expect(await refusals()).toEqual([]);
+    expect(mcp?.workspaceCalls().static.authorization_sha256).toEqual([]);
+  }, 30_000);
+
+  test("a server deleted is refused on the next request after the commit", async () => {
+    const { db, ids, adminId, call, refusals } = await workspaceTopology();
+    const first = await call("inside");
+    expect(first.status).toBe(200);
+    await first.body?.cancel();
+    await db
+      .update(schema.workspaceMcpServers)
+      .set({ deletedAt: new Date(), deletedBy: adminId })
+      .where(eq(schema.workspaceMcpServers.id, ids.inside ?? ""));
+    const after = await call("inside");
+    expect(after.status).toBe(403);
+    await after.body?.cancel();
+    expect(await refusals()).toEqual(["workspace_server_unavailable"]);
+  }, 30_000);
 });

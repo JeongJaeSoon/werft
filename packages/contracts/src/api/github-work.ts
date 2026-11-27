@@ -63,6 +63,28 @@ export const githubWorkflowRunSchema = z.object({
   html_url: z.url(),
 });
 
+/** One check run or workflow run GitHub holds for a commit. */
+export const githubCiRunSchema = z.object({
+  name: z.string(),
+  status: z.string().nullable(),
+  conclusion: z.string().nullable(),
+  html_url: z.url().nullable(),
+});
+
+/**
+ * The CI of one commit: its check runs and workflow runs, the first page of
+ * each; `truncated` when GitHub holds more.
+ */
+export const githubCiStatusSchema = z.object({
+  head_sha: z.string().regex(/^[0-9a-f]{40}$/),
+  pull_request_number: z.number().int().positive().nullable(),
+  check_runs: z.array(githubCiRunSchema),
+  workflow_runs: z.array(
+    githubCiRunSchema.safeExtend({ id: z.number().int().positive() }),
+  ),
+  truncated: z.boolean(),
+});
+
 export const rerunWorkflowRequestSchema = z
   .object({ failed_only: z.boolean().optional() })
   .strict();
@@ -154,5 +176,7 @@ export type DispatchWorkflowResponse = z.infer<
   typeof dispatchWorkflowResponseSchema
 >;
 export type GitHubWorkflowRunView = z.infer<typeof githubWorkflowRunSchema>;
+export type GitHubCiRun = z.infer<typeof githubCiRunSchema>;
+export type GitHubCiStatusView = z.infer<typeof githubCiStatusSchema>;
 export type RerunWorkflowRequest = z.infer<typeof rerunWorkflowRequestSchema>;
 export type RerunWorkflowResponse = z.infer<typeof rerunWorkflowResponseSchema>;

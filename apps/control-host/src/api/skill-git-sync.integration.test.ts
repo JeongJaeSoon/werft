@@ -11,7 +11,10 @@ import {
   users,
   workspaces,
 } from "@werft-ai/db";
-import { createGitHubSkillReader } from "@werft-ai/forge-github";
+import {
+  createGitHubAppDirectory,
+  createGitHubSkillReader,
+} from "@werft-ai/forge-github";
 import {
   callerFor,
   createAuthorizationPolicy,
@@ -107,8 +110,8 @@ integration("Git skill sync against fake GitHub", () => {
     await database.drop();
   }, 60_000);
 
-  /** A workspace with an admin, its author App, and a repository of one skill. */
-  async function setUp(repo: string, name: string, ref = "main") {
+  /** A workspace with an admin and its author App on `apiBase`. */
+  async function workspaceWithApp(apiBase: string) {
     const workspaceId = randomUUID();
     const slug = `ws-${workspaceId.slice(0, 8)}`;
     await db.insert(workspaces).values({ id: workspaceId, slug, name: slug });
@@ -116,13 +119,13 @@ integration("Git skill sync against fake GitHub", () => {
     await pool.query(
       `INSERT INTO github_apps (id, workspace_id, role, app_id, slug, name, html_url, api_base)
        VALUES ($1, $2, 'author', $3, 's', 'n', 'https://github.com/apps/s', $4)`,
-      [connectionId, workspaceId, APP_ID, github.origin],
+      [connectionId, workspaceId, APP_ID, apiBase],
     );
     connections.set(connectionId, {
       id: connectionId,
       workspaceId,
       appId: APP_ID,
-      apiBase: github.origin,
+      apiBase,
       privateKey,
       updatedAt: new Date(),
     });
@@ -145,6 +148,12 @@ integration("Git skill sync against fake GitHub", () => {
       { kind: "web" },
       randomUUID(),
     );
+    return { workspaceId, caller };
+  }
+
+  /** A workspace with an admin, its author App, and a repository of one skill. */
+  async function setUp(repo: string, name: string, ref = "main") {
+    const { workspaceId, caller } = await workspaceWithApp(github.origin);
     await github.createRepository("acme", repo, {
       "README.md": "top\n",
       [`skills/${name}/SKILL.md`]: skillMd(name, "First."),
@@ -473,5 +482,151 @@ integration("Git skill sync against fake GitHub", () => {
     });
     expect(await skill.versions()).toHaveLength(1);
     expect(failures).toEqual([]);
+  });
+
+  test("registering refuses a repository the App is not installed on; a public source is checked with its installation and stops when the repository turns private; an installed one reads as before", async () => {
+    // This App's one installation covers acme/elsewhere and nothing else.
+    const other = await startFakeGitHub({
+      appId: APP_ID,
+      publicKey,
+      installationId: 77,
+      installedOn: ["acme/elsewhere"],
+    });
+    try {
+      const skill = (name: string, body = "First.") => ({
+        "skills/pdf/SKILL.md": skillMd(name, body),
+      });
+      await other.createRepository("acme", "elsewhere", skill("installed-pdf"));
+      await other.createRepository("anthropics", "open", skill("open-pdf"), {
+        private: false,
+      });
+      await other.createRepository(
+        "anthropics",
+        "closed",
+        skill("closed-pdf"),
+        { private: true },
+      );
+      const directory = createGitHubAppDirectory({ retryAfterBaseMs: 1 });
+      const sources = createPostgresSkillGitSourceStore(db);
+      const syncWith = (
+        installationFor: Parameters<
+          typeof createSkillGitSync
+        >[0]["installationFor"],
+      ) =>
+        createSkillGitSync({
+          authorization: createAuthorizationPolicy({}),
+          sources,
+          bundles: createExtensionBundleService({
+            store: createPostgresExtensionBundleStore(db),
+            objects: createMemoryCheckpointObjectStore(),
+            hosts: renderedHostExtractor,
+          }),
+          reader: createGitHubSkillReader({ retryAfterBaseMs: 1 }),
+          apps: async (workspaceId) =>
+            [...connections.values()].filter(
+              (one) => one.workspaceId === workspaceId,
+            ),
+          installationFor,
+          webhookSecrets: async () => [],
+          webhookUrl: async () => "https://werft.example.com/v1/github/webhook",
+          failed: (error) => failures.push(error),
+        });
+      const reading = syncWith((app, repo) =>
+        directory.installationFor(app, repo),
+      );
+      const { workspaceId, caller } = await workspaceWithApp(other.origin);
+      const register = (name: string, repository: string) =>
+        reading.register(caller, {
+          name,
+          repository,
+          path: "skills/pdf",
+          ref: "main",
+        });
+
+      await expect(
+        register("open-pdf", "anthropics/open"),
+      ).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        details: { reason_code: "repository_not_installed" },
+      });
+      // Registering makes no public source yet; one is seeded here, read with
+      // installation 77, which does not cover the repository.
+      expect(
+        (
+          await syncWith(async () => ({ id: 77 })).register(caller, {
+            name: "open-pdf",
+            repository: "anthropics/open",
+            path: "skills/pdf",
+            ref: "main",
+          })
+        ).outcome,
+      ).toBe("registered");
+      await db
+        .update(skillGitSources)
+        .set({ access: "public" })
+        .where(
+          and(
+            eq(skillGitSources.workspaceId, workspaceId),
+            eq(skillGitSources.name, "open-pdf"),
+          ),
+        );
+      expect(await sources.get(workspaceId, "open-pdf")).toMatchObject({
+        access: "public",
+        installationId: 77,
+        repository: "anthropics/open",
+      });
+      expect((await reading.views(workspaceId)).get("open-pdf")).toMatchObject({
+        access: "public",
+        webhook: "no_public_url",
+      });
+      await other.writeFiles("anthropics", "open", "main", {
+        "skills/pdf/SKILL.md": skillMd("open-pdf", "Second."),
+      });
+      expect(
+        (await reading.checkNow(caller, "open-pdf")).last_check,
+      ).toMatchObject({ result: "created" });
+      const versions = async () =>
+        (
+          await db
+            .select()
+            .from(extensionBundles)
+            .where(
+              and(
+                eq(extensionBundles.workspaceId, workspaceId),
+                eq(extensionBundles.name, "open-pdf"),
+              ),
+            )
+        ).length;
+      expect(await versions()).toBe(2);
+      other.setPrivate("anthropics", "open", true);
+      await other.writeFiles("anthropics", "open", "main", {
+        "skills/pdf/SKILL.md": skillMd("open-pdf", "Private now."),
+      });
+      expect(
+        (await reading.checkNow(caller, "open-pdf")).last_check,
+      ).toMatchObject({ result: "source_missing" });
+      expect(await versions()).toBe(2);
+
+      await expect(
+        register("closed-pdf", "anthropics/closed"),
+      ).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        details: { reason_code: "repository_not_installed" },
+      });
+
+      expect((await register("installed-pdf", "acme/elsewhere")).outcome).toBe(
+        "registered",
+      );
+      expect(await sources.get(workspaceId, "installed-pdf")).toMatchObject({
+        access: "installation",
+        installationId: 77,
+      });
+      expect(
+        new Set(other.tokenRequests.map((one) => one.installationId)),
+      ).toEqual(new Set([77]));
+      expect(failures).toEqual([]);
+    } finally {
+      await other.stop();
+    }
   });
 });

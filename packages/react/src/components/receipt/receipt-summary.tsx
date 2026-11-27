@@ -88,6 +88,7 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   disable_achievement_rule: "성과 규칙 사용 중지",
   enable_achievement_rule: "성과 규칙 다시 사용",
   set_achievement_judge: "성과 판정 설정 변경",
+  set_web_fetch_preflight: "WebFetch 사전 도메인 확인 변경",
   rejudge_session: "성과 다시 판정",
   review_achievement: "성과 확인·거절",
   set_env_variable: "변수 저장",

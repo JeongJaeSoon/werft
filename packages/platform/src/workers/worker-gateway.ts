@@ -372,6 +372,12 @@ function generateEgressToken(purpose: EgressPurpose): string {
   return `${EGRESS_TOKEN_PREFIXES[purpose]}_${randomBytes(32).toString("base64url")}`;
 }
 
+// Not an EgressPurpose: the token is a lookup key the proxy reports a
+// refusal with, and no route authorizes it.
+function generateEgressReportToken(): string {
+  return `wed_${randomBytes(32).toString("base64url")}`;
+}
+
 /** What the egress proxy is told to do with one authorized request. */
 export type EgressGrant = {
   session_id: string;
@@ -474,6 +480,7 @@ export const GITHUB_TOOL_ADDITIONS: readonly (readonly GitHubMcpTool[])[] = [
     "attach_repository",
   ],
   ["get_pull_request"],
+  ["get_ci_status"],
 ];
 
 /** The server as it was before each addition it holds, newest first. */
@@ -749,6 +756,8 @@ export function createWorkerGateway(deps: {
       workspaceId: string,
       serverId: string,
     ) => Promise<WorkspaceMcpCallCredential | null>;
+    /** Where the operator's credential allowlists put a server's URL. */
+    operatorListed?: (url: string) => "public" | "private" | null;
   };
   onMcpReceiptError?: (error: unknown) => void;
   // Called when the note on why a model was cut could not be written; the
@@ -802,6 +811,12 @@ export function createWorkerGateway(deps: {
     store: JudgmentEgressStore;
     upstream?: JudgeConnections["upstream"];
   };
+  // Resolves once `catalog` holds the installation settings at least at the
+  // generation stored when it was called; rejects with the store's own error
+  // when it cannot. The provider and judgment routes wait on it before they
+  // read or write anything for the token, the attempt fence included.
+  // Absent, the catalog is taken as it is.
+  settingsCaughtUp?: () => Promise<void>;
   // Absent, `/session-allow` stands for nothing and every call is asked.
   authorization?: AuthorizationPolicy;
   // Absent, events are stored without the engine-neutral fields beside them.
@@ -1708,7 +1723,11 @@ export function createWorkerGateway(deps: {
     if (deps.conversationCalls === undefined || exchangeId === undefined) {
       return null;
     }
-    if (token.startsWith(CONVERSATION_TURN_PERMIT_TOKEN_PREFIX)) {
+    const turn = token.startsWith(CONVERSATION_TURN_PERMIT_TOKEN_PREFIX);
+    if (!turn && !token.startsWith(CONVERSATION_CALL_TOKEN_PREFIX)) return null;
+    // Before the token is bound or anything reserved on it.
+    await settingsCaughtUp();
+    if (turn) {
       return authorizedTurnCall(
         deps.conversationCalls.store,
         token,
@@ -1716,7 +1735,6 @@ export function createWorkerGateway(deps: {
         exchangeId,
       );
     }
-    if (!token.startsWith(CONVERSATION_CALL_TOKEN_PREFIX)) return null;
     const result = await deps.conversationCalls.store.authorizeAtomic({
       tokenHash: hashConversationCallToken(token),
       exchangeId,
@@ -1790,6 +1808,10 @@ export function createWorkerGateway(deps: {
         max_request_bytes: result.maxRequestBytes,
       },
     };
+  }
+
+  function settingsCaughtUp(): Promise<void> {
+    return deps.settingsCaughtUp?.() ?? Promise.resolve();
   }
 
   // The provider route a session's connection kind does not serve is
@@ -1933,6 +1955,7 @@ export function createWorkerGateway(deps: {
       const repositoryToken = generateEgressToken("repository");
       const objectStoreToken = generateEgressToken("object_store");
       const mcpToken = generateEgressToken("mcp");
+      const reportToken = generateEgressReportToken();
       const packagesToken = generateEgressToken("packages");
       // Read before the claim, so one that cannot read them spends no nonce;
       // the same read is what the engine is told it may spend.
@@ -1964,6 +1987,7 @@ export function createWorkerGateway(deps: {
           repositoryHash: hashWorkerToken(repositoryToken),
           objectStoreHash: hashWorkerToken(objectStoreToken),
           mcpHash: hashWorkerToken(mcpToken),
+          reportHash: hashWorkerToken(reportToken),
           packagesHash: hashWorkerToken(packagesToken),
           bindingsOf: (session) =>
             egressBindingsOf(session, request.capabilities?.werft_mcp === true),
@@ -2090,6 +2114,11 @@ export function createWorkerGateway(deps: {
               request.capabilities?.response_language === true
                 ? { response_language: binding.releaseLanguage }
                 : {}),
+              // An older worker refuses the field; it runs with the check on.
+              ...(binding.skipWebFetchPreflight === true &&
+              request.capabilities?.web_fetch_preflight === true
+                ? { skip_web_fetch_preflight: true as const }
+                : {}),
             },
           };
           const githubOwners = await githubOwnersOf(binding.ownerScope);
@@ -2163,6 +2192,7 @@ export function createWorkerGateway(deps: {
               token: repositoryToken,
             },
             principal: { owner_scope: binding.ownerScope },
+            egress_report: { kind: "egress_token", token: reportToken },
             restore: binding.restore,
             // A replay can bind a session that has since spent its budget;
             // its engine gets nothing to spend, and nextInput hands it no turn.
@@ -2425,6 +2455,8 @@ export function createWorkerGateway(deps: {
       path?: string | undefined;
     }): Promise<EgressGrant> {
       if (request.purpose === "provider") {
+        // Before the fence, whose first call closes the claim's replay.
+        await settingsCaughtUp();
         const titled = await authorizedTitleEgress(request.token, request.path);
         if (titled !== null) return titled;
       }
@@ -2557,6 +2589,7 @@ export function createWorkerGateway(deps: {
       ) {
         throw invalid();
       }
+      await settingsCaughtUp();
       const result = await deps.judgments.store.authorizeToken({
         tokenHash: hashJudgmentToken(request.token),
       });

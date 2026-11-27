@@ -15,6 +15,7 @@ import {
 } from "../control-unit-of-work.ts";
 import type { Database } from "../queries.ts";
 import { attempts, receipts, sessions, workerCredentials } from "../schema.ts";
+import { deleteSessionEgressDenials } from "./egress-denials.ts";
 import { recordEvent } from "./session-events.ts";
 
 export const EXECUTION_REVOKED = "execution_revoked";
@@ -100,6 +101,7 @@ export async function revokeExecutionAtomic(
         ),
       )
       .returning({ attemptId: workerCredentials.attemptId });
+    await deleteSessionEgressDenials(tx, sessionId);
     const into = stoppedAdmission(session, pendingKill);
     const [after] = await tx
       .update(sessions)

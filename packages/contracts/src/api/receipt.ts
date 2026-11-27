@@ -203,6 +203,8 @@ export const RECEIPT_OPERATION_VALUES = [
   "disable_achievement_rule",
   "enable_achievement_rule",
   "set_achievement_judge",
+  // A workspace's WebFetch host check turned on or off.
+  "set_web_fetch_preflight",
   "rejudge_session",
   "review_achievement",
   // User variables (E-41). Names, kinds and versions only: a value is never

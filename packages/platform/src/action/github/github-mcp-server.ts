@@ -248,6 +248,7 @@ export function createGitHubMcpServer(deps: {
             actor: state.actor,
             source: state.source,
             enabled: state.enabled,
+            ...(state.ceiling === undefined ? {} : { ceiling: state.ceiling }),
           },
         }),
       );

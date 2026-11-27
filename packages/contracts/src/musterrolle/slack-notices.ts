@@ -24,6 +24,15 @@ const SLACK_NOTICE_MESSAGES_KO = {
   progressNeedsInput: "확인을 기다리고 있어요",
   progressIdle: "다음 요청을 기다리고 있어요",
   progressStarted: "시작",
+  // Its session closed: the message's last word.
+  progressClosed: "작업을 마쳤어요",
+  // A notify_only thread's one start line, never edited.
+  workStarted: "작업을 시작했어요",
+  // A person needed where no card asks (v1-b/P2): a request the thread
+  // shows no card for, and a recovery decision.
+  needsPersonInput: "답이 필요한 요청이 있어요. 세션에서 답해 주세요",
+  needsPersonRecovery:
+    "작업을 이어 가려면 사람의 결정이 필요해요. 세션에서 정해 주세요",
   noCapacity: "지금 자리가 없어 시작하지 못했어요. 잠시 뒤 다시 요청해 주세요",
   noCapacityPaused:
     "자리가 없어 다시 시작하지 못했어요. 세션은 일시 정지 상태로 두었으니 잠시 뒤 다시 시작해 주세요",
@@ -78,7 +87,7 @@ const SLACK_NOTICE_MESSAGES_KO = {
     "요청하신 대로 작업을 시작하기 전에 멈추고 닫았어요. 다시 하려면 새로 맡겨 주세요.",
   taskStoppedBeforeStartQueued:
     "요청하신 대로 작업을 시작하기 전에 멈추고 닫았어요. 기다리던 글 {count}개도 처리하지 않았어요. 다시 하려면 새로 맡겨 주세요.",
-  nothingToStop: "지금 하고 있는 작업이 없어요.",
+  nothingToStop: "지금 멈출 작업이 없어요.",
   stopNotPermitted: "작업을 맡긴 사람만 멈출 수 있어요",
   // A budget account's refusal, never the session's own limit: whose
   // monthly limit it is, as the ledger charged the call.
@@ -107,6 +116,10 @@ const SLACK_NOTICE_MESSAGES_KO = {
   routeNoRight: "이 작업에 이어서 맡길 권한이 없어요",
   routeFailed: "작업에 넘기지 못했어요.",
   routeMirror: "원래 스레드에서 이어서 할게요 ↗",
+  // A mention's turn that ended with no decision (v1-b/F1): said once as it
+  // is tried again, and once when its last try ends with none either.
+  mentionRetrying: "지금 답하지 못했어요. 다시 해 볼게요",
+  mentionFailed: "세 번 시도했지만 답하지 못했어요. 잠시 뒤 다시 불러 주세요",
   storageLimit:
     "이 설치의 저장 한도에 남은 자리가 모자라 이 요청을 받지 못했어요. 관리자에게 한도를 올려 달라고 요청하세요",
 } as const;
@@ -138,6 +151,12 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     progressNeedsInput: "確認を待っています",
     progressIdle: "次の依頼を待っています",
     progressStarted: "開始",
+    progressClosed: "作業を終えました",
+    workStarted: "作業を始めました",
+    needsPersonInput:
+      "回答が必要なリクエストがあります。セッションで回答してください",
+    needsPersonRecovery:
+      "作業を続けるには人の判断が必要です。セッションで決めてください",
     noCapacity:
       "今は空きがなく開始できませんでした。しばらくしてからもう一度リクエストしてください",
     noCapacityPaused:
@@ -186,7 +205,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "ご依頼どおり、作業を始める前に止めて閉じました。もう一度行うには、新しく依頼してください。",
     taskStoppedBeforeStartQueued:
       "ご依頼どおり、作業を始める前に止めて閉じました。待っていた{count}件のメッセージも処理していません。もう一度行うには、新しく依頼してください。",
-    nothingToStop: "今進めている作業はありません。",
+    nothingToStop: "今止める作業はありません。",
     stopNotPermitted: "作業を依頼した人だけが止められます",
     budgetAccountUser:
       "依頼した人の今月の予算上限に達したため、モデルを呼び出せませんでした。来月1日（UTC）に解除されます。それより前に使うには、ワークスペースの管理者に上限を上げてもらってください",
@@ -208,6 +227,9 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     routeNoRight: "この作業に続けて任せる権限がありません",
     routeFailed: "作業に引き継げませんでした。",
     routeMirror: "元のスレッドで続けます ↗",
+    mentionRetrying: "今はお答えできませんでした。もう一度やってみます",
+    mentionFailed:
+      "3回試しましたが、お答えできませんでした。しばらくしてからもう一度呼んでください",
     storageLimit:
       "この環境の保存容量の上限に空きが足りず、このリクエストを受け付けられませんでした。管理者に上限を上げるよう依頼してください",
   },
@@ -230,6 +252,12 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     progressNeedsInput: "Waiting for input",
     progressIdle: "Waiting for the next request",
     progressStarted: "Started",
+    progressClosed: "This task is done",
+    workStarted: "Started working on this",
+    needsPersonInput:
+      "A request is waiting for your answer. Answer it in the session",
+    needsPersonRecovery:
+      "This task needs a person's decision to go on. Decide in the session",
     noCapacity:
       "There was no room to start this right now. Please ask again in a little while",
     noCapacityPaused:
@@ -277,7 +305,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "Stopped and closed the task before it started, as you asked. To do it again, ask for it as a new task.",
     taskStoppedBeforeStartQueued:
       "Stopped and closed the task before it started, as you asked. {count} waiting messages were not processed either. To do it again, ask for it as a new task.",
-    nothingToStop: "There's no task running right now.",
+    nothingToStop: "There's nothing to stop right now.",
     stopNotPermitted: "Only the person who asked for this task can stop it",
     budgetAccountUser:
       "The requester's monthly budget limit was reached, so the model could not be called. It lifts on the 1st of next month (UTC), or sooner when a workspace admin raises the limit",
@@ -298,6 +326,9 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     routeNoRight: "This request doesn't have permission to add to that task",
     routeFailed: "This couldn't be handed to the task.",
     routeMirror: "Continuing in the original thread ↗",
+    mentionRetrying: "I couldn't answer just now. I'll try again.",
+    mentionFailed:
+      "I tried three times but couldn't answer. Please mention me again in a moment.",
     storageLimit:
       "This installation's storage limit has too little room left, so this request was not taken. Ask an administrator to raise the limit",
   },

@@ -10,9 +10,9 @@
 #
 # Reuse is all or nothing for the static checks, the integration domains, the
 # product scenarios and the executable guides, which share the plan's flags. helm-chart,
-# k8s-smoke and sdk-pack-smoke are judged one by one: a PR plan may leave
-# k8s-smoke out where a main push plans it (a release needs the commit), and
-# then main still runs it.
+# k8s-smoke, sdk-pack-smoke, demo and ui-pack are judged one by one: a PR plan
+# may leave one out where a main push plans it (a release needs the commit, or
+# no path the job builds from changed), and then main still runs it.
 # The conformance suite is not reused: no PR runs it, and ci.yml's `changes`
 # plans it for a main push apart from this script.
 # Evidence is the job's own test step having run and passed, not the job's
@@ -20,7 +20,7 @@
 #
 # Prints `key=value` lines for GITHUB_OUTPUT:
 #   reused       the URL of the PR run reused, empty when nothing is
-#   helm k8s sdk_pack   true when that job's PR result is reused
+#   helm k8s sdk_pack demo ui_pack   true when that job's PR result is reused
 # and one line on stderr saying why. Any doubt (a lookup that fails, a push of
 # more than one commit, a PR not found, a tree that differs) prints an empty
 # `reused` and exits 0: falling back to the full plan is always safe. A
@@ -28,14 +28,14 @@
 #
 # env: GH_REPO (owner/name), GH_TOKEN with actions:read and contents:read,
 #      GITHUB_SHA (the pushed commit, checked out), BEFORE_SHA (the push's
-#      before), and the plan: TESTS PRODUCT QUICKSTART HELM K8S SDK_PACK
+#      before), and the plan: TESTS PRODUCT QUICKSTART HELM K8S SDK_PACK DEMO UI_PACK
 #      DOMAINS (JSON array), DOCS_ONLY, and with TESTS=true INTEGRATION_MATRIX
 #      (the planned integration-domain matrix, one {domain, name} per job).
 set -euo pipefail
 
 : "${GH_REPO:?}" "${GITHUB_SHA:?}"
 before=${BEFORE_SHA:-}
-for flag in TESTS PRODUCT QUICKSTART HELM K8S SDK_PACK DOCS_ONLY; do
+for flag in TESTS PRODUCT QUICKSTART HELM K8S SDK_PACK DEMO UI_PACK DOCS_ONLY; do
   case "${!flag:-}" in
     true | false) ;;
     *) echo "::error::ci-reuse.sh: $flag must be true or false" >&2; exit 2 ;;
@@ -55,7 +55,7 @@ fi
 
 none() {
   echo "ci-reuse: full plan: $*" >&2
-  printf '%s\n' reused= helm=false k8s=false sdk_pack=false
+  printf '%s\n' reused= helm=false k8s=false sdk_pack=false demo=false ui_pack=false
   exit 0
 }
 
@@ -148,8 +148,6 @@ if [ "$PRODUCT" = true ]; then
   for shard in 1 2 3; do
     need step_passed "e2e (scenario ${shard}/3)" "Alpha path against the compose stack"
   done
-  need step_passed demo "Static build"
-  need step_passed ui-pack "Install, type-check, build and render in an empty app"
   if jq -e 'index("docker") != null' <<<"$domains" >/dev/null; then
     need step_passed workspace-quota "Workspace suite against a quota-capable daemon"
   fi
@@ -160,10 +158,12 @@ if [ "$QUICKSTART" = true ]; then
 fi
 [ "$core" = true ] || none "PR #${number}'s run ${run_id} did not run and pass: ${missing}"
 
-helm=false k8s=false sdk_pack=false
+helm=false k8s=false sdk_pack=false demo=false ui_pack=false
 [ "$HELM" = true ] && step_passed helm-chart kubeconform && helm=true
 [ "$K8S" = true ] && step_passed k8s-smoke deploy/kind/smoke.sh && k8s=true
 [ "$SDK_PACK" = true ] && step_passed sdk-pack-smoke "Install, type-check and run the sample in an empty project" && sdk_pack=true
+[ "$DEMO" = true ] && step_passed demo "Static build" && demo=true
+[ "$UI_PACK" = true ] && step_passed ui-pack "Install, type-check, build and render in an empty app" && ui_pack=true
 
-echo "ci-reuse: PR #${number} run ${run_id} tested this tree; reusing it (helm=${helm} k8s=${k8s} sdk_pack=${sdk_pack})" >&2
-printf '%s\n' "reused=${run_url}" "helm=${helm}" "k8s=${k8s}" "sdk_pack=${sdk_pack}"
+echo "ci-reuse: PR #${number} run ${run_id} tested this tree; reusing it (helm=${helm} k8s=${k8s} sdk_pack=${sdk_pack} demo=${demo} ui_pack=${ui_pack})" >&2
+printf '%s\n' "reused=${run_url}" "helm=${helm}" "k8s=${k8s}" "sdk_pack=${sdk_pack}" "demo=${demo}" "ui_pack=${ui_pack}"

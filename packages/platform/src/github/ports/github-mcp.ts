@@ -1,5 +1,6 @@
 import type {
   AgentGitHub,
+  GitHubCeiling,
   GitHubPolicySource,
   ReceiptActor,
 } from "@werft-ai/contracts";
@@ -17,6 +18,11 @@ export type GitHubMcpSessionState = {
   github: AgentGitHub | null;
   /** `agents.github_enabled` now. */
   enabled: boolean;
+  /**
+   * The workspace's feature ceiling now, so a refusal can say where a switch
+   * is off. Absent: not read.
+   */
+  ceiling?: GitHubCeiling;
   /**
    * The credential that created the session, with the release's agent: who
    * an MCP call acts as. Null when the session recorded none.

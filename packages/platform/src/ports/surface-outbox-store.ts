@@ -361,9 +361,12 @@ export type SurfaceCapacityWait = SurfaceLinkedTurnTarget & {
 /**
  * What a progress link's progress message should show now, when that is not
  * what its last update showed. `state` is one of
- * `capacity_wait:<execution>:<generation>`, `<turn status>:<turn>` for the
- * first unfinished turn (`queued`, `running`, `needs_input`), or
- * `idle:<last turn>` once a message is up and no turn is unfinished.
+ * `capacity_wait:<execution>:<generation>`, `needs_input:<turn>` while the
+ * session waits on a person (its public status; the lowest turn with a
+ * request still answerable, parked or not), `<turn status>:<turn>` for the
+ * first unfinished turn
+ * (`queued`, `running`), or `idle:<last turn>` once a message is up and no
+ * turn is unfinished.
  */
 export type SurfaceProgressDue = SurfaceLinkedTurnTarget & {
   state: string;
@@ -371,6 +374,24 @@ export type SurfaceProgressDue = SurfaceLinkedTurnTarget & {
   updates: number;
   /** When the session's first turn was asked, in epoch seconds. */
   startedAt: number | null;
+};
+
+/**
+ * What a link that hears only of its work's ends (`notify_only`,
+ * `progress`) owes beside its turns' replies and failures: `started`, a
+ * `notify_only` thread's one start line; `needs_input`, a request a person
+ * can answer that no card shows (the link posts none), numbered by the
+ * lowest turn waiting; `recovery`, the session waiting on a recovery
+ * decision, numbered by its last turn. Each is said once.
+ */
+export type SurfaceWorkReportDue = SurfaceLinkedTurnTarget & {
+  report: "started" | "needs_input" | "recovery";
+  /** Null for `started`. */
+  turnId: number | null;
+  /** For `needs_input`, the requests that turn has asked; else null. */
+  round: number | null;
+  /** Whoever started the work, to be called on a person needed. */
+  requesterSlackUserId: string | null;
 };
 
 /**
@@ -867,6 +888,11 @@ export interface SurfaceOutboxStore {
    * past `waitedMs`.
    */
   progressDue?(limit: number, waitedMs: number): Promise<SurfaceProgressDue[]>;
+  /**
+   * Live links that hear only of their work's ends and owe a line beside
+   * their turns' replies (SurfaceWorkReportDue), not yet in.
+   */
+  workReportsDue?(limit: number): Promise<SurfaceWorkReportDue[]>;
   /**
    * Channels the agent reads every message of that have not been told so
    * under the current notice (`slackChannelNoticeDedupeKey`).
