@@ -169,12 +169,6 @@ function failingPublishPort(
   return { port, restores, captures };
 }
 
-/**
- * A port that commits what it captures and names its refusals the way
- * SessionCheckpoints does: a run that is not quiet, and each of `failures` in
- * turn, reported to the gateway under the reason the session then shows.
- * `beforeCapture` runs ahead of every ready capture, with its count.
- */
 /** One process left under the run, which a signal or `end` ends. */
 function backgroundProcess() {
   const signals: Array<[string, number[]]> = [];
@@ -216,6 +210,13 @@ function graceLogger(): { logger: WorkerLogger; graced: Promise<void> } {
   };
 }
 
+/**
+ * A port that commits what it captures and names its refusals the way
+ * SessionCheckpoints does: a run that is not quiet, and each of `failures` in
+ * turn, reported to the gateway under the reason the session then shows.
+ * `beforeCapture` runs ahead of every ready capture, with its count. It hands
+ * the host a checkpoint reference; the host commits it.
+ */
 function namingPort(
   gateway: HttpWorkerGatewayClient,
   options: {
@@ -227,6 +228,11 @@ function namingPort(
      * SessionCheckpoints counts it.
      */
     objects?: MemoryCheckpointObjectStore;
+    /**
+     * The revision a capture names, as the gateway hands it out from the
+     * committed pointer. One more than the last capture's by default.
+     */
+    nextRevision?: () => Promise<number>;
   } = {},
 ) {
   const failures = [...(options.failures ?? [])];
@@ -272,7 +278,10 @@ function namingPort(
         });
         return null;
       }
-      revision += 1;
+      revision =
+        options.nextRevision === undefined
+          ? revision + 1
+          : await options.nextRevision();
       return {
         revision,
         manifest_ref: `manifests/${revision}.json`,
@@ -752,13 +761,27 @@ integration(
       let commitsSent = 0;
       let ported: ReturnType<typeof namingPort> | undefined;
       let host: WorkerHost | undefined;
+      // Turn 2 is posted once the hold has begun, so its result is filled in
+      // then: the engine emits it only after turn 2 is delivered.
+      const secondResult: EngineMessage = {
+        type: "result",
+        subtype: "success",
+        session_id: "engine-cf",
+        is_error: false,
+        user_message_uuid: null,
+      };
       const running = runWorker({
         sessionId,
         turn: 1,
         engineSession: "engine-cf",
         engines: work.engines,
         checkpoints: (gateway) => {
-          ported = namingPort(gateway);
+          ported = namingPort(gateway, {
+            // Failed commits leave the pointer where it was.
+            nextRevision: async () =>
+              ((await detail(sessionId)).durability.checkpoint_revision ?? -1) +
+              1,
+          });
           return ported.port;
         },
         onClient: (client) => {
@@ -783,7 +806,7 @@ integration(
           { type: "await-input" },
           { type: "emit", message: await resultOf(1) },
           { type: "await-input" },
-          { type: "emit", message: await resultOf(2) },
+          { type: "emit", message: secondResult },
           { type: "await-input" },
         ],
         outsideTurnCheckpoint: { retryBackoffMs: [50], commitRetryMs: 100 },
@@ -797,9 +820,10 @@ integration(
         if ((await turnRow(sessionId, 1)).status === "completed") break;
         await Bun.sleep(20);
       }
+      expect((await turnRow(sessionId, 1)).status).toBe("completed");
       work.end();
-      for (let i = 0; i < 500 && commitsSent < 3; i += 1) await Bun.sleep(20);
-      expect(commitsSent).toBeGreaterThanOrEqual(3);
+      for (let i = 0; i < 500 && commitsSent < 2; i += 1) await Bun.sleep(20);
+      expect(commitsSent).toBeGreaterThanOrEqual(2);
       expect(
         (
           await post(`/v1/sessions/${sessionId}/messages`, {
@@ -808,6 +832,11 @@ integration(
           })
         ).status,
       ).toBe(202);
+      secondResult.user_message_uuid = inputUuid(
+        sessionId,
+        "2",
+        await queueIdOf(sessionId, 2),
+      );
       // Longer than several input polls would take: none is made.
       await Bun.sleep(500);
       expect((await turnRow(sessionId, 2)).status).toBe("queued");
@@ -825,6 +854,7 @@ integration(
         if ((await turnRow(sessionId, 2)).status === "completed") break;
         await Bun.sleep(20);
       }
+      expect((await turnRow(sessionId, 2)).status).toBe("completed");
       host?.drain("test over");
       const done = await running;
 

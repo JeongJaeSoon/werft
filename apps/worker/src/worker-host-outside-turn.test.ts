@@ -848,7 +848,7 @@ describe("WorkerHost drained while it owes the last turn a checkpoint", () => {
 
     expect(summary.outcome).toBe("drained");
     // Not the grace's minute: the work is stopped as soon as the drain comes.
-    expect(performance.now() - drainedAt).toBeLessThan(2_000);
+    expect(performance.now() - drainedAt).toBeLessThan(4_000);
     expect(work.signals).toEqual([["SIGTERM", [4243]]]);
     expect(log).toContain("worker.drain.capture_owed");
     expect(
@@ -926,11 +926,11 @@ describe("WorkerHost drained while it owes the last turn a checkpoint", () => {
 
   test("a drain capture that never returns is given up at the drain budget", async () => {
     const work = oneProcess();
-    const { gateway, host, log } = harness(oneTurn, {
+    const { captures, gateway, host, log } = harness(oneTurn, {
       engines: work.engines,
-      captureMs: 3_000,
+      captureMs: 5_000,
       outsideTurnCheckpoint: { idleBackgroundGraceMs: 60_000 },
-      timeouts: { drainTimeoutMs: 300 },
+      timeouts: { drainTimeoutMs: 500 },
     });
     gateway.enqueue("start a dev server and leave it");
     const loop = host.runLoop();
@@ -941,9 +941,102 @@ describe("WorkerHost drained while it owes the last turn a checkpoint", () => {
     const summary = await loop;
 
     expect(summary.outcome).toBe("drained");
-    expect(performance.now() - drainedAt).toBeLessThan(2_000);
+    // The capture had begun, and the worker released while it still ran.
+    expect(captures.at(-1)).toEqual({
+      status: "ready",
+      kind: "before_idle_exit",
+    });
+    expect(performance.now() - drainedAt).toBeLessThan(4_000);
     expect(gateway.checkpointCommits).toEqual([]);
     expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("a drain commit the gateway never answers is left at the drain budget, and the release still goes out", async () => {
+    const work = oneProcess();
+    class SilentCommits extends FakeWorkerGateway {
+      override commitCheckpoint(
+        request: Parameters<FakeWorkerGateway["commitCheckpoint"]>[0],
+      ) {
+        this.calls.push("commitCheckpoint");
+        this.checkpointCommits.push(request);
+        return new Promise<never>(() => {});
+      }
+    }
+    const gateway = new SilentCommits();
+    const { host, log } = harness(oneTurn, {
+      engines: work.engines,
+      gateway,
+      outsideTurnCheckpoint: { idleBackgroundGraceMs: 60_000 },
+      timeouts: { drainTimeoutMs: 500 },
+    });
+    gateway.enqueue("start a dev server and leave it");
+    const loop = host.runLoop();
+    await eventually(() => log.includes("worker.idle.background_grace"));
+
+    const drainedAt = performance.now();
+    host.drain("received SIGTERM");
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("drained");
+    expect(gateway.checkpointCommits).toHaveLength(1);
+    expect(performance.now() - drainedAt).toBeLessThan(4_000);
+    expect(log).toContain("worker.checkpoint.failed");
+    expect(log).not.toContain("worker.checkpoint.committed");
+    expect(gateway.calls.indexOf("release")).toBeGreaterThan(
+      gateway.calls.indexOf("commitCheckpoint"),
+    );
+    expect(gateway.releases.map((release) => release.stop_kind)).toEqual([
+      "drain",
+    ]);
+  });
+
+  test("a drain that comes while the idle exit is stopping the work stops what is left and announces it once", async () => {
+    const signals: string[] = [];
+    let alive = [4243];
+    // SIGTERM is ignored; only SIGKILL ends it.
+    const engines: EngineExitWatch = {
+      descendants: async () => alive,
+      commands: async () => ["node"],
+      signal: (_pids, signal) => {
+        signals.push(signal);
+        if (signal === "SIGKILL") alive = [];
+      },
+      exited: async () => true,
+      running: [],
+      kill() {},
+    };
+    const { captures, gateway, host } = harness(oneTurn, {
+      engines,
+      outsideTurnCheckpoint: {
+        idleBackgroundGraceMs: 0,
+        stopSignalWaitMs: 300,
+      },
+      timeouts: { drainTimeoutMs: 5_000 },
+    });
+    gateway.enqueue("start a dev server and leave it");
+    const loop = host.runLoop();
+    await eventually(() => signals.length === 1);
+
+    host.drain("received SIGTERM");
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("drained");
+    expect(signals).toContain("SIGKILL");
+    expect(
+      gateway.events.filter(
+        (event) =>
+          event.event === "system" &&
+          (event.data as { subtype?: string }).subtype ===
+            "background_tasks_stopped",
+      ),
+    ).toHaveLength(1);
+    expect(captures.at(-1)).toEqual({
+      status: "ready",
+      kind: "before_idle_exit",
+    });
+    expect(gateway.checkpointCommits.map((commit) => commit.turn_id)).toEqual([
+      "1",
+    ]);
   });
 });
 

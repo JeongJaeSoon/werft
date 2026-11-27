@@ -122,7 +122,8 @@ turn은 `queued → running → completed | failed | interrupted | outcome_unkno
 - T7의 재시도가 성공하면 T2가 일어나고 queued였던 turn이 바로 시작한다.
 - T7의 보류는 turn 하나의 빚에 한 번이고, 첫 실패부터 센다. 보류를 벗어난 뒤 다시 인프라 실패가 나도 시간을 새로 세지 않는다. 상한에 닿거나 넘는 재시도는 하지 않고, 상한에서 보류를 끝낸다. 그때 진행 중이던 캡처와 commit은 끝까지 가므로 다음 입력은 그만큼 더 기다릴 수 있다. 캡처가 끝나지 않으면 turn 끝 캡처와 같은 단계 예산(worker 시작 timeout)에서 worker가 실패로 끝난다.
 - T8 뒤의 빚은 pause 직전과 idle 종료 직전에 한 번씩 다시 시도한다. 그래도 덮지 못하면 T10으로 간다.
-- T13의 모든 대기는 drain 예산(`WORKER_DRAIN_TIMEOUT_SEC`, 기본 100초)이 끝나면 멈춘다. drain 예산은 설정에서 launcher의 종료 유예(`WORKER_STOP_GRACE_SEC`)보다 12초 짧게 잘리고, 그 12초가 engine 종료와 release의 몫이다. 그래서 T13은 SIGKILL 전에 끝난다. 조용해지기를 기다리는 시간은 `settleWaitMs`와 남은 drain 예산의 절반 가운데 작은 값이라, 그 뒤의 캡처에 나머지 절반이 남는다. T13의 캡처는 한 번만 시도한다(T7의 보류를 하지 않는다). 실패하면 T10으로 간다.
+- T13의 모든 대기는 drain 예산(`WORKER_DRAIN_TIMEOUT_SEC`, 기본 100초)이 끝나면 멈춘다. drain 예산은 설정에서 launcher의 종료 유예(`WORKER_STOP_GRACE_SEC`)보다 12초 짧게 잘리고, 그 12초가 engine 종료와 release의 몫이다. 프로세스 목록 읽기, 조용한지 묻기, 캡처, commit과 그 거절 보고는 모두 drain 예산과 경주한다. 예산이 다하면 보낸 commit의 답을 기다리지 않고(그 commit은 release보다 먼저 닿으면 들어가고, 아니면 fence에 막힌다) shutdown으로 간다. 조용해지기를 기다리는 시간은 기다림을 시작할 때마다 `settleWaitMs`와 그때 남은 drain 예산의 절반 가운데 작은 값으로 정한다. T13은 캡처를 한 번 시도한다(T7의 보류를 하지 않는다. 캡처 중에 engine 답이 끼어들면 그 답 뒤에 한 번 더 찍는다). 실패하면 T10으로 간다.
+- 멈춤 알림(`background_tasks_stopped`)은 attempt 하나에 한 번이다. idle 종료가 배경 작업을 멈추는 중에 종료 신호가 오면, idle 종료는 다음 신호를 보내지 않고, T13이 남은 프로세스를 다시 읽어 멈춘다. 알림은 다시 내지 않는다.
 - 요청되지 않은 drain(`mirror_error`, 복구 결정이 필요한 turn), lease 잃음, 실패에서는 T13이 일어나지 않는다.
 - T10의 판정(context gap, claim gate)은 이 절의 전이가 바꾸지 않는다.
 - 끊긴 turn(`worker_ownership_lost`, `emergency_stopped`)은 돈 turn으로 세지 않아 덮이지 않아도 T10을 일으키지 않는다. 그 앞의 turn이 덮이지 않았으면 T10은 그대로 일어난다.
@@ -156,9 +157,10 @@ turn은 `queued → running → completed | failed | interrupted | outcome_unkno
 | R7 | 긴급 정지가 fence한 worker의 turn 밖 commit(끊긴 turn은 `failed`라 상태만으로는 checkpoint를 받는다) | 409 `STALE_EPOCH`, pointer 그대로 | `packages/db/src/emergency-stop.test.ts`의 `the fenced worker puts no checkpoint outside a turn on the turn the stop cut off` |
 | R8 | 긴급 정지로 끊긴 turn의 입력이 다음 turn 앞에 저절로 붙는 것 | 붙지 않고 `prepended_turn`과 `prepend_skip_reason`이 적힌다 | `packages/db/src/emergency-stop.test.ts`의 `the next message is not given the stopped turn's input, and the skip is recorded`, `the next message after input the stop cancelled is not given the stopped turn's input either` |
 | R9 | 덮인 turn 뒤의 drain이 캡처하는 것 | 캡처하지 않고 끝난다 | `apps/worker/src/worker-host-outside-turn.test.ts`의 `a drain after a covered turn takes no capture` |
-| R10 | T13의 캡처가 drain 예산을 넘어 종료를 붙잡는 것 | 예산에서 버리고 commit 없이 release한다 | 같은 파일의 `a drain capture that never returns is given up at the drain budget` |
+| R10 | T13의 캡처나 commit이 drain 예산을 넘어 종료를 붙잡는 것 | 예산에서 기다림을 그만두고 release한다 | 같은 파일의 `a drain capture that never returns is given up at the drain budget`, `a drain commit the gateway never answers is left at the drain budget, …` |
+| R11 | 멈춤 알림이 한 attempt에서 두 번 나가는 것 | 한 번만 나간다 | 같은 파일의 `a drain that comes while the idle exit is stopping the work stops what is left and announces it once` |
 
-R7~R10을 빼면, 파일을 적지 않은 시험은 `packages/db/src/worker-unit-of-work.outside-turn.test.ts`에 있다.
+R7~R11을 빼면, 파일을 적지 않은 시험은 `packages/db/src/worker-unit-of-work.outside-turn.test.ts`에 있다.
 
 열린 turn, `outcome_unknown` turn, `cancelled` turn에 하는 commit도 409 `REQUEST_STALE`로 거절한다(`is refused on a turn that is %s`).
 

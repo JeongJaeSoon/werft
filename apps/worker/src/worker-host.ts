@@ -502,6 +502,8 @@ export class WorkerHost {
    * that drain does not cut the outside-turn capture short, its budget does.
    */
   private drainCapturing = false;
+  /** The background_tasks_stopped notice went out for this attempt. */
+  private backgroundStopAnnounced = false;
   /** The last capture was given up for an answer the engine began during it. */
   private captureCutInto = false;
   private scrubber: SecretScrubber;
@@ -3805,8 +3807,17 @@ export class WorkerHost {
   private async quiet(run: AgentRun): Promise<boolean> {
     const verdict = await this.quietVerdict(run);
     if (verdict?.status !== "ready") return false;
-    const below = (await this.options.engines?.descendants?.()) ?? [];
-    return below.length === 0;
+    return (await this.descendantsNow()).length === 0;
+  }
+
+  /**
+   * The processes under the run, or none once the turn has to be given up:
+   * a scan that does not answer must not hold the drain past its budget.
+   */
+  private async descendantsNow(): Promise<number[]> {
+    const scan = this.options.engines?.descendants?.();
+    if (scan === undefined) return [];
+    return (await this.untilAbandoned(scan)) ?? [];
   }
 
   private async captureOwedWhenQuiet(
@@ -3889,15 +3900,21 @@ export class WorkerHost {
       performance.now() + this.outsideTurn.commitRetryMs,
       holdEndsAt,
     );
+    const committing = this.withRetry(
+      () =>
+        gateway.commitCheckpoint?.({
+          ...this.scope,
+          turn_id: owed.turnId,
+          checkpoint: ref,
+        }) ?? Promise.reject(new Error("The gateway commits no checkpoint")),
+      () => this.halted || performance.now() >= deadline,
+    );
+    let answered: true | undefined;
     try {
-      await this.withRetry(
-        () =>
-          gateway.commitCheckpoint?.({
-            ...this.scope,
-            turn_id: owed.turnId,
-            checkpoint: ref,
-          }) ?? Promise.reject(new Error("The gateway commits no checkpoint")),
-        () => this.halted || performance.now() >= deadline,
+      // Not past the drain budget: the release after it must still go out
+      // before the launcher's SIGKILL. A commit already sent may land or not.
+      answered = await this.untilAbandoned(
+        committing.then(() => true as const),
       );
     } catch (error) {
       if (isOwnershipLost(error)) return;
@@ -3919,9 +3936,10 @@ export class WorkerHost {
       // What was uploaded is no revision: the next capture starts from the
       // pointer again.
       try {
-        await this.checkpoints.finalizeRefused?.(describe(error), {
+        const reporting = this.checkpoints.finalizeRefused?.(describe(error), {
           ...this.scope,
         });
+        if (reporting !== undefined) await this.untilAbandoned(reporting);
       } catch (refusal) {
         if (isOwnershipLost(refusal)) this.lose(describe(refusal), refusal);
       }
@@ -3939,6 +3957,18 @@ export class WorkerHost {
       return;
     } finally {
       lease?.release();
+    }
+    if (answered === undefined) {
+      committing.catch(() => {});
+      this.logger.warn("worker.checkpoint.failed", {
+        stage: "commit",
+        capture_kind: kind,
+        reason: "The drain budget ran out before the commit was answered",
+        revision: ref.revision,
+        manifest_ref: ref.manifest_ref,
+        turn_id: owed.turnId,
+      });
+      return;
     }
     this.checkpointRevision = ref.revision;
     if (this.owed === owed) this.owed = undefined;
@@ -4027,12 +4057,25 @@ export class WorkerHost {
     );
   }
 
-  /** Waits, for the settle time at most, until the run has gone quiet. */
-  private async untilQuiet(
-    run: AgentRun,
-    settleWaitMs = this.outsideTurn.settleWaitMs,
-  ): Promise<void> {
-    const deadline = performance.now() + settleWaitMs;
+  /**
+   * How long the run may take to go quiet from now: the settle time, and
+   * during a drain's capture no more than half of what is left of the drain,
+   * so the capture after it keeps the other half.
+   */
+  private settleWindow(): number {
+    const { settleWaitMs } = this.outsideTurn;
+    if (!this.drainCapturing || this.abandonsAt === undefined) {
+      return settleWaitMs;
+    }
+    return Math.min(
+      settleWaitMs,
+      Math.max(0, (this.abandonsAt - performance.now()) / 2),
+    );
+  }
+
+  /** Waits, for the settle window at most, until the run has gone quiet. */
+  private async untilQuiet(run: AgentRun): Promise<void> {
+    const deadline = performance.now() + this.settleWindow();
     while (
       !this.halted &&
       performance.now() < deadline &&
@@ -4098,25 +4141,30 @@ export class WorkerHost {
    * by command name only. What they wrote since the last commit is owed a
    * capture, taken once the run has gone quiet.
    */
-  private async stopBackground(
-    run: AgentRun,
-    below: number[],
-    settleWaitMs = this.outsideTurn.settleWaitMs,
-  ): Promise<void> {
+  private async stopBackground(run: AgentRun, below: number[]): Promise<void> {
     const engines = this.options.engines;
     const config = this.outsideTurn;
-    const commands = (await engines?.commands?.(below)) ?? [];
+    const naming = engines?.commands?.(below);
+    const commands =
+      (naming === undefined ? [] : await this.untilAbandoned(naming)) ?? [];
     // Named again right before each signal: only what is under the run then.
-    let left = (await engines?.descendants?.()) ?? below;
+    let left =
+      engines?.descendants === undefined ? below : await this.descendantsNow();
     for (const signal of ["SIGTERM", "SIGKILL"] as const) {
       if (left.length === 0 || engines?.signal === undefined || this.halted) {
         break;
       }
       engines.signal(left, signal);
       const deadline = performance.now() + config.stopSignalWaitMs;
-      while (left.length > 0 && performance.now() < deadline && !this.halted) {
+      // An idle exit waits each signal out as before; a drain's capture
+      // stops waiting once its budget is spent.
+      while (
+        left.length > 0 &&
+        performance.now() < deadline &&
+        !(this.drainCapturing && this.halted)
+      ) {
         await this.sleep(CHECKPOINT_PROCESS_POLL_MS);
-        left = (await engines.descendants?.()) ?? [];
+        left = await this.descendantsNow();
       }
     }
     this.logger.warn("worker.idle.background_stopped", {
@@ -4124,7 +4172,10 @@ export class WorkerHost {
       processes: below.length,
       left: left.length,
     });
-    if (below.length > 0) {
+    // Once an attempt: a drain that comes while the idle exit is stopping
+    // the work stops what is left, and says nothing twice.
+    if (below.length > 0 && !this.backgroundStopAnnounced) {
+      this.backgroundStopAnnounced = true;
       this.publisher?.publish(
         [
           {
@@ -4144,7 +4195,7 @@ export class WorkerHost {
     if (this.owed === undefined && turnId !== undefined) {
       this.owed = { turnId, mode: "quiet", failures: 0, holdSpent: false };
     }
-    await this.untilQuiet(run, settleWaitMs);
+    await this.untilQuiet(run);
   }
 
   /**
@@ -4167,24 +4218,18 @@ export class WorkerHost {
     if (owed === undefined) return;
     this.drainCapturing = true;
     try {
-      const below = (await this.options.engines?.descendants?.()) ?? [];
+      const below = await this.descendantsNow();
       this.logger.info("worker.drain.capture_owed", {
         turn_id: owed.turnId,
         processes: below.length,
       });
-      // Half of what is left of the drain at most, so the capture after the
-      // engine's answer still has the rest.
-      const settleWaitMs = Math.min(
-        this.outsideTurn.settleWaitMs,
-        Math.max(0, ((this.abandonsAt ?? 0) - performance.now()) / 2),
-      );
-      if (below.length > 0) await this.stopBackground(run, below, settleWaitMs);
-      else await this.untilQuiet(run, settleWaitMs);
+      if (below.length > 0) await this.stopBackground(run, below);
+      else await this.untilQuiet(run);
       if (this.halted) return;
       this.captureCutInto = false;
       await this.captureOwed(run, "before_idle_exit");
       if (this.captureCutInto && !this.halted) {
-        await this.untilQuiet(run, settleWaitMs);
+        await this.untilQuiet(run);
         if (!this.halted) await this.captureOwed(run, "before_idle_exit");
       }
     } finally {
