@@ -1260,3 +1260,25 @@ describe("fourteenth review", () => {
     expect(calls("npm ci\n", "echo ok;# notes \\\nnpm ci\n")).toEqual([]);
   });
 });
+
+describe("fifteenth review", () => {
+  const sh = (body: string) => text("skills/s/scripts/a.sh", body);
+  const calls = (before: string | null, after: string) =>
+    gate({
+      before: before === null ? null : [...licensed("s"), sh(before)],
+      after: [...licensed("s"), sh(after)],
+    }).warnings.find((w) => w.rule === "network_call")?.samples ?? [];
+
+  test("changing only a comment in a continued command is not a call", () => {
+    expect(
+      calls('curl "$TARGET" \\\n  # old\n', 'curl "$TARGET" \\\n  # new\n'),
+    ).toEqual([]);
+  });
+
+  test("a long run of backslashes is read in linear time", () => {
+    const line = `echo ${"\\".repeat(1_000_000)}x\n`;
+    const started = performance.now();
+    calls(null, line);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+});

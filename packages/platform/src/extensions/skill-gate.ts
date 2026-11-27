@@ -230,7 +230,10 @@ function changesOf(
       added.push(line.slice(1));
       at.adds.add(next++);
     } else if (line.startsWith("-")) {
-      at.cuts.add(next);
+      const removed = line.slice(1);
+      // A removed comment changes no command.
+      if (!COMMENT.test(removed) && codeOf(removed).trim() !== "")
+        at.cuts.add(next);
     } else {
       next++;
     }
@@ -376,22 +379,23 @@ function changedCalls(text: string, at: Changes | null): string[] {
   let touched = false;
   const lines = text.split("\n");
   lines.forEach((line, index) => {
+    if (parts.length === 0 && COMMENT.test(line)) return;
+    const comment = commentStart(line);
+    const goesOn = comment === -1 && continues(line);
+    const code = goesOn
+      ? line.slice(0, -1)
+      : comment === -1
+        ? line
+        : line.slice(0, comment);
+    // An added line counts only for its code: a changed comment is no call.
     if (
       at === null ||
-      at.adds.has(index) ||
+      (at.adds.has(index) && code.trim() !== "") ||
       (parts.length > 0 && at.cuts.has(index))
     )
       touched = true;
-    if (parts.length === 0 && COMMENT.test(line)) {
-      touched = false;
-      return;
-    }
-    const comment = commentStart(line);
-    if (comment === -1 && continues(line)) {
-      parts.push(line.slice(0, -1));
-      return;
-    }
-    parts.push(comment === -1 ? line : line.slice(0, comment));
+    parts.push(code);
+    if (goesOn) return;
     if (touched) calls.push(normalized(parts.join(" ")));
     parts = [];
     touched = false;
@@ -402,8 +406,16 @@ function changedCalls(text: string, at: Changes | null): string[] {
 }
 
 /** An odd run of backslashes at the end: "\\\\" is a literal backslash. */
-const continues = (line: string) =>
-  (/\\+$/.exec(line)?.[0].length ?? 0) % 2 === 1;
+function codeOf(line: string): string {
+  const comment = commentStart(line);
+  return comment === -1 ? line : line.slice(0, comment);
+}
+
+function continues(line: string): boolean {
+  let end = line.length;
+  while (end > 0 && line[end - 1] === "\\") end--;
+  return (line.length - end) % 2 === 1;
+}
 
 /** Where a "#" or "//" comment starts outside quotes, or -1. */
 function commentStart(line: string): number {
