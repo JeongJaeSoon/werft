@@ -5,6 +5,7 @@ import {
   type AgentGitHub,
   type AgentGitHubSettingsRow,
   catalogIdOfRef,
+  GITHUB_FEATURES_DEFAULT,
   GITHUB_FEATURES_NONE,
   type GitHubCeiling,
   type RepositoryCeiling,
@@ -377,13 +378,19 @@ describe("the agent GitHub tab's options", () => {
     expect(mixed.options.features.actions.available).toBe(true);
   });
 
-  test("legacy defaults: no repository, push approval off, nothing optional", async () => {
+  test("legacy defaults: no repository, push approval off, workflow edits on, direct runs off", async () => {
     const read = await serviceWith({}).get(caller, AGENT);
     expect(read.github).toBeNull();
     expect(read.legacy_defaults).toEqual({
       ...WITH_SETTINGS,
       repositories: [],
       push_approval: false,
+      features: { ...GITHUB_FEATURES_DEFAULT },
+    });
+    expect(read.legacy_defaults?.features).toMatchObject({
+      workflows: true,
+      checks: true,
+      actions: false,
     });
     const saved = await serviceWith({ github: WITH_SETTINGS }).get(
       caller,

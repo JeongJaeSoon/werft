@@ -116,6 +116,8 @@ afterAll(async () => {
 
 const ACTIONS_ON: GitHubCeiling = {
   ...GITHUB_CEILING_NONE,
+  workflows: true,
+  checks: true,
   actions: true,
   review: true,
 };
@@ -548,6 +550,49 @@ describe("GitHub work routes", () => {
     expect(github.workflowRuns("acme", "app")).toHaveLength(before);
   });
 
+  test("with direct runs off, dispatch and rerun are refused 403 actions_off before GitHub, and runs still read", async () => {
+    const editOnly: AgentGitHub = {
+      ...SETTINGS,
+      features: { ...SETTINGS.features, actions: false },
+      actions_allow: [],
+    };
+    const target = app({ settings: editOnly });
+    const before = github.workflowRuns("acme", "app").length;
+    const dispatched = await target.dispatch({
+      workflow: "deploy.yml",
+      ref: "main",
+    });
+    expect(dispatched.status).toBe(403);
+    expect(errorOf(dispatched.json)).toMatchObject({
+      code: "GITHUB_REFUSED",
+      details: { reason_code: "actions_off" },
+    });
+    const pushed = github.addWorkflowRun("acme", "app", {
+      path: ".github/workflows/ci.yml",
+      head_branch: "main",
+    });
+    const rerun = await target.send(
+      "POST",
+      `/workflow-runs/${pushed}/rerun`,
+      {},
+    );
+    expect(rerun.status).toBe(403);
+    expect(errorOf(rerun.json).details).toMatchObject({
+      reason_code: "actions_off",
+    });
+    expect((await target.send("GET", `/workflow-runs/${pushed}`)).status).toBe(
+      200,
+    );
+    expect(github.workflowRuns("acme", "app")).toHaveLength(before + 1);
+    expect(
+      target.receipts.filter(
+        (receipt) =>
+          (receipt.result as { permissions?: { actions?: string } }).permissions
+            ?.actions === "write",
+      ),
+    ).toEqual([]);
+  });
+
   test("with Actions on, any run in the repository can be read; one GitHub does not know is 404", async () => {
     const target = app();
     const pushed = github.addWorkflowRun("acme", "app", {
@@ -572,7 +617,10 @@ describe("GitHub work routes", () => {
     expect(target.receipts).toMatchObject([
       {
         operation: "mint_github_token",
-        result: { purpose: "actions_read", permissions: { actions: "read" } },
+        result: {
+          purpose: "actions_read",
+          permissions: { actions: "read", checks: "read" },
+        },
       },
     ]);
     const missing = await target.send("GET", "/workflow-runs/123");

@@ -241,6 +241,11 @@ export interface GitHubConnection {
    */
   installed(repo: RepoRef): Promise<boolean | null>;
   /**
+   * What the installation on `repo` has granted, asked with the App's JWT;
+   * null when it is not installed there. Issues no installation token.
+   */
+  grantedPermissions?(repo: RepoRef): Promise<GitHubPermissions | null>;
+  /**
    * `installed` for many repositories at once, from the App's installations
    * rather than one lookup per repository. Keyed by `repoKeyOf`; a
    * repository GitHub could not tell about maps to null. Rejects when

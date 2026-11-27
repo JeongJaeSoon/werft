@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   agentGitHubSettingsSchema,
-  GITHUB_FEATURES_NONE,
+  GITHUB_FEATURES_DEFAULT,
   GITHUB_GATE_RECEIPT_OPERATION_VALUES,
 } from "@werft-ai/contracts";
 import type {
@@ -135,7 +135,7 @@ async function seedOf(
       ? {
           repositories: [] as string[],
           push_approval: false,
-          features: { ...GITHUB_FEATURES_NONE },
+          features: { ...GITHUB_FEATURES_DEFAULT },
           actions_allow: [] as unknown[],
         }
       : agentGitHubSettingsSchema.safeParse(release.github).data;

@@ -539,8 +539,14 @@ describe("에이전트 GitHub 탭", () => {
     expect(describedBy(switchNamed("acme/billing-api 사용"))).toMatch(
       /워크스페이스가 허용한 저장소 범위 밖/,
     );
-    expectLocked("워크플로 파일 수정", /워크스페이스 상한 밖입니다/);
-    expectLocked("Actions 실행", /GitHub Enterprise에 있어/);
+    expectLocked(
+      "workflow 파일 수정과 CI 결과 보기",
+      /워크스페이스 상한 밖입니다/,
+    );
+    expectLocked(
+      "workflow 직접 실행 (dispatch·재실행·취소)",
+      /GitHub Enterprise에 있어/,
+    );
     expectLocked("리뷰 승인", /리뷰용 App이 없습니다/);
     // No repository is pinned by a release any more: those with no reason
     // may change, the one in use included.
@@ -551,14 +557,17 @@ describe("에이전트 GitHub 탭", () => {
     expect(screen.queryByRole("switch", { name: "이슈 쓰기" })).toBeNull();
     // A ceiling reason links to where it is lifted; the host one does not.
     expect(
-      within(rowOf("워크플로 파일 수정"))
+      within(rowOf("workflow 파일 수정과 CI 결과 보기"))
         .getByRole("link", { name: "연동 > GitHub" })
         .getAttribute("href"),
     ).toBe("/settings/workspace/integrations/github");
     expect(
-      within(rowOf("Actions 실행")).queryByRole("link", {
-        name: "연동 > GitHub",
-      }),
+      within(rowOf("workflow 직접 실행 (dispatch·재실행·취소)")).queryByRole(
+        "link",
+        {
+          name: "연동 > GitHub",
+        },
+      ),
     ).toBeNull();
   });
 
@@ -2287,6 +2296,43 @@ describe("에이전트 GitHub 탭", () => {
     });
   });
 
+  test("workflow 스위치 둘과 직접 실행의 도움말이 보이고, 파일 수정 스위치는 checks도 같이 저장한다", async () => {
+    const { server } = await activeAgent();
+    const sent: { settings: Settings }[] = [];
+    renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [`PUT ${PATH}/github/settings`]: async (request) => {
+          sent.push((await request.json()) as { settings: Settings });
+          return json(200, { settings_revision: 4, receipt_id: RECEIPT_ID });
+        },
+      }),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "Actions 허용 목록" });
+    const edits = switchNamed("workflow 파일 수정과 CI 결과 보기");
+    const runs = switchNamed("workflow 직접 실행 (dispatch·재실행·취소)");
+    expect(
+      edits.compareDocumentPosition(runs) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: /Checks/ }) === null).toBe(
+      true,
+    );
+    expect(
+      screen.getByText(
+        "push와 pull_request 이벤트로 도는 workflow는 GitHub가 돌립니다. 이 스위치로는 끌 수 없습니다. 이 스위치는 직접 실행·재실행·취소만 정합니다.",
+      ),
+    ).toBeTruthy();
+    await user.click(edits);
+    await user.click(await screen.findByRole("button", { name: "저장" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]?.settings.features).toMatchObject({
+      workflows: true,
+      checks: true,
+      actions: true,
+    });
+  });
+
   test("Actions를 끄면 허용 목록도 비워서 저장한다", async () => {
     const { server } = await activeAgent();
     const sent: { settings: Settings }[] = [];
@@ -2301,7 +2347,7 @@ describe("에이전트 GitHub 탭", () => {
     );
     const user = await setupUser();
     await screen.findByRole("heading", { name: "Actions 허용 목록" });
-    await user.click(switchNamed("Actions 실행"));
+    await user.click(switchNamed("workflow 직접 실행 (dispatch·재실행·취소)"));
     expect(
       screen.queryByRole("heading", { name: "Actions 허용 목록" }),
     ).toBeNull();

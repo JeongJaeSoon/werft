@@ -3,6 +3,7 @@ import {
   type AgentGitHubSettingsRow,
   type EffectiveGitHubPolicy,
   effectiveGitHubPolicy,
+  GITHUB_CEILING_DEFAULT,
   GITHUB_CEILING_NONE,
   GITHUB_POLICY_CLOSED,
   type GitHubCeiling,
@@ -38,7 +39,7 @@ import {
 import { queueAchievementJudgment } from "../sessions/index.ts";
 import { notDeleted } from "../soft-delete.ts";
 
-/** No row reads all false; a row a later image wrote in another shape, too. */
+/** A row a later image wrote in another shape reads all false; no row reads as the default. */
 function ceilingOf(stored: unknown): GitHubCeiling {
   const parsed = githubCeilingSchema.safeParse(stored);
   return parsed.success ? parsed.data : GITHUB_CEILING_NONE;
@@ -55,7 +56,7 @@ async function readSettings(db: Database, workspaceId: string) {
     .where(eq(githubWorkspaceSettings.workspaceId, workspaceId))
     .limit(1);
   return row === undefined
-    ? { ceiling: GITHUB_CEILING_NONE, repositoryCeiling: null, revision: 0 }
+    ? { ceiling: GITHUB_CEILING_DEFAULT, repositoryCeiling: null, revision: 0 }
     : {
         ceiling: ceilingOf(row.ceiling),
         repositoryCeiling: repositoryCeilingOf(row.repositoryCeiling),
@@ -165,7 +166,7 @@ export async function ensureInstalledRepositoryCeiling(
   return db.transaction(async (tx) => {
     await tx
       .insert(githubWorkspaceSettings)
-      .values({ workspaceId, ceiling: GITHUB_CEILING_NONE })
+      .values({ workspaceId, ceiling: GITHUB_CEILING_DEFAULT })
       .onConflictDoNothing();
     const [held] = await tx
       .select({ repositoryCeiling: githubWorkspaceSettings.repositoryCeiling })
@@ -211,7 +212,7 @@ export async function ensureRepositoryCeilingWhenUnset(
   return db.transaction(async (tx) => {
     await tx
       .insert(githubWorkspaceSettings)
-      .values({ workspaceId, ceiling: GITHUB_CEILING_NONE })
+      .values({ workspaceId, ceiling: GITHUB_CEILING_DEFAULT })
       .onConflictDoNothing();
     // Judged under the row lock, so a ceiling written meanwhile is kept.
     const [held] = await tx

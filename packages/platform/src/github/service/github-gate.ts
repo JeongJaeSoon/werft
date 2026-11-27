@@ -272,7 +272,11 @@ export function createGitHubGate(deps: {
       }
       if (!platformRead && needs.feature !== null) {
         if (settings === null || !settings.features[needs.feature]) {
-          return await refuse("feature_off");
+          // Running a workflow directly has its own switch and its own code,
+          // never a person's approval: the token cannot hold actions: write.
+          return await refuse(
+            needs.feature === "actions" ? "actions_off" : "feature_off",
+          );
         }
         if (!features[needs.feature]) {
           return await refuse("over_workspace_ceiling");
@@ -373,11 +377,33 @@ export function createGitHubGate(deps: {
       let gitCredential: GitCredential;
       let fresh: boolean;
       try {
-        ({ credential: gitCredential, fresh } = await connection.credential(
-          repo,
-          needs.permissions,
-          "session",
-        ));
+        try {
+          ({ credential: gitCredential, fresh } = await connection.credential(
+            repo,
+            needs.permissions,
+            "session",
+          ));
+        } catch (error) {
+          // An installation that has not granted Workflows still pushes what
+          // changes no workflow file; GitHub refuses the one that does
+          // (workflows_permission_missing). Judged on what the installation
+          // grants, not on the refusal alone.
+          if (
+            !(error instanceof GitHubPermissionError) ||
+            work.purpose !== "push" ||
+            needs.permissions.workflows === undefined ||
+            connection.grantedPermissions === undefined ||
+            (await connection.grantedPermissions(repo))?.workflows === "write"
+          ) {
+            throw error;
+          }
+          needs.permissions = { contents: "write" };
+          ({ credential: gitCredential, fresh } = await connection.credential(
+            repo,
+            needs.permissions,
+            "session",
+          ));
+        }
       } catch (error) {
         if (error instanceof GitHubPermissionError) {
           return await refuse("app_permission_missing", {

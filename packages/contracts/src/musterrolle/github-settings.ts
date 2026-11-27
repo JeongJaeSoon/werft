@@ -11,7 +11,14 @@ import { z } from "zod";
 export const GITHUB_APP_ROLE_VALUES = ["author", "reviewer"] as const;
 export const githubAppRoleSchema = z.enum(GITHUB_APP_ROLE_VALUES);
 
-/** The optional permissions an agent may be given, beyond writing a PR. */
+/**
+ * The optional permissions an agent may be given, beyond writing a PR. The
+ * console shows two switches over three keys: `workflows` edits workflow
+ * files and reads CI results; `actions` dispatches, reruns and cancels runs.
+ * `checks` is written with `workflows` and read by nothing, kept so images
+ * before the two switches read the row (a0: drop it two releases after the
+ * last image that reads it).
+ */
 export const githubFeaturesSchema = z
   .object({
     workflows: z.boolean(),
@@ -46,6 +53,21 @@ export const GITHUB_FEATURES_NONE: GitHubFeatures = {
 
 export const GITHUB_CEILING_NONE: GitHubCeiling = {
   ...GITHUB_FEATURES_NONE,
+  merge: false,
+};
+
+/**
+ * What a new workspace and a new agent start from: workflow edits and CI
+ * reads on, running workflows directly off (owner decision, 94S-2406).
+ */
+export const GITHUB_FEATURES_DEFAULT: GitHubFeatures = {
+  ...GITHUB_FEATURES_NONE,
+  workflows: true,
+  checks: true,
+};
+
+export const GITHUB_CEILING_DEFAULT: GitHubCeiling = {
+  ...GITHUB_FEATURES_DEFAULT,
   merge: false,
 };
 
@@ -138,6 +160,8 @@ const GITHUB_POLICY_REFUSALS: ReadonlySet<GitHubRefusal> = new Set([
   "github_disabled",
   "repository_not_allowed",
   "feature_off",
+  // The agent's switch for running workflows directly is off.
+  "actions_off",
   "workflow_not_allowed",
   "agent_ref_refused",
   "run_ref_unprovable",
@@ -170,6 +194,8 @@ export type GitHubPermissionLevel = "read" | "write";
  * The permission table: what a purpose asks GitHub for, from which App, and
  * the optional feature it needs (null: the default work every agent has).
  * `push` adds `workflows: write` when the release turns workflows on.
+ * Reading a run is the `workflows` switch's; only a dispatch or a rerun
+ * asks for `actions: write`, under the `actions` switch.
  */
 export function githubPermissionsFor(
   purpose: GitHubPurpose,
@@ -205,8 +231,8 @@ export function githubPermissionsFor(
     case "actions_read":
       return {
         role: "author",
-        feature: "actions",
-        permissions: { actions: "read" },
+        feature: "workflows",
+        permissions: { actions: "read", checks: "read" },
       };
     case "dispatch":
     case "rerun":

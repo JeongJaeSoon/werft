@@ -21,7 +21,16 @@ GitHub との間でやることは三つある。開始リポジトリがある�
 | --- | --- |
 | GitHub App | Repository permissions: Contents Read and write, Pull requests Read and write |
 
-`Workflows` 権限は「ワークフローファイルの変更」機能を有効にするときだけ App に加える。push される commit はエージェントが書いたものなので、この権限があるとエージェントが書き換えた `.github/workflows/` のファイルも push され、CI で実行される。デフォルトブランチはリポジトリの ruleset でも保護しておく([デフォルトブランチの保護](#기본-브랜치-보호))。
+ワークフローのスイッチは二つある。ワークスペースの上限とエージェントの GitHub タブに同じ二つがあり、上限がオフにしたものはエージェント側がオンでもオフになる。
+
+| スイッチ | 既定 | トークンが求める権限 |
+| --- | --- | --- |
+| **ワークフローファイルの変更と CI 結果の確認** | オン | push に `workflows: write`、CI 結果の読み取りに `actions: read`・`checks: read` |
+| **ワークフローの直接実行 (dispatch・再実行・キャンセル)** | オフ | dispatch・再実行に `actions: write` |
+
+push と pull_request イベントで動くワークフローは GitHub が実行します。このスイッチでは止められません。このスイッチが決めるのは直接の実行・再実行・キャンセルだけです。オフの間、dispatch・再実行のツールは GitHub を呼ぶ前に `GITHUB_REFUSED`(`actions_off`)で拒否し、人の承認には回さない。トークンも `actions: write` を求めない。
+
+App に `Workflows` 権限がないか、インストールがまだ承認していなければ、一つ目のスイッチがオンでも push は `contents: write` だけで行う。このとき `.github/workflows/` のファイルを変える push だけを GitHub が拒否する。push される commit はエージェントが書いたものなので、この権限があるとエージェントが書き換えた `.github/workflows/` のファイルも push され、CI で実行される。デフォルトブランチはリポジトリの ruleset でも保護しておく([デフォルトブランチの保護](#기본-브랜치-보호))。
 
 ### App の Setup URL
 

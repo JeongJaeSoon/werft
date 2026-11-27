@@ -7,7 +7,7 @@ import {
   type AgentGitHubResponse,
   type AgentGitHubSettings,
   catalogIdOfRef,
-  GITHUB_FEATURES_NONE,
+  GITHUB_FEATURES_DEFAULT,
   type GitHubAppRole,
   type GitHubFeatures,
   githubFeaturesOverCeiling,
@@ -290,7 +290,7 @@ export function createAgentGitHubService(deps: {
               // What a first save starts from and what applies until then
               // (owner decision d123, 2026-11-02; Orchestrator item 147).
               push_approval: false,
-              features: { ...GITHUB_FEATURES_NONE },
+              features: { ...GITHUB_FEATURES_DEFAULT },
               actions_allow: [],
             }
           : null;

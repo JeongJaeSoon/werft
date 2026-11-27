@@ -381,7 +381,7 @@ const GITHUB_TOKEN_SHAPES = /ghs_|ghp_|gho_|github_pat_|x-access-token/;
 describe("the built-in github MCP server on stored rows", () => {
   test("the claim attaches it with the release's tools, and carries no GitHub token", async () => {
     const { releaseId, claim } = await seeded({
-      github: settings({ actions: true }),
+      github: settings({ workflows: true, checks: true, actions: true }),
     });
     expect(claim.runtime_config.mcp_servers).toEqual([
       expect.objectContaining({
