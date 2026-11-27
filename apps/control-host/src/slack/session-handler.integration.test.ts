@@ -5603,15 +5603,60 @@ describe.each(ENGINES)(
       slack.users.set("U0STRANGER", { teamId: "T0OTHER", isStranger: true });
       // Slack Connect with no flag: only the team tells them apart.
       slack.users.set("U0SHARED", { teamId: "T0OTHER" });
+      // The install's team, flagged external by Slack alone.
+      slack.users.set("U0EXTERNAL", { isExternal: true });
       const { handle, notices, threadNotices } = handler();
       await deliver(fixture, mention("100.000100", { user: "U0STRANGER" }));
       await deliver(fixture, mention("150.000100", { user: "U0SHARED" }));
+      await deliver(fixture, mention("160.000100", { user: "U0EXTERNAL" }));
       await deliver(fixture, mention("200.000100"));
       await drain(handle);
       expect(linesOf(threadNotices)).toEqual([
         { threadTs: "200.000100", notice: { message: "channelOff" } },
       ]);
       expect(notices).toEqual([]);
+    });
+
+    test("rollout on: a paused agent on a channel binding not in use says nothing", async () => {
+      const fixture = await agentInSlack("main", {
+        rollout: "on",
+        mode: "off",
+      });
+      await db
+        .update(agents)
+        .set({ status: "paused" })
+        .where(eq(agents.id, fixture.agentId));
+      slack.channels.set(CHANNEL, { isPrivate: true });
+      const { handle, notices, threadNotices } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await drain(handle);
+      expect(threadNotices).toEqual([]);
+      expect(notices).toEqual([]);
+      const [row] = await db
+        .select({ status: surfaceBindings.status })
+        .from(surfaceBindings)
+        .where(eq(surfaceBindings.id, fixture.bindingId));
+      expect(row?.status).toBe("ready");
+    });
+
+    test("rollout on: a mention written before the channel's approval gets no line; one after it does", async () => {
+      const fixture = await agentInSlack("main", {
+        rollout: "on",
+        listen: "off",
+      });
+      const approvedAt = new Date();
+      await db
+        .update(surfaceBindings)
+        .set({ approvedAt })
+        .where(eq(surfaceBindings.id, fixture.bindingId));
+      const after = `${Math.floor(approvedAt.getTime() / 1000) + 5}.000100`;
+      const { handle, threadNotices } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await deliver(fixture, mention(after));
+      await drain(handle);
+      expect(linesOf(threadNotices)).toEqual([
+        { threadTs: after, notice: { message: "channelOff" } },
+      ]);
     });
 
     test("rollout on: an agent ownerless within its grace period still makes a mention a turn, with no line", async () => {

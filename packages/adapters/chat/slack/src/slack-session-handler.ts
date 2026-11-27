@@ -437,7 +437,8 @@ export function createSlackSessionHandler(
         ? undefined
         : handling.handling === "drop_with_off_notice"
           ? "channelOff"
-          : lifecycleStop !== null &&
+          : handling.handling === "lifecycle_stopped" &&
+              lifecycleStop !== null &&
               lifecycleStopOf(
                 { ...place, agentActive: true, agentOwnerless: false },
                 live,
@@ -916,7 +917,10 @@ export function createSlackSessionHandler(
         binding === null ||
         binding.mode !== "on" ||
         eventKind === undefined ||
-        slackUserKindOf(user, claim.teamId) === "external"
+        slackUserKindOf(user, claim.teamId) === "external" ||
+        // Written before the channel's approval, as the input path below.
+        (binding.approvedAt != null &&
+          Number(event.ts) * 1000 < binding.approvedAt.getTime())
       ) {
         return;
       }
