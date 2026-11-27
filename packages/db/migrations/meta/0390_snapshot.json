@@ -1,6 +1,6 @@
 {
-  "id": "0a421490-0c72-4717-8f6a-7c12909d8a64",
-  "prevId": "66f4f73d-4b21-41ef-aaec-41f631793c22",
+  "id": "765a280f-3077-4afc-96cc-f91a9c84101f",
+  "prevId": "df0867cb-ac97-4fd0-b7fc-5b8e3d4a3581",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -8692,6 +8692,28 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "events_after_turn_result_idx": {
+          "name": "events_after_turn_result_idx",
+          "columns": [
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"events\".\"type\" = 'result' AND (\"events\".\"neutral\" ->> 'after_turn') IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -16107,6 +16129,22 @@
           ],
           "isUnique": true,
           "where": "\"session_links\".\"session_id\" IS NOT NULL AND \"session_links\".\"closed_at\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "session_links_recent_closed_idx": {
+          "name": "session_links_recent_closed_idx",
+          "columns": [
+            {
+              "expression": "closed_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"session_links\".\"closed_at\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
