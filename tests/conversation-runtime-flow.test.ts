@@ -13,6 +13,7 @@ import {
   CONVERSATION_TOPIC_SESSION_IDLE_MS,
   type ConversationRuntimeTurn,
   conversationRuntimeTurnSchema,
+  conversationTopicIdSchema,
 } from "@werft-ai/contracts";
 import { installedRuntimes } from "@werft-ai/runtime-registry";
 import {
@@ -71,14 +72,24 @@ let provider: FakeAnthropicServer | undefined;
 let authorizer: ReturnType<typeof Bun.serve> | undefined;
 let proxy: CredentialProxyServer | undefined;
 let relay: PermitRelay | undefined;
+const opened: TopicSessions[] = [];
 
 afterEach(async () => {
+  // First: an engine left running writes under the root removed below. The
+  // newest first: a restarted runtime's topics are under the old one's paths.
+  let failure: unknown;
+  for (const sessions of opened.splice(0).reverse()) {
+    await sessions.dropAll().catch((error) => {
+      failure ??= error;
+    });
+  }
   relay?.stop();
   proxy?.stop();
   authorizer?.stop(true);
   provider?.stop();
   if (root !== undefined) await rm(root, { force: true, recursive: true });
   root = provider = authorizer = proxy = relay = undefined;
+  if (failure !== undefined) throw failure;
 });
 
 async function stack(
@@ -156,6 +167,7 @@ async function stack(
   let clock = 0;
   relay = new PermitRelay(`http://127.0.0.1:${proxy.port}/provider`);
   const sessions = new TopicSessions(topics, relay, { now: () => clock });
+  opened.push(sessions);
   const tools = fakeConversationTools();
   const runner = createConversationTurnRunner({
     runtime,
@@ -509,14 +521,19 @@ describe("a conversation turn on the pinned engine, behind the egress proxy", ()
 
   test("a restarted runtime holds no session: its topics start anew, and run", async () => {
     const s = await stack(() => textReply("noted"));
-    const topic = crypto.randomUUID();
+    const topic = conversationTopicIdSchema.parse(crypto.randomUUID());
     await s.runner.run(s.turn(topic, "first"), s.live);
     expect((await stat(join(s.root, topic))).isDirectory()).toBe(true);
 
     // The old process is gone, its engine with it; its directory is left.
-    await (await s.sessions.get(topic))?.run.close();
+    // Closed, the engine was only told to end: until it has exited it is not
+    // gone, and writes its files back under what the new process removed.
+    const old = await s.sessions.get(topic);
+    await old?.run.close();
+    expect(await old?.engines.exited(10_000)).toBe(true);
     // What a new process does first.
     const restarted = new TopicSessions(s.topics, s.relay);
+    opened.push(restarted);
     await restarted.reset();
     expect(await stat(join(s.root, topic)).catch(() => null)).toBeNull();
     const runner = createConversationTurnRunner({
@@ -537,7 +554,8 @@ describe("a conversation turn on the pinned engine, behind the egress proxy", ()
 
   test("keeps each topic's files and session to its own directory, and removes them with the topic", async () => {
     const s = await stack(() => textReply("noted"));
-    const [topicA, topicB] = [crypto.randomUUID(), crypto.randomUUID()];
+    const topicA = conversationTopicIdSchema.parse(crypto.randomUUID());
+    const topicB = conversationTopicIdSchema.parse(crypto.randomUUID());
     const markerA = `marker-a-${crypto.randomUUID()}`;
     const markerB = `marker-b-${crypto.randomUUID()}`;
     const turnA = s.turn(topicA, `remember ${markerA}`);
@@ -581,7 +599,18 @@ describe("a conversation turn on the pinned engine, behind the egress proxy", ()
     }
     expect(await readdir(join(s.root, topicA, "work"))).toEqual([]);
 
-    await s.sessions.drop(topicA as never);
+    const [engineA] = (await s.sessions.get(topicA))?.engines.running ?? [];
+    if (engineA === undefined) throw new Error("topic A's engine was not seen");
+    await s.sessions.drop(topicA);
+    // Dropped, its engine has exited: one still running would write the
+    // directory back after this look at it.
+    let signalled: unknown = "alive";
+    try {
+      process.kill(engineA, 0);
+    } catch (error) {
+      signalled = (error as NodeJS.ErrnoException).code;
+    }
+    expect(signalled).toBe("ESRCH");
     expect(await stat(join(s.root, topicA)).catch(() => null)).toBeNull();
     // Dropping one topic leaves the other.
     expect((await stat(join(s.root, topicB))).isDirectory()).toBe(true);
