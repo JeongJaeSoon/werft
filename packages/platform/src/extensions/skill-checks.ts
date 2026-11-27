@@ -15,15 +15,20 @@ export const LARGE_CHANGE_LINES = 300;
 const MAX_SAMPLES = 20;
 
 /**
- * NFKC of a line, 256 code units at a time: one long run of combining marks
- * (or of characters that decompose into them) takes time quadratic in its
- * length. A sequence split at a piece's end stays unnormalized there.
+ * NFKC of a line, in pieces cut just before an ASCII character past 256 code
+ * units: ASCII neither composes with what precedes it nor reorders, so the
+ * pieces give the whole line's NFKC. One long run with no ASCII (combining
+ * marks, or characters that decompose into them) takes time quadratic in its
+ * length, so it is cut at 1,024 whatever it holds.
  */
 export function nfkc(line: string): string {
   if (line.length <= 256) return line.normalize("NFKC");
   const pieces: string[] = [];
-  for (let at = 0; at < line.length; ) {
+  let at = 0;
+  while (at < line.length) {
     let end = Math.min(at + 256, line.length);
+    const hard = Math.min(at + 1024, line.length);
+    while (end < hard && line.charCodeAt(end) > 0x7f) end++;
     const last = line.charCodeAt(end - 1);
     if (end < line.length && last >= 0xd800 && last <= 0xdbff) end++;
     pieces.push(line.slice(at, end).normalize("NFKC"));

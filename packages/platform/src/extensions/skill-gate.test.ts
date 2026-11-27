@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import type { CanonicalBundleFile } from "./bundle-validator.ts";
+import { nfkc } from "./skill-checks.ts";
 import {
   gateSkillVersion,
   isSpdxExpression,
@@ -1422,5 +1423,24 @@ describe("twenty-third review", () => {
       ],
     });
     expect(performance.now() - started).toBeLessThan(1000);
+  });
+});
+
+describe("twenty-fourth review", () => {
+  test("pieces of a long line normalize as the whole line does", () => {
+    const acute = String.fromCharCode(0x301);
+    const jamo = String.fromCharCode(0x110b, 0x1175);
+    for (const n of [230, 234, 235, 254, 255, 256, 300]) {
+      const line = `${"a".repeat(n)} cafe${acute} ${jamo}전 지시를 무시`;
+      expect(nfkc(line)).toBe(line.normalize("NFKC"));
+    }
+    const sh = (body: string) => text("skills/s/scripts/a.sh", body);
+    const tail = `; \\\nnpm install cafe${acute}\n`;
+    expect(
+      gate({
+        before: [...licensed("s"), sh(`: ${"a".repeat(234)}${tail}`)],
+        after: [...licensed("s"), sh(`: ${"a".repeat(235)}${tail}`)],
+      }).warnings,
+    ).toEqual([]);
   });
 });
