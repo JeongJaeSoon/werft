@@ -4318,13 +4318,16 @@ describe("startCredentialProxy", () => {
       });
 
       test("the mark takes a privately listed host out of the private plane", async () => {
+        // A listener of the test's own, so a regression dials nothing else.
+        const up = upstream(() => new Response("reached"), certificate);
         const { server, lines } = marked(
-          () => grantOf("https://upstream.test:4443/mcp", true),
+          () => grantOf(`https://upstream.test:${up.port}/mcp`, true),
           async () => ["127.0.0.1"],
-          4443,
+          up.port,
         );
         expect((await call(server.port, TOOLS_CALL)).status).toBe(403);
         expect(lines.join("\n")).toContain("127.0.0.1 is loopback, not public");
+        expect(up.seen).toEqual([]);
       });
 
       test("the mark opens the registered port of its one exchange, and nothing after it", async () => {
@@ -4342,7 +4345,7 @@ describe("startCredentialProxy", () => {
         expect(lines.join("\n")).toContain("destination is not allowlisted");
       });
 
-      test("the mark is not read on plain http or on another route", async () => {
+      test("the mark changes nothing on plain http or on another route", async () => {
         const up = upstream(() =>
           Response.json({ jsonrpc: "2.0", id: 1, result: {} }),
         );
