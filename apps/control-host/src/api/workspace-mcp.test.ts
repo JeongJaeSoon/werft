@@ -251,6 +251,12 @@ describe("workspaceMcpAddressCheck", () => {
       ["10.0.0.5"],
       "address_not_allowed",
     ],
+    [
+      "a metadata service name, whatever it answers",
+      "https://Metadata.Google.Internal./computeMetadata/v1/",
+      [PUBLIC],
+      "address_not_allowed",
+    ],
     ["a name with no answer", "https://mcp.example.com/mcp", [], "unreachable"],
   ];
   for (const [what, url, addresses, problem] of cases) {
