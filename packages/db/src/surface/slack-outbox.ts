@@ -106,6 +106,7 @@ import {
   actionableRequest,
   CLOSE,
   createPostgresPendingRequests,
+  sessionNeedsInput,
 } from "../sessions/index.ts";
 import { sqlLiterals } from "../sql-literals.ts";
 import { rowsOf } from "../statement-rows.ts";
@@ -1990,7 +1991,15 @@ export function createPostgresSlackOutboxStore(
                    AND wl.capacity_wait_since <= clock_timestamp() - make_interval(secs => ${waitedMs / 1_000})
                  ORDER BY wl.capacity_wait_since
                  LIMIT 1),
-                (SELECT ot.status || ':' || ot.sequence FROM turns ot
+                -- Waiting on a person, as the session's public status reads
+                -- it: a parked request leaves no turn in flight.
+                CASE WHEN ${sessionNeedsInput(db)} THEN 'needs_input:' || (
+                  SELECT coalesce(max(nt.sequence), 0) FROM turns nt
+                  WHERE nt.session_id = session_links.session_id
+                ) END,
+                -- A stored needs_input from before reads like running.
+                (SELECT CASE ot.status WHEN 'queued' THEN 'queued' ELSE 'running' END || ':' || ot.sequence
+                 FROM turns ot
                  WHERE ot.session_id = session_links.session_id
                    AND ot.status IN ('queued', 'running', 'needs_input')
                  ORDER BY ot.sequence
@@ -2010,6 +2019,7 @@ export function createPostgresSlackOutboxStore(
               last.dedupe_key AS last_key,
               coalesce(last.updates, 0) AS updates
             FROM session_links
+            JOIN sessions ON sessions.id = session_links.session_id
             JOIN slack_installations i ON i.id = session_links.installation_id
             JOIN slack_apps a ON a.app_id = i.app_id
             LEFT JOIN LATERAL (
