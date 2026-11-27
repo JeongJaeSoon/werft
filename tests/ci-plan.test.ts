@@ -79,6 +79,7 @@ function plan(
   base = f.base,
   baseRef = "main",
   gh: Parameters<typeof fakeGh>[0] = "tagged",
+  extra: Record<string, string | undefined> = {},
 ) {
   const result = Bun.spawnSync(["bash", script], {
     cwd: f.repo,
@@ -93,6 +94,9 @@ function plan(
       GITHUB_OUTPUT: f.output,
       GH_REPO: "owner/repo",
       PATH: `${fakeGh(gh)}:${Bun.env.PATH}`,
+      // ci.yml's plan step; images.yml's sets none.
+      SELECT_DOMAINS: "true",
+      ...extra,
     },
   });
   const output = existsSync(f.output) ? readFileSync(f.output, "utf8") : "";
@@ -160,6 +164,13 @@ const K8S_PATHS = new Set([
   "deploy/helm/werft/values.yaml",
 ]);
 const prPlan = (path: string) => (K8S_PATHS.has(path) ? full : shared);
+const domains = (...names: string[]) => JSON.stringify(names);
+/** What a selection may drop: `worker` stays in every plan that drops one. */
+const ALL = domains(...allDomains);
+
+// Each path runs a selection over the repository's own packages and suites,
+// about a second each.
+const SELECTING = 60_000;
 
 test("prose-only PRs keep a small explicit plan", () => {
   const result = plan(fixture(undefined, ["docs/settings.md"]));
@@ -242,59 +253,232 @@ test("a web-only PR still drops k8s-smoke for a path its list would match", () =
   }
 });
 
-test("the egress proxy stays on the full plan: service-backed suites import it", () => {
+test("the egress proxy runs the domains whose service-backed suites import it", () => {
   const result = plan(fixture(undefined, ["apps/egress-proxy/src/a.ts"]));
-  expect(result.output).toEqual(shared);
+  expect(result.output).toEqual({
+    ...shared,
+    domains: domains("api", "storage", "docker", "egress", "worker"),
+  });
 });
 
-test("any shared path next to a web change brings back everything", () => {
-  for (const path of [
-    "packages/core/src/a.ts",
-    "apps/control-host/src/a.ts",
-    "apps/worker/src/a.ts",
-    "bun.lock",
-    "package.json",
-    "tests/a.test.ts",
-    "deploy/helm/werft/values.yaml",
-    "compose.yaml",
-    "scripts/a.ts",
-  ]) {
-    expect(
-      plan(fixture(undefined, ["apps/web/src/a.ts", path])).output,
-    ).toEqual(prPlan(path));
-  }
+test(
+  "a pull request runs the domain of a changed test file, and worker",
+  () => {
+    for (const [paths, expected] of [
+      [["tests/credential-routes.test.ts"], domains("egress", "worker")],
+      [
+        ["apps/control-host/src/slack/new.test.ts"],
+        domains("surface", "worker"),
+      ],
+      [["packages/db/src/new.test.ts"], domains("db", "worker")],
+      [["packages/db/src/session-new.test.ts"], domains("sessions", "worker")],
+      [
+        ["tests/credential-routes.test.ts", "tests/images.test.ts"],
+        domains("docker", "egress", "worker"),
+      ],
+    ] as const) {
+      expect({
+        paths,
+        plan: plan(fixture(undefined, [...paths])).output,
+      }).toEqual({ paths, plan: { ...shared, domains: expected } });
+    }
+  },
+  SELECTING,
+);
+
+test(
+  "a leaf package runs the domains that depend on it, never the database ones",
+  () => {
+    for (const [path, own] of [
+      ["packages/react/src/a.tsx", "surface"],
+      ["packages/ui/src/a.tsx", "worker"],
+      ["apps/worker/src/a.ts", "worker"],
+      ["apps/egress-proxy/src/a.ts", "egress"],
+      ["apps/control-host/src/api/a.ts", "api"],
+    ] as const) {
+      const selected = JSON.parse(
+        plan(fixture(undefined, [path])).output.domains,
+      );
+      expect({ path, own: selected.includes(own) }).toEqual({
+        path,
+        own: true,
+      });
+      expect({ path, worker: selected.includes("worker") }).toEqual({
+        path,
+        worker: true,
+      });
+      for (const unreached of ["db", "sessions"]) {
+        expect({ path, unreached: selected.includes(unreached) }).toEqual({
+          path,
+          unreached: false,
+        });
+      }
+    }
+  },
+  SELECTING,
+);
+
+test(
+  "shared packages, manifests, the lockfile, CI machinery and unknown paths run every domain",
+  () => {
+    for (const path of [
+      "packages/contracts/src/a.ts",
+      "packages/db/src/a.ts",
+      "packages/observability/src/a.ts",
+      "packages/platform/src/a.ts",
+      "packages/runtime-core/src/a.ts",
+      "packages/system/src/a.ts",
+      "packages/testkit/src/a.ts",
+      "packages/react/package.json",
+      "package.json",
+      "bun.lock",
+      "bunfig.toml",
+      "tsconfig.base.json",
+      ".github/workflows/ci.yml",
+      ".github/workflows/images.yml",
+      ".github/actions/bun-setup/action.yml",
+      ".github/integration-domains.yml",
+      ".github/scripts/ci-plan.sh",
+      ".github/scripts/integration-jobs.ts",
+      ".github/scripts/unit-part.ts",
+      ".github/scripts/test-files.ts",
+      "scripts/a.ts",
+      "tests/flow-harness.ts",
+      "tests/e2e/client.ts",
+      "tests/fixtures/settings/fake-model.json",
+      // A test file no domain owns: every job fails on it, so all of them run.
+      "tests/new.test.ts",
+      "compose.yaml",
+      "Dockerfile",
+      "new-directory/a.ts",
+      "packages/new-package/src/a.ts",
+    ]) {
+      expect({
+        path,
+        domains: plan(fixture(undefined, [path])).output.domains,
+      }).toEqual({ path, domains: ALL });
+    }
+  },
+  SELECTING,
+);
+
+test("a main push, and a plan that does not select, keep every domain", () => {
+  const path = "tests/credential-routes.test.ts";
+  expect(plan(fixture(undefined, [path]), "push").output.domains).toBe(ALL);
+  expect(
+    plan(
+      fixture(undefined, [path]),
+      "pull_request",
+      undefined,
+      "main",
+      "tagged",
+      {
+        SELECT_DOMAINS: undefined,
+      },
+    ).output.domains,
+  ).toBe(ALL);
 });
 
-test("a pull request runs k8s-smoke only for what the kind install builds or runs", () => {
-  for (const path of [
-    "deploy/kind/up.sh",
-    "deploy/helm/werft/templates/api.yaml",
-    "packages/adapters/execution/kubernetes/src/backend.ts",
-    "apps/control-host/src/scheduler/launch.ts",
-    "packages/platform/src/scheduler/index.ts",
-    "packages/testkit/src/local-github-main.ts",
-    "packages/testkit/src/fake-messages-main.ts",
-    "infra/localstack/init/10-create-resources.sh",
-    "apps/worker/Dockerfile",
-    "bun.lock",
-    ".github/actions/image-cache/action.yml",
-  ]) {
-    expect({ path, k8s: plan(fixture(undefined, [path])).output.k8s }).toEqual({
-      path,
-      k8s: "true",
-    });
-  }
-  for (const path of [
-    "packages/db/src/a.ts",
-    "apps/control-host/src/api/a.ts",
-    "apps/worker/src/a.ts",
-  ]) {
-    expect({ path, plan: plan(fixture(undefined, [path])).output }).toEqual({
-      path,
-      plan: shared,
-    });
-  }
+test("a selection that fails fails the plan before publishing it", () => {
+  const bin = mkdtempSync(join(root, "bun-"));
+  writeFileSync(join(bin, "bun"), "#!/usr/bin/env bash\nexit 1\n", {
+    mode: 0o755,
+  });
+  const result = plan(
+    fixture(undefined, ["tests/credential-routes.test.ts"]),
+    "pull_request",
+    undefined,
+    "main",
+    "tagged",
+    { PATH: `${bin}:${Bun.env.PATH}` },
+  );
+  expect(result.exitCode).not.toBe(0);
+  expect(result.output).toEqual({});
 });
+
+test(
+  "any shared path next to a web change brings back everything but the domains no path reaches",
+  () => {
+    for (const [path, selected] of [
+      ["packages/core/src/a.ts", domains("surface", "worker")],
+      [
+        "apps/control-host/src/a.ts",
+        domains("api", "surface", "storage", "docker", "egress", "worker"),
+      ],
+      [
+        "apps/worker/src/a.ts",
+        domains("api", "surface", "storage", "docker", "egress", "worker"),
+      ],
+      ["bun.lock", ALL],
+      ["package.json", ALL],
+      ["tests/a.test.ts", ALL],
+      ["compose.yaml", ALL],
+      ["scripts/a.ts", ALL],
+    ] as const) {
+      expect({
+        path,
+        plan: plan(fixture(undefined, ["apps/web/src/a.ts", path])).output,
+      }).toEqual({ path, plan: { ...prPlan(path), domains: selected } });
+    }
+    // A chart file: the helm and kind jobs, and the domains whose tests read it.
+    const chart = plan(
+      fixture(undefined, [
+        "apps/web/src/a.ts",
+        "deploy/helm/werft/values.yaml",
+      ]),
+    ).output;
+    expect({ ...chart, domains: undefined }).toEqual({
+      ...full,
+      domains: undefined,
+    });
+    expect(JSON.parse(chart.domains)).toContain("surface");
+  },
+  SELECTING,
+);
+
+test(
+  "a pull request runs k8s-smoke only for what the kind install builds or runs",
+  () => {
+    for (const path of [
+      "deploy/kind/up.sh",
+      "deploy/helm/werft/templates/api.yaml",
+      "packages/adapters/execution/kubernetes/src/backend.ts",
+      "apps/control-host/src/scheduler/launch.ts",
+      "packages/platform/src/scheduler/index.ts",
+      "packages/testkit/src/local-github-main.ts",
+      "packages/testkit/src/fake-messages-main.ts",
+      "infra/localstack/init/10-create-resources.sh",
+      "apps/worker/Dockerfile",
+      "bun.lock",
+      ".github/actions/image-cache/action.yml",
+    ]) {
+      expect({
+        path,
+        k8s: plan(fixture(undefined, [path])).output.k8s,
+      }).toEqual({
+        path,
+        k8s: "true",
+      });
+    }
+    for (const [path, selected] of [
+      ["packages/db/src/a.ts", ALL],
+      [
+        "apps/control-host/src/api/a.ts",
+        domains("api", "surface", "storage", "docker", "egress", "worker"),
+      ],
+      [
+        "apps/worker/src/a.ts",
+        domains("api", "storage", "docker", "egress", "worker"),
+      ],
+    ] as const) {
+      expect({ path, plan: plan(fixture(undefined, [path])).output }).toEqual({
+        path,
+        plan: { ...shared, domains: selected },
+      });
+    }
+  },
+  SELECTING,
+);
 
 /** Paths only a main push runs the kind jobs for (ci-plan.sh is_publish_path). */
 const PUBLISH_PATHS = [
@@ -358,14 +542,21 @@ test("a main push runs the kind jobs only for chart, image and deploy paths", ()
   });
 });
 
-test("the paths a main push adds leave a pull request's selection alone", () => {
-  for (const path of PUBLISH_PATHS) {
-    expect({ path, k8s: plan(fixture(undefined, [path])).output.k8s }).toEqual({
-      path,
-      k8s: "false",
-    });
-  }
-});
+test(
+  "the paths a main push adds leave a pull request's selection alone",
+  () => {
+    for (const path of PUBLISH_PATHS) {
+      expect({
+        path,
+        k8s: plan(fixture(undefined, [path])).output.k8s,
+      }).toEqual({
+        path,
+        k8s: "false",
+      });
+    }
+  },
+  SELECTING,
+);
 
 describe("a main commit a release needs runs the kind jobs", () => {
   const changelog = (...versions: string[]) =>
@@ -458,22 +649,30 @@ test("both executable guides keep quickstart even in a docs-only PR", () => {
   }
 });
 
-test("mixed, unknown, workflow and dependency changes always use the full plan", () => {
-  for (const path of [
-    "packages/db/src/query.ts",
-    ".github/workflows/ci.yml",
-    "bun.lock",
-    "apps/docs/next.config.ts",
-    "new-directory/file.md",
-    "packages/x/README.md",
-    "docs/page.MD",
-    "apps/docs/content/docs/meta.json",
-  ]) {
-    const result = plan(fixture(undefined, ["docs/settings.md", path]));
-    expect(result.exitCode).toBe(0);
-    expect(result.output).toEqual(prPlan(path));
-  }
-});
+test(
+  "mixed, unknown, workflow and dependency changes always use the full plan",
+  () => {
+    for (const path of [
+      "packages/db/src/query.ts",
+      ".github/workflows/ci.yml",
+      "bun.lock",
+      "apps/docs/next.config.ts",
+      "new-directory/file.md",
+      "packages/x/README.md",
+      "docs/page.MD",
+      "apps/docs/content/docs/meta.json",
+    ]) {
+      const result = plan(fixture(undefined, ["docs/settings.md", path]));
+      expect(result.exitCode).toBe(0);
+      // The docs site's own files reach only the suites that read the site.
+      expect(result.output).toEqual({
+        ...prPlan(path),
+        domains: path.startsWith("apps/docs/") ? domains("worker") : ALL,
+      });
+    }
+  },
+  SELECTING,
+);
 
 test("manual and empty PR diffs use the full plan; main delegates the site", () => {
   for (const event of ["push", "workflow_dispatch", "pull_request"]) {

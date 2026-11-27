@@ -64,7 +64,7 @@ ruleset의 필수 이름은 아래 일곱 개다. 이름은 그 job이 PR에서 
 
 | job | 지키는 것 | 도는 때 | 실행 시간 예산 (p90) / 한도 |
 | --- | --- | --- | --- |
-| `integration (<domain>)` 또는 `integration (<domain> i/N)` | 그 domain의 시험 파일 전부. junit을 읽어, 맡은 파일이 모두 돌았고 선언된 skip만 건너뛰었는지 확인한다 | 문서만 바꾼 변경은 없음. web console만 바꾼 변경은 `surface`. 그 밖은 전부 | 6분 / 15분 |
+| `integration (<domain>)` 또는 `integration (<domain> i/N)` | 그 domain의 시험 파일 전부. junit을 읽어, 맡은 파일이 모두 돌았고 선언된 skip만 건너뛰었는지 확인한다 | 문서만 바꾼 변경은 없음. web console만 바꾼 변경은 `surface`. 그 밖의 PR은 바뀐 경로가 닿는 domain(`integration-jobs.ts select`)과 `worker`. 시험 파일은 그 domain, package 안 파일은 그 package에 기대는 domain이다. 공유 package, `package.json`, lockfile, workflow와 CI 스크립트, package 밖의 모르는 경로는 전부. main push와 수동 run도 전부 | 6분 / 15분 |
 | `e2e` (`e2e-gate`) | 위 표 | 위 표 | 위 표 |
 | `quickstart` (`quickstart-gate`) | 위 표 | 위 표 | 위 표 |
 | `conformance (<engine>)` | 엔진 셋의 conformance suite | PR에서는 돌지 않는다. 릴리스가 필요한 main push(릴리스 여부를 읽지 못한 push도)와 수동 run | - / 30분 |

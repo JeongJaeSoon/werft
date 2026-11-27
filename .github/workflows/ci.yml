@@ -60,11 +60,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
+      # Before the plan: a pull request's integration domains are selected
+      # with integration-jobs.ts.
+      - uses: ./.github/actions/bun-setup
+        with:
+          restore-cache: "false"
       - id: plan
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BEFORE_SHA: ${{ github.event.before }}
+          SELECT_DOMAINS: "true"
           # A main push asks whether a release needs its commit.
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
@@ -124,10 +130,6 @@ jobs:
           esac
           echo "conformance: run=$run"
           echo "run=$run" >>"$GITHUB_OUTPUT"
-      - if: steps.plan.outputs.tests == 'true'
-        uses: ./.github/actions/bun-setup
-        with:
-          restore-cache: "false"
       # The integration-domain matrix, one entry per shard: only the planned
       # domains start a job. ci-reuse.sh holds a reused run to these job names
       # too. An assignment, so a planner failure fails the step.

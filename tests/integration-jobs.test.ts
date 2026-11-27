@@ -1,15 +1,19 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   assign,
   DEFAULT_TEST_SECONDS,
+  domainSelector,
   forShard,
   type IntegrationJob,
   matrix,
   readJobs,
   readJunit,
+  readWorkspace,
+  SHARED_PACKAGES,
   shardFiles,
   slowCases,
   slowNotice,
@@ -513,4 +517,55 @@ describe.skip("off", () => {
       ]),
     ).toEqual(["packages/storage/a.test.ts did not run"]);
   });
+});
+
+describe("integration-jobs.ts select", () => {
+  const declaration = readFileSync(
+    join(repo, ".github", "integration-domains.yml"),
+    "utf8",
+  );
+  const selector = domainSelector(repo, declaration);
+  const owners = assign(suiteFiles(repo), readJobs(declaration));
+
+  test("a change to any package runs every domain that owns a test of that package", () => {
+    const workspace = readWorkspace(repo);
+    for (const dir of workspace.packages.keys()) {
+      const own = [...owners]
+        .filter(([, files]) => files.some((f) => f.startsWith(`${dir}/`)))
+        .map(([domain]) => domain);
+      const { domains } = selector.forPath(`${dir}/src/changed.ts`);
+      expect({ dir, missing: own.filter((d) => !domains.includes(d)) }).toEqual(
+        {
+          dir,
+          missing: [],
+        },
+      );
+    }
+  }, 30_000);
+
+  test("the shared packages exist and reach every domain on their own", () => {
+    const workspace = readWorkspace(repo);
+    for (const dir of SHARED_PACKAGES) {
+      expect(workspace.packages.has(dir)).toBe(true);
+      expect(selector.forPath(`${dir}/src/changed.ts`).domains).toEqual(
+        selector.all,
+      );
+    }
+  }, 30_000);
+
+  test("prints the selection as one line of JSON and each path's reason on stderr", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "select-"));
+    try {
+      const paths = join(dir, "paths");
+      await writeFile(paths, "tests/credential-routes.test.ts\0");
+      const result = await run(["select", paths]);
+      expect(result.exitCode).toBe(0);
+      expect(result.lines).toEqual(['["egress","worker"]']);
+      expect(result.stderr).toContain(
+        "integration domains: tests/credential-routes.test.ts -> egress (test file)",
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

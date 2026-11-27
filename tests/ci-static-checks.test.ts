@@ -188,10 +188,10 @@ test("static checks keep one cache writer and report independent failures", () =
     workflow.jobs.changes?.steps.map((step) => step.id ?? step.uses),
   ).toEqual([
     expect.stringContaining("actions/checkout@"),
+    "./.github/actions/bun-setup",
     "plan",
     "sdk",
     "conformance",
-    "./.github/actions/bun-setup",
     "domains",
     "reuse",
     "reused-k8s",
@@ -892,6 +892,78 @@ test("docs/ci/checks.md names each required check by the one job that reports it
   }
 });
 
+test("a pull request that changes only prose still gets a result for every required check", () => {
+  const dir = join(import.meta.dir, "../.github/workflows");
+  const read = (file: string) =>
+    Bun.YAML.parse(readFileSync(join(dir, file), "utf8")) as {
+      on: Record<string, Record<string, unknown> | null>;
+      jobs: Record<string, Job>;
+    };
+  // The workflow of each required check starts on every pull request: a
+  // workflow that does not start leaves its required name pending for good.
+  const reporters = [
+    ["ci.yml", "check"],
+    ["ci.yml", "integration"],
+    ["ci.yml", "e2e-gate"],
+    ["ci.yml", "quickstart-gate"],
+    ["images.yml", "supply-chain"],
+    ["forbidden-terms.yml", "forbidden-terms"],
+    ["gitleaks.yml", "gitleaks"],
+  ] as const;
+  for (const [file, id] of reporters) {
+    const { on, jobs } = read(file);
+    expect({ file, on: "pull_request" in on }).toEqual({ file, on: true });
+    for (const filter of [
+      "paths",
+      "paths-ignore",
+      "branches",
+      "branches-ignore",
+    ]) {
+      expect({ file, filter, set: on.pull_request?.[filter] }).toEqual({
+        file,
+        filter,
+        set: undefined,
+      });
+    }
+    // The job itself runs whatever the plan selected: no condition, or one
+    // that starts with always() (the rest names a manual run's `only`).
+    const condition = jobs[id]?.if;
+    expect({
+      file,
+      id,
+      runs: condition === undefined || /^always\(\)/.test(condition),
+    }).toEqual({ file, id, runs: true });
+  }
+  // And each gate passes the plan ci-plan.sh gives prose: nothing ran.
+  const prose = {
+    PLAN: "success",
+    TESTS: "false",
+    PRODUCT: "false",
+    QUICKSTART: "false",
+    DOCS_ONLY: "true",
+    STATIC: "success",
+    DOCS: "success",
+    RESULT: "skipped",
+    SCENARIO: "skipped",
+    GUIDES: "skipped",
+    EVENT: "pull_request",
+    ONLY: "all",
+    E2E: "success",
+    CONFORMANCE_PLAN: "false",
+    CONFORMANCE: "skipped",
+  };
+  // `integration` reads the e2e and quickstart gates' results under the
+  // names the quickstart gate gives its plan flag.
+  for (const [gate, env] of [
+    ["check", prose],
+    ["integration", { ...prose, QUICKSTART: "success" }],
+    ["e2e-gate", prose],
+    ["quickstart-gate", prose],
+  ] as const) {
+    expect({ gate, exit: verdict(gate, env) }).toEqual({ gate, exit: 0 });
+  }
+});
+
 test("check:fast runs lint, the job assignment check and guard tests that exist", () => {
   const root = join(import.meta.dir, "..");
   const { scripts } = JSON.parse(
@@ -1184,10 +1256,20 @@ test("an integration domain no changed path reaches starts no job", () => {
   expect(changes?.outputs?.integration_matrix).toBe(
     "${{ steps.domains.outputs.matrix }}",
   );
-  // The bun the planner needs, wherever a matrix of either kind is made.
-  expect(
-    changes?.steps.find((s) => s.uses === "./.github/actions/bun-setup")?.if,
-  ).toBe("steps.plan.outputs.tests == 'true'");
+  // The bun the planner needs, wherever a matrix of either kind is made, and
+  // that the plan's own domain selection needs before it: on every run, with
+  // nothing restored.
+  const setup = changes?.steps.find(
+    (s) => s.uses === "./.github/actions/bun-setup",
+  );
+  expect(setup?.if).toBeUndefined();
+  expect(setup?.with?.["restore-cache"]).toBe("false");
+  expect(changes?.steps.indexOf(setup!)).toBeLessThan(
+    changes?.steps.findIndex((s) => s.id === "plan") ?? -1,
+  );
+  expect(changes?.steps.find((s) => s.id === "plan")?.env?.SELECT_DOMAINS).toBe(
+    "true",
+  );
   const step = changes?.steps.find((s) => s.id === "domains");
   // Made before reuse is judged: ci-reuse.sh holds a reused run to these job
   // names. A reused run still starts no domain, as its tests flag is off.

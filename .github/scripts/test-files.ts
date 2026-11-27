@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 // Bun's own discovery rule: a `.test`/`_test`/`.spec`/`_spec` suffix on any
 // loadable script extension, outside hidden directories and node_modules.
-const TEST_FILE = /(\.test|_test|\.spec|_spec)\.[cm]?[jt]sx?$/;
+export const TEST_FILE = /(\.test|_test|\.spec|_spec)\.[cm]?[jt]sx?$/;
 
 /**
  * The filters `bun run test` hands to `bun test`, read from package.json.

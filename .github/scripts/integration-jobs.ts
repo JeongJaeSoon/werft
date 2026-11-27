@@ -22,10 +22,14 @@
 //   integration-jobs.ts verify <domain> <shard> <junit>  fails unless the junit report ran exactly
 //                                                        those files and skipped only what the
 //                                                        domain declares for them
+//   integration-jobs.ts select <paths>                   the domains a pull request's changed
+//                                                        paths (a NUL-separated file, prose
+//                                                        already left out) reach, as one line of
+//                                                        JSON; each path's reason goes to stderr
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { suiteFiles } from "./test-files.ts";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { dirname, join, normalize } from "node:path";
+import { suiteFiles, TEST_FILE } from "./test-files.ts";
 
 export type DeclaredSkip = { file: string; test: string };
 
@@ -255,6 +259,340 @@ export function assign(
   return byDomain;
 }
 
+/**
+ * The CI machinery itself, and what every job installs: a change here can
+ * alter what any domain runs or how, so it runs them all.
+ */
+const RUN_ALL = [
+  ".github/workflows/",
+  ".github/actions/",
+  ".github/integration-domains.yml",
+  ".github/scripts/ci-plan.sh",
+  ".github/scripts/ci-reuse.sh",
+  ".github/scripts/ci-services.sh",
+  ".github/scripts/integration-jobs.ts",
+  ".github/scripts/test-files.ts",
+  ".github/scripts/unit-part.ts",
+];
+
+/**
+ * Packages every domain builds on. Their computed reach is every domain
+ * already; naming them keeps that true if an import moves.
+ */
+export const SHARED_PACKAGES = [
+  "packages/contracts",
+  "packages/db",
+  "packages/observability",
+  "packages/platform",
+  "packages/runtime-core",
+  "packages/system",
+  "packages/testkit",
+];
+
+/**
+ * Paths outside any package that tests read as files (scripts they run,
+ * charts they render) rather than import: a domain whose test names the
+ * file is reached, beside the repository's own tooling suites in `worker`.
+ */
+const READ_AS_FILES = [".github/scripts/", "deploy/"];
+
+/**
+ * The domain that owns the repository-wide suites (architecture, module
+ * load, forbidden terms, copy and docs checks): they read every file,
+ * whatever imports it, so a plan that drops domains always keeps it.
+ */
+const POLICY_DOMAIN = "worker";
+
+export type Workspace = {
+  /** Package directory, e.g. "packages/db", and its package name. */
+  packages: Map<string, string>;
+  /** Package directory → the package directories it depends on, transitively, itself included. */
+  closure: Map<string, Set<string>>;
+};
+
+export function readWorkspace(cwd: string): Workspace {
+  const root = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8"));
+  const dirs: string[] = [];
+  for (const pattern of root.workspaces as string[]) {
+    if (!pattern.endsWith("/*")) {
+      throw new Error(`workspace pattern ${pattern} is not <dir>/*`);
+    }
+    const parent = pattern.slice(0, -2);
+    for (const item of readdirSync(join(cwd, parent), {
+      withFileTypes: true,
+    })) {
+      const dir = `${parent}/${item.name}`;
+      if (item.isDirectory() && existsSync(join(cwd, dir, "package.json"))) {
+        dirs.push(dir);
+      }
+    }
+  }
+  const byName = new Map<string, string>();
+  const manifests = new Map<string, Record<string, unknown>>();
+  for (const dir of dirs) {
+    const manifest = JSON.parse(
+      readFileSync(join(cwd, dir, "package.json"), "utf8"),
+    );
+    manifests.set(dir, manifest);
+    if (typeof manifest.name === "string") byName.set(manifest.name, dir);
+  }
+  const direct = new Map<string, string[]>();
+  for (const [dir, manifest] of manifests) {
+    const names = ["dependencies", "devDependencies", "peerDependencies"]
+      .flatMap((field) => Object.keys((manifest[field] as object) ?? {}))
+      .filter((name) => byName.has(name));
+    direct.set(
+      dir,
+      names.map((name) => byName.get(name)!),
+    );
+  }
+  const closure = new Map<string, Set<string>>();
+  for (const dir of dirs) {
+    const seen = new Set([dir]);
+    const stack = [dir];
+    while (stack.length > 0) {
+      for (const next of direct.get(stack.pop()!) ?? []) {
+        if (!seen.has(next)) {
+          seen.add(next);
+          stack.push(next);
+        }
+      }
+    }
+    closure.set(dir, seen);
+  }
+  return {
+    packages: new Map([...byName].map(([name, dir]) => [dir, name])),
+    closure,
+  };
+}
+
+/** The package directory a path lies in (the longest one), if any. */
+export function packageOf(
+  path: string,
+  workspace: Workspace,
+): string | undefined {
+  let best: string | undefined;
+  for (const dir of workspace.packages.keys()) {
+    if (path.startsWith(`${dir}/`) && (!best || dir.length > best.length)) {
+      best = dir;
+    }
+  }
+  return best;
+}
+
+const IMPORT =
+  /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\(\s*)["']([^"']+)["']/g;
+const EXTENSIONS = [
+  "",
+  ".ts",
+  ".tsx",
+  ".js",
+  ".mjs",
+  "/index.ts",
+  "/index.tsx",
+];
+
+/**
+ * The packages a test file can reach: the package of every file its imports
+ * lead to (relative ones followed file by file, workspace ones by name), and
+ * everything those packages depend on.
+ */
+export function reachedPackages(
+  cwd: string,
+  testFile: string,
+  workspace: Workspace,
+  read: (path: string) => string | undefined,
+): Set<string> {
+  const byName = new Map(
+    [...workspace.packages].map(([dir, name]) => [name, dir]),
+  );
+  const packages = new Set<string>();
+  const seen = new Set<string>();
+  const stack = [testFile];
+  while (stack.length > 0) {
+    const file = stack.pop()!;
+    if (seen.has(file)) continue;
+    seen.add(file);
+    const own = packageOf(file, workspace);
+    if (own) packages.add(own);
+    const text = read(file);
+    if (text === undefined) continue;
+    for (const match of text.matchAll(IMPORT)) {
+      const spec = match[1]!;
+      if (spec.startsWith(".")) {
+        const base = normalize(join(dirname(file), spec));
+        const candidates = [
+          ...EXTENSIONS.map((ext) => base + ext),
+          base.replace(/\.js$/, ".ts"),
+          base.replace(/\.js$/, ".tsx"),
+        ];
+        const found = candidates.find((candidate) =>
+          existsSync(join(cwd, candidate)),
+        );
+        if (found && !seen.has(found)) stack.push(found);
+        continue;
+      }
+      const parts = spec.split("/");
+      const name = spec.startsWith("@")
+        ? parts.slice(0, 2).join("/")
+        : parts[0]!;
+      const dir = byName.get(name);
+      if (dir) packages.add(dir);
+    }
+  }
+  const reached = new Set<string>();
+  for (const dir of packages) {
+    for (const dep of workspace.closure.get(dir) ?? [dir]) reached.add(dep);
+  }
+  return reached;
+}
+
+export type Selection = { domains: string[]; reasons: string[] };
+
+/**
+ * The integration domains a pull request's changed paths reach, in
+ * declaration order. Prose is left out by ci-plan.sh before this is called.
+ * A plan that drops a domain keeps `worker`, whose suites read every file.
+ */
+export function selectDomains(
+  cwd: string,
+  declaration: string,
+  paths: string[],
+): Selection {
+  const selector = domainSelector(cwd, declaration);
+  const picked = new Set<string>();
+  const reasons: string[] = [];
+  for (const path of paths) {
+    const { domains, why } = selector.forPath(path);
+    for (const domain of domains) picked.add(domain);
+    reasons.push(`${path} -> ${domains.join(", ")} (${why})`);
+  }
+  if (picked.size < selector.all.length) picked.add(POLICY_DOMAIN);
+  return {
+    domains: selector.all.filter((domain) => picked.has(domain)),
+    reasons,
+  };
+}
+
+/**
+ * The domains one changed path reaches. Whatever this cannot place runs every
+ * domain:
+ * - a test file runs the domain that owns it;
+ * - a file of a package runs the domains whose tests reach that package
+ *   (a shared package, or a package.json, runs them all);
+ * - a script or chart that tests read as a file runs the domains whose tests
+ *   name it;
+ * - the CI machinery, the lockfile, root configuration, scripts and test
+ *   helpers outside a package, and any other path run them all.
+ */
+export function domainSelector(
+  cwd: string,
+  declaration: string,
+): {
+  all: string[];
+  forPath(path: string): { domains: string[]; why: string };
+} {
+  const jobs = readJobs(declaration);
+  const all = jobs.map((job) => job.domain);
+  if (!all.includes(POLICY_DOMAIN)) {
+    throw new Error(`integration domains have no ${POLICY_DOMAIN} domain`);
+  }
+  const tests = suiteFiles(cwd);
+  const owners = assign(tests, jobs);
+  const ownerOf = new Map<string, string>();
+  for (const [domain, files] of owners) {
+    for (const file of files) ownerOf.set(file, domain);
+  }
+  const workspace = readWorkspace(cwd);
+  const cache = new Map<string, string | undefined>();
+  const read = (path: string) => {
+    if (!cache.has(path)) {
+      let text: string | undefined;
+      try {
+        text = readFileSync(join(cwd, path), "utf8");
+      } catch {
+        text = undefined;
+      }
+      cache.set(path, text);
+    }
+    return cache.get(path);
+  };
+  let reach: Map<string, Set<string>> | undefined;
+  const domainsReaching = (dir: string) => {
+    reach ??= new Map(
+      [...owners].map(([domain, files]) => {
+        const reached = new Set<string>();
+        for (const file of files) {
+          for (const pkg of reachedPackages(cwd, file, workspace, read)) {
+            reached.add(pkg);
+          }
+        }
+        return [domain, reached];
+      }),
+    );
+    return all.filter((domain) => reach!.get(domain)!.has(dir));
+  };
+
+  const forPath = (path: string): { domains: string[]; why: string } => {
+    if (RUN_ALL.some((prefix) => path.startsWith(prefix))) {
+      return { domains: all, why: "CI machinery" };
+    }
+    const name = path.split("/").at(-1)!;
+    if (TEST_FILE.test(name)) {
+      // A test file of the suite runs its own domain; another one (a deleted
+      // file, or one outside the suite's directories) is placed by prefix,
+      // and runs everything when no domain owns it.
+      const owner = ownerOf.get(path) ?? ownerByPrefix(path, jobs);
+      if (owner) return { domains: [owner], why: "test file" };
+    }
+    const pkg = packageOf(path, workspace);
+    if (pkg) {
+      if (name === "package.json") {
+        return { domains: all, why: "package manifest" };
+      }
+      if (SHARED_PACKAGES.includes(pkg)) {
+        return { domains: all, why: `shared package ${pkg}` };
+      }
+      const domains = domainsReaching(pkg);
+      return domains.length > 0
+        ? { domains, why: `package ${pkg}` }
+        : { domains: all, why: `package ${pkg}, which no test reaches` };
+    }
+    if (READ_AS_FILES.some((prefix) => path.startsWith(prefix))) {
+      const naming = new Set(
+        tests
+          .filter((test) => read(test)?.includes(name))
+          .map((test) => ownerOf.get(test)!),
+      );
+      return {
+        domains: all.filter(
+          (domain) => domain === POLICY_DOMAIN || naming.has(domain),
+        ),
+        why: "read as a file by tests",
+      };
+    }
+    return { domains: all, why: "outside every package" };
+  };
+  return { all, forPath };
+}
+
+/** The domain whose longest path prefix a path starts with, if exactly one. */
+function ownerByPrefix(
+  path: string,
+  jobs: IntegrationJob[],
+): string | undefined {
+  const matches = jobs.flatMap((job) =>
+    job.paths.filter((p) => path.startsWith(p)).map((p) => ({ job, p })),
+  );
+  const longest = Math.max(0, ...matches.map(({ p }) => p.length));
+  const owners = new Set(
+    matches
+      .filter(({ p }) => p.length === longest)
+      .map(({ job }) => job.domain),
+  );
+  return owners.size === 1 ? [...owners][0] : undefined;
+}
+
 const ENTITIES: Record<string, string> = {
   amp: "&",
   apos: "'",
@@ -376,11 +714,12 @@ function main(argv: string[]): void {
     !(
       (command === "matrix" && argv.length === 2) ||
       (command === "files" && argv.length === 3) ||
-      (command === "verify" && argv.length === 4)
+      (command === "verify" && argv.length === 4) ||
+      (command === "select" && argv.length === 2)
     )
   ) {
     console.error(
-      "usage: integration-jobs.ts matrix <domains> | files <domain> <shard> | verify <domain> <shard> <junit.xml>",
+      "usage: integration-jobs.ts matrix <domains> | files <domain> <shard> | verify <domain> <shard> <junit.xml> | select <paths>",
     );
     process.exit(2);
   }
@@ -390,6 +729,19 @@ function main(argv: string[]): void {
   if (command === "matrix") {
     try {
       console.log(JSON.stringify(matrix(declaration, domain!)));
+    } catch (error) {
+      console.error((error as Error).message);
+      process.exit(1);
+    }
+    return;
+  }
+  if (command === "select") {
+    try {
+      const paths = readFileSync(domain!, "utf8").split("\0").filter(Boolean);
+      const { domains, reasons } = selectDomains(cwd, declaration, paths);
+      for (const reason of reasons)
+        console.error(`integration domains: ${reason}`);
+      console.log(JSON.stringify(domains));
     } catch (error) {
       console.error((error as Error).message);
       process.exit(1);
