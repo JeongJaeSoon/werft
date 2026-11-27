@@ -474,7 +474,7 @@ M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는�
 
 ### 작업 스레드의 답글
 
-작업에 묶인 Slack 스레드에 사람이 봇을 멘션하지 않고 단 답글이다(v1-b/U1). rollout `on`에서만 이 길을 탄다. `shadow`·`off`에서는 예전처럼 세션이 바로 받는다(`shadow`는 곁에 판단 기록만 남긴다). 작업이 열렸는지는 묶인 세션의 상태로 본다. `queued`·`running`·`needs_input`이면 열린 작업(`m1_to_task`), 그 밖이면 닫힌 작업(`m1`)이다. 봇을 멘션한 답글은 이 길을 타지 않고 지금처럼 세션이 받는다. 닫힌 작업이면 이것이 다시 여는 길이다.
+작업에 묶인 Slack 스레드에 사람이 봇을 멘션하지 않고 단 답글이다(v1-b/U1). rollout `on`에서만 이 길을 탄다. `shadow`·`off`에서는 예전처럼 세션이 바로 받는다(`shadow`는 곁에 판단 기록만 남긴다). 작업이 열렸는지는 결정 35대로 묶인 세션의 `admission_state`로 본다(`packages/db/src/conversations/session-work.ts`의 `sessionWorkClosed`). `closing`·`closed`면 닫힌 작업(`m1`), 그 밖이면(`idle`·`paused`·`stopped` 세션 포함) 열린 작업(`m1_to_task`)이다. 세션이 없으면 닫힌 작업으로 본다. 봇을 멘션한 답글은 이 길을 타지 않고 지금의 멘션 길로 간다.
 
 | 지금 상태 | 다음 상태 | 조건 | 누가 일으키나 |
 | --- | --- | --- | --- |
@@ -495,6 +495,8 @@ M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는�
 - 닫힌 작업의 답글이 `quiet`이면 턴이 없다("kept quiet (no_reply): no turn of any kind").
 - 열린 작업의 답글이 `quiet`이면 세션이 듣지 못한다("kept quiet: the work never hears it, and its held text goes").
 - 멈춤 낱말은 판단을 기다리지 않는다("a stop word is no reply to judge: nothing waits for M1").
+- `idle`·`stopped` 세션의 작업은 닫힌 작업으로 보지 않는다("idle work, admission active / stopped, is open (decision 35): ..."). `closing`은 턴이 아직 돌아도 닫힌 작업이다("work closing (decision 35), its turn still running: ...", `packages/db/src/conversations/session-work.test.ts`).
+- 봇을 멘션한 글은 M1 판단으로 가지 않는다("a mention of the agent is no reply for M1: ..."). 열린 작업이면 세션의 턴이 되고, `closed` 세션은 이 PR 전과 같이 턴을 받지 않는다. 닫힌 세션의 스레드는 보통 링크가 닫힌 뒤(`SLACK_ROLE_CLOSE_LINKS`) 다음 멘션이 새 세션을 연다.
 - `shadow`·`off`에서는 기다리지 않는다("rollout shadow / off: nothing waits, the work takes the reply as before").
 
 지킬 성질:

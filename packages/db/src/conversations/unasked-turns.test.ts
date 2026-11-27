@@ -792,7 +792,7 @@ describe("a closed work's thread reply that spoke (v1-b/U1)", () => {
     const at = await place();
     const session = await newPartitionedSession(db, "unasked-closed");
     await client.query(
-      "UPDATE sessions SET status = 'idle', workspace_id = $2 WHERE id = $1",
+      "UPDATE sessions SET status = 'idle', admission_state = 'closed', workspace_id = $2 WHERE id = $1",
       [session.sessionId, WORKSPACE],
     );
     await client.query(

@@ -44,6 +44,7 @@ export {
 } from "./conversations/judgment-buffer.ts";
 export { createPostgresMentionTurnStatuses } from "./conversations/mention-turn-statuses.ts";
 export * from "./conversations/session-parents.ts";
+export * from "./conversations/session-work.ts";
 export { decodeEventCursor, encodeEventCursor } from "./cursors.ts";
 export {
   budgetChoiceOfCall,

@@ -5,7 +5,7 @@ import {
   dropBufferedInputs,
   holdBufferedInput,
   JUDGMENT_BUFFER_TTL_MS,
-  sessionWorking,
+  sessionWorkClosed,
 } from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
@@ -34,11 +34,11 @@ export function createPostgresBoundReplyStore(
     options.bufferLimit ?? (async () => JUDGMENT_BUFFER_LIMIT_PER_CHANNEL);
   return {
     async work(sessionId) {
-      const [session] = rowsOf<{ status: string }>(
+      const [session] = rowsOf<{ admission_state: string }>(
         await db.execute(sql`
-          SELECT status FROM sessions WHERE id = ${sessionId}::uuid`),
+          SELECT admission_state FROM sessions WHERE id = ${sessionId}::uuid`),
       );
-      return sessionWorking(session?.status) ? "open" : "closed";
+      return sessionWorkClosed(session?.admission_state) ? "closed" : "open";
     },
 
     async taskReply(reply) {

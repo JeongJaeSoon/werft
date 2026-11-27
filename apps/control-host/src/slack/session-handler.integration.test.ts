@@ -8922,7 +8922,11 @@ describe.each(ENGINES)(
         .set({ conversationRollout: to })
         .where(eq(agents.id, fixture.agentId));
     /** A thread whose session a mention opened, its agent switched on since. */
-    async function workThread(status: "queued" | "running" | "idle") {
+    /** `admission` closing or closed is closed work (decision 35). */
+    async function workThread(
+      status: "queued" | "running" | "idle",
+      admission: "active" | "stopped" | "closing" | "closed" = "active",
+    ) {
       const fixture = await agentInSlack("main", { rollout: "shadow" });
       const { handle } = handler();
       await deliver(fixture, mention(THREAD));
@@ -8931,7 +8935,7 @@ describe.each(ENGINES)(
       if (session === undefined) throw new Error("the mention opened none");
       await db
         .update(sessions)
-        .set({ status })
+        .set({ status, admissionState: admission })
         .where(eq(sessions.id, session.id));
       await rollout(fixture, "on");
       return { fixture, handle, sessionId: session.id };
@@ -9170,6 +9174,38 @@ describe.each(ENGINES)(
         expect((await judgeReplies("speak")).judged).toBe(0);
       });
 
+      for (const [status, admission] of [
+        ["idle", "active"],
+        ["idle", "stopped"],
+      ] as const) {
+        test(`${status} work, admission ${admission}, is open (decision 35): the reply waits for M1, and its speak goes to the work`, async () => {
+          const { fixture, handle, sessionId } = await workThread(
+            status,
+            admission,
+          );
+          await deliver(fixture, reply());
+          expect(await drain(handle)).toMatchObject({ deferred: 1 });
+          expect(await judgments()).toEqual([
+            expect.objectContaining({ grade: "m1_to_task", outcome: null }),
+          ]);
+          const { speaker, outcomes } = issuing();
+          expect((await judgeReplies("speak", speaker)).judged).toBe(1);
+          await due();
+          expect(await drain(handle)).toMatchObject({
+            deferred: 0,
+            processed: 1,
+          });
+          // The work's way as before: a stopped session takes no turn.
+          expect(await messagesOf(sessionId)).toEqual(
+            admission === "active"
+              ? ["summarize the thread", "and the next step"]
+              : ["summarize the thread"],
+          );
+          expect(outcomes).toEqual([]);
+          expect(await unaskedTurns()).toEqual([]);
+        });
+      }
+
       test("a stop word is no reply to judge: nothing waits for M1", async () => {
         const { fixture, handle } = await workThread("running");
         await deliver(fixture, reply("stop"));
@@ -9218,7 +9254,10 @@ describe.each(ENGINES)(
 
     describe("work done (m1, B)", () => {
       test("an unmentioned reply goes to no session; M1's speak answers it with one unasked turn", async () => {
-        const { fixture, handle, sessionId } = await workThread("idle");
+        const { fixture, handle, sessionId } = await workThread(
+          "idle",
+          "closed",
+        );
         await deliver(fixture, reply());
         expect(await drain(handle)).toMatchObject({
           processed: 1,
@@ -9239,8 +9278,30 @@ describe.each(ENGINES)(
         expect(await messagesOf(sessionId)).toEqual(["summarize the thread"]);
       });
 
+      test("work closing (decision 35), its turn still running: closed work, M1's speak alone answers", async () => {
+        const { fixture, handle, sessionId } = await workThread(
+          "running",
+          "closing",
+        );
+        await deliver(fixture, reply());
+        expect(await drain(handle)).toMatchObject({
+          processed: 1,
+          deferred: 0,
+        });
+        expect(await judgments()).toEqual([
+          expect.objectContaining({ grade: "m1", outcome: null }),
+        ]);
+        const { speaker, outcomes } = issuing();
+        await judgeReplies("speak", speaker);
+        expect(outcomes).toEqual(["issued"]);
+        expect(await messagesOf(sessionId)).toEqual(["summarize the thread"]);
+      });
+
       test("kept quiet (no_reply): no turn of any kind", async () => {
-        const { fixture, handle, sessionId } = await workThread("idle");
+        const { fixture, handle, sessionId } = await workThread(
+          "idle",
+          "closed",
+        );
         await deliver(fixture, reply());
         await drain(handle);
         const { speaker, outcomes } = issuing();
@@ -9253,7 +9314,10 @@ describe.each(ENGINES)(
 
       for (const said of ["failed", "budget_refused", "throws"] as const) {
         test(`M1 could not judge it (${said}): left unanswered, the work done`, async () => {
-          const { fixture, handle, sessionId } = await workThread("idle");
+          const { fixture, handle, sessionId } = await workThread(
+            "idle",
+            "closed",
+          );
           await deliver(fixture, reply());
           await drain(handle);
           const { speaker, outcomes } = issuing();
@@ -9265,23 +9329,39 @@ describe.each(ENGINES)(
         });
       }
 
-      test("a mention of the agent in the thread takes it up in its session again", async () => {
-        const { fixture, handle, sessionId } = await workThread("idle");
-        await deliver(
-          fixture,
-          mention(REPLY, {
-            thread_ts: THREAD,
-            text: `<@${BOT_USER}> and the next step`,
-          }),
-        );
-        expect(await drain(handle)).toMatchObject({ processed: 1 });
-        expect(await messagesOf(sessionId)).toEqual([
-          "summarize the thread",
-          "and the next step",
-        ]);
-        expect(await judgments()).toEqual([]);
-        expect(await unaskedTurns()).toEqual([]);
-      });
+      for (const admission of ["active", "closed"] as const) {
+        test(`a mention of the agent is no reply for M1: it goes the mention's way as before (admission ${admission})`, async () => {
+          const { fixture, handle, sessionId } = await workThread(
+            "idle",
+            admission,
+          );
+          await deliver(
+            fixture,
+            mention(REPLY, {
+              thread_ts: THREAD,
+              text: `<@${BOT_USER}> and the next step`,
+            }),
+          );
+          expect(await drain(handle)).toMatchObject({
+            processed: 1,
+            deferred: 0,
+          });
+          // Open work takes it as its turn; closed work's session takes no
+          // turn, as before this path existed.
+          expect(await messagesOf(sessionId)).toEqual(
+            admission === "active"
+              ? ["summarize the thread", "and the next step"]
+              : ["summarize the thread"],
+          );
+          expect(await judgments()).toEqual([]);
+          expect(await replyInput()).toEqual(
+            admission === "active"
+              ? [expect.objectContaining({ held: false })]
+              : [],
+          );
+          expect(await unaskedTurns()).toEqual([]);
+        });
+      }
 
       test("one post, one answer: a reply a session took makes no unasked turn, though M1 spoke", async () => {
         const { fixture, handle, sessionId } = await workThread("idle");
