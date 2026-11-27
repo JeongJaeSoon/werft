@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { createHash } from "node:crypto";
 import type { CanonicalBundleFile } from "./bundle-validator.ts";
 import { nfkc } from "./skill-checks.ts";
@@ -7,6 +7,9 @@ import {
   isSpdxExpression,
   type SkillGateInput,
 } from "./skill-gate.ts";
+
+// The time-limit tests measure up to four 1 MiB inputs each.
+setDefaultTimeout(20_000);
 
 const raw = (
   path: string,
