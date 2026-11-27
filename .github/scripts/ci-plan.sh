@@ -138,6 +138,11 @@ if [ "$event" = push ]; then
   site=false
 fi
 
+# Probe only (94S-2365), never merged: hold the plan to a prose change's.
+if [ "${PROBE_DOCS_ONLY:-}" = true ]; then
+  tests=false product=false site=false quickstart=false docs_only=true helm=false k8s=false domains='[]'
+fi
+
 printf '%s\n' \
   "tests=$tests" \
   "product=$product" \
