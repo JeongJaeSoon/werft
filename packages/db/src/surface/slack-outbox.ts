@@ -346,7 +346,7 @@ const rateBlocks = (row: SQL) => sql`
 
 // The AI line of row `row` (v1-b/G2): null unless its agent's conversation
 // rollout is `on`. Its name is that of whoever sent the turn the row's key
-// names: a turn's answer or failure, a card, a push's result. A push a turn's
+// names: a turn's answer, failure or follow-up, a card, a push's result. A push a turn's
 // intent made is that turn's sender's: its `requested_by` is the session's
 // creator. A row of any other key, or a sender who is no user, has the line
 // alone.
@@ -354,7 +354,8 @@ const aiLabelOf = (row: SQL) => sql`(
   SELECT json_build_object('requestedBy', (
     SELECT u.display_name FROM users u WHERE u.id = CASE
       WHEN ${row}.dedupe_key LIKE 'reply:%' OR ${row}.dedupe_key LIKE 'failure:%'
-        OR ${row}.dedupe_key LIKE 'prompt:%' THEN (
+        OR ${row}.dedupe_key LIKE 'prompt:%'
+        OR ${row}.dedupe_key LIKE 'after_turn:%' THEN (
         SELECT rt.actor_id FROM turns rt
         WHERE rt.session_id = ${row}.session_id
           AND rt.sequence = ${row}.sources_turn)
