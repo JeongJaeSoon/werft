@@ -324,6 +324,8 @@ function productNeeds() {
         sdk_pack: "true",
         site: "true",
         product: "true",
+        demo: "true",
+        ui_pack: "true",
         domains:
           '["db","sessions","api","surface","storage","docker","egress","worker"]',
       },
@@ -388,6 +390,8 @@ test("product results bind named jobs to the plan and selection", () => {
     sdk_pack: "false",
     site: "false",
     product: "false",
+    demo: "false",
+    ui_pack: "false",
     domains: "[]",
   });
   for (const job of plannedConsumers) docs[job].result = "skipped";
@@ -418,7 +422,7 @@ test.each(plannedConsumers)(
   },
 );
 
-test.each(["helm", "k8s", "sdk_pack", "site", "product"])(
+test.each(["helm", "k8s", "sdk_pack", "site", "product", "demo", "ui_pack"])(
   "the %s plan accepts only explicit boolean strings",
   (flag) => {
     for (const value of ["", "TRUE", "unknown", true, false, null, undefined]) {
@@ -428,7 +432,9 @@ test.each(["helm", "k8s", "sdk_pack", "site", "product"])(
         k8s: ["k8s-smoke"],
         sdk_pack: ["sdk-pack-smoke"],
         site: ["docs", "pages"],
-        product: ["demo", "ui-pack", "workspace-quota"],
+        product: ["workspace-quota"],
+        demo: ["demo"],
+        ui_pack: ["ui-pack"],
       } as const;
       for (const job of consumers[flag as keyof typeof consumers])
         needs[job].result = "skipped";
@@ -454,6 +460,8 @@ test("omitted consumers must be skipped and workspace requires a product Docker 
       sdk_pack: "false",
       site: "false",
       product: "false",
+      demo: "false",
+      ui_pack: "false",
       domains: "[]",
     });
     for (const other of plannedConsumers) needs[other].result = "skipped";
@@ -467,8 +475,6 @@ test("omitted consumers must be skipped and workspace requires a product Docker 
   expect(productVerdict(withoutDocker)).toBe(0);
   const withoutProduct = productNeeds();
   withoutProduct.changes.outputs.product = "false";
-  withoutProduct.demo.result = "skipped";
-  withoutProduct["ui-pack"].result = "skipped";
   expect(productVerdict(withoutProduct)).not.toBe(0);
   withoutProduct["workspace-quota"].result = "skipped";
   expect(productVerdict(withoutProduct)).toBe(0);
@@ -892,6 +898,40 @@ test("docs/ci/checks.md names each required check by the one job that reports it
   }
 });
 
+test("a documentation-only pull request still gets a result from every required check", () => {
+  const root = join(import.meta.dir, "..");
+  const section =
+    readFileSync(join(root, "docs/ci/checks.md"), "utf8")
+      .split(/^## 필수 check$/m)[1]
+      ?.split(/^### /m)[0] ?? "";
+  const rows = [
+    ...section.matchAll(/^\| `([^`]+)` \| `([^`]+)` · `([^`]+)` \|/gm),
+  ].map(([, name, file, id]) => ({ name, file: file ?? "", id: id ?? "" }));
+  expect(rows).toHaveLength(7);
+  for (const row of rows) {
+    const { on, jobs } = Bun.YAML.parse(
+      readFileSync(join(root, ".github/workflows", row.file), "utf8"),
+    ) as { on: unknown; jobs: Record<string, Job> };
+    // A path filter on the trigger leaves a required check pending forever.
+    const trigger =
+      typeof on === "object" && on !== null && !Array.isArray(on)
+        ? (on as Record<string, unknown>).pull_request
+        : null;
+    for (const key of ["paths", "paths-ignore", "branches-ignore"]) {
+      expect(
+        Object.keys((trigger as Record<string, unknown> | null) ?? {}),
+      ).not.toContain(key);
+    }
+    // The reporter runs whatever the plan selects: no condition, or one that
+    // starts with always() so a skipped need does not skip it with it.
+    const job = jobs[row.id];
+    expect(job).toBeDefined();
+    if (job?.if !== undefined || [job?.needs ?? []].flat().length > 0) {
+      expect(String(job?.if ?? "")).toMatch(/^always\(\)/);
+    }
+  }
+});
+
 test("check:fast runs lint, the job assignment check and guard tests that exist", () => {
   const root = join(import.meta.dir, "..");
   const { scripts } = JSON.parse(
@@ -1007,8 +1047,8 @@ test("all product and site consumers use the same explicit plan", () => {
     ["check-part", "tests"],
     ["integration-domain", "tests"],
     ["docs", "site"],
-    ["demo", "product"],
-    ["ui-pack", "product"],
+    ["demo", "demo"],
+    ["ui-pack", "ui_pack"],
     ["workspace-quota", "product"],
     ["agent-sdk-compat", "product"],
     ["e2e", "product"],

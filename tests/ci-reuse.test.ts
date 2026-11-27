@@ -152,6 +152,8 @@ function run(env: Record<string, string> = {}, at = sha.merge) {
       HELM: "true",
       K8S: "true",
       SDK_PACK: "false",
+      DEMO: "true",
+      UI_PACK: "true",
       DOCS_ONLY: "false",
       DOMAINS: JSON.stringify(domains),
       INTEGRATION_MATRIX: JSON.stringify(
@@ -244,6 +246,8 @@ describe("ci-reuse.sh", () => {
       // The PR plan left k8s-smoke out; the push still runs it.
       k8s: "false",
       sdk_pack: "false",
+      demo: "true",
+      ui_pack: "true",
     });
   });
 
@@ -262,6 +266,31 @@ describe("ci-reuse.sh", () => {
     expect(run().outputs.k8s).toBe("true");
   });
 
+  test("demo and ui-pack the PR plan left out still run on the push", () => {
+    answer({
+      pulls: pr(),
+      compare: { status: "ahead" },
+      runs: runs(),
+      jobs: {
+        jobs: withGuides(fullJobs()).filter(
+          (j) => j.name !== "demo" && j.name !== "ui-pack",
+        ),
+      },
+    });
+    const r = run();
+    expect(r.outputs.reused).toBe("https://github.invalid/runs/11");
+    expect(r.outputs.demo).toBe("false");
+    expect(r.outputs.ui_pack).toBe("false");
+  });
+
+  test("a push that plans no demo or ui-pack does not claim them", () => {
+    hit();
+    const r = run({ DEMO: "false", UI_PACK: "false" });
+    expect(r.outputs.reused).toBe("https://github.invalid/runs/11");
+    expect(r.outputs.demo).toBe("false");
+    expect(r.outputs.ui_pack).toBe("false");
+  });
+
   const refused = (r: ReturnType<typeof run>, why: string) => {
     expect(r.code).toBe(0);
     expect(r.outputs).toEqual({
@@ -269,6 +298,8 @@ describe("ci-reuse.sh", () => {
       helm: "false",
       k8s: "false",
       sdk_pack: "false",
+      demo: "false",
+      ui_pack: "false",
     });
     expect(r.why).toContain(why);
   };

@@ -7,6 +7,8 @@ all_domains='["db","sessions","api","surface","storage","docker","egress","worke
 
 tests=true
 product=true
+demo=true
+ui_pack=true
 site=true
 quickstart=true
 docs_only=false
@@ -47,6 +49,61 @@ is_k8s_path() {
       infra/localstack/* | Dockerfile* | */Dockerfile* | .dockerignore | bun.lock | \
       .github/workflows/ci.yml | .github/scripts/ci-plan.sh | \
       .github/scripts/assert-no-docker-hub-images.sh | .github/actions/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# What every conditional job below is also built from: this plan and the reuse
+# of its runs, the workflow and its actions, the lockfile and root config.
+is_ci_core_path() {
+  case "$1" in
+    .github/workflows/ci.yml | .github/scripts/ci-plan.sh | .github/scripts/ci-reuse.sh | \
+      .github/actions/* | bun.lock | package.json | bunfig.toml | tsconfig.json | tsconfig.base.json) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# What each conditional job builds, imports or reads. tests/ci-plan.test.ts
+# follows the imports and relative path strings of each job's own files and
+# fails on any it reaches that its list here does not name.
+# docs and pages: the docs site, the UI library it styles with, the API
+# reference it embeds, and the fixtures its export check reads.
+is_site_path() {
+  is_ci_core_path "$1" && return 0
+  case "$1" in
+    apps/docs/* | packages/ui/* | docs/openapi.json | docs/api/* | \
+      scripts/check-docs-self-hosting-export.ts | scripts/pages-site.sh | \
+      tests/fixtures/self-hosting-*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+# helm-chart: the chart and render-check.ts with what it imports and reads.
+is_helm_path() {
+  is_ci_core_path "$1" && return 0
+  case "$1" in
+    deploy/helm/* | scripts/fetch-pinned.ts | .github/scripts/chart-* | \
+      packages/runtime-core/src/image-runtime.ts | packages/runtime-core/src/checkpoint-manifest.ts | \
+      packages/runtime-core/src/commit-attribution.ts | \
+      packages/adapters/execution/kubernetes/src/codex-seccomp.ts | \
+      packages/adapters/execution/local-docker/src/codex-sandbox-seccomp.json | \
+      infra/localstack/init/* | deploy/kind/deps.yaml) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+# ui-pack: packages/ui, packed with the repository's licence.
+is_ui_pack_path() {
+  is_ci_core_path "$1" && return 0
+  case "$1" in
+    packages/ui/* | scripts/ui-pack-smoke.ts | LICENSE) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+# demo: the web console and the workspace packages it bundles.
+is_demo_path() {
+  is_ci_core_path "$1" && return 0
+  case "$1" in
+    apps/web/* | packages/ui/* | packages/react/* | packages/core/* | packages/client/* | \
+      packages/contracts/*) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -124,6 +181,10 @@ if [ -n "$base" ]; then
     # keeps the full plan.
     shared=false
     k8s_path=false
+    site_path=false
+    helm_path=false
+    demo_path=false
+    ui_pack_path=false
     while IFS= read -r -d '' path; do
       count=$((count + 1))
       is_doc_path "$path" || docs_only=false
@@ -139,6 +200,10 @@ if [ -n "$base" ]; then
           *) shared=true ;;
         esac
       fi
+      is_site_path "$path" && site_path=true
+      is_helm_path "$path" && helm_path=true
+      is_demo_path "$path" && demo_path=true
+      is_ui_pack_path "$path" && ui_pack_path=true
       if is_k8s_path "$path" || { [ "$event" = push ] && is_publish_path "$path"; }; then
         k8s_path=true
       fi
@@ -149,6 +214,8 @@ if [ -n "$base" ]; then
     elif [ "$docs_only" = true ]; then
       tests=false
       product=false
+      demo=false
+      ui_pack=false
       quickstart=$guide
       helm=false
       k8s=false
@@ -159,6 +226,12 @@ if [ -n "$base" ]; then
       # is the work no changed path can reach. The surface domain owns apps/web.
       site=true
       helm=false
+      # A pull request builds the docs site and packs packages/ui only for
+      # their own inputs; apps/web is neither. A main push keeps them.
+      if [ "$event" = pull_request ]; then
+        site=$site_path
+        ui_pack=$ui_pack_path
+      fi
       # A main push lists the web package.json among what the images build from.
       if [ "$event" != push ] || [ "$k8s_path" = false ]; then k8s=false; fi
       quickstart=$guide
@@ -171,6 +244,16 @@ if [ -n "$base" ]; then
       # on a PR: quickstart, e2e, integration or check failed in the same run.
       # A commit a release needs runs them whatever it touches (below).
       [ "$k8s_path" = true ] || k8s=false
+      # A pull request runs the docs site, the chart checks, the demo build and
+      # the packed UI library only when a path it builds from changed. A main
+      # push keeps them all; ci-reuse.sh takes each from the PR run of the
+      # same tree where that run passed it.
+      if [ "$event" = pull_request ]; then
+        site=$site_path
+        helm=$helm_path
+        demo=$demo_path
+        ui_pack=$ui_pack_path
+      fi
     fi
   else
     echo "Event base differs from the checkout parent; keeping full validation"
@@ -190,10 +273,12 @@ fi
 printf '%s\n' \
   "tests=$tests" \
   "product=$product" \
+  "demo=$demo" \
+  "ui_pack=$ui_pack" \
   "site=$site" \
   "quickstart=$quickstart" \
   "docs_only=$docs_only" \
   "helm=$helm" \
   "k8s=$k8s" \
   "domains=$domains" >>"${GITHUB_OUTPUT:?}"
-echo "CI plan: files=$count docs_only=$docs_only tests=$tests product=$product site=$site quickstart=$quickstart helm=$helm k8s=$k8s domains=$domains"
+echo "CI plan: files=$count docs_only=$docs_only tests=$tests product=$product demo=$demo ui_pack=$ui_pack site=$site quickstart=$quickstart helm=$helm k8s=$k8s domains=$domains"

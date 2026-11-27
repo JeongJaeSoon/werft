@@ -3,12 +3,14 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, normalize } from "node:path";
 import { readJobs } from "../.github/scripts/integration-jobs.ts";
 
 const root = mkdtempSync(join(tmpdir(), "ci-plan-"));
@@ -147,10 +149,24 @@ const full = {
   helm: "true",
   k8s: "true",
   domains: JSON.stringify(allDomains),
+  demo: "true",
+  ui_pack: "true",
 };
 
-/** The full plan of a pull request that touches nothing k8s-smoke builds or runs. */
-const shared = { ...full, k8s: "false" };
+/**
+ * The full plan of a pull request that touches nothing k8s-smoke, the docs
+ * site, the chart checks, the demo build or the packed UI library build from.
+ */
+const shared = {
+  ...full,
+  k8s: "false",
+  site: "false",
+  helm: "false",
+  demo: "false",
+  ui_pack: "false",
+};
+/** A main push of such a path: it keeps every conditional job but the site. */
+const pushShared = { ...full, k8s: "false", site: "false" };
 /** Paths that keep k8s-smoke on a pull request (ci-plan.sh is_k8s_path). */
 const K8S_PATHS = new Set([
   ".github/workflows/ci.yml",
@@ -159,7 +175,28 @@ const K8S_PATHS = new Set([
   "bun.lock",
   "deploy/helm/werft/values.yaml",
 ]);
-const prPlan = (path: string) => (K8S_PATHS.has(path) ? full : shared);
+/** Paths every conditional job builds from (ci-plan.sh is_ci_core_path). */
+const CORE_PATHS = new Set([
+  ".github/workflows/ci.yml",
+  ".github/scripts/ci-plan.sh",
+  ".github/actions/setup/README.md",
+  "bun.lock",
+  "package.json",
+]);
+/** The plan of a pull request of one path, for the paths these tests use. */
+function prPlan(path: string) {
+  const on = (own: boolean) => (CORE_PATHS.has(path) || own ? "true" : "false");
+  return {
+    ...full,
+    k8s: K8S_PATHS.has(path) ? "true" : "false",
+    site: on(/^(apps\/docs|packages\/ui)\//.test(path)),
+    helm: on(path.startsWith("deploy/helm/")),
+    demo: on(
+      /^(apps\/web|packages\/(ui|react|core|client|contracts))\//.test(path),
+    ),
+    ui_pack: on(path.startsWith("packages/ui/")),
+  };
+}
 
 test("prose-only PRs keep a small explicit plan", () => {
   const result = plan(fixture(undefined, ["docs/settings.md"]));
@@ -173,6 +210,8 @@ test("prose-only PRs keep a small explicit plan", () => {
     helm: "false",
     k8s: "false",
     domains: "[]",
+    demo: "false",
+    ui_pack: "false",
   });
 });
 
@@ -226,12 +265,14 @@ test("a web-only PR drops the domains, chart jobs and guides no changed path rea
     expect(result.output).toEqual({
       tests: "true",
       product: "true",
-      site: "true",
+      site: "false",
       quickstart: "false",
       docs_only: "false",
       helm: "false",
       k8s: "false",
       domains: '["surface"]',
+      demo: "true",
+      ui_pack: "false",
     });
   }
 });
@@ -259,9 +300,10 @@ test("any shared path next to a web change brings back everything", () => {
     "compose.yaml",
     "scripts/a.ts",
   ]) {
+    // apps/web is what the demo builds.
     expect(
       plan(fixture(undefined, ["apps/web/src/a.ts", path])).output,
-    ).toEqual(prPlan(path));
+    ).toEqual({ ...prPlan(path), demo: "true" });
   }
 });
 
@@ -575,7 +617,7 @@ test("main push plans the entire before-to-head range, including multiple commit
   const mixed = fixture(undefined, ["packages/core/src/a.ts"]);
   put(mixed.repo, "docs/second.md", "prose\n");
   commit(mixed.repo);
-  expect(plan(mixed, "push").output).toEqual({ ...shared, site: "false" });
+  expect(plan(mixed, "push").output).toEqual(pushShared);
 });
 
 test("new main branch and manual runs retain full validation", () => {
@@ -595,4 +637,153 @@ test("main site content stays delegated while PR and manual site validation rema
   expect(plan(fixture(undefined, paths), "workflow_dispatch").output.site).toBe(
     "true",
   );
+});
+
+/** The is_*_path functions of ci-plan.sh, run on each path: the paths it accepts. */
+function accepted(fn: string, paths: string[]) {
+  const body = readFileSync(script, "utf8");
+  const defs = [...body.matchAll(/^is_[a-z_]+\(\) \{\n[\s\S]*?^\}$/gm)]
+    .map(([def]) => def)
+    .join("\n");
+  const out = Bun.spawnSync(
+    [
+      "bash",
+      "-c",
+      `${defs}\nwhile IFS= read -r p; do ${fn} "$p" && printf '%s\\n' "$p"; done`,
+    ],
+    { stdin: new TextEncoder().encode(`${paths.join("\n")}\n`) },
+  );
+  return new Set(out.stdout.toString().split("\n").filter(Boolean));
+}
+
+/**
+ * What a job's files reach: relative imports, CSS @import and @source, the
+ * workspace packages they import (as each package.json), and relative path
+ * strings such as "../../docs/openapi.json". Not followed: paths built from
+ * pieces, which a reviewer of the job's own files has to catch.
+ */
+function reach(entries: string[]) {
+  const repo = join(import.meta.dir, "..");
+  const isFile = (p: string) =>
+    statSync(join(repo, p), { throwIfNoEntry: false })?.isFile() ?? false;
+  const workspaces = new Map<string, string>();
+  for (const pattern of JSON.parse(
+    readFileSync(join(repo, "package.json"), "utf8"),
+  ).workspaces as string[]) {
+    const parent = pattern.replace(/\/\*$/, "");
+    for (const name of readdirSync(join(repo, parent))) {
+      const manifest = join(repo, parent, name, "package.json");
+      if (existsSync(manifest))
+        workspaces.set(
+          JSON.parse(readFileSync(manifest, "utf8")).name,
+          `${parent}/${name}`,
+        );
+    }
+  }
+  const seen = new Set<string>();
+  const reached = new Set<string>();
+  const stack = [...entries];
+  while (stack.length > 0) {
+    const file = stack.pop() ?? "";
+    if (seen.has(file)) continue;
+    seen.add(file);
+    reached.add(file);
+    if (!/\.(m?[jt]sx?|css)$/.test(file)) continue;
+    const text = readFileSync(join(repo, file), "utf8");
+    const resolve = (spec: string) => normalize(join(dirname(file), spec));
+    for (const [, spec = ""] of text.matchAll(
+      /(?:\bfrom\s*|\bimport\s*\(?\s*|@source\s+|@import\s+)["']([^"']+)["']/g,
+    )) {
+      if (spec.startsWith(".")) {
+        const base = resolve(spec);
+        const found = [
+          base,
+          `${base}.ts`,
+          `${base}.tsx`,
+          `${base}/index.ts`,
+          `${base}/index.tsx`,
+          base.replace(/\.js$/, ".ts"),
+          base.replace(/\.js$/, ".tsx"),
+        ].find(isFile);
+        if (found) stack.push(found);
+        else reached.add(`${base}/`);
+      } else {
+        const parts = spec.split("/");
+        const name = spec.startsWith("@")
+          ? parts.slice(0, 2).join("/")
+          : parts[0];
+        const dir = workspaces.get(name ?? "");
+        if (dir) reached.add(`${dir}/package.json`);
+      }
+    }
+    // Such a string may be relative to a root the file names (join(ROOT,
+    // "../../LICENSE")), not to the file: every ancestor's reading that exists
+    // counts, and with none the file's own reading must match.
+    for (const [, spec = ""] of text.matchAll(
+      /["'`]((?:\.\.\/)+[^"'`$]+)["'`]/g,
+    )) {
+      const readings: string[] = [];
+      for (let dir = dirname(file); dir !== "."; dir = dirname(dir))
+        readings.push(normalize(join(dir, spec)));
+      const existing = readings.filter((path) => existsSync(join(repo, path)));
+      for (const path of existing.length > 0 ? existing : [resolve(spec)])
+        reached.add(isFile(path) ? path : `${path.replace(/\/$/, "")}/`);
+    }
+  }
+  return [...reached].filter((path) => !path.startsWith(".."));
+}
+
+function filesUnder(dir: string): string[] {
+  const repo = join(import.meta.dir, "..");
+  return readdirSync(join(repo, dir), { withFileTypes: true }).flatMap(
+    (entry) => {
+      if (
+        ["node_modules", "dist", "out"].includes(entry.name) ||
+        entry.name.startsWith(".")
+      )
+        return [];
+      const path = `${dir}/${entry.name}`;
+      return entry.isDirectory() ? filesUnder(path) : [path];
+    },
+  );
+}
+
+const source = (dir: string) =>
+  filesUnder(dir).filter((file) => !/\.test\.[jt]sx?$/.test(file));
+
+test.each([
+  // The job's own files: what its steps build or run (ci.yml).
+  [
+    "is_site_path",
+    () => [...source("apps/docs"), "scripts/check-docs-self-hosting-export.ts"],
+  ],
+  [
+    "is_helm_path",
+    () => [...filesUnder("deploy/helm"), "scripts/fetch-pinned.ts"],
+  ],
+  [
+    "is_ui_pack_path",
+    () => [...source("packages/ui"), "scripts/ui-pack-smoke.ts"],
+  ],
+  ["is_demo_path", () => source("apps/web")],
+] as const)("%s names every path its job's files reach", (fn, entries) => {
+  const reached = reach(entries());
+  const ok = accepted(fn, reached);
+  expect(reached.filter((path) => !ok.has(path))).toEqual([]);
+});
+
+test("a pull request of a path no conditional job builds from leaves them all out", () => {
+  const repo = fixture(undefined, ["packages/db/src/a.ts"]);
+  expect(plan(repo).output).toMatchObject({
+    site: "false",
+    helm: "false",
+    demo: "false",
+    ui_pack: "false",
+  });
+  // A main push of it keeps them for ci-reuse.sh to take from the PR run.
+  expect(plan(repo, "push").output).toMatchObject({
+    helm: "true",
+    demo: "true",
+    ui_pack: "true",
+  });
 });
