@@ -416,7 +416,7 @@ describe("credential routes end to end", () => {
     const root = join(scratch, "workspace");
     const action = await new GitWorkspace(
       root,
-      "CLAUDE.md",
+      ["CLAUDE.md"],
       credentialUrl,
     ).prepare({
       descriptor: claim.workspace,
@@ -456,7 +456,7 @@ describe("credential routes end to end", () => {
     } = await topology();
     scratch = await mkdtemp(join(tmpdir(), "94s-252-dump-"));
     const root = join(scratch, "workspace");
-    await new GitWorkspace(root, "CLAUDE.md", credentialUrl).prepare({
+    await new GitWorkspace(root, ["CLAUDE.md"], credentialUrl).prepare({
       descriptor: claim.workspace,
       restore: null,
       signal: AbortSignal.timeout(60_000),
@@ -874,7 +874,8 @@ describe("credential routes end to end", () => {
       expect(granted.slice(asked)).toContain("other");
 
       const refused: Array<[string, RequestInit, number]> = [
-        // receive-pack itself, and an LFS upload, have no route.
+        // receive-pack itself has no route; an LFS upload batch is refused by
+        // its body before the token is asked about.
         [
           "/repository/git-receive-pack",
           { method: "POST", headers: bearer, body: "0000" },
@@ -911,7 +912,21 @@ describe("credential routes end to end", () => {
           { method: "PUT", headers: bearer, body: "{}" },
           404,
         ],
-        // Every other route judges it a token for another route.
+        // Every other route judges it a token for another route. The object
+        // store takes its token as a SigV4 access key id.
+        ...["GET", "PUT"].map((method): [string, RequestInit, number] => [
+          "/object-store/bucket/key",
+          {
+            method,
+            headers: {
+              authorization: `AWS4-HMAC-SHA256 Credential=${token}/20261127/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=${"0".repeat(64)}`,
+              "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+              "x-amz-date": "20261127T000000Z",
+            },
+            ...(method === "PUT" ? { body: "x" } : {}),
+          },
+          401,
+        ]),
         [
           "/provider/v1/messages",
           {
@@ -940,6 +955,7 @@ describe("credential routes end to end", () => {
           401,
         ],
         ["/packages/npm/left-pad", { headers: bearer }, 401],
+        // A judgment token is its own kind, by prefix and by store.
         [
           "/decisions/v1/decisions",
           { method: "POST", headers: bearer, body: "{}" },
@@ -951,6 +967,16 @@ describe("credential routes end to end", () => {
         const response = await fetch(`${credentialUrl}${path}`, init);
         statuses.push([path, response.status]);
       }
+      // The same SigV4 carrier with the attempt's own object store token
+      // gets past the token, so the 401s above are the purpose's.
+      const own = await fetch(`${credentialUrl}/object-store/bucket/key`, {
+        headers: {
+          authorization: `AWS4-HMAC-SHA256 Credential=${topology.claim.object_store.access.token}/20261127/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=${"0".repeat(64)}`,
+          "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+          "x-amz-date": "20261127T000000Z",
+        },
+      });
+      expect(own.status).toBe(503);
       expect(statuses).toEqual(
         refused.map(([path, , status]) => [path, status]),
       );
@@ -1001,82 +1027,116 @@ describe("credential routes end to end", () => {
 
     test("as the worker's own git children carry it in their environment", async () => {
       const shape = await topology();
-      const { claim, bootstrapNonce, credentialUrl, repositoryUrl } = shape;
+      const { claim, bootstrapNonce, credentialUrl } = shape;
       const token = claim.workspace.repository?.access?.token;
       if (token === undefined) throw new Error("no repository token");
       scratch = await mkdtemp(join(tmpdir(), "worker-git-env-"));
       const real = Bun.which("git");
       if (real === null) throw new Error("no git on PATH");
-      // A git first on PATH that writes down its environment, then is git.
+      // A git first on PATH that writes down its arguments and environment,
+      // then is git. prlimit, where the worker uses it, finds git on PATH too.
       const shims = join(scratch, "bin");
-      const dumps = join(scratch, "env");
+      const dumps = join(scratch, "children");
       await Bun.write(join(dumps, ".keep"), "");
       await Bun.write(
         join(shims, "git"),
-        `#!/bin/sh\nenv > "${dumps}/$$.txt"\nexec "${real}" "$@"\n`,
+        [
+          "#!/bin/sh",
+          `d="${dumps}/$$"`,
+          'printf "%s\\n" "$@" > "$d.args"',
+          'env > "$d.txt"',
+          `exec "${real}" "$@"`,
+          "",
+        ].join("\n"),
       );
       await chmod(join(shims, "git"), 0o755);
       const root = join(scratch, "workspace");
       const path = process.env.PATH;
       process.env.PATH = `${shims}:${path ?? ""}`;
       try {
-        await new GitWorkspace(root, "CLAUDE.md", credentialUrl).prepare({
+        await new GitWorkspace(root, ["CLAUDE.md"], credentialUrl).prepare({
           descriptor: claim.workspace,
           restore: null,
           signal: AbortSignal.timeout(60_000),
         });
       } finally {
-        process.env.PATH = path;
+        if (path === undefined) delete process.env.PATH;
+        else process.env.PATH = path;
       }
 
-      const environments = await Promise.all(
+      const children = await Promise.all(
         (await readdir(dumps))
-          .filter((name) => name.endsWith(".txt"))
-          .map((name) => readFile(join(dumps, name), "utf8")),
+          .filter((name) => name.endsWith(".args"))
+          .map(async (name) => {
+            const base = join(dumps, name.slice(0, -".args".length));
+            const [args, dump] = await Promise.all([
+              readFile(`${base}.args`, "utf8"),
+              readFile(`${base}.txt`, "utf8"),
+            ]);
+            const environment: Record<string, string> = {};
+            for (const line of dump.split("\n")) {
+              const at = line.indexOf("=");
+              if (at > 0) environment[line.slice(0, at)] = line.slice(at + 1);
+            }
+            return { args: args.split("\n").slice(0, -1), dump, environment };
+          }),
       );
-      const carried = new Set(
-        environments.flatMap((dump) =>
-          [...dump.matchAll(/Authorization: Bearer (\S+)/g)].map(
-            ([, value]) => value,
-          ),
-        ),
-      );
-      // The clone and fetch children carry the claim's repository token,
-      // and no other secret of the attempt is in any child's environment.
-      expect([...carried]).toEqual([token]);
+      // The fixture's own `git http-backend` is not the worker's.
+      const worker = children.filter(({ args }) => args[0] !== "http-backend");
+      const headers = ({ environment }: (typeof worker)[number]) =>
+        Array.from(
+          { length: Number(environment.GIT_CONFIG_COUNT ?? "0") },
+          (_, index) =>
+            [
+              environment[`GIT_CONFIG_KEY_${index}`],
+              environment[`GIT_CONFIG_VALUE_${index}`],
+            ] as const,
+        ).filter(([, value]) => value?.startsWith("Authorization:"));
+      const network = worker.filter((child) => headers(child).length > 0);
+      expect(network.map(({ args }) => args[0])).toContain("clone");
+      // Each network child is given the claim's repository token, in one
+      // header scoped to the repository route and nowhere else on the proxy.
+      for (const child of network) {
+        expect(headers(child)).toEqual([
+          [
+            `http.${credentialUrl}/repository.extraHeader`,
+            `Authorization: Bearer ${token}`,
+          ],
+        ]);
+        expect(child.environment.GIT_ALLOW_PROTOCOL).toBe("http");
+      }
+      // The local ones get no token at all, and no child gets any other
+      // secret of the attempt.
+      expect(worker.length).toBeGreaterThan(network.length);
       const others = claimSecrets(claim, bootstrapNonce).filter(
         (value): value is string => value !== undefined && value !== token,
       );
       expect(others.length).toBeGreaterThan(0);
-      for (const dump of environments) {
+      for (const { dump } of worker) {
+        if (!network.some((child) => child.dump === dump)) {
+          expect(dump).not.toContain(token);
+        }
         for (const value of others) expect(dump).not.toContain(value);
       }
 
-      // The same token from the sandbox's side: a checkout of its own whose
-      // git takes the worker's header, and nothing beyond the fetch.
-      const config = environments
-        .flatMap((dump) => dump.split("\n"))
-        .find((line) => line.includes(`Authorization: Bearer ${token}`));
-      expect(config).toBeDefined();
+      // The worker's clone child's environment, as it was, from the
+      // sandbox's side: what it fetched it fetches again, and nothing more.
+      const cloned = network.find(({ args }) => args[0] === "clone");
+      if (cloned === undefined) throw new Error("no clone child");
       const env = {
+        ...cloned.environment,
         PATH: process.env.PATH ?? "",
         HOME: join(scratch, "home"),
-        GIT_CONFIG_NOSYSTEM: "1",
-        GIT_TERMINAL_PROMPT: "0",
-        GIT_CONFIG_COUNT: "3",
-        GIT_CONFIG_KEY_0: `url.${credentialUrl}/repository.insteadOf`,
-        GIT_CONFIG_VALUE_0: repositoryUrl,
-        GIT_CONFIG_KEY_1: `http.${credentialUrl}/.extraHeader`,
-        GIT_CONFIG_VALUE_1: `Authorization: Bearer ${[...carried][0]}`,
-        GIT_CONFIG_KEY_2: "http.followRedirects",
-        GIT_CONFIG_VALUE_2: "false",
       };
       const clone = await git(
-        ["clone", repositoryUrl, "checkout"],
+        ["clone", `${credentialUrl}/repository`, "checkout"],
         scratch,
         env,
       );
       expect(clone.status).toBe(0);
+      expect(
+        await readFile(join(scratch, "checkout", "README.md"), "utf8"),
+      ).toBe("hello\n");
 
       await onlyFetches(shape, token, { cwd: join(scratch, "checkout"), env });
     }, 60_000);
