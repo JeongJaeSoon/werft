@@ -227,7 +227,12 @@ function changesOf(
       at.adds.add(next++);
     } else if (line.startsWith("-")) {
       at.cuts.add(next);
-      if (line.endsWith("\\") && !COMMENT.test(line.slice(1)))
+      const removed = line.slice(1);
+      if (
+        removed.endsWith("\\") &&
+        !COMMENT.test(removed) &&
+        commentStart(removed) === -1
+      )
         at.joins.add(next);
     } else {
       next++;

@@ -1224,6 +1224,7 @@ describe("twelfth review", () => {
 
   test("removing a comment that ends in a backslash does not count the next command", () => {
     expect(calls("# Setup notes \\\nnpm ci\n", "npm ci\n")).toEqual([]);
+    expect(calls("echo ok # notes \\\nnpm ci\n", "npm ci\n")).toEqual([]);
   });
 
   test("uv options before tool run, pipx install and git submodule update are calls", () => {
