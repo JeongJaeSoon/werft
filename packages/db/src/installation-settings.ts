@@ -55,6 +55,26 @@ async function generationIn(tx: Database): Promise<number> {
 }
 
 /**
+ * `settings_generation` as stored now: one row read without a lock, so it
+ * waits on no settings writer and no claim.
+ */
+export function readSettingsGeneration(db: Database): Promise<number> {
+  return generationIn(db);
+}
+
+/**
+ * For a write the row triggers do not see, a stored value's: every replica
+ * reads the settings again before its next provider grant. Under
+ * `lockSettingsGeneration`, taken by the caller.
+ */
+export async function raiseSettingsGeneration(tx: Database): Promise<void> {
+  await tx
+    .update(settingsGeneration)
+    .set({ generation: sql`${settingsGeneration.generation} + 1` })
+    .where(eq(settingsGeneration.id, 1));
+}
+
+/**
  * Taken by every settings writer before it locks a settings row: each row
  * write raises the generation through its trigger, so two writers that
  * lock rows first would take the generation in opposite orders.
@@ -292,6 +312,7 @@ export function createPostgresInstallationSettingsStore(
         if (owner.kind === "repository") {
           await rebindCarriedPushes(tx, owner.id);
         }
+        await raiseSettingsGeneration(tx);
       });
     },
   };

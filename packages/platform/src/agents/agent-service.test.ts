@@ -1036,6 +1036,68 @@ describe("a release's GitHub settings", () => {
     expect(repositoryless.policy_pins.github).toEqual(github);
   });
 
+  test("a kept pin's actions runs nothing, so a ceiling with direct runs off does not refuse the release that keeps it (94S-2406)", async () => {
+    const old: AgentGitHub = {
+      ...github,
+      features: { ...OFF, actions: true },
+      actions_allow: [{ workflow: "ci.yml" }],
+    };
+    const { store } = memoryStore();
+    const first = (
+      await service(store, { ...OFF, actions: true }).createRelease(
+        owner,
+        AGENT,
+        { ...release, github: old },
+      )
+    ).release;
+    const keeping = {
+      ...store,
+      get: async () => ({ ...detail, active_release: first }),
+    };
+    const kept = (
+      await service(keeping, {
+        ...OFF,
+        workflows: true,
+        checks: true,
+      }).createRelease(owner, AGENT, release)
+    ).release;
+    expect(kept.policy_pins.github).toEqual(old);
+    // Kept under the ceiling it was made under, and under one with every
+    // switch off: the gate cuts what the ceiling lacks at each token.
+    for (const ceiling of [{ ...OFF, actions: true }, OFF]) {
+      const again = (
+        await service(keeping, ceiling).createRelease(owner, AGENT, release)
+      ).release;
+      expect(again.policy_pins.github).toEqual(old);
+    }
+    // A feature it holds itself still answers to the ceiling.
+    const edits: AgentGitHub = {
+      ...old,
+      features: { ...old.features, workflows: true, checks: true },
+    };
+    const withEdits = (
+      await service(store, {
+        ...OFF,
+        actions: true,
+        workflows: true,
+        checks: true,
+      }).createRelease(owner, AGENT, { ...release, github: edits })
+    ).release;
+    const refusedKeep = await service(
+      { ...store, get: async () => ({ ...detail, active_release: withEdits }) },
+      OFF,
+    )
+      .createRelease(owner, AGENT, release)
+      .catch((error: unknown) => error);
+    expect(refusedKeep).toMatchObject({
+      code: "BAD_REQUEST",
+      details: {
+        field: "github.features.workflows",
+        reason_code: "over_workspace_ceiling",
+      },
+    });
+  });
+
   test("inherited settings are checked as sent ones: a move to a repository outside them is release_repository_outside", async () => {
     const { store } = memoryStore();
     const first = (

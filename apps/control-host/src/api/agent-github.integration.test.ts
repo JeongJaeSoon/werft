@@ -100,6 +100,23 @@ const card = {
   rules: [],
 };
 
+/**
+ * GITHUB as an agent no person saved switches for reads it (94S-2406): the
+ * pin's old actions edits workflows and reads CI, and runs nothing directly.
+ */
+const GITHUB_READ_FROM_PIN = {
+  repositories: ["sample-app"],
+  push_approval: true,
+  features: {
+    workflows: true,
+    actions: false,
+    checks: true,
+    issues: false,
+    review: false,
+  },
+  actions_allow: [],
+};
+
 const GITHUB: AgentGitHub = {
   repositories: ["sample-app"],
   push_approval: true,
@@ -511,7 +528,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
         )
       ).json(),
     );
-    expect(read.github).toEqual(GITHUB);
+    expect(read.github).toEqual(GITHUB_READ_FROM_PIN);
     expect(read.legacy_defaults).toBeNull();
 
     // A card edit's release keeps the settings: nothing GitHub moved.
@@ -925,7 +942,7 @@ integration("agent GitHub tab over HTTP on PostgreSQL", () => {
     expect(saved.policy_pins.github).toEqual(GITHUB);
     await activateOf(saved.id);
     const after = await read();
-    expect(after.github).toEqual(GITHUB);
+    expect(after.github).toEqual(GITHUB_READ_FROM_PIN);
   });
 
   test("two first saves of an agent's pull request settings race to one winner, and a GitHub settings save beside one neither blocks nor conflicts with it", async () => {

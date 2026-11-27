@@ -113,7 +113,7 @@ The platform makes the approved commit the new tip of that branch (`git push <co
 | `catalog_changed` | An operator changed the repository settings after the request. Make a new request |
 | `non_fast_forward` | The remote branch is not an ancestor of this commit |
 | `default_branch`, `target_refused` | The branch is the default branch or is not `agent/<session-id>` |
-| `push_failed` | Token issuance failed, the remote refused, or a network error |
+| `push_failed` | Token issuance failed, the remote refused, or a network error. When GitHub refused a change to a workflow file (`.github/workflows/`), the receipt's `reason_code` says which side lacks the permission. `workflows_off`: Workflows is off in the agent's GitHub settings or the workspace ceiling, so the token did not ask for it. `workflows_permission_missing`: the token asked and the GitHub App does not hold the Workflows permission. `workflows_refused`: the push did not use an App token, so which one cannot be told. The notice in the Slack thread then says what to ask for, and of whom, in place of the code |
 
 ## When the approval is refused
 

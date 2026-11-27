@@ -142,6 +142,7 @@ describe("the packages route", () => {
     authorizerUrl: string,
     registryPort: number,
     redirect: EgressDestination[] = [],
+    cdnAddresses: string[] = ["127.0.0.1"],
   ): { server: CredentialProxyServer; logged: string[] } {
     const logged: string[] = [];
     const server = startCredentialProxy({
@@ -155,7 +156,11 @@ describe("the packages route", () => {
       packagesRedirect: { allow: [], allowPrivate: redirect },
       port: 0,
       resolve: async (host) =>
-        host === "registry.test" || host === "cdn.test" ? ["127.0.0.1"] : [],
+        host === "registry.test"
+          ? ["127.0.0.1"]
+          : host === "cdn.test"
+            ? cdnAddresses
+            : [],
     });
     servers.push(server);
     return { server, logged };
@@ -323,6 +328,44 @@ describe("the packages route", () => {
       to_host: "cdn.test",
       to_port: cdn.port,
     });
+  });
+
+  test("a redirect to a listed host that resolves to metadata is refused and not dialled", async () => {
+    const cdn = upstream(() => new Response("should not be read"));
+    const registry = upstream(
+      () =>
+        new Response(null, {
+          status: 302,
+          headers: { location: `http://cdn.test:${cdn.port}/blobs/x.tgz` },
+        }),
+    );
+    const auth = authorizer(`http://registry.test:${registry.port}`);
+    for (const address of ["100.100.100.200", "fd20:ce::254", "fd00:42::42"]) {
+      const { server, logged } = proxy(
+        auth.url,
+        registry.port,
+        [{ host: "cdn.test", port: cdn.port }],
+        [address],
+      );
+      const response = await fetch(
+        `http://127.0.0.1:${server.port}/packages/npm/left-pad/-/left-pad-1.3.0.tgz`,
+        { headers: { authorization: `Bearer ${PACKAGES_TOKEN}` } },
+      );
+      expect(response.status, address).toBe(502);
+      expect(response.headers.get("location")).toBeNull();
+      // The hop is refused by the policy, for being metadata.
+      expect(
+        logged
+          .map((entry) => JSON.parse(entry))
+          .find(
+            (entry) =>
+              entry.message === "Credential route denied" &&
+              entry.fields?.redirect === true,
+          )?.fields?.reason,
+        address,
+      ).toBe(`${address} is metadata`);
+    }
+    expect(cdn.seen).toHaveLength(0);
   });
 
   test("a redirect to an unlisted host is refused and not dialled", async () => {

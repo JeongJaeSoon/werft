@@ -20,6 +20,10 @@
 # stack. The file is named outside Bun's `*.test.ts` rule so `bun run test`
 # never collects it: without a stack it has nothing to talk to.
 #
+#   tests/e2e/run.sh --shard 1|2|3
+#
+# One third of the scripted suites on a stack of its own: CI's `e2e` matrix.
+#
 # Needs Docker Engine 28+ (the worker network's isolated gateway mode) and
 # bun. Leaves nothing behind unless E2E_KEEP=1: the compose project, the
 # worker containers, networks and volumes the scheduler made for this run's
@@ -73,8 +77,10 @@ local_model=""
 # session's limit with what the stack was given rather than a default.
 conformance=""
 conf_files=()
+shard=""
 case "$*" in
   "") unset E2E_MODEL_MODE ;;
+  "--shard 1"|"--shard 2"|"--shard 3") unset E2E_MODEL_MODE; shard="${2}" ;;
   "--conformance claude_agent_sdk"|"--conformance codex_app_server"|"--conformance two_engines")
     # The engine-parametrized suite (tests/conformance) on the same stack
     # lifecycle: one engine's worker image, its fake provider, the scripted
@@ -100,7 +106,7 @@ case "$*" in
     export SESSION_COST_LIMIT_USD="${SESSION_COST_LIMIT_USD:-3}" ;;
   --local-model) local_model=1; model_overlay=infra/compose.local-model.yml; export E2E_MODEL_MODE=local
     export SESSION_COST_LIMIT_USD="${SESSION_COST_LIMIT_USD:-25}" ;;
-  *) echo "usage: tests/e2e/run.sh [--real-model | --local-model | --conformance <runtime_kind> | --conformance two_engines]" >&2; exit 2 ;;
+  *) echo "usage: tests/e2e/run.sh [--shard 1|2|3 | --real-model | --local-model | --conformance <runtime_kind> | --conformance two_engines]" >&2; exit 2 ;;
 esac
 if [ -n "$local_model" ]; then
   tags_status=0
@@ -315,7 +321,7 @@ claude_version="$(dc logs --no-color worker 2>/dev/null | sed -n 's/.*| //p' | t
 sdk_version="$(sed -n 's/.*"@anthropic-ai\/claude-agent-sdk": "\([^"]*\)".*/\1/p' \
   packages/adapters/runtimes/claude/package.json)"
 {
-  echo "command: tests/e2e/run.sh${real_model:+ --real-model}${local_model:+ --local-model}${conformance:+ --conformance ${conformance}}"
+  echo "command: tests/e2e/run.sh${real_model:+ --real-model}${local_model:+ --local-model}${conformance:+ --conformance ${conformance}}${shard:+ --shard ${shard}}"
   echo "tested_sha: ${sha} (uncommitted paths: ${dirty})"
   echo "docker_engine: ${docker_version}"
   echo "api_image: ${API_IMAGE} $(image_id "$API_IMAGE")"
@@ -402,7 +408,14 @@ elif [ -n "$real_model$local_model" ]; then
 else
   # The MCP suites first: the other suites leave their sessions holding
   # every execution slot.
-  suites=(./tests/e2e/workspace-mcp.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/db-outage.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts)
+  case "$shard" in
+    "") suites=(./tests/e2e/workspace-mcp.e2e.ts ./tests/e2e/alpha-path.e2e.ts ./tests/e2e/db-outage.e2e.ts ./tests/e2e/pause-coverage.e2e.ts ./tests/e2e/workspace-loss.e2e.ts) ;;
+    # Each file in exactly one shard (tests/e2e/real-model.test.ts), split by
+    # run time.
+    1) suites=(./tests/e2e/alpha-path.e2e.ts) ;;
+    2) suites=(./tests/e2e/workspace-mcp.e2e.ts ./tests/e2e/workspace-loss.e2e.ts) ;;
+    3) suites=(./tests/e2e/db-outage.e2e.ts ./tests/e2e/pause-coverage.e2e.ts) ;;
+  esac
 fi
 # A path that names no file would make bun test match nothing for it and
 # still exit 0 (a missing space once glued two paths, and two suites did not run).

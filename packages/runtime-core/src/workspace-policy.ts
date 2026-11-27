@@ -68,12 +68,18 @@ export type WorkspacePolicy = {
   };
   fs: {
     /**
-     * A sample PR starts with `mkdir -p notes && echo ... > notes/x`. An
-     * empty directory is cheap to undo; a path that leaves the workspace
-     * still asks.
+     * The file commands of ordinary work in a checkout (`mkdir`, `touch`,
+     * `cp`, `mv`, `rm`). A path that leaves the workspace still asks, and
+     * so does one under `.git` or `.claude`.
      */
     allow: string[];
     ask: string[];
+    /**
+     * A copy or a move gives a secret another name, which the readers'
+     * name match would then miss, so these ask when a secret name is on
+     * the line.
+     */
+    askWhenSecretNamed: string[];
   };
   /**
    * Plain readers (`ls`, `cat`, `grep`, `git remote -v`, `find`, ...) are not
@@ -137,7 +143,7 @@ const SHAPE = {
     inPlaceLetters: "text",
     addressChars: "text",
   },
-  fs: { allow: "list", ask: "list" },
+  fs: { allow: "list", ask: "list", askWhenSecretNamed: "list" },
   secretRead: {
     readers: "list",
     gitReaders: "list",

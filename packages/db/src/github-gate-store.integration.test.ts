@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
+  GITHUB_CEILING_DEFAULT,
   GITHUB_CEILING_NONE,
   type GitHubCeiling,
   type ReceiptActor,
@@ -150,7 +151,18 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       release: { id: releaseId },
       policy: {
         source: "release",
-        settings: GITHUB,
+        // The pin's old actions reads CI and edits workflows; it runs nothing
+        // directly (94S-2406).
+        settings: {
+          ...GITHUB,
+          features: {
+            ...GITHUB.features,
+            workflows: true,
+            checks: true,
+            actions: false,
+          },
+          actions_allow: [],
+        },
         startRepositoryId: null,
         agentSettingsRevision: null,
         currentRepositories: null,
@@ -158,7 +170,7 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
         enabledAtStart: true,
         pushAttached: "allow",
       },
-      ceiling: GITHUB_CEILING_NONE,
+      ceiling: GITHUB_CEILING_DEFAULT,
       repositoryCeiling: null,
       ceilingRevision: 0,
     });
@@ -358,7 +370,7 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
     const ceiling: GitHubCeiling = { ...GITHUB_CEILING_NONE, actions: true };
 
     expect(await store.get(workspaceId)).toEqual({
-      ceiling: GITHUB_CEILING_NONE,
+      ceiling: GITHUB_CEILING_DEFAULT,
       revision: 0,
     });
     const put = (revision: number, next: GitHubCeiling) =>
@@ -392,11 +404,12 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       { before: null, after: ceiling, revision: 1 },
       { before: ceiling, after: GITHUB_CEILING_NONE, revision: 2 },
     ]);
-    // The switched-off agent and the one without settings do not count.
+    // The switched-off agent and the one without settings do not count; the
+    // pin's old actions counts as workflow edits and CI, not direct runs.
     expect(await store.agentsUsing(workspaceId)).toEqual({
-      workflows: 0,
-      actions: 1,
-      checks: 0,
+      workflows: 1,
+      actions: 0,
+      checks: 1,
       issues: 0,
       review: 0,
     });
@@ -431,7 +444,7 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
     ]);
     expect(await put()).toEqual({ outcome: "actor_inactive" });
     expect(await store.get(workspaceId)).toEqual({
-      ceiling: GITHUB_CEILING_NONE,
+      ceiling: GITHUB_CEILING_DEFAULT,
       revision: 0,
     });
     const { rows } = await pool.query(

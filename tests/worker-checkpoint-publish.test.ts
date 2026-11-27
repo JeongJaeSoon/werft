@@ -477,10 +477,10 @@ describe("the worker's checkpoints against the control plane's service", () => {
       index === 0
         ? toolReply(
             "Bash",
-            // `tee` is not a redirect: the platform's own rules pre-approve a
-            // redirect into the workspace, and this test needs the approval
-            // wait that the capture before it hangs on.
-            { command: "printf 'edited\\n' | tee README.md" },
+            // sed's `w` is on the workspace ask list: a redirect or `tee`
+            // into the workspace runs unasked, and this test needs the
+            // approval wait that the capture before it hangs on.
+            { command: "printf 'edited\\n' | sed -n 'w README.md'" },
             "toolu_edit",
           )
         : textReply("done"),

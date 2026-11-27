@@ -139,6 +139,7 @@ export const ERROR_GUIDANCE: Record<ApiErrorCode, string> = {
     "변수를 더 만들 수 없습니다 — 쓰지 않는 변수를 지운 뒤 다시 시도하세요.",
   MCP_SERVER_QUOTA_EXCEEDED:
     "MCP 서버를 더 등록할 수 없습니다 — 쓰지 않는 서버를 지운 뒤 다시 시도하세요.",
+  ENDPOINT_RETIRED: "더는 쓰지 않는 기능입니다 — 화면을 새로 고치세요.",
   DECISION_MODEL_REQUIRED:
     "판정 모델이 없어 성과 규칙을 바꿀 수 없습니다 — 워크스페이스 오너가 성과 규칙 화면에서 판정 모델을 설정하세요.",
   VARIABLE_UNRESOLVED:
@@ -309,6 +310,7 @@ const ERROR_GUIDANCE_EN: Record<ApiErrorCode, string> = {
     "No more variables can be added — delete one you don't use, then try again.",
   MCP_SERVER_QUOTA_EXCEEDED:
     "No more MCP servers can be added — delete one you don't use, then try again.",
+  ENDPOINT_RETIRED: "This feature is no longer available — reload the page.",
   DECISION_MODEL_REQUIRED:
     "Achievement rules can't change without a decision model — the workspace owner sets one up on the achievement rules screen.",
   VARIABLE_UNRESOLVED:
@@ -496,6 +498,7 @@ const ERROR_GUIDANCE_JA: Record<ApiErrorCode, string> = {
     "これ以上変数を追加できません — 使っていない変数を削除してからやり直してください。",
   MCP_SERVER_QUOTA_EXCEEDED:
     "これ以上 MCP サーバーを登録できません — 使っていないサーバーを削除してからやり直してください。",
+  ENDPOINT_RETIRED: "この機能はもう使えません — 画面を再読み込みしてください。",
   DECISION_MODEL_REQUIRED:
     "判定モデルがないため成果ルールを変更できません — ワークスペースのオーナーが成果ルール画面で判定モデルを設定してください。",
   VARIABLE_UNRESOLVED:

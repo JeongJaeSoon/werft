@@ -1108,7 +1108,7 @@ export const githubInstallationLinks = pgTable(
 );
 
 // What the workspace lets its agents' GitHub settings reach. No row reads as
-// every ceiling off and no OAuth client secret.
+// the default ceiling (GITHUB_CEILING_DEFAULT) and no OAuth client secret.
 export const githubWorkspaceSettings = pgTable("github_workspace_settings", {
   workspaceId: uuid("workspace_id")
     .primaryKey()
@@ -7056,6 +7056,11 @@ export const sessionLinks = pgTable(
     // stored before they closed (afterTurnReplies).
     index("session_links_recent_closed_idx")
       .on(table.closedAt)
+      .where(sql`${table.closedAt} IS NOT NULL`),
+    // A thread's closed links, where a stop's message replayed after its
+    // link closed is found done.
+    index("session_links_closed_surface_ref_idx")
+      .on(table.installationId, table.surfaceRef)
       .where(sql`${table.closedAt} IS NOT NULL`),
     // A thread's open task session, which the turn list reads per turn.
     index("session_links_open_thread_idx")
