@@ -5232,6 +5232,38 @@ describe.each(ENGINES)(
       expect(await taskTurns(task)).toHaveLength(1);
     });
 
+    test("a task closed after its input went in, before the hand-off is recorded, is routed but points no thread", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await openTask(fixture, "100.000100");
+      await followUp(fixture, "100.000200");
+      const turn = await routeDecided(task);
+      // A stop before the task's first turn, committed with the input.
+      await db.execute(
+        sql.raw(`CREATE FUNCTION close_task() RETURNS trigger LANGUAGE plpgsql
+          AS $$ BEGIN UPDATE sessions SET status = 'stopped'
+            WHERE id = split_part(NEW.resource, ':', 1)::uuid; RETURN NEW; END $$`),
+      );
+      await db.execute(
+        sql.raw(`CREATE TRIGGER close_task AFTER INSERT ON idempotency_keys
+          FOR EACH ROW WHEN (NEW.resource LIKE '%:conversation_turn')
+          EXECUTE FUNCTION close_task()`),
+      );
+      try {
+        expect(await endings()).toMatchObject({ routed: 1 });
+      } finally {
+        await db.execute(
+          sql.raw("DROP TRIGGER close_task ON idempotency_keys"),
+        );
+        await db.execute(sql.raw("DROP FUNCTION close_task()"));
+      }
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        effect: "routed",
+      });
+      expect(await mirrors()).toEqual([]);
+      await sendOutbox();
+      expect(postsIn("100.000200")).toEqual([]);
+    });
+
     test("a mirror row its task's delete took away starts a new line for the next task", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       const a = await openTask(fixture, "100.000100");

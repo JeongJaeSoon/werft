@@ -80,6 +80,37 @@ const handedInput = (route: PendingConversationRoute) => sql`
       AND key = ${route.turnId})`;
 
 /**
+ * The task's thread while it is an open task of the turn's own conversation
+ * (G3); null otherwise. In a transaction the session row is held against a
+ * close until it ends.
+ */
+async function openTaskThread(
+  executor: Database,
+  route: PendingConversationRoute,
+  hold = false,
+): Promise<ConversationRouteTaskThread | null> {
+  const [task] = rowsOf<{ channel_id: string; thread_id: string }>(
+    await executor.execute(sql`
+      SELECT sl.channel_id, sl.thread_id FROM sessions s
+      JOIN session_links sl ON sl.session_id = s.id
+        AND sl.role = 'primary'
+        AND sl.closed_at IS NULL AND sl.revoked_at IS NULL
+      WHERE s.id = ${route.sessionId}::uuid
+        AND s.workspace_id = ${route.workspaceId}::uuid
+        AND s.parent_conversation_id = ${route.conversationId}::uuid
+        AND s.status::text NOT IN (${sql.join(
+          ENDED_SESSION_STATUSES.map((status) => sql`${status}`),
+          sql`, `,
+        )})
+      ORDER BY sl.created_at DESC LIMIT 1
+      ${hold ? sql`FOR SHARE OF s` : sql``}`),
+  );
+  return task === undefined
+    ? null
+    : { channelId: task.channel_id, threadTs: task.thread_id };
+}
+
+/**
  * What a mention turn's route_to_task decision reads and writes (v1-b/E4).
  * The thread, the requester, the request and the task are the server's
  * records; the model named the task alone, which is checked again here.
@@ -182,26 +213,7 @@ export function createPostgresConversationRoutes(
 
     requestText: (turnId) => keptTurnRequest(db, secretKey, turnId),
 
-    async openTask(route) {
-      const [task] = rowsOf<{ channel_id: string; thread_id: string }>(
-        await db.execute(sql`
-          SELECT sl.channel_id, sl.thread_id FROM sessions s
-          JOIN session_links sl ON sl.session_id = s.id
-            AND sl.role = 'primary'
-            AND sl.closed_at IS NULL AND sl.revoked_at IS NULL
-          WHERE s.id = ${route.sessionId}::uuid
-            AND s.workspace_id = ${route.workspaceId}::uuid
-            AND s.parent_conversation_id = ${route.conversationId}::uuid
-            AND s.status::text NOT IN (${sql.join(
-              ENDED_SESSION_STATUSES.map((status) => sql`${status}`),
-              sql`, `,
-            )})
-          ORDER BY sl.created_at DESC LIMIT 1`),
-      );
-      return task === undefined
-        ? null
-        : { channelId: task.channel_id, threadTs: task.thread_id };
-    },
+    openTask: (route) => openTaskThread(db, route),
 
     async settle(
       route,
@@ -235,7 +247,11 @@ export function createPostgresConversationRoutes(
           dedupeKey: string;
           link?: string;
         };
-        if (mirror !== null) {
+        // Closed since its input went in (a stop before its first turn,
+        // say): the effect stands, but no thread is pointed at it.
+        const task =
+          mirror === null ? null : await openTaskThread(tx, route, true);
+        if (task !== null) {
           const pointed = await pointThreadMirror(tx, {
             workspaceId: route.workspaceId,
             agentId: route.agentId,
@@ -248,7 +264,7 @@ export function createPostgresConversationRoutes(
           post = {
             text: "routeMirror",
             dedupeKey: taskMirrorDedupeKey(pointed),
-            link: slackMessageUrl(mirror.channelId, mirror.threadTs),
+            link: slackMessageUrl(task.channelId, task.threadTs),
           };
         } else if (line !== null) {
           // One line per turn, as its answer would be.
