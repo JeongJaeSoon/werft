@@ -217,6 +217,7 @@ const CLOUD_METADATA: readonly [cloud: string, address: string][] = [
   ["Azure", "169.254.169.254"],
   ["Alibaba", "100.100.100.200"],
   ["Oracle", "169.254.169.254"],
+  ["Oracle IPv6", "fd00:c1::a9fe:a9fe"],
   ["Oracle Compute Classic", "192.0.0.192"],
   ["Scaleway", "169.254.42.42"],
   ["Scaleway IPv6", "fd00:42::42"],

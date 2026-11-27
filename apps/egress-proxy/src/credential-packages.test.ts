@@ -341,7 +341,7 @@ describe("the packages route", () => {
     );
     const auth = authorizer(`http://registry.test:${registry.port}`);
     for (const address of ["100.100.100.200", "fd20:ce::254", "fd00:42::42"]) {
-      const { server } = proxy(
+      const { server, logged } = proxy(
         auth.url,
         registry.port,
         [{ host: "cdn.test", port: cdn.port }],
@@ -353,6 +353,17 @@ describe("the packages route", () => {
       );
       expect(response.status, address).toBe(502);
       expect(response.headers.get("location")).toBeNull();
+      // The hop is refused by the policy, for being metadata.
+      expect(
+        logged
+          .map((entry) => JSON.parse(entry))
+          .find(
+            (entry) =>
+              entry.message === "Credential route denied" &&
+              entry.fields?.redirect === true,
+          )?.fields?.reason,
+        address,
+      ).toBe(`${address} is metadata`);
     }
     expect(cdn.seen).toHaveLength(0);
   });

@@ -3893,7 +3893,11 @@ describe("startCredentialProxy", () => {
         },
         resolve: async (host) => [host],
       });
-      expect((await messages(server.port)).status, spelled).toBe(403);
+      const response = await messages(server.port);
+      expect(response.status, spelled).toBe(403);
+      expect(await response.text(), spelled).toContain(
+        "100.100.100.200 is metadata",
+      );
     }
     expect(up.seen).toEqual([]);
   });

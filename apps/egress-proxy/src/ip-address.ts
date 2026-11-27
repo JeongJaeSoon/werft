@@ -38,7 +38,8 @@ export function classifyAddress(address: string): AddressClass | null {
 //   Azure https://learn.microsoft.com/en-us/azure/virtual-machines/instance-metadata-service
 //   Alibaba https://www.alibabacloud.com/help/en/ecs/user-guide/view-instance-metadata
 //   Oracle https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/gettingmetadata.htm
-//   Oracle Classic https://docs.oracle.com/en/cloud/iaas/compute-iaas-cloud/stcsg/retrieving-instance-metadata.html
+//   Oracle IPv6 https://docs.oracle.com/en-us/iaas/osmh/doc/troubleshoot-connection.htm
+//   Oracle Classic https://docs.oracle.com/en/cloud/iaas-classic/compute-iaas-cloud/stcsg/retrieving-instance-metadata.html
 //   Scaleway https://www.scaleway.com/en/docs/instances/how-to/use-cloud-init/
 //   DigitalOcean https://docs.digitalocean.com/products/droplets/how-to/access-metadata/
 //   Hetzner https://docs.hetzner.com/cloud/technical-details/hcnet/
@@ -58,6 +59,7 @@ const METADATA_IPV6 = new Set([
   "fd00:0ec2:0000:0000:0000:0000:0000:0023", // AWS EKS Pod Identity
   "fd20:00ce:0000:0000:0000:0000:0000:0254", // GCP, otherwise private
   "fd00:0042:0000:0000:0000:0000:0000:0042", // Scaleway, otherwise private
+  "fd00:00c1:0000:0000:0000:0000:a9fe:a9fe", // Oracle, otherwise private
   "fe80:0000:0000:0000:0000:0000:a9fe:a9fe", // OpenStack, Hetzner
 ]);
 
