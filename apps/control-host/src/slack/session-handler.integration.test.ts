@@ -5207,7 +5207,7 @@ describe.each(ENGINES)(
       ]);
     });
 
-    test("a turn that ended other than handed takes no input in its task, whichever run comes late", async () => {
+    test("an input written after its turn ended other than handed is refused", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       const task = await openTask(fixture, "100.000100");
       await followUp(fixture, "100.000200");
