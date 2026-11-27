@@ -87,7 +87,7 @@ RUN apt-get update --error-on=any \
   && rm -rf /var/lib/apt/lists/*
 # The base image ships a non-root `bun` user as 1000:1000; the API runs as it.
 RUN test "$(id -u bun)" = 1000
-COPY --from=gitleaks /tmp/gitleaks/gitleaks /usr/local/bin/gitleaks
+COPY --from=gitleaks --chmod=0755 /tmp/gitleaks/gitleaks /usr/local/bin/gitleaks
 COPY --from=gitleaks /tmp/gitleaks/LICENSE /usr/local/share/doc/gitleaks/LICENSE
 WORKDIR /app
 COPY --from=pruned --chown=1000:1000 /app /app

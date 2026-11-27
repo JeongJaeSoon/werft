@@ -44,10 +44,12 @@ console.log(zombies);
 
 # The skill gate's secret scanner (apps/control-host/src/wiring/gitleaks.ts)
 # on the image's own gitleaks: a clean skill has no finding, and a planted
-# token is found although the skill carries the three ways gitleaks offers to
-# switch itself off (an allow comment, an ignore file, a config file). The
-# token is made here at run time and never stored; the result must not carry
-# it. Prints how long the first and the second scan took.
+# token is found although the skill carries the ways gitleaks offers to
+# switch itself off (an allow comment, an ignore file, a config file) and
+# hides copies under names the default config's global allowlist skips
+# (go.sum, a path with gitleaks.toml in it). The token is made here at run
+# time and never stored; the result must not carry it. Prints how long the
+# first and the second scan took.
 gitleaks_probe='
 const { gitleaksScanner } = await import("/app/apps/control-host/src/wiring/gitleaks.ts");
 const scanner = gitleaksScanner();
@@ -61,6 +63,8 @@ const planted = [
   { path: "scripts/allowed.sh", bytes: enc(`export TOKEN=${value} # gitleaks:allow\n`) },
   { path: ".gitleaksignore", bytes: enc("scripts/run.sh:github-pat:1\n") },
   { path: ".gitleaks.toml", bytes: enc("[allowlist]\npaths = [\".*\"]\n") },
+  { path: "refs/go.sum", bytes: enc(`token ${value}\n`) },
+  { path: "scripts/gitleaks.toml", bytes: enc(`token = "${value}"\n`) },
 ];
 const timed = async (files) => {
   const start = performance.now();
@@ -74,7 +78,7 @@ for (const r of [first, second]) {
   if (r.kind !== "scanned" || r.findings.length !== 0) throw new Error("clean skill: " + JSON.stringify(r));
 }
 const paths = found.kind === "scanned" ? [...new Set(found.findings.map((f) => f.path))].sort() : [];
-if (JSON.stringify(paths) !== JSON.stringify(["scripts/allowed.sh", "scripts/run.sh"])) {
+if (JSON.stringify(paths) !== JSON.stringify(["refs/go.sum", "scripts/allowed.sh", "scripts/gitleaks.toml", "scripts/run.sh"])) {
   throw new Error("planted token: " + JSON.stringify(found));
 }
 if (JSON.stringify(found).includes(value)) throw new Error("the result carries the token");

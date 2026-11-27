@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type {
   SecretFinding,
   SecretScanFailure,
@@ -15,9 +15,11 @@ import { killProcessGroup } from "@werft-ai/system";
 export const GITLEAKS_EXECUTABLE = "/usr/local/bin/gitleaks";
 export const GITLEAKS_TIMEOUT_MS = 30_000;
 export const GITLEAKS_MAX_CONCURRENT = 2;
-/** The JSON report on stdout. Redacted findings are a few hundred bytes each. */
+/** The JSON report on stdout. */
 export const GITLEAKS_REPORT_LIMIT_BYTES = 1024 * 1024;
 const STDERR_KEPT_BYTES = 2048;
+/** How long a killed gitleaks has to report its exit before the scan answers anyway. */
+const KILL_GRACE_MS = 1000;
 
 /**
  * Ours, always passed with --config: gitleaks would otherwise read a
@@ -25,6 +27,19 @@ const STDERR_KEPT_BYTES = 2048;
  * skill under review allowlist its own files.
  */
 export const GITLEAKS_CONFIG = "[extend]\nuseDefault = true\n";
+
+/**
+ * The default config's global allowlist skips files by name (`go.sum`,
+ * `package-lock.json`, `*.svg`, any path with `gitleaks.toml` in it, ...),
+ * so a skill could hide a value by naming its file. Each file is copied
+ * under a name of ours instead, keeping only the endings that the five
+ * path-scoped default rules look for. Binary files are still skipped: gitleaks
+ * tells them by content, not by name.
+ */
+/** The one line a scan with findings writes at --log-level warn. */
+const LEAKS_FOUND = /^\S+ WRN leaks found: \d+$/;
+
+const RULE_ENDINGS = /(?:\.php|\.tf|\.hcl|\.ya?ml|\.p12|\.pfx|nuget\.config)$/i;
 
 export type GitleaksScannerOptions = {
   readonly executable?: string;
@@ -34,6 +49,8 @@ export type GitleaksScannerOptions = {
   /** Each scan makes and removes a 0700 directory of its own under this. */
   readonly scratchRoot?: string;
 };
+
+type Settings = Required<Omit<GitleaksScannerOptions, "maxConcurrent">>;
 
 type Run =
   | {
@@ -52,7 +69,7 @@ type Run =
 export function gitleaksScanner(
   options: GitleaksScannerOptions = {},
 ): SecretScanner {
-  const settings = {
+  const settings: Settings = {
     executable: options.executable ?? GITLEAKS_EXECUTABLE,
     timeoutMs: options.timeoutMs ?? GITLEAKS_TIMEOUT_MS,
     reportLimitBytes: options.reportLimitBytes ?? GITLEAKS_REPORT_LIMIT_BYTES,
@@ -68,6 +85,8 @@ export function gitleaksScanner(
       running++;
       try {
         return await scanOnce(files, settings);
+      } catch (error) {
+        return failed("tool_failed", firstLine(String(error)));
       } finally {
         running--;
       }
@@ -75,67 +94,97 @@ export function gitleaksScanner(
   };
 }
 
+/** Our name for file `index`, relative to the tree. */
+function copyName(index: number, path: string): string {
+  const ending = path.match(RULE_ENDINGS)?.[0] ?? "";
+  return `${index}/f${ending.startsWith(".") ? ending : ending ? `.${ending}` : ""}`;
+}
+
 async function scanOnce(
   files: readonly SecretScanFile[],
-  settings: Required<Omit<GitleaksScannerOptions, "maxConcurrent">>,
+  settings: Settings,
 ): Promise<SecretScanResult> {
   const rejected = rejectedPath(files);
   if (rejected !== null) return failed("input_rejected", rejected);
-  // Resolved, so the paths in the report start with the tree as passed.
-  const scratch = await realpath(
-    await mkdtemp(join(settings.scratchRoot, "werft-gitleaks-")),
-  );
+  const made = await mkdtemp(join(settings.scratchRoot, "werft-gitleaks-"));
+  let result: SecretScanResult;
   try {
-    const tree = join(scratch, "tree");
-    for (const file of files) {
-      const target = join(tree, file.path);
-      await mkdir(dirname(target), { recursive: true, mode: 0o700 });
-      await writeFile(target, file.bytes, { mode: 0o600 });
-    }
-    await mkdir(tree, { recursive: true, mode: 0o700 });
-    const config = join(scratch, "config.toml");
-    await writeFile(config, GITLEAKS_CONFIG, { mode: 0o600 });
-    const run = await runGitleaks(
-      settings.executable,
-      [
-        "dir",
-        "--config",
-        config,
-        // The scratch directory, which holds no .gitleaksignore; the default
-        // (the working directory) is one a caller could have filled.
-        "--gitleaks-ignore-path",
-        scratch,
-        "--ignore-gitleaks-allow",
-        "--redact",
-        "--no-banner",
-        "--no-color",
-        "--log-level",
-        "error",
-        // Findings exit 0 too, so any other status is the tool failing.
-        "--exit-code",
-        "0",
-        "--report-format",
-        "json",
-        "--report-path",
-        "-",
-        tree,
-      ],
-      scratch,
-      settings,
-    );
-    if (run.kind === "failed") return failed(run.reason, run.detail);
-    if (run.code !== 0) {
-      const status =
-        run.code === null ? `signal ${run.signal}` : `exit ${run.code}`;
-      return failed("tool_failed", firstLine(`${status}: ${run.stderr}`));
-    }
-    const findings = parseReport(run.stdout, tree);
-    return findings === null
-      ? failed("unreadable_report")
-      : { kind: "scanned", findings };
-  } finally {
-    await rm(scratch, { recursive: true, force: true });
+    result = await scanIn(made, files, settings);
+  } catch (error) {
+    result = failed("tool_failed", firstLine(String(error)));
   }
+  try {
+    await rm(made, { recursive: true, force: true });
+  } catch (error) {
+    // A copy left behind is not a verdict either.
+    return failed("tool_failed", firstLine(`cleanup: ${String(error)}`));
+  }
+  return result;
+}
+
+async function scanIn(
+  made: string,
+  files: readonly SecretScanFile[],
+  settings: Settings,
+): Promise<SecretScanResult> {
+  // Resolved, so the paths in the report start with the tree as passed.
+  const scratch = await realpath(made);
+  const tree = join(scratch, "tree");
+  await mkdir(tree, { mode: 0o700 });
+  const byCopy = new Map<string, string>();
+  for (const [index, file] of files.entries()) {
+    const name = copyName(index, file.path);
+    await mkdir(join(tree, String(index)), { mode: 0o700 });
+    await writeFile(join(tree, name), file.bytes, { mode: 0o600, flag: "wx" });
+    byCopy.set(name, file.path);
+  }
+  const config = join(scratch, "config.toml");
+  await writeFile(config, GITLEAKS_CONFIG, { mode: 0o600, flag: "wx" });
+  const run = await runGitleaks(
+    settings.executable,
+    [
+      "dir",
+      "--config",
+      config,
+      // Explicit, so no .gitleaksignore but the (absent) one here applies.
+      "--gitleaks-ignore-path",
+      scratch,
+      "--ignore-gitleaks-allow",
+      "--redact",
+      "--no-banner",
+      "--no-color",
+      // gitleaks reports a file it could not read as a warning and goes on;
+      // at this level a clean scan writes nothing to stderr.
+      "--log-level",
+      "warn",
+      // Findings exit 0 too, so any other status is the tool failing.
+      "--exit-code",
+      "0",
+      "--report-format",
+      "json",
+      "--report-path",
+      "-",
+      tree,
+    ],
+    scratch,
+    settings,
+  );
+  if (run.kind === "failed") return failed(run.reason, run.detail);
+  if (run.code !== 0) {
+    const status =
+      run.code === null ? `signal ${run.signal}` : `exit ${run.code}`;
+    return failed("tool_failed", `${status}: ${firstLine(run.stderr)}`);
+  }
+  const warnings = run.stderr
+    .split("\n")
+    .filter((line) => line.trim() !== "" && !LEAKS_FOUND.test(line));
+  if (warnings.length > 0) {
+    return failed("tool_failed", `warning: ${firstLine(warnings.join("\n"))}`);
+  }
+  const findings = parseReport(run.stdout, tree, byCopy);
+  return findings === null
+    ? failed("unreadable_report")
+    : { kind: "scanned", findings };
 }
 
 function runGitleaks(
@@ -156,19 +205,36 @@ function runGitleaks(
     });
     const stdout: Buffer[] = [];
     let stdoutBytes = 0;
-    let stderr = "";
+    const stderr: Buffer[] = [];
+    let stderrBytes = 0;
+    let exited = false;
     let stopped: Run | null = null;
     let settled = false;
+    let grace: ReturnType<typeof setTimeout> | undefined;
     const settle = (run: Run) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearTimeout(grace);
+      if (stopped !== null) {
+        child.stdout.destroy();
+        child.stderr.destroy();
+      }
       resolve(run);
     };
     const stop = (reason: SecretScanFailure, detail: string) => {
-      if (stopped !== null) return;
-      stopped = { kind: "failed", reason, detail };
+      if (stopped !== null || settled) return;
+      const run: Run = { kind: "failed", reason, detail };
+      stopped = run;
+      // Once the leader's exit is reported it has been reaped and its number
+      // may be someone else's: only what still holds the pipes is left, and
+      // the pipes are closed instead.
+      if (exited) {
+        settle(run);
+        return;
+      }
       killProcessGroup(child.pid);
+      grace = setTimeout(() => settle(run), KILL_GRACE_MS);
     };
     const timer = setTimeout(
       () => stop("timeout", `gitleaks exceeded ${settings.timeoutMs}ms`),
@@ -184,16 +250,24 @@ function runGitleaks(
       stdout.push(chunk);
     });
     child.stderr.on("data", (chunk: Buffer) => {
-      if (stderr.length < STDERR_KEPT_BYTES) {
-        stderr = (stderr + chunk.toString()).slice(0, STDERR_KEPT_BYTES);
-      }
+      if (stderrBytes >= STDERR_KEPT_BYTES) return;
+      const kept = chunk.subarray(0, STDERR_KEPT_BYTES - stderrBytes);
+      stderr.push(kept);
+      stderrBytes += kept.byteLength;
     });
     child.on("error", (error) =>
-      settle({ kind: "failed", reason: "tool_failed", detail: error.message }),
+      settle(
+        stopped ?? {
+          kind: "failed",
+          reason: "tool_failed",
+          detail: error.message,
+        },
+      ),
     );
     // A killed scan settles on exit, not close: close waits for every holder
     // of the pipes, and the point of the kill is not to.
     child.on("exit", () => {
+      exited = true;
       if (stopped !== null) settle(stopped);
     });
     child.on("close", (code, signal) =>
@@ -203,7 +277,7 @@ function runGitleaks(
           code,
           signal,
           stdout: Buffer.concat(stdout),
-          stderr,
+          stderr: Buffer.concat(stderr).toString("utf8"),
         },
       ),
     );
@@ -226,8 +300,12 @@ function rejectedPath(files: readonly SecretScanFile[]): string | null {
   return null;
 }
 
-/** The report's findings with paths relative to the tree, or null. */
-function parseReport(stdout: Buffer, tree: string): SecretFinding[] | null {
+/** The report's findings under the paths we were given, or null. */
+function parseReport(
+  stdout: Buffer,
+  tree: string,
+  byCopy: ReadonlyMap<string, string>,
+): SecretFinding[] | null {
   let report: unknown;
   try {
     report = JSON.parse(stdout.toString("utf8"));
@@ -242,19 +320,19 @@ function parseReport(stdout: Buffer, tree: string): SecretFinding[] | null {
       string,
       unknown
     >;
+    const path =
+      typeof File === "string" && File.startsWith(prefix)
+        ? byCopy.get(File.slice(prefix.length))
+        : undefined;
     if (
       typeof RuleID !== "string" ||
-      typeof File !== "string" ||
-      !File.startsWith(prefix) ||
-      !Number.isSafeInteger(StartLine)
+      path === undefined ||
+      !Number.isSafeInteger(StartLine) ||
+      (StartLine as number) < 1
     ) {
       return null;
     }
-    findings.push({
-      rule: RuleID,
-      path: File.slice(prefix.length),
-      line: StartLine as number,
-    });
+    findings.push({ rule: RuleID, path, line: StartLine as number });
   }
   return findings.sort(
     (a, b) =>

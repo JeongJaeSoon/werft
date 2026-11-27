@@ -363,12 +363,19 @@ describe("app Dockerfiles", () => {
     }
     expect(source.match(/bun \/tmp\/fetch-pinned\.ts/g)).toHaveLength(2);
     expect(source.match(/^COPY --from=gitleaks .*$/gm)).toEqual([
-      "COPY --from=gitleaks /tmp/gitleaks/gitleaks /usr/local/bin/gitleaks",
+      "COPY --from=gitleaks --chmod=0755 /tmp/gitleaks/gitleaks /usr/local/bin/gitleaks",
       "COPY --from=gitleaks /tmp/gitleaks/LICENSE /usr/local/share/doc/gitleaks/LICENSE",
     ]);
     expect(read(".github/scripts/image-smoke.sh")).toContain(
       `[ "$gitleaks_version" = ${GITLEAKS_VERSION} ]`,
     );
+    // The commit scan in CI pins the same release; its x64 checksum is a
+    // second reading of the same checksums file.
+    const workflow = read(".github/workflows/gitleaks.yml");
+    expect(workflow).toContain(`GITLEAKS_VERSION: v${GITLEAKS_VERSION}\n`);
+    const x64 = workflow.match(/GITLEAKS_SHA256: ([0-9a-f]{64})/)?.[1];
+    const amd64Pin = lines[lines.findIndex((line) => line.trim().endsWith("_linux_x64.tar.gz \\")) + 1]?.trim();
+    expect(amd64Pin).toBe(`${x64} \\`);
   });
 
   // The API pushes approved sessions over https with git, the worker clones
