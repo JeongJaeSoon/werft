@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { SLACK_NOTICE_MESSAGES, type UserLocale } from "@werft-ai/contracts";
 import type { SurfaceThreadStatusFacts } from "@werft-ai/platform";
+import { SLACK_OUTBOX_MESSAGES } from "./slack-outbox-render.ts";
 import {
   type SlackSessionStatusMaterial,
   type SlackThreadStatus,
+  slackProgressMessage,
   slackSessionStatus,
   slackStatusMaterial,
 } from "./slack-session-status.ts";
@@ -107,5 +110,52 @@ describe("slackStatusMaterial", () => {
     const material = await slackStatusMaterial("s", facts);
     expect(material.actionStages).toEqual(facts.actionStages);
     expect(slackSessionStatus(material)).toBe("active");
+  });
+});
+
+describe("slackProgressMessage", () => {
+  // 2026-11-27 05:31:12 UTC
+  const STARTED = 1_795_757_472.5;
+
+  test.each([
+    ["capacity_wait:exec-1:0", "capacityWait"],
+    ["needs_input:2", "progressNeedsInput"],
+    ["running:2", "progressRunning"],
+    ["queued:1", "progressQueued"],
+    ["idle:3", "progressIdle"],
+  ] as const)("%s says %s", (state, message) => {
+    for (const locale of ["ko", "ja", "en"] as UserLocale[]) {
+      const shown = slackProgressMessage({ locale, state, startedAt: null });
+      expect(shown.text).toBe(SLACK_NOTICE_MESSAGES[locale][message]);
+      expect(shown.blocks).toEqual([
+        { type: "section", text: { type: "mrkdwn", text: shown.text } },
+      ]);
+    }
+  });
+
+  test("labels the start, drawn relative by Slack, absolute in its fallback", () => {
+    for (const locale of ["ko", "ja", "en"] as UserLocale[]) {
+      const shown = slackProgressMessage({
+        locale,
+        state: "running:1",
+        startedAt: STARTED,
+        linkUrl: "https://console.example/sessions/s1",
+      });
+      expect(shown.blocks[1]).toEqual({
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: `${SLACK_NOTICE_MESSAGES[locale].progressStarted} <!date^1795757472^{ago}|2026-11-27 05:31 UTC> · <https://console.example/sessions/s1|${SLACK_OUTBOX_MESSAGES[locale].link}>`,
+          },
+        ],
+      });
+    }
+  });
+
+  test("refuses a state it does not know", () => {
+    expect(() =>
+      slackProgressMessage({ locale: "en", state: "done:1", startedAt: null }),
+    ).toThrow("Unknown progress state");
   });
 });
