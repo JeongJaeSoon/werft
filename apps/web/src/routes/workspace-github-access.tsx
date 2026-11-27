@@ -215,11 +215,17 @@ export function FeatureList({
         badge={mark(feature)}
         description={t(`github.feature.${feature}Hint`)}
         meta={
-          using === null && feature !== "actions" ? undefined : (
+          using === null &&
+          feature !== "actions" &&
+          feature !== "workflows" ? undefined : (
             <>
-              {feature === "actions" ? (
+              {feature === "actions" || feature === "workflows" ? (
                 <Text as="div" variant="meta">
-                  {t("github.feature.actionsHelp")}
+                  {t(
+                    feature === "actions"
+                      ? "github.feature.actionsHelp"
+                      : "github.feature.workflowsHelp",
+                  )}
                 </Text>
               ) : null}
               {using === null ? null : (

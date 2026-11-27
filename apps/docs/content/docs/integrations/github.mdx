@@ -26,9 +26,11 @@ workflow에 관한 스위치는 둘이다. 워크스페이스 상한과 에이�
 | 스위치 | 기본 | 토큰이 청하는 권한 |
 | --- | --- | --- |
 | **workflow 파일 수정과 CI 결과 보기** | 켬 | push에 `workflows: write`, CI 결과 읽기에 `actions: read`·`checks: read` |
-| **workflow 직접 실행 (dispatch·재실행·취소)** | 끔 | dispatch·재실행에 `actions: write` |
+| **workflow 직접 실행 (실행·재실행·취소)** | 끔 | dispatch·재실행에 `actions: write` |
 
-push와 pull_request 이벤트로 도는 workflow는 GitHub가 돌립니다. 이 스위치로는 끌 수 없습니다. 이 스위치는 직접 실행·재실행·취소만 정합니다. 꺼져 있으면 dispatch·재실행 도구는 GitHub를 부르기 전에 `GITHUB_REFUSED`(`actions_off`)로 거절하고, 사람 승인으로 넘기지 않는다. 토큰도 `actions: write`를 청하지 않는다. 에이전트는 켰는데 워크스페이스 상한이 끈 경우는 `over_workspace_ceiling`이다. 취소 도구는 아직 없다.
+**workflow 파일 수정과 CI 결과 보기**: 켜면 에이전트가 스스로 workflow 파일을 고쳐 push하고, PR의 CI 결과를 읽습니다.
+
+**workflow 직접 실행 (실행·재실행·취소)**: 켜면 에이전트가 스스로 workflow를 실행하고, 다시 돌리고, 취소합니다. push와 PR로 도는 CI는 이 스위치와 상관없이 GitHub가 돌립니다. 꺼져 있으면 dispatch·재실행 도구는 GitHub를 부르기 전에 `GITHUB_REFUSED`(`actions_off`)로 거절하고, 사람 승인으로 넘기지 않는다. 토큰도 `actions: write`를 청하지 않는다. 에이전트는 켰는데 워크스페이스 상한이 끈 경우는 `over_workspace_ceiling`이다. 취소 도구는 아직 없다.
 
 `workflows: write` 토큰을 GitHub가 거절하면, 설치가 실제로 준 권한을 App 키로 읽는다. 거기에 `Workflows` 쓰기가 없으면(App에 없거나 설치가 아직 승인하지 않음), 첫 스위치가 켜져 있어도 push는 `contents: write`만으로 간다. 권한을 읽지 못하면 push는 `app_permission_missing`으로 거절된다. 이때 `.github/workflows/` 파일을 바꾸는 push만 GitHub가 거절한다. push되는 commit은 에이전트가 쓴 것이라, 이 권한이 있으면 에이전트가 고친 `.github/workflows/` 파일도 push되고 CI에서 실행된다. 기본 브랜치는 저장소 ruleset으로도 막아 둔다([기본 브랜치 보호](#기본-브랜치-보호)).
 

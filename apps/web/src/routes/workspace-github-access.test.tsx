@@ -99,7 +99,7 @@ describe("GitHub 연결 › 에이전트가 쓸 수 있는 기능", () => {
     );
     const edits = await featureSwitch("workflow 파일 수정과 CI 결과 보기");
     const runs = await featureSwitch(
-      "workflow 직접 실행 \\(dispatch·재실행·취소\\)",
+      "workflow 직접 실행 \\(실행·재실행·취소\\)",
     );
     // Workflow edits come first, then running them; no Checks switch.
     expect(
@@ -110,7 +110,12 @@ describe("GitHub 연결 › 에이전트가 쓸 수 있는 기능", () => {
     );
     expect(
       screen.getByText(
-        "push와 pull_request 이벤트로 도는 workflow는 GitHub가 돌립니다. 이 스위치로는 끌 수 없습니다. 이 스위치는 직접 실행·재실행·취소만 정합니다.",
+        "켜면 에이전트가 스스로 workflow를 실행하고, 다시 돌리고, 취소합니다. push와 PR로 도는 CI는 이 스위치와 상관없이 GitHub가 돌립니다.",
+      ),
+    ).toBeDefined();
+    expect(
+      screen.getByText(
+        "켜면 에이전트가 스스로 workflow 파일을 고쳐 push하고, PR의 CI 결과를 읽습니다.",
       ),
     ).toBeDefined();
   });

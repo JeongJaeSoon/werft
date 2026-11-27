@@ -26,9 +26,11 @@ Two switches cover workflows. The workspace ceiling and the agent's GitHub tab h
 | Switch | Default | Permissions the token asks for |
 | --- | --- | --- |
 | **Edit workflow files and see CI results** | On | `workflows: write` on a push; `actions: read` and `checks: read` to read CI results |
-| **Run workflows directly (dispatch, rerun, cancel)** | Off | `actions: write` to dispatch and rerun |
+| **Run workflows directly (run, rerun, cancel)** | Off | `actions: write` to dispatch and rerun |
 
-Workflows that run on push and pull_request events are run by GitHub. This switch cannot turn them off. It decides only direct runs, reruns and cancels. While it is off, the dispatch and rerun tools are refused with `GITHUB_REFUSED` (`actions_off`) before GitHub is called, never passed to a person to approve, and no token asks for `actions: write`. When the agent turns it on but the workspace ceiling turns it off, the refusal is `over_workspace_ceiling`. There is no cancel tool yet.
+**Edit workflow files and see CI results**: When on, the agent edits and pushes workflow files and reads CI results on its own.
+
+**Run workflows directly (run, rerun, cancel)**: When on, the agent runs, reruns and cancels workflows on its own. CI that runs on push and pull requests is run by GitHub whatever this switch says. While it is off, the dispatch and rerun tools are refused with `GITHUB_REFUSED` (`actions_off`) before GitHub is called, never passed to a person to approve, and no token asks for `actions: write`. When the agent turns it on but the workspace ceiling turns it off, the refusal is `over_workspace_ceiling`. There is no cancel tool yet.
 
 When GitHub refuses a `workflows: write` token, the installation's granted permissions are read with the App's key. If they lack `Workflows` write (the App lacks it, or the installation has not approved it), a push goes with `contents: write` alone even with the first switch on; if they cannot be read, the push is refused with `app_permission_missing`. With `contents: write` alone, GitHub then refuses only a push that changes `.github/workflows/` files. The commits that get pushed are written by the agent, so with this permission a `.github/workflows/` file the agent edited would also be pushed and run in CI. Also protect the default branch with a repository ruleset ([Protecting the default branch](#기본-브랜치-보호)).
 

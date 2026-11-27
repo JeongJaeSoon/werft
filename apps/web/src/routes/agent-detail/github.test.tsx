@@ -544,7 +544,7 @@ describe("에이전트 GitHub 탭", () => {
       /워크스페이스 상한 밖입니다/,
     );
     expectLocked(
-      "workflow 직접 실행 (dispatch·재실행·취소)",
+      "workflow 직접 실행 (실행·재실행·취소)",
       /GitHub Enterprise에 있어/,
     );
     expectLocked("리뷰 승인", /리뷰용 App이 없습니다/);
@@ -562,7 +562,7 @@ describe("에이전트 GitHub 탭", () => {
         .getAttribute("href"),
     ).toBe("/settings/workspace/integrations/github");
     expect(
-      within(rowOf("workflow 직접 실행 (dispatch·재실행·취소)")).queryByRole(
+      within(rowOf("workflow 직접 실행 (실행·재실행·취소)")).queryByRole(
         "link",
         {
           name: "연동 > GitHub",
@@ -2311,7 +2311,7 @@ describe("에이전트 GitHub 탭", () => {
     const user = await setupUser();
     await screen.findByRole("heading", { name: "Actions 허용 목록" });
     const edits = switchNamed("workflow 파일 수정과 CI 결과 보기");
-    const runs = switchNamed("workflow 직접 실행 (dispatch·재실행·취소)");
+    const runs = switchNamed("workflow 직접 실행 (실행·재실행·취소)");
     expect(
       edits.compareDocumentPosition(runs) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
@@ -2320,7 +2320,12 @@ describe("에이전트 GitHub 탭", () => {
     );
     expect(
       screen.getByText(
-        "push와 pull_request 이벤트로 도는 workflow는 GitHub가 돌립니다. 이 스위치로는 끌 수 없습니다. 이 스위치는 직접 실행·재실행·취소만 정합니다.",
+        "켜면 에이전트가 스스로 workflow를 실행하고, 다시 돌리고, 취소합니다. push와 PR로 도는 CI는 이 스위치와 상관없이 GitHub가 돌립니다.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "켜면 에이전트가 스스로 workflow 파일을 고쳐 push하고, PR의 CI 결과를 읽습니다.",
       ),
     ).toBeTruthy();
     await user.click(edits);
@@ -2347,7 +2352,7 @@ describe("에이전트 GitHub 탭", () => {
     );
     const user = await setupUser();
     await screen.findByRole("heading", { name: "Actions 허용 목록" });
-    await user.click(switchNamed("workflow 직접 실행 (dispatch·재실행·취소)"));
+    await user.click(switchNamed("workflow 직접 실행 (실행·재실행·취소)"));
     expect(
       screen.queryByRole("heading", { name: "Actions 허용 목록" }),
     ).toBeNull();

@@ -896,10 +896,14 @@ function GitHubSettings({
                         ) : (
                           t(`agentGitHub.feature.${feature}Hint`)
                         )}
-                        {/* Shown however the row reads: what this switch cannot stop. */}
-                        {feature === "actions" ? (
+                        {/* Shown however the row reads: what the switch lets the agent do. */}
+                        {feature === "actions" || feature === "workflows" ? (
                           <Text as="span" variant="meta" className="block">
-                            {t("agentGitHub.feature.actionsHelp")}
+                            {t(
+                              feature === "actions"
+                                ? "agentGitHub.feature.actionsHelp"
+                                : "agentGitHub.feature.workflowsHelp",
+                            )}
                           </Text>
                         ) : null}
                       </>

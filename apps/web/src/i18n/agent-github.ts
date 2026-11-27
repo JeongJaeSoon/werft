@@ -82,12 +82,14 @@ export const agentGitHubKo = {
   "agentGitHub.feature.review": "리뷰 승인",
   "agentGitHub.feature.reviewHint":
     "리뷰용 App으로 PR에 승인 리뷰를 남깁니다. 권장 권한이면 GitHub는 이 승인을 필수 리뷰로 세지 않으므로, 브랜치 규칙이 리뷰를 요구하면 쓰기 권한이 있는 사람의 승인처럼 GitHub가 인정하는 승인이 따로 필요합니다. 필요한 권한: 리뷰용 App의 pull requests 쓰기",
-  "agentGitHub.feature.actions": "workflow 직접 실행 (dispatch·재실행·취소)",
+  "agentGitHub.feature.actions": "workflow 직접 실행 (실행·재실행·취소)",
   "agentGitHub.feature.actionsHint":
     "허용 목록의 workflow만 실행(workflow_dispatch)하거나 다시 실행합니다. 필요한 권한: actions 쓰기",
   "agentGitHub.feature.actionsHelp":
-    "push와 pull_request 이벤트로 도는 workflow는 GitHub가 돌립니다. 이 스위치로는 끌 수 없습니다. 이 스위치는 직접 실행·재실행·취소만 정합니다.",
+    "켜면 에이전트가 스스로 workflow를 실행하고, 다시 돌리고, 취소합니다. push와 PR로 도는 CI는 이 스위치와 상관없이 GitHub가 돌립니다.",
   "agentGitHub.feature.workflows": "workflow 파일 수정과 CI 결과 보기",
+  "agentGitHub.feature.workflowsHelp":
+    "켜면 에이전트가 스스로 workflow 파일을 고쳐 push하고, PR의 CI 결과를 읽습니다.",
   "agentGitHub.feature.workflowsHint":
     ".github/workflows 아래 파일을 바꾼 commit도 push하고, 세션 저장소의 CI 결과를 읽습니다. 필요한 권한: workflows 쓰기, actions·checks 읽기",
   "agentGitHub.featureReason.app_permission_missing":
@@ -178,7 +180,8 @@ export const agentGitHubKo = {
   "agentGitHub.refusal.workflow_not_allowed": "허용 목록 밖",
   "agentGitHub.refusal.agent_ref_refused": "agent/ 브랜치 실행 거절",
   "agentGitHub.refusal.run_ref_unprovable": "플랫폼이 실행하지 않은 run",
-  "agentGitHub.refusal.actions_off": "workflow 직접 실행 꺼짐",
+  "agentGitHub.refusal.actions_off":
+    "이 에이전트는 workflow 직접 실행이 꺼져 있어요. 관리자가 에이전트 GitHub 설정에서 켤 수 있어요.",
   "agentGitHub.refusal.github_settings_unsupported": "이 서버가 모르는 설정",
   "agentGitHub.refusal.github_host_unsupported": "GitHub Enterprise",
   "agentGitHub.refusal.repository_none": "저장소 없음",
@@ -299,13 +302,14 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.feature.review": "Approve reviews",
   "agentGitHub.feature.reviewHint":
     "Leaves approving reviews with the reviewer App. With the recommended permissions GitHub does not count them toward required reviews, so where a branch rule requires a review, another approval GitHub counts is still needed, such as one from a person with write access. Needs: the reviewer App's pull requests write",
-  "agentGitHub.feature.actions":
-    "Run workflows directly (dispatch, rerun, cancel)",
+  "agentGitHub.feature.actions": "Run workflows directly (run, rerun, cancel)",
   "agentGitHub.feature.actionsHint":
     "Runs (workflow_dispatch) or reruns only workflows on the allow list. Needs: actions write",
   "agentGitHub.feature.actionsHelp":
-    "Workflows that run on push and pull_request events are run by GitHub. This switch cannot turn them off. It decides only direct runs, reruns and cancels.",
+    "When on, the agent runs, reruns and cancels workflows on its own. CI that runs on push and pull requests is run by GitHub whatever this switch says.",
   "agentGitHub.feature.workflows": "Edit workflow files and see CI results",
+  "agentGitHub.feature.workflowsHelp":
+    "When on, the agent edits and pushes workflow files and reads CI results on its own.",
   "agentGitHub.feature.workflowsHint":
     "Also pushes commits that change files under .github/workflows, and reads CI results of the session's repository. Needs: workflows write, actions and checks read",
   "agentGitHub.featureReason.app_permission_missing":
@@ -398,7 +402,8 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.refusal.workflow_not_allowed": "Not on the allow list",
   "agentGitHub.refusal.agent_ref_refused": "agent/ branch refused",
   "agentGitHub.refusal.run_ref_unprovable": "A run the platform did not start",
-  "agentGitHub.refusal.actions_off": "Direct workflow runs off",
+  "agentGitHub.refusal.actions_off":
+    "Direct workflow runs are off for this agent. An admin can turn them on in the agent's GitHub settings.",
   "agentGitHub.refusal.github_settings_unsupported":
     "Settings this server does not know",
   "agentGitHub.refusal.github_host_unsupported": "GitHub Enterprise",
@@ -521,12 +526,14 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.feature.reviewHint":
     "レビュー用 App で PR に承認レビューを残します。推奨する権限では GitHub はこの承認を必須レビューに数えないため、ブランチのルールがレビューを求める場合は、書き込み権限を持つ人の承認など、GitHub が数える承認が別に必要です。必要な権限:レビュー用 App の pull requests の書き込み",
   "agentGitHub.feature.actions":
-    "ワークフローの直接実行 (dispatch・再実行・キャンセル)",
+    "ワークフローの直接実行 (実行・再実行・キャンセル)",
   "agentGitHub.feature.actionsHint":
     "許可リストのワークフローだけを実行(workflow_dispatch)または再実行します。必要な権限: actions の書き込み",
   "agentGitHub.feature.actionsHelp":
-    "push と pull_request イベントで動くワークフローは GitHub が実行します。このスイッチでは止められません。このスイッチが決めるのは直接の実行・再実行・キャンセルだけです。",
+    "オンにすると、エージェントが自分でワークフローを実行・再実行・キャンセルします。push と PR で動く CI は、このスイッチに関係なく GitHub が実行します。",
   "agentGitHub.feature.workflows": "ワークフローファイルの変更と CI 結果の確認",
+  "agentGitHub.feature.workflowsHelp":
+    "オンにすると、エージェントが自分でワークフローファイルを変更して push し、PR の CI 結果を読みます。",
   "agentGitHub.feature.workflowsHint":
     ".github/workflows 以下のファイルを変えた commit も push し、セッションのリポジトリの CI 結果を読みます。必要な権限: workflows の書き込み、actions・checks の読み取り",
   "agentGitHub.featureReason.app_permission_missing":
@@ -618,7 +625,8 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.refusal.agent_ref_refused": "agent/ ブランチの実行拒否",
   "agentGitHub.refusal.run_ref_unprovable":
     "プラットフォームが始めていない run",
-  "agentGitHub.refusal.actions_off": "ワークフローの直接実行オフ",
+  "agentGitHub.refusal.actions_off":
+    "このエージェントはワークフローの直接実行がオフです。管理者がエージェントの GitHub 設定でオンにできます。",
   "agentGitHub.refusal.github_settings_unsupported":
     "このサーバーが知らない設定",
   "agentGitHub.refusal.github_host_unsupported": "GitHub Enterprise",

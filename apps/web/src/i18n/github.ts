@@ -243,12 +243,14 @@ export const githubKo = {
   "github.feature.base": "PR 작성·수정",
   "github.feature.baseHint":
     "clone, push, PR 열기·코멘트. GitHub를 쓰는 에이전트는 늘 씁니다.",
-  "github.feature.actions": "workflow 직접 실행 (dispatch·재실행·취소)",
+  "github.feature.actions": "workflow 직접 실행 (실행·재실행·취소)",
   "github.feature.actionsHint":
     "에이전트 허용 목록의 workflow를 실행하거나 다시 실행합니다. 기본은 꺼짐입니다.",
   "github.feature.actionsHelp":
-    "push와 pull_request 이벤트로 도는 workflow는 GitHub가 돌립니다. 이 스위치로는 끌 수 없습니다. 이 스위치는 직접 실행·재실행·취소만 정합니다.",
+    "켜면 에이전트가 스스로 workflow를 실행하고, 다시 돌리고, 취소합니다. push와 PR로 도는 CI는 이 스위치와 상관없이 GitHub가 돌립니다.",
   "github.feature.workflows": "workflow 파일 수정과 CI 결과 보기",
+  "github.feature.workflowsHelp":
+    "켜면 에이전트가 스스로 workflow 파일을 고쳐 push하고, PR의 CI 결과를 읽습니다.",
   "github.feature.workflowsHint":
     ".github/workflows 아래 파일을 바꾼 commit도 push하고, 세션 저장소의 CI 결과를 읽습니다. 기본은 켜짐입니다.",
   "github.feature.review": "PR 리뷰 승인",
@@ -604,12 +606,14 @@ export const githubEn: Record<keyof typeof githubKo, string> = {
   "github.feature.base": "Write pull requests",
   "github.feature.baseHint":
     "Clone, push, open and comment on pull requests. Every agent with GitHub does this.",
-  "github.feature.actions": "Run workflows directly (dispatch, rerun, cancel)",
+  "github.feature.actions": "Run workflows directly (run, rerun, cancel)",
   "github.feature.actionsHint":
     "Run or rerun the workflows on the agent's allow-list. Off by default.",
   "github.feature.actionsHelp":
-    "Workflows that run on push and pull_request events are run by GitHub. This switch cannot turn them off. It decides only direct runs, reruns and cancels.",
+    "When on, the agent runs, reruns and cancels workflows on its own. CI that runs on push and pull requests is run by GitHub whatever this switch says.",
   "github.feature.workflows": "Edit workflow files and see CI results",
+  "github.feature.workflowsHelp":
+    "When on, the agent edits and pushes workflow files and reads CI results on its own.",
   "github.feature.workflowsHint":
     "Also push commits that change files under .github/workflows, and read CI results of the session's repository. On by default.",
   "github.feature.review": "Approve pull requests",
@@ -968,13 +972,14 @@ export const githubJa: Record<keyof typeof githubKo, string> = {
   "github.feature.base": "PR の作成・修正",
   "github.feature.baseHint":
     "clone、push、PR の作成・コメント。GitHub を使うエージェントは常に使います。",
-  "github.feature.actions":
-    "ワークフローの直接実行 (dispatch・再実行・キャンセル)",
+  "github.feature.actions": "ワークフローの直接実行 (実行・再実行・キャンセル)",
   "github.feature.actionsHint":
     "エージェントの許可リストにあるワークフローを実行・再実行します。既定はオフです。",
   "github.feature.actionsHelp":
-    "push と pull_request イベントで動くワークフローは GitHub が実行します。このスイッチでは止められません。このスイッチが決めるのは直接の実行・再実行・キャンセルだけです。",
+    "オンにすると、エージェントが自分でワークフローを実行・再実行・キャンセルします。push と PR で動く CI は、このスイッチに関係なく GitHub が実行します。",
   "github.feature.workflows": "ワークフローファイルの変更と CI 結果の確認",
+  "github.feature.workflowsHelp":
+    "オンにすると、エージェントが自分でワークフローファイルを変更して push し、PR の CI 結果を読みます。",
   "github.feature.workflowsHint":
     ".github/workflows 以下のファイルを変えた commit も push し、セッションのリポジトリの CI 結果を読みます。既定はオンです。",
   "github.feature.review": "PR のレビュー承認",
