@@ -6985,14 +6985,17 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
   });
 
   test("a task's stop read again in a channel turned private sends its binding to approval, and is no mention turn", async () => {
-    const { fixture, view, session, post } = await unstartedTask();
+    const { fixture, view, session, post, root } = await unstartedTask();
     const ts = at(1);
     const text = `<@${BOT_USER}> stop`;
     await deliver(fixture, post(ts, { text }));
     await drain(view.handle);
     await sendOutbox({ closeLinks: true });
     await expectLinkClosed(session);
-    await deliver(fixture, post(ts, { text, channel_type: "group" }));
+    // Slack sends the post's app_mention with no channel kind; asked, it
+    // says the channel is private now.
+    slack.channels.set(CHANNEL, { isPrivate: true });
+    await deliver(fixture, mention(ts, { text, thread_ts: root }));
     expect(await drain(view.handle)).toMatchObject({ processed: 1, failed: 0 });
     const [binding] = await db
       .select()
@@ -7004,6 +7007,39 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     });
     expect(await conversationTurnsOf(fixture)).toEqual([]);
     expect(await stopKeysOf(session)).toHaveLength(1);
+  });
+
+  test("an unmentioned stop word retried after its link closed is held for no judgment, in a channel listening to everything", async () => {
+    const { fixture, session, post } = await unstartedTask();
+    await db
+      .update(surfaceBindings)
+      .set({ listen: "free" })
+      .where(eq(surfaceBindings.id, fixture.bindingId));
+    const ts = at(1);
+    await deliver(fixture, post(ts, { text: "그만" }));
+    const [claim] = await claimAll(30_000);
+    if (claim === undefined) throw new Error("nothing claimed");
+    await handler(shortLease).handle(claim);
+    expect(await stopKeysOf(session)).toHaveLength(1);
+    await Bun.sleep(100);
+    await sendOutbox({ closeLinks: true });
+    await expectLinkClosed(session);
+    const messages: string[] = [];
+    const log = createLogger({
+      sinks: [{ write: ({ message }) => void messages.push(message) }],
+    });
+    expect(await drain(handler(undefined, log).handle)).toMatchObject({
+      processed: 1,
+      retried: 0,
+      failed: 0,
+    });
+    // The engaged thread's replies are judged for the record; this one,
+    // already the stop, is not held for it.
+    expect(messages).not.toContain("Slack message held for the judgment");
+    expect(messages).toContain(
+      "Slack stop request already made; its work closed",
+    );
+    expect(await conversationTurnsOf(fixture)).toEqual([]);
   });
 
   test("a new stop word mentioned in a thread whose task the stop closed is a mention turn, as any mention there", async () => {

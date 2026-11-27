@@ -784,6 +784,33 @@ export function createSlackSessionHandler(
         await deps.bindings.requireApproval(bound.id);
       }
     }
+    // A stop word alone whose stop was made in work this thread has closed
+    // since: the post read again, by its other event or by a retry of the
+    // pass that lost its lease after the stop. It is done, whatever the
+    // thread holds now: taken on, it would be held for judgment, a mention
+    // of the thread, or a stop of the work opened there since. Only once the
+    // channel's kind is judged, so the post still sends a binding to
+    // approval. A new stop word is another post, under another key.
+    let madeBefore: Promise<boolean> | undefined;
+    const stopMadeBefore = () => {
+      madeBefore ??=
+        !fromBot &&
+        isStopRequest(withoutBotMention(event.text, agent.botUserId))
+          ? deps.sessionLinks
+              .closedSessions(agent.installationId, surfaceRef)
+              .then((sessionIds) =>
+                deps.stops.stoppedBefore(sessionIds, {
+                  idempotencyKey: stopKey,
+                }),
+              )
+          : Promise.resolve(false);
+      return madeBefore;
+    };
+    // A message event says its channel's kind itself, judged just above.
+    if (event.channel_type !== undefined && (await stopMadeBefore())) {
+      deps.logger.info("Slack stop request already made; its work closed", ids);
+      return;
+    }
     if (
       fromBot &&
       (dm || !mentioned || !agent.allowedBotUserIds.includes(event.user))
@@ -946,24 +973,8 @@ export function createSlackSessionHandler(
       if (refused !== null) await notice("channel_kind_mismatch", refused);
       return;
     }
-    // A stop word alone whose stop was made in work this thread has closed
-    // since: the post read again, by its other event or by a retry of the
-    // pass that lost its lease after the stop. It is done, whatever the
-    // thread holds now: taken on, it would be a mention of the thread, or a
-    // stop of the work opened there since. After the channel's kind is
-    // judged, so the post still sends a binding to approval. A new stop word
-    // is another post, under another key.
-    if (
-      !fromBot &&
-      isStopRequest(withoutBotMention(event.text, agent.botUserId)) &&
-      (await deps.stops.stoppedBefore(
-        await deps.sessionLinks.closedSessions(
-          agent.installationId,
-          surfaceRef,
-        ),
-        { idempotencyKey: stopKey },
-      ))
-    ) {
+    // An app_mention names no channel kind: done once Slack has said it.
+    if (await stopMadeBefore()) {
       deps.logger.info("Slack stop request already made; its work closed", ids);
       return;
     }
