@@ -170,7 +170,7 @@ export async function drainSlackInbox(deps: {
   let broken: { error: unknown } | undefined;
   while (broken === undefined && now() < deps.deadline) {
     const free = deps.concurrency - inFlight.size;
-    const busy = inFlight.size > 0;
+    const running = inFlight.size;
     let batch: SurfaceInboundClaim[] = [];
     if (free > 0) {
       try {
@@ -193,12 +193,10 @@ export async function drainSlackInbox(deps: {
         .finally(() => inFlight.delete(running));
       inFlight.add(running);
     }
-    if (inFlight.size === 0) {
-      // A claim that went out while work ran may have read that work's
-      // channel as still taken; with it ended since, ask once more.
-      if (busy && batch.length === 0) continue;
-      break;
-    }
+    // A claim that went out while work ran may have read that work's
+    // channel as still taken; with some of it ended since, ask once more.
+    if (batch.length === 0 && inFlight.size < running) continue;
+    if (inFlight.size === 0) break;
     // Nothing more to claim until one ends: it may be what its channel's
     // next event waits for.
     if (batch.length === 0 || inFlight.size >= deps.concurrency) {
