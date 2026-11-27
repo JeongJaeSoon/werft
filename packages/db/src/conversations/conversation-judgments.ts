@@ -101,7 +101,7 @@ export async function requestReplyJudgment(
     JOIN agents a ON a.id = t.agent_id
     WHERE t.id = ${input.topicId}::uuid
       -- The gate as far as this transaction can see it; the judge asks it
-      -- again, notice approval included, before the call and the record.
+      -- again before the call and the record.
       AND a.conversation_rollout <> 'off'
       AND NOT EXISTS (
         SELECT 1 FROM surface_bindings b

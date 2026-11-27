@@ -265,7 +265,7 @@ integration("Slack notice service on PostgreSQL", () => {
     expect(lowered.rollout).toBe("off");
   });
 
-  test("a revoked approval from before does not hold or lower the switch", async () => {
+  test("a revoked approval from before does not refuse a raise", async () => {
     const ws = await setUp();
     await storedApproval(ws, true);
     const notices = service();

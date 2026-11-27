@@ -75,7 +75,7 @@ describe("Slack notice routes", () => {
     ["/approve", undefined],
     ["/revoke", undefined],
   ] as const) {
-    test(`POST ${suffix} ${JSON.stringify(body)} answers 410 ENDPOINT_RETIRED, whatever is sent`, async () => {
+    test(`POST ${suffix} ${JSON.stringify(body)} answers 410 ENDPOINT_RETIRED, whatever its body`, async () => {
       const response = await request(
         {
           retired: () => {
@@ -95,6 +95,25 @@ describe("Slack notice routes", () => {
       const { error } = apiErrorResponseSchema.parse(await response.json());
       expect(error.code).toBe("ENDPOINT_RETIRED");
       expect(error.details).toEqual({ reason_code: "slack_notice_retired" });
+    });
+  }
+
+  for (const suffix of ["/approve", "/revoke"]) {
+    test(`POST ${suffix} with a body over the limit answers 413 before the route`, async () => {
+      let asked = false;
+      const response = await request(
+        {
+          retired: () => {
+            asked = true;
+            throw new Error("not reached");
+          },
+        },
+        "POST",
+        `${PATH}${suffix}`,
+        { pad: "x".repeat(REQUEST_BODY_MAX_BYTES) },
+      );
+      expect(response.status).toBe(413);
+      expect(asked).toBe(false);
     });
   }
 

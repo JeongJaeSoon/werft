@@ -3931,7 +3931,7 @@ export interface paths {
         /**
          * Retired: approve the agent's Slack notice
          * @deprecated
-         * @description Retired with the Slack notice approval: the conversation switch no longer needs one. Answers 410 ENDPOINT_RETIRED with `details.reason_code` `slack_notice_retired` to every signed-in caller, whatever is sent, and changes nothing; the route will be removed in a later release. Approvals given before stay stored and are not read.
+         * @description Retired with the Slack notice approval: the conversation switch no longer needs one. A request that reaches the route is answered 410 ENDPOINT_RETIRED with `details.reason_code` `slack_notice_retired`, whatever its body, and changes nothing; the checks every route shares still come first (401 without a login, 403 on a failed CSRF check, 413 for a body over the limit). The route will be removed in a later release. Approvals given before stay stored and are not read.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3953,7 +3953,7 @@ export interface paths {
         put?: never;
         /**
          * Change the agent's conversation switch
-         * @description Sets the agent's conversation switch to `off` or `shadow`. In `shadow` the agent holds the messages of the channels it listens to all of and records its judgment of them; it answers nothing more than before. `on` is refused 400 BAD_REQUEST with `details.reason_code` `rollout_on_unavailable`: it is not open yet, from `off` or from `shadow`. No approval is asked: the 409 answers this route gave while the Slack notice approval stood (`notice_not_approved`, `no_notice`, SLACK_NOT_INSTALLED) are no longer sent, and the switch no longer goes to `off` by itself. A change writes one `set_conversation_rollout` receipt in its transaction; setting the value it holds writes nothing. `off` removes every message the agent holds for judgment and stops new judgments; its judgment records and channel summaries stay. Answers the switch as GET does. Workspace owners and admins only, not the agent's admins (403 with `details.reason_code` `workspace_admin_required`), with a web session only.
+         * @description Sets the agent's conversation switch to `off` or `shadow`. In `shadow` the agent holds the messages of the channels it listens to all of and records its judgment of them; the judgments post nothing to Slack, and the only post is one line in each channel it starts reading every message of. `on` is refused 400 BAD_REQUEST with `details.reason_code` `rollout_on_unavailable`: it is not open yet, from `off` or from `shadow`. No approval is asked: the 409 answers this route gave while the Slack notice approval stood (`notice_not_approved`, `no_notice`, SLACK_NOT_INSTALLED) are no longer sent, and the switch no longer goes to `off` by itself. A change writes one `set_conversation_rollout` receipt in its transaction; setting the value it holds writes nothing. `off` removes every message the agent holds for judgment and stops new judgments; its judgment records and channel summaries stay. Answers the switch as GET does. Workspace owners and admins only, not the agent's admins (403 with `details.reason_code` `workspace_admin_required`), with a web session only.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -3976,7 +3976,7 @@ export interface paths {
         /**
          * Retired: revoke the agent's Slack notice approval
          * @deprecated
-         * @description Retired with the Slack notice approval: the conversation switch no longer needs one. Answers 410 ENDPOINT_RETIRED with `details.reason_code` `slack_notice_retired` to every signed-in caller, whatever is sent, and changes nothing; the route will be removed in a later release. Approvals given before stay stored and are not read.
+         * @description Retired with the Slack notice approval: the conversation switch no longer needs one. A request that reaches the route is answered 410 ENDPOINT_RETIRED with `details.reason_code` `slack_notice_retired`, whatever its body, and changes nothing; the checks every route shares still come first (401 without a login, 403 on a failed CSRF check, 413 for a body over the limit). The route will be removed in a later release. Approvals given before stay stored and are not read.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -5534,8 +5534,8 @@ export interface paths {
          *     - `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.
          *     - `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.
          *     - `set_slack_allowed_bots`: `{agent_id, added, removed, count_before, count_after, by}`; `by` is `web` for a save in the console (the user is the receipt's `actor`) and `operator_cli` for a change made with the `slack-app.ts` bot commands; both write it only when the list changed.
-         *     - `approve_slack_notice`, `revoke_slack_notice`: no longer written, since the Slack notice approval is retired; ones written before still read, with `{agent_id, approval_id, slack_team_id, notice_version}` and `{agent_id, approval_ids, slack_team_ids, notice_versions}`.
-         *     - `set_conversation_rollout`: `{agent_id, before, after, by, reason, buffered_dropped}`; `by` is `web` (a workspace owner or admin, the receipt's `actor`) or `operator_cli` (`slack-notice.ts set-rollout`), and `reason` is null. Receipts written while the approval stood may also say `by` `reconciler` with `reason` `notice_revoked`, `not_approved`, `not_installed` or `no_notice` (the switch lowered to `off` by itself); no new receipt does. `buffered_dropped` counts the held messages a change to `off` removed.
+         *     - `approve_slack_notice`, `revoke_slack_notice`: no longer written, since the Slack notice approval is retired; ones written before still read, with `{agent_id, approval_id, slack_team_id, notice_version, notice_locale}` and `{agent_id, approval_ids, slack_team_ids, notice_versions}`.
+         *     - `set_conversation_rollout`: `{agent_id, before, after, by, reason, buffered_dropped}`; `by` is `web` (a workspace owner or admin, the receipt's `actor`) or `operator_cli` (`slack-notice.ts set-rollout`), and `reason` is null. Receipts written while the approval stood may also say `reason` `notice_revoked` (`by` `web`: a revoke lowered the switch) or `not_approved`, `not_installed` or `no_notice` (`by` `reconciler`: the switch lowered to `off` by itself); no new receipt does. `buffered_dropped` counts the held messages a change to `off` removed.
          *     - `delete_slack_app`: `{slack_app_id, app_id, kind, agent_id, closed, slack_cleanup}`: a Slack app deleted through the API, by the receipt's `actor`. `closed` counts what the delete closed in Werft (`installations`, `identities`, `bindings`, `outbox` messages cancelled as `app_deleted`, `buffered` messages dropped); `slack_cleanup` is null until Slack's side was tried, then `{outcome, failed_steps, message}` as the delete answered. No token is in it.
          *     - `resolve_unknown_budget`: `{call_id, call_kind, session_id, agent_id, conversation_turn_id, account_id, owner_kind, owner_id, period_start, resolution, reason, held_cost_usd, held_tokens, charged_cost_usd, charged_tokens, unknown_at, run_id, by}`, written by the `budget-unknown.ts` operator command for each budget reservation of unknown end it resolves, or by the reconciler (`by` `reconciler`, no `actor`) for one whose turn ended and whose call can no longer run; `resolution` is `spent` (charged at what it held), `refunded` (charged nothing, with its `reason`) or `estimated` (the reconciler's: charged at what it held), and `target_ref` is the account's owner (a person, or a team) or, with no account, the workspace.
          *
@@ -41507,6 +41507,21 @@ export interface operations {
                     };
                 };
             };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
+                        };
+                    };
+                };
+            };
             500: components["responses"]["InternalError"];
             /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
             503: {
@@ -41757,6 +41772,21 @@ export interface operations {
                         error?: {
                             /** @enum {string} */
                             code?: "ENDPOINT_RETIRED";
+                        };
+                    };
+                };
+            };
+            /** @description - `PAYLOAD_TOO_LARGE`: The body is larger than 64 KiB. */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "PAYLOAD_TOO_LARGE";
                         };
                     };
                 };

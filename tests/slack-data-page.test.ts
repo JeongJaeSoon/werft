@@ -39,7 +39,9 @@ describe("the data page the notice versions link to", () => {
   test("no page promises a notice approval", () => {
     for (const locale of ["ko", "ja", "en"] as const) {
       const text = readFileSync(fileOf(locale), "utf8");
-      expect(text).not.toMatch(/고지|告知|notice/i);
+      expect(text).not.toMatch(
+        /고지를? 승인|告知の承認|告知を承認|approves? the notice|notice approval/i,
+      );
     }
   });
 

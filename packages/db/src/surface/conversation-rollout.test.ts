@@ -229,6 +229,10 @@ describe("the conversation switch", () => {
     expect(await set("on")).toEqual({ outcome: "on_unavailable" });
     expect(await rolloutNow()).toBe("shadow");
     expect(await rolloutReceipts()).toHaveLength(1);
+    // Asking a switch SQL left on for on again is refused the same way.
+    await forceRollout("on");
+    expect(await set("on")).toEqual({ outcome: "on_unavailable" });
+    expect(await rolloutReceipts()).toHaveLength(1);
   });
 
   test("on → shadow and on → off are taken, for a switch SQL left on", async () => {
@@ -354,10 +358,52 @@ describe("agents as the retired approval left them", () => {
     expect(await rolloutReceipts()).toEqual([]);
   });
 
-  test("a revoked approval no longer lowers the switch", async () => {
+  test("a revoked approval row neither closes the gate nor lowers a raised switch", async () => {
     await set("shadow");
     await storedApproval(true);
     expect(await rolloutNow()).toBe("shadow");
     expect((await conversationGate(db, place())).open).toBe(true);
+  });
+});
+
+describe("the pre-deploy check for raised agents the approval held closed", () => {
+  const check = async () => {
+    const text = await Bun.file(
+      new URL("./raised-without-notice-approval.sql", import.meta.url),
+    ).text();
+    const { rows } = await client.query<{ agent_id: string }>(text);
+    return rows.map((row) => row.agent_id);
+  };
+
+  test("lists a raised agent with no approval, a revoked one, an unapproved second team or no live install; not an approved or off one", async () => {
+    expect(await check()).toEqual([]); // off, no approval
+    await forceRollout("shadow");
+    expect(await check()).toEqual([agentId]); // raised, no approval
+    await storedApproval(true);
+    expect(await check()).toEqual([agentId]); // only a revoked one
+    await storedApproval(false);
+    expect(await check()).toEqual([]); // approved for its one team
+    const second = randomUUID();
+    await client.query(
+      "INSERT INTO slack_installations (id, workspace_id, app_id, team_id) VALUES ($1, $2, 'A0ROLLOUT', 'T0SECOND')",
+      [second, ws.id],
+    );
+    const identity = randomUUID();
+    await client.query(
+      `INSERT INTO agent_identities
+         (id, workspace_id, agent_id, provider, installation_id, external_principal_id, credential_ref)
+       VALUES ($1, $2, $3, 'slack_bot', $4, 'U0SECOND', 'slack/rollout-bot-2')`,
+      [identity, ws.id, agentId, second],
+    );
+    expect(await check()).toEqual([agentId]); // a second team nobody approved
+    await client.query(
+      "UPDATE agent_identities SET status = 'revoked', revoked_at = now() WHERE agent_id = $1",
+      [agentId],
+    );
+    expect(await check()).toEqual([agentId]); // no live install left
+    await forceRollout("on");
+    expect(await check()).toEqual([agentId]);
+    await forceRollout("off");
+    expect(await check()).toEqual([]);
   });
 });

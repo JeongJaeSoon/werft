@@ -12,8 +12,7 @@ The agent calls the model with the model key this organization connected. Messag
 ## Messages it reads
 
 - **Requests to the agent.** A message that mentions the agent, a DM to the agent (when **Receive DMs** is on), and a message written in a thread where the agent's work (session) goes on become a work request (session input).
-- **Channel messages taken without a mention.** When the agent's **Respond only when mentioned** is off, an unmentioned top-level message in a channel in use also becomes a work request. This path does not depend on the conversation switch.
-- **Messages held in the judgment buffer.** Held only after a workspace owner or admin raises the agent's conversation switch: messages without a mention in channels whose listening setting is every message (`free`), and replies in threads the agent took part in lately that are not tied to its work. They are held briefly while the agent judges whether to step in. Once the switch is raised, the agent posts once in each channel it listens to every message of, saying so.
+- **Channel messages taken without a mention.** When the agent's **Respond only when mentioned** is off, an unmentioned top-level message in a channel in use also becomes a work request.- **Messages held in the judgment buffer.** Held only while the agent's conversation switch is raised (a workspace owner or admin, or an operator, raises it): messages without a mention in channels whose listening setting is every message (`free`), and replies in threads the agent took part in lately that are not tied to its work. They are held briefly while the agent judges whether to step in. Once the switch is raised, the agent posts once in each channel it listens to every message of, saying so (and once more under a notice version that asks to tell channels again).
 
 ## What is stored and when it is deleted
 

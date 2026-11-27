@@ -1066,7 +1066,7 @@ a0_sql "select conversation_rollout from agents where id='$AID'"
 
 ## P-A0-ROLLOUT — 대화 스위치와 판정 버퍼 TTL
 
-전제: mock Slack run(P-SLACK-SETUP), owner의 Slack 계정 `U0MOCK` 연결(`a0_link owner U0MOCK`), P-A0 helper. 승인하는 고지는 게시된 1판이다(`packages/contracts/src/domain/slack-notice.ts`의 `SLACK_NOTICE_VERSIONS`). 스위치를 올린 뒤 담긴 글은 M1이 판단한다. 팀 한도가 없는 run에서는 `budget_refused`로 기록되고 버퍼에서 빠진다. 판단과 원장은 P-A1이 본다.
+전제: mock Slack run(P-SLACK-SETUP), owner의 Slack 계정 `U0MOCK` 연결(`a0_link owner U0MOCK`), P-A0 helper. 고지 승인은 없어졌다. 스위치는 승인 없이 오른다. 스위치를 올린 뒤 담긴 글은 M1이 판단한다. 팀 한도가 없는 run에서는 `budget_refused`로 기록되고 버퍼에서 빠진다. 판단과 원장은 P-A1이 본다.
 
 ```sh
 # Actor: owner, then stack operator.
@@ -1074,7 +1074,6 @@ a0_mock /fake/channels "$(jq -nc --arg app "$APP" '{app_id:$app, channels:[{name
 ap_as owner
 ap_web PUT "/v1/agents/$AID/slack-bindings" "{\"channel_id\":\"$PUB\",\"mode\":\"on\",\"home\":true,\"listen\":\"free\"}"
 node "$B" "$RUN" open "/agents/$AID?tab=slack"
-node "$B" "$RUN" click '승인'
 node "$B" "$RUN" click '[aria-label="조용히 듣기 (shadow)"]'     # 1. 웹에서 shadow로
 a0_event "$AID" plain "$PUB" $((S + 2)); a0_settle
 a0_sql "select count(buffer_expires_at) as buffered from conversation_inputs where agent_id='$AID'"
@@ -1089,7 +1088,7 @@ notice_cli set-rollout --agent "$AID" --rollout off
 a0_sql "select actor, result from receipts where operation='set_conversation_rollout' order by created_at"
 ```
 
-기대: 승인 전에는 스위치가 `aria-disabled="true"`이고 "고지를 승인한 뒤 켤 수 있습니다."가 보인다. 1 뒤 buffered 1, slack 로그 `Slack message held for the judgment`(`rollout:"shadow"`). 2 뒤 buffered 0이고, 그 뒤의 글도 0이다. 3의 `on`은 `{"outcome":"refused",…,"reason_code":"rollout_on_unavailable"}` exit 4, `shadow`·`off`는 `{"outcome":"changed",…}` exit 0이고 off의 `buffered_dropped`는 1이다. 같은 값을 다시 주면 `unchanged`이고 receipt는 늘지 않는다. receipt의 `result.by`는 웹이 `web`(actor는 그 사용자), 명령이 `operator_cli`(actor 없음)다. 워크스페이스 owner·admin이 아닌 사람은 에이전트 관리자여도 화면에 스위치가 없고("워크스페이스 owner·admin만 바꿀 수 있습니다."), API는 403 `workspace_admin_required`다. shadow에서 owner가 `POST /v1/agents/$AID/slack/notice/revoke`를 하면 `rollout:"off"`, buffered 0이고 receipt `reason:"notice_revoked"`다. 그 뒤 다시 올리면 409 `notice_not_approved`다.
+기대: 탭에는 "대화 스위치" 구역 하나만 있고 고지·승인 버튼·잠금 안내가 없다. 스위치는 처음부터 켤 수 있다. 1 뒤 buffered 1, slack 로그 `Slack message held for the judgment`(`rollout:"shadow"`). 2 뒤 buffered 0이고, 그 뒤의 글도 0이다. 3의 `on`은 `{"outcome":"refused",…,"reason_code":"rollout_on_unavailable"}` exit 4, `shadow`·`off`는 `{"outcome":"changed",…}` exit 0이고 off의 `buffered_dropped`는 1이다. 같은 값을 다시 주면 `unchanged`이고 receipt는 늘지 않는다. receipt의 `result.by`는 웹이 `web`(actor는 그 사용자), 명령이 `operator_cli`(actor 없음)다. 워크스페이스 owner·admin이 아닌 사람은 에이전트 관리자여도 화면에 스위치가 없고("워크스페이스 owner·admin만 바꿀 수 있습니다."), API는 403 `workspace_admin_required`다. shadow에서 owner가 `POST /v1/agents/$AID/slack/notice/revoke`(또는 `/approve`)를 하면 410 `ENDPOINT_RETIRED`(`reason_code:"slack_notice_retired"`)이고 스위치·버퍼·receipt는 그대로다.
 
 담긴 글은 15–20초 뒤 M1이 판단해 버퍼에서 뺀다(팀 한도가 없는 run에서는 `budget_refused`로 기록한다). 그래서 위의 buffered와 `buffered_dropped`는 글을 보낸 바로 뒤에 읽는다. 늦게 읽으면 0이다.
 
@@ -1225,23 +1224,21 @@ a0_mock /fake/channels "$(jq -nc --arg app "$APP" '{app_id:$app, channels:[
 
 기대: `a0_link` callback 201. 채널 다섯의 `MAIN=…` 줄들을 ids.sh에 적는다. `a1_probe`는 fake 모델의 `probe`를 쓴다: 대본에 base64로 준 글이 그 요청에 있으면 답 끝에 `[probe:found]`, 없으면 `[probe:missing]`이 붙는다. fake 모델은 요청 본문을 남기지 않으므로 이것이 모델에 간 본문을 보는 길이다.
 
-## P-A1-GATE — 고지 승인과 스위치(조건 1)
+## P-A1-GATE — 대화 스위치(조건 1)
 
 ```sh
 # Actor: owner, then stack operator.
 ap_as owner
-ap_web GET "/v1/agents/$AID/slack/notice" | head -1 | jq -c '{version:.notice.version, state, rollout, can_approve}'
-ap_web POST "/v1/agents/$AID/slack/notice/rollout" '{"rollout":"shadow"}' | tail -2
-a1_notice set-rollout --agent "$AID" --rollout shadow
-a0_sql "select conversation_rollout from agents where id='$AID'"
-ap_web POST "/v1/agents/$AID/slack/notice/approve" '{"notice_version":1,"locale":"ko"}' | head -1 | jq -c '{state, rollout}'
+ap_web GET "/v1/agents/$AID/slack/notice" | head -1 | jq -c '{notice, state, rollout, can_approve, approvals}'
+ap_web POST "/v1/agents/$AID/slack/notice/approve" '{"notice_version":1,"locale":"ko"}' | tail -2
 a1_notice set-rollout --agent "$AID" --rollout on
 ap_web POST "/v1/agents/$AID/slack/notice/rollout" '{"rollout":"shadow"}' | head -1 | jq -c '{state, rollout}'
-a0_sql "select slack_team_id, notice_version, revoked_at from slack_notice_approvals"
+a0_sql "select conversation_rollout from agents where id='$AID'"
+a0_sql "select count(*) as approvals from slack_notice_approvals"
 a0_sql "select operation, actor->'principal'->>'kind' as actor, result from receipts where operation in ('approve_slack_notice','set_conversation_rollout') order by created_at"
 ```
 
-기대: 승인 전 `{"version":1,"state":"not_approved","rollout":"off","can_approve":true}`. 승인 없이 올리면 웹은 409 `REVISION_CONFLICT`·`reason_code:"notice_not_approved"`, 명령은 `{"outcome":"refused",…,"reason_code":"not_approved"}` exit=4이고 스위치는 `off` 그대로다. 승인 뒤 `{"state":"approved","rollout":"off"}`. `on`은 승인 뒤에도 `rollout_on_unavailable` exit=4다. 웹으로 올리면 `{"state":"approved","rollout":"shadow"}`. 승인 행은 `T0MOCK`·1판·`revoked_at` 비어 있음. receipt는 둘이고 actor는 `user`다: `approve_slack_notice`, `set_conversation_rollout`(`by:"web"`, `before:"off"`, `after:"shadow"`). 화면의 스위치, 철회, 에이전트 관리자의 403, 명령으로 올리고 내리기는 P-A0-ROLLOUT이 본다.
+기대: GET은 `{"notice":null,"state":"no_notice","rollout":"off","can_approve":true,"approvals":[]}`. approve는 410 `ENDPOINT_RETIRED`(`reason_code:"slack_notice_retired"`). `on`은 `rollout_on_unavailable` exit=4이고 스위치는 `off` 그대로다. 승인 없이 웹으로 올리면 `{"state":"no_notice","rollout":"shadow"}`이고 스위치는 `shadow`다. 승인 행은 0. receipt는 `set_conversation_rollout` 하나이고 actor는 `user`다(`by:"web"`, `before:"off"`, `after:"shadow"`, `reason:null`). `approve_slack_notice` receipt는 없다. 화면의 스위치, 에이전트 관리자의 403, 명령으로 올리고 내리기는 P-A0-ROLLOUT이 본다.
 
 ## P-A1-JUDGE — 멘션 없는 글의 판단 한 번(조건 2·3)
 

@@ -307,9 +307,9 @@ export type SurfaceUnansweredTurn = SurfaceLinkedTurnTarget & {
 
 /**
  * A channel the agent now reads every message of (`stillListened`): its
- * switch is raised under a counted notice approval, the binding is `ready`,
+ * switch is raised, the binding is `ready`,
  * `on`, listening `free`, not shared with another organization, and the bot
- * is in it. `noticeVersion`: the latest version that asked for approval, so
+ * is in it. `noticeVersion`: the latest version that asked to tell channels anew, so
  * a version that only rewords it is told nothing new. `attempt`: how many
  * rows the channel took for it before, all failed unsent.
  */
