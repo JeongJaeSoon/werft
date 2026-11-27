@@ -852,12 +852,9 @@ test("docs/ci/checks.md names each required check by the one job that reports it
         (only ? (unset === value ? chosen : other) : (job.name ?? id));
       // An expression this test does not evaluate may still pick any string
       // it quotes (images.yml's build). One taken from a matrix is not seen.
-      const quoted =
-        only || fromList !== undefined
-          ? []
-          : [...(job.name ?? "").matchAll(/'([^']*)'/g)].map(
-              ([, text]) => text,
-            );
+      const quoted = only
+        ? []
+        : [...(job.name ?? "").matchAll(/'([^']*)'/g)].map(([, text]) => text);
       return { file, id, name, quoted };
     });
   });
@@ -882,10 +879,10 @@ test("docs/ci/checks.md names each required check by the one job that reports it
     // A second job of the name could report it skipped, and a skipped required
     // check passes.
     expect(
-      reporters.filter(
-        (job) => job.name === row.name || job.quoted.includes(row.name),
-      ),
-    ).toEqual([row]);
+      reporters
+        .filter((job) => job.name === row.name || job.quoted.includes(row.name))
+        .map(({ file, id, name }) => ({ file, id, name })),
+    ).toEqual([{ file: row.file, id: row.id, name: row.name }]);
   }
 });
 
