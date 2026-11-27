@@ -291,17 +291,72 @@ describe("script egress (warns, diff only)", () => {
     ]);
   });
 
-  test("package installs and network calls in scripts are shown", () => {
+  test("each network pattern has a hit and a miss; comment lines and documents are skipped", () => {
+    const cases: [string, string[], string[]][] = [
+      [
+        "package_install",
+        [
+          "pip install pypdf",
+          "npm i left-pad",
+          "uv pip install x",
+          "go get example.com/m",
+        ],
+        ["pip freeze", "npm run build", "echo install"],
+      ],
+      [
+        "download",
+        ["curl -sL https://x", "wget -q x", "Invoke-WebRequest -Uri x"],
+        ["curly = 1", "wgets = 2"],
+      ],
+      [
+        "http_call",
+        [
+          "requests.get(url)",
+          "await fetch(url)",
+          "urllib.request.urlopen(u)",
+          "import http.client",
+        ],
+        ["prefetch = 1", "requests = []", "fetched(url)"],
+      ],
+    ];
+    for (const [id, hits, misses] of cases) {
+      for (const line of hits) {
+        const found = gate({
+          after: [...licensed("s"), text("skills/s/scripts/a.py", `${line}\n`)],
+        }).warnings.find((w) => w.rule === "network_call");
+        expect(found?.samples).toContain(id);
+      }
+      for (const line of misses) {
+        const found = gate({
+          after: [...licensed("s"), text("skills/s/scripts/a.py", `${line}\n`)],
+        }).warnings.find((w) => w.rule === "network_call");
+        expect(found?.samples ?? []).not.toContain(id);
+      }
+    }
+    const skipped = gate({
+      after: [
+        ...licensed("s"),
+        text(
+          "skills/s/scripts/setup.sh",
+          "#!/bin/sh\n# pip install pypdf\n  // fetch(url)\n-- curl x\n",
+          0o755,
+        ),
+        text("skills/s/notes.md", "Run pip install pypdf first.\n"),
+      ],
+    });
+    expect(skipped.warnings).toEqual([]);
+  });
+
+  test("network calls are listed per script, in tree order", () => {
     const result = gate({
       after: [
         ...licensed("s"),
         text(
           "skills/s/scripts/setup.sh",
-          "#!/bin/sh\npip install pypdf\nnpm i left-pad\ncurl -sL x\n",
+          "#!/bin/sh\npip install pypdf\ncurl -sL x\n",
           0o755,
         ),
         text("skills/s/scripts/get.py", "import requests\nrequests.get(url)\n"),
-        text("skills/s/notes.md", "Run pip install pypdf first.\n"),
       ],
     });
     expect(result.warnings).toEqual([
@@ -333,6 +388,7 @@ describe("license (warns)", () => {
       after: [
         skillMd("pdf", "Complete terms in LICENSE.txt"),
         text("skills/pdf/LICENSE.txt", "terms\n"),
+        skillMd("brand", "See the website"),
         skillMd("doc-coauthoring"),
       ],
     });
@@ -345,12 +401,16 @@ describe("license (warns)", () => {
       },
       {
         rule: "license_unclassified",
-        paths: ["skills/pdf/SKILL.md"],
-        samples: ["Complete terms in LICENSE.txt"],
+        paths: ["skills/brand/SKILL.md"],
+        samples: ["See the website"],
       },
       {
         rule: "license_notice_missing",
-        paths: ["skills/pdf/SKILL.md", "skills/doc-coauthoring/SKILL.md"],
+        paths: [
+          "skills/pdf/SKILL.md",
+          "skills/brand/SKILL.md",
+          "skills/doc-coauthoring/SKILL.md",
+        ],
         samples: [],
       },
     ]);

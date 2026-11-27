@@ -129,7 +129,9 @@ const INVISIBLE =
   // biome-ignore lint/suspicious/noControlCharactersInRegex: finding control characters is the point
   /[\u{0}-\u{8}\u{B}\u{C}\u{E}-\u{1F}\u{7F}\u{61C}\u{200B}-\u{200F}\u{2060}-\u{2064}\u{FEFF}]/gu;
 
-/** Lines of a script that install a package or reach the network. */
+/** A comment line, often a usage example rather than a call the script makes. */
+const COMMENT = /^\s*(?:#|\/\/|--)/;
+/** Lines of a script that install a package or reach the network; comment lines are skipped. */
 export const NETWORK_CALL_PATTERNS: readonly { id: string; pattern: RegExp }[] =
   [
     {
@@ -323,6 +325,7 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
         if (!allowedHosts.has(host))
           flag("host_not_allowlisted", file.path, host);
       }
+      if (COMMENT.test(plain)) continue;
       for (const { id, pattern } of NETWORK_CALL_PATTERNS) {
         if (pattern.test(plain)) flag("network_call", file.path, id);
       }
@@ -352,10 +355,12 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
     const inSkill = files
       .filter((f) => skillOf(f.path) === skill)
       .map((f) => baseName(f.path));
-    if (license === null && !inSkill.some((name) => LICENSE_FILE.test(name))) {
+    // A LICENSE file in the skill states the terms, whatever the field says.
+    const licenseFile = inSkill.some((name) => LICENSE_FILE.test(name));
+    if (license === null && !licenseFile) {
       flag("license_missing", file.path);
     }
-    if (license !== null && !isSpdxExpression(license)) {
+    if (license !== null && !licenseFile && !isSpdxExpression(license)) {
       flag("license_unclassified", file.path, license.slice(0, 80));
     }
     if (rootNotice && !inSkill.some((name) => NOTICE_FILE.test(name))) {
