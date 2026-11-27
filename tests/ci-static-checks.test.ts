@@ -1161,14 +1161,17 @@ test.each(["k8s-replicas", "k8s-upgrade"])(
         }
       >;
     };
-    expect(nightly.on.schedule).toHaveLength(1);
+    // Once a day, every day.
+    expect(nightly.on.schedule?.map(({ cron }) => cron)).toEqual([
+      expect.stringMatching(/^\d+ \d+ \* \* \*$/),
+    ]);
     const [checked] = Object.keys(nightly.jobs).filter(
       (job) => job !== "report-failure",
     );
     const report = nightly.jobs["report-failure"];
     expect(report?.needs).toBe(checked);
-    // A hung or cancelled run is reported too; a pull request's red check
-    // already says it.
+    // Whatever the checked job ended as, other than success; a pull request's
+    // red check already says it.
     expect(report?.if).toBe(
       `always() && needs.${checked}.result != 'success' && github.event_name != 'pull_request'`,
     );
