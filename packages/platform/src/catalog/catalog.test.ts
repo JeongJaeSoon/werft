@@ -226,6 +226,26 @@ const CLOUD_METADATA: readonly [cloud: string, address: string][] = [
   ["Hetzner IPv6", "fe80::a9fe:a9fe"],
   ["OpenStack", "169.254.169.254"],
   ["OpenStack IPv6", "fe80::a9fe:a9fe"],
+  ["Akamai", "169.254.169.254"],
+  ["Akamai IPv6", "fd00:a9fe:a9fe::1"],
+];
+
+// A ULA carrying a9fe:a9fe (169.254.169.254) as two adjacent groups is
+// metadata wherever the pair sits; the class each address should get.
+const ULA_A9FE: readonly [
+  address: string,
+  kind: "metadata" | "private" | "public",
+][] = [
+  ["fd00:c1::a9fe:a9fe", "metadata"],
+  ["fd00:a9fe:a9fe::1", "metadata"],
+  ["fd12:3456::a9fe:a9fe", "metadata"],
+  ["fc00:a9fe:a9fe::", "metadata"],
+  ["FD12:3456:0:0:0:0:A9FE:A9FE", "metadata"],
+  ["fd12:3456::a9fe:a9fe%eth0", "metadata"],
+  ["fd12:a9fe::1", "private"],
+  ["fd12:a9fe:1:a9fe::1", "private"],
+  ["fd12:3:a9:fea9:fe00::", "private"],
+  ["2606:4700::a9fe:a9fe", "public"],
 ];
 
 describe("billing", () => {
@@ -292,6 +312,28 @@ describe("billing", () => {
         false,
       );
     }
+    // A ULA carrying 169.254.169.254 is metadata, any other ULA is private.
+    for (const [address, kind] of ULA_A9FE.filter(([a]) => !a.includes("%"))) {
+      expect(
+        billingFitsEndpoint({
+          billing: "none",
+          endpoint: `http://[${address}]:4000`,
+        }),
+        address,
+      ).toBe(kind === "private");
+    }
+    expect(
+      billingFitsEndpoint({
+        billing: "none",
+        endpoint: "http://metadata.tencentyun.com",
+      }),
+    ).toBe(false);
+    expect(
+      billingFitsEndpoint({
+        billing: "none",
+        endpoint: "http://metadata.exoscale.com",
+      }),
+    ).toBe(false);
     // per_token fits anywhere.
     expect(billingFitsEndpoint({ endpoint: "https://api.anthropic.com" })).toBe(
       true,

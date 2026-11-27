@@ -1033,6 +1033,35 @@ describe("egress proxy", () => {
     }
   });
 
+  test("an absolute URL spelling a metadata address as one number is refused as metadata", async () => {
+    const listed = await startEgressProxy({
+      logger: silent,
+      policy: {
+        allow: [],
+        allowPrivate: [{ host: "100.100.100.200", port: 80 }],
+      },
+      port: 0,
+      // The OS resolver answers an address literal with itself.
+      resolve: async (host) => [host],
+    });
+    try {
+      for (const spelled of [
+        "1684301000",
+        "0x646464c8",
+        "0144.0144.0144.0310",
+      ]) {
+        const talk = await connect(listed.port);
+        talk.send(request(`GET http://${spelled}/latest/meta-data/ HTTP/1.1`));
+        expect(await talk.waitFor("403"), spelled).toContain(
+          "100.100.100.200 is metadata",
+        );
+        talk.close();
+      }
+    } finally {
+      listed.stop();
+    }
+  });
+
   test("metadata is refused even though the host is allowlisted", async () => {
     const talk = await connect(proxy.port);
     talk.send(request("GET http://metadata.test/latest/meta-data/ HTTP/1.1"));

@@ -44,8 +44,11 @@ export function classifyAddress(address: string): AddressClass | null {
 //   DigitalOcean https://docs.digitalocean.com/products/droplets/how-to/access-metadata/
 //   Hetzner https://docs.hetzner.com/cloud/technical-details/hcnet/
 //   OpenStack https://docs.openstack.org/nova/latest/admin/metadata-service.html
+//   Akamai https://techdocs.akamai.com/cloud-computing/docs/metadata-service-api
+//   Tencent https://www.tencentcloud.com/document/product/213/4934
+//   Exoscale https://community.exoscale.com/product/compute/instances/how-to/cloud-init-user-data/
 const METADATA_IPV4 = new Set([
-  "169.254.169.254", // AWS, GCP, Azure, Oracle, DigitalOcean, Hetzner, OpenStack
+  "169.254.169.254", // AWS, GCP, Azure, Oracle, DigitalOcean, Hetzner, OpenStack, Akamai
   "169.254.170.2", // AWS ECS task credentials
   "169.254.170.23", // AWS EKS Pod Identity
   "100.100.100.200", // Alibaba, otherwise carrier-grade NAT
@@ -60,7 +63,8 @@ const METADATA_IPV6 = new Set([
   "fd20:00ce:0000:0000:0000:0000:0000:0254", // GCP, otherwise private
   "fd00:0042:0000:0000:0000:0000:0000:0042", // Scaleway, otherwise private
   "fd00:00c1:0000:0000:0000:0000:a9fe:a9fe", // Oracle, otherwise private
-  "fe80:0000:0000:0000:0000:0000:a9fe:a9fe", // OpenStack, Hetzner
+  "fe80:0000:0000:0000:0000:0000:a9fe:a9fe", // OpenStack, Hetzner, Akamai
+  "fd00:a9fe:a9fe:0000:0000:0000:0000:0001", // Akamai, otherwise private
 ]);
 
 // Compared after lowercasing and dropping a trailing dot, before the name is
@@ -70,6 +74,8 @@ const METADATA_NAMES = new Set([
   "metadata",
   "metadata.google.internal", // GCP
   "metadata.goog", // GCP
+  "metadata.tencentyun.com", // Tencent
+  "metadata.exoscale.com", // Exoscale
   "instance-data.ec2.internal",
 ]);
 
@@ -207,6 +213,21 @@ function classifyIpv6(bytes: number[]): AddressClass {
     bytes.slice(4, 12).every((byte) => byte === 0);
   if (mapped || nat64) return classifyIpv4(bytes.slice(12));
   if (METADATA_IPV6.has(fullIpv6(bytes))) return "metadata";
+  // Clouds put 169.254.169.254 (a9fe:a9fe) somewhere inside a ULA for their
+  // IPv6 metadata (Oracle at the end, Akamai in the middle); any ULA that
+  // carries it as two adjacent groups is taken as one we have not listed.
+  if ((at(0) & 0xfe) === 0xfc) {
+    for (let index = 0; index < 14; index += 2) {
+      if (
+        at(index) === 0xa9 &&
+        at(index + 1) === 0xfe &&
+        at(index + 2) === 0xa9 &&
+        at(index + 3) === 0xfe
+      ) {
+        return "metadata";
+      }
+    }
+  }
   if (at(0) === 0xff) return "multicast";
   if (at(0) === 0xfe && (at(1) & 0xc0) === 0x80) return "link_local";
   if ((at(0) & 0xfe) === 0xfc) return "private";

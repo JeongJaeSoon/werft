@@ -74,6 +74,26 @@ const CLOUD_METADATA: readonly [cloud: string, address: string][] = [
   ["Hetzner IPv6", "fe80::a9fe:a9fe"],
   ["OpenStack", "169.254.169.254"],
   ["OpenStack IPv6", "fe80::a9fe:a9fe"],
+  ["Akamai", "169.254.169.254"],
+  ["Akamai IPv6", "fd00:a9fe:a9fe::1"],
+];
+
+// A ULA carrying a9fe:a9fe (169.254.169.254) as two adjacent groups is
+// metadata wherever the pair sits; the class each address should get.
+const ULA_A9FE: readonly [
+  address: string,
+  kind: "metadata" | "private" | "public",
+][] = [
+  ["fd00:c1::a9fe:a9fe", "metadata"],
+  ["fd00:a9fe:a9fe::1", "metadata"],
+  ["fd12:3456::a9fe:a9fe", "metadata"],
+  ["fc00:a9fe:a9fe::", "metadata"],
+  ["FD12:3456:0:0:0:0:A9FE:A9FE", "metadata"],
+  ["fd12:3456::a9fe:a9fe%eth0", "metadata"],
+  ["fd12:a9fe::1", "private"],
+  ["fd12:a9fe:1:a9fe::1", "private"],
+  ["fd12:3:a9:fea9:fe00::", "private"],
+  ["2606:4700::a9fe:a9fe", "public"],
 ];
 
 describe("decideEgress", () => {
@@ -256,6 +276,26 @@ describe("decideEgress", () => {
         failure: "denied",
         reason: `${address} is metadata`,
       });
+    },
+  );
+
+  test.each(ULA_A9FE)(
+    "a ULA carrying 169.254.169.254: %s is %s on the private list",
+    async (address, kind) => {
+      const decision = await decideEgress(
+        policy,
+        { host: "metadata.test", port: 80 },
+        resolver({ "metadata.test": [address] }),
+      );
+      expect(decision).toEqual(
+        kind === "metadata"
+          ? {
+              allowed: false,
+              failure: "denied",
+              reason: `${address} is metadata`,
+            }
+          : { addresses: [address], allowed: true, scope: "private" },
+      );
     },
   );
 

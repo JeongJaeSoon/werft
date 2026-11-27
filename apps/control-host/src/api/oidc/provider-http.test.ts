@@ -36,6 +36,26 @@ const CLOUD_METADATA: readonly [cloud: string, address: string][] = [
   ["Hetzner IPv6", "fe80::a9fe:a9fe"],
   ["OpenStack", "169.254.169.254"],
   ["OpenStack IPv6", "fe80::a9fe:a9fe"],
+  ["Akamai", "169.254.169.254"],
+  ["Akamai IPv6", "fd00:a9fe:a9fe::1"],
+];
+
+// A ULA carrying a9fe:a9fe (169.254.169.254) as two adjacent groups is
+// metadata wherever the pair sits; the class each address should get.
+const ULA_A9FE: readonly [
+  address: string,
+  kind: "metadata" | "private" | "public",
+][] = [
+  ["fd00:c1::a9fe:a9fe", "metadata"],
+  ["fd00:a9fe:a9fe::1", "metadata"],
+  ["fd12:3456::a9fe:a9fe", "metadata"],
+  ["fc00:a9fe:a9fe::", "metadata"],
+  ["FD12:3456:0:0:0:0:A9FE:A9FE", "metadata"],
+  ["fd12:3456::a9fe:a9fe%eth0", "metadata"],
+  ["fd12:a9fe::1", "private"],
+  ["fd12:a9fe:1:a9fe::1", "private"],
+  ["fd12:3:a9:fea9:fe00::", "private"],
+  ["2606:4700::a9fe:a9fe", "public"],
 ];
 
 describe("endpointProblem", () => {
@@ -234,6 +254,24 @@ describe("provider request", () => {
       },
     );
 
+    test.each(ULA_A9FE)(
+      "a ULA carrying 169.254.169.254: %s is %s on the private list",
+      async (address, kind) => {
+        const { request, sent } = harness({
+          "mcp.lan": [{ address, family: 6 }],
+        });
+        if (kind === "metadata") {
+          expect(
+            await refusal(request("http://mcp.lan:8080/mcp", {}, NARROW)),
+          ).toBe("address_not_allowed");
+          expect(sent).toHaveLength(0);
+        } else {
+          await request("http://mcp.lan:8080/mcp", {}, NARROW);
+          expect(sent).toHaveLength(1);
+        }
+      },
+    );
+
     test("the private list does not lift the refusal of any link-local address", async () => {
       for (const address of ["169.254.0.1", "169.254.255.254", "fe80::1"]) {
         const { request, sent } = harness({
@@ -298,6 +336,8 @@ describe("provider request", () => {
         "http://METADATA.google.internal./computeMetadata/v1/",
         "http://metadata/latest/meta-data/",
         "http://metadata.goog/computeMetadata/v1/",
+        "http://metadata.tencentyun.com/latest/meta-data/",
+        "http://metadata.exoscale.com/latest/user-data",
         "https://instance-data.ec2.internal/latest/meta-data/",
       ]) {
         const asked: string[] = [];
