@@ -36,6 +36,17 @@ export const GITLEAKS_CONFIG = "[extend]\nuseDefault = true\n";
  * path-scoped default rules look for. Binary files are still skipped: gitleaks
  * tells them by content, not by name.
  */
+/**
+ * gitleaks skips a file whose first bytes h2non/filetype (v1.1.3 in 8.30.1)
+ * types as application/*, and text can start that way: "%PDF-", "PK" + 3 + 4
+ * and "MZ" are valid UTF-8. A text copy starts with newlines past the deepest
+ * byte filetype reads (32773, the ISO 9660 mark), so every text file is read;
+ * report lines are shifted back.
+ */
+const TEXT_PREFIX = Buffer.alloc(32_774, 0x0a);
+export const GITLEAKS_TEXT_PREFIX_LINES = TEXT_PREFIX.byteLength;
+const strictUtf8 = new TextDecoder("utf-8", { fatal: true });
+
 /** The one line a scan with findings writes at --log-level warn. */
 const LEAKS_FOUND = /^\S+ WRN leaks found: \d+$/;
 
@@ -51,6 +62,9 @@ export type GitleaksScannerOptions = {
 };
 
 type Settings = Required<Omit<GitleaksScannerOptions, "maxConcurrent">>;
+
+/** A copy's source path, and how many lines were put before its bytes. */
+type Copied = { readonly path: string; readonly shift: number };
 
 type Run =
   | {
@@ -133,12 +147,20 @@ async function scanIn(
   const scratch = await realpath(made);
   const tree = join(scratch, "tree");
   await mkdir(tree, { mode: 0o700 });
-  const byCopy = new Map<string, string>();
+  const byCopy = new Map<string, Copied>();
   for (const [index, file] of files.entries()) {
     const name = copyName(index, file.path);
     await mkdir(join(tree, String(index)), { mode: 0o700 });
-    await writeFile(join(tree, name), file.bytes, { mode: 0o600, flag: "wx" });
-    byCopy.set(name, file.path);
+    const text = isText(file.bytes);
+    await writeFile(
+      join(tree, name),
+      text ? Buffer.concat([TEXT_PREFIX, file.bytes]) : file.bytes,
+      { mode: 0o600, flag: "wx" },
+    );
+    byCopy.set(name, {
+      path: file.path,
+      shift: text ? GITLEAKS_TEXT_PREFIX_LINES : 0,
+    });
   }
   const config = join(scratch, "config.toml");
   await writeFile(config, GITLEAKS_CONFIG, { mode: 0o600, flag: "wx" });
@@ -312,7 +334,7 @@ function rejectedPath(files: readonly SecretScanFile[]): string | null {
 function parseReport(
   stdout: Buffer,
   tree: string,
-  byCopy: ReadonlyMap<string, string>,
+  byCopy: ReadonlyMap<string, Copied>,
 ): SecretFinding[] | null {
   let report: unknown;
   try {
@@ -328,19 +350,18 @@ function parseReport(
       string,
       unknown
     >;
-    const path =
+    const copied =
       typeof File === "string" && File.startsWith(prefix)
         ? byCopy.get(File.slice(prefix.length))
         : undefined;
-    if (
-      typeof RuleID !== "string" ||
-      path === undefined ||
-      !Number.isSafeInteger(StartLine) ||
-      (StartLine as number) < 1
-    ) {
+    const line =
+      copied !== undefined && Number.isSafeInteger(StartLine)
+        ? (StartLine as number) - copied.shift
+        : 0;
+    if (typeof RuleID !== "string" || copied === undefined || line < 1) {
       return null;
     }
-    findings.push({ rule: RuleID, path, line: StartLine as number });
+    findings.push({ rule: RuleID, path: copied.path, line });
   }
   return findings.sort(
     (a, b) =>
@@ -348,6 +369,17 @@ function parseReport(
       a.line - b.line ||
       byCodeUnit(a.rule, b.rule),
   );
+}
+
+/** Rule 3's text: strict UTF-8 with no NUL. */
+function isText(bytes: Uint8Array): boolean {
+  if (bytes.includes(0)) return false;
+  try {
+    strictUtf8.decode(bytes);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function byCodeUnit(a: string, b: string): number {

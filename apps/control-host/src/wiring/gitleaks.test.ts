@@ -11,7 +11,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GITLEAKS_CONFIG, gitleaksScanner } from "./gitleaks.ts";
+import {
+  GITLEAKS_CONFIG,
+  gitleaksScanner,
+  GITLEAKS_TEXT_PREFIX_LINES as SHIFT,
+} from "./gitleaks.ts";
 
 // A stand-in for the gitleaks executable: the real one runs in the image
 // smoke (.github/scripts/image-smoke.sh). The scanner passes no environment,
@@ -33,7 +37,7 @@ const text = (path: string, content = "x") => ({
   bytes: new TextEncoder().encode(content),
 });
 const report = (file: string, line = 1) =>
-  `printf '[{"RuleID":"a","File":"%s/tree/${file}","StartLine":${line}}]' "$PWD"`;
+  `printf '[{"RuleID":"a","File":"%s/tree/${file}","StartLine":${line + SHIFT}}]' "$PWD"`;
 const alive = (pid: number) => {
   try {
     process.kill(pid, 0);
@@ -54,7 +58,7 @@ describe("gitleaksScanner", () => {
         `/bin/cat "$PWD/config.toml" >${seen}.config`,
         `(cd "$PWD/tree" && /usr/bin/find . -type f | /usr/bin/sort) >${seen}.files`,
         `/bin/cat "$PWD/tree/1/f" >${seen}.copied`,
-        `printf '[{"RuleID":"generic-api-key","File":"%s/tree/1/f","StartLine":3,"Secret":"REDACTED"},{"RuleID":"a","File":"%s/tree/0/f","StartLine":1}]' "$PWD" "$PWD"`,
+        `printf '[{"RuleID":"generic-api-key","File":"%s/tree/1/f","StartLine":${3 + SHIFT},"Secret":"REDACTED"},{"RuleID":"a","File":"%s/tree/0/f","StartLine":${1 + SHIFT}}]' "$PWD" "$PWD"`,
       ].join("\n"),
     );
     process.env.WERFT_GITLEAKS_TEST_INHERITED = "1";
@@ -104,7 +108,10 @@ describe("gitleaksScanner", () => {
     );
     expect(GITLEAKS_CONFIG).toBe("[extend]\nuseDefault = true\n");
     expect(readFileSync(`${seen}.files`, "utf8")).toBe("./0/f\n./1/f\n");
-    expect(readFileSync(`${seen}.copied`, "utf8")).toBe("echo run\n");
+    // Text is read past filetype's sniff, so no leading magic can skip it.
+    expect(readFileSync(`${seen}.copied`, "utf8")).toBe(
+      `${"\n".repeat(SHIFT)}echo run\n`,
+    );
     const env = readFileSync(`${seen}.env`, "utf8");
     expect(env).not.toContain("WERFT_GITLEAKS_TEST_INHERITED");
     expect(env).not.toMatch(/^HOME=/m);
@@ -158,6 +165,26 @@ describe("gitleaksScanner", () => {
       kind: "scanned",
       findings: [{ rule: "a", path: "a.sh", line: 2 }],
     });
+  });
+
+  test("a file that is not rule 3's text is copied as it is, lines unshifted", async () => {
+    const seen = join(dir, "binary");
+    const bytes = [
+      Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a),
+      Uint8Array.of(0x61, 0x00, 0x62),
+    ];
+    const result = await gitleaksScanner({
+      executable: fake(
+        `/bin/cat "$PWD/tree/0/f" >${seen}.0\n/bin/cat "$PWD/tree/1/f" >${seen}.1\nprintf '[{"RuleID":"a","File":"%s/tree/1/f","StartLine":1}]' "$PWD"`,
+      ),
+      scratchRoot: scratch(),
+    }).scan(bytes.map((b, i) => ({ path: `m${i}.png`, bytes: b })));
+    expect(result).toEqual({
+      kind: "scanned",
+      findings: [{ rule: "a", path: "m1.png", line: 1 }],
+    });
+    expect(readFileSync(`${seen}.0`)).toEqual(Buffer.from(bytes[0] ?? []));
+    expect(readFileSync(`${seen}.1`)).toEqual(Buffer.from(bytes[1] ?? []));
   });
 
   test("an empty report is a scan with no findings", async () => {

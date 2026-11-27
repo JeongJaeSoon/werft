@@ -374,7 +374,12 @@ describe("app Dockerfiles", () => {
     const workflow = read(".github/workflows/gitleaks.yml");
     expect(workflow).toContain(`GITLEAKS_VERSION: v${GITLEAKS_VERSION}\n`);
     const x64 = workflow.match(/GITLEAKS_SHA256: ([0-9a-f]{64})/)?.[1];
-    const amd64Pin = lines[lines.findIndex((line) => line.trim().endsWith("_linux_x64.tar.gz \\")) + 1]?.trim();
+    const amd64Pin =
+      lines[
+        lines.findIndex((line) =>
+          line.trim().endsWith("_linux_x64.tar.gz \\"),
+        ) + 1
+      ]?.trim();
     expect(amd64Pin).toBe(`${x64} \\`);
   });
 

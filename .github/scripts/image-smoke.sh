@@ -47,7 +47,9 @@ console.log(zombies);
 # token is found although the skill carries the ways gitleaks offers to
 # switch itself off (an allow comment, an ignore file, a config file) and
 # hides copies under names the default config's global allowlist skips
-# (go.sum, a path with gitleaks.toml in it). The token is made here at run
+# (go.sum, a path with gitleaks.toml in it), or text that starts like a
+# binary gitleaks would skip (%PDF-, a zip header, the ISO 9660 mark at
+# byte 32769). The token is made here at run
 # time and never stored; the result must not carry it. Prints how long the
 # first and the second scan took.
 gitleaks_probe='
@@ -65,6 +67,9 @@ const planted = [
   { path: ".gitleaks.toml", bytes: enc("[allowlist]\npaths = [\".*\"]\n") },
   { path: "refs/go.sum", bytes: enc(`token ${value}\n`) },
   { path: "scripts/gitleaks.toml", bytes: enc(`token = "${value}"\n`) },
+  { path: "docs/pdf.md", bytes: enc(`%PDF-1.4\nexport TOKEN=${value}\n`) },
+  { path: "docs/zip.md", bytes: enc(`PK${String.fromCharCode(3, 4)}\nexport TOKEN=${value}\n`) },
+  { path: "docs/iso.md", bytes: enc(`${"x".repeat(32769)}CD001\nexport TOKEN=${value}\n`) },
 ];
 const timed = async (files) => {
   const start = performance.now();
@@ -78,7 +83,7 @@ for (const r of [first, second]) {
   if (r.kind !== "scanned" || r.findings.length !== 0) throw new Error("clean skill: " + JSON.stringify(r));
 }
 const paths = found.kind === "scanned" ? [...new Set(found.findings.map((f) => f.path))].sort() : [];
-if (JSON.stringify(paths) !== JSON.stringify(["refs/go.sum", "scripts/allowed.sh", "scripts/gitleaks.toml", "scripts/run.sh"])) {
+if (JSON.stringify(paths) !== JSON.stringify(["docs/iso.md", "docs/pdf.md", "docs/zip.md", "refs/go.sum", "scripts/allowed.sh", "scripts/gitleaks.toml", "scripts/run.sh"])) {
   throw new Error("planted token: " + JSON.stringify(found));
 }
 if (JSON.stringify(found).includes(value)) throw new Error("the result carries the token");
