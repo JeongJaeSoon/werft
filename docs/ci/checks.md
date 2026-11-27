@@ -150,6 +150,28 @@ gh run list --workflow ci.yml --event pull_request --status success --limit 100 
   --jq '.[] | "\(.databaseId) \(((.updatedAt | fromdate) - (.createdAt | fromdate)) / 60 | floor)분"'
 ```
 
+## push 전에
+
+PR CI 실패의 절반은 로컬에서 몇 초면 잡히는 결정적 가드다. CI에서는 push하고 5~9분이 지나야 드러나고, 그때마다 한 라운드를 버린다. push 전에 이것을 돌린다. 15초쯤 걸린다.
+
+```sh
+bun run check:fast
+```
+
+| 도는 것 | 잡는 것 | 2026-11-13 ~ 11-27에 PR CI에서 실패한 run |
+| --- | --- | --- |
+| `bun run lint` | 형식과 lint | 14 |
+| `integration-jobs.ts files` | 새 시험 파일이 어느 integration domain에도 속하지 않는다 | 8 |
+| `packages/core/src/bundle-budget.test.ts` | core 번들이 크기 예산을 넘는다 | 26 |
+| `tests/architecture.test.ts` | 패키지 사이의 금지된 import | 22 |
+| `packages/client/src/schema.gen.test.ts` | 생성 파일이 OpenAPI 사양보다 낡았다 | 13 |
+| `packages/db/src/schema.test.ts` | schema와 migration이 어긋난다 | 13 (PostgreSQL이 필요한 `schema-drift.integration.test.ts` 포함) |
+| `tests/docs-self-hosting-facts.test.ts` | 운영 문서의 사실이 코드와 다르다 | 14 |
+
+- 새 gate가 아니다. CI는 같은 시험을 그대로 돌린다.
+- 타입을 바꿨으면 `bun run typecheck`도 돌린다(CI에서 약 3분, 같은 기간 실패 11 run). 묶음에는 넣지 않았다.
+- 전부 돌리려면 `bun run check`다.
+
 ## 규칙
 
 ### 필수 이름

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -841,6 +842,26 @@ test("docs/ci/checks.md names each required check by the one job that reports it
         (job) => job.name === row.name || job.quoted.includes(row.name),
       ),
     ).toEqual([row]);
+  }
+});
+
+test("check:fast runs lint, the job assignment check and guard tests that exist", () => {
+  const root = join(import.meta.dir, "..");
+  const { scripts } = JSON.parse(
+    readFileSync(join(root, "package.json"), "utf8"),
+  ) as { scripts: Record<string, string> };
+  const steps = scripts["check:fast"]?.split(" && ") ?? [];
+  expect(steps.slice(0, 2)).toEqual([
+    "bun run lint",
+    "bun .github/scripts/integration-jobs.ts files db 1 >/dev/null",
+  ]);
+  // A guard that moved would otherwise drop out on a developer's machine only.
+  const [bun, test, ...files] = steps[2]?.split(" ") ?? [];
+  expect([bun, test]).toEqual(["bun", "test"]);
+  expect(files.length).toBeGreaterThan(0);
+  for (const file of files) {
+    expect(file).toMatch(/^\.\/.*\.test\.ts$/);
+    expect(existsSync(join(root, file))).toBe(true);
   }
 });
 
