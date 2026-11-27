@@ -806,8 +806,10 @@ export function createSlackSessionHandler(
           : Promise.resolve(false);
       return madeBefore;
     };
-    // A message event says its channel's kind itself, judged just above.
-    if (event.channel_type !== undefined && (await stopMadeBefore())) {
+    // A message event says its channel's kind itself, judged just above; one
+    // that does not is still ended here, before the judgment buffer, its
+    // channel's kind read on its first pass.
+    if (event.type === "message" && (await stopMadeBefore())) {
       deps.logger.info("Slack stop request already made; its work closed", ids);
       return;
     }
