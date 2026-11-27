@@ -1354,7 +1354,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
           .filter(([, job]) => job.env?.CHART_PUSH_TRIES !== undefined)
           .map(([name, job]) => [name, job.env?.CHART_PUSH_TRIES]),
       ).toEqual([["chart-publish-main", "3"]]);
-      expect(text.match(/CHART_PUSH_TRIES:/g)).toHaveLength(1);
+      expect(text.match(/CHART_PUSH_TRIES/g)).toHaveLength(1);
 
       const steps = jobs.chart?.steps ?? [];
       const index = (needle: string) =>
