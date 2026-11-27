@@ -306,10 +306,35 @@ export type SurfaceUnansweredTurn = SurfaceLinkedTurnTarget & {
 };
 
 /**
+ * What an engine said on its own after a turn of a live linked session
+ * ended (its events marked `after_turn`), up to one `result` that ends it,
+ * with no follow-up row in the link's thread yet. Found only once the
+ * turn's own reply or failure notice is in and past its sends, so the
+ * follow-up never goes ahead of it.
+ */
+export type SurfaceAfterTurnReply = SurfaceLinkedTurnTarget & {
+  /** The public turn id, 1-based within the session. */
+  turnId: number;
+  /** The turn's sources, which the follow-up carries on as its reply does. */
+  sources: StoredSourceSet | null;
+  /** The Slack account linked to whoever asked for the turn, if any. */
+  requesterSlackUserId: string | null;
+  /** The ending result's sequence in its attempt: one follow-up each. */
+  resultSequence: number;
+  /** The ending result's event id: where the next page starts. */
+  resultId: string;
+  /**
+   * The top-level assistant and tool_use payloads after the previous such
+   * result of the turn and up to this one, in order.
+   */
+  events: { type: string; payload: unknown }[];
+};
+
+/**
  * A channel the agent now reads every message of (`stillListened`): its
- * switch is raised under a counted notice approval, the binding is `ready`,
+ * switch is raised, the binding is `ready`,
  * `on`, listening `free`, not shared with another organization, and the bot
- * is in it. `noticeVersion`: the latest version that asked for approval, so
+ * is in it. `noticeVersion`: the latest version that asked to tell channels anew, so
  * a version that only rewords it is told nothing new. `attempt`: how many
  * rows the channel took for it before, all failed unsent.
  */
@@ -331,6 +356,21 @@ export type SurfaceChannelNoticeTarget = {
 export type SurfaceCapacityWait = SurfaceLinkedTurnTarget & {
   executionId: string;
   generation: number;
+};
+
+/**
+ * What a progress link's progress message should show now, when that is not
+ * what its last update showed. `state` is one of
+ * `capacity_wait:<execution>:<generation>`, `<turn status>:<turn>` for the
+ * first unfinished turn (`queued`, `running`, `needs_input`), or
+ * `idle:<last turn>` once a message is up and no turn is unfinished.
+ */
+export type SurfaceProgressDue = SurfaceLinkedTurnTarget & {
+  state: string;
+  /** Updates the message has had so far. */
+  updates: number;
+  /** When the session's first turn was asked, in epoch seconds. */
+  startedAt: number | null;
 };
 
 /**
@@ -801,6 +841,16 @@ export interface SurfaceOutboxStore {
    */
   unansweredTurns(limit: number): Promise<SurfaceUnansweredTurn[]>;
   /**
+   * What engines said after their turns ended, in threads that still hear
+   * of turns, that has no follow-up row (`slackAfterTurnDedupeKey`), oldest
+   * first; with `after` (a `resultId`), only those past it, so a page of
+   * answers with nothing to say is passed.
+   */
+  afterTurnReplies(
+    limit: number,
+    after?: string,
+  ): Promise<SurfaceAfterTurnReply[]>;
+  /**
    * Live linked sessions whose worker has waited at least `waitedMs` for
    * room no node has, and whose thread was not told of that wait
    * (`slackCapacityWaitDedupeKey`).
@@ -809,6 +859,14 @@ export interface SurfaceOutboxStore {
     limit: number,
     waitedMs: number,
   ): Promise<SurfaceCapacityWait[]>;
+  /**
+   * Live primary links that keep a progress message (`report_mode`
+   * progress) and have a thread, whose message is owed an update: its
+   * session has an unfinished turn or its message is up, and what it should
+   * show differs from its last update. A worker counts as waiting for room
+   * past `waitedMs`.
+   */
+  progressDue?(limit: number, waitedMs: number): Promise<SurfaceProgressDue[]>;
   /**
    * Channels the agent reads every message of that have not been told so
    * under the current notice (`slackChannelNoticeDedupeKey`).

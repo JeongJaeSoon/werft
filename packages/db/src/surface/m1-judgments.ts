@@ -6,7 +6,6 @@ import {
   type ConversationTopicId,
   type JudgmentVoidedReason,
   M1_PROMPT_VERSION,
-  type SlackNoticeVersionEntry,
 } from "@werft-ai/contracts";
 import {
   type ClaimedReplyJudgment,
@@ -33,28 +32,22 @@ import {
 } from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
-import { conversationGate } from "./slack-notice-approvals.ts";
-
-type GateVersions = readonly SlackNoticeVersionEntry[] | undefined;
+import { conversationGate } from "./conversation-rollout.ts";
 
 const secs = (ms: number) => sql`make_interval(secs => ${ms / 1000})`;
 
 /**
  * The gate a judgment passes before its call and again before its record:
- * the switch raised, the notice approved, and the channel not shared with
- * another organization. With `lock`, in the writing transaction, a revoke
- * or a lowering waits for the write or is seen by it.
+ * the switch raised, and the channel not shared with another organization.
+ * With `lock`, in the writing transaction, a lowering waits for the write or
+ * is seen by it.
  */
 async function gateOpenIn(
   db: Database,
   place: M1Place,
   lock: boolean,
-  versions: GateVersions,
 ): Promise<boolean> {
-  const gate = await conversationGate(db, place, {
-    lock,
-    ...(versions === undefined ? {} : { versions }),
-  });
+  const gate = await conversationGate(db, place, { lock });
   if (!gate.open) return false;
   // Locked, a share recorded meanwhile waits for the write, whose rows its
   // buffer drop then finds. An emergency stop of the agent in the channel
@@ -83,7 +76,7 @@ export function m1GateOpenForWrite(
   tx: Database,
   place: M1Place,
 ): Promise<boolean> {
-  return gateOpenIn(tx, place, true, undefined);
+  return gateOpenIn(tx, place, true);
 }
 
 /** A record's verdict and what it read, as its columns hold them. */
@@ -247,13 +240,9 @@ async function channelThere(
  * M1's judgment records over PostgreSQL. A record holds Slack ts, codes and
  * ids; a held reply's text goes once it is judged or given up.
  */
-export function createPostgresM1JudgmentStore(
-  db: Database,
-  options: { versions?: GateVersions } = {},
-): M1JudgmentStore {
-  const { versions } = options;
+export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
   return {
-    gateOpen: (place) => gateOpenIn(db, place, false, versions),
+    gateOpen: (place) => gateOpenIn(db, place, false),
 
     async writeSummaryLine(batch, line) {
       try {
@@ -264,7 +253,7 @@ export function createPostgresM1JudgmentStore(
           // any agent's, committed first, keeps the summary gone: its binding
           // is read with the row held, after that delete ends.
           const written = await appendChannelSummaryLines(tx, {
-            gateOpen: () => gateOpenIn(tx, batch, true, versions),
+            gateOpen: () => gateOpenIn(tx, batch, true),
             channelThere: () => channelThere(tx, batch),
             place: {
               workspaceId: batch.workspaceId,
@@ -302,7 +291,7 @@ export function createPostgresM1JudgmentStore(
             ? sql`(SELECT closed_at FROM judgment_batches WHERE id = ${batch.id}::uuid)`
             : sql`${options.readAt ?? batch.readAt}::timestamptz`,
         );
-        if (!(await gateOpenIn(tx, batch, true, versions))) {
+        if (!(await gateOpenIn(tx, batch, true))) {
           return { outcome: "closed" };
         }
         if (voided !== null) {
@@ -554,7 +543,7 @@ export function createPostgresM1JudgmentStore(
                   ? sql`(SELECT claimed_at FROM conversation_judgments WHERE id = ${id}::uuid)`
                   : sql`${options.readAt}::timestamptz`,
               );
-        if (record === null || !(await gateOpenIn(tx, place, true, versions))) {
+        if (record === null || !(await gateOpenIn(tx, place, true))) {
           await dropReply(tx, row);
           return "dropped";
         }
@@ -635,13 +624,9 @@ export function createPostgresM1JudgmentStore(
  * summary's row, as a line's write does; once any agent's binding of the
  * channel is gone it writes nothing.
  */
-export function createPostgresSummaryFoldStore(
-  db: Database,
-  options: { versions?: GateVersions } = {},
-): SummaryFoldStore {
-  const { versions } = options;
+export function createPostgresSummaryFoldStore(db: Database): SummaryFoldStore {
   return createChannelSummaryFoldStore(db, {
-    gateOpen: (tx, subject) => gateOpenIn(tx, subject, true, versions),
+    gateOpen: (tx, subject) => gateOpenIn(tx, subject, true),
     channelThere: (tx, subject) => channelThere(tx, subject),
   });
 }

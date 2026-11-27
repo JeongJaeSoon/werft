@@ -50,16 +50,21 @@ describe("prefixOf", () => {
 describe("execRulesOf", () => {
   const { rules, unexpressed } = execRulesOf();
 
-  test("allows every command the policy allows, as a whole-token prefix", () => {
+  test("allows the commands the policy allows, as a whole-token prefix, but no file command whose outside path it cannot name", () => {
     const allowed = rules
       .filter((rule) => rule.decision === "allow")
       .map((rule) => rule.pattern.join(" "));
     expect(allowed).toEqual([
       ...WORKSPACE_POLICY.git.allow,
       ...WORKSPACE_POLICY.read.allow,
-      ...WORKSPACE_POLICY.fs.allow,
+      "mkdir",
       ...WORKSPACE_POLICY.dev.commands,
     ]);
+    for (const command of ["touch", "cp", "mv", "rm"]) {
+      expect(WORKSPACE_POLICY.fs.allow).toContain(command);
+      expect(unexpressed).toContain(`${command} /*`);
+      expect(rules.some((rule) => rule.pattern[0] === command)).toBe(false);
+    }
   });
 
   test("asks for the shapes a prefix can name, once each", () => {

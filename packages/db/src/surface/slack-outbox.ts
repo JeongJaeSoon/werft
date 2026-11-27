@@ -21,6 +21,7 @@ import {
 import type {
   NeutralizeEvent,
   StoredSourceSet,
+  SurfaceAfterTurnReply,
   SurfaceAiLabel,
   SurfaceCardClaim,
   SurfaceCardFence,
@@ -71,6 +72,7 @@ import {
 import {
   mirrorsInstructions,
   postsPrompts,
+  reportsProgress,
   reportsTurns,
 } from "../link-posting.ts";
 import {
@@ -128,6 +130,10 @@ import {
 } from "./slack-thread-status.ts";
 
 const t = slackOutbox;
+
+// The newest events of one after-turn answer a follow-up reads: what counts
+// is the text after its last tool call, so a longer run loses only its start.
+const AFTER_TURN_EVENTS_READ = 500;
 
 /** An outbox row that names a Slack user as its channel (slackOutboxChannelRefused). */
 export class SlackOutboxUserChannelError extends Error {
@@ -339,9 +345,101 @@ const rateBlocks = (row: SQL) => sql`
       CASE WHEN ${row}.kind = 'progress' THEN 'chat.update' END)
     AND b.blocked_until > now()`;
 
+// What String.prototype.trim removes, as finalReplyText trims.
+const JS_WHITESPACE = String.fromCharCode(
+  9,
+  10,
+  11,
+  12,
+  13,
+  32,
+  160,
+  5760,
+  8192,
+  8193,
+  8194,
+  8195,
+  8196,
+  8197,
+  8198,
+  8199,
+  8200,
+  8201,
+  8202,
+  8232,
+  8233,
+  8239,
+  8287,
+  12288,
+  65279,
+);
+// Field `key` of event `x` as a reader reads it (withStoredNeutralFields):
+// the payload's own when it has one, else the one stored beside it.
+const readField = (x: SQL, key: "text" | "tool_call") =>
+  sql`coalesce(${x}.payload -> ${sql.raw(`'${key}'`)}, ${x}.neutral -> ${sql.raw(`'${key}'`)})`;
+// Event `x` is a tool call as eventToolCall reads one.
+const isToolCall = (x: SQL) => {
+  const call = readField(x, "tool_call");
+  // Never NULL: a field it lacks makes it no tool call, as in TS.
+  return sql`coalesce(jsonb_typeof(${x}.payload) = 'object'
+    AND jsonb_typeof(${call}) = 'object'
+    AND jsonb_typeof(${call} -> 'id') = 'string'
+    AND ${call} ->> 'id' <> ''
+    AND jsonb_typeof(${call} -> 'name') = 'string'
+    AND ${call} -> 'input' IS NOT NULL, false)`;
+};
+// After-turn result `e` has something to say: as finalReplyText reads its
+// events, text after the last tool call since the turn's previous such
+// result.
+const afterTurnSays = (e: SQL) => {
+  const w = sql.raw("w");
+  const z = sql.raw("z");
+  const text = readField(w, "text");
+  return sql`EXISTS (
+    SELECT 1 FROM events w
+    WHERE w.session_id = ${e}.session_id
+      AND w.id < ${e}.id
+      AND w.turn_id = ${e}.turn_id
+      AND w.attempt_id = ${e}.attempt_id
+      AND (w.neutral ->> 'after_turn') IS NOT NULL
+      AND w.type IN ('assistant', 'tool_use')
+      AND w.payload ->> 'parent_tool_use_id' IS NULL
+      AND jsonb_typeof(w.payload) = 'object'
+      AND jsonb_typeof(${text}) = 'string'
+      AND btrim(${text} #>> '{}', ${JS_WHITESPACE}) <> ''
+      AND NOT ${isToolCall(w)}
+      -- Within the last AFTER_TURN_EVENTS_READ events, all a reply reads.
+      AND (
+        SELECT count(*) FROM (
+          SELECT 1 FROM events c
+          WHERE c.session_id = ${e}.session_id
+            AND c.id > w.id
+            AND c.id < ${e}.id
+            AND c.turn_id = ${e}.turn_id
+            AND c.attempt_id = ${e}.attempt_id
+            AND (c.neutral ->> 'after_turn') IS NOT NULL
+            AND c.type IN ('assistant', 'tool_use')
+            AND c.payload ->> 'parent_tool_use_id' IS NULL
+          LIMIT ${AFTER_TURN_EVENTS_READ}
+        ) later
+      ) < ${AFTER_TURN_EVENTS_READ}
+      AND NOT EXISTS (
+        SELECT 1 FROM events z
+        WHERE z.session_id = ${e}.session_id
+          AND z.id > w.id
+          AND z.id < ${e}.id
+          AND z.turn_id = ${e}.turn_id
+          AND z.attempt_id = ${e}.attempt_id
+          AND (z.neutral ->> 'after_turn') IS NOT NULL
+          AND (z.type = 'result'
+            OR (z.type IN ('assistant', 'tool_use')
+              AND z.payload ->> 'parent_tool_use_id' IS NULL
+              AND ${isToolCall(z)}))))`;
+};
+
 // The AI line of row `row` (v1-b/G2): null unless its agent's conversation
 // rollout is `on`. Its name is that of whoever sent the turn the row's key
-// names: a turn's answer or failure, a card, a push's result. A push a turn's
+// names: a turn's answer, failure or follow-up, a card, a push's result. A push a turn's
 // intent made is that turn's sender's: its `requested_by` is the session's
 // creator. A row of any other key, or a sender who is no user, has the line
 // alone.
@@ -349,7 +447,8 @@ const aiLabelOf = (row: SQL) => sql`(
   SELECT json_build_object('requestedBy', (
     SELECT u.display_name FROM users u WHERE u.id = CASE
       WHEN ${row}.dedupe_key LIKE 'reply:%' OR ${row}.dedupe_key LIKE 'failure:%'
-        OR ${row}.dedupe_key LIKE 'prompt:%' THEN (
+        OR ${row}.dedupe_key LIKE 'prompt:%'
+        OR ${row}.dedupe_key LIKE 'after_turn:%' THEN (
         SELECT rt.actor_id FROM turns rt
         WHERE rt.session_id = ${row}.session_id
           AND rt.sequence = ${row}.sources_turn)
@@ -381,13 +480,25 @@ async function linkTakesNew(
   tx: Database,
   linkId: string,
   dedupeKey: string,
+  kind: string,
 ): Promise<boolean> {
   const [link] = await tx
-    .select({ closedAt: sessionLinks.closedAt })
+    .select({
+      closedAt: sessionLinks.closedAt,
+      lately: sql<boolean>`${sessionLinks.closedAt} > now() - ${AFTER_TURN_CLOSED_LINK_GRACE}`,
+    })
     .from(sessionLinks)
     .where(eq(sessionLinks.id, linkId))
     .for("share");
   if (link === undefined || link.closedAt === null) return true;
+  // A follow-up of an answer stored before the link closed.
+  if (
+    link.lately &&
+    kind === "reply" &&
+    dedupeKey.startsWith(`after_turn:${linkId}:`)
+  ) {
+    return true;
+  }
   const lost = dedupeKey.startsWith(UNCERTAIN_PREFIX)
     ? dedupeKey.slice(UNCERTAIN_PREFIX.length)
     : null;
@@ -402,6 +513,18 @@ async function linkTakesNew(
 
 const UNCERTAIN_PREFIX = "uncertain:";
 
+// Whether link `link` keeps a progress message (progressDue): a primary
+// link with a thread whose report mode is progress.
+const keepsProgressMessage = (link: SQL) => sql`(
+  ${link}.role = 'primary' AND ${link}.thread_id <> '' AND ${reportsProgress(link)}
+)`;
+
+// How long a closed link still takes the follow-ups of answers stored before
+// it closed (afterTurnReplies). A follow-up waits for its turn's reply,
+// which retries and rate limits hold for minutes, hours at worst; a day
+// covers that, and bounds the closed links each pass reads to a day's.
+const AFTER_TURN_CLOSED_LINK_GRACE = sql.raw("interval '1 day'");
+
 // Whether link `l` still takes the row: not revoked, unmuted, and posting
 // the row's kind. Not `closed_at`: a closed link's last report still goes.
 const linkTakes = (row: SQL) => sql`(
@@ -410,6 +533,9 @@ const linkTakes = (row: SQL) => sql`(
   AND CASE ${row}.kind
     WHEN 'instruction' THEN ${mirrorsInstructions(sql.raw("l"))}
     WHEN 'input_notice' THEN ${postsPrompts(sql.raw("l"))}
+    -- A link's own progress message (slackProgressKey) only while it keeps one.
+    WHEN 'progress' THEN ${reportsTurns(sql.raw("l"))}
+      AND (${row}.progress_key IS DISTINCT FROM 'progress:' || l.id OR ${keepsProgressMessage(sql.raw("l"))})
     ELSE ${reportsTurns(sql.raw("l"))}
   END
 )`;
@@ -1006,7 +1132,12 @@ export function createPostgresSlackOutboxStore(
         }
         if (
           input.sessionLinkId != null &&
-          !(await linkTakesNew(tx, input.sessionLinkId, input.dedupeKey))
+          !(await linkTakesNew(
+            tx,
+            input.sessionLinkId,
+            input.dedupeKey,
+            input.kind,
+          ))
         ) {
           return "link_closed";
         }
@@ -1596,6 +1727,172 @@ export function createPostgresSlackOutboxStore(
       );
     },
 
+    async afterTurnReplies(limit, after) {
+      // An after-turn result names the turn of its attempt (the one it ended
+      // last). The key the adapter's slackAfterTurnDedupeKey makes, and the
+      // turn's own row's (slackTurnDedupeKey), spelled in SQL.
+      const found = rowsOf<{
+        session_link_id: string;
+        session_id: string;
+        workspace_id: string;
+        agent_id: string;
+        slack_app_id: string;
+        installation_id: string;
+        channel_id: string;
+        thread_ts: string;
+        locale: UserLocale | null;
+        turn_row_id: number;
+        turn_id: number;
+        sources: StoredSourceSet | null;
+        attempt_id: string;
+        requester_slack_user_id: string | null;
+        result_id: number | string;
+        result_sequence: number;
+        previous_id: number | string | null;
+        runtime_kind: RuntimeKind | null;
+      }>(
+        await db.execute(sql`
+        SELECT l.id AS session_link_id, s.id AS session_id,
+          l.workspace_id, l.agent_id, a.id AS slack_app_id,
+          l.installation_id, l.channel_id, l.thread_id AS thread_ts,
+          (SELECT su.locale FROM users su
+           WHERE su.id = coalesce(
+             (SELECT st.actor_id FROM turns st
+              WHERE st.session_id = l.session_id AND st.sequence = 1),
+             l.created_by)) AS locale,
+          tt.id AS turn_row_id, tt.sequence AS turn_id, tt.sources,
+          tt.attempt_id, la.external_user_id AS requester_slack_user_id,
+          r.id AS result_id, r.source_sequence AS result_sequence,
+          r.previous_id,
+          s.runtime_spec -> 'runtime' ->> 'kind' AS runtime_kind
+        FROM session_links l
+        JOIN sessions s ON s.id = l.session_id
+        JOIN slack_installations i ON i.id = l.installation_id
+        JOIN slack_apps a ON a.app_id = i.app_id
+        -- Per live link, from the index of after-turn results alone.
+        CROSS JOIN LATERAL (
+          SELECT e.id, e.turn_id, e.source_sequence, (
+              SELECT max(p.id) FROM events p
+              WHERE p.session_id = e.session_id
+                AND p.type = 'result'
+                AND (p.neutral ->> 'after_turn') IS NOT NULL
+                AND p.turn_id = e.turn_id
+                AND p.attempt_id = e.attempt_id
+                AND p.id < e.id
+            ) AS previous_id
+          FROM events e
+          JOIN turns et ON et.id = e.turn_id AND et.attempt_id = e.attempt_id
+          WHERE e.session_id = l.session_id
+            AND e.type = 'result'
+            AND (e.neutral ->> 'after_turn') IS NOT NULL
+            AND e.source_sequence IS NOT NULL
+            AND e.id > ${after ?? "0"}::bigint
+            -- A turn from before the thread is not the thread's to answer,
+            -- nor an answer from after it closed.
+            AND et.created_at >= l.created_at
+            AND (l.closed_at IS NULL OR e.created_at < l.closed_at)
+            -- After the turn's own reply or failure notice, once every send
+            -- of either is over: a follow-up never goes ahead of what it
+            -- follows. Only under one the whole thread was shown: a notice
+            -- to the requester alone keeps what follows it from the thread.
+            AND EXISTS (
+              SELECT 1 FROM slack_outbox own
+              WHERE own.dedupe_key IN (
+                  'reply:' || l.id || ':' || et.sequence,
+                  'failure:' || l.id || ':' || et.sequence)
+                AND own.status NOT IN ('pending', 'sending')
+                AND own.slack_user_id IS NULL)
+            AND NOT EXISTS (
+              SELECT 1 FROM slack_outbox own
+              WHERE own.dedupe_key IN (
+                  'reply:' || l.id || ':' || et.sequence,
+                  'failure:' || l.id || ':' || et.sequence)
+                AND (own.status IN ('pending', 'sending')
+                  OR own.slack_user_id IS NOT NULL))
+            AND NOT EXISTS (
+              SELECT 1 FROM slack_outbox f
+              WHERE f.dedupe_key = 'after_turn:' || l.id || ':' || et.sequence
+                || ':' || e.source_sequence)
+            -- One with nothing to say leaves no row: never a candidate.
+            AND ${afterTurnSays(sql.raw("e"))}
+          ORDER BY e.id
+          LIMIT ${limit}
+        ) r
+        JOIN turns tt ON tt.id = r.turn_id
+        -- Whoever sent the turn, and no one for a turn no person sent (a
+        -- Slack bot's, an agent's): not the one who opened the thread.
+        LEFT JOIN linked_accounts la
+          ON la.workspace_id = l.workspace_id
+          AND la.user_id = tt.actor_id
+          AND la.provider = 'slack'
+          AND la.external_tenant = i.team_id
+          AND la.status = 'active'
+        WHERE l.session_id IS NOT NULL
+          AND l.revoked_at IS NULL
+          -- A muted thread, or one that hears of no turns, gets nothing.
+          AND NOT l.muted
+          AND ${reportsTurns(sql.raw("l"))}
+          -- A link closed since still takes what it owed (linkTakesNew).
+          AND (l.closed_at IS NULL
+            OR l.closed_at > now() - ${AFTER_TURN_CLOSED_LINK_GRACE})
+          AND i.status <> 'revoked'
+        ORDER BY r.id
+        LIMIT ${limit}`),
+      );
+      const replies: SurfaceAfterTurnReply[] = [];
+      for (const row of found) {
+        // What the engine said after the previous such result of the turn,
+        // newest first: the text that counts comes after the last tool call,
+        // so a long run is read from its end.
+        const said = rowsOf<{
+          type: string;
+          payload: unknown;
+          neutral: Record<string, unknown> | null;
+        }>(
+          await db.execute(sql`
+            SELECT e.type, e.payload, e.neutral FROM events e
+            WHERE e.session_id = ${row.session_id}::uuid
+              AND e.id < ${row.result_id}::bigint
+              AND e.id > ${row.previous_id ?? 0}::bigint
+              AND e.turn_id = ${row.turn_row_id}
+              AND e.attempt_id = ${row.attempt_id}
+              AND (e.neutral ->> 'after_turn') IS NOT NULL
+              AND e.type IN ('assistant', 'tool_use')
+              -- Subagent output is the subagent's, not the engine's answer.
+              AND e.payload ->> 'parent_tool_use_id' IS NULL
+            ORDER BY e.id DESC
+            LIMIT ${AFTER_TURN_EVENTS_READ}`),
+        ).reverse();
+        replies.push({
+          sessionLinkId: row.session_link_id,
+          sessionId: row.session_id,
+          workspaceId: row.workspace_id,
+          agentId: row.agent_id,
+          slackAppId: row.slack_app_id,
+          installationId: row.installation_id,
+          channelId: row.channel_id,
+          threadTs: row.thread_ts,
+          locale: row.locale,
+          turnId: row.turn_id,
+          sources: row.sources,
+          requesterSlackUserId: row.requester_slack_user_id,
+          resultSequence: row.result_sequence,
+          resultId: String(row.result_id),
+          events: said.map(({ type, payload, neutral }) => ({
+            type,
+            payload:
+              neutral !== null || options.neutralize === undefined
+                ? withStoredNeutralFields(payload, neutral)
+                : options.neutralize(row.runtime_kind, {
+                    event: type,
+                    data: payload,
+                  } as SessionEventPayload).data,
+          })),
+        });
+      }
+      return replies;
+    },
+
     unnoticedChannels: (limit) =>
       unnoticedSlackChannels(db, { limit, versions: noticeVersions }),
 
@@ -1639,6 +1936,8 @@ export function createPostgresSlackOutboxStore(
             isNull(sessionLinks.revokedAt),
             eq(sessionLinks.muted, false),
             reportsTurns(sql.raw('"session_links"')),
+            // A progress link's message says so in place (progressDue).
+            sql`NOT ${keepsProgressMessage(sql.raw('"session_links"'))}`,
             isNull(sessionLinks.closedAt),
             ne(slackInstallations.status, "revoked"),
             sql`NOT EXISTS (SELECT 1 FROM ${t} o WHERE o.dedupe_key = ${key})`,
@@ -1646,6 +1945,115 @@ export function createPostgresSlackOutboxStore(
         )
         .orderBy(asc(workerLaunches.capacityWaitSince))
         .limit(limit);
+    },
+
+    async progressDue(limit, waitedMs) {
+      // The keys the adapter's slackProgressDedupeKey makes, spelled in SQL:
+      // progress:<link>:<update>:<state>, under progress key progress:<link>.
+      const rows = rowsOf<{
+        session_link_id: string;
+        session_id: string;
+        workspace_id: string;
+        agent_id: string;
+        slack_app_id: string;
+        installation_id: string;
+        channel_id: string;
+        thread_ts: string;
+        locale: UserLocale | null;
+        state: string;
+        updates: number | string;
+        started_at: number | string | null;
+      }>(
+        await db.execute(sql`
+          SELECT * FROM (
+            SELECT
+              session_links.id AS session_link_id,
+              session_links.session_id,
+              session_links.workspace_id,
+              session_links.agent_id,
+              a.id AS slack_app_id,
+              session_links.installation_id,
+              session_links.channel_id,
+              session_links.thread_id AS thread_ts,
+              ${starterLocale} AS locale,
+              (SELECT extract(epoch FROM st.created_at)::float8 FROM turns st
+               WHERE st.session_id = session_links.session_id AND st.sequence = 1) AS started_at,
+              coalesce(
+                -- A worker waiting for room, as the session's wait_reason reads it.
+                (SELECT 'capacity_wait:' || wl.execution_id || ':' || wl.generation
+                 FROM worker_launches wl
+                 JOIN executions e ON e.id = wl.execution_id
+                 WHERE wl.session_id = session_links.session_id
+                   AND wl.slot_released_at IS NULL
+                   AND wl.claimed_attempt_id IS NULL
+                   AND e.desired_state = 'running'
+                   AND wl.capacity_wait_since <= clock_timestamp() - make_interval(secs => ${waitedMs / 1_000})
+                 ORDER BY wl.capacity_wait_since
+                 LIMIT 1),
+                (SELECT ot.status || ':' || ot.sequence FROM turns ot
+                 WHERE ot.session_id = session_links.session_id
+                   AND ot.status IN ('queued', 'running', 'needs_input')
+                 ORDER BY ot.sequence
+                 LIMIT 1),
+                -- Nothing unfinished: only a message Slack holds is told so,
+                -- so a first post still waiting is not overtaken by it.
+                CASE WHEN EXISTS (
+                  SELECT 1 FROM ${t} s
+                  WHERE s.installation_id = session_links.installation_id
+                    AND s.progress_key = 'progress:' || session_links.id
+                    AND s.status = 'sent'
+                ) THEN 'idle:' || (
+                  SELECT coalesce(max(mt.sequence), 0) FROM turns mt
+                  WHERE mt.session_id = session_links.session_id
+                ) END
+              ) AS state,
+              last.dedupe_key AS last_key,
+              coalesce(last.updates, 0) AS updates
+            FROM session_links
+            JOIN slack_installations i ON i.id = session_links.installation_id
+            JOIN slack_apps a ON a.app_id = i.app_id
+            LEFT JOIN LATERAL (
+              SELECT o.dedupe_key, (
+                SELECT count(*) FROM ${t} c
+                WHERE c.installation_id = session_links.installation_id
+                  AND c.progress_key = 'progress:' || session_links.id
+              ) AS updates
+              FROM ${t} o
+              WHERE o.installation_id = session_links.installation_id
+                AND o.progress_key = 'progress:' || session_links.id
+              ORDER BY o.seq DESC
+              LIMIT 1
+            ) last ON true
+            WHERE session_links.session_id IS NOT NULL
+              AND session_links.revoked_at IS NULL
+              AND NOT session_links.muted
+              AND session_links.closed_at IS NULL
+              AND i.status <> 'revoked'
+              -- Never a top-level post: the message lives in the thread.
+              AND ${keepsProgressMessage(sql.raw('"session_links"'))}
+          ) due
+          -- What the newest update shows, whatever its number: two passes
+          -- that numbered theirs alike both go in, and the newer state wins.
+          WHERE due.state IS NOT NULL
+            AND regexp_replace(due.last_key, '^progress:[^:]+:[0-9]+:', '') IS DISTINCT FROM due.state
+          ORDER BY due.session_link_id
+          LIMIT ${limit}
+        `),
+      );
+      return rows.map((row) => ({
+        sessionLinkId: row.session_link_id,
+        sessionId: row.session_id,
+        workspaceId: row.workspace_id,
+        agentId: row.agent_id,
+        slackAppId: row.slack_app_id,
+        installationId: row.installation_id,
+        channelId: row.channel_id,
+        threadTs: row.thread_ts,
+        locale: row.locale,
+        state: row.state,
+        updates: Number(row.updates),
+        startedAt: row.started_at === null ? null : Number(row.started_at),
+      }));
     },
 
     async unpromptedRequests(limit) {

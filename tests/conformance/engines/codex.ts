@@ -19,7 +19,8 @@ export function codexEngine(env = process.env): EngineFixture {
     // The gateway and egress proxy enforce the session's cost limit on the
     // provider calls the fake Responses API reports usage for.
     capabilities: new Set<Capability>(["provider_budget"]),
-    approvalCommand: "echo conformance | tee approved.txt",
+    // On the workspace ask list, so the run leaves it to a person.
+    approvalCommand: 'echo conformance | sed -n "w approved.txt"',
     prompt: (script) =>
       `GATE-SPEC ${JSON.stringify({
         id: script.id,

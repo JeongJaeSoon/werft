@@ -16,9 +16,11 @@ import { enqueueSlackChannelNotices } from "./slack-channel-notice.ts";
 import type { SlackBotApi, SlackBotSender } from "./slack-config-api.ts";
 import type { SlackInboxLogger } from "./slack-inbox.ts";
 import {
+  enqueueSlackAfterTurnReplies,
   enqueueSlackCapacityWaits,
   enqueueSlackInputMirrors,
   enqueueSlackInstructions,
+  enqueueSlackProgress,
   enqueueSlackPrompts,
   enqueueSlackTurnAnswers,
 } from "./slack-outbox-enqueue.ts";
@@ -236,7 +238,18 @@ export async function drainSlackOutbox(deps: {
     consoleOrigin: deps.consoleOrigin,
     limit: deps.batchSize,
   });
+  drain.enqueued += await enqueueSlackProgress({
+    outbox: deps.outbox,
+    consoleOrigin: deps.consoleOrigin,
+    limit: deps.batchSize,
+  });
   drain.enqueued += await enqueueSlackTurnAnswers({
+    outbox: deps.outbox,
+    consoleOrigin: deps.consoleOrigin,
+    limit: deps.batchSize,
+  });
+  // After the answers: a follow-up waits for its turn's reply to go.
+  drain.enqueued += await enqueueSlackAfterTurnReplies({
     outbox: deps.outbox,
     consoleOrigin: deps.consoleOrigin,
     limit: deps.batchSize,

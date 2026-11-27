@@ -80,8 +80,8 @@ export type M1ReplyWrite =
     };
 
 /**
- * Where M1's records go. Each write asks the switch, the notice approval and
- * the channel's sharing again, under the agent's row: closed, nothing is
+ * Where M1's records go. Each write asks the switch and the channel's
+ * sharing again, under the agent's row: closed, nothing is
  * written. A judged result is written only if no message it read was
  * deleted or edited since (check spot ②).
  */

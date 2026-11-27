@@ -21,7 +21,7 @@ export const dmOn = (dm: Binding | undefined) =>
 
 export const SECTION = {
   slack: "slack-overview",
-  notice: "slack-notice",
+  rollout: "slack-rollout",
   channels: "slack-channels",
   judgments: "slack-judgments",
   basic: "slack-basic",
@@ -35,7 +35,7 @@ export const SECTION = {
 /** The tab's sections, in the side list's words. */
 export const SECTION_LABEL = {
   slack: "agent.tabs.slack",
-  notice: "slack.notice",
+  rollout: "slack.rolloutSection",
   channels: "slack.channels",
   judgments: "slack.judgments",
   basic: "slack.basic",

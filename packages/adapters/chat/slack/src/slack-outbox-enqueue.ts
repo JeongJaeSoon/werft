@@ -7,8 +7,10 @@ import {
   slackNoticeText,
 } from "@werft-ai/contracts";
 import type {
+  SurfaceAfterTurnReply,
   SurfaceOutboxStore,
   SurfacePendingPrompt,
+  SurfaceProgressDue,
   SurfaceUnansweredTurn,
 } from "@werft-ai/platform";
 import { WORKER_OWNERSHIP_LOST_REASON } from "@werft-ai/platform";
@@ -20,10 +22,12 @@ import {
   slackOutboxGuard,
 } from "./slack-outbox-render.ts";
 import {
+  mention,
   slackOwnershipLostNotice,
   slackPromptMessage,
   slackStartFreshNotice,
 } from "./slack-prompts.ts";
+import { slackProgressMessage } from "./slack-session-status.ts";
 
 /** Enqueues the instructions sent from the web or the API, once each. */
 export async function enqueueSlackInstructions(deps: {
@@ -206,6 +210,97 @@ export function createOutboxSlackNoticeSink(
 /** How long a worker waits for room before its thread hears of it. */
 export const SLACK_CAPACITY_WAIT_NOTICE_MS = 30_000;
 
+/** A progress link's one progress message, for the task's whole life. */
+export function slackProgressKey(sessionLinkId: string): string {
+  return `progress:${sessionLinkId}`;
+}
+
+/** Update `update` (1-based) of a link's progress message, showing `state`. */
+export function slackProgressDedupeKey(
+  sessionLinkId: string,
+  update: number,
+  state: string,
+): string {
+  return `progress:${sessionLinkId}:${update}:${state}`;
+}
+
+/**
+ * Puts up, or updates, each progress link's progress message when what it
+ * should show changed: the first update posts it in the link's thread, the
+ * start notice of the work, and later ones edit it in place, which notifies
+ * no one. A worker's wait for room shows there instead of its own notice.
+ */
+export async function enqueueSlackProgress(deps: {
+  outbox: Pick<SurfaceOutboxStore, "progressDue" | "enqueue">;
+  consoleOrigin: string | null;
+  limit: number;
+}): Promise<number> {
+  const progressDue = deps.outbox.progressDue;
+  if (progressDue === undefined) return 0;
+  let enqueued = 0;
+  // Until none is owed, so a link that closes this pass is not left showing
+  // an old stage behind a full batch of others; a round that adds nothing
+  // (its rows refused or already in) ends it.
+  for (let round = 0; round < SLACK_PROGRESS_ROUNDS; round += 1) {
+    const due = await progressDue.call(
+      deps.outbox,
+      deps.limit,
+      SLACK_CAPACITY_WAIT_NOTICE_MS,
+    );
+    let added = 0;
+    for (const row of due) {
+      if ((await enqueueProgress(deps, row)) === "enqueued") added += 1;
+    }
+    enqueued += added;
+    if (due.length < deps.limit || added === 0) break;
+  }
+  return enqueued;
+}
+
+/** At most this many batches of progress updates a pass. */
+export const SLACK_PROGRESS_ROUNDS = 10;
+
+function enqueueProgress(
+  deps: {
+    outbox: Pick<SurfaceOutboxStore, "enqueue">;
+    consoleOrigin: string | null;
+  },
+  row: SurfaceProgressDue,
+) {
+  const link_url = sessionUrl(deps.consoleOrigin, row.sessionId);
+  const locale = row.locale ?? DEFAULT_USER_LOCALE;
+  const message = slackProgressMessage({
+    locale,
+    state: row.state,
+    startedAt: row.startedAt,
+    ...(link_url === undefined ? {} : { linkUrl: link_url }),
+  });
+  return deps.outbox.enqueue({
+    workspaceId: row.workspaceId,
+    agentId: row.agentId,
+    slackAppId: row.slackAppId,
+    installationId: row.installationId,
+    kind: "progress",
+    channelId: row.channelId,
+    threadTs: row.threadTs,
+    slackUserId: null,
+    sessionId: row.sessionId,
+    sessionLinkId: row.sessionLinkId,
+    body: {
+      text: message.text,
+      locale,
+      blocks: message.blocks,
+      ...(link_url === undefined ? {} : { link_url }),
+    },
+    dedupeKey: slackProgressDedupeKey(
+      row.sessionLinkId,
+      row.updates + 1,
+      row.state,
+    ),
+    progressKey: slackProgressKey(row.sessionLinkId),
+  });
+}
+
 /** One notice per thread per launch that waits: a wait is told once. */
 export function slackCapacityWaitDedupeKey(
   sessionLinkId: string,
@@ -364,6 +459,93 @@ export async function enqueueSlackTurnAnswers(deps: {
     });
   }
   return turns.length;
+}
+
+/** One follow-up per thread for each answer an engine gave after its turn. */
+export function slackAfterTurnDedupeKey(
+  sessionLinkId: string,
+  turnId: number,
+  resultSequence: number,
+): string {
+  return `after_turn:${sessionLinkId}:${turnId}:${resultSequence}`;
+}
+
+// Pages a pass reads past answers the store took for ones with something to
+// say and finalReplyText finds empty (its last 500 events hold no text).
+const AFTER_TURN_PAGES_MAX = 20;
+
+/** Whether a follow-up mentions whoever asked for its turn, as the turn's reply does. */
+export const SLACK_AFTER_TURN_MENTIONS_REQUESTER = true;
+
+/**
+ * Enqueues, under the turn's reply, what the engine said on its own after
+ * the turn ended: once per answer, with the turn's sources, link and
+ * reader. An answer with no text to show posts nothing.
+ */
+export async function enqueueSlackAfterTurnReplies(deps: {
+  outbox: Pick<SurfaceOutboxStore, "afterTurnReplies" | "enqueue">;
+  consoleOrigin: string | null;
+  limit: number;
+}): Promise<number> {
+  let enqueued = 0;
+  let after: string | undefined;
+  for (let page = 0; page < AFTER_TURN_PAGES_MAX; page += 1) {
+    const replies: SurfaceAfterTurnReply[] = await deps.outbox.afterTurnReplies(
+      deps.limit,
+      after,
+    );
+    for (const reply of replies) {
+      after = reply.resultId;
+      if (await enqueueAfterTurnReply(deps, reply)) enqueued += 1;
+    }
+    if (replies.length < deps.limit || enqueued >= deps.limit) break;
+  }
+  return enqueued;
+}
+
+async function enqueueAfterTurnReply(
+  deps: Pick<
+    Parameters<typeof enqueueSlackAfterTurnReplies>[0],
+    "outbox" | "consoleOrigin"
+  >,
+  reply: SurfaceAfterTurnReply,
+): Promise<boolean> {
+  const said = finalReplyText(reply.events);
+  if (said === "") return false;
+  const link_url = sessionUrl(deps.consoleOrigin, reply.sessionId);
+  const locale = reply.locale ?? DEFAULT_USER_LOCALE;
+  // It comes after the requester has moved on, so it calls them by name.
+  const asker =
+    SLACK_AFTER_TURN_MENTIONS_REQUESTER && reply.requesterSlackUserId !== null
+      ? reply.requesterSlackUserId
+      : null;
+  const who = asker === null ? "" : mention(asker);
+  const result = await deps.outbox.enqueue({
+    workspaceId: reply.workspaceId,
+    agentId: reply.agentId,
+    slackAppId: reply.slackAppId,
+    installationId: reply.installationId,
+    kind: "reply",
+    channelId: reply.channelId,
+    threadTs: reply.threadTs,
+    slackUserId: null,
+    sessionId: reply.sessionId,
+    sessionLinkId: reply.sessionLinkId,
+    body: {
+      text: `${who === "" ? "" : `${who} `}${SLACK_OUTBOX_MESSAGES[locale].afterTurn}\n\n${said}`,
+      locale,
+      ...(link_url === undefined ? {} : { link_url }),
+      ...(asker === null ? {} : { mention_user_ids: [asker] }),
+    },
+    dedupeKey: slackAfterTurnDedupeKey(
+      reply.sessionLinkId,
+      reply.turnId,
+      reply.resultSequence,
+    ),
+    sources: reply.sources,
+    sourcesTurn: reply.turnId,
+  });
+  return result === "enqueued";
 }
 
 export async function enqueueSlackPrompts(deps: {
