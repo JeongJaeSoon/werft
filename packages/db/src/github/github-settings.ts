@@ -45,6 +45,14 @@ function ceilingOf(stored: unknown): GitHubCeiling {
   return parsed.success ? parsed.data : GITHUB_CEILING_NONE;
 }
 
+/** The workspace's feature ceiling, as the gate reads it. */
+export async function workspaceFeatureCeiling(
+  db: Database,
+  workspaceId: string,
+): Promise<GitHubCeiling> {
+  return (await readSettings(db, workspaceId)).ceiling;
+}
+
 async function readSettings(db: Database, workspaceId: string) {
   const [row] = await db
     .select({
