@@ -6941,6 +6941,13 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
       ["sent", "1:queued:1"],
       ["failed", "2:running:1"],
     ]);
+
+    // Back on progress: the stage the closed update held goes after all.
+    await db.update(sessionLinks).set({ reportMode: "progress" });
+    await outboxPass();
+    expect(slack.updates.map(({ text }) => text.split("\n")[0])).toEqual([
+      ko.progressRunning,
+    ]);
   });
 
   test("the end of the work does not overtake a first post still waiting", async () => {

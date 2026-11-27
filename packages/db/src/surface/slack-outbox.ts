@@ -1734,6 +1734,8 @@ export function createPostgresSlackOutboxStore(
               FROM ${t} o
               WHERE o.installation_id = session_links.installation_id
                 AND o.progress_key = 'progress:' || session_links.id
+                -- Closed unsent while the link kept no message: it showed nothing.
+                AND o.error_code IS DISTINCT FROM 'not_addressed'
               ORDER BY o.seq DESC
               LIMIT 1
             ) last ON true
