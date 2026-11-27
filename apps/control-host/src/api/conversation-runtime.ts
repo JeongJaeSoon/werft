@@ -399,7 +399,12 @@ export function createMentionConversationTurns(deps: {
           call: { max_tokens: OPERATOR_TURN_MAX_TOKENS },
           // The instruction is the requester's message alone; what else
           // the turn reads is assembled as data when a runtime takes it.
-          input: { id: inputId, text: request.text },
+          // The engine skips a message whose id it has seen, as a try going
+          // on in the topic's live session would be: each try's is its own.
+          input: {
+            id: tried.attempt === 1 ? inputId : crypto.randomUUID(),
+            text: request.text,
+          },
           fresh_input: { id: crypto.randomUUID(), text: request.text },
           decision_tools: [...conversationDecisionTools("user", issued.place)],
         },

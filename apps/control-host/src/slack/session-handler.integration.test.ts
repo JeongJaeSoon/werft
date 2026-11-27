@@ -5695,9 +5695,11 @@ describe.each(ENGINES)(
       await deliver(fixture, mention("100.000100"));
       await drain(handler().handle);
       const inputs: string[] = [];
+      const messageIds = new Set<string>();
       for (let tried = 1; tried <= MENTION_TURN_ATTEMPTS; tried += 1) {
         const turn = await leased();
         inputs.push(turn.input.text);
+        messageIds.add(turn.input.id);
         const call = await callOn(turn);
         expect(call.outcome).toBe("ok");
         await call.settle();
@@ -5718,8 +5720,11 @@ describe.each(ENGINES)(
           tried === MENTION_TURN_ATTEMPTS ? "active" : "processing",
         );
       }
-      // The same input each time, under the next attempt number (v1-b/Q1).
+      // The same input each time, under the next attempt number (v1-b/Q1),
+      // sent to the engine as a message of its own each time: one it has
+      // seen in the topic's live session it would skip.
       expect(new Set(inputs).size).toBe(1);
+      expect(messageIds.size).toBe(MENTION_TURN_ATTEMPTS);
       const tries = await triesOf(fixture);
       expect(tries.map((row) => row.attempt)).toEqual([1, 2, 3]);
       expect(new Set(tries.map((row) => row.inputId)).size).toBe(1);
