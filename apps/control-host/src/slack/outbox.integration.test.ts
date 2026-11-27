@@ -1256,6 +1256,48 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     ).toBeNull();
   });
 
+  test.each(["ko", "ja", "en"] as const)(
+    "a stop's thread lines read in the %s of the person who stopped",
+    async (locale) => {
+      const fixture = await agentInSlack();
+      await db.update(users).set({ locale });
+      const [installation] = await db
+        .select({ id: schema.slackInstallations.id })
+        .from(schema.slackInstallations)
+        .where(eq(schema.slackInstallations.workspaceId, fixture.workspaceId));
+      if (!installation) throw new Error("no installation");
+      const sink = createOutboxSlackNoticeSink(
+        createPostgresSlackOutboxStore(db),
+      );
+      const messages = ["sessionStopped", "taskStoppedBeforeStart"] as const;
+      for (const [index, message] of messages.entries()) {
+        await sink.recordInThread({
+          workspaceId: fixture.workspaceId,
+          agentId: fixture.agentId,
+          installationId: installation.id,
+          slackAppId: fixture.slackAppId,
+          teamId: TEAM,
+          channelId: CHANNEL,
+          threadTs: THREAD,
+          sessionId: null,
+          sessionLinkId: null,
+          notice: { message },
+          onceKey: `stop:${index}`,
+          readerSlackUserId: PERSON,
+        });
+      }
+      expect(
+        (await rows()).map((row) => [row.kind, row.slackUserId, row.body]),
+      ).toEqual(
+        messages.map((message) => [
+          "failure_notice",
+          null,
+          { text: SLACK_NOTICE_MESSAGES[locale][message], locale },
+        ]),
+      );
+    },
+  );
+
   test("a failure notice whose send outlived its lease still clears the status", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
@@ -5899,6 +5941,28 @@ describe.each(ENGINES)("closing a closed session's link on %s", (engine) => {
     await outboxPass({ closeLinks: true });
     expect((await links())[0]?.closedReason).toBe("abandoned");
   });
+
+  test.each([false, true])(
+    "on: a task stopped before its first turn closes its link as the task closed, cancelled (close receipt: %p)",
+    async (byOwner) => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await db
+        .update(turns)
+        .set({ status: "cancelled", terminalReason: "stop_requested" })
+        .where(eq(turns.sessionId, sessionId));
+      await closeSession(sessionId, byOwner);
+      await db
+        .update(sessions)
+        .set({ taskClosedReason: "cancelled" })
+        .where(eq(sessions.id, sessionId));
+      await outboxPass({ closeLinks: true });
+      expect(await links()).toEqual([
+        expect.objectContaining({ sessionId, closedReason: "cancelled" }),
+      ]);
+    },
+  );
 
   test("on: the same thread's next mention opens a new session on a new link", async () => {
     const fixture = await agentInSlack();

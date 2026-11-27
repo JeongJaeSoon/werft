@@ -649,6 +649,9 @@ export function createSlackSessionHandler(
         sessionId,
         sessionLinkId: link.id,
         onceKey: `${agent.installationId}:${surfaceRef}:stop:${event.ts}`,
+        // Whoever may stop it is its requester or one who may control it:
+        // the line answers them, as a task's thread line does its requester.
+        readerSlackUserId: event.user,
       };
       if (stopped.outcome === "stopped" && stopped.closed) {
         try {

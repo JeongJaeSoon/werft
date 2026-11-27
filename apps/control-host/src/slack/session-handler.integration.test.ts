@@ -6099,6 +6099,13 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     );
     expect(await interruptsOf(session.id)).toHaveLength(1);
     expect(view.notices).toEqual([]);
+    // The line answers the member who stopped it, not the requester.
+    expect(view.threadNotices).toMatchObject([
+      {
+        notice: { message: "sessionStoppedQueued", count: 1 },
+        readerSlackUserId: "U0MEMBER",
+      },
+    ]);
   });
 
   test("someone the session lets write to it but not stop it is told so alone, and the word goes to the work as input", async () => {
@@ -6220,9 +6227,13 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
         .from(schema.unassignedSessions)
         .where(eq(schema.unassignedSessions.sessionId, session.id)),
     ).toEqual([]);
-    // The task's request is no waiting message: the line has no count.
+    // The task's request is no waiting message: the line has no count. It
+    // answers whoever stopped it, in their language.
     expect(view.threadNotices).toMatchObject([
-      { notice: { message: "taskStoppedBeforeStart" } },
+      {
+        notice: { message: "taskStoppedBeforeStart" },
+        readerSlackUserId: PERSON,
+      },
     ]);
     expect(view.threadNotices[0]?.notice).not.toHaveProperty("count");
   });
@@ -6281,7 +6292,10 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     const [after] = await sessionsOf(fixture);
     expect(after?.admissionState).toBe("active");
     expect(view.threadNotices).toMatchObject([
-      { notice: { message: "sessionStoppedQueued", count: 1 } },
+      {
+        notice: { message: "sessionStoppedQueued", count: 1 },
+        readerSlackUserId: PERSON,
+      },
     ]);
   });
 
