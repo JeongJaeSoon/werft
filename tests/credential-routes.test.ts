@@ -1211,8 +1211,8 @@ describe("workspace MCP servers: the authorizer's grant through the proxy", () =
    * One session with two workspace servers on: `inside`, the fake on the
    * operator's private list, and `outside`, an https name on neither list
    * that resolves to a private address. Between the proxy and the authorizer,
-   * `features` can play a proxy from before the mark (`none`) or one that
-   * keeps to it (`marked`); `grants` keeps what the authorizer granted.
+   * `features` can play a proxy from before the mark (`none`);
+   * `grants` keeps what the authorizer granted.
    */
   async function workspaceTopology() {
     if (client === undefined) throw new Error("no database");
@@ -1312,7 +1312,7 @@ describe("workspace MCP servers: the authorizer's grant through the proxy", () =
       token: AUTHORIZER_BEARER,
     });
     const relay = {
-      features: "as sent" as "as sent" | "none" | "marked",
+      features: "as sent" as "as sent" | "none",
       grants: [] as Array<{ upstream: Record<string, unknown> }>,
       // The header as the proxy itself sent it, before the relay changed it.
       sent: [] as Array<string | null>,
@@ -1325,9 +1325,6 @@ describe("workspace MCP servers: the authorizer's grant through the proxy", () =
         relay.sent.push(request.headers.get(EGRESS_FEATURES_HEADER));
         const headers = new Headers(request.headers);
         if (relay.features === "none") headers.delete(EGRESS_FEATURES_HEADER);
-        if (relay.features === "marked") {
-          headers.set(EGRESS_FEATURES_HEADER, "registered-upstream");
-        }
         const sent = await request.text();
         const response = await answer(
           new Request(request.url, {
@@ -1459,27 +1456,21 @@ describe("workspace MCP servers: the authorizer's grant through the proxy", () =
     expect(await refusals()).toEqual(["egress_proxy_outdated"]);
   }, 30_000);
 
-  test("a proxy that keeps to the mark is granted the server marked, and its private answer never reaches it", async () => {
+  test("the proxy keeps to the mark: granted the server marked, its private answer never reaches it", async () => {
     const { relay, call, refusals } = await workspaceTopology();
-    relay.features = "marked";
     const response = await call("outside");
     expect(response.status).toBe(403);
     const refusal = await response.text();
     expect(relay.grants.map((grant) => grant.upstream.allow)).toEqual([
       "public_https",
     ]);
-    if (
-      relay.sent[0]?.split(",").some((f) => f.trim() === "registered-upstream")
-    ) {
-      // A proxy that keeps to the mark resolves the name and refuses its
-      // private answer, rather than its lists refusing the name.
-      expect(relay.resolved).toContain(OUTSIDE_HOST);
-      expect(refusal).toContain("private");
-    } else {
-      // One from before holds the name to its lists and never resolves it.
-      expect(relay.resolved).not.toContain(OUTSIDE_HOST);
-      expect(refusal).toContain("not allowlisted");
-    }
+    expect(
+      relay.sent[0]?.split(",").map((feature) => feature.trim()),
+    ).toContain("registered-upstream");
+    // It resolves the name and refuses the private answer, rather than its
+    // lists refusing the name.
+    expect(relay.resolved).toContain(OUTSIDE_HOST);
+    expect(refusal).toContain("is private, not public");
     expect(await refusals()).toEqual([]);
     expect(mcp?.workspaceCalls().static.authorization_sha256).toEqual([]);
   }, 30_000);
