@@ -234,6 +234,7 @@ test("required check only accepts verified product or documentation results", ()
     "docs",
     "demo",
     "ui-pack",
+    "sdk-pack-smoke",
     "workspace-quota",
     "helm-chart",
     "k8s-smoke",
@@ -285,6 +286,7 @@ const plannedConsumers = [
   "pages",
   "demo",
   "ui-pack",
+  "sdk-pack-smoke",
   "workspace-quota",
 ] as const;
 
@@ -295,6 +297,7 @@ function productNeeds() {
       outputs: {
         helm: "true",
         k8s: "true",
+        sdk_pack: "true",
         site: "true",
         product: "true",
         domains:
@@ -311,6 +314,7 @@ function productNeeds() {
     pages: { result: "success" },
     demo: { result: "success" },
     "ui-pack": { result: "success" },
+    "sdk-pack-smoke": { result: "success" },
     "workspace-quota": { result: "success" },
   };
 }
@@ -341,9 +345,15 @@ test("product results bind named jobs to the plan and selection", () => {
   Object.assign(web.changes.outputs, {
     helm: "false",
     k8s: "false",
+    sdk_pack: "false",
     domains: '["surface"]',
   });
-  for (const job of ["helm-chart", "k8s-smoke", "workspace-quota"] as const)
+  for (const job of [
+    "helm-chart",
+    "k8s-smoke",
+    "sdk-pack-smoke",
+    "workspace-quota",
+  ] as const)
     web[job].result = "skipped";
   web["check-part"].result = "success";
   expect(productVerdict(web)).toBe(0);
@@ -351,6 +361,7 @@ test("product results bind named jobs to the plan and selection", () => {
   Object.assign(docs.changes.outputs, {
     helm: "false",
     k8s: "false",
+    sdk_pack: "false",
     site: "false",
     product: "false",
     domains: "[]",
@@ -383,7 +394,7 @@ test.each(plannedConsumers)(
   },
 );
 
-test.each(["helm", "k8s", "site", "product"])(
+test.each(["helm", "k8s", "sdk_pack", "site", "product"])(
   "the %s plan accepts only explicit boolean strings",
   (flag) => {
     for (const value of ["", "TRUE", "unknown", true, false, null, undefined]) {
@@ -391,6 +402,7 @@ test.each(["helm", "k8s", "site", "product"])(
       const consumers = {
         helm: ["helm-chart"],
         k8s: ["k8s-smoke"],
+        sdk_pack: ["sdk-pack-smoke"],
         site: ["docs", "pages"],
         product: ["demo", "ui-pack", "workspace-quota"],
       } as const;
@@ -415,6 +427,7 @@ test("omitted consumers must be skipped and workspace requires a product Docker 
     Object.assign(needs.changes.outputs, {
       helm: "false",
       k8s: "false",
+      sdk_pack: "false",
       site: "false",
       product: "false",
       domains: "[]",

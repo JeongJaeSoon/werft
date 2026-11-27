@@ -6,8 +6,10 @@ import {
   SLACK_BOT_TURN_LIMIT,
   type SlackMessageRef,
   type SlackNotice,
+  type SlackNoticeMessage,
   type SurfaceChannelKind,
   slackNoticeFor,
+  slackUserKindOf,
   type ThreadReplyRule,
 } from "@werft-ai/contracts";
 import type {
@@ -99,6 +101,14 @@ function callerLimitDimensionOf(
     : "tool";
 }
 
+/** The line for a mention the agent's own stop leaves unheard (section 10). */
+const UNHEARD_MENTION_NOTICE: Partial<
+  Record<LifecycleStop, SlackNoticeMessage>
+> = {
+  agent_inactive: "agentInactive",
+  agent_ownerless: "agentOwnerless",
+};
+
 const RETRYABLE_SESSION_CODES = new Set([
   "RATE_LIMITED",
   "BACKEND_UNAVAILABLE",
@@ -115,13 +125,29 @@ class SlackLeaseLost extends Error {
  * table goes: left, gone, or never finished.
  */
 function lifecycleStopOf(
-  place: { agentActive: boolean; channelState: string },
+  place: {
+    agentActive: boolean;
+    agentOwnerless: boolean;
+    channelState: string;
+  },
   live: { status: string },
 ): LifecycleStop | null {
   if (!place.agentActive) return "agent_inactive";
+  if (place.agentOwnerless) return "agent_ownerless";
   if (place.channelState !== "active") return "channel_archived";
   if (live.status === "pending_approval") return "pending_approval";
   return live.status !== "ready" ? "bot_removed" : null;
+}
+
+/**
+ * A task closed by a stop before its first turn: the first cancelled input
+ * is the task's request, the rest waited behind it.
+ */
+function closedNotice(cancelled: number) {
+  const waiting = cancelled - 1;
+  return waiting > 0
+    ? { message: "taskStoppedBeforeStartQueued" as const, count: waiting }
+    : { message: "taskStoppedBeforeStart" as const };
 }
 
 /**
@@ -381,11 +407,13 @@ export function createSlackSessionHandler(
     /**
      * What the handling table makes of a mention or a DM with no work bound
      * to its thread (rows 1, 7 and 14), or `current_path` while the agent's
-     * rollout is not on: `off` and `shadow` take it as before.
+     * rollout is not on: `off` and `shadow` take it as before. `notice`:
+     * the line a channel mention the agent does not hear gets.
      */
-    const mentionTableHandling = async (): Promise<
-      TableHandling | "current_path" | "no_binding"
-    > => {
+    const mentionTableHandling = async (): Promise<{
+      handling: TableHandling | "current_path" | "no_binding";
+      notice?: SlackNoticeMessage;
+    }> => {
       // A DM has no channel conversation, so its channel state reads active.
       const place = await deps.buffer.place({
         kind: "channel",
@@ -394,14 +422,15 @@ export function createSlackSessionHandler(
         teamId: claim.teamId,
         channelId: event.channel,
       });
-      if (place.rollout !== "on") return "current_path";
+      if (place.rollout !== "on") return { handling: "current_path" };
       const live = dm
         ? await deps.bindings.ensureDmBinding(agent.installationId)
         : await deps.bindings.findLiveSlackChannel(
             agent.installationId,
             event.channel,
           );
-      if (live === null) return "no_binding";
+      if (live === null) return { handling: "no_binding" };
+      const lifecycleStop = lifecycleStopOf(place, live);
       const handling = inboundHandling({
         place: dm ? "dm" : "channel",
         work: "none",
@@ -410,9 +439,27 @@ export function createSlackSessionHandler(
         rollout: place.rollout,
         mode: live.mode,
         listen: live.listen,
-        lifecycleStop: lifecycleStopOf(place, live),
+        lifecycleStop,
       });
-      return handling.kind === "table" ? handling.handling : "current_path";
+      if (handling.kind !== "table") return { handling: "current_path" };
+      // Only where the bot may still speak: an agent stop over a channel
+      // archived, left or waiting for approval says nothing there.
+      const notice = dm
+        ? undefined
+        : handling.handling === "drop_with_off_notice"
+          ? "channelOff"
+          : handling.handling === "lifecycle_stopped" &&
+              lifecycleStop !== null &&
+              lifecycleStopOf(
+                { ...place, agentActive: true, agentOwnerless: false },
+                live,
+              ) === null
+            ? UNHEARD_MENTION_NOTICE[lifecycleStop]
+            : undefined;
+      return {
+        handling: handling.handling,
+        ...(notice === undefined ? {} : { notice }),
+      };
     };
 
     /**
@@ -530,7 +577,12 @@ export function createSlackSessionHandler(
         rollout: place.rollout,
         mode: live.mode,
         listen: live.listen,
-        lifecycleStop: lifecycleStopOf(place, live),
+        // Running work goes on while its agent is ownerless, so its
+        // requester may still stop it.
+        lifecycleStop: lifecycleStopOf(
+          { ...place, agentOwnerless: false },
+          live,
+        ),
       });
       return handling.kind === "table" ? handling.handling : null;
     };
@@ -586,7 +638,7 @@ export function createSlackSessionHandler(
         stopRefused = true;
         return false;
       }
-      await deps.notices.recordInThread({
+      const line = {
         workspaceId: agent.workspaceId,
         agentId: agent.agentId,
         installationId: agent.installationId,
@@ -596,13 +648,33 @@ export function createSlackSessionHandler(
         threadTs,
         sessionId,
         sessionLinkId: link.id,
+        onceKey: `${agent.installationId}:${surfaceRef}:stop:${event.ts}`,
+      };
+      if (stopped.outcome === "stopped" && stopped.closed) {
+        try {
+          await deps.notices.recordInThread({
+            ...line,
+            notice: closedNotice(stopped.cancelled),
+          });
+        } catch (error) {
+          // Not retried: the closed session's link may close before a
+          // retry, which would then take the stop word as a new mention.
+          deps.logger.warn("Slack stop line lost for a task it closed", {
+            ...ids,
+            session_id: sessionId,
+            code: error instanceof Error ? error.name : "error",
+          });
+        }
+        return true;
+      }
+      await deps.notices.recordInThread({
+        ...line,
         notice:
           stopped.outcome === "nothing_running"
             ? { message: "nothingToStop" }
             : stopped.cancelled > 0
               ? { message: "sessionStoppedQueued", count: stopped.cancelled }
               : { message: "sessionStopped" },
-        onceKey: `${agent.installationId}:${surfaceRef}:stop:${event.ts}`,
       });
       return true;
     };
@@ -722,17 +794,18 @@ export function createSlackSessionHandler(
     // A person's mention or DM outside a bound thread, once the agent's
     // rollout is on: the handling table says whether it becomes a
     // conversation turn. A DM thread bound to work goes to it as before (M0).
-    const mentionHandling =
+    const mentionTable =
       found === null && (mentioned || dm) && !fromBot
         ? await mentionTableHandling()
-        : "current_path";
+        : { handling: "current_path" as const };
+    const mentionHandling = mentionTable.handling;
     if (mentionHandling !== "current_path" && mentionHandling !== "m2") {
-      // The notice for an unheard mention is v1-b/F3's.
       deps.logger.info("Slack mention not made a turn", {
         ...ids,
         handling: mentionHandling,
       });
-      return;
+      // Its line waits for the channel checks below.
+      if (mentionTable.notice === undefined) return;
     }
     // Observe only: the reply goes on as a turn whatever the judgment says.
     // The text is not logged; `event_id` joins the case to its inbox row. A
@@ -863,6 +936,39 @@ export function createSlackSessionHandler(
         { connectUrl: deps.connectUrl },
       );
       if (refused !== null) await notice("channel_kind_mismatch", refused);
+      return;
+    }
+    // A mention the table does not hear, where the checks above still let
+    // the bot speak: one line in the thread for all to see, once a UTC day
+    // per person in the channel, whichever thread they mention the agent in.
+    if (mentionTable.notice !== undefined) {
+      // Only on a binding still in use whose kind Slack confirmed above, and
+      // never for someone from another organization, as the decision judges.
+      if (
+        binding === null ||
+        binding.mode !== "on" ||
+        eventKind === undefined ||
+        slackUserKindOf(user, claim.teamId) === "external" ||
+        // Written before the channel's approval, as the input path below.
+        (binding.approvedAt != null &&
+          Number(event.ts) * 1000 < binding.approvedAt.getTime())
+      ) {
+        return;
+      }
+      const day = new Date(Number(event.ts) * 1000).toISOString().slice(0, 10);
+      await deps.notices.recordInThread({
+        workspaceId: agent.workspaceId,
+        agentId: agent.agentId,
+        installationId: agent.installationId,
+        slackAppId: claim.slackAppId,
+        teamId: claim.teamId,
+        channelId: event.channel,
+        threadTs,
+        sessionId: null,
+        sessionLinkId: null,
+        notice: { message: mentionTable.notice },
+        onceKey: `${agent.installationId}:${event.channel}:${event.user}:${mentionTable.notice}:${day}`,
+      });
       return;
     }
 

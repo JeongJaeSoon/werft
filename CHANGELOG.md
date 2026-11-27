@@ -15,6 +15,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **내장 `werft` MCP의 `get_status`가 답이 나갈 자리도 보고 비공개 채널을 거른다**(JeongJaeSoon/werft#2305). 요청자가 멤버인 비공개 채널은 세션이 그 채널 자신에 답할 때나, 요청자 본인의 DM에 답하고 그 세션을 아무에게도 공유하지 않았을 때(공유 범위 `private`)만 나온다. 공개 채널·다른 비공개 채널·다른 사람의 DM에 답하는 세션, 공유한 DM 세션, 부모 대화가 없는 세션(웹·API로 시작한 독립 세션)에서는 모두 빠진다. 공유를 풀면 다시 나온다. 전에는 요청자가 멤버면 어디서든 나왔다. migration은 없고 따로 할 일도 없다.
 - **대화 rollout이 `on`인 에이전트의 멘션 턴이 새 작업 만들기로 끝나면, 그 대화를 부모로 한 작업 세션 하나가 열려 그 스레드에 묶인다**(JeongJaeSoon/werft#2265). 요청 원문은 서버가 받은 멘션 글이고, 모델이 쓴 목표와 완료 조건은 해석으로만 남는다. 작업을 열 때 멘션을 판정한 Slack 주체로 `task.spawn`을 다시 판정한다. 대화 하나에 열린 작업은 3개, 에이전트 하나에 10개까지다. 넘거나 에이전트가 쓸 수 없는 저장소를 고르면 열지 않고 그 이유를 스레드에 올린다. migration `0386_conversation_task_spawn`이 `conversation_turns`에 빈 열 셋(`task_draft`, `slack_subject`, `task_effect`)을, `conversation_turn_queue`에 `input_kept_until`과 그 부분 인덱스(`CONCURRENTLY`)를 더하고 두 CHECK를 `NOT VALID` 뒤 `VALIDATE`로 바꾼다. 따로 할 일은 없다.
   - 큐는 실행 중인 턴의 입력만 봉인해 두고, 새 작업 만들기로 끝난 턴의 입력은 작업이 정해질 때까지 최대 1시간 둔다. egress 토큰은 lease 때 지운다.
   - 앞선 이미지로 되돌려도 된다. 앞선 이미지는 새 열을 읽지 않는다. 이 버전이 lease한 턴의 입력 사본(봉인된 입력만)은 앞선 이미지가 지우지 않고 남는다. 이 버전을 다시 올리면 기한이 지난 사본부터 지운다.
@@ -30,6 +31,8 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - 앞선 API 이미지가 남아 있는 동안에도 한도는 정확히 지켜진다. 트랜잭션 내내 기다리는 줄은 앞선 API가 모두 내려가야 없어진다.
   - 앞선 이미지로 되돌려도 된다.
 - **저장 한도 경고 지표 셋과 하루 한 번의 카운터 점검을 더한다**(JeongJaeSoon/werft#2282). metrics role이 `werft_input_storage_used_bytes`·`werft_input_storage_limit_bytes`·`werft_input_storage_limit_reached{threshold="0.8"|"1"}`를 낸다. 한도 80%에서 알리려면 `werft_input_storage_limit_reached{threshold="0.8"} == 1`에 경고를 건다. api가 매일 03:30 UTC에 카운터를 `turns`의 실제 bytes와 맞춰 보고, 다르면 `The storage counter differs from the turns` 경고 로그를 남긴다. 카운터를 고치지는 않는다. migration은 없다.
+- **관리자가 채널 멤버가 아니어도 에이전트 Slack 탭의 채널 행에서 "긴급 정지"로 그 채널의 에이전트를 이유와 함께 바로 멈춘다**(JeongJaeSoon/werft#2268). 새 경로는 `POST /v1/agents/{id}/slack-bindings/{binding_id}/emergency-stop`이고 `binding.manage` 권한이 있으면 된다. 같은 Slack team에 에이전트의 설치가 여럿이면 한 번의 정지가 그 채널의 모든 설치를 함께 멈추고, 다시 켜기도 모두를 함께 켠다. 그 채널의 돌던 turn은 `emergency_stopped`로 끝나고, 보내지 않은 글은 취소되며, checkpoint가 있는 세션은 정지된다. 멈춘 동안 그 채널의 세션은 메시지와 재개를 `403`으로 거절한다. 다시 켜려면 이유를 적는다. 다시 켜도 세션은 사람이 재개해야 이어진다. migration `0387_emergency_stop`이 `surface_bindings`에 빈 열 세 개를 더하고 CHECK 네 개에 새 값을 더한다. 줄은 다시 쓰지 않는다. 따로 할 일은 없다.
+  - 앞선 이미지로 되돌리기 전에 멈춘 채널을 모두 다시 켠다. 앞선 이미지는 정지를 읽지 않아 그 채널 세션의 입력과 재개를 막지 않고, `pause_reason` `emergency_stopped`인 세션도 알아보지 못한다.
 - **대화 rollout이 `on`인 에이전트가 올리는 글이 모두 AI가 쓴 글이라는 작은 회색 줄(`AI 에이전트 · Werft`)로 끝난다**(JeongJaeSoon/werft#2259). 한 턴의 결과나 요청인 글에는 `<이름> 님 요청`이 붙는다. `off`·`shadow`인 에이전트의 글은 전과 같다. migration은 없고 따로 할 일도 없다.
 - **에이전트의 대화 턴 목록을 여는 데 쓸 인덱스 둘을 더한다**(JeongJaeSoon/werft#2261). migration `0383_conversation_turn_list_indexes`가 `conversation_turns`와 `session_links`에 부분 인덱스를 `CONCURRENTLY`로 만든다. 쓰기를 막지 않고 따로 할 일은 없다. 앞선 이미지로 되돌려도 된다.
 - **사용량 화면의 대화 비용 읽기에 쓸 기간 조회 인덱스를 더한다**(JeongJaeSoon/werft#2257). migration `0382_conversation_calls_period_index`가 `conversation_calls`에 부분 인덱스를 `CONCURRENTLY`로 만든다. 쓰기를 막지 않고 따로 할 일은 없다. 앞선 이미지로 되돌려도 된다.

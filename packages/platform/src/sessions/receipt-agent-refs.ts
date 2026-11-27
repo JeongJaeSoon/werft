@@ -95,6 +95,7 @@ export const RECEIPT_AGENT_REFS: Partial<Record<ReceiptOperation, AgentRefs>> =
     set_surface_binding: { agents: ["agent_id"] },
     request_surface_binding: { agents: ["agent_id"] },
     resolve_surface_binding: { agents: ["agent_id"] },
+    emergency_stop_surface_binding: { agents: ["agent_id"] },
 
     // A start or an input refused for an unbound credential, or an env value
     // refused: on the agent when no session exists yet, else on the session.

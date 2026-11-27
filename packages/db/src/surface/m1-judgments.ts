@@ -57,15 +57,22 @@ async function gateOpenIn(
   });
   if (!gate.open) return false;
   // Locked, a share recorded meanwhile waits for the write, whose rows its
-  // buffer drop then finds.
-  const bindings = rowsOf<{ external_shared: boolean }>(
+  // buffer drop then finds. An emergency stop of the agent in the channel
+  // closes it too, so no judgment is asked or called while it holds.
+  const bindings = rowsOf<{ external_shared: boolean; stopped: boolean }>(
     await db.execute(sql`
-      SELECT external_shared FROM surface_bindings
-      WHERE agent_id = ${place.agentId}::uuid AND surface = 'slack'
-        AND external_surface_id = ${place.channelId}
-      ${lock ? sql`FOR SHARE` : sql``}`),
+      SELECT b.external_shared,
+        (b.emergency_stopped_at IS NOT NULL AND i.team_id = ${place.teamId}) AS stopped
+      FROM surface_bindings b
+      JOIN slack_installations i ON i.id = b.installation_id
+      WHERE b.agent_id = ${place.agentId}::uuid AND b.surface = 'slack'
+        AND b.external_surface_id = ${place.channelId}
+      ORDER BY b.id
+      ${lock ? sql`FOR SHARE OF b` : sql``}`),
   );
-  return !bindings.some((binding) => binding.external_shared);
+  return !bindings.some(
+    (binding) => binding.external_shared || binding.stopped,
+  );
 }
 
 /**

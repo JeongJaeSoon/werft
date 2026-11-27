@@ -283,6 +283,8 @@ export type MentionTurnStart =
   | { outcome: "source_deleted" }
   | { outcome: "unknown_agent" }
   | { outcome: "unknown_conversation" }
+  // An admin emergency-stopped the agent in the channel.
+  | { outcome: "channel_stopped" }
   | { outcome: "no_active_release" }
   | { outcome: "connection_unavailable" }
   // Longer than a turn's input may be.

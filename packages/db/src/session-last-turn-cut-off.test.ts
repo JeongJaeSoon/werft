@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
-import type { ListSessionsQuery } from "@werft-ai/contracts";
+import {
+  type ListSessionsQuery,
+  TURN_EMERGENCY_STOPPED_REASON,
+} from "@werft-ai/contracts";
 import {
   createAuthorizationPolicy,
   createSessionService,
@@ -66,7 +69,7 @@ const service = () =>
 /** A session whose turns ended as given, in order, and whose status is set. */
 async function sessionWith(
   status: "idle" | "failed",
-  ended: readonly ("lost" | "completed")[],
+  ended: readonly ("lost" | "stopped" | "completed" | "cancelled")[],
 ) {
   const inputs = createPostgresSessionUnitOfWork(db);
   const created = await inputs.acceptInputAtomic({
@@ -100,9 +103,15 @@ async function sessionWith(
     await db
       .update(turns)
       .set(
-        end === "lost"
-          ? { status: "failed", terminalReason: WORKER_OWNERSHIP_LOST_REASON }
-          : { status: "completed" },
+        end === "completed" || end === "cancelled"
+          ? { status: end }
+          : {
+              status: "failed",
+              terminalReason:
+                end === "lost"
+                  ? WORKER_OWNERSHIP_LOST_REASON
+                  : TURN_EMERGENCY_STOPPED_REASON,
+            },
       )
       .where(
         and(eq(turns.sessionId, sessionId), eq(turns.sequence, index + 1)),
@@ -155,5 +164,31 @@ describe("a session whose last turn a lost lease cut off (94S-2261)", () => {
     // What the console's two tabs show, read from the counts as the web does.
     expect(counts.cut_off).toBe(cutOffTab.length);
     expect(counts.idle - counts.cut_off).toBe(idleTab.length);
+  });
+
+  test("a last turn an emergency stop cut off reads as cut off too", async () => {
+    const stopped = await sessionWith("idle", ["stopped"]);
+    const goneOn = await sessionWith("idle", ["stopped", "completed"]);
+    const flags = Object.fromEntries(
+      (await listed()).map((item) => [item.id, item.last_turn_cut_off]),
+    );
+    expect(flags).toEqual({ [stopped]: true, [goneOn]: false });
+    expect((await service().countSessions(OWNER, {})).counts.cut_off).toBe(1);
+  });
+
+  test("input the stop cancelled behind the cut-off turn leaves it the last", async () => {
+    const stopped = await sessionWith("idle", ["stopped", "cancelled"]);
+    expect((await listed()).map((item) => item.last_turn_cut_off)).toEqual([
+      true,
+    ]);
+    const ids = async (query: Partial<ListSessionsQuery>) =>
+      (await listed(query)).map((item) => item.id);
+    expect(await ids({ status: "idle", last_turn_cut_off: "true" })).toEqual([
+      stopped,
+    ]);
+    expect(await ids({ status: "idle", last_turn_cut_off: "false" })).toEqual(
+      [],
+    );
+    expect((await service().countSessions(OWNER, {})).counts.cut_off).toBe(1);
   });
 });

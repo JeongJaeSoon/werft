@@ -540,6 +540,9 @@ describe("searching an agent's Slack channels", () => {
         rejectSlackBinding: async () => {
           throw new Error("not asked");
         },
+        emergencyStopSlackBinding: async () => {
+          throw new Error("not asked");
+        },
         listSlackBindings: async () => ({ items: [] }),
       } as SurfaceBindingService,
       service,

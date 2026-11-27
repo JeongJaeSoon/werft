@@ -38,6 +38,7 @@ import {
   SESSION_SCOPE_VALUES,
   SLACK_INBOUND_MAX_ATTEMPTS,
   SLACK_NOTICE_MESSAGES,
+  TASK_CLOSING_DEFAULT,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
@@ -1902,7 +1903,7 @@ describe.each(ENGINES)("Slack thread sessions on %s", (engine) => {
       await drain(handle);
       expect(await links()).toEqual([]);
       expect(await sessionsOf(fixture)).toEqual([]);
-      // Listening off, the mention is not heard (its notice is v1-b/F3's).
+      // Listening off, the mention is not heard; the thread gets one line.
       const conversationTurns = await db
         .select({ id: schema.conversationTurns.id })
         .from(schema.conversationTurns)
@@ -5472,19 +5473,231 @@ describe.each(ENGINES)(
       expect(notices).toEqual([]);
     });
 
-    test("rollout on: a mention where the channel listens to nothing is no turn and no session", async () => {
+    /** What unheard mentions must not leave: turns, model calls, reservations. */
+    const chargesOf = async (fixture: Fixture) => ({
+      turns: (await mentionTurnsOf(fixture)).length,
+      calls: (
+        await db
+          .select({ id: schema.conversationCalls.id })
+          .from(schema.conversationCalls)
+          .where(eq(schema.conversationCalls.workspaceId, fixture.workspaceId))
+      ).length,
+      reservations: (
+        await db
+          .select({ id: schema.budgetReservations.callId })
+          .from(schema.budgetReservations)
+          .where(eq(schema.budgetReservations.workspaceId, fixture.workspaceId))
+      ).length,
+    });
+    const NO_CHARGES = { turns: 0, calls: 0, reservations: 0 };
+    const linesOf = (threadNotices: { threadTs: string; notice: unknown }[]) =>
+      threadNotices
+        .map(({ threadTs, notice }) => ({ threadTs, notice }))
+        .sort((a, b) => Number(a.threadTs) - Number(b.threadTs));
+    const ownerlessFor = async (fixture: Fixture, days: number) => {
+      await db
+        .delete(schema.agentAdmins)
+        .where(eq(schema.agentAdmins.agentId, fixture.agentId));
+      await db
+        .update(agents)
+        .set({ ownerlessSince: sql`now() - make_interval(days => ${days})` })
+        .where(eq(agents.id, fixture.agentId));
+    };
+
+    test("rollout on: where the channel listens to nothing, each person hears one line a UTC day in the thread, and no turn, call or session is made", async () => {
       const fixture = await agentInSlack("main", {
         rollout: "on",
         listen: "off",
       });
-      const { handle, notices } = handler();
+      const { handle, notices, threadNotices } = handler();
+      // Three mentions one day: two top-level, one in the first's thread.
       await deliver(fixture, mention("100.000100"));
+      await deliver(
+        fixture,
+        mention("100.000200", { thread_ts: "100.000100" }),
+      );
+      await deliver(fixture, mention("200.000100"));
+      // Someone else that day, and the first person the next UTC day.
+      await deliver(fixture, mention("300.000100", { user: "U0OTHER" }));
+      await deliver(fixture, mention("86500.000100"));
       await drain(handle);
-      expect(await mentionTurnsOf(fixture)).toEqual([]);
+      const off = { message: "channelOff" };
+      expect(linesOf(threadNotices)).toEqual([
+        { threadTs: "100.000100", notice: off },
+        { threadTs: "300.000100", notice: off },
+        { threadTs: "86500.000100", notice: off },
+      ]);
+      expect(threadNotices.map((line) => line.sessionId)).toEqual([
+        null,
+        null,
+        null,
+      ]);
+      expect(notices).toEqual([]);
+      expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
       expect(await sessionsOf(fixture)).toEqual([]);
       expect(slack.statuses).toEqual([]);
+    });
+
+    for (const [state, line] of [
+      ["paused", "agentInactive"],
+      ["ownerless past its grace period", "agentOwnerless"],
+    ] as const) {
+      test(`rollout on: an agent ${state} answers a mention with one line a day in the thread, no turn, and holds no unmentioned post`, async () => {
+        const fixture = await agentInSlack("main", {
+          rollout: "on",
+          listen: "free",
+        });
+        if (state === "paused") {
+          await db
+            .update(agents)
+            .set({ status: "paused" })
+            .where(eq(agents.id, fixture.agentId));
+        } else {
+          await ownerlessFor(fixture, 15);
+        }
+        const { handle, notices, threadNotices } = handler();
+        await deliver(fixture, mention("100.000100"));
+        await deliver(fixture, mention("200.000100"));
+        await deliver(fixture, message("300.000100"));
+        await drain(handle);
+        expect(linesOf(threadNotices)).toEqual([
+          { threadTs: "100.000100", notice: { message: line } },
+        ]);
+        expect(notices).toEqual([]);
+        expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
+        expect(await sessionsOf(fixture)).toEqual([]);
+        expect(
+          await db
+            .select({ id: schema.conversationInputs.id })
+            .from(schema.conversationInputs)
+            .where(eq(schema.conversationInputs.agentId, fixture.agentId)),
+        ).toEqual([]);
+      });
+    }
+
+    test("rollout on: a mention in a channel Slack now reports private waits for approval and gets no line in the thread", async () => {
+      const fixture = await agentInSlack("main", {
+        rollout: "on",
+        listen: "off",
+      });
+      slack.channels.set(CHANNEL, { isPrivate: true });
+      const { handle, notices, threadNotices } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await drain(handle);
+      expect(threadNotices).toEqual([]);
+      expect(notices.map((notice) => notice.reason)).toEqual([
+        "pending_approval",
+      ]);
+      const [row] = await db
+        .select({ status: surfaceBindings.status })
+        .from(surfaceBindings)
+        .where(eq(surfaceBindings.id, fixture.bindingId));
+      expect(row?.status).toBe("pending_approval");
+      expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
+    });
+
+    test("rollout on: someone from another organization gets no line, and a member still does", async () => {
+      const fixture = await agentInSlack("main", {
+        rollout: "on",
+        listen: "off",
+      });
+      slack.users.set("U0STRANGER", { teamId: "T0OTHER", isStranger: true });
+      // Slack Connect with no flag: only the team tells them apart.
+      slack.users.set("U0SHARED", { teamId: "T0OTHER" });
+      // The install's team, flagged external by Slack alone.
+      slack.users.set("U0EXTERNAL", { isExternal: true });
+      const { handle, notices, threadNotices } = handler();
+      await deliver(fixture, mention("100.000100", { user: "U0STRANGER" }));
+      await deliver(fixture, mention("150.000100", { user: "U0SHARED" }));
+      await deliver(fixture, mention("160.000100", { user: "U0EXTERNAL" }));
+      await deliver(fixture, mention("200.000100"));
+      await drain(handle);
+      expect(linesOf(threadNotices)).toEqual([
+        { threadTs: "200.000100", notice: { message: "channelOff" } },
+      ]);
       expect(notices).toEqual([]);
     });
+
+    test("rollout on: a paused agent on a channel binding not in use says nothing", async () => {
+      const fixture = await agentInSlack("main", {
+        rollout: "on",
+        mode: "off",
+      });
+      await db
+        .update(agents)
+        .set({ status: "paused" })
+        .where(eq(agents.id, fixture.agentId));
+      slack.channels.set(CHANNEL, { isPrivate: true });
+      const { handle, notices, threadNotices } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await drain(handle);
+      expect(threadNotices).toEqual([]);
+      expect(notices).toEqual([]);
+      const [row] = await db
+        .select({ status: surfaceBindings.status })
+        .from(surfaceBindings)
+        .where(eq(surfaceBindings.id, fixture.bindingId));
+      expect(row?.status).toBe("ready");
+    });
+
+    test("rollout on: a mention written before the channel's approval gets no line; one after it does", async () => {
+      const fixture = await agentInSlack("main", {
+        rollout: "on",
+        listen: "off",
+      });
+      const approvedAt = new Date();
+      await db
+        .update(surfaceBindings)
+        .set({ approvedAt })
+        .where(eq(surfaceBindings.id, fixture.bindingId));
+      const after = `${Math.floor(approvedAt.getTime() / 1000) + 5}.000100`;
+      const { handle, threadNotices } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await deliver(fixture, mention(after));
+      await drain(handle);
+      expect(linesOf(threadNotices)).toEqual([
+        { threadTs: after, notice: { message: "channelOff" } },
+      ]);
+    });
+
+    test("rollout on: an agent ownerless within its grace period still makes a mention a turn, with no line", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await ownerlessFor(fixture, 13);
+      const { handle, threadNotices } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await drain(handle);
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      expect(threadNotices).toEqual([]);
+    });
+
+    test("rollout on: a paused agent says nothing in a channel waiting for approval", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await createPostgresSurfaceBindingStore(db).requireApproval(
+        fixture.bindingId,
+      );
+      await db
+        .update(agents)
+        .set({ status: "paused" })
+        .where(eq(agents.id, fixture.agentId));
+      const { handle, notices, threadNotices } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await drain(handle);
+      expect(threadNotices).toEqual([]);
+      expect(notices).toEqual([]);
+      expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
+    });
+
+    for (const rollout of ["off", "shadow"] as const) {
+      test(`rollout ${rollout}: a mention where the channel listens to nothing opens its session as before, with no line`, async () => {
+        const fixture = await agentInSlack("main", { rollout, listen: "off" });
+        const { handle, threadNotices } = handler();
+        await deliver(fixture, mention("100.000100"));
+        await drain(handle);
+        expect(await sessionsOf(fixture)).toHaveLength(1);
+        expect(await mentionTurnsOf(fixture)).toEqual([]);
+        expect(threadNotices).toEqual([]);
+      });
+    }
 
     /** A person's DM to the agent; a thread reply with `thread_ts`. */
     const dmPost = (ts: string, extra: Record<string, unknown> = {}) => ({
@@ -5495,6 +5708,20 @@ describe.each(ENGINES)(
       ts,
       text: "what changed this week",
       ...extra,
+    });
+
+    test("rollout on: a DM to a paused agent is no turn and gets no line, as before", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await db
+        .update(agents)
+        .set({ status: "paused" })
+        .where(eq(agents.id, fixture.agentId));
+      const { handle, notices, threadNotices } = handler();
+      await deliver(fixture, dmPost("100.000100"));
+      await drain(handle);
+      expect(await mentionTurnsOf(fixture)).toEqual([]);
+      expect(threadNotices).toEqual([]);
+      expect(notices).toEqual([]);
     });
     const turnPlacesOf = (fixture: Fixture) =>
       db
@@ -5819,6 +6046,23 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     expect(after?.admissionState).toBe("active");
   });
 
+  test("the requester still stops the work of an agent ownerless past its grace period", async () => {
+    const { fixture, view, session, post } = await workingThread();
+    await db
+      .delete(schema.agentAdmins)
+      .where(eq(schema.agentAdmins.agentId, fixture.agentId));
+    await db
+      .update(agents)
+      .set({ ownerlessSince: sql`now() - interval '15 days'` })
+      .where(eq(agents.id, fixture.agentId));
+    await deliver(fixture, post(at(1), { text: "stop" }));
+    await drain(view.handle);
+    expect((await turnStatesOf(session.id)).map((turn) => turn.status)).toEqual(
+      ["running", "cancelled"],
+    );
+    expect(await interruptsOf(session.id)).toHaveLength(1);
+  });
+
   test("a post written before the stop word but taken after its Slack time is cancelled too", async () => {
     const { fixture, view, session, post } = await workingThread();
     // The inbox took the earlier post late: its turn is newer than the stop
@@ -5936,6 +6180,111 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     ]);
   });
 
+  /** A task's thread: its first turn waiting for a worker, rollout on. */
+  async function unstartedTask() {
+    const fixture = await agentInSlack("main", { rollout: "off" });
+    const view = handler();
+    const root = at(-100);
+    await deliver(fixture, mention(root));
+    await drain(view.handle);
+    const [session] = await sessionsOf(fixture);
+    if (session === undefined) throw new Error("no session was opened");
+    await db
+      .update(sessions)
+      .set({ taskClosing: TASK_CLOSING_DEFAULT })
+      .where(eq(sessions.id, session.id));
+    await rolloutOn(fixture);
+    const post = (ts: string, extra: Record<string, unknown> = {}) =>
+      message(ts, { thread_ts: root, ...extra });
+    return { fixture, view, session, post };
+  }
+
+  test("a task's stop before its first turn closes the task, nothing left to launch, and the thread is told it was closed", async () => {
+    const { fixture, view, session, post } = await unstartedTask();
+    await deliver(fixture, post(at(1), { text: "그만" }));
+    expect(await drain(view.handle)).toMatchObject({ processed: 1, failed: 0 });
+
+    expect(await turnStatesOf(session.id)).toEqual([
+      { sequence: 1, status: "cancelled", terminalReason: "stop_requested" },
+    ]);
+    expect(await interruptsOf(session.id)).toEqual([]);
+    const [after] = await sessionsOf(fixture);
+    expect(after).toMatchObject({
+      admissionState: "closed",
+      status: "stopped",
+      taskClosedReason: "cancelled",
+    });
+    expect(
+      await db
+        .select()
+        .from(schema.unassignedSessions)
+        .where(eq(schema.unassignedSessions.sessionId, session.id)),
+    ).toEqual([]);
+    // The task's request is no waiting message: the line has no count.
+    expect(view.threadNotices).toMatchObject([
+      { notice: { message: "taskStoppedBeforeStart" } },
+    ]);
+    expect(view.threadNotices[0]?.notice).not.toHaveProperty("count");
+  });
+
+  test("messages waiting behind the task's request are counted in the closed line", async () => {
+    const { fixture, view, session, post } = await unstartedTask();
+    await deliver(fixture, post(at(1), { text: "and the tests" }));
+    await drain(view.handle);
+    await deliver(fixture, post(at(2), { text: "stop" }));
+    await drain(view.handle);
+    expect((await turnStatesOf(session.id)).map((turn) => turn.status)).toEqual(
+      ["cancelled", "cancelled"],
+    );
+    expect(view.threadNotices).toMatchObject([
+      { notice: { message: "taskStoppedBeforeStartQueued", count: 1 } },
+    ]);
+  });
+
+  test("a closed task's stop line that cannot be written is not retried, so the stop word never becomes a new mention", async () => {
+    const { fixture, view, session, post } = await unstartedTask();
+    view.sink.recordInThread = async () => {
+      throw new Error("outbox down");
+    };
+    await deliver(fixture, post(at(1), { text: `<@${BOT_USER}> stop` }));
+    expect(await drain(view.handle)).toMatchObject({
+      processed: 1,
+      retried: 0,
+      failed: 0,
+    });
+    const [after] = await sessionsOf(fixture);
+    expect(after?.admissionState).toBe("closed");
+    expect(await turnStatesOf(session.id)).toHaveLength(1);
+    expect(
+      await db
+        .select({ id: schema.conversationTurns.id })
+        .from(schema.conversationTurns)
+        .where(eq(schema.conversationTurns.agentId, fixture.agentId)),
+    ).toEqual([]);
+  });
+
+  test("a task whose first turn started stays open, and the thread gets the stop line it always had", async () => {
+    const { fixture, view, session, post } = await unstartedTask();
+    await setTurn(session.id, 1, {
+      status: "running",
+      attemptId: "attempt-1",
+      startedAt: new Date(),
+    });
+    await deliver(fixture, post(at(1), { text: "and the tests" }));
+    await drain(view.handle);
+    await deliver(fixture, post(at(2), { text: "그만" }));
+    await drain(view.handle);
+    expect((await turnStatesOf(session.id)).map((turn) => turn.status)).toEqual(
+      ["running", "cancelled"],
+    );
+    expect(await interruptsOf(session.id)).toHaveLength(1);
+    const [after] = await sessionsOf(fixture);
+    expect(after?.admissionState).toBe("active");
+    expect(view.threadNotices).toMatchObject([
+      { notice: { message: "sessionStoppedQueued", count: 1 } },
+    ]);
+  });
+
   test("with nothing running or waiting, a stop changes nothing and says so", async () => {
     const { fixture, view, session, post } = await workingThread();
     await setTurn(session.id, 1, { status: "completed", endedAt: new Date() });
@@ -5986,6 +6335,7 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
       outcome: "cancelled",
       cancelled: 1,
       runningTurnId: "1",
+      closed: false,
     });
     // The process died before the stop was done; meanwhile turn 1 ended and
     // new work came in and started.

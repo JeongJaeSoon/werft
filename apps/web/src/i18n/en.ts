@@ -344,6 +344,30 @@ export const slackEn = {
   "slack.approved": "Channel approved.",
   "slack.left": "Left",
   "slack.inactive": "Inactive",
+  "slack.emergencyStop.action": "Emergency stop",
+  "slack.emergencyStop.actionOf": "Emergency stop in {channel}",
+  "slack.emergencyStop.badge": "Emergency-stopped",
+  "slack.emergencyStop.by": "Stopped by {who} at {at}. Reason: {reason}",
+  "slack.emergencyStop.byUnknown": "Stopped at {at}. Reason: {reason}",
+  "slack.emergencyStop.title": "Emergency stop in {channel}",
+  "slack.emergencyStop.description":
+    "Stops what the agent is doing in this channel at once and turns the channel off. Work under way is cut off, and posts not sent yet are cancelled. The channel is told that an admin stopped the agent.",
+  "slack.emergencyStop.reason": "Reason",
+  "slack.emergencyStop.reasonHint": "Kept in the audit log.",
+  "slack.emergencyStop.reasonRequired": "Enter a reason.",
+  "slack.emergencyStop.reasonTooLong":
+    "Keep the reason to {max} characters or fewer.",
+  "slack.emergencyStop.cancel": "Cancel",
+  "slack.emergencyStop.submit": "Emergency stop",
+  "slack.emergencyStop.submitting": "Stopping",
+  "slack.emergencyStop.done":
+    "{channel}: stopped {sessions} sessions and {turns} tasks, and cancelled {posts} unsent posts.",
+  "slack.emergencyStop.resumeTitle": "Turn {channel} on again",
+  "slack.emergencyStop.resumeDescription":
+    "Once it is on, the agent answers in this channel again. Stopped sessions do not go on by themselves: someone who can write to a session resumes it.",
+  "slack.emergencyStop.resumeSubmit": "Turn on",
+  "slack.emergencyStop.resumeSubmitting": "Turning on",
+  "slack.emergencyStop.resumed": "{channel} is on again.",
   "slack.gone": "Deleted",
   "slack.goneHint":
     "The channel was deleted in Slack, so the agent neither receives nor sends messages there.",

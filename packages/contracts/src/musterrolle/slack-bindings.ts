@@ -49,6 +49,11 @@ export const putSlackBindingRequestSchema = z
     m1_judgments_per_hour: m1JudgmentsPerHourSchema.optional(),
     home: z.boolean().default(false),
     ceiling: surfaceCeilingSchema.optional(),
+    /**
+     * Why the channel is turned on again after an emergency stop; required
+     * then (400 otherwise) and kept in the receipt. Ignored on any other save.
+     */
+    reason: z.string().trim().min(1).max(500).optional(),
   })
   .strict()
   .superRefine((request, ctx) => {
@@ -102,6 +107,32 @@ export const resolveSlackBindingResponseSchema = z
   })
   .strict();
 
+/** What the channel is told when its agent is stopped in an emergency. */
+export const SLACK_EMERGENCY_STOP_TEXT = "관리자가 이 에이전트를 멈췄어요";
+
+/** Why the agent is stopped in the channel: required, kept in the receipt. */
+export const emergencyStopSlackBindingRequestSchema = z
+  .object({ reason: z.string().trim().min(1).max(500) })
+  .strict();
+
+/**
+ * What an emergency stop stopped, as counts only: nothing anyone wrote in
+ * the channel or its sessions is returned.
+ */
+export const emergencyStopSlackBindingResponseSchema = z
+  .object({
+    slack_binding: surfaceBindingSchema,
+    stopped: z
+      .object({
+        sessions: z.number().int().nonnegative(),
+        turns: z.number().int().nonnegative(),
+        posts: z.number().int().nonnegative(),
+      })
+      .strict(),
+    receipt_id: receiptIdSchema,
+  })
+  .strict();
+
 export const slackBindingParamsSchema = z
   .object({
     id: agentIdSchema,
@@ -135,6 +166,11 @@ export const SLACK_BINDING_MESSAGES = {
     "이 채널은 승인을 기다리고 있지 않거나, 그 사이에 바뀌었어요. 목록을 새로 읽고 다시 시도하세요",
   externalShared:
     "외부 조직과 공유한 채널은 멘션으로만 들을 수 있어요. 듣기를 mention이나 off로 정하세요",
+  notChannel:
+    "긴급 정지는 채널에서만 할 수 있어요. DM은 DM 설정을 off로 정하세요",
+  alreadyStopped:
+    "이 채널의 에이전트는 이미 긴급 정지돼 있어요. 다시 켜려면 이유를 적고 켜세요",
+  reasonRequired: "긴급 정지된 채널을 다시 켜려면 이유를 적어야 해요",
 } as const;
 /** The `details.reason_code` sent with each of those messages. */
 export const SLACK_BINDING_REASON_CODES = {
@@ -146,6 +182,9 @@ export const SLACK_BINDING_REASON_CODES = {
   pendingHome: "pending_home",
   notPending: "not_pending",
   externalShared: "external_shared_channel",
+  notChannel: "not_channel",
+  alreadyStopped: "already_emergency_stopped",
+  reasonRequired: "reason_required",
 } as const satisfies Record<keyof typeof SLACK_BINDING_MESSAGES, string>;
 
 export type PutSlackBindingRequest = z.infer<
@@ -159,6 +198,12 @@ export type ResolveSlackBindingRequest = z.infer<
 >;
 export type ResolveSlackBindingResponse = z.infer<
   typeof resolveSlackBindingResponseSchema
+>;
+export type EmergencyStopSlackBindingRequest = z.infer<
+  typeof emergencyStopSlackBindingRequestSchema
+>;
+export type EmergencyStopSlackBindingResponse = z.infer<
+  typeof emergencyStopSlackBindingResponseSchema
 >;
 export type ListSlackBindingsResponse = z.infer<
   typeof listSlackBindingsResponseSchema

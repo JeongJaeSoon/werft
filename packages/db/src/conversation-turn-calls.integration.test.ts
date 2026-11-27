@@ -311,6 +311,25 @@ integration("conversation turn calls on PostgreSQL", () => {
     expect(rows).toHaveLength(0);
   });
 
+  test("a regrant of a call under way is refused once its turn has ended (an emergency stop ends it)", async () => {
+    const turn = await permit(operator, await newTopic());
+    const exchangeId = crypto.randomUUID();
+    const regrant = () =>
+      store().authorizeTurnCallAtomic({
+        tokenHash: hashConversationCallToken(turn.token),
+        exchangeId,
+        callId: conversationCallIdSchema.parse(crypto.randomUUID()),
+        reserveFor: () => ({ reserve: RESERVE, unmetered: false }),
+      });
+    expect((await regrant()).outcome).toBe("ok");
+    expect((await regrant()).outcome).toBe("ok");
+    await pool.query(
+      "UPDATE conversation_turns SET state = 'no_decision', ended_at = clock_timestamp() WHERE id = $1",
+      [turn.turnId],
+    );
+    expect((await regrant()).outcome).toBe("invalid_token");
+  });
+
   test("a permit that runs out while its call waits on the limits: the call is refused and holds nothing", async () => {
     const turn = await permit(operator, await newTopic());
     await pool.query(

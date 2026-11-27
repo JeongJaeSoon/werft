@@ -16,6 +16,11 @@ export type StopQueuedResult =
       cancelled: number;
       /** The turn running now, the one to interrupt; null for none. */
       runningTurnId: string | null;
+      /**
+       * The stop closed the session: a task whose first turn never started,
+       * so nothing is left to carry on.
+       */
+      closed: boolean;
     };
 
 export interface SessionStops {

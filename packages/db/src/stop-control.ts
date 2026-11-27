@@ -3,7 +3,7 @@ import type {
   StopQueuedInput,
   StopQueuedResult,
 } from "@werft-ai/platform";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import {
   lockSessionForControl,
   OPEN_TURN_STATUSES,
@@ -11,9 +11,18 @@ import {
 } from "./control-shared.ts";
 import { dbNow } from "./db-clock.ts";
 import type { Database } from "./queries.ts";
-import { cancelQueuedInput } from "./recovery-control.ts";
-import { sessionStops, turns } from "./schema.ts";
+import { cancelQueuedInput, closeSessionRow } from "./recovery-control.ts";
+import { sessionStops, type sessions, turns } from "./schema.ts";
+import {
+  hasRestorePoint,
+  restoreBaseRevision,
+} from "./sessions/pause-policy.ts";
+import { recordEvent, recordStatus } from "./sessions/session-events.ts";
+import { recordTaskClosedReason } from "./sessions/task-fields.ts";
 import { touchSlackThreadStatus } from "./surface/slack-thread-status.ts";
+
+/** Who closed it, on the session_closed event and the status event. */
+export const STOP_BEFORE_START = "stop_before_start";
 
 export function createPostgresSessionStops(db: Database): SessionStops {
   return {
@@ -43,7 +52,18 @@ export function createPostgresSessionStops(db: Database): SessionStops {
             ),
           )
           .limit(1);
-        if (done !== undefined) return { outcome: "cancelled", ...done };
+        if (done !== undefined) {
+          // Only that stop records a task cancelled while nothing ran.
+          return {
+            outcome: "cancelled",
+            ...done,
+            closed:
+              session.admissionState === "closed" &&
+              session.taskClosedReason === "cancelled" &&
+              done.runningTurnId === null &&
+              !(await anyTurnStarted(tx, sessionId)),
+          };
+        }
         if (
           session.admissionState === "closed" ||
           session.admissionState === "closing"
@@ -61,7 +81,6 @@ export function createPostgresSessionStops(db: Database): SessionStops {
           now,
           inputOnly: true,
         });
-        if (cancelled.length > 0) await touchSlackThreadStatus(tx, sessionId);
         const [running] = await tx
           .select({ sequence: turns.sequence })
           .from(turns)
@@ -73,6 +92,16 @@ export function createPostgresSessionStops(db: Database): SessionStops {
           )
           .orderBy(desc(turns.sequence))
           .limit(1);
+        const closed =
+          running === undefined &&
+          cancelled.length > 0 &&
+          session.taskClosing !== null &&
+          session.admissionState === "active" &&
+          !(await anyTurnStarted(tx, sessionId));
+        if (closed) {
+          await closeUnstartedTask(tx, session, now, cancelled.length);
+        }
+        if (cancelled.length > 0) await touchSlackThreadStatus(tx, sessionId);
         const result = {
           cancelled: cancelled.length,
           runningTurnId:
@@ -83,8 +112,66 @@ export function createPostgresSessionStops(db: Database): SessionStops {
           idempotencyKey: input.idempotencyKey,
           ...result,
         });
-        return { outcome: "cancelled", ...result };
+        return { outcome: "cancelled", ...result, closed };
       });
     },
   };
+}
+
+type SessionRow = typeof sessions.$inferSelect;
+
+async function anyTurnStarted(
+  tx: Database,
+  sessionId: string,
+): Promise<boolean> {
+  const [started] = await tx
+    .select({ sequence: turns.sequence })
+    .from(turns)
+    .where(and(eq(turns.sessionId, sessionId), isNotNull(turns.startedAt)))
+    .limit(1);
+  return started !== undefined;
+}
+
+/**
+ * A task stopped before its first turn started: nothing ran, so nothing is
+ * left to resume once its input is cancelled, and open it would hold one of
+ * the open tasks its conversation and agent may have (openTaskLimit) until
+ * it closed as abandoned. Closed as a recovery close leaves a session, the
+ * task as cancelled.
+ */
+async function closeUnstartedTask(
+  tx: Database,
+  session: SessionRow,
+  now: Date,
+  cancelledTurnCount: number,
+): Promise<void> {
+  await closeSessionRow(
+    tx,
+    session,
+    now,
+    "superseded by a stop before the task's first turn",
+  );
+  await recordTaskClosedReason(tx, session.id, "cancelled");
+  await recordStatus(tx, {
+    sessionId: session.id,
+    phase: "stopped",
+    extra: { admission_state: "closed", closed_by: STOP_BEFORE_START },
+    turnRowId: null,
+    now,
+  });
+  await recordEvent(tx, {
+    sessionId: session.id,
+    type: "system",
+    payload: {
+      type: "system",
+      subtype: "session_closed",
+      closed_by: STOP_BEFORE_START,
+      checkpoint_revision: hasRestorePoint(session)
+        ? restoreBaseRevision(session)
+        : null,
+      cancelled_turn_count: cancelledTurnCount,
+    },
+    turnRowId: null,
+    now,
+  });
 }

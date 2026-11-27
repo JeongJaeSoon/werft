@@ -9,6 +9,7 @@ import {
   revisionSchema,
   surfaceBindingIdSchema,
   timestampSchema,
+  userIdSchema,
   workspaceIdSchema,
 } from "../shared/index.ts";
 
@@ -201,6 +202,24 @@ export const surfaceBindingSchema = z
     /** Absent on a DM binding and on a channel not checked yet. */
     membership: surfaceMembershipSchema.optional(),
     muted: z.boolean(),
+    /**
+     * Set while the channel is off after an emergency stop: who stopped it,
+     * when and why. Turning it on again clears it and needs a reason of its
+     * own. Null otherwise; absent from a server older than the field.
+     */
+    emergency_stop: z
+      .object({
+        stopped_at: timestampSchema,
+        /** Null once the person is no longer a user of the workspace. */
+        stopped_by: z
+          .object({ user_id: userIdSchema, name: z.string() })
+          .strict()
+          .nullable(),
+        reason: z.string(),
+      })
+      .strict()
+      .nullable()
+      .optional(),
     revision: revisionSchema,
     created_at: timestampSchema,
     revoked_at: timestampSchema.nullable(),

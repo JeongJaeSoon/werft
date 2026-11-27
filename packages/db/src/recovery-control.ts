@@ -69,6 +69,7 @@ import {
   RUNTIME_RETIRED_REASON,
 } from "./sessions/restore-failures.ts";
 import { recordEvent, recordStatus } from "./sessions/session-events.ts";
+import { emergencyStopHolds } from "./surface/emergency-stop-hold.ts";
 
 const RECOVERY_DECISION = "recovery_decision";
 // The terminal reason of an unknown turn a start_fresh runs again as a new turn.
@@ -341,6 +342,15 @@ export function decideRecoveryAtomic(
     // whose absence could be confirmed and no kill a close could record.
     if (session.podId !== null && session.executionId === null) {
       return { outcome: "unsupported" };
+    }
+    // Both put the session back to work, which only turning its channel on
+    // again allows.
+    if (
+      (decision.decision === "start_fresh" ||
+        decision.decision === "retry_restore") &&
+      (await emergencyStopHolds(tx, sessionId))
+    ) {
+      return { outcome: "emergency_stopped" };
     }
 
     let targetTurnRowId: number | null = null;
@@ -1104,6 +1114,11 @@ export function resumeAtomic(
     }
     // Stopped for a deleted source: nothing brings it back, close ends it.
     if (session.sourceDeletedAt !== null) return { outcome: "source_deleted" };
+    // An admin stopped the agent in the session's channel: only turning the
+    // channel on again lets it go on.
+    if (await emergencyStopHolds(tx, sessionId)) {
+      return { outcome: "emergency_stopped" };
+    }
     // stopping: the kill is not yet observed. recovery_required: a turn is
     // unknown. Both are RECOVERY_REQUIRED to the caller.
     if (

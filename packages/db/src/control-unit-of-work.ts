@@ -138,35 +138,23 @@ function sessionIdFromTarget(target: unknown): string | undefined {
 
 type SessionRow = typeof sessions.$inferSelect;
 
+type StopBy =
+  | "terminate"
+  | "execution revocation"
+  | "source deletion"
+  | "emergency stop";
+
 /**
- * What stopping a session's execution writes, apart from the session row:
- * the terminate transaction and the operator's
- * execution revocation make the same writes. Queued input is
- * cancelled, open questions are closed, the bound generation's kill intent
- * is recorded and a pause or resume still in flight is superseded. The
- * caller holds the launch and session row locks (lockSessionForControl),
- * moves the session's epoch in the same transaction and then hands
- * `inputWait` to announceStopped, once the session row says where it now
- * is; `by` names the command in the errors the superseded
- * receipts carry.
+ * Queued input will never run: its turns end as cancelled, its queue
+ * rows go, and whoever submitted it learns so through the receipt.
  */
-export async function stopExecution(
+export async function cancelQueuedInput(
   tx: Database,
-  session: SessionRow,
-  input: {
-    now: Date;
-    by: "terminate" | "execution revocation" | "source deletion";
-    measure?: ControlStageMeasure;
-  },
-): Promise<{
-  pendingKill: boolean;
-  inputWait: { waitingBefore: boolean; at: Date };
-}> {
+  sessionId: string,
+  input: { now: Date; by: StopBy; measure?: ControlStageMeasure },
+): Promise<void> {
   const { now, by } = input;
   const measure = input.measure ?? (async (_stage, work) => work());
-  const sessionId = session.id;
-  // Queued input will never run: its turns end as cancelled, its queue
-  // rows go, and whoever submitted it learns so through the receipt.
   const cancelled = await measure("cancel_queued_turns_ms", () =>
     tx
       .update(turns)
@@ -240,6 +228,36 @@ export async function stopExecution(
         ),
     );
   }
+}
+
+/**
+ * What stopping a session's execution writes, apart from the session row:
+ * the terminate transaction and the operator's
+ * execution revocation make the same writes. Queued input is
+ * cancelled, open questions are closed, the bound generation's kill intent
+ * is recorded and a pause or resume still in flight is superseded. The
+ * caller holds the launch and session row locks (lockSessionForControl),
+ * moves the session's epoch in the same transaction and then hands
+ * `inputWait` to announceStopped, once the session row says where it now
+ * is; `by` names the command in the errors the superseded
+ * receipts carry.
+ */
+export async function stopExecution(
+  tx: Database,
+  session: SessionRow,
+  input: {
+    now: Date;
+    by: StopBy;
+    measure?: ControlStageMeasure;
+  },
+): Promise<{
+  pendingKill: boolean;
+  inputWait: { waitingBefore: boolean; at: Date };
+}> {
+  const { now, by } = input;
+  const measure = input.measure ?? (async (_stage, work) => work());
+  const sessionId = session.id;
+  await cancelQueuedInput(tx, sessionId, { now, by, measure });
   // Judged on the database clock, which is what the projection reads with;
   // the caller's clock only stamps the rows.
   const at = await measure("database_clock_ms", () => dbNow(tx));

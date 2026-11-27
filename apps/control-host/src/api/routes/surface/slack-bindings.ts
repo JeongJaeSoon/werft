@@ -1,5 +1,7 @@
 import {
   agentIdParamsSchema,
+  emergencyStopSlackBindingRequestSchema,
+  emergencyStopSlackBindingResponseSchema,
   listSlackBindingsResponseSchema,
   putSlackBindingRequestSchema,
   putSlackBindingResponseSchema,
@@ -45,6 +47,37 @@ export function registerSlackBindingRoutes(
       home: set.slack_binding.home,
     });
     return jsonWithSchema(context, putSlackBindingResponseSchema, set);
+  });
+
+  apiRoute(router, "emergencyStopSlackBinding", async (context) => {
+    const params = requireParams(context, slackBindingParamsSchema);
+    const body = await parseJsonBody(
+      context,
+      emergencyStopSlackBindingRequestSchema,
+    );
+    const stopped = await mapped(() =>
+      service.emergencyStopSlackBinding(
+        context.get("caller"),
+        params.id,
+        params.binding_id,
+        body,
+      ),
+    );
+    // Ids and counts only: the reason is the receipt's.
+    logger?.warn("Slack binding emergency-stopped", {
+      agent_id: params.id,
+      surface_binding_id: params.binding_id,
+      channel_id: stopped.slack_binding.external_surface_id,
+      receipt_id: stopped.receipt_id,
+      stopped_sessions: stopped.stopped.sessions,
+      stopped_turns: stopped.stopped.turns,
+      cancelled_posts: stopped.stopped.posts,
+    });
+    return jsonWithSchema(
+      context,
+      emergencyStopSlackBindingResponseSchema,
+      stopped,
+    );
   });
 
   for (const decision of ["approve", "reject"] as const) {

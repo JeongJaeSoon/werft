@@ -350,6 +350,30 @@ export const slackJa = {
   "slack.approved": "チャンネルを承認しました。",
   "slack.left": "退出",
   "slack.inactive": "無効",
+  "slack.emergencyStop.action": "緊急停止",
+  "slack.emergencyStop.actionOf": "{channel} で緊急停止",
+  "slack.emergencyStop.badge": "緊急停止中",
+  "slack.emergencyStop.by": "{who} が {at} に停止しました。理由: {reason}",
+  "slack.emergencyStop.byUnknown": "{at} に停止しました。理由: {reason}",
+  "slack.emergencyStop.title": "{channel} で緊急停止",
+  "slack.emergencyStop.description":
+    "このチャンネルでエージェントが行っている作業をすぐに止め、チャンネルでの使用をオフにします。進行中の作業は中断され、まだ送っていない投稿は取り消されます。チャンネルには管理者がエージェントを止めたことを知らせます。",
+  "slack.emergencyStop.reason": "理由",
+  "slack.emergencyStop.reasonHint": "監査ログに残ります。",
+  "slack.emergencyStop.reasonRequired": "理由を入力してください。",
+  "slack.emergencyStop.reasonTooLong":
+    "理由は {max} 文字以内で入力してください。",
+  "slack.emergencyStop.cancel": "キャンセル",
+  "slack.emergencyStop.submit": "緊急停止",
+  "slack.emergencyStop.submitting": "停止中",
+  "slack.emergencyStop.done":
+    "{channel}: セッション {sessions} 件と作業 {turns} 件を止め、未送信の投稿 {posts} 件を取り消しました。",
+  "slack.emergencyStop.resumeTitle": "{channel} を再びオンにする",
+  "slack.emergencyStop.resumeDescription":
+    "オンにすると、このチャンネルでエージェントが再び応答します。止めたセッションは自動では続きません。セッションに書き込める人が再開します。",
+  "slack.emergencyStop.resumeSubmit": "オンにする",
+  "slack.emergencyStop.resumeSubmitting": "オンにしています",
+  "slack.emergencyStop.resumed": "{channel} を再びオンにしました。",
   "slack.gone": "削除済み",
   "slack.goneHint":
     "Slack でチャンネルが削除されたため、メッセージを受け取りも送りもしません。",

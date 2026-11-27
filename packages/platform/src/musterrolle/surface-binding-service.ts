@@ -1,5 +1,7 @@
 import {
   DEFAULT_SURFACE_CEILING,
+  type EmergencyStopSlackBindingRequest,
+  type EmergencyStopSlackBindingResponse,
   type ListSlackBindingsResponse,
   type PutSlackBindingRequest,
   type PutSlackBindingResponse,
@@ -8,6 +10,7 @@ import {
   SLACK_BINDING_LIST_LIMIT,
   SLACK_BINDING_MESSAGES,
   SLACK_BINDING_REASON_CODES,
+  SLACK_EMERGENCY_STOP_TEXT,
   type SurfaceBinding,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
@@ -69,6 +72,20 @@ export function surfaceBindingView(
       : { approved_at: record.approvedAt.toISOString() }),
     ...(record.membership === null ? {} : { membership: record.membership }),
     muted: record.muted,
+    emergency_stop:
+      record.emergencyStop == null
+        ? null
+        : {
+            stopped_at: record.emergencyStop.stoppedAt.toISOString(),
+            stopped_by:
+              record.emergencyStop.stoppedBy === null
+                ? null
+                : {
+                    user_id: record.emergencyStop.stoppedBy.userId,
+                    name: record.emergencyStop.stoppedBy.name,
+                  },
+            reason: record.emergencyStop.reason,
+          },
     revision: record.revision,
     created_at: record.createdAt.toISOString(),
     revoked_at: record.revokedAt?.toISOString() ?? null,
@@ -226,6 +243,7 @@ export function createSurfaceBindingService(deps: {
         home: request.home,
         ceiling: request.ceiling ?? DEFAULT_SURFACE_CEILING,
         managerRoles: MANAGERS,
+        ...(request.reason === undefined ? {} : { reason: request.reason }),
       });
       switch (result.outcome) {
         case "set":
@@ -242,6 +260,56 @@ export function createSurfaceBindingService(deps: {
           throw bindingError("REVISION_CONFLICT", "conflict");
         case "pending_home":
           throw bindingError("BAD_REQUEST", "pendingHome");
+        case "reason_required":
+          throw bindingError("BAD_REQUEST", "reasonRequired");
+        case "outranked":
+          throw new SessionServiceError(
+            "FORBIDDEN",
+            "The caller no longer holds this right",
+            undefined,
+            { reason_code: "role" },
+          );
+        default:
+          throw new SessionServiceError(
+            "FORBIDDEN",
+            "This principal is no longer a member of the workspace",
+          );
+      }
+    },
+
+    /**
+     * Whoever may set the channel stops its agent there at once. What is
+     * returned is counts: nothing anyone wrote there is read for the caller.
+     */
+    async emergencyStopSlackBinding(
+      caller: Caller,
+      agentId: string,
+      bindingId: string,
+      request: EmergencyStopSlackBindingRequest,
+    ): Promise<EmergencyStopSlackBindingResponse> {
+      await permitted(caller, agentId);
+      const result = await store.emergencyStop({
+        principal: caller,
+        workspaceId: caller.ownerId,
+        agentId,
+        bindingId,
+        reason: request.reason,
+        text: SLACK_EMERGENCY_STOP_TEXT,
+        managerRoles: MANAGERS,
+      });
+      switch (result.outcome) {
+        case "stopped":
+          return {
+            slack_binding: surfaceBindingView(result.binding),
+            stopped: result.stopped,
+            receipt_id: result.receiptId,
+          };
+        case "not_found":
+          throw new SessionServiceError("NOT_FOUND", "Resource not found");
+        case "not_channel":
+          throw bindingError("BAD_REQUEST", "notChannel");
+        case "already_stopped":
+          throw bindingError("REVISION_CONFLICT", "alreadyStopped");
         case "outranked":
           throw new SessionServiceError(
             "FORBIDDEN",
