@@ -445,8 +445,10 @@ describe("a dropped session's directory", () => {
     s.answer(false);
     await expect(opening).rejects.toThrow("did not exit");
     expect(started).toBe(false);
-    // Killed once: by a later look its pid may be another process's.
+    // Killed once: by a later look its pid may be another process's. Waited
+    // for once: the later look is given no time.
     expect(s.log).toEqual(["closed", "killed", "exit awaited", "exit awaited"]);
+    expect(s.waits.map((ms) => ms > 0)).toEqual([true, false]);
     expect((await stat(join(root, t))).isDirectory()).toBe(true);
 
     // Once it has exited, the next drop removes what it left.
@@ -576,22 +578,23 @@ describe("a dropped session's directory", () => {
     expect(await readdir(root)).toEqual([fresh]);
   });
 
-  test("a session dropped at the limit whose engine's exit is not seen does not fail the topic being opened; its engine is still held, so the next idle longest is dropped too", async () => {
+  test("a session dropped at the limit whose engine's exit is not seen does not fail the topic being opened, nor cost it a second wait", async () => {
     const s = held({ limit: 2 });
     const [first, second, third] = [topic(), topic(), topic()];
     await s.sessions.open(first, () => s.run);
     s.tick(1);
     await s.sessions.open(second, () => s.run);
     s.tick(1);
+    s.log.length = 0;
 
     const opening = s.sessions.open(third, () => s.run);
     await s.asked();
     s.answer(false);
-    await s.asked();
-    s.answer(true);
     expect((await opening).topicId).toBe(third);
-    // One live and one still ending: the two the runtime may hold.
-    expect(s.sessions.size).toBe(1);
-    expect((await readdir(root)).sort()).toEqual([first, third].sort());
+    // After what the topic's path held before, the one idle longest was
+    // dropped, and no other for it.
+    expect(s.log).toEqual(["removed", "closed", "killed", "exit awaited"]);
+    expect(s.sessions.size).toBe(2);
+    expect((await readdir(root)).sort()).toEqual([first, second, third].sort());
   });
 });
