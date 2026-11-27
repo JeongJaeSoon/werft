@@ -29,22 +29,14 @@ const KILL_GRACE_MS = 1000;
 export const GITLEAKS_CONFIG = "[extend]\nuseDefault = true\n";
 
 /**
- * The default config's global allowlist skips files by name (`go.sum`,
- * `package-lock.json`, `*.svg`, any path with `gitleaks.toml` in it, ...),
- * so a skill could hide a value by naming its file. Each file is copied
- * under a name of ours instead, keeping only the endings that the five
- * path-scoped default rules look for. Binary files are still skipped: gitleaks
- * tells them by content, not by name.
- */
-/**
  * gitleaks skips a file whose first bytes h2non/filetype (v1.1.3 in 8.30.1)
  * types as application/*, and text can start that way: "%PDF-", "PK" + 3 + 4
  * and "MZ" are valid UTF-8. A text copy starts with newlines past the deepest
  * byte filetype reads (32773, the ISO 9660 mark), so every text file is read;
  * report lines are shifted back. This moves where gitleaks' first 100 kB read
  * ends that many bytes earlier (its cut is the next blank line, at most 25 kB
- * on); against an unprefixed run of the real binary, findings
- * at byte 0 and around the cuts were the same.
+ * on); against an unprefixed run of the real binary, findings at byte 0 and
+ * around the cuts were the same.
  */
 const TEXT_PREFIX = Buffer.alloc(32_774, 0x0a);
 export const GITLEAKS_TEXT_PREFIX_LINES = TEXT_PREFIX.byteLength;
@@ -53,6 +45,14 @@ const strictUtf8 = new TextDecoder("utf-8", { fatal: true });
 /** The one line a scan with findings writes at --log-level warn. */
 const LEAKS_FOUND = /^\S+ WRN leaks found: \d+$/;
 
+/**
+ * The default config's global allowlist skips files by name (`go.sum`,
+ * `package-lock.json`, `*.svg`, any path with `gitleaks.toml` in it, ...),
+ * so a skill could hide a value by naming its file. Each file is copied
+ * under a name of ours instead, keeping only the endings that the five
+ * path-scoped default rules look for. A file gitleaks types by content as an
+ * application is skipped whatever its name (see TEXT_PREFIX).
+ */
 const RULE_ENDINGS = /(?:\.php|\.tf|\.hcl|\.ya?ml|\.p12|\.pfx|nuget\.config)$/i;
 
 export type GitleaksScannerOptions = {
