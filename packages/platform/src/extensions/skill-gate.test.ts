@@ -1194,3 +1194,22 @@ describe("tenth review", () => {
     ]);
   });
 });
+
+describe("eleventh review", () => {
+  const sh = (body: string) => text("skills/s/scripts/a.sh", body);
+  const calls = (before: string | null, after: string) =>
+    gate({
+      before: before === null ? null : [...licensed("s"), sh(before)],
+      after: [...licensed("s"), sh(after)],
+    }).warnings.find((w) => w.rule === "network_call")?.samples ?? [];
+
+  test("removing the start of a continued command counts what it frees", () => {
+    expect(calls("printf '%s' \\\n  npm ci\n", "  npm ci\n")).toEqual([
+      "package_install",
+    ]);
+  });
+
+  test("uv tool run runs a package", () => {
+    expect(calls(null, "uv tool run ruff\n")).toEqual(["package_runner"]);
+  });
+});

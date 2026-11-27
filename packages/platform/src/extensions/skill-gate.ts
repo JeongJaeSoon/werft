@@ -137,7 +137,7 @@ export const NETWORK_CALL_PATTERNS: readonly { id: string; pattern: RegExp }[] =
     {
       id: "package_runner",
       pattern:
-        /\b(?:npx|bunx|uvx|(?:pnpm|yarn)\s+dlx|npm(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6}\s+exec)\b/,
+        /\b(?:npx|bunx|uvx|uv\s+tool\s+run|(?:pnpm|yarn)\s+dlx|npm(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6}\s+exec)\b/,
     },
     {
       id: "package_install",
@@ -201,7 +201,7 @@ const codePoint = (char: string) =>
   `U+${(char.codePointAt(0) as number).toString(16).toUpperCase().padStart(4, "0")}`;
 
 /** Where a new text changed, by 0-based new line index. */
-type Changes = { adds: Set<number>; cuts: Set<number> };
+type Changes = { adds: Set<number>; cuts: Set<number>; joins: Set<number> };
 
 /**
  * What the new text changed: the lines it adds, the indexes of added lines,
@@ -215,7 +215,7 @@ function changesOf(
   const diff = earlier === null ? null : unifiedLineDiff(earlier, text);
   if (diff === null) return { added: text.split("\n"), at: null };
   const added: string[] = [];
-  const at: Changes = { adds: new Set(), cuts: new Set() };
+  const at: Changes = { adds: new Set(), cuts: new Set(), joins: new Set() };
   let next = 0;
   for (const line of diff.split("\n")) {
     const hunk = /^@@ -\d+(?:,\d+)? \+(\d+),(\d+) @@$/.exec(line);
@@ -227,6 +227,7 @@ function changesOf(
       at.adds.add(next++);
     } else if (line.startsWith("-")) {
       at.cuts.add(next);
+      if (line.endsWith("\\")) at.joins.add(next);
     } else {
       next++;
     }
@@ -359,8 +360,8 @@ const normalized = (line: string) =>
 /**
  * The commands of a script the update touched. A line ending in "\\" goes on
  * in the next ("npm \\" then "ci"), so the whole new text is read as logical
- * lines, and one counts when any of its lines was added, or a removal sits
- * inside it. Comments are left out: a comment line (as written: a fullwidth
+ * lines, and one counts when any of its lines was added, a removal sits
+ * inside it, or a removed line that went on into it. Comments are left out: a comment line (as written: a fullwidth
  * "＃" starts none), and a "#" or "//" after a space, outside quotes, up to
  * the line's end.
  */
@@ -373,6 +374,7 @@ function changedCalls(text: string, at: Changes | null): string[] {
     if (
       at === null ||
       at.adds.has(index) ||
+      at.joins.has(index) ||
       (parts.length > 0 && at.cuts.has(index))
     )
       touched = true;
