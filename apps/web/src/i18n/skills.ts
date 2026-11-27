@@ -188,7 +188,7 @@ export const skillsKo = {
   "skills.refused.connection_not_found":
     "고른 GitHub App이 이 워크스페이스에 없습니다. 연동 > GitHub에서 확인하세요.",
   "skills.refused.repository_not_installed":
-    "App이 이 저장소에 설치되어 있지 않고 공개 저장소도 아니라 읽지 못했습니다. 연동 > GitHub에서 설치를 확인하세요.",
+    "App이 이 저장소에 설치되어 있지 않아 읽지 못했습니다. 연동 > GitHub에서 설치를 확인하세요.",
   "skills.refused.path_not_found": "그 ref에 이 경로가 없습니다.",
   "skills.refused.github_unreachable": "GitHub에 닿지 못했습니다.",
   "skills.refused.github_rejected": "GitHub가 App의 요청을 거절했습니다.",
@@ -460,7 +460,7 @@ export const skillsEn = {
   "skills.refused.connection_not_found":
     "The chosen GitHub App is not in this workspace. Check Integrations > GitHub.",
   "skills.refused.repository_not_installed":
-    "The App is not installed on this repository and it is not public, so it could not read it. Check the installation in Integrations > GitHub.",
+    "The App is not installed on this repository, so it could not read it. Check the installation in Integrations > GitHub.",
   "skills.refused.path_not_found": "This path does not exist at that ref.",
   "skills.refused.github_unreachable": "GitHub could not be reached.",
   "skills.refused.github_rejected": "GitHub refused the App's request.",
@@ -733,7 +733,7 @@ export const skillsJa = {
   "skills.refused.connection_not_found":
     "選んだ GitHub App はこのワークスペースにありません。連携 > GitHub で確認してください。",
   "skills.refused.repository_not_installed":
-    "App がこのリポジトリにインストールされておらず、公開リポジトリでもないため読めませんでした。連携 > GitHub でインストールを確認してください。",
+    "App がこのリポジトリにインストールされていないため読めませんでした。連携 > GitHub でインストールを確認してください。",
   "skills.refused.path_not_found": "その ref にこのパスはありません。",
   "skills.refused.github_unreachable": "GitHub に届きませんでした。",
   "skills.refused.github_rejected":

@@ -216,9 +216,6 @@ export const SKILL_WEBHOOK_STATE_VALUES = [
   "no_public_url",
   // The App connection has no webhook secret stored, or is gone.
   "no_secret",
-  // A public repository the App is not installed on sends no push: daily
-  // checks and "지금 확인" only.
-  "not_installed",
 ] as const;
 export type SkillWebhookState = (typeof SKILL_WEBHOOK_STATE_VALUES)[number];
 

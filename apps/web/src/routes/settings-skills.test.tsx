@@ -578,6 +578,19 @@ describe("Git 스킬 상세의 동기화", () => {
     ).toBeDefined();
   });
 
+  test("App이 설치되지 않은 공개 저장소에는 webhook 값 대신 공개 저장소 안내가 보인다", async () => {
+    renderAt("/settings/workspace/skills/triage", {
+      "GET /v1/auth/me": () => json(200, me()),
+      ...listed(gitSkill({ access: "public", webhook: "no_public_url" })),
+    });
+    expect(
+      await screen.findByText(
+        /App이 설치되지 않은 공개 저장소라 push webhook을 받지 못합니다/,
+      ),
+    ).toBeDefined();
+    expect(screen.queryByText(/GitHub가 닿는 공개 주소가 없어/)).toBe(null);
+  });
+
   test("관리자는 워크스페이스에 지정하고 해제한다", async () => {
     // The list answers what the writes left, so a missed refetch shows.
     let attachment: Skill["workspace_attachment"] = {

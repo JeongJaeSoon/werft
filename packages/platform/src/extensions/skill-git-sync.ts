@@ -2,7 +2,6 @@ import type {
   CheckSkillResponse,
   RegisterGitHubSkillRequest,
   RegisterSkillResponse,
-  SkillGitAccess,
   SkillSyncResponse,
   SkillWebhookState,
 } from "@werft-ai/contracts";
@@ -118,13 +117,6 @@ export type SkillGitSyncDeps = {
   reader: GitHubSkillReader;
   /** The workspace's author App connections, with their keys. */
   apps: (workspaceId: string) => Promise<GitHubAppCredential[]>;
-  /**
-   * The App's installations. A public repository the App is not installed
-   * on is read with one of their tokens.
-   */
-  installations: (
-    app: AppKey,
-  ) => Promise<Array<{ id: number; suspendedAt: Date | null }>>;
   /** Which installation of the App covers `owner/name`; null when none. */
   installationFor: (
     app: AppKey,
@@ -288,10 +280,6 @@ export function createSkillGitSync(
       (await reader.repositoryById(app, installationId, repositoryId))
         ?.public === true
     );
-  }
-
-  async function readingInstallation(app: AppKey) {
-    return publicReadingInstallation(await deps.installations(app));
   }
 
   async function credentialOf(source: SkillGitSource) {
@@ -489,7 +477,11 @@ export function createSkillGitSync(
     return userId;
   }
 
-  /** No push reaches a public source: its App is not installed there. */
+  /**
+   * No push reaches a public source: its App is not installed there. It
+   * reports `no_public_url`, a value older consoles know; the console tells
+   * it apart by `access`.
+   */
   async function webhookStates(
     workspaceId: string,
   ): Promise<
@@ -498,8 +490,7 @@ export function createSkillGitSync(
     ) => SkillWebhookState
   > {
     if ((await deps.webhookUrl()) === null) {
-      return (source) =>
-        source.access === "public" ? "not_installed" : "no_public_url";
+      return () => "no_public_url";
     }
     const secrets = await Promise.all(
       (await deps.apps(workspaceId)).map(async (app) => ({
@@ -511,7 +502,7 @@ export function createSkillGitSync(
     );
     return ({ connectionId, access }) =>
       access === "public"
-        ? "not_installed"
+        ? "no_public_url"
         : secrets.some((one) => one.id === connectionId && one.set)
           ? ("ready" as const)
           : ("no_secret" as const);
@@ -625,16 +616,11 @@ export function createSkillGitSync(
       }
       const [owner = "", repo = ""] = request.repository.split("/");
       let installation: { id: number } | null;
-      let access: SkillGitAccess = "installation";
       let repository: GitHubSkillRepository | null = null;
       let commit: string | null = null;
       let tree: GitHubSkillTree | null = null;
       try {
         installation = await deps.installationFor(app, { owner, name: repo });
-        if (installation === null) {
-          installation = await readingInstallation(app);
-          access = "public";
-        }
         if (installation !== null) {
           repository = await reader.repository(
             app,
@@ -642,10 +628,6 @@ export function createSkillGitSync(
             owner,
             repo,
           );
-          // Only public content reads without the App installed there.
-          if (access === "public" && repository?.public !== true) {
-            repository = null;
-          }
         }
         if (installation !== null && repository !== null) {
           commit = await reader.resolve(
@@ -663,14 +645,6 @@ export function createSkillGitSync(
               request.path,
             );
           }
-          if (
-            access === "public" &&
-            tree?.kind === "files" &&
-            !(await stillPublic(app, installation.id, repository.id))
-          ) {
-            repository = null;
-            tree = null;
-          }
         }
       } catch (error) {
         throw unavailable(error);
@@ -678,7 +652,7 @@ export function createSkillGitSync(
       if (installation === null || repository === null) {
         throw refused(
           "repository_not_installed",
-          "The App is not installed on that repository, and it is not public or no installation of the App can read it",
+          "The App is not installed on that repository",
         );
       }
       if (commit === null) {
@@ -714,7 +688,7 @@ export function createSkillGitSync(
           newSource: {
             connectionId: app.id,
             installationId: installation.id,
-            access,
+            access: "installation",
             repositoryId: repository.id,
             repository: repository.fullName,
           },

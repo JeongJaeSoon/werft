@@ -17,6 +17,7 @@ import {
   type GitHubSkillReader,
   type GitHubSkillRepository,
   type GitHubSkillTree,
+  publicReadingInstallation,
 } from "./skill-git-sync.ts";
 
 // The store's locking, coalescing across replicas and version writes are in
@@ -248,7 +249,6 @@ function setup(
     webhookUrl?: string | null;
     /** Whether the App is installed on the repository (installation 42). */
     installed?: boolean;
-    installations?: Array<{ id: number; suspendedAt: Date | null }>;
   } = {},
 ) {
   const sources = memorySources(options.sources ?? [source()]);
@@ -343,8 +343,6 @@ function setup(
       (options.apps ?? [credential(CONNECTION, WORKSPACE)]).filter(
         (app) => app.workspaceId === workspaceId,
       ),
-    installations: async () =>
-      options.installations ?? [{ id: 42, suspendedAt: null }],
     installationFor: async () =>
       options.installed === false ? null : { id: 42 },
     webhookSecrets: async (appId) =>
@@ -681,7 +679,7 @@ describe("the console", () => {
       expect((await sync.views(WORKSPACE)).get("research")).toMatchObject({
         access: "public",
         installation_id: 50,
-        webhook: "not_installed",
+        webhook: "no_public_url",
       });
     }
   });
@@ -848,10 +846,7 @@ describe("registering from GitHub", () => {
 
   test("the App installed there reads it with that installation, public or not", async () => {
     for (const visible of [false, true]) {
-      const { sync, state, newSources } = setup({
-        sources: [],
-        installations: [{ id: 9, suspendedAt: null }],
-      });
+      const { sync, state, newSources } = setup({ sources: [] });
       if (state.repository) state.repository.public = visible;
       expect((await sync.register(caller(), request)).outcome).toBe(
         "registered",
@@ -869,94 +864,32 @@ describe("registering from GitHub", () => {
     }
   });
 
-  test("a public repository the App is not installed on is read with its oldest installation not suspended", async () => {
-    const { sync, state, newSources } = setup({
+  test("without the App installed, a public repository is refused: the repository API registers those", async () => {
+    const { sync, state, registered } = setup({
       sources: [],
       installed: false,
-      installations: [
-        { id: 60, suspendedAt: null },
-        { id: 9, suspendedAt: new Date(0) },
-        { id: 50, suspendedAt: null },
-      ],
     });
     if (state.repository) state.repository.public = true;
-    expect((await sync.register(caller(), request)).outcome).toBe("registered");
-    expect(new Set(state.asked)).toEqual(new Set([50]));
-    expect(newSources).toEqual([
-      {
-        connectionId: CONNECTION,
-        installationId: 50,
-        access: "public",
-        repositoryId: 7,
-        repository: "acme/skills",
-      },
-    ]);
-  });
-
-  test("without the App installed, a repository that is not public or not readable, or no installation to read with, is refused", async () => {
-    const cases: Array<{
-      repository: GitHubSkillRepository | null;
-      installations: Array<{ id: number; suspendedAt: Date | null }>;
-    }> = [
-      {
-        repository: {
-          id: 7,
-          fullName: "acme/skills",
-          ownerId: 70,
-          public: false,
-        },
-        installations: [{ id: 50, suspendedAt: null }],
-      },
-      { repository: null, installations: [{ id: 50, suspendedAt: null }] },
-      {
-        repository: {
-          id: 7,
-          fullName: "acme/skills",
-          ownerId: 70,
-          public: true,
-        },
-        installations: [{ id: 50, suspendedAt: new Date(0) }],
-      },
-      {
-        repository: {
-          id: 7,
-          fullName: "acme/skills",
-          ownerId: 70,
-          public: true,
-        },
-        installations: [],
-      },
-    ];
-    for (const one of cases) {
-      const { sync, state, registered } = setup({
-        sources: [],
-        installed: false,
-        installations: one.installations,
-      });
-      state.repository = one.repository;
-      await expect(sync.register(caller(), request)).rejects.toMatchObject({
-        code: "BAD_REQUEST",
-        details: { reason_code: "repository_not_installed" },
-      });
-      expect(state.resolved).toEqual([]);
-      expect(registered).toEqual([]);
-    }
-  });
-
-  test("a public repository that turned private by the time its files were read is refused", async () => {
-    const { sync, state, registered, newSources } = setup({
-      sources: [],
-      installed: false,
-      installations: [{ id: 50, suspendedAt: null }],
-    });
-    if (state.repository) state.repository.public = true;
-    state.byId = { id: 7, fullName: "acme/skills", ownerId: 70, public: false };
     await expect(sync.register(caller(), request)).rejects.toMatchObject({
       code: "BAD_REQUEST",
       details: { reason_code: "repository_not_installed" },
     });
+    expect(state.asked).toEqual([]);
     expect(registered).toEqual([]);
-    expect(newSources).toEqual([]);
+  });
+
+  test("a public repository is read with the App's oldest installation not suspended", () => {
+    expect(
+      publicReadingInstallation([
+        { id: 60, suspendedAt: null },
+        { id: 9, suspendedAt: new Date(0) },
+        { id: 50, suspendedAt: null },
+      ])?.id,
+    ).toBe(50);
+    expect(
+      publicReadingInstallation([{ id: 9, suspendedAt: new Date(0) }]),
+    ).toBe(null);
+    expect(publicReadingInstallation([])).toBe(null);
   });
 
   test("with several author Apps the connection is named; an unknown one is refused", async () => {

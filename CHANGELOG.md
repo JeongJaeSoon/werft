@@ -15,6 +15,9 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **GitHub skill 출처가 읽는 길(`access`: `installation` | `public`)을 남긴다**(JeongJaeSoon/werft#2363). migration `0393_skill_git_source_access`가 `skill_git_sources.access`(NOT NULL, 기본 `installation`, CHECK)를 더하고, 기존 행은 모두 `installation`이 된다. API 응답의 `git`에 `access`가 더해진다. 따로 할 일은 없다.
+  - 이 버전에는 `public` 출처를 만드는 길이 없다. 등록은 전처럼 App이 설치된 저장소만 받는다.
+  - `public` 출처는 확인 때마다 파일을 읽은 뒤 저장소가 아직 공개인지 다시 보고, 아니면 판을 쓰지 않는다. 이 확인은 이 버전부터 있다. **`public` 출처를 만드는 길이 들어온 뒤에는, 이 버전보다 앞선 이미지로 되돌리기 전에 `access = 'public'` 출처를 지운다.** 앞선 이미지는 그 확인 없이 읽는다. 그 전에는 앞선 이미지로 되돌려도 된다. 앞선 이미지는 새 열을 읽지 않는다.
 - **Slack 채널 듣기의 고지 승인을 없앤다. 워크스페이스 owner·admin은 승인 없이 에이전트의 대화 스위치를 `shadow`로 올리고 내린다**(JeongJaeSoon/werft#2339). API 계약이 바뀐다.
   - `POST /v1/agents/{id}/slack/notice/approve`와 `/revoke`는 콘솔에 로그인한 사람에게 본문과 상관없이 `410` `ENDPOINT_RETIRED`(`details.reason_code` `slack_notice_retired`)로 답하고 승인·스위치·receipt를 바꾸지 않는다. API 키는 403 `web_session_required`다(콘솔 전용인 것은 전과 같다). 전과 달리 대상 에이전트와 본문을 먼저 보지 않으므로, 전에 404·400·정책 403을 받던 요청도 이 403이나 410을 받는다. 로그인(401), CSRF(403), 본문 읽기(408·413) 같은 보호된 `/v1` route의 공통 검사는 그 앞에서 그대로 돈다. OpenAPI에 `deprecated: true`로 남고 다음 정리에서 지운다. 새 오류 코드 `ENDPOINT_RETIRED`가 생긴다.
   - `GET /v1/agents/{id}/slack/notice`는 모양을 지키되 `notice`는 늘 null, `state`는 늘 `no_notice`, `approvals`는 늘 빈 배열이다. 세 칸은 OpenAPI 설명에 deprecated로 적었다. 스위치는 `rollout`을, 바꿀 수 있는지는 `can_approve`를 읽는다.

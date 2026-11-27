@@ -1480,7 +1480,6 @@ const skillGitSync =
         reader: wireGitHubSkillReader({ logger }),
         apps: (workspaceId) =>
           githubAppStore.credentials("author", workspaceId),
-        installations: (app) => githubAppDirectory.installations(app),
         installationFor: (app, repo) =>
           githubAppDirectory.installationFor(app, repo),
         webhookSecrets: (appId) => githubAppStore.webhookSecrets(appId),

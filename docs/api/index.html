@@ -34022,8 +34022,7 @@
                           "enum": [
                             "ready",
                             "no_public_url",
-                            "no_secret",
-                            "not_installed"
+                            "no_secret"
                           ]
                         },
                         "auto_approve": {
@@ -35162,8 +35161,7 @@
                 "enum": [
                   "ready",
                   "no_public_url",
-                  "no_secret",
-                  "not_installed"
+                  "no_secret"
                 ]
               },
               "auto_approve": {
@@ -88164,7 +88162,7 @@
           "Workspace settings"
         ],
         "summary": "List the workspace's skills and their versions",
-        "description": "Every skill name with all its versions, oldest first, and the version and mode the workspace scope names. A bundle registered before skills shows with `version: null`. `source` is the skill's one source (`upload` or `github`); a GitHub skill carries `git`: where it syncs from, whether sync is on, whether this installation can take its push webhook (`webhook`: `ready`, `no_public_url`, `no_secret` when the App's webhook secret is not stored, or `not_installed` for a public repository the App is not installed on, read with `access` `public`), and its last check. `pending_count` is how many of its versions wait for review. Every member of the workspace reads it.\n\n**Auth:** cookie session only; no scope.",
+        "description": "Every skill name with all its versions, oldest first, and the version and mode the workspace scope names. A bundle registered before skills shows with `version: null`. `source` is the skill's one source (`upload` or `github`); a GitHub skill carries `git`: where it syncs from, whether sync is on, whether this installation can take its push webhook (`webhook`: `ready`, `no_public_url`, or `no_secret` when the App's webhook secret is not stored; a public repository the App is not installed on (`access` `public`) takes no push and is `no_public_url`), and its last check. `pending_count` is how many of its versions wait for review. Every member of the workspace reads it.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
@@ -88677,7 +88675,7 @@
           "Workspace settings"
         ],
         "summary": "Register a skill from a GitHub repository",
-        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Reads `path` of `repository` at `ref` (a branch, a tag or a commit SHA) with the workspace's author App: `connection_id` names the connection, and may be left out while the workspace has one. The ref is resolved to a commit through the GitHub API and the directory at that commit is checked as an upload is; the version records the repository id, path, ref and commit. The source is fixed per skill: a name that already has versions is 409 `ALREADY_EXISTS` `source_mismatch`, and an upload to a GitHub skill is refused the same way. Refused with 400 `reason_code` `connection_required`, `connection_not_found`, `repository_not_installed` (the App is not installed there and it is not public), `ref_not_found`, `path_not_found` or `skill_invalid` (with `details.issues`); GitHub unreachable or refusing the App is 502 `GITHUB_UNAVAILABLE`. A public repository the App is not installed on is read with the token of the App's oldest installation that is not suspended: the source's `access` is `public`, and its `webhook` is `not_installed` since GitHub sends it no push. Afterwards a push webhook, a daily check and POST …/sync/check each make the next `pending` version when the content changed. Writes a `register_extension` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Reads `path` of `repository` at `ref` (a branch, a tag or a commit SHA) with the workspace's author App: `connection_id` names the connection, and may be left out while the workspace has one. The ref is resolved to a commit through the GitHub API and the directory at that commit is checked as an upload is; the version records the repository id, path, ref and commit. The source is fixed per skill: a name that already has versions is 409 `ALREADY_EXISTS` `source_mismatch`, and an upload to a GitHub skill is refused the same way. Refused with 400 `reason_code` `connection_required`, `connection_not_found`, `repository_not_installed` (the App cannot read it), `ref_not_found`, `path_not_found` or `skill_invalid` (with `details.issues`); GitHub unreachable or refusing the App is 502 `GITHUB_UNAVAILABLE`. Afterwards a push webhook, a daily check and POST …/sync/check each make the next `pending` version when the content changed. Writes a `register_extension` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
