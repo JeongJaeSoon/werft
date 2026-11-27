@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import {
   bootstrapClaimResponseSchema,
   runtimeConfigSchema,
 } from "@werft-ai/contracts";
-import { unpackBundleTar } from "@werft-ai/runtime-core";
+import { bundleDigest, unpackBundleTar } from "@werft-ai/runtime-core";
 import { createMemoryCheckpointObjectStore } from "@werft-ai/testkit/checkpoint-objects";
 import {
   BundleIntegrityError,
@@ -391,16 +392,22 @@ describe("a pinned skill whose upload had a block scalar description", () => {
         digest,
       });
       expect(served.digest).toBe(digest);
-      // What the worker checks before it publishes the tree for the engine.
+      // The worker hashes the bytes it received, as they are, against the pin.
+      const received = unpackBundleTar(served.tar).map((entry) => ({
+        path: entry.path,
+        mode: (entry.mode & 0o111) !== 0 ? (0o755 as const) : (0o644 as const),
+        sha256: createHash("sha256").update(entry.bytes).digest("hex"),
+        bytes: entry.bytes,
+      }));
+      expect(bundleDigest(received)).toBe(digest);
+      // And the stored-mode check the next read runs accepts them unchanged.
       const again = validateExtensionBundle({
         slug: "research",
         files: unpackBundleTar(served.tar),
       });
       if (!again.ok) throw new Error(JSON.stringify(again.issues));
       expect(again.bundle.digest).toBe(digest);
-      const skill = again.bundle.files.find(
-        (f) => f.path === "skills/research/SKILL.md",
-      );
+      const skill = received.find((f) => f.path === "skills/research/SKILL.md");
       expect(new TextDecoder().decode(skill?.bytes)).toBe(
         '---\nname: "research"\ndescription: "Use for research.\\nSecond line."\n---\nDo it.\n',
       );

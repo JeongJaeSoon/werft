@@ -820,6 +820,23 @@ describe("description as a block scalar", () => {
     }
   });
 
+  test("a character YAML does not allow in a block is refused; NEL and NBSP are text", () => {
+    for (const code of [0x00, 0x1b, 0x7f, 0x80, 0x9f, 0xfffe]) {
+      const char = String.fromCharCode(code);
+      expect(
+        issuesOf(tree(`description: |-\n  A${char}B\n`), "upload"),
+      ).toContainEqual(
+        expect.objectContaining({
+          path,
+          code: "bad_frontmatter",
+          message: '"description" holds a character YAML does not allow.',
+        }),
+      );
+    }
+    const kept = `A${String.fromCharCode(0x85)}B${String.fromCharCode(0xa0)}C`;
+    expect(roundTrip(`description: >-\n  ${kept}\n`).value).toBe(kept);
+  });
+
   test.each(["|", "|-", ">", ">-"])(
     "the stored mode still refuses a %s description",
     (header) => {
@@ -995,6 +1012,7 @@ describe("what passed before passes alike", () => {
     "description: Use it\ndisable-model-invocation: true\nuser-invocable: false\n",
     "description: Use it\n# a comment\n",
     "description:\tUse it\n",
+    `description: a${String.fromCharCode(0x7f)}b\n`,
   ])("frontmatter %j gets the verdict the stored mode gives", (head) => {
     const files = one(`---\nname: research\n${head}---\nBody.\n`);
     const judge = (mode: "upload" | "stored") => {

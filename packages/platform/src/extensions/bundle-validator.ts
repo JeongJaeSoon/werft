@@ -777,6 +777,12 @@ function metadataBlock(
 
 /** Only these four headers: no indentation indicator, no keep chomping, no comment. */
 const BLOCK_HEADER = /^description:[ ]+([|>])(-?)[ ]*$/;
+const span = (from: number, to: number) =>
+  `${String.fromCharCode(from)}-${String.fromCharCode(to)}`;
+/** Outside YAML 1.2's printable set (a line break is already a line). */
+const NOT_PRINTABLE = new RegExp(
+  `[${span(0x00, 0x08)}${span(0x0b, 0x0c)}${span(0x0e, 0x1f)}${span(0x7f, 0x84)}${span(0x86, 0x9f)}${span(0xfffe, 0xffff)}]`,
+);
 
 /**
  * The lines of a YAML block scalar, read as YAML 1.2 reads them. The indent is
@@ -857,6 +863,13 @@ function blockScalar(
     blanks = 0;
   }
   if (seen && !strip) value += "\n";
+  if (NOT_PRINTABLE.test(value)) {
+    return {
+      value: "",
+      next: at,
+      problem: '"description" holds a character YAML does not allow.',
+    };
+  }
   return { value, next: at, problem: null };
 }
 
