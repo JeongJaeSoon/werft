@@ -84,7 +84,7 @@ export const workspaceMcpKo = {
     "URL을 넣고 탐색하면 서버가 요구하는 인증을 보여 줍니다. 등록한 URL은 바꿀 수 없습니다.",
   "workspaceMcp.register.url": "서버 URL",
   "workspaceMcp.register.urlHint":
-    "https 주소입니다. 운영자가 API와 egress proxy의 허용 목록에 이 호스트를 넣어 두어야 합니다.",
+    "https 주소입니다. IP 주소가 아닌 호스트 이름이어야 하고, 공개 주소로 풀려야 합니다. 사설 주소의 서버는 운영자가 사설 목록에 둔 호스트만 등록할 수 있습니다.",
   "workspaceMcp.register.discover": "탐색",
   "workspaceMcp.register.discovering": "탐색하는 중…",
   "workspaceMcp.register.found": "탐색 결과",
@@ -118,11 +118,13 @@ export const workspaceMcpKo = {
     "워크스페이스가 등록할 수 있는 서버 수에 닿았습니다. 쓰지 않는 서버를 지운 뒤 등록하세요.",
   "workspaceMcp.error.name_reserved":
     "github, browser, memory, werft는 쓸 수 없는 이름입니다.",
-  "workspaceMcp.error.url_invalid": "URL이 올바르지 않습니다.",
+  "workspaceMcp.error.url_invalid":
+    "URL이 올바르지 않습니다. IP 주소 대신 호스트 이름을 쓰세요.",
   "workspaceMcp.error.address_not_allowed":
-    "이 주소로는 연결할 수 없습니다. 사설·loopback 주소이거나 https가 아닙니다.",
+    "이 주소로는 연결할 수 없습니다. 호스트 이름이 사설·loopback·metadata 주소로 풀리거나, 운영자가 사설 목록에 둔 호스트가 공개 주소로 풀립니다.",
   "workspaceMcp.error.endpoint_not_allowed":
-    "서버나 인가 서버의 호스트가 허용 목록에 없습니다. 운영자에게 API와 egress proxy의 허용 목록에 넣어 달라고 요청하세요.",
+    "서버나 인가 서버가 알려 준 주소가 https가 아니거나 URL 형식이 아니어서 부를 수 없습니다. http는 운영자가 사설 목록에 둔 호스트만 됩니다.",
+  // The next two stay one release: an API from before the address check still returns them.
   "workspaceMcp.error.credential_allowlist_unset":
     "이 설치는 자격을 보낼 호스트 목록(EGRESS_CREDENTIAL_ALLOWLIST)이 없어 서버를 등록할 수 없습니다. 운영자에게 설정을 요청하세요.",
   "workspaceMcp.error.host_not_allowed":
@@ -286,7 +288,7 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
     "Enter the URL and discover what the server asks for. A registered URL cannot be changed.",
   "workspaceMcp.register.url": "Server URL",
   "workspaceMcp.register.urlHint":
-    "An https address. The operator must have put its host on the API's and the egress proxy's allowlists.",
+    "An https address. It must be a host name, not an IP address, and resolve to a public address. A server at a private address can be registered only if the operator put its host on the private allowlist.",
   "workspaceMcp.register.discover": "Discover",
   "workspaceMcp.register.discovering": "Discovering…",
   "workspaceMcp.register.found": "What the server asks for",
@@ -320,11 +322,13 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
     "The workspace holds as many servers as it may. Delete one it no longer uses first.",
   "workspaceMcp.error.name_reserved":
     "github, browser, memory and werft cannot be used as names.",
-  "workspaceMcp.error.url_invalid": "That is not a valid URL.",
+  "workspaceMcp.error.url_invalid":
+    "That is not a valid URL. Use a host name instead of an IP address.",
   "workspaceMcp.error.address_not_allowed":
-    "That address cannot be reached: it is private, loopback or not https.",
+    "That address cannot be reached: its host name resolves to a private, loopback or metadata address, or a host the operator put on the private allowlist resolves to a public one.",
   "workspaceMcp.error.endpoint_not_allowed":
-    "The server's or the authorization server's host is not on the allowlist. Ask the operator to add it to the API's and the egress proxy's allowlists.",
+    "The address the server or its authorization server gave is not https or not a URL, so it cannot be called. http works only for a host the operator put on the private allowlist.",
+  // The next two stay one release: an API from before the address check still returns them.
   "workspaceMcp.error.credential_allowlist_unset":
     "This installation has no list of hosts credentials may go to (EGRESS_CREDENTIAL_ALLOWLIST), so no server can be registered. Ask the operator to set it.",
   "workspaceMcp.error.host_not_allowed":
@@ -492,7 +496,7 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
     "URL を入れて探索すると、サーバーが求める認証を表示します。登録した URL は変更できません。",
   "workspaceMcp.register.url": "サーバー URL",
   "workspaceMcp.register.urlHint":
-    "https のアドレスです。運用者が API と egress proxy の許可リストにこのホストを入れておく必要があります。",
+    "https のアドレスです。IP アドレスではなくホスト名で、公開アドレスに解決される必要があります。プライベートアドレスのサーバーは、運用者がプライベート許可リストに入れたホストだけ登録できます。",
   "workspaceMcp.register.discover": "探索",
   "workspaceMcp.register.discovering": "探索しています…",
   "workspaceMcp.register.found": "探索結果",
@@ -527,11 +531,13 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
     "ワークスペースが登録できるサーバー数に達しました。使わないサーバーを削除してから登録してください。",
   "workspaceMcp.error.name_reserved":
     "github、browser、memory、werft は名前に使えません。",
-  "workspaceMcp.error.url_invalid": "URL が正しくありません。",
+  "workspaceMcp.error.url_invalid":
+    "URL が正しくありません。IP アドレスではなくホスト名を使ってください。",
   "workspaceMcp.error.address_not_allowed":
-    "このアドレスには接続できません。プライベート・loopback のアドレスか、https ではありません。",
+    "このアドレスには接続できません。ホスト名がプライベート・loopback・metadata のアドレスに解決されるか、運用者がプライベート許可リストに入れたホストが公開アドレスに解決されます。",
   "workspaceMcp.error.endpoint_not_allowed":
-    "サーバーか認可サーバーのホストが許可リストにありません。運用者に API と egress proxy の許可リストへの追加を依頼してください。",
+    "サーバーか認可サーバーが示したアドレスが https ではないか URL ではないため、呼び出せません。http は運用者がプライベート許可リストに入れたホストに限られます。",
+  // The next two stay one release: an API from before the address check still returns them.
   "workspaceMcp.error.credential_allowlist_unset":
     "このインストールには資格情報を送れるホストのリスト（EGRESS_CREDENTIAL_ALLOWLIST）がないため、サーバーを登録できません。運用者に設定を依頼してください。",
   "workspaceMcp.error.host_not_allowed":

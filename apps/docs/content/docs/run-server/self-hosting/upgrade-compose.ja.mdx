@@ -651,3 +651,13 @@ DELETE FROM provider_connections WHERE definition->>'kind' = 'openai_decisions';
   - launch 失敗の上限（デフォルト 5 回）に達すると、その入力は `LAUNCH_FAILED` で失敗し、失敗理由に同じ文が残ります。
 - allowlist を直して proxy を再起動すると、backoff の後の次の launch が gateway に届きます。`LAUNCH_FAILED` で終わった入力は送り直します。
 - 更新時に動いていた worker は以前のアドレス（3000）で gateway を呼ぶため、呼び出しが失敗します。セッションが動いていないときに更新します。
+
+<a id="워크스페이스-mcp-서버를-주소로-검사하는-릴리스" />
+### ワークスペース MCP サーバーをアドレスで検査するリリース
+
+このリリースから、ワークスペース MCP サーバーの登録は `EGRESS_CREDENTIAL_ALLOWLIST` を見ず、アドレスで検査します。https の名前が公開アドレスに解決されれば、env を変えずに登録され、セッションから呼び出せます。migration はなく、env の既定値も変わりません。
+
+- egress proxy を API より先に更新します。新しい API は grant に登録済みサーバーの印（`allow: public_https`）を載せ、新しい proxy だけがその印に従います。新しい proxy と以前の API の組み合わせは印がないため、従来どおりです。
+- 以前の proxy と新しい API が混在すると（API を先に更新した場合や proxy を戻した場合）、`EGRESS_CREDENTIAL_ALLOWLIST` にない host のサーバーは登録・認証・ツール一覧は動きますが、セッションからの呼び出しは 403 です。記録は `call_mcp` receipt の理由 `egress_proxy_outdated` と API ログ `Egress authorization refused` に残ります。一覧にある host のサーバーは従来どおり動きます。proxy を更新すれば戻り、データは変わりません。
+- [2. API → proxy → worker の順序](#2-api--proxy--worker-순서)の中間 release は API を先に変えます。中間 release と最終 release の間は、`EGRESS_CREDENTIAL_ALLOWLIST` にないサーバーを呼ぶセッションの呼び出しが 403 になります。
+- プライベートアドレスや http のサーバーは従来どおり `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` にある host だけです。その host が公開アドレスに解決される場合、登録は `address_not_allowed` で拒否されます。

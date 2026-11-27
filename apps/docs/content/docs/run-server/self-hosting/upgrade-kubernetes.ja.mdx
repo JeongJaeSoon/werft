@@ -104,6 +104,8 @@ deployed_values && next_workers control > control-phase.json \
 
 `next_workers control` はデプロイ済みの worker イメージと egress proxy をそのまま書きます。単一イメージの環境には、デプロイ済みの `images.worker`・`images.workerPrevious` と `images.workers: []` を書きます。公開 chart の既定値は対象リリースの二つのイメージの一覧なので、`images.workers: []` がないとこの upgrade が worker イメージまで変えます。対象 chart の `images.worker.runtime` は空なので、デプロイ済みの runtime はそのまま残り、runtime なしでデプロイした環境は runtime なしのままです。一覧の環境にはデプロイ済みの一覧を書きます（[イメージ一覧の環境の upgrade](#이미지-목록-설치의-upgrade)）。コマンドは `&&` でつながっており、chart を取得できない、またはデプロイ済みの値を読めない場合、`helm upgrade` は実行されません。
 
+ワークスペース MCP サーバーをアドレスで検査するリリースへ更新するときは、手順 1 と手順 2 の間は proxy イメージが現在のものなので、`EGRESS_CREDENTIAL_ALLOWLIST` にないサーバーを呼ぶセッションの呼び出しが 403（`egress_proxy_outdated`）になります。手順 2 が終われば戻ります。詳しくは [Compose 文書の同じ節](/run-server/self-hosting/upgrade-compose#워크스페이스-mcp-서버를-주소로-검사하는-릴리스)を参照してください。
+
 <a id="2-최종-worker와-proxy-교체" />
 ### 2. 最終的な worker と proxy の更新
 
