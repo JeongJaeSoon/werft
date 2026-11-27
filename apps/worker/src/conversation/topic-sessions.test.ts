@@ -350,7 +350,7 @@ const settled = () => new Promise((resolve) => setImmediate(resolve));
 function held() {
   const log: string[] = [];
   const answers: ((exited: boolean) => void)[] = [];
-  const asked = Promise.withResolvers<void>();
+  let wake = () => {};
   const engines: TopicEngines = {
     onSpawn: (pid) => void log.push(`spawned ${pid}`),
     running: [],
@@ -358,7 +358,7 @@ function held() {
       new Promise((resolve) => {
         log.push("exit awaited");
         answers.push(resolve);
-        asked.resolve();
+        wake();
       }),
     kill: () => void log.push("killed"),
   };
@@ -368,7 +368,8 @@ function held() {
       await super.drop(topicId);
     }
   }
-  const sessions = new TopicSessions(new Logged(root), fakePermitRelay(), {
+  const relay = fakePermitRelay();
+  const sessions = new TopicSessions(new Logged(root), relay, {
     engines: () => engines,
   });
   const run = {
@@ -379,9 +380,15 @@ function held() {
   return {
     log,
     sessions,
+    relay,
     run,
-    /** Settles once an exit is first waited for. */
-    asked: asked.promise,
+    /** Settles once an exit is being waited for. */
+    asked: () =>
+      answers.length > 0
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => {
+            wake = resolve;
+          }),
     /** The oldest wait for an exit ends: exited, or its grace is up. */
     answer: (exited: boolean) => answers.shift()?.(exited),
   };
@@ -453,7 +460,7 @@ describe("a dropped session's directory", () => {
       engines.onSpawn(4242);
       throw new Error("no start");
     });
-    await s.asked;
+    await s.asked();
     // The first removal is of what the topic's path held before this open.
     expect(s.log).toEqual([
       "removed",
@@ -467,5 +474,51 @@ describe("a dropped session's directory", () => {
     await expect(opening).rejects.toThrow("no start");
     expect(s.log.at(-1)).toBe("removed");
     expect(await stat(join(root, t)).catch(() => null)).toBeNull();
+  });
+
+  test("a failed turn whose engine's exit is not seen keeps its own reason; its topic's next turn fails, and starts no engine, until the exit is seen", async () => {
+    const s = held();
+    let fail = false;
+    const e = engine(() => (fail ? null : "ok"));
+    const runner = createConversationTurnRunner({
+      runtime: e.module,
+      sessions: s.sessions,
+      relay: s.relay,
+      tools: fakeConversationTools(),
+    });
+    const live = new AbortController().signal;
+    const t = topic();
+    await runner.run(turnOf(t, "one"), live);
+
+    fail = true;
+    const failing = runner.run(turnOf(t, "two", "keep"), live);
+    await s.asked();
+    s.answer(false);
+    expect(await failing).toEqual({
+      outcome: "failed",
+      reason: "engine_failed",
+      detail: "error_during_execution",
+    });
+    expect((await stat(join(root, t))).isDirectory()).toBe(true);
+
+    fail = false;
+    const refused = runner.run(turnOf(t, "three"), live);
+    await s.asked();
+    s.answer(false);
+    expect(await refused).toEqual({
+      outcome: "failed",
+      reason: "runtime_failed",
+    });
+    expect(e.runs).toHaveLength(1);
+    expect((await stat(join(root, t))).isDirectory()).toBe(true);
+
+    const served = runner.run(turnOf(t, "four"), live);
+    await s.asked();
+    s.answer(true);
+    expect((await served).outcome).toBe("completed");
+    expect(e.runs.map((run) => run.sent)).toEqual([
+      ["context: one", "two"],
+      ["context: four"],
+    ]);
   });
 });

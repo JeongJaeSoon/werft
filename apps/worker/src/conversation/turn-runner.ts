@@ -341,8 +341,9 @@ export function createConversationTurnRunner(deps: {
           );
         session.lastUsedAt = sessions.now();
       } else {
-        // Where a failed or cut turn left the engine is not known.
-        await sessions.drop(topicId);
+        // Where a failed or cut turn left the engine is not known. One that
+        // will not end keeps its topic closed; the turn's own reason stands.
+        await sessions.drop(topicId).catch(() => undefined);
       }
       return result;
     },
