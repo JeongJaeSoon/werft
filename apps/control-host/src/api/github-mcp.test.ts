@@ -173,6 +173,7 @@ beforeEach(async () => {
           githubWork: {
             dispatch: unused,
             getRun: unused,
+            ciStatus: unused,
             rerun: unused,
             review: unused,
           },
@@ -403,6 +404,7 @@ describe("the built-in github MCP server on stored rows", () => {
       "mcp__github__merge_pull_request",
       // A release pin's actions runs nothing directly (94S-2406).
       "mcp__github__get_workflow_run",
+      "mcp__github__get_ci_status",
       "mcp__github__list_repositories",
       "mcp__github__attach_repository",
     ]);
@@ -444,10 +446,25 @@ describe("the built-in github MCP server on stored rows", () => {
     expect(claim.restore_runtime_configs?.[0]).toMatchObject({
       tools: ["Read"],
     });
+    // Nor any tool added after it.
     expect(claim.restore_runtime_configs).toContainEqual({
       ...current,
       tools: current.tools.filter(
-        (tool) => tool !== "mcp__github__get_pull_request",
+        (tool) =>
+          tool !== "mcp__github__get_pull_request" &&
+          tool !== "mcp__github__get_ci_status",
+      ),
+    });
+  });
+
+  test("a checkpoint made before get_ci_status was added still restores (94S-2398)", async () => {
+    const { claim } = await seeded({ github: settings({ actions: true }) });
+    const current = claim.runtime_config;
+    expect(current.tools).toContain("mcp__github__get_ci_status");
+    expect(claim.restore_runtime_configs).toContainEqual({
+      ...current,
+      tools: current.tools.filter(
+        (tool) => tool !== "mcp__github__get_ci_status",
       ),
     });
   });

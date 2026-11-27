@@ -480,6 +480,7 @@ export const GITHUB_TOOL_ADDITIONS: readonly (readonly GitHubMcpTool[])[] = [
     "attach_repository",
   ],
   ["get_pull_request"],
+  ["get_ci_status"],
 ];
 
 /** The server as it was before each addition it holds, newest first. */

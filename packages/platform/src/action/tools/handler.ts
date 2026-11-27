@@ -24,7 +24,7 @@ export type GitHubMcpServices = {
   >;
   githubWork: Pick<
     GitHubWorkService,
-    "dispatch" | "getRun" | "rerun" | "review"
+    "dispatch" | "getRun" | "ciStatus" | "rerun" | "review"
   >;
   attachments: Pick<RepositoryAttachmentService, "list" | "attach">;
 };

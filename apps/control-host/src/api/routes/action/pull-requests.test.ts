@@ -150,6 +150,9 @@ function app(
     getWorkflowRun: async () => {
       throw new Error("not used");
     },
+    getCommitCi: async () => {
+      throw new Error("not used");
+    },
     submitReview: async () => {
       throw new Error("not used");
     },
