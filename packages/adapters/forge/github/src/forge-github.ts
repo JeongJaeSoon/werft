@@ -33,6 +33,7 @@ import {
   type GitHubPermissions,
   type GitHubRateLimit,
   type GitHubSkillReader,
+  type GitHubSkillRepository,
   type GitHubTokenUse,
   type GitHubWorkflowRun,
   type GitTreeEntry,
@@ -1293,6 +1294,34 @@ function installationRepositoryOf(repository: {
 
 const SKILL_BLOB_READS = 4;
 
+/** A repository answer, kept only with the owner's id GitHub always sends. */
+function skillRepositoryOf(data: unknown): GitHubSkillRepository {
+  const repo = data as {
+    id?: unknown;
+    full_name?: unknown;
+    owner?: { id?: unknown };
+    visibility?: unknown;
+  };
+  const id = Number(repo.id);
+  const ownerId = Number(repo.owner?.id);
+  if (
+    typeof repo.full_name !== "string" ||
+    !Number.isSafeInteger(id) ||
+    id <= 0 ||
+    !Number.isSafeInteger(ownerId) ||
+    ownerId <= 0
+  ) {
+    throw new Error("GitHub answered a repository without its id or owner");
+  }
+  // Only GitHub's own word: no `visibility` is not public.
+  return {
+    id,
+    fullName: repo.full_name,
+    ownerId,
+    public: repo.visibility === "public",
+  };
+}
+
 /**
  * A skill directory read at one commit with an installation's token.
  * Everything is addressed by repository id, so a
@@ -1369,8 +1398,18 @@ export function createGitHubSkillReader(
             repo: name,
             headers,
           });
-          const repo = data as { id: number; full_name: string };
-          return { id: Number(repo.id), fullName: repo.full_name };
+          return skillRepositoryOf(data);
+        }),
+      ),
+
+    repositoryById: (app, installationId, repositoryId) =>
+      asking("skill repository", app, installationId, (request, headers) =>
+        orNull(async () => {
+          const { data } = await request("GET /repositories/{id}", {
+            id: repositoryId,
+            headers,
+          });
+          return skillRepositoryOf(data);
         }),
       ),
 
