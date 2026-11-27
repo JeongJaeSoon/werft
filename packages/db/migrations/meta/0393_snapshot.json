@@ -1,6 +1,6 @@
 {
-  "id": "3bf58747-ac6c-41c6-b467-71281572ed11",
-  "prevId": "cfcbe06f-7719-4c59-bc50-b390563d340b",
+  "id": "b4bb290c-c7ca-4298-8890-1ee326da9912",
+  "prevId": "22298e15-9907-4d1a-b38e-82ac33b33f1d",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -8286,6 +8286,101 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.egress_denials": {
+      "name": "egress_denials",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attempt_id": {
+          "name": "attempt_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "turn_id": {
+          "name": "turn_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "host": {
+          "name": "host",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "port": {
+          "name": "port",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "egress_denials_session_id_sessions_id_fk": {
+          "name": "egress_denials_session_id_sessions_id_fk",
+          "tableFrom": "egress_denials",
+          "tableTo": "sessions",
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "egress_denials_attempt_id_attempts_id_fk": {
+          "name": "egress_denials_attempt_id_attempts_id_fk",
+          "tableFrom": "egress_denials",
+          "tableTo": "attempts",
+          "columnsFrom": ["attempt_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "egress_denials_turn_id_turns_id_fk": {
+          "name": "egress_denials_turn_id_turns_id_fk",
+          "tableFrom": "egress_denials",
+          "tableTo": "turns",
+          "columnsFrom": ["turn_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "egress_denials_turn_host_key": {
+          "name": "egress_denials_turn_host_key",
+          "nullsNotDistinct": true,
+          "columns": ["attempt_id", "turn_id", "host", "port"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "egress_denials_port_check": {
+          "name": "egress_denials_port_check",
+          "value": "\"egress_denials\".\"port\" BETWEEN 1 AND 65535"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.env_variable_grants": {
@@ -22355,7 +22450,7 @@
       "checkConstraints": {
         "worker_credentials_purpose_check": {
           "name": "worker_credentials_purpose_check",
-          "value": "\"worker_credentials\".\"purpose\" IN ('gateway', 'provider', 'repository', 'object_store', 'mcp', 'packages')"
+          "value": "\"worker_credentials\".\"purpose\" IN ('gateway', 'provider', 'repository', 'object_store', 'mcp', 'packages', 'egress_report')"
         },
         "worker_credentials_binding_check": {
           "name": "worker_credentials_binding_check",
