@@ -696,6 +696,7 @@ const userInfoAnswer = z.object({
     is_restricted: z.boolean().optional(),
     is_ultra_restricted: z.boolean().optional(),
     is_stranger: z.boolean().optional(),
+    is_external: z.boolean().optional(),
     is_bot: z.boolean().optional(),
     deleted: z.boolean().optional(),
   }),
@@ -865,6 +866,9 @@ export function createSlackBotApi(
         ...(user.is_stranger === undefined
           ? {}
           : { is_stranger: user.is_stranger }),
+        ...(user.is_external === undefined
+          ? {}
+          : { is_external: user.is_external }),
         ...(user.is_bot === undefined ? {} : { is_bot: user.is_bot }),
         ...(user.deleted === undefined ? {} : { deleted: user.deleted }),
       };
