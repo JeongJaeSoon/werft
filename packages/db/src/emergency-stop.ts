@@ -457,7 +457,10 @@ async function stopConversationTurns(
           WHERE q.turn_id = ct.id AND q.state IN ('queued', 'leased')))
       ORDER BY ct.id`),
   ).map((row) => row.id);
-  if (open.length === 0) return 0;
+  if (open.length === 0) {
+    await endWaitingMentionTries(tx, place);
+    return 0;
+  }
   const ids = sql.join(
     open.map((id) => sql`${id}::uuid`),
     sql`, `,
@@ -472,19 +475,6 @@ async function stopConversationTurns(
       WHERE id IN (${ids}) AND state = 'running'
       RETURNING id::text AS id`),
   );
-  // One its runtime reported before the stop, not yet ended here: the stop
-  // ends it, so its report is not read as a try to make again once the
-  // channel is on, and the input kept for that try goes.
-  if (ended.length > 0) {
-    await tx.execute(sql`
-      UPDATE conversation_turn_queue
-      SET outcome = ${JSON.stringify({ outcome: "failed", reason: EMERGENCY_STOPPED })}::jsonb,
-        turn_nonce = NULL, turn_ciphertext = NULL, input_kept_until = NULL
-      WHERE turn_id IN (${sql.join(
-        ended.map((row) => sql`${row.id}::uuid`),
-        sql`, `,
-      )}) AND state = 'ended'`);
-  }
   await tx.execute(sql`
     UPDATE conversation_turn_permits
     SET expires_at = LEAST(expires_at, clock_timestamp())
@@ -503,7 +493,30 @@ async function stopConversationTurns(
     WHERE turn_id IN (${ids}) AND state IN ('queued', 'leased')
     RETURNING turn_id::text AS id`),
   );
+  await endWaitingMentionTries(tx, place);
   return new Set([...ended, ...dequeued].map((row) => row.id)).size;
+}
+
+/**
+ * A mention's try in the channel that ended with no decision and keeps its
+ * input for a try again (one its runtime reported before the stop, ended
+ * by it, or one waiting out its delay) is ended by the stop: no try follows
+ * it once the channel is on, and its input goes.
+ */
+async function endWaitingMentionTries(tx: Database, place: ChannelWorkPlace) {
+  await tx.execute(sql`
+    UPDATE conversation_turn_queue q
+    SET outcome = ${JSON.stringify({ outcome: "failed", reason: EMERGENCY_STOPPED })}::jsonb,
+      turn_nonce = NULL, turn_ciphertext = NULL, input_kept_until = NULL
+    FROM conversation_turns ct
+    JOIN conversations c ON c.id = ct.conversation_id
+    WHERE q.turn_id = ct.id AND q.state = 'ended'
+      AND q.turn_ciphertext IS NOT NULL
+      AND ct.origin = 'm2' AND ct.state = 'no_decision'
+      AND ct.workspace_id = ${place.workspaceId}::uuid
+      AND ct.agent_id = ${place.agentId}::uuid
+      AND c.channel_id = ${place.channelId}
+      AND c.team_id = (SELECT i.team_id FROM slack_installations i WHERE i.id = ${place.installationId}::uuid)`);
 }
 
 /**

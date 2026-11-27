@@ -98,7 +98,7 @@ When a mention or DM turn of an agent whose conversation rollout is `on` ends wi
 
 - a budget account refused the call: the budget notice alone is said;
 - the try already sent, or left to be sent, something in Slack (an answer, a 👀, a notice): the failure line is said at once, so nothing is done twice; the same when the report that the try's model call ended does not come within 30 seconds of the try's end;
-- an admin stopped the agent in an emergency, the agent's conversation rollout is no longer `on`, or the mention was deleted: nothing is said.
+- before the next try, an admin stopped the agent in an emergency (also when stopped and turned on again while the next try waits), the agent's conversation rollout is no longer `on`, or the mention was deleted: nothing is said. A case above met first says its line first.
 
 ## Stop a task
 

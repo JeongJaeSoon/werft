@@ -567,6 +567,18 @@ export function createPostgresConversationCalls(
             throughTurn: null,
           });
           if (deleted !== null) return { outcome: "source_deleted" as const };
+          // A first try is taken only under the agent's rollout on; a try
+          // again is written only while it still is. Shared, as a change of
+          // the rollout writes the agent's row: one waits for the other.
+          if (input.retryOf !== undefined) {
+            const [agent] = await tx
+              .select({ rollout: agents.conversationRollout })
+              .from(agents)
+              .where(eq(agents.id, input.agentId))
+              .for("share");
+            if (agent?.rollout !== "on")
+              return { outcome: "rollout_off" as const };
+          }
           await tx.insert(conversationTurns).values({
             id: input.turnId,
             workspaceId: input.workspaceId,

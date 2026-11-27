@@ -289,6 +289,8 @@ export type MentionTurnStart =
   | { outcome: "unknown_conversation" }
   // An admin emergency-stopped the agent in the channel.
   | { outcome: "channel_stopped" }
+  // A try again whose agent's rollout went off since its first try.
+  | { outcome: "rollout_off" }
   | { outcome: "no_active_release" }
   | { outcome: "connection_unavailable" }
   // Longer than a turn's input may be.
@@ -494,9 +496,7 @@ export interface MentionTurnRetryRequests {
 export type MentionTurnRetryStart =
   | MentionTurnStart
   // The try kept no input to try again with: past its deadline, say.
-  | { outcome: "input_gone" }
-  // The agent's rollout went off since its first try.
-  | { outcome: "rollout_off" };
+  | { outcome: "input_gone" };
 
 export type MentionTurnEndings = {
   ended: number;
