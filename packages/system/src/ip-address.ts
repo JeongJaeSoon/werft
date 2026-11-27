@@ -45,10 +45,15 @@ export function classifyAddress(address: string): AddressClass | null {
 //   Hetzner https://docs.hetzner.com/cloud/technical-details/hcnet/
 //   OpenStack https://docs.openstack.org/nova/latest/admin/metadata-service.html
 //   Akamai https://techdocs.akamai.com/cloud-computing/docs/metadata-service-api
+//   Alibaba IPv6: no official document; an IPv6-only ECS report in
+//     https://github.com/canonical/cloud-init/pull/6893#live-validation
+//   IBM VPC https://cloud.ibm.com/docs/vpc?topic=vpc-service-endpoints-for-vpc#virtual-server-metadata-endpoints
+//   IBM Power https://cloud.ibm.com/docs/iam?topic=iam-powervs-instance-identity
+//   OVHcloud https://docs.ovhcloud.com/en/guides/public-cloud/containers-orchestration/managed-kubernetes/known-limits
 //   Tencent https://www.tencentcloud.com/document/product/213/4934
 //   Exoscale https://community.exoscale.com/product/compute/instances/how-to/cloud-init-user-data/
 const METADATA_IPV4 = new Set([
-  "169.254.169.254", // AWS, GCP, Azure, Oracle, DigitalOcean, Hetzner, OpenStack, Akamai
+  "169.254.169.254", // AWS, GCP, Azure, Oracle, DigitalOcean, Hetzner, OpenStack, Akamai, IBM, OVHcloud
   "169.254.170.2", // AWS ECS task credentials
   "169.254.170.23", // AWS EKS Pod Identity
   "100.100.100.200", // Alibaba, otherwise carrier-grade NAT
@@ -65,6 +70,7 @@ const METADATA_IPV6 = new Set([
   "fd00:00c1:0000:0000:0000:0000:a9fe:a9fe", // Oracle, otherwise private
   "fe80:0000:0000:0000:0000:0000:a9fe:a9fe", // OpenStack, Hetzner, Akamai
   "fd00:a9fe:a9fe:0000:0000:0000:0000:0001", // Akamai, otherwise private
+  "fd00:0100:0000:0000:0000:0000:0100:0200", // Alibaba (cloud-init report, no official document)
 ]);
 
 // Compared after lowercasing and dropping a trailing dot, before the name is
@@ -76,6 +82,8 @@ const METADATA_NAMES = new Set([
   "metadata.goog", // GCP
   "metadata.tencentyun.com", // Tencent
   "metadata.exoscale.com", // Exoscale
+  "api.metadata.cloud.ibm.com", // IBM VPC
+  "api.metadata.power-iaas.cloud.ibm.com", // IBM Power Virtual Server
   "instance-data.ec2.internal",
 ]);
 
