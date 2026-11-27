@@ -377,6 +377,24 @@ export type SurfaceProgressDue = SurfaceLinkedTurnTarget & {
 };
 
 /**
+ * What a link that hears only of its work's ends (`notify_only`,
+ * `progress`) owes beside its turns' replies and failures: `started`, a
+ * `notify_only` thread's one start line; `needs_input`, a request a person
+ * can answer that no card shows (the link posts none), numbered by the
+ * lowest turn waiting; `recovery`, the session waiting on a recovery
+ * decision, numbered by its last turn. Each is said once.
+ */
+export type SurfaceWorkReportDue = SurfaceLinkedTurnTarget & {
+  report: "started" | "needs_input" | "recovery";
+  /** Null for `started`. */
+  turnId: number | null;
+  /** For `needs_input`, the requests that turn has asked; else null. */
+  round: number | null;
+  /** Whoever started the work, to be called on a person needed. */
+  requesterSlackUserId: string | null;
+};
+
+/**
  * A turn of a live linked session asked from the web or the API that the
  * thread has not been shown yet.
  */
@@ -870,6 +888,11 @@ export interface SurfaceOutboxStore {
    * past `waitedMs`.
    */
   progressDue?(limit: number, waitedMs: number): Promise<SurfaceProgressDue[]>;
+  /**
+   * Live links that hear only of their work's ends and owe a line beside
+   * their turns' replies (SurfaceWorkReportDue), not yet in.
+   */
+  workReportsDue?(limit: number): Promise<SurfaceWorkReportDue[]>;
   /**
    * Channels the agent reads every message of that have not been told so
    * under the current notice (`slackChannelNoticeDedupeKey`).

@@ -38089,6 +38089,7 @@
                           "out_of_scope",
                           "needs_agent",
                           "unclear",
+                          "invalid_target",
                           "budget_refused",
                           "concurrency_limited",
                           "rate_limited",
@@ -38187,6 +38188,7 @@
                     "out_of_scope",
                     "needs_agent",
                     "unclear",
+                    "invalid_target",
                     "budget_refused",
                     "concurrency_limited",
                     "rate_limited",
@@ -38353,6 +38355,19 @@
                         "kind": {
                           "type": "string",
                           "const": "operator"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "agent"
                         }
                       },
                       "required": [

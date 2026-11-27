@@ -657,3 +657,13 @@ From this release the API serves `/internal` (the gateway that workers and the c
   - At the launch failure limit (5 by default) the input fails with `LAUNCH_FAILED`, and its failure reason carries the same sentence.
 - After you correct the allowlist and restart the proxy, the next launch after the backoff reaches the gateway. Send an input that ended with `LAUNCH_FAILED` again.
 - A worker running across the upgrade calls the gateway at the earlier address (3000), so its calls fail. Upgrade while no session is running.
+
+<a id="워크스페이스-mcp-서버를-주소로-검사하는-릴리스" />
+### The release that checks workspace MCP servers by address
+
+From this release, registering a workspace MCP server no longer looks at `EGRESS_CREDENTIAL_ALLOWLIST`; it checks the address. An https name that resolves to a public address is registered and called from sessions without any env change. There is no migration and no env default changes.
+
+- Upgrade the egress proxy before the API. The new API puts a registered-server mark (`allow: public_https`) on the grant, and only the new proxy follows it. A new proxy with an earlier API sees no mark and behaves as before.
+- With an earlier proxy and the new API mixed (the API went first, or the proxy was rolled back), a server whose host is on neither `EGRESS_CREDENTIAL_ALLOWLIST` nor `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` still registers, authenticates and lists its tools, but its session calls get 403. The traces are the `call_mcp` receipt reason `egress_proxy_outdated` and the API log `Egress authorization refused`. The 403 follows the two lists set on the API. A server whose host is on either of them passes that check and is judged by the earlier proxy's own list as before. Upgrading the proxy brings it back, and no data changes.
+- The intermediate release in [2. API → proxy → worker order](#2-api--proxy--worker-순서) changes the API first. Between the intermediate and the final release, a session's calls to a server on neither list get 403.
+- A server at a private address or over http still works only for a host on `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`. If that host resolves to a public address, registration is refused with `address_not_allowed`.

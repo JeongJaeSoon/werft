@@ -16,6 +16,12 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **대화 rollout이 `on`인 에이전트는 M1이 끼어들기로 판단한 글에, 부르지 않았어도 그 글의 스레드에 대화 턴으로 답한다**(JeongJaeSoon/werft#2369). 버퍼에 담긴 글 묶음은 M1이 고른 글 하나에 답하고(최상위 글이면 그 글의 스레드, 답글이면 부모 스레드), 최근 답한 스레드의 답글은 그 답글에 답한다. 채널 최상위에는 올리지 않는다. 이 턴은 답하기와 조용히 있기만 할 수 있고, 새 작업을 만들거나 넘기지 않는다. 👀를 달지 않고, 결정 없이 끝나도 다시 시도하거나 문구를 달지 않는다. 요청자가 없어 호출은 에이전트 팀 예산 계정에 잡히고, 이 호출의 예약까지 더해 팀 계정 한도의 80% 이상이 되면 거절된다. 팀 계정에 한도가 없으면 거절된다. 채널당 M1 판단 한도(기본 시간당 12회)는 그대로다. 묶음의 글은 채널이 모든 글을 들을 때(`free`)만 답하고, 최근 답한 스레드의 답글은 멘션만 들을 때(`mention`)도 답한다.
+  - rollout을 `shadow`·`off`로 내리거나 binding을 철회해도 이미 시작한 턴은 계속 돌아 답할 수 있다(멘션 턴과 같다). 내림과 철회는 다음 턴부터 적용된다. 지금 멈추려면 긴급 정지를 쓴다. 긴급 정지는 그 채널의 돌고 있는 턴을 끝내고, 보내기 시작하지 않은 답을 막는다. 이미 보내기 시작한 답은 올라갈 수 있다.
+  - migration 0394가 `conversation_judgments`에 nullable 칸 3개(답할 글, 낸 턴, 어떻게 끝났나)를 더한다. 행을 다시 쓰지 않고, 제약 확인과 색인 짓기는 쓰기를 막는 잠금 없이 돈다. 따로 할 일은 없다.
+  - `shadow`에서도 M1 프롬프트가 바뀐다. 묶음 판단이 끼어들기로 답하면서 답할 글을 고르지 못하면 조용히 있기("답할 글을 고르지 못함", `invalid_target`)로 기록한다. 그래서 판단 목록의 이유별 수가 바뀔 수 있다. Slack에는 아무것도 올리지 않는다.
+  - 되돌리기 전에 확인한다. 청하지 않은 턴은 요청자 종류 `agent`로 남는다. 대화 턴 목록 API가 있는 앞선 이미지(`v0.5.0` 뒤 `main`에서 만든 이미지)는 이 값을 몰라서, 그런 턴이 든 에이전트의 목록이 실패한다(`v0.5.0`에는 이 API가 없다). 돌아가기 전에 rollout이 `on`인 에이전트를 `shadow`나 `off`로 내리고 돌고 있는 턴이 끝나기를 기다린 뒤, DB에서 `SELECT agent_id, count(*) FROM conversation_turns WHERE requester_kind = 'agent' GROUP BY agent_id;`(읽기만 한다)를 돌린다. 결과가 비면 되돌려도 된다. 이런 턴은 rollout `on`에서만 생기고, 지금은 `on`을 켜는 제품 길(웹·API)이 없다. 그래서 보통 배포에서는 이 변경만으로 그런 행이 생기지 않는다.
+  - 앞선 이미지는 새 칸을 읽지도 쓰지도 않는다. 되돌린 동안 끼어들기 판단은 전처럼 턴을 내지 않는다. 이미 낸 턴은 앞선 이미지의 끝내기 pass가 읽지 않아 답을 달지 않는다. 다만 이미 outbox에 들어간 답은 앞선 이미지도 보낸다. 다시 올리면 새 pass가 그 턴을 끝내고, 그 턴에 답하기 결정이 남아 있으면 그때 늦게 답을 단다.
 - **GitHub skill 출처가 읽는 길(`access`: `installation` | `public`)을 남긴다**(JeongJaeSoon/werft#2363). migration `0393_skill_git_source_access`가 `skill_git_sources.access`(NOT NULL, 기본 `installation`, CHECK)를 더하고, 기존 행은 모두 `installation`이 된다. API 응답의 `git`에 `access`가 더해진다. 따로 할 일은 없다.
   - 이 버전에는 `public` 출처를 만드는 길이 없다. 등록은 전처럼 App이 설치된 저장소만 받는다.
   - `public` 출처는 확인 때마다 파일을 읽은 뒤 저장소가 아직 공개인지 다시 보고, 아니면 판을 쓰지 않는다. 이 확인은 이 버전부터 있다. **`public` 출처를 만드는 길이 들어온 뒤에는, 이 버전보다 앞선 이미지로 되돌리기 전에 `access = 'public'` 출처를 지운다.** 앞선 이미지는 그 확인 없이 읽는다. 그 전에는 앞선 이미지로 되돌려도 된다. 앞선 이미지는 새 열을 읽지 않는다.
@@ -160,6 +166,10 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - `werft`라는 이름의 workspace MCP 서버를 쓰던 설치는 그 서버를 다른 이름으로 다시 등록한다. 도구 이름(`mcp__werft__…`)도 새 서버 이름을 따르므로, 그 이름을 적은 도구 정책도 함께 고친다. 올린 뒤에는 그 서버의 도구가 세션에 나오지 않는다. 올리기 전에 그 서버와 함께 찍힌 checkpoint는 그대로 복원된다.
   - 새 등록에서 이름 `werft`는 `github`·`browser`·`memory`와 같이 거절된다. release의 도구 정책 `per_tool`에 `mcp__werft__`로 시작하는 이름을 적으면 release를 만들 수 없다.
   - worker 이미지를 함께 올린다. 앞선 버전의 worker 이미지로 도는 세션은 지금처럼 돌고 내장 서버를 받지 않는다(새 worker가 capability `werft_mcp`를 알릴 때만 붙는다). checkpoint는 어느 쪽 worker에서 찍었든 다른 쪽에서 그대로 복원된다.
+- **워크스페이스 MCP 서버 등록은 env 허용 목록 없이 주소로 검사된다. 어드민이 등록한 공개 https 서버는 `EGRESS_CREDENTIAL_ALLOWLIST`를 바꾸거나 다시 배포하지 않아도 세션에서 호출된다**(JeongJaeSoon/werft#2332, JeongJaeSoon/werft#2340, JeongJaeSoon/werft#2367). migration은 없고 env 기본값도 바뀌지 않는다.
+  - 등록과 탐색은 주소를 검사한다(OAuth 등록은 서버와 인가 서버 탐색도 함께 한다). https 주소가 IP면 `url_invalid`, 공개 host가 풀린 주소 중 하나라도 공개가 아니면(사설, loopback, link-local, metadata 등), 또는 사설 목록의 host가 사설 주소로만 풀리지 않으면 `address_not_allowed`이다. 이름이 풀리지 않으면 `mcp_unreachable`(503)이다. 이 경로는 `credential_allowlist_unset`과 `host_not_allowed`를 더 내지 않는다. 웹의 그 두 사유 문구는 옛 API가 도는 동안을 위해 한 릴리스 남기고 다음 릴리스에 지운다. 등록 화면의 도움말과 `endpoint_not_allowed` 문구는 새 규칙으로 바뀐다.
+  - **proxy를 먼저 올린다.** 새 API는 grant에 등록된 서버 표시(`allow: public_https`)를 싣고 새 proxy만 그 표시를 따른다. 옛 proxy와 새 API가 섞이면 `EGRESS_CREDENTIAL_ALLOWLIST`와 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` 어디에도 없는 host의 서버는 등록, 인증, 도구 목록은 되지만 세션의 호출이 403이고 `call_mcp` receipt 사유가 `egress_proxy_outdated`다. 403의 기준은 API에 설정된 두 목록이다. 그 목록에 있는 host의 서버는 이 분기를 지나, 옛 proxy 자신의 목록으로 전처럼 판정된다. proxy를 올리면 돌아오고 데이터는 바뀌지 않는다. 되돌리면 API의 두 목록 어디에도 없는 서버와, API 검사를 지나도 옛 proxy의 목록에 없는 서버의 호출이 멈춘다.
+  - 운영자가 잃는 것은 어드민이 MCP 서버로 등록할 공개 host를 env로 미리 정하는 손잡이다. 사설 주소나 http의 서버는 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`에 둔 host만 되고, metadata 주소는 그 목록에서도 막힌다. `EGRESS_CREDENTIAL_ALLOWLIST`는 provider, 저장소, 패키지 registry, object store, 모델 연결에 계속 쓰인다. 모델 연결의 endpoint 검사는 이 변경에 들어 있지 않다.
 
 ## v0.5.0
 

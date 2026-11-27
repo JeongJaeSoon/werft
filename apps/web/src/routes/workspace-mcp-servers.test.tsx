@@ -357,6 +357,23 @@ describe("워크스페이스 MCP 서버", () => {
     });
   });
 
+  test("the register dialog states the address rule, not an operator list", async () => {
+    renderAt(PAGE, routes([]));
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "서버 등록" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText(/IP 주소가 아닌 호스트 이름이어야 하고/),
+    ).toBeDefined();
+    expect(
+      within(dialog).getByText(/풀린 주소가 모두 공개 주소여야/),
+    ).toBeDefined();
+    expect(
+      within(dialog).getByText(/예외는 운영자가 사설 목록에 둔 호스트 이름뿐/),
+    ).toBeDefined();
+    expect(within(dialog).queryByText(/허용 목록/) === null).toBe(true);
+  });
+
   test("a refused discovery keeps the dialog and says why", async () => {
     renderAt(PAGE, {
       ...routes([]),
@@ -374,12 +391,12 @@ describe("워크스페이스 MCP 서버", () => {
     );
     await user.click(within(dialog).getByRole("button", { name: "탐색" }));
     expect(
-      await within(dialog).findByText(/허용 목록에 없습니다/),
+      await within(dialog).findByText(/계정 정보나 #이 들어 있거나/),
     ).toBeDefined();
     expect(within(dialog).queryByLabelText("이름") === null).toBe(true);
   });
 
-  test("a host off the credential list says who can add it", async () => {
+  test("an old API's host_not_allowed answer still says who can add the host", async () => {
     renderAt(PAGE, {
       ...routes([]),
       [`POST ${LIST}/discover`]: () =>

@@ -13206,7 +13206,7 @@ export interface components {
                 speak: number;
                 reasons: {
                     /** @enum {string} */
-                    reason: "not_for_agent" | "human_conversation" | "already_handled" | "out_of_scope" | "needs_agent" | "unclear" | "budget_refused" | "concurrency_limited" | "rate_limited" | "input_too_large" | "no_active_release" | "model_unavailable" | "timed_out" | "unreachable" | "provider_error" | "malformed";
+                    reason: "not_for_agent" | "human_conversation" | "already_handled" | "out_of_scope" | "needs_agent" | "unclear" | "invalid_target" | "budget_refused" | "concurrency_limited" | "rate_limited" | "input_too_large" | "no_active_release" | "model_unavailable" | "timed_out" | "unreachable" | "provider_error" | "malformed";
                     count: number;
                 }[];
             }[];
@@ -13225,7 +13225,7 @@ export interface components {
                 /** @enum {string} */
                 decision: "speak" | "quiet";
                 /** @enum {string} */
-                reason: "not_for_agent" | "human_conversation" | "already_handled" | "out_of_scope" | "needs_agent" | "unclear" | "budget_refused" | "concurrency_limited" | "rate_limited" | "input_too_large" | "no_active_release" | "model_unavailable" | "timed_out" | "unreachable" | "provider_error" | "malformed";
+                reason: "not_for_agent" | "human_conversation" | "already_handled" | "out_of_scope" | "needs_agent" | "unclear" | "invalid_target" | "budget_refused" | "concurrency_limited" | "rate_limited" | "input_too_large" | "no_active_release" | "model_unavailable" | "timed_out" | "unreachable" | "provider_error" | "malformed";
                 /** Format: date-time */
                 judged_at: string;
             }[];
@@ -13259,6 +13259,9 @@ export interface components {
                 } | {
                     /** @constant */
                     kind: "operator";
+                } | {
+                    /** @constant */
+                    kind: "agent";
                 };
                 decision: ("reply" | "route_to_task" | "spawn_task" | "no_reply") | null;
                 models: string[];

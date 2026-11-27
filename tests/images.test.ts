@@ -34,6 +34,11 @@ import {
   GIT_LFS_GO,
   GIT_LFS_VERSION,
   GIT_LFS_X_NET,
+  GITLEAKS_BROTLI,
+  GITLEAKS_COMPRESS,
+  GITLEAKS_GO,
+  GITLEAKS_VERSION,
+  GITLEAKS_X_TEXT,
   REMOVED_AFTER_INSTALL,
 } from "../scripts/third-party-notices.ts";
 import {
@@ -338,6 +343,71 @@ describe("app Dockerfiles", () => {
       "COPY --from=gh /tmp/gh/bin/gh /usr/local/bin/gh",
       "COPY --from=gh /tmp/gh/LICENSE /usr/local/share/doc/gh/LICENSE",
     ]);
+  });
+
+  // The skill gate's secret check (apps/control-host/src/wiring/gitleaks.ts)
+  // runs this executable; the image smoke runs it for real.
+  test("control-host builds gitleaks from the pinned source", () => {
+    const source = basePins["control-host"].source;
+    expect(source).toContain(`ARG GITLEAKS_VERSION=${GITLEAKS_VERSION}\n`);
+    expect(source).toContain(`ARG GITLEAKS_BROTLI=${GITLEAKS_BROTLI}\n`);
+    expect(source).toContain(`ARG GITLEAKS_COMPRESS=${GITLEAKS_COMPRESS}\n`);
+    expect(source).toContain(`ARG GITLEAKS_X_TEXT=${GITLEAKS_X_TEXT}\n`);
+    expect(source).toContain(`ARG GITLEAKS_GO=${GITLEAKS_GO}\n`);
+    expect(source).toMatch(
+      /bun \/tmp\/fetch-pinned\.ts \\\n {2}https:\/\/github\.com\/gitleaks\/gitleaks\/archive\/refs\/tags\/v\$\{GITLEAKS_VERSION\}\.tar\.gz \\\n {2}[0-9a-f]{64} \\\n {2}\/tmp\/gitleaks-src\.tar\.gz \\\n {2}https:\/\/codeload\.github\.com\/gitleaks\/gitleaks\/tar\.gz\/refs\/tags\/v\$\{GITLEAKS_VERSION\}$/m,
+    );
+    // The git-lfs stage's Go, by version and by checksum.
+    expect(GITLEAKS_GO).toBe(GIT_LFS_GO);
+    for (const arch of ["amd64", "arm64"]) {
+      const pin = (dockerfile: string, arg: string) =>
+        dockerfile.match(
+          new RegExp(
+            `^ADD --checksum=sha256:([0-9a-f]{64}) \\\\\\n {2}https://dl\\.google\\.com/go/go\\$\\{${arg}\\}\\.linux-${arch}\\.tar\\.gz \\\\$`,
+            "m",
+          ),
+        )?.[1];
+      expect(pin(source, "GITLEAKS_GO")).toMatch(/^[0-9a-f]{64}$/);
+      expect(pin(source, "GITLEAKS_GO")).toBe(
+        pin(basePins.worker.source, "GIT_LFS_GO"),
+      );
+    }
+    const start = source.indexOf(" AS gitleaks\n");
+    const end = source.indexOf(" AS runtime\n");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const stage = source.slice(start, end);
+    expect(stage).not.toContain("apt-get");
+    expect(stage).toContain(
+      'go get "github.com/andybalholm/brotli@v${GITLEAKS_BROTLI}" \\\n    "github.com/klauspost/compress@v${GITLEAKS_COMPRESS}" \\\n    "golang.org/x/text@v${GITLEAKS_X_TEXT}" \\\n',
+    );
+    for (const file of ["go.mod", "go.sum"])
+      expect(stage).toMatch(
+        new RegExp(
+          `echo "[0-9a-f]{64} {2}${file.replace(".", "\\.")}" \\| sha256sum -c -`,
+        ),
+      );
+    expect(stage).toContain("version.Version=${GITLEAKS_VERSION}");
+    expect(stage).toMatch(
+      /^RUN --mount=type=bind,source=scripts\/fetch-pinned\.ts,target=\/tmp\/fetch-pinned\.ts \\\n {2}bun \/tmp\/fetch-pinned\.ts \\\n {2}https:\/\/snapshot\.debian\.org\/archive\/debian\/\d{8}T\d{6}Z\/pool\/main\/c\/ca-certificates\/ca-certificates_\S+_all\.deb \\\n {2}[0-9a-f]{64} \\\n {2}\/tmp\/ca-certificates\.deb \\\n {2}&& dpkg-deb -x /m,
+    );
+    expect(stage).toContain(
+      "\nENV SSL_CERT_DIR=/tmp/ca-certificates/usr/share/ca-certificates/mozilla\n",
+    );
+    expect(source.match(/bun \/tmp\/fetch-pinned\.ts/g)).toHaveLength(2);
+    expect(source.match(/^COPY --from=gitleaks .*$/gm)).toEqual([
+      "COPY --from=gitleaks --chmod=0755 /tmp/gitleaks/gitleaks /usr/local/bin/gitleaks",
+      "COPY --from=gitleaks /tmp/gitleaks/LICENSE /usr/local/share/doc/gitleaks/LICENSE",
+      "COPY --from=gitleaks /tmp/gitleaks/GO-LICENSE /usr/local/share/doc/gitleaks/GO-LICENSE",
+      "COPY --from=gitleaks /tmp/gitleaks/modules /usr/local/share/doc/gitleaks/modules",
+    ]);
+    // Each linked module's license files, or the build fails.
+    expect(stage).toContain('echo "no license file in $mod" >&2; exit 1;');
+    expect(stage).toContain("-exec cp -t \"$dest\" -- '{}' +");
+    expect(stage).toContain("if grep -q '=>' /tmp/gitleaks-buildinfo;");
+    expect(read(".github/scripts/image-smoke.sh")).toContain(
+      `[ "$gitleaks_version" = ${GITLEAKS_VERSION} ]`,
+    );
   });
 
   // The API pushes approved sessions over https with git, the worker clones
@@ -1133,19 +1203,52 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     });
 
     // The cache pull requests read (e2e, quickstart, k8s-smoke and their own
-    // image builds) is written once per image on every run that builds on a
-    // trusted ref: by publish-main on a main push, which builds nowhere else,
-    // and by build on a tag, scheduled or manual run. Never by a pull request.
+    // image builds) is written by runs that build on a trusted ref: by
+    // publish-main on a main push, which builds nowhere else, and by build on
+    // a tag, scheduled or manual run, each only when the cache-to step says so
+    // (the first build of a UTC day). Never by a pull request.
     test("one job writes the layer cache per run, and never for a pull request", () => {
       const cacheTo = (name: string) =>
         jobs[name]?.steps.find((step) =>
           step.uses?.startsWith("docker/build-push-action@"),
         )?.with?.["cache-to"];
-      const scope =
-        "format('type=gha,scope=images-{0}-{1},mode=min', matrix.app, matrix.arch)";
+      const scope = "steps.cache-to.outputs.to";
       expect(cacheTo("build")).toBe(
         expression(`github.event_name != 'pull_request' && ${scope} || ''`),
       );
+      const gate = (name: string) =>
+        jobs[name]?.steps.find(
+          (s) => (s as { id?: string }).id === "cache-to",
+        ) as
+          | {
+              if?: string;
+              run?: string;
+              "continue-on-error"?: boolean;
+              env?: Record<string, string>;
+            }
+          | undefined;
+      expect(gate("build")?.if).toBe(
+        "matrix.app != 'none' && github.event_name != 'pull_request'",
+      );
+      expect(gate("publish-main")?.if).toBe(
+        "github.event_name == 'push' && github.ref == 'refs/heads/main'",
+      );
+      for (const name of ["build", "publish-main"]) {
+        expect(gate(name)?.["continue-on-error"]).toBe(true);
+        expect(gate(name)?.run).toBe(
+          '.github/scripts/image-cache-to.sh >>"$GITHUB_OUTPUT"',
+        );
+        expect(gate(name)?.env).toEqual({
+          APP: expression("matrix.app"),
+          ARCH: expression("matrix.arch"),
+          GH_TOKEN: expression("github.token"),
+        });
+        // The step lists caches; nothing else in the job gets more than read.
+        expect(
+          (jobs[name] as { permissions?: Record<string, string> })?.permissions
+            ?.actions,
+        ).toBe("read");
+      }
       const mainPush =
         "github.event_name == 'push' && github.ref == 'refs/heads/main'";
       // publish and publish-main share their steps; only a main push writes.

@@ -50,7 +50,7 @@ test("bun-setup skips both cache steps for restore-cache false and refuses it wi
       "utf8",
     ),
   ) as { inputs: Record<string, { default: string }>; runs: { steps: Step[] } };
-  expect(action.inputs["restore-cache"]?.default).toBe("true");
+  expect(action.inputs["restore-cache"]?.default).toBe("false");
   const steps = action.runs.steps;
   const guard = steps.find((s) => s.run?.includes("save-cache: true"));
   expect(guard?.if).toBe(
@@ -117,6 +117,36 @@ test("Bun cache restores on PRs but only saves outside PR events", () => {
   }
 });
 
+// A cold root install (7-11 s) is faster than restoring the cache main kept
+// (about 22 s), so no job restores it; agent-sdk-compat, main only, keeps its
+// own scope. A job that names restore-cache "true" must say why here.
+test("only agent-sdk-compat restores a bun install cache", () => {
+  const dir = join(import.meta.dir, "../.github/workflows");
+  const restoring: string[] = [];
+  for (const file of readdirSync(dir).filter((f) => f.endsWith(".yml"))) {
+    const parsed = Bun.YAML.parse(readFileSync(join(dir, file), "utf8")) as {
+      jobs: Record<string, Job>;
+    };
+    for (const [name, job] of Object.entries(parsed.jobs))
+      for (const step of job.steps ?? []) {
+        if (step.uses !== "./.github/actions/bun-setup") continue;
+        // The inputs as the action sees them, defaults applied.
+        const restore = step.with?.["restore-cache"] ?? "false";
+        const save = step.with?.["save-cache"] ?? "false";
+        // The action's guard fails this pair: a save with no restore.
+        expect({ at: `${file} ${name}`, restore, save }).not.toMatchObject({
+          restore: "false",
+          save: "true",
+        });
+        if (restore === "true")
+          restoring.push(
+            `${file} ${name} ${step.with?.["cache-scope"]} ${save}`,
+          );
+      }
+  }
+  expect(restoring).toEqual(["ci.yml agent-sdk-compat agent-sdk-compat true"]);
+});
+
 test("a job that skips the bun cache restore installs nothing and saves nothing", () => {
   const dir = join(import.meta.dir, "../.github/workflows");
   let skipping = 0;
@@ -176,7 +206,7 @@ test("unit parts isolate slow Slack fixtures and reject every empty part", async
   }
 });
 
-test("static checks keep one cache writer and report independent failures", () => {
+test("static checks write no bun cache and report independent failures", () => {
   const parts = workflow.jobs["check-part"];
   expect(workflow.jobs.changes?.outputs?.unit_parts).toBe(
     `\${{ steps.units.outputs.matrix }}`,
@@ -219,9 +249,7 @@ test("static checks keep one cache writer and report independent failures", () =
   expect(job?.steps.find((step) => step.id === "install")?.run).toBe(
     "bun install --frozen-lockfile",
   );
-  expect(job?.steps.find((step) => step.with?.["save-cache"])?.with).toEqual({
-    "save-cache": "true",
-  });
+  expect(job?.steps.some((step) => step.with?.["save-cache"])).toBe(false);
   expect(parts?.steps.some((step) => step.with?.["save-cache"])).toBe(false);
 });
 

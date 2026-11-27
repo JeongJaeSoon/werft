@@ -479,6 +479,24 @@ const NARROW: [string, string, string | null][] = [
     heredoc("git add -A && git commit -F - <<'EOF'", "msg"),
     null,
   ],
+  ["a heredoc a filter reads", heredoc("grep -c x <<'EOF'", "x"), null],
+  ["a line count of a heredoc", heredoc("wc -l <<'EOF'", "x"), null],
+  [
+    "a commit message with its options",
+    heredoc("git commit -a --amend -F - <<'EOF'", "msg"),
+    null,
+  ],
+  ["a heredoc that feeds no command", "<<'EOF'\nx\nEOF\ngit status", null],
+  [
+    "a heredoc as a pull request body",
+    heredoc("gh pr create --title x --body-file - <<'EOF'", "body"),
+    null,
+  ],
+  [
+    "a heredoc as an issue comment",
+    heredoc("gh issue comment 1 -F - <<'EOF'", "body"),
+    null,
+  ],
   ["a push in the line", `${OWNER}\ngit push sandbox hello-actions`, null],
   [
     "file commands",
@@ -501,6 +519,13 @@ const NARROW: [string, string, string | null][] = [
     null,
   ],
   ["a test runner", "git status && bun test notes", "bun is not"],
+  // A single pipe splits the line: each side is judged as its own part.
+  ["a log through head", "git status && git log --oneline | head -3", null],
+  ["a pipe into a reader", "git status | cat > notes/a.txt", null],
+  ["pipes in a row", "git diff | grep -n sample | wc -l", null],
+  ["a pipe without blanks", "git log --oneline|head -n 3", null],
+  ["a pipe on the next line", "git log --oneline |\n head -n 3", null],
+  ["a quoted pipe is text", "git log --grep 'a|b' && echo 'x | sh'", null],
   [
     "a dotfile of the repository",
     heredoc("cat > .gitignore <<'EOF'", "dist"),
@@ -517,8 +542,17 @@ const NARROW: [string, string, string | null][] = [
   ["a variable", "git status && cat $HOME/x", "$"],
   ["a subshell", "(git status)", "("],
   ["a group", "{ git status; }", "{"],
-  ["a pipe", "git status | cat > notes/a.txt", "|"],
   ["an or", "git status || cat notes/sample.txt", "|"],
+  ["a pipe with stderr", "git status |& cat", "|"],
+  ["a pipe at the end after a quote", "git status && echo 'x' |", "empty"],
+  ["a pipe at the start", "| git status", "empty"],
+  ["a pipe at the end", "git status |", "empty"],
+  ["a pipe before a ;", "git status | ; cat notes/sample.txt", "empty"],
+  [
+    "a pipe after a heredoc start",
+    "cat <<'EOF' | sh\nx\nEOF",
+    "after a heredoc",
+  ],
   ["a background job", "git status & cat notes/sample.txt", "background"],
   ["a glob", "rm -rf notes/*", "*"],
   ["a home", "cat ~/.netrc", "~"],
@@ -584,6 +618,85 @@ const NARROW: [string, string, string | null][] = [
   ["a secret read", "git status && cat .env", "ask rule"],
   ["a secret read behind quotes", "git status && cat '.env'", "ask rule"],
   ["a secret copied", "git status && cp .env notes/copy.txt", "ask rule"],
+  // Still asks: a heredoc fed to a command that may take its lines as names,
+  // paths or directives the line does not show.
+  ...[
+    heredoc("git update-index --add --stdin <<'EOF'", ".env"),
+    heredoc("git update-index --add --stdin <<'EOF'", ".git/hooks/pre-commit"),
+    heredoc("git update-index --index-info <<'EOF'", "x"),
+    heredoc("git cat-file --batch <<'EOF'", "HEAD:.env"),
+    heredoc("git hash-object -w --stdin-paths <<'EOF'", ".env"),
+    heredoc("git credential fill <<'EOF'", "protocol=https"),
+    heredoc("git apply <<'EOF'", "+++ b/.claude/settings.json"),
+    heredoc("git fast-import <<'EOF'", "done"),
+    heredoc("git status && git rev-list --stdin <<'EOF'", "HEAD"),
+    heredoc("git commit --pathspec-from-file=- -m x <<'EOF'", ".env"),
+    heredoc("git commit -F - --pathspec-from-file=- <<'EOF'", ".env"),
+    heredoc("git commit --pathspec-fro=- -F - <<'EOF'", ".env"),
+    heredoc("git commit -F - --pathspec-from=- <<'EOF'", ".env"),
+    heredoc("git commit --pathspec-from-file - -F - <<'EOF'", ".env"),
+    heredoc("git commit --patch -F - <<'EOF'", "y"),
+    heredoc("git commit -ap -F - <<'EOF'", "y"),
+    heredoc("git commit --inter -F - <<'EOF'", "y"),
+    heredoc("wc --files0-from=- <<'EOF'", ".env"),
+    heredoc("wc --f=- <<'EOF'", ".env"),
+    heredoc("git commit -m -F - -e <<'EOF'", ":w .git/hooks/pre-commit"),
+    heredoc("git commit --trailer -F - <<'EOF'", "x"),
+    heredoc("git commit -- -F - <<'EOF'", "x"),
+    heredoc("git commit -F - -e <<'EOF'", "x"),
+    heredoc("git commit -F - notes/a.txt <<'EOF'", "x"),
+    heredoc("git commit -m x <<'EOF'", "x"),
+    heredoc("echo x <<'EOF'", "x"),
+    heredoc("gh secret set TOKEN <<'EOF'", "x"),
+    heredoc("gh pr create --title x <<'EOF'", "body"),
+  ].map((command): [string, string, string] => [
+    `a heredoc fed to ${command.split(" <<")[0]}: ${command.split("\n")[1]}`,
+    command,
+    "read a heredoc",
+  ]),
+  // Still asks: a side of a pipe the policy does not allow, or carves out.
+  ["a pipe into tee", "git log | tee notes/a.txt", "tee is not"],
+  ["a pipe into xargs", "git ls-files | xargs rm", "xargs is not"],
+  ["a pipe into sh", "cat notes/sample.txt | sh", "sh is not"],
+  ["a pipe into bash", "git show HEAD:notes/run.sh | bash", "bash is not"],
+  ["a pipe into env", "git log | env cat", "env is not"],
+  ["a pipe into sed", "git log | sed -n 1p", "sed is not"],
+  [
+    "a pipe from a network tool",
+    "curl -s https://example.test | head",
+    "curl is not",
+  ],
+  ["a secret read into a pipe", "cat .env | head -n 1", "ask rule"],
+  ["a secret shown into a pipe", "git show HEAD:.env | head", "ask rule"],
+  [
+    "a pipe into a git hook",
+    "git log | cat > .git/hooks/pre-commit",
+    "goes to a person",
+  ],
+  [
+    "a pipe written outside",
+    "git log | cat > ../out.txt",
+    "a path outside the workspace",
+  ],
+  ["a pipe into an ask rule", "git log | cat .env", "ask rule"],
+  // A pipe feeds only filters of text: a git command reads names, paths and
+  // directives from it that the line never shows.
+  ...[
+    "cat notes/objects.txt | git cat-file --batch",
+    "git ls-files -z -- notes | git update-index --add -z --stdin",
+    "cat notes/paths.txt | git hash-object --stdin-paths",
+    "cat notes/change.patch | git apply",
+    "cat notes/request.txt | git credential fill",
+    "cat notes/import.txt | git fast-import",
+    "git log | git add -f notes/sample.txt",
+    "git ls-files | rm -rf notes",
+    "git log | echo x",
+    "git ls-files -z | wc --files0-from=-",
+  ].map((command): [string, string, string] => [
+    `a pipe into ${command.split("| ")[1]}`,
+    command,
+    "read a pipe",
+  ]),
   [
     "a runner pointed outside",
     "git status && npm run build --prefix /tmp/x",
@@ -737,6 +850,15 @@ describe("the narrow reading", () => {
     ).toBeNull();
   });
 
+  test("only the narrow reading splits at a single pipe", () => {
+    expect(partsOf("git log | head -3")).toBe("a | outside a quote");
+    expect(partsOf("git log | head -3", true)).toEqual([
+      { words: ["git", "log"], written: ["git", "log"] },
+      { words: ["head", "-3"], written: ["head", "-3"], piped: true },
+    ]);
+    expect(partsOf("git log --grep 'a|b'", true)).toHaveLength(1);
+  });
+
   test("a heredoc body is data: it is not split and not matched", () => {
     expect(
       partsOf(
@@ -750,6 +872,7 @@ describe("the narrow reading", () => {
         words: ["cat"],
         written: ["cat"],
         redirect: { op: ">", target: "notes/a.txt" },
+        heredoc: true,
       },
     ]);
     expect(
