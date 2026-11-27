@@ -10,9 +10,12 @@ import {
   type SpawnedProcess,
   type SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
-import type {
-  RuntimeProcessObserver,
-  ToolDecisionObserver,
+import {
+  askedLineRefusal,
+  keptForPerson,
+  type RuntimeProcessObserver,
+  type ToolDecisionObserver,
+  writeKeptForPerson,
 } from "@werft-ai/runtime-core";
 import type { ClaudeRuntimeConfig } from "./config.ts";
 import type { DriverRun, RuntimeHooks } from "./driver.ts";
@@ -35,6 +38,9 @@ import { ToolDecisions } from "./tool-decisions.ts";
 import { TurnLedger } from "./turn-ledger.ts";
 
 const MIN_BUDGET_USD = 0.000001;
+
+const FILE_WRITE_TOOLS = ["Write", "Edit", "NotebookEdit"];
+const SHELLS_REMEMBERED = 1_000;
 
 const SETTINGS_SCHEMA =
   "https://json.schemastore.org/claude-code-settings.json";
@@ -231,9 +237,46 @@ export function buildSdkOptions(
     }),
   };
   const disallowed = [...(config.disallowedTools ?? [])];
+  // The adapter answers the engine's asks for shell lines and file writes
+  // itself (asked-line.ts in runtime-core). Not in plan mode, which has no
+  // workspace rules, and not under a release that denies a shape of these
+  // tools: a line the engine did not read was not matched against that deny.
+  const answersAsks =
+    "permissions" in settings &&
+    !disallowed.some((rule) =>
+      /^(Bash|Write|Edit|MultiEdit|NotebookEdit)\s*(\(|$)/.test(rule.trim()),
+    );
+  /** Where the engine's shell stood when it took each Bash call. */
+  const shellAt = new Map<string, string>();
+  // In auto the classifier stands behind an ask and is not overruled: only a
+  // line that is plainly the policy's own work passes there.
+  const narrow = config.permissionMode === "auto";
+  const sandboxAnswers = (
+    tool: string,
+    input: Record<string, unknown>,
+    shell: string | undefined,
+  ): boolean => {
+    if (tool === "Bash") {
+      // A call that asks to leave the engine's sandbox is a person's.
+      if (typeof input.command !== "string") return false;
+      if (input.dangerouslyDisableSandbox === true) return false;
+      const at = { workspace: config.cwd, shell };
+      return (
+        (narrow
+          ? askedLineRefusal(input.command, at)
+          : keptForPerson(input.command, at)) === null
+      );
+    }
+    if (narrow || !FILE_WRITE_TOOLS.includes(tool)) return false;
+    const path = input.file_path ?? input.notebook_path;
+    return (
+      typeof path === "string" && writeKeptForPerson(path, config.cwd) === null
+    );
+  };
   const notes = new Map<string, string>();
   const settle: HookCallback = async (input) => {
     if (!("tool_use_id" in input)) return {};
+    shellAt.delete(input.tool_use_id);
     ledger.toolSettled(input.tool_use_id);
     decisions.ran(input.tool_use_id);
     const note = notes.get(input.tool_use_id);
@@ -256,6 +299,7 @@ export function buildSdkOptions(
   };
   const settleRefused: HookCallback = async (input) => {
     if ("tool_use_id" in input) {
+      shellAt.delete(input.tool_use_id);
       if (notes.delete(input.tool_use_id)) {
         hooks.noteSettled?.(input.tool_use_id, false);
       }
@@ -287,6 +331,21 @@ export function buildSdkOptions(
       };
       if (!permittedTools.has(tool)) {
         return deny("Tool is outside the server allowlist", "not_permitted");
+      }
+      const shell = shellAt.get(options.toolUseID);
+      shellAt.delete(options.toolUseID);
+      if (answersAsks && sandboxAnswers(tool, toolInput, shell)) {
+        decisions.admitted(
+          options.toolUseID,
+          tool,
+          toolInput,
+          "sandbox_boundary",
+        );
+        return {
+          behavior: "allow" as const,
+          updatedInput: toolInput,
+          toolUseID: options.toolUseID,
+        };
       }
       const admission = ledger.permissionStarting(options.toolUseID);
       if (!admission.allowed) return deny(admission.message, "hook_deny");
@@ -401,6 +460,14 @@ export function buildSdkOptions(
               const admission = ledger.toolStarting(input.tool_use_id);
               if (!admission.allowed)
                 return deny(admission.message, "hook_deny");
+              if (answersAsks && toolName === "Bash") {
+                shellAt.set(input.tool_use_id, input.cwd);
+                // A call whose end the engine never reports is forgotten.
+                if (shellAt.size > SHELLS_REMEMBERED) {
+                  const [oldest] = shellAt.keys();
+                  if (oldest !== undefined) shellAt.delete(oldest);
+                }
+              }
               // The one judgment this skips is the engine's permission
               // stage (a person's answer, the auto classifier). It comes
               // last so the allowlist, the admission guard and the ledger

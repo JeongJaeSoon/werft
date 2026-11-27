@@ -114,6 +114,18 @@ const steps: Step[] = [
     }),
     name: "Write",
   },
+  // The engine asks for a write under an editor's dot directory by a rule of
+  // its own; the policy keeps nothing there.
+  {
+    asks: true,
+    effect: fileExists((_, w) => join(w, ".vscode", "settings.json")),
+    id: "write_engine_guarded",
+    input: (_, w) => ({
+      content: "{}\n",
+      file_path: join(w, ".vscode", "settings.json"),
+    }),
+    name: "Write",
+  },
   bash(
     "git_add_commit",
     "git add notes/sample.txt && git commit -q -m 'docs: sample' && git log --oneline -1",
@@ -148,12 +160,29 @@ const steps: Step[] = [
   bash("git_restore_staged", "git restore --staged notes/sample.txt", false),
   bash("dev_command_inside", "bun test --help", false),
   bash("redirect_inside", "git status > status.txt", false),
-  // The e2e flows, the verify skill and the docs ask for a permission with
-  // these; if the rules ever cover them, those flows hang waiting for a card.
+  // In no allow rule, so the engine asks. Nothing the policy keeps shows in
+  // them, so outside auto mode the adapter answers (SANDBOX_ANSWERED); the
+  // flows that need a card use sed's `w`, which an ask rule names.
   bash("ask_vehicle_tee", "echo alpha | tee hello.txt", true),
   bash("ask_vehicle_tee_append", "echo beta | tee -a hello.txt", true),
-  // acceptEdits lets the engine touch files in the working directory itself.
-  { ...bash("ask_vehicle_touch", "touch a.txt", true), onlyIn: "default" },
+  // The same command with a path that leaves the workspace stays a person's.
+  bash("ask_tee_outside", "echo x | tee /tmp/werft-tee-out.txt", true),
+  // An asked command behind a wrapper, and a write after the shell moved
+  // into a kept place.
+  bash("ask_wrapped_forced_add", "command git add -f notes/sample.txt", true),
+  {
+    ...bash("ask_cd_then_write", "cd .git && echo x > moved-in.txt", true),
+    effect: fileExists((_, w) => join(w, ".git", "moved-in.txt")),
+  },
+  // So does one with a secret, `.git` or engine-settings path.
+  {
+    ...bash("ask_tee_secret", "echo KEY=1 | tee .env.local", true),
+    effect: fileExists((_, w) => join(w, ".env.local")),
+  },
+  {
+    ...bash("ask_tee_git_hook", "echo x | tee .git/hooks/post-commit", true),
+    effect: fileExists((_, w) => join(w, ".git", "hooks", "post-commit")),
+  },
   // Each of these would delete work that no object or reflog keeps, or leave
   // the repository, with the flag in a place a prefix match would miss.
   bash("git_checkout_discard", "git checkout -- notes/sample.txt", true),
@@ -352,8 +381,8 @@ const steps: Step[] = [
   bash("read_parent_ls_bare", "ls ..", true),
   bash("read_parent_nested", "ls notes/../..", true),
   bash("read_grep_outside", "grep -rn token /tmp", true),
-  bash("read_find_delete", "find . -name '*.txt' -delete", true),
-  bash("read_find_exec", "find . -name '*.txt' -exec rm {} ;", true),
+  bash("read_find_delete", "find notes/none -name '*.txt' -delete", true),
+  bash("read_find_exec", "find notes/none -name '*.txt' -exec rm {} ;", true),
   bash("read_find_write", "find . -fprint found.txt", true),
   bash("read_rg_pre", "rg --pre ./preprocess.sh sample", true),
   bash("read_rg_hidden", "rg --hidden sample", true),
@@ -563,6 +592,121 @@ const steps: Step[] = [
  * the branch protection are what hold them. They change the fixture's
  * repository, so they run after every step that reads it.
  */
+/** A workflow file as a session writes one: text a shell would expand. */
+const WORKFLOW = [
+  "name: Hello",
+  "on:",
+  "  workflow_dispatch:",
+  "jobs:",
+  "  hello:",
+  "    runs-on: ubuntu-latest",
+  "    steps:",
+  '      - run: echo "Hello $GITHUB_REF $(id)"',
+].join("\n");
+
+/**
+ * The file commands of ordinary work, and the lines the engine's parser
+ * stops in: a file redirect and a heredoc after `&&`. They change the
+ * fixture's repository, so they run after every step that reads it.
+ */
+const ORDINARY_WORK: Step[] = [
+  bash("fs_touch", "touch made/t.txt && ls made", false, "t.txt"),
+  bash("fs_cp", "cp made/t.txt made/c.txt && ls made", false, "c.txt"),
+  bash("fs_mv", "mv made/c.txt made/m.txt && ls made", false, "m.txt"),
+  bash("fs_rm", "rm made/m.txt && rm -rf made/sub && ls made", false, "t.txt"),
+  bash("fs_touch_dotdot", "touch ../fs-out.txt", true),
+  bash("fs_touch_abs", "touch /tmp/werft-fs-out.txt", true),
+  bash("fs_cp_outside", "cp notes/sample.txt ../fs-out.txt", true),
+  bash("fs_cp_from_outside", "cp /etc/hosts notes/hosts.txt", true),
+  bash("fs_mv_outside", "mv notes/sample.txt ../fs-out.txt", true),
+  bash("fs_rm_outside", "rm ../keep", true),
+  bash("fs_cp_var", "cp notes/sample.txt $HOME/fs-out.txt", true),
+  bash("fs_cp_symlink_escape", "cp notes/sample.txt link/escaped.txt", true),
+  bash("fs_rm_git", "rm -rf .git", true),
+  bash("fs_rm_git_hooks", "rm -rf .git/hooks", true),
+  bash("fs_cp_git_hook", "cp notes/sample.txt .git/hooks/pre-commit", true),
+  bash("fs_touch_claude", "touch .claude/settings.json", true),
+  bash("fs_cp_secret", "cp .env.secret notes/copy.txt", true),
+  bash("fs_mv_secret", "mv .env.secret notes/moved.txt", true),
+  bash("dev_make", "make --version", false, "Make"),
+  bash("dev_make_outside", "make -C /tmp/werft-probe", true),
+  bash("dev_pytest_outside", "pytest /tmp/werft-probe", true),
+  // The scene a person was asked about (a branch from an attached
+  // repository's remote, then a workflow file), and what follows it.
+  {
+    ...bash(
+      "unread_owner_scene",
+      `git update-ref refs/remotes/sandbox/main HEAD && mkdir -p .github/workflows\ngit switch -c hello-actions sandbox/main && cat > .github/workflows/hello.yml <<'EOF'\n${WORKFLOW}\nEOF\ngit add .github/workflows/hello.yml && git commit -qm "Add hello workflow" && git log --oneline -1`,
+      false,
+      "Add hello workflow",
+    ),
+    effect: fileExists((_, w) => join(w, ".github", "workflows", "hello.yml")),
+  },
+  // A push in such a line is not asked about either. What stops one is not a
+  // person: nothing here reaches GitHub, and the platform's push refuses the
+  // default branch (git-push.ts, push-executor.ts).
+  bash(
+    "unread_with_push",
+    `mkdir -p notes && cat > notes/pushed.txt <<'EOF'\npushed-marker\nEOF\ngit push origin hello-actions; cat notes/pushed.txt`,
+    false,
+    "pushed-marker",
+  ),
+  bash("unread_after_cd", "cd notes", false),
+  // A path is read from where the engine's shell stands.
+  {
+    ...bash(
+      "unread_shell_elsewhere",
+      `mkdir -p sub && cat > sub/a.txt <<'EOF'\nx\nEOF`,
+      false,
+    ),
+    effect: fileExists((_, w) => join(w, "notes", "sub", "a.txt")),
+  },
+  {
+    ...bash(
+      "unread_shell_elsewhere_outside",
+      `mkdir -p sub && cat > ../../shell-out.txt <<'EOF'\nx\nEOF`,
+      true,
+    ),
+    effect: fileExists((r) => join(r, "shell-out.txt")),
+  },
+  bash("unread_cd_back", "cd ..", false),
+  bash(
+    "unread_substitution",
+    `mkdir -p notes && cat > notes/sub.txt <<'EOF'\nx\nEOF\necho $(id)`,
+    true,
+  ),
+  bash(
+    "unread_network",
+    `mkdir -p notes && cat > notes/net.txt <<'EOF'\nx\nEOF\ncurl -s http://127.0.0.1:9/`,
+    true,
+  ),
+  bash(
+    "unread_secret_read",
+    `mkdir -p notes && cat > notes/sec.txt <<'EOF'\nx\nEOF\ncat .env.secret`,
+    true,
+  ),
+  bash(
+    "unread_redirect_outside",
+    `mkdir -p notes && cat > ../unread-out.txt <<'EOF'\nx\nEOF`,
+    true,
+  ),
+  bash(
+    "unread_redirect_link",
+    `mkdir -p notes && cat > link/unread-out.txt <<'EOF'\nx\nEOF`,
+    true,
+  ),
+  bash(
+    "unread_redirect_git",
+    `mkdir -p notes && cat > .git/hooks/pre-commit <<'EOF'\nx\nEOF`,
+    true,
+  ),
+  bash(
+    "unread_unquoted_heredoc",
+    `mkdir -p notes && cat > notes/unq.txt <<EOF\n$(id)\nEOF`,
+    true,
+  ),
+];
+
 const NOW_ALLOWED = new Set([
   "git_checkout_discard",
   "git_restore_worktree",
@@ -604,11 +748,53 @@ const isNowAllowed = (step: Step) =>
 
 const ordered = [
   ...steps.filter((step) => !isNowAllowed(step)),
+  ...ORDINARY_WORK,
   ...steps.filter(isNowAllowed).map((step) => ({ ...step, asks: false })),
 ];
 
+/**
+ * Calls the engine puts to a person and the adapter answers itself in the
+ * default and acceptEdits modes: no ask rule names a part, nothing is written
+ * to a secret, `.git` or engine-settings path, and no path leaves the
+ * workspace. In auto mode the adapter answers only for a line that splits
+ * with certainty into the policy's own commands, so these reach a person
+ * there. Every other `asks: true` step is what the policy still keeps.
+ */
+const SANDBOX_ANSWERED = new Set([
+  "ask_vehicle_tee",
+  "ask_vehicle_tee_append",
+  "compound_semicolon",
+  "compound_pipe",
+  "compound_newline",
+  "compound_or",
+  "compound_background",
+  "compound_backtick",
+  "read_find_delete",
+  "read_find_exec",
+  "read_find_write",
+  "read_rg_pre",
+  "read_tree_output",
+  "read_file_compile",
+  "read_file_files_from",
+  "read_tree_output_attached",
+  "read_rg_decompress",
+  "curl_bare",
+  "sed_pipe_then_curl",
+  "compound_one_part_outside",
+  "git_command_substitution",
+  "unread_substitution",
+  "unread_network",
+  "unread_unquoted_heredoc",
+  "write_engine_guarded",
+]);
+
 const stepsFor = (mode: PermissionMode) =>
-  ordered.filter((step) => step.onlyIn === undefined || step.onlyIn === mode);
+  ordered
+    .filter((step) => step.onlyIn === undefined || step.onlyIn === mode)
+    .map((step) => ({
+      ...step,
+      asks: step.asks && (mode === "auto" || !SANDBOX_ANSWERED.has(step.id)),
+    }));
 
 async function run(permissionMode: PermissionMode) {
   const active = stepsFor(permissionMode);
@@ -724,8 +910,8 @@ async function run(permissionMode: PermissionMode) {
 }
 
 describe("a session's own workspace", () => {
-  for (const mode of ["default", "acceptEdits"] as const) {
-    test(`${mode}: in-workspace writes and local git pass, the rest is asked`, async () => {
+  for (const mode of ["default", "acceptEdits", "auto"] as const) {
+    test(`${mode}: work inside the workspace passes, what the policy keeps is asked`, async () => {
       const { asked, results, root, workspace } = await run(mode);
       const active = stepsFor(mode);
       // Not asked is not the same as ran: read what the call printed.

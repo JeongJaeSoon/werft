@@ -2,7 +2,8 @@
  * What an IP address is, for every caller that decides whether to reach it:
  * the egress proxy, the control plane's provider requests, and the catalog's
  * private-endpoint check. Where a spelling is ambiguous the answer is the one
- * that refuses more.
+ * that refuses more. A caller that does not refuse a class by name must not
+ * read it as reachable: `metadata` is neither private nor public.
  *
  * No imports, so the egress proxy, whose image installs nothing, runs the
  * same rules: apps/egress-proxy/src/ip-address.ts is a byte-for-byte copy,
@@ -12,6 +13,7 @@
 export type AddressClass =
   | "link_local"
   | "loopback"
+  | "metadata"
   | "multicast"
   | "private"
   | "public"
@@ -27,10 +29,65 @@ export function classifyAddress(address: string): AddressClass | null {
   return classifyIpv6(v6);
 }
 
+// Instance metadata services hand out the node's cloud credentials. Each
+// entry is the address or name its provider documents:
+//   AWS EC2 https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
+//   AWS ECS https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-metadata-endpoint-v2.html
+//   AWS EKS https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html
+//   GCP https://docs.cloud.google.com/compute/docs/metadata/querying-metadata
+//   Azure https://learn.microsoft.com/en-us/azure/virtual-machines/instance-metadata-service
+//   Alibaba https://www.alibabacloud.com/help/en/ecs/user-guide/view-instance-metadata
+//   Oracle https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/gettingmetadata.htm
+//   Oracle IPv6 https://docs.oracle.com/en-us/iaas/osmh/doc/troubleshoot-connection.htm
+//   Oracle Classic https://docs.oracle.com/en/cloud/iaas-classic/compute-iaas-cloud/stcsg/retrieving-instance-metadata.html
+//   Scaleway https://www.scaleway.com/en/docs/instances/how-to/use-cloud-init/
+//   DigitalOcean https://docs.digitalocean.com/products/droplets/how-to/access-metadata/
+//   Hetzner https://docs.hetzner.com/cloud/technical-details/hcnet/
+//   OpenStack https://docs.openstack.org/nova/latest/admin/metadata-service.html
+//   Akamai https://techdocs.akamai.com/cloud-computing/docs/metadata-service-api
+//   Tencent https://www.tencentcloud.com/document/product/213/4934
+//   Exoscale https://community.exoscale.com/product/compute/instances/how-to/cloud-init-user-data/
+const METADATA_IPV4 = new Set([
+  "169.254.169.254", // AWS, GCP, Azure, Oracle, DigitalOcean, Hetzner, OpenStack, Akamai
+  "169.254.170.2", // AWS ECS task credentials
+  "169.254.170.23", // AWS EKS Pod Identity
+  "100.100.100.200", // Alibaba, otherwise carrier-grade NAT
+  "192.0.0.192", // Oracle Compute Classic
+  "169.254.42.42", // Scaleway
+]);
+
+// Every group written out, as `fullIpv6` spells the bytes.
+const METADATA_IPV6 = new Set([
+  "fd00:0ec2:0000:0000:0000:0000:0000:0254", // AWS EC2, otherwise private
+  "fd00:0ec2:0000:0000:0000:0000:0000:0023", // AWS EKS Pod Identity
+  "fd20:00ce:0000:0000:0000:0000:0000:0254", // GCP, otherwise private
+  "fd00:0042:0000:0000:0000:0000:0000:0042", // Scaleway, otherwise private
+  "fd00:00c1:0000:0000:0000:0000:a9fe:a9fe", // Oracle, otherwise private
+  "fe80:0000:0000:0000:0000:0000:a9fe:a9fe", // OpenStack, Hetzner, Akamai
+  "fd00:a9fe:a9fe:0000:0000:0000:0000:0001", // Akamai, otherwise private
+]);
+
+// Compared after lowercasing and dropping a trailing dot, before the name is
+// resolved. `metadata` and `instance-data.ec2.internal` are no provider's
+// documented name; they are kept as names a resolver may still answer.
+const METADATA_NAMES = new Set([
+  "metadata",
+  "metadata.google.internal", // GCP
+  "metadata.goog", // GCP
+  "metadata.tencentyun.com", // Tencent
+  "metadata.exoscale.com", // Exoscale
+  "instance-data.ec2.internal",
+]);
+
+export function isMetadataName(host: string): boolean {
+  return METADATA_NAMES.has(host.toLowerCase().replace(/\.$/, ""));
+}
+
 /**
  * Only the operator's own network reaches it, written as itself: IPv4
  * private or loopback, IPv6 `::1` or fc00::/7. An IPv4 address carried
- * inside IPv6 (`::ffff:10.0.0.1`, NAT64) is not, nor is link-local.
+ * inside IPv6 (`::ffff:10.0.0.1`, NAT64) is not, nor is link-local or a
+ * metadata service.
  */
 export function isPrivateAddress(address: string): boolean {
   const v4 = parseIpv4(address);
@@ -41,7 +98,8 @@ export function isPrivateAddress(address: string): boolean {
   const v6 = parseIpv6(address);
   if (v6 === null) return false;
   const loopback = v6.slice(0, 15).every((byte) => byte === 0) && v6[15] === 1;
-  return loopback || ((v6[0] ?? 0) & 0xfe) === 0xfc;
+  if (loopback) return true;
+  return ((v6[0] ?? 0) & 0xfe) === 0xfc && classifyIpv6(v6) !== "metadata";
 }
 
 /** Rejects leading zeros, which some resolvers read as octal. */
@@ -109,6 +167,7 @@ function bytesOf(groups: number[]): number[] {
 }
 
 function classifyIpv4(octets: number[]): AddressClass {
+  if (METADATA_IPV4.has(octets.join("."))) return "metadata";
   const [a = 0, b = 0, c = 0] = octets;
   if (a === 0) return "unspecified";
   if (a === 127) return "loopback";
@@ -128,6 +187,15 @@ function classifyIpv4(octets: number[]): AddressClass {
   return "public";
 }
 
+function fullIpv6(bytes: number[]): string {
+  const groups: string[] = [];
+  for (let index = 0; index < 16; index += 2) {
+    const group = ((bytes[index] ?? 0) << 8) | (bytes[index + 1] ?? 0);
+    groups.push(group.toString(16).padStart(4, "0"));
+  }
+  return groups.join(":");
+}
+
 function classifyIpv6(bytes: number[]): AddressClass {
   const at = (index: number): number => bytes[index] ?? 0;
   const zeroUntil = (end: number): boolean =>
@@ -144,6 +212,22 @@ function classifyIpv6(bytes: number[]): AddressClass {
     at(3) === 0x9b &&
     bytes.slice(4, 12).every((byte) => byte === 0);
   if (mapped || nat64) return classifyIpv4(bytes.slice(12));
+  if (METADATA_IPV6.has(fullIpv6(bytes))) return "metadata";
+  // Clouds put 169.254.169.254 (a9fe:a9fe) somewhere inside a ULA for their
+  // IPv6 metadata (Oracle at the end, Akamai in the middle); any ULA that
+  // carries it as two adjacent groups is taken as one we have not listed.
+  if ((at(0) & 0xfe) === 0xfc) {
+    for (let index = 0; index < 14; index += 2) {
+      if (
+        at(index) === 0xa9 &&
+        at(index + 1) === 0xfe &&
+        at(index + 2) === 0xa9 &&
+        at(index + 3) === 0xfe
+      ) {
+        return "metadata";
+      }
+    }
+  }
   if (at(0) === 0xff) return "multicast";
   if (at(0) === 0xfe && (at(1) & 0xc0) === 0x80) return "link_local";
   if ((at(0) & 0xfe) === 0xfc) return "private";

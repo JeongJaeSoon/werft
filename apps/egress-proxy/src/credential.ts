@@ -9,6 +9,7 @@ import {
   type EgressPolicy,
   type EgressResolver,
   normalizeHost,
+  refusedAddress,
 } from "./policy.ts";
 import { systemResolver } from "./proxy.ts";
 import { REDACTED, sanitizeText } from "./redaction.ts";
@@ -766,6 +767,12 @@ export type EgressGrant = {
   /** The upstream was a `/mcp/<name>` path on the authorizer's listener. */
   builtin: boolean;
   /**
+   * The authorizer's mark on a server the session's workspace registered:
+   * judge its one host:port by the public address rules, not by the
+   * operator's list. Absent when not sent or not understood.
+   */
+  allow?: "public_https";
+  /**
    * The one request the grant covers (a session title call or a
    * conversation call), when it says.
    */
@@ -907,7 +914,7 @@ export function parseGrant(
     requestLimits?.maxRequestBytes !== undefined;
   if (!session && !judgment && !conversationCall) return null;
   if (typeof upstream !== "object" || upstream === null) return null;
-  const { url, headers, target } = upstream as Record<string, unknown>;
+  const { url, headers, target, allow } = upstream as Record<string, unknown>;
   if (typeof url !== "string" || !Array.isArray(headers)) return null;
   if (
     target !== undefined &&
@@ -956,7 +963,44 @@ export function parseGrant(
     headers: pairs,
     target: target ?? null,
     builtin,
+    ...(allow === "public_https" ? { allow } : {}),
     ...(requestLimits === undefined ? {} : { requestLimits }),
+  };
+}
+
+function portOf(upstream: URL): number {
+  if (upstream.port !== "") return Number(upstream.port);
+  return upstream.protocol === "https:" ? 443 : 80;
+}
+
+/**
+ * The policy a grant's upstream is dialled under. A remote MCP server the
+ * authorizer marked as registered gets a policy of its own host:port alone,
+ * held to the public address rules; a mark on anything else (another route,
+ * the built-in server, plain http) changes nothing, and the operator's list
+ * decides as it did before the mark existed.
+ */
+export function upstreamPolicy(
+  purpose: EgressPurpose,
+  grant: EgressGrant,
+  policy: EgressPolicy,
+): EgressPolicy {
+  if (
+    purpose !== "mcp" ||
+    grant.builtin ||
+    grant.allow !== "public_https" ||
+    grant.upstream.protocol !== "https:"
+  ) {
+    return policy;
+  }
+  return {
+    allow: [
+      {
+        host: normalizeHost(grant.upstream.hostname),
+        port: portOf(grant.upstream),
+      },
+    ],
+    allowPrivate: [],
   };
 }
 
@@ -1470,6 +1514,9 @@ export function startCredentialProxy(
         headers: {
           authorization: `Bearer ${options.authorizer.token}`,
           "content-type": "application/json",
+          // That this proxy reads the registered-server mark, so the API
+          // can tell it from one that would hold the server to the list.
+          "x-werft-egress-features": "registered-upstream",
           ...(purpose === "provider"
             ? { "x-werft-exchange-id": exchangeId }
             : {}),
@@ -1645,13 +1692,21 @@ export function startCredentialProxy(
   async function authorizerDestination(host: string): Promise<EgressDecision> {
     try {
       const addresses = await resolve(host);
-      return addresses.length === 0
-        ? {
-            allowed: false,
-            failure: "unresolved",
-            reason: "host does not resolve",
-          }
-        : { allowed: true, scope: "private", addresses };
+      if (addresses.length === 0) {
+        return {
+          allowed: false,
+          failure: "unresolved",
+          reason: "host does not resolve",
+        };
+      }
+      // The API's own name, but what it resolves to is judged all the same.
+      for (const address of addresses) {
+        const refused = refusedAddress(address);
+        if (refused !== null) {
+          return { allowed: false, failure: "denied", reason: refused };
+        }
+      }
+      return { allowed: true, scope: "private", addresses };
     } catch {
       return {
         allowed: false,
@@ -1671,12 +1726,7 @@ export function startCredentialProxy(
     signal: AbortSignal,
   ): Promise<Dialable | Response> {
     const host = normalizeHost(upstream.hostname);
-    const port =
-      upstream.port === ""
-        ? upstream.protocol === "https:"
-          ? 443
-          : 80
-        : Number(upstream.port);
+    const port = portOf(upstream);
     const fields = { ...who, host, port };
     const decision = await untilEnded(
       policy === null
@@ -1962,7 +2012,8 @@ export function startCredentialProxy(
       client,
     };
     // The upstream is the catalog's, not the worker's, and it is still held
-    // to the same allowlist and address rules as anything a worker asks for.
+    // to the same allowlist and address rules as anything a worker asks for
+    // (a registered MCP server, to the address rules for its own host:port).
     // The one exception is the API's own built-in MCP server, named by a
     // path on the authorizer's listener: this process's control line, which
     // no allowlist names on purpose. A catalog URL to that origin is not it.
@@ -1971,7 +2022,7 @@ export function startCredentialProxy(
     const dialUpstream = () =>
       dialable(
         grant.upstream,
-        retryable ? null : options.policy,
+        retryable ? null : upstreamPolicy(route.purpose, grant, options.policy),
         route.purpose,
         who,
         signal,
