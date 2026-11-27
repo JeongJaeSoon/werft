@@ -26,8 +26,9 @@ export function stoppedBackgroundLine(commands: readonly string[]): string {
 }
 
 // How far back from the newest event of the notice's attempt it is looked
-// for. It is written as the worker exits, so only its last words follow it.
-const STOPPED_BACKGROUND_LOOKBACK = 200;
+// for. Only what the engine says while the exiting worker waits for it to
+// settle follows the notice, and that wait is a minute at most.
+const STOPPED_BACKGROUND_LOOKBACK = 2_000;
 
 type TurnInputRow = Pick<typeof turns.$inferSelect, "message" | "sources">;
 type DeliveredTurn = Pick<

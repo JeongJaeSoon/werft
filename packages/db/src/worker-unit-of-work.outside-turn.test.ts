@@ -694,6 +694,21 @@ describe("the next turn's input after an idle worker stopped background work", (
     expect(await delivered(since, 3)).toBe("turn 3");
   });
 
+  test("finds the notice behind a long answer the engine gave to it", async () => {
+    const sessionId = await sessionWith(A);
+    await turn(sessionId, 1, "completed", A);
+    await append(fenceOf(sessionId, A), [
+      stopped(1, ["sleep"]),
+      ...Array.from({ length: 201 }, (_, index) =>
+        engineEvent(index + 2, "still answering"),
+      ),
+    ]);
+
+    expect(await delivered(sessionId, 2)).toBe(
+      `${stoppedBackgroundLine(["sleep"])}\n\nturn 2`,
+    );
+  });
+
   test("keeps the line past a delivered turn an operator abandoned", async () => {
     const sessionId = await sessionWith(A, B);
     await turn(sessionId, 1, "completed", A);
@@ -705,7 +720,7 @@ describe("the next turn's input after an idle worker stopped background work", (
     );
   });
 
-  test("keeps the line past a cut-off turn, however much that turn wrote: nothing is restored from it", async () => {
+  test("keeps the line past a cut-off turn, however much that turn wrote", async () => {
     const sessionId = await sessionWith(A, B);
     await turn(sessionId, 1, "completed", A);
     await append(fenceOf(sessionId, A), [stopped(1, ["sleep"])]);
