@@ -114,9 +114,6 @@ if [ -n "$base" ]; then
   if [ "$event" = push ] || [ "$base" = "$checkout_base" ]; then
     paths="${RUNNER_TEMP:?}/ci-paths"
     git diff --name-only --no-renames -z "$base" HEAD >"$paths"
-    # The paths that are not prose, for the integration domain selection.
-    code_paths="${RUNNER_TEMP:?}/ci-code-paths"
-    : >"$code_paths"
     docs_only=true
     guide=false
     site=false
@@ -129,10 +126,7 @@ if [ -n "$base" ]; then
     k8s_path=false
     while IFS= read -r -d '' path; do
       count=$((count + 1))
-      if ! is_doc_path "$path"; then
-        docs_only=false
-        printf '%s\0' "$path" >>"$code_paths"
-      fi
+      is_doc_path "$path" || docs_only=false
       case "$path" in
         apps/docs/content/*) site=true ;;
       esac
@@ -178,13 +172,14 @@ if [ -n "$base" ]; then
       # A commit a release needs runs them whatever it touches (below).
       [ "$k8s_path" = true ] || k8s=false
       # A pull request runs the integration domains its paths reach
-      # (integration-jobs.ts select); whatever it cannot place runs them all.
+      # (integration-jobs.ts select), prose included: tests of any domain read
+      # docs by name. Whatever it cannot place runs them all.
       # A main push keeps every domain: it is where a reach the selection
       # missed still fails. Only ci.yml asks (SELECT_DOMAINS); images.yml reads
       # no domains and has no Bun. An assignment, so a failed selection fails
       # the plan instead of running fewer domains.
       if [ "$event" = pull_request ] && [ "${SELECT_DOMAINS:-}" = true ]; then
-        domains=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && bun .github/scripts/integration-jobs.ts select "$code_paths")
+        domains=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && bun .github/scripts/integration-jobs.ts select "$paths")
       fi
     fi
   else

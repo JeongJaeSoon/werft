@@ -291,7 +291,7 @@ test(
   () => {
     for (const [path, own] of [
       ["packages/react/src/a.tsx", "surface"],
-      ["packages/ui/src/a.tsx", "worker"],
+      ["packages/core/src/a.ts", "surface"],
       ["apps/worker/src/a.ts", "worker"],
       ["apps/egress-proxy/src/a.ts", "egress"],
       ["apps/control-host/src/api/a.ts", "api"],
@@ -341,6 +341,18 @@ test(
       ".github/scripts/ci-plan.sh",
       ".github/scripts/integration-jobs.ts",
       ".github/scripts/unit-part.ts",
+      // Run by every integration job; read by name, never imported.
+      ".github/scripts/assert-no-docker-hub-images.sh",
+      // tests/images.test.ts reads values-${model}-model.yaml.
+      "deploy/kind/values-real-model.yaml",
+      "deploy/helm/werft/values.yaml",
+      // bunfig.toml preloads it into every test of every domain.
+      "packages/ui/src/test-support/preload-dom-libraries.ts",
+      "packages/ui/src/a.tsx",
+      // Files of a package that tests read by name, not import.
+      "packages/react/src/a.css",
+      "apps/egress-proxy/Dockerfile",
+      "apps/docs/content/docs/meta.json",
       ".github/scripts/test-files.ts",
       "scripts/a.ts",
       "tests/flow-harness.ts",
@@ -357,6 +369,24 @@ test(
         path,
         domains: plan(fixture(undefined, [path])).output.domains,
       }).toEqual({ path, domains: ALL });
+    }
+  },
+  SELECTING,
+);
+
+test(
+  "prose next to code runs every domain: tests of any domain read docs by name",
+  () => {
+    for (const prose of [
+      "docs/settings.md",
+      "apps/docs/content/docs/integrations/github.en.mdx",
+      "README.md",
+    ]) {
+      expect({
+        prose,
+        domains: plan(fixture(undefined, ["packages/react/src/a.tsx", prose]))
+          .output.domains,
+      }).toEqual({ prose, domains: ALL });
     }
   },
   SELECTING,
@@ -420,18 +450,15 @@ test(
         plan: plan(fixture(undefined, ["apps/web/src/a.ts", path])).output,
       }).toEqual({ path, plan: { ...prPlan(path), domains: selected } });
     }
-    // A chart file: the helm and kind jobs, and the domains whose tests read it.
-    const chart = plan(
-      fixture(undefined, [
-        "apps/web/src/a.ts",
-        "deploy/helm/werft/values.yaml",
-      ]),
-    ).output;
-    expect({ ...chart, domains: undefined }).toEqual({
-      ...full,
-      domains: undefined,
-    });
-    expect(JSON.parse(chart.domains)).toContain("surface");
+    // A chart file: the helm and kind jobs, and every domain.
+    expect(
+      plan(
+        fixture(undefined, [
+          "apps/web/src/a.ts",
+          "deploy/helm/werft/values.yaml",
+        ]),
+      ).output,
+    ).toEqual(full);
   },
   SELECTING,
 );
@@ -664,11 +691,7 @@ test(
     ]) {
       const result = plan(fixture(undefined, ["docs/settings.md", path]));
       expect(result.exitCode).toBe(0);
-      // The docs site's own files reach only the suites that read the site.
-      expect(result.output).toEqual({
-        ...prPlan(path),
-        domains: path.startsWith("apps/docs/") ? domains("worker") : ALL,
-      });
+      expect(result.output).toEqual(prPlan(path));
     }
   },
   SELECTING,

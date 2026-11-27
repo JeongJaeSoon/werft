@@ -27,7 +27,7 @@
 //                                                        already left out) reach, as one line of
 //                                                        JSON; each path's reason goes to stderr
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, normalize } from "node:path";
 import { suiteFiles, TEST_FILE } from "./test-files.ts";
 
@@ -260,22 +260,6 @@ export function assign(
 }
 
 /**
- * The CI machinery itself, and what every job installs: a change here can
- * alter what any domain runs or how, so it runs them all.
- */
-const RUN_ALL = [
-  ".github/workflows/",
-  ".github/actions/",
-  ".github/integration-domains.yml",
-  ".github/scripts/ci-plan.sh",
-  ".github/scripts/ci-reuse.sh",
-  ".github/scripts/ci-services.sh",
-  ".github/scripts/integration-jobs.ts",
-  ".github/scripts/test-files.ts",
-  ".github/scripts/unit-part.ts",
-];
-
-/**
  * Packages every domain builds on. Their computed reach is every domain
  * already; naming them keeps that true if an import moves.
  */
@@ -290,16 +274,16 @@ export const SHARED_PACKAGES = [
 ];
 
 /**
- * Paths outside any package that tests read as files (scripts they run,
- * charts they render) rather than import: a domain whose test names the
- * file is reached, beside the repository's own tooling suites in `worker`.
+ * What the selection follows through imports. Any other file (prose, JSON,
+ * YAML, SQL, a Dockerfile, a snapshot, a stylesheet) may be read by a test
+ * of any domain under a name it builds at run time, so it runs them all.
  */
-const READ_AS_FILES = [".github/scripts/", "deploy/"];
+const CODE_FILE = /\.[cm]?[jt]sx?$/;
 
 /**
- * The domain that owns the repository-wide suites (architecture, module
- * load, forbidden terms, copy and docs checks): they read every file,
- * whatever imports it, so a plan that drops domains always keeps it.
+ * The domain that owns the suites that read every source file whatever
+ * imports it (architecture, forbidden terms, copy checks), so a plan that
+ * drops domains always keeps it.
  */
 const POLICY_DOMAIN = "worker";
 
@@ -401,7 +385,7 @@ export function reachedPackages(
   cwd: string,
   testFile: string,
   workspace: Workspace,
-  read: (path: string) => string | undefined,
+  read: (path: string) => string,
 ): Set<string> {
   const byName = new Map(
     [...workspace.packages].map(([dir, name]) => [name, dir]),
@@ -415,9 +399,7 @@ export function reachedPackages(
     seen.add(file);
     const own = packageOf(file, workspace);
     if (own) packages.add(own);
-    const text = read(file);
-    if (text === undefined) continue;
-    for (const match of text.matchAll(IMPORT)) {
+    for (const match of read(file).matchAll(IMPORT)) {
       const spec = match[1]!;
       if (spec.startsWith(".")) {
         const base = normalize(join(dirname(file), spec));
@@ -427,7 +409,7 @@ export function reachedPackages(
           base.replace(/\.js$/, ".tsx"),
         ];
         const found = candidates.find((candidate) =>
-          existsSync(join(cwd, candidate)),
+          statSync(join(cwd, candidate), { throwIfNoEntry: false })?.isFile(),
         );
         if (found && !seen.has(found)) stack.push(found);
         continue;
@@ -451,8 +433,7 @@ export type Selection = { domains: string[]; reasons: string[] };
 
 /**
  * The integration domains a pull request's changed paths reach, in
- * declaration order. Prose is left out by ci-plan.sh before this is called.
- * A plan that drops a domain keeps `worker`, whose suites read every file.
+ * declaration order. A plan that drops a domain keeps `worker`.
  */
 export function selectDomains(
   cwd: string,
@@ -465,7 +446,9 @@ export function selectDomains(
   for (const path of paths) {
     const { domains, why } = selector.forPath(path);
     for (const domain of domains) picked.add(domain);
-    reasons.push(`${path} -> ${domains.join(", ")} (${why})`);
+    // JSON: a path is data, and a line break in it would start a workflow
+    // command in the job's log.
+    reasons.push(`${JSON.stringify(path)} -> ${domains.join(", ")} (${why})`);
   }
   if (picked.size < selector.all.length) picked.add(POLICY_DOMAIN);
   return {
@@ -478,12 +461,12 @@ export function selectDomains(
  * The domains one changed path reaches. Whatever this cannot place runs every
  * domain:
  * - a test file runs the domain that owns it;
- * - a file of a package runs the domains whose tests reach that package
- *   (a shared package, or a package.json, runs them all);
- * - a script or chart that tests read as a file runs the domains whose tests
- *   name it;
- * - the CI machinery, the lockfile, root configuration, scripts and test
- *   helpers outside a package, and any other path run them all.
+ * - a code file of a package runs the domains whose tests reach that
+ *   package; a shared package, or one bunfig.toml preloads into every test,
+ *   runs them all;
+ * - anything else runs them all: prose and other files tests read by name,
+ *   a package.json, the lockfile, the workflows and CI scripts, root
+ *   configuration, scripts, charts and test helpers outside a package.
  */
 export function domainSelector(
   cwd: string,
@@ -504,19 +487,31 @@ export function domainSelector(
     for (const file of files) ownerOf.set(file, domain);
   }
   const workspace = readWorkspace(cwd);
-  const cache = new Map<string, string | undefined>();
+  // Every file read here exists (a suite file, or an import found on disk):
+  // one that cannot be read fails the selection rather than drop its reach.
+  const cache = new Map<string, string>();
   const read = (path: string) => {
-    if (!cache.has(path)) {
-      let text: string | undefined;
-      try {
-        text = readFileSync(join(cwd, path), "utf8");
-      } catch {
-        text = undefined;
-      }
-      cache.set(path, text);
-    }
-    return cache.get(path);
+    if (!cache.has(path))
+      cache.set(path, readFileSync(join(cwd, path), "utf8"));
+    return cache.get(path)!;
   };
+  // A preload runs in every test process, whichever domain it belongs to.
+  const bunfig = Bun.TOML.parse(
+    readFileSync(join(cwd, "bunfig.toml"), "utf8"),
+  ) as {
+    test?: { preload?: string[] };
+  };
+  const preloaded = new Set<string>();
+  for (const preload of bunfig.test?.preload ?? []) {
+    for (const dir of reachedPackages(
+      cwd,
+      normalize(preload),
+      workspace,
+      read,
+    )) {
+      preloaded.add(dir);
+    }
+  }
   let reach: Map<string, Set<string>> | undefined;
   const domainsReaching = (dir: string) => {
     reach ??= new Map(
@@ -534,9 +529,6 @@ export function domainSelector(
   };
 
   const forPath = (path: string): { domains: string[]; why: string } => {
-    if (RUN_ALL.some((prefix) => path.startsWith(prefix))) {
-      return { domains: all, why: "CI machinery" };
-    }
     const name = path.split("/").at(-1)!;
     if (TEST_FILE.test(name)) {
       // A test file of the suite runs its own domain; another one (a deleted
@@ -546,32 +538,20 @@ export function domainSelector(
       if (owner) return { domains: [owner], why: "test file" };
     }
     const pkg = packageOf(path, workspace);
-    if (pkg) {
-      if (name === "package.json") {
-        return { domains: all, why: "package manifest" };
-      }
-      if (SHARED_PACKAGES.includes(pkg)) {
-        return { domains: all, why: `shared package ${pkg}` };
-      }
-      const domains = domainsReaching(pkg);
-      return domains.length > 0
-        ? { domains, why: `package ${pkg}` }
-        : { domains: all, why: `package ${pkg}, which no test reaches` };
+    if (!pkg) return { domains: all, why: "outside every package" };
+    if (!CODE_FILE.test(name)) {
+      return { domains: all, why: `not a code file of ${pkg}` };
     }
-    if (READ_AS_FILES.some((prefix) => path.startsWith(prefix))) {
-      const naming = new Set(
-        tests
-          .filter((test) => read(test)?.includes(name))
-          .map((test) => ownerOf.get(test)!),
-      );
-      return {
-        domains: all.filter(
-          (domain) => domain === POLICY_DOMAIN || naming.has(domain),
-        ),
-        why: "read as a file by tests",
-      };
+    if (SHARED_PACKAGES.includes(pkg)) {
+      return { domains: all, why: `shared package ${pkg}` };
     }
-    return { domains: all, why: "outside every package" };
+    if (preloaded.has(pkg)) {
+      return { domains: all, why: `${pkg} is preloaded into every test` };
+    }
+    const domains = domainsReaching(pkg);
+    return domains.length > 0
+      ? { domains, why: `package ${pkg}` }
+      : { domains: all, why: `package ${pkg}, which no test reaches` };
   };
   return { all, forPath };
 }

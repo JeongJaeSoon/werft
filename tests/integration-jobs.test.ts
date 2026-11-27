@@ -553,6 +553,34 @@ describe("integration-jobs.ts select", () => {
     }
   }, 30_000);
 
+  test("a package bunfig.toml preloads into every test runs every domain", () => {
+    const bunfig = Bun.TOML.parse(
+      readFileSync(join(repo, "bunfig.toml"), "utf8"),
+    ) as { test: { preload: string[] } };
+    expect(bunfig.test.preload.length).toBeGreaterThan(0);
+    for (const preload of bunfig.test.preload) {
+      expect(selector.forPath(preload.replace(/^\.\//, "")).domains).toEqual(
+        selector.all,
+      );
+    }
+  });
+
+  test("a path is printed as JSON, so a line break in it starts no workflow command", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "select-"));
+    try {
+      const paths = join(dir, "paths");
+      await writeFile(paths, "docs/a\n::error::injected.md\0");
+      const result = await run(["select", paths]);
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).not.toMatch(/^::/m);
+      expect(result.stderr).toContain(
+        String.raw`"docs/a\n::error::injected.md"`,
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   test("prints the selection as one line of JSON and each path's reason on stderr", async () => {
     const dir = await mkdtemp(join(tmpdir(), "select-"));
     try {
@@ -562,7 +590,7 @@ describe("integration-jobs.ts select", () => {
       expect(result.exitCode).toBe(0);
       expect(result.lines).toEqual(['["egress","worker"]']);
       expect(result.stderr).toContain(
-        "integration domains: tests/credential-routes.test.ts -> egress (test file)",
+        'integration domains: "tests/credential-routes.test.ts" -> egress (test file)',
       );
     } finally {
       await rm(dir, { recursive: true, force: true });
