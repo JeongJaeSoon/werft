@@ -379,8 +379,9 @@ function changedCalls(text: string, at: Changes | null): string[] {
   let touched = false;
   const lines = text.split("\n");
   lines.forEach((line, index) => {
-    if (parts.length === 0 && COMMENT.test(line)) return;
-    const comment = commentStart(line);
+    const commentLine = COMMENT.test(line);
+    if (parts.length === 0 && commentLine) return;
+    const comment = commentLine ? 0 : commentStart(line);
     const goesOn = comment === -1 && continues(line);
     const code = goesOn
       ? line.slice(0, -1)
@@ -396,12 +397,13 @@ function changedCalls(text: string, at: Changes | null): string[] {
       touched = true;
     parts.push(code);
     if (goesOn) return;
-    if (touched) calls.push(normalized(parts.join(" ")));
+    if (touched) calls.push(normalized(parts.join(" ")).trim());
     parts = [];
     touched = false;
   });
   if (at?.cuts.has(lines.length)) touched = true;
-  if (parts.length > 0 && touched) calls.push(normalized(parts.join(" ")));
+  if (parts.length > 0 && touched)
+    calls.push(normalized(parts.join(" ")).trim());
   return calls;
 }
 
@@ -516,7 +518,20 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
       }
     }
     if (!script) continue;
+    // A command the old text already ran as often, as written, is no new
+    // call, whatever comment or spacing around it changed.
+    const count = (text: string | null) => {
+      const counts = new Map<string, number>();
+      if (text === null) return counts;
+      for (const call of changedCalls(text, null)) {
+        counts.set(call, (counts.get(call) ?? 0) + 1);
+      }
+      return counts;
+    };
+    const was = count(earlierText);
+    const now = count(newText);
     for (const call of changedCalls(newText, at)) {
+      if ((now.get(call) ?? 0) <= (was.get(call) ?? 0)) continue;
       for (const { id, pattern } of NETWORK_CALL_PATTERNS) {
         if (pattern.test(call)) flag("network_call", file.path, id);
       }
@@ -556,27 +571,23 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
       was !== null &&
       (was.license !== now.license || was.licenseFiles !== now.licenseFiles);
     if (licenseChanged) flag("license_changed", file.path);
-    // Warnings read the diff: an update that leaves the terms alone repeats none.
-    if (
-      was !== null &&
-      !licenseChanged &&
-      was.noticeFiles === now.noticeFiles
-    ) {
-      continue;
-    }
+    // Warnings read the diff: the terms when they change, notices when theirs do.
     // A LICENSE file in the skill states the terms, whatever the field says.
     const licenseFile = now.licenseFiles !== "";
-    if (now.license === null && !licenseFile) {
-      flag("license_missing", file.path);
+    if (was === null || licenseChanged) {
+      if (now.license === null && !licenseFile) {
+        flag("license_missing", file.path);
+      }
+      if (
+        now.license !== null &&
+        !licenseFile &&
+        !isSpdxExpression(now.license)
+      ) {
+        flag("license_unclassified", file.path, now.license.slice(0, 80));
+      }
     }
-    if (
-      now.license !== null &&
-      !licenseFile &&
-      !isSpdxExpression(now.license)
-    ) {
-      flag("license_unclassified", file.path, now.license.slice(0, 80));
-    }
-    if (rootNotice && now.noticeFiles === "") {
+    const noticesChanged = was === null || was.noticeFiles !== now.noticeFiles;
+    if (noticesChanged && rootNotice && now.noticeFiles === "") {
       flag("license_notice_missing", file.path);
     }
   }

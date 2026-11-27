@@ -654,7 +654,7 @@ describe("edge cases", () => {
     ).toEqual(["license_notice_missing"]);
   });
 
-  test("license warnings come back only when the update changes the terms or notices", () => {
+  test("license warnings come back only when the update changes the terms, notice warnings only when the notices change", () => {
     const base = [
       skillMd("s", "See the website"),
       text("skills/s/README.md", "a\n"),
@@ -682,7 +682,7 @@ describe("edge cases", () => {
           ],
         }).warnings,
       ),
-    ).toEqual(["license_unclassified", "license_notice_missing"]);
+    ).toEqual(["license_unclassified"]);
   });
 
   test("SPDX WITH takes one license and one exception; DocumentRef references pass", () => {
@@ -1280,5 +1280,46 @@ describe("fifteenth review", () => {
     const started = performance.now();
     calls(null, line);
     expect(performance.now() - started).toBeLessThan(1000);
+  });
+});
+
+describe("sixteenth review", () => {
+  const sh = (body: string) => text("skills/s/scripts/a.sh", body);
+  const calls = (before: string | null, after: string) =>
+    gate({
+      before: before === null ? null : [...licensed("s"), sh(before)],
+      after: [...licensed("s"), sh(after)],
+    }).warnings.find((w) => w.rule === "network_call")?.samples ?? [];
+
+  test("changing an inline comment or a -- comment line leaves the command alone", () => {
+    expect(calls('curl "$TARGET" # old\n', 'curl "$TARGET" # new\n')).toEqual(
+      [],
+    );
+    expect(calls('curl "$TARGET" # old\n', 'curl "$TARGET"\n')).toEqual([]);
+    expect(
+      calls('curl "$TARGET" \\\n-- old\n', 'curl "$TARGET" \\\n-- new\n'),
+    ).toEqual([]);
+  });
+
+  test("a second copy of a kept command still counts", () => {
+    expect(calls("npm ci\n", "npm ci\nnpm ci\n")).toEqual(["package_install"]);
+  });
+});
+
+describe("seventeenth review", () => {
+  test("changing only the skill's notice files does not repeat the terms warning", () => {
+    const base = [
+      skillMd("s", "See the website"),
+      text("skills/s/NOTICE", "old\n"),
+    ];
+    expect(
+      gate({
+        before: base,
+        after: [
+          base[0] as CanonicalBundleFile,
+          text("skills/s/NOTICE", "new\n"),
+        ],
+      }).warnings,
+    ).toEqual([]);
   });
 });
