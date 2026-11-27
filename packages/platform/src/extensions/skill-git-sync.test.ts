@@ -200,6 +200,8 @@ function fakeReader() {
     } as GitHubSkillRepository | null,
     /** The installation each resolve and read was asked with. */
     asked: [] as number[],
+    /** What a lookup by id answers; unset: `repository`. */
+    byId: undefined as GitHubSkillRepository | null | undefined,
     branch: true as boolean | Error,
     branches: [] as string[],
   };
@@ -216,7 +218,7 @@ function fakeReader() {
     },
     async repositoryById() {
       if (state.fail) throw state.fail;
-      return state.repository;
+      return state.byId === undefined ? state.repository : state.byId;
     },
     async resolve(_app, installation, _repository, ref) {
       state.asked.push(installation);
@@ -528,12 +530,47 @@ describe("the daily check", () => {
       sources: [source({ access: "public", installationId: 50 })],
       installed: false,
     });
+    if (state.repository) state.repository.public = true;
     await sync.check(WORKSPACE, "research", {
       kind: "daily",
       deliveryId: null,
       userId: null,
     });
     expect(new Set(state.asked)).toEqual(new Set([50]));
+    expect(registered.map((one) => one.commit)).toEqual([COMMIT_A]);
+  });
+
+  test("a public source that is no longer public when its files are read writes nothing and is source_missing", async () => {
+    for (const byId of [
+      { id: 7, fullName: "acme/skills", ownerId: 70, public: false },
+      null,
+    ]) {
+      const { sync, state, sources, registered } = setup({
+        sources: [source({ access: "public", installationId: 50 })],
+        installed: false,
+      });
+      state.byId = byId;
+      await sync.check(WORKSPACE, "research", {
+        kind: "daily",
+        deliveryId: null,
+        userId: null,
+      });
+      expect(registered).toEqual([]);
+      expect(sources.checks.at(-1)?.check).toMatchObject({
+        result: "source_missing",
+        commit: COMMIT_A,
+      });
+    }
+  });
+
+  test("an installation source is not asked whether it is public", async () => {
+    const { sync, state, registered } = setup();
+    state.byId = null;
+    await sync.check(WORKSPACE, "research", {
+      kind: "daily",
+      deliveryId: null,
+      userId: null,
+    });
     expect(registered.map((one) => one.commit)).toEqual([COMMIT_A]);
   });
 
@@ -904,6 +941,22 @@ describe("registering from GitHub", () => {
       expect(state.resolved).toEqual([]);
       expect(registered).toEqual([]);
     }
+  });
+
+  test("a public repository that turned private by the time its files were read is refused", async () => {
+    const { sync, state, registered, newSources } = setup({
+      sources: [],
+      installed: false,
+      installations: [{ id: 50, suspendedAt: null }],
+    });
+    if (state.repository) state.repository.public = true;
+    state.byId = { id: 7, fullName: "acme/skills", ownerId: 70, public: false };
+    await expect(sync.register(caller(), request)).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      details: { reason_code: "repository_not_installed" },
+    });
+    expect(registered).toEqual([]);
+    expect(newSources).toEqual([]);
   });
 
   test("with several author Apps the connection is named; an unknown one is refused", async () => {

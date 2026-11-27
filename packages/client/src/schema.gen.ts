@@ -3270,7 +3270,7 @@ export interface paths {
         };
         /**
          * List the workspace's skills and their versions
-         * @description Every skill name with all its versions, oldest first, and the version and mode the workspace scope names. A bundle registered before skills shows with `version: null`. `source` is the skill's one source (`upload` or `github`); a GitHub skill carries `git`: where it syncs from, whether sync is on, whether this installation can take its push webhook (`webhook`: `ready`, `no_public_url`, or `no_secret` when the App's webhook secret is not stored), and its last check. `pending_count` is how many of its versions wait for review. Every member of the workspace reads it.
+         * @description Every skill name with all its versions, oldest first, and the version and mode the workspace scope names. A bundle registered before skills shows with `version: null`. `source` is the skill's one source (`upload` or `github`); a GitHub skill carries `git`: where it syncs from, whether sync is on, whether this installation can take its push webhook (`webhook`: `ready`, `no_public_url`, `no_secret` when the App's webhook secret is not stored, or `not_installed` for a public repository the App is not installed on, read with `access` `public`), and its last check. `pending_count` is how many of its versions wait for review. Every member of the workspace reads it.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -37235,6 +37235,7 @@ export interface operations {
                      *       "git": {
                      *         "connection_id": "019a0000-0000-7000-8000-0000000000b1",
                      *         "installation_id": 4242,
+                     *         "access": "installation",
                      *         "repository_id": 123456789,
                      *         "repository": "acme/skills",
                      *         "path": "skills/release-notes",
@@ -37399,6 +37400,7 @@ export interface operations {
                      *       "git": {
                      *         "connection_id": "019a0000-0000-7000-8000-0000000000b1",
                      *         "installation_id": 4242,
+                     *         "access": "installation",
                      *         "repository_id": 123456789,
                      *         "repository": "acme/skills",
                      *         "path": "skills/release-notes",

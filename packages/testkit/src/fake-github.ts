@@ -134,7 +134,9 @@ export type FakeGitHub = {
     files: Record<string, string>,
     /** `ownerId`: the owning account's id; unset, one per owner login. */
     options?: { branch?: string; private?: boolean; ownerId?: number },
-  ): Promise<void>;
+  ): Promise<number>;
+  /** Makes a served repository private or public, as its owner can. */
+  setPrivate(owner: string, name: string, on: boolean): void;
   /** Points `branch` at a bundle's commit (`seedServedBranch`). */
   seedBranch(
     owner: string,
@@ -1510,7 +1512,9 @@ export async function startFakeGitHub(
         branch,
       );
       nextId += 1;
-      if (!ownerIds.has(owner)) ownerIds.set(owner, 5000 + ownerIds.size);
+      if (!ownerIds.has(owner)) {
+        ownerIds.set(owner, repoOptions.ownerId ?? 5000 + ownerIds.size);
+      }
       served.set(`${owner}/${name}`, {
         id: nextId,
         ownerId: repoOptions.ownerId ?? (ownerIds.get(owner) as number),
@@ -1521,6 +1525,12 @@ export async function startFakeGitHub(
         runs: [],
         reviews: [],
       });
+      return nextId;
+    },
+    setPrivate(owner, name, on) {
+      const found = served.get(`${owner}/${name}`);
+      if (!found) throw new Error(`no repository ${owner}/${name}`);
+      found.private = on;
     },
     seedBranch(owner, name, branch, bundle) {
       return seedServedBranch(

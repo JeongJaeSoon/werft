@@ -216,6 +216,7 @@ describe("reading a skill from GitHub with the App's installation", () => {
 
 describe("reading a public repository the installation does not cover", () => {
   let other: FakeGitHub;
+  let closedId: number;
   beforeAll(async () => {
     other = await startFakeGitHub({
       appId: 101,
@@ -229,7 +230,7 @@ describe("reading a public repository the installation does not cover", () => {
       { "skills/pdf/SKILL.md": "---\nname: pdf\n---\nPDF.\n" },
       { private: false, ownerId: 4242 },
     );
-    await other.createRepository(
+    closedId = await other.createRepository(
       "anthropics",
       "closed",
       { "skills/pdf/SKILL.md": "---\nname: pdf\n---\nPDF.\n" },
@@ -284,14 +285,6 @@ describe("reading a public repository the installation does not cover", () => {
     expect(
       await reader.repository(otherApp(), INSTALLATION, "anthropics", "closed"),
     ).toBeNull();
-    const open = await reader.repository(
-      otherApp(),
-      INSTALLATION,
-      "anthropics",
-      "open",
-    );
-    // Created right after the public one.
-    const closedId = (open?.id ?? 0) + 1;
     expect(
       await reader.repositoryById(otherApp(), INSTALLATION, closedId),
     ).toBeNull();

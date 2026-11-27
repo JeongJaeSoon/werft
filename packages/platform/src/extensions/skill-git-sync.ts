@@ -279,6 +279,17 @@ export function createSkillGitSync(
     }));
   };
 
+  async function stillPublic(
+    app: AppKey,
+    installationId: number,
+    repositoryId: number,
+  ): Promise<boolean> {
+    return (
+      (await reader.repositoryById(app, installationId, repositoryId))
+        ?.public === true
+    );
+  }
+
   async function readingInstallation(app: AppKey) {
     return publicReadingInstallation(await deps.installations(app));
   }
@@ -353,6 +364,22 @@ export function createSkillGitSync(
     }
     if (tree.kind === "missing") return record("source_missing", commit);
     if (tree.kind === "refused") return record("rejected", commit, tree.issues);
+    // Read after the files: a repository that turned private since is not
+    // read through the public path, even if the installation now covers it.
+    if (source.access === "public") {
+      let open: boolean;
+      try {
+        open = await stillPublic(
+          app,
+          source.installationId,
+          source.repositoryId,
+        );
+      } catch (error) {
+        if (!(error instanceof GitHubAppCheckError)) throw error;
+        return record("github_unavailable", commit);
+      }
+      if (!open) return record("source_missing", commit);
+    }
     // The write reads the settings again under the source row's lock
     // before it approves anything.
     const grantId = source.autoApprove.grantId;
@@ -636,6 +663,14 @@ export function createSkillGitSync(
               request.path,
             );
           }
+          if (
+            access === "public" &&
+            tree?.kind === "files" &&
+            !(await stillPublic(app, installation.id, repository.id))
+          ) {
+            repository = null;
+            tree = null;
+          }
         }
       } catch (error) {
         throw unavailable(error);
@@ -643,7 +678,7 @@ export function createSkillGitSync(
       if (installation === null || repository === null) {
         throw refused(
           "repository_not_installed",
-          "The App is not installed on that repository, and it is not public",
+          "The App is not installed on that repository, and it is not public or no installation of the App can read it",
         );
       }
       if (commit === null) {

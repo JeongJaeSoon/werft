@@ -1265,24 +1265,24 @@ function skillRepositoryOf(data: unknown): GitHubSkillRepository {
     full_name?: unknown;
     owner?: { id?: unknown };
     visibility?: unknown;
-    private?: unknown;
   };
+  const id = Number(repo.id);
   const ownerId = Number(repo.owner?.id);
   if (
     typeof repo.full_name !== "string" ||
+    !Number.isSafeInteger(id) ||
+    id <= 0 ||
     !Number.isSafeInteger(ownerId) ||
     ownerId <= 0
   ) {
-    throw new Error("GitHub answered a repository without its owner");
+    throw new Error("GitHub answered a repository without its id or owner");
   }
+  // Only GitHub's own word: no `visibility` is not public.
   return {
-    id: Number(repo.id),
+    id,
     fullName: repo.full_name,
     ownerId,
-    public:
-      repo.visibility === undefined
-        ? repo.private === false
-        : repo.visibility === "public",
+    public: repo.visibility === "public",
   };
 }
 

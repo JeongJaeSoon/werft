@@ -555,6 +555,27 @@ integration("Git skill sync against fake GitHub", () => {
       expect(
         (await reading.checkNow(caller, "open-pdf")).last_check,
       ).toMatchObject({ result: "created" });
+      const versions = async () =>
+        (
+          await db
+            .select()
+            .from(extensionBundles)
+            .where(
+              and(
+                eq(extensionBundles.workspaceId, workspaceId),
+                eq(extensionBundles.name, "open-pdf"),
+              ),
+            )
+        ).length;
+      expect(await versions()).toBe(2);
+      other.setPrivate("anthropics", "open", true);
+      await other.writeFiles("anthropics", "open", "main", {
+        "skills/pdf/SKILL.md": skillMd("open-pdf", "Private now."),
+      });
+      expect(
+        (await reading.checkNow(caller, "open-pdf")).last_check,
+      ).toMatchObject({ result: "source_missing" });
+      expect(await versions()).toBe(2);
 
       await expect(
         register("closed-pdf", "anthropics/closed"),
