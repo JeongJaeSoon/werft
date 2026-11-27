@@ -1384,3 +1384,15 @@ describe("twenty-first review", () => {
     ).not.toThrow();
   });
 });
+
+describe("twenty-second review", () => {
+  test("a script that grows to 1 MiB of lines is judged without throwing", () => {
+    const sh = (body: string) => text("skills/s/scripts/a.sh", body);
+    expect(() =>
+      gate({
+        before: [...licensed("s"), sh("")],
+        after: [...licensed("s"), sh(`${"\n".repeat(1_048_575)}:`)],
+      }),
+    ).not.toThrow();
+  });
+});
