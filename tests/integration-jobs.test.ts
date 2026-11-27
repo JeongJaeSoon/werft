@@ -4,12 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   assign,
+  DEFAULT_TEST_SECONDS,
   forShard,
   type IntegrationJob,
   matrix,
   readJobs,
   readJunit,
   shardFiles,
+  slowCases,
   verifyRun,
 } from "../.github/scripts/integration-jobs.ts";
 import { suiteFiles } from "../.github/scripts/test-files.ts";
@@ -408,18 +410,39 @@ describe.skip("off", () => {
       expect(await child.exited).toBe(0);
 
       const cases = readJunit(await readFile(join(dir, "out.xml"), "utf8"));
+      const seconds = expect.any(Number);
       expect(cases).toEqual([
-        { file: "a.test.ts", skipped: false, test: "runs" },
+        { file: "a.test.ts", seconds, skipped: false, test: "runs" },
         {
           file: "a.test.ts",
+          seconds,
           skipped: true,
           test: 'skips "quoted" <tags> & more',
         },
-        { file: "a.test.ts", skipped: true, test: "inside" },
+        { file: "a.test.ts", seconds, skipped: true, test: "inside" },
       ]);
     } finally {
       await rm(dir, { force: true, recursive: true });
     }
+  });
+
+  test("names the tests that ran past bun's own limit, slowest first", () => {
+    const timed = (test: string, seconds: number) => ({
+      file: "a.test.ts",
+      seconds,
+      skipped: false,
+      test,
+    });
+    const cases = [
+      timed("under", 4.9),
+      timed("at the limit", DEFAULT_TEST_SECONDS),
+      timed("over", 5.1),
+      timed("far over", 12),
+    ];
+    expect(slowCases(cases, DEFAULT_TEST_SECONDS).map((c) => c.test)).toEqual([
+      "far over",
+      "over",
+    ]);
   });
 
   test("fails a run that skipped what the job did not declare, or ran other files than it owns", () => {

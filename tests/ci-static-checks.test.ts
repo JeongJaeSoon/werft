@@ -275,8 +275,30 @@ test("required check only accepts verified product or documentation results", ()
     "needs.changes.outputs.docs_only == 'true'",
   );
   expect(workflow.jobs["docs-checks"]?.steps.at(-1)?.run).toBe(
-    "bun test ./tests",
+    "bun test --timeout=15000 ./tests",
   );
+});
+
+test("the suite steps give a test 15 s where bun gives 5, and only CI does", () => {
+  const runs = [
+    workflow.jobs["docs-checks"]?.steps.at(-1)?.run,
+    workflow.jobs["check-part"]?.steps.find(
+      (step) => step.name === "Tests of this part",
+    )?.run,
+    workflow.jobs["integration-domain"]?.steps.find(
+      (step) => step.name === "Tests of this domain",
+    )?.run,
+  ];
+  for (const run of runs) {
+    expect(run?.match(/bun test( --[\w-]+=\S+)* /g)).toEqual([
+      expect.stringContaining(" --timeout=15000 "),
+    ]);
+  }
+  // A limit in bunfig.toml would also hide a slow test on a developer's
+  // machine; integration-jobs.ts names the tests over bun's own 5 s.
+  expect(
+    readFileSync(join(import.meta.dir, "../bunfig.toml"), "utf8"),
+  ).not.toMatch(/^\s*timeout\s*=/m);
 });
 
 const plannedConsumers = [
