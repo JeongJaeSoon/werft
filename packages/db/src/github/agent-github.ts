@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import {
-  agentGitHubSettingsSchema,
   GITHUB_FEATURES_DEFAULT,
   GITHUB_GATE_RECEIPT_OPERATION_VALUES,
   githubEffectiveFeatures,
   pinUnderSwitches,
+  storedAgentGitHubSettingsSchema,
 } from "@werft-ai/contracts";
 import type {
   AgentGitHubStore,
@@ -145,7 +145,7 @@ async function seedOf(
           ),
           actions_allow: [],
         }
-      : agentGitHubSettingsSchema.safeParse(release.github).data;
+      : storedAgentGitHubSettingsSchema.safeParse(release.github).data;
   if (github === undefined) return null;
   const { features, actions_allow } = pinUnderSwitches(github);
   return {

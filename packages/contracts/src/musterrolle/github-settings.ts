@@ -19,15 +19,34 @@ export const githubAppRoleSchema = z.enum(GITHUB_APP_ROLE_VALUES);
  * before the two switches read the row (a0: drop it two releases after the
  * last image that reads it).
  */
-export const githubFeaturesSchema = z
-  .object({
-    workflows: z.boolean(),
-    actions: z.boolean(),
-    checks: z.boolean(),
-    issues: z.boolean(),
-    review: z.boolean(),
-  })
-  .strict();
+const githubFeatureFields = {
+  workflows: z.boolean(),
+  actions: z.boolean(),
+  checks: z.boolean(),
+  issues: z.boolean(),
+  review: z.boolean(),
+};
+
+/** What a write accepts: an unknown key is refused. */
+export const githubFeaturesSchema = z.object(githubFeatureFields).strict();
+
+/**
+ * The same switches, for reading a stored release pin. Every key here grants,
+ * so a key this build does not know (a newer build wrote it) is left out of
+ * the result, which only narrows; a known key with a bad value is still
+ * refused.
+ */
+export const storedGitHubFeaturesSchema = z.object(githubFeatureFields);
+
+/**
+ * As above, for an agent's settings row and a session's start snapshot.
+ * `merge` is read ahead of the build that writes it (94S-2492), absent
+ * meaning off; a release pin never carries it. It gets no default: what is
+ * read is written again as a start snapshot, and a key there that an earlier
+ * image does not know closes its sessions.
+ */
+export const storedAgentGitHubFeaturesSchema =
+  storedGitHubFeaturesSchema.extend({ merge: z.boolean().optional() });
 
 /**
  * What a workspace lets its agents do; no settings row reads all false.
@@ -37,7 +56,7 @@ export const githubFeaturesSchema = z
  */
 export const githubCeilingSchema = z
   .object({
-    ...githubFeaturesSchema.shape,
+    ...githubFeatureFields,
     /** Lets an agent squash-merge the pull request its own session opened. */
     merge: z.boolean().default(false),
   })
