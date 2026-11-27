@@ -11,6 +11,7 @@ import {
   M1_CHANNEL_WINDOW_MS,
 } from "@werft-ai/platform";
 import { type SQL, sql } from "drizzle-orm";
+import { ownerlessPastGrace } from "../agents.ts";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
 import {
@@ -488,10 +489,16 @@ export function createPostgresJudgmentBufferStore(
       const [row] = rowsOf<{
         rollout: JudgmentBufferPlace["rollout"];
         status: string;
+        ownerless: boolean;
         channel_state: JudgmentBufferPlace["channelState"] | null;
       }>(
         await db.execute(sql`
           SELECT a.conversation_rollout AS rollout, a.status,
+            ${ownerlessPastGrace(db, {
+              id: sql.raw("a.id"),
+              workspaceId: sql.raw("a.workspace_id"),
+              ownerlessSince: sql.raw("a.ownerless_since"),
+            })} AS ownerless,
             (SELECT c.channel_state FROM conversations c
               WHERE c.agent_id = a.id AND c.kind = 'channel'
                 AND c.team_id = ${key.teamId}
@@ -501,11 +508,17 @@ export function createPostgresJudgmentBufferStore(
             AND a.workspace_id = ${key.workspaceId}::uuid`),
       );
       if (row === undefined) {
-        return { rollout: "off", agentActive: false, channelState: "active" };
+        return {
+          rollout: "off",
+          agentActive: false,
+          agentOwnerless: false,
+          channelState: "active",
+        };
       }
       return {
         rollout: row.rollout,
         agentActive: row.status === "active",
+        agentOwnerless: row.ownerless,
         channelState: row.channel_state ?? "active",
       };
     },

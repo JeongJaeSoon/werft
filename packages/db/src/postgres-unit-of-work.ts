@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import {
-  AGENT_OWNERLESS_GRACE_DAYS,
   type AuthorizationSubject,
   attemptStateSchema,
   type CheckpointBlockReason,
@@ -100,6 +99,7 @@ import {
 } from "./action/push-follow-ups.ts";
 import { captureWorkspaceMcpStart } from "./agents/agent-workspace-mcp.ts";
 import { earlierInSecond, releaseLabel } from "./agents/release-labels.ts";
+import { ownerlessPastGrace } from "./agents.ts";
 import { workerRuntimeView } from "./checkpoints/checkpoint-runtime.ts";
 import {
   containsPattern,
@@ -126,7 +126,6 @@ import {
   encodeTurnCursor,
   rethrowCursorCastError,
 } from "./cursors.ts";
-import { DB_NOW } from "./db-clock.ts";
 import { budgetAccountRefused } from "./exchange-budget.ts";
 import { captureGitHubPolicyStart } from "./github/github-settings.ts";
 import { acceptanceTransaction, admitInput } from "./input-limits.ts";
@@ -134,7 +133,6 @@ import { readArchivedWorkspaceLimit } from "./limits/workspace-limit.ts";
 import {
   agentNamedInSession,
   agentReachable,
-  hasOwner,
 } from "./musterrolle/administers.ts";
 import {
   inputRefusal,
@@ -502,7 +500,7 @@ export async function lockedNotRunnable(
   if (row.status !== "active") return "agent_inactive";
   const [judged] = await tx
     .select({
-      ownerless: sql<boolean>`(${agents.ownerlessSince} <= ${DB_NOW} - make_interval(days => ${AGENT_OWNERLESS_GRACE_DAYS}) and not ${hasOwner(tx, agents.workspaceId, agents.id)})`,
+      ownerless: ownerlessPastGrace(tx, agents),
     })
     .from(agents)
     .where(eq(agents.id, row.id));
