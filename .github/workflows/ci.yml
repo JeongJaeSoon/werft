@@ -65,6 +65,9 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BEFORE_SHA: ${{ github.event.before }}
+          # A main push asks whether a release needs its commit.
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/ci-plan.sh
       - id: sdk
         name: Plan SDK consumer check

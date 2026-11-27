@@ -994,9 +994,12 @@ describe("compose and workflow agree with the Dockerfiles", () => {
      */
     const passes = (
       condition: string | undefined,
-      run: { event: string; ref: string; release?: boolean },
+      run: { event: string; ref: string; release?: boolean; chart?: boolean },
     ): boolean =>
       (condition ?? "").split(" && ").every((term) => {
+        if (term === "needs.plan.outputs.chart != 'false'") {
+          return run.chart !== false;
+        }
         const prefix = term.match(/^startsWith\(github\.ref, '([^']+)'\)$/);
         if (prefix) return run.ref.startsWith(prefix[1] ?? "");
         if (term === "needs.release-detect.outputs.tag != ''") {
@@ -1022,7 +1025,7 @@ describe("compose and workflow agree with the Dockerfiles", () => {
      */
     const runs = (
       name: string,
-      run: { event: string; ref: string; release?: boolean },
+      run: { event: string; ref: string; release?: boolean; chart?: boolean },
     ): boolean => {
       if (["plan", "build", "supply-chain", "tag-conformance"].includes(name)) {
         return true;
@@ -1255,6 +1258,17 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       },
     );
 
+    test("a main push the plan leaves the chart out of still publishes its images", () => {
+      const main = { event: "push", ref: "refs/heads/main", chart: false };
+      expect(writers.filter((name) => runs(name, main)).sort()).toEqual([
+        "index-main",
+        "promote-main",
+        "publish-main",
+      ]);
+      const plan = jobs.plan as unknown as { outputs: Record<string, string> };
+      expect(plan.outputs.chart).toBe(expression("steps.plan.outputs.k8s"));
+    });
+
     test("the images follow the owner rather than a spelled namespace", () => {
       expect(text).toContain(
         "IMAGE_PREFIX: $" + "{{ github.repository_owner }}/werft\n",
@@ -1315,14 +1329,17 @@ describe("compose and workflow agree with the Dockerfiles", () => {
 
     test("the chart follows its own path's promotion, and installs before it is pushed", () => {
       expect(jobs.chart?.needs).toBe("promote");
-      expect(jobs["chart-main"]?.needs).toBe("promote-main");
+      expect(jobs["chart-main"]?.needs).toEqual(["plan", "promote-main"]);
       expect(jobs["chart-publish"]?.needs).toBe("chart");
       expect(jobs["chart-publish-main"]?.needs).toBe("chart-main");
       for (const name of ["chart", "chart-main"]) {
         expect(jobs[name]?.permissions).toBeUndefined();
       }
       // A retry's main run promotes no main-<12>, so no chart of it either.
-      expect(jobs["chart-main"]?.if).toBe(jobs["promote-main"]?.if);
+      // The plan can leave a main push's chart out, and nothing else.
+      expect(jobs["chart-main"]?.if).toBe(
+        `needs.plan.outputs.chart != 'false' && ${jobs["promote-main"]?.if}`,
+      );
       expect(jobs.chart?.if).toBe(jobs.publish?.if);
       expect(jobs["chart-publish-main"]?.if).toBe(jobs["promote-main"]?.if);
       expect(jobs["chart-publish"]?.if).toBe(jobs.publish?.if);

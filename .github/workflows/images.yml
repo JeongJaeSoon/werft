@@ -68,6 +68,10 @@ jobs:
       # input leaves the bundle out (test-ops-bundle-plan.sh).
       # Only a planner that succeeded and said skip leaves it out.
       ops_bundle: ${{ steps.bundle.outcome == 'success' && steps.bundle.outputs.ops_bundle == 'skip' && 'skip' || steps.images.outputs.images }}
+      # 'false' leaves a main push's chart install and publish out: the push
+      # changes nothing they are made of and no release needs its commit
+      # (ci-plan.sh, the same answer that plans ci.yml's k8s-smoke).
+      chart: ${{ steps.plan.outputs.k8s }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -77,6 +81,9 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BEFORE_SHA: ${{ github.event.before }}
+          # A main push asks whether a release needs its commit.
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/ci-plan.sh
       # A pull request builds only when it changes what the images are made of
       # or how this workflow checks them. Any other product change still runs
@@ -697,6 +704,8 @@ jobs:
   #                  without package write: a chart that cannot install is
   #                  not published
   #   chart-publish  push the package and read it back with no login
+  # A main push runs its pair only when the plan's `chart` says so, which every
+  # commit a release can be made from does; release-gate fails on a skipped one.
   chart:
     needs: promote
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -763,8 +772,8 @@ jobs:
           if-no-files-found: error
 
   chart-main:
-    needs: promote-main
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [plan, promote-main]
+    if: needs.plan.outputs.chart != 'false' && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps: *chart-steps

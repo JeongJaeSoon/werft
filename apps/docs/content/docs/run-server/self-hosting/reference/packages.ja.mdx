@@ -15,7 +15,7 @@ outcome: "イメージ、chart、manifest のフィールドの意味を確認�
 | パッケージ | アドレス | `main` マージ | `v*` タグ |
 | --- | --- | --- | --- |
 | イメージ | `ghcr.io/jeongjaesoon/werft-control-host`、`werft-worker`、`werft-worker-codex`、`werft-egress-proxy` | タグ `main-<12>` | タグ `v<version>` |
-| Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | バージョン `<Chart.yaml version>-main-<12>` | バージョン `<version>`（`v` なし） |
+| Helm chart | `oci://ghcr.io/jeongjaesoon/werft` | バージョン `<Chart.yaml version>-main-<12>`（chart を公開する commit のみ） | バージョン `<version>`（`v` なし） |
 | SDK | npm `@werft-ai/sdk` | main イメージの公開とは別です。[SDK のインストール](/getting-started/install)で配布バージョンを確認します | SDK の配布バージョンを別途確認します |
 
 イメージは `linux/amd64` と `linux/arm64` を含む index で、設置では digest で固定します。chart には三つのイメージの digest と worker runtime が含まれます。パッケージはログインなしで取得できます。`<12>` は commit SHA の先頭 12 文字です。`main` バージョン同士の順序には意味がないため、Images workflow で正常終了した run の commit を選んで正確に指定します。
@@ -61,6 +61,8 @@ helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(
 
 <a id="main-패키지와-릴리스" />
 ## main パッケージとリリース
+
+`main` へのマージではイメージを毎回公開しますが、chart はその push が chart・イメージのビルド入力・デプロイ用ファイルを変更した場合か、まだタグのないリリースがある場合（判定できない場合を含む）にだけ kind に設置して公開します。そのため chart のない `main` commit があります。
 
 `main-<12>` はリリースではありません。その commit の Images 実行で三つのイメージと chart がすべて公開されたことを確認し、正確なバージョンを選びます。SHA 文字列は時系列のバージョンではないため、Helm の `--devel` で最新を選ばないでください。main 公開の `unverifiedSources` が空配列ならすべてのソース保存を確認済み、フィールドがなければ確認記録がないことを意味します。正式リリースはすべてのソース保存を確認してから公開します。
 
