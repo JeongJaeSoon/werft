@@ -62,6 +62,7 @@ import {
   memberTeams,
 } from "./schema.ts";
 import { rowsOf } from "./statement-rows.ts";
+import { conversationReplyDedupeKey } from "./surface/conversation-replies.ts";
 
 // The scale of the cost column, so a replay compares what was stored.
 const toStoredCost = (costUsd: number) => Math.round(costUsd * 1e6) / 1e6;
@@ -586,7 +587,10 @@ export function createPostgresConversationCalls(
             const [before] = rowsOf<{ followed: boolean }>(
               await tx.execute(sql`
                 SELECT state = 'ended'
-                  AND outcome ->> 'reason' IS DISTINCT FROM 'emergency_stopped' AS followed
+                  AND outcome ->> 'reason' IS DISTINCT FROM 'emergency_stopped'
+                  -- Nor one whose last line another pass wrote.
+                  AND NOT EXISTS (SELECT 1 FROM slack_outbox o
+                    WHERE o.dedupe_key = ${conversationReplyDedupeKey(input.retryOf)}) AS followed
                 FROM conversation_turn_queue
                 WHERE turn_id = ${input.retryOf}::uuid`),
             );

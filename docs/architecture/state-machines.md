@@ -241,7 +241,8 @@ provider 호출과 예산 원장 줄만으로는 나간 것으로 보지 않는�
 | MR19 | 정지가 끝낸 셋째 시도의 실패 문구를 다시 켠 뒤 다는 것(셋째 시도는 사본이 없다) | `a third try a stop ended after its runtime reported says nothing once the channel is on` |
 | MR20 | 정지 전에 입력을 읽은 pass가 다시 켠 뒤 다음 시도를 쓰는 것. 발급 transaction이 바인딩 잠금 뒤에 앞 시도의 큐 결과를 읽고, `emergency_stopped`면 쓰지 않는다 | `a pass that read the try's input before a stop and the channel on again writes no next try` |
 | MR21 | 정지 전에 입력을 읽은 pass가, 큐가 앞 시도의 끝을 잊은 뒤 다음 시도를 쓰는 것. 발급은 앞 시도의 큐 줄이 `ended`이고 정지 결과가 아닐 때만 쓴다 | `a pass that read the try's input before a stop and the queue forgot it writes no next try` |
-| MR22 | 실패 문구를 고른 pass가 정지와 다시 켜기 뒤에 그 줄을 다는 것. 줄을 쓸 때 큐 결과가 `emergency_stopped`면 쓰지 않는다 | `a pass that chose the failure line before a stop says nothing once the channel is on` |
+| MR22 | 실패 문구를 고른 pass가 정지와 다시 켜기 뒤에 그 줄을 다는 것. 줄의 데이터를 읽을 때 큐 결과가 `emergency_stopped`면 쓰지 않고, 쓰지 않은 줄은 세지 않는다 | `a pass that chose the failure line before a stop says nothing once the channel is on` |
+| MR23 | 다른 pass가 끝 문구를 단 시도를 이어 다음 시도를 쓰는 것. 발급은 앞 시도의 끝 줄(`conversation_reply:<turn_id>`)이 있으면 쓰지 않고, 끝 문구는 멘션이 다음 시도로 옮겨진 시도에 쓰지 않는다 | `a pass that read the try's input after another wrote its failure line writes no next try` |
 | MR17 | 다음 시도를 기다리는(10초) 동안 정지했다 다시 켠 채널에서 그 시도를 하는 것. 정지는 채널의 결정 없이 끝나 입력을 남긴 Slack 멘션 시도(운영자 turn은 빼고)도 `emergency_stopped`로 끝내고 사본을 놓는다 | `a try waiting out its delay when the channel is stopped is not tried again once it is on` |
 | MR18 | 다시 시도 요청이 rollout을 읽은 뒤 꺼진 rollout에서 다음 시도를 쓰는 것. 발급 transaction이 에이전트 줄을 공유 잠금으로 다시 읽는다 | `a rollout turned off after the try was read is not tried again` |
 | MR14 | 런타임이 끝을 보고한 뒤 pass가 끝내기 전에 긴급 정지가 끝낸 시도를, 채널을 다시 켠 뒤 다시 하는 것. 정지는 자기가 끝낸 turn의 이미 끝난 큐 줄을 사본이 있든 없든 `emergency_stopped`로 바꾸고 사본을 놓는다 | `a try its runtime reported before an emergency stop is not tried again once the channel is on` |
@@ -258,6 +259,7 @@ M1·M2는 `a model that fails twice and answers the third time: …`와 MR1의 �
 알려진 한계:
 
 - 첫 시도가 밖으로 나간 것이 있어 바로 끝나도 실패 문구는 "세 번 시도했지만"이다(정해진 문구).
+- 줄을 쓰는 pass가 정지 결과를 읽은 뒤 outbox에 넣기 전에 정지와 다시 켜기가 모두 끝나면 그 줄은 나갈 수 있다. pass가 시도의 끝을 읽은 뒤 정지·다시 켜기가 지나고 큐가 그 끝을 잊으면(10분), 이미 고른 끝 문구는 나갈 수 있다. 둘 다 pass가 정지와 다시 켜기 전체를 가로질러 멈춰야 생기고, 다음 시도는 발급 가드가 막는다.
 - 턴 끝내기 pass가 10분 넘게 멈췄다 돌아오면, 큐가 그 시도의 끝을 잊어(`forgotten`) 입력 사본이 남았어도 다시 시도나 실패 문구 없이 끝난다.
 - 롤링 업그레이드 중 앞선 이미지의 pass가 먼저 스레드를 active로 돌린 시도는 다시 시도하지 않는다. 앞선 이미지의 큐와 긴급 정지는 끝난 turn을 막거나 런타임이 보고한 큐 줄을 바꾸지 않는다.
 - 다시 시도 안내 줄은 정지가 보내지 않은 채널 글을 거둘 때 함께 거둔다. 정지가 이어지는 동안 쓴 줄도 다시 켤 때 거둔다. 다만 안내를 쓰는 pass가 정지와 다시 켜기를 모두 지난 뒤에 그 줄을 커밋하면, 시도는 큐에 들어가지 않는데(`ended`) 안내 줄만 나갈 수 있다.

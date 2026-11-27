@@ -6234,7 +6234,11 @@ describe.each(ENGINES)(
           managerRoles: MANAGERS,
         },
       );
-      expect(stopped.outcome).toBe("stopped");
+      // The waiting try counts among the turns the stop ended.
+      expect(stopped).toMatchObject({
+        outcome: "stopped",
+        stopped: { turns: 1 },
+      });
       await db.execute(sql`
         UPDATE surface_bindings SET emergency_stopped_at = NULL,
           emergency_stopped_by = NULL, emergency_stop_reason = NULL
@@ -6504,12 +6508,81 @@ describe.each(ENGINES)(
           };
         },
       });
-      await endings(undefined, 60_000, undefined, late);
+      // Not said, so not counted as said.
+      expect(await endings(undefined, 60_000, undefined, late)).toMatchObject({
+        gaveUp: 0,
+        budgetRefused: 0,
+      });
       expect(stoppedOnce).toBe(true);
       expect(await mentionTurnsOf(fixture)).toHaveLength(1);
       slack.messages.length = 0;
       await sendOutbox();
       expect(postsIn("100.000100")).toEqual([]);
+    });
+
+    test("a pass that read the try's input after another wrote its failure line writes no next try", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      await report(turn, { outcome: "failed", reason: "engine_failed" });
+      const [app] = await db
+        .select({ id: schema.slackApps.id, appId: schema.slackApps.appId })
+        .from(schema.slackApps)
+        .where(eq(schema.slackApps.agentId, fixture.agentId));
+      const [installation] = await db
+        .select({ id: schema.slackInstallations.id })
+        .from(schema.slackInstallations)
+        .where(eq(schema.slackInstallations.appId, app?.appId ?? ""));
+      if (app === undefined || installation === undefined) {
+        throw new Error("no Slack app");
+      }
+      // Another pass, one that read another catalog, gives the try up and
+      // writes its last line between this pass's read and its write.
+      let toldOnce = false;
+      const late = new Proxy(db, {
+        get(target, name, receiver) {
+          if (name !== "execute") return Reflect.get(target, name, receiver);
+          return async (query: Parameters<typeof db.execute>[0]) => {
+            const rows = await target.execute(query);
+            const chunks = (query as { queryChunks?: { value?: unknown }[] })
+              .queryChunks;
+            const text = (chunks ?? [])
+              .map((chunk) =>
+                Array.isArray(chunk.value) ? chunk.value.join("") : "",
+              )
+              .join("");
+            if (
+              !toldOnce &&
+              text.includes("a.conversation_rollout AS rollout")
+            ) {
+              toldOnce = true;
+              await schema.createPostgresSlackOutboxStore(target).enqueue({
+                workspaceId: fixture.workspaceId,
+                agentId: fixture.agentId,
+                slackAppId: app.id,
+                installationId: installation.id,
+                kind: "conversation_reply",
+                channelId: CHANNEL,
+                threadTs: "100.000100",
+                slackUserId: null,
+                sessionLinkId: null,
+                sessionId: null,
+                body: { text: SLACK_NOTICE_MESSAGES.en.mentionFailed },
+                dedupeKey: `conversation_reply:${turn.turn_id}`,
+                sources: null,
+                conversationTurnId: turn.turn_id,
+              });
+            }
+            return rows;
+          };
+        },
+      });
+      expect(await endings(undefined, 60_000, undefined, late)).toMatchObject({
+        retried: 0,
+      });
+      expect(toldOnce).toBe(true);
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
     });
 
     test("an untaken try sealed under another key ends, keeps nothing, and its thread hears the failure line", async () => {

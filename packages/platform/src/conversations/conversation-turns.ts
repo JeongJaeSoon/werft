@@ -470,12 +470,14 @@ export interface MentionTurnRetryStore {
   attemptOf(turnId: ConversationTurnId): Promise<MentionTurnAttempt | null>;
   /**
    * Enqueues the line in the turn's topic thread: `no_thread` when there is
-   * no thread, or Slack app, to say it in.
+   * no thread, or Slack app, to say it in; `silent` when the try is not
+   * one to speak for: an emergency stop ended it, or (for its last line)
+   * its mention is a next try's now.
    */
   tell(
     turnId: ConversationTurnId,
     line: MentionTurnLine,
-  ): Promise<"enqueued" | "duplicate" | "no_thread">;
+  ): Promise<"enqueued" | "duplicate" | "no_thread" | "silent">;
   /** Lets go of the input the try kept for one after it. */
   letGo(turnId: ConversationTurnId): Promise<void>;
 }
@@ -618,8 +620,10 @@ export async function endMentionTurns(deps: {
     const attempt = await deps.retries.attemptOf(turnId);
     if (attempt === null) return "none";
     const giveUp = async (line: "failed" | "budget") => {
-      await deps.retries.tell(turnId, line);
+      const told = await deps.retries.tell(turnId, line);
       await deps.retries.letGo(turnId);
+      // Not said: counted as nothing was.
+      if (told === "silent") return "none" as const;
       if (line === "budget") result.budgetRefused += 1;
       else result.gaveUp += 1;
       return "told" as const;

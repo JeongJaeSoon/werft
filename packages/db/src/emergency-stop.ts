@@ -457,10 +457,8 @@ async function stopConversationTurns(
           WHERE q.turn_id = ct.id AND q.state IN ('queued', 'leased')))
       ORDER BY ct.id`),
   ).map((row) => row.id);
-  if (open.length === 0) {
-    await endWaitingMentionTries(tx, place, []);
-    return 0;
-  }
+  if (open.length === 0)
+    return (await endWaitingMentionTries(tx, place, [])).length;
   const ids = sql.join(
     open.map((id) => sql`${id}::uuid`),
     sql`, `,
@@ -493,12 +491,12 @@ async function stopConversationTurns(
     WHERE turn_id IN (${ids}) AND state IN ('queued', 'leased')
     RETURNING turn_id::text AS id`),
   );
-  await endWaitingMentionTries(
+  const waiting = await endWaitingMentionTries(
     tx,
     place,
     ended.map((row) => row.id),
   );
-  return new Set([...ended, ...dequeued].map((row) => row.id)).size;
+  return new Set([...ended, ...dequeued, ...waiting].map((row) => row.id)).size;
 }
 
 /**
@@ -512,7 +510,7 @@ async function endWaitingMentionTries(
   tx: Database,
   place: ChannelWorkPlace,
   endedHere: readonly string[],
-) {
+): Promise<{ id: string }[]> {
   const here =
     endedHere.length === 0
       ? sql`false`
@@ -520,7 +518,8 @@ async function endWaitingMentionTries(
           endedHere.map((id) => sql`${id}::uuid`),
           sql`, `,
         )})`;
-  await tx.execute(sql`
+  return rowsOf<{ id: string }>(
+    await tx.execute(sql`
     UPDATE conversation_turn_queue q
     SET outcome = ${JSON.stringify({ outcome: "failed", reason: EMERGENCY_STOPPED })}::jsonb,
       turn_nonce = NULL, turn_ciphertext = NULL, input_kept_until = NULL
@@ -534,7 +533,9 @@ async function endWaitingMentionTries(
       AND ct.workspace_id = ${place.workspaceId}::uuid
       AND ct.agent_id = ${place.agentId}::uuid
       AND c.channel_id = ${place.channelId}
-      AND c.team_id = (SELECT i.team_id FROM slack_installations i WHERE i.id = ${place.installationId}::uuid)`);
+      AND c.team_id = (SELECT i.team_id FROM slack_installations i WHERE i.id = ${place.installationId}::uuid)
+    RETURNING q.turn_id::text AS id`),
+  );
 }
 
 /**
