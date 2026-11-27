@@ -401,6 +401,9 @@ export function slackConversationTasks(deps: {
           task.thread.slackAppId,
         );
         if (token === null) return false;
+        // A requester unlinked or never linked has no Werft language, so
+        // reads the deployment's: Slack events carry no locale, and asking
+        // users.info for one would spend a call on every such refusal.
         const locale =
           (await deps.outbox.readerLocale({
             workspaceId: task.workspaceId,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { UserLocale } from "@werft-ai/contracts";
+import { SLACK_NOTICE_MESSAGES, type UserLocale } from "@werft-ai/contracts";
 import type {
   PushSource,
   SurfaceCardClaim,
@@ -417,6 +417,71 @@ describe("createOutboxSlackNoticeSink", () => {
     });
     expect(enqueued[0]?.body).toEqual({
       text: "Stopped the task as you asked. 2 waiting messages were not processed either. Write in this thread again to carry on.",
+      locale: "en",
+    });
+  });
+
+  const stopLine = async (
+    locale: UserLocale | null,
+    message: "sessionStopped" | "taskStoppedBeforeStart",
+    readerSlackUserId?: string,
+  ) => {
+    const enqueued: SurfaceOutboxEntry[] = [];
+    const asked: unknown[] = [];
+    const sink = createOutboxSlackNoticeSink({
+      async enqueue(entry) {
+        enqueued.push(entry);
+        return "enqueued";
+      },
+      async readerLocale(reader) {
+        asked.push(reader);
+        return locale;
+      },
+    });
+    await sink.recordInThread({
+      workspaceId: "ws-1",
+      agentId: "agent-1",
+      installationId: "installation-1",
+      slackAppId: "slack-app-1",
+      teamId: "T0ACME",
+      channelId: "C0OPS",
+      threadTs: "100.000100",
+      sessionId: "session-1",
+      sessionLinkId: "link-1",
+      notice: { message },
+      onceKey: "installation-1:C0OPS:100.000100:stop:100.000300",
+      ...(readerSlackUserId === undefined ? {} : { readerSlackUserId }),
+    });
+    return { row: enqueued[0], asked };
+  };
+
+  test.each(["ko", "ja", "en"] as const)(
+    "a stop's lines are in the %s of the person who stopped, posted as a thread notice",
+    async (locale) => {
+      for (const message of [
+        "sessionStopped",
+        "taskStoppedBeforeStart",
+      ] as const) {
+        const { row, asked } = await stopLine(locale, message, "U0A");
+        expect(asked).toEqual([
+          { workspaceId: "ws-1", teamId: "T0ACME", slackUserId: "U0A" },
+        ]);
+        expect(row).toMatchObject({
+          kind: "failure_notice",
+          slackUserId: null,
+          body: { text: SLACK_NOTICE_MESSAGES[locale][message], locale },
+        });
+      }
+    },
+  );
+
+  test("a thread line with no reader, or one no user is linked to, is in English", async () => {
+    const unnamed = await stopLine("ja", "sessionStopped");
+    expect(unnamed.asked).toEqual([]);
+    expect(unnamed.row?.body).toMatchObject({ locale: "en" });
+    const unlinked = await stopLine(null, "taskStoppedBeforeStart", "U0A");
+    expect(unlinked.row?.body).toEqual({
+      text: SLACK_NOTICE_MESSAGES.en.taskStoppedBeforeStart,
       locale: "en",
     });
   });

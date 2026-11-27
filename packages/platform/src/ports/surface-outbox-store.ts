@@ -18,10 +18,11 @@ import type {
 } from "../sessions/ports/pending-requests.ts";
 
 /**
- * `reply`: a turn's answer in its thread. `failure_notice`: a turn the model
- * could not finish, a reply whose send nobody can vouch for, or a bot's
- * mention the thread's bot-turn limit stopped (no session then when the
- * agent has none there). `input_notice`:
+ * `reply`: a turn's answer in its thread. `failure_notice`: a server line in
+ * a thread for everyone there: a turn the model could not finish, a reply
+ * whose send nobody can vouch for, a bot's mention the thread's bot-turn
+ * limit stopped (no session then when the agent has none there), a worker's
+ * wait for room, or a stop's answer. Nothing counts the kind as a failure. `input_notice`:
  * a request the session waits on, with the buttons that settle it. `notice`: a refusal,
  * ephemeral to the person who typed. `welcome`: a deployment's one message
  * in the agent's home channel, outside any thread (`threadTs` is "").
