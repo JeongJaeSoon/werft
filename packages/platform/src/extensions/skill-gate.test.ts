@@ -896,3 +896,57 @@ describe("third review", () => {
     expect(isSpdxExpression("(MIT) AND (Apache-2.0)")).toBe(true);
   });
 });
+
+describe("fourth review", () => {
+  test("a URL followed by more code still names its host", () => {
+    const result = gate({
+      after: [
+        ...licensed("s"),
+        text(
+          "skills/s/scripts/a.js",
+          'fetch("https://outside.example",{method:"GET"})\nconst v = \'https://other.example/x\';\n',
+        ),
+      ],
+    });
+    expect(
+      result.warnings.find((w) => w.rule === "host_not_allowlisted")?.samples,
+    ).toEqual(["outside.example", "other.example"]);
+  });
+
+  test("an autolink keeps its whole host", () => {
+    const result = gate({
+      allowedHosts: new Set(["svc.example"]),
+      after: [
+        ...licensed("s"),
+        text("skills/s/scripts/a.py", "# see <https://svc.example_>\n"),
+      ],
+    });
+    expect(result.warnings).toEqual([
+      {
+        rule: "host_not_allowlisted",
+        paths: ["skills/s/scripts/a.py"],
+        samples: ["svc.example_"],
+      },
+    ]);
+  });
+
+  test("git clone, fetch and pull read as downloads", () => {
+    const result = gate({
+      allowedHosts: new Set(["github.com"]),
+      after: [
+        ...licensed("s"),
+        text(
+          "skills/s/scripts/a.sh",
+          "git clone https://github.com/org/repo.git\n",
+        ),
+      ],
+    });
+    expect(result.warnings).toEqual([
+      {
+        rule: "network_call",
+        paths: ["skills/s/scripts/a.sh"],
+        samples: ["download"],
+      },
+    ]);
+  });
+});

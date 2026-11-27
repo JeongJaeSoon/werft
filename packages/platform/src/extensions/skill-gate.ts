@@ -141,7 +141,8 @@ export const NETWORK_CALL_PATTERNS: readonly { id: string; pattern: RegExp }[] =
     },
     {
       id: "download",
-      pattern: /\b(?:curl|wget|invoke-webrequest|invoke-restmethod)\b/,
+      pattern:
+        /\b(?:curl|wget|invoke-webrequest|invoke-restmethod|git\s+(?:clone|fetch|pull|ls-remote))\b/,
     },
     {
       id: "http_call",
@@ -280,6 +281,28 @@ const NOTICE_RULES: readonly SkillGateRule[] = [
   "binary_added",
 ];
 
+const URL_START = /https?:\/\//gi;
+const CLEAN_HOST = /^(?:[a-z0-9_-]+(?:\.[a-z0-9_-]+)*|\[[0-9a-f:.]+\])$/;
+
+/**
+ * Hosts a line of code names. Each URL is read alone, up to the next one: as
+ * written first (a quote may sit inside userinfo), and when that gives no
+ * clean host, with the quotes, commas and brackets of code read as ends.
+ */
+function codeHosts(line: string): Set<string> {
+  const starts = [...line.matchAll(URL_START)].map((match) => match.index);
+  const hosts = new Set<string>();
+  starts.forEach((start, index) => {
+    // One character before the URL keeps an autolink's "<" in view.
+    const segment = line.slice(Math.max(0, start - 1), starts[index + 1]);
+    const clean = (text: string) =>
+      [...plainTextHosts(text)].find((host) => CLEAN_HOST.test(host));
+    const host = clean(segment) ?? clean(segment.replace(/["'`,(){}]/g, " "));
+    if (host !== undefined) hosts.add(host);
+  });
+  return hosts;
+}
+
 /** Judges one version of a repository skill; never throws on content. */
 export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
   const { before, after } = input;
@@ -356,10 +379,7 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
         if (pattern.test(plain)) flag("instruction_like", file.path, id);
       }
       if (!script) continue;
-      // A URL starts a new word: in ["https://a","https://b"] the first
-      // authority ends before the second, and a quote inside a URL stays.
-      const hosts = plainTextHosts(line.replace(/(?=https?:\/\/)/gi, " "));
-      for (const host of hosts) {
+      for (const host of codeHosts(line)) {
         if (!allowedHosts.has(host))
           flag("host_not_allowlisted", file.path, host);
       }
