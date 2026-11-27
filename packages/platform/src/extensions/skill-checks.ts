@@ -15,6 +15,15 @@ export const LARGE_CHANGE_LINES = 300;
 const MAX_SAMPLES = 20;
 
 /**
+ * NFKC of a line in stream-safe form (UAX #15): a run of combining marks is
+ * cut to 30, since reordering a long run takes time quadratic in its length.
+ */
+export const nfkc = (line: string) =>
+  line
+    .replace(/\p{M}{31,}/gu, (run) => Array.from(run).slice(0, 30).join(""))
+    .normalize("NFKC");
+
+/**
  * Sentences that read as an instruction to the agent rather than to the
  * reader of a skill. Matched on added lines after NFKC and lower-casing.
  * The one list; tests hold a match and a near miss for each.
@@ -300,7 +309,7 @@ export function checkSkillVersion(
       for (const char of line.match(HIDDEN) ?? []) {
         flag("hidden_unicode", file.path, codePoint(char));
       }
-      const plain = line.normalize("NFKC").replace(HIDDEN, "").toLowerCase();
+      const plain = nfkc(line).replace(HIDDEN, "").toLowerCase();
       for (const { id, pattern } of INSTRUCTION_PATTERNS) {
         if (pattern.test(plain)) flag("instruction_like", file.path, id);
       }

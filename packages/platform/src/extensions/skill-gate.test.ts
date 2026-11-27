@@ -1396,3 +1396,18 @@ describe("twenty-second review", () => {
     ).not.toThrow();
   });
 });
+
+describe("twenty-third review", () => {
+  test("a 1 MiB run of combining marks is normalized in linear time", () => {
+    const mark = String.fromCharCode(0x315) + String.fromCharCode(0x300);
+    const started = performance.now();
+    gate({
+      before: null,
+      after: [
+        ...licensed("s"),
+        text("skills/s/notes.md", mark.repeat(262_144)),
+      ],
+    });
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+});

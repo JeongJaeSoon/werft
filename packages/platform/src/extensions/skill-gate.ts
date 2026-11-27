@@ -1,6 +1,6 @@
 import { type CanonicalBundleFile, runsAsScript } from "./bundle-validator.ts";
 import { unifiedLineDiff } from "./line-diff.ts";
-import { INSTRUCTION_PATTERNS, plainTextHosts } from "./skill-checks.ts";
+import { INSTRUCTION_PATTERNS, nfkc, plainTextHosts } from "./skill-checks.ts";
 
 // The automatic gate a repository skill's new version must pass before it is
 // stored. Blocking rules read every file of the version: they decide whether
@@ -358,11 +358,7 @@ function codeHosts(line: string): Set<string> {
 }
 
 const normalized = (line: string) =>
-  line
-    .normalize("NFKC")
-    .replace(INVISIBLE, "")
-    .replace(OVERRIDE, "")
-    .toLowerCase();
+  nfkc(line).replace(INVISIBLE, "").replace(OVERRIDE, "").toLowerCase();
 
 /**
  * The commands of a script the update touched. A line ending in "\\" goes on
