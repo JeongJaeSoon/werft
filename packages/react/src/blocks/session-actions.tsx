@@ -913,11 +913,16 @@ export function SessionControls({
   const control = useSessionControl(session.id);
   const refused = useRefusal(refusal);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
-  const [confirming, setConfirming] = useState(false);
   // What the terminate dialog was opened on: its copy and the command both
   // rest on it, so a session that moves while it is open is refused, not
-  // closed on a promise the dialog no longer shows.
-  const [confirmingOn, setConfirmingOn] = useState(session.admission_state);
+  // closed on a promise the dialog no longer shows. Not a remount per
+  // session: a command still in flight keeps its button held and its answer.
+  const [confirmingFor, setConfirmingFor] = useState<{
+    id: string;
+    on: typeof session.admission_state;
+  } | null>(null);
+  const confirming = confirmingFor?.id === session.id;
+  const confirmingOn = confirmingFor?.on ?? session.admission_state;
   const reason = unavailable?.control;
   const actions = actionsFor(session);
   const actionSet = actions.join(" ");
@@ -966,9 +971,14 @@ export function SessionControls({
   // line stays.
   const settle = (next: Outcome) => {
     if (confirming) outcomeRef.current?.focus();
-    setConfirming(false);
+    setConfirmingFor(null);
     setOutcome(next);
   };
+
+  // Another session on the screen closes a dialog opened on this one.
+  useEffect(() => {
+    setConfirmingFor((open) => (open && open.id !== session.id ? null : open));
+  }, [session.id]);
 
   const run = (action: ControlAction) => {
     setOutcome(null);
@@ -1004,8 +1014,10 @@ export function SessionControls({
         onClick={() => {
           if (reason !== undefined || control.isPending) return;
           if (action === "terminate") {
-            setConfirmingOn(session.admission_state);
-            setConfirming(true);
+            setConfirmingFor({
+              id: session.id,
+              on: session.admission_state,
+            });
           } else run(action);
         }}
       >
@@ -1054,7 +1066,7 @@ export function SessionControls({
       <ConfirmDialog
         open={confirming}
         onOpenChange={(open) => {
-          if (!control.isPending) setConfirming(open);
+          if (!control.isPending && !open) setConfirmingFor(null);
         }}
         title={t("session.control.terminate.title")}
         consequence={

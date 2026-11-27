@@ -3088,6 +3088,65 @@ describe("a session waiting on a recovery decision", () => {
     expect(posts(api)).toEqual([]);
   });
 
+  test("a terminate still running when the screen goes to another session and back keeps its button held and shows its answer", async () => {
+    const user = await setupUser();
+    const other = { ...gap, id: OTHER_ID, revision: 9 } as SessionDetail;
+    let release!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    const { api, history } = renderAt(`/sessions/${OTHER_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, gap),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, { items: [ran], next_cursor: null }),
+      [`POST /v1/sessions/${SESSION_ID}/terminate`]: () => held,
+      [`GET /v1/sessions/${OTHER_ID}`]: () => json(200, other),
+      [`GET /v1/sessions/${OTHER_ID}/usage`]: () => json(200, usage),
+      [`GET /v1/sessions/${OTHER_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${OTHER_ID}/turns`]: () =>
+        json(200, { items: [ran], next_cursor: null }),
+      [`GET /v1/sessions/${OTHER_ID}/events`]: (request: Request) =>
+        stream.route(request),
+    });
+    await screen.findByRole("button", { name: "세션 종료" });
+    act(() => history.push(`/sessions/${SESSION_ID}`));
+    expect(await screen.findByRole("button", FRESH)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "세션 종료" }));
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "세션을 종료할까요?",
+    });
+    await user.click(within(dialog).getByRole("button", { name: "종료" }));
+    await waitFor(() => expect(posts(api)).toHaveLength(1));
+    act(() => history.back());
+    await waitFor(() =>
+      expect(history.location.pathname).toBe(`/sessions/${OTHER_ID}`),
+    );
+    act(() => history.forward());
+    await waitFor(() =>
+      expect(history.location.pathname).toBe(`/sessions/${SESSION_ID}`),
+    );
+    // Back on the session it was sent for, the press is still in flight.
+    expect(
+      (await screen.findByRole("button", { name: "세션 종료" })).getAttribute(
+        "aria-disabled",
+      ),
+    ).toBe("true");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    await act(async () =>
+      release(apiError(409, "REVISION_CONFLICT", "admission moved")),
+    );
+    expect(
+      await screen.findByText(
+        "그새 세션 상태가 바뀌었습니다. 바뀐 상태를 보고 다시 시도하세요.",
+      ),
+    ).toBeTruthy();
+    expect(posts(api)).toHaveLength(1);
+  });
+
   test("a context no checkpoint covers offers to go on without it, and says it is left out", async () => {
     render({ session: () => gap, turns: [ran] });
     expect(await screen.findByRole("button", FRESH)).toBeTruthy();
