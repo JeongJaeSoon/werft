@@ -1,6 +1,6 @@
 {
-  "id": "244ff0d3-85ba-4425-b4ba-6dd0efd8209d",
-  "prevId": "6ea710e5-6595-4ee1-9bed-9893fdc601d0",
+  "id": "03963aa4-9d26-4cbf-898f-7905b1bf1a99",
+  "prevId": "66f4f73d-4b21-41ef-aaec-41f631793c22",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -7563,6 +7563,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "routed_session_id": {
+          "name": "routed_session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "release_id": {
           "name": "release_id",
           "type": "text",
@@ -7780,7 +7786,7 @@
         },
         "conversation_turns_task_check": {
           "name": "conversation_turns_task_check",
-          "value": "(\"conversation_turns\".\"task_draft\" IS NULL OR \"conversation_turns\".\"decision\" = 'spawn_task') AND (\"conversation_turns\".\"task_effect\" IS NULL OR (\"conversation_turns\".\"decision\" = 'spawn_task' AND \"conversation_turns\".\"task_effect\" IN ('opened','refused','failed','voided')))"
+          "value": "(\"conversation_turns\".\"task_draft\" IS NULL OR \"conversation_turns\".\"decision\" IS NOT DISTINCT FROM 'spawn_task') AND (\"conversation_turns\".\"routed_session_id\" IS NULL OR \"conversation_turns\".\"decision\" IS NOT DISTINCT FROM 'route_to_task') AND (\"conversation_turns\".\"task_effect\" IS NULL OR (\"conversation_turns\".\"decision\" IS NOT DISTINCT FROM 'spawn_task' AND \"conversation_turns\".\"task_effect\" IN ('opened','refused','failed','voided')) OR (\"conversation_turns\".\"decision\" IS NOT DISTINCT FROM 'route_to_task' AND \"conversation_turns\".\"task_effect\" IN ('routed','refused','failed','voided') AND (\"conversation_turns\".\"task_effect\" <> 'routed' OR \"conversation_turns\".\"routed_session_id\" IS NOT NULL)))"
         },
         "conversation_turns_text_check": {
           "name": "conversation_turns_text_check",
@@ -20681,6 +20687,141 @@
         "surface_bindings_m1_judgments_per_hour_check": {
           "name": "surface_bindings_m1_judgments_per_hour_check",
           "value": "\"surface_bindings\".\"m1_judgments_per_hour\" BETWEEN 1 AND 60"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.task_thread_mirrors": {
+      "name": "task_thread_mirrors",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "installation_id": {
+          "name": "installation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "thread_ts": {
+          "name": "thread_ts",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rev": {
+          "name": "rev",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "task_thread_mirrors_thread_idx": {
+          "name": "task_thread_mirrors_thread_idx",
+          "columns": [
+            {
+              "expression": "installation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "channel_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "thread_ts",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "task_thread_mirrors_session_idx": {
+          "name": "task_thread_mirrors_session_idx",
+          "columns": [
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "task_thread_mirrors_session_id_sessions_id_fk": {
+          "name": "task_thread_mirrors_session_id_sessions_id_fk",
+          "tableFrom": "task_thread_mirrors",
+          "tableTo": "sessions",
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "task_thread_mirrors_rev_check": {
+          "name": "task_thread_mirrors_rev_check",
+          "value": "\"task_thread_mirrors\".\"rev\" >= 1"
         }
       },
       "isRLSEnabled": false
