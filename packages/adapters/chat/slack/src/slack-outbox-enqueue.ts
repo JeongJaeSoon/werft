@@ -7,6 +7,7 @@ import {
   slackNoticeText,
 } from "@werft-ai/contracts";
 import type {
+  SurfaceAfterTurnReply,
   SurfaceOutboxStore,
   SurfacePendingPrompt,
   SurfaceUnansweredTurn,
@@ -355,6 +356,70 @@ export async function enqueueSlackTurnAnswers(deps: {
     });
   }
   return turns.length;
+}
+
+/** One follow-up per thread for each answer an engine gave after its turn. */
+export function slackAfterTurnDedupeKey(
+  sessionLinkId: string,
+  turnId: number,
+  resultSequence: number,
+): string {
+  return `after_turn:${sessionLinkId}:${turnId}:${resultSequence}`;
+}
+
+/** Whether a follow-up mentions whoever asked for its turn, as the turn's reply does. */
+export const SLACK_AFTER_TURN_MENTIONS_REQUESTER = true;
+
+/**
+ * Enqueues, under the turn's reply, what the engine said on its own after
+ * the turn ended: once per answer, with the turn's sources, link and
+ * reader. An answer with no text to show posts nothing.
+ */
+export async function enqueueSlackAfterTurnReplies(deps: {
+  outbox: Pick<SurfaceOutboxStore, "afterTurnReplies" | "enqueue">;
+  consoleOrigin: string | null;
+  limit: number;
+}): Promise<number> {
+  const replies: SurfaceAfterTurnReply[] = await deps.outbox.afterTurnReplies(
+    deps.limit,
+  );
+  let enqueued = 0;
+  for (const reply of replies) {
+    const said = finalReplyText(reply.events);
+    if (said === "") continue;
+    const link_url = sessionUrl(deps.consoleOrigin, reply.sessionId);
+    const locale = reply.locale ?? DEFAULT_USER_LOCALE;
+    await deps.outbox.enqueue({
+      workspaceId: reply.workspaceId,
+      agentId: reply.agentId,
+      slackAppId: reply.slackAppId,
+      installationId: reply.installationId,
+      kind: "reply",
+      channelId: reply.channelId,
+      threadTs: reply.threadTs,
+      slackUserId: null,
+      sessionId: reply.sessionId,
+      sessionLinkId: reply.sessionLinkId,
+      body: {
+        text: `${SLACK_OUTBOX_MESSAGES[locale].afterTurn}\n\n${said}`,
+        locale,
+        ...(link_url === undefined ? {} : { link_url }),
+        ...(!SLACK_AFTER_TURN_MENTIONS_REQUESTER ||
+        reply.requesterSlackUserId === null
+          ? {}
+          : { mention_user_ids: [reply.requesterSlackUserId] }),
+      },
+      dedupeKey: slackAfterTurnDedupeKey(
+        reply.sessionLinkId,
+        reply.turnId,
+        reply.resultSequence,
+      ),
+      sources: reply.sources,
+      sourcesTurn: reply.turnId,
+    });
+    enqueued += 1;
+  }
+  return enqueued;
 }
 
 export async function enqueueSlackPrompts(deps: {

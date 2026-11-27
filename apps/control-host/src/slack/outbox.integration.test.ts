@@ -2546,6 +2546,253 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
     });
   });
 
+  describe("what the engine said after its turn ended", () => {
+    // Stored as the gateway stores it (state-machines §2 T3): on the turn its
+    // attempt ended last, past that turn's own events, marked after_turn, and
+    // ended by a result.
+    async function sayAfterTurn(
+      sessionId: string,
+      sequence: number,
+      said: Record<string, unknown>[],
+      mark: Record<string, unknown> | null = { after_turn: true },
+    ) {
+      const [turn] = await db
+        .select({ id: turns.id, attemptId: turns.attemptId })
+        .from(turns)
+        .where(
+          and(eq(turns.sessionId, sessionId), eq(turns.sequence, sequence)),
+        );
+      if (!turn?.attemptId) throw new Error("no ended turn");
+      const [last] = await db
+        .select({
+          n: sql<number>`coalesce(max(${events.sourceSequence}), 0)::int`,
+        })
+        .from(events)
+        .where(
+          and(
+            eq(events.sessionId, sessionId),
+            eq(events.attemptId, turn.attemptId),
+          ),
+        );
+      let sourceSequence = last?.n ?? 0;
+      for (const block of said) {
+        sourceSequence += 1;
+        await db.insert(events).values({
+          sessionId,
+          turnId: turn.id,
+          attemptId: turn.attemptId,
+          sourceSequence,
+          type: "assistant",
+          payload: { type: "assistant", parent_tool_use_id: null, ...block },
+          neutral: mark,
+        });
+      }
+      sourceSequence += 1;
+      await db.insert(events).values({
+        sessionId,
+        turnId: turn.id,
+        attemptId: turn.attemptId,
+        sourceSequence,
+        type: "result",
+        payload: { type: "result", subtype: "success" },
+        neutral: mark,
+      });
+      return sourceSequence;
+    }
+    const followUps = async () =>
+      (await rows()).filter((row) => row.dedupeKey.startsWith("after_turn:"));
+    const line = SLACK_OUTBOX_MESSAGES.ko.afterTurn;
+
+    test("goes once into the turn's thread, after its reply, under the line that says so", async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("Started the build.")]]);
+      const result = await sayAfterTurn(sessionId, 1, [
+        text("Checking."),
+        toolUse,
+        text("The build passed."),
+      ]);
+
+      // The turn's reply goes first; its follow-up waits for that send.
+      expect(await outboxPass()).toMatchObject({ enqueued: 1, sent: 1 });
+      expect(await outboxPass()).toMatchObject({ enqueued: 1, sent: 1 });
+      expect(await outboxPass()).toMatchObject({ enqueued: 0, claimed: 0 });
+
+      const [link] = await db.select().from(sessionLinks);
+      expect(posted().map((message) => message.text)).toEqual([
+        `Started the build.\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
+        `${line}\n\nThe build passed.\n\n<${CONSOLE}/sessions/${sessionId}|${SLACK_OUTBOX_MESSAGES.ko.link}>`,
+      ]);
+      expect(posted()[1]).toMatchObject({
+        channelId: CHANNEL,
+        threadTs: THREAD,
+      });
+      const [turn] = await db
+        .select({ sources: turns.sources })
+        .from(turns)
+        .where(eq(turns.sessionId, sessionId));
+      expect(await followUps()).toEqual([
+        expect.objectContaining({
+          kind: "reply",
+          status: "sent",
+          sessionId,
+          sessionLinkId: link?.id,
+          dedupeKey: `after_turn:${link?.id}:1:${result}`,
+          sources: turn?.sources,
+          body: expect.objectContaining({ mention_user_ids: [PERSON] }),
+        }),
+      ]);
+    });
+
+    test("waits while the turn's reply is unsent, and goes once it is", async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("first")]]);
+      await sayAfterTurn(sessionId, 1, [text("later")]);
+      // No token: the reply waits pending, and so does its follow-up.
+      await outboxPass({ botToken: null });
+      await outboxPass({ botToken: null });
+      expect(await followUps()).toEqual([]);
+      expect(
+        await createPostgresSlackOutboxStore(db).afterTurnReplies(10),
+      ).toEqual([]);
+
+      await outboxPass();
+      expect(await outboxPass()).toMatchObject({ enqueued: 1, sent: 1 });
+      expect(posted().map((message) => message.text.split("\n\n")[0])).toEqual([
+        "first",
+        line,
+      ]);
+      expect(posted()[1]?.text.split("\n\n")[1]).toBe("later");
+    });
+
+    test("taken again, the same answer is one post; two answers are two, in order", async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("first")]]);
+      expect(await outboxPass()).toMatchObject({ sent: 1 });
+      await sayAfterTurn(sessionId, 1, [text("one")]);
+      // Two passes at once read the same answer; the key keeps one row.
+      await Promise.all([outboxPass(), outboxPass()]);
+      await outboxPass();
+      await sayAfterTurn(sessionId, 1, [text("two")]);
+      await outboxPass();
+      await outboxPass();
+
+      expect(
+        posted()
+          .slice(1)
+          .map((message) => message.text.split("\n\n")[1]),
+      ).toEqual(["one", "two"]);
+      expect((await followUps()).map((row) => row.status)).toEqual([
+        "sent",
+        "sent",
+      ]);
+    });
+
+    test("a turn's own result, or one not marked after it, posts nothing", async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("first")]]);
+      await sayAfterTurn(sessionId, 1, [text("not after")], null);
+      await outboxPass();
+      await outboxPass();
+      expect(posted()).toHaveLength(1);
+      expect(await followUps()).toEqual([]);
+    });
+
+    test("is never sent once the message the turn answers is deleted", async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("first")]]);
+      expect(await outboxPass()).toMatchObject({ sent: 1 });
+      await sayAfterTurn(sessionId, 1, [text("later")]);
+      const [session] = await db
+        .select({ workspaceId: sessions.workspaceId })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId));
+      await schema.createPostgresSlackSourceMarkStore(db).markDeleted({
+        workspaceId: session?.workspaceId ?? "",
+        teamId: TEAM,
+        channelId: CHANNEL,
+        ts: THREAD,
+        at: new Date(),
+      });
+
+      expect(await outboxPass()).toMatchObject({ voided: 1, sent: 0 });
+      expect(posted()).toHaveLength(1);
+      expect(
+        (await followUps()).map((row) => [row.status, row.errorCode]),
+      ).toEqual([["voided_by_delete", "source_deleted"]]);
+    });
+
+    test("is not sent to a private channel waiting for approval, nor to a muted thread", async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("first")]]);
+      expect(await outboxPass()).toMatchObject({ sent: 1 });
+      await sayAfterTurn(sessionId, 1, [text("later")]);
+      await db.update(surfaceBindings).set({
+        surfaceKind: "private_channel",
+        status: "pending_approval",
+        home: false,
+      });
+      await outboxPass();
+      await outboxPass();
+      expect(posted()).toHaveLength(1);
+      expect(
+        (await followUps()).map((row) => [row.status, row.errorCode]),
+      ).toEqual([["failed", "not_addressed"]]);
+
+      await sayAfterTurn(sessionId, 1, [text("muted")]);
+      await db.update(sessionLinks).set({ muted: true });
+      expect(
+        await createPostgresSlackOutboxStore(db).afterTurnReplies(10),
+      ).toEqual([]);
+      await outboxPass();
+      expect(await followUps()).toHaveLength(1);
+      expect(posted()).toHaveLength(1);
+    });
+
+    test("is found by the after-turn results' index, not a walk of each session's events", async () => {
+      if (engine !== "PostgreSQL") return;
+      const plans: string[] = [];
+      const traced = drizzlePostgres(
+        (db as unknown as { $client: Pool }).$client,
+        {
+          schema,
+          logger: {
+            logQuery: (query, params) => {
+              plans.push(JSON.stringify({ query, params }));
+            },
+          },
+        },
+      ) as unknown as Database;
+      await createPostgresSlackOutboxStore(traced).afterTurnReplies(10);
+      const { query, params } = JSON.parse(plans[0] ?? "{}");
+      const client = await (
+        db as unknown as { $client: Pool }
+      ).$client.connect();
+      try {
+        await client.query("SET enable_seqscan = off");
+        const { rows: plan } = await client.query(
+          `EXPLAIN (COSTS OFF) ${query}`,
+          params,
+        );
+        const text = plan.map((row) => row["QUERY PLAN"]).join("\n");
+        expect(text).toContain("events_after_turn_result_idx");
+      } finally {
+        client.release(true);
+      }
+    });
+  });
+
   test("a reply whose thread was muted or unlinked while it waited is not sent", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);

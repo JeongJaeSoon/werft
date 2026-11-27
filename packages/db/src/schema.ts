@@ -2314,6 +2314,13 @@ export const events = pgTable(
     uniqueIndex("events_attempt_sequence_uniq")
       .on(table.sessionId, table.attemptId, table.sourceSequence)
       .where(sql`${table.attemptId} IS NOT NULL`),
+    // The ends of what an engine said on its own after a turn: few per
+    // session, each owed one follow-up post (afterTurnReplies).
+    index("events_after_turn_result_idx")
+      .on(table.sessionId, table.id)
+      .where(
+        sql`${table.type} = 'result' AND (${table.neutral} ->> 'after_turn') IS NOT NULL`,
+      ),
   ],
 );
 

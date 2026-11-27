@@ -21,6 +21,7 @@ import {
 import type {
   NeutralizeEvent,
   StoredSourceSet,
+  SurfaceAfterTurnReply,
   SurfaceAiLabel,
   SurfaceCardClaim,
   SurfaceCardFence,
@@ -128,6 +129,10 @@ import {
 } from "./slack-thread-status.ts";
 
 const t = slackOutbox;
+
+// The newest events of one after-turn answer a follow-up reads: what counts
+// is the text after its last tool call, so a longer run loses only its start.
+const AFTER_TURN_EVENTS_READ = 500;
 
 /** An outbox row that names a Slack user as its channel (slackOutboxChannelRefused). */
 export class SlackOutboxUserChannelError extends Error {
@@ -1591,6 +1596,151 @@ export function createPostgresSlackOutboxStore(
             })),
         }),
       );
+    },
+
+    async afterTurnReplies(limit) {
+      // An after-turn result names the turn of its attempt (the one it ended
+      // last). The key the adapter's slackAfterTurnDedupeKey makes, and the
+      // turn's own row's (slackTurnDedupeKey), spelled in SQL.
+      const found = rowsOf<{
+        session_link_id: string;
+        session_id: string;
+        workspace_id: string;
+        agent_id: string;
+        slack_app_id: string;
+        installation_id: string;
+        channel_id: string;
+        thread_ts: string;
+        locale: UserLocale | null;
+        turn_row_id: number;
+        turn_id: number;
+        sources: StoredSourceSet | null;
+        attempt_id: string;
+        requester_slack_user_id: string | null;
+        result_id: number | string;
+        result_sequence: number;
+        previous_id: number | string | null;
+        runtime_kind: RuntimeKind | null;
+      }>(
+        await db.execute(sql`
+        SELECT l.id AS session_link_id, s.id AS session_id,
+          l.workspace_id, l.agent_id, a.id AS slack_app_id,
+          l.installation_id, l.channel_id, l.thread_id AS thread_ts,
+          (SELECT su.locale FROM users su
+           WHERE su.id = coalesce(
+             (SELECT st.actor_id FROM turns st
+              WHERE st.session_id = l.session_id AND st.sequence = 1),
+             l.created_by)) AS locale,
+          tt.id AS turn_row_id, tt.sequence AS turn_id, tt.sources,
+          tt.attempt_id, la.external_user_id AS requester_slack_user_id,
+          r.id AS result_id, r.source_sequence AS result_sequence,
+          r.previous_id,
+          s.runtime_spec -> 'runtime' ->> 'kind' AS runtime_kind
+        FROM session_links l
+        JOIN sessions s ON s.id = l.session_id
+        JOIN slack_installations i ON i.id = l.installation_id
+        JOIN slack_apps a ON a.app_id = i.app_id
+        -- Per live link, from the index of after-turn results alone.
+        CROSS JOIN LATERAL (
+          SELECT e.id, e.turn_id, e.source_sequence, (
+              SELECT max(p.id) FROM events p
+              WHERE p.session_id = e.session_id
+                AND p.type = 'result'
+                AND (p.neutral ->> 'after_turn') IS NOT NULL
+                AND p.turn_id = e.turn_id
+                AND p.id < e.id
+            ) AS previous_id
+          FROM events e
+          JOIN turns et ON et.id = e.turn_id AND et.attempt_id = e.attempt_id
+          WHERE e.session_id = l.session_id
+            AND e.type = 'result'
+            AND (e.neutral ->> 'after_turn') IS NOT NULL
+            AND e.source_sequence IS NOT NULL
+            -- A turn from before the thread is not the thread's to answer.
+            AND et.created_at >= l.created_at
+            -- After the turn's own reply or failure notice, once its sends
+            -- are over: a follow-up never goes ahead of what it follows.
+            AND EXISTS (
+              SELECT 1 FROM slack_outbox own
+              WHERE own.dedupe_key IN (
+                  'reply:' || l.id || ':' || et.sequence,
+                  'failure:' || l.id || ':' || et.sequence)
+                AND own.status NOT IN ('pending', 'sending'))
+            AND NOT EXISTS (
+              SELECT 1 FROM slack_outbox f
+              WHERE f.dedupe_key = 'after_turn:' || l.id || ':' || et.sequence
+                || ':' || e.source_sequence)
+          ORDER BY e.id
+          LIMIT ${limit}
+        ) r
+        JOIN turns tt ON tt.id = r.turn_id
+        LEFT JOIN linked_accounts la
+          ON la.workspace_id = l.workspace_id
+          AND la.user_id = coalesce(tt.actor_id, l.created_by)
+          AND la.provider = 'slack'
+          AND la.external_tenant = i.team_id
+          AND la.status = 'active'
+        WHERE l.session_id IS NOT NULL
+          AND l.revoked_at IS NULL
+          -- A muted thread, or one that hears of no turns, gets nothing.
+          AND NOT l.muted
+          AND ${reportsTurns(sql.raw("l"))}
+          AND l.closed_at IS NULL
+          AND i.status <> 'revoked'
+        ORDER BY r.id
+        LIMIT ${limit}`),
+      );
+      const replies: SurfaceAfterTurnReply[] = [];
+      for (const row of found) {
+        // What the engine said after the previous such result of the turn,
+        // newest first: the text that counts comes after the last tool call,
+        // so a long run is read from its end.
+        const said = rowsOf<{
+          type: string;
+          payload: unknown;
+          neutral: Record<string, unknown> | null;
+        }>(
+          await db.execute(sql`
+            SELECT e.type, e.payload, e.neutral FROM events e
+            WHERE e.session_id = ${row.session_id}::uuid
+              AND e.id < ${row.result_id}::bigint
+              AND e.id > ${row.previous_id ?? 0}::bigint
+              AND e.turn_id = ${row.turn_row_id}
+              AND e.attempt_id = ${row.attempt_id}
+              AND (e.neutral ->> 'after_turn') IS NOT NULL
+              AND e.type IN ('assistant', 'tool_use')
+              -- Subagent output is the subagent's, not the engine's answer.
+              AND e.payload ->> 'parent_tool_use_id' IS NULL
+            ORDER BY e.id DESC
+            LIMIT ${AFTER_TURN_EVENTS_READ}`),
+        ).reverse();
+        replies.push({
+          sessionLinkId: row.session_link_id,
+          sessionId: row.session_id,
+          workspaceId: row.workspace_id,
+          agentId: row.agent_id,
+          slackAppId: row.slack_app_id,
+          installationId: row.installation_id,
+          channelId: row.channel_id,
+          threadTs: row.thread_ts,
+          locale: row.locale,
+          turnId: row.turn_id,
+          sources: row.sources,
+          requesterSlackUserId: row.requester_slack_user_id,
+          resultSequence: row.result_sequence,
+          events: said.map(({ type, payload, neutral }) => ({
+            type,
+            payload:
+              neutral !== null || options.neutralize === undefined
+                ? withStoredNeutralFields(payload, neutral)
+                : options.neutralize(row.runtime_kind, {
+                    event: type,
+                    data: payload,
+                  } as SessionEventPayload).data,
+          })),
+        });
+      }
+      return replies;
     },
 
     unnoticedChannels: (limit) =>

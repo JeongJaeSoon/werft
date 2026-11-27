@@ -247,3 +247,40 @@ describe("chatItems for a turn stopped by the workspace limit", () => {
     });
   });
 });
+describe("chatItems for what the engine said after its turn ended", () => {
+  const format = () => "";
+  // As the API streams it: the turn's own event, then one marked after_turn.
+  const after: SessionEventFrame[] = [
+    frame("1", "1", "1", {
+      event: "assistant",
+      data: { type: "assistant", text: "Started the build." },
+    }),
+    frame("2", "1", "3", {
+      event: "assistant",
+      data: {
+        type: "assistant",
+        text: "The build passed.",
+        after_turn: true as const,
+      },
+    }),
+  ];
+
+  test("shows it as the agent's next message in the turn, with no line before it", () => {
+    expect(
+      shape(chatItems(after, [turn("1", "Build it", null)], format)),
+    ).toEqual([
+      ["user", "Build it", null],
+      ["reply", "Started the build.", false],
+      ["reply", "The build passed.", false],
+    ]);
+  });
+
+  test("holds it back with the rest of a turn whose Slack message was deleted", () => {
+    expect(
+      shape(chatItems(after, [turn("1", "", DELETED_AT)], format)),
+    ).toEqual([
+      ["user", "", DELETED_AT],
+      ["reply", "", true],
+    ]);
+  });
+});
