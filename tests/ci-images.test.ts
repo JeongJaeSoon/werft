@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_MIGRATION_HELPER_IMAGE } from "@werft-ai/execution-local-docker";
 import { suiteFiles } from "../.github/scripts/test-files.ts";
@@ -507,6 +507,27 @@ describe("the D2 gate workflow", () => {
           entry && `${shortName(entry.source)}:${entry.tag}@${entry.digest}`,
       });
     }
+  });
+
+  test("runs on pull requests that change the scheduler and turn paths, and names no path that is gone", () => {
+    const { paths } = (
+      Bun.YAML.parse(text) as { on: { pull_request: { paths: string[] } } }
+    ).on.pull_request;
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        "apps/control-host/src/scheduler/**",
+        "packages/platform/src/scheduler/**",
+        "packages/db/src/scheduler/**",
+        "packages/platform/src/sessions/**",
+        "packages/db/src/sessions/**",
+        "packages/db/src/worker-unit-of-work.ts",
+      ]),
+    );
+    // A renamed directory would leave a filter that never matches again.
+    const gone = paths
+      .map((path) => path.replace(/\/?[^/]*\*.*$/, ""))
+      .filter((path) => !existsSync(join(root, path)));
+    expect(gone).toEqual([]);
   });
 
   test("lays both overlays over the stack, and checks nothing came from Docker Hub", () => {

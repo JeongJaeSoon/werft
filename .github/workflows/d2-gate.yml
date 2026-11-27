@@ -6,7 +6,8 @@ name: D2 gate
 # only scripts/d2-gate/run.sh runs them. Run by hand alone, the harness went
 # stale without anyone noticing (: gate A broke on
 # incremental bundles). This workflow runs it every night on main, and on the
-# pull requests that change the gate itself.
+# pull requests that change the gate itself or the scheduler and turn paths
+# its D, R and H tests settle.
 #
 # Deliberately NOT a required status check: it does not run on most pull
 # requests, so a required context would leave them waiting forever. A failure
@@ -32,6 +33,17 @@ on:
       - tests/e2e/compose.ci-mirror.yml
       - scripts/d2-gate/**
       - tests/d2-gate/**
+      # What gate D, R1–R2 and H1–H5 settle: who ends a worker, and what its
+      # turn becomes. A change here that moved gate D's outcome was first seen
+      # by the nightly run, a day after it merged.
+      - apps/control-host/src/scheduler/**
+      - packages/platform/src/scheduler/**
+      - packages/db/src/scheduler/**
+      - packages/platform/src/sessions/**
+      - packages/db/src/sessions/**
+      - packages/platform/src/ports/worker-unit-of-work.ts
+      - packages/db/src/worker-unit-of-work.ts
+      - packages/db/src/postgres-unit-of-work.ts
 
 permissions:
   contents: read
