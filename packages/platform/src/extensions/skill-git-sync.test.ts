@@ -15,7 +15,9 @@ import type {
 import {
   createSkillGitSync,
   type GitHubSkillReader,
+  type GitHubSkillRepository,
   type GitHubSkillTree,
+  publicReadingInstallation,
 } from "./skill-git-sync.ts";
 
 // The store's locking, coalescing across replicas and version writes are in
@@ -159,6 +161,7 @@ const source = (overrides: Partial<SkillGitSource> = {}): SkillGitSource => ({
   name: "research",
   connectionId: CONNECTION,
   installationId: 42,
+  access: "installation",
   repositoryId: 7,
   repository: "acme/skills",
   path: "skills/research",
@@ -190,10 +193,16 @@ function fakeReader() {
     gate: null as Promise<void> | null,
     resolved: [] as string[],
     read: [] as string[],
-    repository: { id: 7, fullName: "acme/skills" } as {
-      id: number;
-      fullName: string;
-    } | null,
+    repository: {
+      id: 7,
+      fullName: "acme/skills",
+      ownerId: 70,
+      public: false,
+    } as GitHubSkillRepository | null,
+    /** The installation each resolve and read was asked with. */
+    asked: [] as number[],
+    /** What a lookup by id answers; unset: `repository`. */
+    byId: undefined as GitHubSkillRepository | null | undefined,
     branch: true as boolean | Error,
     branches: [] as string[],
   };
@@ -203,11 +212,17 @@ function fakeReader() {
       if (state.branch instanceof Error) throw state.branch;
       return state.branch;
     },
-    async repository() {
+    async repository(_app, installation) {
       if (state.fail) throw state.fail;
+      state.asked.push(installation);
       return state.repository;
     },
-    async resolve(_app, _installation, _repository, ref) {
+    async repositoryById() {
+      if (state.fail) throw state.fail;
+      return state.byId === undefined ? state.repository : state.byId;
+    },
+    async resolve(_app, installation, _repository, ref) {
+      state.asked.push(installation);
       if (state.gate) await state.gate;
       if (state.fail) throw state.fail;
       const once = state.failOnce;
@@ -216,8 +231,9 @@ function fakeReader() {
       state.resolved.push(ref);
       return state.commit;
     },
-    async read(_app, _installation, _repository, commit) {
+    async read(_app, installation, _repository, commit) {
       if (state.fail) throw state.fail;
+      state.asked.push(installation);
       state.read.push(commit);
       return state.tree;
     },
@@ -231,6 +247,8 @@ function setup(
     secrets?: Array<{ workspaceId: string; connectionId: string }>;
     apps?: GitHubAppCredential[];
     webhookUrl?: string | null;
+    /** Whether the App is installed on the repository (installation 42). */
+    installed?: boolean;
   } = {},
 ) {
   const sources = memorySources(options.sources ?? [source()]);
@@ -242,6 +260,7 @@ function setup(
     newSource: boolean;
     auto?: { grantId: string };
   }> = [];
+  const newSources: object[] = [];
   const failed: unknown[] = [];
   const sync = createSkillGitSync({
     authorization: createAuthorizationPolicy({}),
@@ -262,6 +281,7 @@ function setup(
       }) {
         const git = input.git;
         if (!git) throw new Error("not a git registration");
+        if (git.newSource) newSources.push(git.newSource);
         registered.push({
           slug: input.slug,
           commit: git.location.commit,
@@ -323,7 +343,8 @@ function setup(
       (options.apps ?? [credential(CONNECTION, WORKSPACE)]).filter(
         (app) => app.workspaceId === workspaceId,
       ),
-    installationFor: async () => ({ id: 42 }),
+    installationFor: async () =>
+      options.installed === false ? null : { id: 42 },
     webhookSecrets: async (appId) =>
       appId === APP_ID
         ? (
@@ -338,7 +359,7 @@ function setup(
         : options.webhookUrl,
     failed: (error) => failed.push(error),
   });
-  return { sync, sources, state, registered, failed };
+  return { sync, sources, state, registered, newSources, failed };
 }
 
 const deliver = (
@@ -502,6 +523,55 @@ describe("a check's outcome without a version", () => {
 });
 
 describe("the daily check", () => {
+  test("a public source is read with the installation it was registered with", async () => {
+    const { sync, state, registered } = setup({
+      sources: [source({ access: "public", installationId: 50 })],
+      installed: false,
+    });
+    if (state.repository) state.repository.public = true;
+    await sync.check(WORKSPACE, "research", {
+      kind: "daily",
+      deliveryId: null,
+      userId: null,
+    });
+    expect(new Set(state.asked)).toEqual(new Set([50]));
+    expect(registered.map((one) => one.commit)).toEqual([COMMIT_A]);
+  });
+
+  test("a public source that is no longer public when its files are read writes nothing and is source_missing", async () => {
+    for (const byId of [
+      { id: 7, fullName: "acme/skills", ownerId: 70, public: false },
+      null,
+    ]) {
+      const { sync, state, sources, registered } = setup({
+        sources: [source({ access: "public", installationId: 50 })],
+        installed: false,
+      });
+      state.byId = byId;
+      await sync.check(WORKSPACE, "research", {
+        kind: "daily",
+        deliveryId: null,
+        userId: null,
+      });
+      expect(registered).toEqual([]);
+      expect(sources.checks.at(-1)?.check).toMatchObject({
+        result: "source_missing",
+        commit: COMMIT_A,
+      });
+    }
+  });
+
+  test("an installation source is not asked whether it is public", async () => {
+    const { sync, state, registered } = setup();
+    state.byId = null;
+    await sync.check(WORKSPACE, "research", {
+      kind: "daily",
+      deliveryId: null,
+      userId: null,
+    });
+    expect(registered.map((one) => one.commit)).toEqual([COMMIT_A]);
+  });
+
   test("checks each due source once and counts them", async () => {
     const { sync, state, registered } = setup({
       sources: [source(), source({ name: "paused", syncEnabled: false })],
@@ -595,6 +665,23 @@ describe("the console", () => {
     expect((await noUrl.sync.views(WORKSPACE)).get("research")?.webhook).toBe(
       "no_public_url",
     );
+  });
+
+  test("a public source the App is not installed on takes no push, whatever the installation's webhook", async () => {
+    for (const webhookUrl of [
+      "https://werft.example.com/v1/github/webhook",
+      null,
+    ]) {
+      const { sync } = setup({
+        sources: [source({ access: "public", installationId: 50 })],
+        webhookUrl,
+      });
+      expect((await sync.views(WORKSPACE)).get("research")).toMatchObject({
+        access: "public",
+        installation_id: 50,
+        webhook: "no_public_url",
+      });
+    }
   });
 });
 
@@ -755,6 +842,54 @@ describe("registering from GitHub", () => {
     await expect(down.sync.register(caller(), request)).rejects.toMatchObject({
       code: "GITHUB_UNAVAILABLE",
     });
+  });
+
+  test("the App installed there reads it with that installation, public or not", async () => {
+    for (const visible of [false, true]) {
+      const { sync, state, newSources } = setup({ sources: [] });
+      if (state.repository) state.repository.public = visible;
+      expect((await sync.register(caller(), request)).outcome).toBe(
+        "registered",
+      );
+      expect(new Set(state.asked)).toEqual(new Set([42]));
+      expect(newSources).toEqual([
+        {
+          connectionId: CONNECTION,
+          installationId: 42,
+          access: "installation",
+          repositoryId: 7,
+          repository: "acme/skills",
+        },
+      ]);
+    }
+  });
+
+  test("without the App installed, a public repository is refused: the repository API registers those", async () => {
+    const { sync, state, registered } = setup({
+      sources: [],
+      installed: false,
+    });
+    if (state.repository) state.repository.public = true;
+    await expect(sync.register(caller(), request)).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      details: { reason_code: "repository_not_installed" },
+    });
+    expect(state.asked).toEqual([]);
+    expect(registered).toEqual([]);
+  });
+
+  test("a public repository is read with the App's oldest installation not suspended", () => {
+    expect(
+      publicReadingInstallation([
+        { id: 60, suspendedAt: null },
+        { id: 9, suspendedAt: new Date(0) },
+        { id: 50, suspendedAt: null },
+      ])?.id,
+    ).toBe(50);
+    expect(
+      publicReadingInstallation([{ id: 9, suspendedAt: new Date(0) }]),
+    ).toBe(null);
+    expect(publicReadingInstallation([])).toBe(null);
   });
 
   test("with several author Apps the connection is named; an unknown one is refused", async () => {

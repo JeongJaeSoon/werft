@@ -315,6 +315,33 @@ describe("claim lifecycle", () => {
     ).toBeNull();
   });
 
+  test("the binding skips the WebFetch host check only for a session whose workspace stored false", async () => {
+    const skipped = async (settings: Record<string, unknown> | null) => {
+      const backend = new NonceHoldingBackend();
+      const sessionId = await queuedSession();
+      if (settings !== null) {
+        const workspaceId = crypto.randomUUID();
+        await db
+          .insert(workspaces)
+          .values({ id: workspaceId, slug: workspaceId, name: "w", settings });
+        await db
+          .update(sessions)
+          .set({ workspaceId })
+          .where(eq(sessions.id, sessionId));
+      }
+      const [ref] = (await pass(backend)).launched;
+      if (!ref) throw new Error("nothing launched");
+      const bound = await claim(ref, backend.nonceOf(ref));
+      if (bound.outcome !== "claimed") throw new Error(bound.outcome);
+      return bound.binding.skipWebFetchPreflight;
+    };
+    expect(await skipped(null)).toBe(false);
+    expect(await skipped({})).toBe(false);
+    expect(await skipped({ web_fetch_preflight: true })).toBe(false);
+    expect(await skipped({ web_fetch_preflight: "false" })).toBe(false);
+    expect(await skipped({ web_fetch_preflight: false })).toBe(true);
+  });
+
   test("the binding carries the session's own spec, verified, and a pin that does not verify is never run as a guess", async () => {
     const bindingOf = async (pin: ReturnType<typeof sessionPinColumns>) => {
       const backend = new NonceHoldingBackend();

@@ -106,6 +106,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
       permission_rules: true,
       user_env: true,
       response_language: true,
+      web_fetch_preflight: true,
       answer_surface: true,
       repository_pins: true,
       workspace_mcp: true,
@@ -129,6 +130,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         permission_rules: true,
         user_env: true,
         response_language: true,
+        web_fetch_preflight: true,
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
@@ -140,6 +142,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         permission_rules: true,
         user_env: true,
         response_language: true,
+        web_fetch_preflight: true,
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
@@ -175,6 +178,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         permission_rules: true,
         user_env: true,
         response_language: true,
+        web_fetch_preflight: true,
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
@@ -186,6 +190,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         permission_rules: true,
         user_env: true,
         response_language: true,
+        web_fetch_preflight: true,
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
@@ -197,6 +202,7 @@ describe("claim against a control-host older than platform_tool_trust", () => {
         permission_rules: true,
         user_env: true,
         response_language: true,
+        web_fetch_preflight: true,
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
@@ -270,6 +276,7 @@ describe("claim against a control-host older than user_env", () => {
         permission_rules: true,
         user_env: true,
         response_language: true,
+        web_fetch_preflight: true,
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
@@ -281,6 +288,7 @@ describe("claim against a control-host older than user_env", () => {
         platform_tool_trust: true,
         permission_rules: true,
         response_language: true,
+        web_fetch_preflight: true,
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
@@ -304,6 +312,7 @@ describe("claim against a control-host older than user_env", () => {
         permission_rules: true,
         user_env: true,
         response_language: true,
+        web_fetch_preflight: true,
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
@@ -314,6 +323,7 @@ describe("claim against a control-host older than user_env", () => {
         approval_remember: true,
         permission_rules: true,
         response_language: true,
+        web_fetch_preflight: true,
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
@@ -355,6 +365,7 @@ describe("claim against a control-host older than user_env", () => {
         permission_rules: true,
         user_env: true,
         response_language: true,
+        web_fetch_preflight: true,
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
@@ -366,6 +377,7 @@ describe("claim against a control-host older than user_env", () => {
         platform_tool_trust: true,
         permission_rules: true,
         response_language: true,
+        web_fetch_preflight: true,
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
@@ -377,6 +389,7 @@ describe("claim against a control-host older than user_env", () => {
         platform_tool_trust: true,
         permission_rules: true,
         response_language: true,
+        web_fetch_preflight: true,
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
@@ -387,6 +400,7 @@ describe("claim against a control-host older than user_env", () => {
         approval_remember: true,
         permission_rules: true,
         response_language: true,
+        web_fetch_preflight: true,
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
@@ -410,6 +424,7 @@ describe("claim against a control-host older than user_env", () => {
         permission_rules: true,
         user_env: true,
         response_language: true,
+        web_fetch_preflight: true,
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
@@ -421,6 +436,7 @@ describe("claim against a control-host older than user_env", () => {
         platform_tool_trust: true,
         permission_rules: true,
         user_env: true,
+        web_fetch_preflight: true,
         answer_surface: true,
         repository_pins: true,
         workspace_mcp: true,
@@ -475,6 +491,22 @@ describe("claim against a control-host older than user_env", () => {
     );
     const { werft_mcp, ...rest } = first ?? {};
     expect(werft_mcp).toBe(true);
+    expect(second).toEqual(rest);
+  });
+
+  test("a control-host that does not know web_fetch_preflight is claimed again without it only", async () => {
+    const { gateway, sent } = gatewayAgainst((request) =>
+      lacks(request, "web_fetch_preflight")
+        ? json(200, claimAnswer)
+        : badRequest(refusing("web_fetch_preflight")),
+    );
+    await gateway.bootstrapClaim(withUserEnv);
+    expect(sent).toHaveLength(2);
+    const [first, second] = sent.map(
+      (entry) => entry.body.capabilities as Record<string, unknown>,
+    );
+    const { web_fetch_preflight, ...rest } = first ?? {};
+    expect(web_fetch_preflight).toBe(true);
     expect(second).toEqual(rest);
   });
 

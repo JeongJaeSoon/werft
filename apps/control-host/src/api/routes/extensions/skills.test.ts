@@ -475,6 +475,7 @@ describe("GitHub skills", () => {
   const SOURCE = {
     connection_id: "019a0000-0000-7000-8000-0000000000b1",
     installation_id: 42,
+    access: "installation" as const,
     repository_id: 7,
     repository: "acme/skills",
     path: "skills/research",

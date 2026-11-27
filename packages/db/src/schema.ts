@@ -7557,6 +7557,10 @@ export const skillGitSources = pgTable(
       .notNull()
       .references(() => githubApps.id),
     installationId: bigint("installation_id", { mode: "number" }).notNull(),
+    // `installation`: that installation covers the repository. `public`: the
+    // App is not installed there, and the installation is another of its own
+    // whose token reads the public repository.
+    access: text().notNull().default("installation"),
     repositoryId: bigint("repository_id", { mode: "number" }).notNull(),
     repository: text().notNull(),
     path: text().notNull(),
@@ -7611,6 +7615,10 @@ export const skillGitSources = pgTable(
     check(
       "skill_git_sources_ids_check",
       sql`${table.installationId} > 0 AND ${table.repositoryId} > 0`,
+    ),
+    check(
+      "skill_git_sources_access_check",
+      sql`${table.access} IN ('installation', 'public')`,
     ),
     check(
       "skill_git_sources_auto_approve_check",

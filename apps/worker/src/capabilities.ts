@@ -15,6 +15,9 @@ export const WORKER_CAPABILITIES: WorkerCapabilities = {
   // composition.ts hands `runtime_config.response_language` to the runtime,
   // and the Claude adapter appends its instruction.
   response_language: true,
+  // composition.ts hands `runtime_config.skip_web_fetch_preflight` to the
+  // runtime, and the Claude adapter sets the engine's skipWebFetchPreflight.
+  web_fetch_preflight: true,
   answer_surface: true,
   // GitWorkspace fetches an additional repository's `commit` by name, and
   // the host reports what it pinned (worker-host.ts `pinRepositories`).
