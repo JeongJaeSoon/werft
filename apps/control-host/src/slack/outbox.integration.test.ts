@@ -6160,14 +6160,80 @@ describe.each(ENGINES)("a link's posting columns on %s", (engine) => {
       );
       expect(said).toHaveLength(lines);
       for (const row of said) {
-        expect(row.dedupeKey).toEndWith(":needs_input:1");
+        expect(row.dedupeKey).toEndWith(":needs_input:1:1");
         expect(row.body).toMatchObject({
-          text: SLACK_NOTICE_MESSAGES.ko.needsPersonInput,
+          text: `<@${PERSON}> ${SLACK_NOTICE_MESSAGES.ko.needsPersonInput}`,
           mention_user_ids: [PERSON],
         });
       }
+      const lined = posted().filter((message) =>
+        message.text.includes(SLACK_NOTICE_MESSAGES.ko.needsPersonInput),
+      );
+      expect(lined).toHaveLength(lines);
+      for (const message of lined) {
+        expect(message.text).toStartWith(`<@${PERSON}> `);
+      }
     },
   );
+
+  test("the same turn asking again once its first question is answered says so again", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db
+      .update(sessionLinks)
+      .set({ reportMode: "progress", postPrompts: false });
+    await waitOnPermission(sessionId, 1);
+    await db
+      .update(sessions)
+      .set({ status: "running" })
+      .where(eq(sessions.id, sessionId));
+    await outboxPass();
+    const [first] = await db.select().from(pendingRequests);
+    if (!first) throw new Error("no request");
+    await db
+      .update(pendingRequests)
+      .set({ resolvedAt: new Date(), answeredAt: new Date() });
+    await db.insert(pendingRequests).values({
+      ...first,
+      requestId: "toolu:again",
+      resolvedAt: null,
+      answeredAt: null,
+    });
+    await outboxPass();
+    await outboxPass();
+    expect(
+      (await rows())
+        .filter((row) => row.dedupeKey.startsWith("needs_person:"))
+        .map((row) => row.dedupeKey.split(":").slice(2).join(":")),
+    ).toEqual(["needs_input:1:1", "needs_input:1:2"]);
+  });
+
+  test("a turn the work goes on past whose next one ends of unknown outcome still gets its reply", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db
+      .update(sessionLinks)
+      .set({
+        reportMode: "progress",
+        mirrorInstructions: false,
+        postPrompts: false,
+      });
+    await askFrom(sessionId, 2, "web", "Then this", true);
+    await endTurn(sessionId, 1, "completed", [[text("First.")]]);
+    await outboxPass();
+    // Recovery may yet cancel turn 2: turn 1 is then the last to end.
+    await db
+      .update(turns)
+      .set({ status: "outcome_unknown", endedAt: new Date() })
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 2)));
+    await outboxPass();
+    await outboxPass();
+    expect(
+      (await sent()).filter((row) => !row.startsWith("progress:")),
+    ).toEqual(["failure_notice:2", "reply:1"]);
+  });
 
   test("a task that needs a person to recover says so once, per_step not", async () => {
     const fixture = await agentInSlack();
@@ -7778,6 +7844,19 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
       linksClosed: 1,
     });
     expect(slack.updates).toEqual([]);
+    // An update another pass read before the close and stored after it.
+    const { rows: columns } = (await db.execute(
+      sql`SELECT column_name FROM information_schema.columns
+          WHERE table_name = 'slack_outbox'
+            AND column_name NOT IN ('id', 'seq', 'dedupe_key')
+          ORDER BY ordinal_position`,
+    )) as unknown as { rows: { column_name: string }[] };
+    const copied = columns.map(({ column_name }) => `"${column_name}"`);
+    await db.execute(
+      sql.raw(`INSERT INTO slack_outbox (id, dedupe_key, ${copied.join(", ")})
+        SELECT gen_random_uuid(), replace(dedupe_key, ':closed:', ':running:'), ${copied.join(", ")}
+        FROM slack_outbox WHERE dedupe_key LIKE 'progress:%:closed:%'`),
+    );
     await intervalOver();
     await outboxPass({ closeLinks: true });
     await intervalOver();
@@ -7796,6 +7875,7 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
     ).toEqual([
       ["sent", "1:running:1"],
       ["sent", "2:closed:1"],
+      ["failed", "2:running:1"],
     ]);
   });
 

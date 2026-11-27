@@ -101,7 +101,7 @@ When a mention or DM turn of an agent whose conversation rollout is `on` ends wi
 - before the next try, an admin stopped the agent in an emergency (also when stopped and turned on again while the next try waits), the agent's conversation rollout is no longer `on`, or the mention was deleted: nothing is said.
 ## Task reports
 
-What a task (session) posts to its thread is set by its report mode (`report_mode`). A task's link with none uses its channel's; the default is `per_step`. This release has no screen or API that changes it.
+How a task (session) reports its work in its thread is set by its report mode (`report_mode`). Approval and question cards, mirrored web and API instructions, and the room-wait and stop notices follow their own settings and rules. A task's link with none uses its channel's; the default is `per_step`. This release has no screen or API that changes it.
 
 | Report mode | What the thread gets |
 |---|---|
@@ -111,12 +111,12 @@ What a task (session) posts to its thread is set by its report mode (`report_mod
 
 The reports of `progress` and `notify_only`:
 
-- Completion: once no unfinished turn is left, the reply of the turn that ended last goes up once. A turn followed by another posts no reply. Nothing the engine says after a turn ends goes up.
+- Completion: once no unfinished turn is left, the reply of the turn that ended last goes up once. A turn followed by one that answered or failed posts no reply; when the later turns were only stopped or cancelled, the earlier reply goes up. Nothing the engine says after a turn ends goes up.
 - Person needed: when the task starts to wait on a person's answer, the thread is told once, and not again while it waits. A thread that gets approval and question cards (`post_prompts`) is told by the card itself. A task that needs a person to decide whether it goes on (waiting for recovery) is told once too. Both mention the person who gave the task.
 - Failure: one line for each failed turn.
-- When the task closes, the progress message is edited to `This task is done`, then the thread's link closes. Nothing edits it after that.
+- When the task closes, an edit to `This task is done` is left as the progress message's last update and the thread's link closes. That edit still goes after the link closes; nothing edits the message after it.
 
-The progress message and these reports follow the language the agent answers in: the card's language first; for an agent that follows the user, the Werft language of the person who started the task; otherwise English. In every report mode, however the task ends (completed, failed, gave up waiting for room, stopped), the thread's Slack status goes back to active.
+The progress message and the start and person-needed lines are in the card's language; for an agent that follows the user, in the Werft language of the person who started the task; otherwise in English. Failure notices keep the language of the person who started the task. In every report mode, when the task ends completed, failed, gave up waiting for room or stopped and nothing is left waiting, the thread's Slack status goes back to active. A closed session shows as closed.
 
 ## Stop a task
 

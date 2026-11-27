@@ -308,10 +308,11 @@ export function slackWorkReportDedupeKey(
   sessionLinkId: string,
   report: SurfaceWorkReportDue["report"],
   turnId: number | null,
+  requests: number | null,
 ): string {
-  return report === "started"
-    ? `work_start:${sessionLinkId}`
-    : `needs_person:${sessionLinkId}:${report}:${turnId}`;
+  if (report === "started") return `work_start:${sessionLinkId}`;
+  const key = `needs_person:${sessionLinkId}:${report}:${turnId}`;
+  return requests === null ? key : `${key}:${requests}`;
 }
 
 const WORK_REPORT_MESSAGES = {
@@ -350,7 +351,8 @@ export async function enqueueSlackWorkReports(deps: {
       sessionId: row.sessionId,
       sessionLinkId: row.sessionLinkId,
       body: {
-        text: SLACK_NOTICE_MESSAGES[locale][WORK_REPORT_MESSAGES[row.report]],
+        // The allowlist lets the mention through; the text has to hold it.
+        text: `${asker === null ? "" : `${mention(asker)} `}${SLACK_NOTICE_MESSAGES[locale][WORK_REPORT_MESSAGES[row.report]]}`,
         locale,
         ...(link_url === undefined ? {} : { link_url }),
         ...(asker === null ? {} : { mention_user_ids: [asker] }),
@@ -359,6 +361,7 @@ export async function enqueueSlackWorkReports(deps: {
         row.sessionLinkId,
         row.report,
         row.turnId,
+        row.requests,
       ),
     });
   }
