@@ -305,6 +305,34 @@ describe("ci-reuse.sh", () => {
     answer({ fail: false });
   });
 
+  test("a sharded domain is evidence only as its complete set of passed shards", () => {
+    const sharded = (shards: Job[]) => [
+      ...withGuides(fullJobs()).filter((j) => j.name !== "integration (db)"),
+      ...shards,
+    ];
+    const shard = (name: string, conclusion = "success") =>
+      job(`integration (db ${name})`, "Tests of this domain", conclusion);
+    const all = [shard("1/3"), shard("2/3"), shard("3/3")];
+    answer({
+      pulls: pr(),
+      compare: { status: "ahead" },
+      runs: runs(),
+      jobs: { jobs: sharded(all) },
+    });
+    expect(run().outputs.reused).toBe("https://github.invalid/runs/11");
+
+    for (const jobs of [
+      [shard("1/3"), shard("3/3")],
+      [shard("1/3"), shard("2/3", "skipped"), shard("3/3")],
+      [...all, shard("4/3")],
+      [shard("1/2"), shard("2/3"), shard("3/3")],
+      [...all, job("integration (db)", "Tests of this domain")],
+    ]) {
+      answer({ jobs: { jobs: sharded(jobs) } });
+      refused(run(), "did not run and pass: integration (db)");
+    }
+  });
+
   test("a job that passed without running its suite is no evidence", () => {
     const jobs = withGuides(fullJobs()).map((j) =>
       j.name === "e2e (scenario)"

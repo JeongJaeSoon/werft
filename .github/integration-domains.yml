@@ -7,12 +7,17 @@
 # reaches takes no runner, and `files` and `verify` give a job its files and
 # check its run.
 # `docker` means the runner's own daemon, not a service container.
+# `shards: N` (default 1) runs a domain as N jobs, `<domain> i/N`, each on
+# its own runner with its own services: no two shards share a database or a
+# port. Every file of the domain runs in exactly one shard.
 domains:
   # The PostgreSQL stores and the queue: unit and integration suites.
   - domain: db
     postgres: true
     localstack: false
     docker: false
+    # ~460s of tests in one job: the longest cell of a PR run.
+    shards: 3
     paths:
       - packages/db/
       - packages/testkit/src/postgres.
@@ -37,6 +42,7 @@ domains:
     postgres: true
     localstack: true
     docker: false
+    shards: 2
     paths:
       - apps/control-host/src/api/
       - apps/control-host/src/ingest/
@@ -64,6 +70,7 @@ domains:
     postgres: true
     localstack: false
     docker: false
+    shards: 3
     paths:
       - apps/control-host/src/slack/
       - packages/adapters/chat/
@@ -132,6 +139,7 @@ domains:
     postgres: false
     localstack: false
     docker: false
+    shards: 3
     paths:
       - apps/worker/
       - packages/adapters/execution/kubernetes/

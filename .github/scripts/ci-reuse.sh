@@ -96,6 +96,23 @@ step_passed() {
     ([.[0].steps[] | select(.name == $step)] | length == 1 and .[0].conclusion == "success")
   ' <<<"$jobs" >/dev/null
 }
+# domain_passed DOMAIN: every job of that domain ran its tests and passed —
+# `integration (DOMAIN)` alone, or a complete set of shards
+# `integration (DOMAIN 1/N)` … `(DOMAIN N/N)` and nothing else. The pushed
+# tree is the PR head's, so the PR run had the shard count it declares.
+domain_passed() {
+  jq -e --arg domain "$1" '
+    [.[] | select(.name == "integration (\($domain))"
+      or (.name | startswith("integration (\($domain) ")))] as $jobs
+    | ($jobs | length) as $n
+    | $n > 0 and ($jobs | map(.name) | sort) == (
+        if $n == 1 then ["integration (\($domain))"]
+        else [range(1; $n + 1) | "integration (\($domain) \(.)/\($n))"] | sort end)
+    and all($jobs[]; .conclusion == "success"
+      and ([.steps[] | select(.name == "Tests of this domain")] | length == 1
+        and .[0].conclusion == "success"))
+  ' <<<"$jobs" >/dev/null
+}
 job_passed() {
   jq -e --arg job "$1" '[.[] | select(.name == $job)] | length == 1 and .[0].conclusion == "success"' \
     <<<"$jobs" >/dev/null
@@ -108,7 +125,7 @@ need() { "$@" || { core=false; missing="${missing:+$missing, }${*:2}"; }; }
 need job_passed "check (static)"
 if [ "$TESTS" = true ]; then
   while IFS= read -r domain; do
-    need step_passed "integration (${domain})" "Tests of this domain"
+    domain_passed "$domain" || { core=false; missing="${missing:+$missing, }integration (${domain})"; }
   done < <(jq -r '.[]' <<<"$domains")
   # A web-only plan runs the other unit tests as `check (<part>)` shards.
   if [ "$domains" = '["surface"]' ]; then

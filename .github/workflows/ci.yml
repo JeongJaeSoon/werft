@@ -307,7 +307,7 @@ jobs:
   # integration-jobs.ts reads ownership from .github/integration-domains.yml
   # and rejects missing or duplicate files and undeclared skips.
   integration-domain:
-    name: integration (${{ matrix.domain }})
+    name: integration (${{ matrix.name }})
     needs: changes
     if: >-
       needs.changes.outputs.tests == 'true'
@@ -317,8 +317,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Only the domains the plan names: a domain no changed path reaches
-        # takes no runner. `changes` reads each entry from
+        # Only the domains the plan names, one entry per shard: a domain no
+        # changed path reaches takes no runner. `changes` reads each entry from
         # .github/integration-domains.yml (integration-jobs.ts matrix).
         include: ${{ fromJSON(needs.changes.outputs.integration_matrix) }}
     # Every third-party image in this workflow comes from ghcr.io, not Docker
@@ -391,14 +391,15 @@ jobs:
       - name: Tests of this domain
         env:
           DOMAIN: ${{ matrix.domain }}
+          SHARD: ${{ matrix.shard }}
         # An assignment, not process substitution, so a failed assignment
         # fails the step instead of handing `bun test` an empty list — which it
         # would read as the whole suite.
         run: |
-          files=$(bun .github/scripts/integration-jobs.ts files "$DOMAIN")
+          files=$(bun .github/scripts/integration-jobs.ts files "$DOMAIN" "$SHARD")
           mapfile -t files <<<"$files"
           bun test --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit.xml" "${files[@]}"
-          bun .github/scripts/integration-jobs.ts verify "$DOMAIN" "$RUNNER_TEMP/junit.xml"
+          bun .github/scripts/integration-jobs.ts verify "$DOMAIN" "$SHARD" "$RUNNER_TEMP/junit.xml"
       # Whatever the suites pulled, by whatever path: none of it from Docker
       # Hub. Also after a failure — such a pull is worth knowing about anyway.
       - if: '!cancelled()'
@@ -417,7 +418,7 @@ jobs:
       - if: failure() && matrix.docker
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: docker-daemon-${{ matrix.domain }}-${{ github.run_attempt }}
+          name: docker-daemon-${{ matrix.domain }}-${{ matrix.shard }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/docker-events.jsonl
             ${{ runner.temp }}/docker-daemon.log

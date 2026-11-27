@@ -1060,8 +1060,22 @@ test("an integration domain no changed path reaches starts no job", () => {
   };
   const web = plan('["surface"]');
   expect(web.exitCode).toBe(0);
-  expect(web.output).toBe(
-    'matrix=[{"domain":"surface","postgres":true,"localstack":false,"docker":false}]\n',
+  // One line, one entry per shard of the one planned domain.
+  expect(web.output).toStartWith("matrix=[");
+  expect(web.output.split("\n")).toEqual([expect.any(String), ""]);
+  const entries = JSON.parse(web.output.slice("matrix=".length)) as {
+    domain: string;
+    name: string;
+    postgres: boolean;
+  }[];
+  expect(entries.length).toBeGreaterThan(0);
+  for (const entry of entries) {
+    expect(entry).toMatchObject({ domain: "surface", postgres: true });
+  }
+  expect(entries.map((e) => e.name)).toEqual(
+    entries.length === 1
+      ? ["surface"]
+      : entries.map((_, i) => `surface ${i + 1}/${entries.length}`),
   );
   // A plan the declaration cannot meet fails `changes`, and with it the gates.
   for (const domains of ['["nope"]', "[]", ""]) {
