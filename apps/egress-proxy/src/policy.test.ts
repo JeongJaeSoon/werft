@@ -64,6 +64,8 @@ const CLOUD_METADATA: readonly [cloud: string, address: string][] = [
   ["GCP IPv6", "fd20:ce::254"],
   ["Azure", "169.254.169.254"],
   ["Alibaba", "100.100.100.200"],
+  // No official document: an IPv6-only ECS report in canonical/cloud-init#6893.
+  ["Alibaba IPv6", "fd00:100::100:200"],
   ["Oracle", "169.254.169.254"],
   ["Oracle IPv6", "fd00:c1::a9fe:a9fe"],
   ["Oracle Compute Classic", "192.0.0.192"],
@@ -328,6 +330,10 @@ describe("decideEgress", () => {
       allow: [
         { host: "metadata.google.internal", port: 80 },
         { host: "metadata.goog", port: 80 },
+        { host: "metadata.tencentyun.com", port: 80 },
+        { host: "metadata.exoscale.com", port: 80 },
+        { host: "api.metadata.cloud.ibm.com", port: 80 },
+        { host: "api.metadata.power-iaas.cloud.ibm.com", port: 80 },
       ],
       allowPrivate: [
         { host: "metadata", port: 80 },
@@ -345,6 +351,10 @@ describe("decideEgress", () => {
       "metadata",
       "metadata.",
       "metadata.goog",
+      "metadata.tencentyun.com",
+      "metadata.exoscale.com",
+      "api.metadata.cloud.ibm.com",
+      "api.metadata.power-iaas.cloud.ibm.com",
       "instance-data.ec2.internal",
     ]) {
       expect(

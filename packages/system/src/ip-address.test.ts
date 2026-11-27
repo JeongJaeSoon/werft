@@ -185,6 +185,8 @@ const CLOUD_METADATA: readonly [cloud: string, address: string][] = [
   ["GCP IPv6", "fd20:ce::254"],
   ["Azure", "169.254.169.254"],
   ["Alibaba", "100.100.100.200"],
+  // No official document: an IPv6-only ECS report in canonical/cloud-init#6893.
+  ["Alibaba IPv6", "fd00:100::100:200"],
   ["Oracle", "169.254.169.254"],
   ["Oracle IPv6", "fd00:c1::a9fe:a9fe"],
   ["Oracle Compute Classic", "192.0.0.192"],
@@ -241,6 +243,9 @@ describe("isMetadataName", () => {
     ["metadata.goog", true],
     ["metadata.tencentyun.com", true],
     ["metadata.exoscale.com", true],
+    ["api.metadata.cloud.ibm.com", true],
+    ["api.metadata.power-iaas.cloud.ibm.com", true],
+    ["metadata.cloud.ibm.com", false],
     ["instance-data.ec2.internal", true],
     ["METADATA.Google.Internal", true],
     ["metadata.google.internal.", true],
