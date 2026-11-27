@@ -53,6 +53,49 @@ describe("parseDestination", () => {
   });
 });
 
+// Each cloud's documented metadata address (sources in ip-address.ts).
+const CLOUD_METADATA: readonly [cloud: string, address: string][] = [
+  ["AWS EC2", "169.254.169.254"],
+  ["AWS EC2 IPv6", "fd00:ec2::254"],
+  ["AWS ECS", "169.254.170.2"],
+  ["AWS EKS Pod Identity", "169.254.170.23"],
+  ["AWS EKS Pod Identity IPv6", "fd00:ec2::23"],
+  ["GCP", "169.254.169.254"],
+  ["GCP IPv6", "fd20:ce::254"],
+  ["Azure", "169.254.169.254"],
+  ["Alibaba", "100.100.100.200"],
+  ["Oracle", "169.254.169.254"],
+  ["Oracle IPv6", "fd00:c1::a9fe:a9fe"],
+  ["Oracle Compute Classic", "192.0.0.192"],
+  ["Scaleway", "169.254.42.42"],
+  ["Scaleway IPv6", "fd00:42::42"],
+  ["DigitalOcean", "169.254.169.254"],
+  ["Hetzner", "169.254.169.254"],
+  ["Hetzner IPv6", "fe80::a9fe:a9fe"],
+  ["OpenStack", "169.254.169.254"],
+  ["OpenStack IPv6", "fe80::a9fe:a9fe"],
+  ["Akamai", "169.254.169.254"],
+  ["Akamai IPv6", "fd00:a9fe:a9fe::1"],
+];
+
+// A ULA carrying a9fe:a9fe (169.254.169.254) as two adjacent groups is
+// metadata wherever the pair sits; the class each address should get.
+const ULA_A9FE: readonly [
+  address: string,
+  kind: "metadata" | "private" | "public",
+][] = [
+  ["fd00:c1::a9fe:a9fe", "metadata"],
+  ["fd00:a9fe:a9fe::1", "metadata"],
+  ["fd12:3456::a9fe:a9fe", "metadata"],
+  ["fc00:a9fe:a9fe::", "metadata"],
+  ["FD12:3456:0:0:0:0:A9FE:A9FE", "metadata"],
+  ["fd12:3456::a9fe:a9fe%eth0", "metadata"],
+  ["fd12:a9fe::1", "private"],
+  ["fd12:a9fe:1:a9fe::1", "private"],
+  ["fd12:3:a9:fea9:fe00::", "private"],
+  ["2606:4700::a9fe:a9fe", "public"],
+];
+
 describe("decideEgress", () => {
   const policy: EgressPolicy = {
     allow: [{ host: "api.example.com", port: 443 }],
@@ -183,13 +226,133 @@ describe("decideEgress", () => {
       await decideEgress(
         policy,
         { host: "metadata.test", port: 80 },
-        resolver({ "metadata.test": ["169.254.169.254"] }),
+        resolver({ "metadata.test": ["169.254.1.1"] }),
       ),
     ).toEqual({
       allowed: false,
       failure: "denied",
-      reason: "169.254.169.254 is link_local",
+      reason: "169.254.1.1 is link_local",
     });
+  });
+
+  test("a metadata address is refused from the private list, in every spelling", async () => {
+    for (const address of [
+      "169.254.169.254",
+      "169.254.170.2",
+      "100.100.100.200",
+      "fd00:ec2::254",
+      "fd00:ec2::254%eth0",
+      "::ffff:100.100.100.200",
+      "::ffff:6464:64c8",
+      "64:ff9b::6464:64c8",
+      "64:ff9b::a9fe:a9fe",
+    ]) {
+      expect(
+        await decideEgress(
+          policy,
+          { host: "metadata.test", port: 80 },
+          resolver({ "metadata.test": ["10.0.0.5", address] }),
+        ),
+        address,
+      ).toEqual({
+        allowed: false,
+        failure: "denied",
+        reason: `${address} is metadata`,
+      });
+    }
+  });
+
+  test.each(CLOUD_METADATA)(
+    "%s: %s is refused from the private list",
+    async (_, address) => {
+      expect(
+        await decideEgress(
+          policy,
+          { host: "metadata.test", port: 80 },
+          resolver({ "metadata.test": [address] }),
+        ),
+      ).toEqual({
+        allowed: false,
+        failure: "denied",
+        reason: `${address} is metadata`,
+      });
+    },
+  );
+
+  test.each(ULA_A9FE)(
+    "a ULA carrying 169.254.169.254: %s is %s on the private list",
+    async (address, kind) => {
+      const decision = await decideEgress(
+        policy,
+        { host: "metadata.test", port: 80 },
+        resolver({ "metadata.test": [address] }),
+      );
+      expect(decision).toEqual(
+        kind === "metadata"
+          ? {
+              allowed: false,
+              failure: "denied",
+              reason: `${address} is metadata`,
+            }
+          : { addresses: [address], allowed: true, scope: "private" },
+      );
+    },
+  );
+
+  test("all of link-local is refused from the private list", async () => {
+    for (const address of [
+      "169.254.0.1",
+      "169.254.255.254",
+      "fe80::1",
+      "fe80::1%eth0",
+      "febf:ffff::1",
+      "::ffff:169.254.1.1",
+    ]) {
+      expect(
+        await decideEgress(
+          policy,
+          { host: "metadata.test", port: 80 },
+          resolver({ "metadata.test": [address] }),
+        ),
+        address,
+      ).toEqual({
+        allowed: false,
+        failure: "denied",
+        reason: `${address} is link_local`,
+      });
+    }
+  });
+
+  test("a metadata name is refused before it is resolved, trailing dot or not", async () => {
+    const listed: EgressPolicy = {
+      allow: [
+        { host: "metadata.google.internal", port: 80 },
+        { host: "metadata.goog", port: 80 },
+      ],
+      allowPrivate: [
+        { host: "metadata", port: 80 },
+        { host: "instance-data.ec2.internal", port: 80 },
+      ],
+    };
+    const asked: string[] = [];
+    const resolve = async (host: string) => {
+      asked.push(host);
+      return ["10.0.0.5"];
+    };
+    for (const host of [
+      "metadata.google.internal",
+      "Metadata.Google.Internal.",
+      "metadata",
+      "metadata.",
+      "metadata.goog",
+      "instance-data.ec2.internal",
+    ]) {
+      expect(
+        await decideEgress(listed, { host, port: 80 }, resolve),
+        host,
+      ).toMatchObject({ allowed: false, failure: "denied" });
+    }
+    expect(asked).toEqual([]);
   });
 
   test("a host that does not resolve is denied, not allowed by default", async () => {

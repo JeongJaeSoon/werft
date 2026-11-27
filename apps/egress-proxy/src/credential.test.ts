@@ -10,6 +10,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { egressProxyConfigFromEnv } from "./config.ts";
 import {
   type Authorized,
   bodyReservation,
@@ -3933,6 +3934,58 @@ describe("startCredentialProxy", () => {
     expect(up.seen).toEqual([]);
   });
 
+  test("an upstream on EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST that resolves to metadata gets no login", async () => {
+    const up = upstream(() => Response.json({ id: "msg_1" }));
+    const auth = authorizer(
+      granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    // The policy the proxy builds from its environment today.
+    const { credential } = egressProxyConfigFromEnv({
+      EGRESS_ALLOWLIST: "api.anthropic.com:443",
+      EGRESS_AUTHORIZER_URL: "http://api:3100",
+      EGRESS_AUTHORIZER_TOKEN: "a".repeat(32),
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: `upstream.test:${up.port}`,
+    });
+    if (credential === null) throw new Error("no credential config");
+    for (const address of [
+      "100.100.100.200",
+      "fd00:ec2::254",
+      "::ffff:100.100.100.200",
+      "64:ff9b::a9fe:a9fe",
+    ]) {
+      const server = proxy(auth.url, up.port, {
+        policy: { allow: [], allowPrivate: credential.allowPrivate },
+        resolve: async () => [address],
+      });
+      expect((await messages(server.port)).status, address).toBe(403);
+    }
+    expect(up.seen).toEqual([]);
+  });
+
+  test("a grant URL spelling a metadata address as one number is judged as that address", async () => {
+    const up = upstream(() => Response.json({ id: "msg_1" }));
+    for (const spelled of ["1684301000", "0x646464c8", "0144.0144.0144.0310"]) {
+      const auth = authorizer(
+        granting(`http://${spelled}:${up.port}`, [["x-api-key", PROVIDER_KEY]]),
+      );
+      const server = proxy(auth.url, up.port, {
+        policy: {
+          allow: [],
+          allowPrivate: [{ host: "100.100.100.200", port: up.port }],
+        },
+        resolve: async (host) => [host],
+      });
+      const response = await messages(server.port);
+      expect(response.status, spelled).toBe(403);
+      expect(await response.text(), spelled).toContain(
+        "100.100.100.200 is metadata",
+      );
+    }
+    expect(up.seen).toEqual([]);
+  });
+
   describe("the judgment route", () => {
     const JUDGMENT_TOKEN = "wej_judgment-token";
     const JUDGE_KEY = "sk-judge-key-kept-from-everyone";
@@ -4415,6 +4468,49 @@ describe("startCredentialProxy", () => {
           "registered-upstream",
         ]);
       });
+    });
+
+    test("the built-in server is not dialled when the authorizer's name resolves to metadata", async () => {
+      const seen: string[] = [];
+      const api = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        async fetch(request) {
+          const path = new URL(request.url).pathname;
+          if (path === "/authorize") {
+            return Response.json({
+              session_id: "sess-1",
+              attempt_id: "att-1",
+              upstream: { url: "/mcp/github", headers: [] },
+            });
+          }
+          seen.push(path);
+          return Response.json({ jsonrpc: "2.0", id: 1, result: {} });
+        },
+      });
+      servers.push(api);
+      for (const address of [
+        "100.100.100.200",
+        "fd00:ec2::254",
+        "169.254.170.2",
+      ]) {
+        const server = proxy(`http://127.0.0.1:${api.port}`, 1, {
+          resolve: async () => [address],
+        });
+        const response = await fetch(
+          `http://127.0.0.1:${server.port}/mcp/github`,
+          {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${"w".repeat(24)}`,
+              "content-type": "application/json",
+            },
+            body: '{"jsonrpc":"2.0","id":1,"method":"tools/list"}',
+          },
+        );
+        expect(response.status, address).toBe(403);
+      }
+      expect(seen).toEqual([]);
     });
 
     describe("while the built-in server restarts", () => {

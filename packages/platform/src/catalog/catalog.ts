@@ -21,7 +21,7 @@ import {
   startRepositoryOf,
   WERFT_MCP_SERVER,
 } from "@werft-ai/contracts";
-import { isPrivateAddress } from "@werft-ai/system";
+import { isMetadataName, isPrivateAddress } from "@werft-ai/system";
 import { z } from "zod";
 import { type GitCredential, repoRefOf } from "../action/ports/forge.ts";
 import type { ToolCatalogs } from "./tool-names.ts";
@@ -197,6 +197,7 @@ export function isPrivateEndpointHost(hostname: string): boolean {
   const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
   if (isIP(host) !== 0) return isPrivateAddress(host);
   const name = host.replace(/\.$/, "");
+  if (isMetadataName(name)) return false;
   return (
     !name.includes(".") ||
     PRIVATE_NAME_SUFFIXES.some((suffix) => name.endsWith(suffix))
