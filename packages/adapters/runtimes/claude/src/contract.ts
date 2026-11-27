@@ -266,6 +266,10 @@ export function claudeStartConfig(
     ...(config.gitEnvironment === undefined
       ? {}
       : { gitEnvironment: config.gitEnvironment }),
+    // Same reason: a token is the attempt's.
+    ...(config.egressReportToken === undefined
+      ? {}
+      : { egressReportToken: config.egressReportToken }),
     // Same reason: a claim naming other variables must not move the fingerprint.
     ...(config.userEnvironment === undefined
       ? {}

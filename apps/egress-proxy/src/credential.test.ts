@@ -4493,6 +4493,9 @@ describe("startCredentialProxy", () => {
         "100.100.100.200",
         "fd00:ec2::254",
         "169.254.170.2",
+        "::ffff:a9fe:a9fe",
+        "::ffff:169.254.169.254",
+        "64:ff9b::a9fe:a9fe",
       ]) {
         const server = proxy(`http://127.0.0.1:${api.port}`, 1, {
           resolve: async () => [address],
@@ -4509,6 +4512,9 @@ describe("startCredentialProxy", () => {
           },
         );
         expect(response.status, address).toBe(403);
+        expect(await response.text(), address).toContain(
+          `${address} is metadata`,
+        );
       }
       expect(seen).toEqual([]);
     });

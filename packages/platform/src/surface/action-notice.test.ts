@@ -75,6 +75,47 @@ describe("action notices", () => {
     );
   });
 
+  test("workflows off names the switch that is off: the agent's settings, the workspace ceiling, or both (94S-2453)", () => {
+    const ko = (reason: (typeof WORKFLOWS_PUSH_REASON_VALUES)[number]) =>
+      actionNoticeText("ko", { ...base, result: "push_failed", reason });
+    // The agent's settings alone: the words it had before.
+    expect(ko("workflows_off")).toContain("에이전트 GitHub 설정에서 켜 달라고");
+    expect(ko("workflows_off")).not.toContain("상한");
+    expect(ko("workflows_ceiling_off")).toBe(
+      'push하지 못했어요: app agent/s-1\nworkflow 파일을 push하려면 워크스페이스 GitHub 상한에서 "workflow 파일 수정과 CI 결과 보기"를 켜야 해요. 이 상한은 워크스페이스 owner나 admin만 바꿀 수 있으니 그분들에게 요청하세요.',
+    );
+    expect(ko("workflows_ceiling_off")).not.toContain("에이전트 GitHub 설정");
+    expect(ko("workflows_both_off")).toBe(
+      'push하지 못했어요: app agent/s-1\nworkflow 파일을 push하려면 워크스페이스 GitHub 상한과 에이전트 GitHub 설정에서 "workflow 파일 수정과 CI 결과 보기"를 둘 다 켜야 해요. 워크스페이스 owner나 admin에게 상한부터 켜 달라고 요청하세요.',
+    );
+    for (const locale of ["en", "ja"] as const) {
+      const text = (reason: (typeof WORKFLOWS_PUSH_REASON_VALUES)[number]) =>
+        actionNoticeText(locale, { ...base, result: "push_failed", reason });
+      expect(text("workflows_ceiling_off")).toMatch(/owner.+admin/);
+      expect(text("workflows_both_off")).toMatch(/owner.+admin/);
+      expect(text("workflows_off")).not.toMatch(/owner/);
+    }
+  });
+
+  // Slack notices speak 해요체; tests/korean-copy.test.ts (합니다체) covers
+  // the console's screens, not the thread (94S-2453).
+  test("every Korean thread notice is in 해요체", () => {
+    const reasons = [
+      ...WORKFLOWS_PUSH_REASON_VALUES,
+      "default_branch",
+      "non_fast_forward",
+      "repository_not_allowed",
+      "head_moved",
+    ];
+    for (const result of ACTION_NOTICE_RESULTS) {
+      for (const reason of reasons) {
+        const text = actionNoticeText("ko", { ...base, result, reason });
+        expect(text).toMatch(/요[.:]?/);
+        expect(text).not.toMatch(/(니다|십시오)/);
+      }
+    }
+  });
+
   test("a refusal a person can act on says why and whom to ask, for a failed and for a cancelled push", () => {
     const reasons = [
       "default_branch",

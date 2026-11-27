@@ -40,6 +40,7 @@ export {
   workingTreeSnapshotMismatch,
 } from "./commit-attribution.ts";
 export type * from "./descriptor.ts";
+export * from "./egress-report.ts";
 export type * from "./event-codec.ts";
 export type * from "./events.ts";
 export * from "./extension-bundle-archive.ts";

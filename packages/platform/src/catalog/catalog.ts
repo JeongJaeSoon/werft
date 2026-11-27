@@ -666,8 +666,9 @@ export type ClaimedMcpServer = {
 /**
  * The tools of the built-in server the server judges itself, which a worker
  * lets past the engine's permission stage: the classes whose every write the
- * server decides again (push approval, the release's exposure, the grant).
- * Reviews and workflows stay with the engine.
+ * server decides again (push approval, the release's exposure, the grant),
+ * and reading CI, which writes nothing. Reviews and running workflows stay
+ * with the engine.
  */
 export function trustedGitHubTools(tools: readonly string[]): string[] {
   const prefix = `${MCP_TOOL_PREFIX}${GITHUB_MCP_SERVER}__`;
@@ -685,6 +686,7 @@ export function trustedGitHubTools(tools: readonly string[]): string[] {
 const TRUSTED_ACTION_CLASSES: readonly ActionClass[] = [
   "push",
   "pull_request.write",
+  "workflow.read",
   "repository.read",
 ];
 
@@ -743,6 +745,12 @@ export type EgressUpstream = {
   target?: string;
   /** Set on the upstream request, replacing whatever the worker sent. */
   headers: Array<[string, string]>;
+  /**
+   * `public_https`: a server registered in the session's workspace. The proxy
+   * holds the upstream to https and public addresses by itself, not to its
+   * allowlists. A proxy from before ignores it.
+   */
+  allow?: "public_https";
 };
 
 function ceilingHolds(

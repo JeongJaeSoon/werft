@@ -72,6 +72,7 @@ import {
 import {
   mirrorsInstructions,
   postsPrompts,
+  reportsProgress,
   reportsTurns,
 } from "../link-posting.ts";
 import {
@@ -105,6 +106,7 @@ import {
   actionableRequest,
   CLOSE,
   createPostgresPendingRequests,
+  sessionNeedsInput,
 } from "../sessions/index.ts";
 import { sqlLiterals } from "../sql-literals.ts";
 import { rowsOf } from "../statement-rows.ts";
@@ -512,6 +514,12 @@ async function linkTakesNew(
 
 const UNCERTAIN_PREFIX = "uncertain:";
 
+// Whether link `link` keeps a progress message (progressDue): a primary
+// link with a thread whose report mode is progress.
+const keepsProgressMessage = (link: SQL) => sql`(
+  ${link}.role = 'primary' AND ${link}.thread_id <> '' AND ${reportsProgress(link)}
+)`;
+
 // How long a closed link still takes the follow-ups of answers stored before
 // it closed (afterTurnReplies). A follow-up waits for its turn's reply,
 // which retries and rate limits hold for minutes, hours at worst; a day
@@ -526,6 +534,9 @@ const linkTakes = (row: SQL) => sql`(
   AND CASE ${row}.kind
     WHEN 'instruction' THEN ${mirrorsInstructions(sql.raw("l"))}
     WHEN 'input_notice' THEN ${postsPrompts(sql.raw("l"))}
+    -- A link's own progress message (slackProgressKey) only while it keeps one.
+    WHEN 'progress' THEN ${reportsTurns(sql.raw("l"))}
+      AND (${row}.progress_key IS DISTINCT FROM 'progress:' || l.id OR ${keepsProgressMessage(sql.raw("l"))})
     ELSE ${reportsTurns(sql.raw("l"))}
   END
 )`;
@@ -1926,6 +1937,8 @@ export function createPostgresSlackOutboxStore(
             isNull(sessionLinks.revokedAt),
             eq(sessionLinks.muted, false),
             reportsTurns(sql.raw('"session_links"')),
+            // A progress link's message says so in place (progressDue).
+            sql`NOT ${keepsProgressMessage(sql.raw('"session_links"'))}`,
             isNull(sessionLinks.closedAt),
             ne(slackInstallations.status, "revoked"),
             sql`NOT EXISTS (SELECT 1 FROM ${t} o WHERE o.dedupe_key = ${key})`,
@@ -1933,6 +1946,127 @@ export function createPostgresSlackOutboxStore(
         )
         .orderBy(asc(workerLaunches.capacityWaitSince))
         .limit(limit);
+    },
+
+    async progressDue(limit, waitedMs) {
+      // The keys the adapter's slackProgressDedupeKey makes, spelled in SQL:
+      // progress:<link>:<update>:<state>, under progress key progress:<link>.
+      const rows = rowsOf<{
+        session_link_id: string;
+        session_id: string;
+        workspace_id: string;
+        agent_id: string;
+        slack_app_id: string;
+        installation_id: string;
+        channel_id: string;
+        thread_ts: string;
+        locale: UserLocale | null;
+        state: string;
+        updates: number | string;
+        started_at: number | string | null;
+      }>(
+        await db.execute(sql`
+          SELECT * FROM (
+            SELECT
+              session_links.id AS session_link_id,
+              session_links.session_id,
+              session_links.workspace_id,
+              session_links.agent_id,
+              a.id AS slack_app_id,
+              session_links.installation_id,
+              session_links.channel_id,
+              session_links.thread_id AS thread_ts,
+              ${starterLocale} AS locale,
+              (SELECT extract(epoch FROM st.created_at)::float8 FROM turns st
+               WHERE st.session_id = session_links.session_id AND st.sequence = 1) AS started_at,
+              coalesce(
+                -- A worker waiting for room, as the session's wait_reason reads it.
+                (SELECT 'capacity_wait:' || wl.execution_id || ':' || wl.generation
+                 FROM worker_launches wl
+                 JOIN executions e ON e.id = wl.execution_id
+                 WHERE wl.session_id = session_links.session_id
+                   AND wl.slot_released_at IS NULL
+                   AND wl.claimed_attempt_id IS NULL
+                   AND e.desired_state = 'running'
+                   AND wl.capacity_wait_since <= clock_timestamp() - make_interval(secs => ${waitedMs / 1_000})
+                 ORDER BY wl.capacity_wait_since
+                 LIMIT 1),
+                -- Waiting on a person, as the session's public status reads
+                -- it: a parked request leaves no turn in flight. Numbered by
+                -- the lowest turn with a request still answerable, so a turn
+                -- queued behind it changes nothing.
+                CASE WHEN ${sessionNeedsInput(db)} THEN 'needs_input:' || (
+                  SELECT min(turns.sequence) FROM turns
+                  WHERE turns.session_id = session_links.session_id
+                    AND EXISTS (${actionableOfTurn(db)})
+                ) END,
+                -- A stored needs_input from before reads like running.
+                (SELECT CASE ot.status WHEN 'queued' THEN 'queued' ELSE 'running' END || ':' || ot.sequence
+                 FROM turns ot
+                 WHERE ot.session_id = session_links.session_id
+                   AND ot.status IN ('queued', 'running', 'needs_input')
+                 ORDER BY ot.sequence
+                 LIMIT 1),
+                -- Nothing unfinished: only a message Slack holds is told so,
+                -- so a first post still waiting is not overtaken by it.
+                CASE WHEN EXISTS (
+                  SELECT 1 FROM ${t} s
+                  WHERE s.installation_id = session_links.installation_id
+                    AND s.progress_key = 'progress:' || session_links.id
+                    AND s.status = 'sent'
+                ) THEN 'idle:' || (
+                  SELECT coalesce(max(mt.sequence), 0) FROM turns mt
+                  WHERE mt.session_id = session_links.session_id
+                ) END
+              ) AS state,
+              last.dedupe_key AS last_key,
+              coalesce(last.updates, 0) AS updates
+            FROM session_links
+            JOIN sessions ON sessions.id = session_links.session_id
+            JOIN slack_installations i ON i.id = session_links.installation_id
+            JOIN slack_apps a ON a.app_id = i.app_id
+            LEFT JOIN LATERAL (
+              SELECT o.dedupe_key, (
+                SELECT count(*) FROM ${t} c
+                WHERE c.installation_id = session_links.installation_id
+                  AND c.progress_key = 'progress:' || session_links.id
+              ) AS updates
+              FROM ${t} o
+              WHERE o.installation_id = session_links.installation_id
+                AND o.progress_key = 'progress:' || session_links.id
+              ORDER BY o.seq DESC
+              LIMIT 1
+            ) last ON true
+            WHERE session_links.session_id IS NOT NULL
+              AND session_links.revoked_at IS NULL
+              AND NOT session_links.muted
+              AND session_links.closed_at IS NULL
+              AND i.status <> 'revoked'
+              -- Never a top-level post: the message lives in the thread.
+              AND ${keepsProgressMessage(sql.raw('"session_links"'))}
+          ) due
+          -- What the newest update shows, whatever its number: two passes
+          -- that numbered theirs alike both go in, and the newer state wins.
+          WHERE due.state IS NOT NULL
+            AND regexp_replace(due.last_key, '^progress:[^:]+:[0-9]+:', '') IS DISTINCT FROM due.state
+          ORDER BY due.session_link_id
+          LIMIT ${limit}
+        `),
+      );
+      return rows.map((row) => ({
+        sessionLinkId: row.session_link_id,
+        sessionId: row.session_id,
+        workspaceId: row.workspace_id,
+        agentId: row.agent_id,
+        slackAppId: row.slack_app_id,
+        installationId: row.installation_id,
+        channelId: row.channel_id,
+        threadTs: row.thread_ts,
+        locale: row.locale,
+        state: row.state,
+        updates: Number(row.updates),
+        startedAt: row.started_at === null ? null : Number(row.started_at),
+      }));
     },
 
     async unpromptedRequests(limit) {

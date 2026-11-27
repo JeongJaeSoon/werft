@@ -168,6 +168,8 @@ export type EgressIssue = {
   objectStoreHash: Uint8Array;
   mcpHash?: Uint8Array;
   packagesHash?: Uint8Array;
+  // The `egress_report` token's: absent from a caller that issues none.
+  reportHash?: Uint8Array;
   // `repository` is null for a session that may reach no repository: no
   // repository token is issued, and `repositoryHash` goes unused.
   bindingsOf(session: {

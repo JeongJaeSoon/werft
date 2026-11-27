@@ -62,6 +62,7 @@ import {
   memberTeams,
 } from "./schema.ts";
 import { rowsOf } from "./statement-rows.ts";
+import { conversationReplyDedupeKey } from "./surface/conversation-replies.ts";
 
 // The scale of the cost column, so a replay compares what was stored.
 const toStoredCost = (costUsd: number) => Math.round(costUsd * 1e6) / 1e6;
@@ -567,6 +568,35 @@ export function createPostgresConversationCalls(
             throughTurn: null,
           });
           if (deleted !== null) return { outcome: "source_deleted" as const };
+          // A first try is taken only under the agent's rollout on; a try
+          // again is written only while it still is. Shared, as a change of
+          // the rollout writes the agent's row: one waits for the other.
+          if (input.retryOf !== undefined) {
+            const [agent] = await tx
+              .select({ rollout: agents.conversationRollout })
+              .from(agents)
+              .where(eq(agents.id, input.agentId))
+              .for("share");
+            if (agent?.rollout !== "on")
+              return { outcome: "rollout_off" as const };
+            // The try it follows must still be ended as its pass read it,
+            // read after the binding's lock, so after any stop: one a stop
+            // ended (the channel on again since, or the binding above would
+            // refuse) or one the queue forgot, its end no longer known,
+            // leaves no try to follow it.
+            const [before] = rowsOf<{ followed: boolean }>(
+              await tx.execute(sql`
+                SELECT state = 'ended'
+                  AND outcome ->> 'reason' IS DISTINCT FROM 'emergency_stopped'
+                  -- Nor one whose last line another pass wrote.
+                  AND NOT EXISTS (SELECT 1 FROM slack_outbox o
+                    WHERE o.dedupe_key = ${conversationReplyDedupeKey(input.retryOf)}) AS followed
+                FROM conversation_turn_queue
+                WHERE turn_id = ${input.retryOf}::uuid`),
+            );
+            if (before?.followed !== true)
+              return { outcome: "channel_stopped" as const };
+          }
           await tx.insert(conversationTurns).values({
             id: input.turnId,
             workspaceId: input.workspaceId,
@@ -586,20 +616,54 @@ export function createPostgresConversationCalls(
           });
           // A retry of the event, or two passes at once, meets the first
           // turn's engagement: this turn goes back with the transaction.
-          const [engaged] = await tx
-            .insert(conversationEngagements)
-            .values({
-              workspaceId: input.workspaceId,
-              agentId: input.agentId,
-              teamId: message.teamId,
-              channelId: message.channelId,
-              ts: message.ts,
-              kind: "mention",
-              conversationTurnId: input.turnId,
-            })
-            .onConflictDoNothing()
-            .returning({ ts: conversationEngagements.ts });
+          const [engaged] =
+            input.retryOf === undefined
+              ? await tx
+                  .insert(conversationEngagements)
+                  .values({
+                    workspaceId: input.workspaceId,
+                    agentId: input.agentId,
+                    teamId: message.teamId,
+                    channelId: message.channelId,
+                    ts: message.ts,
+                    kind: "mention",
+                    conversationTurnId: input.turnId,
+                  })
+                  .onConflictDoNothing()
+                  .returning({ ts: conversationEngagements.ts })
+              : // A try again moves the engagement off the try it follows,
+                // once: a second pass finds it moved and takes this one back.
+                await tx
+                  .update(conversationEngagements)
+                  .set({ conversationTurnId: input.turnId })
+                  .where(
+                    and(
+                      eq(conversationEngagements.agentId, input.agentId),
+                      eq(conversationEngagements.teamId, message.teamId),
+                      eq(conversationEngagements.channelId, message.channelId),
+                      eq(conversationEngagements.ts, message.ts),
+                      eq(conversationEngagements.kind, "mention"),
+                      eq(
+                        conversationEngagements.conversationTurnId,
+                        input.retryOf,
+                      ),
+                    ),
+                  )
+                  .returning({ ts: conversationEngagements.ts });
           if (engaged === undefined) throw new MentionEngaged();
+          if (input.retryOf !== undefined) {
+            // The try it follows no longer holds the thread's "processing":
+            // this one does, until it ends.
+            await tx
+              .update(conversationTurns)
+              .set({ slackStatusResetAt: sql`now()` })
+              .where(
+                and(
+                  eq(conversationTurns.id, input.retryOf),
+                  isNull(conversationTurns.slackStatusResetAt),
+                ),
+              );
+          }
           return insertTurnPermitIn(tx, input, {
             kind: "user",
             userId: input.requesterUserId,

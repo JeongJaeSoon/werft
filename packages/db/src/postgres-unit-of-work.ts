@@ -62,7 +62,6 @@ import type {
   UsageDecision,
 } from "@werft-ai/platform";
 import {
-  AWAITABLE_STATUSES,
   type CallerLimit,
   callerLimitDigest,
   callerLimitRefusal,
@@ -80,7 +79,6 @@ import {
   asc,
   desc,
   eq,
-  exists,
   gt,
   gte,
   inArray,
@@ -185,6 +183,7 @@ import {
   actionableOfSession,
   actionableOfTurn,
   READ_AT,
+  sessionNeedsInput,
 } from "./sessions/pending-status.ts";
 import {
   keyReaches,
@@ -1759,9 +1758,10 @@ export function createPostgresSessionReader(
     const waiting = actionableOfSession(db);
     if (status === "needs_input") {
       return and(
-        inArray(sessions.status, AWAITABLE_STATUSES),
-        // Implied by `waiting`, but uncorrelated: the plan can start from
-        // the few open requests instead of every session of the owner.
+        sessionNeedsInput(db),
+        // Implied by `sessionNeedsInput`, but uncorrelated: the plan can
+        // start from the few open requests instead of every session of the
+        // owner.
         inArray(
           sessions.id,
           db
@@ -1774,7 +1774,6 @@ export function createPostgresSessionReader(
               ),
             ),
         ),
-        exists(waiting),
       );
     }
     if (status === "running") {

@@ -97,6 +97,7 @@ function service(
       | ((rereads: number) => Record<string, CatalogConnection>);
     urlProblem?: string | null;
     http?: OutboundHttp;
+    caughtUp?: () => Promise<void>;
   } = {},
 ) {
   const writes: unknown[][] = [];
@@ -155,6 +156,7 @@ function service(
             : options.resolved;
         return resolved?.[id];
       },
+      ...(options.caughtUp === undefined ? {} : { caughtUp: options.caughtUp }),
       urlProblem: () => options.urlProblem ?? null,
       http: async (request) => {
         sent.push(request);
@@ -777,6 +779,39 @@ describe("reading a connection's models from its provider", () => {
       },
     ]);
     expect(JSON.stringify(logged)).not.toContain(KEY);
+  });
+
+  test("asks with the key as stored now, one another replica just changed included; a failed read sends nothing", async () => {
+    let current = false;
+    let down: Error | null = null;
+    const rotated = resolved();
+    if (rotated.provider.auth.kind === "api_key") {
+      rotated.provider.auth = {
+        ...rotated.provider.auth,
+        value: "rotated-model-key",
+      };
+    }
+    const { settings, sent } = service({
+      rows: { connection: [connectionRow("console")] },
+      resolved: () => ({ console: current ? rotated : resolved() }),
+      caughtUp: async () => {
+        if (down !== null) throw down;
+        current = true;
+      },
+      http: listing,
+    });
+    await settings.discoverConnectionModels(caller("owner"), "console");
+    expect(sent.map((request) => request.headers)).toEqual([
+      expect.objectContaining({ "x-api-key": "rotated-model-key" }),
+    ]);
+    down = new Error("settings unreadable");
+    current = false;
+    expect(
+      await refusal(
+        settings.discoverConnectionModels(caller("owner"), "console"),
+      ).catch((error: unknown) => error),
+    ).toBe(down);
+    expect(sent).toHaveLength(1);
   });
 
   test("each state refuses before anything is sent", async () => {

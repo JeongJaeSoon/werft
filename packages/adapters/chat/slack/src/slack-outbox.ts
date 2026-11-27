@@ -20,6 +20,7 @@ import {
   enqueueSlackCapacityWaits,
   enqueueSlackInputMirrors,
   enqueueSlackInstructions,
+  enqueueSlackProgress,
   enqueueSlackPrompts,
   enqueueSlackTurnAnswers,
 } from "./slack-outbox-enqueue.ts";
@@ -233,6 +234,11 @@ export async function drainSlackOutbox(deps: {
   });
   // Before the answers: a wait that ran out is told before its failure.
   drain.enqueued += await enqueueSlackCapacityWaits({
+    outbox: deps.outbox,
+    consoleOrigin: deps.consoleOrigin,
+    limit: deps.batchSize,
+  });
+  drain.enqueued += await enqueueSlackProgress({
     outbox: deps.outbox,
     consoleOrigin: deps.consoleOrigin,
     limit: deps.batchSize,

@@ -363,6 +363,22 @@ integration("the readers of an agent's GitHub settings", () => {
     });
   });
 
+  test("the built-in server's state carries the workspace ceiling, so a refusal can say where a switch is off (94S-2453)", async () => {
+    const { workspaceId, sessionId } = await fixture({ source: "agent" });
+    const mcp = createPostgresGitHubMcpStore(db);
+    // No row: the default ceiling.
+    expect((await mcp.sessionState(sessionId))?.ceiling).toEqual(
+      GITHUB_CEILING_DEFAULT,
+    );
+    await pool.query(
+      "INSERT INTO github_workspace_settings (workspace_id, ceiling, revision) VALUES ($1, $2, 1)",
+      [workspaceId, JSON.stringify(GITHUB_CEILING_NONE)],
+    );
+    expect((await mcp.sessionState(sessionId))?.ceiling).toEqual(
+      GITHUB_CEILING_NONE,
+    );
+  });
+
   test("a push the agent's row approved goes back to a person when the row turns approval on before the claim", async () => {
     const { workspaceId, agentId, sessionId } = await fixture({
       source: "agent",

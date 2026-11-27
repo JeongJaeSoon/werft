@@ -365,13 +365,16 @@ export const pushRefusalSchema = z.enum(PUSH_REFUSAL_VALUES);
 /**
  * GitHub refused a push that changes `.github/workflows/`, and which side
  * lacks `workflows`: the token did not ask for it, because the agent's GitHub
- * settings or the workspace ceiling have it off (`workflows_off`); it asked
+ * settings have it off (`workflows_off`), the workspace ceiling does
+ * (`workflows_ceiling_off`) or both do (`workflows_both_off`); it asked
  * and the App does not hold the permission (`workflows_permission_missing`);
  * or the push did not go by an App token, so which cannot be told
  * (`workflows_refused`).
  */
 export const WORKFLOWS_PUSH_REASON_VALUES = [
   "workflows_off",
+  "workflows_ceiling_off",
+  "workflows_both_off",
   "workflows_permission_missing",
   "workflows_refused",
 ] as const;
