@@ -1,4 +1,4 @@
-import { lstatSync, realpathSync } from "node:fs";
+import { lstatSync, readdirSync, realpathSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { workspaceAskPatterns } from "./workspace-ask-patterns.ts";
 import { WORKSPACE_POLICY } from "./workspace-policy.ts";
@@ -523,6 +523,27 @@ const GIT_PLAIN_GLOBALS = [
   "--no-replace-objects",
 ];
 
+/**
+ * git options whose value is a program git runs: `git grep
+ * --open-files-in-pager`, `git difftool --extcmd`, `git rebase --exec`,
+ * `git push --exec`, `git fetch --upload-pack`, `git push --receive-pack`.
+ */
+const GIT_RUNNING_OPTIONS = [
+  "--open-files-in-pager",
+  "--extcmd",
+  "--exec",
+  "--upload-pack",
+  "--receive-pack",
+];
+/** The short options of those, by the git command that has one. */
+const GIT_RUNNING_SHORT: Readonly<Record<string, string>> = {
+  grep: "O",
+  difftool: "x",
+  rebase: "x",
+};
+/** git commands that run what the line gives them, whatever the options. */
+const GIT_RUNNING_VERBS = ["filter-branch", "send-email"];
+
 /** `git config` options that only read or shape what is read. */
 const CONFIG_READ_OPTIONS = [
   "--",
@@ -539,6 +560,12 @@ const CONFIG_READ_OPTIONS = [
   "-z",
   "--null",
   "--all",
+  "--bool",
+  "--int",
+  "--bool-or-int",
+  "--path",
+  "--expiry-date",
+  "--no-type",
 ];
 const CONFIG_READ_ACTIONS = [
   "--get-urlmatch",
@@ -572,6 +599,7 @@ const configOption = (word: string) =>
  * (`core.hooksPath`, `core.editor`, `core.fsmonitor`) or open an editor.
  */
 function configReads(rest: readonly string[]): boolean {
+  const setOption = (word: string) => word === "--local" || word === "--";
   const options = rest.filter((word) => word.startsWith("-"));
   const operands = rest.filter((word) => !word.startsWith("-"));
   const userKey = (key: string | undefined) =>
@@ -583,14 +611,10 @@ function configReads(rest: readonly string[]): boolean {
       first === "set" &&
       operands.length === 3 &&
       userKey(operands[1]) &&
-      options.every((word) => word === "--local")
+      options.every(setOption)
     );
   }
-  if (
-    operands.length === 2 &&
-    userKey(first) &&
-    options.every((word) => word === "--local")
-  ) {
+  if (operands.length === 2 && userKey(first) && options.every(setOption)) {
     return true;
   }
   if (options.every(configOption)) {
@@ -694,7 +718,7 @@ function grepOperands(words: readonly string[]): {
   return { recurses, files, lists };
 }
 
-/** What in a git or gh word may be a path: an option's value, a glued cluster's tail, a pathspec, a `rev:` path, `@file`, a `file#label`. */
+/** What in a git or gh word may be a path: an option's value, a glued cluster's tail, `@file`, a `file#label`. What follows a `:` is {@link rootRelative}'s. */
 function refPathsIn(word: string): string[] {
   const found = new Set([word, ...pathsIn(word)]);
   if (/^-[^-]/.test(word)) {
@@ -703,9 +727,6 @@ function refPathsIn(word: string): string[] {
   for (const path of [...found]) {
     if (path.startsWith("@")) found.add(path.slice(1));
     if (path.includes("#")) found.add(path.slice(0, path.indexOf("#")));
-    const magic = /^:(\([^)]*\)|[^\w./(]*)/.exec(path);
-    if (magic !== null) found.add(path.slice(magic[0].length));
-    if (path.includes(":")) found.add(path.slice(path.lastIndexOf(":") + 1));
   }
   return [...found];
 }
@@ -715,7 +736,8 @@ function rootRelative(word: string): string[] {
   const found: string[] = [];
   for (let at = word.indexOf(":"); at !== -1; at = word.indexOf(":", at + 1)) {
     const rest = word.slice(at + 1);
-    const magic = /^(\([^)]*\)|[^\w./(]*)/.exec(rest);
+    // `:/x` is `:(top)x` in short, as `:!x` and `:^x` leave x out.
+    const magic = /^(\([^)]*\)|[^\w.(]*)/.exec(rest);
     found.push(rest, rest.slice(magic?.[0].length ?? 0));
   }
   return found;
@@ -727,10 +749,43 @@ function rootRelative(word: string): string[] {
  */
 function narrowKept(words: readonly string[], place: Place): string | null {
   const [name] = words;
-  const keptPath = (path: string, base = place.base) => {
-    if (path === "") return false;
-    const located = locate({ root: place.root, base }, path);
-    return located !== undefined && sensitive(located);
+  // A path is judged where it lands, `..` taken as spelled, and by its name
+  // alone as well: git may read it from a tree, not the work tree
+  // (`HEAD:.claude/settings.json` with `.claude` a broken link), and
+  // `:(icase)` matches any case.
+  const keptPath = (path: string, base = place.base): boolean => {
+    if (path === "" || path.startsWith("~")) return false;
+    const full = resolve(base, path);
+    if (!inside(place.root, full)) return false;
+    const name = relative(place.root, full).split(sep).join("/");
+    const named = (spelled: string) =>
+      sensitive({ spelled, real: spelled }) ||
+      sensitive({
+        spelled: spelled.toLowerCase(),
+        real: spelled.toLowerCase(),
+      });
+    const located = locate({ root: place.root, base: place.root }, name || ".");
+    if ((located !== undefined && sensitive(located)) || named(name)) {
+      return true;
+    }
+    // A pathspec is a pattern to git (`.claud[e]/settings.json`, `*.json`),
+    // and `*` crosses `/`: it is kept when a kept name in the folder its
+    // pattern starts in begins as the pattern does.
+    const glob = name.search(/[*?[]/);
+    if (glob === -1) return false;
+    const lead = name.slice(0, glob);
+    const folder = lead.slice(0, lead.lastIndexOf("/") + 1);
+    let names: string[];
+    try {
+      names = readdirSync(resolve(place.root, folder || "."));
+    } catch {
+      return false;
+    }
+    return names.some(
+      (entry) =>
+        entry.startsWith(lead.slice(folder.length)) &&
+        keptPath(`${folder}${entry}`, place.root),
+    );
   };
   if (name === "git" || name === "gh") {
     // Which option takes a value is not known here (`-F -m`, `-e -m`,
@@ -739,26 +794,37 @@ function narrowKept(words: readonly string[], place: Place): string | null {
     for (const word of words.slice(1)) {
       // git takes a long option by any unique start of its name.
       const option = word.split("=")[0] as string;
-      if (
-        name === "git" &&
+      const longStart = (full: string) =>
         option.length > 2 &&
         option.startsWith("--") &&
-        ("--pathspec-from-file".startsWith(option) ||
-          option.startsWith("--pathspec-from-file"))
-      ) {
+        (full.startsWith(option) || option.startsWith(full));
+      if (name === "git" && longStart("--pathspec-from-file")) {
         return "a path list the line does not show";
+      }
+      if (name === "git" && GIT_RUNNING_OPTIONS.some(longStart)) {
+        return "a git option that runs a program";
       }
       // A secret or engine-settings path given to git or gh: `git checkout
       // HEAD -- .claude/settings.json`, `gh pr create --body-file .env`.
       // `HEAD:<path>`, `:0:<path>` and `:(top)<path>` are from the
       // repository's top, which may not be where the shell stands.
+      const paths = refPathsIn(word);
       if (
-        refPathsIn(word).some((path) => keptPath(path)) ||
+        paths.some((path) => keptPath(path)) ||
         rootRelative(word).some(
           (path) => keptPath(path) || keptPath(path, place.root),
         )
       ) {
         return "a path that goes to a person";
+      }
+      // `-nF../../x`: the common check cuts only two letters off a cluster.
+      if (
+        paths.some(
+          (path) =>
+            path !== "" && !path.startsWith("~") && plainlyOutside(place, path),
+        )
+      ) {
+        return "a path outside the workspace";
       }
     }
   }
@@ -779,6 +845,17 @@ function narrowKept(words: readonly string[], place: Place): string | null {
     }
     if (verb === "config" && !configReads(words.slice(at + 1))) {
       return "a git setting the workspace policy keeps for a person";
+    }
+    const rest = at === -1 ? [] : words.slice(at + 1);
+    const short = GIT_RUNNING_SHORT[verb ?? ""];
+    if (
+      (short !== undefined &&
+        rest.some((word) => /^-[^-]/.test(word) && word.includes(short))) ||
+      GIT_RUNNING_VERBS.includes(verb ?? "") ||
+      (verb === "bisect" && rest.includes("run")) ||
+      (verb === "submodule" && rest.includes("foreach"))
+    ) {
+      return "a git option that runs a program";
     }
   }
   if (name === "grep") {
@@ -801,6 +878,20 @@ function narrowKept(words: readonly string[], place: Place): string | null {
     }
   }
   return null;
+}
+
+/** The files gh reads as a body: `--body-file x`, `--body-file=x`, `-F x`, `-Fx`, `-dF x`. */
+function ghBodyFiles(words: readonly string[]): string[] {
+  const files: string[] = [];
+  words.forEach((word, index) => {
+    const next = words[index + 1] ?? "";
+    if (word === "--body-file") files.push(next);
+    else if (word.startsWith("--body-file=")) files.push(word.slice(12));
+    else if (/^-[^-]/.test(word) && word.includes("F")) {
+      files.push(word.slice(word.indexOf("F") + 1) || next);
+    }
+  });
+  return files.filter((file) => file !== "");
 }
 
 /** A word quoted this deep is not read further. */
@@ -844,6 +935,16 @@ function partKept(
   if (redirect !== undefined && redirect.target !== "/dev/null") {
     const kept = writeKept(place, redirect.target, narrow);
     if (kept !== null) return kept;
+  }
+  // gh sends the file it is given as a body: a secret there leaves the
+  // workspace, in either reading (`gh pr create --body-file .env`).
+  if (name === "gh") {
+    for (const path of ghBodyFiles(part.words)) {
+      const located = locate(place, path);
+      if (located !== undefined && sensitive(located)) {
+        return "a path that goes to a person";
+      }
+    }
   }
   if (narrow) {
     const kept = narrowKept(part.words, place);
