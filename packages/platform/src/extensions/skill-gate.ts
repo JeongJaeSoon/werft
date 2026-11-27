@@ -135,6 +135,10 @@ const COMMENT = /^\s*(?:#|\/\/|--)/;
 export const NETWORK_CALL_PATTERNS: readonly { id: string; pattern: RegExp }[] =
   [
     {
+      id: "package_runner",
+      pattern: /\b(?:npx|bunx|uvx|pnpm\s+dlx|yarn\s+dlx)\b/,
+    },
+    {
       id: "package_install",
       pattern:
         /\b(?:pip3?|uv|npm|npx|pnpm|yarn|bun|bunx|gem|cargo|go|apt(?:-get)?|apk|brew|conda)(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6}(?:\s+pip(?:\s+-\S+(?:\s+(?:"[^"]{0,200}"|'[^']{0,200}'|[^\s"'-]\S*))??){0,6})?\s+(?:install|add|get|i|ci|sync)\b/,
@@ -311,13 +315,55 @@ function codeHosts(line: string): Set<string> {
       [...plainTextHosts(text)].find((host) => CLEAN_HOST.test(host));
     // Userinfo reached across a quote or comma is another string of code.
     const crossed = userinfoCrossesCode(segment);
-    const split = clean(segment.replace(/["'`,(){}$]/g, " "));
+    const split = clean(segment.replace(/["'`,;(){}$]/g, " "));
     const host = crossed
       ? (split ?? clean(segment))
       : (clean(segment) ?? split);
     if (host !== undefined) hosts.add(host);
   });
   return hosts;
+}
+
+const normalized = (line: string) =>
+  line
+    .normalize("NFKC")
+    .replace(INVISIBLE, "")
+    .replace(OVERRIDE, "")
+    .toLowerCase();
+
+/**
+ * The commands of a script the update touched. A line ending in "\\" goes on
+ * in the next ("npm \\" then "ci"), so the whole new text is read as logical
+ * lines, and one counts when any of its lines is an added one. Comment lines
+ * (as written: a fullwidth "＃" starts none) are left out.
+ */
+function changedCalls(text: string, added: readonly string[]): string[] {
+  const pending = new Map<string, number>();
+  for (const line of added) pending.set(line, (pending.get(line) ?? 0) + 1);
+  const calls: string[] = [];
+  let parts: string[] = [];
+  let touched = false;
+  for (const line of text.split("\n")) {
+    const left = pending.get(line) ?? 0;
+    if (left > 0) {
+      pending.set(line, left - 1);
+      touched = true;
+    }
+    if (parts.length === 0 && COMMENT.test(line)) {
+      touched = false;
+      continue;
+    }
+    if (line.endsWith("\\")) {
+      parts.push(line.slice(0, -1));
+      continue;
+    }
+    parts.push(line);
+    if (touched) calls.push(normalized(parts.join(" ")));
+    parts = [];
+    touched = false;
+  }
+  if (parts.length > 0 && touched) calls.push(normalized(parts.join(" ")));
+  return calls;
 }
 
 /** Judges one version of a repository skill; never throws on content. */
@@ -380,19 +426,13 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
       earlierKind !== null && "text" in earlierKind
         ? earlierKind.text.replace(/\r\n/g, "\n")
         : null;
-    let carried = "";
-    for (const line of addedLines(
-      earlierText,
-      kind.text.replace(/\r\n/g, "\n"),
-    )) {
+    const newText = kind.text.replace(/\r\n/g, "\n");
+    const added = addedLines(earlierText, newText);
+    for (const line of added) {
       for (const char of line.match(INVISIBLE) ?? []) {
         flag("hidden_unicode", file.path, codePoint(char));
       }
-      const plain = line
-        .normalize("NFKC")
-        .replace(INVISIBLE, "")
-        .replace(OVERRIDE, "")
-        .toLowerCase();
+      const plain = normalized(line);
       for (const { id, pattern } of INSTRUCTION_PATTERNS) {
         if (pattern.test(plain)) flag("instruction_like", file.path, id);
       }
@@ -401,19 +441,9 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
         if (!allowedHosts.has(host))
           flag("host_not_allowlisted", file.path, host);
       }
-      // As written: a fullwidth "＃" starts no comment, though NFKC makes it "#".
-      if (COMMENT.test(line)) {
-        carried = "";
-        continue;
-      }
-      // A line ending in "\" goes on in the next: "npm \" then "ci". Only the
-      // tail is carried, so a long run of such lines stays linear.
-      const call = carried + plain;
-      if (call.endsWith("\\")) {
-        carried = `${call.slice(-1000, -1)} `;
-        continue;
-      }
-      carried = "";
+    }
+    if (!script) continue;
+    for (const call of changedCalls(newText, added)) {
       for (const { id, pattern } of NETWORK_CALL_PATTERNS) {
         if (pattern.test(call)) flag("network_call", file.path, id);
       }

@@ -1063,3 +1063,45 @@ describe("seventh review", () => {
     expect(result.warnings).toEqual([]);
   });
 });
+
+describe("eighth review", () => {
+  const sh = (body: string) => text("skills/s/scripts/a.sh", body);
+  const calls = (before: string | null, after: string) =>
+    gate({
+      before: before === null ? null : [...licensed("s"), sh(before)],
+      after: [...licensed("s"), sh(after)],
+    }).warnings.find((w) => w.rule === "network_call")?.samples ?? [];
+
+  test("a continued command counts when any of its lines changed, with its kept lines", () => {
+    expect(calls("npm \\\n  --version\n", "npm \\\n  ci\n")).toEqual([
+      "package_install",
+    ]);
+    expect(
+      calls("printf '%s' \\\n  version\n", "npm \\\n  version\nci=1\n"),
+    ).toEqual([]);
+    expect(calls("npm ci\nls\n", "npm ci\nls -l\n")).toEqual([]);
+  });
+
+  test("a semicolon ends a URL in shell", () => {
+    const result = gate({
+      after: [
+        ...licensed("s"),
+        sh('TARGET=https://outside.example;curl "$TARGET"\n'),
+      ],
+    });
+    expect(
+      result.warnings.find((w) => w.rule === "host_not_allowlisted")?.samples,
+    ).toEqual(["outside.example"]);
+  });
+
+  test("package runners fetch packages without an install verb", () => {
+    for (const line of [
+      "npx --yes prettier --check .",
+      "bunx tsc",
+      "uvx ruff",
+      "pnpm dlx x",
+    ]) {
+      expect(calls(null, `${line}\n`)).toContain("package_runner");
+    }
+  });
+});
