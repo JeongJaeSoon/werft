@@ -38,12 +38,12 @@
 - 시작된 턴이 하나라도 있는 세션은 멈춤으로 닫히지 않는다. 멈춘 세션은 열린 채로 다음 입력을 받는다.
 - 멈춤으로 닫힌 작업은 열린 작업 상한(`openTaskLimit`)의 칸을 그 트랜잭션에서 돌려준다.
 - 멈춤으로 닫힌 세션에는 새 launch가 나지 않는다. scheduler가 예약할 수 없다. 멈춤 전에 provider 호출에 들어간 launch는 kill intent(`desired_state = terminated`)를 보고 거둔다. close와 terminate도 같은 방식으로 거둔다.
-- 세션을 닫은 멈춤의 Slack 안내를 쓰지 못하면 그 줄은 잃고, 그 실패로 이벤트를 다시 처리하게 하지 않는다. 다시 처리하면 그 사이 닫힌 링크 때문에 멈춤 낱말이 새 멘션으로 들어갈 수 있다. 같은 글이 다른 길로 다시 처리되는 경우(같은 글의 `message`와 `app_mention`이 outbox pass를 사이에 두고 따로 도착할 때, 멈춤 커밋 뒤 inbox complete 전에 lease가 끝났을 때)도 멘션이 되지 않는다. 열린 링크가 없는 스레드에 멈춤 낱말 하나뿐인 글이 오면, receive path는 멘션 처리표보다 먼저 그 스레드의 닫힌 링크 세션(`session_links_closed_surface_ref_idx`)에서 이 글의 멈춤 키(`session_stops`, `slack-stop:<team>:<channel>:<ts>`)를 찾고, 있으면 처리된 것으로 끝낸다. 안내는 다시 쓰지 않는다. 닫힌 스레드에 사람이 새로 쓴 멈춤 낱말은 다른 글(다른 키)이라 다른 멘션처럼 처리표로 간다.
+- 세션을 닫은 멈춤의 Slack 안내를 쓰지 못하면 그 줄은 잃고, 그 실패로 이벤트를 다시 처리하게 하지 않는다. 다시 처리하면 그 사이 닫힌 링크 때문에 멈춤 낱말이 새 멘션으로 들어갈 수 있다. 같은 글이 다른 길로 다시 처리되는 경우(같은 글의 `message`와 `app_mention`이 outbox pass를 사이에 두고 따로 도착할 때, 멈춤 커밋 뒤 inbox complete 전에 lease가 끝났을 때)도 멘션이 되지 않는다. 멈춤 낱말 하나뿐인 글이 오면, receive path는 채널 종류 확인(공개 binding의 채널이 비공개로 보이면 승인 대기로 보냄) 뒤, 멘션 처리표·입력 권한 판단·작업의 멈춤과 입력보다 먼저 그 스레드의 닫힌 링크 세션(`session_links_closed_surface_ref_idx`)에서 이 글의 멈춤 키(`session_stops`, `slack-stop:<team>:<channel>:<ts>`)를 찾고, 있으면 처리된 것으로 끝낸다. 그 사이 같은 스레드에 새 작업이 열렸어도 같다: 앞 작업을 닫은 글은 새 작업을 멈추지 않는다. 안내는 다시 쓰지 않는다. 닫힌 스레드에 사람이 새로 쓴 멈춤 낱말은 다른 글(다른 키)이라 다른 멘션처럼 처리표로 간다.
 - 멈춤의 Slack 안내(닫힘 안내와 옛 멈춤 안내)는 멈춤 낱말을 쓴 사람의 Werft 사용자 locale로 쓴다. 연결된 사용자가 없으면 배포 기본 locale이다. outbox kind는 스레드 안내의 `failure_notice`이다. kind로 실패를 세는 곳은 없고, outbox 집계(`sent`·`failed`)는 kind와 상관없이 전송 결과로 센다.
 - 멈춤으로 닫힌 작업의 스레드 링크는 세션의 `task_closed_reason`(`cancelled`)으로 닫힌다(`closeFinishedLinks`). 작업 사유가 없는 세션만 close receipt로 `completed`·`abandoned`를 가른다.
 - 같은 멈춤을 같은 키로 다시 보내면 처음 결과를 돌려준다. 닫혔는지는 세션 행에서 다시 읽으므로, 이 변경 전에 요청이 취소된 채 열려 있던 작업을 나중 멈춤이 닫았다면 앞선 멈춤의 재시도도 닫힘으로 답한다.
 
-시험: `packages/db/src/stop-control.test.ts`, `apps/control-host/src/slack/session-handler.integration.test.ts`의 Slack stop 시험(재처리 두 경우는 `… after an outbox pass closed the link stops once …`, `… lost its lease after the stop …`, 닫힌 스레드의 새 멈춤 낱말은 `a new stop word mentioned in a thread whose task the stop closed …`).
+시험: `packages/db/src/stop-control.test.ts`, `apps/control-host/src/slack/session-handler.integration.test.ts`의 Slack stop 시험(재처리 두 경우는 `… after an outbox pass closed the link stops once …`, `… lost its lease after the stop …`, 다시 열린 스레드는 `… after the thread opened new work stops nothing there …`, 비공개 전환은 `… in a channel turned private sends its binding to approval …`, 닫힌 스레드의 새 멈춤 낱말은 `a new stop word mentioned in a thread whose task the stop closed …`).
 
 ### Slack 멘션이 대화 계층에 들어가는 길
 

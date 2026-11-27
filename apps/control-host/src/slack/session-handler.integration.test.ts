@@ -6857,11 +6857,26 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
       .select({ id: schema.conversationTurns.id })
       .from(schema.conversationTurns)
       .where(eq(schema.conversationTurns.agentId, fixture.agentId));
-  const linkStatesOf = (session: { id: string }) =>
-    db
-      .select({ closedAt: sessionLinks.closedAt })
+  /** The task's one link, closed by the outbox pass as its stop closed it. */
+  const expectLinkClosed = async (session: { id: string }) => {
+    const rows = await db
+      .select({
+        closedAt: sessionLinks.closedAt,
+        closedReason: sessionLinks.closedReason,
+      })
       .from(sessionLinks)
       .where(eq(sessionLinks.sessionId, session.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.closedAt).toBeInstanceOf(Date);
+    expect(rows[0]?.closedReason).toBe("cancelled");
+  };
+  const stopKeysOf = async (session: { id: string }) =>
+    (
+      await db
+        .select({ key: schema.sessionStops.idempotencyKey })
+        .from(schema.sessionStops)
+        .where(eq(schema.sessionStops.sessionId, session.id))
+    ).map((row) => row.key);
 
   test("a task's stop whose app_mention comes after an outbox pass closed the link stops once and opens no mention turn", async () => {
     const { fixture, view, session, post, root } = await unstartedTask();
@@ -6872,7 +6887,7 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     // The outbox pass closes the finished task's link before the post's
     // other event is taken.
     await sendOutbox({ closeLinks: true });
-    expect((await linkStatesOf(session))[0]?.closedAt).not.toBeNull();
+    await expectLinkClosed(session);
     await deliver(fixture, mention(ts, { text, thread_ts: root }));
     expect(await drain(view.handle)).toMatchObject({
       processed: 1,
@@ -6883,6 +6898,9 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     expect(await turnStatesOf(session.id)).toHaveLength(1);
     expect(await conversationTurnsOf(fixture)).toEqual([]);
     expect(await sessionsOf(fixture)).toHaveLength(1);
+    expect(await stopKeysOf(session)).toEqual([
+      `slack-stop:${TEAM}:${CHANNEL}:${ts}`,
+    ]);
     expect(view.threadNotices.map((notice) => notice.notice.message)).toEqual([
       "taskStoppedBeforeStart",
     ]);
@@ -6890,17 +6908,20 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
 
   test("a task's stop whose pass lost its lease after the stop is retried once its link closed, and is done without a mention turn", async () => {
     const { fixture, view, session, post } = await unstartedTask();
-    await deliver(fixture, post(at(1), { text: `<@${BOT_USER}> stop` }));
+    const ts = at(1);
+    await deliver(fixture, post(ts, { text: `<@${BOT_USER}> stop` }));
     const [claim] = await claimAll(30_000);
     if (claim === undefined) throw new Error("nothing claimed");
     // The stop commits; the row's lease runs out before it completes.
     await handler(shortLease).handle(claim);
+    const key = `slack-stop:${TEAM}:${CHANNEL}:${ts}`;
+    expect(await stopKeysOf(session)).toEqual([key]);
     await Bun.sleep(100);
     expect(await createPostgresSlackInboundEventStore(db).complete(claim)).toBe(
       false,
     );
     await sendOutbox({ closeLinks: true });
-    expect((await linkStatesOf(session))[0]?.closedAt).not.toBeNull();
+    await expectLinkClosed(session);
     expect(await drain(view.handle)).toMatchObject({
       processed: 1,
       retried: 0,
@@ -6915,6 +6936,74 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     expect(await turnStatesOf(session.id)).toHaveLength(1);
     expect(await conversationTurnsOf(fixture)).toEqual([]);
     expect(await sessionsOf(fixture)).toHaveLength(1);
+    expect(await stopKeysOf(session)).toEqual([key]);
+  });
+
+  test("a task's stop read again after the thread opened new work stops nothing there; a new stop word stops it", async () => {
+    const { fixture, view, session, post, root } = await unstartedTask();
+    const ts = at(1);
+    const text = `<@${BOT_USER}> stop`;
+    await deliver(fixture, post(ts, { text }));
+    await drain(view.handle);
+    await sendOutbox({ closeLinks: true });
+    await expectLinkClosed(session);
+    // New work in the same thread: a mention opens its session, made a task
+    // waiting for its first turn as the first one was.
+    await db
+      .update(agents)
+      .set({ conversationRollout: "off" })
+      .where(eq(agents.id, fixture.agentId));
+    await deliver(fixture, mention(at(2), { thread_ts: root }));
+    await drain(view.handle);
+    const next = (await sessionsOf(fixture)).find(
+      (row) => row.id !== session.id,
+    );
+    if (next === undefined) throw new Error("no new session was opened");
+    await db
+      .update(sessions)
+      .set({ taskClosing: TASK_CLOSING_DEFAULT })
+      .where(eq(sessions.id, next.id));
+    await rolloutOn(fixture);
+
+    await deliver(fixture, mention(ts, { text, thread_ts: root }));
+    expect(await drain(view.handle)).toMatchObject({
+      processed: 1,
+      retried: 0,
+      failed: 0,
+    });
+    expect(await turnStatesOf(next.id)).toEqual([
+      { sequence: 1, status: "queued", terminalReason: null },
+    ]);
+    expect(await stopKeysOf(next)).toEqual([]);
+    expect(await conversationTurnsOf(fixture)).toEqual([]);
+
+    await deliver(fixture, post(at(3), { text: "그만" }));
+    await drain(view.handle);
+    expect(await turnStatesOf(next.id)).toEqual([
+      { sequence: 1, status: "cancelled", terminalReason: "stop_requested" },
+    ]);
+  });
+
+  test("a task's stop read again in a channel turned private sends its binding to approval, and is no mention turn", async () => {
+    const { fixture, view, session, post } = await unstartedTask();
+    const ts = at(1);
+    const text = `<@${BOT_USER}> stop`;
+    await deliver(fixture, post(ts, { text }));
+    await drain(view.handle);
+    await sendOutbox({ closeLinks: true });
+    await expectLinkClosed(session);
+    await deliver(fixture, post(ts, { text, channel_type: "group" }));
+    expect(await drain(view.handle)).toMatchObject({ processed: 1, failed: 0 });
+    const [binding] = await db
+      .select()
+      .from(surfaceBindings)
+      .where(eq(surfaceBindings.id, fixture.bindingId));
+    expect(binding).toMatchObject({
+      status: "pending_approval",
+      surfaceKind: "private_channel",
+    });
+    expect(await conversationTurnsOf(fixture)).toEqual([]);
+    expect(await stopKeysOf(session)).toHaveLength(1);
   });
 
   test("a new stop word mentioned in a thread whose task the stop closed is a mention turn, as any mention there", async () => {
@@ -6922,7 +7011,7 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     await deliver(fixture, post(at(1), { text: "그만" }));
     await drain(view.handle);
     await sendOutbox({ closeLinks: true });
-    expect((await linkStatesOf(session))[0]?.closedAt).not.toBeNull();
+    await expectLinkClosed(session);
     await deliver(
       fixture,
       mention(at(2), {

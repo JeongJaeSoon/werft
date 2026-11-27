@@ -665,7 +665,8 @@ export function createSlackSessionHandler(
           });
         } catch (error) {
           // Not retried: the closed session's link may close before a
-          // retry, which would then take the stop word as a new mention.
+          // retry, which then ends as a stop already made and would not
+          // write the line either.
           deps.logger.warn("Slack stop line lost for a task it closed", {
             ...ids,
             session_id: sessionId,
@@ -735,26 +736,6 @@ export function createSlackSessionHandler(
       surfaceRef,
     );
     if (found !== null && found.revokedAt !== null) return;
-    // A stop word alone whose stop was made in work this thread has closed
-    // since: the post read again, by its other event or by a retry of the
-    // pass that lost its lease after the stop. It is done; taken on, it
-    // would be a mention of a thread with no open work. A new stop word is
-    // another post, under another key.
-    if (
-      found === null &&
-      !fromBot &&
-      isStopRequest(withoutBotMention(event.text, agent.botUserId)) &&
-      (await deps.stops.stoppedBefore(
-        await deps.sessionLinks.closedSessions(
-          agent.installationId,
-          surfaceRef,
-        ),
-        { idempotencyKey: stopKey },
-      ))
-    ) {
-      deps.logger.info("Slack stop request already made; its work closed", ids);
-      return;
-    }
     // A retry of a message whose turn was taken before the pass died: the
     // turn stands, so its input is taken whatever this pass would judge now.
     const sessionId =
@@ -963,6 +944,27 @@ export function createSlackSessionHandler(
         { connectUrl: deps.connectUrl },
       );
       if (refused !== null) await notice("channel_kind_mismatch", refused);
+      return;
+    }
+    // A stop word alone whose stop was made in work this thread has closed
+    // since: the post read again, by its other event or by a retry of the
+    // pass that lost its lease after the stop. It is done, whatever the
+    // thread holds now: taken on, it would be a mention of the thread, or a
+    // stop of the work opened there since. After the channel's kind is
+    // judged, so the post still sends a binding to approval. A new stop word
+    // is another post, under another key.
+    if (
+      !fromBot &&
+      isStopRequest(withoutBotMention(event.text, agent.botUserId)) &&
+      (await deps.stops.stoppedBefore(
+        await deps.sessionLinks.closedSessions(
+          agent.installationId,
+          surfaceRef,
+        ),
+        { idempotencyKey: stopKey },
+      ))
+    ) {
+      deps.logger.info("Slack stop request already made; its work closed", ids);
       return;
     }
     // A mention the table does not hear, where the checks above still let
