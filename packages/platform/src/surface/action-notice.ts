@@ -57,41 +57,66 @@ type Copy = Record<ActionNoticeResult, (notice: ActionNotice) => string>;
 const short = (notice: ActionNotice) => (notice.commit ?? "").slice(0, 7);
 const code = (notice: ActionNotice) => notice.reason ?? "unknown";
 
+/** The refusals a notice puts in words; any other keeps its code. */
+type ExplainedPushReason =
+  | WorkflowsPushReason
+  | "default_branch"
+  | "non_fast_forward"
+  | "repository_not_allowed";
+
 /**
- * A push GitHub refused for a workflow file says what to ask for, and of
- * whom, in place of the code: the reader is the person who asked for the
- * change, not the one who can turn the permission on.
+ * A push that was refused for one of these says why, and whom to ask, in
+ * place of the code: the reader is the person who asked for the change, not
+ * the one who can turn a permission on.
  */
-const WORKFLOWS_WHY: Record<UserLocale, Record<WorkflowsPushReason, string>> = {
+const PUSH_WHY: Record<UserLocale, Record<ExplainedPushReason, string>> = {
   ko: {
     workflows_off:
-      "workflow 파일을 push하려면 Werft에서 Workflows 변경을 켜야 해요. 워크스페이스 관리자에게 에이전트 GitHub 설정에서 켜 달라고 요청하세요.",
+      'workflow 파일을 push하려면 Werft에서 "workflow 파일 수정과 CI 결과 보기"를 켜야 해요. 워크스페이스 관리자에게 에이전트 GitHub 설정에서 켜 달라고 요청하세요.',
     workflows_permission_missing:
       "workflow 파일을 push하려면 GitHub App에 Workflows 권한이 필요해요. 워크스페이스 관리자에게 요청하세요.",
     workflows_refused:
       "workflow 파일을 push하려면 Workflows 권한이 필요해요. 워크스페이스 관리자에게 에이전트 GitHub 설정과 GitHub App 권한을 확인해 달라고 요청하세요.",
+    default_branch:
+      "기본 브랜치에는 바로 push하지 않아요. 에이전트에게 작업 브랜치로 push하고 PR을 열어 달라고 요청하세요.",
+    non_fast_forward:
+      "원격 브랜치가 앞서 있어서 덮어쓰지 않았어요. 에이전트에게 원격 변경을 받아 온 뒤 다시 push해 달라고 요청하세요.",
+    repository_not_allowed:
+      "이 에이전트에 허용되지 않은 저장소예요. 에이전트 관리자에게 에이전트 GitHub 설정에서 저장소를 더해 달라고 요청하세요.",
   },
   ja: {
     workflows_off:
-      "workflowファイルをpushするには、WerftでWorkflowsの変更をオンにする必要があります。ワークスペース管理者に、エージェントのGitHub設定でオンにするよう依頼してください。",
+      "workflowファイルをpushするには、Werftで「ワークフローファイルの変更と CI 結果の確認」をオンにする必要があります。ワークスペース管理者に、エージェントのGitHub設定でオンにするよう依頼してください。",
     workflows_permission_missing:
       "workflowファイルをpushするには、GitHub AppにWorkflows権限が必要です。ワークスペース管理者に依頼してください。",
     workflows_refused:
       "workflowファイルをpushするには、Workflows権限が必要です。ワークスペース管理者に、エージェントのGitHub設定とGitHub Appの権限を確認するよう依頼してください。",
+    default_branch:
+      "デフォルトブランチには直接pushしません。エージェントに、作業ブランチへpushしてPRを作成するよう依頼してください。",
+    non_fast_forward:
+      "リモートブランチが先に進んでいるため、上書きしませんでした。エージェントに、リモートの変更を取り込んでからもう一度pushするよう依頼してください。",
+    repository_not_allowed:
+      "このエージェントには許可されていないリポジトリです。エージェントの管理者に、エージェントのGitHub設定でリポジトリを追加するよう依頼してください。",
   },
   en: {
     workflows_off:
-      "Pushing a workflow file needs Workflows changes turned on in Werft. Ask a workspace admin to turn it on in the agent's GitHub settings.",
+      'Pushing a workflow file needs "Edit workflow files and see CI results" turned on in Werft. Ask a workspace admin to turn it on in the agent\'s GitHub settings.',
     workflows_permission_missing:
       "Pushing a workflow file needs the Workflows permission on the GitHub App. Ask a workspace admin for it.",
     workflows_refused:
       "Pushing a workflow file needs the Workflows permission. Ask a workspace admin to check the agent's GitHub settings and the GitHub App's permissions.",
+    default_branch:
+      "Werft does not push straight to the default branch. Ask the agent to push a work branch and open a pull request.",
+    non_fast_forward:
+      "The remote branch is ahead, so it was not overwritten. Ask the agent to bring in the remote changes and push again.",
+    repository_not_allowed:
+      "This agent is not allowed to work on this repository. Ask a person who manages the agent to add it in the agent's GitHub settings.",
   },
 };
 
-const workflowsWhy = (locale: UserLocale, notice: ActionNotice) =>
-  Object.hasOwn(WORKFLOWS_WHY[locale], notice.reason ?? "")
-    ? WORKFLOWS_WHY[locale][notice.reason as WorkflowsPushReason]
+const pushWhy = (locale: UserLocale, notice: ActionNotice) =>
+  Object.hasOwn(PUSH_WHY[locale], notice.reason ?? "")
+    ? PUSH_WHY[locale][notice.reason as ExplainedPushReason]
     : undefined;
 
 const PUSH_FAILED: Record<UserLocale, (notice: ActionNotice) => string> = {
@@ -158,8 +183,8 @@ export function actionNoticeText(
 ): string {
   const language = locale ?? DEFAULT_USER_LOCALE;
   const why =
-    notice.result === "push_failed"
-      ? workflowsWhy(language, notice)
+    notice.result === "push_failed" || notice.result === "push_cancelled"
+      ? pushWhy(language, notice)
       : undefined;
   return why === undefined
     ? COPY[language][notice.result](notice)

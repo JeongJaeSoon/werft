@@ -50,7 +50,7 @@ describe("action notices", () => {
       for (const [index, text] of texts.entries()) {
         expect(text).toContain("app agent/s-1\n");
         expect(text).not.toContain("push_failed");
-        expect(text).toContain("Workflows");
+        expect(text).toMatch(/workflow/i);
         expect(text).not.toContain(WORKFLOWS_PUSH_REASON_VALUES[index]);
       }
       // Another result with the same code keeps its own words.
@@ -63,7 +63,7 @@ describe("action notices", () => {
       ).toContain("(workflows_off)");
     }
     expect(actionNoticeText("ko", { ...failed, reason: "workflows_off" })).toBe(
-      "push하지 못했어요: app agent/s-1\nworkflow 파일을 push하려면 Werft에서 Workflows 변경을 켜야 해요. 워크스페이스 관리자에게 에이전트 GitHub 설정에서 켜 달라고 요청하세요.",
+      'push하지 못했어요: app agent/s-1\nworkflow 파일을 push하려면 Werft에서 "workflow 파일 수정과 CI 결과 보기"를 켜야 해요. 워크스페이스 관리자에게 에이전트 GitHub 설정에서 켜 달라고 요청하세요.',
     );
     expect(
       actionNoticeText("ko", {
@@ -73,6 +73,41 @@ describe("action notices", () => {
     ).toContain(
       "GitHub App에 Workflows 권한이 필요해요. 워크스페이스 관리자에게 요청하세요.",
     );
+  });
+
+  test("a refusal a person can act on says why and whom to ask, for a failed and for a cancelled push", () => {
+    const reasons = [
+      "default_branch",
+      "non_fast_forward",
+      "repository_not_allowed",
+    ] as const;
+    for (const locale of USER_LOCALE_VALUES) {
+      for (const result of ["push_failed", "push_cancelled"] as const) {
+        const texts = reasons.map((reason) =>
+          actionNoticeText(locale, { ...base, result, reason }),
+        );
+        expect(new Set(texts).size).toBe(texts.length);
+        for (const [index, text] of texts.entries()) {
+          expect(text).toContain("app agent/s-1\n");
+          expect(text).not.toContain(reasons[index]);
+        }
+      }
+      // A refusal with no words of its own keeps its code.
+      expect(
+        actionNoticeText(locale, {
+          ...base,
+          result: "push_failed",
+          reason: "lease_expired",
+        }),
+      ).toContain("(lease_expired)");
+    }
+    const ko = (reason: (typeof reasons)[number]) =>
+      actionNoticeText("ko", { ...base, result: "push_failed", reason });
+    expect(ko("default_branch")).toBe(
+      "push하지 못했어요: app agent/s-1\n기본 브랜치에는 바로 push하지 않아요. 에이전트에게 작업 브랜치로 push하고 PR을 열어 달라고 요청하세요.",
+    );
+    expect(ko("non_fast_forward")).toContain("원격 브랜치가 앞서 있어서");
+    expect(ko("repository_not_allowed")).toContain("에이전트 관리자에게");
   });
 
   test("the languages differ, and an unknown reader reads English", () => {

@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { WORKSPACE_POLICY } from "@werft-ai/runtime-core";
+import { WORKSPACE_POLICY, workspaceAskPatterns } from "@werft-ai/runtime-core";
 
 /**
  * The shared workspace policy (`WORKSPACE_POLICY` in runtime-core) as this
@@ -21,66 +21,6 @@ import { WORKSPACE_POLICY } from "@werft-ai/runtime-core";
  */
 
 const policy = WORKSPACE_POLICY;
-
-/**
- * The ask patterns for one reader and every spelling of a secret's name.
- * `git` is for a git verb written as `git *<verb>*`, so a global option may
- * come first: the name pattern then follows the verb directly instead of
- * after an operand. It keeps the `-<letter>f` starts only for `clusters`
- * (`git grep -nf.env`).
- */
-function secretReadPatterns(
-  command: string,
-  options: { git: boolean; clusters: boolean } = { git: false, clusters: true },
-): string[] {
-  const read = policy.secretRead;
-  const letters = [...read.clusterLetters];
-  const starts = options.clusters
-    ? [...read.nameStarts, ...letters.map((l) => `-${l}f`)]
-    : read.nameStarts;
-  // `cat <name>` has the name as its first operand; `git *show* <name>` is the
-  // same shape with the verb already inside `command`.
-  const operand = (start: string, name: string) =>
-    options.git
-      ? `${command}${start.startsWith("-") ? "*" : ""}${start}${name}*`
-      : `${command} *${start}${name}*`;
-  const joint = options.git ? "" : " ";
-  const names = [
-    ...policy.secretNameParts.filter(
-      (part) =>
-        !read.notAReadName.includes(part) && !read.extensions.includes(part),
-    ),
-    ...read.extraNames,
-  ].flatMap((name) => [
-    ...(options.git ? [] : [`${command} ${name}*`]),
-    ...starts.map((start) => operand(start, name)),
-  ]);
-  const extensions = read.extensions.flatMap((extension) => [
-    `${command}${joint}*${extension}`,
-    ...read.extensionEnds.map(
-      (end) => `${command}${joint}*${extension}${end}*`,
-    ),
-  ]);
-  return [...names, ...extensions];
-}
-
-function rgHiddenPatterns(): string[] {
-  const letters = [...policy.secretRead.clusterLetters];
-  return [
-    ...policy.rgHidden.ask,
-    ...[...policy.rgHidden.letterBeforeUU].flatMap((letter) => [
-      `rg -${letter}uu*`,
-      `rg * -${letter}uu*`,
-    ]),
-    // Two of the usual flags before `uu` (`-nHuu`).
-    ...letters.flatMap((first) =>
-      letters.flatMap((second) => [
-        `rg -${first}${second}uu*`,
-        `rg * -${first}${second}uu*`,
-      ]),
-    ),
-  ];
-}
 
 export type WorkspaceRules = { allow: string[]; ask: string[] };
 
@@ -127,13 +67,6 @@ export function workspaceRules(cwd: string): WorkspaceRules {
   return { allow, ask };
 }
 
-/** The Bash ask patterns without their `Bash(...)` wrapping. */
-export function bashAskPatterns(): string[] {
-  const ask: string[] = [];
-  addBashRules([], ask);
-  return ask.map((rule) => rule.slice("Bash(".length, -1));
-}
-
 function addBashRules(allow: string[], ask: string[]): void {
   for (const command of [
     ...policy.git.allow,
@@ -143,60 +76,5 @@ function addBashRules(allow: string[], ask: string[]): void {
   ]) {
     allow.push(`Bash(${command})`, `Bash(${command} *)`);
   }
-  ask.push(
-    ...[
-      ...policy.git.ask,
-      // `git --no-pager add .env` puts a global option before the verb.
-      ...policy.git.askWhenSecretNamed.flatMap((command) =>
-        policy.secretNameParts.flatMap((part) => [
-          `${command} *${part}*`,
-          `git * ${command.slice("git ".length)} *${part}*`,
-        ]),
-      ),
-    ].map((pattern) => `Bash(${pattern})`),
-  );
-  const letters = [...policy.read.inPlaceLetters];
-  const bundles = letters.flatMap((a) => [
-    a,
-    ...letters.map((b) => `${a}${b}`),
-  ]);
-  ask.push(
-    ...[
-      ...policy.read.ask,
-      ...bundles.flatMap((b) => [`sed -${b}i*`, `sed * -${b}i*`]),
-      ...[...policy.read.addressChars].flatMap((c) => [
-        `sed *${c}w*`,
-        `sed *${c}W*`,
-        // A space or a tab may follow the command letter.
-        `sed *${c}e *`,
-        `sed *${c}e\t*`,
-      ]),
-    ].map((pattern) => `Bash(${pattern})`),
-  );
-  ask.push(
-    ...[
-      ...policy.fs.ask,
-      ...policy.fs.askWhenSecretNamed.flatMap((command) =>
-        policy.secretNameParts.map((part) => `${command} *${part}*`),
-      ),
-    ].map((pattern) => `Bash(${pattern})`),
-  );
-  for (const command of policy.secretRead.readers) {
-    ask.push(...secretReadPatterns(command).map((p) => `Bash(${p})`));
-  }
-  for (const verb of policy.secretRead.gitReaders) {
-    ask.push(
-      ...secretReadPatterns(`git *${verb}*`, {
-        clusters: verb === "grep",
-        git: true,
-      }).map((p) => `Bash(${p})`),
-    );
-  }
-  ask.push(...rgHiddenPatterns().map((pattern) => `Bash(${pattern})`));
-  for (const command of policy.dev.commands) {
-    // `*` stands for the operands before the flag, which may be none.
-    for (const flag of policy.dev.ask) {
-      ask.push(`Bash(${command}${flag.slice(1)})`, `Bash(${command} ${flag})`);
-    }
-  }
+  ask.push(...workspaceAskPatterns().map((pattern) => `Bash(${pattern})`));
 }

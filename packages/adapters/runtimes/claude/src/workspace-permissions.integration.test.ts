@@ -114,6 +114,18 @@ const steps: Step[] = [
     }),
     name: "Write",
   },
+  // The engine asks for a write under an editor's dot directory by a rule of
+  // its own; the policy keeps nothing there.
+  {
+    asks: true,
+    effect: fileExists((_, w) => join(w, ".vscode", "settings.json")),
+    id: "write_engine_guarded",
+    input: (_, w) => ({
+      content: "{}\n",
+      file_path: join(w, ".vscode", "settings.json"),
+    }),
+    name: "Write",
+  },
   bash(
     "git_add_commit",
     "git add notes/sample.txt && git commit -q -m 'docs: sample' && git log --oneline -1",
@@ -148,10 +160,13 @@ const steps: Step[] = [
   bash("git_restore_staged", "git restore --staged notes/sample.txt", false),
   bash("dev_command_inside", "bun test --help", false),
   bash("redirect_inside", "git status > status.txt", false),
-  // The e2e flows and the conformance suite ask for a permission with these;
-  // if the rules ever cover them, those flows hang waiting for a card.
+  // In no allow rule, so the engine asks. Nothing the policy keeps shows in
+  // them, so outside auto mode the adapter answers (SANDBOX_ANSWERED); the
+  // flows that need a card use sed's `w`, which an ask rule names.
   bash("ask_vehicle_tee", "echo alpha | tee hello.txt", true),
   bash("ask_vehicle_tee_append", "echo beta | tee -a hello.txt", true),
+  // The same command with a path that leaves the workspace stays a person's.
+  bash("ask_tee_outside", "echo x | tee /tmp/werft-tee-out.txt", true),
   // Each of these would delete work that no object or reflog keeps, or leave
   // the repository, with the flag in a place a prefix match would miss.
   bash("git_checkout_discard", "git checkout -- notes/sample.txt", true),
@@ -350,8 +365,8 @@ const steps: Step[] = [
   bash("read_parent_ls_bare", "ls ..", true),
   bash("read_parent_nested", "ls notes/../..", true),
   bash("read_grep_outside", "grep -rn token /tmp", true),
-  bash("read_find_delete", "find . -name '*.txt' -delete", true),
-  bash("read_find_exec", "find . -name '*.txt' -exec rm {} ;", true),
+  bash("read_find_delete", "find notes/none -name '*.txt' -delete", true),
+  bash("read_find_exec", "find notes/none -name '*.txt' -exec rm {} ;", true),
   bash("read_find_write", "find . -fprint found.txt", true),
   bash("read_rg_pre", "rg --pre ./preprocess.sh sample", true),
   bash("read_rg_hidden", "rg --hidden sample", true),
@@ -621,11 +636,23 @@ const ORDINARY_WORK: Step[] = [
     "pushed-marker",
   ),
   bash("unread_after_cd", "cd notes", false),
-  bash(
-    "unread_shell_elsewhere",
-    `mkdir -p sub && cat > sub/a.txt <<'EOF'\nx\nEOF`,
-    true,
-  ),
+  // A path is read from where the engine's shell stands.
+  {
+    ...bash(
+      "unread_shell_elsewhere",
+      `mkdir -p sub && cat > sub/a.txt <<'EOF'\nx\nEOF`,
+      false,
+    ),
+    effect: fileExists((_, w) => join(w, "notes", "sub", "a.txt")),
+  },
+  {
+    ...bash(
+      "unread_shell_elsewhere_outside",
+      `mkdir -p sub && cat > ../../shell-out.txt <<'EOF'\nx\nEOF`,
+      true,
+    ),
+    effect: fileExists((r) => join(r, "shell-out.txt")),
+  },
   bash("unread_cd_back", "cd ..", false),
   bash(
     "unread_substitution",
@@ -709,8 +736,49 @@ const ordered = [
   ...steps.filter(isNowAllowed).map((step) => ({ ...step, asks: false })),
 ];
 
+/**
+ * Calls the engine puts to a person and the adapter answers itself in the
+ * default and acceptEdits modes: no ask rule names a part, nothing is written
+ * to a secret, `.git` or engine-settings path, and no path leaves the
+ * workspace. In auto mode the adapter answers only for a line that splits
+ * with certainty into the policy's own commands, so these reach a person
+ * there. Every other `asks: true` step is what the policy still keeps.
+ */
+const SANDBOX_ANSWERED = new Set([
+  "ask_vehicle_tee",
+  "ask_vehicle_tee_append",
+  "compound_semicolon",
+  "compound_pipe",
+  "compound_newline",
+  "compound_or",
+  "compound_background",
+  "compound_backtick",
+  "read_find_delete",
+  "read_find_exec",
+  "read_find_write",
+  "read_rg_pre",
+  "read_tree_output",
+  "read_file_compile",
+  "read_file_files_from",
+  "read_tree_output_attached",
+  "read_rg_decompress",
+  "curl_bare",
+  "sed_pipe_then_curl",
+  "compound_one_part_outside",
+  "git_command_substitution",
+  "unread_substitution",
+  "unread_network",
+  "unread_unquoted_heredoc",
+  "write_engine_guarded",
+]);
+
 const stepsFor = (mode: PermissionMode) =>
-  ordered.filter((step) => step.onlyIn === undefined || step.onlyIn === mode);
+  ordered
+    .filter((step) => step.onlyIn === undefined || step.onlyIn === mode)
+    .map((step) => ({
+      ...step,
+      asks: step.asks && (mode === "auto" || !SANDBOX_ANSWERED.has(step.id)),
+    }));
 
 async function run(permissionMode: PermissionMode) {
   const active = stepsFor(permissionMode);
@@ -827,7 +895,7 @@ async function run(permissionMode: PermissionMode) {
 
 describe("a session's own workspace", () => {
   for (const mode of ["default", "acceptEdits", "auto"] as const) {
-    test(`${mode}: in-workspace writes and local git pass, the rest is asked`, async () => {
+    test(`${mode}: work inside the workspace passes, what the policy keeps is asked`, async () => {
       const { asked, results, root, workspace } = await run(mode);
       const active = stepsFor(mode);
       // Not asked is not the same as ran: read what the call printed.
