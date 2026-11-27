@@ -252,11 +252,12 @@ case "$app" in
   control-host)
     # git: the checkpoint bundle verifier spawns it.
     docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && test ! -e node_modules/@anthropic-ai && git --version && bun --version'
-    # gitleaks: the pinned release and its license (THIRD_PARTY_NOTICES.md).
+    # gitleaks: the pinned build and its licenses (THIRD_PARTY_NOTICES.md).
     gitleaks_version="$(docker run --rm "$image" gitleaks version)"
     echo "gitleaks version: $gitleaks_version"
     [ "$gitleaks_version" = 8.30.1 ] || { echo "expected gitleaks 8.30.1" >&2; exit 1; }
     docker run --rm "$image" test -s /usr/local/share/doc/gitleaks/LICENSE
+    docker run --rm "$image" test -s /usr/local/share/doc/gitleaks/GO-LICENSE
     docker run --rm "$image" bun -e "$gitleaks_probe"
     api_init_smoke "$image"
     # The docs the built-in `werft` MCP server answers from, in all three

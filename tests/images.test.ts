@@ -34,7 +34,11 @@ import {
   GIT_LFS_GO,
   GIT_LFS_VERSION,
   GIT_LFS_X_NET,
+  GITLEAKS_BROTLI,
+  GITLEAKS_COMPRESS,
+  GITLEAKS_GO,
   GITLEAKS_VERSION,
+  GITLEAKS_X_TEXT,
   REMOVED_AFTER_INSTALL,
 } from "../scripts/third-party-notices.ts";
 import {
@@ -343,44 +347,62 @@ describe("app Dockerfiles", () => {
 
   // The skill gate's secret check (apps/control-host/src/wiring/gitleaks.ts)
   // runs this executable; the image smoke runs it for real.
-  test("control-host carries gitleaks from the pinned release", () => {
+  test("control-host builds gitleaks from the pinned source", () => {
     const source = basePins["control-host"].source;
     expect(source).toContain(`ARG GITLEAKS_VERSION=${GITLEAKS_VERSION}\n`);
-    const lines = source.split("\n");
-    for (const [arch, upstream, asset] of [
-      ["amd64", "x64", "378332058"],
-      ["arm64", "arm64", "378332057"],
-    ]) {
-      const url = `https://github.com/gitleaks/gitleaks/releases/download/v\${GITLEAKS_VERSION}/gitleaks_\${GITLEAKS_VERSION}_linux_${upstream}.tar.gz`;
-      const input = lines.findIndex((line) => line.trim() === `${url} \\`);
-      expect(input).toBeGreaterThan(-1);
-      expect(lines[input - 1]?.trim()).toBe("bun /tmp/fetch-pinned.ts \\");
-      expect(lines[input + 1]?.trim()).toMatch(/^[0-9a-f]{64} \\$/);
-      expect(lines[input + 2]?.trim()).toBe(`/tmp/gitleaks-${arch}.tar.gz \\`);
-      expect(lines[input + 3]?.trim()).toBe(
-        `https://api.github.com/repos/gitleaks/gitleaks/releases/assets/${asset}`,
+    expect(source).toContain(`ARG GITLEAKS_BROTLI=${GITLEAKS_BROTLI}\n`);
+    expect(source).toContain(`ARG GITLEAKS_COMPRESS=${GITLEAKS_COMPRESS}\n`);
+    expect(source).toContain(`ARG GITLEAKS_X_TEXT=${GITLEAKS_X_TEXT}\n`);
+    expect(source).toContain(`ARG GITLEAKS_GO=${GITLEAKS_GO}\n`);
+    expect(source).toMatch(
+      /bun \/tmp\/fetch-pinned\.ts \\\n {2}https:\/\/github\.com\/gitleaks\/gitleaks\/archive\/refs\/tags\/v\$\{GITLEAKS_VERSION\}\.tar\.gz \\\n {2}[0-9a-f]{64} \\\n {2}\/tmp\/gitleaks-src\.tar\.gz \\\n {2}https:\/\/codeload\.github\.com\/gitleaks\/gitleaks\/tar\.gz\/refs\/tags\/v\$\{GITLEAKS_VERSION\}$/m,
+    );
+    // The git-lfs stage's Go, by version and by checksum.
+    expect(GITLEAKS_GO).toBe(GIT_LFS_GO);
+    for (const arch of ["amd64", "arm64"]) {
+      const pin = (dockerfile: string, arg: string) =>
+        dockerfile.match(
+          new RegExp(
+            `^ADD --checksum=sha256:([0-9a-f]{64}) \\\\\\n {2}https://dl\\.google\\.com/go/go\\$\\{${arg}\\}\\.linux-${arch}\\.tar\\.gz \\\\$`,
+            "m",
+          ),
+        )?.[1];
+      expect(pin(source, "GITLEAKS_GO")).toMatch(/^[0-9a-f]{64}$/);
+      expect(pin(source, "GITLEAKS_GO")).toBe(
+        pin(basePins.worker.source, "GIT_LFS_GO"),
       );
     }
+    const start = source.indexOf(" AS gitleaks\n");
+    const end = source.indexOf(" AS runtime\n");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const stage = source.slice(start, end);
+    expect(stage).not.toContain("apt-get");
+    expect(stage).toContain(
+      'go get "github.com/andybalholm/brotli@v${GITLEAKS_BROTLI}" \\\n    "github.com/klauspost/compress@v${GITLEAKS_COMPRESS}" \\\n    "golang.org/x/text@v${GITLEAKS_X_TEXT}" \\\n',
+    );
+    for (const file of ["go.mod", "go.sum"])
+      expect(stage).toMatch(
+        new RegExp(
+          `echo "[0-9a-f]{64} {2}${file.replace(".", "\\.")}" \\| sha256sum -c -`,
+        ),
+      );
+    expect(stage).toContain("version.Version=${GITLEAKS_VERSION}");
+    expect(stage).toMatch(
+      /^RUN --mount=type=bind,source=scripts\/fetch-pinned\.ts,target=\/tmp\/fetch-pinned\.ts \\\n {2}bun \/tmp\/fetch-pinned\.ts \\\n {2}https:\/\/snapshot\.debian\.org\/archive\/debian\/\d{8}T\d{6}Z\/pool\/main\/c\/ca-certificates\/ca-certificates_\S+_all\.deb \\\n {2}[0-9a-f]{64} \\\n {2}\/tmp\/ca-certificates\.deb \\\n {2}&& dpkg-deb -x /m,
+    );
+    expect(stage).toContain(
+      "\nENV SSL_CERT_DIR=/tmp/ca-certificates/usr/share/ca-certificates/mozilla\n",
+    );
     expect(source.match(/bun \/tmp\/fetch-pinned\.ts/g)).toHaveLength(2);
     expect(source.match(/^COPY --from=gitleaks .*$/gm)).toEqual([
       "COPY --from=gitleaks --chmod=0755 /tmp/gitleaks/gitleaks /usr/local/bin/gitleaks",
       "COPY --from=gitleaks /tmp/gitleaks/LICENSE /usr/local/share/doc/gitleaks/LICENSE",
+      "COPY --from=gitleaks /tmp/gitleaks/GO-LICENSE /usr/local/share/doc/gitleaks/GO-LICENSE",
     ]);
     expect(read(".github/scripts/image-smoke.sh")).toContain(
       `[ "$gitleaks_version" = ${GITLEAKS_VERSION} ]`,
     );
-    // The commit scan in CI pins the same release; its x64 checksum is a
-    // second reading of the same checksums file.
-    const workflow = read(".github/workflows/gitleaks.yml");
-    expect(workflow).toContain(`GITLEAKS_VERSION: v${GITLEAKS_VERSION}\n`);
-    const x64 = workflow.match(/GITLEAKS_SHA256: ([0-9a-f]{64})/)?.[1];
-    const amd64Pin =
-      lines[
-        lines.findIndex((line) =>
-          line.trim().endsWith("_linux_x64.tar.gz \\"),
-        ) + 1
-      ]?.trim();
-    expect(amd64Pin).toBe(`${x64} \\`);
   });
 
   // The API pushes approved sessions over https with git, the worker clones

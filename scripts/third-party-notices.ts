@@ -186,8 +186,14 @@ export const GIT_LFS_COMPRESS = "1.20.2";
 export const GIT_LFS_GO = "1.27.3";
 /** The upstream GitHub CLI release binary the worker Dockerfile installs. */
 export const GH_VERSION = "2.103.3";
-/** The upstream gitleaks release binary the control-host Dockerfile installs. */
+/** The upstream gitleaks release the control-host Dockerfile builds from source. */
 export const GITLEAKS_VERSION = "8.30.1";
+/** The modules that build moves gitleaks to. */
+export const GITLEAKS_BROTLI = "1.2.7";
+export const GITLEAKS_COMPRESS = "1.20.2";
+export const GITLEAKS_X_TEXT = "0.39.0";
+/** The Go that builds gitleaks: the git-lfs one, same pins. */
+export const GITLEAKS_GO = "1.27.3";
 
 /** The `oven/bun:<version>@<digest>` every app Dockerfile builds on. */
 export function baseImageOf(dockerfile: string): BaseImage {
@@ -651,9 +657,9 @@ function baseSection(rows: readonly Row[], base: BaseImage): string {
     "",
     `### Gitleaks ${GITLEAKS_VERSION} (control-host, \`/usr/local/bin/gitleaks\`)`,
     "",
-    `- **라이선스.** Gitleaks는 MIT다. 저작권 표시와 허가문 전문은 이미지 안 \`/usr/local/share/doc/gitleaks/LICENSE\`(https://github.com/gitleaks/gitleaks/blob/v${GITLEAKS_VERSION}/LICENSE)에 있다. 이미지의 실행 파일은 gitleaks 프로젝트가 배포한 v${GITLEAKS_VERSION} linux 릴리스 바이너리(sha256 고정)를 수정 없이 넣은 것이다.`,
-    `- **정적으로 링크된 Go 코드.** 이 실행 파일은 Go 표준 라이브러리와 https://github.com/gitleaks/gitleaks/blob/v${GITLEAKS_VERSION}/go.mod 에 적힌 모듈을 링크한다. 각 모듈의 라이선스는 그 모듈의 소스에 있다. 링크한 모듈과 버전은 실행 파일에 기록되어 있어, 이미지 밖의 Go로 \`go version -m <실행 파일>\`을 실행하면 보인다.`,
-    `- **소스.** https://github.com/gitleaks/gitleaks/tree/v${GITLEAKS_VERSION}`,
+    `- **라이선스.** Gitleaks는 MIT다. 저작권 표시와 허가문 전문은 이미지 안 \`/usr/local/share/doc/gitleaks/LICENSE\`(https://github.com/gitleaks/gitleaks/blob/v${GITLEAKS_VERSION}/LICENSE)에 있다. 이미지의 실행 파일은 control-host Dockerfile이 gitleaks 프로젝트의 v${GITLEAKS_VERSION} 태그 소스(sha256 고정)에서 Go ${GITLEAKS_GO}로 직접 빌드한 것이다. gitleaks 소스는 고치지 않았다. 바꾼 것은 의존 모듈 버전뿐이다: \`github.com/andybalholm/brotli\`를 v${GITLEAKS_BROTLI}로, \`github.com/klauspost/compress\`를 v${GITLEAKS_COMPRESS}로, \`golang.org/x/text\`를 v${GITLEAKS_X_TEXT}로 올렸고, 그에 따라 \`golang.org/x/sync\`도 올라갔다(빌드가 go.mod·go.sum을 sha256으로 확인한다).`,
+    `- **정적으로 링크된 Go 코드.** 이 실행 파일은 Go 표준 라이브러리를 링크한다. 그 BSD-3-Clause 문구는 빌드한 Go의 것을 이미지 안 \`/usr/local/share/doc/gitleaks/GO-LICENSE\`에 두었다. https://github.com/gitleaks/gitleaks/blob/v${GITLEAKS_VERSION}/go.mod 에 적힌 모듈(위에서 올린 버전 포함)도 링크한다. 각 모듈의 라이선스는 그 모듈의 소스에 있다. 링크한 모듈과 버전은 실행 파일에 기록되어 있어, 이미지 밖의 Go로 \`go version -m <실행 파일>\`을 실행하면 보인다.`,
+    `- **대응 소스.** https://github.com/gitleaks/gitleaks/tree/v${GITLEAKS_VERSION} 와 apps/control-host/Dockerfile의 \`gitleaks\` stage(모듈 버전 변경)`,
   ];
   if (sdk !== undefined) {
     const embedded = CLAUDE_CODE_BUN[sdk.version] ?? UNREVIEWED;

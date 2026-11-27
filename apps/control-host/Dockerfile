@@ -46,30 +46,65 @@ RUN --mount=type=bind,source=scripts/image-prune.sh,target=/tmp/image-prune.sh \
   sh /tmp/image-prune.sh --delete /app
 
 # gitleaks: the skill gate's secret check runs it as a child process
-# (apps/control-host/src/wiring/gitleaks.ts). Upstream's release binary,
-# pinned by version and per-arch sha256 (the release's checksums file), as gh
-# is in apps/worker/Dockerfile; the asset API is the second route to the same
-# bytes. Only the binary and its license reach the runtime stage. Bumped by
-# hand with GITLEAKS_VERSION in scripts/third-party-notices.ts;
-# tests/images.test.ts keeps them equal.
+# (apps/control-host/src/wiring/gitleaks.ts). Built here from upstream's tag
+# source rather than taken as its release binary: that one is built with Go
+# 1.24.11 and links module versions the image scan fails on (24 fixable High
+# or Critical for 8.30.1). The same shape as the git-lfs stage in
+# apps/worker/Dockerfile, with its Go and CA pins: the build moves brotli,
+# compress and x/text to the GITLEAKS_* versions below; go.mod and go.sum
+# must then hash to the pins, which fixes every module the binary links.
+# Bumped by hand with GITLEAKS_* in scripts/third-party-notices.ts;
+# tests/images.test.ts keeps them equal. On the build platform: Go
+# cross-compiles, no emulation.
 FROM --platform=$BUILDPLATFORM ${BUN_IMAGE} AS gitleaks
 ARG GITLEAKS_VERSION=8.30.1
+ARG GITLEAKS_BROTLI=1.2.7
+ARG GITLEAKS_COMPRESS=1.20.2
+ARG GITLEAKS_X_TEXT=0.39.0
+ARG GITLEAKS_GO=1.27.3
+ARG BUILDARCH
 ARG TARGETARCH
+# The release has no source asset: GitHub's archive of the tag (its embedded
+# commit is the tag's, 83d9cd684c87d95d656c1458ef04895a7f1cbd8e), and
+# codeload, the host behind that URL, as the second route.
 RUN --mount=type=bind,source=scripts/fetch-pinned.ts,target=/tmp/fetch-pinned.ts \
   bun /tmp/fetch-pinned.ts \
-  https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz \
-  551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb \
-  /tmp/gitleaks-amd64.tar.gz \
-  https://api.github.com/repos/gitleaks/gitleaks/releases/assets/378332058
+  https://github.com/gitleaks/gitleaks/archive/refs/tags/v${GITLEAKS_VERSION}.tar.gz \
+  e90fb266d75837e75894c778bf594ab8e2787f12dce5a62651f21b893eaf9abb \
+  /tmp/gitleaks-src.tar.gz \
+  https://codeload.github.com/gitleaks/gitleaks/tar.gz/refs/tags/v${GITLEAKS_VERSION}
+ADD --checksum=sha256:65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40 \
+  https://dl.google.com/go/go${GITLEAKS_GO}.linux-amd64.tar.gz \
+  /tmp/go-amd64.tar.gz
+ADD --checksum=sha256:a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49 \
+  https://dl.google.com/go/go${GITLEAKS_GO}.linux-arm64.tar.gz \
+  /tmp/go-arm64.tar.gz
+# CA roots for the module proxy, as in the git-lfs stage.
 RUN --mount=type=bind,source=scripts/fetch-pinned.ts,target=/tmp/fetch-pinned.ts \
   bun /tmp/fetch-pinned.ts \
-  https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_arm64.tar.gz \
-  e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080 \
-  /tmp/gitleaks-arm64.tar.gz \
-  https://api.github.com/repos/gitleaks/gitleaks/releases/assets/378332057
+  https://snapshot.debian.org/archive/debian/20250419T084132Z/pool/main/c/ca-certificates/ca-certificates_20250419_all.deb \
+  ef590f89563aa4b46c8260d49d1cea0fc1b181d19e8df3782694706adf05c184 \
+  /tmp/ca-certificates.deb \
+  && dpkg-deb -x /tmp/ca-certificates.deb /tmp/ca-certificates
+ENV SSL_CERT_DIR=/tmp/ca-certificates/usr/share/ca-certificates/mozilla
+WORKDIR /tmp/gitleaks-src
+# GOTOOLCHAIN=local: the go directive x/text raises must not fetch another Go.
+# Modules come through proxy.golang.org, checked against sum.golang.org. The
+# version flag is upstream's (.goreleaser.yml), so `gitleaks version` reports it.
 RUN mkdir /tmp/gitleaks \
-  && tar -xzf "/tmp/gitleaks-${TARGETARCH}.tar.gz" -C /tmp/gitleaks \
-    --no-same-owner gitleaks LICENSE
+  && tar -xzf "/tmp/go-${BUILDARCH}.tar.gz" -C /usr/local \
+  && tar -xzf /tmp/gitleaks-src.tar.gz --strip-components=1 \
+  && export PATH="/usr/local/go/bin:${PATH}" GOTOOLCHAIN=local \
+  && go get "github.com/andybalholm/brotli@v${GITLEAKS_BROTLI}" \
+    "github.com/klauspost/compress@v${GITLEAKS_COMPRESS}" \
+    "golang.org/x/text@v${GITLEAKS_X_TEXT}" \
+  && echo "231366d3f9b40e40a6b6e951f5ea0d8709008bff8057b556d94de7b929552a8a  go.mod" | sha256sum -c - \
+  && echo "9b21048f07cf9eb07ec2c6ea6d8c26b99f1bfc19fd7d24826dd9f5e50436d204  go.sum" | sha256sum -c - \
+  && CGO_ENABLED=0 GOOS=linux GOARCH="$TARGETARCH" go build -trimpath \
+    -ldflags="-s -w -X github.com/zricethezav/gitleaks/v8/version.Version=${GITLEAKS_VERSION}" \
+    -o /tmp/gitleaks/gitleaks . \
+  && cp LICENSE /tmp/gitleaks/LICENSE \
+  && cp /usr/local/go/LICENSE /tmp/gitleaks/GO-LICENSE
 
 FROM ${BUN_IMAGE} AS runtime
 # git: the checkpoint verifier fetches each workspace bundle into a scratch
@@ -89,6 +124,7 @@ RUN apt-get update --error-on=any \
 RUN test "$(id -u bun)" = 1000
 COPY --from=gitleaks --chmod=0755 /tmp/gitleaks/gitleaks /usr/local/bin/gitleaks
 COPY --from=gitleaks /tmp/gitleaks/LICENSE /usr/local/share/doc/gitleaks/LICENSE
+COPY --from=gitleaks /tmp/gitleaks/GO-LICENSE /usr/local/share/doc/gitleaks/GO-LICENSE
 WORKDIR /app
 COPY --from=pruned --chown=1000:1000 /app /app
 COPY --from=web --chown=1000:1000 /app/apps/web/dist /app/apps/web/dist
