@@ -30,4 +30,9 @@ export interface SessionStops {
    * parked one is the platform's, not queued input, and stays.
    */
   cancelQueued(input: StopQueuedInput): Promise<StopQueuedResult>;
+  /** Whether a stop under this key was made in any of these sessions. */
+  stoppedIn(input: {
+    sessionIds: readonly string[];
+    idempotencyKey: string;
+  }): Promise<boolean>;
 }

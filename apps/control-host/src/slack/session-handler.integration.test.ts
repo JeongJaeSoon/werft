@@ -6781,7 +6781,7 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     await rolloutOn(fixture);
     const post = (ts: string, extra: Record<string, unknown> = {}) =>
       message(ts, { thread_ts: root, ...extra });
-    return { fixture, view, session, post };
+    return { fixture, view, session, post, root };
   }
 
   test("a task's stop before its first turn closes the task, nothing left to launch, and the thread is told it was closed", async () => {
@@ -6850,6 +6850,107 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
         .from(schema.conversationTurns)
         .where(eq(schema.conversationTurns.agentId, fixture.agentId)),
     ).toEqual([]);
+  });
+
+  const conversationTurnsOf = (fixture: Fixture) =>
+    db
+      .select({ id: schema.conversationTurns.id })
+      .from(schema.conversationTurns)
+      .where(eq(schema.conversationTurns.agentId, fixture.agentId));
+  const linkStatesOf = (session: { id: string }) =>
+    db
+      .select({ closedAt: sessionLinks.closedAt })
+      .from(sessionLinks)
+      .where(eq(sessionLinks.sessionId, session.id));
+
+  test("a task's stop whose app_mention comes after an outbox pass closed the link stops once and opens no mention turn", async () => {
+    const { fixture, view, session, post, root } = await unstartedTask();
+    const ts = at(1);
+    const text = `<@${BOT_USER}> stop`;
+    await deliver(fixture, post(ts, { text }));
+    expect(await drain(view.handle)).toMatchObject({ processed: 1, failed: 0 });
+    // The outbox pass closes the finished task's link before the post's
+    // other event is taken.
+    await sendOutbox({ closeLinks: true });
+    expect((await linkStatesOf(session))[0]?.closedAt).not.toBeNull();
+    await deliver(fixture, mention(ts, { text, thread_ts: root }));
+    expect(await drain(view.handle)).toMatchObject({
+      processed: 1,
+      retried: 0,
+      failed: 0,
+    });
+
+    expect(await turnStatesOf(session.id)).toHaveLength(1);
+    expect(await conversationTurnsOf(fixture)).toEqual([]);
+    expect(await sessionsOf(fixture)).toHaveLength(1);
+    expect(view.threadNotices.map((notice) => notice.notice.message)).toEqual([
+      "taskStoppedBeforeStart",
+    ]);
+  });
+
+  test("a task's stop whose pass lost its lease after the stop is retried once its link closed, and is done without a mention turn", async () => {
+    const { fixture, view, session, post } = await unstartedTask();
+    await deliver(fixture, post(at(1), { text: `<@${BOT_USER}> stop` }));
+    const [claim] = await claimAll(30_000);
+    if (claim === undefined) throw new Error("nothing claimed");
+    // The stop commits; the row's lease runs out before it completes.
+    await handler(shortLease).handle(claim);
+    await Bun.sleep(100);
+    expect(await createPostgresSlackInboundEventStore(db).complete(claim)).toBe(
+      false,
+    );
+    await sendOutbox({ closeLinks: true });
+    expect((await linkStatesOf(session))[0]?.closedAt).not.toBeNull();
+    expect(await drain(view.handle)).toMatchObject({
+      processed: 1,
+      retried: 0,
+      failed: 0,
+    });
+
+    const [after] = await sessionsOf(fixture);
+    expect(after).toMatchObject({
+      admissionState: "closed",
+      taskClosedReason: "cancelled",
+    });
+    expect(await turnStatesOf(session.id)).toHaveLength(1);
+    expect(await conversationTurnsOf(fixture)).toEqual([]);
+    expect(await sessionsOf(fixture)).toHaveLength(1);
+  });
+
+  test("a new stop word mentioned in a thread whose task the stop closed is a mention turn, as any mention there", async () => {
+    const { fixture, view, session, post, root } = await unstartedTask();
+    await deliver(fixture, post(at(1), { text: "그만" }));
+    await drain(view.handle);
+    await sendOutbox({ closeLinks: true });
+    expect((await linkStatesOf(session))[0]?.closedAt).not.toBeNull();
+    await deliver(
+      fixture,
+      mention(at(2), {
+        text: `<@${BOT_USER}> stop`,
+        thread_ts: root,
+      }),
+    );
+    expect(await drain(view.handle)).toMatchObject({ processed: 1, failed: 0 });
+    expect(await conversationTurnsOf(fixture)).toHaveLength(1);
+  });
+
+  test("a thread's closed links are read by their partial index", async () => {
+    await db.execute(sql`SET enable_seqscan = off`);
+    try {
+      const result = await db.execute(
+        sql`EXPLAIN SELECT session_id FROM session_links
+          WHERE installation_id = ${randomUUID()}::uuid
+            AND surface_ref = 'C1:1.000100' AND closed_at IS NOT NULL
+            AND session_id IS NOT NULL`,
+      );
+      const rows = (result as unknown as { rows: Record<string, string>[] })
+        .rows;
+      expect(JSON.stringify(rows)).toContain(
+        "session_links_closed_surface_ref_idx",
+      );
+    } finally {
+      await db.execute(sql`RESET enable_seqscan`);
+    }
   });
 
   test("a task whose first turn started stays open, and the thread gets the stop line it always had", async () => {
@@ -6995,7 +7096,7 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
   });
 
   /** The outbox pass: the thread status writer and the sends. */
-  function sendOutbox() {
+  function sendOutbox(options: { closeLinks?: boolean } = {}) {
     const api = createSlackBotApi({ apiUrl: slack.url });
     const tokenOf = (workspaceId: string, slackAppId: string) =>
       slackBotToken(
@@ -7017,6 +7118,7 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
       batchSize: 10,
       leaseMs: 30_000,
       deadline: Date.now() + 10_000,
+      ...options,
     });
   }
 });

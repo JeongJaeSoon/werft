@@ -197,7 +197,7 @@ export type SlackSessionHandlerDeps = {
   };
   sessions: Pick<SessionService, "createSession" | "appendMessage">;
   /** Stops a thread's work when its requester asks (handling table row 12). */
-  stops: Pick<SessionStop, "stop">;
+  stops: Pick<SessionStop, "stop" | "stoppedBefore">;
   /** The agent's active release, which a new thread's session runs. */
   agentDetails: Pick<AgentStore, "get">;
   /**
@@ -587,6 +587,10 @@ export function createSlackSessionHandler(
       return handling.kind === "table" ? handling.handling : null;
     };
 
+    // A stop's key is its post: the post's two events and every retry of
+    // them are one stop.
+    const stopKey = `slack-stop:${claim.teamId}:${event.channel}:${event.ts}`;
+
     // Set once the poster was told they may not stop the work: if the session
     // then refuses the word as input too, that is not said a second time.
     let stopRefused = false;
@@ -610,7 +614,7 @@ export function createSlackSessionHandler(
       // Input queued until now is cancelled: the thread's earlier posts are
       // in, and its later ones wait for this event's lease.
       const stopped = await deps.stops.stop(caller, sessionId, {
-        idempotencyKey: `slack-stop:${claim.teamId}:${event.channel}:${event.ts}`,
+        idempotencyKey: stopKey,
       });
       deps.logger.info("Slack stop request", {
         ...ids,
@@ -731,6 +735,26 @@ export function createSlackSessionHandler(
       surfaceRef,
     );
     if (found !== null && found.revokedAt !== null) return;
+    // A stop word alone whose stop was made in work this thread has closed
+    // since: the post read again, by its other event or by a retry of the
+    // pass that lost its lease after the stop. It is done; taken on, it
+    // would be a mention of a thread with no open work. A new stop word is
+    // another post, under another key.
+    if (
+      found === null &&
+      !fromBot &&
+      isStopRequest(withoutBotMention(event.text, agent.botUserId)) &&
+      (await deps.stops.stoppedBefore(
+        await deps.sessionLinks.closedSessions(
+          agent.installationId,
+          surfaceRef,
+        ),
+        { idempotencyKey: stopKey },
+      ))
+    ) {
+      deps.logger.info("Slack stop request already made; its work closed", ids);
+      return;
+    }
     // A retry of a message whose turn was taken before the pass died: the
     // turn stands, so its input is taken whatever this pass would judge now.
     const sessionId =

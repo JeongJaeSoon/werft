@@ -7012,6 +7012,11 @@ export const sessionLinks = pgTable(
     uniqueIndex("session_links_open_session_uniq")
       .on(table.sessionId)
       .where(sql`${table.sessionId} IS NOT NULL AND ${table.closedAt} IS NULL`),
+    // A thread's closed links, where a stop's message replayed after its
+    // link closed is found done.
+    index("session_links_closed_surface_ref_idx")
+      .on(table.installationId, table.surfaceRef)
+      .where(sql`${table.closedAt} IS NOT NULL`),
     // A thread's open task session, which the turn list reads per turn.
     index("session_links_open_thread_idx")
       .on(table.workspaceId, table.agentId, table.channelId, table.threadId)

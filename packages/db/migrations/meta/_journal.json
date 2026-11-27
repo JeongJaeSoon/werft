@@ -2087,6 +2087,13 @@
       "when": 1795745925105,
       "tag": "0388_conversation_task_route",
       "breakpoints": true
+    },
+    {
+      "idx": 390,
+      "version": "7",
+      "when": 1795757397221,
+      "tag": "0390_session_link_closed_thread_index",
+      "breakpoints": true
     }
   ]
 }
