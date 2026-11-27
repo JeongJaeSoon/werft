@@ -105,6 +105,16 @@ const WIDE: [string, string, string | null][] = [
   ],
   ["a ref range", "git log origin/main..HEAD | head -n 3", null],
   ["a read inside .git", "cat .git/HEAD | head -n 1", null],
+  ["a test for a secret's presence", "test -f .env && echo yes", null],
+  ["printed text in a pipe", "echo /etc/hosts | cat", null],
+  ["a message given to git that is a path", "git commit -m /etc/hosts", null],
+  ["a move written with a double dash", "cd -- notes && ls", null],
+  [
+    "the same move many times",
+    "cd . && cd . && cd . && cd . && cd . && cd . && cd . && cd . && cd . && cd . && ls",
+    null,
+  ],
+  ["text that only prints an asked command", 'echo "a; git add -f x"', null],
   // Not paths: a pattern, a URL, printed text, a file's content.
   [
     "a pattern that starts with a slash",
@@ -276,6 +286,66 @@ const WIDE: [string, string, string | null][] = [
   ["a move out of the workspace", "cd .. && touch x", "outside"],
   ["a move the line does not spell", 'cd "$TARGET" && touch x', "does not say"],
   ["a move back", "cd notes && cd - && touch x", "does not say"],
+  ["a move by a search path", "CDPATH=.git cd hooks && tee x", "does not say"],
+  [
+    "a move behind a keyword",
+    "if true; then cd notes; fi; tee ../../out.txt",
+    "outside",
+  ],
+  [
+    "an asked command spelled by a brace expansion",
+    "{git,add,-f,notes/sample.txt}",
+    "ask rule",
+  ],
+  [
+    "an asked command spelled with IFS",
+    ["git", "add", "-f notes/sample.txt"].join(`$${"{IFS}"}`),
+    "ask rule",
+  ],
+  // Kept: a command that reads, given a kept path it can also write.
+  [
+    "sort writing a secret",
+    "sort -o .env notes/sample.txt",
+    "goes to a person",
+  ],
+  ["find writing a secret", "find . -fprint .env", "goes to a person"],
+  ["tree writing into .git", "tree -o .git/tree.txt", "goes to a person"],
+  [
+    "diff writing a secret",
+    "diff --output=.env notes/sample.txt notes/sample.txt",
+    "goes to a person",
+  ],
+  // Kept: a name with a blank or a dollar sign in it, a command by its path.
+  [
+    "a kept path with a blank in it",
+    "tee '.git/report copy'",
+    "goes to a person",
+  ],
+  [
+    "a path outside with a blank, given to git",
+    "git add '/etc/report copy'",
+    "outside",
+  ],
+  [
+    "a kept path with a literal dollar sign",
+    "echo x | tee '.git/$name'",
+    "goes to a person",
+  ],
+  [
+    "an asked command called by its path",
+    "/usr/bin/git add -f notes/sample.txt",
+    "ask rule",
+  ],
+  [
+    "a heredoc mark that is the start of a longer one",
+    "cat <<true.txt\nsample\ntrue.txt\ntee /etc/out.txt\ntrue",
+    "outside",
+  ],
+  [
+    "more moves than are followed",
+    `${"mkdir -p a/b/c/d/e/f/g/h/i && "}${"cd a/b/c/d/e/f/g/h/i".split("/").join(" && cd ")} && touch x`,
+    "more often",
+  ],
   // Kept: a forced redirect, a descriptor redirect, a path given to git.
   ["a forced redirect to a secret", "echo x >| .env", "goes to a person"],
   [

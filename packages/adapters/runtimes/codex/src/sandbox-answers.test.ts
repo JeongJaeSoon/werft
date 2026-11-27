@@ -136,6 +136,10 @@ describe("what the run answers itself", () => {
       "notes/b.txt",
     ]);
     expect(changeTargets(move(null))).toEqual(["notes/a.txt"]);
+    // A destination beside the kind is read as well.
+    const beside = [{ path: "notes/a.txt", kind: "update", movePath: ".env" }];
+    expect(changeTargets(beside)).toEqual(["notes/a.txt", ".env"]);
+    expect(sandboxAnswersChange(beside, null, workspace)).toBe(false);
     expect(sandboxAnswersChange(move("notes/b.txt"), null, workspace)).toBe(
       true,
     );
@@ -155,6 +159,9 @@ describe("what the run answers itself", () => {
       [{ path: "notes/a.txt", kind: { type: "update", to: "notes/b.txt" } }],
       [{ path: "notes/a.txt", kind: { type: "update", move_path: 7 } }],
       [{ path: "notes/a.txt", kind: "add" }, "junk"],
+      [{ path: "notes/a.txt", kind: {} }],
+      [{ path: "notes/a.txt", kind: [] }],
+      [{ path: "notes/a.txt", kind: "update", target: "notes/b.txt" }],
       "notes/a.txt",
     ]) {
       expect(changeTargets(changes)).toBeUndefined();

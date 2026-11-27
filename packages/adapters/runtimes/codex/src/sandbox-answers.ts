@@ -106,25 +106,28 @@ export function changeTargets(changes: unknown): string[] | undefined {
   const targets: string[] = [];
   for (const change of changes) {
     if (typeof change !== "object" || change === null) return undefined;
-    const { path, kind } = change as { path?: unknown; kind?: unknown };
+    const { path, kind, ...more } = change as Record<string, unknown>;
     if (typeof path !== "string" || path === "") return undefined;
     targets.push(path);
-    if (typeof kind === "string") {
-      if (!CHANGE_KINDS.includes(kind)) return undefined;
-      continue;
+    const fields =
+      typeof kind === "object" && kind !== null && !Array.isArray(kind)
+        ? (kind as Record<string, unknown>)
+        : { type: kind };
+    if (
+      typeof fields.type !== "string" ||
+      !CHANGE_KINDS.includes(fields.type)
+    ) {
+      return undefined;
     }
-    if (typeof kind !== "object" || kind === null) return undefined;
-    for (const [key, value] of Object.entries(kind)) {
-      if (key === "type") {
-        if (typeof value !== "string" || !CHANGE_KINDS.includes(value)) {
-          return undefined;
-        }
-      } else if (MOVE_KEYS.includes(key)) {
-        if (typeof value === "string" && value !== "") targets.push(value);
-        else if (value !== null && value !== undefined) return undefined;
-      } else {
-        return undefined;
-      }
+    // A destination is read wherever the record carries it.
+    for (const [key, value] of [
+      ...Object.entries(more),
+      ...Object.entries(fields),
+    ]) {
+      if (key === "type" || key === "diff") continue;
+      if (!MOVE_KEYS.includes(key)) return undefined;
+      if (typeof value === "string" && value !== "") targets.push(value);
+      else if (value !== null && value !== undefined) return undefined;
     }
   }
   return targets;

@@ -989,7 +989,7 @@ export class CodexRun implements AgentRun {
     );
     const { answers } = this.options.launch;
     if (answers === "none") return "decline";
-    // acceptEdits: file changes go through, commands still go to the person.
+    // acceptEdits: file changes go through; a command is judged below.
     if (answers === "edits" && !isCommand) return "accept";
     if (isCommand && this.options.precheckTool !== undefined) {
       const refusal = await this.options.precheckTool(tool, input);

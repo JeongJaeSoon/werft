@@ -215,6 +215,9 @@ for (const pattern of workspaceAskPatterns()) {
   else rules.push(rule);
 }
 
+/** A command by its name, whatever directory it was called from. */
+const nameOf = (word: string) => word.slice(word.lastIndexOf("/") + 1);
+
 function asked(text: string): boolean {
   const [head = ""] = text.split(" ", 1);
   return (
@@ -233,8 +236,13 @@ function asked(text: string): boolean {
 function namesAsked(words: readonly string[], tail = ""): boolean {
   const starts = PRINTERS.includes(words[0] ?? "") ? 1 : words.length;
   for (let i = 0; i < Math.max(starts, 1); i += 1) {
-    if (i > 0 && /\s/.test(words[i] as string)) continue;
-    if (asked(words.slice(i).join(" ") + tail)) return true;
+    const word = words[i] ?? "";
+    if (i > 0 && /\s/.test(word)) continue;
+    const rest = words.slice(i + 1);
+    // `/usr/bin/git` is `git`.
+    for (const name of new Set([word, nameOf(word)])) {
+      if (asked([name, ...rest].join(" ") + tail)) return true;
+    }
   }
   return false;
 }
@@ -422,13 +430,25 @@ function partKept(
     const kept = writeKept(place, redirect.target, narrow);
     if (kept !== null) return kept;
   }
-  if (name === undefined || PRINTERS.includes(name)) return null;
-  const writes = policy.fs.allow.includes(name);
-  const refs = REF_COMMANDS.includes(name);
+  if (name === undefined) return null;
+  const command = nameOf(name);
+  if (PRINTERS.includes(command)) return null;
+  const writes = policy.fs.allow.includes(command);
+  const refs = REF_COMMANDS.includes(command);
+  const mayWrite = !refs && !READ_ONLY.includes(command);
   // The operands of these are known to be paths; any other command's word is
   // kept only when it plainly names a kept place.
-  const pathed = !refs && (narrow || writes || READERS.includes(name));
-  for (const word of part.words.slice(1)) {
+  const pathed = !refs && (narrow || writes || READERS.includes(command));
+  const operands = part.words.slice(1);
+  for (const [index, word] of operands.entries()) {
+    // What git or gh is given as a message is text.
+    if (
+      refs &&
+      (MESSAGE_FLAGS.includes(operands[index - 1] ?? "") ||
+        MESSAGE_FLAGS.some((flag) => word.startsWith(`${flag}=`)))
+    ) {
+      continue;
+    }
     if (writes && !word.startsWith("-")) {
       const kept = writeKept(place, word, narrow);
       if (kept !== null) return kept;
@@ -440,25 +460,54 @@ function partKept(
       ) {
         return "a path outside the workspace";
       }
-    } else if (!/\s/.test(word)) {
-      // A ref (`origin/main`, `a..b`) is not a path the policy keeps.
-      const kept = wordKept(place, word, !refs && !READ_ONLY.includes(name));
+    } else {
+      // A ref (`origin/main`, `a..b`) is not a path the policy keeps, so
+      // git and gh are held to the workspace only. A name may hold blanks.
+      const kept = wordKept(place, word, mayWrite);
       if (kept !== null) return kept;
-    } else if (!refs) {
-      // A quoted word with blanks in it may be a script (`sh -c '…'`,
-      // `eval "…"`, `ssh host '…'`); a message given to git is not.
-      const kept =
-        depth >= NESTED_SCRIPTS
-          ? "a script quoted too deep to read"
-          : keptIn(word, place.root, [place.base], depth + 1);
-      if (kept !== null) return kept;
+      // A quoted word with blanks in it may also be a script (`sh -c '…'`,
+      // `eval "…"`, `ssh host '…'`).
+      if (!refs && /\s/.test(word)) {
+        const nested =
+          depth >= NESTED_SCRIPTS
+            ? "a script quoted too deep to read"
+            : keptIn(word, place.root, [place.base], depth + 1);
+        if (nested !== null) return nested;
+      }
     }
   }
   return null;
 }
 
+const MESSAGE_FLAGS = ["-m", "--message", "--title", "--body"];
+/** More places than this for one line's shell is not a line to answer for. */
+const PLACES_FOLLOWED = 8;
+
+/** The places a shell may stand in after a move, each once, or why not. */
+function placesAfter(
+  bases: readonly string[],
+  moved: readonly string[],
+): string[] | string {
+  const next = [...new Set([...bases, ...moved])];
+  return next.length > PLACES_FOLLOWED
+    ? "a shell moved more often than the line is followed"
+    : next;
+}
+
 const MOVERS = ["cd", "pushd", "popd", "chdir"];
-const MOVER_PREFIXES = ["command", "builtin"];
+/** Words a command may stand behind and still move the shell. */
+const MOVER_PREFIXES = [
+  "command",
+  "builtin",
+  "then",
+  "do",
+  "else",
+  "elif",
+  "{",
+  "!",
+  "time",
+];
+const ASSIGNMENT = /^[A-Za-z_]\w*=/;
 
 /**
  * Where a part moves the shell: the directories it may stand in afterwards,
@@ -469,12 +518,19 @@ function movedTo(
   root: string,
   bases: readonly string[],
 ): string[] | string | undefined {
-  const at = words.findIndex((word) => !MOVER_PREFIXES.includes(word));
+  const at = words.findIndex(
+    (word) => !MOVER_PREFIXES.includes(word) && !ASSIGNMENT.test(word),
+  );
   const name = words[at];
   if (name === undefined || !MOVERS.includes(name)) return undefined;
-  const [to, ...more] = words.slice(at + 1);
+  const operands = words.slice(at + 1);
+  const [to, ...more] = operands[0] === "--" ? operands.slice(1) : operands;
   if (
     name !== "cd" ||
+    // `CDPATH=x cd y` goes where the variable says.
+    words
+      .slice(0, at)
+      .some((word) => ASSIGNMENT.test(word)) ||
     to === undefined ||
     more.length > 0 ||
     to.startsWith("-") ||
@@ -492,25 +548,15 @@ function movedTo(
   return next;
 }
 
-/** Commands that only read what they are given: a kept name there is not a write. */
-const READ_ONLY = [
-  ...READERS,
-  "find",
-  "rg",
-  "du",
-  "stat",
-  "file",
-  "tree",
-  "diff",
-  "sort",
-  "uniq",
-  "test",
-  "[",
-  "cd",
-];
+/**
+ * Commands with no way to write a path they are given: a kept name there is
+ * not a write. `find`, `sort`, `tree`, `diff`, `uniq` and `file` each have one
+ * (`-fprint`, `-o`, an output operand), so they are not here.
+ */
+const READ_ONLY = [...READERS, "rg", "du", "stat", "test", "[", "cd"];
 
 const HEREDOC_START =
-  /^[\w./:=@+,%\- \t>|&;]*<<(-?)[ \t]*(['"]?)([A-Za-z_]\w*)\2[\w./:=@+,%\- \t>|&;]*$/;
+  /^[\w./:=@+,%\- \t>|&;]*<<(-?)[ \t]*(['"]?)([A-Za-z_]\w*)\2(?![\w./:=@+,%-])[\w./:=@+,%\- \t>|&;]*$/;
 
 /**
  * The line without the heredoc bodies that are data. A body is taken out
@@ -544,18 +590,26 @@ function withoutHeredocBodies(command: string): string {
   return kept.join("\n");
 }
 
+const spelledOut = (words: readonly string[]) =>
+  words
+    .join(" ")
+    .replace(/[{},]|\$\{?IFS\}?/g, " ")
+    .split(/\s+/)
+    .filter((word) => word !== "");
+
 /** The part of a word the shell does not compute, when that part alone can be judged. */
 function literalOf(word: string): string | undefined {
   const cut = word.indexOf("$");
   if (cut === -1) return word;
-  const literal = word.slice(0, cut);
-  return /^[/~]|(^|\/)\.\.(\/|$)/.test(literal) ? literal : undefined;
+  // `.git/$name` is under `.git` whatever the name; `$DIR/x` is nowhere yet.
+  return cut === 0 ? undefined : word.slice(0, cut);
 }
 
 /**
  * A line that does not split: what the policy keeps for a person is looked
- * for in its text, and what cannot be seen passes. The text is cut at every
- * separator, quoted or not, so a script inside a quote is read as well.
+ * for in its text, and what cannot be seen passes. The text is cut at the
+ * separators this knows, quoted or not, so a script inside a quote is read
+ * as well.
  */
 function unsplitKept(
   command: string,
@@ -573,12 +627,22 @@ function unsplitKept(
       .map((word) => word.replace(/['"\\]/g, ""))
       .filter((word) => word !== "");
     if (words.length === 0) continue;
-    if (namesAsked(words) || namesAsked(written)) {
+    if (
+      namesAsked(words) ||
+      namesAsked(written) ||
+      // A brace expansion or `$IFS` spells the blanks between words.
+      namesAsked(spelledOut(words))
+    ) {
       return "a part an ask rule names";
     }
+    // What a printer is given is text; where its output goes is read below.
+    if (PRINTERS.includes(nameOf(words[0] as string))) continue;
     const moved = movedTo(words, root, bases);
     if (typeof moved === "string") return moved;
-    const mayWrite = !READ_ONLY.includes(words[0] as string);
+    const lead = words.find(
+      (word) => !MOVER_PREFIXES.includes(word) && !ASSIGNMENT.test(word),
+    );
+    const mayWrite = !READ_ONLY.includes(nameOf(lead ?? ""));
     for (const word of words) {
       const literal = literalOf(word);
       if (literal === undefined) continue;
@@ -587,7 +651,11 @@ function unsplitKept(
         if (kept !== null) return kept;
       }
     }
-    if (moved !== undefined) bases = [...bases, ...moved];
+    if (moved !== undefined) {
+      const next = placesAfter(bases, moved);
+      if (typeof next === "string") return next;
+      bases = next;
+    }
   }
   // Every base the line may have reached is tried for a redirect's target.
   for (const [, quoted] of text.matchAll(
@@ -621,7 +689,11 @@ function keptIn(
       if (kept !== null) return kept;
     }
     // A `cd` may not have run (`false && cd x`), so both places stay.
-    if (moved !== undefined) bases = [...bases, ...moved];
+    if (moved !== undefined) {
+      const next = placesAfter(bases, moved);
+      if (typeof next === "string") return next;
+      bases = next;
+    }
   }
   return null;
 }
