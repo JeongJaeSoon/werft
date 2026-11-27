@@ -180,6 +180,8 @@ describe(`the AI line a row reads on ${ENGINE}`, () => {
     const named: [string, number | null, string | null][] = [
       [`failure:${LINK}:2`, 2, "Grace"],
       [`prompt:${LINK}:request-1`, 1, "Ada"],
+      // What the engine said after turn 2 ended is that turn's.
+      [`after_turn:${LINK}:2:9`, 2, "Grace"],
       // A push is its requester's, whatever turn its sources name.
       [`push:${LINK}:${PUSH}`, 1, "Grace"],
       [`action:${PUSH}:pushed`, null, "Grace"],

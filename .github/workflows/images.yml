@@ -926,6 +926,11 @@ jobs:
     permissions:
       contents: read
       packages: write
+    # ghcr sometimes does not find the manifest a push has just written. A main
+    # chart's version carries its commit, so chart-push.sh may push it again.
+    # The release jobs leave this unset: a release version is pushed once.
+    env:
+      CHART_PUSH_TRIES: "3"
     steps: *chart-publish-steps
 
   # A release by merge. A pull request that turns CHANGELOG.md's `## 미출시`

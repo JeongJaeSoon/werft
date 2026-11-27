@@ -1,6 +1,10 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { type AddressClass, classifyAddress } from "@werft-ai/system";
+import {
+  type AddressClass,
+  classifyAddress,
+  isMetadataName,
+} from "@werft-ai/system";
 import { OidcUnavailableError } from "./errors.ts";
 
 const TIMEOUT_MS = 10_000;
@@ -63,26 +67,6 @@ export function endpointProblem(
   return "insecure_endpoint";
 }
 
-// Cloud instance metadata services on addresses that otherwise classify as
-// private, so the private-host exception would let them through. Compared in
-// URL's canonical form, which also spells an IPv4 address carried in IPv6
-// (mapped, NAT64) one way. 169.254.169.254 is refused by class.
-const METADATA_HOSTS = new Set([
-  "100.100.100.200",
-  "[fd00:ec2::254]",
-  "[::ffff:6464:64c8]",
-  "[64:ff9b::6464:64c8]",
-]);
-
-export function isMetadataAddress(address: string): boolean {
-  const literal =
-    isIP(address.split("%")[0] ?? "") === 6
-      ? `[${address.split("%")[0]}]`
-      : address;
-  const host = URL.parse(`http://${literal}/`)?.hostname;
-  return host !== undefined && METADATA_HOSTS.has(host);
-}
-
 export type ResolvedAddress = { address: string; family: number };
 export type Lookup = (host: string) => Promise<readonly ResolvedAddress[]>;
 
@@ -114,6 +98,7 @@ export type ProviderRequest = (
 const REFUSED_CLASSES: readonly (AddressClass | null)[] = [
   null,
   "link_local",
+  "metadata",
   "multicast",
   "reserved",
   "unspecified",
@@ -151,6 +136,12 @@ export async function judgedAddresses(
   deadline: AbortSignal,
 ): Promise<readonly [ResolvedAddress, ...ResolvedAddress[]]> {
   const host = url.hostname.replace(/^\[|\]$/g, "");
+  if (isMetadataName(host)) {
+    throw new OidcUnavailableError(
+      "address_not_allowed",
+      "Provider endpoint is a metadata service",
+    );
+  }
   const timedOut = new Promise<never>((_, reject) => {
     deadline.addEventListener("abort", () => reject(deadline.reason), {
       once: true,
@@ -181,7 +172,6 @@ export async function judgedAddresses(
     const addressClass = classifyAddress(address);
     if (
       REFUSED_CLASSES.includes(addressClass) ||
-      isMetadataAddress(address) ||
       (narrow
         ? inside
           ? policy.privateHostsStayPrivate === true && addressClass === "public"

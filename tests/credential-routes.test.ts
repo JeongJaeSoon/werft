@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { isIP } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,6 +18,7 @@ import { createLogger } from "@werft-ai/observability";
 import {
   admitsReservations,
   createWorkerGateway,
+  GitHubGateError,
   type GitHubGrant,
   priceProviderUsage,
   type WorkerGateway,
@@ -67,10 +68,12 @@ import {
 import {
   type CredentialProxyServer,
   DEFAULT_AUTHORIZE_TIMEOUT_MS,
+  PUSH_NOTICE,
   startCredentialProxy,
 } from "../apps/egress-proxy/src/credential.ts";
 import { createProxyLogger } from "../apps/egress-proxy/src/logger.ts";
 import { engineProfile } from "../apps/worker/src/composition.ts";
+import { writeRepositoryRoutes } from "../apps/worker/src/repository-routes.ts";
 import {
   claimSecrets,
   SecretScrubber,
@@ -100,6 +103,8 @@ let authorizer: ReturnType<typeof Bun.serve> | undefined;
 let proxy: CredentialProxyServer | undefined;
 let isolated: IsolatedWorkspace | undefined;
 let scratch: string | undefined;
+// The repositories the gateway asked the gate for, one entry per grant.
+let granted: Array<string | undefined> = [];
 
 beforeEach(async () => {
   client = await migratedPGlite();
@@ -123,6 +128,7 @@ afterEach(async () => {
   repository = undefined;
   isolated = undefined;
   scratch = undefined;
+  granted = [];
 });
 
 type Topology = {
@@ -156,6 +162,10 @@ async function topology(
   repository = await startGitHttpServer({ authorization: basic });
   await createServedRepository(repository, "app", {
     "README.md": "hello\n",
+  });
+  // In the catalog, on the same server, and never attached to the session.
+  await createServedRepository(repository, "other", {
+    "README.md": "not yours\n",
   });
   const repositoryUrl = `http://${REPOSITORY_HOST}:${repository.port}/app.git`;
 
@@ -194,16 +204,29 @@ async function topology(
           branch: "main",
           auth: { kind: "github_app", registered: true },
         },
+        other: {
+          url: `http://${REPOSITORY_HOST}:${repository.port}/other.git`,
+          branch: "main",
+          auth: { kind: "github_app", registered: true },
+        },
       },
     },
     github: {
-      grant: async () =>
-        ({
+      // As the gate answers a session allowed its own repository only (an
+      // empty attachment list, or a release listing no other); a null list
+      // lifts only the attachment filter (github-gate.test.ts pins the gate).
+      grant: async ({ repositoryId }) => {
+        granted.push(repositoryId);
+        if (repositoryId !== undefined) {
+          throw new GitHubGateError("repository_not_allowed", null);
+        }
+        return {
           gitCredential: {
             username: "x-access-token",
             password: repositoryPassword,
           },
-        }) as GitHubGrant,
+        } as GitHubGrant;
+      },
     },
     checkpoints: acceptAllCheckpoints,
     options: {
@@ -405,7 +428,7 @@ describe("credential routes end to end", () => {
     const root = join(scratch, "workspace");
     const action = await new GitWorkspace(
       root,
-      "CLAUDE.md",
+      ["CLAUDE.md"],
       credentialUrl,
     ).prepare({
       descriptor: claim.workspace,
@@ -445,7 +468,7 @@ describe("credential routes end to end", () => {
     } = await topology();
     scratch = await mkdtemp(join(tmpdir(), "94s-252-dump-"));
     const root = join(scratch, "workspace");
-    await new GitWorkspace(root, "CLAUDE.md", credentialUrl).prepare({
+    await new GitWorkspace(root, ["CLAUDE.md"], credentialUrl).prepare({
       descriptor: claim.workspace,
       restore: null,
       signal: AbortSignal.timeout(60_000),
@@ -789,6 +812,388 @@ describe("credential routes end to end", () => {
     });
     expect(other.status).toBe(401);
   }, 60_000);
+
+  describe("the sandbox's repository token fetches the session's repository and nothing else", () => {
+    // Not spawnSync: the proxy and the authorizer answer git from this process.
+    async function git(
+      args: string[],
+      cwd: string,
+      env: Record<string, string>,
+    ) {
+      const child = Bun.spawn(["git", ...args], {
+        cwd,
+        env,
+        // Well inside the test's own deadline, so none outlives its scratch.
+        timeout: 20_000,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [stdout, stderr, status] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ]);
+      // A git the deadline killed has refused nothing.
+      if (child.signalCode !== null) {
+        throw new Error(`git ${args[0]} ended on ${child.signalCode}`);
+      }
+      return { status, stdout, stderr };
+    }
+
+    /**
+     * Everything a holder of the token could try besides the fetch: a push,
+     * an LFS upload, a GitHub API call, another repository, every other route
+     * of the proxy and the worker gateway. Nothing reaches an upstream.
+     */
+    async function onlyFetches(
+      topology: Topology,
+      token: string,
+      sandbox: { cwd: string; env: Record<string, string> },
+    ) {
+      const { credentialUrl, gateway } = topology;
+      if (repository === undefined || messages === undefined) {
+        throw new Error("no topology");
+      }
+      const bearer = { authorization: `Bearer ${token}` };
+      const asked = granted.length;
+
+      // A push from the checkout ends at the notice, before any upstream.
+      const commit = await git(
+        [
+          "-c",
+          "user.name=sandbox",
+          "-c",
+          "user.email=sandbox@example.invalid",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "from the sandbox",
+        ],
+        sandbox.cwd,
+        sandbox.env,
+      );
+      expect(commit.status).toBe(0);
+      for (const ref of ["HEAD:refs/heads/agent/sandbox", "HEAD:main"]) {
+        const push = await git(
+          ["push", "origin", ref],
+          sandbox.cwd,
+          sandbox.env,
+        );
+        expect(push.status).not.toBe(0);
+        expect(push.stderr).toContain(PUSH_NOTICE);
+      }
+
+      // Another catalog repository, through the same route and header git
+      // sends anywhere under it: the gate is asked and refuses.
+      const route = `${credentialUrl}/repository/other/.git`;
+      const other = await git(["ls-remote", route], sandbox.cwd, sandbox.env);
+      expect(other.status).not.toBe(0);
+      expect(other.stdout).toBe("");
+      expect(granted.slice(asked)).toContain("other");
+
+      const refused: Array<[string, RequestInit, number]> = [
+        // receive-pack itself has no route; an LFS upload batch is refused by
+        // its body before the token is asked about.
+        [
+          "/repository/git-receive-pack",
+          { method: "POST", headers: bearer, body: "0000" },
+          404,
+        ],
+        [
+          "/repository/app/.git/git-receive-pack",
+          { method: "POST", headers: bearer, body: "0000" },
+          404,
+        ],
+        [
+          "/repository/app/.git/info/lfs/objects/batch",
+          {
+            method: "POST",
+            headers: {
+              ...bearer,
+              "content-type": "application/vnd.git-lfs+json",
+            },
+            body: JSON.stringify({
+              operation: "upload",
+              objects: [{ oid: "0".repeat(64), size: 1 }],
+            }),
+          },
+          400,
+        ],
+        // GitHub's API has no route here, whatever path it is put under.
+        [
+          "/repos/acme/app/pulls",
+          { method: "POST", headers: bearer, body: "{}" },
+          404,
+        ],
+        [
+          "/repository/app/.git/repos/acme/app/contents/README.md",
+          { method: "PUT", headers: bearer, body: "{}" },
+          404,
+        ],
+        // Every other route judges it a token for another route. The object
+        // store takes its token as a SigV4 access key id.
+        ...["GET", "PUT"].map((method): [string, RequestInit, number] => [
+          "/object-store/bucket/key",
+          {
+            method,
+            headers: {
+              authorization: `AWS4-HMAC-SHA256 Credential=${token}/20261127/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=${"0".repeat(64)}`,
+              "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+              "x-amz-date": "20261127T000000Z",
+            },
+            ...(method === "PUT" ? { body: "x" } : {}),
+          },
+          401,
+        ]),
+        [
+          "/provider/v1/messages",
+          {
+            method: "POST",
+            headers: { "x-api-key": token, "content-type": "application/json" },
+            body: "{}",
+          },
+          401,
+        ],
+        [
+          "/provider/v1/messages",
+          {
+            method: "POST",
+            headers: { ...bearer, "content-type": "application/json" },
+            body: "{}",
+          },
+          401,
+        ],
+        [
+          "/mcp/github",
+          {
+            method: "POST",
+            headers: { ...bearer, "content-type": "application/json" },
+            body: "{}",
+          },
+          401,
+        ],
+        ["/packages/npm/left-pad", { headers: bearer }, 401],
+        // A judgment token is its own kind, by prefix and by store.
+        [
+          "/decisions/v1/decisions",
+          { method: "POST", headers: bearer, body: "{}" },
+          401,
+        ],
+      ];
+      const statuses = [];
+      for (const [path, init] of refused) {
+        const response = await fetch(`${credentialUrl}${path}`, init);
+        statuses.push([path, response.status]);
+      }
+      // The same SigV4 carrier with the attempt's own object store token
+      // gets past the token, so the 401s above are the purpose's.
+      for (const method of ["GET", "PUT"]) {
+        const own = await fetch(`${credentialUrl}/object-store/bucket/key`, {
+          method,
+          headers: {
+            authorization: `AWS4-HMAC-SHA256 Credential=${topology.claim.object_store.access.token}/20261127/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=${"0".repeat(64)}`,
+            "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+            "x-amz-date": "20261127T000000Z",
+          },
+          ...(method === "PUT" ? { body: "x" } : {}),
+        });
+        expect({ method, status: own.status }).toEqual({ method, status: 503 });
+      }
+      // The 503 is past the token: the gateway takes the attempt's own token
+      // for object access and refuses this one, before any signer is asked.
+      await expect(
+        gateway.authorizeObjectAccess({
+          token: topology.claim.object_store.access.token,
+        }),
+      ).resolves.toBeDefined();
+      await expect(
+        gateway.authorizeObjectAccess({ token }),
+      ).rejects.toMatchObject({ status: 401 });
+      expect(statuses).toEqual(
+        refused.map(([path, , status]) => [path, status]),
+      );
+
+      // Nor is it a worker credential: the gateway's own API refuses it.
+      await expect(gateway.authenticate(token)).rejects.toMatchObject({
+        status: 401,
+      });
+
+      expect(messages.requests).toEqual([]);
+      for (const request of repository.requests) {
+        expect(request.path).toMatch(
+          /^\/app\.git\/(info\/refs\?service=git-upload-pack|git-upload-pack)$/,
+        );
+      }
+    }
+
+    test("as the engine's git reads it from its user-level config", async () => {
+      const shape = await topology();
+      const { claim, credentialUrl, repositoryUrl } = shape;
+      const token = claim.workspace.repository?.access?.token;
+      if (token === undefined) throw new Error("no repository token");
+      scratch = await mkdtemp(join(tmpdir(), "sandbox-token-"));
+      const home = join(scratch, "home");
+      expect(
+        await writeRepositoryRoutes(home, credentialUrl, claim.workspace),
+      ).toBe(true);
+      // What a Bash tool call's git has: HOME and PATH, no system config.
+      const env = {
+        PATH: process.env.PATH ?? "",
+        HOME: home,
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_TERMINAL_PROMPT: "0",
+      };
+      const clone = await git(
+        ["clone", repositoryUrl, "checkout"],
+        scratch,
+        env,
+      );
+      expect(clone.status).toBe(0);
+      const checkout = join(scratch, "checkout");
+      expect(await readFile(join(checkout, "README.md"), "utf8")).toBe(
+        "hello\n",
+      );
+
+      await onlyFetches(shape, token, { cwd: checkout, env });
+    }, 60_000);
+
+    test("as the worker's own git children carry it in their environment", async () => {
+      const shape = await topology();
+      const { claim, bootstrapNonce, credentialUrl } = shape;
+      const token = claim.workspace.repository?.access?.token;
+      if (token === undefined) throw new Error("no repository token");
+      scratch = await mkdtemp(join(tmpdir(), "worker-git-env-"));
+      const real = Bun.which("git");
+      if (real === null) throw new Error("no git on PATH");
+      // A git first on PATH that writes down its arguments and environment,
+      // then is git. prlimit, where the worker uses it, finds git on PATH too.
+      const shims = join(scratch, "bin");
+      const dumps = join(scratch, "children");
+      await Bun.write(join(dumps, ".keep"), "");
+      await Bun.write(
+        join(shims, "git"),
+        [
+          "#!/bin/sh",
+          `d="${dumps}/$$"`,
+          'printf "%s\\n" "$@" > "$d.args"',
+          'env > "$d.txt"',
+          `exec "${real}" "$@"`,
+          "",
+        ].join("\n"),
+      );
+      await chmod(join(shims, "git"), 0o755);
+      const root = join(scratch, "workspace");
+      const path = process.env.PATH;
+      process.env.PATH = `${shims}:${path ?? ""}`;
+      try {
+        await new GitWorkspace(root, ["CLAUDE.md"], credentialUrl).prepare({
+          descriptor: claim.workspace,
+          restore: null,
+          signal: AbortSignal.timeout(60_000),
+        });
+      } finally {
+        if (path === undefined) delete process.env.PATH;
+        else process.env.PATH = path;
+      }
+
+      const children = await Promise.all(
+        (await readdir(dumps))
+          .filter((name) => name.endsWith(".args"))
+          .map(async (name) => {
+            const base = join(dumps, name.slice(0, -".args".length));
+            const [args, dump] = await Promise.all([
+              readFile(`${base}.args`, "utf8"),
+              readFile(`${base}.txt`, "utf8"),
+            ]);
+            const environment: Record<string, string> = {};
+            for (const line of dump.split("\n")) {
+              const at = line.indexOf("=");
+              if (at > 0) environment[line.slice(0, at)] = line.slice(at + 1);
+            }
+            return { args: args.split("\n").slice(0, -1), dump, environment };
+          }),
+      );
+      // The fixture's own `git http-backend` is not the worker's.
+      const worker = children.filter(({ args }) => args[0] !== "http-backend");
+      const headers = ({ environment }: (typeof worker)[number]) =>
+        Array.from(
+          { length: Number(environment.GIT_CONFIG_COUNT ?? "0") },
+          (_, index) =>
+            [
+              environment[`GIT_CONFIG_KEY_${index}`],
+              environment[`GIT_CONFIG_VALUE_${index}`],
+            ] as const,
+        ).filter(([, value]) => /^\s*authorization\s*:/i.test(value ?? ""));
+      // Which children talk to a remote is read from their arguments, not
+      // from whether they were handed a header.
+      const subcommand = (args: string[]) => {
+        for (let index = 0; index < args.length; index += 1) {
+          const arg = args[index] ?? "";
+          if (arg === "-C" || arg === "-c") index += 1;
+          else if (!arg.startsWith("-")) return arg;
+        }
+        return undefined;
+      };
+      const NETWORK = new Set(["clone", "fetch", "ls-remote", "pull"]);
+      const network = worker.filter(({ args }) =>
+        NETWORK.has(subcommand(args) ?? ""),
+      );
+      expect(network.map(({ args }) => subcommand(args))).toContain("clone");
+      // Each network child is given the claim's repository token, in one
+      // header scoped to the repository route and nowhere else on the proxy.
+      for (const child of network) {
+        expect(headers(child)).toEqual([
+          [
+            `http.${credentialUrl}/repository.extraHeader`,
+            `Authorization: Bearer ${token}`,
+          ],
+        ]);
+        expect(child.environment.GIT_ALLOW_PROTOCOL).toBe("http");
+      }
+      // The local ones get no token at all, and no child gets any other
+      // secret of the attempt.
+      expect(worker.length).toBeGreaterThan(network.length);
+      for (const child of worker) {
+        if (!network.includes(child)) {
+          expect({ args: child.args, headers: headers(child) }).toEqual({
+            args: child.args,
+            headers: [],
+          });
+        }
+      }
+      const others = claimSecrets(claim, bootstrapNonce).filter(
+        (value): value is string => value !== undefined && value !== token,
+      );
+      expect(others.length).toBeGreaterThan(0);
+      for (const { dump } of worker) {
+        if (!network.some((child) => child.dump === dump)) {
+          expect(dump).not.toContain(token);
+        }
+        for (const value of others) expect(dump).not.toContain(value);
+      }
+
+      // The worker's clone child's environment, as it was, from the
+      // sandbox's side: what it fetched it fetches again, and nothing more.
+      const cloned = network.find(({ args }) => subcommand(args) === "clone");
+      if (cloned === undefined) throw new Error("no clone child");
+      const env = {
+        ...cloned.environment,
+        PATH: process.env.PATH ?? "",
+        HOME: join(scratch, "home"),
+      };
+      const clone = await git(
+        ["clone", `${credentialUrl}/repository`, "checkout"],
+        scratch,
+        env,
+      );
+      expect(clone.status).toBe(0);
+      expect(
+        await readFile(join(scratch, "checkout", "README.md"), "utf8"),
+      ).toBe("hello\n");
+
+      await onlyFetches(shape, token, { cwd: join(scratch, "checkout"), env });
+    }, 60_000);
+  });
 });
 
 describe("workspace MCP servers: the authorizer's grant through the proxy", () => {

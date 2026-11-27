@@ -188,7 +188,9 @@ describe("the engine's --settings file during a session", () => {
         { id: "later", command: "mkdir later-dir" },
       ],
     });
-    expect(results.get("toolu_copy")).toContain("has been denied");
+    // `cp` is an allowed command, so the engine reads its target and names
+    // the deny rule that holds it.
+    expect(results.get("toolu_copy")).toContain("blocked by a deny rule");
     expect(results.get("toolu_rewrite")).not.toContain("denied");
     expect(readFileSync(path, "utf8")).toContain(DENY_LATER);
     expect(made("first-dir")).toBe(true);
