@@ -75,8 +75,8 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           run=true
-          if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] && [ "$BASE_SHA" != 0000000000000000000000000000000000000000 ]; then
-            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] && [ "$BASE_SHA" != 0000000000000000000000000000000000000000 ] \
+            && git fetch --no-tags --depth=1 origin "$BASE_SHA"; then
             git diff --name-only --no-renames -z "$BASE_SHA" HEAD >"$RUNNER_TEMP/sdk-pack-paths"
             run=false
             while IFS= read -r -d '' path; do

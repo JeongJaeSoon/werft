@@ -62,7 +62,10 @@ is_publish_path() {
       package.json | */package.json | bunfig.toml | tsconfig.base.json | \
       packages/adapters/runtimes/registry/* | packages/runtime-core/src/image-runtime.ts | \
       apps/worker/src/image-runtime.ts | apps/worker/git-hooks/* | \
-      packages/testkit/src/seed-credentials-main.ts) return 0 ;;
+      THIRD_PARTY_NOTICES.md | scripts/third-party-notices.ts | docs/api/index.html | docs/api/scalar.js | \
+      packages/testkit/src/seed-credentials-main.ts | packages/testkit/src/fake-github.ts | \
+      packages/testkit/src/git-http.ts | apps/control-host/src/api/settings.ts | \
+      tests/e2e/owner-cookie.ts | tests/e2e/client.ts | tests/fixtures/settings/*-model.json) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -92,12 +95,21 @@ elif [ "$event" = push ] && [ "${GITHUB_REF:-}" = refs/heads/main ]; then
   [ "$base" != 0000000000000000000000000000000000000000 ] || base=
 fi
 
+# A base that cannot be read fails a pull request; a main push keeps the full
+# plan instead, so the kind jobs run when nothing says they need not.
+unreadable() {
+  echo "::error::$1" >&2
+  [ "$event" = push ] || exit 1
+  base=
+}
+if [ -n "$base" ] && [[ ! "$base" =~ ^[0-9a-f]{40}$ ]]; then
+  unreadable "invalid event base SHA"
+fi
+if [ -n "$base" ] && ! git fetch --no-tags --depth=1 origin "$base"; then
+  unreadable "cannot fetch the event base"
+fi
+
 if [ -n "$base" ]; then
-  if [[ ! "$base" =~ ^[0-9a-f]{40}$ ]]; then
-    echo "::error::invalid event base SHA" >&2
-    exit 1
-  fi
-  git fetch --no-tags --depth=1 origin "$base"
   checkout_base=$(git rev-parse --verify 'HEAD^1' 2>/dev/null || true)
   if [ "$event" = push ] || [ "$base" = "$checkout_base" ]; then
     paths="${RUNNER_TEMP:?}/ci-paths"
@@ -147,7 +159,8 @@ if [ -n "$base" ]; then
       # is the work no changed path can reach. The surface domain owns apps/web.
       site=true
       helm=false
-      k8s=false
+      # Only a main push can match here: the web package.json is in its list.
+      [ "$k8s_path" = true ] || k8s=false
       quickstart=$guide
       domains='["surface"]'
     else

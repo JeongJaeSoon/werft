@@ -59,7 +59,7 @@ helm show chart "$(jq -r .chart.ref "$TAG/release-manifest.json")" --version "$(
 
 ## main 패키지와 릴리스
 
-`main` 머지는 이미지를 매번 게시하지만, chart는 그 push가 chart·이미지 빌드 입력·배포 파일을 바꿨거나 아직 태그가 없는 릴리스가 있을 때(판정하지 못한 때 포함)에만 kind에 설치해 보고 게시한다. 그래서 chart가 없는 `main` commit이 있다.
+`main` 머지는 이미지를 게시하지만(문서만 바꾼 push 제외), chart는 그 push가 chart·이미지 빌드 입력·배포 파일을 바꿨거나 아직 태그가 없는 릴리스가 있을 때(판정하지 못한 때 포함)에만 kind에 설치해 보고 게시한다. 그래서 chart가 없는 `main` commit이 있다.
 
 `main-<12>`는 릴리스가 아니다. 해당 commit의 Images 실행에서 세 이미지·chart가 모두 게시됐는지 확인하고 정확한 버전을 선택한다. SHA 문자열은 시간순 버전이 아니므로 Helm의 `--devel`로 최신을 고르지 않는다. main 게시의 `unverifiedSources`가 빈 배열이면 모든 소스 보관을 확인한 것이고, 필드가 없으면 확인 기록이 없는 것이다. 공식 릴리스는 소스 보관을 모두 확인해야 게시된다.
 

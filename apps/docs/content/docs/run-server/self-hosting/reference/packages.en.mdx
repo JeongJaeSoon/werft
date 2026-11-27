@@ -62,7 +62,7 @@ Installers obtain image lines for [single-server installation](/run-server/self-
 <a id="main-패키지와-릴리스" />
 ## Main packages and releases
 
-Every `main` merge publishes images, but the chart is installed on kind and published only when that push changes the chart, an image build input or a deployment file, or while a release has no tag yet (or when this cannot be determined). Some `main` commits therefore have no chart.
+A `main` merge publishes images (a documentation-only push does not), but the chart is installed on kind and published only when that push changes the chart, an image build input or a deployment file, or while a release has no tag yet (or when this cannot be determined). Some `main` commits therefore have no chart.
 
 `main-<12>` is not a release. Confirm its Images run published all three images and the chart, then select the exact version. SHA strings are not chronological versions; do not use Helm `--devel` to choose the latest. An empty `unverifiedSources` array in a main publication confirms all source archives were checked. An absent field means no verification record exists. Official releases require all source archives to be verified before publication.
 

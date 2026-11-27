@@ -310,6 +310,17 @@ const PUBLISH_PATHS = [
   "apps/worker/src/image-runtime.ts",
   "apps/worker/git-hooks/pre-push",
   "packages/testkit/src/seed-credentials-main.ts",
+  "packages/testkit/src/fake-github.ts",
+  "packages/testkit/src/git-http.ts",
+  "apps/control-host/src/api/settings.ts",
+  "apps/web/package.json",
+  "THIRD_PARTY_NOTICES.md",
+  "scripts/third-party-notices.ts",
+  "docs/api/index.html",
+  "docs/api/scalar.js",
+  "tests/e2e/owner-cookie.ts",
+  "tests/e2e/client.ts",
+  "tests/fixtures/settings/fake-model.json",
 ];
 
 test("a main push runs the kind jobs only for chart, image and deploy paths", () => {
@@ -322,7 +333,8 @@ test("a main push runs the kind jobs only for chart, image and deploy paths", ()
     ".github/workflows/ci.yml",
     ...PUBLISH_PATHS,
   ]) {
-    const f = fixture(undefined, ["packages/db/src/a.ts", path]);
+    // Alone: no other path may be what selects it.
+    const f = fixture(undefined, [path]);
     expect({ path, k8s: plan(f, "push").output.k8s }).toEqual({
       path,
       k8s: "true",
@@ -538,6 +550,15 @@ test("invalid bases and failed fetches fail before publishing any plan", () => {
   const failed = plan(missing);
   expect(failed.exitCode).not.toBe(0);
   expect(failed.output).toEqual({});
+});
+
+test("a main push whose before cannot be read keeps the full plan", () => {
+  const f = fixture(undefined, ["docs/intro.md"]);
+  for (const base of ["not-a-sha", "1".repeat(40)]) {
+    const result = plan(f, "push", base);
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toEqual({ ...full, site: "false" });
+  }
 });
 
 test("main push plans the entire before-to-head range, including multiple commits", () => {

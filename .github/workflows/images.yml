@@ -704,8 +704,9 @@ jobs:
   #                  without package write: a chart that cannot install is
   #                  not published
   #   chart-publish  push the package and read it back with no login
-  # A main push runs its pair only when the plan's `chart` says so, which every
-  # commit a release can be made from does; release-gate fails on a skipped one.
+  # A main push runs its pair only when the plan's `chart` says so, as it does
+  # for a commit a release needs; release-gate fails on a skipped one. (A
+  # documentation-only push builds no image, so it never reaches the pair.)
   chart:
     needs: promote
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
