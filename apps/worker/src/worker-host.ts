@@ -3791,33 +3791,45 @@ export class WorkerHost {
    */
   private async quietVerdict(
     run: AgentRun,
+    deadline = Number.POSITIVE_INFINITY,
   ): Promise<CheckpointPreparation | undefined> {
     const budget = this.stageBudget(
       "Asking the run whether it is quiet",
       this.options.timeouts.startupTimeoutMs,
     );
     try {
-      return await this.untilAbandoned(run.prepareCheckpoint("turn_end"));
+      return await this.untilAbandonedBy(
+        run.prepareCheckpoint("turn_end"),
+        deadline,
+      );
     } finally {
       budget.disarm();
     }
   }
 
-  /** Nothing the run tracks is running, and no process is left under it. */
-  private async quiet(run: AgentRun): Promise<boolean> {
-    const verdict = await this.quietVerdict(run);
+  /**
+   * Nothing the run tracks is running, and no process is left under it. A
+   * question left unanswered by `deadline` or the drain budget is not quiet.
+   */
+  private async quiet(
+    run: AgentRun,
+    deadline = Number.POSITIVE_INFINITY,
+  ): Promise<boolean> {
+    const verdict = await this.quietVerdict(run, deadline);
     if (verdict?.status !== "ready") return false;
-    return (await this.descendantsNow()).length === 0;
+    return (await this.descendantsNow(deadline))?.length === 0;
   }
 
   /**
-   * The processes under the run, or none once the turn has to be given up:
-   * a scan that does not answer must not hold the drain past its budget.
+   * The processes under the run; undefined when the scan did not answer by
+   * `deadline` or the drain budget, which says nothing about the tree.
    */
-  private async descendantsNow(): Promise<number[]> {
+  private async descendantsNow(
+    deadline = Number.POSITIVE_INFINITY,
+  ): Promise<number[] | undefined> {
     const scan = this.options.engines?.descendants?.();
     if (scan === undefined) return [];
-    return (await this.untilAbandoned(scan)) ?? [];
+    return this.untilAbandonedBy(scan, deadline);
   }
 
   private async captureOwedWhenQuiet(
@@ -4079,7 +4091,7 @@ export class WorkerHost {
     while (
       !this.halted &&
       performance.now() < deadline &&
-      !(await this.quiet(run))
+      !(await this.quiet(run, deadline))
     ) {
       await this.sleep(CHECKPOINT_PROCESS_POLL_MS);
     }
@@ -4099,7 +4111,8 @@ export class WorkerHost {
     this.oweForOutput();
     if (this.owed === undefined) return true;
     const config = this.outsideTurn;
-    const below = (await this.options.engines?.descendants?.()) ?? [];
+    const below = await this.descendantsNow();
+    if (below === undefined) return true;
     const verdict = await this.quietVerdict(run);
     if (verdict === undefined) return true;
     const background =
@@ -4148,32 +4161,43 @@ export class WorkerHost {
     const commands =
       (naming === undefined ? [] : await this.untilAbandoned(naming)) ?? [];
     // Named again right before each signal: only what is under the run then.
-    let left =
+    // Undefined is a scan that did not answer, so nothing is known to be left.
+    let left: number[] | undefined =
       engines?.descendants === undefined ? below : await this.descendantsNow();
     for (const signal of ["SIGTERM", "SIGKILL"] as const) {
-      if (left.length === 0 || engines?.signal === undefined || this.halted) {
+      if (left === undefined && !this.halted)
+        left = await this.descendantsNow();
+      if (
+        left === undefined ||
+        left.length === 0 ||
+        engines?.signal === undefined ||
+        this.halted
+      ) {
         break;
       }
       engines.signal(left, signal);
       const deadline = performance.now() + config.stopSignalWaitMs;
-      // An idle exit waits each signal out as before; a drain's capture
-      // stops waiting once its budget is spent.
+      // Each signal is waited out for its window, every scan within it; a
+      // stop cuts the wait (a drain's own capture: once its budget is spent).
       while (
+        left !== undefined &&
         left.length > 0 &&
         performance.now() < deadline &&
-        !(this.drainCapturing && this.halted)
+        !this.halted
       ) {
         await this.sleep(CHECKPOINT_PROCESS_POLL_MS);
-        left = await this.descendantsNow();
+        if (this.halted) break;
+        left = await this.descendantsNow(deadline);
       }
     }
     this.logger.warn("worker.idle.background_stopped", {
       commands,
       processes: below.length,
-      left: left.length,
+      left: left?.length ?? null,
     });
-    // Once an attempt: a drain that comes while the idle exit is stopping
-    // the work stops what is left, and says nothing twice.
+    // A stop that cut this short leaves the work to the drain's own pass,
+    // which announces it; an attempt announces it once.
+    if (this.halted) return;
     if (below.length > 0 && !this.backgroundStopAnnounced) {
       this.backgroundStopAnnounced = true;
       this.publisher?.publish(
@@ -4219,6 +4243,7 @@ export class WorkerHost {
     this.drainCapturing = true;
     try {
       const below = await this.descendantsNow();
+      if (below === undefined) return;
       this.logger.info("worker.drain.capture_owed", {
         turn_id: owed.turnId,
         processes: below.length,
@@ -4540,6 +4565,23 @@ export class WorkerHost {
   /** Resolves with the value, or undefined once the turn has to be given up. */
   private async untilAbandoned<T>(work: Promise<T>): Promise<T | undefined> {
     return until(work, this.abandoned);
+  }
+
+  /** As `untilAbandoned`, and undefined as well once `deadline` passes. */
+  private async untilAbandonedBy<T>(
+    work: Promise<T>,
+    deadline: number,
+  ): Promise<T | undefined> {
+    if (deadline === Number.POSITIVE_INFINITY) return this.untilAbandoned(work);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, Math.max(0, deadline - performance.now()));
+    });
+    try {
+      return await until(work, Promise.race([this.abandoned, expired]));
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**

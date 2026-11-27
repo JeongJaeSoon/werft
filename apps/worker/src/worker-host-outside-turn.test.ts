@@ -1038,6 +1038,125 @@ describe("WorkerHost drained while it owes the last turn a checkpoint", () => {
       "1",
     ]);
   });
+
+  test("a process scan that stalls while the idle exit checks the work does not hold a drain past its budget", async () => {
+    let stalled = false;
+    const engines: EngineExitWatch = {
+      descendants: () =>
+        stalled ? new Promise<never>(() => {}) : Promise.resolve([4243]),
+      commands: async () => ["sleep"],
+      signal: () => {},
+      exited: async () => true,
+      running: [],
+      kill() {},
+    };
+    const { captures, gateway, host, log } = harness(oneTurn, {
+      engines,
+      outsideTurnCheckpoint: { idleBackgroundGraceMs: 60_000 },
+      timeouts: { drainTimeoutMs: 500 },
+    });
+    gateway.enqueue("start a dev server and leave it");
+    const loop = host.runLoop();
+    await eventually(() => log.includes("worker.idle.background_grace"));
+    stalled = true;
+    await Bun.sleep(50);
+
+    const drainedAt = performance.now();
+    host.drain("received SIGTERM");
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("drained");
+    expect(performance.now() - drainedAt).toBeLessThan(4_000);
+    // Nothing is known of the tree, so nothing is captured as if it were quiet.
+    expect(captures).toEqual([{ status: "rejected", kind: "turn_end" }]);
+    expect(gateway.releases).toHaveLength(1);
+  });
+
+  test("a scan the drain budget cut short is not read as a quiet run, so no capture starts after the worker gave up", async () => {
+    let stalled = false;
+    const engines: EngineExitWatch = {
+      descendants: () =>
+        stalled ? new Promise<never>(() => {}) : Promise.resolve([4243]),
+      commands: async () => ["sleep"],
+      signal: () => {},
+      exited: async () => true,
+      running: [],
+      kill() {},
+    };
+    let leases = 0;
+    const { captures, gateway, host } = harness(oneTurn, {
+      engines,
+      timeouts: { drainTimeoutMs: 300, idleTimeoutMs: 60_000 },
+      wrapRun: (run) =>
+        new Proxy(run, {
+          get(target, key, receiver) {
+            if (key === "leaseCheckpoint") leases += 1;
+            const value = Reflect.get(target, key, receiver);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        }),
+    });
+    gateway.enqueue("start a dev server and leave it");
+    const loop = host.runLoop();
+    await eventually(() => gateway.finalized.length === 1);
+    // The between-turns check now waits on a scan that never answers.
+    stalled = true;
+    await Bun.sleep(50);
+
+    host.drain("received SIGTERM");
+    const summary = await loop;
+    await Bun.sleep(50);
+
+    expect(summary.outcome).toBe("drained");
+    // The turn's own capture only: none was begun after the budget ran out.
+    expect(leases).toBe(1);
+    expect(captures).toEqual([{ status: "rejected", kind: "turn_end" }]);
+    expect(gateway.checkpointCommits).toEqual([]);
+  });
+
+  test("a quiet probe that does not answer is cut at the settle window, leaving the drain's capture its time", async () => {
+    const work = oneProcess();
+    let hung = false;
+    const { gateway, host, log } = harness(oneTurn, {
+      engines: work.engines,
+      outsideTurnCheckpoint: { idleBackgroundGraceMs: 60_000 },
+      timeouts: { drainTimeoutMs: 3_000 },
+      wrapRun: (run) =>
+        new Proxy(run, {
+          get(target, key, receiver) {
+            if (key === "prepareCheckpoint") {
+              return (...args: Parameters<AgentRun["prepareCheckpoint"]>) => {
+                // The first probe of the drain's own pass.
+                if (log.includes("worker.drain.capture_owed") && !hung) {
+                  hung = true;
+                  return new Promise<never>(() => {});
+                }
+                return target.prepareCheckpoint(...args);
+              };
+            }
+            const value = Reflect.get(target, key, receiver);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        }),
+    });
+    gateway.enqueue("start a dev server and leave it");
+    const loop = host.runLoop();
+    await eventually(() => log.includes("worker.idle.background_grace"));
+
+    const drainedAt = performance.now();
+    host.drain("received SIGTERM");
+    await eventually(() => gateway.checkpointCommits.length === 1);
+    const committedAfter = performance.now() - drainedAt;
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("drained");
+    expect(hung).toBe(true);
+    // The settle window (200 ms here), not the drain's 3 s budget.
+    expect(committedAfter).toBeLessThan(2_000);
+    expect(gateway.checkpointCommits.map((commit) => commit.turn_id)).toEqual([
+      "1",
+    ]);
+  });
 });
 
 describe("WorkerHost holding a publish one stage of which fails", () => {
