@@ -75,15 +75,22 @@ function factsFor(
   };
 }
 
-// The insider administers the agent; only C0SECRET has them as a member.
+// The insider administers the agent; only C0SECRET has them as a member
+// unless `member` says otherwise. `pending` holds every channel's check, or
+// the ones it names.
 function policy(
   options: {
     fails?: boolean;
-    pending?: boolean;
+    pending?: boolean | string[];
+    member?: string[];
     inline?: string[];
     asked?: string[];
   } = {},
 ) {
+  const member = options.member ?? ["C0SECRET"];
+  const isPending = (channelId: string) =>
+    options.pending === true ||
+    (Array.isArray(options.pending) && options.pending.includes(channelId));
   return createAuthorizationPolicy({
     agents: {
       async agentOf(_workspaceId, resource) {
@@ -120,16 +127,16 @@ function policy(
     channelMembers: {
       async isMember({ channelId, userId }) {
         options.inline?.push(channelId);
-        return channelId === "C0SECRET" && userId === INSIDER;
+        return member.includes(channelId) && userId === INSIDER;
       },
       async membership({ channelId, userId }) {
-        return channelId === "C0SECRET" && userId === INSIDER
+        return member.includes(channelId) && userId === INSIDER
           ? "member"
           : "not_member";
       },
       async cachedMembership({ channelId, userId }) {
-        if (options.pending) return "pending";
-        return channelId === "C0SECRET" && userId === INSIDER
+        if (isPending(channelId)) return "pending";
+        return member.includes(channelId) && userId === INSIDER
           ? "member"
           : "not_member";
       },
@@ -193,13 +200,51 @@ describe("the status tool", () => {
       ).toEqual(["C0PUBLIC", "C0SECRET"]);
     });
 
-    test("that private channel itself: it, and no other private channel", async () => {
+    test("the requester's own DM, a member of both private channels: both", async () => {
       expect(
-        await shownIn({
-          kind: "channel",
-          conversationId: PRIVATE_CONVERSATION.toUpperCase(),
-        }),
+        await shownIn(
+          { kind: "dm", personUserId: INSIDER },
+          policy({ member: ["C0SECRET", "C0OTHER"] }),
+        ),
+      ).toEqual(["C0PUBLIC", "C0SECRET", "C0OTHER"]);
+    });
+
+    test("that private channel itself: it, and no other private channel the requester is a member of", async () => {
+      expect(
+        await shownIn(
+          {
+            kind: "channel",
+            conversationId: PRIVATE_CONVERSATION.toUpperCase(),
+          },
+          policy({ member: ["C0SECRET", "C0OTHER"] }),
+        ),
       ).toEqual(["C0PUBLIC", "C0SECRET"]);
+    });
+
+    test("a public channel, someone else's DM, or no conversation, the requester a confirmed member of both: no private channel", async () => {
+      for (const replyTo of [
+        { kind: "channel", conversationId: PUBLIC_CONVERSATION },
+        { kind: "dm", personUserId: OUTSIDER },
+        null,
+      ] as const) {
+        expect(
+          await shownIn(replyTo, policy({ member: ["C0SECRET", "C0OTHER"] })),
+        ).toEqual(["C0PUBLIC"]);
+      }
+    });
+
+    test("another private channel still being checked does not make that channel's answer incomplete", async () => {
+      const answer = await status(
+        factsFor(INSIDER, {
+          replyTo: { kind: "channel", conversationId: PRIVATE_CONVERSATION },
+        }),
+        policy({ pending: ["C0OTHER"] }),
+      );
+      expect(answer.slack.channels?.map((channel) => channel.id)).toEqual([
+        "C0PUBLIC",
+        "C0SECRET",
+      ]);
+      expect(answer).not.toHaveProperty("incomplete");
     });
 
     test("a public channel, someone else's DM, or no conversation: no private channel, though the requester is a member, and none is asked about", async () => {
@@ -240,7 +285,7 @@ describe("the status tool", () => {
         factsFor(INSIDER, {
           replyTo: { kind: "channel", conversationId: PRIVATE_CONVERSATION },
         }),
-        policy({ pending: true }),
+        policy({ pending: ["C0SECRET"] }),
       );
       expect(answer.slack.channels?.map((channel) => channel.id)).toEqual([
         "C0PUBLIC",

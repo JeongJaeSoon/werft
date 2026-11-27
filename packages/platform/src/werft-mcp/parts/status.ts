@@ -221,7 +221,14 @@ async function visibleTo(
         facts.workspaceId,
       );
       privateChannels = found.conversationIds;
-      pending = found.pending;
+      // Only a channel this answer could name makes it incomplete; a policy
+      // that does not say which is taken at its word.
+      pending =
+        found.pendingConversationIds === undefined
+          ? found.pending
+          : found.pendingConversationIds.some((id) =>
+              mayName.has(id.toLowerCase()),
+            );
     } catch (error) {
       if (error instanceof AuthorizationUndecidedError) throw error;
       privateChannels = [];

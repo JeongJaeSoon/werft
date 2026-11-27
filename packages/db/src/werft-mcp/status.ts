@@ -60,7 +60,8 @@ export function createPostgresWerftStatusStore(db: Database): WerftStatusStore {
           agentGitHubSettings,
           eq(agentGitHubSettings.agentId, agents.id),
         )
-        // As the outbox claim reads where a session's text goes (A3).
+        // The conversation the session's text belongs to, as the outbox
+        // claim reads it (A3).
         .leftJoin(
           conversations,
           eq(conversations.id, sessions.parentConversationId),
