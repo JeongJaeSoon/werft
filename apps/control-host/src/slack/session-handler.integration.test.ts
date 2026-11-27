@@ -5638,20 +5638,18 @@ describe.each(ENGINES)(
           .from(schema.conversationTurnQueue)
           .then((rows) => rows.length);
       const before = await queued();
-      // Read as Slack records the status, before its answer reaches the handler.
-      const atStatus: Promise<number>[] = [];
-      const push = slack.statuses.push.bind(slack.statuses);
-      slack.statuses.push = (...items) => {
-        atStatus.push(queued());
-        return push(...items);
-      };
+      // Read once Slack has the status, its answer held until the read is in.
+      const atStatus: number[] = [];
+      slack.holds.set("agents.sessions.setStatus", async () => {
+        atStatus.push(await queued());
+      });
       try {
         await deliver(fixture, mention("100.000100"));
         await drain(handler().handle);
       } finally {
-        delete (slack.statuses as { push?: unknown }).push;
+        slack.holds.delete("agents.sessions.setStatus");
       }
-      expect(await Promise.all(atStatus)).toEqual([before]);
+      expect(atStatus).toEqual([before]);
       expect(await queued()).toBe(before + 1);
       expect(statusesOf("100.000100")).toEqual(["processing"]);
     });
@@ -5661,19 +5659,17 @@ describe.each(ENGINES)(
       const late = new Date(
         Date.now() + OPERATOR_TURN_TAKE_MS + CONVERSATION_TURN_LEASE_MS + 1_000,
       );
-      // A pass runs while the writer waits on Slack, between write and queue.
-      const passes: Promise<unknown>[] = [];
-      const push = slack.statuses.push.bind(slack.statuses);
-      slack.statuses.push = (...items) => {
-        passes.push(endings(late));
-        return push(...items);
-      };
+      // A whole pass runs while the writer waits on Slack, between write and
+      // queue: Slack's answer is held until the pass is over.
+      const passes: unknown[] = [];
+      slack.holds.set("agents.sessions.setStatus", async () => {
+        passes.push(await endings(late));
+      });
       try {
         await deliver(fixture, mention("100.000100"));
         await drain(handler().handle);
-        await Promise.all(passes);
       } finally {
-        delete (slack.statuses as { push?: unknown }).push;
+        slack.holds.delete("agents.sessions.setStatus");
       }
       expect(passes).toHaveLength(1);
       const [turn] = await mentionTurnsOf(fixture);
