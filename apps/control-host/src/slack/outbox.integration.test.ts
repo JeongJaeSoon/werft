@@ -8230,7 +8230,7 @@ describe.each(ENGINES)("a DM's thread on %s", (engine) => {
     expect(await progressRows()).toEqual([]);
   });
 
-  test("a row with no thread in a DM is refused as it is enqueued; a web input's mirror is not", async () => {
+  test("a reply, failure notice or notice with no thread in a DM is refused as it is enqueued; one in the thread is not", async () => {
     const fixture = await agentInSlack();
     const sessionId = await dmLink(fixture);
     const [link] = await db
