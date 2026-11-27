@@ -793,8 +793,13 @@ test("docs/ci/checks.md names each required check by the one job that reports it
   const reporters = readdirSync(dir).flatMap((file) => {
     const { on, jobs } = Bun.YAML.parse(
       readFileSync(join(dir, file), "utf8"),
-    ) as { on: Record<string, unknown>; jobs: Record<string, Job> };
-    if (!("pull_request" in on)) return [];
+    ) as {
+      on: string | string[] | Record<string, unknown>;
+      jobs: Record<string, Job>;
+    };
+    const events =
+      typeof on === "string" ? [on] : Array.isArray(on) ? on : Object.keys(on);
+    if (!events.includes("pull_request")) return [];
     return Object.entries(jobs).map(([id, job]) => {
       // The name a pull request sees: `only` is a dispatch input, unset there.
       const [, only, value, chosen, other] =
@@ -803,7 +808,12 @@ test("docs/ci/checks.md names each required check by the one job that reports it
         ) ?? [];
       const unset = only === "github.event.inputs.only" ? "" : "all";
       const name = only ? (unset === value ? chosen : other) : (job.name ?? id);
-      return { file, id, name };
+      // An expression this test does not evaluate may still pick any string
+      // it quotes (images.yml's build). One taken from a matrix is not seen.
+      const quoted = only
+        ? []
+        : [...(job.name ?? "").matchAll(/'([^']*)'/g)].map(([, text]) => text);
+      return { file, id, name, quoted };
     });
   });
   const section =
@@ -812,7 +822,7 @@ test("docs/ci/checks.md names each required check by the one job that reports it
       ?.split(/^### /m)[0] ?? "";
   const rows = [
     ...section.matchAll(/^\| `([^`]+)` \| `([^`]+)` · `([^`]+)` \|/gm),
-  ].map(([, name, file, id]) => ({ file, id, name }));
+  ].map(([, name, file, id]) => ({ file, id, name, quoted: [] }));
   // The ruleset's names (the document gives the command that compares them).
   expect(rows.map((row) => row.name).sort()).toEqual([
     "check",
@@ -826,7 +836,11 @@ test("docs/ci/checks.md names each required check by the one job that reports it
   for (const row of rows) {
     // A second job of the name could report it skipped, and a skipped required
     // check passes.
-    expect(reporters.filter((job) => job.name === row.name)).toEqual([row]);
+    expect(
+      reporters.filter(
+        (job) => job.name === row.name || job.quoted.includes(row.name),
+      ),
+    ).toEqual([row]);
   }
 });
 
