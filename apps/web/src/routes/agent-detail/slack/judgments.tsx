@@ -32,6 +32,7 @@ const REASON_LABEL = {
   out_of_scope: "slack.judgments.reason.out_of_scope",
   needs_agent: "slack.judgments.reason.needs_agent",
   unclear: "slack.judgments.reason.unclear",
+  invalid_target: "slack.judgments.reason.invalid_target",
   budget_refused: "slack.judgments.reason.budget_refused",
   concurrency_limited: "slack.judgments.reason.concurrency_limited",
   rate_limited: "slack.judgments.reason.rate_limited",

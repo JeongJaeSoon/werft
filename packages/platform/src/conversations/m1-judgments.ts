@@ -1,5 +1,8 @@
 import type {
+  ConversationId,
+  ConversationInputId,
   ConversationJudgmentId,
+  ConversationTopicId,
   JudgmentVoidedReason,
   M1SummaryOutcome,
 } from "@werft-ai/contracts";
@@ -55,7 +58,7 @@ export type M1ReadPost = Pick<M1Post, "inputId" | "ts" | "body" | "editMark">;
  * when their buffered rows went too).
  */
 export type M1BatchWrite =
-  | { outcome: "written" }
+  | { outcome: "written"; judgmentId: ConversationJudgmentId }
   | { outcome: "closed" }
   | {
       outcome: "voided";
@@ -167,6 +170,37 @@ const subjectOfBatch = (batch: JudgmentBatch): M1Subject => ({
   ),
 });
 
+/**
+ * A judgment that spoke, as its record was written (v1-b/U1): the post it
+ * answers, whose text is the unasked turn's instruction and whose thread is
+ * where the turn answers, and the other posts it judged, given to the turn
+ * as reference alone. Texts as the judgment read them.
+ */
+export type M1Spoken = {
+  judgmentId: ConversationJudgmentId;
+  workspaceId: string;
+  agentId: string;
+  conversationId: ConversationId;
+  teamId: string;
+  channelId: string;
+  target: {
+    inputId: ConversationInputId;
+    topicId: ConversationTopicId;
+    ts: string;
+    body: string;
+  };
+  context: { ts: string; body: string }[];
+};
+
+/**
+ * Makes the agent's unasked turn of a judgment that spoke, once its rollout
+ * is on; under `shadow` nothing is made. Whatever it does is the record's:
+ * a failure here leaves the judgment as written.
+ */
+export interface M1Speaker {
+  speak(spoken: M1Spoken): Promise<void>;
+}
+
 /** Writes a summary line tries at most this many times (a1/J8). */
 export const M1_SUMMARY_WRITE_ATTEMPTS = 3;
 
@@ -232,6 +266,7 @@ export function createM1BatchJudge(deps: {
   judge: M1Judge;
   store: Pick<M1JudgmentStore, "recordBatch" | "writeSummaryLine">;
   folder?: Pick<SummaryFolder, "fold">;
+  speaker?: M1Speaker;
   logger?: VoidLogger;
 }): JudgmentBatchJudge {
   const fold = async (batch: JudgmentBatch) => {
@@ -248,6 +283,38 @@ export function createM1BatchJudge(deps: {
     }
   };
   const ids = (posts: readonly M1Post[]) => posts.map((post) => post.inputId);
+  // A batch that spoke: its turn answers the post it named, in that post's
+  // thread, the rest of what it judged as reference.
+  const speakOf = async (
+    batch: JudgmentBatch,
+    posts: readonly M1Post[],
+    record: M1Record,
+    judgmentId: ConversationJudgmentId,
+  ) => {
+    const target = spokenTarget(record, posts);
+    const input = batch.inputs.find((each) => each.inputId === target?.inputId);
+    if (deps.speaker === undefined || target === null || input === undefined) {
+      return;
+    }
+    const refs = new Set(record.refs);
+    await speakSafely(deps.speaker, deps.logger, {
+      judgmentId,
+      workspaceId: batch.workspaceId,
+      agentId: batch.agentId,
+      conversationId: batch.conversationId,
+      teamId: batch.teamId,
+      channelId: batch.channelId,
+      target: {
+        inputId: target.inputId,
+        topicId: input.topicId,
+        ts: target.ts,
+        body: target.body,
+      },
+      context: posts
+        .filter((post) => post !== target && refs.has(post.ts))
+        .map((post) => ({ ts: post.ts, body: post.body })),
+    });
+  };
   return {
     async judge(batch) {
       let subject = subjectOfBatch(batch);
@@ -292,6 +359,9 @@ export function createM1BatchJudge(deps: {
           subject.posts.filter((post) => refs.has(post.ts)),
           { final: rejudge, ...(readAt === undefined ? {} : { readAt }) },
         );
+        if (written.outcome === "written") {
+          await speakOf(batch, subject.posts, record, written.judgmentId);
+        }
         if (written.outcome !== "voided") break;
         logVoided(deps.logger, record, written.reason);
         // Voided again: the store dropped what the batch still held.
@@ -328,6 +398,37 @@ export function createM1BatchJudge(deps: {
   };
 }
 
+/** The judged post a record that spoke answers; null when it spoke none. */
+function spokenTarget(
+  record: M1Record | null,
+  posts: readonly M1Post[],
+): M1Post | null {
+  if (
+    record === null ||
+    record.verdict.outcome !== "judged" ||
+    record.verdict.decision !== "speak" ||
+    record.target === null
+  ) {
+    return null;
+  }
+  return posts.find((post) => post.ts === record.target) ?? null;
+}
+
+async function speakSafely(
+  speaker: M1Speaker,
+  logger: VoidLogger | undefined,
+  spoken: M1Spoken,
+) {
+  try {
+    await speaker.speak(spoken);
+  } catch (error) {
+    logger?.warn?.("Unasked turn not made", {
+      judgment_id: spoken.judgmentId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export type ReplyJudgmentRun = {
   judged: number;
   dropped: number;
@@ -339,6 +440,11 @@ export type ReplyJudgmentRun = {
 export async function runReplyJudgments(deps: {
   store: Pick<M1JudgmentStore, "claimReply" | "finishReply">;
   judge: M1Judge;
+  /**
+   * Makes a turn of a reply in a thread the agent took part in that spoke
+   * (`m1_engaged`). A bound thread's reply goes to its work as before.
+   */
+  speaker?: M1Speaker;
   logger: {
     warn(message: string, fields?: Readonly<Record<string, unknown>>): void;
   } & VoidLogger;
@@ -394,8 +500,33 @@ export async function runReplyJudgments(deps: {
         }
       }
     }
-    if (written === "written") run.judged += 1;
-    else if (written === "dropped") run.dropped += 1;
+    if (written === "written") {
+      run.judged += 1;
+      const target = spokenTarget(record, claimed.subject.posts);
+      const { subject } = claimed;
+      if (
+        deps.speaker !== undefined &&
+        target !== null &&
+        subject.grade === "m1_engaged" &&
+        subject.topicId !== null
+      ) {
+        await speakSafely(deps.speaker, deps.logger, {
+          judgmentId: claimed.id,
+          workspaceId: subject.workspaceId,
+          agentId: subject.agentId,
+          conversationId: subject.conversationId,
+          teamId: subject.teamId,
+          channelId: subject.channelId,
+          target: {
+            inputId: target.inputId,
+            topicId: subject.topicId,
+            ts: target.ts,
+            body: target.body,
+          },
+          context: [],
+        });
+      }
+    } else if (written === "dropped") run.dropped += 1;
     else run.voided += 1;
   }
   return run;
@@ -415,6 +546,8 @@ export function createM1JudgmentRunner(deps: {
   store: M1JudgmentStore;
   judge: M1Judge;
   folder?: Pick<SummaryFolder, "fold">;
+  /** Unset: judgments are recorded and nothing more (a1/J5). */
+  speaker?: M1Speaker;
   logger: {
     info(message: string, fields?: Readonly<Record<string, unknown>>): void;
     warn(message: string, fields?: Readonly<Record<string, unknown>>): void;
@@ -437,6 +570,7 @@ export function createM1JudgmentRunner(deps: {
     const replies = await runReplyJudgments({
       store: deps.store,
       judge: deps.judge,
+      ...(deps.speaker === undefined ? {} : { speaker: deps.speaker }),
       logger: deps.logger,
       deadline,
       clock: until,

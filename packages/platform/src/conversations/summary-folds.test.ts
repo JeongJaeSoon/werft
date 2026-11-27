@@ -399,6 +399,7 @@ describe("a batch's fold", () => {
       callKey: conversationCallKeySchema.parse(`${batch.id}:m1`),
       attempts: 1,
       summary: null,
+      target: null,
     },
     left: [],
     modelCalled: true,
@@ -425,7 +426,7 @@ describe("a batch's fold", () => {
         },
         recordBatch: async (): Promise<M1BatchWrite> => {
           order.push("record");
-          return { outcome: "written" };
+          return { outcome: "written", judgmentId: randomUUID() as never };
         },
       },
       folder: {

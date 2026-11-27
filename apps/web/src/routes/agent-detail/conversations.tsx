@@ -57,6 +57,7 @@ const REQUESTER_LABEL = {
   slack_user: "agent.conversations.requester.slack_user",
   slack_bot: "agent.conversations.requester.slack_bot",
   operator: "agent.conversations.requester.operator",
+  agent: "agent.conversations.initiator.agent",
 } as const satisfies Record<
   Exclude<Turn["requester"]["kind"], "user">,
   MessageKey
