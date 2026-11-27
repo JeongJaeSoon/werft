@@ -479,6 +479,7 @@ async function linkTakesNew(
   tx: Database,
   linkId: string,
   dedupeKey: string,
+  kind: string,
 ): Promise<boolean> {
   const [link] = await tx
     .select({
@@ -490,7 +491,11 @@ async function linkTakesNew(
     .for("share");
   if (link === undefined || link.closedAt === null) return true;
   // A follow-up of an answer stored before the link closed.
-  if (link.lately && dedupeKey.startsWith(`after_turn:${linkId}:`)) {
+  if (
+    link.lately &&
+    kind === "reply" &&
+    dedupeKey.startsWith(`after_turn:${linkId}:`)
+  ) {
     return true;
   }
   const lost = dedupeKey.startsWith(UNCERTAIN_PREFIX)
@@ -1117,7 +1122,12 @@ export function createPostgresSlackOutboxStore(
         }
         if (
           input.sessionLinkId != null &&
-          !(await linkTakesNew(tx, input.sessionLinkId, input.dedupeKey))
+          !(await linkTakesNew(
+            tx,
+            input.sessionLinkId,
+            input.dedupeKey,
+            input.kind,
+          ))
         ) {
           return "link_closed";
         }

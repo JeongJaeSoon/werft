@@ -2774,11 +2774,27 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       // Closed at once: a next mention in the thread opens a new session.
       await outboxPass({ botToken: null, closeLinks: true });
       expect(await closedAt()).not.toBeNull();
+      await mention(fixture, "100.000300");
+      const all = await db.select().from(sessionLinks);
+      const old = all.find((link) => link.sessionId === sessionId);
+      expect(all).toHaveLength(2);
+      expect(all.find((link) => link !== old)).toMatchObject({
+        closedAt: null,
+      });
       await outboxPass({ closeLinks: true });
       await outboxPass({ closeLinks: true });
       expect(posted()).toHaveLength(2);
       expect(posted()[1]?.text.split("\n\n")[1]).toBe("later");
-      expect((await followUps()).map((row) => row.status)).toEqual(["sent"]);
+      // It goes on the old link, in the thread its reply went to.
+      expect(await followUps()).toEqual([
+        expect.objectContaining({
+          status: "sent",
+          sessionLinkId: old?.id,
+          threadTs: (await rows()).find((row) =>
+            row.dedupeKey.startsWith("reply:"),
+          )?.threadTs,
+        }),
+      ]);
     });
 
     test("taken again, the same answer is one post; two answers are two, in order", async () => {
@@ -2915,10 +2931,38 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         .set({ closedAt: dayAgo, closedReason: "completed" });
       await outboxPass();
       expect(await followUps()).toEqual([]);
+      // Nor does the link take one named for it once the day is over.
+      const [reply] = await db
+        .select()
+        .from(slackOutbox)
+        .where(eq(slackOutbox.kind, "reply"));
+      const [link] = await db.select().from(sessionLinks);
+      if (!reply || !link) throw new Error("no reply or link");
+      const late = {
+        workspaceId: reply.workspaceId,
+        agentId: reply.agentId,
+        slackAppId: reply.slackAppId,
+        installationId: reply.installationId,
+        channelId: reply.channelId,
+        threadTs: reply.threadTs,
+        slackUserId: null,
+        sessionId,
+        sessionLinkId: link.id,
+        body: { text: "late" },
+        dedupeKey: `after_turn:${link.id}:1:999`,
+      };
+      const outbox = createPostgresSlackOutboxStore(db);
+      expect(await outbox.enqueue({ ...late, kind: "reply" })).toBe(
+        "link_closed",
+      );
 
       await db
         .update(sessionLinks)
         .set({ closedAt: new Date(), closedReason: "completed" });
+      // Within the day, the key is a follow-up's alone.
+      expect(await outbox.enqueue({ ...late, kind: "failure_notice" })).toBe(
+        "link_closed",
+      );
       await sayAfterTurn(sessionId, 1, [text("after")]);
       await outboxPass();
       await outboxPass();

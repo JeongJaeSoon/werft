@@ -110,7 +110,7 @@ turn은 `queued → running → completed | failed | interrupted | outcome_unkno
 | T10 | attempt exited, 덮이지 않은 turn 있음 | 세션 recovery_required | 1번 절의 조건 | scheduler |
 | T11 | turn running | turn failed(`emergency_stopped`). 대기 중인 입력은 cancelled. 실행이 있으면 lease epoch가 올라감 | 관리자가 그 세션이 일하는 Slack 채널에서 에이전트를 긴급 정지함 | 긴급 정지 트랜잭션 |
 | T12 | 앞의 turn(cancelled 제외)이 failed(`emergency_stopped`), 새 입력으로 만든 turn의 첫 전달([이어서 하기] 제외) | 새 turn 시작. 끊긴 입력은 앞에 붙이지 않고 `prepend_skip_reason` = `emergency_stopped` | 정지를 풀고, 세션이 일시 정지됐으면 재개한 뒤 | worker의 next-input |
-| T13 | turn이 끝났고 그 turn의 Slack 본 글(답 `reply:` 또는 실패 안내 `failure:`)이 보내기를 마침(`pending`·`sending`이 아님), T3으로 그 turn에 `after_turn` `result`가 붙음 | 그 스레드에 후속 글 행 하나(kind `reply`, 키 `after_turn:<link>:<turn>:<result 순번>`). 웹 대화는 같은 `after_turn` assistant 이벤트를 답 말풍선으로 그린다 | 링크가 살아 있음(revoke·mute·close 아님, `report_mode`가 `none`이 아님), 설치가 revoke되지 않음, turn이 링크보다 뒤, 답 텍스트가 있음 | Slack outbox drain (`enqueueSlackAfterTurnReplies`) |
+| T13 | turn이 끝났고 그 turn의 Slack 본 글(답 `reply:` 또는 실패 안내 `failure:`)이 보내기를 마침(`pending`·`sending`이 아님), T3으로 그 turn에 `after_turn` `result`가 붙음 | 그 스레드에 후속 글 행 하나(kind `reply`, 키 `after_turn:<link>:<turn>:<result 순번>`). 웹 대화는 같은 `after_turn` assistant 이벤트를 답 말풍선으로 그린다 | 링크가 revoke·mute 아님(열려 있거나, 닫힌 지 하루 안이고 답이 닫히기 전에 저장됨. 하루는 후속 글 행을 넣는 기한이고, 넣은 행은 그 뒤에도 보낸다), `report_mode`가 `none`이 아님, 설치가 revoke되지 않음, turn이 링크보다 뒤, 답 텍스트가 있음 | Slack outbox drain (`enqueueSlackAfterTurnReplies`) |
 
 빚진 checkpoint는 worker가 기억하는 값이다. 마지막으로 끝낸 turn이 checkpoint 없이 끝났거나, 마지막 캡처 뒤에 engine이 스스로 답을 냈으면 빚이 있다.
 
