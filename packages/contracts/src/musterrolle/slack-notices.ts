@@ -46,6 +46,10 @@ const SLACK_NOTICE_MESSAGES_KO = {
   channelOff: "이 채널에서는 꺼져 있어요",
   agentInactive:
     "이 에이전트는 지금 멈춰 있어요. 에이전트 관리자에게 문의하세요",
+  // A mention in a channel the agent has no binding for, once a day per
+  // person in the channel; only that person sees it.
+  channelUnbound:
+    "이 채널은 아직 이 에이전트에 연결되지 않았어요. 워크스페이스 관리자에게 에이전트의 Slack 탭에서 이 채널을 연결해 달라고 요청하세요",
   pendingApproval: "이 채널은 어드민 승인을 기다리고 있어요",
   callerLimitedRepository:
     "이 에이전트를 쓰는 사람에게 걸린 제한 때문에 이 저장소로는 시작할 수 없어요",
@@ -151,6 +155,8 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     channelOff: "このチャンネルではオフになっています",
     agentInactive:
       "このエージェントは現在停止しています。エージェントの管理者にお問い合わせください",
+    channelUnbound:
+      "このチャンネルはまだこのエージェントに接続されていません。ワークスペースの管理者に、エージェントのSlackタブでこのチャンネルを接続してもらってください",
     pendingApproval: "このチャンネルはアドミンの承認を待っています",
     callerLimitedRepository:
       "このエージェントを使う人に設定された制限のため、このリポジトリでは開始できません",
@@ -235,6 +241,8 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "No one administers this agent, so it can't start a new session. Ask a workspace admin to assign an agent admin",
     channelOff: "This agent is turned off in this channel",
     agentInactive: "This agent is stopped right now. Contact the agent's admin",
+    channelUnbound:
+      "This channel isn't connected to this agent yet. Ask a workspace admin to connect it in the agent's Slack tab",
     pendingApproval: "This channel is waiting for an admin's approval",
     callerLimitedRepository:
       "A limit set on the people who use this agent doesn't allow starting with this repository",
@@ -333,7 +341,7 @@ export type SlackNotice = {
   message: SlackNoticeMessage;
   /** What a message's `{count}` stands for. */
   count?: number;
-  /** The web page where the person links their Slack account. */
+  /** A console page the line points to: where the person links their Slack account, or the agent list. */
   link_url?: string;
 };
 

@@ -254,6 +254,7 @@ async function drainFixture(
     unpostedInstructions: async () => [],
     unmirroredInputs: async () => [],
     unansweredTurns: async () => [],
+    afterTurnReplies: async () => [],
     promptCard: async () => null,
     unpromptedRequests: async () => [],
     expireSending: async () => [],
