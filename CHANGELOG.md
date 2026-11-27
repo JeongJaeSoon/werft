@@ -15,7 +15,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
-- **Slack 채널 듣기의 고지 승인을 없앤다. 워크스페이스 owner·admin은 승인 없이 에이전트의 대화 스위치를 `shadow`로 올리고 내린다**(JeongJaeSoon/werft#PRNUM). API 계약이 바뀐다.
+- **Slack 채널 듣기의 고지 승인을 없앤다. 워크스페이스 owner·admin은 승인 없이 에이전트의 대화 스위치를 `shadow`로 올리고 내린다**(JeongJaeSoon/werft#2339). API 계약이 바뀐다.
   - `POST /v1/agents/{id}/slack/notice/approve`와 `/revoke`는 무엇을 보내든 `410` `ENDPOINT_RETIRED`(`details.reason_code` `slack_notice_retired`)로 답하고 아무것도 쓰지 않는다. OpenAPI에 `deprecated: true`로 남고 다음 정리에서 지운다. 새 오류 코드 `ENDPOINT_RETIRED`가 생긴다.
   - `GET /v1/agents/{id}/slack/notice`는 모양을 지키되 `notice`는 늘 null, `state`는 늘 `no_notice`, `approvals`는 늘 빈 배열이다. 세 칸은 deprecated다. 스위치는 `rollout`을, 바꿀 수 있는지는 `can_approve`를 읽는다.
   - `POST /v1/agents/{id}/slack/notice/rollout`은 더는 409(`notice_not_approved`, `no_notice`)와 `SLACK_NOT_INSTALLED`를 보내지 않는다. `on`은 전처럼 400 `rollout_on_unavailable`이다. 이 reason code들과 `state`의 `not_installed`·`not_approved`·`reapproval_required`·`approved` 값은 계약에 deprecated로 남고 보내지 않는다.
