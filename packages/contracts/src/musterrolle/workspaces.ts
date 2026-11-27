@@ -87,9 +87,7 @@ export const achievementJudgeSettingsSchema = z
  * (a newer build wrote it) is left out of the result, not refused. A known key
  * with a bad value is still refused.
  */
-export const storedAchievementJudgeSettingsSchema = z.object(
-  achievementJudgeFields,
-);
+const storedAchievementJudgeSettingsSchema = z.object(achievementJudgeFields);
 
 const workspaceSettingsFields = (
   judge:

@@ -151,6 +151,10 @@ describe("workspace", () => {
     expect(read.achievement_judge.threshold).toBe(0.5);
     expect("future_key" in read).toBe(false);
     expect("future_nested" in read.achievement_judge).toBe(false);
+    // A row that never named a judge still reads as the defaults.
+    expect(
+      storedWorkspaceSettingsSchema.shape.achievement_judge.parse(undefined),
+    ).toEqual(workspaceSettingsSchema.parse({}).achievement_judge);
     expect(workspaceSettingsSchema.safeParse(stored).success).toBe(false);
     expect(workspaceSettingsSchema.safeParse({ future_key: 1 }).success).toBe(
       false,

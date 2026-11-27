@@ -9,7 +9,7 @@ import {
   type AchievementType,
   BUILTIN_ACHIEVEMENT_TYPES,
   type ReceiptOperation,
-  storedAchievementJudgeSettingsSchema,
+  storedWorkspaceSettingsSchema,
 } from "@werft-ai/contracts";
 import type { AchievementRuleStore, TeamActor } from "@werft-ai/platform";
 import { MANAGEMENT_ROLES } from "@werft-ai/platform";
@@ -715,7 +715,7 @@ export function createPostgresAchievementRuleStore(
         .from(workspaces)
         .where(eq(workspaces.id, workspaceId));
       if (!row) return null;
-      return storedAchievementJudgeSettingsSchema.parse(
+      return storedWorkspaceSettingsSchema.shape.achievement_judge.parse(
         (row.settings as { achievement_judge?: unknown }).achievement_judge,
       );
     },
