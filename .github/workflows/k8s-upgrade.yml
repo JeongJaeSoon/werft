@@ -102,7 +102,7 @@ jobs:
             echo "<!-- ci-k8s-upgrade-failure -->"
             echo "helm upgrade and rollback with sessions alive, on kind ended \`${RESULT}\` on \`${GITHUB_REF_NAME}\` @ \`${GITHUB_SHA}\` (${GITHUB_EVENT_NAME}, [run ${GITHUB_RUN_ID}](${RUN_URL}))."
             echo
-            echo "It runs on pull requests only when the chart or its scripts change, so a product change merged since the last green night can be the cause. Reproduce with \`deploy/kind/upgrade.sh\`."
+            echo "It runs on pull requests only when the chart, the upgrade check or its scripts change, so another product change merged since the last green night can be the cause. Reproduce with \`deploy/kind/upgrade.sh\`."
           } >body.md
           .github/scripts/upsert-ci-issue.sh ci-k8s-upgrade-failure \
             "CI: K8s upgrade failed (nightly)" body.md
