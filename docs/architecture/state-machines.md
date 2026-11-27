@@ -54,7 +54,7 @@ terminate는 사람이 세션을 강제로 끝내는 제어다(`POST /v1/session
 | `recovery_required` (status `failed` 또는 `stopped`) | `closed` (status `stopped`) | `expected_revision`이 맞고, `expected_admission_state`를 보냈다면 `recovery_required`이고, 레거시 pod 바인딩(execution 없이 pod만)이 아니다. 묶인 execution이 없으면 receipt가 응답에서 `succeeded`다. 묶여 있으면 kill intent를 쓰고 receipt는 `accepted`로 남는다 | 세션을 제어할 수 있는 사람의 terminate |
 | `active`, `pausing`, `paused`, `resuming`, `closing`, `stopping` | `stopping` 뒤 `stopped` (실행이 끊은 turn이 `outcome_unknown`이면 `recovery_required`) | 묶인 execution이 있을 때. 없으면 바로 `stopped` | 같음 |
 | `stopped` | 그대로 | 묶인 execution이 없으면 admission·status·revision·lease epoch를 바꾸지 않는다 | 같음 |
-| 어느 상태든 | 그대로 | `expected_admission_state`가 지금 admission과 다르면 409 `REVISION_CONFLICT`. `recovery_required`로 가는 전이가 모두 revision을 올리지는 않으므로, 웹은 확인 창이 보인 admission을 이 값으로 보낸다 | 같음 |
+| `closed`가 아닌 어느 상태든 | 그대로 | 새 요청의 `expected_admission_state`가 지금 admission과 다르면 409 `REVISION_CONFLICT`(메시지에 지금 admission). `closed`는 먼저 `SESSION_CLOSED`로 답하고, 같은 Idempotency-Key의 재시도는 처음 답을 돌려준다. `recovery_required`로 가는 전이가 모두 revision을 올리지는 않으므로, 웹은 확인 창을 연 때의 admission을 이 값으로 보낸다(창이 열린 뒤 세션이 바뀌어도 창의 문구와 보내는 값은 그대로다) | 같음 |
 | `closed` | 그대로 | 409 `SESSION_CLOSED`로 거절한다 | 같음 |
 
 `recovery_required` → `closed`는 복구 결정 `close`와 같은 방식으로 닫는다(`closeSessionRow`). 대기 입력은 `SESSION_CLOSED`로 취소되고, 디스패치 대기열에서 빠지고, lease epoch가 올라 claim한 worker를 막는다. 스트림에는 `closed_by: terminate`인 status 이벤트와 `session_closed` 이벤트가 남는다. 작업 세션의 Slack 링크는 recovery close처럼 `abandoned`로 닫힌다(close receipt가 없으므로). 링크는 Slack 후처리가 닫으므로, 아직 보고되지 않은 turn이 있으면 그 뒤에 닫힌다.

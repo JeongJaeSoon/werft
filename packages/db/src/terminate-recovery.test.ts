@@ -279,6 +279,10 @@ test("terminate closes a failed recovery_required session at once, and pressing 
     outcome: "rejected",
     admissionState: "closed",
   });
+  // Closed answers first, whatever admission the caller decided on.
+  expect(
+    await terminate(session, after.revision, undefined, "recovery_required"),
+  ).toEqual({ outcome: "rejected", admissionState: "closed" });
   const again = await sessionRow(session.sessionId);
   expect({
     admissionState: again.admissionState,
@@ -350,7 +354,8 @@ test("a terminate decided on another admission is a revision conflict once the s
   // The caller read the session while it was active, at this same revision:
   // losing the worker moved the admission, not the revision.
   expect(await terminate(session, row.revision, undefined, "active")).toEqual({
-    outcome: "revision_conflict",
+    outcome: "admission_conflict",
+    admissionState: "recovery_required",
     currentRevision: row.revision,
   });
   const untouched = await sessionRow(session.sessionId);

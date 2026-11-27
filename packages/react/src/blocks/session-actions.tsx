@@ -864,6 +864,8 @@ export function actionsFor(
 function commandFor(
   action: ControlAction,
   session: SessionDetailData,
+  // The admission a terminate's dialog was opened on, when it was.
+  decidedOn: SessionDetailData["admission_state"] = session.admission_state,
 ): SessionControl {
   const expected_revision = session.revision;
   switch (action) {
@@ -879,10 +881,7 @@ function commandFor(
         action,
         // What the dialog said rests on it: from recovery_required the
         // terminate closes for good.
-        body: {
-          expected_revision,
-          expected_admission_state: session.admission_state,
-        },
+        body: { expected_revision, expected_admission_state: decidedOn },
       };
     case "resume":
       return { action, body: { expected_revision } };
@@ -915,6 +914,10 @@ export function SessionControls({
   const refused = useRefusal(refusal);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [confirming, setConfirming] = useState(false);
+  // What the terminate dialog was opened on: its copy and the command both
+  // rest on it, so a session that moves while it is open is refused, not
+  // closed on a promise the dialog no longer shows.
+  const [confirmingOn, setConfirmingOn] = useState(session.admission_state);
   const reason = unavailable?.control;
   const actions = actionsFor(session);
   const actionSet = actions.join(" ");
@@ -970,7 +973,7 @@ export function SessionControls({
   const run = (action: ControlAction) => {
     setOutcome(null);
     ranOn.current = actionSet;
-    control.mutate(commandFor(action, session), {
+    control.mutate(commandFor(action, session, confirmingOn), {
       onSuccess: () =>
         settle({ kind: "notice", text: t("session.control.sent") }),
       onError: (error) => settle({ kind: "error", text: refused(error) }),
@@ -1000,8 +1003,10 @@ export function SessionControls({
         title={reason === undefined ? label : undefined}
         onClick={() => {
           if (reason !== undefined || control.isPending) return;
-          if (action === "terminate") setConfirming(true);
-          else run(action);
+          if (action === "terminate") {
+            setConfirmingOn(session.admission_state);
+            setConfirming(true);
+          } else run(action);
         }}
       >
         <Icon strokeWidth={1.5} aria-hidden="true" />
@@ -1054,7 +1059,7 @@ export function SessionControls({
         title={t("session.control.terminate.title")}
         consequence={
           // Waiting on recovery, a terminate closes the session for good.
-          session.admission_state === "recovery_required"
+          confirmingOn === "recovery_required"
             ? t("session.control.terminate.consequence.recovery")
             : t("session.control.terminate.consequence")
         }

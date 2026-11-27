@@ -3864,6 +3864,47 @@ describe("session runtime", () => {
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
   });
 
+  test("a terminate dialog opened on a running session sends the admission it showed, even after the session moved to recovery", async () => {
+    const user = await setupUser();
+    let state = { ...detail };
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, state),
+      [`POST /v1/sessions/${SESSION_ID}/terminate`]: () =>
+        apiError(409, "REVISION_CONFLICT", "admission moved"),
+    });
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    await user.click(await screen.findByRole("button", { name: "세션 종료" }));
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "세션을 종료할까요?",
+    });
+    const reads = () =>
+      api.calls.filter(
+        (call) =>
+          call.method === "GET" && call.path === `/v1/sessions/${SESSION_ID}`,
+      ).length;
+    const before = reads();
+    state = {
+      ...detail,
+      status: "failed",
+      admission_state: "recovery_required",
+      current_turn_id: null,
+    } as SessionDetail;
+    act(() => stream.emit("ev_1", "status", { phase: "failed" }));
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+    // The dialog keeps the promise it made when it opened.
+    expect(dialog.textContent).toContain("다시 시작할 수 있습니다");
+    await user.click(within(dialog).getByRole("button", { name: "종료" }));
+    await waitFor(() =>
+      expect(
+        api.calls
+          .filter((call) => call.method === "POST")
+          .map((call) => call.body),
+      ).toEqual([{ expected_revision: 3, expected_admission_state: "active" }]),
+    );
+  });
+
   test("a terminate whose button left before the receipt hands the keyboard to its outcome", async () => {
     const user = await setupUser();
     let state = { ...detail };

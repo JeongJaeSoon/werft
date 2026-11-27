@@ -561,7 +561,8 @@ export function createPostgresSessionControl(
           input.expectedAdmissionState !== session.admissionState
         ) {
           return {
-            outcome: "revision_conflict",
+            outcome: "admission_conflict",
+            admissionState: session.admissionState,
             currentRevision: session.revision,
           };
         }
