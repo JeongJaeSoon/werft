@@ -892,6 +892,38 @@ export function createSlackSessionHandler(
       });
     };
 
+    // A person's mention outside a bound thread once the rollout is on: its
+    // channel lines go to them alone, once a UTC day per person and line.
+    const rolloutOnMention =
+      found === null &&
+      mentioned &&
+      !dm &&
+      !fromBot &&
+      mentionHandling !== "current_path";
+    const tellOnceADay = async (
+      message: "channelUnbound" | "pendingApproval",
+      reason: string,
+      linkUrl?: string,
+    ) => {
+      const day = new Date(Number(event.ts) * 1000).toISOString().slice(0, 10);
+      await deps.notices.record({
+        workspaceId: agent.workspaceId,
+        agentId: agent.agentId,
+        installationId: agent.installationId,
+        slackAppId: claim.slackAppId,
+        teamId: claim.teamId,
+        channelId: event.channel,
+        threadTs,
+        slackUserId: event.user,
+        reason,
+        notice: {
+          message,
+          ...(linkUrl === undefined ? {} : { link_url: linkUrl }),
+        },
+        onceKey: `${agent.installationId}:${event.channel}:${event.user}:${message}:${day}`,
+      });
+    };
+
     // The bot left a channel this event was queued for: the receipt says so
     // instead of "processed"; nothing is taken or said.
     const stopIfLeft = async (): Promise<void> => {
@@ -925,11 +957,15 @@ export function createSlackSessionHandler(
         deps.logger.warn("Slack channel turned private; waits for approval", {
           ...ids,
         });
-        await notice(
-          "pending_approval",
-          { message: "pendingApproval" },
-          { id: waiting.id, revision: waiting.revision },
-        );
+        // Once the rollout is on, the same daily line a mention in a
+        // channel waiting for approval gets, so it is not said twice.
+        await (rolloutOnMention
+          ? tellOnceADay("pendingApproval", "pending_approval")
+          : notice(
+              "pending_approval",
+              { message: "pendingApproval" },
+              { id: waiting.id, revision: waiting.revision },
+            ));
         return;
       }
     }
@@ -959,14 +995,7 @@ export function createSlackSessionHandler(
     const unboundLine =
       mentionTable.notice === "channelUnbound" ||
       mentionTable.notice === "pendingApproval";
-    if (
-      found === null &&
-      mentioned &&
-      !dm &&
-      !fromBot &&
-      binding === null &&
-      (unboundLine || mentionHandling === "current_path")
-    ) {
+    if (found === null && mentioned && !dm && !fromBot && binding === null) {
       // Read again: the table's read may be older than a binding made since.
       const live = await deps.bindings.findLiveSlackChannel(
         agent.installationId,
@@ -975,8 +1004,7 @@ export function createSlackSessionHandler(
       const line =
         live === null
           ? ("channelUnbound" as const)
-          : live.status === "pending_approval" &&
-              mentionTable.notice === "pendingApproval"
+          : live.status === "pending_approval" && rolloutOnMention
             ? ("pendingApproval" as const)
             : undefined;
       if (line === undefined) {
@@ -995,26 +1023,11 @@ export function createSlackSessionHandler(
         const opens =
           linked?.status === "linked" &&
           linked.workspaceId === agent.workspaceId;
-        const day = new Date(Number(event.ts) * 1000)
-          .toISOString()
-          .slice(0, 10);
-        await deps.notices.record({
-          workspaceId: agent.workspaceId,
-          agentId: agent.agentId,
-          installationId: agent.installationId,
-          slackAppId: claim.slackAppId,
-          teamId: claim.teamId,
-          channelId: event.channel,
-          threadTs,
-          slackUserId: event.user,
-          reason:
-            line === "channelUnbound" ? "channel_unbound" : "pending_approval",
-          notice: {
-            message: line,
-            ...(opens ? { link_url: deps.agentsUrl } : {}),
-          },
-          onceKey: `${agent.installationId}:${event.channel}:${event.user}:${line}:${day}`,
-        });
+        await tellOnceADay(
+          line,
+          line === "channelUnbound" ? "channel_unbound" : "pending_approval",
+          opens ? deps.agentsUrl : undefined,
+        );
         return;
       }
     }

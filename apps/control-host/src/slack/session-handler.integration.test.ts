@@ -6399,6 +6399,7 @@ describe.each(ENGINES)(
       await deliver(fixture, mention("100.000100"));
       await deliver(fixture, mention("200.000100"));
       await deliver(fixture, mention("300.000100", { user: "U0OTHER" }));
+      await deliver(fixture, mention("86500.000100"));
       await drain(handle);
       const waiting = {
         reason: "pending_approval",
@@ -6407,6 +6408,7 @@ describe.each(ENGINES)(
       expect(told(notices)).toEqual([
         { threadTs: "100.000100", slackUserId: PERSON, ...waiting },
         { threadTs: "300.000100", slackUserId: "U0OTHER", ...waiting },
+        { threadTs: "86500.000100", slackUserId: PERSON, ...waiting },
       ]);
       expect(threadNotices).toEqual([]);
       expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
@@ -6422,6 +6424,35 @@ describe.each(ENGINES)(
       await drain(handle);
       expect(notices).toEqual([]);
       expect(threadNotices).toEqual([]);
+      expect(
+        await db
+          .select({ status: slackInboundEvents.status })
+          .from(slackInboundEvents)
+          .where(eq(slackInboundEvents.agentId, fixture.agentId)),
+      ).toEqual([{ status: "processed" }]);
+      expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
+      expect(await sessionsOf(fixture)).toEqual([]);
+    });
+
+    test("rollout on: a channel Slack now reports private tells a person waiting for approval once a UTC day, the next mention included", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      slack.channels.set(CHANNEL, { isPrivate: true });
+      const { handle, notices, threadNotices } = handler();
+      // The first finds the channel private; the second finds it waiting.
+      await deliver(fixture, mention("100.000100"));
+      await deliver(fixture, mention("200.000100"));
+      await deliver(fixture, mention("86500.000100"));
+      await drain(handle);
+      const waiting = {
+        reason: "pending_approval",
+        notice: { message: "pendingApproval" },
+      };
+      expect(told(notices)).toEqual([
+        { threadTs: "100.000100", slackUserId: PERSON, ...waiting },
+        { threadTs: "86500.000100", slackUserId: PERSON, ...waiting },
+      ]);
+      expect(threadNotices).toEqual([]);
+      expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
     });
 
     for (const rollout of ["off", "shadow"] as const) {
