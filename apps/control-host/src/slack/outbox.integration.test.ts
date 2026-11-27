@@ -6917,4 +6917,74 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
     expect(slack.updates).toEqual([]);
     expect(postedLines()).toEqual([ko.capacityWait, "Done."]);
   });
+
+  test("an update that waited is not sent once the link stops keeping a progress message", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.update(sessionLinks).set({ reportMode: "progress" });
+    await setTurn(sessionId, "queued");
+    await outboxPass();
+    await setTurn(sessionId, "running");
+    await outboxPass();
+    await db.update(sessionLinks).set({ reportMode: "per_step" });
+    await intervalOver();
+    await outboxPass();
+    expect(postedLines()).toEqual([ko.progressQueued]);
+    expect(slack.updates).toEqual([]);
+    expect(
+      (await progressRows()).map(({ status, dedupeKey }) => [
+        status,
+        dedupeKey.replace(/^progress:[^:]+:/, ""),
+      ]),
+    ).toEqual([
+      ["sent", "1:queued:1"],
+      ["failed", "2:running:1"],
+    ]);
+  });
+
+  test("the end of the work does not overtake a first post still waiting", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.update(sessionLinks).set({ reportMode: "progress" });
+    await setTurn(sessionId, "running");
+    await outboxPass({ botToken: null });
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await outboxPass({ botToken: null });
+    expect(
+      (await progressRows()).map(({ dedupeKey }) =>
+        dedupeKey.replace(/^progress:[^:]+:/, ""),
+      ),
+    ).toEqual(["1:running:1"]);
+
+    await outboxPass();
+    await intervalOver();
+    await outboxPass();
+    expect(postedLines()).toEqual([ko.progressRunning, "Done."]);
+    expect(slack.updates.map(({ text }) => text.split("\n")[0])).toEqual([
+      ko.progressIdle,
+    ]);
+  });
+
+  test("a mirror link on progress keeps the wait's own notice: it has no progress message", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db
+      .update(sessionLinks)
+      .set({ reportMode: "progress", role: "mirror" });
+    await setTurn(sessionId, "queued");
+    const launch = await launchSession(db, {
+      sessionId,
+      backend: "kubernetes",
+    });
+    await db
+      .update(workerLaunches)
+      .set({ capacityWaitSince: new Date(Date.now() - 31_000) })
+      .where(eq(workerLaunches.executionId, launch.executionId));
+    await outboxPass();
+    expect(await progressRows()).toEqual([]);
+    expect(postedLines()).toEqual([ko.capacityWait]);
+  });
 });

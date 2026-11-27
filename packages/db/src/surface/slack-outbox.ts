@@ -403,6 +403,12 @@ async function linkTakesNew(
 
 const UNCERTAIN_PREFIX = "uncertain:";
 
+// Whether link `link` keeps a progress message (progressDue): a primary
+// link with a thread whose report mode is progress.
+const keepsProgressMessage = (link: SQL) => sql`(
+  ${link}.role = 'primary' AND ${link}.thread_id <> '' AND ${reportsProgress(link)}
+)`;
+
 // Whether link `l` still takes the row: not revoked, unmuted, and posting
 // the row's kind. Not `closed_at`: a closed link's last report still goes.
 const linkTakes = (row: SQL) => sql`(
@@ -411,6 +417,9 @@ const linkTakes = (row: SQL) => sql`(
   AND CASE ${row}.kind
     WHEN 'instruction' THEN ${mirrorsInstructions(sql.raw("l"))}
     WHEN 'input_notice' THEN ${postsPrompts(sql.raw("l"))}
+    -- A link's own progress message (slackProgressKey) only while it keeps one.
+    WHEN 'progress' THEN ${reportsTurns(sql.raw("l"))}
+      AND (${row}.progress_key IS DISTINCT FROM 'progress:' || l.id OR ${keepsProgressMessage(sql.raw("l"))})
     ELSE ${reportsTurns(sql.raw("l"))}
   END
 )`;
@@ -1641,7 +1650,7 @@ export function createPostgresSlackOutboxStore(
             eq(sessionLinks.muted, false),
             reportsTurns(sql.raw('"session_links"')),
             // A progress link's message says so in place (progressDue).
-            sql`NOT ${reportsProgress(sql.raw('"session_links"'))}`,
+            sql`NOT ${keepsProgressMessage(sql.raw('"session_links"'))}`,
             isNull(sessionLinks.closedAt),
             ne(slackInstallations.status, "revoked"),
             sql`NOT EXISTS (SELECT 1 FROM ${t} o WHERE o.dedupe_key = ${key})`,
@@ -1699,8 +1708,14 @@ export function createPostgresSlackOutboxStore(
                    AND ot.status IN ('queued', 'running', 'needs_input')
                  ORDER BY ot.sequence
                  LIMIT 1),
-                -- Nothing unfinished: only a message already up is told so.
-                CASE WHEN last.dedupe_key IS NOT NULL THEN 'idle:' || (
+                -- Nothing unfinished: only a message Slack holds is told so,
+                -- so a first post still waiting is not overtaken by it.
+                CASE WHEN EXISTS (
+                  SELECT 1 FROM ${t} s
+                  WHERE s.installation_id = session_links.installation_id
+                    AND s.progress_key = 'progress:' || session_links.id
+                    AND s.status = 'sent'
+                ) THEN 'idle:' || (
                   SELECT coalesce(max(mt.sequence), 0) FROM turns mt
                   WHERE mt.session_id = session_links.session_id
                 ) END
@@ -1723,18 +1738,17 @@ export function createPostgresSlackOutboxStore(
               LIMIT 1
             ) last ON true
             WHERE session_links.session_id IS NOT NULL
-              AND session_links.role = 'primary'
               AND session_links.revoked_at IS NULL
               AND NOT session_links.muted
               AND session_links.closed_at IS NULL
-              -- Never a top-level post: the message lives in the thread.
-              AND session_links.thread_id <> ''
               AND i.status <> 'revoked'
-              AND ${reportsProgress(sql.raw('"session_links"'))}
+              -- Never a top-level post: the message lives in the thread.
+              AND ${keepsProgressMessage(sql.raw('"session_links"'))}
           ) due
+          -- What the newest update shows, whatever its number: two passes
+          -- that numbered theirs alike both go in, and the newer state wins.
           WHERE due.state IS NOT NULL
-            AND due.last_key IS DISTINCT FROM
-              'progress:' || due.session_link_id || ':' || due.updates || ':' || due.state
+            AND regexp_replace(due.last_key, '^progress:[^:]+:[0-9]+:', '') IS DISTINCT FROM due.state
           ORDER BY due.session_link_id
           LIMIT ${limit}
         `),
