@@ -6,7 +6,6 @@ import {
   type HookCallback,
   type Options,
   query,
-  type Settings,
 } from "@anthropic-ai/claude-agent-sdk";
 import { pinnedClaudeToolCatalog } from "@werft-ai/runtime-claude-codec";
 import {
@@ -71,6 +70,9 @@ type RunOptions = {
   scenario: Scenario;
 };
 
+/** A proxy connection's entry in `Observed.outside` and what it sent so far. */
+type ProxySeen = { at: number; head: string };
+
 type HookSeen = { agentId?: string; decision: string; tool: string };
 
 type Observed = {
@@ -78,7 +80,7 @@ type Observed = {
   /** Connections the WebFetch target accepted. */
   fetched: number;
   offered: Map<Path, string[]>;
-  /** What the engine asked its proxy for: everything it dialled off this host. */
+  /** One entry a connection to the engine's proxy: the first line it sent. */
   outside: string[];
   post: Map<string, HookSeen>;
   pre: Map<string, HookSeen>;
@@ -252,7 +254,7 @@ function stepsFor(
 let isolated: IsolatedWorkspace | undefined;
 let server: FakeAnthropicServer | undefined;
 let fetchTarget: Bun.TCPSocketListener<undefined> | undefined;
-let outsideProxy: Bun.TCPSocketListener<undefined> | undefined;
+let outsideProxy: Bun.TCPSocketListener<ProxySeen> | undefined;
 const report: string[] = [];
 
 afterEach(() => cleanUp());
@@ -377,15 +379,25 @@ async function runScenario(options: RunOptions): Promise<{
     },
   });
   fetchTarget = target;
-  // The engine's proxy for every address off this host. It lets nothing
+  // The engine's proxy for every address but loopback. It lets nothing
   // through, so a run neither reaches an outside service nor depends on one
-  // answering, and what it asked for is on record.
-  const proxy = Bun.listen<undefined>({
+  // answering, and each connection that came to it is on record. A connection
+  // that ignores the proxy variables is not seen here.
+  const proxy = Bun.listen<ProxySeen>({
     hostname: "127.0.0.1",
     port: 0,
     socket: {
+      open(socket) {
+        socket.data = { at: observed.outside.push("") - 1, head: "" };
+      },
       data(socket, chunk) {
-        observed.outside.push(chunk.toString("latin1").split("\r\n")[0] ?? "");
+        const seen = socket.data;
+        seen.head += chunk.toString("latin1");
+        const end = seen.head.indexOf("\r\n");
+        // The line may come in pieces; a peer that never ends it is cut off.
+        if (end === -1 && seen.head.length < 1024) return;
+        observed.outside[seen.at] =
+          end === -1 ? seen.head : seen.head.slice(0, end);
         socket.end();
       },
     },
@@ -523,8 +535,11 @@ async function runScenario(options: RunOptions): Promise<{
   // platform's gates and the tool's own work, so it turns the check off
   // rather than hang its verdict on that endpoint answering.
   if (!options.hostCheck) {
+    if (typeof sdkOptions.settings !== "object") {
+      throw new Error("The harness adds to inline engine settings, not a file");
+    }
     sdkOptions.settings = {
-      ...(sdkOptions.settings as Settings),
+      ...sdkOptions.settings,
       skipWebFetchPreflight: true,
     };
   }
@@ -689,7 +704,7 @@ describe(`engine harness for catalog ${catalog?.id}`, () => {
 
   // What the proxy is there to catch, and why the runs below turn the check
   // off: the address is the engine's own, not the profile's endpoint.
-  test("with the engine's host check on, WebFetch asks Anthropic first and dials nothing when that fails", async () => {
+  test("with the engine's host check on, WebFetch asks Anthropic first and does not dial its target when that fails", async () => {
     const { observed } = await runScenario({
       path: "main",
       permissionMode: "default",
