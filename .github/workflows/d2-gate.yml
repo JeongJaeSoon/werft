@@ -6,8 +6,10 @@ name: D2 gate
 # only scripts/d2-gate/run.sh runs them. Run by hand alone, the harness went
 # stale without anyone noticing (: gate A broke on
 # incremental bundles). This workflow runs it every night on main, and on the
-# pull requests that change the gate itself or the scheduler and turn paths
-# its D, R and H tests settle.
+# pull requests that change the gate itself or the paths that decide who ends
+# a worker and what its turn becomes (its D, R and H tests). What only the
+# checkpoint, transcript and interrupt tests (A–C, E) read still waits for the
+# night.
 #
 # Deliberately NOT a required status check: it does not run on most pull
 # requests, so a required context would leave them waiting forever. A failure
@@ -36,14 +38,22 @@ on:
       # What gate D, R1–R2 and H1–H5 settle: who ends a worker, and what its
       # turn becomes. A change here that moved gate D's outcome was first seen
       # by the nightly run, a day after it merged.
+      # The scheduler, the reconciler's sweep and the loops both run in:
+      - apps/control-host/src/main.ts
+      - apps/control-host/src/pass-loop/**
+      - apps/control-host/src/reconciler/**
       - apps/control-host/src/scheduler/**
       - packages/platform/src/scheduler/**
       - packages/db/src/scheduler/**
+      - packages/adapters/execution/local-docker/src/**
+      # The turn and its lease, on the server and in the worker:
       - packages/platform/src/sessions/**
       - packages/db/src/sessions/**
+      - packages/platform/src/workers/**
       - packages/platform/src/ports/worker-unit-of-work.ts
       - packages/db/src/worker-unit-of-work.ts
       - packages/db/src/postgres-unit-of-work.ts
+      - apps/worker/src/**
 
 permissions:
   contents: read
