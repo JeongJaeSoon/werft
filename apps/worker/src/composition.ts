@@ -295,10 +295,16 @@ export function runtimeStart(
       ...(launch.runtimeConfig.response_language === undefined
         ? {}
         : { responseLanguage: launch.runtimeConfig.response_language }),
+      ...(launch.runtimeConfig.skip_web_fetch_preflight === true
+        ? { skipWebFetchPreflight: true as const }
+        : {}),
       ...(maxBudgetUsd === undefined ? {} : { maxBudgetUsd }),
       ...(launch.gitEnvironment === undefined
         ? {}
         : { gitEnvironment: launch.gitEnvironment }),
+      ...(launch.egressReportToken === undefined
+        ? {}
+        : { egressReportToken: launch.egressReportToken }),
       // Not in runtimeProfile: the fingerprint must not move with a
       // variable's value, and a resumed run reads them from its claim again.
       ...(launch.runtimeConfig.env === undefined

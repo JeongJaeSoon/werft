@@ -394,13 +394,17 @@ const PIECE_LABEL: Record<ContextFragment["kind"], string> = {
  */
 export function renderContext(
   fitted: Extract<FittedContext, { outcome: "fitted" }>,
+  /** A current post's tag, `now` unless M1 names its ts (v1-b/U1). */
+  nowTag: (post: CurrentPost) => string = () => "now",
 ): string {
   const lines: string[] = [];
   if (fitted.instructions !== "") lines.push(fitted.instructions);
   for (const piece of fitted.fragments) {
     lines.push(`[${PIECE_LABEL[piece.kind]}] ${fragmentText(piece)}`);
   }
-  for (const post of fitted.current) lines.push(`[now] ${post.body}`);
+  for (const post of fitted.current) {
+    lines.push(`[${nowTag(post)}] ${post.body}`);
+  }
   return lines.join("\n");
 }
 

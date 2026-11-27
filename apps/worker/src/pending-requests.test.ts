@@ -504,6 +504,7 @@ describe("PendingRequestRegistry", () => {
           permission_rules: true,
           user_env: true,
           response_language: true,
+          web_fetch_preflight: true,
           answer_surface: true,
           repository_pins: true,
           workspace_mcp: true,

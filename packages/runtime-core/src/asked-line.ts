@@ -19,7 +19,8 @@ import { WORKSPACE_POLICY } from "./workspace-policy.ts";
  * - `askedLineRefusal`: the narrow one, for a mode where another judge (the
  *   Claude engine's auto classifier) stands behind the ask and must not be
  *   overruled. A line passes only when it splits with certainty and every
- *   part is a command the policy allows.
+ *   part is a command the policy allows. A single `|` splits it there: what
+ *   flows through a pipe is data, and each side is judged as its own part.
  *
  * The Claude engine asks about a line its parser does not read to the end (a
  * file redirect and a heredoc after `&&`), and it does not say why it asked
@@ -63,15 +64,24 @@ type Part = {
   /** The words as they were written, quotes included. */
   written: string[];
   redirect?: { op: ">" | ">>"; target: string };
+  /** The part reads a quoted heredoc's body on its stdin. */
+  heredoc?: true;
+  /** The part reads what a `|` before it gives. */
+  piped?: true;
 };
 
 type Token =
   | { kind: "word"; text: string; written: string }
-  | { kind: "end"; op: "&&" | ";" | "\n" }
-  | { kind: "redirect"; op: ">" | ">>" };
+  | { kind: "end"; op: "&&" | ";" | "\n" | "|" }
+  | { kind: "redirect"; op: ">" | ">>" }
+  | { kind: "heredoc" };
 
-/** The tokens of a line, or why it cannot be split with certainty. */
-function tokensOf(command: string): Token[] | string {
+/**
+ * The tokens of a line, or why it cannot be split with certainty. A single
+ * `|` ends a command only under `pipes`: each side of it is then judged as a
+ * command of its own.
+ */
+function tokensOf(command: string, pipes: boolean): Token[] | string {
   const tokens: Token[] = [];
   let pending: string | undefined;
   let i = 0;
@@ -114,6 +124,14 @@ function tokensOf(command: string): Token[] | string {
       i += 1;
       continue;
     }
+    if (char === "|" && pipes) {
+      // `||` and `|&` stay unsplit.
+      const next = command[i + 1];
+      if (next === "|" || next === "&") return "a | outside a quote";
+      tokens.push({ kind: "end", op: "|" });
+      i += 1;
+      continue;
+    }
     if (char === ">") {
       const glued = i > 0 && BARE.test(command[i - 1] as string);
       const op = command[i + 1] === ">" ? ">>" : ">";
@@ -133,6 +151,7 @@ function tokensOf(command: string): Token[] | string {
       const delimiter = close === -1 ? "" : command.slice(i + 3, close);
       if (!DELIMITER.test(delimiter)) return "a heredoc delimiter";
       pending = delimiter;
+      tokens.push({ kind: "heredoc" });
       i = close + 1;
       continue;
     }
@@ -154,7 +173,7 @@ function tokensOf(command: string): Token[] | string {
         if (/[$`\\!]/.test(quoted)) return "an expansion in a quote";
         text += quoted;
         i = close;
-      } else if (" \t\n;&<>".includes(next)) {
+      } else if (" \t\n;&<>".includes(next) || (pipes && next === "|")) {
         break;
       } else {
         return `a ${next} outside a quote`;
@@ -166,17 +185,22 @@ function tokensOf(command: string): Token[] | string {
 }
 
 /** The parts of a line, or why it is not a plain list of simple commands. */
-export function partsOf(command: string): Part[] | string {
-  const tokens = tokensOf(command);
+export function partsOf(command: string, pipes = false): Part[] | string {
+  const tokens = tokensOf(command, pipes);
   if (typeof tokens === "string") return tokens;
   const parts: Part[] = [];
   let current: Part = { words: [], written: [] };
   let dangling = false;
+  let piped = false;
   const empty = () =>
     current.words.length === 0 && current.redirect === undefined;
   for (let i = 0; i < tokens.length; i += 1) {
     const token = tokens[i] as Token;
-    if (token.kind === "word") {
+    if (piped) current.piped = true;
+    if (token.kind === "heredoc") {
+      // A heredoc with no command before it feeds nothing.
+      if (!empty()) current.heredoc = true;
+    } else if (token.kind === "word") {
       current.words.push(token.text);
       current.written.push(token.written);
     } else if (token.kind === "redirect") {
@@ -189,7 +213,8 @@ export function partsOf(command: string): Part[] | string {
     } else if (!empty()) {
       parts.push(current);
       current = { words: [], written: [] };
-      dangling = token.op === "&&";
+      dangling = token.op === "&&" || token.op === "|";
+      piped = token.op === "|";
     } else if (token.op !== "\n") {
       return "an empty command";
     }
@@ -407,6 +432,83 @@ function writeKept(place: Place, path: string, narrow: boolean): string | null {
   return null;
 }
 
+/** Commands that take what comes on stdin as text, never as a name or a path. */
+const TEXT_FILTERS = ["cat", "head", "tail", "wc", "grep"];
+
+/** Where gh takes a pull request's or an issue's body as text. */
+const GH_BODY_TOPICS = ["pr", "issue"];
+const GH_BODY_VERBS = ["create", "comment", "edit", "review"];
+
+/** Whether a value flag in these words is given `-`, stdin. */
+const fromStdin = (words: readonly string[], flags: readonly string[]) =>
+  words.some(
+    (word, at) =>
+      flags.some((flag) => flag.startsWith("--") && word === `${flag}=-`) ||
+      (flags.includes(word) && words[at + 1] === "-"),
+  );
+
+/** Whether these words are a filter that reads stdin as text only. */
+function filterReadsText(words: readonly string[]): boolean {
+  const [name] = words;
+  if (!TEXT_FILTERS.includes(name ?? "")) return false;
+  // `wc --files0-from=-` reads the names of files from stdin, and wc takes
+  // a long option by any unique start of its name (`--f=-`).
+  return !(
+    name === "wc" &&
+    words.some((word) => {
+      const option = word.split("=")[0] as string;
+      return option.length > 2 && "--files0-from".startsWith(option);
+    })
+  );
+}
+
+/**
+ * Whether these words read stdin as text only: a filter, a commit message,
+ * or the body of a pull request or an issue.
+ */
+function readsHeredocAsText(words: readonly string[]): boolean {
+  const [name, verb, action] = words;
+  if (TEXT_FILTERS.includes(name ?? "")) return filterReadsText(words);
+  if (name === "gh") {
+    return (
+      GH_BODY_TOPICS.includes(verb ?? "") &&
+      GH_BODY_VERBS.includes(action ?? "") &&
+      fromStdin(words, ["--body-file", "-F"])
+    );
+  }
+  if (name !== "git" || verb !== "commit") return false;
+  // Anything else may read stdin before the message (`--pathspec-from-file=-`,
+  // `--patch`), take `-F` as its own value (`-m -F -`), or open an editor
+  // that inherits the heredoc (`-e`), so only flags without a value stand
+  // beside the one `-F -`. `--file` is an ask rule's.
+  const rest = words.slice(2);
+  const at = rest.indexOf("-F");
+  return (
+    at !== -1 &&
+    rest[at + 1] === "-" &&
+    rest.every(
+      (word, index) =>
+        index === at || index === at + 1 || COMMIT_FLAGS.includes(word),
+    )
+  );
+}
+
+/** `git commit` flags that take no value and read nothing. */
+const COMMIT_FLAGS = [
+  "-a",
+  "--all",
+  "--amend",
+  "-s",
+  "--signoff",
+  "-n",
+  "--no-verify",
+  "-q",
+  "--quiet",
+  "--allow-empty",
+  "--allow-empty-message",
+  "--no-edit",
+];
+
 const startsWith = (words: string[], command: string[]) =>
   command.every((token, index) => words[index] === token);
 
@@ -424,6 +526,19 @@ function partKept(
     if (name === undefined) return "a redirect without a command";
     if (!NARROW.some((command) => startsWith(part.words, command))) {
       return `${name} is not a command the workspace policy allows`;
+    }
+    // A heredoc's body is not read here, and a git command may take it as
+    // names, paths or directives (`git update-index --stdin`,
+    // `git cat-file --batch`, `git apply`): only text and a commit
+    // message read one.
+    if (part.heredoc && !readsHeredocAsText(part.words)) {
+      return `${name} is not a command the workspace policy lets read a heredoc`;
+    }
+    // A command fed by a pipe may take what flows in as names, paths or
+    // directives the line never shows (`git cat-file --batch`,
+    // `git update-index --stdin`), so only filters of text read a pipe.
+    if (part.piped && !filterReadsText(part.words)) {
+      return `${name} is not a command the workspace policy lets read a pipe`;
     }
   }
   const redirect = part.redirect;
@@ -742,7 +857,7 @@ export function askedLineRefusal(
   command: string,
   at: LinePlace,
 ): string | null {
-  const parts = partsOf(command);
+  const parts = partsOf(command, true);
   if (typeof parts === "string") return parts;
   const place = placeOf(at);
   if (typeof place === "string") return place;

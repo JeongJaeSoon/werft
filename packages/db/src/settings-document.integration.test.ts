@@ -354,6 +354,7 @@ integration("settings document import and export", () => {
         "connection_id",
         "credential_source",
         "endpoint",
+        "host_port",
         "kind",
       ],
       import_repository: [
@@ -375,6 +376,33 @@ integration("settings document import and export", () => {
         fields[row.operation] ?? [],
       );
     }
+    // The destination of each connection, its host:port with the scheme's
+    // port filled in.
+    expect(
+      written
+        .filter((row) => row.operation === "import_connection")
+        .map((row) => row.result)
+        .sort((a, b) =>
+          String((a as { connection_id: string }).connection_id).localeCompare(
+            String((b as { connection_id: string }).connection_id),
+          ),
+        ),
+    ).toEqual([
+      {
+        connection_id: "console",
+        kind: "anthropic",
+        endpoint: "https://api.anthropic.invalid",
+        host_port: "api.anthropic.invalid:443",
+        credential_source: "stored",
+      },
+      {
+        connection_id: "main",
+        kind: "litellm",
+        endpoint: "http://10.0.0.5:4000",
+        host_port: "10.0.0.5:4000",
+        credential_source: "stored",
+      },
+    ]);
     // The names are the rows' own, not just present.
     const named = written
       .filter((row) => row.operation === "import_repository")

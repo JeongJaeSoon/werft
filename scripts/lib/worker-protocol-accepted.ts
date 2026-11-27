@@ -21,6 +21,20 @@ export const ACCEPTED: readonly {
     proof: "packages/db/src/worker-ownership-lost.test.ts",
   },
   {
+    problem:
+      "/bootstrap-claim response $.runtime_config.skip_web_fetch_preflight: the receiver refuses this key (additionalProperties: false)",
+    why: "Sent only to a worker that announced web_fetch_preflight, which the baseline worker cannot; without it the claim carries no key and the check stays on.",
+    proof:
+      "packages/platform/src/workers/worker-gateway-response-language.test.ts",
+  },
+  {
+    problem:
+      "/bootstrap-claim response $.restore_runtime_configs[].skip_web_fetch_preflight: the receiver refuses this key (additionalProperties: false)",
+    why: "The gateway adds the key to the claim's current runtime_config only, never to a restore config, and only for a worker that announced web_fetch_preflight.",
+    proof:
+      "packages/platform/src/workers/worker-gateway-response-language.test.ts",
+  },
+  {
     problem: 'error $.error.code: the receiver refuses "ENDPOINT_RETIRED"',
     why: "Only the two retired Slack notice routes answer it (POST /v1/agents/{id}/slack/notice/approve and /revoke, 410), public /v1 routes for people and their keys; no worker route answers it and a worker calls neither.",
     proof: "apps/control-host/src/api/routes/surface/slack-notice.test.ts",

@@ -81,6 +81,7 @@ export function slackSessionStatus(
 
 /** What a progress message says, from the state `progressDue` reads. */
 export type SlackProgressStage =
+  | "closed"
   | "capacity_wait"
   | "needs_input"
   | "running"
@@ -88,6 +89,7 @@ export type SlackProgressStage =
   | "idle";
 
 const PROGRESS_STAGE_MESSAGES = {
+  closed: "progressClosed",
   // The wait's own words: the message takes the place of its notice.
   capacity_wait: "capacityWait",
   needs_input: "progressNeedsInput",

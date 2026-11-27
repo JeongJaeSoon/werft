@@ -589,6 +589,30 @@ integration("achievement rules on PostgreSQL", () => {
     ]);
     expect(await store().getJudge(randomUUID())).toBeNull();
   });
+
+  test("a judge key this build does not know is left out of the read and survives a save", async () => {
+    const workspaceId = await workspace();
+    const owner = await person(workspaceId, "owner");
+    await db
+      .update(workspaces)
+      .set({
+        settings: sql`jsonb_build_object('future_key', 1, 'achievement_judge', jsonb_build_object('future_nested', 2, 'threshold', 0.5))`,
+      })
+      .where(eq(workspaces.id, workspaceId));
+    expect(await store().getJudge(workspaceId)).toEqual(
+      achievementJudgeSettingsSchema.parse({ threshold: 0.5 }),
+    );
+    const settings = achievementJudgeSettingsSchema.parse({ threshold: 0.7 });
+    await store().setJudge({ actor: owner, receiptId: randomUUID(), settings });
+    const [row] = await db
+      .select({ settings: workspaces.settings })
+      .from(workspaces)
+      .where(eq(workspaces.id, workspaceId));
+    expect(row?.settings).toEqual({
+      future_key: 1,
+      achievement_judge: { ...settings, future_nested: 2 },
+    });
+  });
 });
 
 integration("built-in achievement types at bootstrap", () => {

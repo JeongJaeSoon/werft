@@ -1191,6 +1191,51 @@ describe("login, logout, me", () => {
     expect("codex_sandbox_missing" in (await me.json())).toBe(false);
   });
 
+  test("me answers 200 for a workspace whose settings hold a key this build does not know, and leaves the row alone", async () => {
+    const h = harness();
+    await h.bootstrap();
+    const stored = {
+      kill_switch: true,
+      future_key: { on: true },
+      achievement_judge: { threshold: 0.5, future_nested: 1 },
+    };
+    const workspace = h.identity.workspaces[0];
+    if (!workspace) throw new Error("no workspace");
+    workspace.settings = structuredClone(stored);
+
+    const me = await h.app.request("/v1/auth/me", {
+      headers: { Cookie: cookieOf(await h.login()) },
+    });
+    expect(me.status).toBe(200);
+    const raw = (await me.json()) as {
+      workspace: { settings: Record<string, unknown> };
+    };
+    expect(raw.workspace.settings.kill_switch).toBe(true);
+    expect("future_key" in raw.workspace.settings).toBe(false);
+    expect(
+      authMeResponseSchema.parse(raw).workspace?.settings.kill_switch,
+    ).toBe(true);
+    expect(workspace.settings).toEqual(stored);
+  });
+
+  test("me reads web_fetch_preflight off beside a key this build does not know", async () => {
+    const h = harness();
+    await h.bootstrap();
+    const workspace = h.identity.workspaces[0];
+    if (!workspace) throw new Error("no workspace");
+    workspace.settings = { web_fetch_preflight: false, future_key: 1 };
+
+    const me = await h.app.request("/v1/auth/me", {
+      headers: { Cookie: cookieOf(await h.login()) },
+    });
+    expect(me.status).toBe(200);
+    const raw = (await me.json()) as {
+      workspace: { settings: Record<string, unknown> };
+    };
+    expect(raw.workspace.settings.web_fetch_preflight).toBe(false);
+    expect("future_key" in raw.workspace.settings).toBe(false);
+  });
+
   test("me returns the user principal, user and workspace; logout revokes", async () => {
     const h = harness();
     await h.bootstrap();

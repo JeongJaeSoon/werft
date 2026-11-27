@@ -85,8 +85,16 @@ export type ClaudeRuntimeConfig = DriverConfig & {
    * part of the checkpoint fingerprint: a resumed session gets it fresh.
    */
   responseLanguage?: "ko" | "en" | "ja";
+  /**
+   * Sets the engine's `skipWebFetchPreflight`: WebFetch no longer asks
+   * api.anthropic.com about a host first. Not part of the checkpoint
+   * fingerprint.
+   */
+  skipWebFetchPreflight?: true;
   /** Put into the engine's environment as it is; never into its arguments. */
   gitEnvironment?: GitEnvironment;
+  /** The userinfo of the engine's proxy variables (`proxyUrlWithReportToken`). */
+  egressReportToken?: string;
   /**
    * The session's user variables. Merged into the engine's environment
    * before the adapter's own keys, so a platform key always wins. Never in

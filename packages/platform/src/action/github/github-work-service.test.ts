@@ -14,6 +14,7 @@ import { createAuthorizationPolicy } from "../../musterrolle/policy.ts";
 import { ForgeCredentialError } from "../ports/forge.ts";
 import type { GitHubApi } from "../ports/github-api.ts";
 import {
+  ciStatusFinal,
   createGitHubWorkService,
   type GitHubWorkStore,
 } from "./github-work-service.ts";
@@ -48,6 +49,8 @@ function harness(
     failRead?: GitHubCallError;
     /** The head the forge reports; the reviewed commit by default. */
     head?: string;
+    /** A commit with no CI reported. */
+    noCi?: boolean;
   } = {},
 ) {
   let clock = 0;
@@ -148,6 +151,36 @@ function harness(
         conclusion: status === "completed" ? "success" : null,
         html_url: `https://github.com/acme/app/actions/runs/${runId}`,
       };
+    },
+    getCommitCi: async (sha, perPage) => {
+      calls.push(`ci ${sha} ${perPage}`);
+      fail();
+      const reads = calls.filter((call) => call.startsWith("ci ")).length;
+      const statuses = options.statuses ?? ["completed"];
+      const status = statuses[Math.min(reads, statuses.length) - 1] ?? null;
+      const conclusion = status === "completed" ? "success" : null;
+      return options.noCi
+        ? { checkRuns: [], workflowRuns: [], truncated: false }
+        : {
+            checkRuns: [
+              {
+                name: "test",
+                status: "completed",
+                conclusion: "success",
+                html_url: null,
+              },
+            ],
+            workflowRuns: [
+              {
+                id: 42,
+                name: "CI",
+                status,
+                conclusion,
+                html_url: "https://github.com/acme/app/actions/runs/42",
+              },
+            ],
+            truncated: false,
+          };
     },
     rerunWorkflow: async (runId, failedOnly) => {
       calls.push(`rerun ${runId} ${failedOnly}`);
@@ -469,8 +502,11 @@ describe("reading a run", () => {
     expect(performance.now() - started).toBeLessThan(1_000);
   });
 
+  // 422 stays an outage on a run read: only a commit's check runs answer it
+  // for something GitHub does not hold.
   test.each([
     [404, "NOT_FOUND"],
+    [422, "BACKEND_UNAVAILABLE"],
     [500, "BACKEND_UNAVAILABLE"],
   ] as const)("a GitHub %d on a run read is %s", async (status, code) => {
     const { service } = harness({
@@ -478,6 +514,164 @@ describe("reading a run", () => {
     });
     expect((await refusal(service.getRun(actor, SESSION, 7))).code).toBe(code);
   });
+});
+
+describe("reading the CI of a commit (94S-2398)", () => {
+  test("by sha: one actions_read grant, the commit's check runs and workflow runs, no run id", async () => {
+    const { service, works, calls } = harness();
+    const view = await service.ciStatus(actor, SESSION, { commitSha: HEAD });
+    expect(view).toEqual({
+      head_sha: HEAD,
+      pull_request_number: null,
+      check_runs: [
+        {
+          name: "test",
+          status: "completed",
+          conclusion: "success",
+          html_url: null,
+        },
+      ],
+      workflow_runs: [
+        {
+          id: 42,
+          name: "CI",
+          status: "completed",
+          conclusion: "success",
+          html_url: "https://github.com/acme/app/actions/runs/42",
+        },
+      ],
+      truncated: false,
+    });
+    expect(ciStatusFinal(view)).toBe(true);
+    expect(works.map((work) => work.purpose)).toEqual(["actions_read"]);
+    expect(calls).toEqual([`ci ${HEAD} 100`]);
+  });
+
+  test("by pull request: CI's grant first, then the pull request's head is read", async () => {
+    const { service, works, calls } = harness();
+    const view = await service.ciStatus(actor, SESSION, {
+      pullRequestNumber: 12,
+    });
+    expect(view).toMatchObject({ head_sha: HEAD, pull_request_number: 12 });
+    expect(works.map((work) => work.purpose)).toEqual([
+      "actions_read",
+      "pull_request_read",
+    ]);
+    expect(calls).toEqual(["pull 12", `ci ${HEAD} 100`]);
+  });
+
+  test("a named repository goes to the CI grant as its owner/name, for the gate to judge (94S-2465)", async () => {
+    const { service, works } = harness();
+    await service.ciStatus(
+      actor,
+      SESSION,
+      { pullRequestNumber: 12 },
+      { repository: "acme/docs" },
+    );
+    await service.getRun(actor, SESSION, 7, { repository: "acme/docs" });
+    expect(
+      works.map(({ purpose, repositoryId, repositoryName }) => [
+        purpose,
+        repositoryName ?? repositoryId,
+      ]),
+    ).toEqual([
+      ["actions_read", "acme/docs"],
+      // The pull request's head: by the id the CI grant resolved, not a
+      // second lookup of the name.
+      ["pull_request_read", "app"],
+      ["actions_read", "acme/docs"],
+    ]);
+    // None named: the session's own, as before.
+    works.length = 0;
+    await service.ciStatus(actor, SESSION, { commitSha: HEAD });
+    expect(works[0]).not.toHaveProperty("repositoryName");
+  });
+
+  test("a truncated answer is never final: a run past the first page may still be running", () => {
+    const completed = {
+      name: "CI",
+      status: "completed",
+      conclusion: "success",
+      html_url: null,
+    };
+    const view = {
+      head_sha: HEAD,
+      pull_request_number: null,
+      check_runs: [completed],
+      workflow_runs: [],
+      truncated: false,
+    };
+    expect(ciStatusFinal(view)).toBe(true);
+    expect(ciStatusFinal({ ...view, truncated: true })).toBe(false);
+  });
+
+  test("CI off is the gate's refusal, before the pull request is read", async () => {
+    const { service, calls } = harness({
+      refuse: new GitHubGateError("feature_off", "receipt-off"),
+    });
+    expect(
+      await refusal(
+        service.ciStatus(actor, SESSION, { pullRequestNumber: 12 }),
+      ),
+    ).toEqual({
+      code: "GITHUB_REFUSED",
+      details: { reason_code: "feature_off", receipt_id: "receipt-off" },
+    });
+    expect(calls).toEqual([]);
+  });
+
+  test("waits until every run completes, reading the same head again", async () => {
+    const { service, calls, elapsedMs } = harness({
+      statuses: ["queued", "in_progress", "completed"],
+    });
+    const view = await service.ciStatus(
+      actor,
+      SESSION,
+      { pullRequestNumber: 12 },
+      { waitMs: 8_000 },
+    );
+    expect(ciStatusFinal(view)).toBe(true);
+    expect(calls).toEqual([
+      "pull 12",
+      `ci ${HEAD} 100`,
+      `ci ${HEAD} 100`,
+      `ci ${HEAD} 100`,
+    ]);
+    expect(elapsedMs()).toBe(2_000);
+  });
+
+  test("no run reported yet is not final, so a wait reads to its deadline", async () => {
+    const { service, calls } = harness({ noCi: true });
+    const view = await service.ciStatus(
+      actor,
+      SESSION,
+      { commitSha: HEAD },
+      { waitMs: 2_000 },
+    );
+    expect(view.check_runs).toEqual([]);
+    expect(ciStatusFinal(view)).toBe(false);
+    expect(calls.length).toBe(3);
+  });
+
+  // 422 is a commit GitHub does not hold only from the check-run lookup; the
+  // workflow-run list answers it for a bad query, an outage.
+  test.each([
+    ["check run lookup", 404, "NOT_FOUND"],
+    ["check run lookup", 422, "NOT_FOUND"],
+    ["workflow run lookup", 422, "BACKEND_UNAVAILABLE"],
+    ["check run lookup", 500, "BACKEND_UNAVAILABLE"],
+  ] as const)(
+    "a GitHub %s %d on a CI read is %s",
+    async (what, status, code) => {
+      const { service } = harness({
+        fail: new GitHubCallError(what, status, null),
+      });
+      expect(
+        (await refusal(service.ciStatus(actor, SESSION, { commitSha: HEAD })))
+          .code,
+      ).toBe(code);
+    },
+  );
 });
 
 describe("rerunning a run", () => {

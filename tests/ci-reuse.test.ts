@@ -152,6 +152,8 @@ function run(env: Record<string, string> = {}, at = sha.merge) {
       HELM: "true",
       K8S: "true",
       SDK_PACK: "false",
+      DEMO: "true",
+      UI_PACK: "true",
       DOCS_ONLY: "false",
       DOMAINS: JSON.stringify(domains),
       INTEGRATION_MATRIX: JSON.stringify(
@@ -244,6 +246,8 @@ describe("ci-reuse.sh", () => {
       // The PR plan left k8s-smoke out; the push still runs it.
       k8s: "false",
       sdk_pack: "false",
+      demo: "true",
+      ui_pack: "true",
     });
   });
 
@@ -262,6 +266,57 @@ describe("ci-reuse.sh", () => {
     expect(run().outputs.k8s).toBe("true");
   });
 
+  test.each([
+    ["demo", { demo: "false", ui_pack: "true" }],
+    ["ui-pack", { demo: "true", ui_pack: "false" }],
+  ])(
+    "a %s the PR plan left out still runs on the push, alone",
+    (left, want) => {
+      answer({
+        pulls: pr(),
+        compare: { status: "ahead" },
+        runs: runs(),
+        jobs: { jobs: withGuides(fullJobs()).filter((j) => j.name !== left) },
+      });
+      const r = run();
+      expect(r.outputs.reused).toBe("https://github.invalid/runs/11");
+      expect({ demo: r.outputs.demo, ui_pack: r.outputs.ui_pack }).toEqual(
+        want,
+      );
+    },
+  );
+
+  test.each([
+    ["demo", "Static build", { demo: "false", ui_pack: "true" }],
+    [
+      "ui-pack",
+      "Install, type-check, build and render in an empty app",
+      { demo: "true", ui_pack: "false" },
+    ],
+  ])("a %s whose own step did not pass is no evidence", (name, step, want) => {
+    answer({
+      pulls: pr(),
+      compare: { status: "ahead" },
+      runs: runs(),
+      jobs: {
+        jobs: withGuides(fullJobs()).map((j) =>
+          j.name === name ? job(name, step, "skipped") : j,
+        ),
+      },
+    });
+    const r = run();
+    expect(r.outputs.reused).toBe("https://github.invalid/runs/11");
+    expect({ demo: r.outputs.demo, ui_pack: r.outputs.ui_pack }).toEqual(want);
+  });
+
+  test("a push that plans no demo or ui-pack does not claim them", () => {
+    hit();
+    const r = run({ DEMO: "false", UI_PACK: "false" });
+    expect(r.outputs.reused).toBe("https://github.invalid/runs/11");
+    expect(r.outputs.demo).toBe("false");
+    expect(r.outputs.ui_pack).toBe("false");
+  });
+
   const refused = (r: ReturnType<typeof run>, why: string) => {
     expect(r.code).toBe(0);
     expect(r.outputs).toEqual({
@@ -269,6 +324,8 @@ describe("ci-reuse.sh", () => {
       helm: "false",
       k8s: "false",
       sdk_pack: "false",
+      demo: "false",
+      ui_pack: "false",
     });
     expect(r.why).toContain(why);
   };

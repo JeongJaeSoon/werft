@@ -3,12 +3,19 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  collect,
+  FRAGMENT_DIR,
+  fragmentNames,
+  parseSections,
+} from "../.github/scripts/changelog-release.ts";
 import {
   chartVersion,
   effectiveRef,
@@ -451,7 +458,12 @@ esac
       before: string | null,
       after: string,
       replies: Reply[] = [absent, noRelease],
-      options: { zeroBefore?: boolean; unrelated?: boolean } = {},
+      options: {
+        zeroBefore?: boolean;
+        unrelated?: boolean;
+        /** Other files the after commit adds, by path. */
+        files?: Record<string, string>;
+      } = {},
     ) =>
       sandbox((directory) => {
         const repo = join(directory, "repo");
@@ -463,6 +475,10 @@ esac
         git(repo, "commit", "-q", "-m", "before");
         const first = git(repo, "rev-parse", "HEAD");
         writeFileSync(join(repo, "CHANGELOG.md"), after);
+        for (const [path, body] of Object.entries(options.files ?? {})) {
+          mkdirSync(join(repo, path, ".."), { recursive: true });
+          writeFileSync(join(repo, path), body);
+        }
         git(repo, "add", "-A");
         git(repo, "commit", "-q", "-m", "after");
         const second = git(repo, "rev-parse", "HEAD");
@@ -626,6 +642,32 @@ esac
       expect(run.err).toContain("rewritten");
     });
 
+    test("a release commit that still holds changelog fragments is refused before GitHub is asked", () => {
+      const after = changelog("v0.1.2", "v0.1.1", "v0.1.0");
+      const run = detect(base, after, [absent, noRelease], {
+        files: {
+          "changelog.d/README.md": "how to write one",
+          "changelog.d/94S-1.md": "### 운영자가 할 일\n\n- x\n",
+        },
+      });
+      expect(run.code).toBe(1);
+      expect(run.err).toContain("changelog.d/: 94S-1.md");
+      expect(run.err).toContain("changelog-release.ts v0.1.2");
+      expect(run.output).toBe("");
+      expect(run.calls).toEqual([]);
+      // The README alone is no fragment, and an ordinary merge may add fragments.
+      const readme = detect(base, after, [absent, noRelease], {
+        files: { "changelog.d/README.md": "how to write one" },
+      });
+      expect(readme.code).toBe(0);
+      expect(readme.output).toBe("tag=v0.1.2\n");
+      const merge = detect(base, base, [absent, noRelease], {
+        files: { "changelog.d/94S-1.md": "### 운영자가 할 일\n\n- x\n" },
+      });
+      expect(merge.code).toBe(0);
+      expect(merge.output).toBe("tag=\n");
+    });
+
     test("a CHANGELOG that did not exist before makes every heading new, so it is refused", () => {
       const run = detect(null, base);
       expect(run.code).toBe(1);
@@ -662,6 +704,73 @@ esac
       });
 
     describe("a manual run (a retry)", () => {
+      /** Commits each tree in turn (path -> body, null deletes) and retries the last. */
+      const retryAfter = (trees: Record<string, string | null>[]) =>
+        sandbox((directory) => {
+          const repo = join(directory, "repo");
+          mkdirSync(repo);
+          git(repo, "init", "-q", "-b", "main");
+          trees.forEach((tree, i) => {
+            for (const [path, body] of Object.entries(tree)) {
+              if (body === null) {
+                rmSync(join(repo, path));
+              } else {
+                mkdirSync(join(repo, path, ".."), { recursive: true });
+                writeFileSync(join(repo, path), body);
+              }
+            }
+            git(repo, "add", "-A");
+            git(repo, "commit", "-q", "-m", `c${i}`);
+          });
+          const head = git(repo, "rev-parse", "HEAD");
+          const calls = fakeGh(directory, [absent, noRelease]);
+          const output = join(directory, "github-output");
+          const run = sh(
+            directory,
+            [script("release-auto.sh"), "detect"],
+            { EVENT: "workflow_dispatch", AFTER: head, GITHUB_OUTPUT: output },
+            repo,
+          );
+          return {
+            ...run,
+            calls: calls(),
+            output: existsSync(output) ? readFileSync(output, "utf8") : "",
+          };
+        });
+
+      test("a retry is refused while any fragment is left, including one merged after the refused push", () => {
+        const fragment = "### 운영자가 할 일\n\n- x\n";
+        const released = {
+          "CHANGELOG.md": changelog("v0.1.2", "v0.1.1"),
+          "changelog.d/94S-1.md": fragment,
+        };
+        const first = { "CHANGELOG.md": changelog("v0.1.1") };
+        const moved = {
+          "CHANGELOG.md": changelog("v0.1.2", "v0.1.1").replace("text", "- x"),
+          "changelog.d/94S-1.md": null,
+        };
+        // The refused commit, a later one that kept its fragment, and one whose
+        // later merge added another: a retry releases main's head, so all of
+        // them ship in v0.1.2.
+        for (const [trees, left] of [
+          [[first, released], "94S-1.md"],
+          [[first, released, { "x.txt": "fix" }], "94S-1.md"],
+          [
+            [first, released, moved, { "changelog.d/94S-2.md": fragment }],
+            "94S-2.md",
+          ],
+        ] as const) {
+          const run = retryAfter([...trees]);
+          expect(run.code).toBe(1);
+          expect(run.err).toContain(`changelog.d/: ${left}`);
+          expect(run.output).toBe("");
+        }
+        const run = retryAfter([first, released, moved]);
+        expect(run.err).toBe("");
+        expect(run.code).toBe(0);
+        expect(run.output).toBe("tag=v0.1.2\n");
+      });
+
       test("retries the top version heading when its tag and Release are free", () => {
         const run = retry(base);
         expect(run.code).toBe(0);
@@ -1613,5 +1722,382 @@ describe("release-stage.sh", () => {
     const run = stage((dir) => rmSync(join(dir, "strict", "worker.json")));
     expect(run.code).toBe(1);
     expect(run.err).toContain("is missing");
+  });
+});
+
+// Pull requests write changelog fragments; a release pull request collects
+// them with the unreleased section into the version heading detect reads.
+describe("changelog-release.ts", () => {
+  const head = "# 변경 기록\n\n## 쓰는 방식\n\n- 규칙\n\n";
+  const old = "## v0.5.0\n\n요약.\n\n### 운영자가 할 일\n\n- 옛 항목\n";
+  const unreleased =
+    "## 미출시\n\n### 운영자가 할 일\n\n- 미출시 항목 (#1)\n  - 아래 줄\n\n";
+  const ops = (entry: string) => `### 운영자가 할 일\n\n- ${entry}\n`;
+
+  /** Runs the script in a repository root holding this CHANGELOG and these fragments. */
+  const release = (
+    changelog: string,
+    fragments: Record<string, string>,
+    ...args: string[]
+  ) => {
+    const dir = mkdtempSync(join(tmpdir(), "changelog-release-"));
+    try {
+      writeFileSync(join(dir, "CHANGELOG.md"), changelog);
+      mkdirSync(join(dir, FRAGMENT_DIR));
+      writeFileSync(join(dir, FRAGMENT_DIR, "README.md"), "how");
+      for (const [name, body] of Object.entries(fragments)) {
+        writeFileSync(join(dir, FRAGMENT_DIR, name), body);
+      }
+      const run = Bun.spawnSync(
+        [process.execPath, script("changelog-release.ts"), ...args],
+        {
+          cwd: dir,
+        },
+      );
+      return {
+        code: run.exitCode,
+        err: run.stderr.toString(),
+        changelog: readFileSync(join(dir, "CHANGELOG.md"), "utf8"),
+        left: readdirSync(join(dir, FRAGMENT_DIR))
+          .filter((name) => name !== "README.md")
+          .sort(),
+        readme: existsSync(join(dir, FRAGMENT_DIR, "README.md")),
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  test("two fragments and the unreleased section become one version section, and the fragments go", () => {
+    const run = release(
+      head + unreleased + old,
+      {
+        "94S-990.md": ops("오래된 조각"),
+        "94S-1002.md": `### 보안\n\n- 보안 항목\n\n${ops("새 조각")}`,
+      },
+      "v0.6.0",
+    );
+    expect(run.err).toBe("");
+    expect(run.code).toBe(0);
+    expect(run.changelog).toBe(
+      head +
+        "## v0.6.0\n\n### 보안\n\n- 보안 항목\n\n" +
+        "### 운영자가 할 일\n\n- 새 조각\n- 오래된 조각\n- 미출시 항목 (#1)\n  - 아래 줄\n\n" +
+        old,
+    );
+    expect(run.left).toEqual([]);
+    expect(run.readme).toBe(true);
+    // The new section is the one heading detect reads as the release.
+    expect(
+      [...run.changelog.matchAll(/^## (v\S+)$/gm)].map((m) => m[1]),
+    ).toEqual(["v0.6.0", "v0.5.0"]);
+  });
+
+  test("without an unreleased section the fragments go above the newest version", () => {
+    const run = release(head + old, { "94S-1.md": ops("조각") }, "v0.6.0");
+    expect(run.code).toBe(0);
+    expect(run.changelog).toBe(`${head}## v0.6.0\n\n${ops("조각")}\n${old}`);
+  });
+
+  test("nothing to collect changes nothing", () => {
+    for (const changelog of [head + old, `${head}## 미출시\n\n${old}`]) {
+      const run = release(changelog, {}, "v0.6.0");
+      expect(run.code).toBe(0);
+      expect(run.changelog).toBe(changelog);
+      expect(run.readme).toBe(true);
+    }
+  });
+
+  test.each([
+    [
+      "a heading outside the two sections",
+      { "a.md": "### 추가\n\n- x\n" },
+      'a.md:1: "### 추가"',
+    ],
+    [
+      "a version heading",
+      { "a.md": "## v9.9.9\n\n- x\n" },
+      'a.md:1: "## v9.9.9"',
+    ],
+    ["text before a heading", { "a.md": "- x\n" }, "a.md:1: text before"],
+    ["a section twice", { "a.md": `${ops("x")}${ops("y")}` }, "appears twice"],
+    [
+      "an empty section",
+      { "a.md": "### 보안\n\n" },
+      '"### 보안" has no entries',
+    ],
+    ["an empty fragment", { "a.md": "\n" }, "a.md: no section"],
+    ["a file that is no .md", { "a.txt": ops("x") }, "changelog.d/a.txt"],
+    [
+      "CRLF line endings",
+      { "a.md": ops("x").replaceAll("\n", "\r\n") },
+      "a.md: CRLF",
+    ],
+    [
+      "a fence closed by a shorter run",
+      { "a.md": `${ops("x")}  \`\`\`\`\n  y\n  \`\`\`\n` },
+      "a fence-like line inside a code fence",
+    ],
+    [
+      "a fence closed by the other character",
+      { "a.md": `${ops("x")}  \`\`\`\n  y\n  ~~~\n` },
+      "a fence-like line inside a code fence",
+    ],
+    [
+      "a section heading inside a fence",
+      { "a.md": `${ops("x")}  \`\`\`\n### 보안\n  \`\`\`\n` },
+      '"### 보안" inside a code fence',
+    ],
+    [
+      "a top-level fence closed at a deeper indent",
+      { "a.md": `${ops("x")}  \`\`\`\n  y\n      \`\`\`\n` },
+      "a.md:6: a fence-like line inside a code fence",
+    ],
+    [
+      "a relative link",
+      { "a.md": ops("[절차](../docs/quickstart.md)") },
+      'a.md:3: link "../docs/quickstart.md" is relative',
+    ],
+    [
+      "a reference definition",
+      { "a.md": `${ops("[절차][q]")}\n  [q]: https://example.test/q\n` },
+      "a.md:3: a reference definition or a bracket",
+    ],
+    [
+      "a reference definition in a quote",
+      { "a.md": `${ops("> [q]: ../docs/quickstart.md")}` },
+      "a.md:3: a block quote",
+    ],
+    [
+      "a fence closed with a no-break space after it",
+      {
+        "a.md": `${ops("x")}  \`\`\`\n  y\n  \`\`\`${String.fromCharCode(160)}\n`,
+      },
+      "a fence-like line inside a code fence",
+    ],
+    [
+      "a fence-like line at another indent inside a fence",
+      { "a.md": `${ops("x")}  \`\`\`sh\n   \`\`\`\n  \`\`\`\n` },
+      "a.md:5: a fence-like line inside a code fence",
+    ],
+    [
+      "an escaped bracket",
+      { "a.md": ops("[q\\]x]: ../docs/quickstart.md") },
+      "a.md:3: an escaped backtick or bracket",
+    ],
+    [
+      "an escaped backtick around a link",
+      { "a.md": ops("\\`[절차](../docs/quickstart.md)\\`") },
+      "a.md:3: an escaped backtick or bracket",
+    ],
+    ["an HTML comment", { "a.md": ops("x <!-- 메모") }, "a.md:3: raw HTML"],
+    ["an HTML block", { "a.md": `${ops("x")}\n  <pre>\n` }, "a.md:5: raw HTML"],
+    [
+      "a paragraph outside an entry",
+      { "a.md": `${ops("x")}\n문단\n` },
+      "a.md:5: a line that is neither an entry",
+    ],
+    [
+      "a top-level fence",
+      { "a.md": `${ops("x")}\`\`\`\ny\n\`\`\`\n` },
+      "a.md:4: a line that is neither an entry",
+    ],
+    [
+      "a section that starts indented",
+      { "a.md": "### 운영자가 할 일\n\n  이어지는 문장\n" },
+      'a.md: "### 운영자가 할 일" must start with an entry',
+    ],
+    [
+      "a fence info string with a backtick",
+      { "a.md": `${ops("x")}  \`\`\`bad\`info\n  y\n  \`\`\`\n` },
+      "a.md:4: a fence info string",
+    ],
+    [
+      "a reference label that runs on to the next line",
+      { "a.md": ops("x\n\n  [새 문맥으로\n  계속]: https://example.test") },
+      "a.md:5: a reference definition or a bracket",
+    ],
+    [
+      "a line inside a fence less indented than the fence",
+      { "a.md": `${ops("x")}  \`\`\`\nfoo\n  \`\`\`\n` },
+      "a.md:5: a line inside a code fence is less indented",
+    ],
+    [
+      "a line separator",
+      { "a.md": ops(`x${String.fromCharCode(0x2028)}## v999.0.1`) },
+      "a.md:3: a control character (a tab too) or line separator",
+    ],
+    [
+      "a reference definition behind a code span",
+      { "a.md": ops("[q`]: https://example.test/`x](https://example.test)") },
+      "a.md:3: a reference definition",
+    ],
+    [
+      "a blank line between entries",
+      { "a.md": `${ops("x")}\n- y\n` },
+      "a.md:4: a blank line inside a section",
+    ],
+    [
+      "a blank line inside an entry",
+      { "a.md": `${ops("x")}\n  이어서\n` },
+      "a.md:4: a blank line inside a section",
+    ],
+    [
+      "a thematic break",
+      { "a.md": `${ops("x")}- - -\n` },
+      "a.md:4: a thematic break",
+    ],
+    [
+      "a fence after a list marker",
+      {
+        "a.md": `${ops("x")}- \`\`\`\n  \`\`\`\n  [q]: https://example.test/\n  \`\`\`\n`,
+      },
+      "a.md:4: a code fence opens on its own line",
+    ],
+    [
+      "a fence indented deeper than an entry",
+      { "a.md": `${ops("x")}      \`\`\`sh\n      y\n      \`\`\`\n` },
+      "a.md:4: a code fence opens on its own line",
+    ],
+    [
+      "spaces after a list marker",
+      { "a.md": "### 운영자가 할 일\n-   x\n  ## v999.0.1\n" },
+      "a.md:2: more than one space after a list marker",
+    ],
+    [
+      "a tab in the indent",
+      { "a.md": `${ops("x")}\t이어서\n` },
+      "a.md:4: a control character (a tab too)",
+    ],
+    [
+      "a line of a no-break space inside a fence",
+      { "a.md": `${ops("x")}  ~~~\n${String.fromCharCode(160)}\n  ~~~\n` },
+      "a.md:5: an indent other than spaces",
+    ],
+    [
+      "a tab after a list marker",
+      { "a.md": "### 운영자가 할 일\n-\tx\n  ## v0.5.0\n" },
+      "a.md:2: a control character (a tab too)",
+    ],
+    [
+      "a heading inside an entry",
+      { "a.md": ops("## v0.5.0") },
+      "a.md:3: a heading inside an entry",
+    ],
+    [
+      "a setext underline inside an entry",
+      { "a.md": `${ops("x")}  ==\n` },
+      "a.md:4: a heading inside an entry",
+    ],
+    [
+      "a heading made in a quote",
+      { "a.md": "### 운영자가 할 일\n- > v0.5.0\n  > ---\n" },
+      "a.md:2: a block quote",
+    ],
+    [
+      "inline HTML that closes the list",
+      { "a.md": ops("x </li></ul><ol>") },
+      "a.md:3: raw HTML",
+    ],
+    [
+      "a code span over two lines hiding a tag",
+      { "a.md": "### 보안\n- x `y\n  z` <b>` w\n" },
+      "a.md:2: a code span that is not one backtick",
+    ],
+    [
+      "a double-backtick code span",
+      { "a.md": ops("``a` b``") },
+      "a.md:3: a code span that is not one backtick",
+    ],
+    [
+      "a fence left open",
+      { "a.md": `${ops("x")}  \`\`\`sh\n  echo\n` },
+      "a.md: a code fence is not closed",
+    ],
+    [
+      "a version heading inside a fence",
+      { "a.md": `${ops("x")}  \`\`\`\n## v9.9.9\n  \`\`\`\n` },
+      '"## v9.9.9"',
+    ],
+  ])("%s fails, and nothing is written or deleted", (_, fragments, message) => {
+    const changelog = head + unreleased + old;
+    const run = release(
+      changelog,
+      { "ok.md": ops("ok"), ...fragments },
+      "v0.6.0",
+    );
+    expect(run.code).toBe(1);
+    expect(run.err).toContain(message);
+    expect(run.changelog).toBe(changelog);
+    expect(run.left).toEqual(Object.keys({ "ok.md": "", ...fragments }).sort());
+  });
+
+  test("a version that is no release, or one already listed, is refused", () => {
+    const changelog = head + unreleased + old;
+    for (const [version, message] of [
+      ["v1.2", "is not v"],
+      ["v1.2.3+b", "is not v"],
+      ["v0.5.0", "already has a section for v0.5.0"],
+      ["v1.2.3-rc-", "cannot be a chart version"],
+      [`v1.2.3-${"a".repeat(60)}`, "cannot be a chart version"],
+    ] as const) {
+      const run = release(changelog, { "a.md": ops("x") }, version);
+      expect(run.code).toBe(1);
+      expect(run.err).toContain(message);
+      expect(run.changelog).toBe(changelog);
+      expect(run.left).toEqual(["a.md"]);
+    }
+    expect(release(changelog, {}).code).toBe(2);
+  });
+
+  test("a fence that closes is kept, and a CRLF CHANGELOG is refused", () => {
+    const linked = ops(
+      "[절차](https://example.test/a) [위](#v060) `handlers[name](request)`",
+    );
+    expect(
+      collect(
+        head + old,
+        [
+          {
+            name: "c.md",
+            text: `${ops("x")}  \`\`\`\n  f[a](b)\n  \`\`\`  \n`,
+          },
+        ],
+        "v0.6.0",
+      ),
+    ).toContain("  f[a](b)\n");
+    expect(
+      collect(head + old, [{ name: "b.md", text: linked }], "v0.6.0"),
+    ).toContain(linked.slice(-40));
+    const fenced = `### 운영자가 할 일\n\n- 명령:\n  \`\`\`sh\n  run\n  \`\`\`\n`;
+    expect(
+      collect(head + old, [{ name: "a.md", text: fenced }], "v0.6.0"),
+    ).toContain("  ```sh\n  run\n  ```\n");
+    expect(() =>
+      collect((head + unreleased + old).replaceAll("\n", "\r\n"), [], "v0.6.0"),
+    ).toThrow("CRLF");
+  });
+
+  test("an unreleased section outside the two sections is refused", () => {
+    expect(() =>
+      collect(`${head}## 미출시\n\n### 기타\n\n- x\n\n${old}`, [], "v0.6.0"),
+    ).toThrow('"### 기타"');
+  });
+
+  // CI holds what this repository carries to the format, so a bad fragment
+  // fails its own pull request, not the release.
+  test("this repository's fragments and unreleased section parse", () => {
+    const names = fragmentNames(root);
+    const fragments = names.map((name) => ({
+      name,
+      text: readFileSync(join(root, FRAGMENT_DIR, name), "utf8"),
+    }));
+    for (const { name, text } of fragments) {
+      expect(parseSections(text, name).size).toBeGreaterThan(0);
+    }
+    const changelog = readFileSync(join(root, "CHANGELOG.md"), "utf8");
+    // A release pull request's tree has no fragment and no unreleased entry.
+    const next = collect(changelog, fragments, "v999.0.0");
+    expect(next === null || collect(next, [], "v999.0.1") === null).toBe(true);
   });
 });

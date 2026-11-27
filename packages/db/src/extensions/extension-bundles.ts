@@ -551,6 +551,7 @@ export function createPostgresExtensionBundleStore(
               name: input.name,
               connectionId: git.newSource.connectionId,
               installationId: git.newSource.installationId,
+              access: git.newSource.access,
               repositoryId: git.newSource.repositoryId,
               repository: git.newSource.repository,
               path: git.location.path,

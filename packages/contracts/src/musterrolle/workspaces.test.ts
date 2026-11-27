@@ -22,6 +22,7 @@ import {
   inviteSchema,
   memberViewSchema,
   normalizeEmail,
+  storedWorkspaceSettingsSchema,
   updateMemberRequestSchema,
   workspaceSchema,
   workspaceSettingsSchema,
@@ -74,6 +75,7 @@ describe("workspace", () => {
       idle_pause_minutes: 30,
       audit_retention_days: 90,
       slack_guest_enabled: false,
+      web_fetch_preflight: true,
       achievement_judge: {
         connection_id: null,
         threshold: 0.9,
@@ -137,6 +139,72 @@ describe("workspace", () => {
     expect(
       workspaceSettingsSchema.safeParse({ audit_retention_days: 29 }).success,
     ).toBe(false);
+  });
+
+  test("a read leaves out a settings key it does not know, a write refuses it", () => {
+    const stored = {
+      kill_switch: true,
+      future_key: { on: true },
+      achievement_judge: { threshold: 0.5, future_nested: 1 },
+    };
+    const read = storedWorkspaceSettingsSchema.parse(stored);
+    expect(read.kill_switch).toBe(true);
+    expect(read.achievement_judge.threshold).toBe(0.5);
+    expect("future_key" in read).toBe(false);
+    expect("future_nested" in read.achievement_judge).toBe(false);
+    // A row that never named a judge still reads as the defaults.
+    expect(
+      storedWorkspaceSettingsSchema.shape.achievement_judge.parse(undefined),
+    ).toEqual(workspaceSettingsSchema.parse({}).achievement_judge);
+    expect(workspaceSettingsSchema.safeParse(stored).success).toBe(false);
+    expect(workspaceSettingsSchema.safeParse({ future_key: 1 }).success).toBe(
+      false,
+    );
+    expect(
+      achievementJudgeSettingsSchema.safeParse({ future_nested: 1 }).success,
+    ).toBe(false);
+  });
+
+  test("a known key with a bad value is refused by the read and the write alike", () => {
+    for (const bad of [
+      { idle_pause_minutes: 0 },
+      { audit_retention_days: 29 },
+      { achievement_judge: { threshold: 2 } },
+    ]) {
+      expect(storedWorkspaceSettingsSchema.safeParse(bad).success).toBe(false);
+      expect(workspaceSettingsSchema.safeParse(bad).success).toBe(false);
+    }
+  });
+
+  test("web_fetch_preflight is a boolean the write and the read both keep", () => {
+    expect(workspaceSettingsSchema.parse({}).web_fetch_preflight).toBe(true);
+    expect(
+      workspaceSettingsSchema.parse({ web_fetch_preflight: false })
+        .web_fetch_preflight,
+    ).toBe(false);
+    const read = storedWorkspaceSettingsSchema.parse({
+      web_fetch_preflight: false,
+      future_key: 1,
+    });
+    expect(read.web_fetch_preflight).toBe(false);
+    expect("future_key" in read).toBe(false);
+    expect(storedWorkspaceSettingsSchema.parse({}).web_fetch_preflight).toBe(
+      true,
+    );
+    for (const schema of [
+      workspaceSettingsSchema,
+      storedWorkspaceSettingsSchema,
+    ])
+      expect(schema.safeParse({ web_fetch_preflight: "off" }).success).toBe(
+        false,
+      );
+    // A replica built before the key reads a row this build wrote.
+    const older = storedWorkspaceSettingsSchema.omit({
+      web_fetch_preflight: true,
+    });
+    const old = older.parse({ kill_switch: true, web_fetch_preflight: false });
+    expect(old.kill_switch).toBe(true);
+    expect("web_fetch_preflight" in old).toBe(false);
   });
 
   test("separates a suspended account from a disabled membership", () => {

@@ -16,6 +16,22 @@ export type GitHubWorkflowRun = {
   html_url: string;
 };
 
+/** One check run or workflow run of a commit. */
+export type GitHubCiRun = {
+  name: string;
+  status: string | null;
+  conclusion: string | null;
+  html_url: string | null;
+};
+
+/** The first page of a commit's check runs and of its workflow runs. */
+export type GitHubCommitCi = {
+  checkRuns: GitHubCiRun[];
+  workflowRuns: (GitHubCiRun & { id: number })[];
+  /** GitHub holds more than the page of either list. */
+  truncated: boolean;
+};
+
 /** A response's `x-ratelimit-*` and `retry-after` headers; null when absent. */
 export type GitHubRateLimit = {
   limit: number | null;
@@ -118,6 +134,8 @@ export interface GitHubApi {
     inputs: Readonly<Record<string, string>>;
   }): Promise<{ id: number; html_url: string } | null>;
   getWorkflowRun(runId: number): Promise<GitHubWorkflowRun>;
+  /** Needs `checks: read` and `actions: read`; `perPage` runs of each list. */
+  getCommitCi(sha: string, perPage: number): Promise<GitHubCommitCi>;
   rerunWorkflow(runId: number, failedOnly: boolean): Promise<void>;
   /** Always on `commitId`: GitHub files the review on that commit. */
   submitReview(input: {

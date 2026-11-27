@@ -262,6 +262,7 @@ export const slackKo = {
   "slack.judgments.reason.out_of_scope": "맡은 일 밖",
   "slack.judgments.reason.needs_agent": "에이전트가 필요함",
   "slack.judgments.reason.unclear": "분명하지 않음",
+  "slack.judgments.reason.invalid_target": "답할 글을 고르지 못함",
   "slack.judgments.reason.budget_refused": "예산 거절",
   "slack.judgments.reason.concurrency_limited": "동시 호출 상한",
   "slack.judgments.reason.rate_limited": "시간당 상한 넘김",

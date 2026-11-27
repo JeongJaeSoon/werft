@@ -3,6 +3,7 @@ import type {
   RegisterGitHubSkillRequest,
   RegisterSkillResponse,
   SkillSyncResponse,
+  SkillWebhookState,
 } from "@werft-ai/contracts";
 import { githubSignatureMatches } from "../github/index.ts";
 import type { GitHubAppCredential } from "../github/ports/github-app-store.ts";
@@ -49,15 +50,35 @@ export type GitHubSkillTree =
   /** Refused before its contents were fetched (size, count, a submodule). */
   | { kind: "refused"; issues: SkillSyncIssue[] };
 
+/**
+ * A repository as one installation's token reads it. A public repository
+ * reads whether or not that installation covers it.
+ */
+export type GitHubSkillRepository = {
+  id: number;
+  /** `owner/name` now. */
+  fullName: string;
+  /** The owning account's id: a transfer changes it, a rename does not. */
+  ownerId: number;
+  /** GitHub's `visibility` is `public`; private and internal are not. */
+  public: boolean;
+};
+
 /** GitHub as one installation's token reads it. Throws GitHubAppCheckError. */
 export interface GitHubSkillReader {
-  /** `owner/name`, or null when the installation's token cannot read it. */
+  /** The repository named `owner/name`; null when the token cannot read it. */
   repository(
     app: AppKey,
     installationId: number,
     owner: string,
     name: string,
-  ): Promise<{ id: number; fullName: string } | null>;
+  ): Promise<GitHubSkillRepository | null>;
+  /** The repository with that GitHub id, under whatever name it has now. */
+  repositoryById(
+    app: AppKey,
+    installationId: number,
+    repositoryId: number,
+  ): Promise<GitHubSkillRepository | null>;
   /** The commit `ref` names now (by repository id); null when none. */
   resolve(
     app: AppKey,
@@ -166,14 +187,29 @@ function pushTarget(body: Uint8Array) {
   return { installationId, repositoryId, ref: push.ref };
 }
 
+/**
+ * Which of an App's installations reads a public repository it is not
+ * installed on: the oldest one not suspended, so the choice is stable.
+ */
+export function publicReadingInstallation<
+  T extends { id: number; suspendedAt: Date | null },
+>(installations: readonly T[]): T | null {
+  return (
+    installations
+      .filter((one) => one.suspendedAt === null)
+      .sort((a, b) => a.id - b.id)[0] ?? null
+  );
+}
+
 export function skillGitSourceView(
   source: SkillGitSource,
-  webhook: "ready" | "no_public_url" | "no_secret",
+  webhook: SkillWebhookState,
 ) {
   const check = source.lastCheck;
   return {
     connection_id: source.connectionId,
     installation_id: source.installationId,
+    access: source.access,
     repository_id: source.repositoryId,
     repository: source.repository,
     path: source.path,
@@ -234,6 +270,17 @@ export function createSkillGitSync(
       message: issue.message,
     }));
   };
+
+  async function stillPublic(
+    app: AppKey,
+    installationId: number,
+    repositoryId: number,
+  ): Promise<boolean> {
+    return (
+      (await reader.repositoryById(app, installationId, repositoryId))
+        ?.public === true
+    );
+  }
 
   async function credentialOf(source: SkillGitSource) {
     return (
@@ -305,6 +352,22 @@ export function createSkillGitSync(
     }
     if (tree.kind === "missing") return record("source_missing", commit);
     if (tree.kind === "refused") return record("rejected", commit, tree.issues);
+    // Read after the files: a repository that turned private since is not
+    // read through the public path, even if the installation now covers it.
+    if (source.access === "public") {
+      let open: boolean;
+      try {
+        open = await stillPublic(
+          app,
+          source.installationId,
+          source.repositoryId,
+        );
+      } catch (error) {
+        if (!(error instanceof GitHubAppCheckError)) throw error;
+        return record("github_unavailable", commit);
+      }
+      if (!open) return record("source_missing", commit);
+    }
     // The write reads the settings again under the source row's lock
     // before it approves anything.
     const grantId = source.autoApprove.grantId;
@@ -414,9 +477,20 @@ export function createSkillGitSync(
     return userId;
   }
 
-  async function webhookStates(workspaceId: string) {
+  /**
+   * No push reaches a public source: its App is not installed there. It
+   * reports `no_public_url`, a value older consoles know; the console tells
+   * it apart by `access`.
+   */
+  async function webhookStates(
+    workspaceId: string,
+  ): Promise<
+    (
+      source: Pick<SkillGitSource, "connectionId" | "access">,
+    ) => SkillWebhookState
+  > {
     if ((await deps.webhookUrl()) === null) {
-      return () => "no_public_url" as const;
+      return () => "no_public_url";
     }
     const secrets = await Promise.all(
       (await deps.apps(workspaceId)).map(async (app) => ({
@@ -426,16 +500,18 @@ export function createSkillGitSync(
         ),
       })),
     );
-    return (connectionId: string) =>
-      secrets.some((one) => one.id === connectionId && one.set)
-        ? ("ready" as const)
-        : ("no_secret" as const);
+    return ({ connectionId, access }) =>
+      access === "public"
+        ? "no_public_url"
+        : secrets.some((one) => one.id === connectionId && one.set)
+          ? ("ready" as const)
+          : ("no_secret" as const);
   }
 
   async function sourceView(source: SkillGitSource) {
     return skillGitSourceView(
       source,
-      (await webhookStates(source.workspaceId))(source.connectionId),
+      (await webhookStates(source.workspaceId))(source),
     );
   }
 
@@ -451,7 +527,7 @@ export function createSkillGitSync(
       return new Map(
         all.map((source) => [
           source.name,
-          skillGitSourceView(source, states(source.connectionId)),
+          skillGitSourceView(source, states(source)),
         ]),
       );
     },
@@ -540,7 +616,7 @@ export function createSkillGitSync(
       }
       const [owner = "", repo = ""] = request.repository.split("/");
       let installation: { id: number } | null;
-      let repository: { id: number; fullName: string } | null = null;
+      let repository: GitHubSkillRepository | null = null;
       let commit: string | null = null;
       let tree: GitHubSkillTree | null = null;
       try {
@@ -612,6 +688,7 @@ export function createSkillGitSync(
           newSource: {
             connectionId: app.id,
             installationId: installation.id,
+            access: "installation",
             repositoryId: repository.id,
             repository: repository.fullName,
           },

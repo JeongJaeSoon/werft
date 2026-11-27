@@ -127,6 +127,8 @@ export type RuntimeLaunch = RuntimeResumePlan & {
   correlationId: string;
   /** The claim's git settings for the engine (git-trailers.ts gitEnvironmentFor). */
   gitEnvironment?: GitEnvironment;
+  /** The claim's `egress_report` token for the engine's proxy variables. */
+  egressReportToken?: string;
   /**
    * The claim's remaining_budget_usd: this run counts its spend from zero.
    * Absent for a session that is not billed, whose engine runs with no budget.
@@ -821,6 +823,9 @@ export class WorkerHost {
                 : () => this.options.workspace.committedInstructions(),
             correlationId: `${claim.session_id}:${claim.attempt_id}`,
             ...(gitEnvironment === undefined ? {} : { gitEnvironment }),
+            ...(claim.egress_report === undefined
+              ? {}
+              : { egressReportToken: claim.egress_report.token }),
             ...(claim.remaining_budget_usd === null
               ? {}
               : { maxBudgetUsd: claim.remaining_budget_usd }),

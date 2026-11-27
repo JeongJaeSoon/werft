@@ -5,6 +5,7 @@ import type {
   ConversationCallId,
   ConversationCallKey,
   ConversationId,
+  ConversationJudgmentId,
   ConversationKind,
   ConversationTopicId,
   ConversationTurnCallRefusal,
@@ -57,6 +58,17 @@ export interface ConversationCallStore {
   issueMentionTurnAtomic(
     input: ConversationMentionTurnInput,
   ): Promise<ConversationMentionTurnIssue>;
+  /**
+   * The agent's unasked turn of a judgment that spoke (v1-b/U1): writes the
+   * turn `running`, the agent its requester and root none, its sources
+   * the posts whose text it holds, its permit, and the turn on the
+   * judgment, together or not at all, and only while the agent's rollout is
+   * `on` and no source is marked deleted. A judgment with a turn adds
+   * nothing.
+   */
+  issueUnsolicitedTurnAtomic(
+    input: ConversationUnsolicitedTurnInput,
+  ): Promise<ConversationUnsolicitedTurnIssue>;
   /**
    * The proxy's grant question on a turn's permit. A new exchange is a new
    * call of the turn: counted by the call limits, reserved on the account the
@@ -224,14 +236,42 @@ export type ConversationMentionTurnInput = Omit<
   message: { teamId: string; channelId: string; ts: string };
   /** The Slack subject the mention was judged on, for a task it asks for. */
   slackSubject?: ConversationTurnSurfaceSubject | null;
+  /**
+   * The mention's earlier try, tried again as this turn (v1-b/F1): the
+   * mention's engagement moves to this turn and that one's thread status is
+   * marked set back, held by this one; `duplicate` once it moved already.
+   */
+  retryOf?: ConversationTurnId;
 };
+
+export type ConversationUnsolicitedTurnInput = Omit<
+  ConversationTurnPermitInput,
+  "requester" | "root"
+> & {
+  judgmentId: ConversationJudgmentId;
+  teamId: string;
+  channelId: string;
+  /** Slack ts of the channel's posts whose text the turn holds. */
+  sources: readonly string[];
+};
+
+export type ConversationUnsolicitedTurnIssue =
+  | ConversationTurnPermitIssue
+  // The judgment has its turn already.
+  | { outcome: "duplicate" }
+  | { outcome: "source_deleted" }
+  | { outcome: "rollout_off" }
+  // The channel has no live binding of the agent's to answer through.
+  | { outcome: "no_binding" };
 
 export type ConversationMentionTurnIssue =
   | ConversationTurnPermitIssue
   // The message is engaged already: its turn was written before.
   | { outcome: "duplicate" }
   // The message is marked deleted.
-  | { outcome: "source_deleted" };
+  | { outcome: "source_deleted" }
+  // A try again whose agent's rollout is no longer on.
+  | { outcome: "rollout_off" };
 
 export type ConversationTurnPermitIssue =
   // `place`: the conversation's kind, which says what the turn may decide.

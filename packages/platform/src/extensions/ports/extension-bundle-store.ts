@@ -21,7 +21,7 @@ export type GitVersionInput = {
   checkedAt: Date;
   newSource?: Pick<
     SkillGitSource,
-    "connectionId" | "installationId" | "repositoryId" | "repository"
+    "connectionId" | "installationId" | "access" | "repositoryId" | "repository"
   >;
   /** The sync's lease token; a check that lost its lease writes nothing. */
   leaseToken?: string;

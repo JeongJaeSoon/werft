@@ -940,11 +940,13 @@ jobs:
       CHART_PUSH_TRIES: "3"
     steps: *chart-publish-steps
 
-  # A release by merge. A pull request that turns CHANGELOG.md's `## 미출시`
-  # into `## vX.Y.Z` releases that version from the push that merges it, in
-  # this run, with one approval and no tag before it:
+  # A release by merge. A pull request that collects changelog.d/ and
+  # CHANGELOG.md's `## 미출시` into `## vX.Y.Z` (changelog-release.ts) releases
+  # that version from the push that merges it, in this run, with one approval
+  # and no tag before it:
   #   release-detect   reads the one new version heading of this push; no new
-  #                    heading, no other release job runs
+  #                    heading, no other release job runs; a fragment left in
+  #                    changelog.d/ fails it
   #   release-gate     main's whole chain and ci.yml are green on this commit
   #   sources-release  every Debian source is verified (main only warns)
   #   release-approve  the `release` environment: the only approval, the same

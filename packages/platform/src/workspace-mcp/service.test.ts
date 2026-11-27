@@ -53,6 +53,7 @@ function setup(
     secretStoreOn?: boolean;
     redirect?: boolean;
     urlProblem?: string | null;
+    addressProblem?: "address_not_allowed" | "unreachable" | null;
     /** Runs before each outbound request reaches the fake, to change things mid-call. */
     beforeSend?: (request: OutboundRequest) => Promise<void> | void;
   } = {},
@@ -60,6 +61,7 @@ function setup(
   let clock = new Date("2026-11-15T00:00:00.000Z");
   let ids = 0;
   const remote = fakeRemote(options.remote);
+  const addressAsked: string[] = [];
   const memory = memoryWorkspaceMcpStore(
     { [ADMIN]: "Admin", [OWNER]: "Owner" },
     () => clock,
@@ -76,6 +78,10 @@ function setup(
       allowsUrl: remote.allowsUrl,
     },
     serverUrlProblem: () => options.urlProblem ?? null,
+    serverAddressProblem: async (url) => {
+      addressAsked.push(url);
+      return options.addressProblem ?? null;
+    },
     redirectUriFor: (id) =>
       options.redirect === false
         ? null
@@ -90,6 +96,7 @@ function setup(
     service,
     remote,
     memory,
+    addressAsked,
     advance(ms: number) {
       clock = new Date(clock.getTime() + ms);
     },
@@ -664,5 +671,77 @@ describe("static token", () => {
     ).toMatchObject({
       code: "FORBIDDEN",
     });
+  });
+});
+
+describe("the address check before a server is stored", () => {
+  const bearerBody = {
+    name: "tracker",
+    url: FAKE_MCP_URL,
+    auth_kind: "bearer" as const,
+    token: FAKE_TOKEN,
+  };
+
+  test("a bearer server whose name resolves to a refused address is not stored or called", async () => {
+    const context = setup({
+      remote: { oauth: false, accepted: [FAKE_TOKEN] },
+      addressProblem: "address_not_allowed",
+    });
+    expect(await refusal(context.service.create(admin, bearerBody))).toEqual({
+      code: "BAD_REQUEST",
+      reason: "address_not_allowed",
+    });
+    expect(context.addressAsked).toEqual([FAKE_MCP_URL]);
+    expect(context.remote.requests).toEqual([]);
+    expect((await context.service.list(admin)).items).toEqual([]);
+  });
+
+  test("a bearer server whose name does not resolve is 503, not stored", async () => {
+    const context = setup({
+      remote: { oauth: false, accepted: [FAKE_TOKEN] },
+      addressProblem: "unreachable",
+    });
+    expect(await refusal(context.service.create(admin, bearerBody))).toEqual({
+      code: "BACKEND_UNAVAILABLE",
+      reason: "mcp_unreachable",
+    });
+    expect(context.remote.requests).toEqual([]);
+    expect((await context.service.list(admin)).items).toEqual([]);
+  });
+
+  test("an OAuth server and discovery are judged by the pinned discovery, not a second lookup", async () => {
+    const context = setup({ addressProblem: "address_not_allowed" });
+    await context.service.discover(admin, FAKE_MCP_URL);
+    await context.service.create(admin, oauthBody);
+    expect(context.addressAsked).toEqual([]);
+  });
+
+  test("an empty fragment is refused as discovery refuses it", async () => {
+    const context = setup();
+    expect(
+      await refusal(
+        context.service.create(admin, {
+          ...bearerBody,
+          url: `${FAKE_MCP_URL}#`,
+        }),
+      ),
+    ).toEqual({ code: "BAD_REQUEST", reason: "url_invalid" });
+    expect(context.addressAsked).toEqual([]);
+  });
+
+  test("a URL refused before the lookup is never looked up", async () => {
+    const context = setup({ urlProblem: "url_invalid" });
+    expect(await refusal(context.service.create(admin, bearerBody))).toEqual({
+      code: "BAD_REQUEST",
+      reason: "url_invalid",
+    });
+    expect(context.addressAsked).toEqual([]);
+  });
+
+  test("a bearer server that passes is stored and its tools read", async () => {
+    const context = setup({ remote: { oauth: false, accepted: [FAKE_TOKEN] } });
+    const created = await context.service.create(admin, bearerBody);
+    expect(created.name).toBe("tracker");
+    expect(context.addressAsked).toEqual([FAKE_MCP_URL]);
   });
 });

@@ -457,7 +457,8 @@ async function stopConversationTurns(
           WHERE q.turn_id = ct.id AND q.state IN ('queued', 'leased')))
       ORDER BY ct.id`),
   ).map((row) => row.id);
-  if (open.length === 0) return 0;
+  if (open.length === 0)
+    return (await endWaitingMentionTries(tx, place, [])).length;
   const ids = sql.join(
     open.map((id) => sql`${id}::uuid`),
     sql`, `,
@@ -490,7 +491,55 @@ async function stopConversationTurns(
     WHERE turn_id IN (${ids}) AND state IN ('queued', 'leased')
     RETURNING turn_id::text AS id`),
   );
-  return new Set([...ended, ...dequeued].map((row) => row.id)).size;
+  const waiting = await endWaitingMentionTries(
+    tx,
+    place,
+    ended.map((row) => row.id),
+  );
+  return new Set([...ended, ...dequeued, ...waiting].map((row) => row.id)).size;
+}
+
+/**
+ * A mention's try in the channel that ended with no decision and is not
+ * done with is ended by the stop: one it ended just above whose runtime
+ * reported first, and one that keeps its input for a try again (waiting
+ * out its delay). No try or line follows it once the channel is on, and
+ * its input goes.
+ */
+async function endWaitingMentionTries(
+  tx: Database,
+  place: ChannelWorkPlace,
+  endedHere: readonly string[],
+): Promise<{ id: string }[]> {
+  const here =
+    endedHere.length === 0
+      ? sql`false`
+      : sql`q.turn_id IN (${sql.join(
+          endedHere.map((id) => sql`${id}::uuid`),
+          sql`, `,
+        )})`;
+  // Counted as stopped only while it holds its mention (or ended here):
+  // one whose mention a next try holds already is that try's.
+  return rowsOf<{ id: string; held: boolean }>(
+    await tx.execute(sql`
+    UPDATE conversation_turn_queue q
+    SET outcome = ${JSON.stringify({ outcome: "failed", reason: EMERGENCY_STOPPED })}::jsonb,
+      turn_nonce = NULL, turn_ciphertext = NULL, input_kept_until = NULL
+    FROM conversation_turns ct
+    JOIN conversations c ON c.id = ct.conversation_id
+    WHERE q.turn_id = ct.id AND q.state = 'ended'
+      AND (q.turn_ciphertext IS NOT NULL OR ${here})
+      AND ct.origin = 'm2' AND ct.state = 'no_decision'
+      -- A Slack mention's, not an operator's: its report stays as it came.
+      AND ct.slack_installation_id IS NOT NULL
+      AND ct.workspace_id = ${place.workspaceId}::uuid
+      AND ct.agent_id = ${place.agentId}::uuid
+      AND c.channel_id = ${place.channelId}
+      AND c.team_id = (SELECT i.team_id FROM slack_installations i WHERE i.id = ${place.installationId}::uuid)
+    RETURNING q.turn_id::text AS id,
+      (${here} OR EXISTS (SELECT 1 FROM conversation_engagements e
+        WHERE e.conversation_turn_id = q.turn_id AND e.kind = 'mention')) AS held`),
+  ).filter((row) => row.held);
 }
 
 /**
@@ -550,11 +599,14 @@ export async function enqueueEmergencyStopNotice(
 ): Promise<void> {
   await tx.execute(sql`
     INSERT INTO slack_outbox (id, workspace_id, agent_id, slack_app_id,
-      installation_id, kind, channel_id, thread_ts, body, dedupe_key)
+      installation_id, kind, channel_id, thread_ts, body, dedupe_key, created_at)
     SELECT ${randomUUID()}::uuid, ${place.workspaceId}::uuid,
       ${place.agentId}::uuid, a.id, i.id, 'emergency_stop_notice',
       ${place.channelId}, '', ${JSON.stringify({ text: place.text })}::jsonb,
-      ${`emergency-stop:${place.receiptId}`}
+      ${`emergency-stop:${place.receiptId}`},
+      -- When it is written, not when the stop began: a mention turn that
+      -- ended while the stop waited for its locks reads it as after its end.
+      clock_timestamp()
     FROM slack_installations i
     JOIN slack_apps a ON a.app_id = i.app_id
     WHERE i.id = ${place.installationId}::uuid
