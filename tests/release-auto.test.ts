@@ -1850,8 +1850,8 @@ describe("changelog-release.ts", () => {
     ],
     [
       "a top-level fence closed at a deeper indent",
-      { "a.md": `${ops("x")}\`\`\`\ny\n    \`\`\`\n` },
-      "a fence-like line inside a code fence",
+      { "a.md": `${ops("x")}  \`\`\`\n  y\n      \`\`\`\n` },
+      "a.md:6: a fence-like line inside a code fence",
     ],
     [
       "a relative link",
@@ -1860,8 +1860,8 @@ describe("changelog-release.ts", () => {
     ],
     [
       "a reference definition",
-      { "a.md": `${ops("[절차][q]")}\n[q]: https://example.test/q\n` },
-      "a.md:5: a reference definition",
+      { "a.md": `${ops("[절차][q]")}\n  [q]: https://example.test/q\n` },
+      "a.md:3: a reference definition or a bracket",
     ],
     [
       "a reference definition in a quote",
@@ -1877,7 +1877,7 @@ describe("changelog-release.ts", () => {
     ],
     [
       "a fence-like line at another indent inside a fence",
-      { "a.md": `${ops("x")}\`\`\`sh\n \`\`\`\n\`\`\`\n` },
+      { "a.md": `${ops("x")}  \`\`\`sh\n   \`\`\`\n  \`\`\`\n` },
       "a.md:5: a fence-like line inside a code fence",
     ],
     [
@@ -1891,7 +1891,42 @@ describe("changelog-release.ts", () => {
       "a.md:3: an escaped backtick or bracket",
     ],
     ["an HTML comment", { "a.md": ops("x <!-- 메모") }, "a.md:3: raw HTML"],
-    ["an HTML block", { "a.md": `${ops("x")}\n<pre>\n` }, "a.md:5: raw HTML"],
+    ["an HTML block", { "a.md": `${ops("x")}\n  <pre>\n` }, "a.md:5: raw HTML"],
+    [
+      "a paragraph outside an entry",
+      { "a.md": `${ops("x")}\n문단\n` },
+      "a.md:5: a line that is neither an entry",
+    ],
+    [
+      "a top-level fence",
+      { "a.md": `${ops("x")}\`\`\`\ny\n\`\`\`\n` },
+      "a.md:4: a line that is neither an entry",
+    ],
+    [
+      "a section that starts indented",
+      { "a.md": "### 운영자가 할 일\n\n  이어지는 문장\n" },
+      'a.md: "### 운영자가 할 일" must start with an entry',
+    ],
+    [
+      "a fence info string with a backtick",
+      { "a.md": `${ops("x")}  \`\`\`bad\`info\n  y\n  \`\`\`\n` },
+      "a.md:4: a fence info string",
+    ],
+    [
+      "a reference label that runs on to the next line",
+      { "a.md": ops("x\n\n  [새 문맥으로\n  계속]: https://example.test") },
+      "a.md:5: a reference definition or a bracket",
+    ],
+    [
+      "a line inside a fence less indented than the fence",
+      { "a.md": `${ops("x")}  \`\`\`\nfoo\n  \`\`\`\n` },
+      "a.md:5: a line inside a code fence is less indented",
+    ],
+    [
+      "a line separator",
+      { "a.md": ops(`x${String.fromCharCode(0x2028)}## v999.0.1`) },
+      "a.md:3: a control character or line separator",
+    ],
     [
       "a fence left open",
       { "a.md": `${ops("x")}  \`\`\`sh\n  echo\n` },

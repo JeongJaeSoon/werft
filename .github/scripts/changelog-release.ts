@@ -18,6 +18,75 @@ const n = "(0|[1-9][0-9]*)";
 const pre = `(${n}|[0-9]*[A-Za-z-][0-9A-Za-z-]*)`;
 const VERSION = new RegExp(`^v${n}\\.${n}\\.${n}(-${pre}(\\.${pre})*)?$`);
 
+const FENCE = /^(\s*)(`{3,}|~{3,})(.*)$/;
+const MARKERS = /^\s*((>|[-*+]|\d+[.)])\s*)*/;
+
+/**
+ * A fragment is held to a narrower form than Markdown, so that what passes
+ * renders the same once the fragments are joined and nothing in it reads as a
+ * version heading: every line is an entry (`- ` at the start), a line indented
+ * under one, or blank; fences sit inside an entry; and the constructs that can
+ * reach past their own entry (raw HTML, reference definitions, escapes,
+ * relative links, line separators) are refused.
+ */
+function checkFragmentLine(
+  line: string,
+  where: string,
+  fence: { indent: string } | null,
+  marker: RegExpExecArray | null,
+): void {
+  const fail = (why: string) => {
+    throw new Error(`${where}: ${why}`);
+  };
+  if (
+    /[\p{Zl}\p{Zp}]/u.test(line) ||
+    /\p{Cc}/u.test(line.replaceAll("\t", ""))
+  ) {
+    fail("a control character or line separator");
+  }
+  if (line.trim() === "" || line.startsWith("#")) return;
+  if (fence !== null) {
+    if (!line.startsWith(fence.indent))
+      fail("a line inside a code fence is less indented than the fence");
+    return;
+  }
+  if (!line.startsWith("- ") && !line.startsWith("  ")) {
+    fail(
+      'a line that is neither an entry ("- " at the start) nor indented under one',
+    );
+  }
+  if (marker !== null) {
+    if (!/^[A-Za-z0-9_+.-]*$/.test((marker[3] ?? "").trim()))
+      fail("a fence info string other than one language name");
+    return;
+  }
+  if (/\\[`[\]]/.test(line))
+    fail("an escaped backtick or bracket; reword or put it in a code span");
+  const prose = line.replace(/`[^`]*`/g, "");
+  if (
+    prose.includes("<!--") ||
+    /^<[A-Za-z!/?]/.test(prose.replace(MARKERS, ""))
+  ) {
+    fail("raw HTML; write it as Markdown");
+  }
+  // A reference definition, also one whose label runs on to the next line.
+  const content = prose.replace(MARKERS, "");
+  if (
+    /^\[[^\]]*\]:/.test(content) ||
+    (content.startsWith("[") && !content.includes("]("))
+  ) {
+    fail(
+      "a reference definition or a bracket that starts a paragraph; write the link inline with an absolute URL",
+    );
+  }
+  for (const link of prose.matchAll(/\]\(\s*<?([^)\s>]*)/g)) {
+    const target = link[1] ?? "";
+    if (!/^(https?:|mailto:|#)/.test(target)) {
+      fail(`link "${target}" is relative; use an absolute URL`);
+    }
+  }
+}
+
 /** The `### <section>` bodies of a fragment or of the unreleased section. */
 export function parseSections(
   text: string,
@@ -31,11 +100,11 @@ export function parseSections(
   let current: string[] | null = null;
   let fence: { indent: string; char: string; length: number } | null = null;
   text.split("\n").forEach((line, i) => {
-    // The format is narrower than Markdown so that what passes here renders
-    // the same once the fragments are joined: a fence closes with the same
-    // indent, character and at least the same length, and any other fence-like
-    // line inside it is refused rather than guessed at.
-    const marker = /^(\s*)(`{3,}|~{3,})(.*)$/.exec(line);
+    const at = `${where}:${i + 1}`;
+    const marker = FENCE.exec(line);
+    if (fragment) checkFragmentLine(line, at, fence, marker);
+    // A fence closes with its opening line's indent and character and at least
+    // its length; any other fence-like line inside it is refused, not guessed at.
     if (marker?.[1] !== undefined && marker[2] !== undefined) {
       const run = marker[2];
       if (fence === null) {
@@ -49,47 +118,15 @@ export function parseSections(
         fence = null;
       } else {
         throw new Error(
-          `${where}:${i + 1}: a fence-like line inside a code fence; close the fence with its opening line's indent and marker`,
+          `${at}: a fence-like line inside a code fence; close the fence with its opening line's indent and marker`,
         );
-      }
-    }
-    // A fragment moves from changelog.d/ to the root: a relative link would
-    // point elsewhere there.
-    // Code is no link, and a reference definition is refused outright: two
-    // fragments could define one label, and the first would win for both.
-    if (fragment && /\\[`[\]]/.test(line)) {
-      throw new Error(
-        `${where}:${i + 1}: an escaped backtick or bracket; reword or put it in a code span`,
-      );
-    }
-    // Raw HTML can swallow what follows it (an unclosed comment or <pre>).
-    if (fragment && fence === null) {
-      const prose = line.replace(/`[^`]*`/g, "");
-      if (
-        prose.includes("<!--") ||
-        /^\s*((>|[-*+]|\d+[.)])\s*)*<[A-Za-z!/?]/.test(prose)
-      ) {
-        throw new Error(`${where}:${i + 1}: raw HTML; write it as Markdown`);
-      }
-      if (/^\s*((>|[-*+]|\d+[.)])\s*)*\[[^\]]+\]:/.test(prose)) {
-        throw new Error(
-          `${where}:${i + 1}: a reference definition; write the link inline with an absolute URL`,
-        );
-      }
-      for (const link of prose.matchAll(/\]\(\s*<?([^)\s>]*)/g)) {
-        const target = link[1] ?? "";
-        if (!/^(https?:|mailto:|#)/.test(target)) {
-          throw new Error(
-            `${where}:${i + 1}: link "${target}" is relative; use an absolute URL`,
-          );
-        }
       }
     }
     // A `#` line is refused inside a fence: release-auto.sh and
     // migration-safety.ts read `## vX.Y.Z` lines without seeing fences, and a
     // section heading there would split the fence.
     if (line.startsWith("#") && fence !== null) {
-      throw new Error(`${where}:${i + 1}: "${line}" inside a code fence`);
+      throw new Error(`${at}: "${line}" inside a code fence`);
     }
     if (line.startsWith("#")) {
       const name = /^### (.+)$/.exec(line)?.[1];
@@ -98,29 +135,34 @@ export function parseSections(
         !(SECTIONS as readonly string[]).includes(name)
       ) {
         throw new Error(
-          `${where}:${i + 1}: "${line}" is not one of ${SECTIONS.map((s) => `"### ${s}"`).join(", ")}`,
+          `${at}: "${line}" is not one of ${SECTIONS.map((s) => `"### ${s}"`).join(", ")}`,
         );
       }
       if (sections.has(name))
-        throw new Error(`${where}:${i + 1}: "### ${name}" appears twice`);
+        throw new Error(`${at}: "### ${name}" appears twice`);
       current = [];
       sections.set(name, current);
     } else if (current === null) {
       if (line.trim() !== "")
-        throw new Error(
-          `${where}:${i + 1}: text before the first section heading`,
-        );
+        throw new Error(`${at}: text before the first section heading`);
     } else {
       current.push(line);
     }
   });
+  if (fence) throw new Error(`${where}: a code fence is not closed`);
   for (const [name, lines] of sections) {
     while (lines.length > 0 && lines[0]?.trim() === "") lines.shift();
     while (lines.length > 0 && lines.at(-1)?.trim() === "") lines.pop();
     if (lines.length === 0)
       throw new Error(`${where}: "### ${name}" has no entries`);
+    // Joined after another fragment, an indented first line would continue
+    // that fragment's last entry.
+    if (fragment && !lines[0]?.startsWith("- ")) {
+      throw new Error(
+        `${where}: "### ${name}" must start with an entry ("- ")`,
+      );
+    }
   }
-  if (fence) throw new Error(`${where}: a code fence is not closed`);
   if (sections.size === 0 && !allowEmpty)
     throw new Error(`${where}: no section`);
   return sections;
