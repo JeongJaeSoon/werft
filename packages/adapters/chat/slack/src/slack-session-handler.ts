@@ -125,10 +125,6 @@ function lifecycleStopOf(
 }
 
 /**
- * The text a turn gets: the bot's own mention taken out, with or without
- * the display name Slack may put after a `|`.
- */
-/**
  * A task closed by a stop before its first turn: the first cancelled input
  * is the task's request, the rest waited behind it.
  */
@@ -139,6 +135,10 @@ function closedNotice(cancelled: number) {
     : { message: "taskStoppedBeforeStart" as const };
 }
 
+/**
+ * The text a turn gets: the bot's own mention taken out, with or without
+ * the display name Slack may put after a `|`.
+ */
 export function withoutBotMention(text: string, botUserId: string): string {
   return text
     .replace(new RegExp(`<@${botUserId}(?:\\|[^>]*)?>`, "g"), "")
@@ -597,7 +597,7 @@ export function createSlackSessionHandler(
         stopRefused = true;
         return false;
       }
-      await deps.notices.recordInThread({
+      const line = {
         workspaceId: agent.workspaceId,
         agentId: agent.agentId,
         installationId: agent.installationId,
@@ -607,15 +607,33 @@ export function createSlackSessionHandler(
         threadTs,
         sessionId,
         sessionLinkId: link.id,
+        onceKey: `${agent.installationId}:${surfaceRef}:stop:${event.ts}`,
+      };
+      if (stopped.outcome === "stopped" && stopped.closed) {
+        try {
+          await deps.notices.recordInThread({
+            ...line,
+            notice: closedNotice(stopped.cancelled),
+          });
+        } catch (error) {
+          // Not retried: the closed session's link may close before a
+          // retry, which would then take the stop word as a new mention.
+          deps.logger.warn("Slack stop line lost for a task it closed", {
+            ...ids,
+            session_id: sessionId,
+            code: error instanceof Error ? error.name : "error",
+          });
+        }
+        return true;
+      }
+      await deps.notices.recordInThread({
+        ...line,
         notice:
           stopped.outcome === "nothing_running"
             ? { message: "nothingToStop" }
-            : stopped.closed
-              ? closedNotice(stopped.cancelled)
-              : stopped.cancelled > 0
-                ? { message: "sessionStoppedQueued", count: stopped.cancelled }
-                : { message: "sessionStopped" },
-        onceKey: `${agent.installationId}:${surfaceRef}:stop:${event.ts}`,
+            : stopped.cancelled > 0
+              ? { message: "sessionStoppedQueued", count: stopped.cancelled }
+              : { message: "sessionStopped" },
       });
       return true;
     };

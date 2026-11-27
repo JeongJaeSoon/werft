@@ -5998,6 +5998,28 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     ]);
   });
 
+  test("a closed task's stop line that cannot be written is not retried, so the stop word never becomes a new mention", async () => {
+    const { fixture, view, session, post } = await unstartedTask();
+    view.sink.recordInThread = async () => {
+      throw new Error("outbox down");
+    };
+    await deliver(fixture, post(at(1), { text: `<@${BOT_USER}> stop` }));
+    expect(await drain(view.handle)).toMatchObject({
+      processed: 1,
+      retried: 0,
+      failed: 0,
+    });
+    const [after] = await sessionsOf(fixture);
+    expect(after?.admissionState).toBe("closed");
+    expect(await turnStatesOf(session.id)).toHaveLength(1);
+    expect(
+      await db
+        .select({ id: schema.conversationTurns.id })
+        .from(schema.conversationTurns)
+        .where(eq(schema.conversationTurns.agentId, fixture.agentId)),
+    ).toEqual([]);
+  });
+
   test("a task whose first turn started stays open, and the thread gets the stop line it always had", async () => {
     const { fixture, view, session, post } = await unstartedTask();
     await setTurn(session.id, 1, {
