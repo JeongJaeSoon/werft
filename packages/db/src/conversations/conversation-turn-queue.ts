@@ -12,6 +12,7 @@ import {
   type ConversationTurnQueue,
   derivedSecretKey,
   ENDED_TURN_KEPT_MS,
+  MENTION_TURN_ATTEMPTS,
   openWithKey,
   type SecretKey,
   sameResult,
@@ -19,7 +20,10 @@ import {
 } from "@werft-ai/platform";
 import { and, eq, inArray, isNotNull, max, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
-import { conversationTurnQueue as queue } from "../schema.ts";
+import {
+  conversationTurns,
+  conversationTurnQueue as queue,
+} from "../schema.ts";
 import { rowsOf } from "../statement-rows.ts";
 
 const queuedTurnSchema = conversationRuntimeTurnSchema.omit({
@@ -68,13 +72,18 @@ const notTaken = { outcome: "failed", reason: "not_taken" } as const;
  */
 export const SPAWN_INPUT_KEPT_MS = 60 * 60_000;
 
-// A turn ending keeps its sealed input only when it was leased (what is
-// sealed is then the input alone) and decided a task with no effect yet.
-const keepsInput = sql`(${queue.leaseId} IS NOT NULL AND EXISTS (
+// A turn ending keeps its sealed input only when what is sealed is the input
+// alone (a lease seals it so; an end before one reseals it right after) and it decided a task with no
+// effect yet, or it is a mention's try with no decision that may be tried
+// again (v1-b/F1), whose next try takes the input from here.
+const keepsInput = sql`((${queue.leaseId} IS NOT NULL AND EXISTS (
   SELECT 1 FROM conversation_turns t
   WHERE t.id = ${queue.turnId}
     AND t.decision IN ('spawn_task', 'route_to_task')
-    AND t.task_effect IS NULL))`;
+    AND t.task_effect IS NULL)) OR (${queue.attempt} < ${MENTION_TURN_ATTEMPTS}
+  AND EXISTS (SELECT 1 FROM conversation_turns t
+    WHERE t.id = ${queue.turnId} AND t.origin = 'm2'
+      AND t.slack_installation_id IS NOT NULL AND t.decision IS NULL)))`;
 const keptInputAt = (now: Date) => ({
   turnNonce: sql`CASE WHEN ${keepsInput} THEN ${queue.turnNonce} END`,
   turnCiphertext: sql`CASE WHEN ${keepsInput} THEN ${queue.turnCiphertext} END`,
@@ -101,8 +110,8 @@ function outcomeOf(stored: unknown): ConversationTurnOutcome {
 
 /**
  * The request a turn that ended on spawn_task or route_to_task kept for its
- * task: its input as its runtime was given it, the one place a turn's input
- * is read from.
+ * task, or a mention's try kept for its next try: its input as its runtime
+ * was given it, the one place a turn's input is read from.
  * Null once it was let go, past its deadline, or when it cannot be opened.
  */
 export async function keptTurnRequest(
@@ -186,6 +195,42 @@ export function createPostgresConversationTurnQueue(
       .where(eq(queue.turnId, turnId))
       .returning({ told: told(sql`${queue.turnId}::text`) });
 
+  // A turn that ended before a lease took its permit's token out (untaken,
+  // or not a turn this key opens) keeps, for a try again, its input alone,
+  // or nothing when it cannot be opened. Run after its end: a queued row
+  // always holds its turn sealed.
+  async function keepInputAlone(tx: Database, turnId: ConversationTurnId) {
+    const [sealed] = await tx
+      .select({ nonce: queue.turnNonce, ciphertext: queue.turnCiphertext })
+      .from(queue)
+      .where(eq(queue.turnId, turnId));
+    if (sealed?.nonce == null || sealed.ciphertext == null) return;
+    let input: ReturnType<typeof sealWithKey> | null = null;
+    try {
+      const turn = JSON.parse(
+        openWithKey(key, aadOf(turnId), {
+          nonce: Buffer.from(sealed.nonce),
+          ciphertext: Buffer.from(sealed.ciphertext),
+        }),
+      ) as { input?: unknown };
+      input = sealWithKey(
+        key,
+        aadOf(turnId),
+        JSON.stringify({ input: turn.input }),
+      );
+    } catch {
+      // Sealed under another key: nothing of it can be tried again.
+    }
+    await tx
+      .update(queue)
+      .set(
+        input === null
+          ? { turnNonce: null, turnCiphertext: null, inputKeptUntil: null }
+          : { turnNonce: input.nonce, turnCiphertext: input.ciphertext },
+      )
+      .where(eq(queue.turnId, turnId));
+  }
+
   // A turn nobody took, or whose holder went quiet, ends here: never
   // requeued, since its permit may already be spent. One ended long enough
   // ago is forgotten, as the memory queue forgets it, but its row stays.
@@ -268,6 +313,7 @@ export function createPostgresConversationTurnQueue(
             ))
       ) {
         await end(tx, row.turnId, notTaken, now);
+        await keepInputAlone(tx, row.turnId);
         ended.add(row.turnId);
       }
     }
@@ -297,31 +343,47 @@ export function createPostgresConversationTurnQueue(
         aadOf(turn.turn_id),
         JSON.stringify(turn),
       );
-      const inserted = await db
-        .insert(queue)
-        .values({
-          turnId: turn.turn_id,
-          inputId,
-          attempt,
-          topicId: turn.scope.topic_id,
-          state: "queued",
-          takeBy,
-          takeMs: Math.max(0, takeBy.getTime() - now.getTime()),
-          usableUntil: usableUntil ?? null,
-          turnNonce: sealed.nonce,
-          turnCiphertext: sealed.ciphertext,
-        })
-        .onConflictDoNothing()
-        .returning({ turnId: queue.turnId, told: told("queued") });
-      if (inserted.length > 0) return "queued";
-      const [same] = await db
-        .select({ turnId: queue.turnId })
-        .from(queue)
-        .where(eq(queue.turnId, turn.turn_id));
-      if (same !== undefined) {
-        throw new Error(`Conversation turn ${turn.turn_id} is already queued`);
-      }
-      return "duplicate";
+      // Under the lock an emergency stop takes before it ends a channel's
+      // turns: one it ended before this row existed is never queued.
+      return locked(async (db) => {
+        const [queuedBefore] = await db
+          .select({ turnId: queue.turnId })
+          .from(queue)
+          .where(eq(queue.turnId, turn.turn_id));
+        if (queuedBefore !== undefined) {
+          throw new Error(
+            `Conversation turn ${turn.turn_id} is already queued`,
+          );
+        }
+        const [ended] = await db
+          .select({ id: conversationTurns.id })
+          .from(conversationTurns)
+          .where(
+            and(
+              eq(conversationTurns.id, turn.turn_id),
+              isNotNull(conversationTurns.endedAt),
+            ),
+          );
+        if (ended !== undefined) return "ended" as const;
+        const inserted = await db
+          .insert(queue)
+          .values({
+            turnId: turn.turn_id,
+            inputId,
+            attempt,
+            topicId: turn.scope.topic_id,
+            state: "queued",
+            takeBy,
+            takeMs: Math.max(0, takeBy.getTime() - now.getTime()),
+            usableUntil: usableUntil ?? null,
+            turnNonce: sealed.nonce,
+            turnCiphertext: sealed.ciphertext,
+          })
+          .onConflictDoNothing()
+          .returning({ turnId: queue.turnId, told: told("queued") });
+        // Under the lock, a conflict is that input's attempt alone.
+        return inserted.length > 0 ? "queued" : ("duplicate" as const);
+      });
     },
 
     lease: ({ runtimeId, now, leaseMs }) =>
@@ -357,6 +419,7 @@ export function createPostgresConversationTurnQueue(
           } catch {
             // Sealed under another key, or not a turn: no runtime can take it.
             await end(tx, row.turnId, notTaken, now);
+            await keepInputAlone(tx, row.turnId);
             continue;
           }
           const leaseId = conversationTurnLeaseIdSchema.parse(randomUUID());
