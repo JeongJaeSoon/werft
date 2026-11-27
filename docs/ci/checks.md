@@ -13,7 +13,7 @@
 | T0 빠른 필수 | 모든 PR과 main push | `gitleaks`, `forbidden-terms`, `supply-chain`, `changes`(계획) | 2분. `supply-chain`은 이미지를 빌드하면 10분 |
 | T1 PR 필수 | 모든 PR. 네 이름은 늘 판정을 내고, 그 아래의 job은 바뀐 경로가 닿는 것만 돈다 | `check`, `integration`, `e2e`, `quickstart` | 아래 표 |
 | T2 경로 한정 gate | 그 gate의 경로를 바꾼 PR | D2 gate, K8s 검사 셋, Keycloak login, Worker compatibility, Install rehearsal | 각 workflow의 한도 |
-| T3 main | main push | CI(같은 트리를 시험한 PR run이 있으면 재사용), 계획된 이미지와 chart 게시, 제품을 바꾼 push의 `agent-sdk-compat` | - |
+| T3 main | main push | CI(같은 트리를 시험한 PR run이 있으면 재사용), 계획된 이미지와 chart 게시, 제품을 바꾼 push의 `agent-sdk-compat`. 실패하면 `main-failure.yml`이 이슈를 연다 | - |
 | T4 릴리스와 야간 | 릴리스가 필요한 commit, schedule | conformance, 릴리스 gate, 야간 gate, 취약점 재검사 | - |
 
 T2와 T4의 gate는 PR의 merge를 막지 않는다. 실패가 어디에 남는지는 [필수가 아닌 gate](#필수가-아닌-gate)의 표에 있다.
@@ -100,6 +100,7 @@ PR의 merge를 막지 않는다. 경로가 닿는 PR에서 돌고, 일부는 밤
 | `forbidden-terms-threads.yml` | 댓글·리뷰·이슈는 push 없이 바뀌므로, 소유자·멤버·협력자가 글을 쓰거나 고치면 그 PR이나 이슈의 글을 다시 본다 | 경로가 아니라 댓글·리뷰·이슈 이벤트 | 없음 | 빨간 run뿐. PR의 필수 `forbidden-terms`가 다음 run에서 다시 읽는다 |
 | `images.yml`의 야간 run | checkout의 Dockerfile로 두 아키텍처의 이미지를 빌드해 취약점을 다시 본다(게시하지 않는다). npm 감사도 한다 | - | 매일 03:17 | 이슈 `ci-supply-chain` |
 | `images.yml`의 릴리스 경로(`release-gate`, `worker-compat-release`) | 릴리스할 commit에서 `ci.yml`의 push run이 green이고, 세 엔진의 conformance가 통과했고, main의 게시 chain이 chart 게시까지 갔고, 이전 worker와 호환된다 | - | 릴리스가 필요한 main push | 릴리스가 멈춘다 |
+| `main-failure.yml` | main의 CI나 Images push run이 실패하면 commit, 그 PR, 실패한 job을 댄다. 되돌리지는 않는다 | - | run이 끝날 때마다 | 이슈 `ci-main-failure` |
 | `main-push-run.yml` | 최근 36시간의 main commit마다 CI push run이 있다(15분이 안 된 commit과, 다른 push에 실려 들어온 commit은 뺀다). 그 run의 `agent-sdk-compat`이 마지막 시도에서 실패했으면 이슈가 있다 | - | 매일 03:23, 15:23 | 이슈 `ci-missing-push-run`, `ci-agent-sdk-compat-failure` |
 
 ### filter 밖 경로는 야간만 본다
@@ -227,4 +228,3 @@ ruleset은 저장소 설정이라 시험이 읽지 못한다. 필수 이름을 �
 ## 할 일
 
 - 야간 D2 gate의 실패 이슈에, 마지막으로 성공한 야간 run 뒤에 merge된 PR 중 [filter 밖 경로](#filter-밖-경로는-야간만-본다)를 바꾼 것의 목록을 붙인다.
-- main push의 CI가 실패하면 바로 알리고 원인 commit을 댄다. 지금 `main-push-run.yml`은 빠진 push run과 `agent-sdk-compat` 실패만 알린다.

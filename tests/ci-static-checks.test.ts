@@ -876,6 +876,56 @@ test("check:fast runs lint, the job assignment check and guard tests that exist"
   }
 });
 
+test("a failed push run of CI or Images on main is reported in an issue", () => {
+  const { on, permissions, jobs } = Bun.YAML.parse(
+    readFileSync(
+      join(import.meta.dir, "../.github/workflows/main-failure.yml"),
+      "utf8",
+    ),
+  ) as {
+    on: { workflow_run: Record<string, string[]> };
+    permissions: Record<string, string>;
+    concurrency?: unknown;
+    jobs: Record<string, Job>;
+  };
+  // The names are those of ci.yml and images.yml: a renamed workflow would
+  // stop being watched without a word.
+  const name = (file: string) =>
+    (
+      Bun.YAML.parse(
+        readFileSync(
+          join(import.meta.dir, "../.github/workflows", file),
+          "utf8",
+        ),
+      ) as { name: string }
+    ).name;
+  expect(on).toEqual({
+    workflow_run: {
+      workflows: [name("ci.yml"), name("images.yml")],
+      types: ["completed"],
+      branches: ["main"],
+    },
+  });
+  expect(permissions).toEqual({ contents: "read" });
+  expect(Object.keys(jobs)).toEqual(["report"]);
+  const report = jobs.report;
+  expect(report?.if).toBe(
+    `github.event.workflow_run.event == 'push' && contains(fromJSON('["failure","timed_out","startup_failure"]'), github.event.workflow_run.conclusion)`,
+  );
+  expect(report?.permissions).toEqual({
+    actions: "read",
+    contents: "read",
+    issues: "write",
+    "pull-requests": "read",
+  });
+  const step = report?.steps.at(-1);
+  // The run id reaches the shell through the environment, never the script text.
+  expect(step?.env?.RUN_ID).toBe("${{ github.event.workflow_run.id }}");
+  expect(step?.run).not.toContain("${{");
+  expect(step?.run).toContain('main-failure-body.sh "$RUN_ID" >body.md');
+  expect(step?.run).toContain("upsert-ci-issue.sh ci-main-failure");
+});
+
 test("all product and site consumers use the same explicit plan", () => {
   for (const [name, flag] of [
     ["check-part", "tests"],
