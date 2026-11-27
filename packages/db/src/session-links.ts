@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { SessionLinkRecord, SessionLinkStore } from "@werft-ai/platform";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { lockSessionForControl, UUID } from "./control-shared.ts";
 import { DB_NOW } from "./db-clock.ts";
 import { markCutTurnsTold, stopJoiningSession } from "./emergency-stop.ts";
@@ -47,6 +47,24 @@ export function createPostgresSessionLinkStore(db: Database): SessionLinkStore {
         .where(openByKey(installationId, surfaceRef))
         .limit(1);
       return row ?? null;
+    },
+
+    async closedSessions(installationId, surfaceRef) {
+      if (!UUID.test(installationId)) return [];
+      const rows = await db
+        .select({ sessionId: t.sessionId })
+        .from(t)
+        .where(
+          and(
+            eq(t.installationId, installationId.toLowerCase()),
+            eq(t.surfaceRef, surfaceRef),
+            isNotNull(t.closedAt),
+            isNotNull(t.sessionId),
+          ),
+        );
+      return rows.flatMap(({ sessionId }) =>
+        sessionId === null ? [] : [sessionId],
+      );
     },
 
     reserve(input) {

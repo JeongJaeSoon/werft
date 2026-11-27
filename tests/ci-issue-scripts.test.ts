@@ -863,3 +863,87 @@ describe("check-agent-sdk-compat-job.sh", () => {
     expect(outcome.calls).toEqual([]);
   });
 });
+
+describe("main-failure-body.sh", () => {
+  const runUrl = "https://github.com/octo/repo/actions/runs/7";
+  const runQuery = "api repos/octo/repo/actions/runs/7/attempts/2 --jq";
+  const jobsQuery =
+    "api repos/octo/repo/actions/runs/7/attempts/2/jobs?per_page=100";
+  const pullsQuery = "api repos/octo/repo/commits/abc123/pulls";
+  const attempt = `Images\\nfailure\\nabc123\\n${runUrl}`;
+
+  test("names the attempt that failed, its commit, the pull request and the failed jobs", async () => {
+    const outcome = await run("main-failure-body.sh", ["7", "2"], {
+      [runQuery]: attempt,
+      [jobsQuery]: `- [publish-main](${runUrl}/job/1)`,
+      [pullsQuery]: "#41",
+    });
+
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.stdout.split("\n")).toEqual([
+      "<!-- ci-main-failure -->",
+      `\`Images\` ended \`failure\` on main @ \`abc123\` ([run 7, attempt 2](${runUrl}/attempts/2)).`,
+      "",
+      "Pull request of the commit: #41",
+      "",
+      "Failed jobs:",
+      `- [publish-main](${runUrl}/job/1)`,
+      "",
+      expect.stringContaining("Nothing is reverted."),
+      "",
+    ]);
+    // Never the run by its id alone: after a rerun that is a later attempt,
+    // and the fake answers no such call.
+    expect(outcome.calls.map((call) => call.split(" ")[1])).toEqual([
+      "repos/octo/repo/actions/runs/7/attempts/2",
+      "repos/octo/repo/actions/runs/7/attempts/2/jobs?per_page=100",
+      "repos/octo/repo/commits/abc123/pulls",
+    ]);
+    const jobs = outcome.calls.find((call) => call.startsWith(jobsQuery));
+    expect(jobs).toContain("--paginate");
+    expect(jobs).toContain('.conclusion == "timed_out"');
+  });
+
+  test("still reports when the jobs or the pull request cannot be read", async () => {
+    const outcome = await run("main-failure-body.sh", ["7", "2"], {
+      [runQuery]: attempt,
+      [jobsQuery]: "FAIL",
+      [pullsQuery]: "FAIL",
+    });
+
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.stdout).toContain(
+      "Pull request of the commit: could not be read\n",
+    );
+    expect(outcome.stdout).toContain("Failed jobs:\n- could not be read\n");
+  });
+
+  test("a commit no pull request names and a run with no failed job say so", async () => {
+    const outcome = await run("main-failure-body.sh", ["7", "2"], {
+      [runQuery]: attempt,
+      [jobsQuery]: "",
+      [pullsQuery]: "",
+    });
+
+    expect(outcome.stdout).toContain(
+      "Pull request of the commit: none found\n",
+    );
+    expect(outcome.stdout).toContain("Failed jobs:\n- none listed;");
+  });
+
+  test("an attempt that cannot be read fails instead of printing half a body", async () => {
+    const outcome = await run("main-failure-body.sh", ["7", "2"], {
+      [runQuery]: "FAIL",
+    });
+
+    expect(outcome.exitCode).not.toBe(0);
+    expect(outcome.stdout).toBe("");
+  });
+
+  test("refuses to guess the attempt", async () => {
+    const outcome = await run("main-failure-body.sh", ["7"], {});
+
+    expect(outcome.exitCode).not.toBe(0);
+    expect(outcome.calls).toEqual([]);
+  });
+});
