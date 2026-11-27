@@ -995,7 +995,8 @@ describe.skipIf(env === null)("D2 gate", () => {
       steps: [{ ...write("/workspace/d.txt", "d turn 1\n"), delayMs: 30_000 }],
       final: "D1 DONE",
     };
-    const created = await api.createSession(prompt("Turn one.", spec));
+    const lostPrompt = prompt("Turn one.", spec);
+    const created = await api.createSession(lostPrompt);
     const sessionId = created.session_id;
     report.meta.session_d = sessionId;
     await waitFor(
@@ -1140,7 +1141,7 @@ describe.skipIf(env === null)("D2 gate", () => {
       250,
     );
     const killed = await workers.running(killedId, 10_000);
-    const killedExit = exitOf(killed);
+    const [open] = await turnRows(killedId);
     await run(["docker", "kill", killed.name]);
     const [unknown] = await waitFor(
       "the killed worker's turn to settle",
@@ -1151,6 +1152,12 @@ describe.skipIf(env === null)("D2 gate", () => {
       120_000,
     ).catch(() => turnRows(killedId));
     const held = await sessionRow(killedId);
+    // What the scheduler or the lease sweep wrote; a worker's own word that
+    // it gave the lease up would read worker_lease_lost.
+    const wordless = await rows<{ state: string; end_reason: string | null }>(
+      "SELECT state, end_reason FROM attempts WHERE session_id = $1",
+      [killedId],
+    );
     const decision = await api.call(
       "POST",
       `/v1/sessions/${killedId}/recovery-decisions`,
@@ -1177,7 +1184,6 @@ describe.skipIf(env === null)("D2 gate", () => {
         : null;
     const [cleaned] = await turnRows(killedId);
     const cleanedSession = await sessionRow(killedId);
-    const killedCode = await killedExit;
     report.check({
       id: "D-03",
       criterion: "outcome_unknown 복구 결정",
@@ -1186,9 +1192,10 @@ describe.skipIf(env === null)("D2 gate", () => {
       input:
         "docker kill a second session's worker mid-turn, then abandon turn 1 once the execution is confirmed gone",
       expected:
-        "turn outcome_unknown(execution_gone); recovery_required; then 202; recovery receipt succeeded; turn cancelled(operator_abandoned); session stopped",
+        "turn running at the kill; attempt lost with no word of a given-up lease; turn outcome_unknown(execution_gone); recovery_required; then 202; recovery receipt succeeded; turn cancelled(operator_abandoned); session stopped",
       actual: {
-        exit: killedCode,
+        before_kill: open?.status,
+        attempts: wordless,
         unknown: {
           status: unknown?.status,
           reason: unknown?.terminal_reason,
@@ -1205,6 +1212,15 @@ describe.skipIf(env === null)("D2 gate", () => {
         admission: cleanedSession.admission_state,
       },
       pass:
+        open?.status === "running" &&
+        wordless.length === 1 &&
+        wordless.every(
+          (attempt) =>
+            attempt.state === "lost" &&
+            ["execution_gone", "lease_expired"].includes(
+              attempt.end_reason ?? "",
+            ),
+        ) &&
         unknown?.status === "outcome_unknown" &&
         unknown.terminal_reason === "execution_gone" &&
         unknown.outcome_unknown === true &&
@@ -1220,7 +1236,8 @@ describe.skipIf(env === null)("D2 gate", () => {
     // The lost turn's session goes on: its next message runs on a new worker,
     // handed the lost turn's input ahead of its own. The scripted model plays
     // the first spec a prompt carries, so D1 answers here again, and a D1
-    // call that holds both inputs is that hand-over seen from outside.
+    // call that holds both inputs in that order is the hand-over seen from
+    // outside.
     const nextTurnId = await api.message(sessionId, "Turn two.");
     const successor = await workers.running(sessionId);
     const next = await api.settle(sessionId, nextTurnId, TURN_MS);
@@ -1239,10 +1256,13 @@ describe.skipIf(env === null)("D2 gate", () => {
     );
     const lostExecution = executions.get(turns[0]?.attempt_id ?? "");
     const nextExecution = executions.get(nextRow?.attempt_id ?? "");
-    const handedOver = (await messages.requests("D1")).filter((request) => {
-      const sent = JSON.stringify(request.messages);
-      return sent.includes(CUT_OFF_INPUT_LINE) && sent.includes("Turn two.");
-    });
+    // As JSON writes it, since the request is searched as JSON.
+    const handed = JSON.stringify(
+      `${CUT_OFF_INPUT_LINE}\n\n${lostPrompt}\n\nTurn two.`,
+    ).slice(1, -1);
+    const handedOver = (await messages.requests("D1")).filter((request) =>
+      JSON.stringify(request.messages).includes(handed),
+    );
     report.check({
       id: "D-04",
       criterion: "fault: lease 상실",
@@ -1250,14 +1270,14 @@ describe.skipIf(env === null)("D2 gate", () => {
         "the session of the lost turn takes its next message on a new worker",
       input: "POST a message to the session whose turn failed as lost",
       expected:
-        "turn 2 completed on another execution, given the lost turn's input ahead of its own; session active; the pointer's checkpoint is turn 2's",
+        "turn 2 completed on another execution, given the cut-off line, the lost turn's input and its own in that order; session active; the pointer's checkpoint is turn 2's",
       actual: {
         status: next.status,
         reason: next.terminal_reason,
         lost_worker: worker.name,
         worker: successor.name,
         executions: [lostExecution, nextExecution],
-        model_calls_with_both_inputs: handedOver.length,
+        model_calls_with_handed_input: handedOver.length,
         admission: after.admission_state,
         pointer: after.checkpoint_revision,
         pointed_turn: pointed?.turn_id,
