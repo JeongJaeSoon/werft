@@ -483,18 +483,20 @@ export interface MentionTurnRetryRequests {
   /**
    * The input of the turn's try as it was given: null once its input is no
    * longer kept; `moved` when its mention's engagement is another try's,
-   * one written after it.
+   * one written after it; `off` when the agent's rollout is no longer on.
    */
   requestOf(
     turnId: ConversationTurnId,
-  ): Promise<MentionTurnRetryRequest | "moved" | null>;
+  ): Promise<MentionTurnRetryRequest | "moved" | "off" | null>;
 }
 
 /** What starting a mention's next try did. */
 export type MentionTurnRetryStart =
   | MentionTurnStart
   // The try kept no input to try again with: past its deadline, say.
-  | { outcome: "input_gone" };
+  | { outcome: "input_gone" }
+  // The agent's rollout went off since its first try.
+  | { outcome: "rollout_off" };
 
 export type MentionTurnEndings = {
   ended: number;
@@ -668,10 +670,15 @@ export async function endMentionTurns(deps: {
       result.retried += 1;
       return "retried";
     }
-    // Deleted since, or the channel stopped: as a first try, nothing said.
+    // Deleted since, the channel stopped, or the rollout off: as a first
+    // try, nothing said. An input gone with a stop that came after this
+    // pass read the try's end (and the channel on again) is said nothing too.
     if (
       started.outcome === "source_deleted" ||
-      started.outcome === "channel_stopped"
+      started.outcome === "channel_stopped" ||
+      started.outcome === "rollout_off" ||
+      (started.outcome === "input_gone" &&
+        (await deps.retries.attemptOf(turnId)) === null)
     ) {
       await deps.retries.letGo(turnId);
       return "none";

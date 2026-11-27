@@ -467,6 +467,7 @@ export function createMentionConversationTurns(deps: {
       }
       // Another pass wrote the next try already.
       if (request === "moved") return { outcome: "duplicate" };
+      if (request === "off") return { outcome: "rollout_off" };
       const { inputId, attempt, ...mention } = request;
       return begin(
         mention,

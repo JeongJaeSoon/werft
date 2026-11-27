@@ -67,7 +67,10 @@ export function createPostgresMentionTurnRetries(
                 AND c.state = 'in_flight') AS call_in_flight
           FROM conversation_turn_queue q
           JOIN conversation_turns t ON t.id = q.turn_id
-          WHERE q.turn_id = ${turnId}::uuid AND t.origin = 'm2'`),
+          WHERE q.turn_id = ${turnId}::uuid AND t.origin = 'm2'
+            -- A try an emergency stop ended, read whenever: none follows it.
+            AND (q.outcome IS NULL
+              OR q.outcome ->> 'reason' IS DISTINCT FROM 'emergency_stopped')`),
       );
       if (row === undefined) return null;
       return {
@@ -158,7 +161,9 @@ export function createPostgresMentionTurnRetries(
       await releaseKeptTurnRequest(db, turnId);
     },
 
-    async requestOf(turnId): Promise<MentionTurnRetryRequest | "moved" | null> {
+    async requestOf(
+      turnId,
+    ): Promise<MentionTurnRetryRequest | "moved" | "off" | null> {
       // The kept input before the mention: a pass that writes the next try
       // moves the mention before it lets the input go, so an input another
       // pass let go is read here as a moved mention, not as one gone.
@@ -176,13 +181,16 @@ export function createPostgresMentionTurnRetries(
         team_id: string | null;
         channel_id: string | null;
         ts: string | null;
+        rollout: string;
       }>(
         await db.execute(sql`
           SELECT t.workspace_id, t.agent_id, t.conversation_id, t.topic_id,
             t.slack_installation_id, t.requester_id, t.slack_subject,
-            q.input_id, q.attempt, e.team_id, e.channel_id, e.ts
+            q.input_id, q.attempt, e.team_id, e.channel_id, e.ts,
+            a.conversation_rollout AS rollout
           FROM conversation_turns t
           JOIN conversation_turn_queue q ON q.turn_id = t.id
+          JOIN agents a ON a.id = t.agent_id
           LEFT JOIN conversation_engagements e
             ON e.conversation_turn_id = t.id AND e.kind = 'mention'
           WHERE t.id = ${turnId}::uuid AND t.origin = 'm2'
@@ -198,6 +206,8 @@ export function createPostgresMentionTurnRetries(
       ) {
         return "moved";
       }
+      // As a first mention is taken only under it.
+      if (turn.rollout !== "on") return "off";
       if (text === null) return null;
       return {
         workspaceId: turn.workspace_id,
