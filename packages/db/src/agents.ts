@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  AGENT_OWNERLESS_GRACE_DAYS,
   type Agent,
   type AgentRelease,
   type AgentStatus,
@@ -30,6 +31,7 @@ import {
   max,
   or,
   type SQL,
+  type SQLWrapper,
   sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -123,6 +125,22 @@ export async function releaseSuperseded(
  */
 export function ownerlessNow(db: Database) {
   return sql<boolean>`(${agents.status} <> 'archived' and not ${hasOwner(db, agents.workspaceId, agents.id)})`;
+}
+
+/**
+ * Whether no one has administered the agent for the whole grace period since
+ * its `ownerless_since`: its new sessions are refused (`agent_ownerless`) and
+ * its Slack conversation layer stops. Columns are given so any alias reads it.
+ */
+export function ownerlessPastGrace(
+  db: Database,
+  agent: {
+    id: SQLWrapper;
+    workspaceId: SQLWrapper;
+    ownerlessSince: SQLWrapper;
+  },
+): SQL<boolean> {
+  return sql<boolean>`(${agent.ownerlessSince} <= ${DB_NOW} - make_interval(days => ${AGENT_OWNERLESS_GRACE_DAYS}) and not ${hasOwner(db, agent.workspaceId, agent.id)})`;
 }
 
 export function agentOf(
