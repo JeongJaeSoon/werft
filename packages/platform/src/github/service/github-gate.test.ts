@@ -9,6 +9,7 @@ import {
   type GitHubCeiling,
   type GitHubFeatures,
   type GitHubRefusal,
+  newSessionGitHubPolicy,
   type RepositoryCeiling,
 } from "@werft-ai/contracts";
 import {
@@ -427,6 +428,45 @@ describe("permission table", () => {
     expect((await withRuns.grant(dispatch))?.permissions).toEqual({
       actions: "write",
     });
+  });
+
+  test("a release pin's old actions with no saved switch edits workflows and reads CI, but dispatch is actions_off (94S-2406)", async () => {
+    // As a release activated before the switches pinned it, never saved since.
+    const oldPin = settings({
+      features: features({ actions: true }),
+      actions_allow: [{ workflow: "ci.yml" }],
+    });
+    const dispatch = {
+      purpose: "dispatch",
+      workflow: { file: "ci.yml", ref: "main" },
+    } as const;
+    const onCeiling = harness({
+      policy: newSessionGitHubPolicy(null, oldPin),
+      ceiling: ALL_ON,
+    });
+    expect((await onCeiling.grant({ purpose: "push" }))?.permissions).toEqual({
+      contents: "write",
+      workflows: "write",
+    });
+    expect(
+      (await onCeiling.grant({ purpose: "actions_read" }))?.permissions,
+    ).toEqual({ actions: "read", checks: "read" });
+    expect((await refused(onCeiling.grant(dispatch))).reason).toBe(
+      "actions_off",
+    );
+    expect(
+      onCeiling.author?.issued.filter(
+        ({ permissions }) => permissions.actions === "write",
+      ),
+    ).toEqual([]);
+    // The ceiling still holds the workflow push it turned on.
+    const noWorkflows = harness({
+      policy: newSessionGitHubPolicy(null, oldPin),
+      ceiling: { ...ALL_ON, workflows: false },
+    });
+    expect((await noWorkflows.grant({ purpose: "push" }))?.permissions).toEqual(
+      { contents: "write" },
+    );
   });
 
   test("push with workflows on falls back to contents:write only when the installation has not granted Workflows", async () => {

@@ -4,11 +4,13 @@ import {
   type AgentGitHub,
   apiErrorResponseSchema,
   dispatchWorkflowResponseSchema,
+  type EffectiveGitHubPolicy,
   GITHUB_CEILING_NONE,
   type GitHubCeiling,
   githubWorkflowRunSchema,
   listSessionGitHubRefusalsResponseSchema,
   listSessionOutcomesResponseSchema,
+  newSessionGitHubPolicy,
   rerunWorkflowResponseSchema,
   type SessionGitHubRefusal,
   type SessionOutcome,
@@ -138,6 +140,7 @@ function app(
     reviewer?: boolean;
     reviewerInstallationId?: number;
     settings?: AgentGitHub;
+    policy?: EffectiveGitHubPolicy;
   } = {},
 ) {
   const catalog: SessionCatalog = {
@@ -213,7 +216,8 @@ function app(
               startedBy: null,
               agent: { id: AGENT, workspaceId: "owner-a", githubEnabled: true },
               release: { id: RELEASE },
-              policy: releasePolicy(options.settings ?? SETTINGS),
+              policy:
+                options.policy ?? releasePolicy(options.settings ?? SETTINGS),
               ceiling: options.ceiling ?? ACTIONS_ON,
               repositoryCeiling: {
                 repository_ids: Object.keys(catalog.repositories),
@@ -591,6 +595,40 @@ describe("GitHub work routes", () => {
             ?.actions === "write",
       ),
     ).toEqual([]);
+  });
+
+  test("an agent with only a release pin's old actions on is refused 403 actions_off with the ceiling on, and still reads runs (94S-2406)", async () => {
+    // A release activated before the switches, its GitHub tab never saved.
+    const target = app({
+      policy: newSessionGitHubPolicy(null, {
+        ...SETTINGS,
+        features: {
+          workflows: false,
+          checks: false,
+          actions: true,
+          issues: false,
+          review: false,
+        },
+      }),
+    });
+    const before = github.workflowRuns("acme", "app").length;
+    const dispatched = await target.dispatch({
+      workflow: "deploy.yml",
+      ref: "main",
+    });
+    expect(dispatched.status).toBe(403);
+    expect(errorOf(dispatched.json)).toMatchObject({
+      code: "GITHUB_REFUSED",
+      details: { reason_code: "actions_off" },
+    });
+    const pushed = github.addWorkflowRun("acme", "app", {
+      path: ".github/workflows/ci.yml",
+      head_branch: "main",
+    });
+    expect((await target.send("GET", `/workflow-runs/${pushed}`)).status).toBe(
+      200,
+    );
+    expect(github.workflowRuns("acme", "app")).toHaveLength(before + 1);
   });
 
   test("with Actions on, any run in the repository can be read; one GitHub does not know is 404", async () => {

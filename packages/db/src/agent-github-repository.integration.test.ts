@@ -393,9 +393,16 @@ integration("turning one repository on or off on PostgreSQL", () => {
         [f.agentId],
       )
     ).rows[0];
+    // The pin's old actions edits workflows and reads CI; direct runs and
+    // their allow-list start off (94S-2406).
     expect(features).toEqual({
-      features: PIN.features,
-      actions_allow: PIN.actions_allow,
+      features: {
+        ...PIN.features,
+        workflows: true,
+        checks: true,
+        actions: false,
+      },
+      actions_allow: [],
     });
   });
 

@@ -4,6 +4,7 @@ import {
   GITHUB_FEATURES_DEFAULT,
   GITHUB_GATE_RECEIPT_OPERATION_VALUES,
   githubEffectiveFeatures,
+  pinUnderSwitches,
 } from "@werft-ai/contracts";
 import type {
   AgentGitHubStore,
@@ -142,15 +143,16 @@ async function seedOf(
             GITHUB_FEATURES_DEFAULT,
             await workspaceFeatureCeiling(tx, workspaceId),
           ),
-          actions_allow: [] as unknown[],
+          actions_allow: [],
         }
       : agentGitHubSettingsSchema.safeParse(release.github).data;
   if (github === undefined) return null;
+  const { features, actions_allow } = pinUnderSwitches(github);
   return {
     repositories: [...github.repositories],
     pushApproval: github.push_approval,
-    features: github.features,
-    actionsAllow: github.actions_allow,
+    features,
+    actionsAllow: actions_allow,
     // The row would otherwise lose the release's repository, which a session
     // naming none starts on.
     startRepositoryId:
