@@ -839,12 +839,27 @@ test("docs/ci/checks.md names each required check by the one job that reports it
           job.name ?? "",
         ) ?? [];
       const unset = only === "github.event.inputs.only" ? "" : "all";
-      const name = only ? (unset === value ? chosen : other) : (job.name ?? id);
+      // A gate's `contains(list, only || 'all') && 'name' || '... (gate)'`:
+      // true for a pull request, where `only` is unset.
+      const gate =
+        /^\$\{\{ contains\(fromJSON\('[^']*'\), github\.event\.inputs\.only \|\| 'all'\) && '([^']*)' \|\| '[^']*' \}\}$/.exec(
+          job.name ?? "",
+        );
+      const name = gate
+        ? (gate[1] ?? id)
+        : only
+          ? unset === value
+            ? chosen
+            : other
+          : (job.name ?? id);
       // An expression this test does not evaluate may still pick any string
       // it quotes (images.yml's build). One taken from a matrix is not seen.
-      const quoted = only
-        ? []
-        : [...(job.name ?? "").matchAll(/'([^']*)'/g)].map(([, text]) => text);
+      const quoted =
+        only || gate
+          ? []
+          : [...(job.name ?? "").matchAll(/'([^']*)'/g)].map(
+              ([, text]) => text,
+            );
       return { file, id, name, quoted };
     });
   });
