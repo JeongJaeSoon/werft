@@ -157,10 +157,13 @@ export async function routeConversationTurn(
       ...ids,
       reason,
     });
-    return (await deps.store.settle(route, effect, line, null))
-      ? effect
-      : "none";
+    if (await deps.store.settle(route, effect, line, null)) return effect;
+    return settledElsewhere();
   };
+  // Not recorded: ended already, or its input is in the task by a run
+  // beside this one, which this run then records.
+  const settledElsewhere = async () =>
+    (await deps.store.handed(route)) ? routed(task) : ("none" as const);
   const routed = async (
     task: ConversationRouteTaskThread | null,
   ): Promise<ConversationRouteOutcome> => {
@@ -201,18 +204,22 @@ export async function routeConversationTurn(
       ...ids,
       reason,
     });
+    if (await deps.store.handed(route)) return routed(task);
     const heard = await deps.tellRequester(
       route,
       routeRefusalNotice(reason, deps.connectUrl),
     );
-    return (await deps.store.settle(
-      route,
-      "refused",
-      heard ? null : "routeFailed",
-      null,
-    ))
-      ? ("refused" as const)
-      : ("none" as const);
+    if (
+      await deps.store.settle(
+        route,
+        "refused",
+        heard ? null : "routeFailed",
+        null,
+      )
+    ) {
+      return "refused" as const;
+    }
+    return settledElsewhere();
   };
   const decision = await deps.authorization.authorize({
     action: "session.submit",

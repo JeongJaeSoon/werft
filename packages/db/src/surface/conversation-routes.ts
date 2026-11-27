@@ -24,6 +24,7 @@ import {
 import {
   APPEND_MESSAGE,
   conversationTurnInputScope,
+  lockConversationTurnInput,
 } from "../postgres-unit-of-work.ts";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
@@ -73,7 +74,8 @@ export const taskMirrorDedupeKey = (mirror: { id: string; rev: number }) =>
 /** The turn's input is in its task: its own receipt, whoever wrote it. */
 const handedInput = (route: PendingConversationRoute) => sql`
   EXISTS (SELECT 1 FROM idempotency_keys
-    WHERE operation = ${APPEND_MESSAGE}
+    WHERE principal = ${route.workspaceId}
+      AND operation = ${APPEND_MESSAGE}
       AND resource = ${conversationTurnInputScope(route.sessionId)}
       AND key = ${route.turnId})`;
 
@@ -208,6 +210,13 @@ export function createPostgresConversationRoutes(
       mirror: ConversationRouteTaskThread | null,
     ) {
       return db.transaction(async (tx) => {
+        // After a hand-off of this turn writing its input, or before it
+        // starts: the receipt read below is then the last word.
+        await lockConversationTurnInput(tx, {
+          workspaceId: route.workspaceId,
+          sessionId: route.sessionId,
+          turnId: route.turnId,
+        });
         const written = rowsOf(
           await tx.execute(sql`
             UPDATE conversation_turns SET task_effect = ${effect}

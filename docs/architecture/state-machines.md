@@ -4,7 +4,7 @@
 
 ## 대화 turn: 작업 효과
 
-멘션 턴이 `spawn_task`(새 작업 만들기)나 `route_to_task`(열린 작업에 넘기기)로 끝나면, slack 역할의 턴 끝내기 pass가 그 결정의 효과를 한 번 낸다. 결과는 `conversation_turns.task_effect`에 남는다. 값이 없으면 효과가 아직 나지 않은 것이다.
+멘션 턴이 `spawn_task`(새 작업 만들기)나 `route_to_task`(열린 작업에 넘기기)로 끝나면, slack 역할의 턴 끝내기 pass가 그 결정의 효과를 한 번 낸다. 결과는 `conversation_turns.task_effect`에 남는다. 값이 없으면 아직 끝을 쓰지 않은 것이다. `route_to_task`의 입력은 끝을 쓰기 전에 들어갈 수 있다.
 
 ### `route_to_task`
 
@@ -21,6 +21,8 @@
 - 끝 상태는 다른 끝 상태로 가지 않는다. 효과는 `task_effect`가 비어 있을 때만 쓴다.
 - `route_to_task`의 효과는 작업을 새로 만들지 않는다. 대상 작업이 실행 중이면 입력은 그 뒤에 줄을 선다.
 - `routed`면 대상 작업에 그 글의 입력이 하나 있고, 다른 값이면 없다. 입력은 턴 id를 키로, 호출자가 보내는 어떤 키와도 겹치지 않는 범위에서 받는다. `routed`가 아닌 끝은 그 입력이 없을 때만 쓴다. 같은 턴을 몇 번 돌려도 입력, mirror 줄, 스레드 안내 줄은 하나다.
+- 입력을 넣는 일과 끝을 쓰는 일은 같은 잠금(그 턴의 입력 영수증 범위)을 잡는다. 끝을 쓰는 쪽은 잠금 뒤에 영수증을 읽고, 입력을 넣는 쪽은 잠금 뒤에 그 턴이 `routed`가 아닌 값으로 끝났으면 넣지 않는다. 그래서 같은 턴의 두 실행이 나란히 돌아도 입력과 끝이 어긋나지 않는다. 입력이 있어 끝을 쓰지 못한 실행은 그 자리에서 `routed`로 끝낸다.
+- 열린 작업인지는 입력을 넣기 전에 본다. 그 뒤 작업이 `failed`가 되었어도 입력 허용(admission)이 열려 있으면 입력은 들어가고 작업은 다시 줄을 선다. 원래 스레드의 후속 글과 같다.
 - 요청자에게만 보이는 거절 알림은 끝을 쓰기 전에 보낸다. 끝을 쓰기 전에 실행이 멈추거나 두 실행이 나란히 돌면 또 갈 수 있다(`spawn_task`의 거절 알림과 같다).
 - 넘긴 입력은 턴의 출처 집합 전체(direct와 inherited)를 싣는다. 그중 하나가 지워지면 그 출처를 실은 보내기가 막힌다.
 - `spawn_task`의 값(`opened`)과 `route_to_task`의 값(`routed`)은 섞이지 않는다. `routed_session_id`는 `route_to_task` 턴에만 있고, `routed`면 반드시 있다. 결정이 없는 턴에는 `task_draft`, `routed_session_id`, `task_effect`가 모두 없다(CHECK `conversation_turns_task_check`).

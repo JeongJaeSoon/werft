@@ -5207,6 +5207,30 @@ describe.each(ENGINES)(
       ]);
     });
 
+    test("a turn that ended other than handed takes no input in its task, whichever run comes late", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await openTask(fixture, "100.000100");
+      await followUp(fixture, "100.000200");
+      const turn = await routeDecided(task);
+      // Another run recorded failed before this one wrote the input.
+      await db.execute(
+        sql`UPDATE conversation_turns SET task_effect = 'failed' WHERE id = ${turn.turn_id}::uuid`,
+      );
+      const late = await schema
+        .createPostgresSessionUnitOfWork(db)
+        .appendInputAtomic({
+          principal: fixture.owner,
+          sessionId: task,
+          idempotencyKey: "late",
+          payloadHash: "late",
+          message: "and add the risks",
+          limits: { queuedInputLimitPerSession: 10, storageLimitBytes: 1e9 },
+          conversationTurnId: turn.turn_id,
+        });
+      expect(late).toEqual({ outcome: "conflict" });
+      expect(await taskTurns(task)).toHaveLength(1);
+    });
+
     test("a mirror row its task's delete took away starts a new line for the next task", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       const a = await openTask(fixture, "100.000100");

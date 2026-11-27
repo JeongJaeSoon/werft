@@ -210,6 +210,7 @@ import {
 import { recordStatus } from "./sessions/session-events.ts";
 import { openTaskLimit, writeTaskRequest } from "./sessions/task-open.ts";
 import { withheldEventPayload } from "./sessions/withheld-events.ts";
+import { rowsOf } from "./statement-rows.ts";
 import {
   channelEmergencyStopped,
   emergencyStopHolds,
@@ -221,6 +222,24 @@ export const APPEND_MESSAGE = "append_message";
 /** The receipt scope of the inputs conversation turns hand to a session. */
 export const conversationTurnInputScope = (sessionId: string) =>
   `${sessionId.toLowerCase()}:conversation_turn`;
+
+/**
+ * Holds the lock a conversation turn's hand-off takes to write its input,
+ * so what is read after it sees that input, or its absence, for good.
+ */
+export function lockConversationTurnInput(
+  tx: Database,
+  input: { workspaceId: string; sessionId: string; turnId: string },
+) {
+  return lockIdempotencyScope(tx, {
+    principal: input.workspaceId,
+    actor: null,
+    requestId: null,
+    operation: APPEND_MESSAGE,
+    resource: conversationTurnInputScope(input.sessionId),
+    key: input.turnId,
+  });
+}
 export const SESSIONS_RESOURCE = "sessions";
 
 async function recordAcceptance(
@@ -956,6 +975,18 @@ export function createPostgresSessionUnitOfWork(
                 eq(idempotencyKeys.key, scope.key),
               ),
             );
+        }
+        // A turn that ended other than handed hands nothing on (v1-b/E4).
+        if (
+          input.conversationTurnId !== undefined &&
+          rowsOf<{ ended: boolean }>(
+            await tx.execute(sql`
+              SELECT task_effect IS NOT NULL AND task_effect <> 'routed' AS ended
+              FROM conversation_turns
+              WHERE id = ${input.conversationTurnId}::uuid`),
+          )[0]?.ended === true
+        ) {
+          return { outcome: "conflict" };
         }
         const platform = input.platform;
         const requester =
