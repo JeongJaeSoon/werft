@@ -7,12 +7,14 @@ import type {
 
 /**
  * What decides whether an agent's channel holds unmentioned messages in the
- * judgment buffer, besides the binding: the agent's switch and state, and
+ * judgment buffer, besides the binding: the agent's switch, state and
+ * ownership (`agentOwnerless`: no one administered it past the grace), and
  * the channel's state as its conversation noted it (`active` with none).
  */
 export type JudgmentBufferPlace = {
   rollout: ConversationRollout;
   agentActive: boolean;
+  agentOwnerless: boolean;
   channelState: ConversationChannelState;
 };
 
