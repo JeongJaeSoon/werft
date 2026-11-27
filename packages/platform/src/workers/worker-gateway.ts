@@ -811,6 +811,12 @@ export function createWorkerGateway(deps: {
     store: JudgmentEgressStore;
     upstream?: JudgeConnections["upstream"];
   };
+  // Resolves once `catalog` holds the installation settings at least at the
+  // generation stored when it was called; rejects with the store's own error
+  // when it cannot. The provider and judgment routes wait on it before they
+  // read or write anything for the token, the attempt fence included.
+  // Absent, the catalog is taken as it is.
+  settingsCaughtUp?: () => Promise<void>;
   // Absent, `/session-allow` stands for nothing and every call is asked.
   authorization?: AuthorizationPolicy;
   // Absent, events are stored without the engine-neutral fields beside them.
@@ -1717,7 +1723,11 @@ export function createWorkerGateway(deps: {
     if (deps.conversationCalls === undefined || exchangeId === undefined) {
       return null;
     }
-    if (token.startsWith(CONVERSATION_TURN_PERMIT_TOKEN_PREFIX)) {
+    const turn = token.startsWith(CONVERSATION_TURN_PERMIT_TOKEN_PREFIX);
+    if (!turn && !token.startsWith(CONVERSATION_CALL_TOKEN_PREFIX)) return null;
+    // Before the token is bound or anything reserved on it.
+    await settingsCaughtUp();
+    if (turn) {
       return authorizedTurnCall(
         deps.conversationCalls.store,
         token,
@@ -1725,7 +1735,6 @@ export function createWorkerGateway(deps: {
         exchangeId,
       );
     }
-    if (!token.startsWith(CONVERSATION_CALL_TOKEN_PREFIX)) return null;
     const result = await deps.conversationCalls.store.authorizeAtomic({
       tokenHash: hashConversationCallToken(token),
       exchangeId,
@@ -1799,6 +1808,10 @@ export function createWorkerGateway(deps: {
         max_request_bytes: result.maxRequestBytes,
       },
     };
+  }
+
+  function settingsCaughtUp(): Promise<void> {
+    return deps.settingsCaughtUp?.() ?? Promise.resolve();
   }
 
   // The provider route a session's connection kind does not serve is
@@ -2442,6 +2455,8 @@ export function createWorkerGateway(deps: {
       path?: string | undefined;
     }): Promise<EgressGrant> {
       if (request.purpose === "provider") {
+        // Before the fence, whose first call closes the claim's replay.
+        await settingsCaughtUp();
         const titled = await authorizedTitleEgress(request.token, request.path);
         if (titled !== null) return titled;
       }
@@ -2574,6 +2589,7 @@ export function createWorkerGateway(deps: {
       ) {
         throw invalid();
       }
+      await settingsCaughtUp();
       const result = await deps.judgments.store.authorizeToken({
         tokenHash: hashJudgmentToken(request.token),
       });
