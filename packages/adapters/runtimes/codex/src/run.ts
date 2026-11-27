@@ -20,6 +20,7 @@ import {
   type NegotiatedCapabilities,
   type RejectedCheckpoint,
   type RuntimeEvent,
+  type ToolDecisionObserver,
   type ToolPrecheck,
 } from "@werft-ai/runtime-core";
 
@@ -42,6 +43,11 @@ import {
 } from "./mapper.ts";
 import type { RelayCall } from "./mcp-relay.ts";
 import { sandboxRefusal, sandboxTurnedOffRefusal } from "./sandbox.ts";
+import {
+  changeTargets,
+  sandboxAnswersChange,
+  sandboxAnswersCommand,
+} from "./sandbox-answers.ts";
 import { type AppServerTransport, RpcError, type RpcId } from "./transport.ts";
 
 const COMMAND_APPROVAL = "item/commandExecution/requestApproval";
@@ -65,6 +71,8 @@ export type CodexRunOptions = {
   /** The thread to resume; absent for a new one. */
   resume?: string;
   precheckTool?: ToolPrecheck | undefined;
+  /** Told when the run answers an approval request itself. */
+  toolDecisions?: ToolDecisionObserver | undefined;
   /** The inputs the thread already holds, read when a resumed run asks. */
   heldInputs: (threadId: string) => Promise<ReadonlySet<string>>;
   /** Descendants of the engine process, to judge the run quiet. */
@@ -982,11 +990,36 @@ export class CodexRun implements AgentRun {
     );
     const { answers } = this.options.launch;
     if (answers === "none") return "decline";
-    // acceptEdits: file changes go through, commands still go to the person.
+    // acceptEdits: file changes go through; a command is judged below.
     if (answers === "edits" && !isCommand) return "accept";
     if (isCommand && this.options.precheckTool !== undefined) {
       const refusal = await this.options.precheckTool(tool, input);
       if (refusal !== null) return "decline";
+    }
+    // Work inside the session's sandbox that the workspace policy keeps for
+    // nobody: answered here, so no card is made and the turn does not wait.
+    if (
+      isCommand
+        ? sandboxAnswersCommand(params, this.options.cwd)
+        : sandboxAnswersChange(
+            change?.changes,
+            params.grantRoot,
+            this.options.cwd,
+          )
+    ) {
+      try {
+        this.options.toolDecisions?.observe({
+          toolUseId: itemId,
+          parentToolUseId: undefined,
+          tool,
+          input,
+          decision: "allow",
+          basis: "sandbox_boundary",
+        });
+      } catch {
+        // The audit is not a gate: a failure to record cannot stop the call.
+      }
+      return "accept";
     }
     let inputHash: string;
     try {
@@ -1004,7 +1037,19 @@ export class CodexRun implements AgentRun {
       display: {
         ...(isCommand
           ? { command: params.command ?? null, cwd: params.cwd ?? null }
-          : { paths: input.paths, grant_root: params.grantRoot ?? null }),
+          : {
+              // Each record that reads shows where a move goes as well.
+              paths: [
+                ...new Set([
+                  ...changePaths(change as Item),
+                  ...(Array.isArray(change?.changes)
+                    ? change.changes
+                    : []
+                  ).flatMap((one) => changeTargets([one]) ?? []),
+                ]),
+              ],
+              grant_root: params.grantRoot ?? null,
+            }),
         reason: params.reason ?? null,
       },
       acceptsNote: true,
