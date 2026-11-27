@@ -17,6 +17,7 @@ import {
   conversations,
   githubApps,
   githubInstallationSnapshots,
+  sessionShares,
   sessions,
   slackApps,
   slackInstallations,
@@ -48,6 +49,10 @@ export function createPostgresWerftStatusStore(db: Database): WerftStatusStore {
           agentId: agentReleases.agentId,
           effectiveTools: agentReleases.effectiveTools,
           enabled: agents.githubEnabled,
+          replyKind: conversations.kind,
+          replyConversationId: conversations.id,
+          replyPerson: conversations.personUserId,
+          shareScope: sessionShares.scope,
           ...githubPolicyColumns,
         })
         .from(sessions)
@@ -57,6 +62,13 @@ export function createPostgresWerftStatusStore(db: Database): WerftStatusStore {
           agentGitHubSettings,
           eq(agentGitHubSettings.agentId, agents.id),
         )
+        // The conversation the session's text belongs to, as the outbox
+        // claim reads it (A3).
+        .leftJoin(
+          conversations,
+          eq(conversations.id, sessions.parentConversationId),
+        )
+        .leftJoin(sessionShares, eq(sessionShares.sessionId, sessions.id))
         .where(eq(sessions.id, call.sessionId))
         .limit(1);
       if (!session || session.agentReleaseId === null) return null;
@@ -108,6 +120,7 @@ export function createPostgresWerftStatusStore(db: Database): WerftStatusStore {
         workspaceId,
         agentId,
         requesterUserId: requester,
+        replyTo: replyToOf(session),
         github: {
           app: githubApp,
           // Off now, or off as the session started: both close it.
@@ -126,6 +139,26 @@ export function createPostgresWerftStatusStore(db: Database): WerftStatusStore {
       };
     },
   };
+}
+
+function replyToOf(row: {
+  replyKind: string | null;
+  replyConversationId: string | null;
+  replyPerson: string | null;
+  shareScope: string | null;
+}): WerftStatusFacts["replyTo"] {
+  if (row.replyKind === "channel" && row.replyConversationId !== null) {
+    return { kind: "channel", conversationId: row.replyConversationId };
+  }
+  if (row.replyKind === "dm" && row.replyPerson !== null) {
+    // No share row reads as workspace, as sessionVisibleTo has it.
+    return {
+      kind: "dm",
+      personUserId: row.replyPerson,
+      alone: row.shareScope === "private",
+    };
+  }
+  return null;
 }
 
 /**

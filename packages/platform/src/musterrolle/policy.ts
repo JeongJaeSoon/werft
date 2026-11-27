@@ -426,12 +426,17 @@ export interface AuthorizationPolicy {
    * may pass the door of now (SessionViewer.privateChannels), for a
    * read across sessions. Records nothing. Only cached member lists are
    * read, so a channel with none is left out (decision 26: what is not
-   * confirmed is hidden) and `pending` says one is being read.
+   * confirmed is hidden) and `pending` says one is being read;
+   * `pendingConversationIds` names which.
    */
   privateChannelsOf?(
     subject: AuthorizationSubject,
     ownerScope: string,
-  ): Promise<{ conversationIds: string[]; pending: boolean }>;
+  ): Promise<{
+    conversationIds: string[];
+    pending: boolean;
+    pendingConversationIds?: string[];
+  }>;
 }
 
 // The scope each session action needs. Actions with no scope have no rule
@@ -889,8 +894,8 @@ export function createAuthorizationPolicy(
     workspaceId: string,
     places: readonly PrivateChannelPlace[],
     mode: "inline" | "cached",
-  ): Promise<{ seen: string[]; pending: boolean }> {
-    const none = { seen: [], pending: false };
+  ): Promise<{ seen: string[]; pending: boolean; waiting: string[] }> {
+    const none = { seen: [], pending: false, waiting: [] };
     const { principal } = reading;
     const unknown = places.filter((place) => place.kindUnknown === true);
     if (unknown.length > 0) {
@@ -914,6 +919,7 @@ export function createAuthorizationPolicy(
       (place) => fromChannel(place) || members !== undefined,
     );
     const seen: string[] = [];
+    const waiting: string[] = [];
     let pending = false;
     const sees = async (place: PrivateChannelPlace) => {
       try {
@@ -938,7 +944,10 @@ export function createAuthorizationPolicy(
         };
         if (mode === "inline") return await members.isMember(question);
         const answer = await members.cachedMembership(question);
-        if (answer === "pending") pending = true;
+        if (answer === "pending") {
+          pending = true;
+          waiting.push(place.conversationId);
+        }
         return answer === "member";
       } catch (error) {
         if (deps.storageUnavailable?.(error)) throw error;
@@ -955,7 +964,7 @@ export function createAuthorizationPolicy(
         if (answers[i]) seen.push(place.conversationId);
       });
     }
-    return { seen, pending };
+    return { seen, pending, waiting };
   }
 
   const decisions = deps.decisions;
@@ -1307,7 +1316,11 @@ export function createAuthorizationPolicy(
 
   return {
     async privateChannelsOf(subject, ownerScope) {
-      const none = { conversationIds: [], pending: false };
+      const none = {
+        conversationIds: [],
+        pending: false,
+        pendingConversationIds: [],
+      };
       if (subject.principal === null || !sessions.privateChannels) return none;
       try {
         const reading = await identity.reread({
@@ -1320,14 +1333,18 @@ export function createAuthorizationPolicy(
         ) {
           return none;
         }
-        const { seen, pending } = await privateChannelsFor(
+        const { seen, pending, waiting } = await privateChannelsFor(
           reading,
           subject.surface,
           ownerScope,
           await sessions.privateChannels(ownerScope, null),
           "cached",
         );
-        return { conversationIds: seen, pending };
+        return {
+          conversationIds: seen,
+          pending,
+          pendingConversationIds: waiting,
+        };
       } catch (error) {
         if (deps.storageUnavailable?.(error)) {
           throw new AuthorizationUndecidedError(error);
