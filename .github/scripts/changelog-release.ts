@@ -42,18 +42,24 @@ export function parseSections(
         indent === fence.indent &&
         run.charAt(0) === fence.char &&
         run.length >= fence.length &&
-        marker[3]?.trim() === ""
+        /^[ \t]*$/.test(marker[3] ?? "")
       ) {
         fence = null;
       }
     }
     // A fragment moves from changelog.d/ to the root: a relative link would
     // point elsewhere there.
-    if (fragment) {
-      for (const link of line.matchAll(
-        /\]\(\s*<?([^)\s>]*)|^\s*\[[^\]]+\]:\s*<?([^\s>]*)/g,
-      )) {
-        const target = link[1] ?? link[2] ?? "";
+    // Code is no link, and a reference definition is refused outright: two
+    // fragments could define one label, and the first would win for both.
+    if (fragment && fence === null) {
+      const prose = line.replace(/`[^`]*`/g, "");
+      if (/^\s*((>|[-*+]|\d+[.)])\s*)*\[[^\]]+\]:/.test(prose)) {
+        throw new Error(
+          `${where}:${i + 1}: a reference definition; write the link inline with an absolute URL`,
+        );
+      }
+      for (const link of prose.matchAll(/\]\(\s*<?([^)\s>]*)/g)) {
+        const target = link[1] ?? "";
         if (!/^(https?:|mailto:|#)/.test(target)) {
           throw new Error(
             `${where}:${i + 1}: link "${target}" is relative; use an absolute URL`,

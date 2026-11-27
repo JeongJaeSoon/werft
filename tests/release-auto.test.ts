@@ -1859,9 +1859,21 @@ describe("changelog-release.ts", () => {
       'a.md:3: link "../docs/quickstart.md" is relative',
     ],
     [
-      "a relative reference definition",
-      { "a.md": `${ops("[절차][q]")}\n[q]: docs/quickstart.md\n` },
-      'link "docs/quickstart.md" is relative',
+      "a reference definition",
+      { "a.md": `${ops("[절차][q]")}\n[q]: https://example.test/q\n` },
+      "a.md:5: a reference definition",
+    ],
+    [
+      "a reference definition in a quote",
+      { "a.md": `${ops("> [q]: ../docs/quickstart.md")}` },
+      "a.md:3: a reference definition",
+    ],
+    [
+      "a fence closed with a no-break space after it",
+      {
+        "a.md": `${ops("x")}  \`\`\`\n  y\n  \`\`\`${String.fromCharCode(160)}\n`,
+      },
+      "a code fence is not closed",
     ],
     [
       "a fence left open",
@@ -1905,7 +1917,21 @@ describe("changelog-release.ts", () => {
   });
 
   test("a fence that closes is kept, and a CRLF CHANGELOG is refused", () => {
-    const linked = ops("[절차](https://example.test/a) [위](#v060)");
+    const linked = ops(
+      "[절차](https://example.test/a) [위](#v060) `handlers[name](request)`",
+    );
+    expect(
+      collect(
+        head + old,
+        [
+          {
+            name: "c.md",
+            text: `${ops("x")}  \`\`\`\n  f[a](b)\n  \`\`\`  \n`,
+          },
+        ],
+        "v0.6.0",
+      ),
+    ).toContain("  f[a](b)\n");
     expect(
       collect(head + old, [{ name: "b.md", text: linked }], "v0.6.0"),
     ).toContain(linked.slice(-40));
