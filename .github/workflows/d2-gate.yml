@@ -7,9 +7,11 @@ name: D2 gate
 # stale without anyone noticing (: gate A broke on
 # incremental bundles). This workflow runs it every night on main, and on the
 # pull requests that change the gate itself or the paths that decide who ends
-# a worker and what its turn becomes (its D, R and H tests). What only the
-# checkpoint, transcript and interrupt tests (A–C, E) read still waits for the
-# night.
+# a worker and what its turn becomes (its D, R and H tests). The list is a
+# cut, not a proof: the gate drives the whole stack, so a change to shared
+# code (the API server, contracts, the schema, the pool), or to what only the
+# checkpoint, transcript and interrupt tests (A–C, E) read, still waits for
+# the night.
 #
 # Deliberately NOT a required status check: it does not run on most pull
 # requests, so a required context would leave them waiting forever. A failure
@@ -50,9 +52,11 @@ on:
       - packages/platform/src/sessions/**
       - packages/db/src/sessions/**
       - packages/platform/src/workers/**
+      - apps/control-host/src/api/routes/workers/**
       - packages/platform/src/ports/worker-unit-of-work.ts
       - packages/db/src/worker-unit-of-work.ts
       - packages/db/src/postgres-unit-of-work.ts
+      - packages/db/src/recovery-control.ts
       - apps/worker/src/**
 
 permissions:

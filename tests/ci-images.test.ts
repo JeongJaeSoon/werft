@@ -525,9 +525,11 @@ describe("the D2 gate workflow", () => {
         "packages/platform/src/sessions/**",
         "packages/db/src/sessions/**",
         "packages/platform/src/workers/**",
+        "apps/control-host/src/api/routes/workers/**",
         "packages/platform/src/ports/worker-unit-of-work.ts",
         "packages/db/src/worker-unit-of-work.ts",
         "packages/db/src/postgres-unit-of-work.ts",
+        "packages/db/src/recovery-control.ts",
         "apps/worker/src/**",
       ]),
     );
