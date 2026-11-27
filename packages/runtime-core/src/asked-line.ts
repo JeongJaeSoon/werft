@@ -793,9 +793,20 @@ function narrowKept(words: readonly string[], place: Place): string | null {
     const pattern = globPattern(name);
     const names = [...KEPT_SAMPLES, ...keptNames(place.root)];
     if (names.some((kept) => pattern.test(kept))) return true;
-    // A rule of any folder (`**/.env`) keeps that name wherever it is.
-    const last = globPattern(name.slice(name.lastIndexOf("/") + 1));
-    if (KEPT_ANYWHERE.some((kept) => last.test(kept))) return true;
+    // A rule of any folder (`**/.env`) keeps that name wherever it is, and
+    // `*` and `?` may stand for the `/` before it (`apps/web*.env`): any
+    // end of the pattern that matches `/<name>` reaches one.
+    const pieces = globPieces(name);
+    if (
+      pieces.some((_, from) => {
+        const end = piecesPattern(pieces.slice(from));
+        return KEPT_ANYWHERE.some(
+          (kept) => end.test(`/${kept}`) || (from === 0 && end.test(kept)),
+        );
+      })
+    ) {
+      return true;
+    }
     // A file under a kept folder may be gone from the work tree and come
     // back from the index (`git restore '.claud?/settings.json'`).
     const slash = name.indexOf("/");
@@ -948,57 +959,86 @@ const POSIX_CLASSES: Readonly<Record<string, string>> = {
 };
 
 /**
- * A git pathspec pattern as a regular expression: `*` crosses `/`, a
- * backslash keeps the letter after it as it is, `[!a]` and `[[:alpha:]]` are
- * classes, case aside. A class git knows and this does not is any one letter.
+ * A git pathspec pattern as pieces of a regular expression, one for each
+ * letter or wildcard: `*` and `?` cross `/`, a backslash keeps the letter
+ * after it as it is, `[!a]` and `[[:alpha:]]` are classes, and a range
+ * backwards (`[z-a]`) is left out of its class as git leaves it. A class git
+ * knows and this does not is any one letter.
  */
-function globPattern(glob: string): RegExp {
+function globPieces(glob: string): string[] {
   const literal = (char: string) =>
     char.replace(/[.*+?^${}()|[\]\\/-]/g, "\\$&");
-  let source = "";
+  const pieces: string[] = [];
   for (let at = 0; at < glob.length; at += 1) {
     const char = glob[at] as string;
-    if (char === "*") source += ".*";
-    else if (char === "?") source += ".";
+    if (char === "*") pieces.push(".*");
+    else if (char === "?") pieces.push(".");
     else if (char === "\\" && at + 1 < glob.length) {
       at += 1;
-      source += literal(glob[at] as string);
+      pieces.push(literal(glob[at] as string));
     } else if (char === "[") {
       let end = at + 1;
       const negated = glob[end] === "!" || glob[end] === "^";
       if (negated) end += 1;
       let inner = "";
       let known = true;
-      for (let first = true; end < glob.length; first = false) {
+      // One letter of the class, a backslash keeping the next as it is.
+      const letter = () => {
         const next = glob[end] as string;
-        if (next === "]" && !first) break;
+        if (next === "\\" && end + 1 < glob.length) {
+          end += 2;
+          return glob[end - 1] as string;
+        }
+        end += 1;
+        return next;
+      };
+      for (let first = true; end < glob.length; first = false) {
+        if (glob[end] === "]" && !first) break;
         const posix = /^\[:(\w+):\]/.exec(glob.slice(end));
         if (posix !== null) {
           const range = POSIX_CLASSES[posix[1] as string];
           if (range === undefined) known = false;
           else inner += range;
           end += posix[0].length;
-        } else if (next === "\\" && end + 1 < glob.length) {
-          inner += literal(glob[end + 1] as string);
-          end += 2;
-        } else {
-          inner += next === "-" ? "-" : literal(next);
-          end += 1;
+          continue;
         }
+        const from = letter();
+        if (
+          glob[end] === "-" &&
+          end + 1 < glob.length &&
+          glob[end + 1] !== "]"
+        ) {
+          end += 1;
+          const to = letter();
+          if (from <= to) inner += `${literal(from)}-${literal(to)}`;
+        } else inner += literal(from);
       }
-      if (end >= glob.length) source += literal(char);
+      if (end >= glob.length) pieces.push(literal(char));
       else {
-        source += !known ? "." : `[${negated ? "^" : ""}${inner}]`;
+        pieces.push(
+          !known
+            ? "."
+            : inner === ""
+              ? "[^\\s\\S]"
+              : `[${negated ? "^" : ""}${inner}]`,
+        );
         at = end;
       }
-    } else source += literal(char);
+    } else pieces.push(literal(char));
   }
+  return pieces;
+}
+
+/** Pieces of a pattern as one regular expression; one that does not build matches anything. */
+function piecesPattern(pieces: readonly string[]): RegExp {
   try {
-    return new RegExp(`^${source}$`, "i");
+    return new RegExp(`^${pieces.join("")}$`, "i");
   } catch {
-    return /^$/;
+    return /^/;
   }
 }
+
+const globPattern = (glob: string) => piecesPattern(globPieces(glob));
 
 /** Kept names a pattern may reach: the kept entries at the top and what is below them, but not `.git`. */
 function keptNames(root: string): string[] {

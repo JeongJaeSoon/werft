@@ -631,6 +631,9 @@ const NARROW: [string, string, string | null][] = [
     "git diff -- '**/*.ts'",
     "git restore -- 'notes/*.txt'",
     "git log -G'[a-z]+'",
+    "git commit -m 'support [[:alpha:]] class'",
+    "git grep -e '[[:space:]]+$'",
+    "git diff -- 'apps/**/*.ts'",
     "gh api repos/x/y/pulls --jq '.[] | .[0]'",
     "git grep -eFOO",
     "git rebase -Xsubtree=x main",
@@ -889,6 +892,10 @@ const NARROW: [string, string, string | null][] = [
       ],
       ["git restore -- '.c[!x]aude/x'", "goes to a person"],
       ["git restore -- '.aw?/c*'", "goes to a person"],
+      ["git checkout HEAD -- 'apps/web*.env'", "goes to a person"],
+      ["git checkout HEAD -- 'apps?web?.en[v]'", "goes to a person"],
+      ["git checkout HEAD -- 'apps/web[/].en[v]'", "goes to a person"],
+      ["git checkout HEAD -- '.c[z-al]aude/settings.json'", "goes to a person"],
     ] as const
   ).map(([command, why]): [string, string, string] => [
     `git, gh or grep: ${command}`,
