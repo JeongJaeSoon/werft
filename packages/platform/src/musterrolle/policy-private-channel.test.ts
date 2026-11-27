@@ -430,10 +430,15 @@ describe("the private channels a read across sessions takes", () => {
   test("are those whose member may use the agent; a key has none", async () => {
     const of = (caller: Caller, identity: IdentityReader) =>
       policyFor(identity).privateChannelsOf?.(caller.subject, WORKSPACE);
-    const none = { conversationIds: [], pending: false };
+    const none = {
+      conversationIds: [],
+      pending: false,
+      pendingConversationIds: [],
+    };
     expect(await of(person("member"), plain)).toEqual({
       conversationIds: [CONVERSATION],
       pending: false,
+      pendingConversationIds: [],
     });
     for (const who of [
       "nonmember",
@@ -460,7 +465,11 @@ describe("the private channels a read across sessions takes", () => {
         caller.subject,
         WORKSPACE,
       ),
-    ).toEqual({ conversationIds: [], pending: true });
+    ).toEqual({
+      conversationIds: [],
+      pending: true,
+      pendingConversationIds: [CONVERSATION],
+    });
     expect(check.cachedAsked).toEqual([USERS.member]);
     expect(check.asked).toEqual([]);
   });
@@ -484,7 +493,11 @@ describe("the private channels a read across sessions takes", () => {
       check: check.check,
       logger: { warn: (message, fields) => warned.push({ message, fields }) },
     }).privateChannelsOf?.(caller.subject, WORKSPACE);
-    expect(seen).toEqual({ conversationIds: [], pending: false });
+    expect(seen).toEqual({
+      conversationIds: [],
+      pending: false,
+      pendingConversationIds: [],
+    });
     expect(check.asked).toEqual([]);
     expect(check.cachedAsked).toEqual([]);
     expect(warned).toEqual([
