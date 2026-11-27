@@ -787,6 +787,49 @@ test("the required e2e and quickstart names are gate jobs of this workflow, neve
   ]);
 });
 
+test("docs/ci/checks.md names each required check by the one job that reports it", () => {
+  const root = join(import.meta.dir, "..");
+  const dir = join(root, ".github/workflows");
+  const reporters = readdirSync(dir).flatMap((file) => {
+    const { on, jobs } = Bun.YAML.parse(
+      readFileSync(join(dir, file), "utf8"),
+    ) as { on: Record<string, unknown>; jobs: Record<string, Job> };
+    if (!("pull_request" in on)) return [];
+    return Object.entries(jobs).map(([id, job]) => {
+      // The name a pull request sees: `only` is a dispatch input, unset there.
+      const [, only, value, chosen, other] =
+        /^\$\{\{ (github\.event\.inputs\.only|\(github\.event\.inputs\.only \|\| 'all'\)) == '([^']*)' && '([^']*)' \|\| '([^']*)' \}\}$/.exec(
+          job.name ?? "",
+        ) ?? [];
+      const unset = only === "github.event.inputs.only" ? "" : "all";
+      const name = only ? (unset === value ? chosen : other) : (job.name ?? id);
+      return { file, id, name };
+    });
+  });
+  const section =
+    readFileSync(join(root, "docs/ci/checks.md"), "utf8")
+      .split(/^## 필수 check$/m)[1]
+      ?.split(/^### /m)[0] ?? "";
+  const rows = [
+    ...section.matchAll(/^\| `([^`]+)` \| `([^`]+)` · `([^`]+)` \|/gm),
+  ].map(([, name, file, id]) => ({ file, id, name }));
+  // The ruleset's names (the document gives the command that compares them).
+  expect(rows.map((row) => row.name).sort()).toEqual([
+    "check",
+    "e2e",
+    "forbidden-terms",
+    "gitleaks",
+    "integration",
+    "quickstart",
+    "supply-chain",
+  ]);
+  for (const row of rows) {
+    // A second job of the name could report it skipped, and a skipped required
+    // check passes.
+    expect(reporters.filter((job) => job.name === row.name)).toEqual([row]);
+  }
+});
+
 test("all product and site consumers use the same explicit plan", () => {
   for (const [name, flag] of [
     ["check-part", "tests"],
