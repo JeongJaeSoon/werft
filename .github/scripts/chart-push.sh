@@ -7,6 +7,12 @@
 # unpacked files, because the tgz carries packaging times: the same files are a
 # rerun, other files fail the run and nothing is overwritten. Whatever happened,
 # the version must then read back without any login and match the candidate.
+#
+# ghcr can answer `not found` for the manifest a push has just written, at the
+# moment the push tags it. Where the caller sets CHART_PUSH_TRIES, only that
+# answer is tried again, up to that many pushes, each after a pause and a new
+# look, since the push may have landed. The workflow sets it for main charts
+# alone: without it a push is tried once.
 set -euo pipefail
 
 candidate="$1"
@@ -67,22 +73,34 @@ same_files() {
 printf '%s' "${REGISTRY_TOKEN:?}" |
   helm registry login "${registry%%/*}" --username "${GITHUB_ACTOR:?}" --password-stdin ${plain[@]+"${plain[@]}"}
 
-state="$(fetch "$work/login")"
-fetched="$work/login"
-# ghcr may answer `denied` for a package that does not exist yet. The token
-# that can push reads whatever exists, and an existing chart is public, so the
-# same answer without a login leaves nothing this push could overwrite.
-if [ "$state" = denied ]; then
-  state="$(fetch "$work/before" anonymous)"
-  fetched="$work/before"
-fi
+tries="${CHART_PUSH_TRIES:-1}"
+for ((attempt = 1; attempt <= tries; attempt++)); do
+  state="$(fetch "$work/login-${attempt}")"
+  fetched="$work/login-${attempt}"
+  # ghcr may answer `denied` for a package that does not exist yet. The token
+  # that can push reads whatever exists, and an existing chart is public, so the
+  # same answer without a login leaves nothing this push could overwrite.
+  if [ "$state" = denied ]; then
+    state="$(fetch "$work/before-${attempt}" anonymous)"
+    fetched="$work/before-${attempt}"
+  fi
 
-if [ "$state" = found ]; then
-  same_files "$fetched"
-  echo "${ref} ${version} is already published with these files: a rerun"
-else
-  helm push "$candidate" "oci://${registry}" ${plain[@]+"${plain[@]}"}
-fi
+  if [ "$state" = found ]; then
+    same_files "$fetched"
+    echo "${ref} ${version} is already published with these files: a rerun"
+    break
+  fi
+  set +e
+  pushed="$(helm push "$candidate" "oci://${registry}" ${plain[@]+"${plain[@]}"} 2>&1)"
+  status=$?
+  set -e
+  printf '%s\n' "$pushed"
+  [ "$status" -ne 0 ] || break
+  grep -Eq '^Error: failed to perform "Tag" on destination: sha256:[0-9a-f]+: not found$' <<<"$pushed" || exit "$status"
+  [ "$attempt" -lt "$tries" ] || exit "$status"
+  echo "::warning::the registry did not find the manifest this push had just written; looking again (try ${attempt} of ${tries})"
+  sleep "${CHART_PUSH_RETRY_SECONDS:-10}"
+done
 
 state="$(fetch "$work/after" anonymous)"
 if [ "$state" != found ]; then
