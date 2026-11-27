@@ -55,7 +55,10 @@ export function connectionEndpointProblem(
   return hosts.credential.includes(hostPort) ? null : "host_not_allowed";
 }
 
-/** A model connection's model list: the private allowlist's hosts may be anything. */
+/**
+ * A model connection's model list: the private allowlist's hosts may be plain
+ * http and resolve to any address but a metadata, link-local or reserved one.
+ */
 export function connectionModelsOutbound(
   hosts: WorkspaceMcpHosts | null,
   request: PinnedRequest = createProviderRequest(),

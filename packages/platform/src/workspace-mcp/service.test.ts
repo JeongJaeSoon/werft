@@ -716,6 +716,19 @@ describe("the address check before a server is stored", () => {
     expect(context.addressAsked).toEqual([]);
   });
 
+  test("an empty fragment is refused as discovery refuses it", async () => {
+    const context = setup();
+    expect(
+      await refusal(
+        context.service.create(admin, {
+          ...bearerBody,
+          url: `${FAKE_MCP_URL}#`,
+        }),
+      ),
+    ).toEqual({ code: "BAD_REQUEST", reason: "url_invalid" });
+    expect(context.addressAsked).toEqual([]);
+  });
+
   test("a URL refused before the lookup is never looked up", async () => {
     const context = setup({ urlProblem: "url_invalid" });
     expect(await refusal(context.service.create(admin, bearerBody))).toEqual({

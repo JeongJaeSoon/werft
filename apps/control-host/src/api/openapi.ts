@@ -6296,7 +6296,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "discoverWorkspaceMcpServer",
     tag: "Workspace settings",
     summary: "Read what a remote MCP server asks for before registering it",
-    description: `${WORKSPACE_MCP_MANAGERS} Sends the server an unauthenticated \`initialize\` and follows its protected resource metadata to the authorization server's. \`oauth\` null: the server asks for no OAuth, register it with a static token. The URL must be https with a named host, not an address (400 \`url_insecure\`, \`url_invalid\`), and every address it resolves to public (400 \`address_not_allowed\`); plain http and private addresses only for a host:port on the API's \`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST\`, which must then resolve privately. A name that does not resolve or a server that does not answer is 503 \`mcp_unreachable\`. Writes nothing.`,
+    description: `${WORKSPACE_MCP_MANAGERS} Sends the server an unauthenticated \`initialize\` and follows its protected resource metadata to the authorization server's. \`oauth\` null: the server asks for no OAuth, register it with a static token. The URL must be https with a named host, not an address (400 \`url_insecure\`, \`url_invalid\`), and every address it resolves to public (400 \`address_not_allowed\`); plain http and private addresses only for a host:port on the API's \`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST\` and not on its \`EGRESS_CREDENTIAL_ALLOWLIST\`, which must then resolve privately. A name that does not resolve or a server that does not answer is 503 \`mcp_unreachable\`. Writes nothing.`,
     auth: "session",
     body: "DiscoverWorkspaceMcpServerRequest",
     requestExample: { url: "https://mcp.example.com/v1/mcp" },

@@ -909,11 +909,15 @@ describe("workspace MCP servers: the authorizer's grant through the proxy", () =
     const relay = {
       features: "as sent" as "as sent" | "none" | "marked",
       grants: [] as Array<{ upstream: Record<string, unknown> }>,
+      // The header as the proxy itself sent it, before the relay changed it.
+      sent: [] as Array<string | null>,
+      resolved: [] as string[],
     };
     authorizer = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
       async fetch(request) {
+        relay.sent.push(request.headers.get(EGRESS_FEATURES_HEADER));
         const headers = new Headers(request.headers);
         if (relay.features === "none") headers.delete(EGRESS_FEATURES_HEADER);
         if (relay.features === "marked") {
@@ -944,8 +948,14 @@ describe("workspace MCP servers: the authorizer's grant through the proxy", () =
       },
       port: 0,
       // The registered name now answers a private address: rebinding.
-      resolve: async (host) =>
-        isIP(host) !== 0 ? [host] : host === OUTSIDE_HOST ? ["10.0.0.5"] : [],
+      resolve: async (host) => {
+        relay.resolved.push(host);
+        return isIP(host) !== 0
+          ? [host]
+          : host === OUTSIDE_HOST
+            ? ["10.0.0.5"]
+            : [];
+      },
     });
 
     const accepted = await createPostgresSessionUnitOfWork(
@@ -1048,13 +1058,23 @@ describe("workspace MCP servers: the authorizer's grant through the proxy", () =
     const { relay, call, refusals } = await workspaceTopology();
     relay.features = "marked";
     const response = await call("outside");
-    // Either proxy refuses: one held to the mark sees a private address,
-    // one from before holds the name to its lists.
     expect(response.status).toBe(403);
-    await response.body?.cancel();
+    const refusal = await response.text();
     expect(relay.grants.map((grant) => grant.upstream.allow)).toEqual([
       "public_https",
     ]);
+    if (
+      relay.sent[0]?.split(",").some((f) => f.trim() === "registered-upstream")
+    ) {
+      // A proxy that keeps to the mark resolves the name and refuses its
+      // private answer, rather than its lists refusing the name.
+      expect(relay.resolved).toContain(OUTSIDE_HOST);
+      expect(refusal).toContain("private");
+    } else {
+      // One from before holds the name to its lists and never resolves it.
+      expect(relay.resolved).not.toContain(OUTSIDE_HOST);
+      expect(refusal).toContain("not allowlisted");
+    }
     expect(await refusals()).toEqual([]);
     expect(mcp?.workspaceCalls().static.authorization_sha256).toEqual([]);
   }, 30_000);

@@ -213,7 +213,8 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
     if (
       parsed.username !== "" ||
       parsed.password !== "" ||
-      parsed.hash !== ""
+      parsed.hash !== "" ||
+      url.includes("#")
     ) {
       throw refused(
         "url_invalid",
