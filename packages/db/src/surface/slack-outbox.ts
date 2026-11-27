@@ -7,6 +7,7 @@ import {
   DEFAULT_USER_LOCALE,
   type PushRequestOrigin,
   pendingQuestionSchema,
+  RESPONSE_LANGUAGE_VALUES,
   type RuntimeKind,
   rememberRuleSchema,
   type SessionEventPayload,
@@ -36,6 +37,7 @@ import type {
   SurfacePromptCard,
   SurfaceUnansweredTurn,
   SurfaceUnpostedInstruction,
+  SurfaceWorkReportDue,
 } from "@werft-ai/platform";
 import {
   SURFACE_EDIT_RATE_LIMITED_CODE,
@@ -73,7 +75,9 @@ import {
   mirrorsInstructions,
   postsPrompts,
   reportsProgress,
+  reportsStartOnly,
   reportsTurns,
+  reportsWorkOnly,
 } from "../link-posting.ts";
 import {
   catalogName,
@@ -152,6 +156,24 @@ const STOPPED_TURNS = sqlLiterals(["interrupted", "cancelled"]);
 // outcome an operator may yet confirm.
 const ENDED_WITH_POST = ["completed", "failed", "outcome_unknown"];
 const ENDED_WITH_POST_TURNS = sqlLiterals(ENDED_WITH_POST);
+
+// A completed turn of a link that hears only of its work's ends (v1-b/P2)
+// whose reply waits: a later turn not stopped is still to end, or ended.
+// The reply goes once nothing is left to run and it is the last to end.
+const completedWaits = (turn: SQL, link: SQL) => sql`(
+  ${turn}.status = 'completed' AND ${reportsWorkOnly(link)} AND EXISTS (
+    SELECT 1 FROM turns wt
+    WHERE wt.session_id = ${turn}.session_id
+      AND wt.sequence > ${turn}.sequence
+      AND wt.status NOT IN (${STOPPED_TURNS})))`;
+// One the work went on past for good: a later turn ended with a post, so
+// it never owes its reply. Ended turns stay ended, so this holds once true.
+const completedPassed = (turn: SQL, link: SQL) => sql`(
+  ${turn}.status = 'completed' AND ${reportsWorkOnly(link)} AND EXISTS (
+    SELECT 1 FROM turns pt
+    WHERE pt.session_id = ${turn}.session_id
+      AND pt.sequence > ${turn}.sequence
+      AND pt.status IN (${ENDED_WITH_POST_TURNS})))`;
 
 const entry = {
   workspaceId: t.workspaceId,
@@ -247,6 +269,18 @@ const starterLocale = sql<UserLocale | null>`(
      WHERE st.session_id = ${sessionLinks.sessionId} AND st.sequence = 1),
     ${sessionLinks.createdBy}
   )
+)`;
+
+// The language the agent answers in, as its worker is told (94S-2477): its
+// release's fixed response language, else, following the user, the
+// thread's. What the work itself says in its thread reads it.
+const workLocale = sql<UserLocale | null>`coalesce(
+  (SELECT wr.runtime_config_snapshot ->> 'language'
+   FROM sessions ws
+   JOIN agent_releases wr ON wr.id = ws.agent_release_id
+   WHERE ws.id = ${sessionLinks.sessionId}
+     AND wr.runtime_config_snapshot ->> 'language' IN (${sqlLiterals(RESPONSE_LANGUAGE_VALUES)})),
+  ${starterLocale}
 )`;
 
 // The request id of a card's key: whatever follows the link id, which holds
@@ -1224,6 +1258,7 @@ export function createPostgresSlackOutboxStore(
                    WHERE o.dedupe_key = (CASE WHEN t.status = 'completed' THEN 'reply' ELSE 'failure' END)
                      || ':' || l2.id || ':' || t.sequence
                  ))
+                 OR ${completedPassed(sql.raw("t"), sql.raw("l2"))}
                )),
             (SELECT max(t.sequence) FROM ${turns} t WHERE t.session_id = l2.session_id),
             0
@@ -1284,7 +1319,24 @@ export function createPostgresSlackOutboxStore(
                           THEN 'reply' ELSE 'failure' END)
                         || ':' || l2.id || ':' || t.sequence
                     )))
+                  AND NOT ${completedPassed(sql.raw("t"), sql.raw("l2"))}
               )
+              -- A progress message that went up says the work closed
+              -- first: the link takes no update once closed. A revoked
+              -- install takes none, so it is not waited for.
+              AND (NOT ${keepsProgressMessage(sql.raw("l2"))} OR EXISTS (
+                SELECT 1 FROM slack_installations ri
+                WHERE ri.id = l2.installation_id AND ri.status = 'revoked'
+              ) OR NOT EXISTS (
+                SELECT 1 FROM ${t} p
+                WHERE p.installation_id = l2.installation_id
+                  AND p.progress_key = 'progress:' || l2.id
+              ) OR EXISTS (
+                SELECT 1 FROM ${t} p
+                WHERE p.installation_id = l2.installation_id
+                  AND p.progress_key = 'progress:' || l2.id
+                  AND p.dedupe_key LIKE 'progress:%:closed:%'
+              ))
               ELSE NOT EXISTS (
                 SELECT 1 FROM ${turns} ot
                 WHERE ot.session_id = l2.session_id
@@ -1633,6 +1685,7 @@ export function createPostgresSlackOutboxStore(
                       || ':' || ol.id || ':' || ot.sequence
                   )
                   AND NOT ${owesInstruction(sql.raw("ot"), sql.raw("ol"), true)}
+                  AND NOT ${completedWaits(sql.raw("ot"), sql.raw("ol"))}
                 ORDER BY ot.sequence
                 LIMIT ${limit}
               ) open
@@ -1655,6 +1708,7 @@ export function createPostgresSlackOutboxStore(
               WHERE o.dedupe_key = ${prefix} || ':' || ${sessionLinks.id} || ':' || ${turns.sequence}
             )`,
             sql`NOT ${owesInstruction(sql.raw('"turns"'), sql.raw('"session_links"'), true)}`,
+            sql`NOT ${completedWaits(sql.raw('"turns"'), sql.raw('"session_links"'))}`,
           ),
         )
         // Not by turns.id, which walks every turn in the table; within a
@@ -1833,6 +1887,8 @@ export function createPostgresSlackOutboxStore(
           -- A muted thread, or one that hears of no turns, gets nothing.
           AND NOT l.muted
           AND ${reportsTurns(sql.raw("l"))}
+          -- Nor one that hears only of its work's ends (v1-b/P2).
+          AND NOT ${reportsWorkOnly(sql.raw("l"))}
           -- A link closed since still takes what it owed (linkTakesNew).
           AND (l.closed_at IS NULL
             OR l.closed_at > now() - ${AFTER_TURN_CLOSED_LINK_GRACE})
@@ -1976,10 +2032,18 @@ export function createPostgresSlackOutboxStore(
               session_links.installation_id,
               session_links.channel_id,
               session_links.thread_id AS thread_ts,
-              ${starterLocale} AS locale,
+              ${workLocale} AS locale,
               (SELECT extract(epoch FROM st.created_at)::float8 FROM turns st
                WHERE st.session_id = session_links.session_id AND st.sequence = 1) AS started_at,
               coalesce(
+                -- Closed: the message's last word, once it is up or on its
+                -- way. The link closes only after this row is in
+                -- (closeFinishedLinks), and takes no update after.
+                CASE WHEN sessions.admission_state = 'closed'
+                  AND last.dedupe_key IS NOT NULL THEN 'closed:' || (
+                  SELECT coalesce(max(ct.sequence), 0) FROM turns ct
+                  WHERE ct.session_id = session_links.session_id
+                ) END,
                 -- A worker waiting for room, as the session's wait_reason reads it.
                 (SELECT 'capacity_wait:' || wl.execution_id || ':' || wl.generation
                  FROM worker_launches wl
@@ -2066,6 +2130,123 @@ export function createPostgresSlackOutboxStore(
         state: row.state,
         updates: Number(row.updates),
         startedAt: row.started_at === null ? null : Number(row.started_at),
+      }));
+    },
+
+    async workReportsDue(limit) {
+      // The keys the adapter's slackWorkReportDedupeKey makes, spelled in
+      // SQL: work_start:<link>, needs_person:<link>:<report>:<turn>.
+      const rows = rowsOf<{
+        session_link_id: string;
+        session_id: string;
+        workspace_id: string;
+        agent_id: string;
+        slack_app_id: string;
+        installation_id: string;
+        channel_id: string;
+        thread_ts: string;
+        locale: UserLocale | null;
+        requester_slack_user_id: string | null;
+        report: SurfaceWorkReportDue["report"];
+        turn_id: number | null;
+      }>(
+        await db.execute(sql`
+          SELECT * FROM (
+            SELECT
+              session_links.id AS session_link_id,
+              session_links.session_id,
+              session_links.workspace_id,
+              session_links.agent_id,
+              a.id AS slack_app_id,
+              session_links.installation_id,
+              session_links.channel_id,
+              session_links.thread_id AS thread_ts,
+              ${workLocale} AS locale,
+              (SELECT la.external_user_id FROM linked_accounts la
+               WHERE la.workspace_id = session_links.workspace_id
+                 AND la.user_id = coalesce(
+                   (SELECT st.actor_id FROM turns st
+                    WHERE st.session_id = session_links.session_id AND st.sequence = 1),
+                   session_links.created_by)
+                 AND la.provider = 'slack'
+                 AND la.external_tenant = i.team_id
+                 AND la.status = 'active'
+               LIMIT 1) AS requester_slack_user_id,
+              r.report,
+              r.turn_id
+            FROM session_links
+            JOIN sessions ON sessions.id = session_links.session_id
+            JOIN slack_installations i ON i.id = session_links.installation_id
+            JOIN slack_apps a ON a.app_id = i.app_id
+            CROSS JOIN LATERAL (
+              -- notify_only: one line once its first turn is asked, never
+              -- edited. Not for a link whose first turn was answered
+              -- before it (one open when the mode was set).
+              SELECT 'started' AS report, NULL::int AS turn_id
+              FROM (
+                SELECT f.sequence FROM turns f
+                WHERE f.session_id = session_links.session_id
+                  AND f.created_at >= session_links.created_at
+                ORDER BY f.sequence
+                LIMIT 1
+              ) f
+              WHERE ${reportsStartOnly(sql.raw('"session_links"'))}
+                AND session_links.role = 'primary'
+                AND session_links.thread_id <> ''
+                AND NOT EXISTS (
+                  SELECT 1 FROM ${t} fo
+                  WHERE fo.dedupe_key IN (
+                    'reply:' || session_links.id || ':' || f.sequence,
+                    'failure:' || session_links.id || ':' || f.sequence))
+              UNION ALL
+              -- A request a person can answer that no card shows: the
+              -- link posts none. Numbered as the progress message's wait,
+              -- so a turn queued behind it says nothing again.
+              SELECT 'needs_input', (
+                SELECT min(turns.sequence) FROM turns
+                WHERE turns.session_id = session_links.session_id
+                  AND EXISTS (${actionableOfTurn(db)}))
+              WHERE ${sessionNeedsInput(db)}
+                AND NOT ${postsPrompts(sql.raw('"session_links"'))}
+              UNION ALL
+              -- Waiting on a person's recovery decision: no card asks it.
+              SELECT 'recovery', (
+                SELECT coalesce(max(rt.sequence), 0) FROM turns rt
+                WHERE rt.session_id = session_links.session_id)
+              WHERE sessions.admission_state = 'recovery_required'
+            ) r
+            WHERE session_links.session_id IS NOT NULL
+              AND session_links.revoked_at IS NULL
+              AND NOT session_links.muted
+              AND session_links.closed_at IS NULL
+              AND sessions.admission_state <> 'closed'
+              AND i.status <> 'revoked'
+              AND ${reportsWorkOnly(sql.raw('"session_links"'))}
+          ) due
+          WHERE NOT EXISTS (
+            SELECT 1 FROM ${t} o
+            WHERE o.dedupe_key = CASE due.report
+              WHEN 'started' THEN 'work_start:' || due.session_link_id
+              ELSE 'needs_person:' || due.session_link_id || ':' || due.report
+                || ':' || due.turn_id END
+          )
+          ORDER BY due.session_link_id, due.report
+          LIMIT ${limit}
+        `),
+      );
+      return rows.map((row) => ({
+        sessionLinkId: row.session_link_id,
+        sessionId: row.session_id,
+        workspaceId: row.workspace_id,
+        agentId: row.agent_id,
+        slackAppId: row.slack_app_id,
+        installationId: row.installation_id,
+        channelId: row.channel_id,
+        threadTs: row.thread_ts,
+        locale: row.locale,
+        requesterSlackUserId: row.requester_slack_user_id,
+        report: row.report,
+        turnId: row.turn_id === null ? null : Number(row.turn_id),
       }));
     },
 

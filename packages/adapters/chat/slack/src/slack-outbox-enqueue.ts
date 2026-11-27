@@ -3,6 +3,7 @@ import {
   eventText,
   eventToolCall,
   SLACK_NOTICE_MESSAGES,
+  type SlackNoticeMessage,
   slackMirrorCorrelationIdSchema,
   slackNoticeText,
 } from "@werft-ai/contracts";
@@ -12,6 +13,7 @@ import type {
   SurfacePendingPrompt,
   SurfaceProgressDue,
   SurfaceUnansweredTurn,
+  SurfaceWorkReportDue,
 } from "@werft-ai/platform";
 import { WORKER_OWNERSHIP_LOST_REASON } from "@werft-ai/platform";
 import type { SlackNoticeSink } from "./slack-notice-sink.ts";
@@ -299,6 +301,68 @@ function enqueueProgress(
     ),
     progressKey: slackProgressKey(row.sessionLinkId),
   });
+}
+
+/** One line per link and report: a start once, a person needed once a wait. */
+export function slackWorkReportDedupeKey(
+  sessionLinkId: string,
+  report: SurfaceWorkReportDue["report"],
+  turnId: number | null,
+): string {
+  return report === "started"
+    ? `work_start:${sessionLinkId}`
+    : `needs_person:${sessionLinkId}:${report}:${turnId}`;
+}
+
+const WORK_REPORT_MESSAGES = {
+  started: "workStarted",
+  needs_input: "needsPersonInput",
+  recovery: "needsPersonRecovery",
+} as const satisfies Record<SurfaceWorkReportDue["report"], SlackNoticeMessage>;
+
+/**
+ * Enqueues what a link that hears only of its work's ends says beside its
+ * turns' replies (v1-b/P2): a `notify_only` thread's start line, and a
+ * person needed where no card asks, calling whoever started the work.
+ */
+export async function enqueueSlackWorkReports(deps: {
+  outbox: Pick<SurfaceOutboxStore, "workReportsDue" | "enqueue">;
+  consoleOrigin: string | null;
+  limit: number;
+}): Promise<number> {
+  const workReportsDue = deps.outbox.workReportsDue;
+  if (workReportsDue === undefined) return 0;
+  const due = await workReportsDue.call(deps.outbox, deps.limit);
+  for (const row of due) {
+    const link_url = sessionUrl(deps.consoleOrigin, row.sessionId);
+    const locale = row.locale ?? DEFAULT_USER_LOCALE;
+    const asker = row.report === "started" ? null : row.requesterSlackUserId;
+    await deps.outbox.enqueue({
+      workspaceId: row.workspaceId,
+      agentId: row.agentId,
+      slackAppId: row.slackAppId,
+      installationId: row.installationId,
+      // A thread notice for everyone there, like a wait for room.
+      kind: "failure_notice",
+      channelId: row.channelId,
+      threadTs: row.threadTs,
+      slackUserId: null,
+      sessionId: row.sessionId,
+      sessionLinkId: row.sessionLinkId,
+      body: {
+        text: SLACK_NOTICE_MESSAGES[locale][WORK_REPORT_MESSAGES[row.report]],
+        locale,
+        ...(link_url === undefined ? {} : { link_url }),
+        ...(asker === null ? {} : { mention_user_ids: [asker] }),
+      },
+      dedupeKey: slackWorkReportDedupeKey(
+        row.sessionLinkId,
+        row.report,
+        row.turnId,
+      ),
+    });
+  }
+  return due.length;
 }
 
 /** One notice per thread per launch that waits: a wait is told once. */
