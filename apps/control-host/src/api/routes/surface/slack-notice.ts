@@ -25,8 +25,8 @@ export function registerSlackNoticeRoutes(
   });
 
   // Retired with the notice approval; 410 until the routes are removed.
-  apiRoute(router, "approveSlackNotice", () =>
-    mapped(async () => notices.retired()),
+  apiRoute(router, "approveSlackNotice", (context) =>
+    mapped(async () => notices.retired(context.get("caller"))),
   );
 
   apiRoute(router, "setConversationRollout", async (context) => {
@@ -41,7 +41,7 @@ export function registerSlackNoticeRoutes(
     return jsonWithSchema(context, getSlackNoticeResponseSchema, set);
   });
 
-  apiRoute(router, "revokeSlackNotice", () =>
-    mapped(async () => notices.retired()),
+  apiRoute(router, "revokeSlackNotice", (context) =>
+    mapped(async () => notices.retired(context.get("caller"))),
   );
 }

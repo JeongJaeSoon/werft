@@ -99,6 +99,28 @@ describe("Slack notice routes", () => {
   }
 
   for (const suffix of ["/approve", "/revoke"]) {
+    test(`POST ${suffix} hands the service the caller and answers its 403`, async () => {
+      const callers: unknown[] = [];
+      const response = await request(
+        {
+          retired: (caller) => {
+            callers.push(caller);
+            return refusing("FORBIDDEN", {
+              reason_code: "web_session_required",
+            })() as never;
+          },
+        },
+        "POST",
+        `${PATH}${suffix}`,
+      );
+      expect(response.status).toBe(403);
+      const { error } = apiErrorResponseSchema.parse(await response.json());
+      expect(error.details).toEqual({ reason_code: "web_session_required" });
+      expect(callers).toHaveLength(1);
+    });
+  }
+
+  for (const suffix of ["/approve", "/revoke"]) {
     test(`POST ${suffix} with a body over the limit answers 413 before the route`, async () => {
       let asked = false;
       const response = await request(

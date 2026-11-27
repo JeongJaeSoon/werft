@@ -911,6 +911,28 @@ describe("OpenAPI document", () => {
     expect(incomplete.sort()).toEqual([...UNDOCUMENTED_OPERATIONS].sort());
   });
 
+  test("a retired route lists 410 and no success", () => {
+    const paths = buildOpenApiDocument().paths as Record<
+      string,
+      Record<
+        string,
+        { deprecated?: boolean; responses: Record<string, unknown> }
+      >
+    >;
+    const retired = ROUTES.filter((route) => "never" in route.success);
+    expect(retired.map((route) => route.operationId).sort()).toEqual([
+      "approveSlackNotice",
+      "revokeSlackNotice",
+    ]);
+    for (const route of retired) {
+      const operation = paths[route.path]?.[route.method];
+      expect(operation?.deprecated).toBe(true);
+      const codes = Object.keys(operation?.responses ?? {});
+      expect(codes).toContain("410");
+      expect(codes.filter((code) => code.startsWith("2"))).toEqual([]);
+    }
+  });
+
   test("widening the receipt target keeps every alpha response valid", () => {
     const receipt = buildOpenApiDocument().components.schemas.Receipt as {
       required: string[];

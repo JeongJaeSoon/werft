@@ -1077,9 +1077,10 @@ node "$B" "$RUN" open "/agents/$AID?tab=slack"
 node "$B" "$RUN" click '[aria-label="조용히 듣기 (shadow)"]'     # 1. 웹에서 shadow로
 a0_event "$AID" plain "$PUB" $((S + 2)); a0_settle
 a0_sql "select count(buffer_expires_at) as buffered from conversation_inputs where agent_id='$AID'"
-a0_sql "select conversation_rollout, (select count(*) from receipts where operation='set_conversation_rollout') as receipts from agents where id='$AID'"
+rcpt="select operation, count(*) from receipts where result->>'agent_id'='$AID' and operation in ('set_conversation_rollout','approve_slack_notice','revoke_slack_notice') group by 1"
+a0_sql "select conversation_rollout from agents where id='$AID'"; a0_sql "$rcpt"
 ap_web POST "/v1/agents/$AID/slack/notice/revoke" '{}'           # 1b. 퇴역 route
-a0_sql "select conversation_rollout, (select count(*) from receipts where operation='set_conversation_rollout') as receipts from agents where id='$AID'"
+a0_sql "select conversation_rollout from agents where id='$AID'"; a0_sql "$rcpt"
 a0_sql "select count(buffer_expires_at) as buffered from conversation_inputs where agent_id='$AID'"
 node "$B" "$RUN" click '[aria-label="조용히 듣기 (shadow)"]'     # 2. 웹에서 off로
 a0_event "$AID" plain "$PUB" $((S + 3)); a0_settle
@@ -1092,7 +1093,7 @@ notice_cli set-rollout --agent "$AID" --rollout off
 a0_sql "select actor, result from receipts where operation='set_conversation_rollout' order by created_at"
 ```
 
-기대: 탭에는 "대화 스위치" 구역 하나만 있고 고지·승인 버튼·잠금 안내가 없다. 스위치는 처음부터 켤 수 있다. 1 뒤 buffered 1, slack 로그 `Slack message held for the judgment`(`rollout:"shadow"`). 2 뒤 buffered 0이고, 그 뒤의 글도 0이다. 3의 `on`은 `{"outcome":"refused",…,"reason_code":"rollout_on_unavailable"}` exit 4, `shadow`·`off`는 `{"outcome":"changed",…}` exit 0이고 off의 `buffered_dropped`는 1이다. 같은 값을 다시 주면 `unchanged`이고 receipt는 늘지 않는다. receipt의 `result.by`는 웹이 `web`(actor는 그 사용자), 명령이 `operator_cli`(actor 없음)다. 워크스페이스 owner·admin이 아닌 사람은 에이전트 관리자여도 화면에 스위치가 없고("워크스페이스 owner·admin만 바꿀 수 있습니다."), API는 403 `workspace_admin_required`다. 1b의 revoke는 410 `ENDPOINT_RETIRED`(`reason_code:"slack_notice_retired"`, `deprecated:true`)이고, 앞뒤 두 SQL이 같다(`shadow`, receipt 수 그대로). 바로 뒤의 buffered도 1 그대로다(M1이 먼저 판단했으면 0이고, 그건 revoke 탓이 아니다). `/approve`도 같다.
+기대: 탭에는 "대화 스위치" 구역 하나만 있고 고지·승인 버튼·잠금 안내가 없다. 스위치는 처음부터 켤 수 있다. 1 뒤 buffered 1, slack 로그 `Slack message held for the judgment`(`rollout:"shadow"`). 2 뒤 buffered 0이고, 그 뒤의 글도 0이다. 3의 `on`은 `{"outcome":"refused",…,"reason_code":"rollout_on_unavailable"}` exit 4, `shadow`·`off`는 `{"outcome":"changed",…}` exit 0이고 off의 `buffered_dropped`는 1이다. 같은 값을 다시 주면 `unchanged`이고 receipt는 늘지 않는다. receipt의 `result.by`는 웹이 `web`(actor는 그 사용자), 명령이 `operator_cli`(actor 없음)다. 워크스페이스 owner·admin이 아닌 사람은 에이전트 관리자여도 화면에 스위치가 없고("워크스페이스 owner·admin만 바꿀 수 있습니다."), API는 403 `workspace_admin_required`다. 1b의 revoke는 410 `ENDPOINT_RETIRED`(`details.reason_code:"slack_notice_retired"`)다. `deprecated`는 응답이 아니라 `docs/openapi.json`의 그 operation에 있다. 앞뒤 SQL이 같다: 스위치 `shadow`, `set_conversation_rollout` 한 줄 그대로, `approve_slack_notice`·`revoke_slack_notice`는 없음. 바로 뒤의 buffered는 1이다. 0이면 `select decision, reason from conversation_judgments where agent_id='$AID'`에 그 글의 판단이 있어야 한다(M1이 먼저 가져감). 판단이 없는데 0이면 실패다. `/approve`도 같다.
 
 담긴 글은 15–20초 뒤 M1이 판단해 버퍼에서 뺀다(팀 한도가 없는 run에서는 `budget_refused`로 기록한다). 그래서 위의 buffered와 `buffered_dropped`는 글을 보낸 바로 뒤에 읽는다. 늦게 읽으면 0이다.
 

@@ -117,8 +117,21 @@ export function createSlackNoticeService(deps: {
       return view(place, userId);
     },
 
-    /** The approve and revoke routes: gone, whoever calls and whatever is sent. */
-    retired(): never {
+    /**
+     * The approve and revoke routes: gone whatever is sent. They stay
+     * console-only, so an API key is refused as before.
+     */
+    retired(caller: Caller): never {
+      if (
+        caller.subject.surface.kind !== "web" ||
+        caller.subject.principal?.kind !== "user"
+      ) {
+        throw refused(
+          "FORBIDDEN",
+          "The Slack notice routes take a signed-in console session, not an API key",
+          "web_session_required",
+        );
+      }
       throw refused(
         "ENDPOINT_RETIRED",
         "The Slack notice approval is retired; the conversation switch needs none",

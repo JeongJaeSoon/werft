@@ -197,15 +197,22 @@ integration("Slack notice service on PostgreSQL", () => {
     });
   });
 
-  test("approve and revoke are retired: 410, nothing written, stored rows untouched", async () => {
+  test("approve and revoke are retired: 410 to a console session, 403 to an API key, nothing written", async () => {
     const ws = await setUp();
     await storedApproval(ws, false);
     const before = await approvalRows(ws.agentId);
     const notices = service();
-    // Whoever calls: the route asks the service before reading any caller.
+    for (const caller of [ws.owner.caller, ws.agentAdmin.caller]) {
+      expect(
+        await refusal(Promise.resolve().then(() => notices.retired(caller))),
+      ).toEqual({ code: "ENDPOINT_RETIRED", reason: "slack_notice_retired" });
+    }
+    const viaKey = await person(ws.workspaceId, "owner", "api");
     expect(
-      await refusal(Promise.resolve().then(() => notices.retired())),
-    ).toEqual({ code: "ENDPOINT_RETIRED", reason: "slack_notice_retired" });
+      await refusal(
+        Promise.resolve().then(() => notices.retired(viaKey.caller)),
+      ),
+    ).toEqual({ code: "FORBIDDEN", reason: "web_session_required" });
     expect(await approvalRows(ws.agentId)).toEqual(before);
     expect(await receiptsOf(ws.agentId, "approve_slack_notice")).toEqual([]);
     expect(await receiptsOf(ws.agentId, "revoke_slack_notice")).toEqual([]);
