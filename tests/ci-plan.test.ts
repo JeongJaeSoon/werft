@@ -765,9 +765,12 @@ function reach(entries: string[]) {
 function repoPaths(text: string) {
   const repo = join(import.meta.dir, "..");
   const out = new Set<string>();
-  for (const [token = ""] of text.matchAll(/[\w.-]+(?:\/[\w.*-]+)+/g)) {
+  for (const [token = ""] of text.matchAll(/[\w.-]+(?:\/[\w.*-]+)*/g)) {
     const path = token.replace(/\/?[^/]*\*.*$/, "").replace(/\/$/, "");
-    if (!path.includes("/") || path.startsWith("..")) continue;
+    // A bare word counts only as a root file with an extension or a capital
+    // name (README.md, LICENSE), not as every directory a word names.
+    if (path.startsWith("..") || path === "") continue;
+    if (!path.includes("/") && !/\.|^[A-Z]+$/.test(path)) continue;
     const stat = statSync(join(repo, path), { throwIfNoEntry: false });
     if (stat?.isFile()) out.add(path);
     else if (stat?.isDirectory()) out.add(`${path}/`);
@@ -840,6 +843,21 @@ test.each([
     });
   },
 );
+
+test("a web change with its package.json runs every conditional job but the site", () => {
+  // apps/web/package.json is read by every `bun install`; the docs site's own
+  // inputs did not change, but is_site_path takes every package.json too.
+  expect(
+    plan(fixture(undefined, ["apps/web/src/a.ts", "apps/web/package.json"]))
+      .output,
+  ).toMatchObject({
+    site: "true",
+    helm: "true",
+    demo: "true",
+    ui_pack: "true",
+    domains: '["surface"]',
+  });
+});
 
 test("a pull request of a path no conditional job builds from leaves them all out", () => {
   const repo = fixture(undefined, ["packages/db/src/a.ts"]);

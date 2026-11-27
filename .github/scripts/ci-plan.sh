@@ -232,11 +232,13 @@ if [ -n "$base" ]; then
       # is the work no changed path can reach. The surface domain owns apps/web.
       site=true
       helm=false
-      # A pull request builds the docs site and packs packages/ui only for
-      # their own inputs; apps/web is neither. A main push keeps them.
+      # A pull request builds the docs site, packs packages/ui and checks the
+      # chart only for their own inputs; apps/web is none of them, but
+      # apps/web/package.json is (every `bun install` reads it).
       if [ "$event" = pull_request ]; then
         site=$site_path
         ui_pack=$ui_pack_path
+        helm=$helm_path
       fi
       # A main push lists the web package.json among what the images build from.
       if [ "$event" != push ] || [ "$k8s_path" = false ]; then k8s=false; fi

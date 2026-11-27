@@ -924,11 +924,17 @@ test("a documentation-only pull request still gets a result from every required 
       typeof on === "object" && on !== null && !Array.isArray(on)
         ? (on as Record<string, unknown>).pull_request
         : null;
+    const filters = (trigger as Record<string, unknown> | null) ?? {};
     for (const key of ["paths", "paths-ignore", "branches-ignore"]) {
-      expect(
-        Object.keys((trigger as Record<string, unknown> | null) ?? {}),
-      ).not.toContain(key);
+      expect(Object.keys(filters)).not.toContain(key);
     }
+    // A branch or type filter must still let an open pull request into main run.
+    if (filters.branches !== undefined)
+      expect([filters.branches].flat()).toContain("main");
+    if (filters.types !== undefined)
+      expect([filters.types].flat()).toEqual(
+        expect.arrayContaining(["opened", "synchronize", "reopened"]),
+      );
     // The reporter runs whatever the plan selects: no condition, or one that
     // starts with always() so a skipped need does not skip it with it.
     const job = jobs[row.id];
