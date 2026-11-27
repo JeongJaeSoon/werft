@@ -10,11 +10,18 @@
 // silently, which is the one failure this split must not have.
 //
 // usage:
-//   integration-jobs.ts matrix <domains>         the matrix entries of those domains (a JSON
-//                                                array of names), as one line of JSON
-//   integration-jobs.ts files <domain>           the files that job runs, one ./path per line
-//   integration-jobs.ts verify <domain> <junit>  fails unless the junit report ran exactly
-//                                                those files and skipped only what the job declares
+// A domain declared with `shards: N` runs as N jobs of that matrix, each with
+// its own runner and services (so its own database), and every file of the
+// domain in exactly one of them: sorted, the i-th file goes to shard i mod N.
+//
+// usage:
+//   integration-jobs.ts matrix <domains>                 the matrix entries of those domains (a
+//                                                        JSON array of names), one per shard, as
+//                                                        one line of JSON
+//   integration-jobs.ts files <domain> <shard>           the files that shard runs, one ./path per line
+//   integration-jobs.ts verify <domain> <shard> <junit>  fails unless the junit report ran exactly
+//                                                        those files and skipped only what the
+//                                                        domain declares for them
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -26,18 +33,26 @@ export type IntegrationJob = {
   domain: string;
   paths: string[];
   skips: DeclaredSkip[];
+  shards: number;
 };
 
-export type MatrixEntry = {
-  domain: string;
+type Services = {
   postgres: boolean;
   localstack: boolean;
   docker: boolean;
 };
 
+/** One job of the matrix: `name` is "db" alone, or "db 2/3" for a shard. */
+export type MatrixEntry = Services & {
+  domain: string;
+  name: string;
+  shard: number;
+  shards: number;
+};
+
 const DECLARATION = ".github/integration-domains.yml";
 
-function readEntries(declaration: string): (IntegrationJob & MatrixEntry)[] {
+function readEntries(declaration: string): (IntegrationJob & Services)[] {
   const parsed = Bun.YAML.parse(declaration) as {
     domains?: Record<string, unknown>[];
   } | null;
@@ -46,7 +61,7 @@ function readEntries(declaration: string): (IntegrationJob & MatrixEntry)[] {
     throw new Error(`${DECLARATION} has no domains list`);
   }
   return entries.map((entry, index) => {
-    const { domain, paths, skips = [] } = entry;
+    const { domain, paths, skips = [], shards = 1 } = entry;
     if (typeof domain !== "string" || domain === "") {
       throw new Error(`${DECLARATION} entry ${index + 1} has no domain`);
     }
@@ -73,6 +88,9 @@ function readEntries(declaration: string): (IntegrationJob & MatrixEntry)[] {
     ) {
       throw new Error(`${domain}: skips must be a list of {file, test}`);
     }
+    if (typeof shards !== "number" || !Number.isInteger(shards) || shards < 1) {
+      throw new Error(`${domain}: shards must be a whole number of 1 or more`);
+    }
     return {
       domain,
       postgres: entry.postgres as boolean,
@@ -80,16 +98,18 @@ function readEntries(declaration: string): (IntegrationJob & MatrixEntry)[] {
       docker: entry.docker as boolean,
       paths,
       skips: skips as DeclaredSkip[],
+      shards,
     };
   });
 }
 
 /** The domains declared in .github/integration-domains.yml, in order. */
 export function readJobs(declaration: string): IntegrationJob[] {
-  return readEntries(declaration).map(({ domain, paths, skips }) => ({
+  return readEntries(declaration).map(({ domain, paths, skips, shards }) => ({
     domain,
     paths,
     skips,
+    shards,
   }));
 }
 
@@ -128,12 +148,41 @@ export function matrix(declaration: string, planned: string): MatrixEntry[] {
   }
   return entries
     .filter((entry) => wanted.includes(entry.domain))
-    .map(({ domain, postgres, localstack, docker }) => ({
-      domain,
-      postgres,
-      localstack,
-      docker,
-    }));
+    .flatMap(({ domain, postgres, localstack, docker, shards }) =>
+      Array.from({ length: shards }, (_, index) => ({
+        domain,
+        name: shards === 1 ? domain : `${domain} ${index + 1}/${shards}`,
+        shard: index + 1,
+        shards,
+        postgres,
+        localstack,
+        docker,
+      })),
+    );
+}
+
+/**
+ * The files of one shard (1-based) of a domain's `owned` files: every
+ * `shards`-th file from the shard's own position. Throws on a shard the
+ * domain does not have.
+ */
+export function shardFiles(
+  owned: string[],
+  shards: number,
+  shard: number,
+): string[] {
+  if (!Number.isInteger(shard) || shard < 1 || shard > shards) {
+    throw new Error(`no shard ${shard} of ${shards}`);
+  }
+  return owned.filter((_, index) => index % shards === shard - 1);
+}
+
+/** The job one shard runs: a declared skip belongs to the shard that runs its file. */
+export function forShard(job: IntegrationJob, owned: string[]): IntegrationJob {
+  return {
+    ...job,
+    skips: job.skips.filter((skip) => owned.includes(skip.file)),
+  };
 }
 
 /**
@@ -185,8 +234,14 @@ export function assign(
     }
     // `bun test` with no path runs the whole suite, so an empty job would
     // quietly repeat every other job's work instead of doing nothing.
-    if (byDomain.get(job.domain)!.length === 0) {
+    const count = byDomain.get(job.domain)!.length;
+    if (count === 0) {
       problems.push(`${job.domain} has no files`);
+    } else if (count < job.shards) {
+      // The same for an empty shard: it would run the whole suite.
+      problems.push(
+        `${job.domain} has ${count} files for ${job.shards} shards`,
+      );
     }
     for (const skip of job.skips) {
       if (!byDomain.get(job.domain)!.includes(skip.file)) {
@@ -278,16 +333,16 @@ export function verifyRun(
 }
 
 function main(argv: string[]): void {
-  const [command, domain, junitPath] = argv;
+  const [command, domain, shardArg, junitPath] = argv;
   if (
     !(
       (command === "matrix" && argv.length === 2) ||
-      (command === "files" && argv.length === 2) ||
-      (command === "verify" && argv.length === 3)
+      (command === "files" && argv.length === 3) ||
+      (command === "verify" && argv.length === 4)
     )
   ) {
     console.error(
-      "usage: integration-jobs.ts matrix <domains> | files <domain> | verify <domain> <junit.xml>",
+      "usage: integration-jobs.ts matrix <domains> | files <domain> <shard> | verify <domain> <shard> <junit.xml>",
     );
     process.exit(2);
   }
@@ -317,22 +372,31 @@ function main(argv: string[]): void {
     console.error(`no integration job named ${domain}`);
     process.exit(2);
   }
-  const owned = assigned.get(job.domain)!;
+  const shard = /^[1-9]\d*$/.test(shardArg!) ? Number(shardArg) : Number.NaN;
+  let owned: string[];
+  try {
+    owned = shardFiles(assigned.get(job.domain)!, job.shards, shard);
+  } catch (error) {
+    console.error(`${domain}: ${(error as Error).message}`);
+    process.exit(2);
+  }
+  const name = job.shards === 1 ? domain : `${domain} ${shard}/${job.shards}`;
+  const scoped = forShard(job, owned);
 
   if (command === "files") {
-    console.error(`${domain}: ${owned.length} of ${files.length} files`);
+    console.error(`${name}: ${owned.length} of ${files.length} files`);
     for (const path of owned) console.log(`./${path}`);
     return;
   }
 
   const cases = readJunit(readFileSync(junitPath!, "utf8"));
-  const problems = verifyRun(job, owned, cases);
+  const problems = verifyRun(scoped, owned, cases);
   if (problems.length > 0) {
     console.error(problems.join("\n"));
     process.exit(1);
   }
   console.error(
-    `${domain}: ${owned.length} files ran, ${cases.length} tests, ${job.skips.length} declared skips`,
+    `${name}: ${owned.length} files ran, ${cases.length} tests, ${scoped.skips.length} declared skips`,
   );
 }
 

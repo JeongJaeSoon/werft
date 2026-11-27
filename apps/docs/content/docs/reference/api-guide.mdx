@@ -287,10 +287,12 @@ OpenAPI: [`closeSession`](/reference/http-api/session-control/closeSession), [`t
 | scope | `sessions:control` | `sessions:control` | `sessions:recover` |
 | 받는 상태 | `active`, `paused`, resume할 수 있는 `stopped` | `closed`만 빼고 전부 | `recovery_required`, `stopping`, resume할 수 없는 `stopped` |
 | 진행 중 turn | 끝까지 돌리고 checkpoint를 확정한다. 강제로 죽이지 않는다 | 실행을 죽인다. turn이 `outcome_unknown`으로 남을 수 있다 | 이미 멈춘 세션이 대상이다 |
-| 대기 입력 | `closed`가 되는 트랜잭션에서 취소(`SESSION_CLOSED`) | 접수 즉시 취소(`SESSION_STOPPED`) | 결정 즉시 취소(`SESSION_CLOSED`) |
-| 결과 상태 | `closing` 뒤 `closed`(되돌릴 수 없음) | `stopping` 뒤 `stopped`(resume 가능) | `closed`(되돌릴 수 없음) |
+| 대기 입력 | `closed`가 되는 트랜잭션에서 취소(`SESSION_CLOSED`) | 접수 즉시 취소(`SESSION_STOPPED`). `recovery_required`를 닫을 때는 `SESSION_CLOSED` | 결정 즉시 취소(`SESSION_CLOSED`) |
+| 결과 상태 | `closing` 뒤 `closed`(되돌릴 수 없음) | `stopping` 뒤 `stopped`(resume 가능). `recovery_required`였으면 바로 `closed`(되돌릴 수 없음) | `closed`(되돌릴 수 없음) |
 | receipt `operation`과 `result` | `close`, `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}` | `terminate`, `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}` | `recovery_decision`, `{resulting_admission_state, checkpoint_revision, resumable}` |
-| 이벤트 | `status` `closing`·`closed`, `system` `subtype: session_closed`(`closed_by: "close"`) | `status` `stopping`·`stopped` | `system` `subtype: recovery_decision`, `decision: "close"` |
+| 이벤트 | `status` `closing`·`closed`, `system` `subtype: session_closed`(`closed_by: "close"`) | `status` `stopping`·`stopped`. `recovery_required`였으면 `status`(`phase: stopped`, `admission_state: closed`)와 `system` `subtype: session_closed`(`closed_by: "terminate"`) | `system` `subtype: recovery_decision`, `decision: "close"` |
+
+terminate에 `expected_admission_state`로 판단한 시점의 admission을 함께 보내면, 세션이 그 사이 다른 admission이 됐을 때 아래의 앞선 검사를 통과한 새 요청은 409 `REVISION_CONFLICT`(메시지에 지금 admission)로 거절되고 세션은 그대로다. 검사 순서는 이렇다. 이미 쓴 Idempotency-Key는 본문이 같으면 그 receipt를 지금 상태로 다시 돌려주고, 본문이 다르면 `IDEMPOTENCY_CONFLICT`다. 그다음 `closed`인 세션은 `SESSION_CLOSED`, 그다음 `expected_revision`, 마지막으로 `expected_admission_state`를 본다. revision과 admission이 둘 다 다르면 메시지는 revision을 말한다. `recovery_required`로 가는 전이가 모두 revision을 올리지는 않으므로, 확인 창을 띄운 뒤 보내는 클라이언트는 이 값을 보낸다.
 
 close는 pause와 같은 방식으로 drain한다. worker가 붙은 `active` 세션은 `closing`이 되고, 진행 중 turn이 끝나 checkpoint가 확정되고 실행이 사라진 것을 본 뒤 `closed`가 된다. receipt도 그때 `succeeded`가 된다. worker가 없는 세션, `paused`, resume할 수 있는 `stopped`는 요청 안에서 바로 닫힌다. drain이 60초를 넘기면 세션 `attention`에 `CLOSE_BLOCKED`와 이유(`long_turn`, `pending_request`, `mirror_error`, `checkpoint_unavailable`, `execution_pending`)가 보인다. 열린 승인·질문은 close를 막는다. 답하거나 interrupt하면 풀린다. 끝내 닫지 못하면 receipt가 실패하고 세션은 `active`로 돌아간다. 이때 대기 입력은 그대로 남는다. 그 상태에서 빠져나오려면 terminate를 쓴다. 진행 중인 close는 `CONTROL_SUPERSEDED`로 실패한다.
 

@@ -91,11 +91,14 @@ describe("the release jobs of a main run", () => {
     for (const name of ["publish-main", "sources-main", "index-main"]) {
       expect(jobs[name]?.if).toBe(pushOrRetry);
     }
-    for (const name of ["promote-main", "chart-main", "chart-publish-main"]) {
-      expect(jobs[name]?.if).toBe(
-        "github.event_name == 'push' && github.ref == 'refs/heads/main'",
-      );
+    const push =
+      "github.event_name == 'push' && github.ref == 'refs/heads/main'";
+    for (const name of ["promote-main", "chart-publish-main"]) {
+      expect(jobs[name]?.if).toBe(push);
     }
+    expect(jobs["chart-main"]?.if).toBe(
+      `needs.plan.outputs.chart != 'false' && ${push}`,
+    );
     // What a retry promotes and approves still comes from index-main.
     for (const name of ["worker-compat-release", "promote-release"]) {
       expect(needsOf(name)).toContain("index-main");

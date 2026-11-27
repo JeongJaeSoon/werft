@@ -11,7 +11,8 @@
 # Reuse is all or nothing for the static checks, the integration domains, the
 # product scenarios and the executable guides, which share the plan's flags. helm-chart,
 # k8s-smoke and sdk-pack-smoke are judged one by one: a PR plan may leave
-# k8s-smoke out where a main push keeps it, and then main still runs it.
+# k8s-smoke out where a main push plans it (a release needs the commit), and
+# then main still runs it.
 # The conformance suite is not reused: no PR runs it, and ci.yml's `changes`
 # plans it for a main push apart from this script.
 # Evidence is the job's own test step having run and passed, not the job's
@@ -28,7 +29,8 @@
 # env: GH_REPO (owner/name), GH_TOKEN with actions:read and contents:read,
 #      GITHUB_SHA (the pushed commit, checked out), BEFORE_SHA (the push's
 #      before), and the plan: TESTS PRODUCT QUICKSTART HELM K8S SDK_PACK
-#      DOMAINS (JSON array), DOCS_ONLY.
+#      DOMAINS (JSON array), DOCS_ONLY, and with TESTS=true INTEGRATION_MATRIX
+#      (the planned integration-domain matrix, one {domain, name} per job).
 set -euo pipefail
 
 : "${GH_REPO:?}" "${GITHUB_SHA:?}"
@@ -42,6 +44,14 @@ done
 domains=${DOMAINS:?}
 jq -e 'type == "array" and all(.[]; type == "string")' <<<"$domains" >/dev/null \
   || { echo "::error::ci-reuse.sh: DOMAINS is not a JSON array of names" >&2; exit 2; }
+# The integration job names this tree plans (integration-jobs.ts matrix).
+matrix=${INTEGRATION_MATRIX:-}
+if [ "$TESTS" = true ]; then
+  jq -e 'type == "array" and length > 0
+    and all(.[]; (.domain | type == "string") and (.name | type == "string"))' \
+    <<<"$matrix" >/dev/null 2>&1 \
+    || { echo "::error::ci-reuse.sh: INTEGRATION_MATRIX is not the planned matrix" >&2; exit 2; }
+fi
 
 none() {
   echo "ci-reuse: full plan: $*" >&2
@@ -96,6 +106,21 @@ step_passed() {
     ([.[0].steps[] | select(.name == $step)] | length == 1 and .[0].conclusion == "success")
   ' <<<"$jobs" >/dev/null
 }
+# domain_passed DOMAIN: the PR run's jobs of that domain are exactly the ones
+# this tree's matrix names for it (`integration (db)`, or every shard
+# `integration (db 1/3)` … `(db 3/3)`), and each ran its tests and passed.
+domain_passed() {
+  jq -e --arg domain "$1" --argjson matrix "$matrix" '
+    ([$matrix[] | select(.domain == $domain) | "integration (\(.name))"] | sort) as $want
+    | [.[] | select(.name == "integration (\($domain))"
+      or (.name | startswith("integration (\($domain) ")))] as $jobs
+    | ($want | length) > 0
+    and ($jobs | map(.name) | sort) == $want
+    and all($jobs[]; .conclusion == "success"
+      and ([.steps[] | select(.name == "Tests of this domain")] | length == 1
+        and .[0].conclusion == "success"))
+  ' <<<"$jobs" >/dev/null
+}
 job_passed() {
   jq -e --arg job "$1" '[.[] | select(.name == $job)] | length == 1 and .[0].conclusion == "success"' \
     <<<"$jobs" >/dev/null
@@ -108,7 +133,7 @@ need() { "$@" || { core=false; missing="${missing:+$missing, }${*:2}"; }; }
 need job_passed "check (static)"
 if [ "$TESTS" = true ]; then
   while IFS= read -r domain; do
-    need step_passed "integration (${domain})" "Tests of this domain"
+    domain_passed "$domain" || { core=false; missing="${missing:+$missing, }integration (${domain})"; }
   done < <(jq -r '.[]' <<<"$domains")
   # A web-only plan runs the other unit tests as `check (<part>)` shards.
   if [ "$domains" = '["surface"]' ]; then

@@ -8,6 +8,9 @@
 # and its digest is settled here, before promote: a promotion rerun copies the
 # same digest instead of building an index the tag it already wrote would
 # refuse.
+#
+# ghcr can answer `not found` for a tag `create` has just written. Only that
+# answer is asked again, twice, each after a pause; the index is not rebuilt.
 set -euo pipefail
 
 arches="$1"
@@ -16,6 +19,30 @@ staged="$3"
 tag="staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 
 test "$(ls "$arches"/*.json | wc -l)" -eq 8
+
+errors="$(mktemp)"
+trap 'rm -f "${errors:?}"' EXIT
+
+# Prints the digest of the index a tag names.
+digest_of_new_tag() {
+  local out status attempt
+  for attempt in 1 2 3; do
+    status=0
+    out="$(docker buildx imagetools inspect "$1" --format '{{json .Manifest.Digest}}' 2>"$errors")" || status=$?
+    if [ "$status" -eq 0 ]; then
+      cat "$errors" >&2
+      printf '%s\n' "${out//\"/}"
+      return 0
+    fi
+    grep -Fxq "ERROR: $1: not found" "$errors" || break
+    [ "$attempt" != 3 ] || break
+    cat "$errors" >&2
+    echo "::warning::the registry did not find $1, which this run had just written; asking again (try ${attempt} of 3)" >&2
+    sleep "${IMAGE_INDEX_RETRY_SECONDS:-10}"
+  done
+  cat "$errors" >&2
+  return "$status"
+}
 
 mkdir -p "$staged"
 for app in control-host worker worker-codex egress-proxy; do
@@ -40,7 +67,7 @@ for app in control-host worker worker-codex egress-proxy; do
   arm64_digest="$(jq -r .digest "$arm64")"
   docker buildx imagetools create -t "${name}:${tag}" \
     "${name}@${amd64_digest}" "${name}@${arm64_digest}"
-  digest="$(docker buildx imagetools inspect "${name}:${tag}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+  digest="$(digest_of_new_tag "${name}:${tag}")"
 
   expected="linux/amd64 ${amd64_digest}
 linux/arm64 ${arm64_digest}"

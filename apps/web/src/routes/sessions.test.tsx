@@ -2281,6 +2281,51 @@ describe("session detail", () => {
     expect(screen.queryByRole("button", { name: "다시 연결" })).toBeNull();
   });
 
+  test("draws background work stopped while idle as one line where it happened", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, detailRoutes);
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    act(() => {
+      stream.emit("ev_b1", "assistant", {
+        type: "assistant",
+        text: "Started it",
+      });
+      stream.emit("ev_b2", "system", {
+        type: "system",
+        subtype: "background_tasks_stopped",
+        commands: ["bash", "sleep"],
+        after_turn: true,
+      });
+      stream.emit("ev_b3", "assistant", {
+        type: "assistant",
+        text: "It stopped",
+      });
+      // A resumed stream replays the frame; the line stays one.
+      stream.emit("ev_b2", "system", {
+        type: "system",
+        subtype: "background_tasks_stopped",
+        commands: ["bash", "sleep"],
+        after_turn: true,
+      });
+    });
+    const words =
+      "쉬는 동안 배경 작업을 멈췄습니다: bash, sleep. 다시 필요하면 띄워 달라고 요청해 주세요.";
+    const line = await screen.findByText(words, { exact: false });
+    expect(screen.getAllByText(words, { exact: false })).toHaveLength(1);
+    // One plain line: no bubble and nothing to unfold.
+    expect(line.closest("[data-slot='chat-message']")).toBeNull();
+    expect(line.closest("li")?.querySelector("details, button")).toBeNull();
+    const rows = [
+      ...screen
+        .getByRole("list", { name: "이벤트" })
+        .querySelectorAll(":scope > li"),
+    ].map((row) => row.textContent ?? "");
+    const at = (text: string) => rows.findIndex((row) => row.includes(text));
+    expect(at("Started it")).toBeGreaterThanOrEqual(0);
+    expect(at("Started it")).toBeLessThan(at(words));
+    expect(at(words)).toBeLessThan(at("It stopped"));
+  });
+
   describe("a read that failed under the chat", () => {
     const PENDING_ROUTE = `GET /v1/sessions/${SESSION_ID}/pending-requests`;
     const failingPending = () => {
@@ -2992,6 +3037,174 @@ describe("a session waiting on a recovery decision", () => {
     expect(screen.queryByRole("button", FRESH)).toBeNull();
     // Terminate stays where it was.
     expect(screen.getByRole("button", { name: "세션 종료" })).toBeTruthy();
+  });
+
+  test("terminating a session waiting on recovery closes it, and the recovery screen's buttons go", async () => {
+    const user = await setupUser();
+    let state = gap;
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, state),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, { items: [ran], next_cursor: null }),
+      [`POST /v1/sessions/${SESSION_ID}/terminate`]: () => {
+        state = {
+          ...gap,
+          status: "stopped",
+          admission_state: "closed",
+          revision: 6,
+          attention: null,
+        } as SessionDetail;
+        return json(202, {
+          ...TERMINATE_ACCEPTED,
+          receipt_status: "succeeded",
+        });
+      },
+    });
+    expect(await screen.findByRole("button", FRESH)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "세션 종료" }));
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "세션을 종료할까요?",
+    });
+    // It says the close is for good, not that a resume is left.
+    expect(dialog.textContent).toContain("세션이 닫히고 다시 열 수 없습니다.");
+    expect(dialog.textContent).not.toContain("다시 시작할 수 있습니다");
+    await user.click(within(dialog).getByRole("button", { name: "종료" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "세션 종료" })).toBeNull(),
+    );
+    expect(screen.queryByRole("button", FRESH)).toBeNull();
+    expect(screen.queryByRole("button", ABANDON)).toBeNull();
+    expect(
+      posts(api).map((call) => ({ path: call.path, body: call.body })),
+    ).toEqual([
+      {
+        path: `/v1/sessions/${SESSION_ID}/terminate`,
+        body: {
+          expected_revision: 5,
+          expected_admission_state: "recovery_required",
+        },
+      },
+    ]);
+  });
+
+  test("a terminate dialog left open while another session takes the screen does not end that session", async () => {
+    const user = await setupUser();
+    const other = {
+      ...gap,
+      id: OTHER_ID,
+      revision: 9,
+      title: "세션 B",
+    } as SessionDetail;
+    const { api, history } = renderAt(`/sessions/${OTHER_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, gap),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, { items: [ran], next_cursor: null }),
+      [`GET /v1/sessions/${OTHER_ID}`]: () => json(200, other),
+      [`GET /v1/sessions/${OTHER_ID}/usage`]: () => json(200, usage),
+      [`GET /v1/sessions/${OTHER_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${OTHER_ID}/turns`]: () =>
+        json(200, { items: [ran], next_cursor: null }),
+      [`GET /v1/sessions/${OTHER_ID}/events`]: (request: Request) =>
+        stream.route(request),
+      [`POST /v1/sessions/${OTHER_ID}/terminate`]: () =>
+        json(202, { ...TERMINATE_ACCEPTED, receipt_status: "succeeded" }),
+    });
+    // The other session is read first, so going back finds it cached.
+    expect(
+      await screen.findByRole("button", { name: "세션 종료" }),
+    ).toBeTruthy();
+    act(() => history.push(`/sessions/${SESSION_ID}`));
+    await waitFor(() =>
+      expect(history.location.pathname).toBe(`/sessions/${SESSION_ID}`),
+    );
+    expect(await screen.findByRole("button", FRESH)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "세션 종료" }));
+    await screen.findByRole("alertdialog", { name: "세션을 종료할까요?" });
+    act(() => history.back());
+    await waitFor(() =>
+      expect(history.location.pathname).toBe(`/sessions/${OTHER_ID}`),
+    );
+    await screen.findByRole("heading", { name: /세션 B/ });
+    const left = screen.queryByRole("alertdialog");
+    if (left)
+      await user.click(within(left).getByRole("button", { name: "종료" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(posts(api)).toEqual([]);
+  });
+
+  test("a terminate still running when the screen goes to another session and back keeps its button held and shows its answer", async () => {
+    const user = await setupUser();
+    const other = {
+      ...gap,
+      id: OTHER_ID,
+      revision: 9,
+      title: "세션 B",
+    } as SessionDetail;
+    let release!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    const { api, history } = renderAt(`/sessions/${OTHER_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, gap),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, { items: [ran], next_cursor: null }),
+      [`POST /v1/sessions/${SESSION_ID}/terminate`]: () => held,
+      [`GET /v1/sessions/${OTHER_ID}`]: () => json(200, other),
+      [`GET /v1/sessions/${OTHER_ID}/usage`]: () => json(200, usage),
+      [`GET /v1/sessions/${OTHER_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${OTHER_ID}/turns`]: () =>
+        json(200, { items: [ran], next_cursor: null }),
+      [`GET /v1/sessions/${OTHER_ID}/events`]: (request: Request) =>
+        stream.route(request),
+    });
+    await screen.findByRole("button", { name: "세션 종료" });
+    act(() => history.push(`/sessions/${SESSION_ID}`));
+    expect(await screen.findByRole("button", FRESH)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "세션 종료" }));
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "세션을 종료할까요?",
+    });
+    await user.click(within(dialog).getByRole("button", { name: "종료" }));
+    await waitFor(() => expect(posts(api)).toHaveLength(1));
+    act(() => history.back());
+    await waitFor(() =>
+      expect(history.location.pathname).toBe(`/sessions/${OTHER_ID}`),
+    );
+    await screen.findByRole("heading", { name: /세션 B/ });
+    act(() => history.forward());
+    await waitFor(() =>
+      expect(history.location.pathname).toBe(`/sessions/${SESSION_ID}`),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: /세션 B/ })).toBeNull(),
+    );
+    // Back on the session it was sent for, the press is still in flight.
+    expect(
+      (await screen.findByRole("button", { name: "세션 종료" })).getAttribute(
+        "aria-disabled",
+      ),
+    ).toBe("true");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    await act(async () =>
+      release(apiError(409, "REVISION_CONFLICT", "admission moved")),
+    );
+    expect(
+      await screen.findByText(
+        "그새 세션 상태가 바뀌었습니다. 바뀐 상태를 보고 다시 시도하세요.",
+      ),
+    ).toBeTruthy();
+    expect(posts(api)).toHaveLength(1);
   });
 
   test("a context no checkpoint covers offers to go on without it, and says it is left out", async () => {
@@ -3807,9 +4020,53 @@ describe("session runtime", () => {
     await waitFor(() =>
       expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({
         expected_revision: 3,
+        expected_admission_state: "active",
       }),
     );
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  });
+
+  test("a terminate dialog opened on a running session sends the admission it showed, even after the session moved to recovery", async () => {
+    const user = await setupUser();
+    let state = { ...detail };
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, state),
+      [`POST /v1/sessions/${SESSION_ID}/terminate`]: () =>
+        apiError(409, "REVISION_CONFLICT", "admission moved"),
+    });
+    await waitFor(() => expect(stream.requests).toHaveLength(1));
+    await act(async () => stream.open());
+    await user.click(await screen.findByRole("button", { name: "세션 종료" }));
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "세션을 종료할까요?",
+    });
+    const reads = () =>
+      api.calls.filter(
+        (call) =>
+          call.method === "GET" && call.path === `/v1/sessions/${SESSION_ID}`,
+      ).length;
+    const before = reads();
+    state = {
+      ...detail,
+      status: "failed",
+      admission_state: "recovery_required",
+      current_turn_id: null,
+    } as SessionDetail;
+    act(() => stream.emit("ev_1", "status", { phase: "failed" }));
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+    // Confirm only once the screen shows the new admission.
+    expect((await screen.findAllByText("복구 필요")).length).toBeGreaterThan(0);
+    // The dialog keeps the promise it made when it opened.
+    expect(dialog.textContent).toContain("다시 시작할 수 있습니다");
+    await user.click(within(dialog).getByRole("button", { name: "종료" }));
+    await waitFor(() =>
+      expect(
+        api.calls
+          .filter((call) => call.method === "POST")
+          .map((call) => call.body),
+      ).toEqual([{ expected_revision: 3, expected_admission_state: "active" }]),
+    );
   });
 
   test("a terminate whose button left before the receipt hands the keyboard to its outcome", async () => {
