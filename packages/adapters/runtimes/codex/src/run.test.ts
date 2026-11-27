@@ -930,6 +930,41 @@ describe("work inside the session's sandbox", () => {
     }
   });
 
+  test("a move kept for where it goes shows that place on the card", async () => {
+    const { t, observed } = inWork();
+    await started(t);
+    t.server.emit("item/started", {
+      threadId: "thread-1",
+      item: {
+        type: "fileChange",
+        id: "patch-1",
+        status: "inProgress",
+        changes: [
+          {
+            path: "notes/a.txt",
+            kind: { type: "update", move_path: "../moved.txt" },
+            diff: "",
+          },
+        ],
+      },
+    });
+    void t.server.ask("item/fileChange/requestApproval", {
+      threadId: "thread-1",
+      itemId: "patch-1",
+    });
+    const asked = await t.until(t.ofType("approval.requested"));
+    if (
+      asked.type !== "approval.requested" ||
+      asked.request.kind !== "permission"
+    ) {
+      throw new Error("unreachable");
+    }
+    expect(asked.request.display).toMatchObject({
+      paths: ["notes/a.txt", "../moved.txt"],
+    });
+    expect(observed).toEqual([]);
+  });
+
   test("a refusal from the platform's own check comes first", async () => {
     const observed: ObservedToolDecision[] = [];
     const t = setup("ask", {

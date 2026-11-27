@@ -160,6 +160,8 @@ describe("what the run answers itself", () => {
       [{ path: "notes/a.txt", kind: { type: "update", move_path: 7 } }],
       [{ path: "notes/a.txt", kind: "add" }, "junk"],
       [{ path: "notes/a.txt", kind: {} }],
+      [{ path: "notes/a.txt", kind: "update", type: "rename" }],
+      [{ path: "notes/a.txt", kind: { type: "update", diff: "x" } }],
       [{ path: "notes/a.txt", kind: [] }],
       [{ path: "notes/a.txt", kind: "update", target: "notes/b.txt" }],
       "notes/a.txt",

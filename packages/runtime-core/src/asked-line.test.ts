@@ -107,6 +107,16 @@ const WIDE: [string, string, string | null][] = [
   ["a read inside .git", "cat .git/HEAD | head -n 1", null],
   ["a test for a secret's presence", "test -f .env && echo yes", null],
   ["printed text in a pipe", "echo /etc/hosts | cat", null],
+  [
+    "a program called by its path",
+    "/usr/bin/env node --version && /bin/ls notes",
+    null,
+  ],
+  [
+    "a long list of ordinary files",
+    `ls -- ${"notes/sample.txt ".repeat(2000)}`,
+    null,
+  ],
   ["a message given to git that is a path", "git commit -m /etc/hosts", null],
   ["a move written with a double dash", "cd -- notes && ls", null],
   [
@@ -345,6 +355,17 @@ const WIDE: [string, string, string | null][] = [
     "more moves than are followed",
     `${"mkdir -p a/b/c/d/e/f/g/h/i && "}${"cd a/b/c/d/e/f/g/h/i".split("/").join(" && cd ")} && touch x`,
     "more often",
+  ],
+  ["a file named like a message flag", "git add -- -m /etc/hosts", "outside"],
+  [
+    "a kept name with a dollar sign, in single quotes",
+    "echo x | tee 'notes/$draft.key'",
+    "goes to a person",
+  ],
+  [
+    "more words than are matched",
+    `git add ${"notes/sample.txt ".repeat(400)}`,
+    "ask rule",
   ],
   // Kept: a forced redirect, a descriptor redirect, a path given to git.
   ["a forced redirect to a secret", "echo x >| .env", "goes to a person"],

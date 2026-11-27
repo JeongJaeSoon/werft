@@ -44,6 +44,7 @@ import {
 import type { RelayCall } from "./mcp-relay.ts";
 import { sandboxRefusal, sandboxTurnedOffRefusal } from "./sandbox.ts";
 import {
+  changeTargets,
   sandboxAnswersChange,
   sandboxAnswersCommand,
 } from "./sandbox-answers.ts";
@@ -1036,7 +1037,16 @@ export class CodexRun implements AgentRun {
       display: {
         ...(isCommand
           ? { command: params.command ?? null, cwd: params.cwd ?? null }
-          : { paths: input.paths, grant_root: params.grantRoot ?? null }),
+          : {
+              // A move is shown by where it goes as well.
+              paths: [
+                ...new Set([
+                  ...changePaths(change as Item),
+                  ...(changeTargets(change?.changes) ?? []),
+                ]),
+              ],
+              grant_root: params.grantRoot ?? null,
+            }),
         reason: params.reason ?? null,
       },
       acceptsNote: true,

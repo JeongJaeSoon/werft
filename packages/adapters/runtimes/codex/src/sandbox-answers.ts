@@ -120,11 +120,12 @@ export function changeTargets(changes: unknown): string[] | undefined {
       return undefined;
     }
     // A destination is read wherever the record carries it.
+    const { type: _type, ...inKind } = fields;
+    const { diff: _diff, ...beside } = more;
     for (const [key, value] of [
-      ...Object.entries(more),
-      ...Object.entries(fields),
+      ...Object.entries(beside),
+      ...Object.entries(inKind),
     ]) {
-      if (key === "type" || key === "diff") continue;
       if (!MOVE_KEYS.includes(key)) return undefined;
       if (typeof value === "string" && value !== "") targets.push(value);
       else if (value !== null && value !== undefined) return undefined;

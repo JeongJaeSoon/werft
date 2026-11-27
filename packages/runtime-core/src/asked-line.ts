@@ -218,30 +218,38 @@ for (const pattern of workspaceAskPatterns()) {
 /** A command by its name, whatever directory it was called from. */
 const nameOf = (word: string) => word.slice(word.lastIndexOf("/") + 1);
 
-function asked(text: string): boolean {
-  const [head = ""] = text.split(" ", 1);
-  return (
-    (ASK_RULES.get(head)?.some((rule) => rule.test(text)) ?? false) ||
-    ASK_RULES_ANY_COMMAND.some((rule) => rule.test(text))
-  );
-}
+/** A text longer than this, or more tries than this, is not matched but kept. */
+const ASKED_TEXT_READ = 4_000;
+const ASKED_TRIES = 32;
 
 /**
- * Whether an ask rule names the command these words run. The rules are
- * written for a command at the start of its text, and the engine takes a
- * wrapper off before it tries them (`env X=1 cmd`, `xargs cmd`, `command cmd`,
- * `X=1 cmd`), so here they are tried from every word a command may start at.
- * What `echo` prints is text.
+ * Whether an ask rule names a command in these words. The rules are written
+ * for a command at the start of its text, and the engine takes a wrapper off
+ * before it tries them (`env X=1 cmd`, `xargs cmd`, `command cmd`,
+ * `X=1 cmd`). Which word starts the command is not known here, so the rules
+ * are tried from every word that names one of their commands, by its own
+ * name or its base name (`/usr/bin/git` is `git`). A file operand named
+ * like such a command is kept too; what `echo` prints is text. The cost is
+ * bounded: past the limits the words count as asked.
  */
 function namesAsked(words: readonly string[], tail = ""): boolean {
-  const starts = PRINTERS.includes(words[0] ?? "") ? 1 : words.length;
+  const starts = PRINTERS.includes(nameOf(words[0] ?? "")) ? 1 : words.length;
+  let tries = 0;
   for (let i = 0; i < Math.max(starts, 1); i += 1) {
     const word = words[i] ?? "";
     if (i > 0 && /\s/.test(word)) continue;
-    const rest = words.slice(i + 1);
-    // `/usr/bin/git` is `git`.
     for (const name of new Set([word, nameOf(word)])) {
-      if (asked([name, ...rest].join(" ") + tail)) return true;
+      const rules = ASK_RULES.get(name) ?? [];
+      if (rules.length === 0 && ASK_RULES_ANY_COMMAND.length === 0) continue;
+      tries += 1;
+      const text = [name, ...words.slice(i + 1)].join(" ") + tail;
+      if (tries > ASKED_TRIES || text.length > ASKED_TEXT_READ) return true;
+      if (
+        rules.some((rule) => rule.test(text)) ||
+        ASK_RULES_ANY_COMMAND.some((rule) => rule.test(text))
+      ) {
+        return true;
+      }
     }
   }
   return false;
@@ -431,6 +439,9 @@ function partKept(
     if (kept !== null) return kept;
   }
   if (name === undefined) return null;
+  // The command's own path is not judged: a program found by PATH lives
+  // outside the workspace as well, and running one is not a path the policy
+  // keeps.
   const command = nameOf(name);
   if (PRINTERS.includes(command)) return null;
   const writes = policy.fs.allow.includes(command);
@@ -441,9 +452,11 @@ function partKept(
   const pathed = !refs && (narrow || writes || READERS.includes(command));
   const operands = part.words.slice(1);
   for (const [index, word] of operands.entries()) {
-    // What git or gh is given as a message is text.
+    // What git or gh is given as a message is text. After `--` every word
+    // is a file, one named like a flag included.
     if (
       refs &&
+      !operands.slice(0, index).includes("--") &&
       (MESSAGE_FLAGS.includes(operands[index - 1] ?? "") ||
         MESSAGE_FLAGS.some((flag) => word.startsWith(`${flag}=`)))
     ) {
@@ -598,10 +611,12 @@ const spelledOut = (words: readonly string[]) =>
     .filter((word) => word !== "");
 
 /** The part of a word the shell does not compute, when that part alone can be judged. */
-function literalOf(word: string): string | undefined {
+function literalOf(word: string, written: string): string | undefined {
   const cut = word.indexOf("$");
-  if (cut === -1) return word;
-  // `.git/$name` is under `.git` whatever the name; `$DIR/x` is nowhere yet.
+  // In single quotes a dollar sign is a character of the name.
+  if (cut === -1 || /^'[^']*'$/.test(written)) return word;
+  // Only the spelled start is judged: `.git/$name` starts under `.git`,
+  // `$DIR/x` starts nowhere yet.
   return cut === 0 ? undefined : word.slice(0, cut);
 }
 
@@ -619,13 +634,13 @@ function unsplitKept(
   const text = withoutHeredocBodies(command);
   let bases = [...from];
   for (const piece of text.split(/&&|\|\||[;|&\n()`]/)) {
-    const written = piece
+    const pairs = piece
       .trim()
       .split(/\s+/)
-      .filter((word) => word !== "");
-    const words = written
-      .map((word) => word.replace(/['"\\]/g, ""))
-      .filter((word) => word !== "");
+      .map((word) => ({ written: word, word: word.replace(/['"\\]/g, "") }))
+      .filter((pair) => pair.word !== "");
+    const written = pairs.map((pair) => pair.written);
+    const words = pairs.map((pair) => pair.word);
     if (words.length === 0) continue;
     if (
       namesAsked(words) ||
@@ -635,7 +650,8 @@ function unsplitKept(
     ) {
       return "a part an ask rule names";
     }
-    // What a printer is given is text; where its output goes is read below.
+    // Once the text is cut, what a printer is given in its piece is text;
+    // where its output goes is read below.
     if (PRINTERS.includes(nameOf(words[0] as string))) continue;
     const moved = movedTo(words, root, bases);
     if (typeof moved === "string") return moved;
@@ -643,8 +659,8 @@ function unsplitKept(
       (word) => !MOVER_PREFIXES.includes(word) && !ASSIGNMENT.test(word),
     );
     const mayWrite = !READ_ONLY.includes(nameOf(lead ?? ""));
-    for (const word of words) {
-      const literal = literalOf(word);
+    for (const pair of pairs) {
+      const literal = literalOf(pair.word, pair.written);
       if (literal === undefined) continue;
       for (const base of bases) {
         const kept = wordKept({ root, base }, literal, mayWrite);
@@ -661,7 +677,10 @@ function unsplitKept(
   for (const [, quoted] of text.matchAll(
     />>?\|?[ \t]*((?:"[^"]*"|'[^']*'|[^\s;&|<>()'"])+)/g,
   )) {
-    const target = literalOf((quoted as string).replace(/['"\\]/g, ""));
+    const target = literalOf(
+      (quoted as string).replace(/['"\\]/g, ""),
+      quoted as string,
+    );
     if (target === undefined || target === "/dev/null") continue;
     for (const base of bases) {
       const kept = writeKept({ root, base }, target, false);
