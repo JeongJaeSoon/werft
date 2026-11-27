@@ -66,7 +66,7 @@ export type ChatItem =
       readonly withheld?: true;
     }
   | {
-      /** A line the control plane wrote into the session, such as stopped work. */
+      /** A line the worker wrote into the session: background work it stopped. */
       readonly kind: "notice";
       readonly id: string;
       readonly at: string;
@@ -168,9 +168,19 @@ export function chatItems(
     }
     if (payload.event === "system") {
       const stopped = stoppedBackgroundCommands(payload.data);
+      // Only the checked names go in: an engine_event beside them would
+      // otherwise steer presentTurnEvent to its own summary.
       const text =
         stopped !== null && stopped.length > 0
-          ? turnSummaryText(presentTurnEvent(payload).summary, formatMessage)
+          ? turnSummaryText(
+              [
+                {
+                  key: "session.event.backgroundTasksStopped",
+                  params: { commands: stopped.join(", ") },
+                },
+              ],
+              formatMessage,
+            )
           : "";
       if (text) {
         items.push({

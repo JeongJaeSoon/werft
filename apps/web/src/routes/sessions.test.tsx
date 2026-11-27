@@ -2321,6 +2321,7 @@ describe("session detail", () => {
         .querySelectorAll(":scope > li"),
     ].map((row) => row.textContent ?? "");
     const at = (text: string) => rows.findIndex((row) => row.includes(text));
+    expect(at("Started it")).toBeGreaterThanOrEqual(0);
     expect(at("Started it")).toBeLessThan(at(words));
     expect(at(words)).toBeLessThan(at("It stopped"));
   });
