@@ -18,7 +18,8 @@ export const CATALOG_REFRESH_MS = 10_000;
 
 /**
  * The newest read wins and a refresh joins one begun within `maxAgeMs`;
- * a failed read keeps what was read before.
+ * a failed read keeps what was read before. `maxAgeMs` 0 always begins a
+ * read, the clock stepping back included.
  */
 export function latestReads<T>(
   read: () => Promise<T>,
@@ -32,7 +33,9 @@ export function latestReads<T>(
   return (maxAgeMs = 0) => {
     const oldest = now() - maxAgeMs;
     if (maxAgeMs > 0 && readAt >= oldest) return Promise.resolve();
-    if (latest !== null && latest.startedAt > oldest) return latest.done;
+    if (maxAgeMs > 0 && latest !== null && latest.startedAt > oldest) {
+      return latest.done;
+    }
     const startedAt = now();
     begun += 1;
     const order = begun;

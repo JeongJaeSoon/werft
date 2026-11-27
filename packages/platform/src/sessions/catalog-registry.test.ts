@@ -156,6 +156,27 @@ describe("the catalog a registry makes", () => {
 });
 
 describe("latestReads", () => {
+  test("a refresh with no age begins a read even when the clock stepped back", async () => {
+    let clock = 100;
+    let reads = 0;
+    const pending: Array<() => void> = [];
+    const refresh = latestReads(
+      () =>
+        new Promise<number>((resolve) => {
+          reads += 1;
+          pending.push(() => resolve(reads));
+        }),
+      () => {},
+      () => clock,
+    );
+    const first = refresh(10_000);
+    clock = 90;
+    const second = refresh(0);
+    expect(reads).toBe(2);
+    for (const answer of pending) answer();
+    await Promise.all([first, second]);
+  });
+
   test("a refresh within maxAgeMs of the last read reads nothing", async () => {
     let clock = 0;
     let reads = 0;
@@ -299,6 +320,30 @@ describe("caughtUp", () => {
     pending[2]?.resolve(snapshot(2));
     await again;
     expect(registry.settings?.generation).toBe(2);
+  });
+
+  test("every request waiting on a shared read that fails rejects with its error", async () => {
+    const { registry, state, pending, until } = heldReads(1);
+    const first = registry.refresh();
+    await until(1);
+    pending[0]?.resolve(snapshot(1));
+    await first;
+    state.generation = 2;
+    const down = new Error("terminating connection");
+    const waiting = [
+      registry.caughtUp(),
+      registry.caughtUp(),
+      registry.caughtUp(),
+    ].map((caught) =>
+      caught.then(
+        () => "resolved",
+        (error: unknown) => error,
+      ),
+    );
+    await until(2);
+    pending[1]?.reject(down);
+    expect(await Promise.all(waiting)).toEqual([down, down, down]);
+    expect(pending).toHaveLength(2);
   });
 
   test("a generation read that fails rejects, and reads no settings", async () => {

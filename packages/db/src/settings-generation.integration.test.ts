@@ -90,7 +90,8 @@ integration("the settings generation two API replicas judge on", () => {
 
   const store = () => createPostgresSettingsDocumentStore(db, KEY);
   const generation = () => readSettingsGeneration(db);
-  // As server.ts wires each API process.
+  // Each registry as an API process will wire it once the gateway asks it
+  // (S8-1's wiring); here the test asks caughtUp itself.
   const replica = (): CatalogRegistry => {
     const settings = createPostgresInstallationSettingsStore(db, KEY);
     return createCatalogRegistry({
