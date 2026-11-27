@@ -229,8 +229,9 @@ const ASKED_TRIES = 32;
  * `X=1 cmd`). Which word starts the command is not known here, so the rules
  * are tried from every word that names one of their commands, by its own
  * name or its base name (`/usr/bin/git` is `git`). A file operand named
- * like such a command is kept too; what `echo` prints is text. The cost is
- * bounded: past the limits the words count as asked.
+ * like such a command starts a try as well; what `echo` prints is text.
+ * The tries and the text of each are bounded: past either limit the words
+ * count as asked.
  */
 function namesAsked(words: readonly string[], tail = ""): boolean {
   const starts = PRINTERS.includes(nameOf(words[0] ?? "")) ? 1 : words.length;
@@ -450,17 +451,18 @@ function partKept(
   // The operands of these are known to be paths; any other command's word is
   // kept only when it plainly names a kept place.
   const pathed = !refs && (narrow || writes || READERS.includes(command));
-  const operands = part.words.slice(1);
-  for (const [index, word] of operands.entries()) {
-    // What git or gh is given as a message is text. After `--` every word
-    // is a file, one named like a flag included.
-    if (
-      refs &&
-      !operands.slice(0, index).includes("--") &&
-      (MESSAGE_FLAGS.includes(operands[index - 1] ?? "") ||
-        MESSAGE_FLAGS.some((flag) => word.startsWith(`${flag}=`)))
-    ) {
-      continue;
+  // What git or gh is given as a message is text, a `--` given as one
+  // included. The `--` that ends the options ends that reading: past it a
+  // word named like a message flag is an operand.
+  let options = refs;
+  let message = false;
+  for (const word of part.words.slice(1)) {
+    if (options) {
+      const text =
+        message || MESSAGE_FLAGS.some((flag) => word.startsWith(`${flag}=`));
+      message = !message && MESSAGE_FLAGS.includes(word);
+      if (word === "--" && !text) options = false;
+      if (text) continue;
     }
     if (writes && !word.startsWith("-")) {
       const kept = writeKept(place, word, narrow);
@@ -650,8 +652,9 @@ function unsplitKept(
     ) {
       return "a part an ask rule names";
     }
-    // Once the text is cut, what a printer is given in its piece is text;
-    // where its output goes is read below.
+    // Once the text is cut, what a printer is given in its piece is text.
+    // Every `>` of the line is read below as a redirect, one inside a
+    // printed quote as well: a substitution in double quotes runs.
     if (PRINTERS.includes(nameOf(words[0] as string))) continue;
     const moved = movedTo(words, root, bases);
     if (typeof moved === "string") return moved;

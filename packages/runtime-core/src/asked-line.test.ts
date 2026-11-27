@@ -118,6 +118,11 @@ const WIDE: [string, string, string | null][] = [
     null,
   ],
   ["a message given to git that is a path", "git commit -m /etc/hosts", null],
+  [
+    "a double dash given to git as a message",
+    "git commit -m -- -m /etc/hosts",
+    null,
+  ],
   ["a move written with a double dash", "cd -- notes && ls", null],
   [
     "the same move many times",
@@ -361,6 +366,11 @@ const WIDE: [string, string, string | null][] = [
     "a kept name with a dollar sign, in single quotes",
     "echo x | tee 'notes/$draft.key'",
     "goes to a person",
+  ],
+  [
+    "more names of asked commands than are tried",
+    `grep -c x ${Array.from({ length: 40 }, (_, at) => `notes/${at}/git`).join(" ")}`,
+    "ask rule",
   ],
   [
     "more words than are matched",

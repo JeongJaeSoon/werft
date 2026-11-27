@@ -930,7 +930,7 @@ describe("work inside the session's sandbox", () => {
     }
   });
 
-  test("a move kept for where it goes shows that place on the card", async () => {
+  test("a move shows where it goes on the card, beside a record that does not read", async () => {
     const { t, observed } = inWork();
     await started(t);
     t.server.emit("item/started", {
@@ -945,6 +945,7 @@ describe("work inside the session's sandbox", () => {
             kind: { type: "update", move_path: "../moved.txt" },
             diff: "",
           },
+          { path: "notes/b.txt", kind: "update", type: "rename" },
         ],
       },
     });
@@ -960,7 +961,7 @@ describe("work inside the session's sandbox", () => {
       throw new Error("unreachable");
     }
     expect(asked.request.display).toMatchObject({
-      paths: ["notes/a.txt", "../moved.txt"],
+      paths: ["notes/a.txt", "notes/b.txt", "../moved.txt"],
     });
     expect(observed).toEqual([]);
   });

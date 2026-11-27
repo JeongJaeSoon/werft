@@ -1038,11 +1038,14 @@ export class CodexRun implements AgentRun {
         ...(isCommand
           ? { command: params.command ?? null, cwd: params.cwd ?? null }
           : {
-              // A move is shown by where it goes as well.
+              // Each record that reads shows where a move goes as well.
               paths: [
                 ...new Set([
                   ...changePaths(change as Item),
-                  ...(changeTargets(change?.changes) ?? []),
+                  ...(Array.isArray(change?.changes)
+                    ? change.changes
+                    : []
+                  ).flatMap((one) => changeTargets([one]) ?? []),
                 ]),
               ],
               grant_root: params.grantRoot ?? null,
