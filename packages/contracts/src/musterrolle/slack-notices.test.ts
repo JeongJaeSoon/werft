@@ -52,7 +52,7 @@ describe("slackNoticeFor", () => {
         "요청하신 대로 작업을 멈췄어요. 이어서 하려면 이 스레드에 다시 써 주세요.",
       sessionStoppedQueued:
         "요청하신 대로 작업을 멈췄어요. 기다리던 글 {count}개도 처리하지 않았어요. 이어서 하려면 이 스레드에 다시 써 주세요.",
-      nothingToStop: "지금 하고 있는 작업이 없어요.",
+      nothingToStop: "지금 멈출 작업이 없어요.",
       stopNotPermitted: "작업을 맡긴 사람만 멈출 수 있어요",
       taskStoppedBeforeStart:
         "요청하신 대로 작업을 시작하기 전에 멈추고 닫았어요. 다시 하려면 새로 맡겨 주세요.",

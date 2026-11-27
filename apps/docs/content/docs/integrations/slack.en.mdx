@@ -99,13 +99,32 @@ When a mention or DM turn of an agent whose conversation rollout is `on` ends wi
 - a budget account refused the call: the budget notice alone is said;
 - the try already sent, or left to be sent, something in Slack (an answer, a 👀, a notice): the failure line is said at once, so nothing is done twice; the same when the report that the try's model call ended does not come within 30 seconds of the try's end;
 - before the next try, an admin stopped the agent in an emergency (also when stopped and turned on again while the next try waits), the agent's conversation rollout is no longer `on`, or the mention was deleted: nothing is said.
+## Task reports
+
+How a task (session) reports its work in its thread is set by its report mode (`report_mode`). Approval and question cards, mirrored web and API instructions, and the room-wait and stop notices follow their own settings and rules. A task's link with none uses its channel's; the default is `per_step`. This release has no screen or API that changes it.
+
+| Report mode | What the thread gets |
+|---|---|
+| `per_step` | Each turn's reply as the turn ends, and a failure notice for each failed turn. What the engine says after a turn ends goes up too. |
+| `progress` | One progress message (posted once, then only edited), plus the completion, person-needed and failure reports |
+| `notify_only` | At most one `Started working on this` line (never edited; none once the first turn's reply or failure notice comes first), plus the completion, person-needed and failure reports |
+
+The reports of `progress` and `notify_only`:
+
+- Completion: once no unfinished turn is left, the reply of the turn that ended last goes up once. A turn followed by one that answered or failed posts no reply; when the later turns were only stopped or cancelled, the earlier reply goes up. Nothing the engine says after a turn ends goes up.
+- Person needed: when the task starts to wait on a person's answer, the thread is told once, and not again when a later turn queues behind the wait. The same turn asking more tells it again. A thread that gets approval and question cards (`post_prompts`) is told by the card itself. A task that needs a person to decide whether it goes on (waiting for recovery) is told once too; a second hold on the same turn is not told again. Both mention the person who gave the task.
+- Failure: one line for each failed turn.
+- When the task closes, an edit to `This task is done` is left as the progress message's last update and the thread's link closes. That edit still goes after the link closes; nothing edits the message after it.
+
+The progress message and the start and person-needed lines are in the card's language; for an agent that follows the user, in the Werft language of the person who started the task; otherwise in English. Failure notices keep the language of the person who started the task. In every report mode, when the task ends completed, failed, gave up waiting for room or stopped and nothing is left waiting, the thread's Slack status goes back to active. A closed session shows as closed.
+
 ## Stop a task
 
 On an agent whose conversation rollout is `on`, writing only one of `그만`, `그만해`, `멈춰`, `멈춰줘`, `중지`, `止めて`, `やめて`, `ストップ`, `停止` or `stop` in a thread (channel or DM) bound to an open task (session) stops that task. A mention of the agent, spaces around the word, any case and a closing `.`, `!` or `。` are fine. With other words mixed in ("stop, but run the tests"), the message goes to the task as an ordinary message. The channel's listen setting does not matter.
 
 - The running turn is interrupted, and messages that came in before the stop message and were still waiting are not processed. Messages written after the stop message are processed as usual (except when the task is closed, below). A message written within a second of the stop message may arrive from Slack in the other order, and be handled as if it came on the other side of it.
 - The session is not closed. Writing in the same thread again carries on. A task stopped before its first turn started, where the stop cancelled at least one waiting message, has nothing to carry on, though: it is closed at once (the task ends cancelled), messages written in the thread after that do not go to the task, and the thread gets `Stopped and closed the task before it started, as you asked. To do it again, ask for it as a new task.`, with how many messages were waiting behind the request, if any. A closed task no longer counts toward the open tasks of its conversation and agent.
-- One line goes to the thread: `Stopped the task as you asked. Write in this thread again to carry on.` When waiting messages were not processed, it says how many. With no running turn and nothing waiting, it says only `There's no task running right now.`
+- One line goes to the thread: `Stopped the task as you asked. Write in this thread again to carry on.` When waiting messages were not processed, it says how many. With no running turn and nothing waiting, it makes no turn and posts nothing to the thread; only the writer sees `There's nothing to stop right now.`
 - The stop message itself is not input to the task.
 - Who may stop: anyone who may control the session (the same right as **Stop this turn** on the web). That covers the person who asked for the task and members who may write to the session. In a channel whose ceiling leaves out session control, no one can stop from Slack. A stop word from someone who may not stop shows `Only the person who asked for this task can stop it` to that person alone, and goes to the task as an ordinary message.
 
