@@ -3,12 +3,19 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  collect,
+  FRAGMENT_DIR,
+  fragmentNames,
+  parseSections,
+} from "../.github/scripts/changelog-release.ts";
 import {
   chartVersion,
   effectiveRef,
@@ -451,7 +458,12 @@ esac
       before: string | null,
       after: string,
       replies: Reply[] = [absent, noRelease],
-      options: { zeroBefore?: boolean; unrelated?: boolean } = {},
+      options: {
+        zeroBefore?: boolean;
+        unrelated?: boolean;
+        /** Other files the after commit adds, by path. */
+        files?: Record<string, string>;
+      } = {},
     ) =>
       sandbox((directory) => {
         const repo = join(directory, "repo");
@@ -463,6 +475,10 @@ esac
         git(repo, "commit", "-q", "-m", "before");
         const first = git(repo, "rev-parse", "HEAD");
         writeFileSync(join(repo, "CHANGELOG.md"), after);
+        for (const [path, body] of Object.entries(options.files ?? {})) {
+          mkdirSync(join(repo, path, ".."), { recursive: true });
+          writeFileSync(join(repo, path), body);
+        }
         git(repo, "add", "-A");
         git(repo, "commit", "-q", "-m", "after");
         const second = git(repo, "rev-parse", "HEAD");
@@ -624,6 +640,32 @@ esac
       );
       expect(run.code).toBe(1);
       expect(run.err).toContain("rewritten");
+    });
+
+    test("a release commit that still holds changelog fragments is refused before GitHub is asked", () => {
+      const after = changelog("v0.1.2", "v0.1.1", "v0.1.0");
+      const run = detect(base, after, [absent, noRelease], {
+        files: {
+          "changelog.d/README.md": "how to write one",
+          "changelog.d/94S-1.md": "### 운영자가 할 일\n\n- x\n",
+        },
+      });
+      expect(run.code).toBe(1);
+      expect(run.err).toContain("changelog.d/: 94S-1.md");
+      expect(run.err).toContain("changelog-release.ts v0.1.2");
+      expect(run.output).toBe("");
+      expect(run.calls).toEqual([]);
+      // The README alone is no fragment, and an ordinary merge may add fragments.
+      const readme = detect(base, after, [absent, noRelease], {
+        files: { "changelog.d/README.md": "how to write one" },
+      });
+      expect(readme.code).toBe(0);
+      expect(readme.output).toBe("tag=v0.1.2\n");
+      const merge = detect(base, base, [absent, noRelease], {
+        files: { "changelog.d/94S-1.md": "### 운영자가 할 일\n\n- x\n" },
+      });
+      expect(merge.code).toBe(0);
+      expect(merge.output).toBe("tag=\n");
     });
 
     test("a CHANGELOG that did not exist before makes every heading new, so it is refused", () => {
@@ -1613,5 +1655,159 @@ describe("release-stage.sh", () => {
     const run = stage((dir) => rmSync(join(dir, "strict", "worker.json")));
     expect(run.code).toBe(1);
     expect(run.err).toContain("is missing");
+  });
+});
+
+// Pull requests write changelog fragments; a release pull request collects
+// them with the unreleased section into the version heading detect reads.
+describe("changelog-release.ts", () => {
+  const head = "# 변경 기록\n\n## 쓰는 방식\n\n- 규칙\n\n";
+  const old = "## v0.5.0\n\n요약.\n\n### 운영자가 할 일\n\n- 옛 항목\n";
+  const unreleased =
+    "## 미출시\n\n### 운영자가 할 일\n\n- 미출시 항목 (#1)\n  - 아래 줄\n\n";
+  const ops = (entry: string) => `### 운영자가 할 일\n\n- ${entry}\n`;
+
+  /** Runs the script in a repository root holding this CHANGELOG and these fragments. */
+  const release = (
+    changelog: string,
+    fragments: Record<string, string>,
+    ...args: string[]
+  ) => {
+    const dir = mkdtempSync(join(tmpdir(), "changelog-release-"));
+    try {
+      writeFileSync(join(dir, "CHANGELOG.md"), changelog);
+      mkdirSync(join(dir, FRAGMENT_DIR));
+      writeFileSync(join(dir, FRAGMENT_DIR, "README.md"), "how");
+      for (const [name, body] of Object.entries(fragments)) {
+        writeFileSync(join(dir, FRAGMENT_DIR, name), body);
+      }
+      const run = Bun.spawnSync(
+        [process.execPath, script("changelog-release.ts"), ...args],
+        {
+          cwd: dir,
+        },
+      );
+      return {
+        code: run.exitCode,
+        err: run.stderr.toString(),
+        changelog: readFileSync(join(dir, "CHANGELOG.md"), "utf8"),
+        left: readdirSync(join(dir, FRAGMENT_DIR))
+          .filter((name) => name !== "README.md")
+          .sort(),
+        readme: existsSync(join(dir, FRAGMENT_DIR, "README.md")),
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  test("two fragments and the unreleased section become one version section, and the fragments go", () => {
+    const run = release(
+      head + unreleased + old,
+      {
+        "94S-990.md": ops("오래된 조각"),
+        "94S-1002.md": `### 보안\n\n- 보안 항목\n\n${ops("새 조각")}`,
+      },
+      "v0.6.0",
+    );
+    expect(run.err).toBe("");
+    expect(run.code).toBe(0);
+    expect(run.changelog).toBe(
+      head +
+        "## v0.6.0\n\n### 보안\n\n- 보안 항목\n\n" +
+        "### 운영자가 할 일\n\n- 새 조각\n- 오래된 조각\n- 미출시 항목 (#1)\n  - 아래 줄\n\n" +
+        old,
+    );
+    expect(run.left).toEqual([]);
+    expect(run.readme).toBe(true);
+    // The new section is the one heading detect reads as the release.
+    expect(
+      [...run.changelog.matchAll(/^## (v\S+)$/gm)].map((m) => m[1]),
+    ).toEqual(["v0.6.0", "v0.5.0"]);
+  });
+
+  test("without an unreleased section the fragments go above the newest version", () => {
+    const run = release(head + old, { "94S-1.md": ops("조각") }, "v0.6.0");
+    expect(run.code).toBe(0);
+    expect(run.changelog).toBe(`${head}## v0.6.0\n\n${ops("조각")}\n${old}`);
+  });
+
+  test("nothing to collect changes nothing", () => {
+    for (const changelog of [head + old, `${head}## 미출시\n\n${old}`]) {
+      const run = release(changelog, {}, "v0.6.0");
+      expect(run.code).toBe(0);
+      expect(run.changelog).toBe(changelog);
+      expect(run.readme).toBe(true);
+    }
+  });
+
+  test.each([
+    [
+      "a heading outside the two sections",
+      { "a.md": "### 추가\n\n- x\n" },
+      'a.md:1: "### 추가"',
+    ],
+    [
+      "a version heading",
+      { "a.md": "## v9.9.9\n\n- x\n" },
+      'a.md:1: "## v9.9.9"',
+    ],
+    ["text before a heading", { "a.md": "- x\n" }, "a.md:1: text before"],
+    ["a section twice", { "a.md": `${ops("x")}${ops("y")}` }, "appears twice"],
+    [
+      "an empty section",
+      { "a.md": "### 보안\n\n" },
+      '"### 보안" has no entries',
+    ],
+    ["an empty fragment", { "a.md": "\n" }, "a.md: no section"],
+    ["a file that is no .md", { "a.txt": ops("x") }, "changelog.d/a.txt"],
+  ])("%s fails, and nothing is written or deleted", (_, fragments, message) => {
+    const changelog = head + unreleased + old;
+    const run = release(
+      changelog,
+      { "ok.md": ops("ok"), ...fragments },
+      "v0.6.0",
+    );
+    expect(run.code).toBe(1);
+    expect(run.err).toContain(message);
+    expect(run.changelog).toBe(changelog);
+    expect(run.left).toEqual(Object.keys({ "ok.md": "", ...fragments }).sort());
+  });
+
+  test("a version that is no release, or one already listed, is refused", () => {
+    const changelog = head + unreleased + old;
+    for (const [version, message] of [
+      ["v1.2", "is not v"],
+      ["v1.2.3+b", "is not v"],
+      ["v0.5.0", "already has a section for v0.5.0"],
+    ] as const) {
+      const run = release(changelog, { "a.md": ops("x") }, version);
+      expect(run.code).toBe(1);
+      expect(run.err).toContain(message);
+      expect(run.changelog).toBe(changelog);
+      expect(run.left).toEqual(["a.md"]);
+    }
+    expect(release(changelog, {}).code).toBe(2);
+  });
+
+  test("an unreleased section outside the two sections is refused", () => {
+    expect(() =>
+      collect(`${head}## 미출시\n\n### 기타\n\n- x\n\n${old}`, [], "v0.6.0"),
+    ).toThrow('"### 기타"');
+  });
+
+  // CI holds what this repository carries to the format, so a bad fragment
+  // fails its own pull request, not the release.
+  test("this repository's fragments and unreleased section parse", () => {
+    const names = fragmentNames(root);
+    const fragments = names.map((name) => ({
+      name,
+      text: readFileSync(join(root, FRAGMENT_DIR, name), "utf8"),
+    }));
+    for (const { name, text } of fragments) {
+      expect(parseSections(text, name).size).toBeGreaterThan(0);
+    }
+    const changelog = readFileSync(join(root, "CHANGELOG.md"), "utf8");
+    expect(collect(changelog, fragments, "v999.0.0")).not.toBeNull();
   });
 });

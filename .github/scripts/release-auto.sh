@@ -5,7 +5,9 @@
 #   detect  EVENT push: BEFORE and AFTER (the push's two commits): the one
 #           CHANGELOG.md heading `## vX.Y.Z` that AFTER has and BEFORE lacks is
 #           the release to make; none means an ordinary merge. Anything that is
-#           not one clean new heading fails.
+#           not one clean new heading fails, and so does a release commit that
+#           still holds changelog fragments (changelog.d/*.md other than
+#           README.md): changelog-release.ts collects them into the heading.
 #           EVENT workflow_dispatch (a retry of a release whose run failed):
 #           AFTER's top `## vX.Y.Z` heading, unless its tag or its Release
 #           already exists. Writes `tag=` to GITHUB_OUTPUT either way.
@@ -118,9 +120,20 @@ detect_push() {
       || fail "this push adds more than one version section: ${added//$'\n'/, }"
     [ -z "$gone" ] || fail "${added} appears where ${gone//$'\n'/, } was: a renamed section is not a release"
     check_version "$added"
+    fragments_collected "$after" "$added"
     tag="$added"
     TAG="$tag" free
   fi
+}
+
+# A fragment left beside a new version heading is an entry of that release
+# missing from its section. A retry is not held to this: fragments merged after
+# the release commit belong to the next release.
+fragments_collected() {
+  local left
+  left="$(git ls-tree --name-only "$1:changelog.d" 2>/dev/null | grep -vxF README.md || true)"
+  [ -z "$left" ] \
+    || fail "the commit that adds $2 still holds changelog fragments (changelog.d/: ${left//$'\n'/, }); a release pull request runs .github/scripts/changelog-release.ts $2"
 }
 
 # Prints why the version $1 is taken, nothing when it is free. Only a
