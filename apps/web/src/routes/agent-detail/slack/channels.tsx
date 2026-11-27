@@ -197,7 +197,10 @@ export function SlackChannels({
   /** The line to paste in a channel to add the bot. */
   readonly invite: string;
   readonly notify: Notify;
-  /** Installed with no home yet: only picking the home is offered. */
+  /**
+   * Installed with no home yet: picking the home is the one action offered,
+   * but channels already bound stay listed, with their emergency stop.
+   */
   readonly homeStep?: boolean;
   /** The app's actions, for the lock's Recheck. */
   readonly slack: SlackApp;
@@ -421,6 +424,8 @@ export function SlackChannels({
       </>
     );
   const empty = !homeStep && bindings.isSuccess && rows.length === 0;
+  // homeStep needs the bindings read, so rows here are the server's.
+  const stepOnly = homeStep && rows.length === 0;
   return (
     <>
       <SettingsSection
@@ -428,7 +433,7 @@ export function SlackChannels({
         tabIndex={-1}
         className={SECTION_TARGET}
         titleAs="h3"
-        title={t(homeStep ? "slack.homeStep" : "slack.connectedChannels")}
+        title={t(stepOnly ? "slack.homeStep" : "slack.connectedChannels")}
         description={
           <>
             {homeStep ? <p className="m-0">{t("slack.homeStepHint")}</p> : null}
@@ -499,7 +504,7 @@ export function SlackChannels({
                 <FieldError>{slackFailure(approve.error, t)}</FieldError>
               </div>
             ) : null}
-            {homeStep ? null : bindings.isPending ? (
+            {stepOnly ? null : bindings.isPending ? (
               <ChannelSkeleton />
             ) : bindings.isError && !bindings.data ? null : empty ? (
               <div className="flex flex-col gap-1">
