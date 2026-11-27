@@ -136,7 +136,7 @@ export const NETWORK_CALL_PATTERNS: readonly { id: string; pattern: RegExp }[] =
   [
     {
       id: "package_runner",
-      pattern: /\b(?:npx|bunx|uvx|pnpm\s+dlx|yarn\s+dlx)\b/,
+      pattern: /\b(?:npx|bunx|uvx|(?:pnpm|yarn)\s+dlx|npm\s+exec)\b/,
     },
     {
       id: "package_install",
@@ -199,15 +199,35 @@ function kindOf(file: CanonicalBundleFile): Kind {
 const codePoint = (char: string) =>
   `U+${(char.codePointAt(0) as number).toString(16).toUpperCase().padStart(4, "0")}`;
 
-/** Lines the new text adds over the old one; all of it when there is none or it is too large to compare. */
-function addedLines(earlier: string | null, text: string): string[] {
-  if (earlier === null) return text.split("\n");
-  const diff = unifiedLineDiff(earlier, text);
-  if (diff === null) return text.split("\n");
-  return diff
-    .split("\n")
-    .filter((line) => line.startsWith("+"))
-    .map((line) => line.slice(1));
+/**
+ * What the new text changed: the lines it adds, and the 0-based indexes of
+ * new lines an addition or a removal sits at (null: every line, when there is
+ * no old text or the two are too large to compare).
+ */
+function changesOf(
+  earlier: string | null,
+  text: string,
+): { added: string[]; at: Set<number> | null } {
+  const diff = earlier === null ? null : unifiedLineDiff(earlier, text);
+  if (diff === null) return { added: text.split("\n"), at: null };
+  const added: string[] = [];
+  const at = new Set<number>();
+  let next = 0;
+  for (const line of diff.split("\n")) {
+    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+),(\d+) @@$/.exec(line);
+    if (hunk !== null) {
+      const start = Number(hunk[1]);
+      next = Number(hunk[2]) === 0 ? start : start - 1;
+    } else if (line.startsWith("+")) {
+      added.push(line.slice(1));
+      at.add(next++);
+    } else if (line.startsWith("-")) {
+      at.add(next);
+    } else {
+      next++;
+    }
+  }
+  return { added, at };
 }
 
 /** The `license` value of a canonical SKILL.md, whose values are JSON strings. */
@@ -256,7 +276,8 @@ export function isSpdxExpression(value: string): boolean {
     return (
       exception !== undefined &&
       !OPERATORS.has(exception) &&
-      SPDX_EXCEPTION.test(exception)
+      SPDX_EXCEPTION.test(exception) &&
+      !/^(?:LicenseRef|DocumentRef)-/.test(exception)
     );
   };
   const expression = (): boolean => {
@@ -315,7 +336,7 @@ function codeHosts(line: string): Set<string> {
       [...plainTextHosts(text)].find((host) => CLEAN_HOST.test(host));
     // Userinfo reached across a quote or comma is another string of code.
     const crossed = userinfoCrossesCode(segment);
-    const split = clean(segment.replace(/["'`,;(){}$]/g, " "));
+    const split = clean(segment.replace(/["'`,;(){}$|&<>]/g, " "));
     const host = crossed
       ? (split ?? clean(segment))
       : (clean(segment) ?? split);
@@ -334,34 +355,30 @@ const normalized = (line: string) =>
 /**
  * The commands of a script the update touched. A line ending in "\\" goes on
  * in the next ("npm \\" then "ci"), so the whole new text is read as logical
- * lines, and one counts when any of its lines is an added one. Comment lines
- * (as written: a fullwidth "＃" starts none) are left out.
+ * lines, and one counts when any of its lines is at a change. Comments are
+ * left out: a comment line (as written: a fullwidth "＃" starts none), and a
+ * "#" or "//" after a space up to the line's end.
  */
-function changedCalls(text: string, added: readonly string[]): string[] {
-  const pending = new Map<string, number>();
-  for (const line of added) pending.set(line, (pending.get(line) ?? 0) + 1);
+function changedCalls(text: string, at: Set<number> | null): string[] {
   const calls: string[] = [];
   let parts: string[] = [];
   let touched = false;
-  for (const line of text.split("\n")) {
-    const left = pending.get(line) ?? 0;
-    if (left > 0) {
-      pending.set(line, left - 1);
-      touched = true;
-    }
+  text.split("\n").forEach((line, index) => {
+    if (at === null || at.has(index)) touched = true;
     if (parts.length === 0 && COMMENT.test(line)) {
       touched = false;
-      continue;
+      return;
     }
-    if (line.endsWith("\\")) {
+    const comment = line.search(/(?:^|\s)(?:#|\/\/)/);
+    if (comment === -1 && line.endsWith("\\")) {
       parts.push(line.slice(0, -1));
-      continue;
+      return;
     }
-    parts.push(line);
+    parts.push(comment === -1 ? line : line.slice(0, comment));
     if (touched) calls.push(normalized(parts.join(" ")));
     parts = [];
     touched = false;
-  }
+  });
   if (parts.length > 0 && touched) calls.push(normalized(parts.join(" ")));
   return calls;
 }
@@ -427,7 +444,7 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
         ? earlierKind.text.replace(/\r\n/g, "\n")
         : null;
     const newText = kind.text.replace(/\r\n/g, "\n");
-    const added = addedLines(earlierText, newText);
+    const { added, at } = changesOf(earlierText, newText);
     for (const line of added) {
       for (const char of line.match(INVISIBLE) ?? []) {
         flag("hidden_unicode", file.path, codePoint(char));
@@ -443,7 +460,7 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
       }
     }
     if (!script) continue;
-    for (const call of changedCalls(newText, added)) {
+    for (const call of changedCalls(newText, at)) {
       for (const { id, pattern } of NETWORK_CALL_PATTERNS) {
         if (pattern.test(call)) flag("network_call", file.path, id);
       }

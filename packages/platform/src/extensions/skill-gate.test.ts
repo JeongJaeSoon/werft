@@ -1105,3 +1105,53 @@ describe("eighth review", () => {
     }
   });
 });
+
+describe("ninth review", () => {
+  const sh = (body: string) => text("skills/s/scripts/a.sh", body);
+  const run = (before: string | null, after: string) =>
+    gate({
+      before: before === null ? null : [...licensed("s"), sh(before)],
+      after: [...licensed("s"), sh(after)],
+    }).warnings;
+  const calls = (before: string | null, after: string) =>
+    run(before, after).find((w) => w.rule === "network_call")?.samples ?? [];
+
+  test("a change counts for the command at its place, not for an equal line elsewhere", () => {
+    const head = "printf '%s' \\\n  ci\n";
+    expect(
+      calls(`${head}npm \\\n  --version\n`, `${head}npm \\\n  ci\n`),
+    ).toEqual(["package_install"]);
+    expect(
+      calls(
+        "npm \\\n  ci\nprintf '%s' \\\n  x\n",
+        "npm \\\n  ci\nprintf '%s' \\\n  ci\n",
+      ),
+    ).toEqual([]);
+  });
+
+  test("a removal that joins a command counts", () => {
+    expect(
+      calls("npm \\\n  run \\\n  install\n", "npm \\\n  install\n"),
+    ).toEqual(["package_install"]);
+  });
+
+  test("a comment inside a continued command is not a call", () => {
+    expect(calls(null, "printf '%s' \\\n  # curl example.test\n")).toEqual([]);
+    expect(calls(null, "echo hi # curl x\n")).toEqual([]);
+  });
+
+  test("a pipe ends a URL, and npm exec runs a package", () => {
+    expect(
+      run(null, "curl https://outside.example|cat\n").find(
+        (w) => w.rule === "host_not_allowlisted",
+      )?.samples,
+    ).toEqual(["outside.example"]);
+    expect(calls(null, "npm exec -- prettier --version\n")).toContain(
+      "package_runner",
+    );
+  });
+
+  test("WITH takes no license reference as its exception", () => {
+    expect(isSpdxExpression("MIT WITH LicenseRef-Custom")).toBe(false);
+  });
+});
