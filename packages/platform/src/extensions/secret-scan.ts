@@ -27,9 +27,9 @@ export type SecretScanFailure =
   | "busy"
   /** A path the scanner refuses to write (absolute, `..`, duplicate). */
   | "input_rejected"
-  /** The scanner ran past its time limit and was killed. */
+  /** The scanner ran past its time limit and was stopped. */
   | "timeout"
-  /** The report grew past its size limit and the scanner was killed. */
+  /** The report grew past its size limit and the scanner was stopped. */
   | "output_limit"
   /** The scanner could not start, or exited with an error. */
   | "tool_failed"
@@ -48,6 +48,12 @@ export type SecretScanResult =
       readonly detail?: string;
     };
 
+/**
+ * `scanned` covers every text file given. Binary files are not read:
+ * gitleaks tells them by content and skips them, so a caller passes only
+ * the binaries the gate lets in (rule 3's media types) and treats what is
+ * inside them as unchecked.
+ */
 export interface SecretScanner {
   scan(files: readonly SecretScanFile[]): Promise<SecretScanResult>;
 }

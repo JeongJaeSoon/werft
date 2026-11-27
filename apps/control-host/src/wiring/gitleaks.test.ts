@@ -174,15 +174,16 @@ describe("gitleaksScanner", () => {
     );
     const root = scratch();
     const started = performance.now();
+    // Long enough for the shell to write the pid file under a loaded runner.
     const result = await gitleaksScanner({
       executable,
       scratchRoot: root,
-      timeoutMs: 200,
+      timeoutMs: 1000,
     }).scan([text("a.md")]);
     expect(result).toEqual({
       kind: "failed",
       reason: "timeout",
-      detail: "gitleaks exceeded 200ms",
+      detail: "gitleaks exceeded 1000ms",
     });
     expect(performance.now() - started).toBeLessThan(5000);
     expect(readdirSync(root)).toEqual([]);
@@ -228,6 +229,11 @@ describe("gitleaksScanner", () => {
     [
       "a warning on a clean exit",
       "echo 'WRN skipping file: could not get info' >&2\nprintf '[]'",
+      "tool_failed",
+    ],
+    [
+      "stderr past what is kept",
+      "/usr/bin/head -c 3000 /dev/zero | /usr/bin/tr '\\0' '\\n' >&2\necho 'WRN skipping file' >&2\nprintf '[]'",
       "tool_failed",
     ],
     [

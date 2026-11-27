@@ -59,6 +59,8 @@ type Run =
       readonly signal: string | null;
       readonly stdout: Buffer;
       readonly stderr: string;
+      /** stderr ran past what is kept: what was dropped cannot be judged. */
+      readonly stderrCut: boolean;
     }
   | {
       readonly kind: "failed";
@@ -175,6 +177,9 @@ async function scanIn(
       run.code === null ? `signal ${run.signal}` : `exit ${run.code}`;
     return failed("tool_failed", `${status}: ${firstLine(run.stderr)}`);
   }
+  if (run.stderrCut) {
+    return failed("tool_failed", `stderr over ${STDERR_KEPT_BYTES} bytes`);
+  }
   const warnings = run.stderr
     .split("\n")
     .filter((line) => line.trim() !== "" && !LEAKS_FOUND.test(line));
@@ -207,6 +212,7 @@ function runGitleaks(
     let stdoutBytes = 0;
     const stderr: Buffer[] = [];
     let stderrBytes = 0;
+    let stderrCut = false;
     let exited = false;
     let stopped: Run | null = null;
     let settled = false;
@@ -250,6 +256,7 @@ function runGitleaks(
       stdout.push(chunk);
     });
     child.stderr.on("data", (chunk: Buffer) => {
+      if (stderrBytes + chunk.byteLength > STDERR_KEPT_BYTES) stderrCut = true;
       if (stderrBytes >= STDERR_KEPT_BYTES) return;
       const kept = chunk.subarray(0, STDERR_KEPT_BYTES - stderrBytes);
       stderr.push(kept);
@@ -278,6 +285,7 @@ function runGitleaks(
           signal,
           stdout: Buffer.concat(stdout),
           stderr: Buffer.concat(stderr).toString("utf8"),
+          stderrCut,
         },
       ),
     );
