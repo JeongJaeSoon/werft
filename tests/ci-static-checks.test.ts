@@ -850,19 +850,28 @@ test("check:fast runs lint, the job assignment check and guard tests that exist"
   const { scripts } = JSON.parse(
     readFileSync(join(root, "package.json"), "utf8"),
   ) as { scripts: Record<string, string> };
-  const steps = scripts["check:fast"]?.split(" && ") ?? [];
-  expect(steps.slice(0, 2)).toEqual([
-    // `bun run lint` with the errors alone: its 20 diagnostics are otherwise
-    // spent on warnings, and the error that failed it is not shown.
+  const steps = (scripts["check:fast"] ?? "")
+    .split("&&")
+    .map((step) => step.trim().split(/\s+/));
+  expect(steps.map((step) => step.join(" ")).slice(0, 2)).toEqual([
+    // `bun run lint` with the errors alone: with the warnings in, biome's
+    // diagnostic limit left the error that failed it out of the output.
     "biome check --diagnostic-level=error .",
     "bun .github/scripts/integration-jobs.ts files db 1 >/dev/null",
   ]);
-  // A guard that moved would otherwise drop out on a developer's machine only.
-  const [bun, test, ...files] = steps[2]?.split(" ") ?? [];
+  expect(steps).toHaveLength(3);
+  const [bun, test, ...files] = steps[2] ?? [];
   expect([bun, test]).toEqual(["bun", "test"]);
-  expect(files.length).toBeGreaterThan(0);
+  expect(files.toSorted()).toEqual([
+    "./packages/client/src/schema.gen.test.ts",
+    "./packages/core/src/bundle-budget.test.ts",
+    "./packages/db/src/migration-folder.test.ts",
+    "./packages/db/src/schema.test.ts",
+    "./tests/architecture.test.ts",
+    "./tests/docs-self-hosting-facts.test.ts",
+  ]);
+  // A guard that moved would otherwise drop out on a developer's machine only.
   for (const file of files) {
-    expect(file).toMatch(/^\.\/.*\.test\.ts$/);
     expect(existsSync(join(root, file))).toBe(true);
   }
 });

@@ -165,13 +165,13 @@ bun run check:fast
 | `packages/core/src/bundle-budget.test.ts` | core 번들이 크기 예산을 넘는다 | 26 |
 | `tests/architecture.test.ts` | 패키지 사이의 금지된 import | 22 |
 | `packages/client/src/schema.gen.test.ts` | 생성 파일이 OpenAPI 사양보다 낡았다 | 13 |
-| `packages/db/src/schema.test.ts` | schema와 migration이 어긋난다 | 13 (PostgreSQL이 필요한 `schema-drift.integration.test.ts` 포함) |
-| `tests/docs-self-hosting-facts.test.ts` | 운영 문서의 사실이 코드와 다르다 | 14 |
+| `packages/db/src/schema.test.ts`, `migration-folder.test.ts` | migration이 적용되지 않거나 고른 기본값·키·제약이 다르다. `schema.ts`가 가장 새 snapshot보다 앞서 있다. journal과 파일이 어긋난다 | 13. 이 수에는 PostgreSQL이 필요한 `schema-drift.integration.test.ts`의 실패가 섞여 있다. 선언과 migration 결과 전체의 비교는 그 시험만 하고, 묶음에는 없다 |
+| `tests/docs-self-hosting-facts.test.ts` | 운영 문서의 한국어 원문과 영어·일본어 번역이 구조, 코드, 명령, 수치, 링크에서 어긋난다 | 14 |
 
 - 새 gate가 아니다. CI는 같은 시험을 그대로 돌린다.
 - 타입을 바꿨으면 `bun run typecheck`도 돌린다(CI에서 약 3분, 같은 기간 실패 11 run). 묶음에는 넣지 않았다.
 - `bun run lint`는 진단을 20개까지만 보인다. warning이 그보다 많아서, 실패해도 error의 위치가 "Diagnostics not shown"에 묻힌다. 묶음은 error만 보이게 돌린다.
-- 전부 돌리려면 `bun run check`다.
+- 로컬의 typecheck, lint, 시험 전체는 `bun run check`다.
 
 ## 규칙
 
