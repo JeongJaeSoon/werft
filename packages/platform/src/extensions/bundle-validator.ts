@@ -320,7 +320,13 @@ export function validateExtensionBundle(
     skills.set(skill, state);
 
     if (rest === "SKILL.md") {
-      const canonical = canonicalSkillFile(file.bytes, skill, issue, path);
+      const canonical = canonicalSkillFile(
+        file.bytes,
+        skill,
+        issue,
+        path,
+        upload,
+      );
       if (canonical) {
         state.hasSkillFile = true;
         out.set(path, canonicalFile(path, 0o644, canonical));
@@ -549,13 +555,16 @@ function parsePluginJson(
  * Re-emits SKILL.md from parsed values only, so the engine's parser and ours
  * cannot read the same bytes differently. Frontmatter is a strict subset of
  * YAML: single-line `key: value`, no anchors, aliases, tags, block scalars,
- * comments or duplicate keys.
+ * comments or duplicate keys. An upload may also give `description` as a
+ * block scalar; it is re-emitted quoted, so a stored tree never holds one and
+ * the stored mode keeps reading what every release before it read.
  */
 function canonicalSkillFile(
   bytes: Uint8Array,
   directory: string,
   report: Report,
   path: string,
+  upload: boolean,
 ): Uint8Array | null {
   const text = decodeText(bytes);
   if (text === null) {
@@ -584,10 +593,24 @@ function canonicalSkillFile(
     const line = front[at] as string;
     if (line === "") continue;
     let parsed: [string, string | boolean | Map<string, string>] | string;
+    const header = upload ? BLOCK_HEADER.exec(line) : null;
     if (line === "metadata:") {
       const block = metadataBlock(front, at + 1);
       at = block.next - 1;
       parsed = block.problem ?? ["metadata", block.entries];
+    } else if (header !== null) {
+      const block = blockScalar(
+        front,
+        at + 1,
+        header[1] === ">",
+        header[2] === "-",
+      );
+      at = block.next - 1;
+      parsed =
+        block.problem ??
+        (block.value.length > MAX_FRONTMATTER_VALUE
+          ? '"description" is too long.'
+          : ["description", block.value]);
     } else {
       parsed = parseFrontmatterLine(line);
     }
@@ -750,6 +773,91 @@ function metadataBlock(
     problem = '"metadata" needs at least one indented key: value line.';
   }
   return { entries, next: at, problem };
+}
+
+/** Only these four headers: no indentation indicator, no keep chomping, no comment. */
+const BLOCK_HEADER = /^description:[ ]+([|>])(-?)[ ]*$/;
+
+/**
+ * The lines of a YAML block scalar, read as YAML 1.2 reads them. The indent is
+ * the first non-blank line's spaces and the block ends at the first non-blank
+ * line indented less. A tab anywhere in a line's indentation is refused, since
+ * YAML never indents with one and readers disagree on what follows.
+ */
+function blockScalar(
+  front: readonly string[],
+  from: number,
+  folded: boolean,
+  strip: boolean,
+): { value: string; next: number; problem: string | null } {
+  const lines: string[] = [];
+  let indent = 0;
+  let widestLeadingBlank = 0;
+  let at = from;
+  for (; at < front.length; at++) {
+    const line = front[at] as string;
+    const lead = /^[ \t]*/.exec(line)?.[0] ?? "";
+    if (lead.includes("\t")) {
+      return {
+        value: "",
+        next: at + 1,
+        problem: '"description" is indented with a tab.',
+      };
+    }
+    if (lead.length === line.length) {
+      if (indent === 0) {
+        widestLeadingBlank = Math.max(widestLeadingBlank, line.length);
+        lines.push("");
+      } else {
+        lines.push(line.slice(indent));
+      }
+      continue;
+    }
+    if (indent === 0) {
+      if (lead.length === 0) break;
+      indent = lead.length;
+      if (widestLeadingBlank > indent) {
+        return {
+          value: "",
+          next: at + 1,
+          problem:
+            '"description" has a blank line indented more than its text.',
+        };
+      }
+    }
+    if (lead.length < indent) break;
+    lines.push(line.slice(indent));
+  }
+
+  let value = "";
+  let blanks = 0;
+  let seen = false;
+  let moreIndented = false;
+  for (const text of lines) {
+    if (text === "") {
+      blanks++;
+      continue;
+    }
+    if (!folded) {
+      value += "\n".repeat(seen ? blanks + 1 : blanks);
+    } else if (text.startsWith(" ")) {
+      // A more-indented line keeps the breaks around it.
+      moreIndented = true;
+      value += "\n".repeat(seen ? blanks + 1 : blanks);
+    } else if (moreIndented) {
+      moreIndented = false;
+      value += "\n".repeat(blanks + 1);
+    } else if (blanks === 0) {
+      if (seen) value += " ";
+    } else {
+      value += "\n".repeat(blanks);
+    }
+    value += text;
+    seen = true;
+    blanks = 0;
+  }
+  if (seen && !strip) value += "\n";
+  return { value, next: at, problem: null };
 }
 
 // JSON.stringify leaves U+2028 and U+2029 raw, and the line parser does not

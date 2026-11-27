@@ -3,7 +3,17 @@ import {
   bootstrapClaimResponseSchema,
   runtimeConfigSchema,
 } from "@werft-ai/contracts";
-import { BundleIntegrityError } from "../extensions/bundle-service.ts";
+import { unpackBundleTar } from "@werft-ai/runtime-core";
+import { createMemoryCheckpointObjectStore } from "@werft-ai/testkit/checkpoint-objects";
+import {
+  BundleIntegrityError,
+  createExtensionBundleService,
+} from "../extensions/bundle-service.ts";
+import { validateExtensionBundle } from "../extensions/bundle-validator.ts";
+import type {
+  ExtensionBundle,
+  ExtensionBundleStore,
+} from "../extensions/ports/extension-bundle-store.ts";
 import type {
   ExtensionsStateResult,
   WorkerBinding,
@@ -299,5 +309,101 @@ describe("the extension bundle route", () => {
       }),
     );
     expect(missing.status).toBe(404);
+  });
+});
+
+describe("a pinned skill whose upload had a block scalar description", () => {
+  const SKILL =
+    "---\nname: research\ndescription: |-\n  Use for research.\n  Second line.\n---\nDo it.\n";
+
+  /** The real service over an in-memory store: what start and resume read. */
+  async function registered() {
+    const rows: ExtensionBundle[] = [];
+    const store = {
+      async findByDigest(workspaceId: string, digest: string) {
+        return (
+          rows.find(
+            (r) => r.workspaceId === workspaceId && r.digest === digest,
+          ) ?? null
+        );
+      },
+      async mayManage() {
+        return "ok" as const;
+      },
+      async register(input: Parameters<ExtensionBundleStore["register"]>[0]) {
+        const bundle = {
+          id: input.id,
+          workspaceId: input.workspaceId,
+          name: input.name,
+          digest: input.digest,
+        } as ExtensionBundle;
+        rows.push(bundle);
+        return {
+          outcome: "registered" as const,
+          bundle,
+          receiptId: input.receiptId,
+        };
+      },
+    } as unknown as ExtensionBundleStore;
+    const service = createExtensionBundleService({
+      store,
+      objects: createMemoryCheckpointObjectStore(),
+    });
+    const result = await service.register({
+      principal: { ownerId: OWNER },
+      slug: "research",
+      files: [
+        {
+          path: "skills/research/SKILL.md",
+          kind: "file",
+          mode: 0o644,
+          bytes: new TextEncoder().encode(SKILL),
+        },
+      ],
+      label: "research",
+      source: "upload",
+      skill: true,
+    });
+    if (result.outcome !== "registered") throw new Error(result.outcome);
+    return { service, digest: result.bundle.digest };
+  }
+
+  test("the start and a resumed attempt are both served the pinned tree, which reads back to its digest", async () => {
+    const { service, digest } = await registered();
+    const pinned = { name: "research", digest, scope: "agent" } as const;
+    const gateway = gatewayOver(
+      {
+        extensionsStateAtomic: async () => ({
+          outcome: "ok",
+          ownerScope: OWNER,
+          extensions: [
+            { bundle_id: "019a0000-0000-7000-8000-0000000e0001", ...pinned },
+          ],
+        }),
+      },
+      service,
+    );
+    const start = principal;
+    const resumed = { ...principal, attemptId: "att_2", leaseEpoch: 2 };
+    for (const holder of [start, resumed]) {
+      const served = await gateway.extensionBundle(holder, {
+        attemptId: holder.attemptId,
+        digest,
+      });
+      expect(served.digest).toBe(digest);
+      // What the worker checks before it publishes the tree for the engine.
+      const again = validateExtensionBundle({
+        slug: "research",
+        files: unpackBundleTar(served.tar),
+      });
+      if (!again.ok) throw new Error(JSON.stringify(again.issues));
+      expect(again.bundle.digest).toBe(digest);
+      const skill = again.bundle.files.find(
+        (f) => f.path === "skills/research/SKILL.md",
+      );
+      expect(new TextDecoder().decode(skill?.bytes)).toBe(
+        '---\nname: "research"\ndescription: "Use for research.\\nSecond line."\n---\nDo it.\n',
+      );
+    }
   });
 });
