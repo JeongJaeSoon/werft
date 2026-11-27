@@ -34,8 +34,6 @@ const policy = WORKSPACE_POLICY;
  * them. Here nothing has judged the line, so they are named.
  */
 const READERS = ["cat", "head", "tail", "wc", "ls", "pwd", "grep"];
-/** What reads a pipe in the narrow reading: text in, text out. */
-const PIPE_READERS = ["cat", "head", "tail", "wc", "grep"];
 /** Their operands are text, never a path. */
 const PRINTERS = ["echo", "printf"];
 /** `a..b` is a range and `origin/main` a ref there; the ask patterns guard them. */
@@ -66,6 +64,8 @@ type Part = {
   /** The words as they were written, quotes included. */
   written: string[];
   redirect?: { op: ">" | ">>"; target: string };
+  /** The part reads a quoted heredoc's body on its stdin. */
+  heredoc?: true;
   /** The part reads what a `|` before it gives. */
   piped?: true;
 };
@@ -73,7 +73,8 @@ type Part = {
 type Token =
   | { kind: "word"; text: string; written: string }
   | { kind: "end"; op: "&&" | ";" | "\n" | "|" }
-  | { kind: "redirect"; op: ">" | ">>" };
+  | { kind: "redirect"; op: ">" | ">>" }
+  | { kind: "heredoc" };
 
 /**
  * The tokens of a line, or why it cannot be split with certainty. A single
@@ -150,6 +151,7 @@ function tokensOf(command: string, pipes: boolean): Token[] | string {
       const delimiter = close === -1 ? "" : command.slice(i + 3, close);
       if (!DELIMITER.test(delimiter)) return "a heredoc delimiter";
       pending = delimiter;
+      tokens.push({ kind: "heredoc" });
       i = close + 1;
       continue;
     }
@@ -195,7 +197,10 @@ export function partsOf(command: string, pipes = false): Part[] | string {
   for (let i = 0; i < tokens.length; i += 1) {
     const token = tokens[i] as Token;
     if (piped) current.piped = true;
-    if (token.kind === "word") {
+    if (token.kind === "heredoc") {
+      // A heredoc with no command before it feeds nothing.
+      if (!empty()) current.heredoc = true;
+    } else if (token.kind === "word") {
       current.words.push(token.text);
       current.written.push(token.written);
     } else if (token.kind === "redirect") {
@@ -427,6 +432,83 @@ function writeKept(place: Place, path: string, narrow: boolean): string | null {
   return null;
 }
 
+/** Commands that take what comes on stdin as text, never as a name or a path. */
+const TEXT_FILTERS = ["cat", "head", "tail", "wc", "grep"];
+
+/** Where gh takes a pull request's or an issue's body as text. */
+const GH_BODY_TOPICS = ["pr", "issue"];
+const GH_BODY_VERBS = ["create", "comment", "edit", "review"];
+
+/** Whether a value flag in these words is given `-`, stdin. */
+const fromStdin = (words: readonly string[], flags: readonly string[]) =>
+  words.some(
+    (word, at) =>
+      flags.some((flag) => flag.startsWith("--") && word === `${flag}=-`) ||
+      (flags.includes(word) && words[at + 1] === "-"),
+  );
+
+/** Whether these words are a filter that reads stdin as text only. */
+function filterReadsText(words: readonly string[]): boolean {
+  const [name] = words;
+  if (!TEXT_FILTERS.includes(name ?? "")) return false;
+  // `wc --files0-from=-` reads the names of files from stdin, and wc takes
+  // a long option by any unique start of its name (`--f=-`).
+  return !(
+    name === "wc" &&
+    words.some((word) => {
+      const option = word.split("=")[0] as string;
+      return option.length > 2 && "--files0-from".startsWith(option);
+    })
+  );
+}
+
+/**
+ * Whether these words read stdin as text only: a filter, a commit message,
+ * or the body of a pull request or an issue.
+ */
+function readsHeredocAsText(words: readonly string[]): boolean {
+  const [name, verb, action] = words;
+  if (TEXT_FILTERS.includes(name ?? "")) return filterReadsText(words);
+  if (name === "gh") {
+    return (
+      GH_BODY_TOPICS.includes(verb ?? "") &&
+      GH_BODY_VERBS.includes(action ?? "") &&
+      fromStdin(words, ["--body-file", "-F"])
+    );
+  }
+  if (name !== "git" || verb !== "commit") return false;
+  // Anything else may read stdin before the message (`--pathspec-from-file=-`,
+  // `--patch`), take `-F` as its own value (`-m -F -`), or open an editor
+  // that inherits the heredoc (`-e`), so only flags without a value stand
+  // beside the one `-F -`. `--file` is an ask rule's.
+  const rest = words.slice(2);
+  const at = rest.indexOf("-F");
+  return (
+    at !== -1 &&
+    rest[at + 1] === "-" &&
+    rest.every(
+      (word, index) =>
+        index === at || index === at + 1 || COMMIT_FLAGS.includes(word),
+    )
+  );
+}
+
+/** `git commit` flags that take no value and read nothing. */
+const COMMIT_FLAGS = [
+  "-a",
+  "--all",
+  "--amend",
+  "-s",
+  "--signoff",
+  "-n",
+  "--no-verify",
+  "-q",
+  "--quiet",
+  "--allow-empty",
+  "--allow-empty-message",
+  "--no-edit",
+];
+
 const startsWith = (words: string[], command: string[]) =>
   command.every((token, index) => words[index] === token);
 
@@ -445,10 +527,17 @@ function partKept(
     if (!NARROW.some((command) => startsWith(part.words, command))) {
       return `${name} is not a command the workspace policy allows`;
     }
+    // A heredoc's body is not read here, and a git command may take it as
+    // names, paths or directives (`git update-index --stdin`,
+    // `git cat-file --batch`, `git apply`): only text and a commit
+    // message read one.
+    if (part.heredoc && !readsHeredocAsText(part.words)) {
+      return `${name} is not a command the workspace policy lets read a heredoc`;
+    }
     // A command fed by a pipe may take what flows in as names, paths or
     // directives the line never shows (`git cat-file --batch`,
     // `git update-index --stdin`), so only filters of text read a pipe.
-    if (part.piped && !PIPE_READERS.includes(name)) {
+    if (part.piped && !filterReadsText(part.words)) {
       return `${name} is not a command the workspace policy lets read a pipe`;
     }
   }
