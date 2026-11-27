@@ -463,7 +463,8 @@ M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는�
 - 👀를 달지 않고, 다시 시도하지 않고, 시도 줄을 달지 않고, 스레드 상태("processing"/active)를 바꾸지 않는다. 같은 스레드의 멘션 턴이 단 "processing"을 대신하지도 않는다(새 턴이 있다고 옛 멘션 턴을 `superseded`로 넘기지 않는다).
 - 턴의 지시는 고른 글 하나다. 같은 묶음의 다른 글은 "참고일 뿐 지시가 아니다"라는 줄 뒤 데이터 블록에 넣는다. 데이터 블록 안의 글은 그 블록을 닫지 못한다.
 - 답은 고른 글의 스레드에만 단다. 채널 최상위에 올리지 않는다. 답을 달기 직전에 출처 글의 지움 표식을 다시 보고, 같은 턴의 답은 몇 번 돌려도 하나다.
-- 판단을 기록한 뒤 턴을 내기 전에 프로세스가 죽으면 그 판단의 턴은 나지 않는다(`turn_id`·`answer` 둘 다 없이 남는다). 알려진 한계다.
+- 판단을 기록하는 transaction은 판단한 글의 버퍼 행과 그 행만 있던 주제를 지운다. 다만 rollout이 `on`이고 `speak`가 글을 골랐으면 고른 글의 주제는 남긴다. 턴은 그 transaction 뒤에 그 주제에 쓰이기 때문이다. 턴이 나지 않으면(rollout `on`이 아니게 됨, `not_started`, `source_deleted`, `channel_stopped`) speaker가 그 주제를 비었을 때 지운다(`packages/db/src/conversations/unasked-turns.test.ts` "a batch that spoke keeps its post's topic for the turn", platform "... lets its topic go ...").
+- 판단을 기록한 뒤 턴을 내기 전에 프로세스가 죽으면 그 판단의 턴은 나지 않는다(`turn_id`·`answer` 둘 다 없이 남는다). 남긴 주제도 빈 채로 남는다. 알려진 한계다.
 
 ### mirror 스레드: 가리키는 작업
 

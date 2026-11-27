@@ -11,11 +11,13 @@ import {
   conversationJudgmentIdSchema,
   conversationTopicIdSchema,
   conversationTurnIdSchema,
+  JUDGMENT_BUFFER_LIMIT_PER_CHANNEL,
 } from "@werft-ai/contracts";
 import {
   conversationCallReserve,
   hashConversationCallToken,
   type M1Judge,
+  type M1Record,
   type M1Spoken,
   runReplyJudgments,
 } from "@werft-ai/platform";
@@ -31,7 +33,13 @@ import {
   createPostgresM1JudgmentStore,
 } from "../surface/m1-judgments.ts";
 import { newPartitionedSession } from "../testing/sessions.ts";
+import {
+  RELEASE_SPEC_SQL_COLUMNS,
+  releaseSpecSqlValues,
+} from "../testing/spec-pins.ts";
 import { endConversationTurn } from "./conversation-turns.ts";
+import { createPostgresJudgmentBatchStore } from "./judgment-batches.ts";
+import { holdBufferedInput } from "./judgment-buffer.ts";
 import { createPostgresMentionTurnStatuses } from "./mention-turn-statuses.ts";
 import { takeSlackTurnInput } from "./slack-turn-inputs.ts";
 
@@ -158,7 +166,11 @@ const calls = () => createPostgresConversationCalls(db);
 function issue(
   at: Place,
   judgmentId: ConversationJudgmentId,
-  overrides: { sources?: string[]; turnId?: ConversationTurnId } = {},
+  overrides: {
+    sources?: string[];
+    turnId?: ConversationTurnId;
+    topicId?: ConversationTopicId;
+  } = {},
 ) {
   const turnId =
     overrides.turnId ?? conversationTurnIdSchema.parse(randomUUID());
@@ -173,7 +185,7 @@ function issue(
       workspaceId: WORKSPACE,
       agentId: AGENT,
       conversationId: at.conversationId,
-      topicId: at.topicId,
+      topicId: overrides.topicId ?? at.topicId,
       teamId: TEAM,
       channelId: CHANNEL,
       sources: overrides.sources ?? ["100.000001", "100.000002"],
@@ -650,5 +662,96 @@ describe("a closed work's thread reply that spoke (v1-b/U1)", () => {
       [session.sessionId],
     );
     expect(sessionTurns.rows).toEqual([{ sequence: 1 }]);
+  });
+});
+
+describe("a batch that spoke keeps its post's topic for the turn (v1-b/U1)", () => {
+  const POST = "100.000009";
+  /** A post held in a thread of its own, judged in a batch that spoke for it. */
+  async function judged(rollout: "on" | "shadow") {
+    const at = await place({ rollout });
+    // A batch is closed for an agent with a release only.
+    await client.query(
+      "UPDATE agents SET status = 'active', active_release_id = 'rel-unasked', activation_revision = 1 WHERE id = $1",
+      [AGENT],
+    );
+    await client.query(
+      `INSERT INTO agent_releases (id, agent_id, version_id, card_sha256,
+         repository_id, runtime_config_snapshot, effective_tools, policy_pins,
+         ${RELEASE_SPEC_SQL_COLUMNS})
+       VALUES ('rel-unasked', $1, $2, $3, 'sample-app', '{}', '{}', '{}', ${releaseSpecSqlValues()})`,
+      [AGENT, randomUUID(), "a".repeat(64)],
+    );
+    const topicId = await topic(at.conversationId, POST);
+    const held = await db.transaction((tx) =>
+      holdBufferedInput(
+        tx,
+        { workspaceId: WORKSPACE, agentId: AGENT, teamId: TEAM },
+        {
+          topicId,
+          channelId: CHANNEL,
+          ts: POST,
+          buffered: { body: "where is the deploy doc?", slackUserId: "U0P" },
+        },
+        JUDGMENT_BUFFER_LIMIT_PER_CHANNEL,
+      ),
+    );
+    expect(held.outcome).toBe("held");
+    await client.query(
+      "UPDATE conversation_inputs SET received_at = now() - interval '20 seconds'",
+    );
+    const closed = await createPostgresJudgmentBatchStore(db).closeNext();
+    if (closed?.outcome !== "judging") {
+      throw new Error(`no batch to judge: ${JSON.stringify(closed)}`);
+    }
+    const record: M1Record = {
+      verdict: { outcome: "judged", decision: "speak", reason: "needs_agent" },
+      refs: [POST],
+      sources: { keys: [], overflow: false },
+      releaseId: null,
+      callKey: conversationCallKeySchema.parse(`${closed.batch.id}:m1`),
+      attempts: 1,
+      summary: null,
+      target: POST,
+    };
+    const written = await createPostgresM1JudgmentStore(db).recordBatch(
+      closed.batch,
+      record,
+      closed.batch.inputs,
+    );
+    if (written.outcome !== "written") throw new Error(written.outcome);
+    return { at, topicId, judgmentId: written.judgmentId };
+  }
+  const topicThere = async (id: ConversationTopicId) =>
+    (
+      await client.query("SELECT 1 FROM conversation_topics WHERE id = $1", [
+        id,
+      ])
+    ).rows.length === 1;
+
+  test("rollout on: the post's row goes, its topic stays, and the turn is made in it", async () => {
+    const { at, topicId, judgmentId } = await judged("on");
+    const rows = await client.query(
+      "SELECT 1 FROM conversation_inputs WHERE slack_ts = $1",
+      [POST],
+    );
+    expect(rows.rows).toEqual([]);
+    expect(await topicThere(topicId)).toBe(true);
+    const { issued } = issue(at, judgmentId, { topicId, sources: [POST] });
+    expect((await issued).outcome).toBe("issued");
+    // The turn holds it now: a let-go removes nothing.
+    await createPostgresJudgmentAnswers(db).topicUnused(topicId);
+    expect(await topicThere(topicId)).toBe(true);
+  });
+
+  test("rollout on, no turn made: the let-go removes the empty topic", async () => {
+    const { topicId } = await judged("on");
+    await createPostgresJudgmentAnswers(db).topicUnused(topicId);
+    expect(await topicThere(topicId)).toBe(false);
+  });
+
+  test("rollout shadow: no turn comes, and the topic goes with the post", async () => {
+    const { topicId } = await judged("shadow");
+    expect(await topicThere(topicId)).toBe(false);
   });
 });

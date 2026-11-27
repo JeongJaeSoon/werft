@@ -351,6 +351,11 @@ export interface JudgmentAnswerStore {
     >,
   ): Promise<void>;
   /**
+   * Removes the topic the judgment's record kept for a turn not made, if
+   * nothing else is in it.
+   */
+  topicUnused(topicId: ConversationTopicId): Promise<void>;
+  /**
    * Writes on the judgment the unasked turn was made of what the ended turn
    * did, once: false when the turn is none's, or not ended.
    */
@@ -395,7 +400,7 @@ export function unaskedTurnText(
  */
 export function createUnsolicitedTurnSpeaker(deps: {
   start(request: UnsolicitedTurnRequest): Promise<UnsolicitedTurnStart>;
-  answers: Pick<JudgmentAnswerStore, "notStarted">;
+  answers: Pick<JudgmentAnswerStore, "notStarted" | "topicUnused">;
   logger: {
     info(message: string, fields?: Record<string, unknown>): void;
   };
@@ -427,15 +432,17 @@ export function createUnsolicitedTurnSpeaker(deps: {
       switch (started.outcome) {
         case "queued":
         case "duplicate":
-        case "rollout_off":
           return;
+        case "rollout_off":
+          break;
         case "source_deleted":
         case "channel_stopped":
           await deps.answers.notStarted(spoken.judgmentId, started.outcome);
-          return;
+          break;
         default:
           await deps.answers.notStarted(spoken.judgmentId, "not_started");
       }
+      await deps.answers.topicUnused(spoken.target.topicId);
     },
   };
 }

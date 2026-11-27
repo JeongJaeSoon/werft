@@ -25,6 +25,7 @@ import {
   channelMarksSettledAt,
   createChannelSummaryFoldStore,
   dropBufferedInputs,
+  dropTopicIfEmpty,
   engagedJudgmentsInWindow,
   JUDGMENT_BUFFER_TTL_MS,
   lockedReadChanges,
@@ -82,6 +83,27 @@ export function m1GateOpenForWrite(
 }
 
 /** A record's verdict and what it read, as its columns hold them. */
+/**
+ * The post a record's unasked turn answers, when the agent's rollout is
+ * `on`: its buffered row goes with the others, and its topic stays for the
+ * turn, written after this record. Read under the gate's lock on the agent.
+ */
+async function unaskedTurnPost(
+  tx: Database,
+  agentId: string,
+  target: string | null,
+  posts: readonly { inputId: string; ts: string }[],
+): Promise<string | undefined> {
+  const post = posts.find((each) => each.ts === target);
+  if (post === undefined) return undefined;
+  const [agent] = rowsOf<{ on: boolean }>(
+    await tx.execute(sql`
+      SELECT conversation_rollout = 'on' AS on FROM agents
+      WHERE id = ${agentId}::uuid`),
+  );
+  return agent?.on === true ? post.inputId : undefined;
+}
+
 function verdictColumns(record: M1Record) {
   const sources = storedSourceSet({
     direct: record.sources.keys,
@@ -380,6 +402,7 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
         await dropBufferedInputs(
           tx,
           judged.map((post) => post.inputId),
+          await unaskedTurnPost(tx, batch.agentId, columns.target, judged),
         );
         return { outcome: "written", judgmentId };
       });
@@ -604,10 +627,17 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
             WHERE id = ${id}::uuid AND outcome IS NULL`);
           return { voided: voided.reason, rejudge: null };
         }
-        if (row.grade === "m1_engaged" && row.input_id !== null) {
-          await dropBufferedInputs(tx, [row.input_id]);
-        }
         const columns = verdictColumns(record);
+        if (row.grade === "m1_engaged" && row.input_id !== null) {
+          // An engaged reply's speak answers the reply itself.
+          await dropBufferedInputs(
+            tx,
+            [row.input_id],
+            await unaskedTurnPost(tx, row.agent_id, columns.target, [
+              { inputId: row.input_id, ts: columns.target ?? "" },
+            ]),
+          );
+        }
         const written = rowsOf(
           await tx.execute(sql`
             UPDATE conversation_judgments SET
@@ -638,6 +668,10 @@ export function createPostgresJudgmentAnswers(
         UPDATE conversation_judgments SET answer = ${answer}
         WHERE id = ${judgmentId}::uuid AND target_ts IS NOT NULL
           AND turn_id IS NULL AND answer IS NULL`);
+    },
+
+    async topicUnused(topicId) {
+      await db.transaction((tx) => dropTopicIfEmpty(tx, topicId));
     },
 
     async ended(turnId) {

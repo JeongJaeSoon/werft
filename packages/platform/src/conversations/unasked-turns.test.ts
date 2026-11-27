@@ -376,6 +376,7 @@ describe("createUnsolicitedTurnSpeaker", () => {
   function speakerWith(start: UnsolicitedTurnStart) {
     const requests: UnsolicitedTurnRequest[] = [];
     const written: [ConversationJudgmentId, string][] = [];
+    const unused: string[] = [];
     const speaker = createUnsolicitedTurnSpeaker({
       start: async (request) => {
         requests.push(request);
@@ -385,16 +386,19 @@ describe("createUnsolicitedTurnSpeaker", () => {
         notStarted: async (judgmentId, answer) => {
           written.push([judgmentId, answer]);
         },
+        topicUnused: async (topicId) => {
+          unused.push(topicId);
+        },
       },
       logger: quiet,
     });
-    return { speaker, requests, written };
+    return { speaker, requests, written, unused };
   }
 
   test("starts the turn of the named post, in its thread, with its sources", async () => {
     const spoken = spokenOf();
     const turnId = conversationTurnIdSchema.parse(randomUUID());
-    const { speaker, requests, written } = speakerWith({
+    const { speaker, requests, written, unused } = speakerWith({
       outcome: "queued",
       turnId,
     });
@@ -407,9 +411,10 @@ describe("createUnsolicitedTurnSpeaker", () => {
       sources: ["1.2", "1.1"],
     });
     expect(written).toEqual([]);
+    expect(unused).toEqual([]);
   });
 
-  test("a turn not made says why on the judgment; the rollout off or a duplicate, nothing", async () => {
+  test("a turn not made says why on the judgment, but for the rollout off, and lets its topic go; a duplicate, nothing", async () => {
     const cases: [UnsolicitedTurnStart, string | null][] = [
       [{ outcome: "duplicate" }, null],
       [{ outcome: "rollout_off" }, null],
@@ -423,10 +428,14 @@ describe("createUnsolicitedTurnSpeaker", () => {
     ];
     for (const [start, answer] of cases) {
       const spoken = spokenOf();
-      const { speaker, written } = speakerWith(start);
+      const { speaker, written, unused } = speakerWith(start);
       await speaker.speak(spoken);
       expect(written).toEqual(
         answer === null ? [] : [[spoken.judgmentId, answer]],
+      );
+      // A duplicate's turn is in the topic already.
+      expect(unused).toEqual(
+        start.outcome === "duplicate" ? [] : [spoken.target.topicId],
       );
     }
   });
