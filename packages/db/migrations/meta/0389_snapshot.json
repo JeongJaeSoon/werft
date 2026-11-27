@@ -1,5 +1,5 @@
 {
-  "id": "03963aa4-9d26-4cbf-898f-7905b1bf1a99",
+  "id": "1f527762-9790-436c-9029-276872125132",
   "prevId": "66f4f73d-4b21-41ef-aaec-41f631793c22",
   "version": "7",
   "dialect": "postgresql",
@@ -16129,6 +16129,22 @@
           ],
           "isUnique": true,
           "where": "\"session_links\".\"session_id\" IS NOT NULL AND \"session_links\".\"closed_at\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "session_links_recent_closed_idx": {
+          "name": "session_links_recent_closed_idx",
+          "columns": [
+            {
+              "expression": "closed_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"session_links\".\"closed_at\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}

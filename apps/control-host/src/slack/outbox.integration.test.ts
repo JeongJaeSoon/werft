@@ -3088,6 +3088,8 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         );
         const text = plan.map((row) => row["QUERY PLAN"]).join("\n");
         expect(text).toContain("events_after_turn_result_idx");
+        // Links closed lately, by when they closed: not every closed link.
+        expect(text).toContain("session_links_recent_closed_idx");
       } finally {
         client.release(true);
       }
