@@ -38,8 +38,8 @@
 ### Gitleaks 8.30.1 (control-host, `/usr/local/bin/gitleaks`)
 
 - **라이선스.** Gitleaks는 MIT다. 저작권 표시와 허가문 전문은 이미지 안 `/usr/local/share/doc/gitleaks/LICENSE`(https://github.com/gitleaks/gitleaks/blob/v8.30.1/LICENSE)에 있다. 이미지의 실행 파일은 control-host Dockerfile이 gitleaks 프로젝트의 v8.30.1 태그 소스(sha256 고정)에서 Go 1.27.3로 직접 빌드한 것이다. gitleaks 소스는 고치지 않았다. 바꾼 것은 의존 모듈 버전뿐이다: `github.com/andybalholm/brotli`를 v1.2.7로, `github.com/klauspost/compress`를 v1.20.2로, `golang.org/x/text`를 v0.39.0로 올렸고, 그에 따라 `golang.org/x/sync`와 go.mod의 `go` 지시문(1.25.0)도 올라갔다(빌드가 go.mod·go.sum을 sha256으로 확인한다).
-- **정적으로 링크된 Go 코드.** 이 실행 파일은 Go 표준 라이브러리를 링크한다. 그 BSD-3-Clause 문구는 빌드한 Go의 것을 이미지 안 `/usr/local/share/doc/gitleaks/GO-LICENSE`에 두었다. https://github.com/gitleaks/gitleaks/blob/v8.30.1/go.mod 에 적힌 모듈(위에서 올린 버전 포함)도 링크한다. 빌드가 실행 파일에 기록된 모듈(`go version -m`)마다 그 모듈 소스의 LICENSE·COPYING·NOTICE 파일을 이미지 안 `/usr/local/share/doc/gitleaks/modules/<모듈>@<버전>/`에 두며, 그런 파일이 없는 모듈이 있으면 빌드가 실패한다.
-- **대응 소스.** https://github.com/gitleaks/gitleaks/tree/v8.30.1 와 apps/control-host/Dockerfile의 `gitleaks` stage(모듈 버전 변경)
+- **정적으로 링크된 Go 코드.** 이 실행 파일은 Go 표준 라이브러리를 링크한다. 그 BSD-3-Clause 문구는 빌드한 Go의 것을 이미지 안 `/usr/local/share/doc/gitleaks/GO-LICENSE`에 두었다. https://github.com/gitleaks/gitleaks/blob/v8.30.1/go.mod 에 적힌 모듈(위에서 올린 버전 포함)도 링크한다. 빌드가 실행 파일에 기록된 모듈(`go version -m`)마다 그 모듈 소스 최상위의 LICENSE·COPYING·NOTICE 파일을 이미지 안 `/usr/local/share/doc/gitleaks/modules/<모듈>@<버전>/`에 두며, 그런 파일이 없는 모듈이 있으면 빌드가 실패한다.
+- **대응 소스.** https://github.com/gitleaks/gitleaks/tree/v8.30.1 (커밋 83d9cd684c87d95d656c1458ef04895a7f1cbd8e) 와 apps/control-host/Dockerfile의 `gitleaks` stage(모듈 버전 변경)
 
 ### Claude Code 실행 파일 (worker)
 

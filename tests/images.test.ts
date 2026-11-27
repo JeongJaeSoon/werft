@@ -403,6 +403,8 @@ describe("app Dockerfiles", () => {
     ]);
     // Each linked module's license files, or the build fails.
     expect(stage).toContain('echo "no license file in $mod" >&2; exit 1;');
+    expect(stage).toContain("-exec cp -t \"$dest\" -- '{}' +");
+    expect(stage).toContain("if grep -q '=>' /tmp/gitleaks-buildinfo;");
     expect(read(".github/scripts/image-smoke.sh")).toContain(
       `[ "$gitleaks_version" = ${GITLEAKS_VERSION} ]`,
     );

@@ -105,14 +105,19 @@ RUN mkdir /tmp/gitleaks \
     -o /tmp/gitleaks/gitleaks . \
   && cp LICENSE /tmp/gitleaks/LICENSE \
   && cp /usr/local/go/LICENSE /tmp/gitleaks/GO-LICENSE \
-  && mods="$(go version -m /tmp/gitleaks/gitleaks | awk '$1 == "dep" { print $2 "@" $3 }')" \
+  && go version -m /tmp/gitleaks/gitleaks >/tmp/gitleaks-buildinfo \
+  && if grep -q '=>' /tmp/gitleaks-buildinfo; then echo "replaced module" >&2; exit 1; fi \
+  && mods="$(awk '$1 == "dep" { print $2 "@" $3 }' /tmp/gitleaks-buildinfo)" \
+  && [ -n "$mods" ] \
   && cache="$(go env GOMODCACHE)" \
   && for mod in $mods; do \
     dir="$cache/$(printf '%s' "$mod" | sed 's/[A-Z]/!\l&/g')"; \
-    mkdir -p "/tmp/gitleaks/modules/$mod"; \
-    find "$dir" -maxdepth 1 -type f \( -iname 'licen[cs]e*' -o -iname 'copying*' -o -iname 'notice*' \) \
-      -exec cp '{}' "/tmp/gitleaks/modules/$mod/" ';'; \
-    [ -n "$(ls -A "/tmp/gitleaks/modules/$mod")" ] || { echo "no license file in $mod" >&2; exit 1; }; \
+    dest="/tmp/gitleaks/modules/$mod"; \
+    { mkdir -p "$dest" \
+      && find "$dir" -maxdepth 1 -type f \( -iname 'licen[cs]e*' -o -iname 'copying*' -o -iname 'notice*' \) \
+        -exec cp -t "$dest" -- '{}' + \
+      && [ -n "$(ls -A "$dest")" ]; } \
+      || { echo "no license file in $mod" >&2; exit 1; }; \
   done
 
 FROM ${BUN_IMAGE} AS runtime
