@@ -261,7 +261,7 @@ describe("fake Slack Web API", () => {
     });
   });
 
-  test("a held method takes its call, and answers once its hold is over", async () => {
+  test("a held method accepts its call, and answers once its hold is over", async () => {
     const order: string[] = [];
     const hold = Promise.withResolvers<void>();
     const reached = Promise.withResolvers<void>();
@@ -272,16 +272,26 @@ describe("fake Slack Web API", () => {
       await hold.promise;
     });
     try {
-      const answered = post(`${slack.url}/tooling.tokens.rotate`, {
-        refresh_token: slack.issueConfigToken(),
-      }).then((answer) => {
-        order.push("answered");
-        return answer;
-      });
+      // Called with no network between: an answer not held is in by the
+      // next turn of the event loop.
+      const answered = slack
+        .handle(
+          new Request(`${slack.url}/tooling.tokens.rotate`, {
+            method: "POST",
+            body: new URLSearchParams({
+              refresh_token: slack.issueConfigToken(),
+            }),
+          }),
+        )
+        .then((response) => {
+          order.push("answered");
+          return response;
+        });
       await Promise.race([reached.promise, answered]);
+      await new Promise((resolve) => setImmediate(resolve));
       order.push("let go");
       hold.resolve();
-      expect(await answered).toMatchObject({ ok: true });
+      expect(await (await answered)?.json()).toMatchObject({ ok: true });
     } finally {
       slack.holds.delete("tooling.tokens.rotate");
     }
