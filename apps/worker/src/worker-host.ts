@@ -4162,11 +4162,17 @@ export class WorkerHost {
       (naming === undefined ? [] : await this.untilAbandoned(naming)) ?? [];
     // Named again right before each signal: only what is under the run then.
     // Undefined is a scan that did not answer, so nothing is known to be left.
+    // Every read is cut at a signal window: a scan that never answers must
+    // not hold the SIGKILL back, or the capture after it.
+    const scanBy = () => performance.now() + config.stopSignalWaitMs;
     let left: number[] | undefined =
-      engines?.descendants === undefined ? below : await this.descendantsNow();
+      engines?.descendants === undefined
+        ? below
+        : await this.descendantsNow(scanBy());
     for (const signal of ["SIGTERM", "SIGKILL"] as const) {
-      if (left === undefined && !this.halted)
-        left = await this.descendantsNow();
+      if (left === undefined && !this.halted) {
+        left = await this.descendantsNow(scanBy());
+      }
       if (
         left === undefined ||
         left.length === 0 ||

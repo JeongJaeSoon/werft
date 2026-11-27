@@ -1041,9 +1041,13 @@ describe("WorkerHost drained while it owes the last turn a checkpoint", () => {
 
   test("a process scan that stalls while the idle exit checks the work does not hold a drain past its budget", async () => {
     let stalled = false;
+    let entered = 0;
     const engines: EngineExitWatch = {
-      descendants: () =>
-        stalled ? new Promise<never>(() => {}) : Promise.resolve([4243]),
+      descendants: () => {
+        if (!stalled) return Promise.resolve([4243]);
+        entered += 1;
+        return new Promise<never>(() => {});
+      },
       commands: async () => ["sleep"],
       signal: () => {},
       exited: async () => true,
@@ -1059,7 +1063,8 @@ describe("WorkerHost drained while it owes the last turn a checkpoint", () => {
     const loop = host.runLoop();
     await eventually(() => log.includes("worker.idle.background_grace"));
     stalled = true;
-    await Bun.sleep(50);
+    // The idle exit's own check is the scan that waits.
+    await eventually(() => entered > 0);
 
     const drainedAt = performance.now();
     host.drain("received SIGTERM");
@@ -1074,9 +1079,13 @@ describe("WorkerHost drained while it owes the last turn a checkpoint", () => {
 
   test("a scan the drain budget cut short is not read as a quiet run, so no capture starts after the worker gave up", async () => {
     let stalled = false;
+    let entered = 0;
     const engines: EngineExitWatch = {
-      descendants: () =>
-        stalled ? new Promise<never>(() => {}) : Promise.resolve([4243]),
+      descendants: () => {
+        if (!stalled) return Promise.resolve([4243]);
+        entered += 1;
+        return new Promise<never>(() => {});
+      },
       commands: async () => ["sleep"],
       signal: () => {},
       exited: async () => true,
@@ -1101,7 +1110,7 @@ describe("WorkerHost drained while it owes the last turn a checkpoint", () => {
     await eventually(() => gateway.finalized.length === 1);
     // The between-turns check now waits on a scan that never answers.
     stalled = true;
-    await Bun.sleep(50);
+    await eventually(() => entered > 0);
 
     host.drain("received SIGTERM");
     const summary = await loop;
@@ -1112,6 +1121,45 @@ describe("WorkerHost drained while it owes the last turn a checkpoint", () => {
     expect(leases).toBe(1);
     expect(captures).toEqual([{ status: "rejected", kind: "turn_end" }]);
     expect(gateway.checkpointCommits).toEqual([]);
+  });
+
+  test("a scan that stalls after SIGTERM is cut at the signal window, not left to hold the drain's budget", async () => {
+    const signals: string[] = [];
+    // SIGTERM is ignored, and every scan after it never answers.
+    const engines: EngineExitWatch = {
+      descendants: () =>
+        signals.length > 0
+          ? new Promise<never>(() => {})
+          : Promise.resolve([4243]),
+      commands: async () => ["node"],
+      signal: (_pids, signal) => {
+        signals.push(signal);
+      },
+      exited: async () => true,
+      running: [],
+      kill() {},
+    };
+    const { gateway, host, log } = harness(oneTurn, {
+      engines,
+      outsideTurnCheckpoint: { idleBackgroundGraceMs: 60_000 },
+      timeouts: { drainTimeoutMs: 3_000 },
+    });
+    gateway.enqueue("start a dev server and leave it");
+    const loop = host.runLoop();
+    await eventually(() => log.includes("worker.idle.background_grace"));
+
+    const drainedAt = performance.now();
+    host.drain("received SIGTERM");
+    await eventually(() => log.includes("worker.idle.background_stopped"));
+    const stoppedAfter = performance.now() - drainedAt;
+    const summary = await loop;
+
+    expect(summary.outcome).toBe("drained");
+    // Two signal windows (200 ms each here), not the drain's 3 s budget.
+    expect(stoppedAfter).toBeLessThan(1_500);
+    // What is under the run is not known, so nothing is killed blind.
+    expect(signals).toEqual(["SIGTERM"]);
+    expect(gateway.releases).toHaveLength(1);
   });
 
   test("a quiet probe that does not answer is cut at the settle window, leaving the drain's capture its time", async () => {
