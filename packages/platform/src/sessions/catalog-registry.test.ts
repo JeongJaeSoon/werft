@@ -333,6 +333,31 @@ describe("caughtUp", () => {
     expect(registry.settings?.generation).toBe(7);
   });
 
+  test("a refresh within its age does not join a declined read", async () => {
+    let clock = 0;
+    const pending: Array<(value: SettingsSnapshot) => void> = [];
+    const registry = createCatalogRegistry({
+      settings: {
+        read: () =>
+          new Promise<SettingsSnapshot>((resolve) => pending.push(resolve)),
+      },
+      now: () => clock,
+    });
+    const first = registry.refresh();
+    clock = 8;
+    const second = registry.refresh();
+    pending[0]?.(snapshot(6));
+    await first;
+    pending[1]?.(snapshot(4));
+    await second;
+    clock = 12;
+    const third = registry.refresh(10);
+    expect(pending).toHaveLength(3);
+    pending[2]?.(snapshot(7));
+    await third;
+    expect(registry.settings?.generation).toBe(7);
+  });
+
   test("a read begun after the apply is taken even at a lower generation", async () => {
     const { registry, state, pending, until } = heldReads(5);
     const first = registry.refresh();

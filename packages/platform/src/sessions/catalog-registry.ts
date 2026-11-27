@@ -43,7 +43,10 @@ export function latestReads<T>(
     const done = read().then(
       (value) => {
         if (order < applied) return;
-        if (apply(value) === false) return;
+        if (apply(value) === false) {
+          if (latest?.done === done) latest = null;
+          return;
+        }
         applied = order;
         readAt = startedAt;
       },
