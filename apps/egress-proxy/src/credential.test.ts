@@ -486,10 +486,21 @@ describe("the registered-server mark", () => {
     expect(upstreamPolicy("mcp", marked("http://mcp.test/mcp"), operator)).toBe(
       operator,
     );
-    // The built-in server on the authorizer's listener.
+    // The built-in server on the authorizer's listener, https or not.
     const builtin = marked("/mcp/github");
     expect(builtin.builtin).toBe(true);
     expect(upstreamPolicy("mcp", builtin, operator)).toBe(operator);
+    const tls = parseGrant(
+      {
+        session_id: "s",
+        attempt_id: "a",
+        upstream: { url: "/mcp/github", headers: [], allow: "public_https" },
+      },
+      new URL("https://api.test/authorize"),
+    ) as EgressGrant;
+    expect(tls.builtin).toBe(true);
+    expect(tls.upstream.protocol).toBe("https:");
+    expect(upstreamPolicy("mcp", tls, operator)).toBe(operator);
     // Every other route.
     for (const purpose of [
       "provider",
@@ -830,11 +841,14 @@ describe("startCredentialProxy", () => {
     asked: Array<{ token: string; purpose: string; path?: string }>;
     /** Each authorize's x-werft-exchange-id header, null when not sent. */
     exchanges: Array<string | null>;
+    /** Each authorize's x-werft-egress-features header, null when not sent. */
+    features: Array<string | null>;
     reported: UsageReport[];
     ledgered: LedgerRequest[];
   } {
     const asked: Array<{ token: string; purpose: string; path?: string }> = [];
     const exchanges: Array<string | null> = [];
+    const features: Array<string | null> = [];
     const reported: UsageReport[] = [];
     const ledgered: LedgerRequest[] = [];
     const server = Bun.serve({
@@ -864,6 +878,7 @@ describe("startCredentialProxy", () => {
         };
         asked.push(body);
         exchanges.push(request.headers.get("x-werft-exchange-id"));
+        features.push(request.headers.get("x-werft-egress-features"));
         return answer(body);
       },
     });
@@ -872,6 +887,7 @@ describe("startCredentialProxy", () => {
       url: `http://127.0.0.1:${server.port}`,
       asked,
       exchanges,
+      features,
       reported,
       ledgered,
     };
@@ -4287,6 +4303,20 @@ describe("startCredentialProxy", () => {
         ]);
       });
 
+      test("a marked https server named by a public address passes the address rules, then is refused unnamed", async () => {
+        const { server, looked, lines } = marked(
+          () => grantOf("https://[2606:4700:4700::1111]/mcp", true),
+          async (host) => [host],
+        );
+        const response = await call(server.port, TOOLS_CALL);
+        expect(response.status).toBe(502);
+        expect(await response.text()).toContain(
+          "an https upstream must be named",
+        );
+        expect(looked).toEqual(["2606:4700:4700::1111"]);
+        expect(lines.join("\n")).not.toContain("not public");
+      });
+
       test("the mark takes a privately listed host out of the private plane", async () => {
         const { server, lines } = marked(
           () => grantOf("https://upstream.test:4443/mcp", true),
@@ -4660,6 +4690,11 @@ describe("startCredentialProxy", () => {
         regrant: true,
         rpc: { method: "tools/call", tool: "whoami" },
       });
+      // A regrant says what the first ask said: the API may judge it alike.
+      expect(auth.features.slice(0, 2)).toEqual([
+        "registered-upstream",
+        "registered-upstream",
+      ]);
       await response.body?.cancel().catch(() => {});
     });
   });

@@ -976,7 +976,7 @@ function portOf(upstream: URL): number {
  * The policy a grant's upstream is dialled under. A remote MCP server the
  * authorizer marked as registered gets a policy of its own host:port alone,
  * held to the public address rules; a mark on anything else (another route,
- * the built-in server, plain http) is not read, and the operator's list
+ * the built-in server, plain http) changes nothing, and the operator's list
  * decides as it did before the mark existed.
  */
 export function upstreamPolicy(
