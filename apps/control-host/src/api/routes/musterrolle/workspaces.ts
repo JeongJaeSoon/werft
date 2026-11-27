@@ -3,12 +3,15 @@ import {
   auditRetentionResponseSchema,
   slackGuestRequestSchema,
   slackGuestResponseSchema,
+  webFetchPreflightRequestSchema,
+  webFetchPreflightResponseSchema,
   workspaceParamsSchema,
 } from "@werft-ai/contracts";
 import type {
   AuditRetentionStore,
   AuthorizationPolicy,
   SlackGuestSettingStore,
+  WebFetchPreflightSettingStore,
 } from "@werft-ai/platform";
 import {
   ApiHttpError,
@@ -23,6 +26,7 @@ export interface WorkspaceRouteDeps {
   authorization: AuthorizationPolicy;
   retention: AuditRetentionStore;
   slackGuests: SlackGuestSettingStore;
+  webFetchPreflight: WebFetchPreflightSettingStore;
 }
 
 export function registerWorkspaceRoutes(
@@ -115,5 +119,49 @@ export function registerWorkspaceRoutes(
       throw new ApiHttpError(404, "NOT_FOUND", "Resource not found");
     }
     return jsonWithSchema(context, slackGuestResponseSchema, body);
+  });
+  apiRoute(router, "setWebFetchPreflight", async (context) => {
+    const caller = context.get("caller");
+    const principal = context.get("principal");
+    const params = requireParams(context, workspaceParamsSchema);
+    const workspaceId = params.id.toLowerCase();
+    // Asked before the body is read, as for audit retention.
+    const decision = await deps.authorization.authorize({
+      subject: caller.subject,
+      action: "workspace.manage",
+      resource: {
+        kind: "workspace",
+        id: workspaceId,
+        owner_scope: workspaceId,
+      },
+      request_id: caller.requestId,
+    });
+    if (decision.reason_code === "not_found") {
+      throw new ApiHttpError(404, "NOT_FOUND", "Resource not found");
+    }
+    if (decision.outcome !== "allow" || principal.kind !== "user") {
+      throw new ApiHttpError(
+        403,
+        "FORBIDDEN",
+        "Only an owner or admin can change the WebFetch host check",
+        false,
+        undefined,
+        { reason_code: decision.reason_code },
+      );
+    }
+    const body = await parseJsonBody(context, webFetchPreflightRequestSchema);
+    const receiptId = await deps.webFetchPreflight.setWebFetchPreflight({
+      workspaceId,
+      actorUserId: principal.id,
+      principal: caller,
+      enabled: body.web_fetch_preflight,
+    });
+    if (receiptId === null) {
+      throw new ApiHttpError(404, "NOT_FOUND", "Resource not found");
+    }
+    return jsonWithSchema(context, webFetchPreflightResponseSchema, {
+      web_fetch_preflight: body.web_fetch_preflight,
+      receipt_id: receiptId,
+    });
   });
 }

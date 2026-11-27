@@ -110,6 +110,12 @@ const workspaceSettingsFields = (
    * to link their Slack account like anyone else.
    */
   slack_guest_enabled: z.boolean().default(false),
+  /**
+   * Whether the engine asks Anthropic (api.anthropic.com) about a host
+   * before WebFetch dials it. Off, sessions skip that check; the egress
+   * allowlist still decides what a session may reach.
+   */
+  web_fetch_preflight: z.boolean().default(true),
   achievement_judge: judge.prefault({}),
 });
 
@@ -157,6 +163,13 @@ export const slackGuestRequestSchema = z
   .object({ slack_guest_enabled: z.boolean() })
   .strict();
 export const slackGuestResponseSchema = slackGuestRequestSchema;
+
+export const webFetchPreflightRequestSchema = z
+  .object({ web_fetch_preflight: z.boolean() })
+  .strict();
+export const webFetchPreflightResponseSchema = z
+  .object({ web_fetch_preflight: z.boolean(), receipt_id: receiptIdSchema })
+  .strict();
 
 export const workspaceSchema = z
   .object({
@@ -401,6 +414,12 @@ export const listInvitesResponseSchema = z
 
 export type AuditRetentionRequest = z.infer<typeof auditRetentionRequestSchema>;
 export type SlackGuestRequest = z.infer<typeof slackGuestRequestSchema>;
+export type WebFetchPreflightRequest = z.infer<
+  typeof webFetchPreflightRequestSchema
+>;
+export type WebFetchPreflightResponse = z.infer<
+  typeof webFetchPreflightResponseSchema
+>;
 export type AchievementJudgeSettings = z.infer<
   typeof achievementJudgeSettingsSchema
 >;
