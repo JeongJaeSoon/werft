@@ -68,7 +68,7 @@ describe("gitleaksScanner", () => {
       scratchRoot: root,
     }).scan([
       text("SKILL.md", "---\nname: s\n---\n"),
-      text("scripts/run.sh", "echo run\n"),
+      text("scripts/run.sh", "echo run\n\nexport X=1\n"),
     ]);
     delete process.env.WERFT_GITLEAKS_TEST_INHERITED;
 
@@ -110,7 +110,7 @@ describe("gitleaksScanner", () => {
     expect(readFileSync(`${seen}.files`, "utf8")).toBe("./0/f\n./1/f\n");
     // Text is read past filetype's sniff, so no leading magic can skip it.
     expect(readFileSync(`${seen}.copied`, "utf8")).toBe(
-      `${"\n".repeat(SHIFT)}echo run\n`,
+      `${"\n".repeat(SHIFT)}echo run\n\nexport X=1\n`,
     );
     const env = readFileSync(`${seen}.env`, "utf8");
     expect(env).not.toContain("WERFT_GITLEAKS_TEST_INHERITED");
@@ -160,7 +160,7 @@ describe("gitleaksScanner", () => {
         `echo '6:11PM WRN leaks found: 1' >&2\n${report("0/f", 2)}`,
       ),
       scratchRoot: scratch(),
-    }).scan([text("a.sh")]);
+    }).scan([text("a.sh", "x\ny\n")]);
     expect(result).toEqual({
       kind: "scanned",
       findings: [{ rule: "a", path: "a.sh", line: 2 }],
@@ -281,6 +281,7 @@ describe("gitleaksScanner", () => {
       "unreadable_report",
     ],
     ["a finding on line 0", report("0/f", 0), "unreadable_report"],
+    ["a finding past the last line", report("0/f", 2), "unreadable_report"],
     [
       "a finding with no line",
       'printf \'[{"RuleID":"a","File":"%s/tree/0/f"}]\' "$PWD"',

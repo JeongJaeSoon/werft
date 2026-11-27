@@ -41,7 +41,9 @@ export const GITLEAKS_CONFIG = "[extend]\nuseDefault = true\n";
  * types as application/*, and text can start that way: "%PDF-", "PK" + 3 + 4
  * and "MZ" are valid UTF-8. A text copy starts with newlines past the deepest
  * byte filetype reads (32773, the ISO 9660 mark), so every text file is read;
- * report lines are shifted back.
+ * report lines are shifted back. This moves gitleaks' first fragment cut that
+ * many bytes earlier; against an unprefixed run of the real binary, findings
+ * at byte 0 and around the cuts were the same.
  */
 const TEXT_PREFIX = Buffer.alloc(32_774, 0x0a);
 export const GITLEAKS_TEXT_PREFIX_LINES = TEXT_PREFIX.byteLength;
@@ -63,8 +65,12 @@ export type GitleaksScannerOptions = {
 
 type Settings = Required<Omit<GitleaksScannerOptions, "maxConcurrent">>;
 
-/** A copy's source path, and how many lines were put before its bytes. */
-type Copied = { readonly path: string; readonly shift: number };
+/** A copy's source path, the lines put before its bytes, and its own lines. */
+type Copied = {
+  readonly path: string;
+  readonly shift: number;
+  readonly lines: number;
+};
 
 type Run =
   | {
@@ -160,6 +166,7 @@ async function scanIn(
     byCopy.set(name, {
       path: file.path,
       shift: text ? GITLEAKS_TEXT_PREFIX_LINES : 0,
+      lines: lineCount(file.bytes),
     });
   }
   const config = join(scratch, "config.toml");
@@ -358,7 +365,12 @@ function parseReport(
       copied !== undefined && Number.isSafeInteger(StartLine)
         ? (StartLine as number) - copied.shift
         : 0;
-    if (typeof RuleID !== "string" || copied === undefined || line < 1) {
+    if (
+      typeof RuleID !== "string" ||
+      copied === undefined ||
+      line < 1 ||
+      line > copied.lines
+    ) {
       return null;
     }
     findings.push({ rule: RuleID, path: copied.path, line });
@@ -369,6 +381,13 @@ function parseReport(
       a.line - b.line ||
       byCodeUnit(a.rule, b.rule),
   );
+}
+
+/** Lines as gitleaks counts them: one more than the newlines. */
+function lineCount(bytes: Uint8Array): number {
+  let lines = 1;
+  for (const byte of bytes) if (byte === 0x0a) lines++;
+  return lines;
 }
 
 /** Rule 3's text: strict UTF-8 with no NUL. */

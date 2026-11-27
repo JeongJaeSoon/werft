@@ -87,6 +87,10 @@ if (JSON.stringify(paths) !== JSON.stringify(["docs/iso.md", "docs/pdf.md", "doc
   throw new Error("planted token: " + JSON.stringify(found));
 }
 if (JSON.stringify(found).includes(value)) throw new Error("the result carries the token");
+for (const p of ["docs/iso.md", "docs/pdf.md", "docs/zip.md"]) {
+  const lines = found.findings.filter((f) => f.path === p).map((f) => f.line).join();
+  if (lines !== "2") throw new Error(`${p}: line ${lines}, not 2`);
+}
 console.log(`gitleaks scans: first ${firstMs} ms, second ${secondMs} ms; planted token found in ${paths.join(", ")}`);
 '
 

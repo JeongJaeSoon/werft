@@ -49,11 +49,13 @@ export type SecretScanResult =
     };
 
 /**
- * `scanned` covers every text file given (rule 3's text: strict UTF-8, no
- * NUL) in full, whatever it starts with. Any other file is handed to gitleaks
- * as it is, and gitleaks skips those it types as an application, so a caller
- * passes only the binaries the gate lets in (rule 3's media types) and treats
- * what is inside them as unchecked.
+ * `scanned` means gitleaks read every text file given (rule 3's text: strict
+ * UTF-8, no NUL), whatever it starts with, and matched it as gitleaks does: in
+ * fragments of about 100 kB, cut at a blank line or, with none in the next
+ * 25 kB, where that runs out, so a value cut in two there is not found. Any
+ * other file is handed to gitleaks as it is, and gitleaks skips those it types
+ * as an application, so a caller passes only the binaries the gate lets in
+ * (rule 3's media types) and treats what is inside them as unchecked.
  */
 export interface SecretScanner {
   scan(files: readonly SecretScanFile[]): Promise<SecretScanResult>;
