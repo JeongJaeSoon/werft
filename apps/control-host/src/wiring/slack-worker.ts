@@ -26,7 +26,7 @@ import {
   type SlackNoticeSink,
   slackBotToken,
 } from "./chat-slack.ts";
-import { type Param, slackConnectUrl } from "./slack-shared.ts";
+import { type Param, slackAgentsUrl, slackConnectUrl } from "./slack-shared.ts";
 
 export interface SlackInboundDeps {
   apiUrl: string;
@@ -103,6 +103,7 @@ export function wireSlackInbound(deps: SlackInboundDeps): SlackInboundHandler {
     notices: deps.notices,
     logger: deps.logger,
     connectUrl: slackConnectUrl(deps.consoleOrigin),
+    agentsUrl: slackAgentsUrl(deps.consoleOrigin),
   });
   const memberJoined = createSlackMemberJoinedHandler({
     agents: deps.identities,
