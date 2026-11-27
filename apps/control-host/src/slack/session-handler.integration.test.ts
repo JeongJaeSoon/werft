@@ -449,6 +449,7 @@ function handler(
   inbox?: Pick<SurfaceInboundEventStore, "renew">,
   log: typeof logger = logger,
   audienceCache?: SlackAudienceCache,
+  environment: Record<string, string> = LIMITS,
 ) {
   const notices = createMemorySlackNoticeSink();
   // A pass reads the catalog before its first event (main); here each event
@@ -462,7 +463,7 @@ function handler(
         throw new Error("no session control is asked of this role");
       },
     },
-    environment: LIMITS,
+    environment,
     logger: log,
     secretKey: key,
     leaseMs: 30_000,
@@ -6258,6 +6259,222 @@ describe.each(ENGINES)(
       await drain(handle);
       expect(threadNotices).toEqual([]);
       expect(notices).toEqual([]);
+      expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
+    });
+
+    /** The channel's binding no longer in use; the bot stays in it. */
+    const unbind = (fixture: Fixture) =>
+      db
+        .update(surfaceBindings)
+        .set({ status: "revoked", revokedAt: new Date() })
+        .where(eq(surfaceBindings.id, fixture.bindingId));
+    const unbound = (link?: string) => ({
+      reason: "channel_unbound",
+      notice: {
+        message: "channelUnbound",
+        ...(link === undefined ? {} : { link_url: link }),
+      },
+    });
+    const told = (
+      records: {
+        reason: string;
+        notice: unknown;
+        threadTs: string;
+        slackUserId: string;
+      }[],
+    ) =>
+      records
+        .map(({ reason, notice, threadTs, slackUserId }) => ({
+          threadTs,
+          slackUserId,
+          reason,
+          notice,
+        }))
+        .sort((a, b) => Number(a.threadTs) - Number(b.threadTs));
+
+    for (const rollout of ["off", "shadow", "on"] as const) {
+      test(`rollout ${rollout}: a mention in a channel with no binding tells its writer alone, once a UTC day per person, with no turn, call or session`, async () => {
+        const fixture = await agentInSlack("main", { rollout });
+        await unbind(fixture);
+        const { handle, notices, threadNotices } = handler();
+        await deliver(fixture, mention("100.000100"));
+        // The same person again that day, in another thread and in a reply.
+        await deliver(fixture, mention("200.000100"));
+        await deliver(
+          fixture,
+          mention("200.000200", { thread_ts: "100.000100" }),
+        );
+        // Someone else that day, and the first person the next UTC day.
+        await deliver(fixture, mention("300.000100", { user: "U0OTHER" }));
+        await deliver(fixture, mention("86500.000100"));
+        await drain(handle);
+        expect(told(notices)).toEqual([
+          { threadTs: "100.000100", slackUserId: PERSON, ...unbound() },
+          { threadTs: "300.000100", slackUserId: "U0OTHER", ...unbound() },
+          { threadTs: "86500.000100", slackUserId: PERSON, ...unbound() },
+        ]);
+        expect(threadNotices).toEqual([]);
+        expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
+        expect(await sessionsOf(fixture)).toEqual([]);
+        expect(slack.statuses).toEqual([]);
+        // No decision is made of it: the line is not a refusal.
+        expect(
+          await db
+            .select({ id: authzDecisions.id })
+            .from(authzDecisions)
+            .where(eq(authzDecisions.workspaceId, fixture.workspaceId)),
+        ).toEqual([]);
+      });
+    }
+
+    test("a mention in a channel with no binding links the agent list for a linked member alone, and names no agent or channel", async () => {
+      const fixture = await agentInSlack("main", {
+        rollout: "on",
+        channelKind: "private_channel",
+      });
+      await unbind(fixture);
+      slack.channels.set(CHANNEL, { isPrivate: true });
+      const { handle, notices } = handler(undefined, logger, undefined, {
+        ...LIMITS,
+        CONSOLE_ORIGIN: "https://console.example",
+      });
+      await deliver(fixture, mention("100.000100", { channel_type: "group" }));
+      await deliver(
+        fixture,
+        mention("200.000100", { channel_type: "group", user: "U0OTHER" }),
+      );
+      await drain(handle);
+      expect(told(notices)).toEqual([
+        {
+          threadTs: "100.000100",
+          slackUserId: PERSON,
+          ...unbound("https://console.example/agents"),
+        },
+        { threadTs: "200.000100", slackUserId: "U0OTHER", ...unbound() },
+      ]);
+      for (const locale of ["ko", "ja", "en"] as const) {
+        const text = SLACK_NOTICE_MESSAGES[locale].channelUnbound;
+        for (const name of [CHANNEL, "notes", "Notes", fixture.agentId]) {
+          expect(text).not.toContain(name);
+        }
+      }
+      expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
+    });
+
+    test("a mention in a channel with no binding tells no one from another organization", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await unbind(fixture);
+      slack.users.set("U0STRANGER", { teamId: "T0OTHER", isStranger: true });
+      slack.users.set("U0EXTERNAL", { isExternal: true });
+      const { handle, notices } = handler();
+      await deliver(fixture, mention("100.000100", { user: "U0STRANGER" }));
+      await deliver(fixture, mention("150.000100", { user: "U0EXTERNAL" }));
+      await deliver(fixture, mention("200.000100"));
+      await drain(handle);
+      expect(told(notices)).toEqual([
+        { threadTs: "200.000100", slackUserId: PERSON, ...unbound() },
+      ]);
+    });
+
+    test("rollout on: a mention in a bound channel is a turn as before, with no line", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const { handle, notices, threadNotices } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await drain(handle);
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      expect(notices).toEqual([]);
+      expect(threadNotices).toEqual([]);
+    });
+
+    test("rollout on: a mention in a channel waiting for approval tells its writer alone, once a UTC day", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await createPostgresSurfaceBindingStore(db).requireApproval(
+        fixture.bindingId,
+      );
+      const { handle, notices, threadNotices } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await deliver(fixture, mention("200.000100"));
+      await deliver(fixture, mention("300.000100", { user: "U0OTHER" }));
+      await deliver(fixture, mention("86500.000100"));
+      await drain(handle);
+      const waiting = {
+        reason: "pending_approval",
+        notice: { message: "pendingApproval" },
+      };
+      expect(told(notices)).toEqual([
+        { threadTs: "100.000100", slackUserId: PERSON, ...waiting },
+        { threadTs: "300.000100", slackUserId: "U0OTHER", ...waiting },
+        { threadTs: "86500.000100", slackUserId: PERSON, ...waiting },
+      ]);
+      expect(threadNotices).toEqual([]);
+      expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
+    });
+
+    test("a channel binding switched off on the web stays silent to a mention", async () => {
+      const fixture = await agentInSlack("main", {
+        rollout: "on",
+        mode: "off",
+      });
+      const { handle, notices, threadNotices } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await drain(handle);
+      expect(notices).toEqual([]);
+      expect(threadNotices).toEqual([]);
+      expect(
+        await db
+          .select({ status: slackInboundEvents.status })
+          .from(slackInboundEvents)
+          .where(eq(slackInboundEvents.agentId, fixture.agentId)),
+      ).toEqual([{ status: "processed" }]);
+      expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
+      expect(await sessionsOf(fixture)).toEqual([]);
+    });
+
+    test("rollout on: a paused agent's channel Slack now reports private waits for approval and says nothing", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await db
+        .update(agents)
+        .set({ status: "paused" })
+        .where(eq(agents.id, fixture.agentId));
+      slack.channels.set(CHANNEL, { isPrivate: true });
+      const { handle, notices, threadNotices } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await drain(handle);
+      const [row] = await db
+        .select({ status: surfaceBindings.status })
+        .from(surfaceBindings)
+        .where(eq(surfaceBindings.id, fixture.bindingId));
+      expect(row?.status).toBe("pending_approval");
+      expect(notices).toEqual([]);
+      expect(threadNotices).toEqual([]);
+    });
+
+    test("rollout on: a channel Slack now reports private tells a person waiting for approval once a UTC day, the next mention included", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      slack.channels.set(CHANNEL, { isPrivate: true });
+      const { handle, notices, threadNotices } = handler();
+      slack.users.set("U0STRANGER", { teamId: "T0OTHER", isStranger: true });
+      // Someone from another organization finds the channel private and is
+      // told nothing; the next mentions find it waiting.
+      await deliver(fixture, mention("100.000100", { user: "U0STRANGER" }));
+      await deliver(fixture, mention("150.000100"));
+      await deliver(fixture, mention("200.000100"));
+      await deliver(fixture, mention("86500.000100"));
+      await drain(handle);
+      const [row] = await db
+        .select({ status: surfaceBindings.status })
+        .from(surfaceBindings)
+        .where(eq(surfaceBindings.id, fixture.bindingId));
+      expect(row?.status).toBe("pending_approval");
+      const waiting = {
+        reason: "pending_approval",
+        notice: { message: "pendingApproval" },
+      };
+      expect(told(notices)).toEqual([
+        { threadTs: "150.000100", slackUserId: PERSON, ...waiting },
+        { threadTs: "86500.000100", slackUserId: PERSON, ...waiting },
+      ]);
+      expect(threadNotices).toEqual([]);
       expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
     });
 

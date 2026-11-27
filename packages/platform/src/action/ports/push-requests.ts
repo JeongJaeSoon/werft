@@ -90,14 +90,16 @@ export const PUSH_REFUSAL_ERRORS: Record<
     message:
       "The platform pushes only to agent/<session-id> or agent/<session-id>-<branch>",
   },
+  // The agent reads these: each says why, and who or what gets past it.
   default_branch: {
     code: "FORBIDDEN",
-    message: "The target is the repository's default branch",
+    message:
+      "The target is the repository's default branch, which the platform never pushes to; nobody can allow it. Push the session's agent/<session-id> branch and open a pull request",
   },
   non_fast_forward: {
     code: "REVISION_CONFLICT",
     message:
-      "The remote branch holds a commit the pinned commit does not build on; the platform never force-pushes",
+      "The remote branch holds a commit the pinned commit does not build on; the platform never force-pushes. Fetch the remote branch, build on it, and request the push again in a later turn",
   },
   no_push_credential: {
     code: "FORBIDDEN",
@@ -118,7 +120,8 @@ export const PUSH_REFUSAL_ERRORS: Record<
   },
   repository_not_allowed: {
     code: "FORBIDDEN",
-    message: "The session's release does not let it work on this repository",
+    message:
+      "The session's release does not let it push to this repository: it is not listed, or pushes to it are set to deny. A person who manages the agent can change that in the agent's GitHub settings; tell the requester",
   },
   attribution_mismatch: {
     code: "FORBIDDEN",
