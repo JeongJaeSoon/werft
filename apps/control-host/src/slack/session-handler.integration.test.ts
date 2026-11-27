@@ -5574,6 +5574,43 @@ describe.each(ENGINES)(
       });
     }
 
+    test("rollout on: a mention in a channel Slack now reports private waits for approval and gets no line in the thread", async () => {
+      const fixture = await agentInSlack("main", {
+        rollout: "on",
+        listen: "off",
+      });
+      slack.channels.set(CHANNEL, { isPrivate: true });
+      const { handle, notices, threadNotices } = handler();
+      await deliver(fixture, mention("100.000100"));
+      await drain(handle);
+      expect(threadNotices).toEqual([]);
+      expect(notices.map((notice) => notice.reason)).toEqual([
+        "pending_approval",
+      ]);
+      const [row] = await db
+        .select({ status: surfaceBindings.status })
+        .from(surfaceBindings)
+        .where(eq(surfaceBindings.id, fixture.bindingId));
+      expect(row?.status).toBe("pending_approval");
+      expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
+    });
+
+    test("rollout on: someone from another organization gets no line, and a member still does", async () => {
+      const fixture = await agentInSlack("main", {
+        rollout: "on",
+        listen: "off",
+      });
+      slack.users.set("U0STRANGER", { teamId: "T0OTHER", isStranger: true });
+      const { handle, notices, threadNotices } = handler();
+      await deliver(fixture, mention("100.000100", { user: "U0STRANGER" }));
+      await deliver(fixture, mention("200.000100"));
+      await drain(handle);
+      expect(linesOf(threadNotices)).toEqual([
+        { threadTs: "200.000100", notice: { message: "channelOff" } },
+      ]);
+      expect(notices).toEqual([]);
+    });
+
     test("rollout on: an agent ownerless within its grace period still makes a mention a turn, with no line", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       await ownerlessFor(fixture, 13);

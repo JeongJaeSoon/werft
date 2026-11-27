@@ -771,27 +771,8 @@ export function createSlackSessionHandler(
         ...ids,
         handling: mentionHandling,
       });
-      // In the thread for all to see; each person hears it once a UTC day
-      // in the channel, whichever thread they mention the agent in.
-      if (mentionTable.notice !== undefined) {
-        const day = new Date(Number(event.ts) * 1000)
-          .toISOString()
-          .slice(0, 10);
-        await deps.notices.recordInThread({
-          workspaceId: agent.workspaceId,
-          agentId: agent.agentId,
-          installationId: agent.installationId,
-          slackAppId: claim.slackAppId,
-          teamId: claim.teamId,
-          channelId: event.channel,
-          threadTs,
-          sessionId: null,
-          sessionLinkId: null,
-          notice: { message: mentionTable.notice },
-          onceKey: `${agent.installationId}:${event.channel}:${event.user}:${mentionTable.notice}:${day}`,
-        });
-      }
-      return;
+      // Its line waits for the channel checks below.
+      if (mentionTable.notice === undefined) return;
     }
     // Observe only: the reply goes on as a turn whatever the judgment says.
     // The text is not logged; `event_id` joins the case to its inbox row. A
@@ -922,6 +903,28 @@ export function createSlackSessionHandler(
         { connectUrl: deps.connectUrl },
       );
       if (refused !== null) await notice("channel_kind_mismatch", refused);
+      return;
+    }
+    // A mention the table does not hear, where the checks above still let
+    // the bot speak: one line in the thread for all to see, once a UTC day
+    // per person in the channel, whichever thread they mention the agent in.
+    if (mentionTable.notice !== undefined) {
+      // Someone from another organization is told nothing about the agent.
+      if (user.is_stranger === true) return;
+      const day = new Date(Number(event.ts) * 1000).toISOString().slice(0, 10);
+      await deps.notices.recordInThread({
+        workspaceId: agent.workspaceId,
+        agentId: agent.agentId,
+        installationId: agent.installationId,
+        slackAppId: claim.slackAppId,
+        teamId: claim.teamId,
+        channelId: event.channel,
+        threadTs,
+        sessionId: null,
+        sessionLinkId: null,
+        notice: { message: mentionTable.notice },
+        onceKey: `${agent.installationId}:${event.channel}:${event.user}:${mentionTable.notice}:${day}`,
+      });
       return;
     }
 

@@ -140,7 +140,9 @@ export function ownerlessPastGrace(
     ownerlessSince: SQLWrapper;
   },
 ): SQL<boolean> {
-  return sql<boolean>`(${agent.ownerlessSince} <= ${DB_NOW} - make_interval(days => ${AGENT_OWNERLESS_GRACE_DAYS}) and not ${hasOwner(db, agent.workspaceId, agent.id)})`;
+  // CASE: false, never NULL, with no mark, and the admin lookup only runs
+  // past the grace period.
+  return sql<boolean>`(CASE WHEN ${agent.ownerlessSince} <= ${DB_NOW} - make_interval(days => ${AGENT_OWNERLESS_GRACE_DAYS}) THEN NOT ${hasOwner(db, agent.workspaceId, agent.id)} ELSE false END)`;
 }
 
 export function agentOf(
