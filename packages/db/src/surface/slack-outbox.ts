@@ -1993,8 +1993,8 @@ export function createPostgresSlackOutboxStore(
                  LIMIT 1),
                 -- Waiting on a person, as the session's public status reads
                 -- it: a parked request leaves no turn in flight. Numbered by
-                -- the turn that asked, so a turn queued behind it changes
-                -- nothing.
+                -- the lowest turn with a request still answerable, so a turn
+                -- queued behind it changes nothing.
                 CASE WHEN ${sessionNeedsInput(db)} THEN 'needs_input:' || (
                   SELECT min(turns.sequence) FROM turns
                   WHERE turns.session_id = session_links.session_id
