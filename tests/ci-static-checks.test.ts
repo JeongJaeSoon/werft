@@ -929,8 +929,12 @@ test("a documentation-only pull request still gets a result from every required 
       expect(Object.keys(filters)).not.toContain(key);
     }
     // A branch or type filter must still let an open pull request into main run.
-    if (filters.branches !== undefined)
+    // A negated pattern after it could take main out again.
+    if (filters.branches !== undefined) {
       expect([filters.branches].flat()).toContain("main");
+      for (const branch of [filters.branches].flat())
+        expect(String(branch).startsWith("!")).toBe(false);
+    }
     if (filters.types !== undefined)
       expect([filters.types].flat()).toEqual(
         expect.arrayContaining(["opened", "synchronize", "reopened"]),

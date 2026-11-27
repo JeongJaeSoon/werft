@@ -773,7 +773,7 @@ function repoPaths(text: string) {
     if (!path.includes("/") && !/\.|^[A-Z]+$/.test(path)) continue;
     const stat = statSync(join(repo, path), { throwIfNoEntry: false });
     if (stat?.isFile()) out.add(path);
-    else if (stat?.isDirectory()) out.add(`${path}/`);
+    else if (stat?.isDirectory() && path.includes("/")) out.add(`${path}/`);
   }
   return [...out];
 }
@@ -844,9 +844,8 @@ test.each([
   },
 );
 
-test("a web change with its package.json runs every conditional job but the site", () => {
-  // apps/web/package.json is read by every `bun install`; the docs site's own
-  // inputs did not change, but is_site_path takes every package.json too.
+test("a web change with its package.json runs docs, helm-chart, demo and ui-pack", () => {
+  // Every package.json is a core path of each conditional job.
   expect(
     plan(fixture(undefined, ["apps/web/src/a.ts", "apps/web/package.json"]))
       .output,

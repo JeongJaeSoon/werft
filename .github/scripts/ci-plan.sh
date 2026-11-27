@@ -233,8 +233,8 @@ if [ -n "$base" ]; then
       site=true
       helm=false
       # A pull request builds the docs site, packs packages/ui and checks the
-      # chart only for their own inputs; apps/web is none of them, but
-      # apps/web/package.json is (every `bun install` reads it).
+      # chart only for their own lists; apps/web is in none of them, but
+      # apps/web/package.json is a core path of all three.
       if [ "$event" = pull_request ]; then
         site=$site_path
         ui_pack=$ui_pack_path
