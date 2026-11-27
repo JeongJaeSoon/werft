@@ -1489,6 +1489,9 @@ export function createSessionService(deps: {
             : { ...input.body, justification: input.justification },
         ),
         expectedRevision: input.body.expected_revision,
+        ...(input.body.expected_admission_state === undefined
+          ? {}
+          : { expectedAdmissionState: input.body.expected_admission_state }),
         reason: input.body.reason ?? input.justification ?? null,
         now: now(),
       });
@@ -1499,6 +1502,11 @@ export function createSessionService(deps: {
           throw new SessionServiceError("NOT_FOUND", "Resource not found");
         case "revision_conflict":
           return revisionConflict(result.currentRevision);
+        case "admission_conflict":
+          throw new SessionServiceError(
+            "REVISION_CONFLICT",
+            `expected_admission_state does not match the current admission ${result.admissionState} (revision ${result.currentRevision})`,
+          );
         case "rejected": {
           const rejection = ADMISSION_REJECTIONS[result.admissionState];
           throw new SessionServiceError(rejection.code, rejection.message);

@@ -2,4 +2,7 @@
 linker = "hoisted"
 
 [test]
-preload = ["./packages/db/src/testing/pglite-release.ts"]
+preload = [
+  "./packages/db/src/testing/pglite-release.ts",
+  "./packages/ui/src/test-support/preload-dom-libraries.ts",
+]

@@ -434,7 +434,7 @@ describe("SDK changed-path planner", () => {
   writeFileSync(
     join(bin, "git"),
     `#!/bin/sh
-[ "$1" = fetch ] && exit 0
+[ "$1" = fetch ] && exit \${FETCH_FAILS:-0}
 [ -z "$DIFF_FAILS" ] || exit 1
 printf '%s\\0' "$CHANGED_PATH"
 `,
@@ -494,6 +494,16 @@ printf '%s\\0' "$CHANGED_PATH"
         output: "run=true\n",
       });
     });
+  test("a failed fetch keeps the consumer on a main push and fails a PR", () => {
+    const failed = { FETCH_FAILS: "1" };
+    expect(
+      changed("README.md", { ...failed, GITHUB_EVENT_NAME: "push" }),
+    ).toEqual({ code: 0, output: "run=true\n" });
+    expect(
+      changed("README.md", { ...failed, GITHUB_EVENT_NAME: "pull_request" })
+        .code,
+    ).toBe(1);
+  });
   test("a failed diff cannot silently omit the consumer", () => {
     expect(changed("README.md", { DIFF_FAILS: "1" }).code).toBe(1);
   });

@@ -11,6 +11,8 @@ export type TerminateSessionInput = {
   idempotencyKey: string;
   payloadHash: string;
   expectedRevision: number;
+  // When given, a session in another admission is a revision conflict.
+  expectedAdmissionState?: AdmissionState;
   reason: string | null;
   now: Date;
 };
@@ -21,6 +23,12 @@ export type TerminateSessionResult =
   // expected_revision does not match the row: the caller decided on a
   // state it no longer sees.
   | { outcome: "revision_conflict"; currentRevision: number }
+  // expected_admission_state does not match the row, whatever the revision.
+  | {
+      outcome: "admission_conflict";
+      admissionState: AdmissionState;
+      currentRevision: number;
+    }
   // A closed session has nothing left to terminate.
   | { outcome: "rejected"; admissionState: Extract<AdmissionState, "closed"> }
   // Bound through the legacy pod lifecycle, which has no kill path; the
