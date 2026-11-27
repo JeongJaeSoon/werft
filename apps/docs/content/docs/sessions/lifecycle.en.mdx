@@ -68,7 +68,7 @@ Reference: [`GET /v1/sessions/{id}`](/reference/http-api/sessions/getSession)
 
 ## wait_reason
 
-A session whose worker is waiting for room to start has `wait_reason` set to `waiting_for_capacity` and `waiting_since` set to when the wait began. Both are `null` otherwise. Its `status` is usually `queued`. Once the wait passes 30 seconds, the web console shows "Waiting for room to run this" in place of the status. If the session is linked to a Slack thread, that thread is told once as well.
+A session whose worker is waiting for room to start has `wait_reason` set to `waiting_for_capacity` and `waiting_since` set to when the wait began. Both are `null` otherwise. Its `status` is usually `queued`. Once the wait passes 30 seconds, the web console shows "Waiting for room to run this" in place of the status. If the session is linked to a Slack thread, that thread is told once as well. A thread whose report mode is progress (`progress`) gets no separate notice: the task's progress message changes to the same words.
 
 When room frees up, the worker starts and both fields return to `null`. If no room frees up within 15 minutes, the waiting turns end as `failed` and their receipts fail with `NO_CAPACITY`. The session itself does not fail. It returns to `idle` and takes the next message, which starts a new worker that continues the earlier conversation. A session that was resuming (`resuming`) goes back to `paused` with its checkpoint kept, and the resume's receipt fails with `NO_CAPACITY` too. Resume it again later and it continues from that checkpoint. Neither case goes to `recovery_required`.
 

@@ -5395,11 +5395,20 @@ describe.each(ENGINES)("a link's posting columns on %s", (engine) => {
       () => db.update(sessionLinks).set({ postPrompts: false }),
       ["instruction:2", "reply:1", "reply:2"],
     ],
-    // Until v1-b every mode but none posts once per turn, as full did.
+    // Until v1-b/P2 every mode but none posts once per turn, as full did;
+    // progress adds its message, from the first turn it sees unfinished.
     [
       "report_mode progress on the link",
       () => db.update(sessionLinks).set({ reportMode: "progress" }),
-      ["input_notice:2", "instruction:2", "reply:1", "reply:2"],
+      [
+        "input_notice:2",
+        "instruction:2",
+        "progress:2",
+        "progress:2",
+        "progress:2",
+        "reply:1",
+        "reply:2",
+      ],
     ],
     [
       "report_mode notify_only on the channel, unset on the link",
@@ -5428,7 +5437,11 @@ describe.each(ENGINES)("a link's posting columns on %s", (engine) => {
       await outboxPass();
 
       expect(await sent()).toEqual([...expected]);
-      expect(posted()).toHaveLength(expected.length);
+      // A progress message is one post; its later updates edit it.
+      const progress = expected.filter((row) => row.startsWith("progress:"));
+      expect(posted()).toHaveLength(
+        expected.length - progress.length + Math.min(progress.length, 1),
+      );
     },
   );
 
@@ -6731,5 +6744,177 @@ describe.each(ENGINES)("a progress message on %s", (engine) => {
       ["failed", "superseded"],
       ["sent", null],
     ]);
+  });
+});
+
+describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
+  useDatabase(engine);
+
+  const ko = SLACK_NOTICE_MESSAGES.ko;
+
+  // As if the interval since the message's last send ran out.
+  const intervalOver = async () => {
+    await db
+      .update(slackOutbox)
+      .set({ nextAttemptAt: sql`now()` })
+      .where(eq(slackOutbox.kind, "progress"));
+    await db.execute(
+      sql`UPDATE slack_outbox_rate_blocks SET blocked_until = now() - interval '1 second'`,
+    );
+  };
+
+  const progressRows = () =>
+    db
+      .select({
+        status: slackOutbox.status,
+        dedupeKey: slackOutbox.dedupeKey,
+        threadTs: slackOutbox.threadTs,
+        text: sql<string>`${slackOutbox.body}->>'text'`,
+      })
+      .from(slackOutbox)
+      .where(eq(slackOutbox.kind, "progress"))
+      .orderBy(asc(slackOutbox.seq));
+
+  const setTurn = (
+    sessionId: string,
+    status: "queued" | "running" | "needs_input",
+  ) =>
+    db
+      .update(turns)
+      .set({ status })
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 1)));
+
+  // The first line of each post: the stage, ahead of the link.
+  const postedLines = () =>
+    posted().map((message) => message.text.split("\n")[0]);
+
+  beforeEach(() => {
+    slack.updates.length = 0;
+  });
+
+  test("a task posts one progress message in its thread, then only edits it", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.update(sessionLinks).set({ reportMode: "progress" });
+    await setTurn(sessionId, "queued");
+
+    await outboxPass();
+    // Nothing changed: no new update.
+    await intervalOver();
+    await outboxPass();
+    expect(postedLines()).toEqual([ko.progressQueued]);
+    const [post] = posted();
+    if (!post) throw new Error("no post");
+    expect(post.threadTs).toBe(THREAD);
+    const blocks = String(
+      (post as { options?: { blocks?: string } }).options?.blocks,
+    );
+    expect(blocks).toContain(`${ko.progressStarted} <!date^`);
+    expect(blocks).toContain("^{ago}|");
+    expect(blocks).toMatch(/\|\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC>/);
+    expect(blocks).toContain(`<${CONSOLE}/sessions/${sessionId}|`);
+
+    await setTurn(sessionId, "running");
+    await intervalOver();
+    await outboxPass();
+    await setTurn(sessionId, "needs_input");
+    await intervalOver();
+    await outboxPass();
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await intervalOver();
+    await outboxPass();
+    await intervalOver();
+    await outboxPass();
+
+    // One post of the message; the turn's reply is a post of its own.
+    expect(postedLines()).toEqual([ko.progressQueued, "Done."]);
+    expect(posted().every((message) => message.threadTs === THREAD)).toBe(true);
+    expect(
+      slack.updates.map(({ ts, text }) => [ts, text.split("\n")[0]]),
+    ).toEqual([
+      [post.ts, ko.progressRunning],
+      [post.ts, ko.progressNeedsInput],
+      [post.ts, ko.progressIdle],
+    ]);
+    expect(
+      (await progressRows()).map(({ status, dedupeKey, threadTs }) => [
+        status,
+        dedupeKey.replace(/^progress:[^:]+:/, ""),
+        threadTs,
+      ]),
+    ).toEqual([
+      ["sent", "1:queued:1", THREAD],
+      ["sent", "2:running:1", THREAD],
+      ["sent", "3:needs_input:1", THREAD],
+      ["sent", "4:idle:1", THREAD],
+    ]);
+  });
+
+  test("a worker waiting for room shows the wait as the message, with no notice of its own", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.update(sessionLinks).set({ reportMode: "progress" });
+    await setTurn(sessionId, "queued");
+    const launch = await launchSession(db, {
+      sessionId,
+      backend: "kubernetes",
+    });
+    await db
+      .update(workerLaunches)
+      .set({ capacityWaitSince: new Date(Date.now() - 31_000) })
+      .where(eq(workerLaunches.executionId, launch.executionId));
+
+    await outboxPass();
+    await intervalOver();
+    await outboxPass();
+    expect(postedLines()).toEqual([ko.capacityWait]);
+    expect(slack.updates).toEqual([]);
+    expect((await rows()).map((row) => row.kind)).toEqual(["progress"]);
+
+    // Room found: the same message moves on.
+    await db
+      .update(workerLaunches)
+      .set({ capacityWaitSince: null })
+      .where(eq(workerLaunches.executionId, launch.executionId));
+    await setTurn(sessionId, "running");
+    await intervalOver();
+    await outboxPass();
+    expect(posted()).toHaveLength(1);
+    expect(slack.updates.map(({ text }) => text.split("\n")[0])).toEqual([
+      ko.progressRunning,
+    ]);
+  });
+
+  test("the channel's progress mode holds for a link with none of its own", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.update(surfaceBindings).set({ reportMode: "progress" });
+    await setTurn(sessionId, "running");
+    await outboxPass();
+    expect(postedLines()).toEqual([ko.progressRunning]);
+  });
+
+  test("a per_step link gets no progress message: a post per turn, and the wait's own notice", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await setTurn(sessionId, "running");
+    const launch = await launchSession(db, {
+      sessionId,
+      backend: "kubernetes",
+    });
+    await db
+      .update(workerLaunches)
+      .set({ capacityWaitSince: new Date(Date.now() - 31_000) })
+      .where(eq(workerLaunches.executionId, launch.executionId));
+    await outboxPass();
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await outboxPass();
+    expect(await progressRows()).toEqual([]);
+    expect(slack.updates).toEqual([]);
+    expect(postedLines()).toEqual([ko.capacityWait, "Done."]);
   });
 });

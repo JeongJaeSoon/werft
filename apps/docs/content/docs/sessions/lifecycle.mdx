@@ -68,7 +68,7 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" \
 
 ## wait_reason
 
-worker가 들어갈 자리가 없어 시작을 기다리는 세션은 `wait_reason`이 `waiting_for_capacity`이고, `waiting_since`에 기다리기 시작한 시각이 있다. 평소에는 둘 다 `null`이다. 이때 `status`는 보통 `queued`다. 웹 콘솔은 30초를 넘게 기다린 세션의 상태 자리에 "작업 자리를 기다리는 중"을 보인다. 세션이 Slack 스레드와 이어져 있으면 그 스레드에도 한 번 알린다.
+worker가 들어갈 자리가 없어 시작을 기다리는 세션은 `wait_reason`이 `waiting_for_capacity`이고, `waiting_since`에 기다리기 시작한 시각이 있다. 평소에는 둘 다 `null`이다. 이때 `status`는 보통 `queued`다. 웹 콘솔은 30초를 넘게 기다린 세션의 상태 자리에 "작업 자리를 기다리는 중"을 보인다. 세션이 Slack 스레드와 이어져 있으면 그 스레드에도 한 번 알린다. 보고 방식이 진행 갱신(`progress`)인 스레드에는 따로 알리지 않고, 그 작업의 진행 메시지가 같은 문구로 바뀐다.
 
 자리가 나면 worker가 시작하고 두 값은 `null`로 돌아간다. 15분 안에 자리가 나지 않으면 기다리던 turn이 `failed`로 끝나고, 그 입력의 접수는 `NO_CAPACITY`로 실패한다. 세션은 실패로 바뀌지 않는다. `idle`로 돌아가 다음 메시지를 받고, 다음 메시지가 새 worker를 띄워 이전 대화에서 이어 간다. resume 중(`resuming`)이던 세션은 checkpoint를 그대로 두고 `paused`로 돌아가며, resume의 접수도 `NO_CAPACITY`로 실패한다. 잠시 뒤 다시 resume하면 그 checkpoint에서 이어 간다. 어느 쪽도 `recovery_required`로 가지 않는다.
 

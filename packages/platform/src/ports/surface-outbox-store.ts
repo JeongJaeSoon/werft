@@ -334,6 +334,21 @@ export type SurfaceCapacityWait = SurfaceLinkedTurnTarget & {
 };
 
 /**
+ * What a progress link's progress message should show now, when that is not
+ * what its last update showed. `state` is one of
+ * `capacity_wait:<execution>:<generation>`, `<turn status>:<turn>` for the
+ * first unfinished turn (`queued`, `running`, `needs_input`), or
+ * `idle:<last turn>` once a message is up and no turn is unfinished.
+ */
+export type SurfaceProgressDue = SurfaceLinkedTurnTarget & {
+  state: string;
+  /** Updates the message has had so far. */
+  updates: number;
+  /** When the session's first turn was asked, in epoch seconds. */
+  startedAt: number | null;
+};
+
+/**
  * A turn of a live linked session asked from the web or the API that the
  * thread has not been shown yet.
  */
@@ -809,6 +824,14 @@ export interface SurfaceOutboxStore {
     limit: number,
     waitedMs: number,
   ): Promise<SurfaceCapacityWait[]>;
+  /**
+   * Live primary links that keep a progress message (`report_mode`
+   * progress) and have a thread, whose message is owed an update: its
+   * session has an unfinished turn or its message is up, and what it should
+   * show differs from its last update. A worker counts as waiting for room
+   * past `waitedMs`.
+   */
+  progressDue?(limit: number, waitedMs: number): Promise<SurfaceProgressDue[]>;
   /**
    * Channels the agent reads every message of that have not been told so
    * under the current notice (`slackChannelNoticeDedupeKey`).
