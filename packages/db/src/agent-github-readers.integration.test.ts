@@ -1320,7 +1320,7 @@ integration("the readers of an agent's GitHub settings", () => {
       expect((await gate.context(sessionId))?.policy.settings).toBe("invalid");
     });
 
-    test("a release pin with one reads as the pin without it, on the gate and the built-in server", async () => {
+    test("a release pin with one reads as the pin without it on the gate", async () => {
       const release = await fixture({
         pins: {
           github: {
