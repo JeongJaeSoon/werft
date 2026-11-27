@@ -86,6 +86,7 @@ export const RESULT_LABEL = {
 
 const WEBHOOK_NOTICE = {
   no_public_url: "skills.sync.webhook.no_public_url",
+  not_installed: "skills.sync.webhook.not_installed",
   no_secret: "skills.sync.webhook.no_secret",
 } as const satisfies Record<
   Exclude<SkillGitSource["webhook"], "ready">,

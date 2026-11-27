@@ -11,7 +11,10 @@ import {
   users,
   workspaces,
 } from "@werft-ai/db";
-import { createGitHubSkillReader } from "@werft-ai/forge-github";
+import {
+  createGitHubAppDirectory,
+  createGitHubSkillReader,
+} from "@werft-ai/forge-github";
 import {
   callerFor,
   createAuthorizationPolicy,
@@ -78,6 +81,7 @@ integration("Git skill sync against fake GitHub", () => {
         [...connections.values()].filter(
           (one) => one.workspaceId === workspaceId,
         ),
+      installations: async () => [{ id: INSTALLATION, suspendedAt: null }],
       installationFor: async () => ({ id: INSTALLATION }),
       webhookSecrets: async (appId) =>
         appId === APP_ID
@@ -107,8 +111,8 @@ integration("Git skill sync against fake GitHub", () => {
     await database.drop();
   }, 60_000);
 
-  /** A workspace with an admin, its author App, and a repository of one skill. */
-  async function setUp(repo: string, name: string, ref = "main") {
+  /** A workspace with an admin and its author App on `apiBase`. */
+  async function workspaceWithApp(apiBase: string) {
     const workspaceId = randomUUID();
     const slug = `ws-${workspaceId.slice(0, 8)}`;
     await db.insert(workspaces).values({ id: workspaceId, slug, name: slug });
@@ -116,13 +120,13 @@ integration("Git skill sync against fake GitHub", () => {
     await pool.query(
       `INSERT INTO github_apps (id, workspace_id, role, app_id, slug, name, html_url, api_base)
        VALUES ($1, $2, 'author', $3, 's', 'n', 'https://github.com/apps/s', $4)`,
-      [connectionId, workspaceId, APP_ID, github.origin],
+      [connectionId, workspaceId, APP_ID, apiBase],
     );
     connections.set(connectionId, {
       id: connectionId,
       workspaceId,
       appId: APP_ID,
-      apiBase: github.origin,
+      apiBase,
       privateKey,
       updatedAt: new Date(),
     });
@@ -145,6 +149,12 @@ integration("Git skill sync against fake GitHub", () => {
       { kind: "web" },
       randomUUID(),
     );
+    return { workspaceId, caller };
+  }
+
+  /** A workspace with an admin, its author App, and a repository of one skill. */
+  async function setUp(repo: string, name: string, ref = "main") {
+    const { workspaceId, caller } = await workspaceWithApp(github.origin);
     await github.createRepository("acme", repo, {
       "README.md": "top\n",
       [`skills/${name}/SKILL.md`]: skillMd(name, "First."),
@@ -473,5 +483,99 @@ integration("Git skill sync against fake GitHub", () => {
     });
     expect(await skill.versions()).toHaveLength(1);
     expect(failures).toEqual([]);
+  });
+
+  test("without the App installed, a public repository is read with the App's own installation; a private one is refused; an installed one reads as before", async () => {
+    // This App's one installation covers acme/elsewhere and nothing else.
+    const other = await startFakeGitHub({
+      appId: APP_ID,
+      publicKey,
+      installationId: 77,
+      installedOn: ["acme/elsewhere"],
+    });
+    try {
+      const skill = (name: string, body = "First.") => ({
+        "skills/pdf/SKILL.md": skillMd(name, body),
+      });
+      await other.createRepository("acme", "elsewhere", skill("installed-pdf"));
+      await other.createRepository("anthropics", "open", skill("open-pdf"), {
+        private: false,
+      });
+      await other.createRepository(
+        "anthropics",
+        "closed",
+        skill("closed-pdf"),
+        { private: true },
+      );
+      const directory = createGitHubAppDirectory({ retryAfterBaseMs: 1 });
+      const sources = createPostgresSkillGitSourceStore(db);
+      const reading = createSkillGitSync({
+        authorization: createAuthorizationPolicy({}),
+        sources,
+        bundles: createExtensionBundleService({
+          store: createPostgresExtensionBundleStore(db),
+          objects: createMemoryCheckpointObjectStore(),
+          hosts: renderedHostExtractor,
+        }),
+        reader: createGitHubSkillReader({ retryAfterBaseMs: 1 }),
+        apps: async (workspaceId) =>
+          [...connections.values()].filter(
+            (one) => one.workspaceId === workspaceId,
+          ),
+        installations: (app) => directory.installations(app),
+        installationFor: (app, repo) => directory.installationFor(app, repo),
+        webhookSecrets: async () => [],
+        webhookUrl: async () => "https://werft.example.com/v1/github/webhook",
+        failed: (error) => failures.push(error),
+      });
+      const { workspaceId, caller } = await workspaceWithApp(other.origin);
+      const register = (name: string, repository: string) =>
+        reading.register(caller, {
+          name,
+          repository,
+          path: "skills/pdf",
+          ref: "main",
+        });
+
+      expect((await register("open-pdf", "anthropics/open")).outcome).toBe(
+        "registered",
+      );
+      expect(await sources.get(workspaceId, "open-pdf")).toMatchObject({
+        access: "public",
+        installationId: 77,
+        repository: "anthropics/open",
+      });
+      expect((await reading.views(workspaceId)).get("open-pdf")).toMatchObject({
+        access: "public",
+        webhook: "not_installed",
+      });
+      await other.writeFiles("anthropics", "open", "main", {
+        "skills/pdf/SKILL.md": skillMd("open-pdf", "Second."),
+      });
+      expect(
+        (await reading.checkNow(caller, "open-pdf")).last_check,
+      ).toMatchObject({ result: "created" });
+
+      await expect(
+        register("closed-pdf", "anthropics/closed"),
+      ).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        details: { reason_code: "repository_not_installed" },
+      });
+
+      expect((await register("installed-pdf", "acme/elsewhere")).outcome).toBe(
+        "registered",
+      );
+      expect(await sources.get(workspaceId, "installed-pdf")).toMatchObject({
+        access: "installation",
+        installationId: 77,
+      });
+      expect(
+        new Set(other.tokenRequests.map((one) => one.installationId)),
+      ).toEqual(new Set([77]));
+      expect(failures).toEqual([]);
+    } finally {
+      await other.stop();
+    }
   });
 });

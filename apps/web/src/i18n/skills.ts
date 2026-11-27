@@ -84,6 +84,8 @@ export const skillsKo = {
     "이 설치는 GitHub가 닿는 공개 주소가 없어 push webhook을 받지 못합니다. 하루 한 번 확인과 지금 확인으로만 새 버전을 찾습니다.",
   "skills.sync.webhook.no_secret":
     "GitHub App의 webhook secret이 저장되어 있지 않아 push webhook을 받지 못합니다. 하루 한 번 확인과 지금 확인으로만 새 버전을 찾습니다.",
+  "skills.sync.webhook.not_installed":
+    "App이 설치되지 않은 공개 저장소라 push webhook을 받지 못합니다. 하루 한 번 확인과 지금 확인으로만 새 버전을 찾습니다.",
   "skills.workspace.title": "워크스페이스 지정",
   "skills.workspace.scope": "모든 에이전트",
   "skills.workspace.description":
@@ -186,7 +188,7 @@ export const skillsKo = {
   "skills.refused.connection_not_found":
     "고른 GitHub App이 이 워크스페이스에 없습니다. 연동 > GitHub에서 확인하세요.",
   "skills.refused.repository_not_installed":
-    "App이 이 저장소에 설치되어 있지 않아 읽지 못했습니다. 연동 > GitHub에서 설치를 확인하세요.",
+    "App이 이 저장소에 설치되어 있지 않고 공개 저장소도 아니라 읽지 못했습니다. 연동 > GitHub에서 설치를 확인하세요.",
   "skills.refused.path_not_found": "그 ref에 이 경로가 없습니다.",
   "skills.refused.github_unreachable": "GitHub에 닿지 못했습니다.",
   "skills.refused.github_rejected": "GitHub가 App의 요청을 거절했습니다.",
@@ -353,6 +355,8 @@ export const skillsEn = {
     "This installation has no public address GitHub can reach, so it gets no push webhooks. New versions are found only by the daily check and Check now.",
   "skills.sync.webhook.no_secret":
     "The GitHub App's webhook secret is not stored, so this installation gets no push webhooks. New versions are found only by the daily check and Check now.",
+  "skills.sync.webhook.not_installed":
+    "The App is not installed on this public repository, so it gets no push webhooks. New versions are found only by the daily check and Check now.",
   "skills.workspace.title": "Workspace attachment",
   "skills.workspace.scope": "All agents",
   "skills.workspace.description":
@@ -456,7 +460,7 @@ export const skillsEn = {
   "skills.refused.connection_not_found":
     "The chosen GitHub App is not in this workspace. Check Integrations > GitHub.",
   "skills.refused.repository_not_installed":
-    "The App is not installed on this repository, so it could not read it. Check the installation in Integrations > GitHub.",
+    "The App is not installed on this repository and it is not public, so it could not read it. Check the installation in Integrations > GitHub.",
   "skills.refused.path_not_found": "This path does not exist at that ref.",
   "skills.refused.github_unreachable": "GitHub could not be reached.",
   "skills.refused.github_rejected": "GitHub refused the App's request.",
@@ -624,6 +628,8 @@ export const skillsJa = {
     "このインストールには GitHub から届く公開アドレスがないため、push webhook を受け取れません。新しいバージョンは 1 日 1 回の確認と今すぐ確認でのみ見つけます。",
   "skills.sync.webhook.no_secret":
     "GitHub App の webhook secret が保存されていないため、push webhook を受け取れません。新しいバージョンは 1 日 1 回の確認と今すぐ確認でのみ見つけます。",
+  "skills.sync.webhook.not_installed":
+    "App がインストールされていない公開リポジトリのため、push webhook を受け取れません。新しいバージョンは 1 日 1 回の確認と今すぐ確認でのみ見つけます。",
   "skills.workspace.title": "ワークスペースの指定",
   "skills.workspace.scope": "すべてのエージェント",
   "skills.workspace.description":
@@ -727,7 +733,7 @@ export const skillsJa = {
   "skills.refused.connection_not_found":
     "選んだ GitHub App はこのワークスペースにありません。連携 > GitHub で確認してください。",
   "skills.refused.repository_not_installed":
-    "App がこのリポジトリにインストールされていないため読めませんでした。連携 > GitHub でインストールを確認してください。",
+    "App がこのリポジトリにインストールされておらず、公開リポジトリでもないため読めませんでした。連携 > GitHub でインストールを確認してください。",
   "skills.refused.path_not_found": "その ref にこのパスはありません。",
   "skills.refused.github_unreachable": "GitHub に届きませんでした。",
   "skills.refused.github_rejected":

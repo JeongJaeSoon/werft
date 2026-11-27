@@ -75,6 +75,7 @@ function gitSource(over: Partial<SkillGitSource> = {}): SkillGitSource {
   return {
     connection_id: "1a2b3c4d-0000-4000-8000-00000000000a",
     installation_id: 42,
+    access: "installation",
     repository_id: 7,
     repository: "acme/skills",
     path: "skills/triage",

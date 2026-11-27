@@ -3300,7 +3300,7 @@ export interface paths {
         put?: never;
         /**
          * Register a skill from a GitHub repository
-         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Reads `path` of `repository` at `ref` (a branch, a tag or a commit SHA) with the workspace's author App: `connection_id` names the connection, and may be left out while the workspace has one. The ref is resolved to a commit through the GitHub API and the directory at that commit is checked as an upload is; the version records the repository id, path, ref and commit. The source is fixed per skill: a name that already has versions is 409 `ALREADY_EXISTS` `source_mismatch`, and an upload to a GitHub skill is refused the same way. Refused with 400 `reason_code` `connection_required`, `connection_not_found`, `repository_not_installed` (the App cannot read it), `ref_not_found`, `path_not_found` or `skill_invalid` (with `details.issues`); GitHub unreachable or refusing the App is 502 `GITHUB_UNAVAILABLE`. Afterwards a push webhook, a daily check and POST …/sync/check each make the next `pending` version when the content changed. Writes a `register_extension` receipt.
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Reads `path` of `repository` at `ref` (a branch, a tag or a commit SHA) with the workspace's author App: `connection_id` names the connection, and may be left out while the workspace has one. The ref is resolved to a commit through the GitHub API and the directory at that commit is checked as an upload is; the version records the repository id, path, ref and commit. The source is fixed per skill: a name that already has versions is 409 `ALREADY_EXISTS` `source_mismatch`, and an upload to a GitHub skill is refused the same way. Refused with 400 `reason_code` `connection_required`, `connection_not_found`, `repository_not_installed` (the App is not installed there and it is not public), `ref_not_found`, `path_not_found` or `skill_invalid` (with `details.issues`); GitHub unreachable or refusing the App is 502 `GITHUB_UNAVAILABLE`. A public repository the App is not installed on is read with the token of the App's oldest installation that is not suspended: the source's `access` is `public`, and its `webhook` is `not_installed` since GitHub sends it no push. Afterwards a push webhook, a daily check and POST …/sync/check each make the next `pending` version when the content changed. Writes a `register_extension` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -12386,13 +12386,15 @@ export interface components {
                     /** Format: uuid */
                     connection_id: string;
                     installation_id: number;
+                    /** @enum {string} */
+                    access: "installation" | "public";
                     repository_id: number;
                     repository: string;
                     path: string;
                     ref: string;
                     sync_enabled: boolean;
                     /** @enum {string} */
-                    webhook: "ready" | "no_public_url" | "no_secret";
+                    webhook: "ready" | "no_public_url" | "no_secret" | "not_installed";
                     /** @description Auto-approve: while on, the sync approves a version that passes the fixed-rule checks, with no person's review. */
                     auto_approve: {
                         /** @enum {string} */
@@ -12602,13 +12604,15 @@ export interface components {
                 /** Format: uuid */
                 connection_id: string;
                 installation_id: number;
+                /** @enum {string} */
+                access: "installation" | "public";
                 repository_id: number;
                 repository: string;
                 path: string;
                 ref: string;
                 sync_enabled: boolean;
                 /** @enum {string} */
-                webhook: "ready" | "no_public_url" | "no_secret";
+                webhook: "ready" | "no_public_url" | "no_secret" | "not_installed";
                 /** @description Auto-approve: while on, the sync approves a version that passes the fixed-rule checks, with no person's review. */
                 auto_approve: {
                     /** @enum {string} */

@@ -216,13 +216,28 @@ export const SKILL_WEBHOOK_STATE_VALUES = [
   "no_public_url",
   // The App connection has no webhook secret stored, or is gone.
   "no_secret",
+  // A public repository the App is not installed on sends no push: daily
+  // checks and "지금 확인" only.
+  "not_installed",
 ] as const;
+export type SkillWebhookState = (typeof SKILL_WEBHOOK_STATE_VALUES)[number];
+
+export const SKILL_GIT_ACCESS_VALUES = [
+  // The App is installed on the repository; its installation's token reads it.
+  "installation",
+  // A public repository the App is not installed on, read with the token of
+  // another installation of the same App.
+  "public",
+] as const;
+export type SkillGitAccess = (typeof SKILL_GIT_ACCESS_VALUES)[number];
 
 export const skillGitSourceSchema = z
   .object({
     /** The workspace's author App connection that reads it. */
     connection_id: z.uuid(),
+    /** The installation whose token reads it; with `public` access, one that does not cover it. */
     installation_id: z.number().int().positive(),
+    access: z.enum(SKILL_GIT_ACCESS_VALUES),
     repository_id: githubRepositoryIdSchema,
     /** `owner/name` when it was registered; the id is what is matched. */
     repository: z.string(),
