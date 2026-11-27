@@ -2880,7 +2880,38 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       expect(link?.closedAt).not.toBeNull();
     });
 
-    test("calls no one for a turn a Slack bot asked for, not even who opened the thread", async () => {
+    test("a tool call it cannot read keeps the text beside it, as a reply reads it", async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("first")]]);
+      expect(await outboxPass()).toMatchObject({ sent: 1 });
+      await sayAfterTurn(sessionId, 1, [
+        { text: "Done.", tool_call: { id: "t", input: null } },
+      ]);
+      await outboxPass();
+      expect(posted()[1]?.text.split("\n\n")[1]).toBe("Done.");
+    });
+
+    test("text further back than a reply reads is none, so it holds no place ahead of a later answer", async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("first")]]);
+      expect(await outboxPass()).toMatchObject({ sent: 1 });
+      await sayAfterTurn(sessionId, 1, [
+        text("Long ago."),
+        ...Array.from({ length: 500 }, () => ({ thinking: "…" })),
+      ]);
+      const answer = await sayAfterTurn(sessionId, 1, [text("Done.")]);
+      expect(
+        (await createPostgresSlackOutboxStore(db).afterTurnReplies(1)).map(
+          (reply) => reply.resultSequence,
+        ),
+      ).toEqual([answer]);
+    });
+
+    test("calls no one for a turn no person sent, not even who opened the thread", async () => {
       const fixture = await agentInSlack();
       await mention(fixture, THREAD);
       const sessionId = await sessionOf(fixture);
@@ -2888,7 +2919,8 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       expect(await outboxPass()).toMatchObject({ sent: 1 });
       await db
         .update(turns)
-        .set({ requesterKind: "slack_bot", actorId: null })
+        // An agent's turn: the old CASE on slack_bot alone named the opener.
+        .set({ requesterKind: "agent", actorId: null })
         .where(eq(turns.sessionId, sessionId));
       await sayAfterTurn(sessionId, 1, [text("later")]);
       await outboxPass();

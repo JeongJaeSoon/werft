@@ -379,12 +379,13 @@ const readField = (x: SQL, key: "text" | "tool_call") =>
 // Event `x` is a tool call as eventToolCall reads one.
 const isToolCall = (x: SQL) => {
   const call = readField(x, "tool_call");
-  return sql`(jsonb_typeof(${x}.payload) = 'object'
+  // Never NULL: a field it lacks makes it no tool call, as in TS.
+  return sql`coalesce(jsonb_typeof(${x}.payload) = 'object'
     AND jsonb_typeof(${call}) = 'object'
     AND jsonb_typeof(${call} -> 'id') = 'string'
     AND ${call} ->> 'id' <> ''
     AND jsonb_typeof(${call} -> 'name') = 'string'
-    AND ${call} -> 'input' IS NOT NULL)`;
+    AND ${call} -> 'input' IS NOT NULL, false)`;
 };
 // After-turn result `e` has something to say: as finalReplyText reads its
 // events, text after the last tool call since the turn's previous such
@@ -406,6 +407,21 @@ const afterTurnSays = (e: SQL) => {
       AND jsonb_typeof(${text}) = 'string'
       AND btrim(${text} #>> '{}', ${JS_WHITESPACE}) <> ''
       AND NOT ${isToolCall(w)}
+      -- Within the last AFTER_TURN_EVENTS_READ events, all a reply reads.
+      AND (
+        SELECT count(*) FROM (
+          SELECT 1 FROM events c
+          WHERE c.session_id = ${e}.session_id
+            AND c.id > w.id
+            AND c.id < ${e}.id
+            AND c.turn_id = ${e}.turn_id
+            AND c.attempt_id = ${e}.attempt_id
+            AND (c.neutral ->> 'after_turn') IS NOT NULL
+            AND c.type IN ('assistant', 'tool_use')
+            AND c.payload ->> 'parent_tool_use_id' IS NULL
+          LIMIT ${AFTER_TURN_EVENTS_READ}
+        ) later
+      ) < ${AFTER_TURN_EVENTS_READ}
       AND NOT EXISTS (
         SELECT 1 FROM events z
         WHERE z.session_id = ${e}.session_id
@@ -1240,6 +1256,7 @@ export function createPostgresSlackOutboxStore(
                   AND et.attempt_id = e.attempt_id
                 JOIN ${slackInstallations} i ON i.id = l2.installation_id
                   AND i.status <> 'revoked'
+                JOIN ${slackApps} a ON a.app_id = i.app_id
                 WHERE e.session_id = l2.session_id
                   AND e.type = 'result'
                   AND (e.neutral ->> 'after_turn') IS NOT NULL
@@ -1755,6 +1772,7 @@ export function createPostgresSlackOutboxStore(
                 AND p.type = 'result'
                 AND (p.neutral ->> 'after_turn') IS NOT NULL
                 AND p.turn_id = e.turn_id
+                AND p.attempt_id = e.attempt_id
                 AND p.id < e.id
             ) AS previous_id
           FROM events e
