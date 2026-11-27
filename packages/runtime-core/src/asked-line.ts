@@ -480,7 +480,9 @@ const CONFIG_VERBS = [
 ];
 
 const configOption = (word: string) =>
-  CONFIG_READ_OPTIONS.includes(word) || /^-[lz]+$/.test(word);
+  CONFIG_READ_OPTIONS.includes(word) ||
+  /^-[lz]+$/.test(word) ||
+  /^--type=\w+$/.test(word);
 
 /**
  * Whether `git config`, after its verb, only reads, or sets who the commits
@@ -612,7 +614,7 @@ function grepOperands(words: readonly string[]): {
 
 /** What in a git or gh word may be a path: an option's value, a glued cluster's tail, a pathspec, a `rev:` path, `@file`, a `file#label`. */
 function refPathsIn(word: string): string[] {
-  const found = new Set(pathsIn(word));
+  const found = new Set([word, ...pathsIn(word)]);
   if (/^-[^-]/.test(word)) {
     for (let at = 2; at < word.length; at += 1) found.add(word.slice(at));
   }
@@ -626,14 +628,15 @@ function refPathsIn(word: string): string[] {
   return [...found];
 }
 
-/** The paths in a word that git reads from the repository's top: `rev:path`, `:(top)path`, `:/path`. */
+/** The paths in a word that git may read from the repository's top: what follows any `:`, with a pathspec's magic taken off. */
 function rootRelative(word: string): string[] {
-  const value = word.includes("=") ? word.slice(word.indexOf("=") + 1) : word;
-  const at = value.indexOf(":");
-  if (at === -1) return [];
-  const rest = value.slice(at + 1);
-  const magic = /^(\([^)]*\)|[^\w./(]*)/.exec(rest);
-  return [rest, rest.slice(magic?.[0].length ?? 0)];
+  const found: string[] = [];
+  for (let at = word.indexOf(":"); at !== -1; at = word.indexOf(":", at + 1)) {
+    const rest = word.slice(at + 1);
+    const magic = /^(\([^)]*\)|[^\w./(]*)/.exec(rest);
+    found.push(rest, rest.slice(magic?.[0].length ?? 0));
+  }
+  return found;
 }
 
 /**
@@ -648,52 +651,30 @@ function narrowKept(words: readonly string[], place: Place): string | null {
     return located !== undefined && sensitive(located);
   };
   if (name === "git" || name === "gh") {
-    // One pass in git's own order: a message flag takes the next word as
-    // text, `--` among it as well; the first `--` that is not a message ends
-    // the options, and every word past it is a path.
-    let message = false;
-    let paths = false;
+    // Which option takes a value is not known here (`-F -m`, `-e -m`,
+    // `-m --`), so no word is skipped as a message or a value: every word
+    // is read as a path and as an option.
     for (const word of words.slice(1)) {
-      if (!paths && message) {
-        message = false;
-        continue;
-      }
-      if (!paths && word === "--") {
-        paths = true;
-        continue;
-      }
-      if (!paths) {
-        if (MESSAGE_FLAGS.includes(word)) {
-          message = true;
-          continue;
-        }
-        // `--message=x`, and git's glued `-mx`.
-        if (
-          MESSAGE_FLAGS.some((flag) => word.startsWith(`${flag}=`)) ||
-          (name === "git" && /^-m./.test(word))
-        ) {
-          continue;
-        }
-        // git takes a long option by any unique start of its name.
-        const option = word.split("=")[0] as string;
-        if (
-          name === "git" &&
-          option.length > 2 &&
-          option.startsWith("--") &&
-          ("--pathspec-from-file".startsWith(option) ||
-            option.startsWith("--pathspec-from-file"))
-        ) {
-          return "a path list the line does not show";
-        }
+      // git takes a long option by any unique start of its name.
+      const option = word.split("=")[0] as string;
+      if (
+        name === "git" &&
+        option.length > 2 &&
+        option.startsWith("--") &&
+        ("--pathspec-from-file".startsWith(option) ||
+          option.startsWith("--pathspec-from-file"))
+      ) {
+        return "a path list the line does not show";
       }
       // A secret or engine-settings path given to git or gh: `git checkout
       // HEAD -- .claude/settings.json`, `gh pr create --body-file .env`.
-      // `HEAD:<path>` and `:(top)<path>` are from the repository's top,
-      // which may not be where the shell stands.
-      const candidates = refPathsIn(word);
+      // `HEAD:<path>`, `:0:<path>` and `:(top)<path>` are from the
+      // repository's top, which may not be where the shell stands.
       if (
-        candidates.some((path) => keptPath(path)) ||
-        rootRelative(word).some((path) => keptPath(path, place.root))
+        refPathsIn(word).some((path) => keptPath(path)) ||
+        rootRelative(word).some(
+          (path) => keptPath(path) || keptPath(path, place.root),
+        )
       ) {
         return "a path that goes to a person";
       }

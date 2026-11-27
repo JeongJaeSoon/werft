@@ -27,6 +27,7 @@ symlinkSync(join(root, "outside"), join(workspace, "link"));
 symlinkSync(join(root, "missing"), join(workspace, "dangling"));
 // A link inside the workspace whose target is a kept place.
 symlinkSync(join(workspace, ".claude"), join(workspace, "settings-link"));
+symlinkSync(join(workspace, ".claude"), join(workspace, "--settings-link"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 const at = (shell: string | undefined = workspace) => ({
@@ -519,13 +520,10 @@ const NARROW: [string, string, string | null][] = [
     "git config set user.email bot@example.test",
     "git config User.Email bot@example.test",
     "git --no-pager log --oneline -3",
-    "git commit -m .claude",
-    "git commit -m.claude",
-    "git commit -m --pathspec-from-file",
     "git config --get -- user.email",
     "git config --get-urlmatch http.proxy https://example.test",
     "git --version",
-    "git log --oneline -- --pathspec",
+    "git config --type=bool --get core.bare",
     "grep -r x notes --color=never",
     "mkdir -p newnotes && grep -rn x newnotes",
     "grep -rn -e sample -e other notes",
@@ -681,6 +679,14 @@ const NARROW: [string, string, string | null][] = [
       ["git --exec-path=notes status", "option before its command"],
       ["git show HEAD:.claude/settings.json", "goes to a person"],
       ["git commit -m -- --pathspec-from-file=notes/l", "a path list"],
+      ["git commit -F -m --pathspec-from-file=notes/l", "a path list"],
+      ["git commit -F -- --pathspec-from-file=notes/l", "a path list"],
+      ["git grep -e -m .claude/settings.json", "goes to a person"],
+      ["git show HEAD:.claude/settings=local.json", "goes to a person"],
+      ["git show :0:.claude/settings.json", "goes to a person"],
+      ["gh pr create --body-file --settings-link", "goes to a person"],
+      ["gh release upload v1 -- --settings-link", "goes to a person"],
+      ["git commit -m .claude", "goes to a person"],
       ["git diff -- -m .claude/settings.json", "goes to a person"],
       [
         "git checkout HEAD -- ':(top,literal).claude/settings.json'",
