@@ -39,6 +39,12 @@ export type RuntimeStartConfig = RuntimeMode & {
    * fingerprint.
    */
   gitEnvironment?: GitEnvironment;
+  /**
+   * The claim's `egress_report` token, put into the engine's proxy
+   * variables as their userinfo (`proxyUrlWithReportToken`). Read from the
+   * claim at every start, so never part of a checkpoint's fingerprint.
+   */
+  egressReportToken?: string;
   home: string;
   /**
    * The most this run may spend, in USD, as the engine estimates it. The

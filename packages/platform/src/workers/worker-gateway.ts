@@ -372,6 +372,12 @@ function generateEgressToken(purpose: EgressPurpose): string {
   return `${EGRESS_TOKEN_PREFIXES[purpose]}_${randomBytes(32).toString("base64url")}`;
 }
 
+// Not an EgressPurpose: the token is a lookup key the proxy reports a
+// refusal with, and no route authorizes it.
+function generateEgressReportToken(): string {
+  return `wed_${randomBytes(32).toString("base64url")}`;
+}
+
 /** What the egress proxy is told to do with one authorized request. */
 export type EgressGrant = {
   session_id: string;
@@ -1935,6 +1941,7 @@ export function createWorkerGateway(deps: {
       const repositoryToken = generateEgressToken("repository");
       const objectStoreToken = generateEgressToken("object_store");
       const mcpToken = generateEgressToken("mcp");
+      const reportToken = generateEgressReportToken();
       const packagesToken = generateEgressToken("packages");
       // Read before the claim, so one that cannot read them spends no nonce;
       // the same read is what the engine is told it may spend.
@@ -1966,6 +1973,7 @@ export function createWorkerGateway(deps: {
           repositoryHash: hashWorkerToken(repositoryToken),
           objectStoreHash: hashWorkerToken(objectStoreToken),
           mcpHash: hashWorkerToken(mcpToken),
+          reportHash: hashWorkerToken(reportToken),
           packagesHash: hashWorkerToken(packagesToken),
           bindingsOf: (session) =>
             egressBindingsOf(session, request.capabilities?.werft_mcp === true),
@@ -2165,6 +2173,7 @@ export function createWorkerGateway(deps: {
               token: repositoryToken,
             },
             principal: { owner_scope: binding.ownerScope },
+            egress_report: { kind: "egress_token", token: reportToken },
             restore: binding.restore,
             // A replay can bind a session that has since spent its budget;
             // its engine gets nothing to spend, and nextInput hands it no turn.
