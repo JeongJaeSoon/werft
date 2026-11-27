@@ -160,7 +160,7 @@ bun run check:fast
 
 | 도는 것 | 잡는 것 | 2026-11-13 ~ 11-27에 PR CI에서 실패한 run |
 | --- | --- | --- |
-| `bun run lint` | 형식과 lint | 14 |
+| `biome check --diagnostic-level=error .` | 형식과 lint. `bun run lint`와 같은 검사이고 error만 보인다 | 14 |
 | `integration-jobs.ts files` | 새 시험 파일이 어느 integration domain에도 속하지 않는다 | 8 |
 | `packages/core/src/bundle-budget.test.ts` | core 번들이 크기 예산을 넘는다 | 26 |
 | `tests/architecture.test.ts` | 패키지 사이의 금지된 import | 22 |
@@ -170,6 +170,7 @@ bun run check:fast
 
 - 새 gate가 아니다. CI는 같은 시험을 그대로 돌린다.
 - 타입을 바꿨으면 `bun run typecheck`도 돌린다(CI에서 약 3분, 같은 기간 실패 11 run). 묶음에는 넣지 않았다.
+- `bun run lint`는 진단을 20개까지만 보인다. warning이 그보다 많아서, 실패해도 error의 위치가 "Diagnostics not shown"에 묻힌다. 묶음은 error만 보이게 돌린다.
 - 전부 돌리려면 `bun run check`다.
 
 ## 규칙

@@ -852,7 +852,9 @@ test("check:fast runs lint, the job assignment check and guard tests that exist"
   ) as { scripts: Record<string, string> };
   const steps = scripts["check:fast"]?.split(" && ") ?? [];
   expect(steps.slice(0, 2)).toEqual([
-    "bun run lint",
+    // `bun run lint` with the errors alone: its 20 diagnostics are otherwise
+    // spent on warnings, and the error that failed it is not shown.
+    "biome check --diagnostic-level=error .",
     "bun .github/scripts/integration-jobs.ts files db 1 >/dev/null",
   ]);
   // A guard that moved would otherwise drop out on a developer's machine only.
