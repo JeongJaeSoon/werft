@@ -433,7 +433,7 @@ M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는�
 | --- | --- | --- | --- |
 | (판단 전) | `speak`, `target_ts` 있음 | M1이 `speak`로 답하고 `reply_to`가 읽은 글(refs) 가운데 하나를 가리킨다. 답글 판단은 그 답글 자신이다 | M1 판단 pass |
 | (판단 전) | `quiet`/`invalid_target` | 묶음 판단의 `speak`가 답할 글을 고르지 않았거나, 읽지 않은 글을 가리켰다. 턴을 내지 않는다 | M1 판단 pass |
-| `speak`, `turn_id`·`answer` 없음 | `turn_id` 있음 | rollout `on`, 채널 binding이 살아 있고(`ready`, `mode = on`, 듣기 켜짐, 외부 공유 아님, 긴급 정지 아님), 턴의 출처 글에 지움 표식이 없다. 턴(요청자 없음, root none)과 permit, 판단의 `turn_id`를 한 transaction에 쓰고, 답할 글의 첫 시도(attempt 1)로 큐에 넣는다 | 판단을 기록한 M1 판단 pass |
+| `speak`, `turn_id`·`answer` 없음 | `turn_id` 있음 | rollout `on`, 채널 binding이 살아 있고(`ready`, `mode = on`, 외부 공유 아님, 긴급 정지 아님) 판단한 글을 아직 듣는다(묶음 판단의 글은 듣기 `free`일 때만, 관여한 스레드의 답글은 `free`나 `mention`일 때), 턴의 출처 글에 지움 표식이 없다. 턴(요청자 없음, root none)과 permit, 판단의 `turn_id`를 한 transaction에 쓰고, 답할 글의 첫 시도(attempt 1)로 큐에 넣는다 | 판단을 기록한 M1 판단 pass |
 | `speak`, `turn_id`·`answer` 없음 | 그대로 | rollout `shadow`·`off`. 판단만 남는다 | M1 판단 pass |
 | `speak`, `turn_id`·`answer` 없음 | `answer` = `source_deleted` | 턴의 출처 글에 지움 표식이 있다 | M1 판단 pass |
 | `speak`, `turn_id`·`answer` 없음 | `answer` = `channel_stopped` | 살아 있는 binding이 없거나 긴급 정지 중이다 | M1 판단 pass |
@@ -452,19 +452,25 @@ M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는�
 - `shadow`·`off`에서 턴을 내지 않는다("rollout shadow/off: ... no turn is made"). 판단 기록이 주제를 지운 뒤에도 `rollout_off`로 답하고 판단에 아무것도 쓰지 않는다("rollout shadow: no turn comes, and the topic goes with the post").
 - 턴이 있는 판단에 `not_started`류를 덮어쓰지 않는다. 끝은 한 번만 쓴다("why no turn was made is written once ...", "a reply is replied ..., written once").
 - 아직 `running`인 턴의 끝을 쓰지 않는다("a running turn writes nothing yet").
-- `target_ts`는 refs 밖이거나 `speak`가 아닌 판단에 둘 수 없다. `turn_id`·`answer`는 `target_ts` 없이 둘 수 없고, `answer`는 위 값만 받는다. `speak`는 `invalid_target`을 이유로 가질 수 없다(CHECK, "conversation_judgments' unasked columns" 시험들).
-- 속도 제한(`rate_limited`)·`quiet`·기록되지 않은 판단, `m1`·`m1_to_task` 답글은 턴을 내지 않는다(`packages/platform/src/conversations/unasked-turns.test.ts`).
+- `target_ts`는 refs 밖이거나 `speak`가 아닌 판단에 둘 수 없다. `turn_id`·`answer`는 `target_ts` 없이 둘 수 없고, `answer`는 위 값만 받는다. `speak`는 `invalid_target`을 이유로 가질 수 없다(CHECK, "conversation_judgments' unasked columns" 시험들). refs에 NULL이 섞여 있어도 refs 밖의 `target_ts`는 막는다("a target not among the refs is refused, a null among them too").
+- 속도 제한(`rate_limited`)·`quiet`·기록되지 않은 판단, `m1`·`m1_to_task` 답글은 턴을 내지 않는다(`packages/platform/src/conversations/unasked-turns.test.ts`). DB도 그 둘의 판단으로는 턴을 쓰지 않는다("a bound session's reply that spoke makes none: the session answers it").
+- 묶음을 닫은 뒤 채널 듣기가 `mention`으로 바뀌면 묶음 판단은 턴을 내지 않는다. 관여한 스레드의 답글 판단은 낸다("listening for mentions alone: no turn", "an engaged reply still speaks while the channel hears mentions alone").
 - 닫힌 작업 스레드의 답글은 `speak`여도 청하지 않은 턴이 없고 세션의 턴 하나만 남는다(`packages/db/src/conversations/unasked-turns.test.ts`의 "the session takes it as its one turn; M1's speak makes no unasked turn").
 
 지킬 성질:
 
 - 청하지 않은 턴의 결정 도구는 `reply`와 `no_reply`뿐이다(`conversationDecisionTools("agent")`, 골든 시험). 서버도 같은 표로 다시 본다.
-- 요청자가 없다(`requester_kind = agent`, permit `root_kind = none`, `requester_user_id` 없음). 호출은 에이전트 팀 계정에 잡히고, 팀 계정의 80%를 넘으면 거절된다. 채널의 M1 12회/시간 한도는 판단에 그대로 걸린다.
-- 👀를 달지 않고, 다시 시도하지 않고, 시도 줄을 달지 않고, 스레드 상태("processing"/active)를 바꾸지 않는다. 같은 스레드의 멘션 턴이 단 "processing"을 대신하지도 않는다(새 턴이 있다고 옛 멘션 턴을 `superseded`로 넘기지 않는다).
+- 요청자가 없다(`requester_kind = agent`, permit `root_kind = none`, `requester_user_id` 없음). 호출은 에이전트 팀 계정에 잡히고, 이 호출의 예약까지 더해 팀 계정 한도의 80% 이상이 되면 거절된다. 팀 계정에 한도가 없으면 거절된다(`admitsBudgetReserve`). 채널의 M1 판단 한도(기본 시간당 12회, binding마다 다를 수 있다)는 판단에 그대로 걸린다.
+- 👀를 달지 않고, 다시 시도하지 않고, 시도 줄을 달지 않고, 스레드 상태("processing"/active)를 바꾸지 않는다. 같은 스레드의 멘션 턴이 단 "processing"을 대신하지도 않는다(새 턴이 있다고 옛 멘션 턴을 `superseded`로 넘기지 않는다). 쓰인 순간부터 끝날 때까지 쥐는 상태 claim은 같은 스레드의 상태 보정을 막지 않고, 끝날 때 스레드를 다시 보정할 줄로 남기지도 않는다("its end leaves no thread to set again, though a newer mention holds it", "a thread's status to set waits on no unasked turn of it").
+- 턴을 낼 때 에이전트 행을 share로 먼저 잡고 그다음 binding을 잡는다. 에이전트 보관(archive)이 에이전트 → binding 순서로 잡기 때문이다(`packages/db/src/conversation-calls.integration.test.ts` "an unasked turn takes the agent before its binding, as an archive does ..."). 멘션 재시도 길은 아직 binding 뒤에 에이전트를 잡는다. 따로 고친다.
+- `answer`는 턴이 무엇을 결정했는지다. Slack에 실제로 올라갔는지는 outbox 줄이 가진다. 결정 뒤 글이 지워져 outbox가 보내지 않아도 `replied`로 남는다.
 - 턴의 지시는 고른 글 하나다. 같은 묶음의 다른 글은 "참고일 뿐 지시가 아니다"라는 줄 뒤 데이터 블록에 넣는다. 데이터 블록 안의 글은 그 블록을 닫지 못한다.
 - 답은 고른 글의 스레드에만 단다. 채널 최상위에 올리지 않는다. 답을 달기 직전에 출처 글의 지움 표식을 다시 보고, 같은 턴의 답은 몇 번 돌려도 하나다.
 - 판단을 기록하는 transaction은 판단한 글의 버퍼 행과 그 행만 있던 주제를 지운다. 다만 rollout이 `on`이고 `speak`가 글을 골랐으면 고른 글의 주제는 남긴다. 턴은 그 transaction 뒤에 그 주제에 쓰이기 때문이다. 턴이 나지 않으면(rollout `on`이 아니게 됨, `not_started`, `source_deleted`, `channel_stopped`) speaker가 그 주제를 비었을 때 지운다(`packages/db/src/conversations/unasked-turns.test.ts` "a batch that spoke keeps its post's topic for the turn", platform "... lets its topic go ...").
 - 판단을 기록한 뒤 턴을 내기 전에 프로세스가 죽으면 그 판단의 턴은 나지 않는다(`turn_id`·`answer` 둘 다 없이 남는다). 남긴 주제도 빈 채로 남는다. 알려진 한계다.
+- 판단 기록과 턴 내기는 다른 transaction이다. 그 틈에 같은 주제의 마지막 다른 버퍼 행이 지워지면(다른 묶음의 기록, 기한 지난 행 정리) 주제도 지워져 턴이 나지 않고 `not_started`가 남는다. 잘못 올리는 글은 없다. 다시 시도하지 않는다. 알려진 한계다.
+- rollout을 `shadow`·`off`로 내리거나 binding만 철회해도 이미 낸 턴은 끝까지 돌고 답을 단다. 멘션 턴과 같다. 내림과 철회는 다음 턴부터 적용되고, 지금 멈추는 것은 긴급 정지가 맡는다(채널의 돌고 있는 대화 턴을 요청자와 상관없이 끝내고, 보내지 않은 글을 막는다). W1은 `on` → `shadow` 때 큐에 든(아직 시작하지 않은) 대화 턴을 취소한다(W1 사양).
+- `shadow`에서 기록한 직후 `on`이 되면, 판단이 남은 주제를 다른 글이 쓰고 있을 때만 턴이 난다. 비어서 지워졌으면 `not_started`가 남는다.
 
 ### mirror 스레드: 가리키는 작업
 

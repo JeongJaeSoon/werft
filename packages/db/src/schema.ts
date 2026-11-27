@@ -6612,7 +6612,7 @@ export const conversationJudgments = pgTable(
     // turn and its end follow from that alone.
     check(
       "conversation_judgments_answer_check",
-      sql`(${table.targetTs} IS NULL OR (${table.outcome} = 'judged' AND ${table.decision} = 'speak' AND ${table.targetTs} = ANY(${table.refs}))) AND (${table.turnId} IS NULL OR ${table.targetTs} IS NOT NULL) AND (${table.answer} IS NULL OR (${table.targetTs} IS NOT NULL AND ${table.answer} IN (${sql.raw(sqlList(JUDGMENT_ANSWER_VALUES))})))`,
+      sql`(${table.targetTs} IS NULL OR (${table.outcome} = 'judged' AND ${table.decision} = 'speak' AND (${table.targetTs} = ANY(${table.refs})) IS TRUE)) AND (${table.turnId} IS NULL OR ${table.targetTs} IS NOT NULL) AND (${table.answer} IS NULL OR (${table.targetTs} IS NOT NULL AND ${table.answer} IN (${sql.raw(sqlList(JUDGMENT_ANSWER_VALUES))})))`,
     ),
     // One unasked turn per judgment.
     uniqueIndex("conversation_judgments_turn_uniq")

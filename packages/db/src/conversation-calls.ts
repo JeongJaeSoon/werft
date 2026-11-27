@@ -691,13 +691,17 @@ export function createPostgresConversationCalls(
       });
       return db
         .transaction(async (tx): Promise<ConversationUnsolicitedTurnIssue> => {
-          // Unlocked, before the scope: a record of `shadow` kept no topic
-          // for a turn. Read again under its lock below.
-          const [before] = await tx
+          // Only under the rollout on; `shadow` judges for the record alone,
+          // and its record kept no topic for a turn, so this comes before the
+          // scope. Shared, as a change of the rollout writes the agent's row,
+          // and taken before any binding, as an archive takes the agent and
+          // then its bindings.
+          const [agent] = await tx
             .select({ rollout: agents.conversationRollout })
             .from(agents)
-            .where(eq(agents.id, input.agentId));
-          if (before !== undefined && before.rollout !== "on") {
+            .where(eq(agents.id, input.agentId))
+            .for("share");
+          if (agent !== undefined && agent.rollout !== "on") {
             return { outcome: "rollout_off" };
           }
           const refused = await turnScopeIn(tx, input);
@@ -711,14 +715,10 @@ export function createPostgresConversationCalls(
             throughTurn: null,
           });
           if (deleted !== null) return { outcome: "source_deleted" };
-          // Only under the rollout on; `shadow` judges for the record alone.
-          const [agent] = await tx
-            .select({ rollout: agents.conversationRollout })
-            .from(agents)
-            .where(eq(agents.id, input.agentId))
-            .for("share");
-          if (agent?.rollout !== "on") return { outcome: "rollout_off" };
           // The channel's live binding, held as an admin's change of it waits.
+          // It still listens to what was judged: a batch's posts only while
+          // it hears every post, an engaged reply also while it hears
+          // mentions and their threads.
           const [binding] = rowsOf<{ installation_id: string }>(
             await tx.execute(sql`
               SELECT b.installation_id
@@ -728,7 +728,11 @@ export function createPostgresConversationCalls(
                 AND b.external_surface_id = ${input.channelId}
                 AND i.team_id = ${input.teamId}
                 AND b.revoked_at IS NULL AND b.status = 'ready'
-                AND b.mode = 'on' AND b.listen <> 'off'
+                AND b.mode = 'on'
+                AND (b.listen = 'free' OR (b.listen = 'mention' AND EXISTS (
+                  SELECT 1 FROM conversation_judgments j
+                  WHERE j.id = ${input.judgmentId}::uuid
+                    AND j.grade = 'm1_engaged')))
                 AND NOT b.external_shared AND b.emergency_stopped_at IS NULL
               ORDER BY b.id
               LIMIT 1
@@ -757,6 +761,8 @@ export function createPostgresConversationCalls(
               UPDATE conversation_judgments SET turn_id = ${input.turnId}::uuid
               WHERE id = ${input.judgmentId}::uuid
                 AND agent_id = ${input.agentId}::uuid
+                -- A bound session's reply is the session's to answer.
+                AND grade IN ('buffer_m1', 'm1_engaged')
                 AND decision = 'speak' AND target_ts IS NOT NULL
                 AND turn_id IS NULL AND answer IS NULL
               RETURNING id`),

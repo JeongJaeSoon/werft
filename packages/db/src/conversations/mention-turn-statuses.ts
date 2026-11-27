@@ -45,7 +45,8 @@ const NEWER_DUE = sql`EXISTS (SELECT 1 FROM conversation_turns n
       WHERE j.turn_id = n.id))`;
 
 // Leaves the turn's thread to be set again, when `when` holds. Written in
-// the statement that marks the turn, so no pass dies between the two.
+// the statement that marks the turn, so no pass dies between the two. An
+// unasked turn set no status, so it leaves none.
 const leaveThreadOf = (turnId: ConversationTurnId, when: SQL) => sql`
   INSERT INTO mention_thread_statuses
     (workspace_id, agent_id, slack_installation_id, team_id, channel_id, thread_ts)
@@ -56,10 +57,13 @@ const leaveThreadOf = (turnId: ConversationTurnId, when: SQL) => sql`
   WHERE t.id = ${turnId}::uuid AND t.slack_installation_id IS NOT NULL
     AND tp.slack_team_id IS NOT NULL AND tp.slack_channel_id IS NOT NULL
     AND tp.slack_thread_ts IS NOT NULL AND ${when}
+    AND NOT EXISTS (SELECT 1 FROM conversation_judgments j
+      WHERE j.turn_id = t.id)
   ${LEFT_AGAIN}`;
 
 // A mention turn of the thread `s` that a pass may be setting back: its
-// `active` can reach Slack after whatever this thread's send says.
+// `active` can reach Slack after whatever this thread's send says. An
+// unasked turn's claim sets nothing.
 const threadResetHeld = (s: SQL, claimMs?: number) => sql`EXISTS (
   SELECT 1 FROM conversation_turns t
   JOIN conversation_topics tp ON tp.id = t.topic_id
@@ -67,6 +71,8 @@ const threadResetHeld = (s: SQL, claimMs?: number) => sql`EXISTS (
     AND t.slack_installation_id IS NOT NULL
     AND t.slack_status_reset_at IS NULL
     AND t.slack_status_claimed_at IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM conversation_judgments j
+      WHERE j.turn_id = t.id)
     ${
       claimMs === undefined
         ? sql``

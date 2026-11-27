@@ -143,20 +143,38 @@ async function topic(conversationId: string, threadTs: string) {
   return id;
 }
 
-/** A batch's judgment that spoke for `target`, of the posts `refs`. */
+/** A judgment that spoke for `target`, of the posts `refs`: a batch's by default. */
 async function spoke(
   at: Place,
   target = "100.000001",
   refs = ["100.000001", "100.000002"],
+  grade: "buffer_m1" | "m1_engaged" | "m1" = "buffer_m1",
 ): Promise<ConversationJudgmentId> {
   const id = conversationJudgmentIdSchema.parse(randomUUID());
+  const rule = {
+    buffer_m1: [null, null],
+    m1_engaged: ["none", "stray_reply"],
+    m1: ["reply", "default_reply"],
+  }[grade];
   await client.query(
     `INSERT INTO conversation_judgments (id, workspace_id, agent_id,
       conversation_id, grade, slack_team_id, slack_channel_id, refs,
-      prompt_version, outcome, decision, reason, judged_at, target_ts)
-     VALUES ($1, $2, $3, $4, 'buffer_m1', $5, $6, $7, 3, 'judged', 'speak',
-      'needs_agent', now(), $8)`,
-    [id, WORKSPACE, AGENT, at.conversationId, TEAM, CHANNEL, refs, target],
+      prompt_version, outcome, decision, reason, judged_at, target_ts,
+      rule_decision, rule_reason)
+     VALUES ($1, $2, $3, $4, $9, $5, $6, $7, 3, 'judged', 'speak',
+      'needs_agent', now(), $8, $10, $11)`,
+    [
+      id,
+      WORKSPACE,
+      AGENT,
+      at.conversationId,
+      TEAM,
+      CHANNEL,
+      refs,
+      target,
+      grade,
+      ...rule,
+    ],
   );
   return id;
 }
@@ -299,6 +317,8 @@ describe("the unasked turn of a judgment that spoke (v1-b/U1)", () => {
 
   for (const [name, change, outcome] of [
     ["listening off", "listen = 'off'", "no_binding"],
+    // Since the batch closed: it hears no post it is not called for.
+    ["listening for mentions alone", "listen = 'mention'", "no_binding"],
     ["the binding off", "mode = 'off'", "no_binding"],
     [
       "the binding revoked",
@@ -322,6 +342,32 @@ describe("the unasked turn of a judgment that spoke (v1-b/U1)", () => {
       expect((await turnsOf()).rows).toEqual([]);
     });
   }
+
+  test("an engaged reply still speaks while the channel hears mentions alone", async () => {
+    const at = await place();
+    const judgmentId = await spoke(
+      at,
+      "100.000002",
+      ["100.000002"],
+      "m1_engaged",
+    );
+    await client.query(
+      "UPDATE surface_bindings SET listen = 'mention' WHERE id = $1",
+      [at.bindingId],
+    );
+    expect((await issue(at, judgmentId).issued).outcome).toBe("issued");
+  });
+
+  test("a bound session's reply that spoke makes none: the session answers it", async () => {
+    const at = await place();
+    const judgmentId = await spoke(at, "100.000002", ["100.000002"], "m1");
+    expect((await issue(at, judgmentId).issued).outcome).toBe("duplicate");
+    expect((await turnsOf()).rows).toEqual([]);
+    expect(await judgmentOf(judgmentId)).toEqual({
+      turn_id: null,
+      answer: null,
+    });
+  });
 
   test("its calls are the agent's team's, refused past 80% of the account", async () => {
     const reserve = conversationCallReserve(LIMITS);
@@ -478,6 +524,54 @@ describe("the endings pass and an unasked turn", () => {
     // Its thread is set back to active: no newer mention holds "processing".
     expect(await statuses.claimReset(mention, 60_000)).toBe("send");
   });
+
+  const newerMention = async (at: Place) => {
+    const mention = conversationTurnIdSchema.parse(randomUUID());
+    await client.query(
+      `INSERT INTO conversation_turns (id, workspace_id, agent_id, conversation_id,
+        topic_id, origin, state, requester_kind, requester_id,
+        slack_installation_id, created_at, slack_status_claimed_at)
+       VALUES ($1, $2, $3, $4, $5, 'm2', 'running', 'slack_user', 'U1', $6,
+        now() + interval '1 second', now())`,
+      [
+        mention,
+        WORKSPACE,
+        AGENT,
+        at.conversationId,
+        at.topicId,
+        at.installationId,
+      ],
+    );
+    return mention;
+  };
+  const threadRows = async () =>
+    (await client.query("SELECT thread_ts FROM mention_thread_statuses")).rows;
+
+  test("its end leaves no thread to set again, though a newer mention holds it", async () => {
+    const at = await place();
+    const { turnId, issued } = issue(at, await spoke(at));
+    expect((await issued).outcome).toBe("issued");
+    await newerMention(at);
+    const statuses = createPostgresMentionTurnStatuses(db);
+    expect(await statuses.confirmReset(turnId)).toBe(false);
+    expect(await threadRows()).toEqual([]);
+  });
+
+  test("a thread's status to set waits on no unasked turn of it", async () => {
+    const at = await place();
+    await client.query(
+      `INSERT INTO mention_thread_statuses (workspace_id, agent_id,
+        slack_installation_id, team_id, channel_id, thread_ts)
+       VALUES ($1, $2, $3, $4, $5, '100.000001')`,
+      [WORKSPACE, AGENT, at.installationId, TEAM, CHANNEL],
+    );
+    // Claimed by its writer, as every unasked turn is when made.
+    const { issued } = issue(at, await spoke(at));
+    expect((await issued).outcome).toBe("issued");
+    const statuses = createPostgresMentionTurnStatuses(db);
+    const claimed = await statuses.claimThreads(10, 60_000);
+    expect(claimed.map((row) => row.thread.threadTs)).toEqual(["100.000001"]);
+  });
 });
 
 describe("conversation_judgments' unasked columns (migration)", () => {
@@ -487,13 +581,14 @@ describe("conversation_judgments' unasked columns (migration)", () => {
     target?: string | null;
     turnId?: string | null;
     answer?: string | null;
+    refs?: (string | null)[];
   }) =>
     client.query(
       `INSERT INTO conversation_judgments (id, workspace_id, agent_id,
         conversation_id, grade, slack_team_id, slack_channel_id, refs,
         prompt_version, outcome, decision, reason, judged_at, target_ts,
         turn_id, answer)
-       VALUES ($1, $2, $3, $4, 'buffer_m1', $5, $6, '{100.000001,100.000002}',
+       VALUES ($1, $2, $3, $4, 'buffer_m1', $5, $6, $12,
         3, 'judged', $7, $8, now(), $9, $10, $11)`,
       [
         randomUUID(),
@@ -507,6 +602,7 @@ describe("conversation_judgments' unasked columns (migration)", () => {
         fields.target ?? null,
         fields.turnId ?? null,
         fields.answer ?? null,
+        fields.refs ?? ["100.000001", "100.000002"],
       ],
     );
 
@@ -519,6 +615,17 @@ describe("conversation_judgments' unasked columns (migration)", () => {
     await insert({ decision: "quiet", reason: "invalid_target" });
     await expect(
       insert({ decision: "speak", reason: "invalid_target" }),
+    ).rejects.toThrow();
+  });
+
+  test("a target not among the refs is refused, a null among them too", async () => {
+    await expect(
+      insert({
+        decision: "speak",
+        reason: "needs_agent",
+        target: "100.000009",
+        refs: ["100.000001", null],
+      }),
     ).rejects.toThrow();
   });
 
