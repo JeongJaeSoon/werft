@@ -6266,7 +6266,7 @@ describe.each(ENGINES)(
       expect(await chargesOf(fixture)).toEqual(NO_CHARGES);
     });
 
-    /** The channel's binding removed on the web; the bot stays in it. */
+    /** The channel's binding no longer in use; the bot stays in it. */
     const unbind = (fixture: Fixture) =>
       db
         .update(surfaceBindings)

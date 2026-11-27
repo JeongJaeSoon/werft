@@ -87,7 +87,7 @@ terminate는 사람이 세션을 강제로 끝내는 제어다(`POST /v1/session
 | 소유자 없음이 유예를 넘김, 채널 사용 중 | 멘션 | 정지(`lifecycle_stopped`, `agent_ownerless`) | 스레드에 `agentOwnerless` 한 줄 |
 | 채널 승인 대기, 에이전트 활성·소유자 있음 | 멘션 | 정지(`lifecycle_stopped`, `pending_approval`) | 멘션한 사람에게만 `pendingApproval` 한 줄 |
 | 채널 보관·강퇴, 또는 승인 대기와 에이전트 정지가 겹침, 또는 Slack이 이제 비공개라고 알리는 공개 채널 | 멘션 | 정지(`lifecycle_stopped`) 또는 승인 대기 | 없음(비공개로 바뀐 채널은 멘션한 사람에게만 `pendingApproval`) |
-| 채널에 바인딩 없음(웹에서 지웠고 봇은 채널에 남음) | 멘션 | 받지 않음(`no_binding`) | 멘션한 사람에게만 `channelUnbound` 한 줄 |
+| 채널에 쓰이는 바인딩 없음(비공개 채널 승인 거절 뒤, 봇 입장 이벤트를 받지 못함), 봇은 채널에 있음 | 멘션 | 받지 않음(`no_binding`) | 멘션한 사람에게만 `channelUnbound` 한 줄 |
 | 에이전트 `archived` | 멘션 | 처리표 앞에서 버림(보관이 바인딩과 identity를 취소한다) | 없음 |
 | 에이전트 정지 또는 소유자 없음이 유예를 넘김 | 멘션 없는 글 | 정지 | 판단 버퍼에 담지 않음 |
 | 소유자 없음이 유예를 넘김, 열린 작업에 묶인 스레드 | 요청자의 중단 말 | 작업 중단(`stop_session`) | 중단 안내 |
