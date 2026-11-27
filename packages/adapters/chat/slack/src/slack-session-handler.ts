@@ -87,7 +87,7 @@ function reasonCodeOf(details: unknown): string | undefined {
 
 const CALLER_LIMITED_NOTICE = {
   repository: "callerLimitedRepository",
-  credential: "[REDACTED]",
+  credential: "callerLimitedCredential",
   mcp_server: "callerLimitedMcpServer",
   tool: "callerLimitedTool",
 } as const;
