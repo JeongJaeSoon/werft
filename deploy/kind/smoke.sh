@@ -348,3 +348,5 @@ pass
 
 echo
 echo "k8s-smoke: every step passed"
+
+# trial: a kind script change
