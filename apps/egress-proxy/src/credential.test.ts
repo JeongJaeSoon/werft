@@ -4512,6 +4512,9 @@ describe("startCredentialProxy", () => {
           },
         );
         expect(response.status, address).toBe(403);
+        expect(await response.text(), address).toContain(
+          `${address} is metadata`,
+        );
       }
       expect(seen).toEqual([]);
     });
