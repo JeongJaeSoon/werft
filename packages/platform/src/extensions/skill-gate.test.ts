@@ -800,15 +800,71 @@ describe("second review", () => {
   });
 
   test("options between the tool and install still read as an install", () => {
+    for (const line of [
+      "pip --quiet install pypdf",
+      "npm -g i x",
+      "npm --prefix ./vendor install lodash",
+    ]) {
+      const result = gate({
+        after: [...licensed("s"), text("skills/s/scripts/a.sh", `${line}\n`)],
+      });
+      expect(result.warnings[0]?.samples).toEqual(["package_install"]);
+    }
+  });
+
+  test("a quote inside a URL does not hide its host", () => {
     const result = gate({
+      allowedHosts: new Set(["o"]),
       after: [
         ...licensed("s"),
         text(
-          "skills/s/scripts/a.sh",
-          "pip --quiet install pypdf\nnpm -g i x\n",
+          "skills/s/scripts/a.js",
+          'const u = "https://o\'neil@outside.example/";\n',
         ),
       ],
     });
-    expect(result.warnings[0]?.samples).toEqual(["package_install"]);
+    expect(result.warnings[0]?.samples).toContain("outside.example");
+  });
+
+  test("a non-ASCII separator makes a license value unclassified", () => {
+    expect(
+      isSpdxExpression(
+        `MIT${String.fromCharCode(0xfeff)}AND${String.fromCharCode(0xfeff)}Apache-2.0`,
+      ),
+    ).toBe(false);
+    expect(isSpdxExpression("MIT\tAND Apache-2.0")).toBe(false);
+  });
+
+  test("notice files match the names the design gives, nothing wider", () => {
+    expect(
+      gate({
+        repositoryRootFiles: ["THIRD_PARTY_NOTICE.txt"],
+        after: licensed("s"),
+      }).warnings,
+    ).toEqual([]);
+    expect(
+      rulesOf(
+        gate({
+          repositoryRootFiles: ["NOTICE"],
+          after: [
+            ...licensed("s"),
+            text("skills/s/ThirdPartyNotice.txt", "n\n"),
+          ],
+        }).warnings,
+      ),
+    ).toEqual(["license_notice_missing"]);
+  });
+
+  test("removing the skill's notice file brings the notice warning back", () => {
+    const base = [...licensed("s"), text("skills/s/NOTICE", "n\n")];
+    expect(
+      rulesOf(
+        gate({
+          repositoryRootFiles: ["NOTICE"],
+          before: base,
+          after: licensed("s"),
+        }).warnings,
+      ),
+    ).toEqual(["license_notice_missing"]);
   });
 });

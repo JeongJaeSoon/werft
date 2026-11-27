@@ -51,7 +51,7 @@ const MANIFEST = ".claude-plugin/plugin.json";
 const SCRIPTS_DIR = /^skills\/[^/]+\/scripts\//;
 const SKILL_FILE = /^skills\/([^/]+)\/SKILL\.md$/;
 const LICENSE_FILE = /^(?:licen[cs]e|copying)/i;
-const NOTICE_FILE = /^(?:notice|third[_-]?party[_-]?notices?)/i;
+const NOTICE_FILE = /^(?:notice|third_party_notices)/i;
 
 const startsWith = (bytes: Uint8Array, prefix: readonly number[], at = 0) =>
   prefix.every((byte, index) => bytes[at + index] === byte);
@@ -137,7 +137,7 @@ export const NETWORK_CALL_PATTERNS: readonly { id: string; pattern: RegExp }[] =
     {
       id: "package_install",
       pattern:
-        /\b(?:pip3?|uv|npm|npx|pnpm|yarn|bun|bunx|gem|cargo|go|apt(?:-get)?|apk|brew|conda)(?:\s+-\S+)*\s+(?:pip\s+)?(?:-\S+\s+)*(?:install|add|get|i)\b/,
+        /\b(?:pip3?|uv|npm|npx|pnpm|yarn|bun|bunx|gem|cargo|go|apt(?:-get)?|apk|brew|conda)(?:\s+-\S+(?:\s+[^\s-]\S*)??)*\s+(?:pip\s+)?(?:-\S+\s+)*(?:install|add|get|i)\b/,
     },
     {
       id: "download",
@@ -234,7 +234,9 @@ const SPDX_LICENSE =
 const SPDX_EXCEPTION = /^[A-Za-z0-9.-]+$/;
 const OPERATORS = new Set(["AND", "OR", "WITH", "(", ")"]);
 export function isSpdxExpression(value: string): boolean {
-  const tokens = value.replace(/[()]/g, " $& ").trim().split(/\s+/);
+  // SPDX expressions are ASCII, split by spaces.
+  if (/[^ -~]/.test(value)) return false;
+  const tokens = value.replace(/[()]/g, " $& ").trim().split(/ +/);
   let at = 0;
   const term = (): boolean => {
     const token = tokens[at++];
@@ -355,8 +357,15 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
         if (pattern.test(plain)) flag("instruction_like", file.path, id);
       }
       if (!script) continue;
-      // Quotes and commas end a URL in code: ["https://a","https://b"] names two hosts.
-      for (const host of plainTextHosts(line.replace(/["'`,]/g, " "))) {
+      // Quotes and commas end a URL in code: ["https://a","https://b"] names
+      // two hosts. The line as written is read too, for a quote inside a URL.
+      const hosts = new Set(
+        [
+          ...plainTextHosts(line),
+          ...plainTextHosts(line.replace(/["'`,]/g, " ")),
+        ].filter((host) => !/["'`,]/.test(host)),
+      );
+      for (const host of hosts) {
         if (!allowedHosts.has(host))
           flag("host_not_allowlisted", file.path, host);
       }
