@@ -12,6 +12,7 @@ import {
   readJunit,
   shardFiles,
   slowCases,
+  slowNotice,
   verifyRun,
 } from "../.github/scripts/integration-jobs.ts";
 import { suiteFiles } from "../.github/scripts/test-files.ts";
@@ -410,17 +411,24 @@ describe.skip("off", () => {
       expect(await child.exited).toBe(0);
 
       const cases = readJunit(await readFile(join(dir, "out.xml"), "utf8"));
-      const seconds = expect.any(Number);
       expect(cases).toEqual([
-        { file: "a.test.ts", seconds, skipped: false, test: "runs" },
         {
           file: "a.test.ts",
-          seconds,
+          seconds: expect.any(Number),
+          skipped: false,
+          test: "runs",
+        },
+        {
+          file: "a.test.ts",
+          seconds: 0,
           skipped: true,
           test: 'skips "quoted" <tags> & more',
         },
-        { file: "a.test.ts", seconds, skipped: true, test: "inside" },
+        { file: "a.test.ts", seconds: 0, skipped: true, test: "inside" },
       ]);
+      expect(
+        readJunit('<testcase name="t" file="f" time="6.25" />')[0]?.seconds,
+      ).toBe(6.25);
     } finally {
       await rm(dir, { force: true, recursive: true });
     }
@@ -443,6 +451,23 @@ describe.skip("off", () => {
       "far over",
       "over",
     ]);
+  });
+
+  test("the notice keeps a name with %, a colon, a comma or a line break inside one workflow command", () => {
+    const notice = slowNotice("db 1/3", [
+      {
+        file: "a.test.ts",
+        seconds: 12.34,
+        skipped: false,
+        test: "100%: a, b\nsecond line",
+      },
+      { file: "b.test.ts", seconds: 5.5, skipped: false, test: "plain" },
+    ]);
+    expect(notice).toBe(
+      "::notice title=db 1/3%3A 2 tests over 5s::" +
+        "12.3s a.test.ts > 100%25: a, b%0Asecond line%0A5.5s b.test.ts > plain",
+    );
+    expect(notice).not.toContain("\n");
   });
 
   test("fails a run that skipped what the job did not declare, or ran other files than it owns", () => {

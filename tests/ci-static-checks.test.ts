@@ -290,9 +290,9 @@ test("the suite steps give a test 15 s where bun gives 5, and only CI does", () 
     )?.run,
   ];
   for (const run of runs) {
-    expect(run?.match(/bun test( --[\w-]+=\S+)* /g)).toEqual([
-      expect.stringContaining(" --timeout=15000 "),
-    ]);
+    // One run of the suite, with one limit.
+    expect(run?.match(/\bbun test\b/g)).toHaveLength(1);
+    expect(run?.match(/--timeout\S*/g)).toEqual(["--timeout=15000"]);
   }
   // A limit in bunfig.toml would also hide a slow test on a developer's
   // machine; integration-jobs.ts names the tests over bun's own 5 s.

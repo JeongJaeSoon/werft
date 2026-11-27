@@ -306,8 +306,9 @@ export function readJunit(xml: string): TimedCase[] {
 }
 
 /**
- * bun's own limit for one test. CI gives its runs a longer one (ci.yml), so a
- * test past this passes there and is cut everywhere else.
+ * bun's own limit for a test that sets none. The suite steps of ci.yml give
+ * such a test a longer one, so past this it passes there and is cut on a
+ * developer's machine.
  */
 export const DEFAULT_TEST_SECONDS = 5;
 
@@ -316,6 +317,24 @@ export function slowCases(cases: TimedCase[], seconds: number): TimedCase[] {
   return cases
     .filter((c) => c.seconds > seconds)
     .sort((a, b) => b.seconds - a.seconds);
+}
+
+/** One line per slow case, as the log and the notice show it. */
+export function slowLines(slow: TimedCase[]): string[] {
+  return slow.map((c) => `${c.seconds.toFixed(1)}s ${c.file} > ${c.test}`);
+}
+
+// What the runner unescapes in a workflow command: a test's name may hold any
+// of these, and a raw line break would end the command there.
+const commandData = (text: string) =>
+  text.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+const commandProperty = (text: string) =>
+  commandData(text).replace(/:/g, "%3A").replace(/,/g, "%2C");
+
+/** The workflow command that puts a job's slow cases on the run's page. */
+export function slowNotice(name: string, slow: TimedCase[]): string {
+  const title = `${name}: ${slow.length} tests over ${DEFAULT_TEST_SECONDS}s`;
+  return `::notice title=${commandProperty(title)}::${slowLines(slow).map(commandData).join("%0A")}`;
 }
 
 /**
@@ -417,15 +436,14 @@ function main(argv: string[]): void {
   console.error(
     `${name}: ${owned.length} files ran, ${cases.length} tests, ${scoped.skips.length} declared skips`,
   );
-  // Named on every run, so that the longer limit hides no slow test.
+  // Named by every job that passes, so that the longer limit hides no slow
+  // test. The log has the whole list; the runner may cut a long notice.
   const slow = slowCases(cases, DEFAULT_TEST_SECONDS);
   if (slow.length > 0) {
-    const lines = slow.map(
-      (c) => `${c.seconds.toFixed(1)}s ${c.file} > ${c.test}`,
+    console.error(
+      [`over ${DEFAULT_TEST_SECONDS}s:`, ...slowLines(slow)].join("\n  "),
     );
-    console.log(
-      `::notice title=${name}: ${slow.length} tests over ${DEFAULT_TEST_SECONDS}s::${lines.join("%0A")}`,
-    );
+    console.log(slowNotice(name!, slow));
   }
 }
 

@@ -409,9 +409,10 @@ jobs:
         # fails the step instead of handing `bun test` an empty list — which it
         # would read as the whole suite.
         # --timeout: on a loaded runner, tests that take 2–3 s alone were cut
-        # at bun's default of 5 s after 5.0–7.0 s. Only CI raises the limit
-        # (bunfig.toml sets none), and `verify` names every test that ran
-        # past the 5 s it still has everywhere else.
+        # at bun's default of 5 s after 5.0–7.0 s. Only the suite steps here
+        # raise it, for a test that sets no limit of its own (bunfig.toml sets
+        # none), and `verify` names every test of a passing job that ran past
+        # the 5 s it still has on a developer's machine.
         run: |
           files=$(bun .github/scripts/integration-jobs.ts files "$DOMAIN" "$SHARD")
           mapfile -t files <<<"$files"
