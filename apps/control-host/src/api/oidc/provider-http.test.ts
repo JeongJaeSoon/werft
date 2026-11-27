@@ -26,6 +26,8 @@ const CLOUD_METADATA: readonly [cloud: string, address: string][] = [
   ["GCP IPv6", "fd20:ce::254"],
   ["Azure", "169.254.169.254"],
   ["Alibaba", "100.100.100.200"],
+  // No official document: an IPv6-only ECS report in canonical/cloud-init#6893.
+  ["Alibaba IPv6", "fd00:100::100:200"],
   ["Oracle", "169.254.169.254"],
   ["Oracle IPv6", "fd00:c1::a9fe:a9fe"],
   ["Oracle Compute Classic", "192.0.0.192"],
@@ -268,9 +270,26 @@ describe("provider request", () => {
         } else {
           await request("http://mcp.lan:8080/mcp", {}, NARROW);
           expect(sent).toHaveLength(1);
+          // Sent to the address that was judged, not to the name.
+          expect(new URL(sent[0]?.url ?? "").hostname).toBe(
+            URL.parse(`http://[${address}]/`)?.hostname ?? "unparsed",
+          );
         }
       },
     );
+
+    test("an answer the URL cannot carry is refused, not sent to the name", async () => {
+      for (const address of ["fd12:3456::1%eth0", "fe80::1%25en0"]) {
+        const { request, sent } = harness({
+          "mcp.lan": [{ address, family: 6 }],
+        });
+        const refused = await refusal(
+          request("http://mcp.lan:8080/mcp", {}, NARROW),
+        );
+        expect(refused, address).toBe("address_not_allowed");
+        expect(sent).toHaveLength(0);
+      }
+    });
 
     test("the private list does not lift the refusal of any link-local address", async () => {
       for (const address of ["169.254.0.1", "169.254.255.254", "fe80::1"]) {
@@ -338,6 +357,8 @@ describe("provider request", () => {
         "http://metadata.goog/computeMetadata/v1/",
         "http://metadata.tencentyun.com/latest/meta-data/",
         "http://metadata.exoscale.com/latest/user-data",
+        "https://api.metadata.cloud.ibm.com/metadata/v1/instance",
+        "https://api.metadata.power-iaas.cloud.ibm.com/v1/instance",
         "https://instance-data.ec2.internal/latest/meta-data/",
       ]) {
         const asked: string[] = [];
