@@ -666,6 +666,8 @@ function reach(entries: string[]) {
   const repo = join(import.meta.dir, "..");
   const isFile = (p: string) =>
     statSync(join(repo, p), { throwIfNoEntry: false })?.isFile() ?? false;
+  // name -> the directory an importer reaches: src/ when every export
+  // points there, else the whole package.
   const workspaces = new Map<string, string>();
   for (const pattern of JSON.parse(
     readFileSync(join(repo, "package.json"), "utf8"),
@@ -673,11 +675,20 @@ function reach(entries: string[]) {
     const parent = pattern.replace(/\/\*$/, "");
     for (const name of readdirSync(join(repo, parent))) {
       const manifest = join(repo, parent, name, "package.json");
-      if (existsSync(manifest))
-        workspaces.set(
-          JSON.parse(readFileSync(manifest, "utf8")).name,
-          `${parent}/${name}`,
-        );
+      if (!existsSync(manifest)) continue;
+      const { name: pkg, exports } = JSON.parse(readFileSync(manifest, "utf8"));
+      const targets =
+        JSON.stringify(exports ?? null).match(/"\.\/[^"]*"/g) ?? [];
+      const keys =
+        typeof exports === "object" && exports !== null
+          ? Object.keys(exports)
+          : [];
+      const srcOnly =
+        targets.length > 0 &&
+        targets
+          .filter((target) => !keys.includes(target.slice(1, -1)))
+          .every((target) => target.startsWith('"./src/'));
+      workspaces.set(pkg, `${parent}/${name}${srcOnly ? "/src" : ""}`);
     }
   }
   const seen = new Set<string>();
@@ -712,8 +723,13 @@ function reach(entries: string[]) {
         const name = spec.startsWith("@")
           ? parts.slice(0, 2).join("/")
           : parts[0];
+        // All of what it exports, and through it what that imports in turn.
         const dir = workspaces.get(name ?? "");
-        if (dir) reached.add(`${dir}/package.json`);
+        if (dir)
+          stack.push(
+            `${dir.replace(/\/src$/, "")}/package.json`,
+            ...source(dir),
+          );
       }
     }
     // Such a string may be relative to a root the file names (join(ROOT,
