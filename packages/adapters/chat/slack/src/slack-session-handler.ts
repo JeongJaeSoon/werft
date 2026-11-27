@@ -9,6 +9,7 @@ import {
   type SlackNoticeMessage,
   type SurfaceChannelKind,
   slackNoticeFor,
+  slackUserKindOf,
   type ThreadReplyRule,
 } from "@werft-ai/contracts";
 import type {
@@ -909,8 +910,16 @@ export function createSlackSessionHandler(
     // the bot speak: one line in the thread for all to see, once a UTC day
     // per person in the channel, whichever thread they mention the agent in.
     if (mentionTable.notice !== undefined) {
-      // Someone from another organization is told nothing about the agent.
-      if (user.is_stranger === true) return;
+      // Only on a binding still in use whose kind Slack confirmed above, and
+      // never for someone from another organization, as the decision judges.
+      if (
+        binding === null ||
+        binding.mode !== "on" ||
+        eventKind === undefined ||
+        slackUserKindOf(user, claim.teamId) === "external"
+      ) {
+        return;
+      }
       const day = new Date(Number(event.ts) * 1000).toISOString().slice(0, 10);
       await deps.notices.recordInThread({
         workspaceId: agent.workspaceId,

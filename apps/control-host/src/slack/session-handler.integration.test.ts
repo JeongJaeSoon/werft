@@ -5601,8 +5601,11 @@ describe.each(ENGINES)(
         listen: "off",
       });
       slack.users.set("U0STRANGER", { teamId: "T0OTHER", isStranger: true });
+      // Slack Connect with no flag: only the team tells them apart.
+      slack.users.set("U0SHARED", { teamId: "T0OTHER" });
       const { handle, notices, threadNotices } = handler();
       await deliver(fixture, mention("100.000100", { user: "U0STRANGER" }));
+      await deliver(fixture, mention("150.000100", { user: "U0SHARED" }));
       await deliver(fixture, mention("200.000100"));
       await drain(handle);
       expect(linesOf(threadNotices)).toEqual([
