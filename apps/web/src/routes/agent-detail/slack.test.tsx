@@ -3901,6 +3901,41 @@ describe("M1 shadow records on the Slack tab (a1/S3)", () => {
     expect(screen.getByRole("table", { name: "최근 판단" })).toBeDefined();
   });
 
+  test("while a new reason's list is on its way no row of the last list shows under it", async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+      [`GET ${PATH}/slack/judgments?reason=timed_out`]: async () => {
+        await held;
+        return json(200, { ...JUDGMENTS, recent: [] });
+      },
+    });
+    const user = await setupUser();
+    expect(
+      await screen.findByRole("table", { name: "최근 판단" }),
+    ).toBeDefined();
+    await user.selectOptions(
+      await screen.findByLabelText("이유로 거르기"),
+      "timed_out",
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("table", { name: "최근 판단" })).toBeNull(),
+    );
+    expect(
+      screen.queryByText("고른 이유의 판단이 최근 목록에 없습니다"),
+    ).toBeNull();
+    // The counts and the choice stay while it loads.
+    expect(screen.getByRole("table", { name: "채널별 판단" })).toBeDefined();
+    release();
+    expect(
+      await screen.findByText("고른 이유의 판단이 최근 목록에 없습니다"),
+    ).toBeDefined();
+  });
+
   test("a reason in the opening URL is asked for and shown chosen", async () => {
     const { api } = renderAt(`${DETAIL}&judgment_reason=needs_agent`, {
       ...routes(APP, true),

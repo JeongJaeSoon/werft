@@ -65,7 +65,14 @@ describe("GET /v1/agents/{id}/slack/judgments", () => {
       called = true;
       return READ;
     });
-    for (const query of ["reason=nope", "reason=", "reason=needs_agent&x=1"]) {
+    for (const query of [
+      "reason=nope",
+      "reason=",
+      "reason=needs_agent&x=1",
+      "reason=needs_agent&reason=nope",
+      "reason=nope&reason=needs_agent",
+      "reason=needs_agent&reason=needs_agent",
+    ]) {
       const response = await server.request(`${path}?${query}`, {
         headers: owner,
       });

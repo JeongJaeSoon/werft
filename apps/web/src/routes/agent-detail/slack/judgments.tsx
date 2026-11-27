@@ -262,7 +262,9 @@ export function SlackJudgments({
                 ))}
               </NativeSelect>
             </div>
-            {reason && data.recent.length === 0 ? (
+            {judgments.isPlaceholderData ? (
+              <Skeleton lines={3} label={t("slack.judgments.loading")} />
+            ) : reason && data.recent.length === 0 ? (
               <Text variant="sub">{t("slack.judgments.recentNone")}</Text>
             ) : (
               <GridTable

@@ -266,6 +266,7 @@ test("recent with a reason is that reason's records only, newest first, inside t
     ["human_conversation", "4 hours"],
     ["needs_agent", "3 hours"],
     ["human_conversation", "2 hours"],
+    ["unclear", "90 minutes"],
     ["human_conversation", "1 hour"],
   ] as const) {
     await judgment({
@@ -312,5 +313,5 @@ test("recent with a reason is that reason's records only, newest first, inside t
     await store.recent({ ...input, reason: "rate_limited", limit: 50 }),
   ).toEqual([]);
   // No reason: every record of the channel, as before.
-  expect((await store.recent({ ...input, limit: 50 })).length).toBe(4);
+  expect((await store.recent({ ...input, limit: 50 })).length).toBe(5);
 });
