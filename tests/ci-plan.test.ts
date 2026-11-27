@@ -770,7 +770,7 @@ function repoPaths(text: string) {
     // A bare word counts only as a root file with an extension or a capital
     // name (README.md, LICENSE), not as every directory a word names.
     if (path.startsWith("..") || path === "") continue;
-    if (!path.includes("/") && !/\.|^[A-Z]+$/.test(path)) continue;
+    if (!token.includes("/") && !/\.|^[A-Z]+$/.test(path)) continue;
     const stat = statSync(join(repo, path), { throwIfNoEntry: false });
     if (stat?.isFile()) out.add(path);
     else if (stat?.isDirectory() && token.includes("/")) out.add(`${path}/`);
