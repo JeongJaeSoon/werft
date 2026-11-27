@@ -173,7 +173,7 @@ worker は claim 時に、実際に自分のイメージに含む組み合わせ
 
 `EXECUTION_DOCKER_NETWORK`・`EXECUTION_DOCKER_NETWORK_ALLOWLIST` はもう読みません。値があれば起動を拒否します。
 
-egress-proxy と API の authorizer listener は次の値を読みます。一覧変数は既定値に追加せず、全体を置き換えます。GitHub・bucket host を追加するときは provider・パッケージ registry など必要な項目をすべて再記入します。公開 credential 一覧（`EGRESS_CREDENTIAL_ALLOWLIST`）は proxy と API で同じ値にします。private 一覧（`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`）は proxy の拒否基準です。API では、ワークスペース MCP サーバーを http で登録し private アドレスで呼べる host を決め、コンソール警告にも使います。private 一覧も一致を推奨しますが強制はなく、core・local-model layer の role 別既定値も異なります。API は 2 つの credential 一覧を起動時に一度だけ、proxy と同じ方法で読みます。大文字小文字、host 末尾のドット、IPv6 アドレスの角括弧は区別せず、両方の一覧にある host は公開一覧の側として扱います。proxy が起動を拒否する項目（ポートがない、または 1〜65535 の整数でない項目）は何も許可しません。モデル接続のコンソール警告はこの読み取り結果を使います。ワークスペース MCP サーバーの登録はこの公開一覧を必要としません。https の名前が公開アドレスに解決されれば、公開一覧にその host を追加しなくても登録され、呼び出されます（[隔離の説明](/run-server/self-hosting/explanation/isolation)）。
+egress-proxy と API の authorizer listener は次の値を読みます。一覧変数は既定値に追加せず、全体を置き換えます。GitHub・bucket host を追加するときは provider・パッケージ registry など必要な項目をすべて再記入します。公開 credential 一覧（`EGRESS_CREDENTIAL_ALLOWLIST`）は proxy と API で同じ値にします。private 一覧（`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`）は proxy の拒否基準です。API では、ワークスペース MCP サーバーを http で登録し private アドレスで呼べる host を決め、コンソール警告にも使います。private 一覧も一致を推奨しますが強制はなく、core・local-model layer の role 別既定値も異なります。API は 2 つの credential 一覧を起動時に一度だけ、proxy と同じ方法で読みます。大文字小文字、host 末尾のドット、IPv6 アドレスの角括弧は区別せず、両方の一覧にある host は公開一覧の側として扱います。proxy が起動を拒否する項目（ポートがない、または 1〜65535 の整数でない項目）は何も許可しません。モデル接続のコンソール警告はこの読み取り結果を使います。ワークスペース MCP サーバーの登録はこの公開一覧を必要としません。https の名前の解決結果がすべて公開アドレスなら、公開一覧にその host を追加しなくても登録され、呼び出されます（[隔離の説明](/run-server/self-hosting/explanation/isolation)）。
 
 | 変数 | 既定値 | Helm values | 意味と起動制約 |
 | --- | --- | --- | --- |
