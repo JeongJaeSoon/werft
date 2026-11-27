@@ -1036,7 +1036,7 @@ describe("a release's GitHub settings", () => {
     expect(repositoryless.policy_pins.github).toEqual(github);
   });
 
-  test("a kept pin's old actions is judged as its sessions read it, so 0393's ceiling does not refuse the release that keeps it (94S-2406)", async () => {
+  test("a kept pin's actions runs nothing, so a ceiling with direct runs off does not refuse the release that keeps it (94S-2406)", async () => {
     const old: AgentGitHub = {
       ...github,
       features: { ...OFF, actions: true },
@@ -1062,8 +1062,31 @@ describe("a release's GitHub settings", () => {
       }).createRelease(owner, AGENT, release)
     ).release;
     expect(kept.policy_pins.github).toEqual(old);
-    // What it reads as, workflow edits, still answers to the ceiling.
-    const refusedKeep = await service(keeping, OFF)
+    // Kept under the ceiling it was made under, and under one with every
+    // switch off: the gate cuts what the ceiling lacks at each token.
+    for (const ceiling of [{ ...OFF, actions: true }, OFF]) {
+      const again = (
+        await service(keeping, ceiling).createRelease(owner, AGENT, release)
+      ).release;
+      expect(again.policy_pins.github).toEqual(old);
+    }
+    // A feature it holds itself still answers to the ceiling.
+    const edits: AgentGitHub = {
+      ...old,
+      features: { ...old.features, workflows: true, checks: true },
+    };
+    const withEdits = (
+      await service(store, {
+        ...OFF,
+        actions: true,
+        workflows: true,
+        checks: true,
+      }).createRelease(owner, AGENT, { ...release, github: edits })
+    ).release;
+    const refusedKeep = await service(
+      { ...store, get: async () => ({ ...detail, active_release: withEdits }) },
+      OFF,
+    )
       .createRelease(owner, AGENT, release)
       .catch((error: unknown) => error);
     expect(refusedKeep).toMatchObject({

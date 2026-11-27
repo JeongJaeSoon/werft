@@ -27,7 +27,6 @@ import {
   type GitHubRefusal,
   githubFeaturesOverCeiling,
   type ListUsableAgentsResponse,
-  pinUnderSwitches,
   RETIRED_CATALOG_MCP_MESSAGE,
   type RepositoryCeiling,
   releaseModel,
@@ -350,10 +349,11 @@ export function createAgentService(deps: {
     }
     const ceiling =
       (await deps.githubSettings?.get(ownerId))?.ceiling ?? GITHUB_CEILING_NONE;
-    // A kept pin is judged as its sessions read it: its old `actions` runs
-    // nothing, so 0393's ceiling does not refuse the edit that keeps it.
+    // A kept pin's `actions` runs nothing (94S-2406), so a ceiling that
+    // turned direct runs off does not refuse the edit that keeps it; every
+    // other feature is judged as it was when the pin was made.
     const [over] = githubFeaturesOverCeiling(
-      (sent ? github : pinUnderSwitches(github)).features,
+      sent ? github.features : { ...github.features, actions: false },
       ceiling,
     );
     if (over !== undefined) {

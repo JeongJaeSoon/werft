@@ -441,15 +441,26 @@ describe("the built-in github MCP server on stored rows", () => {
   test("a checkpoint made before get_pull_request was added still restores", async () => {
     const { claim } = await seeded({ github: settings({ actions: true }) });
     const current = claim.runtime_config;
-    expect(claim.restore_runtime_configs).toEqual([
-      expect.objectContaining({ tools: ["Read"] }),
-      {
-        ...current,
-        tools: current.tools.filter(
-          (tool) => tool !== "mcp__github__get_pull_request",
-        ),
-      },
-    ]);
+    expect(claim.restore_runtime_configs?.[0]).toMatchObject({
+      tools: ["Read"],
+    });
+    expect(claim.restore_runtime_configs).toContainEqual({
+      ...current,
+      tools: current.tools.filter(
+        (tool) => tool !== "mcp__github__get_pull_request",
+      ),
+    });
+  });
+
+  test("a checkpoint made while an old pin's actions still ran workflows restores (94S-2406)", async () => {
+    const { claim } = await seeded({ github: settings({ actions: true }) });
+    const current = claim.runtime_config;
+    expect(current.tools).not.toContain("mcp__github__dispatch_workflow");
+    const before = claim.restore_runtime_configs?.find((config) =>
+      config.tools.includes("mcp__github__dispatch_workflow"),
+    );
+    expect(before?.tools).toContain("mcp__github__rerun_workflow");
+    expect(before?.mcp_servers).toEqual(current.mcp_servers);
   });
 
   test("beside a retired catalog server, the configs a claim offered before come first, then today's", async () => {
