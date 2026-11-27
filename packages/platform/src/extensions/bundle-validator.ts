@@ -785,10 +785,11 @@ const NOT_PRINTABLE = new RegExp(
 );
 
 /**
- * The lines of a YAML block scalar, read as YAML 1.2 reads them. The indent is
- * the first non-blank line's spaces and the block ends at the first non-blank
- * line indented less. A tab anywhere in a line's indentation is refused, since
- * YAML never indents with one and readers disagree on what follows.
+ * The lines of a YAML block scalar. What it takes it reads as YAML 1.2 does;
+ * it takes less. The indent is the first non-blank line's spaces and the block
+ * ends at the first non-blank line indented less. A tab anywhere in a line's
+ * leading whitespace is refused, even after the indent where YAML would keep
+ * it as text, since YAML never indents with one and readers disagree on it.
  */
 function blockScalar(
   front: readonly string[],
