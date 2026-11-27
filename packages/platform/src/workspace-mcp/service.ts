@@ -66,11 +66,19 @@ export type WorkspaceMcpServiceDeps = {
   secretStoreOn: boolean;
   remote: WorkspaceMcpRemoteDeps;
   /**
-   * Why a server URL may not be registered (decision 2: https unless the
-   * host is on the private allowlist, and the host on the credential
-   * allowlist), or null when it may.
+   * Why a server URL may not be registered before anything is resolved
+   * (https unless the host is on the operator's private list, an https host
+   * named rather than an address), or null when it may.
    */
   serverUrlProblem: (url: string) => string | null;
+  /**
+   * Resolves the server's name and judges every address: public, or private
+   * for a host on the operator's private list. A bearer server is checked
+   * with it before it is stored; discovery checks an OAuth one on its own.
+   */
+  serverAddressProblem: (
+    url: string,
+  ) => Promise<"address_not_allowed" | "unreachable" | null>;
   /** The console callback for a server; null when the console origin is unset. */
   redirectUriFor: (serverId: string) => string | null;
   now?: () => Date;
@@ -205,7 +213,8 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
     if (
       parsed.username !== "" ||
       parsed.password !== "" ||
-      parsed.hash !== ""
+      parsed.hash !== "" ||
+      url.includes("#")
     ) {
       throw refused(
         "url_invalid",
@@ -216,7 +225,27 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
     if (problem !== null) {
       throw refused(
         problem,
-        "This installation does not allow credentials to be sent to that address",
+        problem === "url_insecure"
+          ? "The URL must be https"
+          : "The URL must name its host, not an address",
+      );
+    }
+  }
+
+  async function checkAddress(url: string): Promise<void> {
+    const problem = await deps.serverAddressProblem(url);
+    if (problem === "unreachable") {
+      throw new SessionServiceError(
+        "BACKEND_UNAVAILABLE",
+        "The server's name did not resolve",
+        undefined,
+        { reason_code: "mcp_unreachable" },
+      );
+    }
+    if (problem !== null) {
+      throw refused(
+        "address_not_allowed",
+        "The server resolves to an address this server may not call",
       );
     }
   }
@@ -430,6 +459,9 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
         );
       }
       checkUrl(body.url);
+      // Nothing calls a bearer server before it is stored; an OAuth one's
+      // discovery below resolves and judges it on its own.
+      if (body.auth_kind === "bearer") await checkAddress(body.url);
       let oauth: WorkspaceMcpOAuthPin | null = null;
       if (body.auth_kind === "oauth") {
         const found = await remoteCall(() => discover(remote, body.url));

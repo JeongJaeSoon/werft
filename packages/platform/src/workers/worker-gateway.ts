@@ -749,6 +749,8 @@ export function createWorkerGateway(deps: {
       workspaceId: string,
       serverId: string,
     ) => Promise<WorkspaceMcpCallCredential | null>;
+    /** Where the operator's credential allowlists put a server's URL. */
+    operatorListed?: (url: string) => "public" | "private" | null;
   };
   onMcpReceiptError?: (error: unknown) => void;
   // Called when the note on why a model was cut could not be written; the

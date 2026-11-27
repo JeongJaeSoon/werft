@@ -12,7 +12,10 @@ export type WorkspaceMcpRefusalReason =
   // An admin has to connect the server again.
   | "oauth_needs_reauth"
   // The server holds no credential to send, or it could not be refreshed.
-  | "credential_unavailable";
+  | "credential_unavailable"
+  // The egress proxy is from before the `allow` mark, so it would hold the
+  // server's host to its allowlists, and the host is on neither.
+  | "egress_proxy_outdated";
 
 /** What a workspace server's route is judged on, read fresh per exchange. */
 export type WorkspaceMcpSessionState = {
