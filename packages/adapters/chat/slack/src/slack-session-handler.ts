@@ -51,6 +51,7 @@ import {
   type SlackInput,
   slackCallerOf,
 } from "./slack-decision.ts";
+import { unescapeSlackText } from "./slack-entities.ts";
 import {
   SLACK_PERSON_RESET_SUBTYPES,
   SlackInboundDropped,
@@ -401,7 +402,10 @@ export function createSlackSessionHandler(
         topicId: topic.id,
         channelId: event.channel,
         ts: event.ts,
-        buffered: { body: event.text, slackUserId: event.user },
+        buffered: {
+          body: unescapeSlackText(event.text),
+          slackUserId: event.user,
+        },
         ...(judged === "m1" ? { judgment: "m1_engaged" as const } : {}),
       };
     };
@@ -1236,7 +1240,9 @@ export function createSlackSessionHandler(
       return;
     }
 
-    const message = withoutBotMention(event.text, agent.botUserId);
+    const message = unescapeSlackText(
+      withoutBotMention(event.text, agent.botUserId),
+    );
     if (!messageTextSchema.safeParse(message).success) {
       deps.logger.info("Slack message has no text to send; ignored", ids);
       return;

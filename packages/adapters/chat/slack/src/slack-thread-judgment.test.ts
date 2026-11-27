@@ -170,6 +170,16 @@ describe("an unbound thread the agent took part in lately", () => {
     });
   });
 
+  test("the held body is read from Slack's escapes, the mention check is not", async () => {
+    const { receipt } = await receive({
+      rollout: "shadow",
+      linked: false,
+      engaged: true,
+      text: "&lt;@U2&gt; A &amp;&amp; B",
+    });
+    expect(receipt).toMatchObject({ buffered: { body: "<@U2> A && B" } });
+  });
+
   test("a thread not engaged under mention-only is not held", async () => {
     const { receipt } = await receive({
       rollout: "shadow",
