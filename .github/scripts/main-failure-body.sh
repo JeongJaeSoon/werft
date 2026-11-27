@@ -19,7 +19,8 @@ run_id=${1:?$usage}
 attempt=${2:?$usage}
 : "${GH_REPO:?GH_REPO must name the repository as owner/name}"
 
-# One value a line: an empty one stays in its place.
+# One value a line: an empty one stays in its place. The URL is the run's;
+# with /attempts/<n> it opens this attempt, not the latest.
 {
   read -r name
   read -r conclusion
@@ -39,7 +40,7 @@ pulls=$(gh api "repos/${GH_REPO}/commits/${sha}/pulls" \
   --jq '[.[] | "#\(.number)"] | join(", ")') || pulls="could not be read"
 
 echo "<!-- ci-main-failure -->"
-echo "\`${name}\` ended \`${conclusion}\` on main @ \`${sha}\` ([run ${run_id}, attempt ${attempt}](${url}))."
+echo "\`${name}\` ended \`${conclusion}\` on main @ \`${sha}\` ([run ${run_id}, attempt ${attempt}](${url}/attempts/${attempt}))."
 echo
 echo "Pull request of the commit: ${pulls:-none found}"
 echo

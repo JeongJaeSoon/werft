@@ -870,7 +870,7 @@ describe("main-failure-body.sh", () => {
   const jobsQuery =
     "api repos/octo/repo/actions/runs/7/attempts/2/jobs?per_page=100";
   const pullsQuery = "api repos/octo/repo/commits/abc123/pulls";
-  const attempt = `Images\\nfailure\\nabc123\\n${runUrl}/attempts/2`;
+  const attempt = `Images\\nfailure\\nabc123\\n${runUrl}`;
 
   test("names the attempt that failed, its commit, the pull request and the failed jobs", async () => {
     const outcome = await run("main-failure-body.sh", ["7", "2"], {
