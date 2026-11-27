@@ -5,7 +5,7 @@ import {
   TURN_EMERGENCY_STOPPED_REASON,
 } from "@werft-ai/contracts";
 import { sourceSetOf } from "@werft-ai/platform";
-import { and, desc, eq, isNotNull, lt, lte, ne, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, lt, ne, sql } from "drizzle-orm";
 import { followUpFact } from "./action/push-follow-ups.ts";
 import { lockedDeletedSource } from "./conversations/deleted-sources.ts";
 import { inputTexts } from "./conversations/input-texts.ts";
@@ -25,8 +25,8 @@ export function stoppedBackgroundLine(commands: readonly string[]): string {
   return `While this session was idle, the background work it had left running was stopped${named}. Start it again if it is still needed.`;
 }
 
-// How far back from the session's newest event the notice is looked for. It
-// is written as the worker exits, so only what a restart writes follows it.
+// How far back from the newest event of the notice's attempt it is looked
+// for. It is written as the worker exits, so only its last words follow it.
 const STOPPED_BACKGROUND_LOOKBACK = 200;
 
 type TurnInputRow = Pick<typeof turns.$inferSelect, "message" | "sources">;
@@ -92,23 +92,24 @@ export async function deliveredTurnInput(
 
 /**
  * The commands an idle worker stopped after the last turn before this one
- * that was not cut off (a cut-off turn leaves nothing to restore from), or
- * null: the engine restored for this turn would otherwise go on
- * as if they were still running. Read from the stored notice, so every
- * delivery of the turn says the same.
+ * that was neither cut off nor cancelled, or null: the engine restored for
+ * this turn would otherwise go on as if they were still running. Read from
+ * the stored notice, so every delivery of the turn says the same.
  */
 async function stoppedBackground(
   tx: Database,
   turn: DeliveredTurn,
 ): Promise<string[] | null> {
   const [before] = await tx
-    .select({ id: turns.id })
+    .select({ id: turns.id, attemptId: turns.attemptId })
     .from(turns)
     .where(
       and(
         eq(turns.sessionId, turn.sessionId),
         lt(turns.sequence, turn.sequence),
         isNotNull(turns.deliveryStartedAt),
+        // One an operator abandoned after it was delivered.
+        ne(turns.status, "cancelled"),
         sql`coalesce(${turns.terminalReason}, '') NOT IN (${sql.join(
           CUT_OFF_TURN_REASONS.map((reason) => sql`${reason}`),
           sql`, `,
@@ -117,20 +118,25 @@ async function stoppedBackground(
     )
     .orderBy(desc(turns.sequence))
     .limit(1);
-  if (before === undefined) return null;
+  if (before === undefined || before.attemptId === null) return null;
+  // By the attempt that ran the turn, whose events the index holds apart:
+  // what later turns wrote is neither read nor in the way.
   const recent = tx
     .select({
       type: events.type,
       payload: events.payload,
       turnId: events.turnId,
-      id: events.id,
+      sequence: events.sourceSequence,
     })
     .from(events)
-    // What a cut-off turn wrote since does not push the notice out of reach.
     .where(
-      and(eq(events.sessionId, turn.sessionId), lte(events.turnId, before.id)),
+      and(
+        eq(events.sessionId, turn.sessionId),
+        eq(events.attemptId, before.attemptId),
+        isNotNull(events.sourceSequence),
+      ),
     )
-    .orderBy(desc(events.id))
+    .orderBy(desc(events.sourceSequence))
     .limit(STOPPED_BACKGROUND_LOOKBACK)
     .as("recent");
   const [notice] = await tx
@@ -143,7 +149,7 @@ async function stoppedBackground(
         sql`${recent.payload}->>'subtype' = 'background_tasks_stopped'`,
       ),
     )
-    .orderBy(desc(recent.id))
+    .orderBy(desc(recent.sequence))
     .limit(1);
   return notice === undefined
     ? null
