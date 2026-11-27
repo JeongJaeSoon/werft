@@ -115,6 +115,9 @@ export function createPostgresMentionTurnRetries(
                 WHERE o.kind = 'emergency_stop_notice'
                   AND o.agent_id = t.agent_id
                   AND o.channel_id = tp.slack_channel_id
+                  -- The same channel id in another Slack team is another channel.
+                  AND (SELECT team_id FROM slack_installations WHERE id = o.installation_id)
+                    = (SELECT team_id FROM slack_installations WHERE id = t.slack_installation_id)
                   AND o.created_at >= t.ended_at)) AS stopped,
             EXISTS (SELECT 1 FROM conversation_engagements e
               WHERE e.conversation_turn_id = t.id AND e.kind = 'mention') AS engaged

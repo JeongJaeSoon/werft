@@ -379,6 +379,9 @@ export function createMentionConversationTurns(deps: {
       return { outcome: "connection_unavailable" };
     }
     if (issued.outcome !== "issued") return { outcome: issued.outcome };
+    // Ended between its permit and the queue (a stop, or a pass that took
+    // it for one whose writer died): it never runs, and nothing is said.
+    let ended = false;
     try {
       await queuing();
       const at = now();
@@ -423,18 +426,17 @@ export function createMentionConversationTurns(deps: {
           usableUntil: issued.expiresAt,
         },
       );
-      // Ended between its permit and the queue (a stop, or a pass that took
-      // it for one whose writer died): it never runs, and nothing is said.
-      if (queued === "ended") return { outcome: "channel_stopped" };
+      ended = queued === "ended";
     } catch (error) {
       // A turn that could not be queued gets no calls.
       await deps.calls.endTurn(turnId);
-      throw error;
-    } finally {
-      // Unreleased, the claim runs out and the next pass after it ends the
-      // turn as it is.
       await deps.statuses.releaseReset(turnId);
+      throw error;
     }
+    // Unreleased, the claim runs out and the next pass after it ends the
+    // turn as it is: a try queued is queued all the same.
+    await deps.statuses.releaseReset(turnId).catch(() => undefined);
+    if (ended) return { outcome: "channel_stopped" };
     return { outcome: "queued", turnId };
   }
   return {

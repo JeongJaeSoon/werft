@@ -6338,6 +6338,103 @@ describe.each(ENGINES)(
       }
     });
 
+    test("a stop of the same channel id in another Slack team leaves the failure line", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      for (let tried = 1; tried < MENTION_TURN_ATTEMPTS; tried += 1) {
+        await report(await leased(), {
+          outcome: "failed",
+          reason: "engine_failed",
+        });
+        await endingsPastWait();
+      }
+      await sendOutbox();
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      // Its line not written on the first pass: the try has ended.
+      await db.execute(sql`
+        CREATE FUNCTION refuse_last_line() RETURNS trigger AS $$
+        BEGIN
+          IF NEW.dedupe_key LIKE 'conversation_reply:%' THEN
+            RAISE EXCEPTION 'last line refused';
+          END IF;
+          RETURN NEW;
+        END $$ LANGUAGE plpgsql`);
+      await db.execute(sql`
+        CREATE TRIGGER refuse_last_line BEFORE INSERT ON slack_outbox
+        FOR EACH ROW EXECUTE FUNCTION refuse_last_line()`);
+      try {
+        expect(await endings()).toMatchObject({ gaveUp: 0 });
+      } finally {
+        await db.execute(sql`DROP TRIGGER refuse_last_line ON slack_outbox`);
+        await db.execute(sql`DROP FUNCTION refuse_last_line()`);
+      }
+      // The agent's install in another team, whose channel of the same id
+      // was stopped after this try ended.
+      const {
+        rows: [mine],
+      } = (await db.execute(sql`
+          SELECT installation_id::text, slack_app_id::text, channel_id FROM slack_outbox
+          WHERE agent_id = ${fixture.agentId}::uuid AND kind = 'conversation_reply'
+          LIMIT 1`)) as unknown as {
+        rows: {
+          installation_id: string;
+          slack_app_id: string;
+          channel_id: string;
+        }[];
+      };
+      const other = randomUUID();
+      await db.execute(sql`
+        INSERT INTO slack_installations
+        SELECT (jsonb_populate_record(i, jsonb_build_object('id', ${other}::text,
+          'team_id', 'T-ELSEWHERE'))).*
+        FROM slack_installations i WHERE i.id = ${mine?.installation_id}::uuid`);
+      await db.execute(sql`
+        INSERT INTO slack_outbox (id, workspace_id, agent_id, slack_app_id,
+          installation_id, kind, channel_id, thread_ts, body, dedupe_key)
+        VALUES (${randomUUID()}::uuid, ${fixture.workspaceId}::uuid,
+          ${fixture.agentId}::uuid, ${mine?.slack_app_id}::uuid, ${other}::uuid,
+          'emergency_stop_notice', ${mine?.channel_id}, '', '{"text":"x"}'::jsonb,
+          ${`emergency-stop:${randomUUID()}`})`);
+      expect(await endings()).toMatchObject({ gaveUp: 1 });
+    });
+
+    test("a next try queued before its thread claim could not go is counted", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      await db.execute(sql`
+        CREATE FUNCTION refuse_release() RETURNS trigger AS $$
+        BEGIN
+          IF OLD.slack_status_claimed_at IS NOT NULL
+            AND NEW.slack_status_claimed_at IS NULL
+            AND EXISTS (SELECT 1 FROM conversation_turn_queue q
+              WHERE q.turn_id = NEW.id AND q.attempt = 2) THEN
+            RAISE EXCEPTION 'release refused';
+          END IF;
+          RETURN NEW;
+        END $$ LANGUAGE plpgsql`);
+      await db.execute(sql`
+        CREATE TRIGGER refuse_release BEFORE UPDATE ON conversation_turns
+        FOR EACH ROW EXECUTE FUNCTION refuse_release()`);
+      try {
+        expect(await endings()).toMatchObject({ retried: 1 });
+      } finally {
+        await db.execute(
+          sql`DROP TRIGGER refuse_release ON conversation_turns`,
+        );
+        await db.execute(sql`DROP FUNCTION refuse_release()`);
+      }
+      expect(await mentionTurnsOf(fixture)).toHaveLength(2);
+    });
+
     test("a failure line another pass wrote first is counted once", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       await deliver(fixture, mention("100.000100"));

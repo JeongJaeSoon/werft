@@ -308,8 +308,10 @@ provider 호출과 예산 원장 줄만으로는 나간 것으로 보지 않는�
 | MR23 | 다른 pass가 끝 문구를 단 시도를 이어 다음 시도를 쓰는 것. 발급은 앞 시도의 끝 줄(`conversation_reply:<turn_id>`)이 있으면 쓰지 않고, 끝 문구는 멘션이 다음 시도로 옮겨진 시도에 쓰지 않는다 | `a pass that read the try's input after another wrote its failure line writes no next try` |
 | MR24 | 다른 pass가 먼저 단 끝 문구나 먼저 쓴 다음 시도를 한 번 더 세는 것. 줄이나 시도가 중복 키에 걸린 pass는 그것을 세지 않는다 | `a failure line another pass wrote first is counted once` |
 | MR25 | 멘션이 이미 다음 시도로 넘어간 앞 시도를 정지 건수에 한 번 더 넣는 것. 정지는 입력 사본만 남은 앞 시도를 정리하되, 멘션을 쥔 시도나 그 정지가 끝낸 시도만 센다 | `a try whose mention the next try holds is not counted again by a stop` |
-| MR26 | 끝 문구를 쓰지 못한(outbox 오류) 시도가, 그 뒤 정지했다 다시 켠 채널에서 다음 pass에 끝 문구를 다는 것. 줄을 쓰기 전에 그 시도가 끝난 뒤 생긴 채널의 정지 알림(정지마다 하나, 다시 켜도 남음)을 보고, 있으면 쓰지 않는다 | `a failure line not written before a stop says nothing once the channel is on` |
+| MR26 | 끝 문구를 쓰지 못한(outbox 오류) 시도가, 그 뒤 정지했다 다시 켠 채널에서 다음 pass에 끝 문구를 다는 것. 줄을 쓰기 전에 그 시도가 끝난 뒤 생긴 같은 Slack 팀·채널의 정지 알림(정지마다 하나, 다시 켜도 남음. 시각은 정지가 시작한 때가 아니라 알림을 쓴 때)을 보고, 있으면 쓰지 않는다 | `a failure line not written before a stop says nothing once the channel is on` |
 | MR27 | 줄이나 다음 시도를 쓴 뒤 입력 사본을 놓다 실패한 pass가 그것을 세지 않는 것. 쓴 것을 먼저 세고 사본을 놓는다 | `an account's line written before its input could not go is counted` |
+| MR28 | 다른 Slack 팀의 같은 채널 id가 정지돼 끝 문구를 빠뜨리는 것. 정지 알림은 그 시도의 설치와 같은 팀의 것만 본다 | `a stop of the same channel id in another Slack team leaves the failure line` |
+| MR29 | 다음 시도를 큐에 넣은 뒤 스레드 상태 잡기를 놓다 실패해 그 시도를 세지 않는 것. 큐에 넣은 시도는 놓기가 실패해도 `queued`로 돌려준다(놓지 못한 잡기는 기한이 지나면 풀린다) | `a next try queued before its thread claim could not go is counted` |
 | MR17 | 다음 시도를 기다리는(10초) 동안 정지했다 다시 켠 채널에서 그 시도를 하는 것. 정지는 채널의 결정 없이 끝나 입력을 남긴 Slack 멘션 시도(운영자 turn은 빼고)도 `emergency_stopped`로 끝내고 사본을 놓는다 | `a try waiting out its delay when the channel is stopped is not tried again once it is on` |
 | MR18 | 다시 시도 요청이 rollout을 읽은 뒤 꺼진 rollout에서 다음 시도를 쓰는 것. 발급 transaction이 에이전트 줄을 공유 잠금으로 다시 읽는다 | `a rollout turned off after the try was read is not tried again` |
 | MR14 | 런타임이 끝을 보고한 뒤 pass가 끝내기 전에 긴급 정지가 끝낸 시도를, 채널을 다시 켠 뒤 다시 하는 것. 정지는 자기가 끝낸 turn의 이미 끝난 큐 줄을 사본이 있든 없든 `emergency_stopped`로 바꾸고 사본을 놓는다 | `a try its runtime reported before an emergency stop is not tried again once the channel is on` |

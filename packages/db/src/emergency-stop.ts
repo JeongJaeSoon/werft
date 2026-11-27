@@ -599,11 +599,14 @@ export async function enqueueEmergencyStopNotice(
 ): Promise<void> {
   await tx.execute(sql`
     INSERT INTO slack_outbox (id, workspace_id, agent_id, slack_app_id,
-      installation_id, kind, channel_id, thread_ts, body, dedupe_key)
+      installation_id, kind, channel_id, thread_ts, body, dedupe_key, created_at)
     SELECT ${randomUUID()}::uuid, ${place.workspaceId}::uuid,
       ${place.agentId}::uuid, a.id, i.id, 'emergency_stop_notice',
       ${place.channelId}, '', ${JSON.stringify({ text: place.text })}::jsonb,
-      ${`emergency-stop:${place.receiptId}`}
+      ${`emergency-stop:${place.receiptId}`},
+      -- When it is written, not when the stop began: a mention turn that
+      -- ended while the stop waited for its locks reads it as after its end.
+      clock_timestamp()
     FROM slack_installations i
     JOIN slack_apps a ON a.app_id = i.app_id
     WHERE i.id = ${place.installationId}::uuid
