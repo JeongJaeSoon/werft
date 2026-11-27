@@ -359,6 +359,28 @@ describe("Claude checkpoint codec", () => {
     ).toThrow(/Invalid Claude checkpoint manifest/);
   });
 
+  test("round-trips where a capture outside a turn's end was taken, and leaves the field out at a turn's end", () => {
+    for (const captureKind of ["between_turns", "before_idle_exit"] as const) {
+      const original = manifest({ captureKind });
+      expect(
+        decodeCheckpointManifest(encodeCheckpointManifest(original).bytes),
+      ).toEqual(original);
+    }
+    expect(
+      "captureKind" in
+        decodeCheckpointManifest(encodeCheckpointManifest(manifest()).bytes),
+    ).toBe(false);
+    const body = {
+      ...JSON.parse(
+        new TextDecoder().decode(encodeCheckpointManifest(manifest()).bytes),
+      ),
+      captureKind: "turn_end",
+    };
+    expect(() =>
+      decodeCheckpointManifest(new TextEncoder().encode(JSON.stringify(body))),
+    ).toThrow(/Invalid Claude checkpoint manifest/);
+  });
+
   test("round-trips the worker's attribution findings, and leaves the field out when there are none", () => {
     const found = {
       attribution: {

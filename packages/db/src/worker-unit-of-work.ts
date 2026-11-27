@@ -1,4 +1,5 @@
 import {
+  AFTER_TURN_FIELD,
   budgetEndedTerminal,
   type CheckpointBlockReason,
   type CheckpointRef,
@@ -33,6 +34,8 @@ import {
   type ClaimCatalog,
   type ClaimInput,
   type ClaimResult,
+  type CommitCheckpointInput,
+  type CommitCheckpointResult,
   type CommitEventsInput,
   type CommitEventsResult,
   type ConfirmExecutionGoneInput,
@@ -55,6 +58,8 @@ import {
   type NextInputPendingInput,
   type NextInputResult,
   nextPendingReason,
+  type PeekCheckpointCommitInput,
+  type PeekCheckpointCommitResult,
   type PeekFinalizeInput,
   type PeekFinalizeResult,
   type ProviderUsageInput,
@@ -103,6 +108,7 @@ import {
   lt,
   max,
   notInArray,
+  or,
   type SQL,
   sql,
 } from "drizzle-orm";
@@ -411,6 +417,132 @@ function leaseRemainingMs(leaseExpiresAt: Date, at: Date): number {
 
 // The system event a restore that fell back to an earlier revision leaves.
 export const CHECKPOINT_RESTORE_FALLBACK = "checkpoint_restore_fallback";
+
+// Turns a checkpoint may be put on after they ended: the ones that ran.
+// `outcome_unknown` waits on a recovery decision, and `cancelled` never ran.
+const CHECKPOINTABLE_ENDED_STATUSES = ["completed", "failed", "interrupted"];
+
+/**
+ * The turn an event for no turn belongs to: the last this attempt ended,
+ * while it has none open. Never another attempt's turn: an attempt that has
+ * ended none of its own leaves its events on no turn, as before.
+ */
+async function turnEndedLastBy(
+  tx: Database,
+  fence: WorkerFence,
+): Promise<number | null> {
+  const [last] = await tx
+    .select({ id: turns.id, status: turns.status })
+    .from(turns)
+    .where(
+      and(
+        eq(turns.sessionId, fence.sessionId),
+        eq(turns.attemptId, fence.attemptId),
+      ),
+    )
+    .orderBy(desc(turns.sequence))
+    .limit(1);
+  if (last === undefined || OPEN_TURN_STATUSES.includes(last.status)) {
+    return null;
+  }
+  return last.id;
+}
+
+/** The stored row of exactly this commit, when it has already landed. */
+async function committedOutsideTurn(
+  tx: Database,
+  input: PeekCheckpointCommitInput,
+): Promise<PeekCheckpointCommitResult> {
+  const sequence = parseTurnSequence(input.turnId);
+  if (!sequence) return { outcome: "open" };
+  const [stored] = await tx
+    .select({ revision: checkpoints.revision })
+    .from(checkpoints)
+    .innerJoin(turns, eq(turns.id, checkpoints.turnId))
+    .where(
+      and(
+        eq(checkpoints.sessionId, input.fence.sessionId),
+        eq(checkpoints.revision, input.checkpoint.revision),
+        eq(checkpoints.manifestRef, input.checkpoint.manifest_ref),
+        eq(checkpoints.manifestSha256, input.checkpoint.manifest_sha256),
+        input.checkpoint.manifest_version === undefined
+          ? isNull(checkpoints.manifestVersion)
+          : eq(checkpoints.manifestVersion, input.checkpoint.manifest_version),
+        eq(turns.sequence, sequence),
+        eq(turns.attemptId, input.fence.attemptId),
+      ),
+    )
+    .limit(1);
+  return stored === undefined
+    ? { outcome: "open" }
+    : { outcome: "replayed", turnId: input.turnId, revision: stored.revision };
+}
+
+type OutsideTurnTarget =
+  | { outcome: "ok"; turnRowId: number }
+  | { outcome: "turn_not_found" }
+  | { outcome: "turn_refused"; reason: string };
+
+/**
+ * The turn a commit outside a turn names, while a checkpoint may still be
+ * put on it: the last turn this attempt finalized, and only until the next
+ * one starts. That turn's finalize commits what covers both, and a capture
+ * from before it must not land over it. A turn still queued has not started.
+ */
+async function outsideTurnTarget(
+  tx: Database,
+  fence: WorkerFence,
+  turnId: string,
+  lock: boolean,
+): Promise<OutsideTurnTarget> {
+  const sequence = parseTurnSequence(turnId);
+  if (!sequence) return { outcome: "turn_not_found" };
+  const named = tx
+    .select({
+      id: turns.id,
+      status: turns.status,
+      sequence: turns.sequence,
+      attemptId: turns.attemptId,
+    })
+    .from(turns)
+    .where(
+      and(eq(turns.sessionId, fence.sessionId), eq(turns.sequence, sequence)),
+    )
+    .limit(1);
+  const [turn] = await (lock ? named.for("update") : named);
+  if (!turn || turn.attemptId !== fence.attemptId) {
+    return { outcome: "turn_not_found" };
+  }
+  if (!CHECKPOINTABLE_ENDED_STATUSES.includes(turn.status)) {
+    return {
+      outcome: "turn_refused",
+      reason: OPEN_TURN_STATUSES.includes(turn.status)
+        ? "the turn is still open; its finalize commits its checkpoint"
+        : `a turn that ended ${turn.status} takes no checkpoint`,
+    };
+  }
+  const [later] = await tx
+    .select({ status: turns.status })
+    .from(turns)
+    .where(
+      and(
+        eq(turns.sessionId, fence.sessionId),
+        gt(turns.sequence, turn.sequence),
+        or(isNotNull(turns.attemptId), isNotNull(turns.deliveryStartedAt)),
+      ),
+    )
+    .orderBy(asc(turns.sequence))
+    .limit(1);
+  if (later !== undefined) {
+    return {
+      outcome: "turn_refused",
+      reason: OPEN_TURN_STATUSES.includes(later.status)
+        ? "a later turn has started"
+        : "it is not the last turn this attempt finalized",
+    };
+  }
+  return { outcome: "ok", turnRowId: turn.id };
+}
 
 // Two submissions of one source_sequence are the same event only if every
 // stored field matches: a reused sequence that moved to another turn or
@@ -3221,6 +3353,12 @@ export function createPostgresWorkerUnitOfWork(
           turnRowId = turn.id;
           turnStatus = turn.status;
         }
+        // What the engine says between turns (a background task ended and
+        // it answers) continues the turn that started the work, so it is
+        // stored on that turn and marked as having come after it.
+        const afterTurn =
+          input.turnId === null ? await turnEndedLastBy(tx, fence) : null;
+        if (afterTurn !== null) turnRowId = afterTurn;
 
         // Everything is checked before anything is written: a batch that is
         // rejected must leave the stream exactly as it was, which an
@@ -3230,6 +3368,7 @@ export function createPostgresWorkerUnitOfWork(
             id: events.id,
             type: events.type,
             payload: events.payload,
+            neutral: events.neutral,
             turnId: events.turnId,
             occurredAt: events.occurredAt,
             sourceSequence: events.sourceSequence,
@@ -3254,13 +3393,27 @@ export function createPostgresWorkerUnitOfWork(
           }
           // A replay of what is already stored is a no-op; anything else
           // would leave the worker holding a cursor for data the stream
-          // does not contain.
+          // does not contain. An event sent for no turn is compared on the
+          // turn it was stored on: which turn that is was decided here, and
+          // may read differently once a later turn has started. Only an
+          // event this path put on a turn, though: one stored for a turn it
+          // named is not the same event sent again for none.
+          const storedOn = input.turnId === null ? row.turnId : turnRowId;
           if (
-            !sameEvent(row, event, turnRowId) &&
+            input.turnId === null &&
+            row.turnId !== null &&
+            (row.neutral as Record<string, unknown> | null)?.[
+              AFTER_TURN_FIELD
+            ] !== true
+          ) {
+            return { outcome: "event_conflict" };
+          }
+          if (
+            !sameEvent(row, event, storedOn) &&
             !sameEvent(
               row,
               event,
-              turnRowId,
+              storedOn,
               await streamClock(tx, fence.sessionId, row.id),
             )
           ) {
@@ -3299,7 +3452,10 @@ export function createPostgresWorkerUnitOfWork(
                 sessionId: fence.sessionId,
                 type: event.event,
                 payload: event.data,
-                neutral: input.neutral?.(event) ?? null,
+                neutral:
+                  afterTurn === null
+                    ? (input.neutral?.(event) ?? null)
+                    : { ...input.neutral?.(event), [AFTER_TURN_FIELD]: true },
                 turnId: turnRowId,
                 attemptId: fence.attemptId,
                 sourceSequence: event.source_sequence,
@@ -3647,6 +3803,78 @@ export function createPostgresWorkerUnitOfWork(
       });
     },
 
+    // Unfenced, as peekFinalizeAtomic is: it reads back a commit this
+    // attempt already made, which a retry after the lease lapsed must learn,
+    // and otherwise what the turn alone already refuses. The commit judges
+    // the turn again under the fence.
+    async peekCheckpointCommitAtomic(
+      input: PeekCheckpointCommitInput,
+    ): Promise<PeekCheckpointCommitResult> {
+      const settled = await committedOutsideTurn(db, input);
+      if (settled.outcome !== "open") return settled;
+      const target = await outsideTurnTarget(
+        db,
+        input.fence,
+        input.turnId,
+        false,
+      );
+      return target.outcome === "ok" ? { outcome: "open" } : target;
+    },
+
+    commitCheckpointAtomic(
+      input: CommitCheckpointInput,
+    ): Promise<CommitCheckpointResult> {
+      const { fence, now } = input;
+      return db.transaction(async (tx) => {
+        const fenced = await acquireFence(tx, fence);
+        if (fenced.outcome !== "ok") return fenced;
+        // Waiting for the fence is when an earlier send of this commit lands.
+        const replay = await committedOutsideTurn(tx, input);
+        if (replay.outcome !== "open") return replay;
+        const target = await outsideTurnTarget(tx, fence, input.turnId, true);
+        if (target.outcome !== "ok") return target;
+        // Judged after the wait for the turn's row.
+        if (!leaseHeld(fenced.attempt, await dbNow(tx))) {
+          return { outcome: "lease_expired" };
+        }
+        const advanced = await advanceCheckpointPointer(tx, {
+          fence,
+          session: fenced.session,
+          checkpoint: input.checkpoint,
+          turnRowId: target.turnRowId,
+          now,
+          versionsHeld: input.checkpointVersionsHeld === true,
+          ...(input.checkpointTranscriptBytes === undefined
+            ? {}
+            : { transcriptBytes: input.checkpointTranscriptBytes }),
+          ...(input.checkpointOutputs === undefined
+            ? {}
+            : { outputs: input.checkpointOutputs }),
+          ...(input.checkpointOutputsDigest === undefined
+            ? {}
+            : { outputsDigest: input.checkpointOutputsDigest }),
+          ...(input.checkpointRuntime === undefined
+            ? {}
+            : { runtime: input.checkpointRuntime }),
+        });
+        if (advanced.outcome === "not_next") {
+          return {
+            outcome: "checkpoint_conflict",
+            currentRevision: advanced.currentRevision,
+          };
+        }
+        // The session's durability changed with no turn event to say so.
+        await tx.execute(
+          sql`SELECT pg_notify('session_events', ${fence.sessionId})`,
+        );
+        return {
+          outcome: "committed",
+          turnId: input.turnId,
+          revision: advanced.revision,
+        };
+      });
+    },
+
     checkpointStateAtomic(
       input: CheckpointStateInput,
     ): Promise<CheckpointStateResult> {
@@ -3657,9 +3885,17 @@ export function createPostgresWorkerUnitOfWork(
         let pendingReason = storedPendingReason(
           fenced.session.checkpointPendingReason,
         );
+        // A verdict on a manifest captured outside a turn is the session's
+        // only while that turn still takes a checkpoint: once the next turn
+        // has started, that turn's own end says what holds.
+        const stale =
+          input.outsideTurnId !== undefined &&
+          (await outsideTurnTarget(tx, fence, input.outsideTurnId, true))
+            .outcome !== "ok";
         // A blocking reason outranks an advisory one and stays, attempt
         // included: the attempt decides who may clear it.
         if (
+          !stale &&
           input.pendingReason !== undefined &&
           nextPendingReason(pendingReason, input.pendingReason) ===
             input.pendingReason

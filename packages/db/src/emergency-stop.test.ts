@@ -472,6 +472,34 @@ describe("an emergency stop of a channel", () => {
     ]);
   });
 
+  test("the fenced worker puts no checkpoint outside a turn on the turn the stop cut off", async () => {
+    const s = await stage();
+    expect((await stop(s, s.admin)).outcome).toBe("stopped");
+    const { kind: _kind, ...fence } = s.worker.principal as Extract<
+      typeof s.worker.principal,
+      { kind: "session" }
+    >;
+    // The turn ended `failed`, which on its own still takes a checkpoint:
+    // only the epoch the stop moved refuses this one.
+    expect(
+      await createPostgresWorkerUnitOfWork(db).commitCheckpointAtomic({
+        fence,
+        now: new Date(),
+        turnId: "1",
+        checkpoint: {
+          revision: 1,
+          manifest_ref: "s3://bucket/stop-1.json",
+          manifest_sha256: "b".repeat(64),
+        },
+      }),
+    ).toEqual({ outcome: "stale_epoch" });
+    const [session] = await db
+      .select({ revision: sessions.checkpointRevision })
+      .from(sessions)
+      .where(eq(sessions.id, s.worker.sessionId));
+    expect(session?.revision).toBe(0);
+  });
+
   test("the receipt says who, when, which channel and why; a second stop is refused", async () => {
     const s = await stage();
     const stopped = await stop(s, s.admin);

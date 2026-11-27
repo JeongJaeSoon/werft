@@ -264,6 +264,12 @@ export type WorkerCheckpointState = {
   readonly pendingApprovals: readonly ParkedApproval[];
 };
 
+/**
+ * Where a capture outside a turn's end was taken: between two turns, or just
+ * before an idle worker exits. A turn-end capture names none.
+ */
+export type CheckpointCaptureKind = "between_turns" | "before_idle_exit";
+
 export type CheckpointManifest = {
   /**
    * The worker's own check of the commits this session made and no remote
@@ -276,6 +282,12 @@ export type CheckpointManifest = {
   readonly attribution?: {
     readonly mismatches: readonly AttributionMismatch[];
   };
+  /**
+   * Absent for a capture at a turn's end, which keeps such a manifest byte
+   * for byte what a build before this field wrote. Never part of a verdict
+   * key: the same content is the same verdict however it was captured.
+   */
+  readonly captureKind?: CheckpointCaptureKind;
   readonly createdAt: string;
   readonly cwd: string;
   readonly engine: string;

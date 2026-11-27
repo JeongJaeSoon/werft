@@ -23,6 +23,7 @@ import {
   postSessionAnswerRequestSchema,
   postSessionMessageRequestSchema,
   RECEIPT_STATUS_VALUES,
+  readStoredEvent,
   receiptSchema,
   recoveryDecisionRequestSchema,
   releaseRequestSchema,
@@ -37,6 +38,7 @@ import {
   TERMINAL_TURN_STATUS_VALUES,
   TURN_STATUS_VALUES,
   UNFINISHED_TURN_STATUSES,
+  withStoredNeutralFields,
   workerScopeSchema,
 } from "./index.ts";
 
@@ -676,6 +678,46 @@ describe("event contracts", () => {
         data: { phase: "needs_input" },
       }).success,
     ).toBe(false);
+  });
+
+  test("a payload that came with a mark of its own is read without it, and the stored mark is the one that counts", () => {
+    // A loose payload may carry any key; the row stays readable.
+    expect(
+      readStoredEvent("system", { type: "system", after_turn: false }),
+    ).toEqual({
+      payload: { event: "system", data: { type: "system" } },
+      readable: true,
+    });
+    expect(
+      withStoredNeutralFields(
+        { type: "system", after_turn: false },
+        { after_turn: true },
+      ),
+    ).toEqual({ type: "system", after_turn: true });
+  });
+
+  test("an event published after its turn keeps that mark in its frame, whatever kind an engine sent", () => {
+    for (const event of [
+      "system",
+      "assistant",
+      "tool_use",
+      "question",
+      "result",
+    ] as const) {
+      const frame = sseEventSchema.parse({
+        id: "ev_1",
+        event,
+        data: {
+          schema_version: 1,
+          session_id: SESSION_ID,
+          turn_id: "1",
+          attempt_id: "a1",
+          occurred_at: AT,
+          data: { ...eventData[event], after_turn: true },
+        },
+      });
+      expect(frame.data.data).toMatchObject({ after_turn: true });
+    }
   });
 });
 

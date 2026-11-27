@@ -20,11 +20,17 @@ import {
 } from "@werft-ai/db/testing/launches";
 import type { SessionCatalog } from "@werft-ai/platform";
 import type { CheckpointPreparation } from "@werft-ai/runtime-core";
-import type { EngineMessage } from "@werft-ai/runtime-core/testing";
+import type {
+  EngineMessage,
+  ScriptedStep,
+} from "@werft-ai/runtime-core/testing";
 import { fakeRuntimeFor } from "@werft-ai/runtime-registry/testing";
 import { and, eq } from "drizzle-orm";
 import { testCatalog } from "../apps/control-host/src/testing/catalog.ts";
-import type { WorkerCheckpointPort } from "../apps/worker/src/checkpoint.ts";
+import type {
+  CaptureRefusal,
+  WorkerCheckpointPort,
+} from "../apps/worker/src/checkpoint.ts";
 import { HttpWorkerGatewayClient } from "../apps/worker/src/gateway-client.ts";
 import { noWorkspace } from "../apps/worker/src/testing/no-workspace.ts";
 import {
@@ -34,6 +40,7 @@ import {
 import {
   inputUuid,
   WorkerHost,
+  type WorkerHostOptions,
   type WorkerLogger,
 } from "../apps/worker/src/worker-host.ts";
 import { flowHarness } from "./flow-harness.ts";
@@ -153,6 +160,64 @@ function failingPublishPort(
   return { port, restores, captures };
 }
 
+/**
+ * A port that commits what it captures and names its refusals the way
+ * SessionCheckpoints does: a run that is not quiet, and each of `failures` in
+ * turn, reported to the gateway under the reason the session then shows.
+ * `beforeCapture` runs ahead of every ready capture, with its count.
+ */
+function namingPort(
+  gateway: HttpWorkerGatewayClient,
+  options: {
+    failures?: CaptureRefusal[];
+    beforeCapture?: (ready: number) => Promise<void>;
+  } = {},
+) {
+  const failures = [...(options.failures ?? [])];
+  const captures: Array<{ status: string; kind: string }> = [];
+  let revision = -1;
+  let ready = 0;
+  const port: WorkerCheckpointPort = {
+    restorePlan: async () => ({ mode: "new" }),
+    capture: async (preparation, context) => {
+      captures.push({
+        status: preparation.status,
+        kind: context.captureKind ?? "turn_end",
+      });
+      if (preparation.status !== "ready") {
+        context.refused?.({
+          reason: preparation.reason,
+          infrastructure: false,
+        });
+        await gateway.requestCheckpoint({ ...context.scope, preparation });
+        return null;
+      }
+      ready += 1;
+      await options.beforeCapture?.(ready);
+      const failure = failures.shift();
+      if (failure !== undefined) {
+        context.refused?.(failure);
+        await gateway.requestCheckpoint({
+          ...context.scope,
+          preparation: {
+            status: "rejected",
+            reason: failure.reason,
+            detail: "publish: store unavailable",
+          },
+        });
+        return null;
+      }
+      revision += 1;
+      return {
+        revision,
+        manifest_ref: `manifests/${revision}.json`,
+        manifest_sha256: "c".repeat(64),
+      };
+    },
+  };
+  return { port, captures };
+}
+
 integration(
   "a replaced worker without a covering checkpoint never silently drops the conversation",
   () => {
@@ -255,26 +320,35 @@ integration(
       checkpoints:
         | WorkerCheckpointPort
         | ((gateway: HttpWorkerGatewayClient) => WorkerCheckpointPort);
+      /** The engine's script, given each turn's result; one turn's by default. */
+      steps?: (
+        resultOf: (turn: number) => Promise<EngineMessage>,
+      ) => Promise<ScriptedStep[]>;
+      outsideTurnCheckpoint?: WorkerHostOptions["outsideTurnCheckpoint"];
     }) {
       const launch = await launchSession(flow.db, {
         sessionId: input.sessionId,
       });
       const executionId = launch.executionId;
-      const runtime = fakeRuntimeFor(SCRIPTED_KIND, [
-        { type: "await-input" },
-        {
-          type: "emit",
-          message: result(
-            inputUuid(
-              input.sessionId,
-              String(input.turn),
-              await queueIdOf(input.sessionId, input.turn),
-            ),
-            input.engineSession,
+      const resultOf = async (turn: number) =>
+        result(
+          inputUuid(
+            input.sessionId,
+            String(turn),
+            await queueIdOf(input.sessionId, turn),
           ),
-        },
-        { type: "await-input" },
-      ]);
+          input.engineSession,
+        );
+      const runtime = fakeRuntimeFor(
+        SCRIPTED_KIND,
+        input.steps === undefined
+          ? [
+              { type: "await-input" },
+              { type: "emit", message: await resultOf(input.turn) },
+              { type: "await-input" },
+            ]
+          : await input.steps(resultOf),
+      );
       const launches: Array<{ mode: string; resume: string | null }> = [];
       const client = new HttpWorkerGatewayClient({
         baseUrl: base(),
@@ -318,10 +392,277 @@ integration(
           startupTimeoutMs: 60_000,
         },
         workspace: noWorkspace,
+        ...(input.outsideTurnCheckpoint === undefined
+          ? {}
+          : { outsideTurnCheckpoint: input.outsideTurnCheckpoint }),
       });
       const summary = await host.runLoop();
       return { summary, executionId, runtime, launches };
     }
+
+    async function newSession(message: string) {
+      const created = await post("/v1/sessions", {
+        repository_id: "sample-app",
+        message,
+      });
+      expect(created.status).toBe(201);
+      const sessionId = createSessionResponseSchema.parse(
+        await created.json(),
+      ).session_id;
+      const partition = `context-gap-e2e-${crypto.randomUUID()}`;
+      await flow.db
+        .update(schema.sessions)
+        .set({ partition })
+        .where(eq(schema.sessions.id, sessionId));
+      await flow.db
+        .update(unassignedSessions)
+        .set({ partition })
+        .where(eq(unassignedSessions.sessionId, sessionId));
+      return sessionId;
+    }
+
+    async function turnRow(sessionId: string, sequence: number) {
+      const [row] = await flow.db
+        .select({ id: turns.id, status: turns.status })
+        .from(turns)
+        .where(
+          and(eq(turns.sessionId, sessionId), eq(turns.sequence, sequence)),
+        );
+      if (!row) throw new Error(`no turn ${sequence}`);
+      return row;
+    }
+
+    test("a turn that left background work running is checkpointed once the work ends, so the idle exit leaves the session to its next worker", async () => {
+      const sessionId = await newSession(
+        "sleep 90 in the background, then say done",
+      );
+      let ported: ReturnType<typeof namingPort> | undefined;
+
+      // Turn 1 ends with a background task alive; it ends later, and the
+      // engine then answers on its own, outside any turn.
+      const first = await runWorker({
+        sessionId,
+        turn: 1,
+        engineSession: "engine-bg",
+        checkpoints: (gateway) => {
+          ported = namingPort(gateway);
+          return ported.port;
+        },
+        steps: async (resultOf) => [
+          { type: "await-input" },
+          {
+            type: "emit",
+            message: {
+              type: "system",
+              subtype: "background_tasks_changed",
+              tasks: [{ task_id: "bash_1", task_type: "local_bash" }],
+            },
+          },
+          { type: "emit", message: await resultOf(1) },
+          { type: "delay", delayMs: 150 },
+          {
+            type: "emit",
+            message: {
+              type: "system",
+              subtype: "background_tasks_changed",
+              tasks: [],
+            },
+          },
+          {
+            type: "emit",
+            message: {
+              type: "assistant",
+              session_id: "engine-bg",
+              parent_tool_use_id: null,
+              message: {
+                role: "assistant",
+                content: [{ type: "text", text: "done" }],
+              },
+            },
+          },
+          {
+            type: "emit",
+            message: {
+              type: "result",
+              subtype: "success",
+              session_id: "engine-bg",
+              is_error: false,
+            },
+          },
+          { type: "await-input" },
+        ],
+      });
+
+      expect(first.summary.outcome).toBe("idle");
+      expect(first.summary.turns).toEqual([
+        { turnId: "1", status: "completed", reason: null },
+      ]);
+      // Refused at the turn's end, taken between turns once the run was quiet.
+      expect(ported?.captures[0]).toEqual({
+        status: "rejected",
+        kind: "turn_end",
+      });
+      expect(ported?.captures.at(-1)).toEqual({
+        status: "ready",
+        kind: "between_turns",
+      });
+      // What the engine said after the turn is the turn's, marked as such.
+      const first1 = await turnRow(sessionId, 1);
+      expect(first1.status).toBe("completed");
+      const said = await flow.db
+        .select({
+          turnId: schema.events.turnId,
+          neutral: schema.events.neutral,
+        })
+        .from(schema.events)
+        .where(
+          and(
+            eq(schema.events.sessionId, sessionId),
+            eq(schema.events.type, "assistant"),
+          ),
+        );
+      expect(said).toEqual([
+        {
+          turnId: first1.id,
+          neutral: expect.objectContaining({ after_turn: true }),
+        },
+      ]);
+
+      // The scheduler observes the exit: no context gap, nothing to decide.
+      await confirmExecutionGone(flow.db, first.executionId);
+      expect(await detail(sessionId)).toMatchObject({
+        admission_state: "active",
+        status: "idle",
+        attention: null,
+        durability: {
+          last_completed_turn_id: "1",
+          last_checkpointed_turn_id: "1",
+          checkpoint_pending_reason: null,
+        },
+      });
+
+      // The next message goes to a new worker, which resumes the engine
+      // session the checkpoint was captured from.
+      expect(
+        (
+          await post(`/v1/sessions/${sessionId}/messages`, {
+            message: "second",
+            mode: "enqueue",
+          })
+        ).status,
+      ).toBe(202);
+      const second = await runWorker({
+        sessionId,
+        turn: 2,
+        engineSession: "engine-bg",
+        checkpoints: checkpointPort(true, 1, () => "engine-bg").port,
+      });
+      expect(second.launches).toEqual([
+        { mode: "resume", resume: "engine-bg" },
+      ]);
+      expect(second.summary.turns).toEqual([
+        { turnId: "2", status: "completed", reason: null },
+      ]);
+    }, 60_000);
+
+    test("a publish the store failed is retried in the lease while the next message stays queued, and the retry's commit lets it start", async () => {
+      const sessionId = await newSession("first");
+      expect(
+        (
+          await post(`/v1/sessions/${sessionId}/messages`, {
+            message: "second",
+            mode: "enqueue",
+          })
+        ).status,
+      ).toBe(202);
+
+      // The second ready capture is the first retry: held here while the
+      // session is read, as a store still down would hold it.
+      let reached: () => void = () => {};
+      const atRetry = new Promise<void>((resolve) => {
+        reached = resolve;
+      });
+      let release: () => void = () => {};
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let ported: ReturnType<typeof namingPort> | undefined;
+      const running = runWorker({
+        sessionId,
+        turn: 1,
+        engineSession: "engine-pf",
+        checkpoints: (gateway) => {
+          ported = namingPort(gateway, {
+            failures: [{ reason: "publish_failed", infrastructure: true }],
+            beforeCapture: async (ready) => {
+              if (ready !== 2) return;
+              reached();
+              await released;
+            },
+          });
+          return ported.port;
+        },
+        steps: async (resultOf) => [
+          { type: "await-input" },
+          { type: "emit", message: await resultOf(1) },
+          { type: "await-input" },
+          { type: "emit", message: await resultOf(2) },
+          { type: "await-input" },
+        ],
+        outsideTurnCheckpoint: { retryBackoffMs: [50] },
+      });
+
+      await atRetry;
+      // Longer than several input polls would take: none is made.
+      await Bun.sleep(500);
+      expect((await turnRow(sessionId, 1)).status).toBe("completed");
+      expect((await turnRow(sessionId, 2)).status).toBe("queued");
+      expect(await detail(sessionId)).toMatchObject({
+        admission_state: "active",
+        queued_turn_count: 1,
+        durability: {
+          last_completed_turn_id: "1",
+          last_checkpointed_turn_id: null,
+          checkpoint_pending_reason: "publish_failed",
+        },
+      });
+
+      release();
+      const done = await running;
+
+      expect(done.summary.turns).toEqual([
+        { turnId: "1", status: "completed", reason: null },
+        { turnId: "2", status: "completed", reason: null },
+      ]);
+      expect(ported?.captures).toEqual([
+        { status: "ready", kind: "turn_end" },
+        { status: "ready", kind: "between_turns" },
+        { status: "ready", kind: "turn_end" },
+      ]);
+      // Revision 0 is turn 1's, committed outside it; revision 1 is turn 2's.
+      const first1 = await turnRow(sessionId, 1);
+      const covered = await flow.db
+        .select({
+          revision: schema.checkpoints.revision,
+          turnId: schema.checkpoints.turnId,
+        })
+        .from(schema.checkpoints)
+        .where(eq(schema.checkpoints.sessionId, sessionId));
+      expect(covered).toContainEqual({ revision: 0, turnId: first1.id });
+      expect(covered).toHaveLength(2);
+      await confirmExecutionGone(flow.db, done.executionId);
+      expect(await detail(sessionId)).toMatchObject({
+        admission_state: "active",
+        status: "idle",
+        attention: null,
+        durability: {
+          last_completed_turn_id: "2",
+          last_checkpointed_turn_id: "2",
+          checkpoint_pending_reason: null,
+          checkpoint_revision: 1,
+        },
+      });
+    }, 60_000);
 
     test("an idle exit without a covering checkpoint waits on an operator, and start_fresh continues visibly on a new engine session", async () => {
       // 1. A session and its first turn.

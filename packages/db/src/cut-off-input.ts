@@ -1,18 +1,34 @@
 import {
+  CUT_OFF_TURN_REASONS,
   isCutOffTurnReason,
+  stoppedBackgroundCommands,
   TURN_EMERGENCY_STOPPED_REASON,
 } from "@werft-ai/contracts";
 import { sourceSetOf } from "@werft-ai/platform";
-import { and, desc, eq, lt, ne } from "drizzle-orm";
+import { and, desc, eq, isNotNull, lt, ne, sql } from "drizzle-orm";
 import { followUpFact } from "./action/push-follow-ups.ts";
 import { lockedDeletedSource } from "./conversations/deleted-sources.ts";
 import { inputTexts } from "./conversations/input-texts.ts";
 import type { Database } from "./queries.ts";
-import { type PrependSkipReason, turns } from "./schema.ts";
+import { events, type PrependSkipReason, turns } from "./schema.ts";
 
 /** The line before a cut-off turn's input, in the turn after it. */
 export const CUT_OFF_INPUT_LINE =
   "The request before this one was cut off midway. It was:";
+
+/**
+ * The line a turn's input starts with when the idle worker before it stopped
+ * the background work the session had left running. Command names only.
+ */
+export function stoppedBackgroundLine(commands: readonly string[]): string {
+  const named = commands.length === 0 ? "" : `: ${commands.join(", ")}`;
+  return `While this session was idle, the background work it had left running was stopped${named}. Start it again if it is still needed.`;
+}
+
+// How far back from the newest event of the notice's attempt it is looked
+// for. Only what the engine says while the exiting worker waits for it to
+// settle follows the notice, and that wait is a minute at most.
+const STOPPED_BACKGROUND_LOOKBACK = 2_000;
 
 type TurnInputRow = Pick<typeof turns.$inferSelect, "message" | "sources">;
 type DeliveredTurn = Pick<
@@ -63,10 +79,82 @@ export async function deliveredTurnInput(
   const own =
     (await turnInputText(tx, input.turn)) ?? followUpFact(input.turn.message);
   const { text, record } = await cutOffInput(tx, input);
+  const stopped = await stoppedBackground(tx, input.turn);
+  const message =
+    text === null ? own : `${CUT_OFF_INPUT_LINE}\n\n${text}\n\n${own}`;
   return {
-    message: text === null ? own : `${CUT_OFF_INPUT_LINE}\n\n${text}\n\n${own}`,
+    message:
+      stopped === null
+        ? message
+        : `${stoppedBackgroundLine(stopped)}\n\n${message}`,
     record,
   };
+}
+
+/**
+ * The commands an idle worker stopped after the last turn before this one
+ * that was neither cut off nor cancelled, or null: the engine restored for
+ * this turn would otherwise go on as if they were still running. Read from
+ * the stored notice, so every delivery of the turn says the same.
+ */
+async function stoppedBackground(
+  tx: Database,
+  turn: DeliveredTurn,
+): Promise<string[] | null> {
+  const [before] = await tx
+    .select({ id: turns.id, attemptId: turns.attemptId })
+    .from(turns)
+    .where(
+      and(
+        eq(turns.sessionId, turn.sessionId),
+        lt(turns.sequence, turn.sequence),
+        isNotNull(turns.deliveryStartedAt),
+        // One an operator abandoned after it was delivered.
+        ne(turns.status, "cancelled"),
+        sql`coalesce(${turns.terminalReason}, '') NOT IN (${sql.join(
+          CUT_OFF_TURN_REASONS.map((reason) => sql`${reason}`),
+          sql`, `,
+        )})`,
+      ),
+    )
+    .orderBy(desc(turns.sequence))
+    .limit(1);
+  if (before === undefined || before.attemptId === null) return null;
+  // By the attempt that ran the turn, whose events the index holds apart:
+  // what later turns wrote is neither read nor in the way.
+  const recent = tx
+    .select({
+      type: events.type,
+      payload: events.payload,
+      turnId: events.turnId,
+      sequence: events.sourceSequence,
+    })
+    .from(events)
+    .where(
+      and(
+        eq(events.sessionId, turn.sessionId),
+        eq(events.attemptId, before.attemptId),
+        isNotNull(events.sourceSequence),
+      ),
+    )
+    .orderBy(desc(events.sourceSequence))
+    .limit(STOPPED_BACKGROUND_LOOKBACK)
+    .as("recent");
+  const [notice] = await tx
+    .select({ payload: recent.payload })
+    .from(recent)
+    .where(
+      and(
+        eq(recent.type, "system"),
+        eq(recent.turnId, before.id),
+        sql`${recent.payload}->>'subtype' = 'background_tasks_stopped'`,
+      ),
+    )
+    .orderBy(desc(recent.sequence))
+    .limit(1);
+  return notice === undefined
+    ? null
+    : stoppedBackgroundCommands(notice.payload);
 }
 
 /**

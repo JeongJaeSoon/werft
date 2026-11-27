@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  AFTER_TURN_FIELD,
   BUDGET_ACCOUNT_REFUSED_EVENT_CODE,
   BUDGET_OWNER_KIND_VALUES,
   type ConversationInputId,
@@ -1561,6 +1562,9 @@ export function createPostgresSlackOutboxStore(
                   inArray(events.type, ["assistant", "tool_use"]),
                   // Subagent output is the subagent's, not the turn's answer.
                   sql`${events.payload}->>'parent_tool_use_id' IS NULL`,
+                  // Nor is what the engine said after the turn ended: the
+                  // turn's answer is what it had said by then.
+                  sql`${events.neutral}->>${AFTER_TURN_FIELD} IS NULL`,
                 ),
               )
               .orderBy(asc(events.turnId), asc(events.sourceSequence));

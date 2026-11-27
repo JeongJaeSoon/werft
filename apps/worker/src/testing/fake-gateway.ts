@@ -5,6 +5,8 @@ import {
   type BootstrapClaimRequest,
   type BootstrapClaimResponse,
   budgetEndedTerminal,
+  type CheckpointCommitRequest,
+  type CheckpointCommitResponse,
   type CheckpointRef,
   type CheckpointRequest,
   type CheckpointRequestResponse,
@@ -184,6 +186,10 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   refusesStopKind = false;
   /** Every checkpoint request the worker made, rejected ones included. */
   readonly checkpointRequests: CheckpointRequest[] = [];
+  /** Every commit outside a turn the worker asked for, refused ones included. */
+  readonly checkpointCommits: CheckpointCommitRequest[] = [];
+  /** Thrown by a commit outside a turn while set. */
+  checkpointCommitFailure: WorkerGatewayRequestError | undefined;
   readonly restorePlans: RestorePlanRequest[] = [];
   /** The in-memory pointer, when no protocol is bound: null until a commit. */
   checkpointRevision: number | null = null;
@@ -662,7 +668,7 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
         );
       }
       if (request.checkpoint !== null) {
-        await this.commitCheckpoint({
+        await this.advancePointer({
           ...request,
           checkpoint: request.checkpoint,
         });
@@ -747,7 +753,32 @@ export class FakeWorkerGateway implements WorkerGatewaySession {
   }
 
   /** Like finalizeAtomic's pointer CAS: the next revision or nothing. */
-  private async commitCheckpoint(
+  /** As commitCheckpointAtomic judges it: only the turn finalized last. */
+  async commitCheckpoint(
+    request: CheckpointCommitRequest,
+  ): Promise<CheckpointCommitResponse> {
+    this.calls.push("commitCheckpoint");
+    this.checkpointCommits.push(request);
+    if (this.checkpointCommitFailure !== undefined) {
+      throw this.checkpointCommitFailure;
+    }
+    const last = this.finalized.at(-1);
+    if (last === undefined || last.turn_id !== request.turn_id) {
+      throw new WorkerGatewayRequestError(
+        409,
+        "REQUEST_STALE",
+        `Turn ${request.turn_id} is not the one this attempt finalized last`,
+        false,
+      );
+    }
+    await this.advancePointer({ ...last, checkpoint: request.checkpoint });
+    return {
+      turn_id: request.turn_id,
+      checkpoint_revision: request.checkpoint.revision,
+    };
+  }
+
+  private async advancePointer(
     request: FinalizeRequest & { checkpoint: CheckpointRef },
   ): Promise<void> {
     if (this.checkpointProtocol !== undefined) {
