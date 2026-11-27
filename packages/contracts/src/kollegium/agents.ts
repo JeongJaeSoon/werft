@@ -893,8 +893,9 @@ export function pinUnderSwitches<T extends AgentGitHub>(pin: T): T {
  * refuses.
  *
  * - `release`: the pin it started on, under `pinUnderSwitches`. A row a
- *   person saved narrows the pin as stored instead (meet; with no pin only
- *   `currentRepositories`).
+ *   person saved narrows it further (meet; with no pin only
+ *   `currentRepositories`). A row a migration wrote (`updatedBy` null) and
+ *   no row change nothing.
  * - `agent`: the agent's row now, met with the settings the session started
  *   under (`start`), except that a session with its own attached list
  *   (`attachedRepositoryIds` an array) reads the repository list from the row
@@ -977,12 +978,13 @@ export function effectiveGitHubPolicy(input: {
         ),
       };
     }
+    const started = pinUnderSwitches(pin.data);
     return {
       ...UNSET,
       source: "release",
-      settings: meetGitHubSettings(pin.data, current.data),
+      settings: meetGitHubSettings(started, current.data),
       agentSettingsRevision: agentRow.revision,
-      startActionsAllow: pin.data.actions_allow,
+      startActionsAllow: started.actions_allow,
       pushAttached: releasePushAttached(agentRow),
     };
   }

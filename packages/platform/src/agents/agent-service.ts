@@ -27,6 +27,7 @@ import {
   type GitHubRefusal,
   githubFeaturesOverCeiling,
   type ListUsableAgentsResponse,
+  pinUnderSwitches,
   RETIRED_CATALOG_MCP_MESSAGE,
   type RepositoryCeiling,
   releaseModel,
@@ -349,7 +350,12 @@ export function createAgentService(deps: {
     }
     const ceiling =
       (await deps.githubSettings?.get(ownerId))?.ceiling ?? GITHUB_CEILING_NONE;
-    const [over] = githubFeaturesOverCeiling(github.features, ceiling);
+    // A kept pin is judged as its sessions read it: its old `actions` runs
+    // nothing, so 0393's ceiling does not refuse the edit that keeps it.
+    const [over] = githubFeaturesOverCeiling(
+      (sent ? github : pinUnderSwitches(github)).features,
+      ceiling,
+    );
     if (over !== undefined) {
       throw githubInvalid(`github.features.${over}`, "over_workspace_ceiling");
     }

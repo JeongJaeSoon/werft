@@ -233,13 +233,30 @@ describe("a release session and a row a person saved", () => {
         settings: {
           repositories: ["app"],
           push_approval: true,
-          features: { ...ALL_ON, issues: false, review: false },
+          // The pin runs nothing directly, whatever the row says (94S-2406).
+          features: { ...ALL_ON, issues: false, review: false, actions: false },
           actions_allow: [{ workflow: "ci.yml" }],
         },
         agentSettingsRevision: 4,
-        startActionsAllow: [{ workflow: "deploy.yml" }],
+        startActionsAllow: [],
       }),
     );
+  });
+
+  test("a first save keeps what the session read from an old pin: CI on, direct runs still off (94S-2406)", () => {
+    const old: AgentGitHub = {
+      ...pin,
+      features: { ...pin.features, workflows: false, checks: false },
+    };
+    const read = effectiveGitHubPolicy({
+      source: "release",
+      releasePin: old,
+      agentRow: { ...human, features: ALL_ON },
+    });
+    expect(read.settings).toMatchObject({
+      features: { workflows: true, checks: true, actions: false },
+    });
+    expect(read.startActionsAllow).toEqual([]);
   });
 
   test("a repository the person added back is not wider than the pin", () => {

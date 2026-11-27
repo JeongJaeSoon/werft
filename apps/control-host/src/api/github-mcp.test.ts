@@ -401,9 +401,8 @@ describe("the built-in github MCP server on stored rows", () => {
       "mcp__github__close_pull_request",
       "mcp__github__reopen_pull_request",
       "mcp__github__merge_pull_request",
-      "mcp__github__dispatch_workflow",
+      // A release pin's actions runs nothing directly (94S-2406).
       "mcp__github__get_workflow_run",
-      "mcp__github__rerun_workflow",
       "mcp__github__list_repositories",
       "mcp__github__attach_repository",
     ]);
