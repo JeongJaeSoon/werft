@@ -33,6 +33,12 @@ describe("agentSearch", () => {
         judgment_reason: "timed_out",
       },
     );
+    expect(
+      agentSearch({ judgment_answer: "no_reply", judgment_reason: "unclear" }),
+    ).toEqual({ judgment_answer: "no_reply", judgment_reason: "unclear" });
+    expect(agentSearch({ judgment_answer: "nope" })).toEqual({});
+    expect(agentSearch({ judgment_answer: "toString" })).toEqual({});
+    expect(agentSearch({ judgment_answer: ["replied"] })).toEqual({});
     expect(agentSearch({ judgment_reason: "nope" })).toEqual({});
     expect(agentSearch({ judgment_reason: "toString" })).toEqual({});
     expect(agentSearch({ judgment_reason: ["timed_out"] })).toEqual({});

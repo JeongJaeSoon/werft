@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   conversationJudgmentIdSchema,
+  JUDGMENT_ANSWER_VALUES,
   JUDGMENT_GRADE_VALUES,
   JUDGMENT_OUTCOME_VALUES,
   JUDGMENT_REASON_VALUES,
@@ -63,16 +64,22 @@ export const slackJudgmentItemSchema = z
     outcome: z.enum(JUDGMENT_OUTCOME_VALUES),
     decision: z.enum(M1_DECISION_VALUES),
     reason: z.enum(JUDGMENT_REASON_VALUES),
+    /** What became of a judgment that spoke; null when nothing did. */
+    answer: z.enum(JUDGMENT_ANSWER_VALUES).nullable(),
     judged_at: timestampSchema,
   })
   .strict();
 
 /**
- * Narrows `recent` to the judgments with this reason. The per-channel counts
- * stay whole, so they still say what the list was cut from.
+ * Narrows `recent` to the judgments with this reason and, or, this answer.
+ * The per-channel counts stay whole, so they still say what the list was cut
+ * from.
  */
 export const getSlackJudgmentsQuerySchema = z
-  .object({ reason: z.enum(JUDGMENT_REASON_VALUES).optional() })
+  .object({
+    reason: z.enum(JUDGMENT_REASON_VALUES).optional(),
+    answer: z.enum(JUDGMENT_ANSWER_VALUES).optional(),
+  })
   .strict();
 
 /**

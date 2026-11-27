@@ -2,6 +2,7 @@ import {
   type ConversationJudgmentId,
   type GetSlackJudgmentsQuery,
   type GetSlackJudgmentsResponse,
+  type JudgmentAnswer,
   type JudgmentGrade,
   type JudgmentOutcome,
   type JudgmentReason,
@@ -35,6 +36,8 @@ export type JudgmentReviewItem = {
   outcome: JudgmentOutcome;
   decision: M1Decision;
   reason: JudgmentReason;
+  /** Null when no unasked turn was made of it. */
+  answer: JudgmentAnswer | null;
   judgedAt: Date;
 };
 
@@ -55,6 +58,8 @@ export interface JudgmentReviewStore {
     channels: readonly { teamId: string; channelId: string }[];
     /** Only the records with this reason. */
     reason?: JudgmentReason;
+    /** Only the records with this answer. */
+    answer?: JudgmentAnswer;
     limit: number;
   }): Promise<JudgmentReviewItem[]>;
 }
@@ -136,6 +141,7 @@ export function createJudgmentReviewService(deps: {
                 channelId: channel.channel_id,
               })),
               ...(query.reason === undefined ? {} : { reason: query.reason }),
+              ...(query.answer === undefined ? {} : { answer: query.answer }),
               limit: SLACK_JUDGMENT_RECENT_LIMIT,
             });
       return {
@@ -152,6 +158,7 @@ export function createJudgmentReviewService(deps: {
           outcome: item.outcome,
           decision: item.decision,
           reason: item.reason,
+          answer: item.answer,
           judged_at: item.judgedAt.toISOString(),
         })),
       };

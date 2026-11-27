@@ -31,6 +31,7 @@ async function judgment(row: {
   outcome: "judged" | "not_called" | null;
   decision?: "speak" | "quiet";
   reason?: string;
+  answer?: string;
   refs?: string[];
   agent?: string;
   judgedAgo?: string;
@@ -39,10 +40,10 @@ async function judgment(row: {
     `INSERT INTO conversation_judgments (id, workspace_id, agent_id,
       conversation_id, grade, slack_team_id, slack_channel_id, refs,
       prompt_version, outcome, decision, reason, judged_at, rule_decision,
-      rule_reason)
+      rule_reason, target_ts, answer)
      VALUES ($1, $2, $3, $4, $12, $5, $6, $7, 1, $8, $9, $10,
       CASE WHEN $8::text IS NULL THEN NULL ELSE now() - $11::interval END,
-      $13, $14)`,
+      $13, $14, $15, $16)`,
     [
       randomUUID(),
       WORKSPACE,
@@ -59,6 +60,9 @@ async function judgment(row: {
       row.outcome === null ? "m1_engaged" : "buffer_m1",
       row.outcome === null ? "none" : null,
       row.outcome === null ? "stray_reply" : null,
+      // An answer needs a target among the refs and a judged speak.
+      row.answer === undefined ? null : (row.refs ?? ["100.000001"]).at(-1),
+      row.answer ?? null,
     ],
   );
 }
@@ -213,6 +217,7 @@ test("the recent list is of the channels named only, newest first, the last mess
     ["100.000009", "judged", "human_conversation"],
   ]);
   expect(Object.keys(items[0] ?? {}).sort()).toEqual([
+    "answer",
     "channelId",
     "decision",
     "grade",
@@ -314,4 +319,84 @@ test("recent with a reason is that reason's records only, newest first, inside t
   ).toEqual([]);
   // No reason: every record of the channel, as before.
   expect((await store.recent({ ...input, limit: 50 })).length).toBe(5);
+});
+
+test("recent with an answer is that answer's records only, alone or with a reason, newest first inside the limit", async () => {
+  for (const [reason, answer, ago] of [
+    ["needs_agent", "replied", "4 hours"],
+    ["needs_agent", "no_reply", "3 hours"],
+    ["needs_agent", "replied", "2 hours"],
+    ["unclear", "replied", "90 minutes"],
+    ["needs_agent", "replied", "1 hour"],
+  ] as const) {
+    await judgment({
+      channel: "C0PUBLIC",
+      outcome: "judged",
+      decision: "speak",
+      reason,
+      answer,
+      judgedAgo: ago,
+    });
+  }
+  // A quiet record has no answer, and neither has a speak of a shadow rollout.
+  await judgment({
+    channel: "C0PUBLIC",
+    outcome: "judged",
+    judgedAgo: "30 minutes",
+  });
+  await judgment({
+    channel: "C0PUBLIC",
+    outcome: "judged",
+    decision: "speak",
+    judgedAgo: "20 minutes",
+  });
+  const store = createPostgresJudgmentReviewStore(db);
+  const input = {
+    workspaceId: WORKSPACE,
+    agentId: AGENT,
+    since: since(),
+    channels: [{ teamId: TEAM, channelId: "C0PUBLIC" }],
+  };
+  const hours = (items: { judgedAt: Date }[]) =>
+    items.map((item) =>
+      Math.round((Date.now() - item.judgedAt.getTime()) / 3_600_000),
+    );
+  const replied = await store.recent({
+    ...input,
+    answer: "replied",
+    limit: 50,
+  });
+  expect(replied.map((item) => item.answer)).toEqual([
+    "replied",
+    "replied",
+    "replied",
+    "replied",
+  ]);
+  expect(hours(replied)).toEqual([1, 2, 2, 4]);
+  // The limit counts the filtered records, not the unfiltered ones.
+  expect(
+    hours(await store.recent({ ...input, answer: "replied", limit: 2 })),
+  ).toEqual([1, 2]);
+  expect(
+    (
+      await store.recent({
+        ...input,
+        answer: "replied",
+        reason: "unclear",
+        limit: 50,
+      })
+    ).length,
+  ).toBe(1);
+  expect(
+    (await store.recent({ ...input, answer: "no_reply", limit: 50 })).map(
+      (item) => item.answer,
+    ),
+  ).toEqual(["no_reply"]);
+  expect(
+    await store.recent({ ...input, answer: "not_started", limit: 50 }),
+  ).toEqual([]);
+  // No answer: every record, the unanswered ones with a null.
+  const every = await store.recent({ ...input, limit: 50 });
+  expect(every.length).toBe(7);
+  expect(every.filter((item) => item.answer === null).length).toBe(2);
 });

@@ -6,7 +6,7 @@ import {
 import { type ApiClient, type components, unwrap } from "@werft-ai/client";
 import { queryKeysOf } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
-import type { JudgmentReason } from "./judgment-reasons.ts";
+import type { JudgmentAnswer, JudgmentReason } from "./judgment-reasons.ts";
 import { UNVERIFIED_POLL_MS } from "./shared.ts";
 
 /**
@@ -77,20 +77,36 @@ export function useSlackBindings(agentId: string) {
 export function useSlackJudgments(
   agentId: string,
   enabled: boolean,
-  reason?: JudgmentReason,
+  filter: {
+    readonly reason?: JudgmentReason | undefined;
+    readonly answer?: JudgmentAnswer | undefined;
+  } = {},
 ) {
+  const { reason, answer } = filter;
   const { client } = useWerft();
   return useQuery({
     enabled,
-    queryKey: [...slackKey(client, agentId), "judgments", reason ?? null],
-    // Picking a reason keeps the tables on screen until its list arrives.
+    queryKey: [
+      ...slackKey(client, agentId),
+      "judgments",
+      reason ?? null,
+      answer ?? null,
+    ],
+    // Picking a filter keeps the tables on screen until its list arrives.
     placeholderData: keepPreviousData,
     queryFn: () =>
       unwrap(
         client.GET("/v1/agents/{id}/slack/judgments", {
           params: {
             path: { id: agentId },
-            ...(reason ? { query: { reason } } : {}),
+            ...(reason || answer
+              ? {
+                  query: {
+                    ...(reason ? { reason } : {}),
+                    ...(answer ? { answer } : {}),
+                  },
+                }
+              : {}),
           },
         }),
       ),

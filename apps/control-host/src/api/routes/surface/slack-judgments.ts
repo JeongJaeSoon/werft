@@ -18,8 +18,12 @@ export function registerSlackJudgmentRoutes(
 ) {
   apiRoute(router, "getSlackJudgments", async (context) => {
     const params = requireParams(context, agentIdParamsSchema);
-    // The query reader keeps one value; a repeated reason would hide the rest.
-    if ((context.req.queries("reason")?.length ?? 0) > 1) {
+    // The query reader keeps one value; a repeated key would hide the rest.
+    if (
+      ["reason", "answer"].some(
+        (key) => (context.req.queries(key)?.length ?? 0) > 1,
+      )
+    ) {
       throw new ApiHttpError(
         400,
         "BAD_REQUEST",

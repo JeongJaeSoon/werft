@@ -56,7 +56,16 @@ describe("GET /v1/agents/{id}/slack/judgments", () => {
       headers: owner,
     });
     expect(filtered.status).toBe(200);
-    expect(asked).toEqual([{}, { reason: "needs_agent" }]);
+    const answered = await server.request(
+      `${path}?answer=no_reply&reason=needs_agent`,
+      { headers: owner },
+    );
+    expect(answered.status).toBe(200);
+    expect(asked).toEqual([
+      {},
+      { reason: "needs_agent" },
+      { answer: "no_reply", reason: "needs_agent" },
+    ]);
   });
 
   test("a reason the list has no code for is 400 and asks no service", async () => {
@@ -72,6 +81,12 @@ describe("GET /v1/agents/{id}/slack/judgments", () => {
       "reason=needs_agent&reason=nope",
       "reason=nope&reason=needs_agent",
       "reason=needs_agent&reason=needs_agent",
+      "answer=nope",
+      "answer=",
+      "answer=replied&answer=nope",
+      "answer=nope&answer=replied",
+      "answer=replied&answer=replied",
+      "answer=Replied",
     ]) {
       const response = await server.request(`${path}?${query}`, {
         headers: owner,

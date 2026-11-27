@@ -18,7 +18,12 @@ import {
 import { useId } from "react";
 import { LoadFailure } from "../../../components/load-failure.tsx";
 import { useI18n } from "../../../i18n/i18n.tsx";
-import { judgmentReasonOf, REASON_LABEL } from "./judgment-reasons.ts";
+import {
+  ANSWER_LABEL,
+  judgmentAnswerOf,
+  judgmentReasonOf,
+  REASON_LABEL,
+} from "./judgment-reasons.ts";
 import {
   useSlackChannelNames,
   useSlackInstructionsHead,
@@ -31,7 +36,7 @@ const CHANNEL_COLUMNS =
   "minmax(8rem,1fr) max-content max-content minmax(0,2fr)";
 // When, channel, decision and reason, then the link.
 const RECENT_COLUMNS =
-  "max-content minmax(6rem,1fr) max-content minmax(0,1fr) max-content";
+  "max-content minmax(6rem,1fr) max-content minmax(0,1fr) minmax(0,1fr) max-content";
 
 /**
  * The instruction file M1 judges with: the active release's snapshot, and
@@ -105,8 +110,12 @@ export function SlackJudgments({
     useSearch({ from: "/authed/agents/$id" }).judgment_reason,
   );
   const navigate = useNavigate({ from: "/agents/$id" });
+  const answer = judgmentAnswerOf(
+    useSearch({ from: "/authed/agents/$id" }).judgment_answer,
+  );
   const reasonId = useId();
-  const judgments = useSlackJudgments(agentId, manages, reason);
+  const answerId = useId();
+  const judgments = useSlackJudgments(agentId, manages, { reason, answer });
   const snapshot = activeRelease?.instructions_snapshot;
   const head = useSlackInstructionsHead(
     agentId,
@@ -261,16 +270,45 @@ export function SlackJudgments({
                   </NativeSelectOption>
                 ))}
               </NativeSelect>
+              <label htmlFor={answerId}>
+                <Text as="span" variant="sub">
+                  {t("slack.judgments.answerFilter")}
+                </Text>
+              </label>
+              <NativeSelect
+                id={answerId}
+                className="w-auto max-w-full"
+                value={answer ?? ""}
+                onChange={(event) => {
+                  const next = judgmentAnswerOf(event.target.value);
+                  void navigate({
+                    search: ({ judgment_answer: _, ...rest }) =>
+                      next ? { ...rest, judgment_answer: next } : rest,
+                    replace: true,
+                  });
+                }}
+              >
+                <NativeSelectOption value="">
+                  {t("slack.judgments.answerAll")}
+                </NativeSelectOption>
+                {(
+                  Object.keys(ANSWER_LABEL) as (keyof typeof ANSWER_LABEL)[]
+                ).map((value) => (
+                  <NativeSelectOption key={value} value={value}>
+                    {t(ANSWER_LABEL[value])}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
             </div>
             {judgments.isPlaceholderData ? (
               <Skeleton lines={3} label={t("slack.judgments.loading")} />
-            ) : reason && data.recent.length === 0 ? (
+            ) : (reason || answer) && data.recent.length === 0 ? (
               <Text variant="sub">{t("slack.judgments.recentNone")}</Text>
             ) : (
               <GridTable
                 aria-label={t("slack.judgments.recent")}
                 columns={RECENT_COLUMNS}
-                align={["start", "start", "start", "start", "end"]}
+                align={["start", "start", "start", "start", "start", "end"]}
                 narrowAt={640}
                 narrowCards={true}
                 framed
@@ -287,6 +325,9 @@ export function SlackJudgments({
                   </GridTableColumnHeader>
                   <GridTableColumnHeader>
                     {t("slack.judgments.reason")}
+                  </GridTableColumnHeader>
+                  <GridTableColumnHeader>
+                    {t("slack.judgments.answer")}
                   </GridTableColumnHeader>
                   <GridTableColumnHeader>
                     <span className="sr-only">
@@ -317,6 +358,11 @@ export function SlackJudgments({
                     </GridTableCell>
                     <GridTableCell cardLabel={t("slack.judgments.reason")}>
                       {t(REASON_LABEL[item.reason])}
+                    </GridTableCell>
+                    <GridTableCell cardLabel={t("slack.judgments.answer")}>
+                      {item.answer
+                        ? t(ANSWER_LABEL[item.answer])
+                        : t("slack.judgments.answerNone")}
                     </GridTableCell>
                     <GridTableCell cardLabel={t("slack.judgments.message")}>
                       <Link
