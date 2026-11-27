@@ -6252,6 +6252,92 @@ describe.each(ENGINES)(
       expect(postsIn("100.000100")).toEqual([]);
     });
 
+    test("a failure line not written before a stop says nothing once the channel is on", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      for (let tried = 1; tried < MENTION_TURN_ATTEMPTS; tried += 1) {
+        await report(await leased(), {
+          outcome: "failed",
+          reason: "engine_failed",
+        });
+        await endingsPastWait();
+      }
+      await sendOutbox();
+      await report(await leased(), {
+        outcome: "failed",
+        reason: "engine_failed",
+      });
+      await db.execute(sql`
+        CREATE FUNCTION refuse_last_line() RETURNS trigger AS $$
+        BEGIN
+          IF NEW.dedupe_key LIKE 'conversation_reply:%' THEN
+            RAISE EXCEPTION 'last line refused';
+          END IF;
+          RETURN NEW;
+        END $$ LANGUAGE plpgsql`);
+      await db.execute(sql`
+        CREATE TRIGGER refuse_last_line BEFORE INSERT ON slack_outbox
+        FOR EACH ROW EXECUTE FUNCTION refuse_last_line()`);
+      try {
+        expect(await endings()).toMatchObject({ gaveUp: 0 });
+      } finally {
+        await db.execute(sql`DROP TRIGGER refuse_last_line ON slack_outbox`);
+        await db.execute(sql`DROP FUNCTION refuse_last_line()`);
+      }
+      const stopped = await createPostgresSurfaceBindingStore(db).emergencyStop(
+        {
+          principal: fixture.owner,
+          workspaceId: fixture.workspaceId,
+          agentId: fixture.agentId,
+          bindingId: fixture.bindingId,
+          reason: "test",
+          text: SLACK_EMERGENCY_STOP_TEXT,
+          managerRoles: MANAGERS,
+        },
+      );
+      expect(stopped.outcome).toBe("stopped");
+      await db.execute(sql`
+        UPDATE surface_bindings SET emergency_stopped_at = NULL,
+          emergency_stopped_by = NULL, emergency_stop_reason = NULL
+        WHERE id = ${fixture.bindingId}::uuid`);
+      expect(await endings()).toMatchObject({ gaveUp: 0 });
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100")).toEqual([]);
+    });
+
+    test("an account's line written before its input could not go is counted", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      await db
+        .update(schema.conversationTurnPermits)
+        .set({ refusal: "budget" })
+        .where(eq(schema.conversationTurnPermits.turnId, turn.turn_id));
+      await report(turn, { outcome: "failed", reason: "engine_failed" });
+      await db.execute(sql`
+        CREATE FUNCTION refuse_let_go() RETURNS trigger AS $$
+        BEGIN
+          IF OLD.turn_ciphertext IS NOT NULL AND NEW.turn_ciphertext IS NULL THEN
+            RAISE EXCEPTION 'let go refused';
+          END IF;
+          RETURN NEW;
+        END $$ LANGUAGE plpgsql`);
+      await db.execute(sql`
+        CREATE TRIGGER refuse_let_go BEFORE UPDATE ON conversation_turn_queue
+        FOR EACH ROW EXECUTE FUNCTION refuse_let_go()`);
+      try {
+        expect(await endings()).toMatchObject({ budgetRefused: 1 });
+      } finally {
+        await db.execute(
+          sql`DROP TRIGGER refuse_let_go ON conversation_turn_queue`,
+        );
+        await db.execute(sql`DROP FUNCTION refuse_let_go()`);
+      }
+    });
+
     test("a failure line another pass wrote first is counted once", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       await deliver(fixture, mention("100.000100"));

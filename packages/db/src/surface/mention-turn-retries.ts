@@ -108,7 +108,14 @@ export function createPostgresMentionTurnRetries(
                 AND sa.agent_id = t.agent_id) AS slack_app_id,
             u.locale, q.input_id,
             p.requester_user_id IS NOT NULL AS user_root,
-            coalesce(q.outcome ->> 'reason' = 'emergency_stopped', false) AS stopped,
+            (coalesce(q.outcome ->> 'reason' = 'emergency_stopped', false)
+              -- Or the channel stopped since the try ended (the stop's
+              -- notice stays after it is on again), its line not yet written.
+              OR EXISTS (SELECT 1 FROM slack_outbox o
+                WHERE o.kind = 'emergency_stop_notice'
+                  AND o.agent_id = t.agent_id
+                  AND o.channel_id = tp.slack_channel_id
+                  AND o.created_at >= t.ended_at)) AS stopped,
             EXISTS (SELECT 1 FROM conversation_engagements e
               WHERE e.conversation_turn_id = t.id AND e.kind = 'mention') AS engaged
           FROM conversation_turns t
