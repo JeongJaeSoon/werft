@@ -44,6 +44,10 @@ export const conversationTurnRequesterSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("slack_user") }).strict(),
   z.object({ kind: z.literal("slack_bot") }).strict(),
   z.object({ kind: z.literal("operator") }).strict(),
+  // The agent's own turn of an unasked message it stepped in for (v1-b/U1).
+  z
+    .object({ kind: z.literal("agent") })
+    .strict(),
 ]);
 
 export const conversationTurnItemSchema = z

@@ -3267,6 +3267,7 @@ describe("a conversation call's usage report", () => {
       authorizeAtomic: unused,
       issueTurnPermitAtomic: unused,
       issueMentionTurnAtomic: unused,
+      issueUnsolicitedTurnAtomic: unused,
       authorizeTurnCallAtomic: unused,
       endTurnAtomic: unused,
       boundTurnPermitAtomic: unused,

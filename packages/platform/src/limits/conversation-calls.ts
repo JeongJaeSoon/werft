@@ -6,6 +6,7 @@ import {
   type ConversationCallId,
   type ConversationCallKey,
   type ConversationId,
+  type ConversationJudgmentId,
   type ConversationKind,
   type ConversationTopicId,
   type ConversationTurnCallRefusal,
@@ -30,6 +31,7 @@ import type {
   ConversationMentionTurnIssue,
   ConversationTurnLimitReached,
   ConversationTurnPermitIssue,
+  ConversationUnsolicitedTurnIssue,
 } from "./ports/conversation-call-store.ts";
 import { reservationCostUsd, reservationTokens } from "./reservations.ts";
 
@@ -128,6 +130,10 @@ export type ConversationTurnPermitIssued =
 export type ConversationMentionTurnIssued =
   | ConversationTurnPermitIssued
   | Exclude<ConversationMentionTurnIssue, ConversationTurnPermitIssue>;
+
+export type ConversationUnsolicitedTurnIssued =
+  | ConversationTurnPermitIssued
+  | Exclude<ConversationUnsolicitedTurnIssue, ConversationTurnPermitIssue>;
 
 export type ConversationCallIssued =
   | {
@@ -379,6 +385,60 @@ export function createConversationCalls(deps: {
         return { outcome: "unavailable", reason: found.reason };
       const token = `${CONVERSATION_TURN_PERMIT_TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
       const issued = await deps.store.issueMentionTurnAtomic({
+        ...input,
+        tokenHash: hashConversationCallToken(token),
+        path: CONVERSATION_CALL_PATH,
+        callKey: conversationCallKeySchema.parse(`${input.turnId}:m2`),
+      });
+      if (issued.outcome !== "issued") return issued;
+      return {
+        outcome: "issued",
+        token,
+        expiresAt: issued.expiresAt,
+        place: issued.place,
+      };
+    },
+    /**
+     * The agent's unasked turn of a judgment that spoke (v1-b/U1): no one
+     * is its requester, and each provider call the turn makes on the
+     * permit is reserved on the agent's team as root none, which stops at
+     * the account's 80% (a0/F4).
+     */
+    async issueUnsolicitedTurn(input: {
+      judgmentId: ConversationJudgmentId;
+      workspaceId: string;
+      agentId: string;
+      conversationId: ConversationId;
+      topicId: ConversationTopicId;
+      turnId: ConversationTurnId;
+      teamId: string;
+      channelId: string;
+      sources: readonly string[];
+      releaseId: string | null;
+      connectionId: string;
+      model: string;
+      maxTokens: number;
+      maxRequestBytes: number;
+      ttlMs: number;
+    }): Promise<ConversationUnsolicitedTurnIssued> {
+      for (const [name, value] of [
+        ["maxTokens", input.maxTokens],
+        ["maxRequestBytes", input.maxRequestBytes],
+        ["ttlMs", input.ttlMs],
+      ] as const) {
+        if (!Number.isSafeInteger(value) || value < 1) {
+          throw new RangeError(`${name} must be a positive integer: ${value}`);
+        }
+      }
+      const found = callConnection(
+        deps.catalog,
+        input.connectionId,
+        input.model,
+      );
+      if ("reason" in found)
+        return { outcome: "unavailable", reason: found.reason };
+      const token = `${CONVERSATION_TURN_PERMIT_TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
+      const issued = await deps.store.issueUnsolicitedTurnAtomic({
         ...input,
         tokenHash: hashConversationCallToken(token),
         path: CONVERSATION_CALL_PATH,
