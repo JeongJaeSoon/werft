@@ -115,9 +115,11 @@ const count = (text: string, char: string): number =>
 
 /** The host a client reaches, or null when no URL parser would take it. */
 function parsedHost(scheme: string, authority: string): string | null {
-  // No DNS name passes 253 characters, and a parser's IDN mapping of a long
-  // run of combining marks takes time quadratic in its length.
-  if (authority.length - authority.lastIndexOf("@") - 1 > 253 + 6) return null;
+  // A parser's IDN mapping of a long non-ASCII (or percent-escaped) host, such
+  // as a run of combining marks, takes time quadratic in its length, and no
+  // such DNS name passes 253 characters. ASCII hosts parse in linear time.
+  const host = authority.slice(authority.lastIndexOf("@") + 1);
+  if (host.length > 253 + 6 && /[^\x20-\x7e]|%/.test(host)) return null;
   try {
     // Userinfo, ports, percent-escapes, quotes and IDN spellings resolve as
     // a client resolves them.
