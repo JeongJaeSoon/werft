@@ -203,7 +203,7 @@ async function topology(
     github: {
       // As the gate answers a session allowed its own repository only (an
       // empty attachment list, or a release listing no other); a null list
-      // allows the release's whole (github-gate.test.ts pins the gate's side).
+      // lifts only the attachment filter (github-gate.test.ts pins the gate).
       grant: async ({ repositoryId }) => {
         granted.push(repositoryId);
         if (repositoryId !== undefined) {
@@ -988,6 +988,16 @@ describe("credential routes end to end", () => {
         });
         expect({ method, status: own.status }).toEqual({ method, status: 503 });
       }
+      // The 503 is past the token: the gateway takes the attempt's own token
+      // for object access and refuses this one, before any signer is asked.
+      await expect(
+        gateway.authorizeObjectAccess({
+          token: topology.claim.object_store.access.token,
+        }),
+      ).resolves.toBeDefined();
+      await expect(
+        gateway.authorizeObjectAccess({ token }),
+      ).rejects.toMatchObject({ status: 401 });
       expect(statuses).toEqual(
         refused.map(([path, , status]) => [path, status]),
       );
