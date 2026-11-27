@@ -45,6 +45,32 @@ FROM deps AS pruned
 RUN --mount=type=bind,source=scripts/image-prune.sh,target=/tmp/image-prune.sh \
   sh /tmp/image-prune.sh --delete /app
 
+# gitleaks: the skill gate's secret check runs it as a child process
+# (apps/control-host/src/wiring/gitleaks.ts). Upstream's release binary,
+# pinned by version and per-arch sha256 (the release's checksums file), as gh
+# is in apps/worker/Dockerfile; the asset API is the second route to the same
+# bytes. Only the binary and its license reach the runtime stage. Bumped by
+# hand with GITLEAKS_VERSION in scripts/third-party-notices.ts;
+# tests/images.test.ts keeps them equal.
+FROM --platform=$BUILDPLATFORM ${BUN_IMAGE} AS gitleaks
+ARG GITLEAKS_VERSION=8.30.1
+ARG TARGETARCH
+RUN --mount=type=bind,source=scripts/fetch-pinned.ts,target=/tmp/fetch-pinned.ts \
+  bun /tmp/fetch-pinned.ts \
+  https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz \
+  551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb \
+  /tmp/gitleaks-amd64.tar.gz \
+  https://api.github.com/repos/gitleaks/gitleaks/releases/assets/378332058
+RUN --mount=type=bind,source=scripts/fetch-pinned.ts,target=/tmp/fetch-pinned.ts \
+  bun /tmp/fetch-pinned.ts \
+  https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_arm64.tar.gz \
+  e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080 \
+  /tmp/gitleaks-arm64.tar.gz \
+  https://api.github.com/repos/gitleaks/gitleaks/releases/assets/378332057
+RUN mkdir /tmp/gitleaks \
+  && tar -xzf "/tmp/gitleaks-${TARGETARCH}.tar.gz" -C /tmp/gitleaks \
+    --no-same-owner gitleaks LICENSE
+
 FROM ${BUN_IMAGE} AS runtime
 # git: the checkpoint verifier fetches each workspace bundle into a scratch
 # repository; without the executable every checkpoint finalize fails with ENOENT
@@ -61,6 +87,8 @@ RUN apt-get update --error-on=any \
   && rm -rf /var/lib/apt/lists/*
 # The base image ships a non-root `bun` user as 1000:1000; the API runs as it.
 RUN test "$(id -u bun)" = 1000
+COPY --from=gitleaks /tmp/gitleaks/gitleaks /usr/local/bin/gitleaks
+COPY --from=gitleaks /tmp/gitleaks/LICENSE /usr/local/share/doc/gitleaks/LICENSE
 WORKDIR /app
 COPY --from=pruned --chown=1000:1000 /app /app
 COPY --from=web --chown=1000:1000 /app/apps/web/dist /app/apps/web/dist

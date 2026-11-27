@@ -186,6 +186,8 @@ export const GIT_LFS_COMPRESS = "1.20.2";
 export const GIT_LFS_GO = "1.27.3";
 /** The upstream GitHub CLI release binary the worker Dockerfile installs. */
 export const GH_VERSION = "2.103.3";
+/** The upstream gitleaks release binary the control-host Dockerfile installs. */
+export const GITLEAKS_VERSION = "8.30.1";
 
 /** The `oven/bun:<version>@<digest>` every app Dockerfile builds on. */
 export function baseImageOf(dockerfile: string): BaseImage {
@@ -646,6 +648,12 @@ function baseSection(rows: readonly Row[], base: BaseImage): string {
     `- **라이선스.** GitHub CLI는 MIT다. 저작권 표시와 허가문 전문은 이미지 안 \`/usr/local/share/doc/gh/LICENSE\`(https://github.com/cli/cli/blob/v${GH_VERSION}/LICENSE)에 있다. 이미지의 실행 파일은 cli/cli 프로젝트가 배포한 v${GH_VERSION} linux 릴리스 바이너리(sha256 고정)를 수정 없이 넣은 것이다.`,
     `- **정적으로 링크된 Go 코드.** 이 실행 파일은 Go 표준 라이브러리와 https://github.com/cli/cli/blob/v${GH_VERSION}/go.mod 에 적힌 모듈을 링크한다. 각 모듈의 라이선스는 그 모듈의 소스에 있다. 링크한 모듈과 버전은 실행 파일에 기록되어 있어, 이미지 밖의 Go로 \`go version -m <실행 파일>\`을 실행하면 보인다.`,
     `- **소스.** https://github.com/cli/cli/tree/v${GH_VERSION}`,
+    "",
+    `### Gitleaks ${GITLEAKS_VERSION} (control-host, \`/usr/local/bin/gitleaks\`)`,
+    "",
+    `- **라이선스.** Gitleaks는 MIT다. 저작권 표시와 허가문 전문은 이미지 안 \`/usr/local/share/doc/gitleaks/LICENSE\`(https://github.com/gitleaks/gitleaks/blob/v${GITLEAKS_VERSION}/LICENSE)에 있다. 이미지의 실행 파일은 gitleaks 프로젝트가 배포한 v${GITLEAKS_VERSION} linux 릴리스 바이너리(sha256 고정)를 수정 없이 넣은 것이다.`,
+    `- **정적으로 링크된 Go 코드.** 이 실행 파일은 Go 표준 라이브러리와 https://github.com/gitleaks/gitleaks/blob/v${GITLEAKS_VERSION}/go.mod 에 적힌 모듈을 링크한다. 각 모듈의 라이선스는 그 모듈의 소스에 있다. 링크한 모듈과 버전은 실행 파일에 기록되어 있어, 이미지 밖의 Go로 \`go version -m <실행 파일>\`을 실행하면 보인다.`,
+    `- **소스.** https://github.com/gitleaks/gitleaks/tree/v${GITLEAKS_VERSION}`,
   ];
   if (sdk !== undefined) {
     const embedded = CLAUDE_CODE_BUN[sdk.version] ?? UNREVIEWED;

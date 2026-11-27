@@ -42,6 +42,45 @@ for (const pid of readdirSync("/proc").filter((d) => /^[0-9]+$/.test(d))) {
 console.log(zombies);
 '
 
+# The skill gate's secret scanner (apps/control-host/src/wiring/gitleaks.ts)
+# on the image's own gitleaks: a clean skill has no finding, and a planted
+# token is found although the skill carries the three ways gitleaks offers to
+# switch itself off (an allow comment, an ignore file, a config file). The
+# token is made here at run time and never stored; the result must not carry
+# it. Prints how long the first and the second scan took.
+gitleaks_probe='
+const { gitleaksScanner } = await import("/app/apps/control-host/src/wiring/gitleaks.ts");
+const scanner = gitleaksScanner();
+const enc = (s) => new TextEncoder().encode(s);
+const alnum = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+const value = "gh" + "p_" + Array.from(crypto.getRandomValues(new Uint8Array(36)), (b) => alnum[b % 62]).join("");
+const clean = [{ path: "SKILL.md", bytes: enc("---\nname: s\ndescription: d\n---\nhello\n") }];
+const planted = [
+  ...clean,
+  { path: "scripts/run.sh", bytes: enc(`export TOKEN=${value}\n`) },
+  { path: "scripts/allowed.sh", bytes: enc(`export TOKEN=${value} # gitleaks:allow\n`) },
+  { path: ".gitleaksignore", bytes: enc("scripts/run.sh:github-pat:1\n") },
+  { path: ".gitleaks.toml", bytes: enc("[allowlist]\npaths = [\".*\"]\n") },
+];
+const timed = async (files) => {
+  const start = performance.now();
+  const result = await scanner.scan(files);
+  return [result, Math.round(performance.now() - start)];
+};
+const [first, firstMs] = await timed(clean);
+const [second, secondMs] = await timed(clean);
+const [found] = await timed(planted);
+for (const r of [first, second]) {
+  if (r.kind !== "scanned" || r.findings.length !== 0) throw new Error("clean skill: " + JSON.stringify(r));
+}
+const paths = found.kind === "scanned" ? [...new Set(found.findings.map((f) => f.path))].sort() : [];
+if (JSON.stringify(paths) !== JSON.stringify(["scripts/allowed.sh", "scripts/run.sh"])) {
+  throw new Error("planted token: " + JSON.stringify(found));
+}
+if (JSON.stringify(found).includes(value)) throw new Error("the result carries the token");
+console.log(`gitleaks scans: first ${firstMs} ms, second ${secondMs} ms; planted token found in ${paths.join(", ")}`);
+'
+
 # the API image must reap what the verifier orphans wherever it
 # runs, not only under compose's `init: true`.
 api_init_smoke() {
@@ -200,6 +239,12 @@ case "$app" in
   control-host)
     # git: the checkpoint bundle verifier spawns it.
     docker run --rm "$image" sh -c 'test "$(id -u)" = 1000 && test ! -e node_modules/@anthropic-ai && git --version && bun --version'
+    # gitleaks: the pinned release and its license (THIRD_PARTY_NOTICES.md).
+    gitleaks_version="$(docker run --rm "$image" gitleaks version)"
+    echo "gitleaks version: $gitleaks_version"
+    [ "$gitleaks_version" = 8.30.1 ] || { echo "expected gitleaks 8.30.1" >&2; exit 1; }
+    docker run --rm "$image" test -s /usr/local/share/doc/gitleaks/LICENSE
+    docker run --rm "$image" bun -e "$gitleaks_probe"
     api_init_smoke "$image"
     # The docs the built-in `werft` MCP server answers from, in all three
     # languages: without them the API refuses to start.

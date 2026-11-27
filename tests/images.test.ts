@@ -34,6 +34,7 @@ import {
   GIT_LFS_GO,
   GIT_LFS_VERSION,
   GIT_LFS_X_NET,
+  GITLEAKS_VERSION,
   REMOVED_AFTER_INSTALL,
 } from "../scripts/third-party-notices.ts";
 import {
@@ -338,6 +339,36 @@ describe("app Dockerfiles", () => {
       "COPY --from=gh /tmp/gh/bin/gh /usr/local/bin/gh",
       "COPY --from=gh /tmp/gh/LICENSE /usr/local/share/doc/gh/LICENSE",
     ]);
+  });
+
+  // The skill gate's secret check (apps/control-host/src/wiring/gitleaks.ts)
+  // runs this executable; the image smoke runs it for real.
+  test("control-host carries gitleaks from the pinned release", () => {
+    const source = basePins["control-host"].source;
+    expect(source).toContain(`ARG GITLEAKS_VERSION=${GITLEAKS_VERSION}\n`);
+    const lines = source.split("\n");
+    for (const [arch, upstream, asset] of [
+      ["amd64", "x64", "378332058"],
+      ["arm64", "arm64", "378332057"],
+    ]) {
+      const url = `https://github.com/gitleaks/gitleaks/releases/download/v\${GITLEAKS_VERSION}/gitleaks_\${GITLEAKS_VERSION}_linux_${upstream}.tar.gz`;
+      const input = lines.findIndex((line) => line.trim() === `${url} \\`);
+      expect(input).toBeGreaterThan(-1);
+      expect(lines[input - 1]?.trim()).toBe("bun /tmp/fetch-pinned.ts \\");
+      expect(lines[input + 1]?.trim()).toMatch(/^[0-9a-f]{64} \\$/);
+      expect(lines[input + 2]?.trim()).toBe(`/tmp/gitleaks-${arch}.tar.gz \\`);
+      expect(lines[input + 3]?.trim()).toBe(
+        `https://api.github.com/repos/gitleaks/gitleaks/releases/assets/${asset}`,
+      );
+    }
+    expect(source.match(/bun \/tmp\/fetch-pinned\.ts/g)).toHaveLength(2);
+    expect(source.match(/^COPY --from=gitleaks .*$/gm)).toEqual([
+      "COPY --from=gitleaks /tmp/gitleaks/gitleaks /usr/local/bin/gitleaks",
+      "COPY --from=gitleaks /tmp/gitleaks/LICENSE /usr/local/share/doc/gitleaks/LICENSE",
+    ]);
+    expect(read(".github/scripts/image-smoke.sh")).toContain(
+      `[ "$gitleaks_version" = ${GITLEAKS_VERSION} ]`,
+    );
   });
 
   // The API pushes approved sessions over https with git, the worker clones
