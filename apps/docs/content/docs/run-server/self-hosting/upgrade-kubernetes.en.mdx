@@ -104,7 +104,7 @@ This intermediate upgrade applies the new chart's control-host while retaining c
 
 `next_workers control` writes the deployed worker images and egress proxy as they are. For a single-image installation it writes the deployed `images.worker` and `images.workerPrevious` with `images.workers: []`. The published chart defaults to a list of the target release's two images, so without `images.workers: []` this upgrade would replace the worker images too. The target chart's `images.worker.runtime` is empty, so the deployed runtime stays as it is, and an installation deployed without a runtime stays without one. For a list installation it writes the deployed list ([Upgrading an image-list installation](#이미지-목록-설치의-upgrade)). The commands are joined with `&&`: when the chart cannot be pulled or the deployed values cannot be read, `helm upgrade` does not run.
 
-When you upgrade to the release that checks workspace MCP servers by address, the proxy image is still the current one between steps 1 and 2, so a session's calls to a server on neither credential list get 403 (`egress_proxy_outdated`). They work again when step 2 finishes. See [the same section in the Compose page](/run-server/self-hosting/upgrade-compose#워크스페이스-mcp-서버를-주소로-검사하는-릴리스).
+When you upgrade to the release that checks workspace MCP servers by address, the proxy image is still the current one between steps 1 and 2, so a session's calls to a server on neither credential list get 403, and the `call_mcp` receipt reason is `egress_proxy_outdated`. They work again once the new proxy takes requests. See [the same section in the Compose page](/run-server/self-hosting/upgrade-compose#워크스페이스-mcp-서버를-주소로-검사하는-릴리스).
 
 <a id="2-최종-worker와-proxy-교체" />
 ### 2. Final worker and proxy replacement
