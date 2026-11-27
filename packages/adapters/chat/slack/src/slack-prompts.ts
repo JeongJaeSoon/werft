@@ -437,7 +437,8 @@ const plain = (text: string, max = PLAIN_TEXT_MAX) => ({
   text: clip(text, max),
   emoji: false,
 });
-const mention = (slackUserId: string) =>
+/** A checked mention of one Slack user; empty for an id that is not one. */
+export const mention = (slackUserId: string) =>
   SLACK_ID.test(slackUserId) ? `<@${slackUserId}>` : "";
 
 /**

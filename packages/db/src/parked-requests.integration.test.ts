@@ -1837,6 +1837,62 @@ integration("parked pending requests on PostgreSQL", () => {
     expect(grant?.consumedAt).toBeNull();
   });
 
+  // The wait, the park and the turn that carries it on belong to the request,
+  // not to its kind: with fewer permission requests reaching a person, a
+  // question still goes the same way.
+  test("a parked question waits like a permission, and its answer resumes the park", async () => {
+    const { owner, sessionId, worker } = await runningSession();
+    const requestId = `req_${crypto.randomUUID()}`;
+    await gateway.registerPending(worker.principal, {
+      ...worker.scope,
+      request_id: requestId,
+      input_hash: HASH_A,
+      request: {
+        kind: "question",
+        questions: [
+          {
+            question_id: "target",
+            prompt: "Which environment?",
+            options: [
+              { option_id: "target-staging", label: "staging" },
+              { option_id: "target-production", label: "production" },
+            ],
+            multi_select: false,
+            allow_free_text: false,
+          },
+        ],
+      },
+    });
+    const turnRowId = await parkRows(worker, [requestId]);
+    await executionGone(worker);
+    await db
+      .update(sessions)
+      .set({
+        admissionState: "paused",
+        status: "idle",
+        pauseReason: "awaiting_input",
+      })
+      .where(eq(sessions.id, sessionId));
+    expect(await reads(owner, sessionId)).toMatchObject({
+      status: "needs_input",
+      listed: [requestId],
+    });
+
+    const answered = await answerWith(owner, sessionId, {
+      request_id: requestId,
+      kind: "question",
+      answers: [
+        { question_id: "target", selected_option_ids: ["target-staging"] },
+      ],
+    });
+    expect(answered).toMatchObject({ resumed: true, waiting_for: 0 });
+    expect(await continuations(turnRowId)).toHaveLength(1);
+    expect(await sessionRow(sessionId)).toMatchObject({
+      admissionState: "resuming",
+      pauseReason: null,
+    });
+  });
+
   test("the turn that carries a park on inherits the parked turn's sources, none of its own", async () => {
     const { owner, sessionId, requestIds, turnRowId } = await parked(1);
     const place = {

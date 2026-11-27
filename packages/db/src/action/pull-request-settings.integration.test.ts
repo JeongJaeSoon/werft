@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
   DEFAULT_PULL_REQUEST_SETTINGS,
+  GITHUB_CEILING_DEFAULT,
   GITHUB_CEILING_NONE,
   type GitHubCeiling,
   type PullRequestSettings,
@@ -95,7 +96,7 @@ integration("pull request settings on PostgreSQL", () => {
     });
     // A client that never saved a ceiling still holds revision 0 and may save.
     expect(await ceilings.get(workspaceId)).toEqual({
-      ceiling: GITHUB_CEILING_NONE,
+      ceiling: GITHUB_CEILING_DEFAULT,
       revision: 0,
     });
     const ceiling: GitHubCeiling = { ...GITHUB_CEILING_NONE, actions: true };

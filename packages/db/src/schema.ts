@@ -1108,7 +1108,7 @@ export const githubInstallationLinks = pgTable(
 );
 
 // What the workspace lets its agents' GitHub settings reach. No row reads as
-// every ceiling off and no OAuth client secret.
+// the default ceiling (GITHUB_CEILING_DEFAULT) and no OAuth client secret.
 export const githubWorkspaceSettings = pgTable("github_workspace_settings", {
   workspaceId: uuid("workspace_id")
     .primaryKey()
@@ -2316,6 +2316,13 @@ export const events = pgTable(
     uniqueIndex("events_attempt_sequence_uniq")
       .on(table.sessionId, table.attemptId, table.sourceSequence)
       .where(sql`${table.attemptId} IS NOT NULL`),
+    // The ends of what an engine said on its own after a turn: few per
+    // session, each owed one follow-up post (afterTurnReplies).
+    index("events_after_turn_result_idx")
+      .on(table.sessionId, table.id)
+      .where(
+        sql`${table.type} = 'result' AND (${table.neutral} ->> 'after_turn') IS NOT NULL`,
+      ),
   ],
 );
 
@@ -7012,6 +7019,16 @@ export const sessionLinks = pgTable(
     uniqueIndex("session_links_open_session_uniq")
       .on(table.sessionId)
       .where(sql`${table.sessionId} IS NOT NULL AND ${table.closedAt} IS NULL`),
+    // Links closed lately, which still take the follow-ups of answers
+    // stored before they closed (afterTurnReplies).
+    index("session_links_recent_closed_idx")
+      .on(table.closedAt)
+      .where(sql`${table.closedAt} IS NOT NULL`),
+    // A thread's closed links, where a stop's message replayed after its
+    // link closed is found done.
+    index("session_links_closed_surface_ref_idx")
+      .on(table.installationId, table.surfaceRef)
+      .where(sql`${table.closedAt} IS NOT NULL`),
     // A thread's open task session, which the turn list reads per turn.
     index("session_links_open_thread_idx")
       .on(table.workspaceId, table.agentId, table.channelId, table.threadId)

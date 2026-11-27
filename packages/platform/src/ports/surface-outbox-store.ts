@@ -306,6 +306,31 @@ export type SurfaceUnansweredTurn = SurfaceLinkedTurnTarget & {
 };
 
 /**
+ * What an engine said on its own after a turn of a live linked session
+ * ended (its events marked `after_turn`), up to one `result` that ends it,
+ * with no follow-up row in the link's thread yet. Found only once the
+ * turn's own reply or failure notice is in and past its sends, so the
+ * follow-up never goes ahead of it.
+ */
+export type SurfaceAfterTurnReply = SurfaceLinkedTurnTarget & {
+  /** The public turn id, 1-based within the session. */
+  turnId: number;
+  /** The turn's sources, which the follow-up carries on as its reply does. */
+  sources: StoredSourceSet | null;
+  /** The Slack account linked to whoever asked for the turn, if any. */
+  requesterSlackUserId: string | null;
+  /** The ending result's sequence in its attempt: one follow-up each. */
+  resultSequence: number;
+  /** The ending result's event id: where the next page starts. */
+  resultId: string;
+  /**
+   * The top-level assistant and tool_use payloads after the previous such
+   * result of the turn and up to this one, in order.
+   */
+  events: { type: string; payload: unknown }[];
+};
+
+/**
  * A channel the agent now reads every message of (`stillListened`): its
  * switch is raised under a counted notice approval, the binding is `ready`,
  * `on`, listening `free`, not shared with another organization, and the bot
@@ -800,6 +825,16 @@ export interface SurfaceOutboxStore {
    * so the answer never goes ahead of what it answers.
    */
   unansweredTurns(limit: number): Promise<SurfaceUnansweredTurn[]>;
+  /**
+   * What engines said after their turns ended, in threads that still hear
+   * of turns, that has no follow-up row (`slackAfterTurnDedupeKey`), oldest
+   * first; with `after` (a `resultId`), only those past it, so a page of
+   * answers with nothing to say is passed.
+   */
+  afterTurnReplies(
+    limit: number,
+    after?: string,
+  ): Promise<SurfaceAfterTurnReply[]>;
   /**
    * Live linked sessions whose worker has waited at least `waitedMs` for
    * room no node has, and whose thread was not told of that wait

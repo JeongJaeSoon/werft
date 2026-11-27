@@ -9,6 +9,7 @@ import {
   type GitHubCeiling,
   type GitHubFeatures,
   type GitHubRefusal,
+  newSessionGitHubPolicy,
   type RepositoryCeiling,
 } from "@werft-ai/contracts";
 import {
@@ -125,6 +126,8 @@ function fakeConnection(
     githubCom?: boolean;
     appId?: number;
     installed?: boolean | null;
+    /** What the installation grants; a token asking past it is refused (422). */
+    granted?: GitHubPermissions;
   } = {},
 ) {
   const issued: Array<{
@@ -151,6 +154,17 @@ function fakeConnection(
     credential: async (repo, permissions, use) => {
       issued.push({ repo, permissions, use });
       if (refuse) throw new GitHubPermissionError("422");
+      const { granted } = options;
+      if (
+        granted !== undefined &&
+        Object.entries(permissions).some(
+          ([name, level]) =>
+            granted[name] === undefined ||
+            (level === "write" && granted[name] !== "write"),
+        )
+      ) {
+        throw new GitHubPermissionError("422");
+      }
       const key = JSON.stringify([repo, permissions, use]);
       const cached = cache.get(key);
       if (cached !== undefined) return { credential: cached, fresh: false };
@@ -163,6 +177,7 @@ function fakeConnection(
       return { credential: made, fresh: true };
     },
     api: () => fakeApi(),
+    grantedPermissions: async () => options.granted ?? null,
   };
   return {
     connection,
@@ -361,14 +376,174 @@ describe("permission table", () => {
     });
   });
 
-  test("actions_read asks actions:read", async () => {
+  test("actions_read asks actions:read and checks:read, under the workflows switch", async () => {
     const { grant } = harness({
-      github: settings({ features: features({ actions: true }) }),
+      github: settings({ features: features({ workflows: true }) }),
       ceiling: ALL_ON,
     });
     expect((await grant({ purpose: "actions_read" }))?.permissions).toEqual({
       actions: "read",
+      checks: "read",
     });
+    // The switch for running workflows does not read them.
+    const runOnly = harness({
+      github: settings({ features: features({ actions: true }) }),
+      ceiling: ALL_ON,
+    });
+    expect(
+      (await refused(runOnly.grant({ purpose: "actions_read" }))).reason,
+    ).toBe("feature_off");
+  });
+
+  test("with only the workflows switch on no token asks actions:write; turning on direct runs does", async () => {
+    const allow = [{ workflow: "ci.yml" }];
+    const dispatch = {
+      purpose: "dispatch",
+      workflow: { file: "ci.yml", ref: "main" },
+    } as const;
+    const editOnly = harness({
+      github: settings({
+        features: features({ workflows: true, checks: true }),
+        actions_allow: allow,
+      }),
+      ceiling: ALL_ON,
+    });
+    await editOnly.grant({ purpose: "push" });
+    await editOnly.grant({ purpose: "actions_read" });
+    expect((await refused(editOnly.grant(dispatch))).reason).toBe(
+      "actions_off",
+    );
+    expect(
+      editOnly.author?.issued.filter(
+        ({ permissions }) => permissions.actions === "write",
+      ),
+    ).toEqual([]);
+    const withRuns = harness({
+      github: settings({
+        features: features({ workflows: true, checks: true, actions: true }),
+        actions_allow: allow,
+      }),
+      ceiling: ALL_ON,
+    });
+    expect((await withRuns.grant(dispatch))?.permissions).toEqual({
+      actions: "write",
+    });
+  });
+
+  test("a release pin's old actions with no saved switch edits workflows and reads CI, but dispatch is actions_off (94S-2406)", async () => {
+    // As a release activated before the switches pinned it, never saved since.
+    const oldPin = settings({
+      features: features({ actions: true }),
+      actions_allow: [{ workflow: "ci.yml" }],
+    });
+    const dispatch = {
+      purpose: "dispatch",
+      workflow: { file: "ci.yml", ref: "main" },
+    } as const;
+    const onCeiling = harness({
+      policy: newSessionGitHubPolicy(null, oldPin),
+      ceiling: ALL_ON,
+    });
+    expect((await onCeiling.grant({ purpose: "push" }))?.permissions).toEqual({
+      contents: "write",
+      workflows: "write",
+    });
+    expect(
+      (await onCeiling.grant({ purpose: "actions_read" }))?.permissions,
+    ).toEqual({ actions: "read", checks: "read" });
+    expect((await refused(onCeiling.grant(dispatch))).reason).toBe(
+      "actions_off",
+    );
+    expect(
+      onCeiling.author?.issued.filter(
+        ({ permissions }) => permissions.actions === "write",
+      ),
+    ).toEqual([]);
+    // The ceiling still holds the workflow push it turned on.
+    const noWorkflows = harness({
+      policy: newSessionGitHubPolicy(null, oldPin),
+      ceiling: { ...ALL_ON, workflows: false },
+    });
+    expect((await noWorkflows.grant({ purpose: "push" }))?.permissions).toEqual(
+      { contents: "write" },
+    );
+  });
+
+  test("push with workflows on falls back to contents:write only when the installation has not granted Workflows", async () => {
+    const author = fakeConnection("author", {
+      granted: { contents: "write", pull_requests: "write" },
+    });
+    const { grant, receipts } = harness({
+      author,
+      github: settings({ features: features({ workflows: true }) }),
+      ceiling: ALL_ON,
+    });
+    expect((await grant({ purpose: "push" }))?.permissions).toEqual({
+      contents: "write",
+    });
+    expect(author.issued.map(({ permissions }) => permissions)).toEqual([
+      { contents: "write", workflows: "write" },
+      { contents: "write" },
+    ]);
+    expect(receipts.at(-1)).toMatchObject({
+      status: "succeeded",
+      result: { permissions: { contents: "write" } },
+    });
+  });
+
+  test("an installation that grants Workflows but still refuses is app_permission_missing, not a narrower push", async () => {
+    const author = fakeConnection("author", {
+      granted: { contents: "write", workflows: "write" },
+    });
+    author.refusePermissions();
+    const { grant } = harness({
+      author,
+      github: settings({ features: features({ workflows: true }) }),
+      ceiling: ALL_ON,
+    });
+    expect((await refused(grant({ purpose: "push" }))).reason).toBe(
+      "app_permission_missing",
+    );
+    expect(author.issued).toHaveLength(1);
+  });
+
+  test("a push whose installation permissions cannot be read keeps app_permission_missing", async () => {
+    for (const lookup of [
+      async () => null,
+      async () => {
+        throw new Error("GitHub 502");
+      },
+    ]) {
+      const author = fakeConnection("author");
+      author.refusePermissions();
+      const { grant } = harness({
+        author: {
+          ...author,
+          connection: { ...author.connection, grantedPermissions: lookup },
+        },
+        github: settings({ features: features({ workflows: true }) }),
+        ceiling: ALL_ON,
+      });
+      expect((await refused(grant({ purpose: "push" }))).reason).toBe(
+        "app_permission_missing",
+      );
+      expect(author.issued).toHaveLength(1);
+    }
+  });
+
+  test("only a push falls back: reading CI without the installation's checks is app_permission_missing", async () => {
+    const author = fakeConnection("author", {
+      granted: { contents: "write", actions: "read" },
+    });
+    const { grant } = harness({
+      author,
+      github: settings({ features: features({ workflows: true }) }),
+      ceiling: ALL_ON,
+    });
+    expect((await refused(grant({ purpose: "actions_read" }))).reason).toBe(
+      "app_permission_missing",
+    );
+    expect(author.issued).toHaveLength(1);
   });
 
   test("dispatch and rerun ask actions:write", async () => {
@@ -500,9 +675,33 @@ describe("refusals", () => {
     },
     {
       reason: "over_workspace_ceiling",
-      setup: { github: settings({ features: features({ actions: true }) }) },
+      setup: { github: settings({ features: features({ workflows: true }) }) },
       work: { purpose: "actions_read" },
     },
+    {
+      reason: "over_workspace_ceiling",
+      setup: {
+        github: settings({
+          features: features({ workflows: true, actions: true }),
+          actions_allow: [{ workflow: "ci.yml" }],
+        }),
+        ceiling: { ...ALL_ON, actions: false },
+      },
+      work: { purpose: "dispatch", workflow: { file: "ci.yml", ref: "main" } },
+    },
+    ...(
+      [
+        { purpose: "dispatch", workflow: { file: "ci.yml", ref: "main" } },
+        { purpose: "rerun", runId: 7 },
+      ] as const
+    ).map((work) => ({
+      reason: "actions_off" as const,
+      setup: {
+        github: settings({ features: features({ workflows: true }) }),
+        ceiling: ALL_ON,
+      },
+      work,
+    })),
     {
       reason: "no_reviewer_app",
       setup: {
@@ -643,8 +842,8 @@ describe("refusals", () => {
         receipts[0]?.result.reason_code,
       ]),
     ).toEqual([
-      ["dispatch_workflow", "feature_off"],
-      ["rerun_workflow", "feature_off"],
+      ["dispatch_workflow", "actions_off"],
+      ["rerun_workflow", "actions_off"],
       ["mint_github_token", "github_disabled"],
     ]);
     expect(dispatch.receipts[0]?.result).toMatchObject({
@@ -775,7 +974,7 @@ describe("credentials and receipts", () => {
 
   test("lowering the ceiling makes the next grant over_workspace_ceiling and raising it restores it", async () => {
     const { grant, state } = harness({
-      github: settings({ features: features({ actions: true }) }),
+      github: settings({ features: features({ workflows: true }) }),
       ceiling: ALL_ON,
     });
     expect(await grant({ purpose: "actions_read" })).not.toBeNull();
@@ -786,6 +985,7 @@ describe("credentials and receipts", () => {
     state.ceiling = ALL_ON;
     expect((await grant({ purpose: "actions_read" }))?.permissions).toEqual({
       actions: "read",
+      checks: "read",
     });
   });
 });
@@ -1290,10 +1490,15 @@ describe("another repository than the session's", () => {
         catalog: ATTACHED,
         github: settings({
           repositories: ["app", "docs", "tools"],
-          features: features({ actions: true, review: true }),
+          features: features({ workflows: true, actions: true, review: true }),
           actions_allow: [{ workflow: "ci.yml", ref: "main" }],
         }),
-        ceiling: { ...GITHUB_CEILING_NONE, actions: true, review: true },
+        ceiling: {
+          ...GITHUB_CEILING_NONE,
+          workflows: true,
+          actions: true,
+          review: true,
+        },
         attached: ["docs"],
       });
       const works: Array<Omit<GitHubWork, "sessionId">> = [
