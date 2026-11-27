@@ -86,6 +86,26 @@ function catalogOf(
   return { connections: {}, repositories };
 }
 
+// The catalog's connections pin the installation, so they never look up
+// what it grants; this one answers what the fake installation grants.
+function lookingUpGranted(catalog: SessionCatalog): GitHubConnections {
+  const connections = connectionsOf(catalog);
+  return (id, role) => {
+    const source = connections(id, role);
+    if (source?.kind !== "fixed") return source;
+    return {
+      ...source,
+      connection: {
+        ...source.connection,
+        grantedPermissions: async () => ({
+          contents: "write",
+          pull_requests: "write",
+        }),
+      },
+    };
+  };
+}
+
 let sessions = 0;
 function jobFor(
   catalog: SessionCatalog,
@@ -609,6 +629,37 @@ describe("the platform's push", () => {
       ceiling: { ...GITHUB_CEILING_NONE, workflows: true },
     });
     expect(agentOffRun.outcome).toMatchObject({ reasonCode: "workflows_off" });
+
+    // Both switches on, but the installation has not granted Workflows: the
+    // gate falls back to contents alone, and the App is what lacks it.
+    github.setPermissions({ contents: "write", pull_requests: "write" });
+    try {
+      const ungranted = jobFor(catalog, "app");
+      const ungrantedRun = await run(catalog, ungranted, {
+        pushRefusedWith: refusedBy(ungranted),
+        release: { id: crypto.randomUUID() },
+        policy: releasePolicy({
+          repositories: ["app"],
+          push_approval: false,
+          features: { ...GITHUB_FEATURES_NONE, workflows: true },
+          actions_allow: [],
+        }),
+        ceiling: { ...GITHUB_CEILING_NONE, workflows: true },
+        connections: lookingUpGranted(catalog),
+      });
+      expect(ungrantedRun.outcome).toMatchObject({
+        reasonCode: "workflows_permission_missing",
+      });
+      expect(ungrantedRun.receipts).toMatchObject([
+        {
+          operation: "mint_github_token",
+          status: "succeeded",
+          result: { permissions: { contents: "write" } },
+        },
+      ]);
+    } finally {
+      github.setPermissions(undefined);
+    }
 
     const ordinary = await run(catalog, jobFor(catalog, "app"), {
       pushRefusedWith: `!\t${job.gitCommit}:${remoteRef}\t[remote rejected] (pre-receive hook declined)\n`,

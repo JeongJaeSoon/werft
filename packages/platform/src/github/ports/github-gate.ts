@@ -27,6 +27,12 @@ export type GitHubWork = {
    * one only as its release lists it.
    */
   repositoryId?: string;
+  /**
+   * actions_read and pull_request_read only: the repository a model named,
+   * as `owner/name` in lowercase. The gate maps it to a catalog repository
+   * the session may work on, and refuses it otherwise.
+   */
+  repositoryName?: string;
   /** dispatch only: a branch name, never `refs/...`. */
   workflow?: { file: string; ref: string };
   /** rerun only: the gate finds its workflow and ref in github_workflow_dispatches. */
@@ -78,6 +84,11 @@ export interface GitHubGrant {
    * thread can say who turns it on.
    */
   readonly workflowsOff?: "agent" | "ceiling" | "both";
+  /**
+   * A push with `workflows` on whose installation has not granted it: the
+   * token holds contents alone, and the App is what lacks Workflows.
+   */
+  readonly workflowsUngranted?: true;
   /** What the receipts of the work name. */
   readonly context: GitHubWorkContext;
 }

@@ -502,8 +502,11 @@ describe("reading a run", () => {
     expect(performance.now() - started).toBeLessThan(1_000);
   });
 
+  // 422 stays an outage on a run read: only a commit's check runs answer it
+  // for something GitHub does not hold.
   test.each([
     [404, "NOT_FOUND"],
+    [422, "BACKEND_UNAVAILABLE"],
     [500, "BACKEND_UNAVAILABLE"],
   ] as const)("a GitHub %d on a run read is %s", async (status, code) => {
     const { service } = harness({
@@ -555,6 +558,46 @@ describe("reading the CI of a commit (94S-2398)", () => {
       "pull_request_read",
     ]);
     expect(calls).toEqual(["pull 12", `ci ${HEAD} 100`]);
+  });
+
+  test("a named repository goes to each grant as its owner/name, for the gate to judge (94S-2465)", async () => {
+    const { service, works } = harness();
+    await service.ciStatus(
+      actor,
+      SESSION,
+      { pullRequestNumber: 12 },
+      { repository: "acme/docs" },
+    );
+    await service.getRun(actor, SESSION, 7, { repository: "acme/docs" });
+    expect(
+      works.map(({ purpose, repositoryName }) => [purpose, repositoryName]),
+    ).toEqual([
+      ["actions_read", "acme/docs"],
+      ["pull_request_read", "acme/docs"],
+      ["actions_read", "acme/docs"],
+    ]);
+    // None named: the session's own, as before.
+    works.length = 0;
+    await service.ciStatus(actor, SESSION, { commitSha: HEAD });
+    expect(works[0]).not.toHaveProperty("repositoryName");
+  });
+
+  test("a truncated answer is never final: a run past the first page may still be running", () => {
+    const completed = {
+      name: "CI",
+      status: "completed",
+      conclusion: "success",
+      html_url: null,
+    };
+    const view = {
+      head_sha: HEAD,
+      pull_request_number: null,
+      check_runs: [completed],
+      workflow_runs: [],
+      truncated: false,
+    };
+    expect(ciStatusFinal(view)).toBe(true);
+    expect(ciStatusFinal({ ...view, truncated: true })).toBe(false);
   });
 
   test("CI off is the gate's refusal, before the pull request is read", async () => {

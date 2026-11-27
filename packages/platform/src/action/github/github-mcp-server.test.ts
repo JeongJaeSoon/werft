@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   type AgentGitHub,
+  GITHUB_CEILING_NONE,
   GITHUB_MCP_FIXED_TOOLS,
   GITHUB_MCP_TOOL_CLASSES,
   GITHUB_MCP_TOOL_OUTPUTS,
@@ -34,6 +35,7 @@ import {
   type ScheduleRef,
 } from "../ports/pull-requests.ts";
 import { PUSH_REFUSAL_ERRORS } from "../ports/push-requests.ts";
+import { switchOffDetails } from "../tools/dispatch.ts";
 import type { GitHubMcpServices } from "../tools/handler.ts";
 import { sessionBoundAuthorization } from "../tools/session-bound.ts";
 import {
@@ -692,7 +694,7 @@ describe("a session under the agent's settings", () => {
             code: "feature_off",
             by: "policy",
             retryable: false,
-            details: { reason_code: "actions_off" },
+            details: switchOffDetails("actions", "agent"),
           },
         },
       });
@@ -726,7 +728,7 @@ describe("a session under the agent's settings", () => {
               code: "feature_off",
               by: "policy",
               retryable: false,
-              details: { reason_code: "workflows_off" },
+              details: switchOffDetails("workflows", "agent"),
             },
           },
         });
@@ -736,6 +738,107 @@ describe("a session under the agent's settings", () => {
       ).toMatchObject({ details: { reason_code: "actions_off" } });
       expect(h.works).toEqual([]);
     }
+  });
+
+  test("a switch refusal says where it is off and who turns it on: the agent's settings, the workspace ceiling, or both with the ceiling first (94S-2453)", async () => {
+    const ceilingOn = {
+      ...GITHUB_CEILING_NONE,
+      workflows: true,
+      actions: true,
+    };
+    const refusalOf = async (
+      h: ReturnType<typeof harness>,
+      tool: "get_ci_status" | "dispatch_workflow",
+    ) =>
+      payload(
+        await h.call(
+          tool,
+          tool === "get_ci_status"
+            ? { pull_request_number: 3 }
+            : { workflow: "ci.yml", ref: "main" },
+        ),
+      ).body.refusal as Record<string, unknown> & {
+        details: Record<string, unknown>;
+      };
+
+    const agentOff = under({ ceiling: ceilingOn });
+    expect(await refusalOf(agentOff, "get_ci_status")).toEqual({
+      code: "feature_off",
+      by: "policy",
+      retryable: false,
+      details: {
+        reason_code: "workflows_off",
+        off_in: "agent",
+        switch_labels: {
+          en: "Edit workflow files and see CI results",
+          ko: "workflow 파일 수정과 CI 결과 보기",
+          ja: "ワークフローファイルの変更と CI 結果の確認",
+        },
+        hint: '"Edit workflow files and see CI results" is off in this agent\'s GitHub settings; a workspace admin turns it on there.',
+      },
+    });
+
+    const bothOff = under({ ceiling: GITHUB_CEILING_NONE });
+    expect(
+      (await refusalOf(bothOff, "dispatch_workflow")).details,
+    ).toMatchObject({
+      reason_code: "actions_off",
+      off_in: "both",
+      hint: "\"Run workflows directly (run, rerun, cancel)\" is off in both the workspace GitHub ceiling and this agent's GitHub settings; a workspace owner or admin turns on the ceiling first, then the agent's settings.",
+    });
+
+    // On for the agent, off in the ceiling: the same code, not the gate's
+    // over_workspace_ceiling, and no service is called.
+    const ceilingOff = under({
+      github: github({ workflows: true, actions: true }),
+      ceiling: GITHUB_CEILING_NONE,
+    });
+    for (const tool of ["get_ci_status", "dispatch_workflow"] as const) {
+      expect((await refusalOf(ceilingOff, tool)).details).toMatchObject({
+        reason_code: tool === "get_ci_status" ? "workflows_off" : "actions_off",
+        off_in: "ceiling",
+      });
+    }
+    expect((await refusalOf(ceilingOff, "get_ci_status")).details.hint).toBe(
+      '"Edit workflow files and see CI results" is off in the workspace GitHub ceiling; only a workspace owner or admin turns it on.',
+    );
+    expect(ceilingOff.works).toEqual([]);
+  });
+
+  test("a CI read takes an owner/name, read without spaces or case, for a session without a repository of its own (94S-2465)", async () => {
+    const h = under({ github: github({ workflows: true }) });
+    const ci = payload(
+      await h.call("get_ci_status", {
+        pull_request_number: 3,
+        repository: " Acme/Docs ",
+      }),
+    );
+    expect(ci.body).toMatchObject({ ok: true });
+    expect(
+      payload(
+        await h.call("get_workflow_run", {
+          run_id: 7,
+          repository: "ACME/docs",
+        }),
+      ).body,
+    ).toMatchObject({ ok: true });
+    expect(
+      h.works.map(({ purpose, repositoryName }) => [purpose, repositoryName]),
+    ).toEqual([
+      ["actions_read", "acme/docs"],
+      ["pull_request_read", "acme/docs"],
+      ["actions_read", "acme/docs"],
+    ]);
+    // Not an owner/name: refused before any grant.
+    const before = h.works.length;
+    for (const repository of ["docs", "acme/docs/x", "acme/.."]) {
+      expect(
+        payload(
+          await h.call("get_ci_status", { pull_request_number: 3, repository }),
+        ).body.refusal,
+      ).toMatchObject({ code: "validation_error" });
+    }
+    expect(h.works.length).toBe(before);
   });
 
   test("with CI reads on and running workflows off, CI reads answer and running stays refused (94S-2398)", async () => {
@@ -792,7 +895,7 @@ describe("a session under the agent's settings", () => {
           code: "feature_off",
           by: "policy",
           retryable: false,
-          details: { reason_code: "actions_off" },
+          details: switchOffDetails("actions", "agent"),
         },
       },
     });
@@ -998,7 +1101,7 @@ describe("tools/call", () => {
           code: "feature_off",
           by: "policy",
           retryable: false,
-          details: { reason_code: "actions_off" },
+          details: switchOffDetails("actions", "agent"),
         },
       },
     });

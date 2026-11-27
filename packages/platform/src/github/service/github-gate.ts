@@ -12,6 +12,7 @@ import {
 import {
   ForgeCredentialError,
   type GitCredential,
+  repoKeyOf,
   repoRefOf,
 } from "../../action/ports/forge.ts";
 import {
@@ -32,6 +33,7 @@ import {
   type GitHubGrant,
   GitHubPermissionError,
   type GitHubReleaseReadGate,
+  type GitHubSessionContext,
   GitHubUnavailableError,
   type GitHubWork,
   RELEASE_INSTRUCTIONS_PERMISSIONS,
@@ -47,6 +49,13 @@ const ANOTHER_REPOSITORY_PURPOSES: ReadonlySet<GitHubPurpose> = new Set([
   "pull_request",
   "pull_request_read",
   "outcome_refresh",
+  "actions_read",
+]);
+
+/** The reads a model may point at a repository by its `owner/name`. */
+const NAMED_READ_PURPOSES: ReadonlySet<GitHubPurpose> = new Set([
+  "actions_read",
+  "pull_request_read",
 ]);
 
 const NEEDS_SESSION_REPOSITORY_PURPOSES: ReadonlySet<GitHubPurpose> = new Set([
@@ -90,12 +99,15 @@ export function createGitHubGate(deps: {
               : work.purpose === "merge"
                 ? "merge_pull_request"
                 : "mint_github_token";
-      const own =
-        work.repositoryId === undefined ||
-        work.repositoryId === context.repositoryId;
-      const repositoryId = own
-        ? context.repositoryId
-        : (work.repositoryId ?? null);
+      const named =
+        work.repositoryName === undefined
+          ? undefined
+          : NAMED_READ_PURPOSES.has(work.purpose)
+            ? namedReadRepositoryOf(catalog, context, work.repositoryName)
+            : null;
+      const requested = named ?? work.repositoryId;
+      const own = requested === undefined || requested === context.repositoryId;
+      const repositoryId = own ? context.repositoryId : (requested ?? null);
       const policyFields = githubPolicyReceiptFields(
         context.policy,
         context.ceilingRevision,
@@ -111,6 +123,9 @@ export function createGitHubGate(deps: {
           ? {}
           : { workflow: work.workflow.file, ref: work.workflow.ref }),
         ...(work.runId === undefined ? {} : { run_id: work.runId }),
+        ...(work.repositoryName === undefined
+          ? {}
+          : { repository: work.repositoryName }),
         ...(work.review === undefined
           ? {}
           : {
@@ -162,6 +177,7 @@ export function createGitHubGate(deps: {
         throw new GitHubGateError(reason, receiptId);
       };
 
+      if (named === null) return await refuse("repository_not_allowed");
       if (repositoryId === null) {
         return await refuse(
           NEEDS_SESSION_REPOSITORY_PURPOSES.has(work.purpose)
@@ -175,8 +191,9 @@ export function createGitHubGate(deps: {
       const listed = Object.hasOwn(catalog.repositories, repositoryId)
         ? catalog.repositories[repositoryId]
         : undefined;
-      // Another repository is fetched, pushed to and given pull requests;
-      // its workflows and reviews stay with the session's own.
+      // Another repository is fetched, pushed to, given pull requests and has
+      // its CI read; running its workflows and reviews stay with the
+      // session's own.
       if (!own && !ANOTHER_REPOSITORY_PURPOSES.has(work.purpose)) {
         return await refuse("repository_not_allowed");
       }
@@ -376,6 +393,7 @@ export function createGitHubGate(deps: {
       const { connection, connectionId } = choice;
       let gitCredential: GitCredential;
       let fresh: boolean;
+      let workflowsUngranted = false;
       try {
         try {
           ({ credential: gitCredential, fresh } = await connection.credential(
@@ -403,6 +421,7 @@ export function createGitHubGate(deps: {
             .catch(() => null);
           if (granted === null || granted.workflows === "write") throw error;
           needs.permissions = { contents: "write" };
+          workflowsUngranted = true;
           ({ credential: gitCredential, fresh } = await connection.credential(
             repo,
             needs.permissions,
@@ -475,6 +494,7 @@ export function createGitHubGate(deps: {
                   ? ("agent" as const)
                   : ("both" as const),
             }),
+        ...(workflowsUngranted ? { workflowsUngranted: true as const } : {}),
         context: {
           ownerId: context.ownerId,
           sessionId: context.sessionId,
@@ -544,4 +564,33 @@ export function createGitHubGate(deps: {
         .map(({ id }) => id);
     },
   };
+}
+
+/**
+ * The catalog repository a read names by `owner/name` (lowercase, as the
+ * tool argument parses it): the session's own when it is that one, else the
+ * first other repository the session may work on. A read may name a
+ * repository besides the session's own one (PM, 94S-2465); null for one it
+ * may not, which is refused as `repository_not_allowed`.
+ */
+function namedReadRepositoryOf(
+  catalog: SessionCatalog,
+  context: GitHubSessionContext,
+  name: string,
+): string | null {
+  const matches = (id: string) => {
+    const entry = Object.hasOwn(catalog.repositories, id)
+      ? catalog.repositories[id]
+      : undefined;
+    const ref = entry === undefined ? null : repoRefOf(entry.url);
+    return ref !== null && repoKeyOf(ref) === name;
+  };
+  if (context.repositoryId !== null && matches(context.repositoryId)) {
+    return context.repositoryId;
+  }
+  return (
+    additionalRepositoriesOf(catalog, additionalContextOf(context)).find(
+      ({ id }) => matches(id),
+    )?.id ?? null
+  );
 }

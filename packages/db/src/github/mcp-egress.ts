@@ -38,7 +38,11 @@ import {
   turns,
   workspaces,
 } from "../schema.ts";
-import { githubPolicyColumns, githubPolicyOfRow } from "./github-settings.ts";
+import {
+  githubPolicyColumns,
+  githubPolicyOfRow,
+  workspaceFeatureCeiling,
+} from "./github-settings.ts";
 
 type ReleaseMcp = {
   agentId: string;
@@ -240,6 +244,11 @@ export function createPostgresGitHubMcpStore(db: Database): GitHubMcpStore {
         github: policy.settings === "invalid" ? null : policy.settings,
         // Off now, or off as the session started: both close it.
         enabled: (session.enabled ?? false) && policy.enabledAtStart,
+        ...(session.workspaceId === null
+          ? {}
+          : {
+              ceiling: await workspaceFeatureCeiling(db, session.workspaceId),
+            }),
         actor: creatorOf(session, session.agentId),
       };
     },

@@ -113,7 +113,7 @@ curl -sS "$API/v1/receipts/$(echo "$pushed" | jq -r .push_receipt_id)" -H "Autho
 | `catalog_changed` | 요청 뒤에 운영자가 저장소 설정을 바꿨다. 새로 요청한다 |
 | `non_fast_forward` | 원격 브랜치가 이 commit의 조상이 아니다 |
 | `default_branch`, `target_refused` | 기본 브랜치이거나 `agent/<session-id>`가 아닌 브랜치다 |
-| `push_failed` | 토큰 발급 실패, 원격 거절, 네트워크 오류. GitHub가 workflow 파일(`.github/workflows/`) 변경을 거절했으면 receipt의 `reason_code`가 이유를 가른다. `workflows_off`: 에이전트 GitHub 설정에서 Workflows가 꺼져 있어 토큰이 그 권한을 청하지 않았다. `workflows_ceiling_off`: 워크스페이스 GitHub 상한에서 꺼져 있다. 상한은 workspace owner·admin이 바꾼다. `workflows_both_off`: 둘 다 꺼져 있다. `workflows_permission_missing`: 청했지만 GitHub App에 Workflows 권한이 없다. `workflows_refused`: App 토큰으로 push하지 않아 어느 쪽인지 알 수 없다. 이때 Slack 스레드 안내는 코드 대신 누구에게 무엇을 요청할지 말한다 |
+| `push_failed` | 토큰 발급 실패, 원격 거절, 네트워크 오류. GitHub가 workflow 파일(`.github/workflows/`) 변경을 거절했으면 receipt의 `reason_code`가 이유를 가른다. `workflows_off`: 에이전트 GitHub 설정에서 Workflows가 꺼져 있어 토큰이 그 권한을 청하지 않았다. `workflows_ceiling_off`: 워크스페이스 GitHub 상한에서 꺼져 있다. 상한은 workspace owner·admin이 바꾼다. `workflows_both_off`: 둘 다 꺼져 있다. `workflows_permission_missing`: 두 스위치는 켜져 있지만 GitHub App이나 그 설치에 Workflows 권한이 없다(토큰이 청했는데 GitHub가 거절했거나, 설치가 주지 않아 `contents`만 청했다). `workflows_refused`: App 토큰으로 push하지 않아 어느 쪽인지 알 수 없다. 이때 Slack 스레드 안내는 코드 대신 누구에게 무엇을 요청할지 말한다 |
 
 ## 승인이 거절될 때
 

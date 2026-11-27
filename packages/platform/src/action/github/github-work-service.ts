@@ -291,13 +291,14 @@ export function createGitHubWorkService(deps: {
       actor: PushActor,
       sessionId: string,
       runId: number,
-      options: { waitMs?: number } = {},
+      options: { waitMs?: number; repository?: string } = {},
     ): Promise<GitHubWorkflowRunView> {
       return await readUntil(
         options.waitMs,
         () =>
           granted(actor, sessionId, "session.read", {
             purpose: "actions_read",
+            ...named(options.repository),
           }),
         (grant) => readGitHub(() => grant.api.getWorkflowRun(runId)),
         (run) => run.status === "completed",
@@ -305,15 +306,16 @@ export function createGitHubWorkService(deps: {
     },
 
     /**
-     * The check runs and workflow runs of a commit of the session's
-     * repository, named by its sha or as the head of pull request `number`.
-     * Waits as `getRun` does, until `ciStatusFinal`.
+     * The check runs and workflow runs of a commit, named by its sha or as
+     * the head of pull request `number`, of the session's repository or the
+     * one `repository` (`owner/name`) names. Waits as `getRun` does, until
+     * `ciStatusFinal`. Each grant is a read of that one repository.
      */
     async ciStatus(
       actor: PushActor,
       sessionId: string,
       target: { pullRequestNumber: number } | { commitSha: string },
-      options: { waitMs?: number } = {},
+      options: { waitMs?: number; repository?: string } = {},
     ): Promise<GitHubCiStatusView> {
       const pullRequestNumber =
         "pullRequestNumber" in target ? target.pullRequestNumber : null;
@@ -323,10 +325,12 @@ export function createGitHubWorkService(deps: {
           // CI's own switch is judged before the pull request is read.
           const grant = await granted(actor, sessionId, "session.read", {
             purpose: "actions_read",
+            ...named(options.repository),
           });
           if ("commitSha" in target) return { grant, sha: target.commitSha };
           const pullRequests = await granted(actor, sessionId, "session.read", {
             purpose: "pull_request_read",
+            ...named(options.repository),
           });
           const { pullRequest } = await readGitHub(() =>
             pullRequests.api.getPullRequest(target.pullRequestNumber),
@@ -334,8 +338,10 @@ export function createGitHubWorkService(deps: {
           return { grant, sha: pullRequest.headSha };
         },
         async ({ grant, sha }) => {
-          const ci = await readGitHub(() =>
-            grant.api.getCommitCi(sha, GITHUB_CI_RUNS_MAX),
+          const ci = await readGitHub(
+            () => grant.api.getCommitCi(sha, GITHUB_CI_RUNS_MAX),
+            // GitHub answers the check runs of a sha it holds no commit for so.
+            { unknownCommit: 422 },
           );
           return {
             head_sha: sha,
@@ -479,14 +485,22 @@ export function createGitHubWorkService(deps: {
   };
 }
 
-/** A read of GitHub: a commit or run GitHub does not know is not found. */
-async function readGitHub<T>(read: () => Promise<T>): Promise<T> {
+const named = (repository: string | undefined) =>
+  repository === undefined ? {} : { repositoryName: repository };
+
+/**
+ * A read of GitHub: what GitHub does not know (404, or the status a read
+ * answers a commit it does not hold with) is not found.
+ */
+async function readGitHub<T>(
+  read: () => Promise<T>,
+  options: { unknownCommit?: number } = {},
+): Promise<T> {
   try {
     return await read();
   } catch (error) {
     if (error instanceof GitHubCallError) {
-      // 422: the check runs of a sha that names no commit.
-      if (error.status === 404 || error.status === 422) {
+      if (error.status === 404 || error.status === options.unknownCommit) {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
       throw unavailable(null);
@@ -495,10 +509,17 @@ async function readGitHub<T>(read: () => Promise<T>): Promise<T> {
   }
 }
 
-/** Some run is reported, and every one is completed. */
+/**
+ * Some run is reported, every one is completed, and none is left out: a
+ * truncated list may hide one still running.
+ */
 export function ciStatusFinal(view: GitHubCiStatusView): boolean {
   const runs = [...view.check_runs, ...view.workflow_runs];
-  return runs.length > 0 && runs.every((run) => run.status === "completed");
+  return (
+    !view.truncated &&
+    runs.length > 0 &&
+    runs.every((run) => run.status === "completed")
+  );
 }
 
 function unavailable(receiptId: string | null): SessionServiceError {

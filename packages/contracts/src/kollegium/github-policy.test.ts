@@ -774,7 +774,9 @@ describe("pushDecisionOf: one rule for every repository", () => {
     });
   }
 
-  test("a requester's change pushes with no person: push approval off and no push_attached chosen allow it (94S-2398)", () => {
+  // Not changed by 94S-2398: pinned because CI reads after push and PR rely
+  // on the push going through with no person under the defaults.
+  test("under the defaults a push needs no person: push approval off and no push_attached chosen allow it", () => {
     expect(
       pushDecisionOf({
         settings: { ...PIN, push_approval: false },
