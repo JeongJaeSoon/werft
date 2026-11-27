@@ -4,11 +4,7 @@ import { join } from "node:path";
 import { verdicts } from "../../.github/scripts/d2-gate-verdict.ts";
 
 const workflow = `
-jobs:
-  integration-domain:
-    strategy:
-      matrix:
-        include:
+domains:
           - domain: worker
             postgres: false
             localstack: false
@@ -66,9 +62,9 @@ describe("d2-gate-verdict", () => {
     ).toEqual(["MISSING", "MISSING", "MISSING"]);
   });
 
-  test("ci.yml declares A–E, R1–R2 and H1–H5", () => {
+  test("the integration domains declare A–E, R1–R2 and H1–H5", () => {
     const ci = readFileSync(
-      join(import.meta.dir, "..", "..", ".github", "workflows", "ci.yml"),
+      join(import.meta.dir, "..", "..", ".github", "integration-domains.yml"),
       "utf8",
     );
     expect(verdicts(ci, []).map(({ test }) => test.split(":")[0])).toEqual([
@@ -85,5 +81,26 @@ describe("d2-gate-verdict", () => {
       "H4",
       "H5",
     ]);
+  });
+
+  test("the CLI reads the same declaration: a run with no report fails every gate test as missing", () => {
+    const run = Bun.spawnSync([
+      "bun",
+      join(
+        import.meta.dir,
+        "..",
+        "..",
+        ".github",
+        "scripts",
+        "d2-gate-verdict.ts",
+      ),
+      join(import.meta.dir, "no-such-report.xml"),
+    ]);
+    const out = run.stdout.toString();
+    expect(run.exitCode).toBe(1);
+    expect(run.stderr.toString()).toBe("");
+    expect(out).toContain("D2 gate verdict:");
+    expect(out).toContain("MISSING tests/d2-gate/gate.e2e.test.ts > A:");
+    expect(out).toContain("0 of 12 passed");
   });
 });

@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 // The D2 gate's result per test, by name. bun's exit status alone
-// passes a test that skipped or never ran. The tests are the ones ci.yml
-// declares skipped because only scripts/d2-gate/run.sh can run them; each
-// must have passed in the given junit reports, or the gate fails.
+// passes a test that skipped or never ran. The tests are the ones
+// .github/integration-domains.yml declares skipped because only
+// scripts/d2-gate/run.sh can run them; each must have passed in the given
+// junit reports, or the gate fails.
 //
 // usage: d2-gate-verdict.ts <junit.xml>...
 
@@ -13,8 +14,8 @@ import { readJobs, readJunit } from "./integration-jobs.ts";
 type Result = "PASS" | "FAIL" | "SKIP" | "MISSING";
 export type Verdict = { file: string; test: string; result: Result };
 
-/** Every d2-gate test ci.yml declares skipped, with its result in the reports. */
-export function verdicts(workflow: string, reports: string[]): Verdict[] {
+/** Every d2-gate test the declaration skips, with its result in the reports. */
+export function verdicts(declaration: string, reports: string[]): Verdict[] {
   const results = new Map<string, Result>();
   for (const xml of reports) {
     for (const [testcase] of xml.matchAll(
@@ -29,7 +30,7 @@ export function verdicts(workflow: string, reports: string[]): Verdict[] {
       }
     }
   }
-  return readJobs(workflow)
+  return readJobs(declaration)
     .flatMap((job) => job.skips)
     .filter(
       ({ file, test }) =>
@@ -47,17 +48,17 @@ function main(reports: string[]): void {
     console.error("usage: d2-gate-verdict.ts <junit.xml>...");
     process.exit(2);
   }
-  const workflow = readFileSync(
-    join(import.meta.dir, "..", "workflows", "ci.yml"),
+  const declaration = readFileSync(
+    join(import.meta.dir, "..", "integration-domains.yml"),
     "utf8",
   );
   const all = verdicts(
-    workflow,
+    declaration,
     // A run that died before writing its report leaves its tests MISSING.
     reports.map((path) => (existsSync(path) ? readFileSync(path, "utf8") : "")),
   );
   if (all.length === 0) {
-    console.error("ci.yml declares no d2-gate test");
+    console.error(".github/integration-domains.yml declares no d2-gate test");
     process.exit(1);
   }
   console.log("D2 gate verdict:");

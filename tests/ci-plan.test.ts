@@ -157,9 +157,12 @@ test("prose-only PRs keep a small explicit plan", () => {
   });
 });
 
-test("the full plan lists exactly the domains of the integration matrix", () => {
+test("the full plan lists exactly the declared integration domains", () => {
   const matrix = readJobs(
-    readFileSync(join(import.meta.dir, "../.github/workflows/ci.yml"), "utf8"),
+    readFileSync(
+      join(import.meta.dir, "../.github/integration-domains.yml"),
+      "utf8",
+    ),
   ).map((job) => job.domain);
   expect(JSON.parse(plan(fixture(), "push").output.domains ?? "null")).toEqual(
     matrix,

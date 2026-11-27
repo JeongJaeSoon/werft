@@ -1,7 +1,8 @@
 name: D2 gate
 
 # The D2 gate (A–E, R1–R2, H1–H5) needs the whole compose stack on
-# images built from the checkout, so ci.yml declares its tests skipped and
+# images built from the checkout, so CI's integration domains
+# (.github/integration-domains.yml) declare its tests skipped and
 # only scripts/d2-gate/run.sh runs them. Run by hand alone, the harness went
 # stale without anyone noticing (: gate A broke on
 # incremental bundles). This workflow runs it every night on main, and on the

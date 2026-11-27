@@ -40,10 +40,10 @@ export const LABELS: Record<Part, string> = {
   rest: "unit: other apps, tests",
 };
 
-export function withoutSurface(files: string[], workflow: string): string[] {
-  const ownership = assign(files, readJobs(workflow));
+export function withoutSurface(files: string[], declaration: string): string[] {
+  const ownership = assign(files, readJobs(declaration));
   const surface = ownership.get("surface");
-  if (!surface) throw new Error("integration matrix has no surface domain");
+  if (!surface) throw new Error("integration domains have no surface domain");
   const excluded = new Set(surface);
   return files.filter((path) => !excluded.has(path));
 }
@@ -73,7 +73,7 @@ function main(argv: string[]): void {
   const files = option
     ? withoutSurface(
         all,
-        readFileSync(join(cwd, ".github/workflows/ci.yml"), "utf8"),
+        readFileSync(join(cwd, ".github/integration-domains.yml"), "utf8"),
       )
     : all;
   if (command === "matrix") {
