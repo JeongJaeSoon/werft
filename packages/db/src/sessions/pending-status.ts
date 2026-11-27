@@ -1,8 +1,9 @@
 import { ENDED_ATTEMPT_STATES } from "@werft-ai/contracts";
-import { IN_FLIGHT_STATUSES } from "@werft-ai/platform";
+import { AWAITABLE_STATUSES, IN_FLIGHT_STATUSES } from "@werft-ai/platform";
 import {
   and,
   eq,
+  exists,
   gt,
   inArray,
   isNotNull,
@@ -82,6 +83,19 @@ export function actionableOfSession(
         kind === undefined ? undefined : eq(pendingRequests.kind, kind),
       ),
     );
+}
+
+/**
+ * Whether publicStatus reads the outer query's `sessions` row as
+ * needs_input: a status it can turn, with a request a person can still
+ * answer. The one test the session list's `?status=` and a progress
+ * message both read.
+ */
+export function sessionNeedsInput(db: Database) {
+  return and(
+    inArray(sessions.status, AWAITABLE_STATUSES),
+    exists(actionableOfSession(db)),
+  );
 }
 
 /**

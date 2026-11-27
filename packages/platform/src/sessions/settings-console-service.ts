@@ -127,6 +127,11 @@ export function createSettingsConsoleService(deps: {
   discovery: {
     /** The connection with its credential resolved on this replica. */
     connection: (id: string) => CatalogConnection | undefined;
+    /**
+     * Resolves once `connection` reads the settings as stored now, a key
+     * just changed on another replica included.
+     */
+    caughtUp?: () => Promise<void>;
     /** Why the API may not send a key to this endpoint; null when it may. */
     urlProblem: (url: string) => string | null;
     http: OutboundHttp;
@@ -382,6 +387,7 @@ export function createSettingsConsoleService(deps: {
       if (state === "needs_value") {
         throw conflict("needs_value", `${id} has no stored value yet`);
       }
+      await deps.discovery.caughtUp?.();
       // A row made a moment ago may be on another replica's read only.
       let connection = deps.discovery.connection(id);
       if (connection === undefined) {

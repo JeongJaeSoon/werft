@@ -138,8 +138,11 @@ integration("settings console writes", () => {
     expect(read.connections.map((item) => item.id)).toContain("console-fake");
     expect(read.stored.get("connection:console-fake")).toBe("example-key-1234");
     const [receipt] = await receiptsOf("create_connection");
-    expect(receipt?.result).toMatchObject({
+    expect(receipt?.result).toEqual({
       connection_id: "console-fake",
+      kind: "anthropic",
+      endpoint: "http://fake-model:8080",
+      host_port: "fake-model:8080",
       credential_source: "stored",
       source: "console",
     });
@@ -469,9 +472,85 @@ integration("settings console writes", () => {
       expect(receipts).toHaveLength(1);
       expect(receipts[0]?.result).toEqual({
         connection_id: "en-stored",
+        endpoint: "http://fake-model:8080",
+        host_port: "fake-model:8080",
         source: "console",
       });
+      const disabled = (await receiptsOf("disable_connection")).filter(
+        (one) =>
+          (one.result as { connection_id?: string }).connection_id ===
+          "en-stored",
+      );
+      expect(disabled.map((one) => one.result)).toEqual([
+        {
+          connection_id: "en-stored",
+          endpoint: "http://fake-model:8080",
+          host_port: "fake-model:8080",
+          source: "console",
+        },
+      ]);
       expect(JSON.stringify(receipts[0]?.result)).not.toContain("stored-key");
+    });
+
+    test("a row written before the endpoint check keeps its credential out of the receipts", async () => {
+      const owner = await person("owner");
+      // Only a direct write holds such an endpoint: the catalog refuses
+      // userinfo and a query string.
+      await db.insert(providerConnections).values({
+        id: "en-legacy",
+        definition: {
+          ...CONNECTION,
+          endpoint:
+            "https://user:pass-word@Models.EXAMPLE.com./v1?token=abc#frag",
+          auth: { kind: "api_key", stored: "connection:en-legacy" },
+        },
+        credentialSource: "stored",
+        origin: "import",
+      });
+      await db.transaction((tx) =>
+        writeSecretInTx(
+          tx,
+          KEY,
+          {
+            workspaceId,
+            owner: { kind: "connection", id: "en-legacy" },
+            purpose: "settings_credential",
+          },
+          "en-legacy-key-0000",
+          null,
+        ),
+      );
+      expect((await off(owner, "en-legacy")).outcome).toBe("done");
+      expect((await store().enableConnection("en-legacy", owner)).outcome).toBe(
+        "done",
+      );
+      const written = [
+        ...(await receiptsOf("disable_connection")),
+        ...(await receiptsOf("enable_connection")),
+      ].filter(
+        (one) =>
+          (one.result as { connection_id?: string }).connection_id ===
+          "en-legacy",
+      );
+      expect(written.map((one) => one.result)).toEqual([
+        {
+          connection_id: "en-legacy",
+          endpoint: "https://models.example.com./v1",
+          host_port: "models.example.com:443",
+          source: "console",
+        },
+        {
+          connection_id: "en-legacy",
+          endpoint: "https://models.example.com./v1",
+          host_port: "models.example.com:443",
+          source: "console",
+        },
+      ]);
+      for (const secret of ["user", "pass-word", "token", "abc", "frag"]) {
+        expect(JSON.stringify(written.map((one) => one.result))).not.toContain(
+          secret,
+        );
+      }
     });
 
     test("one in use, a missing one, and a role that is not an owner's change nothing", async () => {

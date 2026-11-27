@@ -68,7 +68,7 @@ curl -sS "$API/v1/sessions/$SID" -H "Authorization: Bearer $KEY" \
 
 ## wait_reason
 
-worker の入る空きがなく起動を待っているセッションでは、`wait_reason` が `waiting_for_capacity` になり、`waiting_since` に待ち始めた時刻が入る。普段はどちらも `null` だ。このとき `status` はふつう `queued` だ。Web コンソールは 30 秒を超えて待つセッションの状態欄に「作業の空きを待っています」を表示する。セッションが Slack スレッドとつながっていれば、そのスレッドにも一度だけ知らせる。
+worker の入る空きがなく起動を待っているセッションでは、`wait_reason` が `waiting_for_capacity` になり、`waiting_since` に待ち始めた時刻が入る。普段はどちらも `null` だ。このとき `status` はふつう `queued` だ。Web コンソールは 30 秒を超えて待つセッションの状態欄に「作業の空きを待っています」を表示する。セッションが Slack スレッドとつながっていれば、そのスレッドにも一度だけ知らせる。報告方式が進捗更新(`progress`)の作業の元のスレッドには別に知らせず、その作業の進捗メッセージが同じ文言に変わる。
 
 空きが出ると worker が起動し、2 つの値は `null` に戻る。15 分以内に空きが出なければ、待っていた turn は `failed` で終わり、その入力の受付は `NO_CAPACITY` で失敗する。セッション自体は失敗にならない。`idle` に戻って次のメッセージを受け付け、次のメッセージが新しい worker を起動して前の会話から続ける。resume 中（`resuming`）だったセッションは checkpoint をそのまま残して `paused` に戻り、resume の受付も `NO_CAPACITY` で失敗する。しばらくしてもう一度 resume すれば、その checkpoint から続ける。どちらの場合も `recovery_required` にはならない。
 

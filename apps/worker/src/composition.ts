@@ -299,6 +299,9 @@ export function runtimeStart(
       ...(launch.gitEnvironment === undefined
         ? {}
         : { gitEnvironment: launch.gitEnvironment }),
+      ...(launch.egressReportToken === undefined
+        ? {}
+        : { egressReportToken: launch.egressReportToken }),
       // Not in runtimeProfile: the fingerprint must not move with a
       // variable's value, and a resumed run reads them from its claim again.
       ...(launch.runtimeConfig.env === undefined

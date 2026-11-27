@@ -23,6 +23,12 @@ const MAX_BODY_BYTES = 1024 * 1024;
 export type NetworkPolicy = {
   plainHttp: "refuse" | "loopback";
   privateHosts?: readonly string[];
+  /**
+   * A `privateHosts` entry must then resolve to private or loopback
+   * addresses only, as the egress proxy holds a credential route's private
+   * host: one whose name now answers a public address is not sent a token.
+   */
+  privateHostsStayPrivate?: boolean;
 };
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -116,6 +122,73 @@ async function readCapped(response: Response): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/**
+ * Every address `url`'s name resolves to, each judged under `policy`, not
+ * only the one a request would use: a name that can resolve to a refused
+ * address is refused. Throws OidcUnavailableError `unreachable` when the
+ * name did not resolve before `deadline`, `address_not_allowed` when an
+ * answer is refused.
+ */
+export async function judgedAddresses(
+  url: URL,
+  policy: NetworkPolicy,
+  lookup: Lookup,
+  deadline: AbortSignal,
+): Promise<readonly [ResolvedAddress, ...ResolvedAddress[]]> {
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  if (isMetadataName(host)) {
+    throw new OidcUnavailableError(
+      "address_not_allowed",
+      "Provider endpoint is a metadata service",
+    );
+  }
+  const timedOut = new Promise<never>((_, reject) => {
+    deadline.addEventListener("abort", () => reject(deadline.reason), {
+      once: true,
+    });
+  });
+  timedOut.catch(() => {});
+  let answers: readonly ResolvedAddress[];
+  try {
+    // A lookup cannot be cancelled; one that answers late is not used.
+    answers = await Promise.race([lookup(host), timedOut]);
+  } catch (error) {
+    throw new OidcUnavailableError(
+      "unreachable",
+      `Provider name did not resolve: ${error instanceof Error ? error.name : "error"}`,
+      { timedOut: deadline.aborted },
+    );
+  }
+  const [first, ...rest] = answers;
+  if (!first) {
+    throw new OidcUnavailableError(
+      "unreachable",
+      "Provider name did not resolve",
+    );
+  }
+  const narrow = policy.privateHosts !== undefined;
+  const inside = insidePrivate(url, policy);
+  for (const { address } of answers) {
+    const addressClass = classifyAddress(address);
+    if (
+      REFUSED_CLASSES.includes(addressClass) ||
+      (narrow
+        ? inside
+          ? policy.privateHostsStayPrivate === true && addressClass === "public"
+          : addressClass === "private" || addressClass === "loopback"
+        : addressClass === "loopback" && policy.plainHttp === "refuse")
+    ) {
+      throw new OidcUnavailableError(
+        "address_not_allowed",
+        `Provider resolves to a ${addressClass ?? "malformed"} address`,
+      );
+    }
+  }
+  return [first, ...rest];
+}
+
+export const defaultLookup: Lookup = (host) => dnsLookup(host, { all: true });
+
 export function createProviderRequest(
   deps: {
     lookup?: Lookup;
@@ -124,8 +197,7 @@ export function createProviderRequest(
     deadline?: (timeoutMs: number) => AbortSignal;
   } = {},
 ): PinnedRequest {
-  const lookup: Lookup =
-    deps.lookup ?? ((host) => dnsLookup(host, { all: true }));
+  const lookup = deps.lookup ?? defaultLookup;
   const send = deps.fetch ?? fetch;
   const startDeadline =
     deps.deadline ?? ((timeoutMs) => AbortSignal.timeout(timeoutMs));
@@ -139,57 +211,10 @@ export function createProviderRequest(
     }
     const original = new URL(url);
     const host = original.hostname.replace(/^\[|\]$/g, "");
-    if (isMetadataName(host)) {
-      throw new OidcUnavailableError(
-        "address_not_allowed",
-        "Provider endpoint is a metadata service",
-      );
-    }
     // One deadline for the whole request, name resolution included.
     const deadline = startDeadline(init.timeoutMs ?? TIMEOUT_MS);
-    const timedOut = new Promise<never>((_, reject) => {
-      deadline.addEventListener("abort", () => reject(deadline.reason), {
-        once: true,
-      });
-    });
-    timedOut.catch(() => {});
-    let answers: readonly ResolvedAddress[];
-    try {
-      // A lookup cannot be cancelled; one that answers late is not used.
-      answers = await Promise.race([lookup(host), timedOut]);
-    } catch (error) {
-      throw new OidcUnavailableError(
-        "unreachable",
-        `Provider name did not resolve: ${error instanceof Error ? error.name : "error"}`,
-        { timedOut: deadline.aborted },
-      );
-    }
+    const answers = await judgedAddresses(original, policy, lookup, deadline);
     const [first] = answers;
-    if (!first) {
-      throw new OidcUnavailableError(
-        "unreachable",
-        "Provider name did not resolve",
-      );
-    }
-    const narrow = policy.privateHosts !== undefined;
-    const inside = insidePrivate(original, policy);
-    // Every answer is judged, not only the one used: a name that can resolve
-    // to a refused address is refused.
-    for (const { address } of answers) {
-      const addressClass = classifyAddress(address);
-      if (
-        REFUSED_CLASSES.includes(addressClass) ||
-        (narrow
-          ? !inside &&
-            (addressClass === "private" || addressClass === "loopback")
-          : addressClass === "loopback" && policy.plainHttp === "refuse")
-      ) {
-        throw new OidcUnavailableError(
-          "address_not_allowed",
-          `Provider resolves to a ${addressClass ?? "malformed"} address`,
-        );
-      }
-    }
 
     // Connect to the address that was judged, so the name is not resolved a
     // second time between the check and the connection. TLS still verifies
@@ -205,13 +230,10 @@ export function createProviderRequest(
         const literal = family === 6 ? `[${address}]` : address;
         target.hostname = literal;
         // The setter keeps the name when it cannot take the address (an IPv6
-        // zone id, say); sending then would resolve the name again. Parsed
-        // alone, a malformed answer can name that same host, so the result
-        // must be an address too.
-        if (
-          isIP(target.hostname.replace(/^\[|\]$/g, "")) === 0 ||
-          target.hostname !== URL.parse(`http://${literal}/`)?.hostname
-        ) {
+        // zone id, say, or a malformed answer); sending then would resolve
+        // the name again. A kept name is never an IP literal, so one check
+        // covers both.
+        if (isIP(target.hostname.replace(/^\[|\]$/g, "")) === 0) {
           throw new OidcUnavailableError(
             "address_not_allowed",
             "Provider address cannot be pinned",

@@ -256,6 +256,29 @@ describe("provider request", () => {
       },
     );
 
+    test("a name under a metadata name is refused at its address, not its name", async () => {
+      const asked: string[] = [];
+      const request = createProviderRequest({
+        lookup: async (host) => {
+          asked.push(host);
+          return [{ address: "169.254.169.254", family: 4 }];
+        },
+        fetch: (async () => {
+          throw new Error("nothing may be sent");
+        }) as unknown as typeof fetch,
+      });
+      const policy: NetworkPolicy = {
+        plainHttp: "refuse",
+        privateHosts: ["x.api.metadata.cloud.ibm.com:443"],
+      };
+      expect(
+        await refusal(
+          request("https://x.api.metadata.cloud.ibm.com/v1", {}, policy),
+        ),
+      ).toBe("address_not_allowed");
+      expect(asked).toEqual(["x.api.metadata.cloud.ibm.com"]);
+    });
+
     test.each(ULA_A9FE)(
       "a ULA carrying 169.254.169.254: %s is %s on the private list",
       async (address, kind) => {
