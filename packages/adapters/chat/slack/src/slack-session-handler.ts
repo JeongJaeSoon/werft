@@ -979,7 +979,8 @@ export function createSlackSessionHandler(
       if (refused !== null) await notice("channel_kind_mismatch", refused);
       return;
     }
-    // An app_mention names no channel kind: done once Slack has said it.
+    // A post that named no channel kind (an app_mention, a mentioned message,
+    // a reply in a thread with an open link): done once Slack has said it.
     if (await stopMadeBefore()) {
       deps.logger.info("Slack stop request already made; its work closed", ids);
       return;
