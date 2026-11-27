@@ -1048,10 +1048,13 @@ describe("egress authorizer: remote MCP", () => {
         upstream: { url: "u", headers: [] },
       };
     });
+    // A comma list: a later feature beside it keeps the mark's.
     for (const features of [
       "registered-upstream",
-      "later-feature, registered-upstream",
+      "registered-upstream,x",
+      " later-feature ,  registered-upstream ",
       "registered-upstream-v2",
+      "x,y",
       "",
     ]) {
       expect(
@@ -1062,7 +1065,7 @@ describe("egress authorizer: remote MCP", () => {
         ).status,
       ).toBe(200);
     }
-    expect(asked).toEqual([true, true, false, false]);
+    expect(asked).toEqual([true, true, true, false, false, false]);
   });
 
   test("a refusal carries its receipt id, and only one with a receipt does", async () => {
