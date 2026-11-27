@@ -1044,7 +1044,12 @@ export function SessionControls({
           if (!control.isPending) setConfirming(open);
         }}
         title={t("session.control.terminate.title")}
-        consequence={t("session.control.terminate.consequence")}
+        consequence={
+          // Waiting on recovery, a terminate closes the session for good.
+          session.admission_state === "recovery_required"
+            ? t("session.control.terminate.consequence.recovery")
+            : t("session.control.terminate.consequence")
+        }
         confirmLabel={t("session.control.terminate.confirm")}
         cancelLabel={t("session.control.cancel")}
         tone="danger"

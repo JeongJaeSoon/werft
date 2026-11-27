@@ -3023,6 +3023,9 @@ describe("a session waiting on a recovery decision", () => {
     const dialog = await screen.findByRole("alertdialog", {
       name: "세션을 종료할까요?",
     });
+    // It says the close is for good, not that a resume is left.
+    expect(dialog.textContent).toContain("세션이 닫히고 다시 열 수 없습니다.");
+    expect(dialog.textContent).not.toContain("다시 시작할 수 있습니다");
     await user.click(within(dialog).getByRole("button", { name: "종료" }));
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "세션 종료" })).toBeNull(),
