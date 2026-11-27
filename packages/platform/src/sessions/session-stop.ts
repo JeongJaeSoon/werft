@@ -9,7 +9,13 @@ import type { SessionStops } from "./ports/session-stops.ts";
 
 export type SessionStopResult =
   /** The running turn was interrupted, or queued input cancelled, or both. */
-  | { outcome: "stopped"; interrupted: boolean; cancelled: number }
+  | {
+      outcome: "stopped";
+      interrupted: boolean;
+      cancelled: number;
+      /** A task stopped before its first turn, closed with it. */
+      closed: boolean;
+    }
   | { outcome: "nothing_running" }
   /**
    * The caller may not control the session, or may not see it: neither its
@@ -81,7 +87,12 @@ export function createSessionStop(deps: {
         }
       }
       return interrupted || queued.cancelled > 0
-        ? { outcome: "stopped", interrupted, cancelled: queued.cancelled }
+        ? {
+            outcome: "stopped",
+            interrupted,
+            cancelled: queued.cancelled,
+            closed: queued.closed,
+          }
         : { outcome: "nothing_running" };
     },
   };

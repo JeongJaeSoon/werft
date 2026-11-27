@@ -54,11 +54,21 @@ describe("slackNoticeFor", () => {
         "요청하신 대로 작업을 멈췄어요. 기다리던 글 {count}개도 처리하지 않았어요. 이어서 하려면 이 스레드에 다시 써 주세요.",
       nothingToStop: "지금 하고 있는 작업이 없어요.",
       stopNotPermitted: "작업을 맡긴 사람만 멈출 수 있어요",
+      taskStoppedBeforeStart:
+        "요청하신 대로 작업을 시작하기 전에 멈추고 닫았어요. 다시 하려면 새로 맡겨 주세요.",
     });
+    expect(SLACK_NOTICE_MESSAGES.ja.taskStoppedBeforeStart).toBe(
+      "ご依頼どおり、作業を始める前に止めて閉じました。もう一度行うには、新しく依頼してください。",
+    );
+    expect(SLACK_NOTICE_MESSAGES.en.taskStoppedBeforeStart).toBe(
+      "Stopped and closed the task before it started, as you asked. To do it again, ask for it as a new task.",
+    );
     for (const locale of USER_LOCALE_VALUES) {
       const messages = SLACK_NOTICE_MESSAGES[locale];
       expect(messages.sessionStoppedQueued).toContain("{count}");
       expect(messages.sessionStopped).not.toContain("{count}");
+      expect(messages.taskStoppedBeforeStartQueued).toContain("{count}");
+      expect(messages.taskStoppedBeforeStart).not.toContain("{count}");
     }
   });
 

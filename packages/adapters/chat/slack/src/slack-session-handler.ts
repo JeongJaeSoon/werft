@@ -128,6 +128,17 @@ function lifecycleStopOf(
  * The text a turn gets: the bot's own mention taken out, with or without
  * the display name Slack may put after a `|`.
  */
+/**
+ * A task closed by a stop before its first turn: the first cancelled input
+ * is the task's request, the rest waited behind it.
+ */
+function closedNotice(cancelled: number) {
+  const waiting = cancelled - 1;
+  return waiting > 0
+    ? { message: "taskStoppedBeforeStartQueued" as const, count: waiting }
+    : { message: "taskStoppedBeforeStart" as const };
+}
+
 export function withoutBotMention(text: string, botUserId: string): string {
   return text
     .replace(new RegExp(`<@${botUserId}(?:\\|[^>]*)?>`, "g"), "")
@@ -599,9 +610,11 @@ export function createSlackSessionHandler(
         notice:
           stopped.outcome === "nothing_running"
             ? { message: "nothingToStop" }
-            : stopped.cancelled > 0
-              ? { message: "sessionStoppedQueued", count: stopped.cancelled }
-              : { message: "sessionStopped" },
+            : stopped.closed
+              ? closedNotice(stopped.cancelled)
+              : stopped.cancelled > 0
+                ? { message: "sessionStoppedQueued", count: stopped.cancelled }
+                : { message: "sessionStopped" },
         onceKey: `${agent.installationId}:${surfaceRef}:stop:${event.ts}`,
       });
       return true;
