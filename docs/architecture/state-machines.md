@@ -45,6 +45,33 @@
 
 시험: `packages/db/src/stop-control.test.ts`, `apps/control-host/src/slack/session-handler.integration.test.ts`의 Slack stop 시험.
 
+### terminate가 일으키는 전이
+
+terminate는 사람이 세션을 강제로 끝내는 제어다(`POST /v1/sessions/{id}/terminate`, 관리자 terminate, 웹의 '세션 종료'). 판정은 `packages/db/src/control-unit-of-work.ts`의 `terminateAtomic`이 한다.
+
+| 지금 상태 | 다음 상태 | 조건 | 누가 일으키나 |
+| --- | --- | --- | --- |
+| `recovery_required` (status `failed` 또는 `stopped`) | `closed` (status `stopped`) | 언제나. 묶인 execution이 없으면 receipt가 응답에서 `succeeded`다. 묶여 있으면 kill intent를 쓰고, receipt는 실행이 사라진 것을 본 뒤 `succeeded`가 된다 | 세션을 제어할 수 있는 사람의 terminate |
+| `active`, `pausing`, `paused`, `resuming`, `closing`, `stopping` | `stopping` 뒤 `stopped` (실행이 끊은 turn이 `outcome_unknown`이면 `recovery_required`) | 묶인 execution이 있을 때. 없으면 바로 `stopped` | 같음 |
+| `stopped` | 그대로 | 죽일 것이 없으면 행을 바꾸지 않는다(revision도 그대로) | 같음 |
+| `closed` | 그대로 | 409 `SESSION_CLOSED`로 거절한다 | 같음 |
+
+`recovery_required` → `closed`는 복구 결정 `close`와 같은 방식으로 닫는다(`closeSessionRow`). 대기 입력은 `SESSION_CLOSED`로 취소되고, 디스패치 대기열에서 빠지고, lease epoch가 올라 claim한 worker를 막는다. 스트림에는 `closed_by: terminate`인 status 이벤트와 `session_closed` 이벤트가 남는다. 작업 세션의 Slack 링크는 recovery close처럼 `abandoned`로 닫힌다(close receipt가 없으므로).
+
+막을 전이:
+
+- `recovery_required`가 아닌 세션은 terminate로 `closed`가 되지 않는다.
+- `closed` 세션은 terminate로 다른 상태가 되지 않는다.
+
+지켜야 할 성질:
+
+- terminate로 닫혀도 결과를 알 수 없는 turn에 답하지 않는다. 그 turn은 `outcome_unknown`으로 남고, receipt의 `unconfirmed_turn_id`가 그 turn을 가리킨다.
+- 닫은 뒤 실행이 사라진 것을 보아도 세션은 다시 열리지 않는다. 그때 terminate receipt만 `succeeded`가 된다.
+- 같은 terminate를 같은 키로 다시 보내면 처음 receipt를 돌려준다. 새 키의 terminate는 `closed`로 거절되고 세션의 revision은 그대로다.
+- 웹 세션 상세는 `closed` 세션에 제어 버튼도 복구 결정도 그리지 않는다(`actionsFor`, `RecoveryDecisions`).
+
+시험: `packages/db/src/terminate-recovery.test.ts`, `packages/db/src/control-unit-of-work.integration.test.ts`의 terminate 시험.
+
 ### Slack 멘션이 대화 계층에 들어가는 길
 
 에이전트의 `conversation_rollout`이 `on`일 때 묶인 작업이 없는 스레드의 멘션을 처리표가 다룬다. 처리표는 생애주기 정지를 먼저 본다(보관, 강퇴, 승인 대기, 에이전트 비활성, 소유자 없음). 일으키는 쪽은 언제나 Slack에서 멘션한 사람이고, 판정은 receive path(`slack-session-handler.ts`)가 한다.

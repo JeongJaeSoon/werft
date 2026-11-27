@@ -2994,6 +2994,46 @@ describe("a session waiting on a recovery decision", () => {
     expect(screen.getByRole("button", { name: "세션 종료" })).toBeTruthy();
   });
 
+  test("terminating a session waiting on recovery closes it, and the recovery screen's buttons go", async () => {
+    const user = await setupUser();
+    let state = gap;
+    const { api } = renderAt(`/sessions/${SESSION_ID}`, {
+      ...detailRoutes,
+      [`GET /v1/sessions/${SESSION_ID}`]: () => json(200, state),
+      [`GET /v1/sessions/${SESSION_ID}/pending-requests`]: () =>
+        json(200, { answerable: true, items: [] }),
+      [`GET /v1/sessions/${SESSION_ID}/turns`]: () =>
+        json(200, { items: [ran], next_cursor: null }),
+      [`POST /v1/sessions/${SESSION_ID}/terminate`]: () => {
+        state = {
+          ...gap,
+          status: "stopped",
+          admission_state: "closed",
+          revision: 6,
+          attention: null,
+        } as SessionDetail;
+        return json(202, {
+          ...TERMINATE_ACCEPTED,
+          receipt_status: "succeeded",
+        });
+      },
+    });
+    expect(await screen.findByRole("button", FRESH)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "세션 종료" }));
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "세션을 종료할까요?",
+    });
+    await user.click(within(dialog).getByRole("button", { name: "종료" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "세션 종료" })).toBeNull(),
+    );
+    expect(screen.queryByRole("button", FRESH)).toBeNull();
+    expect(screen.queryByRole("button", ABANDON)).toBeNull();
+    expect(posts(api).map((call) => call.path)).toEqual([
+      `/v1/sessions/${SESSION_ID}/terminate`,
+    ]);
+  });
+
   test("a context no checkpoint covers offers to go on without it, and says it is left out", async () => {
     render({ session: () => gap, turns: [ran] });
     expect(await screen.findByRole("button", FRESH)).toBeTruthy();
