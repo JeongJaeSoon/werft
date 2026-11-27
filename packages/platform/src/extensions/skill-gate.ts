@@ -50,8 +50,8 @@ const MAX_SAMPLES = 20;
 const MANIFEST = ".claude-plugin/plugin.json";
 const SCRIPTS_DIR = /^skills\/[^/]+\/scripts\//;
 const SKILL_FILE = /^skills\/([^/]+)\/SKILL\.md$/;
-const LICENSE_FILE = /^(?:licen[cs]e|copying)(?:[.-][^/]*)?$/i;
-const NOTICE_FILE = /^(?:notice|third[_-]?party[_-]?notices?)(?:[.-][^/]*)?$/i;
+const LICENSE_FILE = /^(?:licen[cs]e|copying)(?:[._-][^/]*)?$/i;
+const NOTICE_FILE = /^(?:notice|third[_-]?party[_-]?notices?)(?:[._-][^/]*)?$/i;
 
 const startsWith = (bytes: Uint8Array, prefix: readonly number[], at = 0) =>
   prefix.every((byte, index) => bytes[at + index] === byte);
@@ -127,7 +127,7 @@ const OVERRIDE = /[\u{202A}-\u{202E}\u{2066}-\u{2069}\u{E0000}-\u{E007F}]/gu;
  */
 const INVISIBLE =
   // biome-ignore lint/suspicious/noControlCharactersInRegex: finding control characters is the point
-  /[\u{0}-\u{8}\u{B}\u{C}\u{E}-\u{1F}\u{7F}\u{61C}\u{200B}-\u{200F}\u{2060}-\u{2064}\u{FEFF}]/gu;
+  /[\u{0}-\u{8}\u{B}-\u{1F}\u{7F}-\u{9F}\u{61C}\u{200B}-\u{200F}\u{2060}-\u{2064}\u{FEFF}]/gu;
 
 /** A comment line, often a usage example rather than a call the script makes. */
 const COMMENT = /^\s*(?:#|\/\/|--)/;
@@ -178,14 +178,17 @@ function mediaOf(file: CanonicalBundleFile): string | null {
 
 type Kind = { text: string } | { media: string } | { refused: string };
 
+// Media first: an ASCII-only PDF is also valid UTF-8, and must still be
+// held to the media rules (no execute bit).
 function kindOf(file: CanonicalBundleFile): Kind {
-  const text = textOf(file);
-  if (text !== null) return { text };
   const media = mediaOf(file);
-  if (media === null) return { refused: "not_text_or_allowed_media" };
-  return (file.mode & 0o111) !== 0
-    ? { refused: "executable_media" }
-    : { media };
+  if (media !== null) {
+    return (file.mode & 0o111) !== 0
+      ? { refused: "executable_media" }
+      : { media };
+  }
+  const text = textOf(file);
+  return text === null ? { refused: "not_text_or_allowed_media" } : { text };
 }
 
 const codePoint = (char: string) =>
@@ -221,29 +224,41 @@ function licenseOf(text: string | null): string | null {
 }
 
 /**
- * An SPDX expression by its shape: identifiers joined by AND, OR or WITH,
- * with parentheses. Free text such as "Complete terms in LICENSE.txt" is not.
+ * An SPDX license expression by its grammar: license ids (`+` allowed),
+ * LicenseRef and DocumentRef references, joined by AND and OR, with
+ * parentheses; WITH ties one exception to one license. Ids are not looked up
+ * in the SPDX list. Free text such as "Complete terms in LICENSE.txt" fails.
  */
-const SPDX_ID = /^(?:[A-Za-z0-9.-]+\+?|LicenseRef-[A-Za-z0-9.-]+)$/;
+const SPDX_LICENSE =
+  /^(?:[A-Za-z0-9.-]+\+?|(?:DocumentRef-[A-Za-z0-9.-]+:)?LicenseRef-[A-Za-z0-9.-]+)$/;
+const SPDX_EXCEPTION = /^[A-Za-z0-9.-]+$/;
+const OPERATORS = new Set(["AND", "OR", "WITH", "(", ")"]);
 export function isSpdxExpression(value: string): boolean {
   const tokens = value.replace(/[()]/g, " $& ").trim().split(/\s+/);
-  let depth = 0;
-  let expectId = true;
-  for (const token of tokens) {
-    if (token === "(") {
-      if (!expectId) return false;
-      depth++;
-    } else if (token === ")") {
-      if (expectId || --depth < 0) return false;
-    } else if (token === "AND" || token === "OR" || token === "WITH") {
-      if (expectId) return false;
-      expectId = true;
-    } else {
-      if (!expectId || !SPDX_ID.test(token)) return false;
-      expectId = false;
+  let at = 0;
+  const term = (): boolean => {
+    const token = tokens[at++];
+    if (token === "(") return expression() && tokens[at++] === ")";
+    if (token === undefined || OPERATORS.has(token)) return false;
+    if (!SPDX_LICENSE.test(token)) return false;
+    if (tokens[at] !== "WITH") return true;
+    at++;
+    const exception = tokens[at++];
+    return (
+      exception !== undefined &&
+      !OPERATORS.has(exception) &&
+      SPDX_EXCEPTION.test(exception)
+    );
+  };
+  const expression = (): boolean => {
+    if (!term()) return false;
+    while (tokens[at] === "AND" || tokens[at] === "OR") {
+      at++;
+      if (!term()) return false;
     }
-  }
-  return !expectId && depth === 0;
+    return true;
+  };
+  return expression() && at === tokens.length;
 }
 
 const BLOCK_RULES: readonly SkillGateRule[] = ["file_type", "hidden_override"];
@@ -263,7 +278,12 @@ const NOTICE_RULES: readonly SkillGateRule[] = [
 
 /** Judges one version of a repository skill; never throws on content. */
 export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
-  const { before, after, allowedHosts } = input;
+  const { before, after } = input;
+  const allowedHosts = new Set(
+    [...input.allowedHosts].map((host) =>
+      host.toLowerCase().replace(/\.$/, ""),
+    ),
+  );
   const found = new Map<
     SkillGateRule,
     { paths: Set<string>; samples: Set<string> }
@@ -277,7 +297,9 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
   const old = new Map((before ?? []).map((file) => [file.path, file]));
   const files = after.filter((file) => file.path !== MANIFEST);
 
-  for (const file of files) {
+  // The manifest is the validator's, but carries plugin.json values: it is
+  // held to the blocking rules and left out of the rest.
+  for (const file of after) {
     const kind = kindOf(file);
     if ("refused" in kind) flag("file_type", file.path, kind.refused);
     for (const char of file.path.match(OVERRIDE) ?? []) {
@@ -290,10 +312,10 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
     }
 
     const earlier = old.get(file.path);
-    if (earlier?.sha256 === file.sha256) continue;
+    if (file.path === MANIFEST || earlier?.sha256 === file.sha256) continue;
     if (
       "media" in kind &&
-      (earlier === undefined || textOf(earlier) !== null)
+      (earlier === undefined || !("media" in kindOf(earlier)))
     ) {
       flag("binary_added", file.path, kind.media);
     }
@@ -308,7 +330,8 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
       runsAsScript(file.path, file.mode, file.bytes) ||
       SCRIPTS_DIR.test(file.path);
     const earlierText = earlier === undefined ? null : textOf(earlier);
-    for (const line of addedLines(earlierText, kind.text)) {
+    for (const added of addedLines(earlierText, kind.text)) {
+      const line = added.replace(/\r$/, "");
       for (const char of line.match(INVISIBLE) ?? []) {
         flag("hidden_unicode", file.path, codePoint(char));
       }
@@ -335,45 +358,55 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
   const rootNotice = input.repositoryRootFiles.some((name) =>
     NOTICE_FILE.test(name),
   );
-  const skillMd = (tree: readonly CanonicalBundleFile[], skill: string) => {
-    const file = tree.find(
-      (entry) => entry.path === `skills/${skill}/SKILL.md`,
-    );
-    return file === undefined ? null : textOf(file);
+  const licenseState = (
+    tree: readonly CanonicalBundleFile[],
+    skill: string,
+  ) => {
+    const own = tree.filter((f) => skillOf(f.path) === skill);
+    const named = (pattern: RegExp) =>
+      own
+        .filter((f) => pattern.test(baseName(f.path)))
+        .map((f) => `${f.path}:${f.sha256}`)
+        .sort()
+        .join("\n");
+    const md = own.find((f) => f.path === `skills/${skill}/SKILL.md`);
+    return {
+      license: md === undefined ? null : licenseOf(textOf(md)),
+      licenseFiles: named(LICENSE_FILE),
+      noticeFiles: named(NOTICE_FILE),
+    };
   };
-  const licenseFiles = (tree: readonly CanonicalBundleFile[], skill: string) =>
-    tree
-      .filter(
-        (f) => skillOf(f.path) === skill && LICENSE_FILE.test(baseName(f.path)),
-      )
-      .map((f) => `${f.path}:${f.sha256}`)
-      .sort();
   for (const file of files) {
     const skill = SKILL_FILE.exec(file.path)?.[1];
     if (skill === undefined) continue;
-    const license = licenseOf(skillMd(after, skill));
-    const inSkill = files
-      .filter((f) => skillOf(f.path) === skill)
-      .map((f) => baseName(f.path));
+    const now = licenseState(after, skill);
+    const was = before === null ? null : licenseState(before, skill);
+    const licenseChanged =
+      was !== null &&
+      (was.license !== now.license || was.licenseFiles !== now.licenseFiles);
+    if (licenseChanged) flag("license_changed", file.path);
+    // Warnings read the diff: an update that leaves the terms alone repeats none.
+    if (
+      was !== null &&
+      !licenseChanged &&
+      was.noticeFiles === now.noticeFiles
+    ) {
+      continue;
+    }
     // A LICENSE file in the skill states the terms, whatever the field says.
-    const licenseFile = inSkill.some((name) => LICENSE_FILE.test(name));
-    if (license === null && !licenseFile) {
+    const licenseFile = now.licenseFiles !== "";
+    if (now.license === null && !licenseFile) {
       flag("license_missing", file.path);
     }
-    if (license !== null && !licenseFile && !isSpdxExpression(license)) {
-      flag("license_unclassified", file.path, license.slice(0, 80));
+    if (
+      now.license !== null &&
+      !licenseFile &&
+      !isSpdxExpression(now.license)
+    ) {
+      flag("license_unclassified", file.path, now.license.slice(0, 80));
     }
-    if (rootNotice && !inSkill.some((name) => NOTICE_FILE.test(name))) {
+    if (rootNotice && now.noticeFiles === "") {
       flag("license_notice_missing", file.path);
-    }
-    if (before === null) continue;
-    const beforeFiles = licenseFiles(before, skill);
-    const afterFiles = licenseFiles(after, skill);
-    const changedFiles =
-      beforeFiles.length !== afterFiles.length ||
-      beforeFiles.some((entry, index) => entry !== afterFiles[index]);
-    if (license !== licenseOf(skillMd(before, skill)) || changedFiles) {
-      flag("license_changed", file.path);
     }
   }
 

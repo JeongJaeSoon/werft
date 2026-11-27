@@ -538,3 +538,160 @@ test("appendix A: one skill is blocked, and only by its archive", () => {
     },
   ]);
 });
+
+describe("edge cases", () => {
+  test("an ASCII-only PDF is media: an execute bit refuses it, and it notices as binary", () => {
+    const pdf = text("skills/s/a.pdf", "%PDF-1.4\n1 0 obj\n");
+    expect(
+      gate({ after: [...licensed("s"), { ...pdf, mode: 0o755 }] }).blocks,
+    ).toEqual([
+      { rule: "file_type", paths: [pdf.path], samples: ["executable_media"] },
+    ]);
+    expect(rulesOf(gate({ after: [...licensed("s"), pdf] }).notices)).toEqual([
+      "binary_added",
+    ]);
+  });
+
+  test("the manifest is held to the blocking rules only", () => {
+    const manifest = text(
+      ".claude-plugin/plugin.json",
+      '{"name":"s","description":"a‮b ​ system prompt"}\n',
+    );
+    const result = gate({ after: [...licensed("s"), manifest] });
+    expect(rulesOf(result.blocks)).toEqual(["hidden_override"]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  test("C1 controls and a carriage return inside a line warn; a CRLF line end does not", () => {
+    const result = gate({
+      after: [
+        ...licensed("s"),
+        text("skills/s/a.md", "one\r\ntwo\nthree\rfour\n"),
+      ],
+    });
+    expect(result.warnings).toEqual([
+      {
+        rule: "hidden_unicode",
+        paths: ["skills/s/a.md"],
+        samples: ["U+0085", "U+000D"],
+      },
+    ]);
+  });
+
+  test("a file of one BOM is empty text; a second BOM warns; a BOM in a new path warns", () => {
+    const result = gate({
+      after: [
+        ...licensed("s"),
+        text("skills/s/one.xsd", "﻿"),
+        text("skills/s/two.xsd", "﻿﻿x\n"),
+        text("skills/s/﻿p.md", "x\n"),
+      ],
+    });
+    expect(result.warnings).toEqual([
+      {
+        rule: "hidden_unicode",
+        paths: ["skills/s/two.xsd", "skills/s/﻿p.md"],
+        samples: ["U+FEFF"],
+      },
+    ]);
+  });
+
+  test("a diff too large to compare reads the whole new file as added", () => {
+    const lines = (prefix: string) =>
+      Array.from({ length: 2001 }, (_, i) => `${prefix}-${i}`).join("\n");
+    const old = [
+      ...licensed("s"),
+      text("skills/s/a.md", `Set the system prompt.\n${lines("old")}\n`),
+    ];
+    const next = [
+      ...licensed("s"),
+      text("skills/s/a.md", `Set the system prompt.\n${lines("new")}\n`),
+    ];
+    expect(rulesOf(gate({ before: old, after: next }).warnings)).toEqual([
+      "instruction_like",
+    ]);
+  });
+
+  test("allowlist entries match whatever their case or trailing dot", () => {
+    const result = gate({
+      allowedHosts: new Set(["API.Example.COM."]),
+      after: [
+        ...licensed("s"),
+        text("skills/s/scripts/a.py", 'U = "https://api.example.com/"\n'),
+      ],
+    });
+    expect(result.warnings).toEqual([]);
+  });
+
+  test("a refused binary that becomes allowed media notices binary_added", () => {
+    const before = [...licensed("s"), bytes("skills/s/font.ttf", [0x12, 0x34])];
+    const after = [...licensed("s"), bytes("skills/s/font.ttf", TTF)];
+    expect(gate({ before, after }).notices).toEqual([
+      { rule: "binary_added", paths: ["skills/s/font.ttf"], samples: ["ttf"] },
+    ]);
+  });
+
+  test("license and notice names with an underscore suffix count", () => {
+    const result = gate({
+      repositoryRootFiles: ["NOTICE_2026"],
+      after: [
+        skillMd("a"),
+        text("skills/a/LICENSE_MIT", "MIT\n"),
+        text("skills/a/NOTICE_2026", "n\n"),
+      ],
+    });
+    expect(result.warnings).toEqual([]);
+    expect(
+      rulesOf(
+        gate({
+          repositoryRootFiles: ["NOTICE_2026"],
+          after: [skillMd("a", "MIT")],
+        }).warnings,
+      ),
+    ).toEqual(["license_notice_missing"]);
+  });
+
+  test("license warnings come back only when the update changes the terms or notices", () => {
+    const base = [
+      skillMd("s", "See the website"),
+      text("skills/s/README.md", "a\n"),
+    ];
+    const touched = [
+      base[0] as CanonicalBundleFile,
+      text("skills/s/README.md", "b\n"),
+    ];
+    const roots = { repositoryRootFiles: ["NOTICE"] };
+    expect(rulesOf(gate({ ...roots, after: base }).warnings)).toEqual([
+      "license_unclassified",
+      "license_notice_missing",
+    ]);
+    expect(gate({ ...roots, before: base, after: touched }).warnings).toEqual(
+      [],
+    );
+    expect(
+      rulesOf(
+        gate({
+          ...roots,
+          before: base,
+          after: [
+            skillMd("s", "Other words"),
+            touched[1] as CanonicalBundleFile,
+          ],
+        }).warnings,
+      ),
+    ).toEqual(["license_unclassified", "license_notice_missing"]);
+  });
+
+  test("SPDX WITH takes one license and one exception; DocumentRef references pass", () => {
+    expect(isSpdxExpression("DocumentRef-spdx-tool:LicenseRef-custom")).toBe(
+      true,
+    );
+    expect(
+      isSpdxExpression("MIT AND (GPL-2.0-only WITH Classpath-exception-2.0)"),
+    ).toBe(true);
+    expect(isSpdxExpression("(MIT OR Apache-2.0) WITH MIT")).toBe(false);
+    expect(isSpdxExpression("MIT WITH")).toBe(false);
+    expect(isSpdxExpression("MIT WITH (X)")).toBe(false);
+    expect(isSpdxExpression("MIT WITH A WITH B")).toBe(false);
+  });
+});
