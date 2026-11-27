@@ -852,7 +852,8 @@ describe("Slack management", () => {
       },
     });
     const user = await setupUser();
-    await screen.findByRole("heading", { name: "홈 채널 지정" });
+    // The bound channel is listed while the home step leads.
+    await screen.findByRole("table", { name: "연결된 채널" });
     await user.click(screen.getByRole("button", { name: "홈 채널 고르기" }));
     const dialog = screen.getByRole("dialog");
     // A private channel tells how to let the bot in before it is picked.
@@ -861,8 +862,8 @@ describe("Slack management", () => {
     await user.click(
       within(dialog).getByRole("button", { name: "#general 홈 지정" }),
     );
-    await screen.findByRole("heading", { name: "연결된 채널" });
-    expect(screen.getByRole("region", { name: "기본" })).toBeDefined();
+    await screen.findByRole("region", { name: "기본" });
+    expect(screen.queryByRole("button", { name: "홈 채널 고르기" })).toBeNull();
     expect(api.calls.find((call) => call.method === "PUT")?.body).toEqual({
       channel_id: "C123",
       mode: "on",
@@ -4167,6 +4168,70 @@ describe("Slack emergency stop", () => {
     expect(
       screen.queryByRole("button", { name: "#general에서 긴급 정지" }),
     ).toBeNull();
+  });
+
+  test("with no home yet, a bound channel is still listed with its stop beside the home step", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, {
+          items: [{ ...BINDING, home: false, surface_kind: "private_channel" }],
+        }),
+      [`GET ${PATH}/slack/channels`]: listed,
+    });
+    const table = await screen.findByRole("table", { name: "연결된 채널" });
+    expect(
+      await within(table).findByRole("button", {
+        name: "#general에서 긴급 정지",
+      }),
+    ).toBeDefined();
+    expect(
+      within(table).getByRole("switch", { name: "#general에서 사용" }),
+    ).toBeDefined();
+    // The home step still leads: its hint and button, and nothing past it.
+    const section = table.closest("section") as HTMLElement;
+    expect(
+      within(section).getByRole("heading", { name: "연결된 채널" }),
+    ).toBeDefined();
+    expect(within(section).getByText(/홈 채널을 먼저 고르세요/)).toBeDefined();
+    expect(
+      within(section).getByRole("button", { name: "홈 채널 고르기" }),
+    ).toBeDefined();
+    expect(screen.queryByRole("button", { name: "채널 추가" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "기본" })).toBeNull();
+  });
+
+  test("with a home, the channels read as before, with no home step", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/channels`]: listed,
+    });
+    const table = await screen.findByRole("table", { name: "연결된 채널" });
+    expect(
+      await within(table).findByRole("button", {
+        name: "#general에서 긴급 정지",
+      }),
+    ).toBeDefined();
+    expect(screen.queryByRole("button", { name: "홈 채널 고르기" })).toBeNull();
+    expect(screen.queryByText(/홈 채널을 먼저 고르세요/)).toBeNull();
+    expect(screen.getByRole("button", { name: "홈 지정" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "채널 추가" })).toBeDefined();
+    expect(await screen.findByRole("region", { name: "기본" })).toBeDefined();
+  });
+
+  test("a member sees the channels of an agent with no home, with no stop", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      "GET /v1/auth/me": () => json(200, memberMe()),
+      "GET /v1/my-teams": () => json(200, { items: [] }),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, { items: [{ ...BINDING, home: false }] }),
+    });
+    const table = await screen.findByRole("table", { name: "연결된 채널" });
+    await waitFor(() => expect(table.textContent).toContain("켜짐"));
+    expect(screen.queryByRole("button", { name: /긴급 정지/ })).toBeNull();
+    expect(within(table).queryAllByRole("switch")).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: "홈 채널 고르기" })).toBeNull();
   });
 
   test("turning a stopped channel on shows who stopped it and why, and asks a reason", async () => {
