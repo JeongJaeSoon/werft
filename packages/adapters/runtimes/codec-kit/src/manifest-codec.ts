@@ -166,6 +166,7 @@ function manifestSchemaOf(engine: string) {
         })
         .strict()
         .optional(),
+      captureKind: z.enum(["between_turns", "before_idle_exit"]).optional(),
       createdAt: z.iso.datetime(),
       cwd: z.string().startsWith("/"),
       engine: z.literal(engine),

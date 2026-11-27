@@ -76,6 +76,9 @@ export const PLATFORM_SYSTEM_SUBTYPE_VALUES = [
   "approval_checkpoint_failed",
   "repository_restore_failed",
   "catalog_mcp_skipped",
+  // Written by a worker, not the control plane: background work it stopped
+  // before an idle exit, by command name (stoppedBackgroundCommands).
+  "background_tasks_stopped",
 ] as const;
 // Why an approval request waits without the checkpoint the worker tried to
 // take for it, so a crash during the wait cannot resume it: the capture
@@ -263,8 +266,33 @@ export const sessionEventVariants = {
 } as const;
 
 const v = sessionEventVariants;
-type EventVariant =
-  (typeof sessionEventVariants)[keyof typeof sessionEventVariants];
+
+// What the control plane stores beside an event (neutral-event.ts) and a
+// reader gets merged into its data. Named on what is read only: a worker
+// never sends it, and the variants above are what a worker's request is
+// checked against.
+const afterTurn = {
+  after_turn: z.literal(true).optional().meta({
+    description:
+      "Present (`true`) on an event its attempt published while it had no turn open, for example an answer the engine gave on its own once background work ended. The envelope's `turn_id` then names the turn that attempt ended last, and the event came after that turn's `result`. Absent otherwise.",
+  }),
+};
+const publishedVariants = {
+  ...v,
+  system: v.system.extend({ data: v.system.shape.data.extend(afterTurn) }),
+  assistant: v.assistant.extend({
+    data: v.assistant.shape.data.extend(afterTurn),
+  }),
+  tool_use: v.tool_use.extend({
+    data: v.tool_use.shape.data.extend(afterTurn),
+  }),
+  question: v.question.extend({
+    data: v.question.shape.data.extend(afterTurn),
+  }),
+  result: v.result.extend({ data: v.result.shape.data.extend(afterTurn) }),
+} as const;
+const p = publishedVariants;
+type EventVariant = (typeof publishedVariants)[keyof typeof publishedVariants];
 
 const sseEnvelopeSchema = z.object({
   schema_version: z.literal(SSE_SCHEMA_VERSION),
@@ -304,25 +332,37 @@ export const sessionEventPayloadSchema = z.discriminatedUnion("event", [
 ]);
 // Stored/projected event: server-assigned cursor plus kind and payload.
 export const sessionEventSchema = z.discriminatedUnion("event", [
-  record(v.system),
-  record(v.assistant),
-  record(v.tool_use),
-  record(v.tool_result),
-  record(v.question),
-  record(v.result),
-  record(v.status),
-  record(v.error),
+  record(p.system),
+  record(p.assistant),
+  record(p.tool_use),
+  record(p.tool_result),
+  record(p.question),
+  record(p.result),
+  record(p.status),
+  record(p.error),
 ]);
 // Public SSE frame: `id` is the replay cursor, `data` is the versioned envelope.
 export const sseEventSchema = z.discriminatedUnion("event", [
-  frame(v.system),
-  frame(v.assistant),
-  frame(v.tool_use),
-  frame(v.tool_result),
-  frame(v.question),
-  frame(v.result),
-  frame(v.status),
-  frame(v.error),
+  frame(p.system),
+  frame(p.assistant),
+  frame(p.tool_use),
+  frame(p.tool_result),
+  frame(p.question),
+  frame(p.result),
+  frame(p.status),
+  frame(p.error),
+]);
+// A stored row as it is read: the payload a worker sent with the fields
+// stored beside it.
+const storedEventPayloadSchema = z.discriminatedUnion("event", [
+  p.system,
+  p.assistant,
+  p.tool_use,
+  p.tool_result,
+  p.question,
+  p.result,
+  p.status,
+  p.error,
 ]);
 
 // A stored row the contract does not read (written before every writer was
@@ -335,11 +375,25 @@ export const sseEventSchema = z.discriminatedUnion("event", [
 // every reader before any writer uses it.
 export const UNREADABLE_EVENT_CODE = "EVENT_UNREADABLE";
 
+// `after_turn` is the control plane's to set, and only ever to true. A
+// payload that came with a key of that name is read without it: the row was
+// taken from its worker, and must not become unreadable for it.
+function withoutForeignMark(data: unknown): unknown {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) {
+    return data;
+  }
+  const { after_turn: mark, ...rest } = data as Record<string, unknown>;
+  return mark === undefined || mark === true ? data : rest;
+}
+
 export function readStoredEvent(
   event: string,
   data: unknown,
 ): { payload: SessionEventPayload; readable: boolean } {
-  const parsed = sessionEventPayloadSchema.safeParse({ event, data });
+  const parsed = storedEventPayloadSchema.safeParse({
+    event,
+    data: withoutForeignMark(data),
+  });
   if (parsed.success) return { payload: parsed.data, readable: true };
   return {
     payload: {

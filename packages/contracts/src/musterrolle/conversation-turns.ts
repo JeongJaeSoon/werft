@@ -80,8 +80,8 @@ export const conversationTurnItemSchema = z
       .strict()
       .nullable(),
     /**
-     * The task session open in the turn's thread now, not necessarily one
-     * the turn handed to.
+     * The task a turn that handed its message on went to (v1-b/E4); for any
+     * other turn, the task session open in the turn's thread now.
      */
     thread_task_session_id: sessionIdSchema.nullable(),
   })

@@ -799,6 +799,10 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       if (preparation.status === "rejected") {
         outcome = "refused";
         reasonCode = preparation.reason;
+        context.refused?.({
+          reason: preparation.reason,
+          infrastructure: false,
+        });
         await this.#report(preparation, context.scope, log);
         if (preparation.reason !== "mirror_error") {
           await this.#reportLostMirror(bound, context, undefined);
@@ -814,6 +818,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       if (limited !== undefined) {
         outcome = "refused";
         reasonCode = limited;
+        context.refused?.({ reason: limited, infrastructure: false });
         return null;
       }
       try {
@@ -826,6 +831,7 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         if (answer.status === "blocked") {
           outcome = "blocked";
           reasonCode = answer.reason;
+          context.refused?.({ reason: answer.reason, infrastructure: false });
           log.warn("worker.checkpoint.blocked", {
             reason: answer.reason,
             detail: answer.detail,
@@ -864,6 +870,18 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         if (error instanceof MirrorLost) lost = error.message;
         else if (error instanceof TranscriptLimitReached) limit = error;
         else failed = `${failedAt}: ${describe(error)}`;
+        context.refused?.(
+          error instanceof MirrorLost
+            ? { reason: "mirror_error", infrastructure: false }
+            : error instanceof TranscriptLimitReached
+              ? { reason: error.reason, infrastructure: false }
+              : {
+                  reason: "publish_failed",
+                  // A PublishFailure is the capture's own refusal; anything
+                  // else is a request that did not get through.
+                  infrastructure: !(error instanceof PublishFailure),
+                },
+        );
       }
       if (limit !== undefined) {
         await this.#report(
@@ -873,6 +891,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
         );
       }
       const mirrorLost = await this.#reportLostMirror(bound, context, lost);
+      if (mirrorLost) {
+        context.refused?.({ reason: "mirror_error", infrastructure: false });
+      }
       // A ready run whose checkpoint went unwritten looks, from the session,
       // exactly like one that wrote it until something needs it. A lost mirror
       // already says more, and outranks it.
@@ -1409,6 +1430,9 @@ export class SessionCheckpoints implements WorkerCheckpointPort {
       sessionId: bound.claim.session_id,
       transcripts,
       version: 2,
+      ...(context.captureKind === undefined
+        ? {}
+        : { captureKind: context.captureKind }),
       ...(context.workerState === undefined
         ? {}
         : { workerState: context.workerState }),

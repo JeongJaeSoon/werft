@@ -532,10 +532,12 @@ describe("the worker's checkpoints against the control plane's service", () => {
     ]);
     expect(gateway.finalized[0]?.checkpoint).toBeNull();
     expect(pointers.pointer()).toBeNull();
-    // The approval-wait capture, then the turn's end.
+    // The approval-wait capture, the turn's end, and the turn's checkpoint
+    // tried once more before the idle exit.
     expect(recorded.failures).toEqual([
-      expect.objectContaining({ stage: "workspace" }),
-      expect.objectContaining({ stage: "workspace" }),
+      expect.objectContaining({ stage: "workspace", point: "approval_wait" }),
+      expect.objectContaining({ stage: "workspace", point: "turn_end" }),
+      expect.objectContaining({ stage: "workspace", point: "turn_end" }),
     ]);
     expect(gateway.registrations).toHaveLength(1);
     expect(gateway.registrations[0]?.checkpoint).toBeUndefined();
@@ -544,7 +546,7 @@ describe("the worker's checkpoints against the control plane's service", () => {
         .map((request) => request.preparation)
         .filter((preparation) => preparation.status === "rejected"),
     ).toEqual(
-      Array(2).fill({
+      Array(3).fill({
         status: "rejected",
         reason: "publish_failed",
         detail: expect.stringMatching(

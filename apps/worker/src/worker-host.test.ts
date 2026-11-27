@@ -3954,12 +3954,20 @@ describe("WorkerHost checkpoint publishing", () => {
     expect(gateway.finalized.map((call) => call.checkpoint)).toEqual([null]);
     expect(gateway.calls.filter((call) => call === "finalize").length).toBe(2);
     expect(warnings).toContain("worker.checkpoint.failed");
-    // The session shows the turn went without its checkpoint.
+    // The session shows the turn went without its checkpoint, and so does
+    // the one try the idle exit makes to commit it outside the turn.
     expect(recorded).toEqual([
       {
         detail: "Checkpoint manifest rejected: bundle digest mismatch",
         turn: "1",
       },
+      {
+        detail: "Checkpoint manifest rejected: bundle digest mismatch",
+        turn: null,
+      },
+    ]);
+    expect(gateway.checkpointCommits.map((call) => call.turn_id)).toEqual([
+      "1",
     ]);
   });
 

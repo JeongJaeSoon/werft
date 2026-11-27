@@ -6,8 +6,11 @@ import {
   type BootstrapClaimRequest,
   type BootstrapClaimResponse,
   bootstrapClaimResponseSchema,
+  type CheckpointCommitRequest,
+  type CheckpointCommitResponse,
   type CheckpointRequest,
   type CheckpointRequestResponse,
+  checkpointCommitResponseSchema,
   checkpointRequestResponseSchema,
   type FinalizeRequest,
   type FinalizeResponse,
@@ -220,6 +223,16 @@ export class HttpWorkerGatewayClient implements WorkerGatewaySession {
       "/checkpoint-request",
       request,
       checkpointRequestResponseSchema,
+    );
+  }
+
+  commitCheckpoint(
+    request: CheckpointCommitRequest,
+  ): Promise<CheckpointCommitResponse> {
+    return this.post(
+      "/checkpoint-commit",
+      request,
+      checkpointCommitResponseSchema,
     );
   }
 

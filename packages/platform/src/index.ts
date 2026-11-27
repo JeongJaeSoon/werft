@@ -81,6 +81,7 @@ export * from "./ports/context-fragment-source.ts";
 export * from "./ports/conversation-input-store.ts";
 export * from "./ports/conversation-store.ts";
 export * from "./ports/conversation-turn-queue.ts";
+export * from "./conversations/conversation-routes.ts";
 export * from "./conversations/conversation-tasks.ts";
 export * from "./conversations/conversation-turns.ts";
 export * from "./conversations/topic-session-checks.ts";

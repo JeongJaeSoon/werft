@@ -14,6 +14,14 @@ API로 세션을 만들고 쓰는 사람.
 | [API 참조 페이지](api/index.html) | 배포 서버가 `GET /docs`로 서빙하는 읽기 전용 참조의 저장소 생성물. 페이지가 부르는 스크립트는 [api/scalar.js](api/scalar.js)다 |
 | [OpenAPI 사양](openapi.json) | 서버가 `GET /v1/openapi.json`으로 내주는 사양의 저장소 생성물 |
 
+## 기여자
+
+코드를 바꾸는 사람.
+
+| 문서 | 내용 |
+| --- | --- |
+| [상태 기계](architecture/state-machines.md) | 네 상태 기계의 전이 표, 막을 전이, 지킬 성질과 그것을 고정하는 시험 |
+
 ## 운영자
 
 서버나 Kubernetes에 설치하고 운영하는 사람.

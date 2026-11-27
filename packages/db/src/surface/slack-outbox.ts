@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  AFTER_TURN_FIELD,
   BUDGET_ACCOUNT_REFUSED_EVENT_CODE,
   BUDGET_OWNER_KIND_VALUES,
   type ConversationInputId,
@@ -1118,7 +1119,10 @@ export function createPostgresSlackOutboxStore(
         await db.execute(sql`
         UPDATE session_links l SET closed_at = now(), closed_reason = c.reason
         FROM (
-          SELECT l2.id, CASE WHEN EXISTS (
+          -- A task's own close reason first: the same four a link takes.
+          SELECT l2.id, CASE WHEN s.task_closed_reason IS NOT NULL
+            THEN s.task_closed_reason
+          WHEN EXISTS (
             SELECT 1 FROM idempotency_keys k
             JOIN receipts r ON r.id = k.receipt_id
             WHERE k.principal = s.owner_id::text
@@ -1561,6 +1565,9 @@ export function createPostgresSlackOutboxStore(
                   inArray(events.type, ["assistant", "tool_use"]),
                   // Subagent output is the subagent's, not the turn's answer.
                   sql`${events.payload}->>'parent_tool_use_id' IS NULL`,
+                  // Nor is what the engine said after the turn ended: the
+                  // turn's answer is what it had said by then.
+                  sql`${events.neutral}->>${AFTER_TURN_FIELD} IS NULL`,
                 ),
               )
               .orderBy(asc(events.turnId), asc(events.sourceSequence));

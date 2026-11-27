@@ -42,6 +42,7 @@ import {
   CONVERSATION_INPUT_SLACK_MIRROR_VALUES,
   CONVERSATION_KIND_VALUES,
   CONVERSATION_ROLLOUT_VALUES,
+  CONVERSATION_ROUTE_EFFECT_VALUES,
   CONVERSATION_TASK_EFFECT_VALUES,
   CONVERSATION_TURN_CALL_REFUSAL_VALUES,
   CONVERSATION_TURN_DECISION_VALUES,
@@ -61,6 +62,7 @@ import {
   type ConversationInputSlackMirror,
   type ConversationJudgmentId,
   type ConversationKind,
+  type ConversationRouteEffect,
   type ConversationTaskEffect,
   type ConversationTopicId,
   type ConversationTurnCallRefusal,
@@ -5905,8 +5907,14 @@ export const conversationTurns = pgTable(
     // which its new task is judged on again (v1-b/E3).
     slackSubject:
       jsonb("slack_subject").$type<ConversationTurnSurfaceSubject>(),
-    // What became of a spawn_task decision's task, once its effect ran.
-    taskEffect: text("task_effect").$type<ConversationTaskEffect>(),
+    // What became of a spawn_task decision's task, or of a route_to_task
+    // decision's hand-off, once its effect ran.
+    taskEffect: text("task_effect").$type<
+      ConversationTaskEffect | ConversationRouteEffect
+    >(),
+    // The open task a route_to_task decision named, as its tool checked it;
+    // set with that decision alone, and checked again by its effect (v1-b/E4).
+    routedSessionId: uuid("routed_session_id"),
     releaseId: text("release_id"),
     // The Slack installation the turn's messages came from, for the delete
     // that follows an app's removal; null for a web input's.
@@ -6008,7 +6016,7 @@ export const conversationTurns = pgTable(
     ),
     check(
       "conversation_turns_task_check",
-      sql`(${table.taskDraft} IS NULL OR ${table.decision} = 'spawn_task') AND (${table.taskEffect} IS NULL OR (${table.decision} = 'spawn_task' AND ${table.taskEffect} IN (${sql.raw(sqlList(CONVERSATION_TASK_EFFECT_VALUES))})))`,
+      sql`(${table.taskDraft} IS NULL OR ${table.decision} IS NOT DISTINCT FROM 'spawn_task') AND (${table.routedSessionId} IS NULL OR ${table.decision} IS NOT DISTINCT FROM 'route_to_task') AND (${table.taskEffect} IS NULL OR (${table.decision} IS NOT DISTINCT FROM 'spawn_task' AND ${table.taskEffect} IN (${sql.raw(sqlList(CONVERSATION_TASK_EFFECT_VALUES))})) OR (${table.decision} IS NOT DISTINCT FROM 'route_to_task' AND ${table.taskEffect} IN (${sql.raw(sqlList(CONVERSATION_ROUTE_EFFECT_VALUES))}) AND (${table.taskEffect} <> 'routed' OR ${table.routedSessionId} IS NOT NULL)))`,
     ),
     check(
       "conversation_turns_text_check",
@@ -7292,6 +7300,42 @@ export const slackThreadStatus = pgTable(
       sql`(${table.disabledReason} IS NULL) = (${table.disabledAt} IS NULL)`,
     ),
     index("slack_thread_status_reconciled_idx").on(table.reconciledAt),
+  ],
+);
+
+// A Slack thread a conversation turn handed a message from to an open task
+// in another thread (v1-b/E4): one row a thread, naming the task the thread
+// last handed to. The task's reports go to its own thread alone; this row
+// keeps the pointer line in the mirror thread to one per change of task,
+// which `rev` counts. Slack ids only, never text.
+export const taskThreadMirrors = pgTable(
+  "task_thread_mirrors",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    installationId: uuid("installation_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    threadTs: text("thread_ts").notNull(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    rev: integer().notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("task_thread_mirrors_thread_idx").on(
+      table.installationId,
+      table.channelId,
+      table.threadTs,
+    ),
+    index("task_thread_mirrors_session_idx").on(table.sessionId),
+    check("task_thread_mirrors_rev_check", sql`${table.rev} >= 1`),
   ],
 );
 

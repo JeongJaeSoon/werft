@@ -458,6 +458,71 @@ describe("drainSlackInbox lines", () => {
     ]);
   });
 
+  test("a claim that read a channel as busy while its last work ended is asked once more", async () => {
+    const inbox = createMemorySlackInboundEventStore();
+    await inChannel(inbox, "Ev1", "app_mention", { channel: "C1", ts: "1.0" });
+    await inChannel(inbox, "Ev2", "app_mention", { channel: "C1", ts: "2.0" });
+    const claim = inbox.store.claim.bind(inbox.store);
+    let claims = 0;
+    inbox.store.claim = async (options) => {
+      claims += 1;
+      const rows = await claim(options);
+      // Read while Ev1 still held C1, answered after Ev1 ended.
+      if (claims === 2) await new Promise((wake) => setTimeout(wake, 20));
+      return rows;
+    };
+    const drained = await drainSlackInbox({
+      inbox: inbox.store,
+      handler: noopSlackInboundHandler,
+      logger: recorder().logger,
+      concurrency: 2,
+      leaseMs: 60_000,
+      deadline: Number.POSITIVE_INFINITY,
+    });
+    expect(drained).toMatchObject({ claimed: 2, processed: 2 });
+  });
+
+  test("a claim that read a channel as busy while only its work ended is asked once more", async () => {
+    const inbox = createMemorySlackInboundEventStore();
+    await inChannel(inbox, "Ev1", "app_mention", { channel: "C1", ts: "1.0" });
+    await inChannel(inbox, "Ev2", "app_mention", { channel: "C2", ts: "1.0" });
+    await inChannel(inbox, "Ev3", "app_mention", { channel: "C1", ts: "2.0" });
+    const lane = gated();
+    const claim = inbox.store.claim.bind(inbox.store);
+    let claims = 0;
+    let answered = () => {};
+    const handled = new Promise<void>((done) => {
+      answered = done;
+    });
+    inbox.store.claim = async (options) => {
+      claims += 1;
+      const rows = await claim(options);
+      // Read while Ev1 still held C1, answered after Ev1 ended; Ev2 runs on.
+      if (claims === 2) {
+        lane.open("Ev1");
+        await new Promise((wake) => setTimeout(wake, 20));
+        // Looked at once the drain has acted on this answer.
+        setTimeout(answered, 0);
+      }
+      return rows;
+    };
+    const drained = drainSlackInbox({
+      inbox: inbox.store,
+      handler: lane.handler,
+      logger: recorder().logger,
+      concurrency: 3,
+      leaseMs: 60_000,
+      deadline: Number.POSITIVE_INFINITY,
+    });
+    await handled;
+    const startedBeforeEv2Ended = [...lane.started];
+    lane.open("Ev2");
+    await lane.until(() => lane.started.includes("Ev3"));
+    lane.open("Ev3");
+    expect(await drained).toMatchObject({ claimed: 3, processed: 3 });
+    expect(startedBeforeEv2Ended).toEqual(["Ev1", "Ev2", "Ev3"]);
+  });
+
   test("a store write that throws while the next claim is out still fails the pass", async () => {
     const inbox = createMemorySlackInboundEventStore();
     await inChannel(inbox, "Ev1", "app_mention", { channel: "C1", ts: "1.0" });

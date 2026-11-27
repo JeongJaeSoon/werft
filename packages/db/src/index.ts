@@ -145,6 +145,7 @@ export * from "./storage-counter-check.ts";
 export * from "./surface/conversation-reactions.ts";
 export * from "./surface/conversation-records.ts";
 export * from "./surface/conversation-replies.ts";
+export * from "./surface/conversation-routes.ts";
 export * from "./surface/conversation-tasks.ts";
 export * from "./surface/judgment-review.ts";
 export * from "./surface/m1-judgments.ts";

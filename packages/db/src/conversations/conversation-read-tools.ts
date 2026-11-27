@@ -232,6 +232,9 @@ export function createPostgresConversationReadToolStore(
                       ? JSON.stringify(taskDraftOf(decision))
                       : null
                   }::jsonb,
+                  routed_session_id = ${
+                    decision.tool === "route_to_task" ? decision.task_id : null
+                  }::uuid,
                   ended_at = clock_timestamp()
                 WHERE id = ${turnId}::uuid`
               : sql`
