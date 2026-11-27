@@ -319,8 +319,8 @@ export function slowCases(cases: TimedCase[], seconds: number): TimedCase[] {
     .sort((a, b) => b.seconds - a.seconds);
 }
 
-/** One line per slow case, as the log and the notice show it. */
-export function slowLines(slow: TimedCase[]): string[] {
+/** One line per slow case, as the notice shows it. */
+function slowLines(slow: TimedCase[]): string[] {
   return slow.map((c) => `${c.seconds.toFixed(1)}s ${c.file} > ${c.test}`);
 }
 
@@ -418,7 +418,8 @@ function main(argv: string[]): void {
     console.error(`${domain}: ${(error as Error).message}`);
     process.exit(2);
   }
-  const name = job.shards === 1 ? domain : `${domain} ${shard}/${job.shards}`;
+  const name =
+    job.shards === 1 ? job.domain : `${job.domain} ${shard}/${job.shards}`;
   const scoped = forShard(job, owned);
 
   if (command === "files") {
@@ -437,14 +438,10 @@ function main(argv: string[]): void {
     `${name}: ${owned.length} files ran, ${cases.length} tests, ${scoped.skips.length} declared skips`,
   );
   // Named by every job that passes, so that the longer limit hides no slow
-  // test. The log has the whole list; the runner may cut a long notice.
+  // test. One escaped workflow command and no plain copy beside it: a test's
+  // name may hold a line break, which would let a log line start a command.
   const slow = slowCases(cases, DEFAULT_TEST_SECONDS);
-  if (slow.length > 0) {
-    console.error(
-      [`over ${DEFAULT_TEST_SECONDS}s:`, ...slowLines(slow)].join("\n  "),
-    );
-    console.log(slowNotice(name!, slow));
-  }
+  if (slow.length > 0) console.log(slowNotice(name, slow));
 }
 
 if (import.meta.main) main(process.argv.slice(2));

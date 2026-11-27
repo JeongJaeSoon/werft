@@ -454,20 +454,20 @@ describe.skip("off", () => {
   });
 
   test("the notice keeps a name with %, a colon, a comma or a line break inside one workflow command", () => {
-    const notice = slowNotice("db 1/3", [
+    const notice = slowNotice("a, b 1/3", [
       {
         file: "a.test.ts",
         seconds: 12.34,
         skipped: false,
-        test: "100%: a, b\nsecond line",
+        test: "100%: a, b\r\nsecond line",
       },
       { file: "b.test.ts", seconds: 5.5, skipped: false, test: "plain" },
     ]);
     expect(notice).toBe(
-      "::notice title=db 1/3%3A 2 tests over 5s::" +
-        "12.3s a.test.ts > 100%25: a, b%0Asecond line%0A5.5s b.test.ts > plain",
+      "::notice title=a%2C b 1/3%3A 2 tests over 5s::" +
+        "12.3s a.test.ts > 100%25: a, b%0D%0Asecond line%0A5.5s b.test.ts > plain",
     );
-    expect(notice).not.toContain("\n");
+    expect(notice).not.toMatch(/[\r\n]/);
   });
 
   test("fails a run that skipped what the job did not declare, or ran other files than it owns", () => {
