@@ -1458,3 +1458,17 @@ describe("twenty-fifth review", () => {
     ).toEqual([]);
   });
 });
+
+describe("twenty-sixth review", () => {
+  test("a URL host lengthened by combining marks is read in linear time", () => {
+    const a = String.fromCharCode(0x315);
+    const b = String.fromCharCode(0x300);
+    const body = `https://a${a.repeat(16_384)}${b.repeat(16_384)}.example\n`;
+    const started = performance.now();
+    gate({
+      before: null,
+      after: [...licensed("s"), text("skills/s/scripts/a.sh", body)],
+    });
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+});

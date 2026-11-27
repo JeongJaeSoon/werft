@@ -115,6 +115,9 @@ const count = (text: string, char: string): number =>
 
 /** The host a client reaches, or null when no URL parser would take it. */
 function parsedHost(scheme: string, authority: string): string | null {
+  // No DNS name passes 253 characters, and a parser's IDN mapping of a long
+  // run of combining marks takes time quadratic in its length.
+  if (authority.length - authority.lastIndexOf("@") - 1 > 253 + 6) return null;
   try {
     // Userinfo, ports, percent-escapes, quotes and IDN spellings resolve as
     // a client resolves them.
