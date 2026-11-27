@@ -1,6 +1,6 @@
 {
-  "id": "8888426d-6301-4c0e-9abf-a73986c0c812",
-  "prevId": "df0867cb-ac97-4fd0-b7fc-5b8e3d4a3581",
+  "id": "22298e15-9907-4d1a-b38e-82ac33b33f1d",
+  "prevId": "cfcbe06f-7719-4c59-bc50-b390563d340b",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -16233,6 +16233,28 @@
           "columns": [
             {
               "expression": "closed_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"session_links\".\"closed_at\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "session_links_closed_surface_ref_idx": {
+          "name": "session_links_closed_surface_ref_idx",
+          "columns": [
+            {
+              "expression": "installation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "surface_ref",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
