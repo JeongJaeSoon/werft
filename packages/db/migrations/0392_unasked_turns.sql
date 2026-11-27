@@ -1,0 +1,14 @@
+ALTER TABLE "conversation_judgments" DROP CONSTRAINT "conversation_judgments_verdict_check";--> statement-breakpoint
+ALTER TABLE "conversation_judgments" ADD COLUMN "target_ts" text;--> statement-breakpoint
+ALTER TABLE "conversation_judgments" ADD COLUMN "turn_id" uuid;--> statement-breakpoint
+ALTER TABLE "conversation_judgments" ADD COLUMN "answer" text;--> statement-breakpoint
+ALTER TABLE "conversation_judgments" ADD CONSTRAINT "conversation_judgments_turn_fk" FOREIGN KEY ("turn_id") REFERENCES "public"."conversation_turns"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "conversation_judgments_turn_uniq" ON "conversation_judgments" USING btree ("turn_id") WHERE "conversation_judgments"."turn_id" IS NOT NULL;--> statement-breakpoint
+ALTER TABLE "conversation_judgments" ADD CONSTRAINT "conversation_judgments_answer_check" CHECK (("conversation_judgments"."target_ts" IS NULL OR ("conversation_judgments"."outcome" = 'judged' AND "conversation_judgments"."decision" = 'speak' AND "conversation_judgments"."target_ts" = ANY("conversation_judgments"."refs"))) AND ("conversation_judgments"."turn_id" IS NULL OR "conversation_judgments"."target_ts" IS NOT NULL) AND ("conversation_judgments"."answer" IS NULL OR ("conversation_judgments"."target_ts" IS NOT NULL AND "conversation_judgments"."answer" IN ('replied','no_reply','no_decision','budget_refused','source_deleted','channel_stopped','not_started'))));--> statement-breakpoint
+ALTER TABLE "conversation_judgments" ADD CONSTRAINT "conversation_judgments_verdict_check" CHECK (CASE "conversation_judgments"."outcome"
+        WHEN 'judged' THEN "conversation_judgments"."decision" IN ('speak','quiet') AND ("conversation_judgments"."reason" IN ('not_for_agent','human_conversation','already_handled','out_of_scope','needs_agent','unclear') OR ("conversation_judgments"."decision" = 'quiet' AND "conversation_judgments"."reason" IN ('invalid_target')))
+        WHEN 'not_called' THEN "conversation_judgments"."decision" = 'quiet' AND "conversation_judgments"."reason" IN ('budget_refused','concurrency_limited','rate_limited','input_too_large','no_active_release','model_unavailable')
+        WHEN 'failed' THEN "conversation_judgments"."decision" = 'quiet' AND "conversation_judgments"."reason" IN ('timed_out','unreachable','provider_error','malformed')
+        WHEN 'voided' THEN "conversation_judgments"."decision" IS NULL AND "conversation_judgments"."reason" IN ('voided_by_delete','voided_by_edit')
+        ELSE "conversation_judgments"."outcome" IS NULL AND "conversation_judgments"."decision" IS NULL AND "conversation_judgments"."reason" IS NULL
+      END AND ("conversation_judgments"."outcome" IS NULL) = ("conversation_judgments"."judged_at" IS NULL));

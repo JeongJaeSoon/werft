@@ -34,12 +34,15 @@ const LEFT_AGAIN = sql`ON CONFLICT (agent_id, team_id, channel_id, thread_ts)
   DO UPDATE SET rev = mention_thread_statuses.rev + 1`;
 
 // A newer mention turn of turn `t`'s thread still due: its "processing"
-// stays, and an `active` of `t` may have overtaken it.
+// stays, and an `active` of `t` may have overtaken it. An unasked turn
+// (v1-b/U1) sets no "processing", so it holds none.
 const NEWER_DUE = sql`EXISTS (SELECT 1 FROM conversation_turns n
   WHERE n.topic_id = t.topic_id AND n.id <> t.id
     AND n.origin = 'm2' AND n.slack_installation_id IS NOT NULL
     AND n.slack_status_reset_at IS NULL
-    AND n.created_at > t.created_at)`;
+    AND n.created_at > t.created_at
+    AND NOT EXISTS (SELECT 1 FROM conversation_judgments j
+      WHERE j.turn_id = n.id))`;
 
 // Leaves the turn's thread to be set again, when `when` holds. Written in
 // the statement that marks the turn, so no pass dies between the two.
@@ -123,11 +126,14 @@ export function createPostgresMentionTurnStatuses(
         channel_id: string;
         thread_ts: string;
         slack_app_id: string | null;
+        unsolicited: boolean;
       }>(
         await db.execute(sql`
           SELECT t.id, t.workspace_id, t.agent_id, t.created_at,
             tp.slack_team_id AS team_id, tp.slack_channel_id AS channel_id,
             tp.slack_thread_ts AS thread_ts,
+            EXISTS (SELECT 1 FROM conversation_judgments j
+              WHERE j.turn_id = t.id) AS unsolicited,
             (SELECT sa.id FROM slack_installations i
               JOIN slack_apps sa ON sa.app_id = i.app_id
               WHERE i.id = t.slack_installation_id
@@ -141,8 +147,10 @@ export function createPostgresMentionTurnStatuses(
               OR t.slack_status_claimed_at
                 < now() - ${claimMs} * interval '1 millisecond')
             AND tp.slack_thread_ts IS NOT NULL
-            AND EXISTS (SELECT 1 FROM conversation_engagements e
-              WHERE e.conversation_turn_id = t.id AND e.kind = 'mention')
+            AND (EXISTS (SELECT 1 FROM conversation_engagements e
+                WHERE e.conversation_turn_id = t.id AND e.kind = 'mention')
+              OR EXISTS (SELECT 1 FROM conversation_judgments j
+                WHERE j.turn_id = t.id))
           ORDER BY t.created_at
           LIMIT ${limit}`),
       );
@@ -158,6 +166,7 @@ export function createPostgresMentionTurnStatuses(
             threadTs: row.thread_ts,
           },
           slackAppId: row.slack_app_id,
+          ...(row.unsolicited ? { unsolicited: true as const } : {}),
         }),
       );
     },

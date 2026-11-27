@@ -4,12 +4,14 @@ import {
   type ConversationInputId,
   type ConversationJudgmentId,
   type ConversationTopicId,
+  conversationJudgmentIdSchema,
   type JudgmentVoidedReason,
   M1_PROMPT_VERSION,
 } from "@werft-ai/contracts";
 import {
   type ClaimedReplyJudgment,
   JUDGMENT_BATCH_DEADLINE_MS,
+  type JudgmentAnswerStore,
   M1_CHANNEL_WINDOW_MS,
   type M1JudgmentStore,
   type M1Place,
@@ -91,6 +93,8 @@ function verdictColumns(record: M1Record) {
     outcome: record.verdict.outcome,
     decision: record.verdict.decision,
     reason: record.verdict.reason,
+    // What a speak answers; a record that kept quiet names none.
+    target: record.verdict.decision === "speak" ? record.target : null,
   };
 }
 
@@ -355,26 +359,29 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
           };
         }
         const columns = verdictColumns(record);
+        const judgmentId = conversationJudgmentIdSchema.parse(randomUUID());
         await tx.execute(sql`
           INSERT INTO conversation_judgments (
             id, workspace_id, agent_id, conversation_id, grade,
             slack_team_id, slack_channel_id, refs, sources,
             judgment_batch_id, release_id, call_key, attempts,
-            prompt_version, outcome, decision, reason, summary, judged_at
+            prompt_version, outcome, decision, reason, summary, target_ts,
+            judged_at
           ) VALUES (
-            ${randomUUID()}::uuid, ${batch.workspaceId}::uuid,
+            ${judgmentId}::uuid, ${batch.workspaceId}::uuid,
             ${batch.agentId}::uuid, ${batch.conversationId}::uuid,
             'buffer_m1', ${batch.teamId}, ${batch.channelId},
             ${textArray(record.refs)}, ${columns.sources}::jsonb,
             ${batch.id}::uuid, ${record.releaseId}, ${record.callKey},
             ${record.attempts}, ${M1_PROMPT_VERSION}, ${columns.outcome},
-            ${columns.decision}, ${columns.reason}, ${record.summary}, now()
+            ${columns.decision}, ${columns.reason}, ${record.summary},
+            ${columns.target}, now()
           )`);
         await dropBufferedInputs(
           tx,
           judged.map((post) => post.inputId),
         );
-        return { outcome: "written" };
+        return { outcome: "written", judgmentId };
       });
     },
 
@@ -608,12 +615,50 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
               release_id = ${record.releaseId}, call_key = ${record.callKey},
               attempts = ${record.attempts}, outcome = ${columns.outcome},
               decision = ${columns.decision}, reason = ${columns.reason},
-              judged_at = now()
+              target_ts = ${columns.target}, judged_at = now()
             WHERE id = ${id}::uuid AND outcome IS NULL
             RETURNING id`),
         );
         return written.length > 0 ? "written" : "dropped";
       });
+    },
+  };
+}
+
+/**
+ * What became of M1's judgments that spoke (v1-b/U1), on their records:
+ * each written once, so a pass that runs again changes nothing.
+ */
+export function createPostgresJudgmentAnswers(
+  db: Database,
+): JudgmentAnswerStore {
+  return {
+    async notStarted(judgmentId, answer) {
+      await db.execute(sql`
+        UPDATE conversation_judgments SET answer = ${answer}
+        WHERE id = ${judgmentId}::uuid AND target_ts IS NOT NULL
+          AND turn_id IS NULL AND answer IS NULL`);
+    },
+
+    async ended(turnId) {
+      // Read off the ended turn: its decision, or the refusal its permit
+      // kept. A turn a delete voided answered nothing.
+      const written = rowsOf(
+        await db.execute(sql`
+          UPDATE conversation_judgments j SET answer = CASE
+              WHEN t.state = 'decided' AND t.decision = 'reply' THEN 'replied'
+              WHEN t.state = 'decided' THEN 'no_reply'
+              WHEN t.state = 'voided_by_delete' THEN 'source_deleted'
+              WHEN p.refusal = 'budget' THEN 'budget_refused'
+              ELSE 'no_decision'
+            END
+          FROM conversation_turns t
+          LEFT JOIN conversation_turn_permits p ON p.turn_id = t.id
+          WHERE t.id = ${turnId}::uuid AND j.turn_id = t.id
+            AND t.state <> 'running' AND j.answer IS NULL
+          RETURNING j.id`),
+      );
+      return written.length > 0;
     },
   };
 }

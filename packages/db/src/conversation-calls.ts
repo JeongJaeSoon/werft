@@ -21,6 +21,7 @@ import {
   type ConversationTurnCallAuthorization,
   type ConversationTurnPermitInput,
   type ConversationTurnPermitIssue,
+  type ConversationUnsolicitedTurnIssue,
   chooseBudgetAccount,
   placeSource,
   reservationTokens,
@@ -345,6 +346,9 @@ function issueIn(
  */
 /** Thrown to take back a mention's turn whose message another turn engaged first. */
 class MentionEngaged extends Error {}
+
+/** Thrown to take back an unasked turn whose judgment another one took first. */
+class JudgmentTaken extends Error {}
 
 /**
  * Why a turn cannot be written in its scope, or null when it can: the agent,
@@ -671,6 +675,88 @@ export function createPostgresConversationCalls(
         })
         .catch((error: unknown) => {
           if (error instanceof MentionEngaged) {
+            return { outcome: "duplicate" as const };
+          }
+          throw error;
+        });
+    },
+
+    issueUnsolicitedTurnAtomic(input) {
+      const sources = storedSourceSet({
+        direct: input.sources.map((ts) =>
+          placeSource({ teamId: input.teamId, channelId: input.channelId, ts }),
+        ),
+        inherited: [],
+        overflow: false,
+      });
+      return db
+        .transaction(async (tx): Promise<ConversationUnsolicitedTurnIssue> => {
+          const refused = await turnScopeIn(tx, input);
+          if (refused !== null) return refused;
+          // The posts' mark locks first, as a mention's turn takes its own: a
+          // delete under way refuses the turn, one after it finds it.
+          const deleted = await lockedDeletedSource(tx, {
+            workspaceId: input.workspaceId,
+            sessionId: null,
+            sources,
+            throughTurn: null,
+          });
+          if (deleted !== null) return { outcome: "source_deleted" };
+          // Only under the rollout on; `shadow` judges for the record alone.
+          const [agent] = await tx
+            .select({ rollout: agents.conversationRollout })
+            .from(agents)
+            .where(eq(agents.id, input.agentId))
+            .for("share");
+          if (agent?.rollout !== "on") return { outcome: "rollout_off" };
+          // The channel's live binding, held as an admin's change of it waits.
+          const [binding] = rowsOf<{ installation_id: string }>(
+            await tx.execute(sql`
+              SELECT b.installation_id
+              FROM surface_bindings b
+              JOIN slack_installations i ON i.id = b.installation_id
+              WHERE b.agent_id = ${input.agentId}::uuid AND b.surface = 'slack'
+                AND b.external_surface_id = ${input.channelId}
+                AND i.team_id = ${input.teamId}
+                AND b.revoked_at IS NULL AND b.status = 'ready'
+                AND b.mode = 'on' AND b.listen <> 'off'
+                AND NOT b.external_shared AND b.emergency_stopped_at IS NULL
+              ORDER BY b.id
+              LIMIT 1
+              FOR SHARE OF b`),
+          );
+          if (binding === undefined) return { outcome: "no_binding" };
+          await tx.insert(conversationTurns).values({
+            id: input.turnId,
+            workspaceId: input.workspaceId,
+            agentId: input.agentId,
+            conversationId: input.conversationId,
+            topicId: input.topicId,
+            origin: "m2",
+            state: "running",
+            // No one asked: the agent's own turn, charged as root none.
+            requesterKind: "agent",
+            requesterId: input.agentId,
+            sources,
+            releaseId: input.releaseId,
+            slackInstallationId: binding.installation_id,
+            // Its writer's until queued: no pass ends it in between.
+            slackStatusClaimedAt: sql`now()`,
+          });
+          const taken = rowsOf(
+            await tx.execute(sql`
+              UPDATE conversation_judgments SET turn_id = ${input.turnId}::uuid
+              WHERE id = ${input.judgmentId}::uuid
+                AND agent_id = ${input.agentId}::uuid
+                AND decision = 'speak' AND target_ts IS NOT NULL
+                AND turn_id IS NULL AND answer IS NULL
+              RETURNING id`),
+          );
+          if (taken.length === 0) throw new JudgmentTaken();
+          return insertTurnPermitIn(tx, input, { kind: "none" });
+        })
+        .catch((error: unknown) => {
+          if (error instanceof JudgmentTaken) {
             return { outcome: "duplicate" as const };
           }
           throw error;

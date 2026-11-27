@@ -195,6 +195,7 @@ integration("M1 judgment records", () => {
     callKey: `${key}:m1` as never,
     attempts: 1,
     summary: null,
+    target: null,
   });
 
   const rowsOf = async (channelId: string) =>
@@ -303,7 +304,7 @@ integration("M1 judgment records", () => {
           },
         ],
       ),
-    ).toEqual({ outcome: "written" });
+    ).toMatchObject({ outcome: "written" });
     const [row] = await rowsOf(place.channelId);
     expect(row).toMatchObject({
       grade: "buffer_m1",
@@ -409,7 +410,7 @@ integration("M1 judgment records", () => {
           },
           judged,
         ),
-      ).toEqual({ outcome: "written" });
+      ).toMatchObject({ outcome: "written" });
       const summary = await createPostgresChannelSummaryStore(db).read(
         placeOf(batch),
       );
@@ -1022,7 +1023,7 @@ integration("M1 judgment records", () => {
           [one, three],
           { final: true },
         ),
-      ).toEqual({ outcome: "written" });
+      ).toMatchObject({ outcome: "written" });
       const rows = await rowsOf(place.channelId);
       expect(rows.map((row) => [row.outcome, row.refs, row.call_key])).toEqual([
         ["voided", [], `${batch.id}:m1`],
@@ -1103,7 +1104,7 @@ integration("M1 judgment records", () => {
           judgedRecord(batch.id, ["1400.000001"]),
           batch.inputs,
         ),
-      ).toEqual({ outcome: "written" });
+      ).toMatchObject({ outcome: "written" });
     });
 
     test("a delete committing while the result is written is waited for and voids it", async () => {
@@ -1483,7 +1484,7 @@ integration("M1 judgment records", () => {
           ),
           held,
         ),
-      ).toEqual({ outcome: "written" });
+      ).toMatchObject({ outcome: "written" });
     });
 
     test("an edit with text, then one with none, leaves no stale text to judge again", async () => {

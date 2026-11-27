@@ -32,6 +32,8 @@ import {
   type MentionTurnStart,
   type MentionTurnStatusStore,
   type SessionCatalog,
+  type UnsolicitedTurnRequest,
+  type UnsolicitedTurnStart,
 } from "@werft-ai/platform";
 import type { Server } from "bun";
 import { z } from "zod";
@@ -477,6 +479,124 @@ export function createMentionConversationTurns(deps: {
         { inputId, attempt: attempt + 1, retryOf: turnId },
         queuing,
       );
+    },
+  };
+}
+
+/**
+ * Starts the agent's unasked turn of an M1 judgment that spoke (v1-b/U1):
+ * writes the turn, its permit (root none, the agent's team) and the turn on
+ * the judgment, then queues it under the named post's input, attempt 1, so
+ * the queue holds one turn of it. It does not wait: the Slack role's pass
+ * ends it. Sized as a mention's turn; it may only answer or stay quiet.
+ */
+export function createUnsolicitedConversationTurns(deps: {
+  calls: Pick<ConversationCalls, "issueUnsolicitedTurn" | "endTurn">;
+  queue: Pick<ConversationTurnQueue, "enqueue">;
+  /** Lets the claim the turn is written with go once it is queued. */
+  statuses: Pick<MentionTurnStatusStore, "releaseReset">;
+  agents: Pick<AgentStore, "get">;
+  catalog: Pick<SessionCatalog, "connections">;
+  now?: () => Date;
+}) {
+  const now = deps.now ?? (() => new Date());
+  return {
+    async start(
+      request: UnsolicitedTurnRequest,
+    ): Promise<UnsolicitedTurnStart> {
+      if (request.text.length > CONVERSATION_TURN_TEXT_MAX) {
+        return { outcome: "too_long" };
+      }
+      const agent = await deps.agents.get(request.workspaceId, request.agentId);
+      if (agent === null) return { outcome: "unknown_agent" };
+      const release = agent.active_release;
+      if (release === null) return { outcome: "no_active_release" };
+      const connection = connectionOf(deps.catalog, release.connection_id);
+      const model = release.runtime_config_snapshot.model;
+      if (
+        connection === undefined ||
+        connection.provider.kind === "openai_responses" ||
+        typeof model !== "string"
+      ) {
+        return { outcome: "connection_unavailable" };
+      }
+      const turnId = conversationTurnIdSchema.parse(crypto.randomUUID());
+      const issued = await deps.calls.issueUnsolicitedTurn({
+        judgmentId: request.judgmentId,
+        workspaceId: request.workspaceId,
+        agentId: request.agentId,
+        conversationId: request.conversationId,
+        topicId: request.topicId,
+        turnId,
+        teamId: request.teamId,
+        channelId: request.channelId,
+        sources: request.sources,
+        ttlMs: OPERATOR_TURN_TAKE_MS + CONVERSATION_TURN_LEASE_MS,
+        releaseId: release.id,
+        connectionId: release.connection_id,
+        model,
+        maxTokens: OPERATOR_TURN_MAX_TOKENS,
+        maxRequestBytes: OPERATOR_TURN_MAX_REQUEST_BYTES,
+      });
+      switch (issued.outcome) {
+        case "issued":
+          break;
+        case "unavailable":
+          return { outcome: "connection_unavailable" };
+        case "no_binding":
+          return { outcome: "channel_stopped" };
+        default:
+          return { outcome: issued.outcome };
+      }
+      let queued: "queued" | "duplicate" | "ended";
+      try {
+        const at = now();
+        queued = await deps.queue.enqueue(
+          {
+            turn_id: turnId,
+            scope: {
+              workspace_id: request.workspaceId,
+              agent_id: request.agentId,
+              conversation_id: request.conversationId,
+              topic_id: request.topicId,
+            },
+            model,
+            provider: {
+              kind: connection.provider.kind,
+              endpoint: connection.provider.endpoint,
+              auth: { kind: "egress_token", token: issued.token },
+            },
+            call: { max_tokens: OPERATOR_TURN_MAX_TOKENS },
+            input: { id: request.target.inputId, text: request.text },
+            fresh_input: { id: crypto.randomUUID(), text: request.text },
+            decision_tools: [
+              ...conversationDecisionTools("agent", issued.place),
+            ],
+          },
+          {
+            inputId: request.target.inputId,
+            attempt: 1,
+            takeBy: new Date(
+              Math.min(
+                at.getTime() + OPERATOR_TURN_TAKE_MS,
+                issued.expiresAt.getTime(),
+              ),
+            ),
+            now: at,
+            usableUntil: issued.expiresAt,
+          },
+        );
+        // The post's turn was queued before: this permit is never used.
+        if (queued === "duplicate") await deps.calls.endTurn(turnId);
+      } catch (error) {
+        await deps.calls.endTurn(turnId).catch(() => undefined);
+        await deps.statuses.releaseReset(turnId).catch(() => undefined);
+        throw error;
+      }
+      await deps.statuses.releaseReset(turnId).catch(() => undefined);
+      if (queued === "ended") return { outcome: "channel_stopped" };
+      if (queued === "duplicate") return { outcome: "duplicate" };
+      return { outcome: "queued", turnId };
     },
   };
 }
