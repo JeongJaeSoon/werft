@@ -689,3 +689,364 @@ describe("Agent Skills specification fields", () => {
     );
   });
 });
+
+describe("description as a block scalar", () => {
+  const path = "skills/research/SKILL.md";
+  const tree = (head: string): BundleInputFile[] => [
+    file(
+      path,
+      `---\nname: research\n${head}license: MIT\n---\nDo the thing.\n`,
+    ),
+  ];
+  const inMode = (files: BundleInputFile[], mode: "upload" | "stored") =>
+    validateExtensionBundle(
+      { slug: "research", files },
+      DEFAULT_BUNDLE_LIMITS,
+      mode,
+    );
+  type Tree = {
+    files: readonly { path: string; mode: 0o644 | 0o755; bytes: Uint8Array }[];
+  };
+  const storedTree = (bundle: Tree) =>
+    bundle.files.map((f) => ({
+      path: f.path,
+      kind: "file" as const,
+      mode: f.mode,
+      bytes: f.bytes,
+    }));
+  const skillText = (bundle: Tree) =>
+    new TextDecoder().decode(bundle.files.find((f) => f.path === path)?.bytes);
+  const descriptionLine = (text: string) => {
+    const line = text.split("\n").find((l) => l.startsWith("description: "));
+    if (line === undefined) throw new Error("no description line");
+    return line;
+  };
+  /** Upload, then read its stored tree the way every release reads it. */
+  function roundTrip(head: string) {
+    const uploaded = inMode(tree(head), "upload");
+    if (!uploaded.ok) throw new Error(JSON.stringify(uploaded.issues));
+    const stored = inMode(storedTree(uploaded.bundle), "stored");
+    if (!stored.ok) throw new Error(JSON.stringify(stored.issues));
+    expect(stored.bundle.digest).toBe(uploaded.bundle.digest);
+    expect(skillText(stored.bundle)).toBe(skillText(uploaded.bundle));
+    const line = descriptionLine(skillText(uploaded.bundle));
+    return {
+      value: JSON.parse(line.slice("description: ".length)) as string,
+      line,
+      text: skillText(uploaded.bundle),
+    };
+  }
+  const issuesOf = (files: BundleInputFile[], mode: "upload" | "stored") => {
+    const result = inMode(files, mode);
+    if (result.ok) throw new Error("expected rejection");
+    return result.issues;
+  };
+
+  // Expected values are what a YAML 1.2 parser (the yaml package) reads.
+  test.each([
+    [
+      "|",
+      "description: |\n  First line.\n    Kept indent.\n\n  After a blank.\n",
+      "First line.\n  Kept indent.\n\nAfter a blank.\n",
+    ],
+    [
+      "|-",
+      "description: |-\n  First line.\n    Kept indent.\n\n  After a blank.\n\n",
+      "First line.\n  Kept indent.\n\nAfter a blank.",
+    ],
+    [
+      ">",
+      "description: >\n  Folded\n  into one.\n\n  New paragraph.\n    More indented.\n  Back.\n",
+      "Folded into one.\nNew paragraph.\n  More indented.\nBack.\n",
+    ],
+    [
+      ">-",
+      "description: >-\n  Folded\n  into one.\n\n\n  Two breaks.\n",
+      "Folded into one.\n\nTwo breaks.",
+    ],
+  ])(
+    "an upload's %s description is read as YAML reads it and stored as one quoted line",
+    (_header, head, want) => {
+      const { value, line, text } = roundTrip(head);
+      expect(value).toBe(want);
+      expect(line).toBe(`description: ${JSON.stringify(want)}`);
+      expect(text).toContain('\nlicense: "MIT"\n');
+    },
+  );
+
+  test("tabs, quotes, backslashes and line separators come back from the stored tree unchanged", () => {
+    const ls = String.fromCharCode(0x2028);
+    const ps = String.fromCharCode(0x2029);
+    const { value, line } = roundTrip(
+      `description: |-\n  Say "hi"\tthen wait.\n  A back\\slash \\n stays text.\n  Split${ls}here${ps}too.\n`,
+    );
+    expect(value).toBe(
+      `Say "hi"\tthen wait.\nA back\\slash \\n stays text.\nSplit${ls}here${ps}too.`,
+    );
+    expect(line).not.toContain("\t");
+    expect(line).not.toContain(ls);
+    expect(line).not.toContain(ps);
+    expect(line).toContain(`${String.fromCharCode(92)}u2028`);
+  });
+
+  test.each([
+    ["an indentation indicator", "description: |2\n  Text.\n"],
+    ["an indentation indicator with strip", "description: >-2\n  Text.\n"],
+    ["keep chomping", "description: |+\n  Text.\n"],
+    ["folded keep chomping", "description: >+\n  Text.\n"],
+    ["a comment after the header", "description: | # note\n  Text.\n"],
+    ["a comment after a strip header", "description: >- #note\n  Text.\n"],
+    ["a tab indent", "description: |\n\tText.\n"],
+    ["a tab after the spaces", "description: |\n  \tText.\n"],
+    ["a tab on a later line", "description: >\n  Text.\n \tMore.\n"],
+    [
+      "a leading blank line indented past the text",
+      "description: |\n      \n  Text.\n",
+    ],
+    ["a less indented line inside", "description: |\n    Text.\n  Less.\n"],
+    ["a comment line below the block", "description: |\n    Text.\n  # note\n"],
+    ["an empty block", "description: |\n"],
+    [
+      "a block on another key",
+      "description: Use it\ncompatibility: |\n  Needs git\n",
+    ],
+  ])("an upload with %s is refused as bad_frontmatter", (_label, head) => {
+    const issues = issuesOf(tree(head), "upload");
+    expect(issues.length).toBeGreaterThan(0);
+    for (const issue of issues) {
+      expect(issue).toEqual(
+        expect.objectContaining({ path, code: "bad_frontmatter" }),
+      );
+    }
+  });
+
+  test("a character YAML does not allow in a block is refused; NEL and NBSP are text", () => {
+    for (const code of [0x00, 0x1b, 0x7f, 0x80, 0x9f, 0xfeff, 0xfffe]) {
+      const char = String.fromCharCode(code);
+      expect(
+        issuesOf(tree(`description: |-\n  A${char}B\n`), "upload"),
+      ).toContainEqual(
+        expect.objectContaining({
+          path,
+          code: "bad_frontmatter",
+          message: '"description" holds a character YAML does not allow.',
+        }),
+      );
+    }
+    const kept = `A${String.fromCharCode(0x85)}B${String.fromCharCode(0xa0)}C`;
+    expect(roundTrip(`description: >-\n  ${kept}\n`).value).toBe(kept);
+  });
+
+  test.each(["|", "|-", ">", ">-"])(
+    "the stored mode still refuses a %s description",
+    (header) => {
+      expect(
+        issuesOf(tree(`description: ${header}\n  Text.\n`), "stored"),
+      ).toContainEqual(
+        expect.objectContaining({ path, code: "bad_frontmatter" }),
+      );
+    },
+  );
+
+  test("the length limit is on the parsed value, not on the lines", () => {
+    // Indentation and line breaks folded into spaces are not counted twice.
+    const word = (n: number) => `${"w".repeat(n - 1)}.`;
+    const lines = (total: number) =>
+      [word(500), word(500), word(total - 1002)]
+        .map((l) => `      ${l}`)
+        .join("\n");
+    expect(roundTrip(`description: >-\n${lines(1024)}\n`).value.length).toBe(
+      1024,
+    );
+    expect(roundTrip(`description: |-\n${lines(1024)}\n`).value.length).toBe(
+      1024,
+    );
+    // "|" keeps the final line break, so the same lines are one longer.
+    for (const [header, total] of [
+      ["|-", 1025],
+      [">-", 1025],
+      ["|", 1024],
+    ] as const) {
+      expect(
+        issuesOf(tree(`description: ${header}\n${lines(total)}\n`), "upload"),
+      ).toContainEqual(
+        expect.objectContaining({
+          path,
+          code: "bad_frontmatter",
+          message: '"description" is too long.',
+        }),
+      );
+    }
+  });
+
+  // Shapes of anthropics/skills at e4bb5d96 (our own text, their lengths):
+  // academy-guide 992, discernment-nudge 983 and claude-api 1,068 characters.
+  const prose = (length: number) => {
+    const words: string[] = [];
+    let size = -1;
+    for (let n = 0; size + 8 <= length; n++) {
+      words.push(`word${String(n % 1000).padStart(3, "0")}`);
+      size += 8;
+    }
+    const text = `${words.join(" ")}${"x".repeat(length - size)}`;
+    return text.replace(/(.{60,72}?) /g, "$1\n");
+  };
+  const measured = (name: string, length: number) => {
+    const value = prose(length);
+    expect(value.length).toBe(length);
+    const body = value
+      .split("\n")
+      .map((l) => `  ${l}`)
+      .join("\n");
+    return [
+      file(
+        `skills/${name}/SKILL.md`,
+        `---\nname: ${name}\ndescription: |-\n${body}\n---\n# ${name}\n\nBody.\n`,
+      ),
+    ];
+  };
+  test.each([
+    ["academy-guide", 992],
+    ["discernment-nudge", 983],
+  ])("a %s-shaped skill (%i characters, |-) is accepted", (name, length) => {
+    const result = validateExtensionBundle(
+      { slug: name, files: measured(name, length) },
+      DEFAULT_BUNDLE_LIMITS,
+      "upload",
+    );
+    if (!result.ok) throw new Error(JSON.stringify(result.issues));
+    expect(result.bundle.expectedSkills).toEqual([`${name}:${name}`]);
+  });
+  test("a claude-api-shaped skill (1,068 characters, |-) is still refused by length", () => {
+    const result = validateExtensionBundle(
+      { slug: "claude-api", files: measured("claude-api", 1068) },
+      DEFAULT_BUNDLE_LIMITS,
+      "upload",
+    );
+    if (result.ok) throw new Error("expected rejection");
+    expect(result.issues).toContainEqual({
+      path: "skills/claude-api/SKILL.md",
+      code: "bad_frontmatter",
+      message: '"description" is too long.',
+    });
+    expect(new Set(result.issues.map((i) => i.code))).toEqual(
+      new Set(["bad_frontmatter"]),
+    );
+  });
+});
+
+describe("what passed before passes alike", () => {
+  const path = "skills/research/SKILL.md";
+  const one = (text: string): BundleInputFile[] => [file(path, text)];
+  // Digests taken with the validator as it was before block scalars.
+  test.each([
+    [
+      "a plain skill",
+      "---\nname: research\ndescription: Use for research\n---\nDo the thing.\n",
+      "4063380d276d6894bdb5283405492ab2638497bfccbcb07dd2f480137053bb48",
+    ],
+    [
+      "every specification field",
+      "---\nname: research\ndescription: 'It''s for research'\nlicense: Apache-2.0\ncompatibility: \"Needs git\\tand a shell\"\nmetadata:\n  owner: platform\n  reviewed: true\ndisable-model-invocation: true\n---\nBody line.\n\nSecond line.\n",
+      "7f8653673b60305f1dabdcd70713a0d00f915e8aa26d51f8df67a22e45e6956b",
+    ],
+    [
+      "a stored tree's own quoted shape",
+      '---\nname: "research"\ndescription: "Line one\\nLine two \\"quoted\\" \\\\ back"\n---\nStored body.\n',
+      "6f04a8a6cdf9113222ada4d32e02dec327ef84a147bd7426ca23edb14e5cf276",
+    ],
+  ])("%s keeps its digest in both modes", (_label, text, digest) => {
+    for (const mode of ["upload", "stored"] as const) {
+      const result = validateExtensionBundle(
+        { slug: "research", files: one(text) },
+        DEFAULT_BUNDLE_LIMITS,
+        mode,
+      );
+      if (!result.ok) throw new Error(JSON.stringify(result.issues));
+      expect(result.bundle.digest).toBe(digest);
+    }
+  });
+
+  test("a single-line description keeps taking what it took, a raw DEL included", () => {
+    const del = String.fromCharCode(0x7f);
+    for (const mode of ["upload", "stored"] as const) {
+      const result = validateExtensionBundle(
+        {
+          slug: "research",
+          files: one(
+            `---\nname: research\ndescription: a${del}b\n---\nBody.\n`,
+          ),
+        },
+        DEFAULT_BUNDLE_LIMITS,
+        mode,
+      );
+      if (!result.ok) throw new Error(JSON.stringify(result.issues));
+      expect(
+        new TextDecoder().decode(
+          result.bundle.files.find((f) => f.path === path)?.bytes,
+        ),
+      ).toBe(`---\nname: "research"\ndescription: "a${del}b"\n---\nBody.\n`);
+    }
+  });
+
+  test("a stored tree in its old shape reads back to the same bytes", () => {
+    const old =
+      '---\nname: "research"\ndescription: "Line one\\nLine two"\nlicense: "MIT"\nuser-invocable: false\n---\nStored body.\n';
+    const result = validateExtensionBundle({
+      slug: "research",
+      files: [
+        file(".claude-plugin/plugin.json", '{"name":"research"}'),
+        ...one(old),
+      ],
+    });
+    if (!result.ok) throw new Error(JSON.stringify(result.issues));
+    expect(
+      new TextDecoder().decode(
+        result.bundle.files.find((f) => f.path === path)?.bytes,
+      ),
+    ).toBe(old);
+  });
+
+  // The stored mode is the frontmatter reader every release before this one
+  // ran, so an upload judged like it is judged as it always was.
+  test.each([
+    "description: Use for research\n",
+    "description: 'single ''quoted'''\n",
+    'description: "double \\u00e9 quoted"\n',
+    "description: true\n",
+    "description: \n",
+    "description:\n",
+    "description: >no space\n",
+    "description: |text\n",
+    "description: |-text\n",
+    "description: a: b\n",
+    "description: a #b\n",
+    "description: &x a\n",
+    "description: [a]\n",
+    "description: Use it\ndescription: twice\n",
+    `description: ${"d".repeat(1024)}\n`,
+    `description: ${"d".repeat(1025)}\n`,
+    "description: Use it\n  indented: line\n",
+    "description: Use it\nlicense: |\n  MIT\n",
+    "description: Use it\nmetadata:\n  a: |\n",
+    "description: Use it\nallowed-tools: Bash\n",
+    "description: Use it\nuser-invocable: maybe\n",
+    "description: Use it\ndisable-model-invocation: true\nuser-invocable: false\n",
+    "description: Use it\n# a comment\n",
+    "description:\tUse it\n",
+    `description: a${String.fromCharCode(0x7f)}b\n`,
+  ])("frontmatter %j gets the verdict the stored mode gives", (head) => {
+    const files = one(`---\nname: research\n${head}---\nBody.\n`);
+    const judge = (mode: "upload" | "stored") => {
+      const result = validateExtensionBundle(
+        { slug: "research", files },
+        DEFAULT_BUNDLE_LIMITS,
+        mode,
+      );
+      return result.ok
+        ? { digest: result.bundle.digest }
+        : { issues: result.issues };
+    };
+    expect(judge("upload")).toEqual(judge("stored"));
+  });
+});
