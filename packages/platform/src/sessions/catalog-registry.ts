@@ -67,6 +67,13 @@ export interface CatalogRegistry {
   readonly settings: SettingsSnapshot | null;
   /** Reads them again unless the last read began within `maxAgeMs`. */
   refresh(maxAgeMs?: number): Promise<void>;
+  /**
+   * Resolves once `settings` is at least the generation stored now, reading
+   * them again first if not. A failed read rejects with its own error: what
+   * was read before is never taken for current. Resolves at once for a
+   * registry given no generation.
+   */
+  caughtUp(): Promise<void>;
 }
 
 /** The settings' repositories, then each console App repository they lack. */
@@ -116,6 +123,8 @@ export function createCatalogRegistry(deps: {
    * carry their own credential), credentials resolved.
    */
   settings?: { read(): Promise<SettingsSnapshot> };
+  /** `settings_generation` as stored now. */
+  generation?: { read(): Promise<number> };
   now?: () => number;
 }): CatalogRegistry {
   let repositoryRows: readonly CatalogRepositoryRow[] | null = null;
@@ -140,6 +149,25 @@ export function createCatalogRegistry(deps: {
     },
     deps.now ?? Date.now,
   );
+  // Those catching up share one read at a time. Only a read begun after a
+  // caller saw the generation is sure to hold it: one begun before may have
+  // opened its snapshot before that generation committed.
+  let catchUp: { order: number; done: Promise<void> } | null = null;
+  let catchUps = 0;
+  const readAgain = () => {
+    if (catchUp !== null) return catchUp;
+    catchUps += 1;
+    const read = {
+      order: catchUps,
+      done: refresh().finally(() => {
+        if (catchUp === read) catchUp = null;
+      }),
+    };
+    catchUp = read;
+    return read;
+  };
+  const behind = (generation: number) =>
+    settings === null || settings.generation < generation;
   return {
     get repositoryRows() {
       return repositoryRows;
@@ -148,6 +176,21 @@ export function createCatalogRegistry(deps: {
       return settings;
     },
     refresh,
+    async caughtUp() {
+      if (deps.generation === undefined) return;
+      const generation = await deps.generation.read();
+      const seenAfter = catchUps;
+      while (behind(generation)) {
+        const read = readAgain();
+        await read.done;
+        if (read.order > seenAfter) break;
+      }
+      if (behind(generation)) {
+        throw new Error(
+          "The installation settings read is older than their generation",
+        );
+      }
+    },
   };
 }
 

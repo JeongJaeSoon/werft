@@ -192,3 +192,138 @@ describe("latestReads", () => {
     expect(applied).toEqual(["ok"]);
   });
 });
+
+/** Settings reads the test answers one by one, over a generation it sets. */
+function heldReads(generation: number) {
+  const state = { generation, generationReads: 0 };
+  const pending: Array<{
+    resolve: (value: SettingsSnapshot) => void;
+    reject: (error: unknown) => void;
+  }> = [];
+  const registry = createCatalogRegistry({
+    generation: {
+      read: async () => {
+        state.generationReads += 1;
+        return state.generation;
+      },
+    },
+    settings: {
+      read: () =>
+        new Promise<SettingsSnapshot>((resolve, reject) => {
+          pending.push({ resolve, reject });
+        }),
+    },
+  });
+  const until = async (count: number) => {
+    while (pending.length < count) await Bun.sleep(0);
+  };
+  return { registry, state, pending, until };
+}
+
+describe("caughtUp", () => {
+  test("before the first read it reads, and resolves on what it read", async () => {
+    const { registry, pending, until } = heldReads(0);
+    const caught = registry.caughtUp();
+    await until(1);
+    pending[0]?.resolve(snapshot(0));
+    await caught;
+    expect(registry.settings?.generation).toBe(0);
+  });
+
+  test("at the stored generation it reads nothing more", async () => {
+    const { registry, pending, until } = heldReads(3);
+    const first = registry.refresh();
+    await until(1);
+    pending[0]?.resolve(snapshot(3));
+    await first;
+    await registry.caughtUp();
+    await registry.caughtUp();
+    expect(pending).toHaveLength(1);
+  });
+
+  test("requests behind the same generation share one read", async () => {
+    const { registry, state, pending, until } = heldReads(3);
+    const first = registry.refresh();
+    await until(1);
+    pending[0]?.resolve(snapshot(3));
+    await first;
+    state.generation = 4;
+    const caught = [
+      registry.caughtUp(),
+      registry.caughtUp(),
+      registry.caughtUp(),
+    ];
+    await until(2);
+    pending[1]?.resolve(snapshot(4));
+    await Promise.all(caught);
+    expect(pending).toHaveLength(2);
+    expect(registry.settings?.generation).toBe(4);
+  });
+
+  test("a read begun before the generation rose is not taken for current: another follows", async () => {
+    const { registry, state, pending, until } = heldReads(4);
+    // Begun at generation 4, its snapshot opened before 5 committed.
+    const early = registry.caughtUp();
+    await until(1);
+    state.generation = 5;
+    const late = registry.caughtUp();
+    pending[0]?.resolve(snapshot(4));
+    await early;
+    expect(registry.settings?.generation).toBe(4);
+    // The late request saw 5: it begins a read of its own after the stale one.
+    await until(2);
+    pending[1]?.resolve(snapshot(5));
+    await late;
+    expect(registry.settings?.generation).toBe(5);
+  });
+
+  test("a settings read that fails rejects with its own error; the next request reads again", async () => {
+    const { registry, state, pending, until } = heldReads(1);
+    const first = registry.refresh();
+    await until(1);
+    pending[0]?.resolve(snapshot(1));
+    await first;
+    state.generation = 2;
+    const down = Object.assign(new Error("terminating connection"), {
+      code: "57P01",
+    });
+    const failed = registry.caughtUp();
+    await until(2);
+    pending[1]?.reject(down);
+    await expect(failed).rejects.toBe(down);
+    // What was read before stays, for the claim's caches, but no request
+    // resolved on it.
+    expect(registry.settings?.generation).toBe(1);
+    const again = registry.caughtUp();
+    await until(3);
+    pending[2]?.resolve(snapshot(2));
+    await again;
+    expect(registry.settings?.generation).toBe(2);
+  });
+
+  test("a generation read that fails rejects, and reads no settings", async () => {
+    const down = new Error("connection refused");
+    const registry = createCatalogRegistry({
+      generation: {
+        read: async () => {
+          throw down;
+        },
+      },
+      settings: {
+        read: async () => {
+          throw new Error("not reached");
+        },
+      },
+    });
+    await expect(registry.caughtUp()).rejects.toBe(down);
+  });
+
+  test("a registry given no generation resolves at once", async () => {
+    const { registry, state } = registryOver({
+      settings: snapshot(1),
+      rows: null,
+    });
+    await registry.caughtUp();
+    expect(state.reads).toBe(0);
+  });
+});
