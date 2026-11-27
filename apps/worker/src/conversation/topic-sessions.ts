@@ -20,10 +20,10 @@ import type { TopicDirectories, TopicDirectory } from "./topic-directories.ts";
 export type TopicEngines = RuntimeProcessObserver &
   Pick<EngineExitWatch, "exited" | "kill" | "running">;
 
-// How long a killed engine's exit is waited for. A stop can meet three such
-// waits one after another (a leased turn's sweep, the cut turn's drop, the
-// last drop of all): together they stay inside the shortest stop grace the
-// runtime is run with, Docker's default 10 s.
+// How long a killed engine's exit is waited for. A stop can meet four such
+// waits one after another (a leased turn's sweep, the session its topic had,
+// the cut turn's drop, the last drop of all): together they stay inside the
+// shortest stop grace the runtime is run with, Docker's default 10 s.
 const ENGINE_EXIT_WAIT_MS = 2_000;
 
 /**
