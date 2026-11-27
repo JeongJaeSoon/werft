@@ -13,7 +13,7 @@
 | T0 빠른 필수 | 모든 PR과 main push | `gitleaks`, `forbidden-terms`, `supply-chain`, `changes`(계획) | 2분. `supply-chain`은 이미지를 빌드하면 10분 |
 | T1 PR 필수 | 모든 PR. 네 이름은 늘 판정을 내고, 그 아래의 job은 바뀐 경로가 닿는 것만 돈다 | `check`, `integration`, `e2e`, `quickstart` | 아래 표 |
 | T2 경로 한정 gate | 그 gate의 경로를 바꾼 PR | D2 gate, K8s 검사 셋, Keycloak login, Worker compatibility, Install rehearsal | 각 workflow의 한도 |
-| T3 main | main push | CI(같은 트리를 시험한 PR run이 있으면 재사용), 계획된 이미지와 chart 게시, 제품을 바꾼 push의 `agent-sdk-compat`. 실패하면 `main-failure.yml`이 이슈를 연다 | - |
+| T3 main | main push | CI(같은 트리를 시험한 PR run이 있으면 재사용), 계획된 이미지와 chart 게시, 제품을 바꾼 push의 `agent-sdk-compat`. 실패한 push run은 `main-failure.yml`이 이슈에 남긴다 | - |
 | T4 릴리스와 야간 | 릴리스가 필요한 commit, schedule | conformance, 릴리스 gate, 야간 gate, 취약점 재검사 | - |
 
 T2와 T4의 gate는 PR의 merge를 막지 않는다. 실패가 어디에 남는지는 [필수가 아닌 gate](#필수가-아닌-gate)의 표에 있다.

@@ -921,8 +921,14 @@ test("a failed push run of CI or Images on main is reported in an issue", () => 
   const step = report?.steps.at(-1);
   // The run id reaches the shell through the environment, never the script text.
   expect(step?.env?.RUN_ID).toBe("${{ github.event.workflow_run.id }}");
+  // The attempt that failed: read by id alone, a rerun may already be green.
+  expect(step?.env?.RUN_ATTEMPT).toBe(
+    "${{ github.event.workflow_run.run_attempt }}",
+  );
   expect(step?.run).not.toContain("${{");
-  expect(step?.run).toContain('main-failure-body.sh "$RUN_ID" >body.md');
+  expect(step?.run).toContain(
+    'main-failure-body.sh "$RUN_ID" "$RUN_ATTEMPT" >body.md',
+  );
   expect(step?.run).toContain("upsert-ci-issue.sh ci-main-failure");
 });
 

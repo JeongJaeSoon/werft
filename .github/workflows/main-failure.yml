@@ -41,7 +41,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: |
-          .github/scripts/main-failure-body.sh "$RUN_ID" >body.md
+          .github/scripts/main-failure-body.sh "$RUN_ID" "$RUN_ATTEMPT" >body.md
           .github/scripts/upsert-ci-issue.sh ci-main-failure \
             "CI: a push run on main failed" body.md
