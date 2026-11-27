@@ -181,7 +181,8 @@ export function partsOf(command: string): Part[] | string {
   for (let i = 0; i < tokens.length; i += 1) {
     const token = tokens[i] as Token;
     if (token.kind === "heredoc") {
-      current.heredoc = true;
+      // A heredoc with no command before it feeds nothing.
+      if (!empty()) current.heredoc = true;
     } else if (token.kind === "word") {
       current.words.push(token.text);
       current.written.push(token.written);
@@ -434,7 +435,10 @@ const fromStdin = (words: readonly string[], flags: readonly string[]) =>
  */
 function readsHeredocAsText(words: readonly string[]): boolean {
   const [name, verb, action] = words;
-  if (TEXT_FILTERS.includes(name ?? "")) return true;
+  // `wc --files0-from=-` reads the names of files from stdin.
+  if (TEXT_FILTERS.includes(name ?? "")) {
+    return !words.some((word) => word.startsWith("--files0"));
+  }
   if (name === "gh") {
     return (
       GH_BODY_TOPICS.includes(verb ?? "") &&
@@ -443,11 +447,32 @@ function readsHeredocAsText(words: readonly string[]): boolean {
     );
   }
   if (name !== "git" || verb !== "commit") return false;
-  // `--pathspec-from-file=-` reads the paths to commit from stdin.
-  if (words.some((word) => word.startsWith("--pathspec-from-file"))) {
-    return false;
+  // `--pathspec-from-file=-` reads the paths to commit from stdin, and
+  // `--patch` its answers. git takes a long option by any unique start of
+  // its name (`--pathspec-fro=-`), so a start of one counts as the option.
+  if (words.some(readsStdinOnCommit)) return false;
+  // `--file` is an ask rule's.
+  return fromStdin(words, ["-F"]);
+}
+
+const COMMIT_STDIN_OPTIONS = [
+  "--pathspec-from-file",
+  "--patch",
+  "--interactive",
+];
+
+function readsStdinOnCommit(word: string): boolean {
+  const name = word.split("=")[0] as string;
+  if (name.startsWith("--")) {
+    return (
+      name.length > 2 &&
+      COMMIT_STDIN_OPTIONS.some(
+        (option) => option.startsWith(name) || name.startsWith(option),
+      )
+    );
   }
-  return fromStdin(words, ["-F", "--file"]);
+  // `-p` is `--patch`, alone or in a cluster (`-ap`).
+  return /^-[A-Za-z]*p/.test(word);
 }
 
 const startsWith = (words: string[], command: string[]) =>
