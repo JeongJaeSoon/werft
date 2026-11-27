@@ -8,7 +8,20 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
 // later dialog test. Loading it here, under a window given back at once,
 // makes the choice the same whatever files a run holds and in what order.
 // The whole package, as the first DOM file of a full run loaded it before.
+const runtime = {
+  setTimeout,
+  clearTimeout,
+  setInterval,
+  clearInterval,
+  setImmediate,
+  clearImmediate,
+  queueMicrotask,
+};
 GlobalRegistrator.register({ url: "https://ui.test/" });
+// The runtime's timers, not the window's, as setupDom does: React's scheduler
+// and others keep the timers they find while loading, and the window's die
+// with it.
+Object.assign(globalThis, runtime);
 try {
   await import("@werft-ai/ui");
 } finally {
