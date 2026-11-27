@@ -41,6 +41,11 @@ const SLACK_NOTICE_MESSAGES_KO = {
     "이 에이전트는 아직 게시되지 않았어요. 웹 콘솔에서 미리 써 본 뒤 게시하면 Slack에서 쓸 수 있어요",
   agentOwnerless:
     "이 에이전트를 관리할 사람이 없어 새 세션을 시작할 수 없어요. 워크스페이스 관리자에게 에이전트 관리자를 정해 달라고 요청하세요",
+  // A mention the agent does not hear (handling table rows 1 and 7, and
+  // section 10's agent stops), once a day per person in the channel.
+  channelOff: "이 채널에서는 꺼져 있어요",
+  agentInactive:
+    "이 에이전트는 지금 멈춰 있어요. 에이전트 관리자에게 문의하세요",
   pendingApproval: "이 채널은 어드민 승인을 기다리고 있어요",
   callerLimitedRepository:
     "이 에이전트를 쓰는 사람에게 걸린 제한 때문에 이 저장소로는 시작할 수 없어요",
@@ -137,6 +142,9 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "このエージェントはまだ公開されていません。Webコンソールで試してから公開すると、Slackで使えるようになります",
     agentOwnerless:
       "このエージェントを管理する人がいないため、新しいセッションを開始できません。ワークスペースの管理者にエージェントの管理者を決めてもらってください",
+    channelOff: "このチャンネルではオフになっています",
+    agentInactive:
+      "このエージェントは現在停止しています。エージェントの管理者にお問い合わせください",
     pendingApproval: "このチャンネルはアドミンの承認を待っています",
     callerLimitedRepository:
       "このエージェントを使う人に設定された制限のため、このリポジトリでは開始できません",
@@ -215,6 +223,8 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "This agent is not published yet. Try it in the web console and publish it to use it in Slack",
     agentOwnerless:
       "No one administers this agent, so it can't start a new session. Ask a workspace admin to assign an agent admin",
+    channelOff: "This agent is turned off in this channel",
+    agentInactive: "This agent is stopped right now. Contact the agent's admin",
     pendingApproval: "This channel is waiting for an admin's approval",
     callerLimitedRepository:
       "A limit set on the people who use this agent doesn't allow starting with this repository",

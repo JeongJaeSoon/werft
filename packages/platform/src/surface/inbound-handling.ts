@@ -14,6 +14,7 @@ export const LIFECYCLE_STOP_VALUES = [
   "bot_removed",
   "pending_approval",
   "agent_inactive",
+  "agent_ownerless",
 ] as const;
 export type LifecycleStop = (typeof LIFECYCLE_STOP_VALUES)[number];
 

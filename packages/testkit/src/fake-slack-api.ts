@@ -137,6 +137,7 @@ export type FakeSlackUser = {
   isRestricted?: boolean;
   isUltraRestricted?: boolean;
   isStranger?: boolean;
+  isExternal?: boolean;
   image48?: string;
   /** A bot account: listed by users.list with its name. */
   isBot?: boolean;
@@ -505,6 +506,9 @@ export function createFakeSlackWebApi(
           ...(user.isStranger === undefined
             ? {}
             : { is_stranger: user.isStranger }),
+          ...(user.isExternal === undefined
+            ? {}
+            : { is_external: user.isExternal }),
           ...(user.image48 === undefined
             ? {}
             : { profile: { image_48: user.image48 } }),
