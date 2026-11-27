@@ -86,6 +86,7 @@ import {
   createPostgresTopicTurnContexts,
   createPostgresTurnInterrupts,
   createPostgresUsageReader,
+  createPostgresWebFetchPreflightSetting,
   createPostgresWorkerPendingStore,
   createPostgresWorkerUnitOfWork,
   createPostgresWorkspaceKeyStore,
@@ -103,6 +104,7 @@ import {
   readSettingsGeneration,
   reconcileRetiredCatalogDrafts,
   recordBudgetAccountRefusal,
+  recordEgressDenial,
   slackAppKind,
   tellConversationTurnQueue,
   workspaceRepositoryCeiling,
@@ -281,6 +283,10 @@ import {
   sessionTitleEgressUrlFromEnv,
   werftMcpGrantKeyOf,
 } from "./egress-authorizer.ts";
+import {
+  createEgressDenialHandler,
+  routeEgressDenials,
+} from "./egress-denials.ts";
 import { extensionDepsFor } from "./extension-deps.ts";
 import { githubCallbackUrl } from "./github-link.ts";
 import {
@@ -1700,31 +1706,43 @@ const authorizerListener =
         port: egressAuthorizer.port,
         fetch: ambiguousPaths.front(
           "egress-authorizer",
-          createEgressAuthorizer({
-            gateway: workers,
-            logger,
-            exchanges: createProviderExchangeLedger(db, {
-              admits: async () =>
-                admitsReservations(await installationConfig.sessionBudget()),
+          routeEgressDenials(
+            createEgressDenialHandler({
+              record: (report) => recordEgressDenial(db, report),
+              logger,
+              token: egressAuthorizer.token,
             }),
-            budgetOf: (call) => budgetChoiceOfCall(db, call),
-            recordAccountRefusal: (refusal) =>
-              recordBudgetAccountRefusal(db, refusal),
-            ...(githubMcpGrantKey === null
-              ? {}
-              : {
-                  githubMcp: { handle: githubMcp, grantKey: githubMcpGrantKey },
-                }),
-            ...(werftMcpGrantKey === null
-              ? {}
-              : { werftMcp: { handle: werftMcp, grantKey: werftMcpGrantKey } }),
-            ...(checkpointStorage === "disabled"
-              ? {}
-              : {
-                  objectStore: checkpointObjectRouteSigner(checkpointStorage),
-                }),
-            token: egressAuthorizer.token,
-          }),
+            createEgressAuthorizer({
+              gateway: workers,
+              logger,
+              exchanges: createProviderExchangeLedger(db, {
+                admits: async () =>
+                  admitsReservations(await installationConfig.sessionBudget()),
+              }),
+              budgetOf: (call) => budgetChoiceOfCall(db, call),
+              recordAccountRefusal: (refusal) =>
+                recordBudgetAccountRefusal(db, refusal),
+              ...(githubMcpGrantKey === null
+                ? {}
+                : {
+                    githubMcp: {
+                      handle: githubMcp,
+                      grantKey: githubMcpGrantKey,
+                    },
+                  }),
+              ...(werftMcpGrantKey === null
+                ? {}
+                : {
+                    werftMcp: { handle: werftMcp, grantKey: werftMcpGrantKey },
+                  }),
+              ...(checkpointStorage === "disabled"
+                ? {}
+                : {
+                    objectStore: checkpointObjectRouteSigner(checkpointStorage),
+                  }),
+              token: egressAuthorizer.token,
+            }),
+          ),
         ),
       });
 if (authorizerListener === undefined) {
@@ -1859,6 +1877,7 @@ const app = createApiApp({
       authorization,
       retention: createPostgresAuditRetention(db),
       slackGuests,
+      webFetchPreflight: createPostgresWebFetchPreflightSetting(db),
     });
     registerAuditLogRoutes(
       router,

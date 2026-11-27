@@ -45,6 +45,10 @@ jobs:
     outputs:
       tests: ${{ steps.reuse.outputs.reused != '' && 'false' || steps.plan.outputs.tests }}
       product: ${{ steps.reuse.outputs.reused != '' && 'false' || steps.plan.outputs.product }}
+      # Judged one by one on a reused run, like helm: a PR plan may leave them
+      # out where a main push plans them, and then main still runs them.
+      demo: ${{ steps.reuse.outputs.demo == 'true' && 'false' || steps.plan.outputs.demo }}
+      ui_pack: ${{ steps.reuse.outputs.ui_pack == 'true' && 'false' || steps.plan.outputs.ui_pack }}
       site: ${{ steps.plan.outputs.site }}
       quickstart: ${{ steps.reuse.outputs.reused != '' && 'false' || steps.plan.outputs.quickstart }}
       docs_only: ${{ steps.plan.outputs.docs_only }}
@@ -151,6 +155,8 @@ jobs:
           QUICKSTART: ${{ steps.plan.outputs.quickstart }}
           HELM: ${{ steps.plan.outputs.helm }}
           K8S: ${{ steps.plan.outputs.k8s }}
+          DEMO: ${{ steps.plan.outputs.demo }}
+          UI_PACK: ${{ steps.plan.outputs.ui_pack }}
           SDK_PACK: ${{ steps.sdk.outputs.run }}
           DOMAINS: ${{ steps.plan.outputs.domains }}
           INTEGRATION_MATRIX: ${{ steps.domains.outputs.matrix }}
@@ -303,15 +309,15 @@ jobs:
                 "k8s-smoke": ($plan.k8s == "true"),
                 "docs": ($plan.site == "true"),
                 "pages": ($plan.site == "true"),
-                "demo": ($plan.product == "true"),
-                "ui-pack": ($plan.product == "true"),
+                "demo": ($plan.demo == "true"),
+                "ui-pack": ($plan.ui_pack == "true"),
                 "sdk-pack-smoke": ($plan.sdk_pack == "true"),
                 "workspace-quota": ($plan.product == "true" and ($domains | index("docker") != null))
               } as $expected
             | (["all", "check"] | index($only) != null)
               and (.changes.result == "success")
               and all(.[]; .result == "success" or .result == "skipped")
-              and (["helm", "k8s", "sdk_pack", "site", "product"] | all(.[]; $plan[.] == "true" or $plan[.] == "false"))
+              and (["helm", "k8s", "sdk_pack", "site", "product", "demo", "ui_pack"] | all(.[]; $plan[.] == "true" or $plan[.] == "false"))
               and ($domains | type == "array" and all(.[]; type == "string"))
               and ($expected | to_entries | all(.[];
                 $needs[.["key"]].result == (if $only == "all" and .value then "success" else "skipped" end)))
@@ -605,7 +611,7 @@ jobs:
   demo:
     needs: changes
     if: >-
-      needs.changes.outputs.product == 'true'
+      needs.changes.outputs.demo == 'true'
       && contains(fromJSON('["all","demo"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -623,7 +629,7 @@ jobs:
   ui-pack:
     needs: changes
     if: >-
-      needs.changes.outputs.product == 'true'
+      needs.changes.outputs.ui_pack == 'true'
       && contains(fromJSON('["all","ui-pack"]'), github.event.inputs.only || 'all')
     runs-on: ubuntu-24.04
     timeout-minutes: 10

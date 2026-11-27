@@ -4399,8 +4399,10 @@ export const workerImageRefusals = pgTable(
 // worker's own calls, `provider` and `repository` the egress proxy's
 // credential routes, `object_store` its object store route, and `mcp` the
 // remote MCP route of a session whose agent release names a server (only
-// then is one issued), and `packages` its package registry route. All of
-// them are issued, extended and revoked
+// then is one issued), and `packages` its package registry route.
+// `egress_report` opens nothing: the engine's proxy variables carry it so the
+// forward proxy can say which attempt it turned away (`egress_denials`). All
+// of them are issued, extended and revoked
 // together, and a token only ever works for its own purpose.
 export const workerCredentials = pgTable(
   "worker_credentials",
@@ -4432,12 +4434,43 @@ export const workerCredentials = pgTable(
       .where(sql`${table.revokedAt} IS NULL`),
     check(
       "worker_credentials_purpose_check",
-      sql`${table.purpose} IN ('gateway', 'provider', 'repository', 'object_store', 'mcp', 'packages')`,
+      sql`${table.purpose} IN ('gateway', 'provider', 'repository', 'object_store', 'mcp', 'packages', 'egress_report')`,
     ),
     check(
       "worker_credentials_binding_check",
       sql`(${table.purpose} = 'gateway') = (${table.binding} IS NULL)`,
     ),
+  ],
+);
+
+// A destination the forward proxy refused for an attempt's engine, as the
+// proxy reported it with the attempt's `egress_report` token. One row per
+// turn and host:port (a refusal outside a turn has no turn), at most
+// EGRESS_DENIALS_PER_ATTEMPT per attempt. Only the host and port are kept:
+// the proxy never sees a path inside a tunnel and does not report one
+// outside it. The rows go when the attempt's credentials are revoked.
+export const egressDenials = pgTable(
+  "egress_denials",
+  {
+    id: uuid().primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    attemptId: text("attempt_id")
+      .notNull()
+      .references(() => attempts.id),
+    turnId: bigint("turn_id", { mode: "number" }).references(() => turns.id),
+    host: text().notNull(),
+    port: integer().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("egress_denials_turn_host_key")
+      .on(table.attemptId, table.turnId, table.host, table.port)
+      .nullsNotDistinct(),
+    check("egress_denials_port_check", sql`${table.port} BETWEEN 1 AND 65535`),
   ],
 );
 
@@ -7524,6 +7557,10 @@ export const skillGitSources = pgTable(
       .notNull()
       .references(() => githubApps.id),
     installationId: bigint("installation_id", { mode: "number" }).notNull(),
+    // `installation`: that installation covers the repository. `public`: the
+    // App is not installed there, and the installation is another of its own
+    // whose token reads the public repository.
+    access: text().notNull().default("installation"),
     repositoryId: bigint("repository_id", { mode: "number" }).notNull(),
     repository: text().notNull(),
     path: text().notNull(),
@@ -7578,6 +7615,10 @@ export const skillGitSources = pgTable(
     check(
       "skill_git_sources_ids_check",
       sql`${table.installationId} > 0 AND ${table.repositoryId} > 0`,
+    ),
+    check(
+      "skill_git_sources_access_check",
+      sql`${table.access} IN ('installation', 'public')`,
     ),
     check(
       "skill_git_sources_auto_approve_check",

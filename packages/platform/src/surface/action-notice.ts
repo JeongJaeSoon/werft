@@ -73,6 +73,10 @@ const PUSH_WHY: Record<UserLocale, Record<ExplainedPushReason, string>> = {
   ko: {
     workflows_off:
       'workflow 파일을 push하려면 Werft에서 "workflow 파일 수정과 CI 결과 보기"를 켜야 해요. 워크스페이스 관리자에게 에이전트 GitHub 설정에서 켜 달라고 요청하세요.',
+    workflows_ceiling_off:
+      'workflow 파일을 push하려면 워크스페이스 GitHub 상한에서 "workflow 파일 수정과 CI 결과 보기"를 켜야 해요. 이 상한은 워크스페이스 owner나 admin만 바꿀 수 있으니 그분들에게 요청하세요.',
+    workflows_both_off:
+      'workflow 파일을 push하려면 워크스페이스 GitHub 상한과 에이전트 GitHub 설정에서 "workflow 파일 수정과 CI 결과 보기"를 둘 다 켜야 해요. 워크스페이스 owner나 admin에게 상한부터 켜 달라고 요청하세요.',
     workflows_permission_missing:
       "workflow 파일을 push하려면 GitHub App에 Workflows 권한이 필요해요. 워크스페이스 관리자에게 요청하세요.",
     workflows_refused:
@@ -87,6 +91,10 @@ const PUSH_WHY: Record<UserLocale, Record<ExplainedPushReason, string>> = {
   ja: {
     workflows_off:
       "workflowファイルをpushするには、Werftで「ワークフローファイルの変更と CI 結果の確認」をオンにする必要があります。ワークスペース管理者に、エージェントのGitHub設定でオンにするよう依頼してください。",
+    workflows_ceiling_off:
+      "workflowファイルをpushするには、ワークスペースのGitHub上限で「ワークフローファイルの変更と CI 結果の確認」をオンにする必要があります。この上限を変えられるのはワークスペースのownerかadminだけなので、依頼してください。",
+    workflows_both_off:
+      "workflowファイルをpushするには、ワークスペースのGitHub上限とエージェントのGitHub設定の両方で「ワークフローファイルの変更と CI 結果の確認」をオンにする必要があります。ワークスペースのownerかadminに、まず上限をオンにするよう依頼してください。",
     workflows_permission_missing:
       "workflowファイルをpushするには、GitHub AppにWorkflows権限が必要です。ワークスペース管理者に依頼してください。",
     workflows_refused:
@@ -101,6 +109,10 @@ const PUSH_WHY: Record<UserLocale, Record<ExplainedPushReason, string>> = {
   en: {
     workflows_off:
       'Pushing a workflow file needs "Edit workflow files and see CI results" turned on in Werft. Ask a workspace admin to turn it on in the agent\'s GitHub settings.',
+    workflows_ceiling_off:
+      'Pushing a workflow file needs "Edit workflow files and see CI results" turned on in the workspace GitHub ceiling. Only a workspace owner or admin can change the ceiling, so ask one of them.',
+    workflows_both_off:
+      'Pushing a workflow file needs "Edit workflow files and see CI results" turned on in both the workspace GitHub ceiling and the agent\'s GitHub settings. Ask a workspace owner or admin to turn the ceiling on first.',
     workflows_permission_missing:
       "Pushing a workflow file needs the Workflows permission on the GitHub App. Ask a workspace admin for it.",
     workflows_refused:

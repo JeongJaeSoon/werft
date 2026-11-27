@@ -8,9 +8,12 @@ import {
 import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresSlackGuestSetting } from "./musterrolle/workspace-settings.ts";
+import {
+  createPostgresSlackGuestSetting,
+  createPostgresWebFetchPreflightSetting,
+} from "./musterrolle/workspace-settings.ts";
 import * as schema from "./schema.ts";
-import { memberships, users, workspaces } from "./schema.ts";
+import { memberships, receipts, users, workspaces } from "./schema.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
 
@@ -96,5 +99,70 @@ integration("the Slack guest setting on PostgreSQL", () => {
     });
     // An admin of one workspace is no one in another.
     expect(await set(admin, true, await workspace())).toBe(false);
+  });
+  test("the WebFetch host check: only an active owner or admin writes it, with a receipt naming them", async () => {
+    const workspaceId = await workspace({ slack_guest_enabled: true });
+    const setting = createPostgresWebFetchPreflightSetting(db);
+    const set = (actorUserId: string, enabled: boolean, id = workspaceId) =>
+      setting.setWebFetchPreflight({
+        workspaceId: id,
+        actorUserId,
+        principal: {
+          ownerId: id,
+          requestId: "req-1",
+          actor: {
+            principal: { kind: "user", id: actorUserId },
+            userId: actorUserId,
+            workspaceId: id,
+            apiKeyId: null,
+          },
+        },
+        enabled,
+      });
+    const stored = async () => {
+      const [row] = await db
+        .select({ settings: workspaces.settings })
+        .from(workspaces)
+        .where(eq(workspaces.id, workspaceId));
+      return row?.settings as Record<string, unknown> | undefined;
+    };
+
+    expect(await set(await joined(workspaceId, "member"), false)).toBeNull();
+    expect(
+      await set(await joined(workspaceId, "admin", true), false),
+    ).toBeNull();
+    expect(await stored()).toEqual({ slack_guest_enabled: true });
+
+    const admin = await joined(workspaceId, "admin");
+    const receiptId = await set(admin, false);
+    expect(receiptId).toEqual(expect.any(String));
+    expect(await stored()).toEqual({
+      slack_guest_enabled: true,
+      web_fetch_preflight: false,
+    });
+    const [receipt] = await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.id, receiptId ?? ""));
+    expect(receipt).toMatchObject({
+      ownerId: workspaceId,
+      operation: "set_web_fetch_preflight",
+      status: "succeeded",
+      requestId: "req-1",
+      actor: expect.objectContaining({ actor_user_id: admin }),
+      targetRef: {
+        resource: { kind: "workspace", id: workspaceId },
+        workspace_id: workspaceId,
+      },
+      result: { web_fetch_preflight: false },
+    });
+
+    const owner = await joined(workspaceId, "owner");
+    expect(await set(owner, true)).toEqual(expect.any(String));
+    expect((await stored())?.web_fetch_preflight).toBe(true);
+    // An admin of one workspace is no one in another, and nothing is recorded.
+    const before = (await db.select().from(receipts)).length;
+    expect(await set(admin, false, await workspace())).toBeNull();
+    expect((await db.select().from(receipts)).length).toBe(before);
   });
 });

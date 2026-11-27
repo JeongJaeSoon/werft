@@ -92,6 +92,9 @@ export type WorkerBinding = {
   // only ko, en or ja. Null, or absent, for `follow-user`, a release made
   // before the field, and a session without a release.
   releaseLanguage?: "ko" | "en" | "ja" | null;
+  // True when the session's workspace turned the engine's WebFetch host
+  // check off, read at every claim. Absent or false: the check stays on.
+  skipWebFetchPreflight?: boolean;
   // The session row's platform prompt as stored. Null, or absent, for a
   // revision 0 session.
   platformPrompt?: PlatformPrompt | null;
@@ -168,6 +171,8 @@ export type EgressIssue = {
   objectStoreHash: Uint8Array;
   mcpHash?: Uint8Array;
   packagesHash?: Uint8Array;
+  // The `egress_report` token's: absent from a caller that issues none.
+  reportHash?: Uint8Array;
   // `repository` is null for a session that may reach no repository: no
   // repository token is issued, and `repositoryHash` goes unused.
   bindingsOf(session: {

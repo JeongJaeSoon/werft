@@ -5,7 +5,10 @@
 #   detect  EVENT push: BEFORE and AFTER (the push's two commits): the one
 #           CHANGELOG.md heading `## vX.Y.Z` that AFTER has and BEFORE lacks is
 #           the release to make; none means an ordinary merge. Anything that is
-#           not one clean new heading fails.
+#           not one clean new heading fails, and so does a release commit that
+#           still holds changelog fragments (changelog.d/*.md other than
+#           README.md): changelog-release.ts collects them into the heading.
+#           A retry is refused on a fragment too.
 #           EVENT workflow_dispatch (a retry of a release whose run failed):
 #           AFTER's top `## vX.Y.Z` heading, unless its tag or its Release
 #           already exists. Writes `tag=` to GITHUB_OUTPUT either way.
@@ -92,6 +95,9 @@ detect_retry() {
     echo "${top} is not retried: ${why}"
     return 0
   fi
+  # A retry releases main's head, so the pull requests merged after the
+  # refused push ship in this version too: their fragments go in its section.
+  fragments_collected "$after" "$top"
   tag="$top"
 }
 
@@ -118,9 +124,23 @@ detect_push() {
       || fail "this push adds more than one version section: ${added//$'\n'/, }"
     [ -z "$gone" ] || fail "${added} appears where ${gone//$'\n'/, } was: a renamed section is not a release"
     check_version "$added"
+    fragments_collected "$after" "$added"
     tag="$added"
     TAG="$tag" free
   fi
+}
+
+fragment_names() {
+  { git ls-tree --name-only "$1:changelog.d" 2>/dev/null || true; } | { grep -vxF README.md || true; } | sort
+}
+
+# A fragment in the commit released as $2 is an entry of that release missing
+# from its section.
+fragments_collected() {
+  local left
+  left="$(fragment_names "$1")"
+  [ -z "$left" ] \
+    || fail "the commit released as $2 still holds changelog fragments (changelog.d/: ${left//$'\n'/, }); a release pull request runs .github/scripts/changelog-release.ts $2, and after a refusal they are moved into the $2 section"
 }
 
 # Prints why the version $1 is taken, nothing when it is free. Only a

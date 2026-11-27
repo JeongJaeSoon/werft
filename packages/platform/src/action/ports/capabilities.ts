@@ -39,5 +39,5 @@ export type Reviewable = Pick<GitHubApi, "maxBodyLength" | "submitReview">;
 
 export type WorkflowRunnable = Pick<
   GitHubApi,
-  "dispatchWorkflow" | "getWorkflowRun" | "rerunWorkflow"
+  "dispatchWorkflow" | "getWorkflowRun" | "getCommitCi" | "rerunWorkflow"
 >;

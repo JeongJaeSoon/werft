@@ -1,5 +1,6 @@
 import { egressProxyConfigFromEnv } from "./config.ts";
 import { startCredentialProxy } from "./credential.ts";
+import { createDenialReporter } from "./denial-report.ts";
 import { createProxyLogger } from "./logger.ts";
 import { type EgressProxyServer, startEgressProxy } from "./proxy.ts";
 import { sourceDigest } from "./source.ts";
@@ -22,6 +23,17 @@ export async function main(
     logger,
     policy,
     port: config.port,
+    // Through the authorizer the credential routes ask: without one, a
+    // refusal is answered and reported to nobody.
+    ...(config.credential === null
+      ? {}
+      : {
+          reportDenial: createDenialReporter({
+            authorizerUrl: config.credential.authorizerUrl,
+            token: config.credential.authorizerToken,
+            logger,
+          }),
+        }),
     sourceDigest: sourceDigest(import.meta.dir),
   });
   if (config.credential === null) {

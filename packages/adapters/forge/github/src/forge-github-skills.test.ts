@@ -45,7 +45,12 @@ describe("reading a skill from GitHub with the App's installation", () => {
     const reader = createGitHubSkillReader();
     expect(
       await reader.repository(app(), INSTALLATION, "acme", "skills"),
-    ).toEqual({ id: repositoryId, fullName: "acme/skills" });
+    ).toEqual({
+      id: repositoryId,
+      fullName: "acme/skills",
+      ownerId: 5000,
+      public: false,
+    });
     expect(
       await reader.repository(app(), INSTALLATION, "acme", "missing"),
     ).toBeNull();
@@ -206,6 +211,103 @@ describe("reading a skill from GitHub with the App's installation", () => {
     } finally {
       github.failTokens(false);
     }
+  });
+});
+
+describe("reading a public repository the installation does not cover", () => {
+  let other: FakeGitHub;
+  let closedId: number;
+  beforeAll(async () => {
+    other = await startFakeGitHub({
+      appId: 101,
+      publicKey,
+      installedOn: ["acme/installed"],
+    });
+    await other.createRepository("acme", "installed", { "README.md": "x\n" });
+    await other.createRepository(
+      "anthropics",
+      "open",
+      { "skills/pdf/SKILL.md": "---\nname: pdf\n---\nPDF.\n" },
+      { private: false, ownerId: 4242 },
+    );
+    closedId = await other.createRepository(
+      "anthropics",
+      "closed",
+      { "skills/pdf/SKILL.md": "---\nname: pdf\n---\nPDF.\n" },
+      { private: true },
+    );
+  });
+  afterAll(async () => {
+    await other.stop();
+  });
+  const otherApp = () => ({ appId: 101, apiBase: other.origin, privateKey });
+
+  test("finds it by name and by id with its owner's id, and reads its ref, files and branch", async () => {
+    const reader = createGitHubSkillReader();
+    const open = await reader.repository(
+      otherApp(),
+      INSTALLATION,
+      "anthropics",
+      "open",
+    );
+    expect(open).toEqual({
+      id: expect.any(Number),
+      fullName: "anthropics/open",
+      ownerId: 4242,
+      public: true,
+    });
+    const id = open?.id ?? 0;
+    expect(await reader.repositoryById(otherApp(), INSTALLATION, id)).toEqual(
+      open,
+    );
+    const head = (await other.refs("anthropics", "open"))["refs/heads/main"];
+    expect(await reader.resolve(otherApp(), INSTALLATION, id, "main")).toBe(
+      head ?? "",
+    );
+    const read = await reader.read(
+      otherApp(),
+      INSTALLATION,
+      id,
+      head ?? "",
+      "skills/pdf",
+    );
+    if (read.kind !== "files") throw new Error(`read ${read.kind}`);
+    expect(read.files.map((file) => [file.path, text(file.bytes)])).toEqual([
+      ["SKILL.md", "---\nname: pdf\n---\nPDF.\n"],
+    ]);
+    expect(await reader.isBranch(otherApp(), INSTALLATION, id, "main")).toBe(
+      true,
+    );
+  });
+
+  test("a private repository it does not cover is not there, by name or by id", async () => {
+    const reader = createGitHubSkillReader();
+    expect(
+      await reader.repository(otherApp(), INSTALLATION, "anthropics", "closed"),
+    ).toBeNull();
+    expect(
+      await reader.repositoryById(otherApp(), INSTALLATION, closedId),
+    ).toBeNull();
+    expect(
+      await reader.resolve(otherApp(), INSTALLATION, closedId, "main"),
+    ).toBeNull();
+  });
+
+  test("a private repository it covers reads, and says it is not public", async () => {
+    const found = await createGitHubSkillReader().repository(
+      otherApp(),
+      INSTALLATION,
+      "acme",
+      "installed",
+    );
+    expect(found).toMatchObject({ fullName: "acme/installed", public: false });
+    expect(
+      await createGitHubSkillReader().repositoryById(
+        otherApp(),
+        INSTALLATION,
+        found?.id ?? 0,
+      ),
+    ).toEqual(found);
   });
 });
 

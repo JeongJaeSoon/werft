@@ -1,0 +1,2 @@
+ALTER TABLE "skill_git_sources" ADD COLUMN "access" text DEFAULT 'installation' NOT NULL;--> statement-breakpoint
+ALTER TABLE "skill_git_sources" ADD CONSTRAINT "skill_git_sources_access_check" CHECK ("skill_git_sources"."access" IN ('installation', 'public'));

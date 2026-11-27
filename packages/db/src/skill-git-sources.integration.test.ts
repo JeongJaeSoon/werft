@@ -136,7 +136,12 @@ integration("Git skill sources on PostgreSQL", () => {
   });
 
   /** A skill a person registered from GitHub, so a source row exists. */
-  async function registered(name: string, ref = "main", body = "First.") {
+  async function registered(
+    name: string,
+    ref = "main",
+    body = "First.",
+    access: "installation" | "public" = "installation",
+  ) {
     const ws = await workspace();
     const admin = await person(ws.workspaceId, "admin");
     const result = await service().register({
@@ -152,6 +157,7 @@ integration("Git skill sources on PostgreSQL", () => {
         {
           connectionId: ws.connectionId,
           installationId: INSTALLATION,
+          access,
           repositoryId: REPOSITORY,
           repository: "acme/skills",
         },
@@ -217,6 +223,26 @@ integration("Git skill sources on PostgreSQL", () => {
     }
   }
 
+  test("a public source keeps its access, and the column takes no other value", async () => {
+    const { workspaceId } = await registered(
+      "open",
+      "main",
+      "First.",
+      "public",
+    );
+    expect(await sources().get(workspaceId, "open")).toMatchObject({
+      installationId: INSTALLATION,
+      access: "public",
+    });
+    await expect(
+      db
+        .update(skillGitSources)
+        .set({ access: "anonymous" })
+        .where(eq(skillGitSources.workspaceId, workspaceId))
+        .execute(),
+    ).rejects.toThrow();
+  });
+
   test("a person's first registration writes the source with the version, and fixes the skill's source", async () => {
     const { workspaceId, connectionId, admin, first } =
       await registered("review");
@@ -235,6 +261,7 @@ integration("Git skill sources on PostgreSQL", () => {
     expect(await sources().get(workspaceId, "review")).toMatchObject({
       connectionId,
       installationId: INSTALLATION,
+      access: "installation",
       repositoryId: REPOSITORY,
       repository: "acme/skills",
       syncEnabled: true,
@@ -256,6 +283,7 @@ integration("Git skill sources on PostgreSQL", () => {
       git: git(COMMIT_B, trigger("register", admin.userId), {
         connectionId,
         installationId: INSTALLATION,
+        access: "installation",
         repositoryId: REPOSITORY + 1,
         repository: "acme/other",
       }),
@@ -923,6 +951,7 @@ integration("Git skill sources on PostgreSQL", () => {
       git: git(COMMIT_A, trigger("register", admin.userId), {
         connectionId,
         installationId: INSTALLATION,
+        access: "installation",
         repositoryId: REPOSITORY,
         repository: "acme/skills",
       }),

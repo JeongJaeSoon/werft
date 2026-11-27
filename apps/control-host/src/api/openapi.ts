@@ -415,6 +415,8 @@ import {
   usageToolsQuerySchema,
   usageToolsResponseSchema,
   WEB_SESSION_COOKIE_NAME,
+  webFetchPreflightRequestSchema,
+  webFetchPreflightResponseSchema,
   workflowRunParamsSchema,
   workspaceMcpServerListSchema,
   workspaceMcpServerParamsSchema,
@@ -520,6 +522,7 @@ const requestComponents = {
   ListAuditEventsQuery: listAuditEventsQuerySchema,
   CountAuditEventsQuery: countAuditEventsQuerySchema,
   SlackGuestRequest: slackGuestRequestSchema,
+  WebFetchPreflightRequest: webFetchPreflightRequestSchema,
   CreateAchievementCategoryRequest: createAchievementCategoryRequestSchema,
   UpdateAchievementCategoryRequest: updateAchievementCategoryRequestSchema,
   CreateAchievementTypeRequest: createAchievementTypeRequestSchema,
@@ -650,6 +653,7 @@ const responseComponents = {
   CountAuditEventsResponse: countAuditEventsResponseSchema,
   AuditExportLine: auditExportLineSchema,
   SlackGuestResponse: slackGuestResponseSchema,
+  WebFetchPreflightResponse: webFetchPreflightResponseSchema,
   SlackSecretSummary: slackSecretSummarySchema,
   PutSlackSecretResponse: putSlackSecretResponseSchema,
   DeleteSlackSecretResponse: deleteSlackSecretResponseSchema,
@@ -1267,6 +1271,7 @@ const EXAMPLE_SKILL_LAST_CHECK = {
 const EXAMPLE_SKILL_GIT_SOURCE = {
   connection_id: "019a0000-0000-7000-8000-0000000000b1",
   installation_id: 4242,
+  access: "installation",
   repository_id: 123456789,
   repository: "acme/skills",
   path: "skills/release-notes",
@@ -1383,6 +1388,7 @@ const EXAMPLE_WORKSPACE = {
     idle_pause_minutes: 30,
     audit_retention_days: 90,
     slack_guest_enabled: false,
+    web_fetch_preflight: true,
     achievement_judge: {
       connection_id: null,
       threshold: 0.9,
@@ -2197,6 +2203,21 @@ export const API_ROUTE_DECLARATIONS = [
     auth: "session",
     body: "SlackGuestRequest",
     success: { status: 200, schema: "SlackGuestResponse" },
+    errors: [400, 401, 403, 404, 413, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/workspaces/{id}/web-fetch-preflight",
+    operationId: "setWebFetchPreflight",
+    tag: "Workspace settings",
+    summary:
+      "Turn the engine's WebFetch host check with Anthropic on or off (owner or admin)",
+    description:
+      "On by default. While on, the engine asks api.anthropic.com whether it may fetch a host before WebFetch dials it, so the worker must reach that host; when the check cannot be made, the call fails without fetching. While off, sessions the workspace starts or resumes from then on skip the check. Either way the egress allowlist decides which hosts a session may reach. Writes a `set_web_fetch_preflight` receipt. The current value is `workspace.settings.web_fetch_preflight` in GET /v1/auth/me.",
+    auth: "session",
+    body: "WebFetchPreflightRequest",
+    success: { status: 200, schema: "WebFetchPreflightResponse" },
     errors: [400, 401, 403, 404, 413, 503],
     idempotent: false,
   },
@@ -6505,7 +6526,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary: "List the workspace's skills and their versions",
     description:
-      "Every skill name with all its versions, oldest first, and the version and mode the workspace scope names. A bundle registered before skills shows with `version: null`. `source` is the skill's one source (`upload` or `github`); a GitHub skill carries `git`: where it syncs from, whether sync is on, whether this installation can take its push webhook (`webhook`: `ready`, `no_public_url`, or `no_secret` when the App's webhook secret is not stored), and its last check. `pending_count` is how many of its versions wait for review. Every member of the workspace reads it.",
+      "Every skill name with all its versions, oldest first, and the version and mode the workspace scope names. A bundle registered before skills shows with `version: null`. `source` is the skill's one source (`upload` or `github`); a GitHub skill carries `git`: where it syncs from, whether sync is on, whether this installation can take its push webhook (`webhook`: `ready`, `no_public_url`, or `no_secret` when the App's webhook secret is not stored; a public repository the App is not installed on (`access` `public`) takes no push and is `no_public_url`), and its last check. `pending_count` is how many of its versions wait for review. Every member of the workspace reads it.",
     auth: "session",
     success: {
       status: 200,

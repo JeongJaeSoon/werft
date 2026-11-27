@@ -84,6 +84,8 @@ export const skillsKo = {
     "이 설치는 GitHub가 닿는 공개 주소가 없어 push webhook을 받지 못합니다. 하루 한 번 확인과 지금 확인으로만 새 버전을 찾습니다.",
   "skills.sync.webhook.no_secret":
     "GitHub App의 webhook secret이 저장되어 있지 않아 push webhook을 받지 못합니다. 하루 한 번 확인과 지금 확인으로만 새 버전을 찾습니다.",
+  "skills.sync.webhook.not_installed":
+    "App이 설치되지 않은 공개 저장소라 push webhook을 받지 못합니다. 하루 한 번 확인과 지금 확인으로만 새 버전을 찾습니다.",
   "skills.workspace.title": "워크스페이스 지정",
   "skills.workspace.scope": "모든 에이전트",
   "skills.workspace.description":
@@ -353,6 +355,8 @@ export const skillsEn = {
     "This installation has no public address GitHub can reach, so it gets no push webhooks. New versions are found only by the daily check and Check now.",
   "skills.sync.webhook.no_secret":
     "The GitHub App's webhook secret is not stored, so this installation gets no push webhooks. New versions are found only by the daily check and Check now.",
+  "skills.sync.webhook.not_installed":
+    "The App is not installed on this public repository, so it gets no push webhooks. New versions are found only by the daily check and Check now.",
   "skills.workspace.title": "Workspace attachment",
   "skills.workspace.scope": "All agents",
   "skills.workspace.description":
@@ -624,6 +628,8 @@ export const skillsJa = {
     "このインストールには GitHub から届く公開アドレスがないため、push webhook を受け取れません。新しいバージョンは 1 日 1 回の確認と今すぐ確認でのみ見つけます。",
   "skills.sync.webhook.no_secret":
     "GitHub App の webhook secret が保存されていないため、push webhook を受け取れません。新しいバージョンは 1 日 1 回の確認と今すぐ確認でのみ見つけます。",
+  "skills.sync.webhook.not_installed":
+    "App がインストールされていない公開リポジトリのため、push webhook を受け取れません。新しいバージョンは 1 日 1 回の確認と今すぐ確認でのみ見つけます。",
   "skills.workspace.title": "ワークスペースの指定",
   "skills.workspace.scope": "すべてのエージェント",
   "skills.workspace.description":

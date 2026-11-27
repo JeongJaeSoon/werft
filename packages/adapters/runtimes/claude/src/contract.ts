@@ -261,11 +261,19 @@ export function claudeStartConfig(
     ...(config.responseLanguage === undefined
       ? {}
       : { responseLanguage: config.responseLanguage }),
+    // Same reason: a workspace may flip the check between two starts.
+    ...(config.skipWebFetchPreflight === undefined
+      ? {}
+      : { skipWebFetchPreflight: config.skipWebFetchPreflight }),
     // Not in claudeProfileConfig: the fingerprint must not move when a
     // claim names another commit author.
     ...(config.gitEnvironment === undefined
       ? {}
       : { gitEnvironment: config.gitEnvironment }),
+    // Same reason: a token is the attempt's.
+    ...(config.egressReportToken === undefined
+      ? {}
+      : { egressReportToken: config.egressReportToken }),
     // Same reason: a claim naming other variables must not move the fingerprint.
     ...(config.userEnvironment === undefined
       ? {}
