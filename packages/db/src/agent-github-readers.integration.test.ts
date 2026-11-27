@@ -1297,8 +1297,8 @@ integration("the readers of an agent's GitHub settings", () => {
       expect(rows[0]?.features).toEqual(stored);
     });
 
-    test("`merge` on a row is read ahead of the build that writes it; a bad value still closes the session", async () => {
-      const { workspaceId, agentId, sessionId } = await fixture({
+    test("`merge` on a row is checked and left out, also of the snapshot taken from it; a bad value still closes the session", async () => {
+      const { workspaceId, agentId, releaseId, sessionId } = await fixture({
         source: "agent",
       });
       const gate = createPostgresGitHubGateStore(db);
@@ -1306,9 +1306,12 @@ integration("the readers of an agent's GitHub settings", () => {
         features: { ...KNOWN, merge: true },
         updatedBy: PERSON,
       });
-      expect((await gate.context(sessionId))?.policy.settings).toMatchObject({
-        features: { ...KNOWN, merge: true },
-      });
+      const read = (await gate.context(sessionId))?.policy.settings;
+      expect(read === "invalid" ? read : read?.features).toEqual(KNOWN);
+      const taken = await db.transaction((tx) =>
+        captureGitHubPolicyStart(tx, releaseId),
+      );
+      expect(taken.settings.features).toEqual(KNOWN);
       await settingsRow(workspaceId, agentId, {
         features: { ...KNOWN, merge: "yes" },
         revision: 2,
@@ -1330,13 +1333,30 @@ integration("the readers of an agent's GitHub settings", () => {
       expect((await gate.context(release.sessionId))?.policy.settings).toEqual(
         PIN_OFF,
       );
-      // The build before read no tools at all off such a pin.
-      expect(
-        await sessionGitHubMcpOf(db, {
-          agentReleaseId: release.releaseId,
-          githubPolicySource: "release",
-        }),
-      ).toMatchObject({ releaseId: release.releaseId });
+    });
+
+    test("an old pin with `actions` and one still names the tools it exposed then, for its checkpoints", async () => {
+      // `actions` runs under the switches as workflows and checks, so the
+      // pin as stored exposes other tools than the policy does.
+      const release = await fixture({
+        pins: {
+          github: {
+            ...PIN_OFF,
+            features: {
+              ...PIN_OFF.features,
+              actions: true,
+              later_switch: true,
+            },
+          },
+        },
+      });
+      const mcp = await sessionGitHubMcpOf(db, {
+        agentReleaseId: release.releaseId,
+        githubPolicySource: "release",
+      });
+      expect(mcp?.releaseId).toBe(release.releaseId);
+      expect(mcp?.pinTools).toBeDefined();
+      expect(mcp?.pinTools).not.toEqual(mcp?.tools);
     });
   });
 

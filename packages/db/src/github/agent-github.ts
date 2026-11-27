@@ -4,7 +4,7 @@ import {
   GITHUB_GATE_RECEIPT_OPERATION_VALUES,
   githubEffectiveFeatures,
   pinUnderSwitches,
-  storedAgentGitHubSettingsSchema,
+  storedAgentGitHubSchema,
 } from "@werft-ai/contracts";
 import type {
   AgentGitHubStore,
@@ -145,7 +145,7 @@ async function seedOf(
           ),
           actions_allow: [],
         }
-      : storedAgentGitHubSettingsSchema.safeParse(release.github).data;
+      : storedAgentGitHubSchema.safeParse(release.github).data;
   if (github === undefined) return null;
   const { features, actions_allow } = pinUnderSwitches(github);
   return {

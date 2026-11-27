@@ -40,13 +40,14 @@ export const storedGitHubFeaturesSchema = z.object(githubFeatureFields);
 
 /**
  * As above, for an agent's settings row and a session's start snapshot.
- * `merge` is read ahead of the build that writes it (94S-2492), absent
- * meaning off; a release pin never carries it. It gets no default: what is
- * read is written again as a start snapshot, and a key there that an earlier
- * image does not know closes its sessions.
+ * `merge` is checked ahead of the build that writes and enforces it
+ * (94S-2492), then left out: nothing in this build reads it, and what is read
+ * here is written again (a start snapshot, a first save, a response) where an
+ * earlier image refuses the key.
  */
-export const storedAgentGitHubFeaturesSchema =
-  storedGitHubFeaturesSchema.extend({ merge: z.boolean().optional() });
+export const storedAgentGitHubFeaturesSchema = storedGitHubFeaturesSchema
+  .extend({ merge: z.boolean().optional() })
+  .transform(({ merge: _merge, ...known }) => known);
 
 /**
  * What a workspace lets its agents do; no settings row reads all false.

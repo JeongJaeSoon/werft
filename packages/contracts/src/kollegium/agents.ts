@@ -639,6 +639,18 @@ export const storedAgentGitHubSchema = z
   .object({ ...agentGitHubFields, features: storedGitHubFeaturesSchema })
   .strict();
 
+/**
+ * A release's pin as its row holds it. The release id hashes the pin as
+ * stored, so a boolean switch this build does not know is kept here; every
+ * policy reader drops it (`storedAgentGitHubSchema`).
+ */
+export const releasePinGitHubSchema = z
+  .object({
+    ...agentGitHubFields,
+    features: storedGitHubFeaturesSchema.catchall(z.boolean()),
+  })
+  .strict();
+
 const settingsRepositories = z.array(z.string().min(1).max(128));
 
 /**
@@ -1106,9 +1118,9 @@ export const policyPinsSchema = z
       .optional(),
     /**
      * Absent on every release made before it, and on one with no repository.
-     * Read as stored: a switch a newer build pinned is left out.
+     * Read as stored: a switch a newer build pinned is kept, for the id.
      */
-    github: storedAgentGitHubSchema.optional(),
+    github: releasePinGitHubSchema.optional(),
   })
   .strict();
 

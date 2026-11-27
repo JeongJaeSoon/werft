@@ -908,7 +908,7 @@ describe("stored keys this build does not know (94S-2491)", () => {
     }
   });
 
-  test("`merge` is read on a row and left out on a pin, which never carries it", () => {
+  test("`merge` on a row is checked and then left out, like any key a pin does not know", () => {
     expect(
       featuresOf(
         effectiveGitHubPolicy({
@@ -917,7 +917,21 @@ describe("stored keys this build does not know (94S-2491)", () => {
           agentRow: { ...person, features: { ...KNOWN, merge: true } },
         }),
       ),
-    ).toEqual({ ...KNOWN, merge: true });
+    ).toEqual(KNOWN);
+    expect(
+      featuresOf(
+        effectiveGitHubPolicy({
+          source: "agent",
+          releasePin: null,
+          agentRow: { ...person, features: KNOWN },
+          start: {
+            enabled: true,
+            revision: 1,
+            settings: { ...SETTINGS, features: { ...KNOWN, merge: true } },
+          },
+        }),
+      ),
+    ).toEqual(KNOWN);
     expect(
       featuresOf(
         effectiveGitHubPolicy({
@@ -929,16 +943,13 @@ describe("stored keys this build does not know (94S-2491)", () => {
     ).toEqual(KNOWN);
   });
 
-  test("absent `merge` reads as off without being written in: what a read hands to a snapshot or a seed reads on the build before", () => {
-    for (const features of [KNOWN, later]) {
+  test("no read hands `merge` on: what goes to a snapshot, a seed or a response reads on the build before", () => {
+    for (const features of [KNOWN, later, { ...KNOWN, merge: true }]) {
       const read = newSessionGitHubPolicy({ ...person, features }, null);
       if (read.settings === null || read.settings === "invalid") {
         throw new Error("unread");
       }
       expect(Object.keys(read.settings.features)).not.toContain("merge");
-      expect(
-        (read.settings.features as { merge?: boolean }).merge ?? false,
-      ).toBe(false);
       // The build before reads every one of these with the strict schemas.
       expect(agentGitHubSettingsSchema.safeParse(read.settings).success).toBe(
         true,
@@ -952,9 +963,14 @@ describe("stored keys this build does not know (94S-2491)", () => {
     }
   });
 
-  test("a release keeps reading with one in its pin", () => {
+  test("a release keeps reading with one in its pin, as stored, since its id hashes the pin", () => {
     const parsed = policyPinsSchema.safeParse({ github: pinWith(later) });
-    expect(parsed.success && parsed.data.github?.features).toEqual(KNOWN);
+    expect(parsed.success && parsed.data.github?.features).toEqual(later);
+    expect(
+      policyPinsSchema.safeParse({
+        github: pinWith({ ...KNOWN, later_switch: "on" }),
+      }).success,
+    ).toBe(false);
   });
 
   test("a save still refuses one: settings, a release pin and the ceiling stay strict", () => {
