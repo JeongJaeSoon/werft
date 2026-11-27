@@ -279,7 +279,12 @@ describe("provider request", () => {
     );
 
     test("an answer the URL cannot carry is refused, not sent to the name", async () => {
-      for (const address of ["fd12:3456::1%eth0", "fe80::1%25en0"]) {
+      for (const address of [
+        "fd12:3456::1%eth0",
+        "fe80::1%25en0",
+        // The setter refuses it, and parsed alone it names the original host.
+        "fd12:3456::1%@mcp.lan/",
+      ]) {
         const { request, sent } = harness({
           "mcp.lan": [{ address, family: 6 }],
         });

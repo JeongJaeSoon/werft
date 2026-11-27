@@ -205,8 +205,13 @@ export function createProviderRequest(
         const literal = family === 6 ? `[${address}]` : address;
         target.hostname = literal;
         // The setter keeps the name when it cannot take the address (an IPv6
-        // zone id, say); sending then would resolve the name again.
-        if (target.hostname !== URL.parse(`http://${literal}/`)?.hostname) {
+        // zone id, say); sending then would resolve the name again. Parsed
+        // alone, a malformed answer can name that same host, so the result
+        // must be an address too.
+        if (
+          isIP(target.hostname.replace(/^\[|\]$/g, "")) === 0 ||
+          target.hostname !== URL.parse(`http://${literal}/`)?.hostname
+        ) {
           throw new OidcUnavailableError(
             "address_not_allowed",
             "Provider address cannot be pinned",
