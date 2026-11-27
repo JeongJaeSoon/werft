@@ -2617,6 +2617,9 @@ export function createPostgresSlackOutboxStore(
             eq(t.kind, "reply"),
             eq(t.status, "uncertain"),
             sql`${t.sessionId} IS NOT NULL`,
+            // A reply at a DM's top from before the guard: its notice could
+            // stand nowhere a DM takes, so none is owed.
+            sql`NOT (${t.channelId} LIKE 'D%' AND ${t.threadTs} = '')`,
             sql`NOT EXISTS (
               SELECT 1 FROM ${t} n WHERE n.dedupe_key = 'uncertain:' || ${t.id}
             )`,

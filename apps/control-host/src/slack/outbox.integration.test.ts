@@ -8337,4 +8337,68 @@ describe.each(ENGINES)("a DM's thread on %s", (engine) => {
       ]);
     },
   );
+
+  // Closing is an end too: the thread shows closed, not processing.
+  test("rollout on: a DM task's thread shows closed once its session closes", async () => {
+    const fixture = await agentInSlack();
+    const sessionId = await dmLink(fixture);
+    await rollout(fixture, "on");
+    await outboxPass();
+    await db
+      .update(turns)
+      .set({ status: "completed", endedAt: new Date() })
+      .where(eq(turns.sessionId, sessionId));
+    await db
+      .update(sessions)
+      .set({ admissionState: "closed", status: "stopped" })
+      .where(eq(sessions.id, sessionId));
+    await outboxPass({ closeLinks: true });
+    await outboxPass({ closeLinks: true });
+    expect(slack.statuses).toEqual([
+      { channelId: DM, threadTs: THREAD, status: "processing" },
+      { channelId: DM, threadTs: THREAD, status: "closed" },
+    ]);
+  });
+
+  // A reply written at a DM's top before the guard, whose send went
+  // uncertain: its notice has nowhere to go, and the pass goes on.
+  test("an uncertain DM reply with no thread gets no notice and stops no pass", async () => {
+    const fixture = await agentInSlack();
+    const sessionId = await dmLink(fixture);
+    const [link] = await db
+      .select({
+        id: sessionLinks.id,
+        installationId: sessionLinks.installationId,
+      })
+      .from(sessionLinks);
+    if (!link) throw new Error("no link");
+    const id = randomUUID();
+    await db.insert(slackOutbox).values({
+      id,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      slackAppId: fixture.slackAppId,
+      installationId: link.installationId,
+      kind: "reply",
+      channelId: DM,
+      threadTs: "",
+      sessionId,
+      sessionLinkId: link.id,
+      body: { text: "at the top" },
+      dedupeKey: `dm-top:${id}`,
+      status: "uncertain",
+    });
+    await endTurn(sessionId, 1, "completed", [[text("hi")]]);
+    await outboxPass();
+    await outboxPass();
+    expect(
+      await db
+        .select({ id: slackOutbox.id })
+        .from(slackOutbox)
+        .where(eq(slackOutbox.dedupeKey, `uncertain:${id}`)),
+    ).toEqual([]);
+    expect(
+      posted().filter((m) => m.channelId === DM && m.threadTs === THREAD),
+    ).toHaveLength(1);
+  });
 });

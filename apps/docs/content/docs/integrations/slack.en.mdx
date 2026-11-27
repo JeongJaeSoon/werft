@@ -118,7 +118,7 @@ The reports of `progress` and `notify_only`:
 
 The progress message and the start and person-needed lines are in the card's language; for an agent that follows the user, in the Werft language of the person who started the task; otherwise in English. Failure notices keep the language of the person who started the task. In every report mode, when the task ends completed, failed, gave up waiting for room or stopped and nothing is left waiting, the thread's Slack status goes back to active. A closed session shows as closed.
 
-A DM has no report mode to set. A DM task of an agent whose conversation rollout is `on` reports as `progress`; under `off` and `shadow` it stays `per_step`, as before. A DM's answers, progress message and task reports all go in the thread of the person's DM post, never at the top of the DM or to a channel. When a DM turn or task ends, that thread's Slack status goes back to active too.
+A DM has no report mode to set. A DM task of an agent whose conversation rollout is `on` reports as `progress`; under `off` and `shadow` it stays `per_step`, as before. A DM's answers, progress message and task reports all go in the thread of the person's DM post, never at the top of the DM or to a channel. When a DM turn or task ends, that thread's Slack status goes back to active too, and a closed session shows as closed. Changing the rollout while a task runs changes its report mode at once: a progress message already posted may not get its last edit, and an answer produced at the moment of the change may be missed. The procedure for turning the rollout on and off is to close this gap.
 
 ## Stop a task
 
