@@ -6,6 +6,7 @@ import {
   type HookCallback,
   type Options,
   query,
+  type Settings,
 } from "@anthropic-ai/claude-agent-sdk";
 import { pinnedClaudeToolCatalog } from "@werft-ai/runtime-claude-codec";
 import {
@@ -63,6 +64,8 @@ type Scenario = "allowed" | "outside_allowlist" | "gates_only" | "under_lease";
 type RunOptions = {
   path: Path;
   permissionMode: PermissionMode;
+  /** Leaves the engine's own check of a WebFetch host on, as the product runs it. */
+  hostCheck?: true;
   /** Read stays allowed, for the calls the engine refuses on an unread file. */
   readAllowed?: true;
   scenario: Scenario;
@@ -75,6 +78,8 @@ type Observed = {
   /** Connections the WebFetch target accepted. */
   fetched: number;
   offered: Map<Path, string[]>;
+  /** What the engine asked its proxy for: everything it dialled off this host. */
+  outside: string[];
   post: Map<string, HookSeen>;
   pre: Map<string, HookSeen>;
   requests: RecordedRequest[];
@@ -247,6 +252,7 @@ function stepsFor(
 let isolated: IsolatedWorkspace | undefined;
 let server: FakeAnthropicServer | undefined;
 let fetchTarget: Bun.TCPSocketListener<undefined> | undefined;
+let outsideProxy: Bun.TCPSocketListener<undefined> | undefined;
 const report: string[] = [];
 
 afterEach(() => cleanUp());
@@ -254,10 +260,12 @@ afterEach(() => cleanUp());
 async function cleanUp(): Promise<void> {
   server?.stop();
   fetchTarget?.stop(true);
+  outsideProxy?.stop(true);
   await isolated?.dispose();
   isolated = undefined;
   server = undefined;
   fetchTarget = undefined;
+  outsideProxy = undefined;
 }
 
 afterAll(() => {
@@ -351,6 +359,7 @@ async function runScenario(options: RunOptions): Promise<{
     canUseTool: new Map(),
     fetched: 0,
     offered: new Map(),
+    outside: [],
     post: new Map(),
     pre: new Map(),
     requests: [],
@@ -368,6 +377,20 @@ async function runScenario(options: RunOptions): Promise<{
     },
   });
   fetchTarget = target;
+  // The engine's proxy for every address off this host. It lets nothing
+  // through, so a run neither reaches an outside service nor depends on one
+  // answering, and what it asked for is on record.
+  const proxy = Bun.listen<undefined>({
+    hostname: "127.0.0.1",
+    port: 0,
+    socket: {
+      data(socket, chunk) {
+        observed.outside.push(chunk.toString("latin1").split("\r\n")[0] ?? "");
+        socket.end();
+      },
+    },
+  });
+  outsideProxy = proxy;
   const ledger = new TurnLedger(
     options.scenario === "under_lease" ? "seeded" : undefined,
   );
@@ -484,6 +507,27 @@ async function runScenario(options: RunOptions): Promise<{
   if (options.scenario === "gates_only") {
     sdkOptions.tools = [...catalogTools, ...spawn];
   }
+  const proxyUrl = `http://127.0.0.1:${proxy.port}`;
+  const loopback = "127.0.0.1,localhost";
+  sdkOptions.env = {
+    ...sdkOptions.env,
+    HTTP_PROXY: proxyUrl,
+    HTTPS_PROXY: proxyUrl,
+    NO_PROXY: loopback,
+    http_proxy: proxyUrl,
+    https_proxy: proxyUrl,
+    no_proxy: loopback,
+  };
+  // Before it dials a WebFetch host, the engine asks a live Anthropic endpoint
+  // whether it may. The product leaves that on. The harness judges the
+  // platform's gates and the tool's own work, so it turns the check off
+  // rather than hang its verdict on that endpoint answering.
+  if (!options.hostCheck) {
+    sdkOptions.settings = {
+      ...(sdkOptions.settings as Settings),
+      skipWebFetchPreflight: true,
+    };
+  }
   observe(sdkOptions, observed);
 
   const input = new InputStream();
@@ -510,6 +554,7 @@ async function runScenario(options: RunOptions): Promise<{
     })
     .finally(() => clearTimeout(timer));
   if (timedOut) throw new Error("The harness run did not settle in 50s");
+  if (!options.hostCheck) expect(observed.outside).toEqual([]);
   lease?.release();
   const preparation = ledger.prepareCheckpoint();
   return {
@@ -641,6 +686,27 @@ describe(`engine harness for catalog ${catalog?.id}`, () => {
     const { probes } = stepsFor("main", "/w", "http://127.0.0.1:1/");
     expect(probes.map((step) => step.name)).toEqual(catalogTools);
   });
+
+  // What the proxy is there to catch, and why the runs below turn the check
+  // off: the address is the engine's own, not the profile's endpoint.
+  test("with the engine's host check on, WebFetch asks Anthropic first and dials nothing when that fails", async () => {
+    const { observed } = await runScenario({
+      path: "main",
+      permissionMode: "default",
+      scenario: "allowed",
+      hostCheck: true,
+    });
+    expect(observed.outside).toEqual([
+      "CONNECT api.anthropic.com:443 HTTP/1.1",
+    ]);
+    expect(observed.fetched).toBe(0);
+    expect(observed.results.get("toolu_main_probe_WebFetch")).toEqual({
+      isError: true,
+      text: expect.stringContaining(
+        "Unable to verify if domain 127.0.0.1 is safe to fetch",
+      ),
+    });
+  }, 120_000);
 
   for (const path of ["main", "subagent"] as const) {
     const agentId = path === "subagent" ? { agentId: expect.any(String) } : {};
