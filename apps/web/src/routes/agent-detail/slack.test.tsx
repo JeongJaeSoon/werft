@@ -3957,7 +3957,7 @@ describe("M1 shadow records on the Slack tab (a1/S3)", () => {
         }),
     });
     const recent = await screen.findByRole("table", { name: "최근 판단" });
-    expect(within(recent).getByText("답함")).toBeDefined();
+    expect(within(recent).getByText("답하기로 정함")).toBeDefined();
     expect(within(recent).getByText("없음")).toBeDefined();
   });
 
@@ -4008,6 +4008,42 @@ describe("M1 shadow records on the Slack tab (a1/S3)", () => {
       expect(history.location.search).not.toContain("judgment_answer"),
     );
     expect(history.location.search).toContain("judgment_reason=needs_agent");
+  });
+
+  test("while a new outcome's list is on its way no row of the last list shows under it", async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+      [`GET ${PATH}/slack/judgments?answer=no_reply`]: async () => {
+        await held;
+        return json(200, { ...JUDGMENTS, recent: [] });
+      },
+    });
+    const user = await setupUser();
+    try {
+      expect(
+        await screen.findByRole("table", { name: "최근 판단" }),
+      ).toBeDefined();
+      await user.selectOptions(
+        await screen.findByLabelText("결과로 거르기"),
+        "no_reply",
+      );
+      await waitFor(() =>
+        expect(screen.queryByRole("table", { name: "최근 판단" })).toBeNull(),
+      );
+      expect(
+        screen.queryByText("고른 조건의 판단이 최근 목록에 없습니다"),
+      ).toBeNull();
+    } finally {
+      release();
+    }
+    expect(
+      await screen.findByText("고른 조건의 판단이 최근 목록에 없습니다"),
+    ).toBeDefined();
   });
 
   test("an outcome with no row says so and hides the table", async () => {
