@@ -236,7 +236,7 @@ async function refusal(promise: Promise<unknown>) {
 
 describe("the provider and judgment routes read the settings generation first", () => {
   for (const route of Object.keys(asks) as Array<keyof typeof asks>) {
-    test(`${route}: a connection disabled on another replica is refused at once, before ${FIRST_STEP[route]}`, async () => {
+    test(`${route}: the generation is read before ${FIRST_STEP[route]}, so a connection disabled on another replica is refused on the next request`, async () => {
       const settings = storedSettings();
       await settings.registry.refresh();
       const { gateway, order } = harness(settings);
@@ -284,7 +284,7 @@ describe("the provider and judgment routes read the settings generation first", 
     expect(settings.state.reads).toBe(1);
   });
 
-  test("one read of the generation per request: a session token passes the conversation route without one", async () => {
+  test("a session token reads the generation once: the conversation route passes it by unread", async () => {
     const settings = storedSettings();
     const { gateway, order } = harness(settings);
     expect(

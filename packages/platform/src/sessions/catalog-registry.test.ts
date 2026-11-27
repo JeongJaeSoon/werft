@@ -183,7 +183,9 @@ describe("latestReads", () => {
     const applied: number[] = [];
     const refresh = latestReads(
       async () => ++reads,
-      (value) => applied.push(value),
+      (value) => {
+        applied.push(value);
+      },
       () => clock,
     );
     await refresh();
@@ -204,7 +206,9 @@ describe("latestReads", () => {
         if (fail) throw new Error("database down");
         return "ok";
       },
-      (value) => applied.push(value),
+      (value) => {
+        applied.push(value);
+      },
       () => 0,
     );
     await refresh();
@@ -313,6 +317,20 @@ describe("caughtUp", () => {
     expect(registry.settings?.generation).toBe(5);
     await registry.caughtUp();
     expect(pending).toHaveLength(2);
+  });
+
+  test("a declined read holds back no read begun before it", async () => {
+    const { registry, pending, until } = heldReads(7);
+    const reads = [registry.refresh(), registry.refresh(), registry.refresh()];
+    await until(3);
+    pending[0]?.resolve(snapshot(6));
+    await reads[0];
+    // Begun last, yet its snapshot opened first: declined.
+    pending[2]?.resolve(snapshot(4));
+    await reads[2];
+    pending[1]?.resolve(snapshot(7));
+    await reads[1];
+    expect(registry.settings?.generation).toBe(7);
   });
 
   test("a read begun after the apply is taken even at a lower generation", async () => {

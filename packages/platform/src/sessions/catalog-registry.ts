@@ -18,12 +18,13 @@ export const CATALOG_REFRESH_MS = 10_000;
 
 /**
  * The newest read wins and a refresh joins one begun within `maxAgeMs`;
- * a failed read keeps what was read before. `maxAgeMs` 0 always begins a
- * read, the clock stepping back included.
+ * a failed read keeps what was read before, as does one `apply` declines
+ * (returns false). `maxAgeMs` 0 always begins a read, the clock stepping
+ * back included.
  */
 export function latestReads<T>(
   read: () => Promise<T>,
-  apply: (value: T) => void,
+  apply: (value: T) => unknown,
   now: () => number,
 ): (maxAgeMs?: number) => Promise<void> {
   let readAt = Number.NEGATIVE_INFINITY;
@@ -42,7 +43,7 @@ export function latestReads<T>(
     const done = read().then(
       (value) => {
         if (order < applied) return;
-        apply(value);
+        if (apply(value) === false) return;
         applied = order;
         readAt = startedAt;
       },
@@ -156,7 +157,7 @@ export function createCatalogRegistry(deps: {
         begun <= underWayAtApply &&
         read.generation < settings.generation
       ) {
-        return;
+        return false;
       }
       underWayAtApply = readsBegun;
       settings = read === null ? null : keepUnchanged(read, settings);
