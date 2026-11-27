@@ -7602,6 +7602,11 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
     await outboxPass();
     // A follow-up in the thread queues turn 2 while the request waits.
     await mention(fixture, "100.000200");
+    const [second] = await db
+      .select({ status: turns.status })
+      .from(turns)
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 2)));
+    expect(second?.status).toBe("queued");
     await intervalOver();
     await outboxPass();
     expect(await progressKeys()).toEqual(["1:running:1", "2:needs_input:1"]);

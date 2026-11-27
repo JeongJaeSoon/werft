@@ -365,7 +365,8 @@ export type SurfaceCapacityWait = SurfaceLinkedTurnTarget & {
  * first unfinished turn (`queued`, `running`), `needs_input:<turn>` while the
  * session reads needs_input (a request a person can still answer, parked ones
  * included; `<turn>` is the first turn that asked), or `idle:<last turn>` once
- * a message is up and no turn is unfinished.
+ * a message is up and no turn is unfinished, in that order: a wait for room
+ * comes first, then needs_input, then the turn.
  */
 export type SurfaceProgressDue = SurfaceLinkedTurnTarget & {
   state: string;

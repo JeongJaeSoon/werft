@@ -1970,7 +1970,8 @@ export function createPostgresSlackOutboxStore(
           and(eq(pendingRequests.sessionId, sessions.id), actionableNow()),
         );
       const unfinished = ["queued", ...IN_FLIGHT_STATUSES];
-      // Read after the session's wait: no request is left to wait on.
+      // Read past the needs_input arm: the session read counts no wait, so
+      // a turn stored as needs_input reads as running, as it does there.
       const turnShown = publicStatusSql(
         sql`${turns.status}`,
         sql`false`,
@@ -2018,8 +2019,9 @@ export function createPostgresSlackOutboxStore(
                    AND wl.capacity_wait_since <= clock_timestamp() - make_interval(secs => ${waitedMs / 1_000})
                  ORDER BY wl.capacity_wait_since
                  LIMIT 1),
-                -- A person must answer before the work goes on, whichever
-                -- turn asked, and also once the turn parked on its request.
+                -- Unless a wait for room says more, the session read's
+                -- needs_input: a request a person can still answer, whichever
+                -- turn asked it, parked ones included.
                 CASE WHEN ${sessionShown} = 'needs_input' THEN 'needs_input:' || (${askingTurn}) END,
                 (SELECT ${turnShown} || ':' || ${turns.sequence} FROM ${turns}
                  WHERE ${turns.sessionId} = session_links.session_id
