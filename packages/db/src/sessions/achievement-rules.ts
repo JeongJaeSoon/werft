@@ -9,7 +9,7 @@ import {
   type AchievementType,
   BUILTIN_ACHIEVEMENT_TYPES,
   type ReceiptOperation,
-  workspaceSettingsSchema,
+  storedWorkspaceSettingsSchema,
 } from "@werft-ai/contracts";
 import type { AchievementRuleStore, TeamActor } from "@werft-ai/platform";
 import { MANAGEMENT_ROLES } from "@werft-ai/platform";
@@ -715,7 +715,7 @@ export function createPostgresAchievementRuleStore(
         .from(workspaces)
         .where(eq(workspaces.id, workspaceId));
       if (!row) return null;
-      return workspaceSettingsSchema.shape.achievement_judge.parse(
+      return storedWorkspaceSettingsSchema.shape.achievement_judge.parse(
         (row.settings as { achievement_judge?: unknown }).achievement_judge,
       );
     },
@@ -728,7 +728,8 @@ export function createPostgresAchievementRuleStore(
         await tx
           .update(workspaces)
           .set({
-            settings: sql`jsonb_set(${workspaces.settings}, '{achievement_judge}', ${JSON.stringify(settings)}::jsonb)`,
+            // Merged over what is stored, so a key a newer build added to the judge survives this save.
+            settings: sql`jsonb_set(${workspaces.settings}, '{achievement_judge}', (CASE WHEN jsonb_typeof(${workspaces.settings} -> 'achievement_judge') = 'object' THEN ${workspaces.settings} -> 'achievement_judge' ELSE '{}'::jsonb END) || ${JSON.stringify(settings)}::jsonb)`,
           })
           .where(eq(workspaces.id, actor.workspaceId));
         await writeReceipt(tx, actor, receiptId, "set_achievement_judge", {

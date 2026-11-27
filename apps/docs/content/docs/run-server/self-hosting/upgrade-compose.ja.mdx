@@ -86,6 +86,8 @@ pending.json が残ると start と以前の release への upgrade は拒否さ
 
 GitHub skill の出所に `access` 列が加わったリリース以降、`access = 'public'` の出所(App がインストールされていない公開リポジトリから読む skill)があれば、そのリリースより前のイメージに戻す前にその出所を削除します。以前のイメージはリポジトリがまだ公開かを確かめずに読みます。
 
+**ワークスペース設定の未知のキー。** この修正を含むリリースより前のリリース(`v0.5.0` を含む)は、`workspaces.settings` に自分の知らないキーが 1 つでもあると、そのワークスペースの `GET /v1/auth/me` が失敗します。この修正を含むリリースからは、未知のキーを応答から除き、保存された値は残します。これまでに出たリリースはすべて `achievement_judge` とその中のフィールドを知っており(`v0.4.0` と `v0.5.0` はキー一覧が現在と同じ: `dispatch_model`、`kill_switch`、`daily_cost_limit_usd`、`idle_pause_minutes`、`audit_retention_days`、`slack_guest_enabled`、`achievement_judge`)、この修正より前に保存できた設定はどの出荷済みビルドでも読めます。どのリリースへ戻せるかは、設定キーではなく上のロールバック下限で決まります。この修正の後に設定キーを加えたリリースを使った設置が、この修正のないリリースに戻すときは、戻す前にそのキーを削除します。
+
 新 control-host・直前 worker の組み合わせはデプロイ前に試験環境で確認します。セッションの turn 1 完了 → worker 削除 → checkpoint から turn 2 完了を確認し、API の worker 要求に 400 BAD_REQUEST がない必要があります。空環境の ready 200 で代替しません。まず turn 1 の完了を見ます。直前の worker が新しい control-host の応答を読めない場合、API は 200 を返し、worker は起動直後に終了するため、400 がないことだけではこの失敗を捕まえられません。プロファイル削除リリースはこの組み合わせをサポートしません。そのリリースへ更新するときは、新しい control-host と新しい worker で turn 1 の完了を確認します（[プロファイル削除リリースのアップグレード順序](#프로필-제거-릴리스의-업그레이드-순서)）。
 
 <a id="compose-전용-checkpoint-검사" />

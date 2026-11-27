@@ -693,6 +693,42 @@ export function createGitHubConnection(
           html_url: data.html_url,
         };
       },
+      async getCommitCi(sha, perPage) {
+        const [checks, runs] = await Promise.all([
+          quiet("check run lookup", () =>
+            client.request(
+              "GET /repos/{owner}/{repo}/commits/{ref}/check-runs",
+              { ...target, ref: sha, per_page: perPage, headers },
+            ),
+          ),
+          quiet("workflow run lookup", () =>
+            client.request("GET /repos/{owner}/{repo}/actions/runs", {
+              ...target,
+              head_sha: sha,
+              per_page: perPage,
+              headers,
+            }),
+          ),
+        ]);
+        return {
+          checkRuns: checks.data.check_runs.map((run) => ({
+            name: run.name,
+            status: run.status ?? null,
+            conclusion: run.conclusion ?? null,
+            html_url: run.html_url ?? null,
+          })),
+          workflowRuns: runs.data.workflow_runs.map((run) => ({
+            id: Number(run.id),
+            name: run.name ?? run.path,
+            status: run.status ?? null,
+            conclusion: run.conclusion ?? null,
+            html_url: run.html_url,
+          })),
+          truncated:
+            checks.data.total_count > checks.data.check_runs.length ||
+            runs.data.total_count > runs.data.workflow_runs.length,
+        };
+      },
       async rerunWorkflow(runId, failedOnly) {
         await quiet("workflow rerun", () =>
           request(

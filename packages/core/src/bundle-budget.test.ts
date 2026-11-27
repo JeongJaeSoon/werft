@@ -54,9 +54,11 @@ const BUDGET_BYTES: Record<string, number> = {
   // words, on top of main's growth, put ./schemas 32 bytes over 155, so it
   // moves to 156. The worker protocol's commit outside a turn and the
   // events' after_turn mark put ./forms 73 bytes over 153, so it moves to
-  // 154.
-  "./schemas": 156 * 1024,
-  "./forms": 154 * 1024,
+  // 154. The CI read tools' repository argument and their descriptions put
+  // ./schemas 391 bytes over 156 and ./forms 119 bytes over 154, so they
+  // move to 157 and 155.
+  "./schemas": 157 * 1024,
+  "./forms": 155 * 1024,
 };
 
 test("every entry has a budget", () => {
