@@ -691,6 +691,15 @@ export function createPostgresConversationCalls(
       });
       return db
         .transaction(async (tx): Promise<ConversationUnsolicitedTurnIssue> => {
+          // Unlocked, before the scope: a record of `shadow` kept no topic
+          // for a turn. Read again under its lock below.
+          const [before] = await tx
+            .select({ rollout: agents.conversationRollout })
+            .from(agents)
+            .where(eq(agents.id, input.agentId));
+          if (before !== undefined && before.rollout !== "on") {
+            return { outcome: "rollout_off" };
+          }
           const refused = await turnScopeIn(tx, input);
           if (refused !== null) return refused;
           // The posts' mark locks first, as a mention's turn takes its own: a

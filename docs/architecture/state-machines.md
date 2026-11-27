@@ -449,7 +449,7 @@ M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는�
 
 - 한 판단에서 두 번째 턴을 내지 않는다(`packages/db/src/conversations/unasked-turns.test.ts` "the same judgment again makes no second turn"). 고유 색인 `conversation_judgments_turn_uniq`가 한 턴에 판단 둘이 붙는 것을 막는다("one judgment per turn").
 - `answer`가 있거나 `quiet`인 판단에서 턴을 내지 않는다("a judgment whose end is written already, or that did not speak, makes none").
-- `shadow`·`off`에서 턴을 내지 않는다("rollout shadow/off: ... no turn is made").
+- `shadow`·`off`에서 턴을 내지 않는다("rollout shadow/off: ... no turn is made"). 판단 기록이 주제를 지운 뒤에도 `rollout_off`로 답하고 판단에 아무것도 쓰지 않는다("rollout shadow: no turn comes, and the topic goes with the post").
 - 턴이 있는 판단에 `not_started`류를 덮어쓰지 않는다. 끝은 한 번만 쓴다("why no turn was made is written once ...", "a reply is replied ..., written once").
 - 아직 `running`인 턴의 끝을 쓰지 않는다("a running turn writes nothing yet").
 - `target_ts`는 refs 밖이거나 `speak`가 아닌 판단에 둘 수 없다. `turn_id`·`answer`는 `target_ts` 없이 둘 수 없고, `answer`는 위 값만 받는다. `speak`는 `invalid_target`을 이유로 가질 수 없다(CHECK, "conversation_judgments' unasked columns" 시험들).

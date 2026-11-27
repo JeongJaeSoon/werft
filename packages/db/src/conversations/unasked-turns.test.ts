@@ -751,7 +751,10 @@ describe("a batch that spoke keeps its post's topic for the turn (v1-b/U1)", () 
   });
 
   test("rollout shadow: no turn comes, and the topic goes with the post", async () => {
-    const { topicId } = await judged("shadow");
+    const { at, topicId, judgmentId } = await judged("shadow");
     expect(await topicThere(topicId)).toBe(false);
+    // The rollout is told, not the topic gone: nothing is written on it.
+    const { issued } = issue(at, judgmentId, { topicId, sources: [POST] });
+    expect((await issued).outcome).toBe("rollout_off");
   });
 });
