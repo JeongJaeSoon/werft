@@ -7419,6 +7419,34 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
       body: { kind: "permission", request_id: requestId, decision: "allow" },
     });
 
+  // The worker parks turn 1 on its open requests: the turn ends, they wait.
+  const park = ({
+    gateway,
+    principal,
+    scope,
+  }: Awaited<ReturnType<typeof claimTurn>>) =>
+    gateway.finalize(principal, {
+      ...scope,
+      finalize_key: `${scope.attempt_id}:${scope.turn_id}`,
+      final_source_sequence: 0,
+      terminal: {
+        status: "interrupted",
+        reason: TURN_INPUT_WAIT_PARKED_REASON,
+        result: null,
+        usage: null,
+      },
+      checkpoint: {
+        revision: 0,
+        manifest_ref: `manifests/${scope.session_id}/0`,
+        manifest_sha256: "c".repeat(64),
+      },
+    });
+
+  const progressKeys = async () =>
+    (await progressRows()).map(({ dedupeKey }) =>
+      dedupeKey.replace(/^progress:[^:]+:/, ""),
+    );
+
   const storedTurnStatus = async (sessionId: string) => {
     const [turn] = await db
       .select({ status: turns.status })
@@ -7523,23 +7551,7 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
     const worker = await claimTurn(sessionId);
     await outboxPass();
     const requestId = await askPermission(worker);
-    // The worker parks the turn: the turn ends, its request still open.
-    await worker.gateway.finalize(worker.principal, {
-      ...worker.scope,
-      finalize_key: `${worker.scope.attempt_id}:${worker.scope.turn_id}`,
-      final_source_sequence: 0,
-      terminal: {
-        status: "interrupted",
-        reason: TURN_INPUT_WAIT_PARKED_REASON,
-        result: null,
-        usage: null,
-      },
-      checkpoint: {
-        revision: 0,
-        manifest_ref: `manifests/${sessionId}/0`,
-        manifest_sha256: "c".repeat(64),
-      },
-    });
+    await park(worker);
     expect(await storedTurnStatus(sessionId)).toBe("interrupted");
     // Nothing is unfinished, yet the session waits on a person, not idle.
     await intervalOver();
@@ -7562,6 +7574,40 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
         .filter(({ ts }) => ts === post?.ts)
         .map(({ text }) => text.split("\n")[0]),
     ).toEqual([ko.progressNeedsInput, ko.progressQueued]);
+  });
+
+  test("a turn parked before the message is up posts the wait first", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.update(sessionLinks).set({ reportMode: "progress" });
+    const worker = await claimTurn(sessionId);
+    await askPermission(worker);
+    await park(worker);
+    await outboxPass();
+    expect(await progressKeys()).toEqual(["1:needs_input:1"]);
+    expect(postedLines()).toContain(ko.progressNeedsInput);
+  });
+
+  test("a parked request still shows the wait with a later turn queued behind it", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.update(sessionLinks).set({ reportMode: "progress" });
+    const worker = await claimTurn(sessionId);
+    await outboxPass();
+    await askPermission(worker);
+    await park(worker);
+    await intervalOver();
+    await outboxPass();
+    // A follow-up in the thread queues turn 2 while the request waits.
+    await mention(fixture, "100.000200");
+    await intervalOver();
+    await outboxPass();
+    expect(await progressKeys()).toEqual(["1:running:1", "2:needs_input:1"]);
+    expect(slack.updates.map(({ text }) => text.split("\n")[0])).toEqual([
+      ko.progressNeedsInput,
+    ]);
   });
 
   test("a worker waiting for room shows the wait as the message, with no notice of its own", async () => {

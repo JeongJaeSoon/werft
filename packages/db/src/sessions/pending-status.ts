@@ -145,7 +145,7 @@ export function publicStatusSql(
       ];
     }),
   );
-  return sql`(CASE ${sql.join(arms, sql` `)} ELSE ${stored} END)`;
+  return sql`(CASE ${sql.join(arms, sql` `)} ELSE ${stored} END)::text`;
 }
 
 /**

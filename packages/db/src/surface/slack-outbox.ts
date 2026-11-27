@@ -1952,18 +1952,29 @@ export function createPostgresSlackOutboxStore(
     },
 
     async progressDue(limit, waitedMs) {
-      // Each stage at the status a read of the session shows: needs_input is
-      // never stored, but derived from the requests a person can answer.
-      const unfinished = ["queued", ...IN_FLIGHT_STATUSES];
-      const turnShown = publicStatusSql(
-        sql`${turns.status}`,
-        sql`EXISTS (${actionableOfTurn(db)})`,
-        unfinished,
-      );
+      // needs_input is never stored: it is the session's status as a read of
+      // it shows (publicStatus), from the requests a person can answer.
       const sessionShown = publicStatusSql(
         sql`${sessions.status}`,
         sql`EXISTS (${actionableOfSession(db)})`,
         AWAITABLE_STATUSES,
+      );
+      // The first turn those requests were asked in, so a turn queued
+      // behind a parked one does not edit the message to say the same.
+      const askingTurn = db
+        .select({ sequence: sql`min(${turns.sequence})` })
+        .from(pendingRequests)
+        .innerJoin(attempts, eq(attempts.id, pendingRequests.attemptId))
+        .innerJoin(turns, eq(turns.id, pendingRequests.turnId))
+        .where(
+          and(eq(pendingRequests.sessionId, sessions.id), actionableNow()),
+        );
+      const unfinished = ["queued", ...IN_FLIGHT_STATUSES];
+      // Read after the session's wait: no request is left to wait on.
+      const turnShown = publicStatusSql(
+        sql`${turns.status}`,
+        sql`false`,
+        unfinished,
       );
       // The keys the adapter's slackProgressDedupeKey makes, spelled in SQL:
       // progress:<link>:<update>:<state>, under progress key progress:<link>.
@@ -2007,20 +2018,22 @@ export function createPostgresSlackOutboxStore(
                    AND wl.capacity_wait_since <= clock_timestamp() - make_interval(secs => ${waitedMs / 1_000})
                  ORDER BY wl.capacity_wait_since
                  LIMIT 1),
+                -- A person must answer before the work goes on, whichever
+                -- turn asked, and also once the turn parked on its request.
+                CASE WHEN ${sessionShown} = 'needs_input' THEN 'needs_input:' || (${askingTurn}) END,
                 (SELECT ${turnShown} || ':' || ${turns.sequence} FROM ${turns}
                  WHERE ${turns.sessionId} = session_links.session_id
                    AND ${turns.status} IN (${sqlLiterals(unfinished)})
                  ORDER BY ${turns.sequence}
                  LIMIT 1),
                 -- Nothing unfinished: only a message Slack holds is told so,
-                -- so a first post still waiting is not overtaken by it. A
-                -- turn parked on a request still waits on a person.
+                -- so a first post still waiting is not overtaken by it.
                 CASE WHEN EXISTS (
                   SELECT 1 FROM ${t} s
                   WHERE s.installation_id = session_links.installation_id
                     AND s.progress_key = 'progress:' || session_links.id
                     AND s.status = 'sent'
-                ) THEN (CASE ${sessionShown} WHEN 'needs_input' THEN 'needs_input' ELSE 'idle' END) || ':' || (
+                ) THEN 'idle:' || (
                   SELECT coalesce(max(mt.sequence), 0) FROM turns mt
                   WHERE mt.session_id = session_links.session_id
                 ) END
