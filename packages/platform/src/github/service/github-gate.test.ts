@@ -1668,7 +1668,7 @@ describe("another repository than the session's", () => {
         ).toBe("repository_not_allowed");
       });
 
-      test("a catalog URL ending in .GIT is named without it", async () => {
+      test("a catalog URL ending in .GIT is not named: its key, token and API path would keep the suffix", async () => {
         const { grant } = harness({
           catalog: {
             ...ATTACHED,
@@ -1688,12 +1688,11 @@ describe("another repository than the session's", () => {
         });
         expect(
           (
-            await grant({
-              purpose: "actions_read",
-              repositoryName: "acme/docs",
-            })
-          )?.context.repositoryId,
-        ).toBe("docs");
+            await refused(
+              grant({ purpose: "actions_read", repositoryName: "acme/docs" }),
+            )
+          ).reason,
+        ).toBe("repository_not_allowed");
       });
 
       test("a write never takes a name: push and pull requests keep the session's repository rules", async () => {
