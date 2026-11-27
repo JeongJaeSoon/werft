@@ -34,6 +34,8 @@ const policy = WORKSPACE_POLICY;
  * them. Here nothing has judged the line, so they are named.
  */
 const READERS = ["cat", "head", "tail", "wc", "ls", "pwd", "grep"];
+/** What reads a pipe in the narrow reading: text in, text out. */
+const PIPE_READERS = ["cat", "head", "tail", "wc", "grep"];
 /** Their operands are text, never a path. */
 const PRINTERS = ["echo", "printf"];
 /** `a..b` is a range and `origin/main` a ref there; the ask patterns guard them. */
@@ -64,6 +66,8 @@ type Part = {
   /** The words as they were written, quotes included. */
   written: string[];
   redirect?: { op: ">" | ">>"; target: string };
+  /** The part reads what a `|` before it gives. */
+  piped?: true;
 };
 
 type Token =
@@ -185,10 +189,12 @@ export function partsOf(command: string, pipes = false): Part[] | string {
   const parts: Part[] = [];
   let current: Part = { words: [], written: [] };
   let dangling = false;
+  let piped = false;
   const empty = () =>
     current.words.length === 0 && current.redirect === undefined;
   for (let i = 0; i < tokens.length; i += 1) {
     const token = tokens[i] as Token;
+    if (piped) current.piped = true;
     if (token.kind === "word") {
       current.words.push(token.text);
       current.written.push(token.written);
@@ -203,6 +209,7 @@ export function partsOf(command: string, pipes = false): Part[] | string {
       parts.push(current);
       current = { words: [], written: [] };
       dangling = token.op === "&&" || token.op === "|";
+      piped = token.op === "|";
     } else if (token.op !== "\n") {
       return "an empty command";
     }
@@ -437,6 +444,12 @@ function partKept(
     if (name === undefined) return "a redirect without a command";
     if (!NARROW.some((command) => startsWith(part.words, command))) {
       return `${name} is not a command the workspace policy allows`;
+    }
+    // A command fed by a pipe may take what flows in as names, paths or
+    // directives the line never shows (`git cat-file --batch`,
+    // `git update-index --stdin`), so only filters of text read a pipe.
+    if (part.piped && !PIPE_READERS.includes(name)) {
+      return `${name} is not a command the workspace policy lets read a pipe`;
     }
   }
   const redirect = part.redirect;

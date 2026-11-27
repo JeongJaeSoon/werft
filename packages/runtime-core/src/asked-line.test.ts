@@ -619,12 +619,29 @@ const NARROW: [string, string, string | null][] = [
     "git log | cat > .git/hooks/pre-commit",
     "goes to a person",
   ],
-  ["a pipe written outside", "git log | cat > ../out.txt", "outside"],
   [
-    "a pipe into an ask rule",
-    "git log | git add -f notes/sample.txt",
-    "ask rule",
+    "a pipe written outside",
+    "git log | cat > ../out.txt",
+    "a path outside the workspace",
   ],
+  ["a pipe into an ask rule", "git log | cat .env", "ask rule"],
+  // A pipe feeds only filters of text: a git command reads names, paths and
+  // directives from it that the line never shows.
+  ...[
+    "cat notes/objects.txt | git cat-file --batch",
+    "git ls-files -z -- notes | git update-index --add -z --stdin",
+    "cat notes/paths.txt | git hash-object --stdin-paths",
+    "cat notes/change.patch | git apply",
+    "cat notes/request.txt | git credential fill",
+    "cat notes/import.txt | git fast-import",
+    "git log | git add -f notes/sample.txt",
+    "git ls-files | rm -rf notes",
+    "git log | echo x",
+  ].map((command): [string, string, string] => [
+    `a pipe into ${command.split("| ")[1]}`,
+    command,
+    "read a pipe",
+  ]),
   [
     "a runner pointed outside",
     "git status && npm run build --prefix /tmp/x",
@@ -782,7 +799,7 @@ describe("the narrow reading", () => {
     expect(partsOf("git log | head -3")).toBe("a | outside a quote");
     expect(partsOf("git log | head -3", true)).toEqual([
       { words: ["git", "log"], written: ["git", "log"] },
-      { words: ["head", "-3"], written: ["head", "-3"] },
+      { words: ["head", "-3"], written: ["head", "-3"], piped: true },
     ]);
     expect(partsOf("git log --grep 'a|b'", true)).toHaveLength(1);
   });
