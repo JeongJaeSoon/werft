@@ -207,7 +207,7 @@ jobs:
       - uses: ./.github/actions/bun-setup
       - run: bun install --frozen-lockfile
       - name: Repository policy and documentation tests
-        run: bun test ./tests
+        run: bun test --timeout=15000 ./tests
 
   # Integration domains already run every unit test with their services on.
   # Manual checks keep all shards. The web plan runs only the complement
@@ -246,7 +246,7 @@ jobs:
           fi
           files=$(bun .github/scripts/unit-part.ts "$UNIT" "${args[@]}")
           mapfile -t files <<<"$files"
-          bun test "${files[@]}"
+          bun test --timeout=15000 "${files[@]}"
 
   # A skipped required job counts as passing, so always emit an explicit verdict.
   check:
@@ -408,10 +408,15 @@ jobs:
         # An assignment, not process substitution, so a failed assignment
         # fails the step instead of handing `bun test` an empty list — which it
         # would read as the whole suite.
+        # --timeout: on a loaded runner, tests that take 2–3 s alone were cut
+        # at bun's default of 5 s after 5.0–7.0 s. Only the suite steps here
+        # raise it, for a test that sets no limit of its own (bunfig.toml sets
+        # none), and `verify` names every test of a passing job that ran past
+        # the 5 s it still has on a developer's machine.
         run: |
           files=$(bun .github/scripts/integration-jobs.ts files "$DOMAIN" "$SHARD")
           mapfile -t files <<<"$files"
-          bun test --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit.xml" "${files[@]}"
+          bun test --timeout=15000 --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit.xml" "${files[@]}"
           bun .github/scripts/integration-jobs.ts verify "$DOMAIN" "$SHARD" "$RUNNER_TEMP/junit.xml"
       # Whatever the suites pulled, by whatever path: none of it from Docker
       # Hub. Also after a failure — such a pull is worth knowing about anyway.
