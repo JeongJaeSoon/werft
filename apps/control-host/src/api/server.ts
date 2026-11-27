@@ -45,6 +45,7 @@ import {
   createPostgresInstallationConfigStore,
   createPostgresInstallationSettingsStore,
   createPostgresInviteStore,
+  createPostgresJudgmentAnswers,
   createPostgresJudgmentEgress,
   createPostgresJudgmentReviewStore,
   createPostgresLinkedAccountStore,
@@ -54,6 +55,7 @@ import {
   createPostgresLoginSettingsStore,
   createPostgresMcpEgressStore,
   createPostgresMemberStore,
+  createPostgresMentionTurnStatuses,
   createPostgresPendingRequests,
   createPostgresPullRequestDrain,
   createPostgresPullRequestSettingsStore,
@@ -181,6 +183,7 @@ import {
   createSurfaceBindingService,
   createTeamService,
   createTopicSessionChecks,
+  createUnsolicitedTurnSpeaker,
   createUsageService,
   createWerftMcpServer,
   createWorkerGateway,
@@ -273,6 +276,7 @@ import {
   conversationRuntimeBearer,
   conversationRuntimeConfigFromEnv,
   createOperatorConversationTurns,
+  createUnsolicitedConversationTurns,
   serveOperatorConversationTurns,
 } from "./conversation-runtime.ts";
 import { PostgresConversationTurnNotifier } from "./conversation-turn-notifier.ts";
@@ -1427,6 +1431,21 @@ const m1Judgments =
         catalog,
         egressUrl: judgeEgressUrl,
         logger,
+        // A judgment that spoke, under the rollout on: the agent's own turn.
+        speaker: createUnsolicitedTurnSpeaker({
+          start: createUnsolicitedConversationTurns({
+            calls: createConversationCalls({
+              store: createPostgresConversationCalls(db),
+              catalog,
+            }),
+            queue: createPostgresConversationTurnQueue(db, secretKey),
+            statuses: createPostgresMentionTurnStatuses(db),
+            agents: agentStore,
+            catalog,
+          }).start,
+          answers: createPostgresJudgmentAnswers(db),
+          logger,
+        }),
       }).start();
 const interrupts = createInterruptService({
   authorization,

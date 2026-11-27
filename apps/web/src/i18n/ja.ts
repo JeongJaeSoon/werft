@@ -261,6 +261,7 @@ export const slackJa = {
   "slack.judgments.reason.out_of_scope": "担当外",
   "slack.judgments.reason.needs_agent": "エージェントが必要",
   "slack.judgments.reason.unclear": "はっきりしない",
+  "slack.judgments.reason.invalid_target": "答える投稿がない",
   "slack.judgments.reason.budget_refused": "予算で拒否",
   "slack.judgments.reason.concurrency_limited": "同時呼び出しの上限",
   "slack.judgments.reason.rate_limited": "1時間の上限超え",
