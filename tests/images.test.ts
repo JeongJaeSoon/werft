@@ -1769,7 +1769,12 @@ case "$1" in
     if [ ! -f "$stored" ]; then echo "failed to perform: not found" >&2; exit 1; fi
     cp "$stored" "$dest/"
     ;;
-  push) touch "$FAKE/pushed"; cp "$2" "$FAKE/store/" ;;
+  push)
+    if [ -n "\${FAKE_PUSH_SAYS:-}" ] && [ "$(grep -c '^login push ' "$FAKE/log")" -le "\${FAKE_PUSH_FAILS:-0}" ]; then
+      [ -z "\${FAKE_PUSH_LANDS:-}" ] || cp "$2" "$FAKE/store/"
+      echo "$FAKE_PUSH_SAYS" >&2; exit 1
+    fi
+    touch "$FAKE/pushed"; cp "$2" "$FAKE/store/" ;;
   show) echo "name: werft" ;;
   *) exit 64 ;;
 esac
@@ -1839,6 +1844,61 @@ esac
       expect(last.map((line) => line.split(" ")[1])).toEqual(["pull", "show"]);
       // Helm falls back to Docker's credentials unless they are cleared too.
       for (const line of last) expect(line).toContain("/no-login");
+    });
+
+    const tagNotFound =
+      'Error: failed to perform "Tag" on destination: sha256:0123: not found';
+    const pushes = (log: string) =>
+      log.split("\n").filter((line) => line.startsWith("login push ")).length;
+
+    test("a push whose tag the registry does not find yet is looked up and pushed again", () => {
+      const repo = fixture();
+      const run = repo.push({
+        FAKE_PUSH_SAYS: tagNotFound,
+        FAKE_PUSH_FAILS: "1",
+        CHART_PUSH_RETRY_SECONDS: "0",
+      });
+      expect(run.code).toBe(0);
+      expect(run.out).toContain("try 1 of 3");
+      expect(pushes(repo.log())).toBe(2);
+      expect(repo.pushed()).toBe(true);
+    });
+
+    test("a push that landed although its tag was not found is compared, not written again", () => {
+      const repo = fixture();
+      const run = repo.push({
+        FAKE_PUSH_SAYS: tagNotFound,
+        FAKE_PUSH_FAILS: "1",
+        FAKE_PUSH_LANDS: "1",
+        CHART_PUSH_RETRY_SECONDS: "0",
+      });
+      expect(run.code).toBe(0);
+      expect(run.out).toContain("already published");
+      expect(pushes(repo.log())).toBe(1);
+    });
+
+    test("a tag the registry never finds fails after the third push", () => {
+      const repo = fixture();
+      const run = repo.push({
+        FAKE_PUSH_SAYS: tagNotFound,
+        FAKE_PUSH_FAILS: "3",
+        CHART_PUSH_RETRY_SECONDS: "0",
+      });
+      expect(run.code).toBe(1);
+      expect(pushes(repo.log())).toBe(3);
+      expect(repo.pushed()).toBe(false);
+    });
+
+    test("a push that fails for another reason is not tried again", () => {
+      const repo = fixture();
+      const run = repo.push({
+        FAKE_PUSH_SAYS: "Error: 500 upstream",
+        FAKE_PUSH_FAILS: "3",
+        CHART_PUSH_RETRY_SECONDS: "0",
+      });
+      expect(run.code).toBe(1);
+      expect(run.out).toContain("500 upstream");
+      expect(pushes(repo.log())).toBe(1);
     });
 
     test("the same files under a new package time are a rerun, not a write", () => {
@@ -2297,6 +2357,12 @@ case "$3" in
           jq '{manifests: map({platform: {os: "linux", architecture: .[0]}, digest: .[1]})}'
         ;;
       *)
+        if [ -n "\${FAKE_INSPECT_SAYS:-}" ]; then
+          echo x >>"$FAKE/inspects"
+          if [ "$(wc -l <"$FAKE/inspects")" -le "\${FAKE_INSPECT_FAILS:-0}" ]; then
+            echo "$FAKE_INSPECT_SAYS" >&2; exit 1
+          fi
+        fi
         app="$4"; app="\${app#*werft-}"; app="\${app%:*}"
         printf '"sha256:index-%s"\\n' "$app"
         ;;
@@ -2369,6 +2435,45 @@ esac
         creates: existsSync(creates) ? readFileSync(creates, "utf8") : "",
       };
     };
+
+    const tagNotFound =
+      "ERROR: ghcr.io/o/werft-control-host:staging-7-1: not found";
+
+    test("a staging tag the registry does not find yet is asked for again, and the index is not rebuilt", () => {
+      const result = run({
+        FAKE_INSPECT_SAYS: tagNotFound,
+        FAKE_INSPECT_FAILS: "2",
+        IMAGE_INDEX_RETRY_SECONDS: "0",
+      });
+      expect(result.code).toBe(0);
+      expect(result.out).toContain("try 2 of 3");
+      expect(result.creates.trim().split("\n")).toHaveLength(apps3.length);
+      expect(result.record("control-host").digest).toBe(
+        indexOf("control-host"),
+      );
+    });
+
+    test("a staging tag the registry never finds is not staged", () => {
+      const result = run({
+        FAKE_INSPECT_SAYS: tagNotFound,
+        FAKE_INSPECT_FAILS: "3",
+        IMAGE_INDEX_RETRY_SECONDS: "0",
+      });
+      expect(result.code).toBe(1);
+      expect(result.out).toContain("not found");
+      expect(result.hasRecord("control-host")).toBe(false);
+    });
+
+    test("a tag read that fails for another reason is not asked again", () => {
+      const result = run({
+        FAKE_INSPECT_SAYS: "ERROR: unauthorized",
+        FAKE_INSPECT_FAILS: "1",
+        IMAGE_INDEX_RETRY_SECONDS: "0",
+      });
+      expect(result.code).toBe(1);
+      expect(result.out).toContain("unauthorized");
+      expect(result.out).not.toContain("asking again");
+    });
 
     test("each image gets one index on its staging tag, amd64 first", () => {
       const result = run();
