@@ -1191,6 +1191,33 @@ describe("login, logout, me", () => {
     expect("codex_sandbox_missing" in (await me.json())).toBe(false);
   });
 
+  test("me answers 200 for a workspace whose settings hold a key this build does not know, and leaves the row alone", async () => {
+    const h = harness();
+    await h.bootstrap();
+    const stored = {
+      kill_switch: true,
+      future_key: { on: true },
+      achievement_judge: { threshold: 0.5, future_nested: 1 },
+    };
+    const workspace = h.identity.workspaces[0];
+    if (!workspace) throw new Error("no workspace");
+    workspace.settings = structuredClone(stored);
+
+    const me = await h.app.request("/v1/auth/me", {
+      headers: { Cookie: cookieOf(await h.login()) },
+    });
+    expect(me.status).toBe(200);
+    const raw = (await me.json()) as {
+      workspace: { settings: Record<string, unknown> };
+    };
+    expect(raw.workspace.settings.kill_switch).toBe(true);
+    expect("future_key" in raw.workspace.settings).toBe(false);
+    expect(
+      authMeResponseSchema.parse(raw).workspace?.settings.kill_switch,
+    ).toBe(true);
+    expect(workspace.settings).toEqual(stored);
+  });
+
   test("me returns the user principal, user and workspace; logout revokes", async () => {
     const h = harness();
     await h.bootstrap();

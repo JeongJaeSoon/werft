@@ -4,7 +4,7 @@ import {
   ENDED_SESSION_STATUSES,
   type ReceiptActor,
   type ReceiptOperation,
-  workspaceSettingsSchema,
+  storedAchievementJudgeSettingsSchema,
 } from "@werft-ai/contracts";
 import {
   type CatalogRepositoryConfig,
@@ -538,9 +538,7 @@ async function judgeWithFirstDecisionModel(
   const [row] = rowsOf<{ judge: unknown }>(result);
   if (row === undefined) return;
   await consoleReceipt(tx, actor, "set_achievement_judge", {
-    achievement_judge: workspaceSettingsSchema.shape.achievement_judge.parse(
-      row.judge,
-    ),
+    achievement_judge: storedAchievementJudgeSettingsSchema.parse(row.judge),
     source: "console",
   });
 }

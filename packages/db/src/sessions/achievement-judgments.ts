@@ -13,9 +13,9 @@ import {
   type GitHubReviewEvent,
   PENDING_ACHIEVEMENT_JUDGMENT_STATUSES,
   type SessionAchievement,
+  storedAchievementJudgeSettingsSchema,
   UNFINISHED_ACHIEVEMENT_JUDGMENT_STATUSES,
   type WorkspaceRole,
-  workspaceSettingsSchema,
 } from "@werft-ai/contracts";
 import {
   ACHIEVEMENT_JUDGMENT_QUIET_MS,
@@ -160,7 +160,7 @@ export async function queueAchievementJudgment(
 }
 
 function judgeSettingsOf(settings: unknown) {
-  return workspaceSettingsSchema.shape.achievement_judge.parse(
+  return storedAchievementJudgeSettingsSchema.parse(
     (settings as { achievement_judge?: unknown } | null)?.achievement_judge,
   );
 }
