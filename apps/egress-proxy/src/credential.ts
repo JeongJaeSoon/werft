@@ -9,6 +9,7 @@ import {
   type EgressPolicy,
   type EgressResolver,
   normalizeHost,
+  refusedAddress,
 } from "./policy.ts";
 import { systemResolver } from "./proxy.ts";
 import { REDACTED, sanitizeText } from "./redaction.ts";
@@ -1691,13 +1692,21 @@ export function startCredentialProxy(
   async function authorizerDestination(host: string): Promise<EgressDecision> {
     try {
       const addresses = await resolve(host);
-      return addresses.length === 0
-        ? {
-            allowed: false,
-            failure: "unresolved",
-            reason: "host does not resolve",
-          }
-        : { allowed: true, scope: "private", addresses };
+      if (addresses.length === 0) {
+        return {
+          allowed: false,
+          failure: "unresolved",
+          reason: "host does not resolve",
+        };
+      }
+      // The API's own name, but what it resolves to is judged all the same.
+      for (const address of addresses) {
+        const refused = refusedAddress(address);
+        if (refused !== null) {
+          return { allowed: false, failure: "denied", reason: refused };
+        }
+      }
+      return { allowed: true, scope: "private", addresses };
     } catch {
       return {
         allowed: false,

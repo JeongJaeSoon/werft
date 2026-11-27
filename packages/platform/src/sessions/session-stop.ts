@@ -95,6 +95,22 @@ export function createSessionStop(deps: {
           }
         : { outcome: "nothing_running" };
     },
+
+    /**
+     * Whether the stop asked under `idempotencyKey` was already made in one
+     * of these sessions: the request's message read again after its work
+     * closed. It answers no one, so nothing is authorized.
+     */
+    stoppedBefore(
+      sessionIds: readonly string[],
+      input: { idempotencyKey: string },
+    ): Promise<boolean> {
+      if (sessionIds.length === 0) return Promise.resolve(false);
+      return deps.stops.stoppedIn({
+        sessionIds,
+        idempotencyKey: input.idempotencyKey,
+      });
+    },
   };
 }
 

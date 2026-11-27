@@ -163,13 +163,12 @@ const ALLOW_NARROW = "minmax(0,1fr) max-content";
 const ALLOW_NARROW_READ = "minmax(0,1fr)";
 const WIDE_ONLY_480 = "[@container(min-width:480px)]:hidden";
 const FOCUS_TARGET = "scroll-mt-4 outline-none";
-// The order the mockup lists them in: what most agents turn on first.
-// checks and issues stay in the contract but have no work behind them yet,
-// so they are not offered.
+// Workflow edits first, then running them, as the workspace lists them.
+// `checks` is saved with `workflows`; issues has no work behind it yet.
 const FEATURES = [
-  "review",
-  "actions",
   "workflows",
+  "actions",
+  "review",
 ] as const satisfies readonly Feature[];
 const WORKFLOW_FILE = /^[A-Za-z0-9._-]+\.ya?ml$/;
 const ALLOW_MAX = 32;
@@ -879,23 +878,35 @@ function GitHubSettings({
                     // A locked feature shows why in place of its hint, so
                     // every row keeps one detail line.
                     description={
-                      option.reason ? (
-                        <>
-                          {t(`agentGitHub.featureReason.${option.reason}`)}{" "}
-                          {option.reason === "github_host_unsupported"
-                            ? null
-                            : settingsLink}
-                        </>
-                      ) : uninstalled.length > 0 ? (
-                        <>
-                          {t("agentGitHub.reviewerNotInstalled", {
-                            repositories: uninstalled.join(", "),
-                          })}{" "}
-                          {settingsLink}
-                        </>
-                      ) : (
-                        t(`agentGitHub.feature.${feature}Hint`)
-                      )
+                      <>
+                        {option.reason ? (
+                          <>
+                            {t(`agentGitHub.featureReason.${option.reason}`)}{" "}
+                            {option.reason === "github_host_unsupported"
+                              ? null
+                              : settingsLink}
+                          </>
+                        ) : uninstalled.length > 0 ? (
+                          <>
+                            {t("agentGitHub.reviewerNotInstalled", {
+                              repositories: uninstalled.join(", "),
+                            })}{" "}
+                            {settingsLink}
+                          </>
+                        ) : (
+                          t(`agentGitHub.feature.${feature}Hint`)
+                        )}
+                        {/* Shown however the row reads: what the switch lets the agent do. */}
+                        {feature === "actions" || feature === "workflows" ? (
+                          <Text as="span" variant="meta" className="block">
+                            {t(
+                              feature === "actions"
+                                ? "agentGitHub.feature.actionsHelp"
+                                : "agentGitHub.feature.workflowsHelp",
+                            )}
+                          </Text>
+                        ) : null}
+                      </>
                     }
                     status={onOff(on)}
                     control={
@@ -909,6 +920,10 @@ function GitHubSettings({
                             features: {
                               ...current.features,
                               [feature]: checked,
+                              // One switch: images before it still read checks.
+                              ...(feature === "workflows"
+                                ? { checks: checked }
+                                : {}),
                             },
                             // The release refuses a list with Actions off.
                             ...(feature === "actions" && !checked

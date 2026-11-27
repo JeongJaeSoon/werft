@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import {
   agentGitHubSettingsSchema,
-  GITHUB_FEATURES_NONE,
+  GITHUB_FEATURES_DEFAULT,
   GITHUB_GATE_RECEIPT_OPERATION_VALUES,
+  githubEffectiveFeatures,
+  pinUnderSwitches,
 } from "@werft-ai/contracts";
 import type {
   AgentGitHubStore,
@@ -32,6 +34,7 @@ import { createPostgresGitHubPinStore } from "./github-pins.ts";
 import {
   agentGitHubSettingsOf,
   ensureRepositoryCeilingWhenUnset,
+  workspaceFeatureCeiling,
   workspaceRepositoryCeiling,
 } from "./github-settings.ts";
 
@@ -115,11 +118,12 @@ const settingsOf = (row: SettingsValues): RepositorySettings => ({
  * What an agent with no settings row starts from: its active release's GitHub
  * pins, as the tab shows them, read again under the agent's lock. Null with
  * no active release or pins this image cannot read; a release with no pin
- * starts from the tab's defaults for it.
+ * starts from the tab's defaults for it, cut to the workspace's ceiling.
  */
 async function seedOf(
   tx: Database,
   releaseId: string | null,
+  workspaceId: string,
 ): Promise<RepositorySettings | null> {
   if (releaseId === null) return null;
   const [release] = await tx
@@ -135,16 +139,20 @@ async function seedOf(
       ? {
           repositories: [] as string[],
           push_approval: false,
-          features: { ...GITHUB_FEATURES_NONE },
-          actions_allow: [] as unknown[],
+          features: githubEffectiveFeatures(
+            GITHUB_FEATURES_DEFAULT,
+            await workspaceFeatureCeiling(tx, workspaceId),
+          ),
+          actions_allow: [],
         }
       : agentGitHubSettingsSchema.safeParse(release.github).data;
   if (github === undefined) return null;
+  const { features, actions_allow } = pinUnderSwitches(github);
   return {
     repositories: [...github.repositories],
     pushApproval: github.push_approval,
-    features: github.features,
-    actionsAllow: github.actions_allow,
+    features,
+    actionsAllow: actions_allow,
     // The row would otherwise lose the release's repository, which a session
     // naming none starts on.
     startRepositoryId:
@@ -430,7 +438,8 @@ export function createPostgresAgentGitHubStore(db: Database): AgentGitHubStore {
 
           const current = held === undefined ? null : settingsOf(held);
           const base =
-            current ?? (await seedOf(tx, locked.agent.activeReleaseId));
+            current ??
+            (await seedOf(tx, locked.agent.activeReleaseId, input.workspaceId));
           if (base === null) throw new Abort({ outcome: "seed_unavailable" });
           // The response schema wants a non-empty string, and a catalog row
           // can hold an empty owner or name.

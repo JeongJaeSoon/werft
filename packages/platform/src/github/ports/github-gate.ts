@@ -145,7 +145,7 @@ export type GitHubSessionContext = {
   release: { id: string } | null;
   /** What judges the session's GitHub work: read nothing else for it. */
   policy: EffectiveGitHubPolicy;
-  /** The agent workspace's ceiling; all false without a settings row. */
+  /** The agent workspace's ceiling; GITHUB_CEILING_DEFAULT without a settings row. */
   ceiling: GitHubCeiling;
   /** The session workspace's repositories; null allows none. */
   repositoryCeiling: RepositoryCeiling | null;
@@ -240,6 +240,11 @@ export interface GitHubConnection {
    * a PAT. Issues no installation token.
    */
   installed(repo: RepoRef): Promise<boolean | null>;
+  /**
+   * What the installation on `repo` has granted, asked with the App's JWT;
+   * null when it is not installed there. Issues no installation token.
+   */
+  grantedPermissions?(repo: RepoRef): Promise<GitHubPermissions | null>;
   /**
    * `installed` for many repositories at once, from the App's installations
    * rather than one lookup per repository. Keyed by `repoKeyOf`; a

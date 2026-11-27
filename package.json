@@ -16,6 +16,7 @@
     "lint": "biome check .",
     "test": "bun test tests packages apps examples",
     "check": "bun run typecheck && bun run lint && bun run test",
+    "check:fast": "biome check --diagnostic-level=error . && bun .github/scripts/integration-jobs.ts files db 1 >/dev/null && bun test ./packages/core/src/bundle-budget.test.ts ./tests/architecture.test.ts ./packages/client/src/schema.gen.test.ts ./packages/db/src/schema.test.ts ./packages/db/src/migration-folder.test.ts ./tests/docs-self-hosting-facts.test.ts",
     "keys": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/keys.ts",
     "grants": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/grants.ts",
     "settings": "docker compose --profile apps exec -T api bun run apps/control-host/src/api/settings.ts",

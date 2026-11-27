@@ -46,6 +46,10 @@ export interface SessionLinkStore {
     input: SessionLinkReservation,
   ): Promise<{ link: SessionLinkRecord; reserved: boolean }>;
   /**
+   * The sessions of the thread's closed links, the history `find` skips.
+   */
+  closedSessions(installationId: string, surfaceRef: string): Promise<string[]>;
+  /**
    * Fills the link's session once. A link that already names a session
    * keeps it; the answer is the row as it stands.
    */

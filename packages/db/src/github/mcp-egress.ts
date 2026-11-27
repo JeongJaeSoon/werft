@@ -1,4 +1,5 @@
 import {
+  agentGitHubSchema,
   effectiveGitHubPolicy,
   GITHUB_MCP_FIXED_TOOLS,
   githubMcpToolNames,
@@ -173,9 +174,15 @@ export async function sessionGitHubMcpOf(
   });
   // A pin this image cannot read exposes nothing rather than guessing.
   if (settings === null || settings === "invalid") return null;
+  const tools = githubMcpToolNames(githubMcpTools(settings));
+  const pinned = agentGitHubSchema.safeParse(release.pin);
+  const pinTools = pinned.success
+    ? githubMcpToolNames(githubMcpTools(pinned.data))
+    : tools;
   return {
     releaseId: session.agentReleaseId,
-    tools: githubMcpToolNames(githubMcpTools(settings)),
+    tools,
+    ...(pinTools.join() === tools.join() ? {} : { pinTools }),
   };
 }
 

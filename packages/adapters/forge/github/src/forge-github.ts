@@ -197,7 +197,11 @@ export function createGitHubConnection(
         }),
     },
   });
-  const { issue, installationOf } = issuer(client, credentials, logger);
+  const { issue, installationOf, granted } = issuer(
+    client,
+    credentials,
+    logger,
+  );
   const cached = new Map<string, GitCredential>();
   const inFlight = new Map<string, Promise<GitCredential>>();
 
@@ -731,6 +735,7 @@ export function createGitHubConnection(
     quotaKey,
     installed: installedCheck(client, credentials),
     installedOn: installedOnCheck(client, credentials),
+    grantedPermissions: granted,
     api,
   };
 }
@@ -941,6 +946,7 @@ function issuer(
   ) => Promise<GitCredential>;
   /** The App installation covering `repo`. */
   installationOf: (repo: RepoRef) => Promise<number | null>;
+  granted: NonNullable<GitHubConnection["grantedPermissions"]>;
 } {
   const auth = createAppAuth({
     appId: credentials.appId,
@@ -999,7 +1005,19 @@ function issuer(
       throw failure(logger, "installation token request", error);
     }
   };
-  return { issue, installationOf };
+  async function granted(repo: RepoRef) {
+    const found = await installationFor(client, auth, repo);
+    if (found === null || (fixed !== undefined && found.id !== fixed)) {
+      return null;
+    }
+    return Object.fromEntries(
+      Object.entries(found.permissions).map(([name, level]) => [
+        name,
+        level === "read" ? ("read" as const) : ("write" as const),
+      ]),
+    );
+  }
+  return { issue, installationOf, granted };
 }
 
 type AppAuth = ReturnType<typeof createAppAuth>;
