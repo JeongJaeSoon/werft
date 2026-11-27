@@ -1201,12 +1201,15 @@ export function createPostgresSessionUnitOfWork(
           if (later) return { outcome: "superseded" };
         }
         const message = lost?.message ?? input.message;
-        // The turn would carry a source Slack deleted: its own message, or
-        // one an earlier turn of the session came from.
+        // The turn would carry a source Slack deleted: its own message, one
+        // an earlier turn of the session came from, or one the conversation
+        // turn that handed it on read.
         const sources = await newTurnSources(tx, {
           sessionId,
           slackMessage:
             platform === undefined ? (input.slackMessage ?? null) : null,
+          carried:
+            platform === undefined ? (input.carriedSources ?? null) : null,
         });
         if (
           session.workspaceId !== null &&

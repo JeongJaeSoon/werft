@@ -80,7 +80,15 @@ async function withInputIds(
  */
 export async function newTurnSources(
   tx: Database,
-  input: { sessionId: string; slackMessage: SlackMessageRef | null },
+  input: {
+    sessionId: string;
+    slackMessage: SlackMessageRef | null;
+    /**
+     * The sources a conversation turn hands on with the message (v1-b/E4):
+     * its direct ones stay direct, its inherited ones inherited.
+     */
+    carried?: StoredSourceSet | null;
+  },
 ): Promise<StoredSourceSet | null> {
   const [latest] = await tx
     .select({ sources: turns.sources })
@@ -98,9 +106,13 @@ export async function newTurnSources(
             ts: input.slackMessage.ts,
           }),
         ];
+  const carried = input.carried == null ? null : sourceSetOf(input.carried);
   const set = turnSources({
-    direct,
-    earlier: latest === undefined ? [] : [sourceSetOf(latest.sources)],
+    direct: [...direct, ...(carried?.direct ?? [])],
+    earlier: [
+      ...(carried === null ? [] : [{ ...carried, direct: [] }]),
+      ...(latest === undefined ? [] : [sourceSetOf(latest.sources)]),
+    ],
   });
   return storedSourceSet(await withInputIds(tx, input.sessionId, set));
 }

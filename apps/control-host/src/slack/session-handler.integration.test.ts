@@ -90,6 +90,7 @@ import {
   createTopicSessionChecks,
   hashConversationCallToken,
   type MentionTurnStatusStore,
+  placeSource,
   SecretKey,
   type SessionCatalog,
   type SurfaceInboundClaim,
@@ -3996,6 +3997,7 @@ describe.each(ENGINES)(
             await refreshed;
             return tasks.spawn(turnId);
           },
+          route: (turnId) => tasks.route(turnId),
         },
         limit: 10,
         claimMs,
@@ -4746,6 +4748,420 @@ describe.each(ENGINES)(
       expect(await endings()).toMatchObject({ spawned: 0 });
       expect(await sessionsOf(fixture)).toEqual([]);
       expect(await taskOfTurn(turn.turn_id)).toMatchObject({ effect: null });
+    });
+
+    // v1-b/E4: a turn that decides route_to_task hands the message to an
+    // open task of its conversation.
+    const routeTasks = () => {
+      const catalog = slackCatalog(db, LIMITS);
+      const tasks = slackConversationTasks({
+        db,
+        pool: { connect: () => Promise.reject(new Error("none")) },
+        environment: LIMITS,
+        logger,
+        secretKey: key,
+        catalog,
+        slack: createSlackBotApi({ apiUrl: slack.url }),
+        botToken: (workspaceId, slackAppId) =>
+          slackBotToken(secrets(), workspaceId, slackAppId),
+        outbox: schema.createPostgresSlackOutboxStore(db),
+        slackApiUrl: slack.url,
+      });
+      return tasks;
+    };
+    /** A task opened from a top-level mention at `ts`: its session id. */
+    const openTask = async (fixture: Fixture, ts: string) => {
+      await deliver(fixture, mention(ts));
+      await drain(handler().handle);
+      await spawnDecided();
+      expect(await endings()).toMatchObject({ spawned: 1 });
+      const link = (await links()).find((row) => row.threadId === ts);
+      if (!link?.sessionId) throw new Error(`no task in ${ts}`);
+      return link.sessionId;
+    };
+    /** The next queued turn decides route_to_task to `sessionId`. */
+    const routeDecided = async (
+      sessionId: string,
+      read: readonly string[] = [],
+    ) => {
+      slack.messages.length = 0;
+      const turn = await leased();
+      const store = createPostgresConversationReadToolStore(db);
+      if (read.length > 0) {
+        await store.addDirectSources(
+          turn.turn_id,
+          read.map((ts) =>
+            placeSource({ teamId: TEAM, channelId: CHANNEL, ts }),
+          ),
+        );
+      }
+      const decision: ConversationDecision = {
+        tool: "route_to_task",
+        task_id: sessionId,
+        reason: "a follow-up of that task",
+      };
+      expect(
+        await store.recordDecision({
+          turnId: turn.turn_id,
+          leaseId: conversationTurnLeaseIdSchema.parse(turn.lease_id),
+          runtimeId: RUNTIME,
+          decision,
+        }),
+      ).toMatchObject({ outcome: "recorded" });
+      await report(turn, {
+        outcome: "completed",
+        text: "MODEL-TEXT handing it over.",
+        decision,
+      });
+      return turn;
+    };
+    /** A mention in the mirror thread `threadTs` (or its root when equal). */
+    const followUp = async (fixture: Fixture, ts: string, threadTs = ts) => {
+      await deliver(
+        fixture,
+        mention(ts, {
+          text: `<@${BOT_USER}> and add the risks`,
+          ...(threadTs === ts ? {} : { thread_ts: threadTs }),
+        }),
+      );
+      await drain(handler().handle);
+    };
+    const taskTurns = (sessionId: string) =>
+      db
+        .select({
+          sequence: schema.turns.sequence,
+          message: schema.turns.message,
+          status: schema.turns.status,
+          actorId: schema.turns.actorId,
+          sources: schema.turns.sources,
+        })
+        .from(schema.turns)
+        .where(eq(schema.turns.sessionId, sessionId))
+        .orderBy(asc(schema.turns.sequence));
+    const mirrors = () => db.select().from(schema.taskThreadMirrors);
+    const mirrorLines = (threadTs: string) =>
+      postsIn(threadTs).filter((post) =>
+        post.text.includes(SLACK_NOTICE_MESSAGES.en.routeMirror),
+      );
+    const threadUrl = (ts: string) =>
+      `https://slack.com/archives/${CHANNEL}/p${ts.replace(".", "")}`;
+
+    test("a new top-level post handed to an open task: one input of that task, one mirror row, one pointer line, no new task", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await openTask(fixture, "100.000100");
+      await followUp(fixture, "100.000200");
+      const turn = await routeDecided(task);
+      expect(await endings()).toMatchObject({
+        ended: 1,
+        routed: 1,
+        spawned: 0,
+      });
+      // The server's copy of the message, the person who wrote it its requester.
+      const [first, second, ...more] = await taskTurns(task);
+      expect(more).toEqual([]);
+      expect(first?.sequence).toBe(1);
+      expect(second).toMatchObject({
+        sequence: 2,
+        message: "and add the risks",
+        actorId: fixture.ownerId,
+      });
+      expect(await sessionsOf(fixture)).toHaveLength(1);
+      // The task keeps its one thread: its reports go there alone.
+      expect((await links()).map((link) => link.threadId)).toEqual([
+        "100.000100",
+      ]);
+      expect(await mirrors()).toMatchObject([
+        { channelId: CHANNEL, threadTs: "100.000200", sessionId: task, rev: 1 },
+      ]);
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        effect: "routed",
+        nonce: null,
+        keptUntil: null,
+      });
+      await sendOutbox();
+      const [line, ...others] = postsIn("100.000200");
+      expect(others).toEqual([]);
+      expect(line?.text).toContain(SLACK_NOTICE_MESSAGES.en.routeMirror);
+      expect(line?.text).toContain(threadUrl("100.000100"));
+      expect(
+        slack.messages.filter((posted) => posted.text.includes("MODEL-TEXT")),
+      ).toEqual([]);
+      // The turn list names the task the turn handed to.
+      const page = await schema
+        .createPostgresConversationTurnListStore(db)
+        .page({
+          workspaceId: fixture.workspaceId,
+          agentId: fixture.agentId,
+          rootKinds: null,
+          cursor: undefined,
+          limit: 10,
+        });
+      expect(page.items.find((item) => item.id === turn.turn_id)).toMatchObject(
+        { decision: "route_to_task", thread_task_session_id: task },
+      );
+      // The same turn's effect again: nothing more.
+      expect(await endings()).toMatchObject({ ended: 0, routed: 0 });
+      expect(await routeTasks().route(turn.turn_id)).toBe("none");
+      expect(await taskTurns(task)).toHaveLength(2);
+      expect(await mirrors()).toHaveLength(1);
+      // A spawn_task effect is no hand-off's, nor the other way round.
+      await expect(
+        Promise.resolve(
+          db.execute(
+            sql`UPDATE conversation_turns SET task_effect = 'opened' WHERE id = ${turn.turn_id}::uuid`,
+          ),
+        ),
+      ).rejects.toThrow();
+      await expect(
+        Promise.resolve(
+          db.execute(
+            sql`UPDATE conversation_turns SET routed_session_id = ${task}::uuid WHERE decision = 'spawn_task'`,
+          ),
+        ),
+      ).rejects.toThrow();
+    });
+
+    test("a message handed to a task with a running turn waits behind it, and no task is made", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await openTask(fixture, "100.000100");
+      await db
+        .update(schema.turns)
+        .set({ status: "running", startedAt: new Date() })
+        .where(eq(schema.turns.sessionId, task));
+      await followUp(fixture, "100.000200");
+      await routeDecided(task);
+      expect(await endings()).toMatchObject({ routed: 1, spawned: 0 });
+      expect((await taskTurns(task)).map((row) => row.status)).toEqual([
+        "running",
+        "queued",
+      ]);
+      expect(await sessionsOf(fixture)).toHaveLength(1);
+    });
+
+    test("a task of another conversation is not handed to (G3): the thread is told, nothing written", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await openTask(fixture, "100.000100");
+      // Another person's DM is a conversation of its own.
+      await deliver(fixture, {
+        type: "message",
+        channel: "D0OWNER",
+        channel_type: "im",
+        user: PERSON,
+        ts: "100.000150",
+        text: "start the weekly report",
+      });
+      await drain(handler().handle);
+      const dm = (await db.select().from(schema.conversations)).find(
+        (row) => row.kind === "dm",
+      );
+      if (dm === undefined) throw new Error("no DM conversation");
+      await report(await leased(), { outcome: "completed", text: "hm" });
+      await endings();
+      await db
+        .update(sessions)
+        .set({ parentConversationId: dm.id })
+        .where(eq(sessions.id, task));
+      await followUp(fixture, "100.000200");
+      const turn = await routeDecided(task);
+      expect(await endings()).toMatchObject({ routed: 0 });
+      expect(await taskTurns(task)).toHaveLength(1);
+      expect(await mirrors()).toEqual([]);
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        effect: "failed",
+        nonce: null,
+      });
+      await sendOutbox();
+      expect(postsIn("100.000200").map((post) => post.text)).toEqual([
+        `${SLACK_NOTICE_MESSAGES.en.routeFailed}\n\nAI agent · Werft`,
+      ]);
+    });
+
+    test("no session.submit on the task (G5): the requester alone is told, nothing handed", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await openTask(fixture, "100.000100");
+      await followUp(fixture, "100.000200");
+      const turn = await routeDecided(task);
+      await db.delete(linkedAccounts);
+      expect(await endings()).toMatchObject({ routed: 0 });
+      expect(await taskTurns(task)).toHaveLength(1);
+      expect(await mirrors()).toEqual([]);
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        effect: "refused",
+        nonce: null,
+      });
+      expect(ephemerals()).toMatchObject([
+        { userId: PERSON, threadTs: "100.000200" },
+      ]);
+      expect(ephemerals()[0]?.text).toContain(
+        SLACK_NOTICE_MESSAGES.en.routeConnect,
+      );
+      await sendOutbox();
+      expect(postsIn("100.000200")).toEqual([]);
+      // Refused is final: a later run hands nothing on.
+      expect(await routeTasks().route(turn.turn_id)).toBe("none");
+      expect(await taskTurns(task)).toHaveLength(1);
+    });
+
+    test("a second follow-up in the same mirror thread is judged again and handed on with no second line", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await openTask(fixture, "100.000100");
+      await followUp(fixture, "100.000200");
+      await routeDecided(task);
+      await endings();
+      // Not bound to the task: the conversation's turn judges it again.
+      await followUp(fixture, "100.000210", "100.000200");
+      await routeDecided(task);
+      expect(await endings()).toMatchObject({ routed: 1 });
+      expect(await taskTurns(task)).toHaveLength(3);
+      expect(await mirrors()).toMatchObject([{ sessionId: task, rev: 1 }]);
+      slack.messages.length = 0;
+      await sendOutbox();
+      // Both turns' outbox rows go now: one line for the thread in all.
+      expect(mirrorLines("100.000200")).toHaveLength(1);
+    });
+
+    test("a mirror thread names the task it last handed to: A→B one line, B→B none, B→A one more", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const a = await openTask(fixture, "100.000100");
+      const b = await openTask(fixture, "100.000300");
+      const lines: string[] = [];
+      const step = async (ts: string, to: string) => {
+        await followUp(fixture, ts, "100.000200");
+        await routeDecided(to);
+        expect(await endings()).toMatchObject({ routed: 1 });
+        await sendOutbox();
+        lines.push(...mirrorLines("100.000200").map((post) => post.text));
+      };
+      await step("100.000200", a);
+      await step("100.000210", b);
+      await step("100.000220", b);
+      await step("100.000230", a);
+      expect(lines).toHaveLength(3);
+      expect(lines[0]).toContain(threadUrl("100.000100"));
+      expect(lines[1]).toContain(threadUrl("100.000300"));
+      expect(lines[2]).toContain(threadUrl("100.000100"));
+      expect(await mirrors()).toMatchObject([{ sessionId: a, rev: 3 }]);
+      expect(await taskTurns(a)).toHaveLength(3);
+      expect(await taskTurns(b)).toHaveLength(3);
+    });
+
+    test("two follow-ups of one mirror thread handed to the same task at once post one line", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await openTask(fixture, "100.000100");
+      await followUp(fixture, "100.000200");
+      const first = await routeDecided(task);
+      await followUp(fixture, "100.000210", "100.000200");
+      const second = await routeDecided(task);
+      const tasks = routeTasks();
+      expect(
+        (
+          await Promise.all([
+            tasks.route(first.turn_id),
+            tasks.route(second.turn_id),
+          ])
+        ).sort(),
+      ).toEqual(["routed", "routed"]);
+      expect(await taskTurns(task)).toHaveLength(3);
+      expect(await mirrors()).toMatchObject([{ sessionId: task, rev: 1 }]);
+      await sendOutbox();
+      expect(mirrorLines("100.000200")).toHaveLength(1);
+    });
+
+    test("a follow-up deleted after the decision is handed nowhere and says nothing", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await openTask(fixture, "100.000100");
+      await followUp(fixture, "100.000200");
+      const turn = await routeDecided(task);
+      await schema.createPostgresSlackSourceMarkStore(db).markDeleted({
+        workspaceId: fixture.workspaceId,
+        teamId: TEAM,
+        channelId: CHANNEL,
+        ts: "100.000200",
+        at: new Date(),
+      });
+      expect(await endings()).toMatchObject({ routed: 0 });
+      expect(await taskTurns(task)).toHaveLength(1);
+      expect(await mirrors()).toEqual([]);
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        effect: "voided",
+        nonce: null,
+        keptUntil: null,
+      });
+      await sendOutbox();
+      expect(postsIn("100.000200")).toEqual([]);
+    });
+
+    test("a hand-off written before a crash is settled on the next run: one input, one mirror row, one line", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await openTask(fixture, "100.000100");
+      await followUp(fixture, "100.000200");
+      const turn = await routeDecided(task);
+      await db.execute(
+        sql.raw(`CREATE FUNCTION fail_settle() RETURNS trigger LANGUAGE plpgsql
+          AS $$ BEGIN RAISE EXCEPTION 'settle lost'; END $$`),
+      );
+      await db.execute(
+        sql.raw(`CREATE TRIGGER fail_settle BEFORE UPDATE OF task_effect
+          ON conversation_turns FOR EACH ROW EXECUTE FUNCTION fail_settle()`),
+      );
+      try {
+        expect(await endings()).toMatchObject({ routed: 0, failed: 1 });
+      } finally {
+        await db.execute(
+          sql.raw("DROP TRIGGER fail_settle ON conversation_turns"),
+        );
+        await db.execute(sql.raw("DROP FUNCTION fail_settle()"));
+      }
+      expect(await taskTurns(task)).toHaveLength(2);
+      expect(await mirrors()).toEqual([]);
+      // The right lost since does not undo what was written.
+      await db.delete(linkedAccounts);
+      expect(await endings()).toMatchObject({ routed: 1 });
+      expect(await routeTasks().route(turn.turn_id)).toBe("none");
+      expect(await taskTurns(task)).toHaveLength(2);
+      expect(await mirrors()).toHaveLength(1);
+      await sendOutbox();
+      expect(mirrorLines("100.000200")).toHaveLength(1);
+    });
+
+    test("the handed input and its line carry the turn's whole source set; a read message deleted stops the line", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await openTask(fixture, "100.000100");
+      await followUp(fixture, "100.000200");
+      // The turn read another post of the channel with a tool.
+      const turn = await routeDecided(task, ["100.000150"]);
+      const kept = await taskOfTurn(turn.turn_id);
+      expect(
+        [...(kept?.sources?.direct ?? []), ...(kept?.sources?.inherited ?? [])]
+          .map((key) => key.ts)
+          .sort(),
+      ).toEqual(["100.000150", "100.000200"]);
+      expect(await endings()).toMatchObject({ routed: 1 });
+      const handed = (await taskTurns(task))[1]?.sources;
+      const handedTs = [
+        ...(handed?.direct ?? []),
+        ...(handed?.inherited ?? []),
+      ].map((key) => key.ts);
+      // Its own, what the turn read, and the task's first input's.
+      expect(handedTs).toEqual(
+        expect.arrayContaining(["100.000100", "100.000150", "100.000200"]),
+      );
+      await schema.createPostgresSlackSourceMarkStore(db).markDeleted({
+        workspaceId: fixture.workspaceId,
+        teamId: TEAM,
+        channelId: CHANNEL,
+        ts: "100.000150",
+        at: new Date(),
+      });
+      await sendOutbox();
+      expect(postsIn("100.000200")).toEqual([]);
+      // The task's next input carries the deleted read too, and is refused.
+      await deliver(
+        fixture,
+        message("100.000400", { thread_ts: "100.000100", text: "go on" }),
+      );
+      await drain(handler().handle);
+      expect(await taskTurns(task)).toHaveLength(2);
     });
 
     // v1-b/E2: the 👀 on the message that called a turn that took it on.

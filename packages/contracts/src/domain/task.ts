@@ -79,6 +79,22 @@ export const CONVERSATION_TASK_EFFECT_VALUES = [
 export type ConversationTaskEffect =
   (typeof CONVERSATION_TASK_EFFECT_VALUES)[number];
 
+/**
+ * What a route_to_task decision's effect did, once it ran (v1-b/E4):
+ * `routed` the message into its task; `refused` it (the person may not
+ * submit to that task); `failed`, the task no longer open in the turn's
+ * conversation or the request gone; `voided` by a delete of a message the
+ * turn read.
+ */
+export const CONVERSATION_ROUTE_EFFECT_VALUES = [
+  "routed",
+  "refused",
+  "failed",
+  "voided",
+] as const;
+export type ConversationRouteEffect =
+  (typeof CONVERSATION_ROUTE_EFFECT_VALUES)[number];
+
 /** The most open tasks one conversation, and one agent, may have (decision 24). */
 export const TASK_OPEN_LIMIT_PER_CONVERSATION = 3;
 export const TASK_OPEN_LIMIT_PER_AGENT = 10;

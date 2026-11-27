@@ -19,6 +19,7 @@ import {
   createPostgresConversationCalls,
   createPostgresConversationReactions,
   createPostgresConversationReplies,
+  createPostgresConversationRoutes,
   createPostgresConversationStore,
   createPostgresConversationTasks,
   createPostgresConversationTurnQueue,
@@ -58,6 +59,7 @@ import {
 } from "@werft-ai/observability";
 import {
   agentReleaseReaders,
+  type ConversationRouteOutcome,
   type ConversationTaskOutcome,
   createAuthorizationPolicy,
   createCatalogRegistry,
@@ -71,6 +73,7 @@ import {
   registryCatalog,
   repositoryView,
   requesterLeft,
+  routeConversationTurn,
   type SecretKey,
   type SurfaceInboundEventStore,
   type SurfaceOutboxStore,
@@ -365,8 +368,9 @@ function slackSessionServices(deps: {
 }
 
 /**
- * What a mention turn that decided spawn_task opens (v1-b/E3): judged again
- * here, as the turn ends, on the Slack subject the mention was judged on.
+ * What a mention turn that decided spawn_task opens (v1-b/E3), or hands to
+ * an open task when it decided route_to_task (v1-b/E4): judged again here,
+ * as the turn ends, on the Slack subject the mention was judged on.
  */
 export function slackConversationTasks(deps: {
   db: Database;
@@ -379,18 +383,31 @@ export function slackConversationTasks(deps: {
   botToken: SlackOutbound["botToken"];
   outbox: Pick<SurfaceOutboxStore, "enqueue" | "readerLocale">;
   slackApiUrl?: string;
-}): { spawn(turnId: ConversationTurnId): Promise<ConversationTaskOutcome> } {
+}): {
+  spawn(turnId: ConversationTurnId): Promise<ConversationTaskOutcome>;
+  route(turnId: ConversationTurnId): Promise<ConversationRouteOutcome>;
+} {
   const { db, logger } = deps;
   const { authorization, sessions } = slackSessionServices(deps);
-  const tasks = {
-    store: createPostgresConversationTasks(db, deps.secretKey),
+  const shared = {
     links: createPostgresSessionLinkStore(db),
     authorization,
     sessions,
     connectUrl: slackConnectUrl(consoleOriginFrom(deps.environment)),
     logger,
     // Sent now, not queued: a line Slack refuses falls back to the thread.
-    async tellRequester(task: PendingConversationTask, notice: SlackNotice) {
+    async tellRequester(
+      task: Pick<
+        PendingConversationTask,
+        "turnId" | "workspaceId" | "subject"
+      > & {
+        thread: Pick<
+          PendingConversationTask["thread"],
+          "slackAppId" | "teamId" | "channelId" | "threadTs"
+        >;
+      },
+      notice: SlackNotice,
+    ) {
       const slackUserId = task.subject?.slackUserId;
       if (slackUserId === undefined || task.thread.slackAppId === null) {
         return false;
@@ -429,7 +446,18 @@ export function slackConversationTasks(deps: {
       }
     },
   };
-  return { spawn: (turnId) => spawnConversationTask(tasks, turnId) };
+  const tasks = {
+    ...shared,
+    store: createPostgresConversationTasks(db, deps.secretKey),
+  };
+  const routes = {
+    ...shared,
+    store: createPostgresConversationRoutes(db, deps.secretKey),
+  };
+  return {
+    spawn: (turnId) => spawnConversationTask(tasks, turnId),
+    route: (turnId) => routeConversationTurn(routes, turnId),
+  };
 }
 
 /**

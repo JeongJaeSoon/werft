@@ -15,6 +15,8 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **대화 rollout이 `on`인 에이전트의 멘션 턴이 열린 작업에 넘기기로 끝나면, 그 멘션 글이 같은 대화의 열린 작업에 입력으로 들어간다**(JeongJaeSoon/werft#PR_NUMBER). 새 작업은 만들지 않고, 작업이 실행 중이면 그 뒤에 줄을 선다. 넘길 때 같은 대화의 열린 작업인지와 글쓴이의 `session.submit`을 다시 확인한다. 다른 스레드에서 넘기면 그 스레드에 원래 스레드를 가리키는 한 줄만 달고(가리키는 작업이 바뀔 때마다 한 번), 작업 보고는 원래 스레드에만 간다. migration `0388_conversation_task_route`가 새 표 `task_thread_mirrors`와 `conversation_turns.routed_session_id`(빈 열)를 더하고, `conversation_turns_task_check`를 `NOT VALID` 뒤 `VALIDATE`로 바꾼다. 따로 할 일은 없다.
+  - 앞선 이미지로 되돌려도 된다. 앞선 이미지는 새 열과 새 표를 읽지 않고, 넘기기로 끝난 턴의 효과를 내지 않는다(전처럼 아무것도 올리지 않는다).
 - **대화 rollout이 `on`인 에이전트의 멘션 턴이 새 작업 만들기로 끝나면, 그 대화를 부모로 한 작업 세션 하나가 열려 그 스레드에 묶인다**(JeongJaeSoon/werft#2265). 요청 원문은 서버가 받은 멘션 글이고, 모델이 쓴 목표와 완료 조건은 해석으로만 남는다. 작업을 열 때 멘션을 판정한 Slack 주체로 `task.spawn`을 다시 판정한다. 대화 하나에 열린 작업은 3개, 에이전트 하나에 10개까지다. 넘거나 에이전트가 쓸 수 없는 저장소를 고르면 열지 않고 그 이유를 스레드에 올린다. migration `0386_conversation_task_spawn`이 `conversation_turns`에 빈 열 셋(`task_draft`, `slack_subject`, `task_effect`)을, `conversation_turn_queue`에 `input_kept_until`과 그 부분 인덱스(`CONCURRENTLY`)를 더하고 두 CHECK를 `NOT VALID` 뒤 `VALIDATE`로 바꾼다. 따로 할 일은 없다.
   - 큐는 실행 중인 턴의 입력만 봉인해 두고, 새 작업 만들기로 끝난 턴의 입력은 작업이 정해질 때까지 최대 1시간 둔다. egress 토큰은 lease 때 지운다.
   - 앞선 이미지로 되돌려도 된다. 앞선 이미지는 새 열을 읽지 않는다. 이 버전이 lease한 턴의 입력 사본(봉인된 입력만)은 앞선 이미지가 지우지 않고 남는다. 이 버전을 다시 올리면 기한이 지난 사본부터 지운다.
