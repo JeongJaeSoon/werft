@@ -365,6 +365,10 @@ describe("워크스페이스 MCP 서버", () => {
     expect(
       within(dialog).getByText(/IP 주소가 아닌 호스트 이름이어야 하고/),
     ).toBeDefined();
+    expect(within(dialog).getByText(/풀린 주소가 모두 공개 주소여야/)).toBeDefined();
+    expect(
+      within(dialog).getByText(/예외는 운영자가 사설 목록에 둔 호스트 이름뿐/),
+    ).toBeDefined();
     expect(within(dialog).queryByText(/허용 목록/) === null).toBe(true);
   });
 
