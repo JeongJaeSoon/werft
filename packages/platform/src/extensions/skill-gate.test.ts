@@ -1372,3 +1372,15 @@ describe("twentieth review", () => {
     );
   });
 });
+
+describe("twenty-first review", () => {
+  test("a 1 MiB line of commands does not throw", () => {
+    const body = `${":;".repeat(524_287)}:\n`;
+    expect(() =>
+      gate({
+        before: null,
+        after: [...licensed("s"), text("skills/s/scripts/a.sh", body)],
+      }),
+    ).not.toThrow();
+  });
+});
