@@ -152,6 +152,9 @@ function run(env: Record<string, string> = {}, at = sha.merge) {
       SDK_PACK: "false",
       DOCS_ONLY: "false",
       DOMAINS: JSON.stringify(domains),
+      INTEGRATION_MATRIX: JSON.stringify(
+        domains.map((domain) => ({ domain, name: domain })),
+      ),
       ...env,
     },
   });
@@ -313,13 +316,23 @@ describe("ci-reuse.sh", () => {
     const shard = (name: string, conclusion = "success") =>
       job(`integration (db ${name})`, "Tests of this domain", conclusion);
     const all = [shard("1/3"), shard("2/3"), shard("3/3")];
+    // This tree declares db as three shards.
+    const env = {
+      INTEGRATION_MATRIX: JSON.stringify(
+        domains.flatMap((domain) =>
+          domain === "db"
+            ? ["1/3", "2/3", "3/3"].map((n) => ({ domain, name: `db ${n}` }))
+            : [{ domain, name: domain }],
+        ),
+      ),
+    };
     answer({
       pulls: pr(),
       compare: { status: "ahead" },
       runs: runs(),
       jobs: { jobs: sharded(all) },
     });
-    expect(run().outputs.reused).toBe("https://github.invalid/runs/11");
+    expect(run(env).outputs.reused).toBe("https://github.invalid/runs/11");
 
     for (const jobs of [
       [shard("1/3"), shard("3/3")],
@@ -327,10 +340,27 @@ describe("ci-reuse.sh", () => {
       [...all, shard("4/3")],
       [shard("1/2"), shard("2/3"), shard("3/3")],
       [...all, job("integration (db)", "Tests of this domain")],
+      // Complete, but not the set this tree declares.
+      [shard("1/2"), shard("2/2")],
+      [job("integration (db)", "Tests of this domain")],
     ]) {
       answer({ jobs: { jobs: sharded(jobs) } });
-      refused(run(), "did not run and pass: integration (db)");
+      refused(run(env), "did not run and pass: integration (db)");
     }
+    // And the other way: shards where this tree declares one job.
+    answer({ jobs: { jobs: sharded(all) } });
+    refused(run(), "did not run and pass: integration (db)");
+  });
+
+  test("a plan with tests and no integration matrix is malformed", () => {
+    hit();
+    for (const matrix of ["", "[]", "{}", '[{"domain":"db"}]', "nope"]) {
+      const r = run({ INTEGRATION_MATRIX: matrix });
+      expect(r.code).toBe(2);
+      expect(r.why).toContain("INTEGRATION_MATRIX is not the planned matrix");
+    }
+    // Without tests there is no integration matrix to hold a run to.
+    expect(run({ TESTS: "false", INTEGRATION_MATRIX: "" }).code).toBe(0);
   });
 
   test("a job that passed without running its suite is no evidence", () => {

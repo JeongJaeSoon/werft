@@ -113,6 +113,21 @@ jobs:
           esac
           echo "conformance: run=$run"
           echo "run=$run" >>"$GITHUB_OUTPUT"
+      - if: steps.plan.outputs.tests == 'true'
+        uses: ./.github/actions/bun-setup
+        with:
+          restore-cache: "false"
+      # The integration-domain matrix, one entry per shard: only the planned
+      # domains start a job. ci-reuse.sh holds a reused run to these job names
+      # too. An assignment, so a planner failure fails the step.
+      - id: domains
+        name: Integration matrix of the planned domains
+        if: steps.plan.outputs.tests == 'true'
+        env:
+          DOMAINS: ${{ steps.plan.outputs.domains }}
+        run: |
+          matrix=$(bun .github/scripts/integration-jobs.ts matrix "$DOMAINS")
+          echo "matrix=$matrix" >>"$GITHUB_OUTPUT"
       - id: reuse
         name: Reuse the PR run that tested this tree
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -127,12 +142,9 @@ jobs:
           K8S: ${{ steps.plan.outputs.k8s }}
           SDK_PACK: ${{ steps.sdk.outputs.run }}
           DOMAINS: ${{ steps.plan.outputs.domains }}
+          INTEGRATION_MATRIX: ${{ steps.domains.outputs.matrix }}
           DOCS_ONLY: ${{ steps.plan.outputs.docs_only }}
         run: bash .github/scripts/ci-reuse.sh >>"$GITHUB_OUTPUT"
-      - if: steps.plan.outputs.tests == 'true'
-        uses: ./.github/actions/bun-setup
-        with:
-          restore-cache: "false"
       - id: units
         if: github.event.inputs.only == 'check' || steps.plan.outputs.domains == '["surface"]'
         env:
@@ -144,16 +156,6 @@ jobs:
             args+=(--exclude-surface)
           fi
           matrix=$(bun .github/scripts/unit-part.ts matrix "${args[@]}")
-          echo "matrix=$matrix" >>"$GITHUB_OUTPUT"
-      # The integration-domain matrix: only the planned domains start a job.
-      # An assignment, so a planner failure fails the step.
-      - id: domains
-        name: Integration matrix of the planned domains
-        if: steps.plan.outputs.tests == 'true' && steps.reuse.outputs.reused == ''
-        env:
-          DOMAINS: ${{ steps.plan.outputs.domains }}
-        run: |
-          matrix=$(bun .github/scripts/integration-jobs.ts matrix "$DOMAINS")
           echo "matrix=$matrix" >>"$GITHUB_OUTPUT"
 
   # A main push that reuses the PR run of its tree skips it: ci-reuse.sh

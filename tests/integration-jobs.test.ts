@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   assign,
+  forShard,
   type IntegrationJob,
   matrix,
   readJobs,
@@ -199,6 +200,27 @@ describe("integration-jobs.ts", () => {
     expect(() =>
       assign(["packages/db/a.test.ts"], [job("db", ["packages/db/"], [], 2)]),
     ).toThrow("db has 1 files for 2 shards");
+  });
+
+  test("each shard is held to the declared skips of its own files only", () => {
+    const skip = { file: "packages/storage/b.test.ts", test: "on macOS only" };
+    const storage = job("storage", ["packages/storage/"], [skip], 2);
+    const owned = ["packages/storage/a.test.ts", "packages/storage/b.test.ts"];
+    const [first, second] = [1, 2].map((shard) => shardFiles(owned, 2, shard));
+    // The shard without b.test.ts does not wait for its skip…
+    expect(
+      verifyRun(forShard(storage, first!), first!, [
+        { file: "packages/storage/a.test.ts", skipped: false, test: "x" },
+      ]),
+    ).toEqual([]);
+    // …and the shard with it still must skip it.
+    expect(
+      verifyRun(forShard(storage, second!), second!, [
+        { file: "packages/storage/b.test.ts", skipped: false, test: skip.test },
+      ]),
+    ).toEqual([
+      "declared skip did not skip: packages/storage/b.test.ts > on macOS only",
+    ]);
   });
 
   test("the matrix refuses an empty, malformed, repeated or unknown plan", () => {
