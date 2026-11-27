@@ -435,9 +435,16 @@ const fromStdin = (words: readonly string[], flags: readonly string[]) =>
  */
 function readsHeredocAsText(words: readonly string[]): boolean {
   const [name, verb, action] = words;
-  // `wc --files0-from=-` reads the names of files from stdin.
+  // `wc --files0-from=-` reads the names of files from stdin, and wc takes
+  // a long option by any unique start of its name (`--f=-`).
   if (TEXT_FILTERS.includes(name ?? "")) {
-    return !words.some((word) => word.startsWith("--files0"));
+    return !(
+      name === "wc" &&
+      words.some((word) => {
+        const option = word.split("=")[0] as string;
+        return option.length > 2 && "--files0-from".startsWith(option);
+      })
+    );
   }
   if (name === "gh") {
     return (
@@ -447,33 +454,37 @@ function readsHeredocAsText(words: readonly string[]): boolean {
     );
   }
   if (name !== "git" || verb !== "commit") return false;
-  // `--pathspec-from-file=-` reads the paths to commit from stdin, and
-  // `--patch` its answers. git takes a long option by any unique start of
-  // its name (`--pathspec-fro=-`), so a start of one counts as the option.
-  if (words.some(readsStdinOnCommit)) return false;
-  // `--file` is an ask rule's.
-  return fromStdin(words, ["-F"]);
+  // Anything else may read stdin before the message (`--pathspec-from-file=-`,
+  // `--patch`), take `-F` as its own value (`-m -F -`), or open an editor
+  // that inherits the heredoc (`-e`), so only flags without a value stand
+  // beside the one `-F -`. `--file` is an ask rule's.
+  const rest = words.slice(2);
+  const at = rest.indexOf("-F");
+  return (
+    at !== -1 &&
+    rest[at + 1] === "-" &&
+    rest.every(
+      (word, index) =>
+        index === at || index === at + 1 || COMMIT_FLAGS.includes(word),
+    )
+  );
 }
 
-const COMMIT_STDIN_OPTIONS = [
-  "--pathspec-from-file",
-  "--patch",
-  "--interactive",
+/** `git commit` flags that take no value and read nothing. */
+const COMMIT_FLAGS = [
+  "-a",
+  "--all",
+  "--amend",
+  "-s",
+  "--signoff",
+  "-n",
+  "--no-verify",
+  "-q",
+  "--quiet",
+  "--allow-empty",
+  "--allow-empty-message",
+  "--no-edit",
 ];
-
-function readsStdinOnCommit(word: string): boolean {
-  const name = word.split("=")[0] as string;
-  if (name.startsWith("--")) {
-    return (
-      name.length > 2 &&
-      COMMIT_STDIN_OPTIONS.some(
-        (option) => option.startsWith(name) || name.startsWith(option),
-      )
-    );
-  }
-  // `-p` is `--patch`, alone or in a cluster (`-ap`).
-  return /^-[A-Za-z]*p/.test(word);
-}
 
 const startsWith = (words: string[], command: string[]) =>
   command.every((token, index) => words[index] === token);
