@@ -4199,6 +4199,8 @@ describe("Slack emergency stop", () => {
     ).toBeDefined();
     expect(screen.queryByRole("button", { name: "채널 추가" })).toBeNull();
     expect(screen.queryByRole("region", { name: "기본" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "판단 기록" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "판단 기록" })).toBeNull();
   });
 
   test("with a home, the channels read as before, with no home step", async () => {
@@ -4217,6 +4219,9 @@ describe("Slack emergency stop", () => {
     expect(screen.getByRole("button", { name: "홈 지정" })).toBeDefined();
     expect(screen.getByRole("button", { name: "채널 추가" })).toBeDefined();
     expect(await screen.findByRole("region", { name: "기본" })).toBeDefined();
+    // The names the home-step test looks for, so its absence checks can fail.
+    expect(screen.getByRole("region", { name: "판단 기록" })).toBeDefined();
+    expect(screen.getByRole("link", { name: "판단 기록" })).toBeDefined();
   });
 
   test("a member sees the channels of an agent with no home, with no stop", async () => {
