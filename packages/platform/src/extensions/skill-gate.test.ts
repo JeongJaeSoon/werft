@@ -950,3 +950,46 @@ describe("fourth review", () => {
     ]);
   });
 });
+
+describe("fifth review", () => {
+  const warn = (line: string, allowed: string[] = []) =>
+    gate({
+      allowedHosts: new Set(allowed),
+      after: [...licensed("s"), text("skills/s/scripts/a.sh", `${line}\n`)],
+    }).warnings;
+
+  test("a later string with an @ is not the URL's userinfo", () => {
+    expect(
+      warn('const cfg=["https://outside.example","user@allowed.example"];', [
+        "allowed.example",
+      ]),
+    ).toEqual([
+      {
+        rule: "host_not_allowlisted",
+        paths: ["skills/s/scripts/a.sh"],
+        samples: ["outside.example"],
+      },
+    ]);
+  });
+
+  test("git with global options, and each git download verb, reads as a download", () => {
+    for (const line of [
+      "git -C repo clone https://allowed.example/r.git",
+      "git fetch origin",
+      "git pull",
+      "git ls-remote https://allowed.example/r.git",
+    ]) {
+      expect(warn(line, ["allowed.example"])).toEqual([
+        {
+          rule: "network_call",
+          paths: ["skills/s/scripts/a.sh"],
+          samples: ["download"],
+        },
+      ]);
+    }
+  });
+
+  test("a fullwidth hash is not a comment", () => {
+    expect(rulesOf(warn("＃; curl x"))).toEqual(["network_call"]);
+  });
+});

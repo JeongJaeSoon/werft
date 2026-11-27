@@ -142,7 +142,7 @@ export const NETWORK_CALL_PATTERNS: readonly { id: string; pattern: RegExp }[] =
     {
       id: "download",
       pattern:
-        /\b(?:curl|wget|invoke-webrequest|invoke-restmethod|git\s+(?:clone|fetch|pull|ls-remote))\b/,
+        /\b(?:curl|wget|invoke-webrequest|invoke-restmethod|git(?:\s+-\S+(?:\s+[^\s-]\S*)??)*\s+(?:clone|fetch|pull|ls-remote))\b/,
     },
     {
       id: "http_call",
@@ -297,7 +297,12 @@ function codeHosts(line: string): Set<string> {
     const segment = line.slice(Math.max(0, start - 1), starts[index + 1]);
     const clean = (text: string) =>
       [...plainTextHosts(text)].find((host) => CLEAN_HOST.test(host));
-    const host = clean(segment) ?? clean(segment.replace(/["'`,(){}]/g, " "));
+    // Userinfo reached across a quote or comma is another string of code.
+    const crossed = /^[^\s@]*?https?:\/\/[^\s@]*["`,][^\s]*@/i.test(segment);
+    const split = clean(segment.replace(/["'`,(){}]/g, " "));
+    const host = crossed
+      ? (split ?? clean(segment))
+      : (clean(segment) ?? split);
     if (host !== undefined) hosts.add(host);
   });
   return hosts;
@@ -383,7 +388,8 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
         if (!allowedHosts.has(host))
           flag("host_not_allowlisted", file.path, host);
       }
-      if (COMMENT.test(plain)) continue;
+      // As written: a fullwidth "＃" starts no comment, though NFKC makes it "#".
+      if (COMMENT.test(line)) continue;
       for (const { id, pattern } of NETWORK_CALL_PATTERNS) {
         if (pattern.test(plain)) flag("network_call", file.path, id);
       }
