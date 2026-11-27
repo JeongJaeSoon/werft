@@ -1,20 +1,10 @@
-import {
-  type ApproveSlackNoticeRequest,
-  type GetSlackNoticeResponse,
-  type SetConversationRolloutRequest,
-  SLACK_NOTICE_VERSIONS,
-  type SlackNoticeState,
-  type SlackNoticeText,
-  type SlackNoticeVersionEntry,
-  slackNoticeWindow,
+import type {
+  GetSlackNoticeResponse,
+  SetConversationRolloutRequest,
 } from "@werft-ai/contracts";
 import {
-  approveSlackNotice,
   type Database,
-  judgeSlackNotice,
-  liveSlackNoticeApprovals,
   managesWorkspace,
-  revokeSlackNotice,
   rolloutOf,
   setConversationRollout,
 } from "@werft-ai/db";
@@ -28,12 +18,7 @@ import {
 type Place = { workspaceId: string; agentId: string };
 
 const refused = (
-  code:
-    | "BAD_REQUEST"
-    | "FORBIDDEN"
-    | "NOT_FOUND"
-    | "REVISION_CONFLICT"
-    | "SLACK_NOT_INSTALLED",
+  code: "BAD_REQUEST" | "ENDPOINT_RETIRED" | "FORBIDDEN" | "NOT_FOUND",
   message: string,
   reasonCode?: string,
 ) =>
@@ -44,23 +29,16 @@ const refused = (
     reasonCode === undefined ? undefined : { reason_code: reasonCode },
   );
 
-const textOf = (text: SlackNoticeText) => ({
-  body: [...text.body],
-  policy_link: { ...text.policyLink },
-});
-
 /**
- * The notice an agent's Slack tab shows, and the approval a workspace owner or
- * admin gives there. Whoever reads the agent's settings sees it; only owners
- * and admins approve, revoke, and see the approvers' email addresses.
+ * An agent's conversation switch on its Slack tab. Whoever reads the agent's
+ * settings sees it; only workspace owners and admins change it. The Slack
+ * notice approval that once came before it is retired: its fields answer as
+ * if no notice were published, and its routes answer 410.
  */
 export function createSlackNoticeService(deps: {
   authorization: AuthorizationPolicy;
   db: Database;
-  versions?: readonly SlackNoticeVersionEntry[];
 }) {
-  const versions = deps.versions ?? SLACK_NOTICE_VERSIONS;
-
   async function reader(caller: Caller, agentId: string) {
     await requirePermitted(deps.authorization, caller, "agent.settings_read", {
       kind: "agent",
@@ -70,7 +48,7 @@ export function createSlackNoticeService(deps: {
     if (caller.subject.surface.kind !== "web" || principal?.kind !== "user") {
       throw refused(
         "FORBIDDEN",
-        "The Slack notice is approved from a signed-in console session, not with an API key",
+        "The conversation switch is read and changed from a signed-in console session, not with an API key",
         "web_session_required",
       );
     }
@@ -84,125 +62,31 @@ export function createSlackNoticeService(deps: {
     place: Place,
     userId: string,
   ): Promise<GetSlackNoticeResponse> {
-    const window = slackNoticeWindow(versions);
-    const current = versions.at(-1);
-    const [judgment, live, manages, rollout] = await Promise.all([
-      judgeSlackNotice(deps.db, place, versions),
-      liveSlackNoticeApprovals(deps.db, place),
+    const [manages, rollout] = await Promise.all([
       managesWorkspace(deps.db, place.workspaceId, userId),
       rolloutOf(deps.db, place),
     ]);
     if (rollout === null) throw NOT_FOUND();
-    const counts = (version: number) =>
-      window !== null &&
-      version >= window.oldestCounted &&
-      version <= window.current;
-    const state: SlackNoticeState = judgment.approved
-      ? "approved"
-      : judgment.reason === "not_approved" &&
-          live.some((approval) => !counts(approval.version))
-        ? "reapproval_required"
-        : judgment.reason;
     return {
-      notice:
-        current === undefined
-          ? null
-          : {
-              version: current.version,
-              requires_reapproval: current.requiresReapproval,
-              text: {
-                ko: textOf(current.text.ko),
-                ja: textOf(current.text.ja),
-              },
-            },
-      state,
+      notice: null,
+      state: "no_notice",
       rollout,
       can_approve: manages,
-      approvals: live.map((approval) => ({
-        id: approval.id,
-        slack_team_id: approval.slackTeamId,
-        notice_version: approval.version,
-        counts: counts(approval.version),
-        approved_by: {
-          user_id: approval.approvedBy,
-          display_name: approval.approvedByName,
-          email: manages ? approval.approvedByEmail : null,
-        },
-        approved_at: approval.approvedAt.toISOString(),
-      })),
+      approvals: [],
     };
   }
 
   const NOT_FOUND = () => refused("NOT_FOUND", "Resource not found");
-  const NOT_ADMIN = () =>
-    refused(
-      "FORBIDDEN",
-      "Only a workspace owner or admin approves the Slack notice",
-      "workspace_admin_required",
-    );
   const NOT_ADMIN_ROLLOUT = () =>
     refused(
       "FORBIDDEN",
       "Only a workspace owner or admin changes the agent's conversation switch",
       "workspace_admin_required",
     );
-  const NOT_INSTALLED = () =>
-    refused(
-      "SLACK_NOT_INSTALLED",
-      "The agent's Slack app is not installed, so there is no organization to approve for",
-    );
 
   return {
     async read(caller: Caller, agentId: string) {
       const { place, userId } = await reader(caller, agentId);
-      return view(place, userId);
-    },
-
-    async approve(
-      caller: Caller,
-      agentId: string,
-      body: ApproveSlackNoticeRequest,
-    ) {
-      const { place, userId } = await reader(caller, agentId);
-      // Who may approve is answered before what is approved; the write checks again under its lock.
-      if (!(await managesWorkspace(deps.db, place.workspaceId, userId))) {
-        throw NOT_ADMIN();
-      }
-      const window = slackNoticeWindow(versions);
-      if (window === null) {
-        throw refused(
-          "REVISION_CONFLICT",
-          "No Slack notice is published yet",
-          "no_notice",
-        );
-      }
-      if (body.notice_version !== window.current) {
-        throw refused(
-          "REVISION_CONFLICT",
-          "The notice shown is no longer the current version; read it again",
-          "notice_version_stale",
-        );
-      }
-      const result = await approveSlackNotice(
-        deps.db,
-        {
-          ...place,
-          by: userId,
-          locale: body.locale,
-          requestId: caller.requestId,
-        },
-        versions,
-      );
-      if (result.outcome === "not_found") throw NOT_FOUND();
-      if (result.outcome === "not_admin") throw NOT_ADMIN();
-      if (result.outcome === "not_installed") throw NOT_INSTALLED();
-      if (result.outcome === "no_notice") {
-        throw refused(
-          "REVISION_CONFLICT",
-          "No Slack notice is published yet",
-          "no_notice",
-        );
-      }
       return view(place, userId);
     },
 
@@ -215,16 +99,12 @@ export function createSlackNoticeService(deps: {
       if (!(await managesWorkspace(deps.db, place.workspaceId, userId))) {
         throw NOT_ADMIN_ROLLOUT();
       }
-      const result = await setConversationRollout(
-        deps.db,
-        {
-          ...place,
-          rollout: body.rollout,
-          by: { userId },
-          requestId: caller.requestId,
-        },
-        versions,
-      );
+      const result = await setConversationRollout(deps.db, {
+        ...place,
+        rollout: body.rollout,
+        by: { userId },
+        requestId: caller.requestId,
+      });
       if (result.outcome === "not_found") throw NOT_FOUND();
       if (result.outcome === "not_admin") throw NOT_ADMIN_ROLLOUT();
       if (result.outcome === "on_unavailable") {
@@ -234,33 +114,16 @@ export function createSlackNoticeService(deps: {
           "rollout_on_unavailable",
         );
       }
-      if (result.outcome === "not_approved") {
-        if (result.reason === "not_installed") {
-          throw refused(
-            "SLACK_NOT_INSTALLED",
-            "The switch leaves off only while the agent's Slack app is installed",
-            "not_installed",
-          );
-        }
-        throw refused(
-          "REVISION_CONFLICT",
-          "The switch leaves off only after the current Slack notice is approved",
-          result.reason === "no_notice" ? "no_notice" : "notice_not_approved",
-        );
-      }
       return view(place, userId);
     },
 
-    async revoke(caller: Caller, agentId: string) {
-      const { place, userId } = await reader(caller, agentId);
-      const result = await revokeSlackNotice(deps.db, {
-        ...place,
-        by: userId,
-        requestId: caller.requestId,
-      });
-      if (result.outcome === "not_found") throw NOT_FOUND();
-      if (result.outcome === "not_admin") throw NOT_ADMIN();
-      return view(place, userId);
+    /** The approve and revoke routes: gone, whoever calls and whatever is sent. */
+    retired(): never {
+      throw refused(
+        "ENDPOINT_RETIRED",
+        "The Slack notice approval is retired; the conversation switch needs none",
+        "slack_notice_retired",
+      );
     },
   };
 }

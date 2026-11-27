@@ -4,8 +4,6 @@ import type { PGlite } from "@electric-sql/pglite";
 import {
   type ConversationTopicId,
   JUDGMENT_BUFFER_LIMIT_PER_CHANNEL,
-  type SlackNoticeVersionEntry,
-  slackNoticeVersionSchema,
 } from "@werft-ai/contracts";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle } from "drizzle-orm/pglite";
@@ -15,30 +13,10 @@ import type { Database } from "../queries.ts";
 import * as schema from "../schema.ts";
 import { fixtureTeamSql } from "../testing/fixture-team.ts";
 import {
-  approveSlackNotice,
   conversationGate,
-  lowerUnapprovedRollouts,
-  revokeSlackNotice,
   setConversationRollout,
-} from "./slack-notice-approvals.ts";
-
-const TEXT = {
-  body: ["notice"],
-  policyLink: { label: "policy", href: "https://docs.example.test/data" },
-};
-const entry = (
-  version: number,
-  requiresReapproval: boolean,
-): SlackNoticeVersionEntry => ({
-  version: slackNoticeVersionSchema.parse(version),
-  text: { ko: TEXT, ja: TEXT },
-  requiresReapproval,
-});
-const V1 = [entry(1, true)];
-/** Version 2 only rewords version 1. */
-const REWORDED = [...V1, entry(2, false)];
-/** Version 2 asks for a new approval. */
-const ASKS_AGAIN = [...V1, entry(2, true)];
+} from "./conversation-rollout.ts";
+import { unnoticedSlackChannels } from "./slack-channel-notices.ts";
 
 const TEAM = "T0ROLLOUT";
 const CHANNEL = "C0ROLLOUT";
@@ -123,14 +101,38 @@ afterEach(async () => {
 
 const place = () => ({ workspaceId: ws.id, agentId });
 
-const approve = (versions: readonly SlackNoticeVersionEntry[] = V1) =>
-  approveSlackNotice(db, { ...place(), by: ws.admin, locale: "ko" }, versions);
-
 const set = (
   rollout: "off" | "shadow" | "on",
   by: "operator_cli" | { userId: string } = { userId: ws.admin },
-  versions: readonly SlackNoticeVersionEntry[] = V1,
-) => setConversationRollout(db, { ...place(), rollout, by }, versions);
+) => setConversationRollout(db, { ...place(), rollout, by });
+
+/** Puts the switch where only SQL can, today: `on` is not settable yet. */
+async function forceRollout(rollout: "off" | "shadow" | "on") {
+  await client.query(
+    "UPDATE agents SET conversation_rollout = $2 WHERE id = $1",
+    [agentId, rollout],
+  );
+}
+
+async function rolloutNow(): Promise<string> {
+  const { rows } = await client.query<{ r: string }>(
+    "SELECT conversation_rollout AS r FROM agents WHERE id = $1",
+    [agentId],
+  );
+  return rows[0]?.r ?? "";
+}
+
+/** An approval row as the retired approval wrote them; nothing reads it now. */
+async function storedApproval(revoked: boolean) {
+  await client.query(
+    `INSERT INTO slack_notice_approvals
+       (id, workspace_id, agent_id, slack_team_id, notice_version, approved_by,
+        revoked_at, revoked_by)
+     VALUES ($1, $2, $3, $4, 1, $5,
+       CASE WHEN $6 THEN now() END, CASE WHEN $6 THEN $5::uuid END)`,
+    [randomUUID(), ws.id, agentId, TEAM, ws.admin, revoked],
+  );
+}
 
 /** Holds one unmentioned message for the agent; returns whether it was held. */
 async function post(): Promise<string> {
@@ -173,21 +175,9 @@ async function rolloutReceipts() {
   return rows;
 }
 
+// docs/architecture/state-machines.md, 4. rollout 스위치: one test per row.
 describe("the conversation switch", () => {
-  test("it leaves off only for an agent approved now, and never for on", async () => {
-    expect(await set("shadow")).toEqual({
-      outcome: "not_approved",
-      reason: "not_approved",
-    });
-    expect(await set("shadow", { userId: ws.admin }, [])).toEqual({
-      outcome: "not_approved",
-      reason: "no_notice",
-    });
-    await approve();
-    expect(await set("on")).toEqual({ outcome: "on_unavailable" });
-    expect(await set("on", "operator_cli")).toEqual({
-      outcome: "on_unavailable",
-    });
+  test("off → shadow needs no approval: no row, none live, or a stored one alike", async () => {
     expect(await set("shadow")).toEqual({
       outcome: "changed",
       before: "off",
@@ -195,55 +185,98 @@ describe("the conversation switch", () => {
       bufferedDropped: 0,
     });
     expect(await rolloutReceipts()).toHaveLength(1);
+    await set("off");
+    await storedApproval(true);
+    expect((await set("shadow", "operator_cli")).outcome).toBe("changed");
+    await set("off");
+    await storedApproval(false);
+    expect((await set("shadow")).outcome).toBe("changed");
   });
 
-  test("an agent with no live Slack install is refused as not installed", async () => {
-    await approve();
+  test("off → shadow needs no live Slack install either", async () => {
     await client.query(
       "UPDATE agent_identities SET status = 'revoked', revoked_at = now() WHERE agent_id = $1",
       [agentId],
     );
-    expect(await set("shadow")).toEqual({
-      outcome: "not_approved",
-      reason: "not_installed",
+    expect((await set("shadow")).outcome).toBe("changed");
+  });
+
+  test("shadow → off empties the buffer and holds nothing new", async () => {
+    await set("shadow");
+    expect(await post()).toBe("held");
+    expect(await post()).toBe("held");
+    expect(await set("off")).toEqual({
+      outcome: "changed",
+      before: "shadow",
+      after: "off",
+      bufferedDropped: 2,
+    });
+    expect(await buffered()).toBe(0);
+    expect(await post()).toBe("not_held");
+  });
+
+  test("off → on is refused, from the web and the operator CLI, and changes nothing", async () => {
+    expect(await set("on")).toEqual({ outcome: "on_unavailable" });
+    expect(await set("on", "operator_cli")).toEqual({
+      outcome: "on_unavailable",
+    });
+    expect(await rolloutNow()).toBe("off");
+    expect(await rolloutReceipts()).toEqual([]);
+  });
+
+  test("shadow → on is refused until W1 opens it", async () => {
+    await set("shadow");
+    expect(await set("on")).toEqual({ outcome: "on_unavailable" });
+    expect(await rolloutNow()).toBe("shadow");
+    expect(await rolloutReceipts()).toHaveLength(1);
+  });
+
+  test("on → shadow and on → off are taken, for a switch SQL left on", async () => {
+    await forceRollout("on");
+    expect(await set("shadow")).toMatchObject({
+      outcome: "changed",
+      before: "on",
+      after: "shadow",
+    });
+    await forceRollout("on");
+    expect(await set("off", "operator_cli")).toMatchObject({
+      outcome: "changed",
+      before: "on",
+      after: "off",
     });
   });
 
+  test("the value it holds changes nothing and writes no receipt", async () => {
+    expect(await set("off")).toEqual({
+      outcome: "unchanged",
+      before: "off",
+      after: "off",
+      bufferedDropped: 0,
+    });
+    await set("shadow");
+    expect((await set("shadow")).outcome).toBe("unchanged");
+    expect(await rolloutReceipts()).toHaveLength(1);
+  });
+
   test("owners and admins change it; a member is not an admin; another workspace's agent is not found", async () => {
-    await approve();
     expect((await set("shadow", { userId: ws.owner })).outcome).toBe("changed");
     expect(await set("off", { userId: ws.member })).toEqual({
       outcome: "not_admin",
     });
-    const otherWorkspace = randomUUID();
     expect(
-      await setConversationRollout(
-        db,
-        {
-          workspaceId: otherWorkspace,
-          agentId,
-          rollout: "off",
-          by: "operator_cli",
-        },
-        V1,
-      ),
+      await setConversationRollout(db, {
+        workspaceId: randomUUID(),
+        agentId,
+        rollout: "off",
+        by: "operator_cli",
+      }),
     ).toEqual({ outcome: "not_found" });
-    expect(await conversationGate(db, place(), { versions: V1 })).toMatchObject(
-      { open: true, rollout: "shadow" },
-    );
+    expect(await rolloutNow()).toBe("shadow");
   });
 
-  test("each change writes one receipt in its transaction; the same value writes none", async () => {
-    await approve();
-    await set("shadow");
+  test("each change writes one receipt in its transaction, reason always null", async () => {
     await set("shadow");
     expect(await post()).toBe("held");
-    expect(await set("off", "operator_cli")).toEqual({
-      outcome: "changed",
-      before: "shadow",
-      after: "off",
-      bufferedDropped: 1,
-    });
     await set("off", "operator_cli");
     expect(await rolloutReceipts()).toEqual([
       {
@@ -274,77 +307,16 @@ describe("the conversation switch", () => {
       },
     ]);
   });
-
-  test("off empties the agent's buffer and holds nothing new", async () => {
-    await approve();
-    await set("shadow");
-    expect(await post()).toBe("held");
-    expect(await post()).toBe("held");
-    expect(await buffered()).toBe(2);
-    await set("off");
-    expect(await buffered()).toBe(0);
-    expect(await post()).toBe("not_held");
-    expect(await buffered()).toBe(0);
-  });
-
-  test("a revoke lowers a raised switch and empties the buffer; one already off records no change", async () => {
-    await approve();
-    await set("shadow");
-    expect(await post()).toBe("held");
-    const revoked = await revokeSlackNotice(db, { ...place(), by: ws.owner });
-    expect(revoked.outcome).toBe("revoked");
-    expect(await buffered()).toBe(0);
-    expect((await rolloutReceipts()).at(-1)).toEqual({
-      result: {
-        agent_id: agentId,
-        before: "shadow",
-        after: "off",
-        by: "web",
-        reason: "notice_revoked",
-        buffered_dropped: 1,
-      },
-      actor: {
-        principal: { kind: "user", id: ws.owner },
-        actor_user_id: ws.owner,
-        agent_id: null,
-      },
-    });
-    expect(await conversationGate(db, place(), { versions: V1 })).toEqual({
-      open: false,
-      reason: "rollout_off",
-    });
-    await approve();
-    await revokeSlackNotice(db, { ...place(), by: ws.owner });
-    expect(await rolloutReceipts()).toHaveLength(2);
-  });
 });
 
 describe("the conversation gate", () => {
-  test("it is open only with the switch raised and the agent approved now", async () => {
-    const gate = (versions: readonly SlackNoticeVersionEntry[] = V1) =>
-      conversationGate(db, place(), { versions });
-    expect(await gate()).toEqual({ open: false, reason: "rollout_off" });
-    expect((await approve()).outcome).toBe("approved");
+  test("it follows the switch alone", async () => {
+    const gate = () => conversationGate(db, place());
     expect(await gate()).toEqual({ open: false, reason: "rollout_off" });
     await set("shadow");
-    expect(await gate()).toEqual({
-      open: true,
-      rollout: "shadow",
-      approvals: [
-        {
-          approvalId: expect.any(String),
-          version: 1,
-          slackTeamId: TEAM,
-        },
-      ] as never,
-    });
-    // Before any pass lowers the switch, the gate already answers no.
-    expect(await gate(ASKS_AGAIN)).toEqual({
-      open: false,
-      reason: "not_approved",
-    });
-    expect((await gate(REWORDED)).open).toBe(true);
-    expect(await gate([])).toEqual({ open: false, reason: "no_notice" });
+    expect(await gate()).toEqual({ open: true, rollout: "shadow" });
+    await forceRollout("on");
+    expect(await gate()).toEqual({ open: true, rollout: "on" });
     await client.query(
       "UPDATE agents SET status = 'archived', deleted_at = now(), deleted_by = $2 WHERE id = $1",
       [agentId, ws.owner],
@@ -353,80 +325,39 @@ describe("the conversation gate", () => {
   });
 });
 
-describe("the pass that lowers unapproved switches", () => {
-  test("a version that asks anew lowers the switch with a receipt and an empty buffer; a rewording leaves it", async () => {
-    await approve();
-    await set("shadow");
-    expect(await post()).toBe("held");
-    expect(
-      await lowerUnapprovedRollouts(db, {
-        dryRun: false,
-        limit: 10,
-        versions: REWORDED,
-      }),
-    ).toEqual([]);
-    expect(
-      await lowerUnapprovedRollouts(db, {
-        dryRun: true,
-        limit: 10,
-        versions: ASKS_AGAIN,
-      }),
-    ).toEqual([agentId]);
-    expect(await buffered()).toBe(1);
-    expect(await rolloutReceipts()).toHaveLength(1);
-    expect(
-      await lowerUnapprovedRollouts(db, {
-        dryRun: false,
-        limit: 10,
-        versions: ASKS_AGAIN,
-      }),
-    ).toEqual([agentId]);
-    expect(await buffered()).toBe(0);
-    expect((await rolloutReceipts()).at(-1)).toEqual({
-      result: {
-        agent_id: agentId,
-        before: "shadow",
-        after: "off",
-        by: "reconciler",
-        reason: "not_approved",
-        buffered_dropped: 1,
-      },
-      actor: null,
-    });
-    expect(await set("shadow", { userId: ws.admin }, ASKS_AGAIN)).toMatchObject(
-      { outcome: "not_approved" },
-    );
-    // Approved again, it may be raised again; the pass leaves it then.
-    await approve(ASKS_AGAIN);
-    expect(
-      (await set("shadow", { userId: ws.admin }, ASKS_AGAIN)).outcome,
-    ).toBe("changed");
-    expect(
-      await lowerUnapprovedRollouts(db, {
-        dryRun: false,
-        limit: 10,
-        versions: ASKS_AGAIN,
-      }),
-    ).toEqual([]);
+// What a deploy of this change does to agents as they stand: the switch is
+// read as stored, and nothing lowers or raises it by itself any more.
+describe("agents as the retired approval left them", () => {
+  test("an agent at off, approved or not, stays off and does not listen", async () => {
+    for (const approval of [null, true, false] as const) {
+      if (approval !== null) await storedApproval(approval);
+      expect(await rolloutNow()).toBe("off");
+      expect(await conversationGate(db, place())).toEqual({
+        open: false,
+        reason: "rollout_off",
+      });
+      expect(await post()).toBe("not_held");
+      expect(await unnoticedSlackChannels(db, { limit: 10 })).toEqual([]);
+    }
+    expect(await rolloutReceipts()).toEqual([]);
   });
 
-  test("an app gone from its Slack team is lowered as not installed", async () => {
-    await approve();
-    await set("shadow");
-    await client.query(
-      "UPDATE agent_identities SET status = 'revoked', revoked_at = now() WHERE agent_id = $1",
-      [agentId],
-    );
-    expect(
-      await lowerUnapprovedRollouts(db, {
-        dryRun: false,
-        limit: 10,
-        versions: V1,
-      }),
-    ).toEqual([agentId]);
-    expect((await rolloutReceipts()).at(-1)?.result).toMatchObject({
-      by: "reconciler",
-      reason: "not_installed",
+  test("an approved agent at shadow stays at shadow and keeps listening", async () => {
+    await storedApproval(false);
+    await forceRollout("shadow");
+    expect(await conversationGate(db, place())).toEqual({
+      open: true,
+      rollout: "shadow",
     });
+    expect(await post()).toBe("held");
+    expect(await rolloutNow()).toBe("shadow");
+    expect(await rolloutReceipts()).toEqual([]);
+  });
+
+  test("a revoked approval no longer lowers the switch", async () => {
+    await set("shadow");
+    await storedApproval(true);
+    expect(await rolloutNow()).toBe("shadow");
+    expect((await conversationGate(db, place())).open).toBe(true);
   });
 });

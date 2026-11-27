@@ -12,13 +12,11 @@ import * as schema from "@werft-ai/db";
 import {
   agentIdentities,
   agents,
-  approveSlackNotice,
   channelContexts,
   conversations,
   createPostgresSlackOutboxStore,
   type Database,
   memberships,
-  revokeSlackNotice,
   SLACK_CHANNEL_NOTICE_ATTEMPTS,
   setConversationRollout,
   slackApps,
@@ -57,7 +55,7 @@ const entry = (
 const V1 = [entry(1, true)];
 /** Version 2 only rewords version 1. */
 const V2 = [...V1, entry(2, false)];
-/** Version 3 asks for a new approval. */
+/** Version 3 asks for a new approval, from when approvals were given. */
 const V3 = [...V2, entry(3, true)];
 
 const ENGINE = testDatabaseUrl() ? "PostgreSQL" : "PGlite";
@@ -145,18 +143,8 @@ describe(`channel notice sweep on ${ENGINE}`, () => {
       slackAppId,
       installationId,
       slackTeam,
-      approve: (versions: readonly SlackNoticeVersionEntry[]) =>
-        approveSlackNotice(db, { ...place, by: admin, locale: "ko" }, versions),
-      revoke: () => revokeSlackNotice(db, { ...place, by: admin }),
-      rollout: (
-        rollout: "off" | "shadow",
-        versions: readonly SlackNoticeVersionEntry[],
-      ) =>
-        setConversationRollout(
-          db,
-          { ...place, rollout, by: "operator_cli" },
-          versions,
-        ),
+      rollout: (rollout: "off" | "shadow") =>
+        setConversationRollout(db, { ...place, rollout, by: "operator_cli" }),
     };
   }
   type SlackAgent = Awaited<ReturnType<typeof slackAgent>>;
@@ -188,11 +176,10 @@ describe(`channel notice sweep on ${ENGINE}`, () => {
     return { id, channelId, set };
   }
 
-  /** An agent listening under V1: approved and raised to `shadow`. */
+  /** An agent raised to `shadow`: no approval is asked. */
   async function listening() {
     const agent = await slackAgent();
-    await agent.approve(V1);
-    await agent.rollout("shadow", V1);
+    await agent.rollout("shadow");
     return agent;
   }
 
@@ -229,11 +216,6 @@ describe(`channel notice sweep on ${ENGINE}`, () => {
   test("nothing is told before a notice is published", async () => {
     const agent = await listening();
     await channel(agent);
-    // Raised by hand: with no notice, no path can raise it.
-    await db
-      .update(agents)
-      .set({ conversationRollout: "shadow" })
-      .where(eq(agents.id, agent.agentId));
     expect(
       await unnoticedSlackChannels(db, { limit: 10, versions: [] }),
     ).toEqual([]);
@@ -279,20 +261,19 @@ describe(`channel notice sweep on ${ENGINE}`, () => {
 
   test("raising the switch first tells every listened channel once; lowering and raising adds nothing", async () => {
     const agent = await slackAgent();
-    await agent.approve(V1);
     const a = await channel(agent);
     const b = await channel(agent);
     await pass(V1);
     expect(await noticesOf(agent.agentId)).toHaveLength(0);
 
-    expect((await agent.rollout("shadow", V1)).outcome).toBe("changed");
+    expect((await agent.rollout("shadow")).outcome).toBe("changed");
     await pass(V1);
     expect(
       (await noticesOf(agent.agentId)).map((row) => row.channelId).sort(),
     ).toEqual([a.channelId, b.channelId].sort());
 
-    await agent.rollout("off", V1);
-    await agent.rollout("shadow", V1);
+    await agent.rollout("off");
+    await agent.rollout("shadow");
     await pass(V1);
     expect(await noticesOf(agent.agentId)).toHaveLength(2);
   });
@@ -311,22 +292,16 @@ describe(`channel notice sweep on ${ENGINE}`, () => {
     expect(await noticesOf(agent.agentId)).toHaveLength(1);
   });
 
-  test("a version that only rewords is not told again; one asking for approval is, once approved", async () => {
+  test("a version that only rewords is not told again; one that asks anew is told under it", async () => {
     const agent = await listening();
     const c = await channel(agent);
     await pass(V1);
     expect(await noticesOf(agent.agentId)).toHaveLength(1);
 
-    // Approved again under the reworded version, or not: no new line.
-    await pass(V2);
-    await agent.approve(V2);
     await pass(V2);
     expect(await noticesOf(agent.agentId)).toHaveLength(1);
 
-    // Version 3 counts no earlier approval: nothing until it is approved.
-    await pass(V3);
-    expect(await noticesOf(agent.agentId)).toHaveLength(1);
-    await agent.approve(V3);
+    // No approval is waited for: the channel is told under version 3 at once.
     await pass(V3);
     await pass(V3);
     expect(
@@ -370,27 +345,33 @@ describe(`channel notice sweep on ${ENGINE}`, () => {
     await pass(V1);
     expect(await noticesOf(agent.agentId)).toEqual([]);
 
-    // Switch off, never approved, approval revoked.
+    // The switch off: nothing, whatever approval rows it has from before.
     const off = await slackAgent();
-    await off.approve(V1);
     await channel(off);
-    const unapproved = await slackAgent();
-    await channel(unapproved);
-    await db
-      .update(agents)
-      .set({ conversationRollout: "shadow" })
-      .where(eq(agents.id, unapproved.agentId));
-    const revoked = await listening();
-    await revoked.revoke();
-    await db
-      .update(agents)
-      .set({ conversationRollout: "shadow" })
-      .where(eq(agents.id, revoked.agentId));
-    await channel(revoked);
+    await db.insert(schema.slackNoticeApprovals).values({
+      id: randomUUID(),
+      workspaceId: off.workspaceId,
+      agentId: off.agentId,
+      slackTeamId: off.slackTeam,
+      noticeVersion: 1,
+      approvedBy: (await db.select({ id: users.id }).from(users).limit(1))[0]
+        ?.id as string,
+    });
     await pass(V1);
-    for (const other of [off, unapproved, revoked]) {
-      expect(await noticesOf(other.agentId)).toEqual([]);
-    }
+    expect(await noticesOf(off.agentId)).toEqual([]);
+  });
+
+  test("an agent raised with no approval tells its channels as one approved did", async () => {
+    const agent = await slackAgent();
+    const c = await channel(agent);
+    await db
+      .update(agents)
+      .set({ conversationRollout: "shadow" })
+      .where(eq(agents.id, agent.agentId));
+    await pass(V1);
+    expect(
+      (await noticesOf(agent.agentId)).map((row) => row.channelId),
+    ).toEqual([c.channelId]);
   });
 
   const storeOf = (versions: readonly SlackNoticeVersionEntry[]) =>
@@ -436,21 +417,18 @@ describe(`channel notice sweep on ${ENGINE}`, () => {
     ]);
   });
 
-  test("a row waits while another Slack team of the agent has not approved", async () => {
+  test("a row does not wait on the agent's other Slack teams", async () => {
     const agent = await listening();
     await channel(agent);
     const store = storeOf(V1);
     await pass(V1);
-    // The app installed in a second team, not approved there yet: the switch
-    // stays raised until the reconciler lowers it.
     counter += 1;
-    const secondTeam = `T0NOTICE${counter}`;
     const installationId = randomUUID();
     await db.insert(slackInstallations).values({
       id: installationId,
       workspaceId: agent.workspaceId,
       appId: `A0SECOND${counter}`,
-      teamId: secondTeam,
+      teamId: `T0NOTICE${counter}`,
     });
     await db.insert(agentIdentities).values({
       id: randomUUID(),
@@ -462,9 +440,6 @@ describe(`channel notice sweep on ${ENGINE}`, () => {
       credentialRef: `slack/bot-${counter}`,
     });
     await store.closeUnaddressed();
-    expect(await claimOf(store, agent.agentId)).toEqual([]);
-
-    await agent.approve(V1);
     expect(await claimOf(store, agent.agentId)).toHaveLength(1);
   });
 
@@ -526,14 +501,13 @@ describe(`channel notice sweep on ${ENGINE}`, () => {
     );
   });
 
-  test("a row of a version that asked for approval anew is closed, and the channel is told under it", async () => {
+  test("a row of a version a later one replaced is closed, and the channel is told under the later one", async () => {
     const agent = await listening();
     const c = await channel(agent);
     await pass(V1);
     await c.set({ listen: "mention" });
     const store = storeOf(V3);
     await store.closeUnaddressed();
-    await agent.approve(V3);
     await c.set({ listen: "free" });
     await pass(V3);
     expect(
@@ -560,9 +534,8 @@ describe(`channel notice sweep on ${ENGINE}`, () => {
 
   test("many channels go a batch per pass, each once", async () => {
     const agent = await slackAgent();
-    await agent.approve(V1);
     for (let i = 0; i < 3; i += 1) await channel(agent);
-    await agent.rollout("shadow", V1);
+    await agent.rollout("shadow");
     // Other tests' channels may still be due; this agent's are counted.
     let passes = 0;
     while ((await noticesOf(agent.agentId)).length < 3 && passes < 20) {

@@ -20,4 +20,9 @@ export const ACCEPTED: readonly {
     why: "No route answers it: the exit's settle writes it onto the input receipt of a turn whose worker lost its lease, once that worker is gone, and only receipt reads on API and console routes return it; no worker route reads a receipt.",
     proof: "packages/db/src/worker-ownership-lost.test.ts",
   },
+  {
+    problem: 'error $.error.code: the receiver refuses "ENDPOINT_RETIRED"',
+    why: "Only the two retired Slack notice routes answer it (POST /v1/agents/{id}/slack/notice/approve and /revoke, 410), and they are console routes behind a web session; no worker route answers it and a worker calls neither.",
+    proof: "apps/control-host/src/api/routes/surface/slack-notice.test.ts",
+  },
 ];

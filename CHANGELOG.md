@@ -15,6 +15,15 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **Slack 채널 듣기의 고지 승인을 없앤다. 워크스페이스 owner·admin은 승인 없이 에이전트의 대화 스위치를 `shadow`로 올리고 내린다**(JeongJaeSoon/werft#PRNUM). API 계약이 바뀐다.
+  - `POST /v1/agents/{id}/slack/notice/approve`와 `/revoke`는 무엇을 보내든 `410` `ENDPOINT_RETIRED`(`details.reason_code` `slack_notice_retired`)로 답하고 아무것도 쓰지 않는다. OpenAPI에 `deprecated: true`로 남고 다음 정리에서 지운다. 새 오류 코드 `ENDPOINT_RETIRED`가 생긴다.
+  - `GET /v1/agents/{id}/slack/notice`는 모양을 지키되 `notice`는 늘 null, `state`는 늘 `no_notice`, `approvals`는 늘 빈 배열이다. 세 칸은 deprecated다. 스위치는 `rollout`을, 바꿀 수 있는지는 `can_approve`를 읽는다.
+  - `POST /v1/agents/{id}/slack/notice/rollout`은 더는 409(`notice_not_approved`, `no_notice`)와 `SLACK_NOT_INSTALLED`를 보내지 않는다. `on`은 전처럼 400 `rollout_on_unavailable`이다. 이 reason code들과 `state`의 `not_installed`·`not_approved`·`reapproval_required`·`approved` 값은 계약에 deprecated로 남고 보내지 않는다.
+  - reconciler가 승인이 없거나 철회된 에이전트의 스위치를 `off`로 내리지 않는다. 승인 철회로 내려가는 일도 없다. 스위치는 사람이 바꿀 때만 바뀐다. `approve_slack_notice`·`revoke_slack_notice` receipt와 `by: reconciler`인 `set_conversation_rollout` receipt는 새로 쓰지 않는다(전에 쓴 것은 그대로 읽힌다).
+  - 운영자 명령 `slack-notice.ts`의 `list`는 없어졌다(exit 2). `show --agent`는 스위치만 보이고, `set-rollout`은 승인 없이 바꾼다.
+  - 채널 안내 글(모든 글을 듣는 채널에 한 번 올리는 글)은 승인 대신 스위치가 올라가 있으면 나간다. 이미 안내한 채널에는 다시 가지 않는다.
+  - migration은 없고 따로 할 일도 없다. `slack_notice_approvals` 표와 그 행은 남고 아무도 읽거나 쓰지 않는다. 스위치 값은 바뀌지 않으므로, 배포 전에 승인되지 않아 `off`였던 에이전트는 `off`로, 승인되어 `shadow`였던 에이전트는 `shadow`로 남는다.
+
 - **배경 작업이 남은 쉬는 세션의 worker가 종료 신호(배포, 노드 정리, 컨테이너 재시작)를 받으면 5분 유예를 기다리지 않고 바로 그 작업을 멈추고 checkpoint를 찍은 뒤 끝난다**(JeongJaeSoon/werft#2321). 전에는 유예 중의 SIGTERM이 checkpoint 없이 worker를 끝내 세션이 '실패 · 복구 필요'(context gap)가 됐다. 멈추는 방법, 남는 `background_tasks_stopped` 이벤트, 다음 turn의 입력 줄은 idle 종료 때와 같다(#2301). 이 일은 drain 예산(`WORKER_DRAIN_TIMEOUT_SEC`, 종료 유예보다 12초 짧게 잘림) 안에서 하고, 그 안에 checkpoint를 찍지 못해 마지막 turn이 덮이지 않으면 전처럼 복구 결정으로 간다. worker 로그에 `worker.drain.capture_owed`가 생긴다. migration은 없고 따로 할 일도 없다. worker 이미지가 이 버전이어야 듣는다.
 - **대화 rollout이 `on`인 에이전트의 멘션 턴이 열린 작업에 넘기기로 끝나면, 그 멘션 글이 같은 대화의 열린 작업에 입력으로 들어간다**(JeongJaeSoon/werft#2308). 새 작업은 만들지 않고, 작업이 실행 중이면 그 뒤에 줄을 선다. 넘길 때 같은 대화의 열린 작업인지와 글쓴이의 `session.submit`을 다시 확인한다. 다른 스레드에서 넘기면 그 스레드에 원래 스레드를 가리키는 한 줄만 달고(가리키는 작업이 바뀔 때마다 한 번), 작업 보고는 원래 스레드에만 간다. migration `0388_conversation_task_route`가 새 표 `task_thread_mirrors`와 `conversation_turns.routed_session_id`(빈 열)를 더하고, `conversation_turns_task_check`를 `NOT VALID` 뒤 `VALIDATE`로 바꾼다. 따로 할 일은 없다.
   - 앞선 이미지로 되돌려도 스키마는 맞는다. 앞선 이미지는 새 열과 새 표를 읽지 않는다. 다만 되돌린 동안 앞선 이미지가 끝낸 넘기기 턴은 효과 없이 끝나고, 이 버전을 다시 올려도 다시 처리되지 않는다. 섞여 도는 동안 앞선 API가 기록한 넘기기 결정도 대상 작업 id가 없어 효과를 내지 않는다. 그 턴의 입력이 작업에 없으면 그 멘션 글은 넘어가지 않은 것이니, 필요하면 글쓴이가 작업의 스레드에 다시 쓴다.
