@@ -23,6 +23,7 @@ import {
   enqueueSlackProgress,
   enqueueSlackPrompts,
   enqueueSlackTurnAnswers,
+  enqueueSlackWorkReports,
 } from "./slack-outbox-enqueue.ts";
 import { SLACK_OUTBOX_MESSAGES, sessionUrl } from "./slack-outbox-render.ts";
 import {
@@ -239,6 +240,12 @@ export async function drainSlackOutbox(deps: {
     limit: deps.batchSize,
   });
   drain.enqueued += await enqueueSlackProgress({
+    outbox: deps.outbox,
+    consoleOrigin: deps.consoleOrigin,
+    limit: deps.batchSize,
+  });
+  // Before the answers: a start line goes ahead of the reply it opens.
+  drain.enqueued += await enqueueSlackWorkReports({
     outbox: deps.outbox,
     consoleOrigin: deps.consoleOrigin,
     limit: deps.batchSize,

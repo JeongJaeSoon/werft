@@ -652,6 +652,24 @@ export function createSlackSessionHandler(
         stopRefused = true;
         return false;
       }
+      if (stopped.outcome === "nothing_running") {
+        // Nothing to stop (94S-2472): the word is no input, and only whoever
+        // wrote it is told, once per post.
+        await deps.notices.record({
+          workspaceId: agent.workspaceId,
+          agentId: agent.agentId,
+          installationId: agent.installationId,
+          slackAppId: claim.slackAppId,
+          teamId: claim.teamId,
+          channelId: event.channel,
+          threadTs,
+          slackUserId: event.user,
+          reason: "nothing_to_stop",
+          notice: { message: "nothingToStop" },
+          onceKey: `${agent.installationId}:${surfaceRef}:${event.user}:stop:${event.ts}`,
+        });
+        return true;
+      }
       const line = {
         workspaceId: agent.workspaceId,
         agentId: agent.agentId,
@@ -688,11 +706,9 @@ export function createSlackSessionHandler(
       await deps.notices.recordInThread({
         ...line,
         notice:
-          stopped.outcome === "nothing_running"
-            ? { message: "nothingToStop" }
-            : stopped.cancelled > 0
-              ? { message: "sessionStoppedQueued", count: stopped.cancelled }
-              : { message: "sessionStopped" },
+          stopped.cancelled > 0
+            ? { message: "sessionStoppedQueued", count: stopped.cancelled }
+            : { message: "sessionStopped" },
       });
       return true;
     };

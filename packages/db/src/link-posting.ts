@@ -31,6 +31,21 @@ export const reportsProgress = (link: SQL) => sql`(
   NOT ${unmovedSummary(link)} AND ${reportModeOf(link)} = 'progress'
 )`;
 
+/**
+ * Whether a link's thread hears only of its work's ends (`notify_only`,
+ * `progress`): the reply once nothing is left to run, each failure, a
+ * person needed. `per_step` hears of every turn.
+ */
+export const reportsWorkOnly = (link: SQL) => sql`(
+  NOT ${unmovedSummary(link)}
+  AND ${reportModeOf(link)} IN ('notify_only', 'progress')
+)`;
+
+/** Whether a link's thread is told once that its work started (`notify_only`). */
+export const reportsStartOnly = (link: SQL) => sql`(
+  NOT ${unmovedSummary(link)} AND ${reportModeOf(link)} = 'notify_only'
+)`;
+
 /** Whether inputs asked from the web or the API show in the link's thread. */
 export const mirrorsInstructions = (link: SQL) =>
   sql`(${link}.mirror_instructions AND NOT ${unmovedSummary(link)})`;
