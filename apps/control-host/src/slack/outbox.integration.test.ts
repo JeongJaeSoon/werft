@@ -7471,6 +7471,12 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
     });
     await intervalOver();
     await outboxPass();
+    const progressEdits = () =>
+      slack.updates
+        .filter(({ ts }) => ts === posted()[0]?.ts)
+        .map(({ text }) => text.split("\n")[0]);
+    // Asked: the running turn waits on the person.
+    expect(progressEdits()).toEqual([ko.progressNeedsInput]);
 
     // Parked, the turn has ended and the session is idle: still the wait.
     await gateway.finalize(principal, {
@@ -7497,6 +7503,7 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
       .innerJoin(turns, eq(turns.sessionId, sessions.id))
       .where(eq(sessions.id, sessionId));
     expect(stored).toEqual({ session: "idle", turn: "interrupted" });
+    expect(progressEdits()).toEqual([ko.progressNeedsInput]);
 
     const answered = await createPendingRequestService({
       authorization: createAuthorizationPolicy({
@@ -7520,13 +7527,8 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
     // The question's own card is a post of its own; the message only edits.
     expect(postedLines()).toHaveLength(2);
     expect(postedLines()[0]).toBe(ko.progressRunning);
-    const [post] = posted();
     // The card's own edit (answered on the web) aside.
-    expect(
-      slack.updates
-        .filter(({ ts }) => ts === post?.ts)
-        .map(({ text }) => text.split("\n")[0]),
-    ).toEqual([ko.progressNeedsInput, ko.progressQueued]);
+    expect(progressEdits()).toEqual([ko.progressNeedsInput, ko.progressQueued]);
     expect(
       (await progressRows()).map(({ status, dedupeKey }) => [
         status,

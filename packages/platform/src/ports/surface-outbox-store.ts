@@ -361,9 +361,11 @@ export type SurfaceCapacityWait = SurfaceLinkedTurnTarget & {
 /**
  * What a progress link's progress message should show now, when that is not
  * what its last update showed. `state` is one of
- * `capacity_wait:<execution>:<generation>`, `<turn status>:<turn>` for the
- * first unfinished turn (`queued`, `running`, `needs_input`), or
- * `idle:<last turn>` once a message is up and no turn is unfinished.
+ * `capacity_wait:<execution>:<generation>`, `needs_input:<turn>` while the
+ * session waits on a person (its public status; the turn that asked first,
+ * parked or not), `<turn status>:<turn>` for the first unfinished turn
+ * (`queued`, `running`), or `idle:<last turn>` once a message is up and no
+ * turn is unfinished.
  */
 export type SurfaceProgressDue = SurfaceLinkedTurnTarget & {
   state: string;

@@ -1992,10 +1992,13 @@ export function createPostgresSlackOutboxStore(
                  ORDER BY wl.capacity_wait_since
                  LIMIT 1),
                 -- Waiting on a person, as the session's public status reads
-                -- it: a parked request leaves no turn in flight.
+                -- it: a parked request leaves no turn in flight. Numbered by
+                -- the turn that asked, so a turn queued behind it changes
+                -- nothing.
                 CASE WHEN ${sessionNeedsInput(db)} THEN 'needs_input:' || (
-                  SELECT coalesce(max(nt.sequence), 0) FROM turns nt
-                  WHERE nt.session_id = session_links.session_id
+                  SELECT min(turns.sequence) FROM turns
+                  WHERE turns.session_id = session_links.session_id
+                    AND EXISTS (${actionableOfTurn(db)})
                 ) END,
                 -- A stored needs_input from before reads like running.
                 (SELECT CASE ot.status WHEN 'queued' THEN 'queued' ELSE 'running' END || ':' || ot.sequence
