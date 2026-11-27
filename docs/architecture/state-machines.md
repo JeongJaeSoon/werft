@@ -45,6 +45,36 @@
 
 시험: `packages/db/src/stop-control.test.ts`, `apps/control-host/src/slack/session-handler.integration.test.ts`의 Slack stop 시험.
 
+### terminate가 일으키는 전이
+
+terminate는 사람이 세션을 강제로 끝내는 제어다(`POST /v1/sessions/{id}/terminate`, 관리자 terminate, 웹의 '세션 종료'). 판정은 `packages/db/src/control-unit-of-work.ts`의 `terminateAtomic`이 한다.
+
+| 지금 상태 | 다음 상태 | 조건 | 누가 일으키나 |
+| --- | --- | --- | --- |
+| `recovery_required` (status `failed` 또는 `stopped`) | `closed` (status `stopped`) | `expected_revision`이 맞고, `expected_admission_state`를 보냈다면 `recovery_required`이고, 레거시 pod 바인딩(execution 없이 pod만)이 아니다. 묶인 execution이 없으면 receipt가 응답에서 `succeeded`다. 묶여 있으면 kill intent를 쓰고 receipt는 `accepted`로 남는다 | 세션을 제어할 수 있는 사람의 terminate |
+| `active`, `pausing`, `paused`, `resuming`, `closing`, `stopping` | `stopping` 뒤 `stopped` (실행이 끊은 turn이 `outcome_unknown`이면 `recovery_required`) | 묶인 execution이 있을 때. 없으면 바로 `stopped` | 같음 |
+| `stopped` | 그대로 | 묶인 execution이 없으면 admission·status·revision·lease epoch를 바꾸지 않는다 | 같음 |
+| `closed`가 아닌 어느 상태든 | 그대로 | 앞선 검사(아래 순서)를 통과한 새 요청의 `expected_admission_state`가 지금 admission과 다르면 409 `REVISION_CONFLICT`(메시지에 지금 admission). 검사 순서: 이미 쓴 Idempotency-Key(본문이 같으면 receipt를 지금 상태로 replay, 다르면 `IDEMPOTENCY_CONFLICT`) → `closed`면 `SESSION_CLOSED` → `expected_revision` → `expected_admission_state`. 둘 다 다르면 메시지는 revision을 말한다. `recovery_required`로 가는 전이가 모두 revision을 올리지는 않으므로, 웹은 확인 창을 연 때의 admission을 이 값으로 보낸다(창이 열린 뒤 세션이 바뀌어도 창의 문구와 보내는 값은 그대로이고, 화면이 다른 세션으로 넘어가면 창은 닫힌다) | 같음 |
+| `closed` | 그대로 | 409 `SESSION_CLOSED`로 거절한다 | 같음 |
+
+`recovery_required` → `closed`는 복구 결정 `close`와 같은 방식으로 닫는다(`closeSessionRow`). 대기 입력은 `SESSION_CLOSED`로 취소되고, 디스패치 대기열에서 빠지고, lease epoch가 올라 claim한 worker를 막는다. 스트림에는 `closed_by: terminate`인 status 이벤트와 `session_closed` 이벤트가 남는다. 작업 세션의 Slack 링크는 recovery close처럼 `abandoned`로 닫힌다(close receipt가 없으므로). 링크는 Slack 후처리가 닫으므로, 아직 보고되지 않은 turn이 있으면 그 뒤에 닫힌다.
+
+막을 전이:
+
+- `recovery_required`가 아닌 세션은 terminate로 `closed`가 되지 않는다.
+- `closed` 세션은 terminate로 다른 상태가 되지 않는다.
+- 다른 admission을 보고 결정한 terminate(`expected_admission_state`가 다름)는 세션을 바꾸지 않는다.
+
+지켜야 할 성질:
+
+- terminate로 닫혀도 결과를 알 수 없는 turn에 답하지 않는다. 그 turn은 `outcome_unknown`으로 남고, receipt의 `unconfirmed_turn_id`가 가장 이른 그런 turn을 가리킨다(없으면 `null`, 예: 복원 실패로 `recovery_required`가 된 세션).
+- 닫은 뒤 실행이 사라진 것을 보아도 세션은 다시 열리지 않는다. 그 관측은 바인딩과 worker 칸을 풀고 lease epoch를 한 번 더 올리고 terminate receipt를 `succeeded`로 정산한다. admission·status는 `closed`/`stopped` 그대로이고 close 이벤트를 다시 쓰지 않는다.
+- 닫는 트랜잭션에서 lease epoch가 오르므로, 아직 살아 있는 worker의 heartbeat는 실행 종료가 관측되기 전에도 409 `STALE_EPOCH`다.
+- 같은 terminate를 같은 키로 다시 보내면 처음 receipt를 돌려준다. 새 키의 terminate는 `closed`로 거절되고 세션의 revision은 그대로다.
+- 웹 세션 상세는 `closed` 세션에 제어 버튼도 복구 결정도 그리지 않는다(`actionsFor`, `RecoveryDecisions`).
+
+시험: `packages/db/src/terminate-recovery.test.ts`, `packages/db/src/control-unit-of-work.integration.test.ts`의 terminate 시험, `apps/web/src/routes/sessions.test.tsx`의 복구 화면 terminate 시험.
+
 ### Slack 멘션이 대화 계층에 들어가는 길
 
 에이전트의 `conversation_rollout`이 `on`일 때 묶인 작업이 없는 스레드의 멘션을 처리표가 다룬다. 처리표는 생애주기 정지를 먼저 본다(보관, 강퇴, 승인 대기, 에이전트 비활성, 소유자 없음). 일으키는 쪽은 언제나 Slack에서 멘션한 사람이고, 판정은 receive path(`slack-session-handler.ts`)가 한다.
