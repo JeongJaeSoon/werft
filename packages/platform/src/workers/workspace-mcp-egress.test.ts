@@ -29,6 +29,7 @@ const call = (tool: string | null, method: string | null = "tools/call") => ({
   server: "docs",
   rpc: { method, tool },
   regrant: false,
+  registeredUpstream: true,
 });
 
 function egress(
@@ -39,6 +40,7 @@ function egress(
     // The connection moved before the call's receipt was written.
     moved?: boolean;
     failCall?: boolean;
+    listed?: "public" | "private" | null;
   } = {},
 ) {
   const recorded: WorkspaceMcpRefusalRecord[] = [];
@@ -70,6 +72,7 @@ function egress(
         ? { kind: "bearer", token: "example-static-value" }
         : options.credential;
     },
+    operatorListed: () => options.listed ?? null,
     onReceiptError: (error) => errors.push(error),
   });
   return { decide, recorded, calls, asked, credentialCalls, errors };
@@ -99,6 +102,7 @@ describe("createWorkspaceMcpEgress", () => {
           url: "https://docs.example.test/mcp",
           target: "/mcp",
           headers: [["authorization", "Bearer example-static-value"]],
+          allow: "public_https",
         },
       });
     }
@@ -282,5 +286,79 @@ describe("createWorkspaceMcpEgress", () => {
     expect(decision?.kind).toBe("refused");
     expect(decision?.kind === "refused" && "receiptId" in decision).toBe(false);
     expect(errors).toHaveLength(1);
+  });
+});
+
+describe("the registered-upstream mark", () => {
+  const before = (tool: string | null) => ({
+    ...call(tool),
+    registeredUpstream: false,
+  });
+  const allowOf = (decision: unknown) =>
+    (decision as { upstream?: { allow?: string } }).upstream?.allow ?? null;
+
+  test("an https server on neither list is marked for a proxy that keeps to the mark", async () => {
+    const { decide } = egress({}, { listed: null });
+    expect(allowOf(await decide(fenced, call("search")))).toBe("public_https");
+  });
+
+  test("an https server on the public list is marked too", async () => {
+    const { decide } = egress({}, { listed: "public" });
+    expect(allowOf(await decide(fenced, call("search")))).toBe("public_https");
+  });
+
+  test("the operator's private host is left to the proxy's lists, unmarked", async () => {
+    for (const url of ["http://mcp.lan:8080/mcp", "https://mcp.lan:8443/mcp"]) {
+      const { decide } = egress({ url }, { listed: "private" });
+      const decision = await decide(fenced, before("search"));
+      expect(decision?.kind).toBe("granted");
+      expect(allowOf(decision)).toBeNull();
+    }
+  });
+
+  test("a plain http server is never marked", async () => {
+    const { decide } = egress({ url: "http://docs.example.test/mcp" });
+    const decision = await decide(fenced, call("search"));
+    expect(decision?.kind).toBe("granted");
+    expect(allowOf(decision)).toBeNull();
+  });
+
+  test("a proxy from before the mark is refused a host on neither list, with egress_proxy_outdated", async () => {
+    const { decide, recorded, calls, credentialCalls } = egress(
+      {},
+      { listed: null },
+    );
+    const decision = await decide(fenced, before("search"));
+    expect(decision).toMatchObject({
+      kind: "refused",
+      status: 403,
+      code: "CREDENTIAL_UNBOUND",
+      receiptId: expect.any(String),
+    });
+    expect(recorded.map((record) => record.result.reason)).toEqual([
+      "egress_proxy_outdated",
+    ]);
+    // Refused before any credential is read or any call is recorded.
+    expect(credentialCalls).toEqual([]);
+    expect(calls).toEqual([]);
+    // Absent is a proxy from before as well.
+    const { registeredUpstream: _, ...unsaid } = call("search");
+    expect((await decide(fenced, unsaid))?.kind).toBe("refused");
+  });
+
+  test("a proxy from before still reaches a host the operator listed", async () => {
+    for (const listed of ["public", "private"] as const) {
+      const { decide, recorded } = egress({}, { listed });
+      expect((await decide(fenced, before("search")))?.kind).toBe("granted");
+      expect(recorded).toEqual([]);
+    }
+  });
+
+  test("a gone server is refused as gone, whatever the proxy", async () => {
+    const { decide, recorded } = egress({ available: false }, { listed: null });
+    await decide(fenced, before("search"));
+    expect(recorded.map((record) => record.result.reason)).toEqual([
+      "workspace_server_unavailable",
+    ]);
   });
 });
