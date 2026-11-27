@@ -1203,10 +1203,8 @@ describe("eleventh review", () => {
       after: [...licensed("s"), sh(after)],
     }).warnings.find((w) => w.rule === "network_call")?.samples ?? [];
 
-  test("removing the start of a continued command counts what it frees", () => {
-    expect(calls("printf '%s' \\\n  npm ci\n", "  npm ci\n")).toEqual([
-      "package_install",
-    ]);
+  test("removing the start of a continued command does not read the kept rest", () => {
+    expect(calls("printf '%s' \\\n  npm ci\n", "  npm ci\n")).toEqual([]);
   });
 
   test("uv tool run runs a package", () => {
@@ -1240,5 +1238,25 @@ describe("twelfth review", () => {
   test("an over-long license value is not an expression and does not exhaust the stack", () => {
     const deep = `${"(".repeat(500_000)}MIT${")".repeat(500_000)}`;
     expect(isSpdxExpression(deep)).toBe(false);
+  });
+});
+
+describe("fourteenth review", () => {
+  const sh = (body: string) => text("skills/s/scripts/a.sh", body);
+  const calls = (before: string | null, after: string) =>
+    gate({
+      before: before === null ? null : [...licensed("s"), sh(before)],
+      after: [...licensed("s"), sh(after)],
+    }).warnings.find((w) => w.rule === "network_call")?.samples ?? [];
+
+  test("an escaped backslash at the end does not join the next line", () => {
+    expect(calls("echo ok \\\\\nnpm ci\n", "npm ci\n")).toEqual([]);
+    expect(calls("npm ci\n", "echo ok \\\\\nnpm ci\n")).toEqual([]);
+    expect(calls(null, "echo \\\\\\\n  curl x\n")).toEqual(["download"]);
+  });
+
+  test("an escaped quote and a # after ; leave a comment a comment", () => {
+    expect(calls("npm ci\n", "echo \\' # notes \\\nnpm ci\n")).toEqual([]);
+    expect(calls("npm ci\n", "echo ok;# notes \\\nnpm ci\n")).toEqual([]);
   });
 });

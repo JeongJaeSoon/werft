@@ -205,7 +205,7 @@ const codePoint = (char: string) =>
   `U+${(char.codePointAt(0) as number).toString(16).toUpperCase().padStart(4, "0")}`;
 
 /** Where a new text changed, by 0-based new line index. */
-type Changes = { adds: Set<number>; cuts: Set<number>; joins: Set<number> };
+type Changes = { adds: Set<number>; cuts: Set<number> };
 
 /**
  * What the new text changed: the lines it adds, the indexes of added lines,
@@ -219,7 +219,7 @@ function changesOf(
   const diff = earlier === null ? null : unifiedLineDiff(earlier, text);
   if (diff === null) return { added: text.split("\n"), at: null };
   const added: string[] = [];
-  const at: Changes = { adds: new Set(), cuts: new Set(), joins: new Set() };
+  const at: Changes = { adds: new Set(), cuts: new Set() };
   let next = 0;
   for (const line of diff.split("\n")) {
     const hunk = /^@@ -\d+(?:,\d+)? \+(\d+),(\d+) @@$/.exec(line);
@@ -231,13 +231,6 @@ function changesOf(
       at.adds.add(next++);
     } else if (line.startsWith("-")) {
       at.cuts.add(next);
-      const removed = line.slice(1);
-      if (
-        removed.endsWith("\\") &&
-        !COMMENT.test(removed) &&
-        commentStart(removed) === -1
-      )
-        at.joins.add(next);
     } else {
       next++;
     }
@@ -371,8 +364,9 @@ const normalized = (line: string) =>
 /**
  * The commands of a script the update touched. A line ending in "\\" goes on
  * in the next ("npm \\" then "ci"), so the whole new text is read as logical
- * lines, and one counts when any of its lines was added, a removal sits
- * inside it, or a removed line that went on into it. Comments are left out: a comment line (as written: a fullwidth
+ * lines, and one counts when any of its lines was added or a removal sits
+ * inside it. A removed line that went on into a kept one is not read back:
+ * the command it frees goes unwarned rather than a kept one warned again. Comments are left out: a comment line (as written: a fullwidth
  * "＃" starts none), and a "#" or "//" after a space, outside quotes, up to
  * the line's end.
  */
@@ -385,7 +379,6 @@ function changedCalls(text: string, at: Changes | null): string[] {
     if (
       at === null ||
       at.adds.has(index) ||
-      at.joins.has(index) ||
       (parts.length > 0 && at.cuts.has(index))
     )
       touched = true;
@@ -394,7 +387,7 @@ function changedCalls(text: string, at: Changes | null): string[] {
       return;
     }
     const comment = commentStart(line);
-    if (comment === -1 && line.endsWith("\\")) {
+    if (comment === -1 && continues(line)) {
       parts.push(line.slice(0, -1));
       return;
     }
@@ -408,6 +401,10 @@ function changedCalls(text: string, at: Changes | null): string[] {
   return calls;
 }
 
+/** An odd run of backslashes at the end: "\\\\" is a literal backslash. */
+const continues = (line: string) =>
+  (/\\+$/.exec(line)?.[0].length ?? 0) % 2 === 1;
+
 /** Where a "#" or "//" comment starts outside quotes, or -1. */
 function commentStart(line: string): number {
   let quote = "";
@@ -416,11 +413,13 @@ function commentStart(line: string): number {
     if (quote !== "") {
       if (c === quote) quote = "";
       else if (c === "\\" && quote !== "'") i++;
+    } else if (c === "\\") {
+      i++;
     } else if (c === '"' || c === "'" || c === "`") {
       quote = c;
     } else if (
-      (c === "#" || (c === "/" && line[i + 1] === "/")) &&
-      (i === 0 || /\s/.test(line[i - 1] ?? ""))
+      (i === 0 || (c === "#" ? /[\s;&|()]/ : /\s/).test(line[i - 1] ?? "")) &&
+      (c === "#" || (c === "/" && line[i + 1] === "/"))
     ) {
       return i;
     }
