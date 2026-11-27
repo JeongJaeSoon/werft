@@ -72,14 +72,17 @@ let provider: FakeAnthropicServer | undefined;
 let authorizer: ReturnType<typeof Bun.serve> | undefined;
 let proxy: CredentialProxyServer | undefined;
 let relay: PermitRelay | undefined;
+let opened: TopicSessions | undefined;
 
 afterEach(async () => {
+  // First: an engine left running writes under the root removed below.
+  await opened?.dropAll();
   relay?.stop();
   proxy?.stop();
   authorizer?.stop(true);
   provider?.stop();
   if (root !== undefined) await rm(root, { force: true, recursive: true });
-  root = provider = authorizer = proxy = relay = undefined;
+  root = provider = authorizer = proxy = relay = opened = undefined;
 });
 
 async function stack(
@@ -157,6 +160,7 @@ async function stack(
   let clock = 0;
   relay = new PermitRelay(`http://127.0.0.1:${proxy.port}/provider`);
   const sessions = new TopicSessions(topics, relay, { now: () => clock });
+  opened = sessions;
   const tools = fakeConversationTools();
   const runner = createConversationTurnRunner({
     runtime,
@@ -592,7 +596,13 @@ describe("a conversation turn on the pinned engine, behind the egress proxy", ()
     await s.sessions.drop(topicA);
     // Dropped, its engine has exited: one still running would write the
     // directory back after this look at it.
-    expect(() => process.kill(engineA, 0)).toThrow();
+    let signalled: unknown = "alive";
+    try {
+      process.kill(engineA, 0);
+    } catch (error) {
+      signalled = (error as NodeJS.ErrnoException).code;
+    }
+    expect(signalled).toBe("ESRCH");
     expect(await stat(join(s.root, topicA)).catch(() => null)).toBeNull();
     // Dropping one topic leaves the other.
     expect((await stat(join(s.root, topicB))).isDirectory()).toBe(true);

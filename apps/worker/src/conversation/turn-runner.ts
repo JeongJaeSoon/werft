@@ -160,7 +160,7 @@ export function createConversationTurnRunner(deps: {
             stateDir: directory.stateDir,
             // The token is bound to its first request: a retry is another, refused.
             providerMaxRetries: 0,
-            // The session waits on its engine's exit before its directory goes.
+            // Its session sees the engine exit before the directory goes.
             processObserver: engines,
           })
           .start({

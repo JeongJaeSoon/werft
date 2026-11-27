@@ -227,7 +227,7 @@ describe("createConversationTurnRunner", () => {
     expect(seen.deps).toEqual({
       stateDir: join(topic, "home", ".claude"),
       providerMaxRetries: 0,
-      // What its session waits on before the directory goes.
+      // Where its session sees the engine exit, before the directory goes.
       processObserver: expect.any(EngineProcesses),
     });
     expect(seen.start?.config).toEqual({

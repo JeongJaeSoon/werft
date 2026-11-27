@@ -345,14 +345,14 @@ const settled = () => new Promise((resolve) => setImmediate(resolve));
 
 /**
  * Sessions whose engines exit when the test says, with what happened to them
- * in order: nothing is signalled, and no clock decides.
+ * in order: no process is signalled, and no clock decides.
  */
 function held() {
   const log: string[] = [];
   const answers: ((exited: boolean) => void)[] = [];
   const asked = Promise.withResolvers<void>();
   const engines: TopicEngines = {
-    onSpawn: () => {},
+    onSpawn: (pid) => void log.push(`spawned ${pid}`),
     running: [],
     exited: () =>
       new Promise((resolve) => {
@@ -388,7 +388,7 @@ function held() {
 }
 
 describe("a dropped session's directory", () => {
-  test("is removed only once its engine has exited", async () => {
+  test("is removed only once its engine, killed, has exited", async () => {
     const s = held();
     const t = topic();
     await s.sessions.open(t, () => s.run);
@@ -396,17 +396,17 @@ describe("a dropped session's directory", () => {
 
     const dropping = s.sessions.drop(t);
     await settled();
-    // Closed, the engine was told to end: it may still be writing its files.
-    expect(s.log).toEqual(["closed", "exit awaited"]);
+    // Closed and killed, the engine may still be writing its files.
+    expect(s.log).toEqual(["closed", "killed", "exit awaited"]);
     expect((await stat(join(root, t))).isDirectory()).toBe(true);
 
     s.answer(true);
     await dropping;
-    expect(s.log).toEqual(["closed", "exit awaited", "removed"]);
+    expect(s.log).toEqual(["closed", "killed", "exit awaited", "removed"]);
     expect(await stat(join(root, t)).catch(() => null)).toBeNull();
   });
 
-  test("is removed after an engine that outlived its grace was killed", async () => {
+  test("is left, and its topic not opened again, while its engine's exit is not seen", async () => {
     const s = held();
     const t = topic();
     await s.sessions.open(t, () => s.run);
@@ -415,46 +415,57 @@ describe("a dropped session's directory", () => {
     const dropping = s.sessions.drop(t);
     await settled();
     s.answer(false);
+    await expect(dropping).rejects.toThrow("did not exit");
+    expect(s.sessions.size).toBe(0);
+
+    // Opening the topic again ends that engine first, and fails while it lives.
+    let started = false;
+    const opening = s.sessions.open(t, () => {
+      started = true;
+      return s.run;
+    });
     await settled();
-    expect(s.log).toEqual(["closed", "exit awaited", "killed", "exit awaited"]);
+    s.answer(false);
+    await expect(opening).rejects.toThrow("did not exit");
+    expect(started).toBe(false);
+    expect(s.log).toEqual([
+      "closed",
+      "killed",
+      "exit awaited",
+      "killed",
+      "exit awaited",
+    ]);
     expect((await stat(join(root, t))).isDirectory()).toBe(true);
 
+    // Once it has exited, the next drop removes what it left.
+    const again = s.sessions.drop(t);
+    await settled();
     s.answer(true);
-    await dropping;
-    expect(s.log.at(-1)).toBe("removed");
+    await again;
+    expect(s.log.slice(-3)).toEqual(["killed", "exit awaited", "removed"]);
     expect(await stat(join(root, t)).catch(() => null)).toBeNull();
   });
 
   test("is removed, when its start fails, once what the start left running has exited", async () => {
     const s = held();
     const t = topic();
-    const opening = s.sessions.open(t, () => {
+    const opening = s.sessions.open(t, (_directory, _key, engines) => {
+      engines.onSpawn(4242);
       throw new Error("no start");
     });
     await s.asked;
-    // The first removal is the old session's, before the new directory.
-    expect(s.log).toEqual(["removed", "exit awaited"]);
+    // The first removal is of what the topic's path held before this open.
+    expect(s.log).toEqual([
+      "removed",
+      "spawned 4242",
+      "killed",
+      "exit awaited",
+    ]);
     expect((await stat(join(root, t))).isDirectory()).toBe(true);
 
     s.answer(true);
     await expect(opening).rejects.toThrow("no start");
-    expect(s.log).toEqual(["removed", "exit awaited", "removed"]);
+    expect(s.log.at(-1)).toBe("removed");
     expect(await stat(join(root, t)).catch(() => null)).toBeNull();
-  });
-
-  test("at a drop of all, every engine is told to end before any exit is waited out", async () => {
-    const s = held();
-    await s.sessions.open(topic(), () => s.run);
-    await s.sessions.open(topic(), () => s.run);
-    s.log.length = 0;
-
-    const dropping = s.sessions.dropAll();
-    await settled();
-    expect(s.log).toEqual(["closed", "closed", "exit awaited", "exit awaited"]);
-
-    s.answer(true);
-    s.answer(true);
-    await dropping;
-    expect(await readdir(root)).toEqual([]);
   });
 });

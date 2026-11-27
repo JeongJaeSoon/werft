@@ -14,14 +14,14 @@ import type { TopicDirectories, TopicDirectory } from "./topic-directories.ts";
 
 /**
  * The engine processes one session's run started, as the spawn hook saw them.
- * `AgentRun.close()` resolves once the engine was told to end; only its
- * observed exit says it has.
+ * `AgentRun.close()` may resolve as soon as the engine was told to end; only
+ * its observed exit says it has.
  */
 export type TopicEngines = RuntimeProcessObserver &
   Pick<EngineExitWatch, "exited" | "kill" | "running">;
 
-// What an engine told to end gets before it is killed: the session worker's.
-const ENGINE_EXIT_GRACE_MS = 5_000;
+// How long a killed engine's exit is waited for.
+const ENGINE_EXIT_WAIT_MS = 5_000;
 
 /**
  * One topic's live engine: the process a turn of the topic goes on in while
@@ -48,11 +48,14 @@ export type TopicSession = {
  * The runtime's live topic sessions, in this process's memory only: a
  * restart starts with none. A session is dropped when its topic has been idle
  * for `idleMs`, when one more is opened past `limit` (the one idle longest),
- * or when its turn asks; dropping ends its engine and, once it has exited,
+ * or when its turn asks; dropping kills its engine and, once it has exited,
  * removes its directory. Nothing is resumed from disk.
  */
 export class TopicSessions {
   private readonly live = new Map<ConversationTopicId, TopicSession>();
+  // Engines dropped whose exit was not seen yet: their topic's directory is
+  // neither removed nor opened again under them.
+  private readonly ending = new Map<ConversationTopicId, TopicEngines>();
   private readonly idleMs: number;
   private readonly limit: number;
   private readonly watch: () => TopicEngines;
@@ -121,8 +124,9 @@ export class TopicSessions {
       run = start(directory, permitKey, engines);
     } catch (error) {
       this.relay.close(permitKey);
-      await this.gone(engines);
-      await this.topics.drop(topicId);
+      // What the start left running, if anything, ends before its directory goes.
+      this.ending.set(topicId, engines);
+      await this.drop(topicId);
       throw error;
     }
     const session: TopicSession = {
@@ -141,8 +145,11 @@ export class TopicSessions {
   }
 
   /**
-   * Ends the topic's engine and, once it has exited, removes its directory;
-   * nothing when it has none.
+   * Ends the topic's engine, when it has a live one, and removes the topic's
+   * directory once that engine has exited. A dropped session has nothing left
+   * to save, so its engine is killed, not waited on: one still running writes
+   * into its directory, and so back into a removed one. Throws, the directory
+   * left, when the exit is not seen; the next drop of the topic tries again.
    */
   async drop(topicId: ConversationTopicId): Promise<void> {
     const session = this.live.get(topicId);
@@ -153,19 +160,17 @@ export class TopicSessions {
         session.run.finishInput();
       } catch {}
       await session.run.close().catch(() => undefined);
-      await this.gone(session.engines);
+      this.ending.set(topicId, session.engines);
+    }
+    const engines = this.ending.get(topicId);
+    if (engines !== undefined) {
+      engines.kill();
+      if (!(await engines.exited(ENGINE_EXIT_WAIT_MS))) {
+        throw new Error("A topic's engine did not exit after it was killed");
+      }
+      this.ending.delete(topicId);
     }
     await this.topics.drop(topicId);
-  }
-
-  /**
-   * Waits for the engines' exit, killing what outlives its grace: one still
-   * running writes into its directory, and so back into a removed one.
-   */
-  private async gone(engines: TopicEngines): Promise<void> {
-    if (await engines.exited(ENGINE_EXIT_GRACE_MS)) return;
-    engines.kill();
-    await engines.exited(ENGINE_EXIT_GRACE_MS);
   }
 
   /** Drops every session whose topic has been idle for its lifetime. */
@@ -179,9 +184,6 @@ export class TopicSessions {
   }
 
   async dropAll(): Promise<void> {
-    // Together: each waits for its own engine's exit.
-    await Promise.all(
-      [...this.live.keys()].map((topicId) => this.drop(topicId)),
-    );
+    for (const topicId of [...this.live.keys()]) await this.drop(topicId);
   }
 }
