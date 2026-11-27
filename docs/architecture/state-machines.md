@@ -427,7 +427,7 @@ M1·M2는 `a model that fails twice and answers the third time: …`와 MR1의 �
 
 ### 청하지 않은 턴
 
-M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는데 에이전트가 대화 턴으로 답한다(v1-b/U1). 대화 rollout이 `on`일 때만 턴을 낸다. 판단 하나(`conversation_judgments`의 한 줄)가 턴 하나를 낳고, 그 줄의 `target_ts`(답할 글), `turn_id`(낸 턴), `answer`(어떻게 끝났나)에 상태가 남는다. 버퍼의 묶음 판단(`buffer_m1`)과 최근 관여한 스레드의 답글 판단(`m1_engaged`)이 턴을 낸다. 묶인 스레드의 답글(`m1`)과 작업 스레드의 답글(`m1_to_task`)은 낳지 않는다.
+M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는데 에이전트가 대화 턴으로 답한다(v1-b/U1). 대화 rollout이 `on`일 때만 턴을 낸다. 판단 하나(`conversation_judgments`의 한 줄)가 턴 하나를 낳고, 그 줄의 `target_ts`(답할 글), `turn_id`(낸 턴), `answer`(어떻게 끝났나)에 상태가 남는다. 버퍼의 묶음 판단(`buffer_m1`)과 최근 관여한 스레드의 답글 판단(`m1_engaged`)이 턴을 낸다. 닫힌 작업에 묶인 스레드의 답글(`m1`)과 작업 스레드의 답글(`m1_to_task`)은 낳지 않는다. 그 답글은 판단과 같은 transaction에서 이미 세션의 턴이 되었으므로, 세션이 답하고 판단은 기록만 남는다.
 
 | 지금 상태 | 다음 상태 | 조건 | 누가 일으키나 |
 | --- | --- | --- | --- |
@@ -454,6 +454,7 @@ M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는�
 - 아직 `running`인 턴의 끝을 쓰지 않는다("a running turn writes nothing yet").
 - `target_ts`는 refs 밖이거나 `speak`가 아닌 판단에 둘 수 없다. `turn_id`·`answer`는 `target_ts` 없이 둘 수 없고, `answer`는 위 값만 받는다. `speak`는 `invalid_target`을 이유로 가질 수 없다(CHECK, "conversation_judgments' unasked columns" 시험들).
 - 속도 제한(`rate_limited`)·`quiet`·기록되지 않은 판단, `m1`·`m1_to_task` 답글은 턴을 내지 않는다(`packages/platform/src/conversations/unasked-turns.test.ts`).
+- 닫힌 작업 스레드의 답글은 `speak`여도 청하지 않은 턴이 없고 세션의 턴 하나만 남는다(`packages/db/src/conversations/unasked-turns.test.ts`의 "the session takes it as its one turn; M1's speak makes no unasked turn").
 
 지킬 성질:
 

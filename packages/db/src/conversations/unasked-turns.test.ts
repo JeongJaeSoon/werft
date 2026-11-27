@@ -15,6 +15,9 @@ import {
 import {
   conversationCallReserve,
   hashConversationCallToken,
+  type M1Judge,
+  type M1Spoken,
+  runReplyJudgments,
 } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { drizzle } from "drizzle-orm/pglite";
@@ -23,9 +26,14 @@ import { createPostgresConversationCalls } from "../conversation-calls.ts";
 import type { Database } from "../queries.ts";
 import * as schema from "../schema.ts";
 import { agents, memberTeams } from "../schema.ts";
-import { createPostgresJudgmentAnswers } from "../surface/m1-judgments.ts";
+import {
+  createPostgresJudgmentAnswers,
+  createPostgresM1JudgmentStore,
+} from "../surface/m1-judgments.ts";
+import { newPartitionedSession } from "../testing/sessions.ts";
 import { endConversationTurn } from "./conversation-turns.ts";
 import { createPostgresMentionTurnStatuses } from "./mention-turn-statuses.ts";
+import { takeSlackTurnInput } from "./slack-turn-inputs.ts";
 
 let client: PGlite;
 let db: Database;
@@ -154,7 +162,7 @@ function issue(
 ) {
   const turnId =
     overrides.turnId ?? conversationTurnIdSchema.parse(randomUUID());
-  const token = `unasked-${randomUUID()}`;
+  const token = `[REDACTED]`;
   return {
     turnId,
     token,
@@ -565,5 +573,82 @@ describe("conversation_judgments' unasked columns (migration)", () => {
           "FOREIGN KEY (turn_id) REFERENCES conversation_turns(id) ON DELETE SET NULL",
       },
     ]);
+  });
+});
+
+describe("a closed work's thread reply that spoke (v1-b/U1)", () => {
+  test("the session takes it as its one turn; M1's speak makes no unasked turn", async () => {
+    const at = await place();
+    const session = await newPartitionedSession(db, "unasked-closed");
+    await client.query(
+      "UPDATE sessions SET status = 'idle', workspace_id = $2 WHERE id = $1",
+      [session.sessionId, WORKSPACE],
+    );
+    await client.query(
+      "UPDATE turns SET requester_kind = 'user', requester_id = $2 WHERE session_id = $1",
+      [session.sessionId, randomUUID()],
+    );
+    await db.transaction((tx) =>
+      takeSlackTurnInput(
+        tx,
+        { workspaceId: WORKSPACE, agentId: AGENT, teamId: TEAM },
+        {
+          topicId: at.topicId,
+          channelId: CHANNEL,
+          ts: "100.000005",
+          turn: { sessionId: session.sessionId, sequence: 1 },
+          engagement: "bound",
+          judgment: { rule: { decision: "reply", reason: "default_reply" } },
+        },
+      ),
+    );
+    const judge: M1Judge = {
+      judge: async (subject) => ({
+        record: {
+          verdict: {
+            outcome: "judged",
+            decision: "speak",
+            reason: "needs_agent",
+          },
+          refs: subject.posts.map((post) => post.ts),
+          sources: { keys: [], overflow: false },
+          releaseId: null,
+          callKey: conversationCallKeySchema.parse(`${subject.key}:m1`),
+          attempts: 1,
+          summary: null,
+          target: "100.000005",
+        },
+        left: [],
+        modelCalled: true,
+      }),
+    };
+    const spoken: M1Spoken[] = [];
+    const run = await runReplyJudgments({
+      store: createPostgresM1JudgmentStore(db),
+      judge,
+      speaker: { speak: async (each) => void spoken.push(each) },
+      logger: { warn: () => {}, info: () => {} },
+      deadline: Number.POSITIVE_INFINITY,
+    });
+    expect(run.judged).toBe(1);
+    const judged = await client.query<{
+      grade: string;
+      decision: string;
+      turn_id: string | null;
+      answer: string | null;
+    }>(
+      "SELECT grade, decision, turn_id, answer FROM conversation_judgments WHERE agent_id = $1",
+      [AGENT],
+    );
+    expect(judged.rows).toEqual([
+      { grade: "m1", decision: "speak", turn_id: null, answer: null },
+    ]);
+    expect(spoken).toEqual([]);
+    expect((await turnsOf()).rows).toEqual([]);
+    const sessionTurns = await client.query(
+      "SELECT sequence FROM turns WHERE session_id = $1",
+      [session.sessionId],
+    );
+    expect(sessionTurns.rows).toEqual([{ sequence: 1 }]);
   });
 });
