@@ -7019,6 +7019,11 @@ export const sessionLinks = pgTable(
     uniqueIndex("session_links_open_session_uniq")
       .on(table.sessionId)
       .where(sql`${table.sessionId} IS NOT NULL AND ${table.closedAt} IS NULL`),
+    // Links closed lately, which still take the follow-ups of answers
+    // stored before they closed (afterTurnReplies).
+    index("session_links_recent_closed_idx")
+      .on(table.closedAt)
+      .where(sql`${table.closedAt} IS NOT NULL`),
     // A thread's open task session, which the turn list reads per turn.
     index("session_links_open_thread_idx")
       .on(table.workspaceId, table.agentId, table.channelId, table.threadId)

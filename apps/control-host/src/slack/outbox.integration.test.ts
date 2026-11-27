@@ -2756,7 +2756,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       expect(await followUps()).toEqual([]);
     });
 
-    test("keeps a closed session's link open until the follow-up it owes is enqueued", async () => {
+    test("a closed session's link closes at once, and the follow-up it owed still goes", async () => {
       const fixture = await agentInSlack();
       await mention(fixture, THREAD);
       const sessionId = await sessionOf(fixture);
@@ -2771,11 +2771,11 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         (await db.select({ at: sessionLinks.closedAt }).from(sessionLinks))[0]
           ?.at ?? null;
 
+      // Closed at once: a next mention in the thread opens a new session.
       await outboxPass({ botToken: null, closeLinks: true });
-      expect(await closedAt()).toBeNull();
-      await outboxPass({ closeLinks: true });
-      await outboxPass({ closeLinks: true });
       expect(await closedAt()).not.toBeNull();
+      await outboxPass({ closeLinks: true });
+      await outboxPass({ closeLinks: true });
       expect(posted()).toHaveLength(2);
       expect(posted()[1]?.text.split("\n\n")[1]).toBe("later");
       expect((await followUps()).map((row) => row.status)).toEqual(["sent"]);
@@ -2868,7 +2868,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       expect(posted()[1]?.text.split("\n\n")[1]).toBe("Done.");
     });
 
-    test("a link is not closed under a follow-up whose reply another pass just sent", async () => {
+    test("a follow-up whose reply another pass just sent still goes once its link has closed", async () => {
       const fixture = await agentInSlack();
       await mention(fixture, THREAD);
       const sessionId = await sessionOf(fixture);
@@ -2886,7 +2886,7 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
         .where(eq(slackOutbox.kind, "reply"));
       const outbox = createPostgresSlackOutboxStore(db);
       await outbox.advanceAnswered();
-      expect(await outbox.closeFinishedLinks(10)).toBe(0);
+      expect(await outbox.closeFinishedLinks(10)).toBe(1);
 
       await outboxPass({ closeLinks: true });
       await outboxPass({ closeLinks: true });
@@ -2897,7 +2897,40 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       expect(link?.closedAt).not.toBeNull();
     });
 
-    test("a closing session's link stays open until every follow-up it owes is in, one a pass", async () => {
+    test("an answer stored after its link closed, or a link closed over a day ago, gets no follow-up", async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("first")]]);
+      expect(await outboxPass()).toMatchObject({ sent: 1 });
+      await sayAfterTurn(sessionId, 1, [text("before")]);
+      // Stored two days ago, before a close over a day ago.
+      await db
+        .update(events)
+        .set({ createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000) })
+        .where(eq(events.sessionId, sessionId));
+      const dayAgo = new Date(Date.now() - 25 * 60 * 60 * 1000);
+      await db
+        .update(sessionLinks)
+        .set({ closedAt: dayAgo, closedReason: "completed" });
+      await outboxPass();
+      expect(await followUps()).toEqual([]);
+
+      await db
+        .update(sessionLinks)
+        .set({ closedAt: new Date(), closedReason: "completed" });
+      await sayAfterTurn(sessionId, 1, [text("after")]);
+      await outboxPass();
+      await outboxPass();
+      // Only the answer from before the close.
+      expect(
+        posted()
+          .slice(1)
+          .map((message) => message.text.split("\n\n")[1]),
+      ).toEqual(["before"]);
+    });
+
+    test("a closed session's thread still gets every follow-up it owed, one a pass", async () => {
       const fixture = await agentInSlack();
       await mention(fixture, THREAD);
       const sessionId = await sessionOf(fixture);

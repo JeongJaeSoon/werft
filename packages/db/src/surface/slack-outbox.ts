@@ -481,11 +481,18 @@ async function linkTakesNew(
   dedupeKey: string,
 ): Promise<boolean> {
   const [link] = await tx
-    .select({ closedAt: sessionLinks.closedAt })
+    .select({
+      closedAt: sessionLinks.closedAt,
+      lately: sql<boolean>`${sessionLinks.closedAt} > now() - ${AFTER_TURN_CLOSED_LINK_GRACE}`,
+    })
     .from(sessionLinks)
     .where(eq(sessionLinks.id, linkId))
     .for("share");
   if (link === undefined || link.closedAt === null) return true;
+  // A follow-up of an answer stored before the link closed.
+  if (link.lately && dedupeKey.startsWith(`after_turn:${linkId}:`)) {
+    return true;
+  }
   const lost = dedupeKey.startsWith(UNCERTAIN_PREFIX)
     ? dedupeKey.slice(UNCERTAIN_PREFIX.length)
     : null;
@@ -499,6 +506,12 @@ async function linkTakesNew(
 }
 
 const UNCERTAIN_PREFIX = "uncertain:";
+
+// How long a closed link still takes the follow-ups of answers stored before
+// it closed (afterTurnReplies). A follow-up waits for its turn's reply,
+// which retries and rate limits hold for minutes, hours at worst; a day
+// covers that, and bounds the closed links each pass reads to a day's.
+const AFTER_TURN_CLOSED_LINK_GRACE = sql.raw("interval '1 day'");
 
 // Whether link `l` still takes the row: not revoked, unmuted, and posting
 // the row's kind. Not `closed_at`: a closed link's last report still goes.
@@ -1250,38 +1263,7 @@ export function createPostgresSlackOutboxStore(
                           THEN 'reply' ELSE 'failure' END)
                         || ':' || l2.id || ':' || t.sequence
                     )))
-              ) AND NOT EXISTS (
-                -- A follow-up the link still owes (afterTurnReplies): its
-                -- turn's own row is being sent, or is in and the follow-up
-                -- is not. A closed link takes no new row. Held a day at most.
-                SELECT 1 FROM ${events} e
-                JOIN ${turns} et ON et.id = e.turn_id
-                  AND et.attempt_id = e.attempt_id
-                JOIN ${slackInstallations} i ON i.id = l2.installation_id
-                  AND i.status <> 'revoked'
-                JOIN ${slackApps} a ON a.app_id = i.app_id
-                WHERE e.session_id = l2.session_id
-                  AND e.type = 'result'
-                  AND (e.neutral ->> 'after_turn') IS NOT NULL
-                  AND e.source_sequence IS NOT NULL
-                  AND e.created_at > now() - interval '1 day'
-                  AND et.created_at >= l2.created_at
-                  AND EXISTS (
-                    SELECT 1 FROM ${t} own
-                    WHERE own.dedupe_key IN (
-                      'reply:' || l2.id || ':' || et.sequence,
-                      'failure:' || l2.id || ':' || et.sequence))
-                  AND NOT EXISTS (
-                    SELECT 1 FROM ${t} own
-                    WHERE own.dedupe_key IN (
-                        'reply:' || l2.id || ':' || et.sequence,
-                        'failure:' || l2.id || ':' || et.sequence)
-                      AND own.slack_user_id IS NOT NULL)
-                  AND NOT EXISTS (
-                    SELECT 1 FROM ${t} f
-                    WHERE f.dedupe_key = 'after_turn:' || l2.id || ':'
-                      || et.sequence || ':' || e.source_sequence)
-                  AND ${afterTurnSays(sql.raw("e"))})
+              )
               ELSE NOT EXISTS (
                 SELECT 1 FROM ${turns} ot
                 WHERE ot.session_id = l2.session_id
@@ -1785,8 +1767,10 @@ export function createPostgresSlackOutboxStore(
             AND (e.neutral ->> 'after_turn') IS NOT NULL
             AND e.source_sequence IS NOT NULL
             AND e.id > ${after ?? "0"}::bigint
-            -- A turn from before the thread is not the thread's to answer.
+            -- A turn from before the thread is not the thread's to answer,
+            -- nor an answer from after it closed.
             AND et.created_at >= l.created_at
+            AND (l.closed_at IS NULL OR e.created_at < l.closed_at)
             -- After the turn's own reply or failure notice, once every send
             -- of either is over: a follow-up never goes ahead of what it
             -- follows. Only under one the whole thread was shown: a notice
@@ -1828,7 +1812,9 @@ export function createPostgresSlackOutboxStore(
           -- A muted thread, or one that hears of no turns, gets nothing.
           AND NOT l.muted
           AND ${reportsTurns(sql.raw("l"))}
-          AND l.closed_at IS NULL
+          -- A link closed since still takes what it owed (linkTakesNew).
+          AND (l.closed_at IS NULL
+            OR l.closed_at > now() - ${AFTER_TURN_CLOSED_LINK_GRACE})
           AND i.status <> 'revoked'
         ORDER BY r.id
         LIMIT ${limit}`),
