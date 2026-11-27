@@ -11,7 +11,7 @@ export type ProxyRequest =
       host: string;
       kind: "connect";
       port: number;
-      proxyAuthorization?: string;
+      proxyAuthorization: ProxyAuthorization;
     }
   | {
       body: RequestBody;
@@ -24,14 +24,17 @@ export type ProxyRequest =
       keepAlive: boolean;
       kind: "forward";
       port: number;
-      /**
-       * The client's `Proxy-Authorization`, as it came: decoded only for a
-       * refusal's report (denial-report.ts), never forwarded.
-       */
-      proxyAuthorization?: string;
+      proxyAuthorization: ProxyAuthorization;
     }
   | { kind: "health" }
   | { kind: "invalid"; reason: string; status: number };
+
+/**
+ * The client's `Proxy-Authorization`, as it came, or undefined. A function so
+ * that only a refusal's report (denial-report.ts) reads it; it is never
+ * forwarded.
+ */
+export type ProxyAuthorization = () => string | undefined;
 
 /** Headers that describe this hop only and must not be forwarded. */
 const HOP_BY_HOP: ReadonlySet<string> = new Set([
@@ -65,7 +68,11 @@ export function parseRequestHead(head: string): ProxyRequest {
     const authority = splitAuthority(target);
     return authority === null
       ? invalid(400, "CONNECT target must be host:port")
-      : { kind: "connect", ...authority, ...proxyAuthorizationOf(headers) };
+      : {
+          kind: "connect",
+          ...authority,
+          proxyAuthorization: proxyAuthorizationOf(headers),
+        };
   }
   if (target.startsWith("/")) {
     return method === "GET" && target === HEALTH_PATH
@@ -92,17 +99,18 @@ export function parseRequestHead(head: string): ProxyRequest {
     keepAlive: version === "HTTP/1.1" && keepAliveOf(headers),
     kind: "forward",
     port,
-    ...proxyAuthorizationOf(headers),
+    proxyAuthorization: proxyAuthorizationOf(headers),
   };
 }
 
 /** One field or none: two are no one's credentials. */
-function proxyAuthorizationOf(headers: Array<[string, string]>): {
-  proxyAuthorization?: string;
-} {
-  const fields = headers.filter(([name]) => name === "proxy-authorization");
-  const field = fields.length === 1 ? fields[0]?.[1] : undefined;
-  return field === undefined ? {} : { proxyAuthorization: field };
+function proxyAuthorizationOf(
+  headers: Array<[string, string]>,
+): ProxyAuthorization {
+  return () => {
+    const fields = headers.filter(([name]) => name === "proxy-authorization");
+    return fields.length === 1 ? fields[0]?.[1] : undefined;
+  };
 }
 
 /**

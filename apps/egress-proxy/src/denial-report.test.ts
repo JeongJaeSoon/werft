@@ -186,6 +186,30 @@ describe("the forward port reports what it refused", () => {
     expect(reported).toEqual([]);
   });
 
+  test("a malformed tunnel authority is neither echoed nor reported", async () => {
+    reported.length = 0;
+    const answer = await exchange(
+      proxy.port,
+      `CONNECT user:pw@blocked.test/p:443 HTTP/1.1\r\nproxy-authorization: ${basic("werft", "marker")}`,
+    );
+    expect(answer).toStartWith("HTTP/1.1 403");
+    expect(answer).toContain("destination is not allowlisted");
+    expect(answer).not.toContain("pw@");
+    expect(reported).toEqual([]);
+  });
+
+  test("an IPv6 literal is named in brackets", async () => {
+    reported.length = 0;
+    const answer = await exchange(
+      proxy.port,
+      `CONNECT [2001:db8::1]:443 HTTP/1.1\r\nproxy-authorization: ${basic("werft", "marker")}`,
+    );
+    expect(answer).toContain("([2001:db8::1]:443)");
+    expect(reported).toEqual([
+      { token: "marker", host: "2001:db8::1", port: 443 },
+    ]);
+  });
+
   test("a reporter that throws does not stop the refusal", async () => {
     const answer = await exchange(
       throwing.port,

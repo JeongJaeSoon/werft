@@ -37,49 +37,65 @@ export type EgressDenialOutcome =
 
 /**
  * Records one refusal the forward proxy reported, against the turn the
- * attempt is running now. The attempt row lock orders reports of one
- * attempt, so the count and the insert see each other.
+ * attempt is running now. The session and attempt rows are locked in the
+ * order every gateway path takes them (lease-reconcile.ts), and everything is
+ * judged again after the locks: a release, a revocation or a claim replay
+ * that committed while this waited is seen. The attempt lock also orders
+ * reports of one attempt, so the count and the insert see each other.
  */
 export function recordEgressDenial(
   db: Database,
   report: EgressDenialReport,
 ): Promise<EgressDenialOutcome> {
   return db.transaction(async (tx) => {
+    const byToken = and(
+      eq(workerCredentials.tokenHash, report.tokenHash),
+      eq(workerCredentials.purpose, "egress_report"),
+    );
     const [token] = await tx
-      .select({ attemptId: workerCredentials.attemptId })
+      .select({
+        attemptId: workerCredentials.attemptId,
+        sessionId: attempts.sessionId,
+      })
       .from(workerCredentials)
-      .where(
-        and(
-          eq(workerCredentials.tokenHash, report.tokenHash),
-          eq(workerCredentials.purpose, "egress_report"),
-          isNull(workerCredentials.revokedAt),
-          gt(workerCredentials.expiresAt, DB_NOW),
-        ),
-      )
+      .innerJoin(attempts, eq(attempts.id, workerCredentials.attemptId))
+      .where(and(byToken, isNull(workerCredentials.revokedAt)))
       .limit(1);
     if (!token) return { outcome: "invalid_token" };
-    const [owned] = await tx
-      .select({ sessionId: attempts.sessionId })
+    await tx
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(eq(sessions.id, token.sessionId))
+      .for("update");
+    await tx
+      .select({ id: attempts.id })
       .from(attempts)
-      .innerJoin(sessions, eq(sessions.id, attempts.sessionId))
-      .where(
-        and(
-          eq(attempts.id, token.attemptId),
+      .where(eq(attempts.id, token.attemptId))
+      .for("update");
+    // One statement after the locks, so its clock is read after any wait.
+    const [judged] = await tx
+      .select({
+        live: sql<boolean>`${isNull(workerCredentials.revokedAt)} AND ${gt(workerCredentials.expiresAt, DB_NOW)}`,
+        owns: sql<boolean>`${and(
           notInArray(attempts.state, ENDED_ATTEMPT_STATES),
           gt(attempts.leaseExpiresAt, DB_NOW),
           eq(sessions.leaseEpoch, attempts.leaseEpoch),
           eq(sessions.executionGeneration, attempts.executionGeneration),
-        ),
-      )
-      .limit(1)
-      .for("update", { of: attempts });
-    if (!owned) return { outcome: "stale" };
+        )}`,
+      })
+      .from(workerCredentials)
+      .innerJoin(attempts, eq(attempts.id, workerCredentials.attemptId))
+      .innerJoin(sessions, eq(sessions.id, attempts.sessionId))
+      .where(byToken)
+      .limit(1);
+    if (!judged?.live) return { outcome: "invalid_token" };
+    if (!judged.owns) return { outcome: "stale" };
     const [turn] = await tx
       .select({ id: turns.id })
       .from(turns)
       .where(
         and(
-          eq(turns.sessionId, owned.sessionId),
+          eq(turns.sessionId, token.sessionId),
           eq(turns.attemptId, token.attemptId),
           eq(turns.status, "running"),
         ),
@@ -98,7 +114,7 @@ export function recordEgressDenial(
       .insert(egressDenials)
       .values({
         id: randomUUID(),
-        sessionId: owned.sessionId,
+        sessionId: token.sessionId,
         attemptId: token.attemptId,
         turnId,
         host: report.host,
@@ -108,16 +124,27 @@ export function recordEgressDenial(
       .returning({ id: egressDenials.id });
     return inserted.length === 0
       ? { outcome: "duplicate" }
-      : { outcome: "recorded", sessionId: owned.sessionId, turnId };
+      : { outcome: "recorded", sessionId: token.sessionId, turnId };
   });
 }
 
-/** With the attempt's credentials: the rows serve the attempt that holds them. */
+/**
+ * With the attempt's credentials, on every path that revokes them: the rows
+ * serve the attempt that holds them.
+ */
 export async function deleteAttemptEgressDenials(
   tx: Database,
   attemptId: string,
 ): Promise<void> {
   await tx.delete(egressDenials).where(eq(egressDenials.attemptId, attemptId));
+}
+
+/** An operator's revocation takes every attempt's tokens of the session. */
+export async function deleteSessionEgressDenials(
+  tx: Database,
+  sessionId: string,
+): Promise<void> {
+  await tx.delete(egressDenials).where(eq(egressDenials.sessionId, sessionId));
 }
 
 // Read by tests only.

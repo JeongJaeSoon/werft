@@ -66,6 +66,7 @@ import {
   recordEgressDenial,
 } from "./sessions/egress-denials.ts";
 import { acquireFence } from "./sessions/fence.ts";
+import { reconcileExpiredLeases } from "./sessions/lease-reconcile.ts";
 import { pauseBlocker } from "./sessions/pause-control.ts";
 import { commitCheckpoint } from "./testing/checkpoints.ts";
 import { insertDecisionModel } from "./testing/decision-model.ts";
@@ -927,6 +928,30 @@ integration("worker gateway on PostgreSQL", () => {
     });
     expect(await egressDenialsOf(db, claimed.attempt_id)).toEqual([]);
     expect(await report("example.com")).toBe("invalid_token");
+  });
+
+  test("the lease sweep takes a lost attempt's refusals with its tokens", async () => {
+    const { claimed } = await claimAndDeliver(partitionFor("egress-sweep"));
+    await pool.query(
+      "UPDATE attempts SET lease_expires_at = clock_timestamp() + interval '1 minute' WHERE id = $1",
+      [claimed.attempt_id],
+    );
+    const reportToken = claimed.egress_report?.token;
+    if (reportToken === undefined) throw new Error("the claim carried none");
+    const tokenHash = hashWorkerToken(reportToken);
+    const report = { tokenHash, host: "example.com", port: 443 };
+    expect((await recordEgressDenial(db, report)).outcome).toBe("recorded");
+    // The oldest expiry of all, so a one-candidate pass takes this attempt.
+    await pool.query(
+      "UPDATE attempts SET lease_expires_at = timestamptz '2000-01-01' WHERE id = $1",
+      [claimed.attempt_id],
+    );
+    const swept = await reconcileExpiredLeases(db, { limit: 1 });
+    expect(swept.map((lease) => lease.attemptId)).toEqual([claimed.attempt_id]);
+    expect(await egressDenialsOf(db, claimed.attempt_id)).toEqual([]);
+    expect((await recordEgressDenial(db, report)).outcome).toBe(
+      "invalid_token",
+    );
   });
 
   test("a fence change not yet committed does not hold the check up, and refuses once committed", async () => {

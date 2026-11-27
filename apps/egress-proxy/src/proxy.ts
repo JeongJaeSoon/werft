@@ -526,7 +526,10 @@ export async function startEgressProxy(
         return;
       }
       const destination = { host: request.host, port: request.port };
-      const unlisted = decision.reason === NOT_ALLOWLISTED;
+      // A CONNECT authority is only split at its last colon, so a malformed
+      // one can carry a path or userinfo; that is not echoed or reported.
+      const unlisted =
+        decision.reason === NOT_ALLOWLISTED && HOST_SHAPE.test(request.host);
       // npm falls back from a GitHub tarball to `git clone` only on an
       // HTTP error, so a refusal answers rather than drops
       // (npm-git-dependency.test.ts). The host and port are the client's own
@@ -542,7 +545,7 @@ export async function startEgressProxy(
       // allowlist decides: an address the proxy never dials is no one's to
       // add.
       if (unlisted && options.reportDenial !== undefined) {
-        const token = reportTokenOf(request.proxyAuthorization);
+        const token = reportTokenOf(request.proxyAuthorization());
         if (token !== undefined) {
           try {
             options.reportDenial({ token, ...destination });
@@ -1129,8 +1132,13 @@ export async function startEgressProxy(
   };
 }
 
+/** A DNS name or an IP literal, as normalizeHost leaves it. */
+const HOST_SHAPE = /^[a-z0-9._-]+$|^[0-9a-f:.]+$/;
+
 function describe(destination: { host: string; port: number }): string {
-  return `${destination.host}:${destination.port}`;
+  return destination.host.includes(":")
+    ? `[${destination.host}]:${destination.port}`
+    : `${destination.host}:${destination.port}`;
 }
 
 // libc, not node:dns: Bun's node:dns answers from c-ares, which keeps a

@@ -24,6 +24,7 @@ import {
   workerLaunches,
   workers,
 } from "../schema.ts";
+import { deleteAttemptEgressDenials } from "./egress-denials.ts";
 
 export type ReconciledLease = {
   attemptId: string;
@@ -158,6 +159,9 @@ export async function reconcileExpiredLeases(
             isNull(workerCredentials.revokedAt),
           ),
         );
+      // confirmExecutionGoneAtomic skips an attempt already lost, so its
+      // refusals go here, with its tokens.
+      await deleteAttemptEgressDenials(tx, attempt.id);
       await tx.delete(workers).where(eq(workers.podId, attempt.executionId));
       if (owns) {
         await fenceAndRequestKill(tx, {

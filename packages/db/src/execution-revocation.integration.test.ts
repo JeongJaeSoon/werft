@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { WorkerScope } from "@werft-ai/contracts";
 import {
   createWorkerGateway,
+  hashWorkerToken,
   type WorkerGateway,
   WorkerGatewayError,
   type WorkerPrincipal,
@@ -30,6 +31,10 @@ import {
   unassignedSessions,
   workerCredentials,
 } from "./schema.ts";
+import {
+  egressDenialsOf,
+  recordEgressDenial,
+} from "./sessions/egress-denials.ts";
 import {
   EXECUTION_RESTORED,
   EXECUTION_REVOKED,
@@ -294,6 +299,19 @@ integration("execution Grant revocation on PostgreSQL", () => {
       message: "second input",
     });
     if (appended.outcome !== "accepted") throw new Error(appended.outcome);
+    // A refusal on record, which the revocation takes with the tokens.
+    await pool.query(
+      "UPDATE attempts SET lease_expires_at = clock_timestamp() + interval '1 minute' WHERE id = $1",
+      [claimed.attempt_id],
+    );
+    const reportToken = claimed.egress_report?.token;
+    if (reportToken === undefined) throw new Error("the claim carried none");
+    const reported = await recordEgressDenial(db, {
+      tokenHash: hashWorkerToken(reportToken),
+      host: "example.com",
+      port: 443,
+    });
+    expect(reported.outcome).toBe("recorded");
     const before = await sessionRow(session.session_id);
 
     const result = await revoke(session.session_id);
@@ -303,9 +321,11 @@ integration("execution Grant revocation on PostgreSQL", () => {
       receiptStatus: "accepted",
       authRevision: before.authRevision + 1,
       executionId: l.executionId,
-      // The attempt's gateway credential and its four egress tokens.
-      revokedCredentials: 5,
+      // The attempt's gateway credential, its four egress tokens and its
+      // refusal report token.
+      revokedCredentials: 6,
     });
+    expect(await egressDenialsOf(db, claimed.attempt_id)).toEqual([]);
 
     const after = await sessionRow(session.session_id);
     expect(after.authRevision).toBe(before.authRevision + 1);
