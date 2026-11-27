@@ -842,7 +842,7 @@ test("docs/ci/checks.md names each required check by the one job that reports it
       // A gate's `contains(list, only || 'all') && 'name' || '... (gate)'`:
       // true for a pull request, where `only` is unset.
       const gate =
-        /^\$\{\{ contains\(fromJSON\('[^']*'\), github\.event\.inputs\.only \|\| 'all'\) && '([^']*)' \|\| '[^']*' \}\}$/.exec(
+        /^\$\{\{ contains\(fromJSON\('\[[^\]]*"all"[^\]]*\]'\), github\.event\.inputs\.only \|\| 'all'\) && '([^']*)' \|\| '[^']*' \}\}$/.exec(
           job.name ?? "",
         );
       const name = gate

@@ -90,8 +90,8 @@ PR의 merge를 막지 않는다. 경로가 닿는 PR에서 돌고, 일부는 밤
 | --- | --- | --- | --- | --- |
 | `d2-gate.yml` | 이 checkout으로 빌드한 이미지의 compose 스택 전체에서 D2 완료 gate 항목(A–E, R1–R2, H1–H5) | gate 자신의 파일과, worker를 끝내고 turn을 닫는 코드(scheduler, reconciler, pass-loop, sessions, workers, worker 앱, 로컬 Docker backend) | 매일 18:17 | 이슈 `ci-d2-gate-failure` |
 | `keycloak-login.yml` | 실제 Keycloak을 상대로 provider 로그인이 끝까지 된다: 추가, 시험 로그인, 켜기, 연결, 첫 가입, 미확인 계정 거절, 끄면 세션 종료, 틀린 PKCE 거절, 로그에 secret 없음 | 로그인 API, web의 로그인 화면, Keycloak compose, verify 스크립트 | 매일 18:47 | 이슈 `ci-keycloak-login-failure` |
-| `k8s-replicas.yml` | api replica 둘 중 어디에 닿아도 세션 흐름이 맞고 turn이 두 번 돌지 않는다 | chart, kind 스크립트 | 매일 19:07 | 이슈 `ci-k8s-replicas-failure` |
-| `k8s-upgrade.yml` | 기다리는 세션과 멈춘 세션이 helm upgrade와 rollback을 지나도 그대로다 | chart, `upgrade-check.ts`, kind 스크립트 | 매일 19:37 | 이슈 `ci-k8s-upgrade-failure` |
+| `k8s-replicas.yml` | api replica 둘 중 어디에 닿아도 세션 흐름이 맞고 turn이 두 번 돌지 않는다 | chart, kind 스크립트 | 없음 | 빨간 run뿐 |
+| `k8s-upgrade.yml` | 기다리는 세션과 멈춘 세션이 helm upgrade와 rollback을 지나도 그대로다 | chart, `upgrade-check.ts`, kind 스크립트 | 없음 | 빨간 run뿐 |
 | `k8s-netpol.yml` | chart의 NetworkPolicy가 실제 cluster에서 지켜진다. 정책을 끄면 열리고 다시 켜면 닫힌다 | NetworkPolicy·metrics template, kind 스크립트, workflow 자신 | 없음 | 빨간 run뿐 |
 | `worker-compat.yml` | 지원 기간 안 릴리스의 worker·proxy 이미지 위에 지금 control host를 올려도 turn이 끝나고 checkpoint에서 이어진다 | workflow 자신, `worker-compat-plan.sh`, `tests/compat/` | 매일 04:41. 릴리스 때 `images.yml`이 부르고, 실패하면 릴리스가 멈춘다 | 빨간 run뿐 |
 | `install-rehearsal.yml` | 게시된 릴리스를 바깥 운영자처럼(로그인과 token 없이) compose와 kind에 설치하면 `/readyz`가 200을 낸다 | workflow 자신, `rehearsal-release.sh` | 없음. 수동(릴리스 tag를 줄 수 있다) | 빨간 run뿐 |
@@ -110,8 +110,8 @@ PR의 merge를 막지 않는다. 경로가 닿는 PR에서 돌고, 일부는 밤
 | gate | PR에서 보지 않는 경로 | 뒤를 받치는 것 |
 | --- | --- | --- |
 | D2 gate | API server·app·readiness, `packages/contracts`, `packages/db/src/schema.ts`, `pool.ts`, `control-*.ts`. checkpoint·transcript·storage·runtime(`packages/platform/src/checkpoints`, `packages/db/src/checkpoints`, `packages/storage`, `packages/adapters/runtimes`)과 egress proxy | 야간 run |
-| K8s replicas | API의 세션·이벤트 경로, 세션 store | 야간 run |
-| K8s upgrade | migration, upgrade hook이 부르는 코드 중 `upgrade-check.ts` 밖의 것, 세션 정지와 복원 | 야간 run |
+| K8s replicas | API의 세션·이벤트 경로, 세션 store | 다음에 경로가 닿는 PR이나 수동 run. 야간 없음 |
+| K8s upgrade | migration, upgrade hook이 부르는 코드 중 `upgrade-check.ts` 밖의 것, 세션 정지와 복원 | 다음에 경로가 닿는 PR이나 수동 run. 야간 없음 |
 | Keycloak login | 로그인 경로 밖의 API 공통 코드(app, 미들웨어, 설정) | 야간 run |
 | K8s NetworkPolicy | worker Pod에 label을 붙이는 실행 backend, chart의 다른 template, kind와 CNI 버전 | `k8s-smoke`의 egress 단계(아래 표). 야간 없음 |
 | Worker compatibility | protocol, worker, migration을 바꾸는 제품 코드 전부 | 야간 run, 릴리스 때의 run |
