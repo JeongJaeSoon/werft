@@ -529,7 +529,7 @@ export async function startEgressProxy(
       // A CONNECT authority is only split at its last colon, so a malformed
       // one can carry a path or userinfo; that is not echoed or reported.
       const unlisted =
-        decision.reason === NOT_ALLOWLISTED && HOST_SHAPE.test(request.host);
+        decision.reason === NOT_ALLOWLISTED && nameable(request.host);
       // npm falls back from a GitHub tarball to `git clone` only on an
       // HTTP error, so a refusal answers rather than drops
       // (npm-git-dependency.test.ts). The host and port are the client's own
@@ -1132,8 +1132,10 @@ export async function startEgressProxy(
   };
 }
 
-/** A DNS name or an IP literal, as normalizeHost leaves it. */
-const HOST_SHAPE = /^[a-z0-9._-]+$|^[0-9a-f:.]+$/;
+/** A DNS name, as normalizeHost leaves it; an IP literal is told by isIP. */
+const DNS_NAME =
+  /^(?=.{1,253}$)[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?(?:\.[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?)*$/;
+const nameable = (host: string) => isIP(host) !== 0 || DNS_NAME.test(host);
 
 function describe(destination: { host: string; port: number }): string {
   return destination.host.includes(":")

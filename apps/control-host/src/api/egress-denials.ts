@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
 import type { StructuredLogger } from "@werft-ai/observability";
 import { hashToken } from "@werft-ai/platform";
 import { z } from "zod";
@@ -13,16 +14,15 @@ export const EGRESS_DENIALS_PATH = "/egress-denials";
 
 const MAX_BODY_BYTES = 4096;
 
+const DNS_NAME =
+  /^(?=.{1,253}$)[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?(?:\.[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?)*$/;
+
 const reportSchema = z
   .object({
     token: z.string().min(1).max(512),
     // A name or an address literal, as the proxy normalized it: no path,
     // query or userinfo can ride in it.
-    host: z
-      .string()
-      .min(1)
-      .max(253)
-      .regex(/^[a-z0-9._:[\]-]+$/),
+    host: z.string().refine((host) => isIP(host) !== 0 || DNS_NAME.test(host)),
     port: z.number().int().min(1).max(65_535),
   })
   .strict();

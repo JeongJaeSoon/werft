@@ -48,6 +48,9 @@ export function recordEgressDenial(
   report: EgressDenialReport,
 ): Promise<EgressDenialOutcome> {
   return db.transaction(async (tx) => {
+    // A report waits on the rows a heartbeat or a release holds; it is not
+    // worth a proxy's slot for longer than one heartbeat waits.
+    await tx.execute(sql`SET LOCAL lock_timeout = '2s'`);
     const byToken = and(
       eq(workerCredentials.tokenHash, report.tokenHash),
       eq(workerCredentials.purpose, "egress_report"),

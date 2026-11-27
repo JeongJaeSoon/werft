@@ -67,6 +67,8 @@ describe("egress denial reports", () => {
       { token: "wed_marker", host: "user@example.com", port: 443 },
       { token: "wed_marker", host: "Example.com", port: 443 },
       { token: "wed_marker", host: "example.com", port: 0 },
+      { token: "t", host: "abc:def", port: 443 },
+      { token: "t", host: `${"a".repeat(64)}.example`, port: 443 },
       { token: "", host: "example.com", port: 443 },
       { token: "wed_marker", host: "example.com", port: 443, path: "/x" },
     ]) {

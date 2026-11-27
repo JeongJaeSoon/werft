@@ -188,13 +188,18 @@ describe("the forward port reports what it refused", () => {
 
   test("a malformed tunnel authority is neither echoed nor reported", async () => {
     reported.length = 0;
-    const answer = await exchange(
-      proxy.port,
-      `CONNECT user:pw@blocked.test/p:443 HTTP/1.1\r\nproxy-authorization: ${basic("werft", "marker")}`,
-    );
-    expect(answer).toStartWith("HTTP/1.1 403");
-    expect(answer).toContain("destination is not allowlisted");
-    expect(answer).not.toContain("pw@");
+    for (const [authority, raw] of [
+      ["user:pw@blocked.test/p:443", "pw@"],
+      ["abc:def:443", "abc:def"],
+    ]) {
+      const answer = await exchange(
+        proxy.port,
+        `CONNECT ${authority} HTTP/1.1\r\nproxy-authorization: ${basic("werft", "marker")}`,
+      );
+      expect(answer).toStartWith("HTTP/1.1 403");
+      expect(answer).toContain("destination is not allowlisted");
+      expect(answer).not.toContain(raw);
+    }
     expect(reported).toEqual([]);
   });
 
