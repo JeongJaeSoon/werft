@@ -68,11 +68,13 @@ describe("createSessionStop", () => {
       outcome: "cancelled",
       cancelled: 2,
       runningTurnId: "3",
+      closed: false,
     });
     expect(await run.result).toEqual({
       outcome: "stopped",
       interrupted: true,
       cancelled: 2,
+      closed: false,
     });
     expect(run.calls).toEqual(["cancel", "interrupt"]);
     expect(run.cancels.map((cancel) => cancel.sessionId)).toEqual([SESSION]);
@@ -90,11 +92,29 @@ describe("createSessionStop", () => {
       outcome: "cancelled",
       cancelled: 1,
       runningTurnId: null,
+      closed: false,
     });
     expect(await run.result).toEqual({
       outcome: "stopped",
       interrupted: false,
       cancelled: 1,
+      closed: false,
+    });
+    expect(run.calls).toEqual(["cancel"]);
+  });
+
+  test("a task the stop closed before its first turn says so", async () => {
+    const run = stopWith({
+      outcome: "cancelled",
+      cancelled: 1,
+      runningTurnId: null,
+      closed: true,
+    });
+    expect(await run.result).toEqual({
+      outcome: "stopped",
+      interrupted: false,
+      cancelled: 1,
+      closed: true,
     });
     expect(run.calls).toEqual(["cancel"]);
   });
@@ -104,13 +124,14 @@ describe("createSessionStop", () => {
       outcome: "cancelled",
       cancelled: 0,
       runningTurnId: null,
+      closed: false,
     });
     expect(await run.result).toEqual({ outcome: "nothing_running" });
   });
 
   test("a turn put back in the queue since it was read is nothing to interrupt", async () => {
     const run = stopWith(
-      { outcome: "cancelled", cancelled: 0, runningTurnId: "3" },
+      { outcome: "cancelled", cancelled: 0, runningTurnId: "3", closed: false },
       {
         interrupt: async () => {
           throw new SessionServiceError("TURN_NOT_STARTED", "queued");
@@ -122,7 +143,7 @@ describe("createSessionStop", () => {
 
   test("a caller who may not control the session stops nothing", async () => {
     const run = stopWith(
-      { outcome: "cancelled", cancelled: 1, runningTurnId: "3" },
+      { outcome: "cancelled", cancelled: 1, runningTurnId: "3", closed: false },
       { authorization: policy("deny") },
     );
     expect(await run.result).toEqual({ outcome: "not_permitted" });
@@ -131,7 +152,7 @@ describe("createSessionStop", () => {
 
   test("a caller who may not even see the session stops nothing, and is not asked again", async () => {
     const run = stopWith(
-      { outcome: "cancelled", cancelled: 1, runningTurnId: "3" },
+      { outcome: "cancelled", cancelled: 1, runningTurnId: "3", closed: false },
       { authorization: policy("deny", "not_found") },
     );
     expect(await run.result).toEqual({ outcome: "not_permitted" });
@@ -140,7 +161,7 @@ describe("createSessionStop", () => {
 
   test("an authorization that could not be decided is passed on, to be retried", async () => {
     const run = stopWith(
-      { outcome: "cancelled", cancelled: 1, runningTurnId: "3" },
+      { outcome: "cancelled", cancelled: 1, runningTurnId: "3", closed: false },
       {
         authorization: {
           authorize: async () => {

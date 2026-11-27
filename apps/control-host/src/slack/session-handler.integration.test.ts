@@ -38,6 +38,7 @@ import {
   SESSION_SCOPE_VALUES,
   SLACK_INBOUND_MAX_ATTEMPTS,
   SLACK_NOTICE_MESSAGES,
+  TASK_CLOSING_DEFAULT,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
@@ -6725,6 +6726,111 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     ]);
   });
 
+  /** A task's thread: its first turn waiting for a worker, rollout on. */
+  async function unstartedTask() {
+    const fixture = await agentInSlack("main", { rollout: "off" });
+    const view = handler();
+    const root = at(-100);
+    await deliver(fixture, mention(root));
+    await drain(view.handle);
+    const [session] = await sessionsOf(fixture);
+    if (session === undefined) throw new Error("no session was opened");
+    await db
+      .update(sessions)
+      .set({ taskClosing: TASK_CLOSING_DEFAULT })
+      .where(eq(sessions.id, session.id));
+    await rolloutOn(fixture);
+    const post = (ts: string, extra: Record<string, unknown> = {}) =>
+      message(ts, { thread_ts: root, ...extra });
+    return { fixture, view, session, post };
+  }
+
+  test("a task's stop before its first turn closes the task, nothing left to launch, and the thread is told it was closed", async () => {
+    const { fixture, view, session, post } = await unstartedTask();
+    await deliver(fixture, post(at(1), { text: "그만" }));
+    expect(await drain(view.handle)).toMatchObject({ processed: 1, failed: 0 });
+
+    expect(await turnStatesOf(session.id)).toEqual([
+      { sequence: 1, status: "cancelled", terminalReason: "stop_requested" },
+    ]);
+    expect(await interruptsOf(session.id)).toEqual([]);
+    const [after] = await sessionsOf(fixture);
+    expect(after).toMatchObject({
+      admissionState: "closed",
+      status: "stopped",
+      taskClosedReason: "cancelled",
+    });
+    expect(
+      await db
+        .select()
+        .from(schema.unassignedSessions)
+        .where(eq(schema.unassignedSessions.sessionId, session.id)),
+    ).toEqual([]);
+    // The task's request is no waiting message: the line has no count.
+    expect(view.threadNotices).toMatchObject([
+      { notice: { message: "taskStoppedBeforeStart" } },
+    ]);
+    expect(view.threadNotices[0]?.notice).not.toHaveProperty("count");
+  });
+
+  test("messages waiting behind the task's request are counted in the closed line", async () => {
+    const { fixture, view, session, post } = await unstartedTask();
+    await deliver(fixture, post(at(1), { text: "and the tests" }));
+    await drain(view.handle);
+    await deliver(fixture, post(at(2), { text: "stop" }));
+    await drain(view.handle);
+    expect((await turnStatesOf(session.id)).map((turn) => turn.status)).toEqual(
+      ["cancelled", "cancelled"],
+    );
+    expect(view.threadNotices).toMatchObject([
+      { notice: { message: "taskStoppedBeforeStartQueued", count: 1 } },
+    ]);
+  });
+
+  test("a closed task's stop line that cannot be written is not retried, so the stop word never becomes a new mention", async () => {
+    const { fixture, view, session, post } = await unstartedTask();
+    view.sink.recordInThread = async () => {
+      throw new Error("outbox down");
+    };
+    await deliver(fixture, post(at(1), { text: `<@${BOT_USER}> stop` }));
+    expect(await drain(view.handle)).toMatchObject({
+      processed: 1,
+      retried: 0,
+      failed: 0,
+    });
+    const [after] = await sessionsOf(fixture);
+    expect(after?.admissionState).toBe("closed");
+    expect(await turnStatesOf(session.id)).toHaveLength(1);
+    expect(
+      await db
+        .select({ id: schema.conversationTurns.id })
+        .from(schema.conversationTurns)
+        .where(eq(schema.conversationTurns.agentId, fixture.agentId)),
+    ).toEqual([]);
+  });
+
+  test("a task whose first turn started stays open, and the thread gets the stop line it always had", async () => {
+    const { fixture, view, session, post } = await unstartedTask();
+    await setTurn(session.id, 1, {
+      status: "running",
+      attemptId: "attempt-1",
+      startedAt: new Date(),
+    });
+    await deliver(fixture, post(at(1), { text: "and the tests" }));
+    await drain(view.handle);
+    await deliver(fixture, post(at(2), { text: "그만" }));
+    await drain(view.handle);
+    expect((await turnStatesOf(session.id)).map((turn) => turn.status)).toEqual(
+      ["running", "cancelled"],
+    );
+    expect(await interruptsOf(session.id)).toHaveLength(1);
+    const [after] = await sessionsOf(fixture);
+    expect(after?.admissionState).toBe("active");
+    expect(view.threadNotices).toMatchObject([
+      { notice: { message: "sessionStoppedQueued", count: 1 } },
+    ]);
+  });
+
   test("with nothing running or waiting, a stop changes nothing and says so", async () => {
     const { fixture, view, session, post } = await workingThread();
     await setTurn(session.id, 1, { status: "completed", endedAt: new Date() });
@@ -6775,6 +6881,7 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
       outcome: "cancelled",
       cancelled: 1,
       runningTurnId: "1",
+      closed: false,
     });
     // The process died before the stop was done; meanwhile turn 1 ended and
     // new work came in and started.

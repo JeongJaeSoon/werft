@@ -63,6 +63,12 @@ const SLACK_NOTICE_MESSAGES_KO = {
     "요청하신 대로 작업을 멈췄어요. 이어서 하려면 이 스레드에 다시 써 주세요.",
   sessionStoppedQueued:
     "요청하신 대로 작업을 멈췄어요. 기다리던 글 {count}개도 처리하지 않았어요. 이어서 하려면 이 스레드에 다시 써 주세요.",
+  // The stop closed a task before its first turn: nothing to carry on.
+  // `{count}` is the messages waiting after the task's request.
+  taskStoppedBeforeStart:
+    "요청하신 대로 작업을 시작하기 전에 멈추고 닫았어요. 다시 하려면 새로 맡겨 주세요.",
+  taskStoppedBeforeStartQueued:
+    "요청하신 대로 작업을 시작하기 전에 멈추고 닫았어요. 기다리던 글 {count}개도 처리하지 않았어요. 다시 하려면 새로 맡겨 주세요.",
   nothingToStop: "지금 하고 있는 작업이 없어요.",
   stopNotPermitted: "작업을 맡긴 사람만 멈출 수 있어요",
   // A budget account's refusal, never the session's own limit: whose
@@ -160,6 +166,10 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "ご依頼どおり作業を止めました。続けるにはこのスレッドにもう一度書いてください。",
     sessionStoppedQueued:
       "ご依頼どおり作業を止めました。待っていた{count}件のメッセージも処理していません。続けるにはこのスレッドにもう一度書いてください。",
+    taskStoppedBeforeStart:
+      "ご依頼どおり、作業を始める前に止めて閉じました。もう一度行うには、新しく依頼してください。",
+    taskStoppedBeforeStartQueued:
+      "ご依頼どおり、作業を始める前に止めて閉じました。待っていた{count}件のメッセージも処理していません。もう一度行うには、新しく依頼してください。",
     nothingToStop: "今進めている作業はありません。",
     stopNotPermitted: "作業を依頼した人だけが止められます",
     budgetAccountUser:
@@ -240,6 +250,10 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "Stopped the task as you asked. Write in this thread again to carry on.",
     sessionStoppedQueued:
       "Stopped the task as you asked. {count} waiting messages were not processed either. Write in this thread again to carry on.",
+    taskStoppedBeforeStart:
+      "Stopped and closed the task before it started, as you asked. To do it again, ask for it as a new task.",
+    taskStoppedBeforeStartQueued:
+      "Stopped and closed the task before it started, as you asked. {count} waiting messages were not processed either. To do it again, ask for it as a new task.",
     nothingToStop: "There's no task running right now.",
     stopNotPermitted: "Only the person who asked for this task can stop it",
     budgetAccountUser:
