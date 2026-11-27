@@ -57,7 +57,7 @@ export function connectionEndpointProblem(
 
 /**
  * A model connection's model list: the private allowlist's hosts may be plain
- * http and resolve to any address but a metadata, link-local or reserved one.
+ * http and private, under the address rules every request keeps.
  */
 export function connectionModelsOutbound(
   hosts: WorkspaceMcpHosts | null,
