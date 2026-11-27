@@ -71,7 +71,7 @@ type RunOptions = {
 };
 
 /** A proxy connection's entry in `Observed.outside` and what it sent so far. */
-type ProxySeen = { at: number; head: string };
+type ProxySeen = { at: number; done: boolean; head: string };
 
 type HookSeen = { agentId?: string; decision: string; tool: string };
 
@@ -380,24 +380,31 @@ async function runScenario(options: RunOptions): Promise<{
   });
   fetchTarget = target;
   // The engine's proxy for every address but loopback. It lets nothing
-  // through, so a run neither reaches an outside service nor depends on one
-  // answering, and each connection that came to it is on record. A connection
-  // that ignores the proxy variables is not seen here.
+  // through, so what the engine sends by way of it neither reaches an outside
+  // service nor waits on one, and each connection that came to it is on
+  // record. A connection that ignores the proxy variables is not seen here.
   const proxy = Bun.listen<ProxySeen>({
     hostname: "127.0.0.1",
     port: 0,
     socket: {
       open(socket) {
-        socket.data = { at: observed.outside.push("") - 1, head: "" };
+        socket.data = {
+          at: observed.outside.push("") - 1,
+          done: false,
+          head: "",
+        };
       },
       data(socket, chunk) {
         const seen = socket.data;
-        seen.head += chunk.toString("latin1");
+        if (seen.done) return;
+        seen.head = (seen.head + chunk.toString("latin1")).slice(0, 1024);
         const end = seen.head.indexOf("\r\n");
-        // The line may come in pieces; a peer that never ends it is cut off.
-        if (end === -1 && seen.head.length < 1024) return;
+        // Written as it comes: a line in pieces fills in, and one that never
+        // ends is on record up to the cut.
         observed.outside[seen.at] =
           end === -1 ? seen.head : seen.head.slice(0, end);
+        if (end === -1 && seen.head.length < 1024) return;
+        seen.done = true;
         socket.end();
       },
     },
@@ -536,7 +543,7 @@ async function runScenario(options: RunOptions): Promise<{
   // rather than hang its verdict on that endpoint answering.
   if (!options.hostCheck) {
     if (typeof sdkOptions.settings !== "object") {
-      throw new Error("The harness adds to inline engine settings, not a file");
+      throw new Error("The harness expects inline engine settings");
     }
     sdkOptions.settings = {
       ...sdkOptions.settings,
