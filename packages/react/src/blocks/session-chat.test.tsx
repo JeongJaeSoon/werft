@@ -271,7 +271,10 @@ describe("chatItems for background work stopped while idle", () => {
       [
         ...EVENTS.filter((event) => event.id === "1" || event.id === "4"),
         // Streamed last, it happened between turn 1's reply and turn 2.
-        stopped("5", "1", { commands: ["bash", "sleep"] }),
+        {
+          ...stopped("5", "1", { commands: ["bash", "sleep"] }),
+          occurredAt: "2026-11-23T01:01:30.000Z",
+        },
       ],
       [turn("1", "Start a loop", null), turn("2", "Follow-up", null)],
       format,
@@ -283,6 +286,8 @@ describe("chatItems for background work stopped while idle", () => {
       ["user", "Follow-up", null],
       ["reply", "Second answer", false],
     ]);
+    // It shows its own time, not the line before it.
+    expect(items[2]?.at).toBe("2026-11-23T01:01:30.000Z");
   });
 
   test("names only the checked commands, whatever else the event carries", () => {
