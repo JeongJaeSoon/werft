@@ -82,12 +82,16 @@ export const agentGitHubKo = {
   "agentGitHub.feature.review": "리뷰 승인",
   "agentGitHub.feature.reviewHint":
     "리뷰용 App으로 PR에 승인 리뷰를 남깁니다. 권장 권한이면 GitHub는 이 승인을 필수 리뷰로 세지 않으므로, 브랜치 규칙이 리뷰를 요구하면 쓰기 권한이 있는 사람의 승인처럼 GitHub가 인정하는 승인이 따로 필요합니다. 필요한 권한: 리뷰용 App의 pull requests 쓰기",
-  "agentGitHub.feature.actions": "Actions 실행",
+  "agentGitHub.feature.actions": "workflow 직접 실행 (실행·재실행·취소)",
   "agentGitHub.feature.actionsHint":
-    "허용 목록의 워크플로만 실행(workflow_dispatch)하거나 다시 실행합니다. 필요한 권한: actions 쓰기",
-  "agentGitHub.feature.workflows": "워크플로 파일 수정",
+    "허용 목록의 workflow만 실행(workflow_dispatch)하거나 다시 실행합니다. 필요한 권한: actions 쓰기",
+  "agentGitHub.feature.actionsHelp":
+    "켜면 에이전트가 스스로 workflow를 실행하고, 다시 돌리고, 취소합니다. push와 PR로 도는 CI는 이 스위치와 상관없이 GitHub가 돌립니다.",
+  "agentGitHub.feature.workflows": "workflow 파일 수정과 CI 결과 보기",
+  "agentGitHub.feature.workflowsHelp":
+    "켜면 에이전트가 스스로 workflow 파일을 고쳐 push하고, PR의 CI 결과를 읽습니다.",
   "agentGitHub.feature.workflowsHint":
-    ".github/workflows 아래 파일을 바꾼 commit도 push합니다. 필요한 권한: workflows 쓰기",
+    ".github/workflows 아래 파일을 바꾼 commit도 push하고, 세션 저장소의 CI 결과를 읽습니다. 필요한 권한: workflows 쓰기, actions·checks 읽기",
   "agentGitHub.featureReason.app_permission_missing":
     "App에 이 권한이 없습니다. GitHub App 설정에서 더한 뒤 설치를 다시 승인하세요.",
   "agentGitHub.featureReason.over_workspace_ceiling":
@@ -101,7 +105,7 @@ export const agentGitHubKo = {
   "agentGitHub.reviewerNotInstalled":
     "리뷰용 App이 설치되지 않은 저장소: {repositories}. 그 저장소의 리뷰는 GitHub가 거절합니다.",
   "agentGitHub.workflowsActions":
-    "워크플로 파일 수정과 Actions 실행을 같이 켜면, 에이전트가 허용 목록의 워크플로 파일을 자기 브랜치에서 고칠 수 있습니다. 사람이 그 브랜치를 머지하면 고친 파일이 실행 대상이 됩니다.",
+    "workflow 파일 수정과 workflow 직접 실행을 같이 켜면, 에이전트가 허용 목록의 워크플로 파일을 자기 브랜치에서 고칠 수 있습니다. 사람이 그 브랜치를 머지하면 고친 파일이 실행 대상이 됩니다.",
   "agentGitHub.ceilingNote":
     "워크스페이스 상한은 오너·어드민이 연동 > GitHub에서 정합니다.",
   "agentGitHub.allowlistHint":
@@ -176,7 +180,8 @@ export const agentGitHubKo = {
   "agentGitHub.refusal.workflow_not_allowed": "허용 목록 밖",
   "agentGitHub.refusal.agent_ref_refused": "agent/ 브랜치 실행 거절",
   "agentGitHub.refusal.run_ref_unprovable": "플랫폼이 실행하지 않은 run",
-  "agentGitHub.refusal.actions_off": "Actions 실행 꺼짐",
+  "agentGitHub.refusal.actions_off":
+    "이 에이전트는 workflow 직접 실행이 꺼져 있습니다. 관리자가 에이전트 GitHub 설정에서 켤 수 있습니다.",
   "agentGitHub.refusal.github_settings_unsupported": "이 서버가 모르는 설정",
   "agentGitHub.refusal.github_host_unsupported": "GitHub Enterprise",
   "agentGitHub.refusal.repository_none": "저장소 없음",
@@ -297,12 +302,16 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.feature.review": "Approve reviews",
   "agentGitHub.feature.reviewHint":
     "Leaves approving reviews with the reviewer App. With the recommended permissions GitHub does not count them toward required reviews, so where a branch rule requires a review, another approval GitHub counts is still needed, such as one from a person with write access. Needs: the reviewer App's pull requests write",
-  "agentGitHub.feature.actions": "Run Actions",
+  "agentGitHub.feature.actions": "Run workflows directly (run, rerun, cancel)",
   "agentGitHub.feature.actionsHint":
     "Runs (workflow_dispatch) or reruns only workflows on the allow list. Needs: actions write",
-  "agentGitHub.feature.workflows": "Edit workflow files",
+  "agentGitHub.feature.actionsHelp":
+    "When on, the agent runs, reruns and cancels workflows on its own. CI that runs on push and pull requests is run by GitHub whatever this switch says.",
+  "agentGitHub.feature.workflows": "Edit workflow files and see CI results",
+  "agentGitHub.feature.workflowsHelp":
+    "When on, the agent edits and pushes workflow files and reads CI results on its own.",
   "agentGitHub.feature.workflowsHint":
-    "Also pushes commits that change files under .github/workflows. Needs: workflows write",
+    "Also pushes commits that change files under .github/workflows, and reads CI results of the session's repository. Needs: workflows write, actions and checks read",
   "agentGitHub.featureReason.app_permission_missing":
     "The App lacks this permission. Add it in the GitHub App's settings, then approve the installation again.",
   "agentGitHub.featureReason.over_workspace_ceiling":
@@ -316,7 +325,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.reviewerNotInstalled":
     "The reviewer App is not installed on: {repositories}. GitHub refuses reviews there.",
   "agentGitHub.workflowsActions":
-    "With workflow edits and Actions both on, the agent can change an allowed workflow file on its own branch. Once a person merges that branch, the changed file is what runs.",
+    "With workflow edits and direct runs both on, the agent can change an allowed workflow file on its own branch. Once a person merges that branch, the changed file is what runs.",
   "agentGitHub.ceilingNote":
     "Owners and admins set the workspace ceiling in Integrations > GitHub.",
   "agentGitHub.allowlistHint":
@@ -393,7 +402,8 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.refusal.workflow_not_allowed": "Not on the allow list",
   "agentGitHub.refusal.agent_ref_refused": "agent/ branch refused",
   "agentGitHub.refusal.run_ref_unprovable": "A run the platform did not start",
-  "agentGitHub.refusal.actions_off": "Run Actions off",
+  "agentGitHub.refusal.actions_off":
+    "Direct workflow runs are off for this agent. An admin can turn them on in the agent's GitHub settings.",
   "agentGitHub.refusal.github_settings_unsupported":
     "Settings this server does not know",
   "agentGitHub.refusal.github_host_unsupported": "GitHub Enterprise",
@@ -515,12 +525,17 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.feature.review": "レビュー承認",
   "agentGitHub.feature.reviewHint":
     "レビュー用 App で PR に承認レビューを残します。推奨する権限では GitHub はこの承認を必須レビューに数えないため、ブランチのルールがレビューを求める場合は、書き込み権限を持つ人の承認など、GitHub が数える承認が別に必要です。必要な権限:レビュー用 App の pull requests の書き込み",
-  "agentGitHub.feature.actions": "Actions の実行",
+  "agentGitHub.feature.actions":
+    "ワークフローの直接実行 (実行・再実行・キャンセル)",
   "agentGitHub.feature.actionsHint":
     "許可リストのワークフローだけを実行(workflow_dispatch)または再実行します。必要な権限: actions の書き込み",
-  "agentGitHub.feature.workflows": "ワークフローファイルの変更",
+  "agentGitHub.feature.actionsHelp":
+    "オンにすると、エージェントが自分でワークフローを実行・再実行・キャンセルします。push と PR で動く CI は、このスイッチに関係なく GitHub が実行します。",
+  "agentGitHub.feature.workflows": "ワークフローファイルの変更と CI 結果の確認",
+  "agentGitHub.feature.workflowsHelp":
+    "オンにすると、エージェントが自分でワークフローファイルを変更して push し、PR の CI 結果を読みます。",
   "agentGitHub.feature.workflowsHint":
-    ".github/workflows 以下のファイルを変えた commit も push します。必要な権限: workflows の書き込み",
+    ".github/workflows 以下のファイルを変えた commit も push し、セッションのリポジトリの CI 結果を読みます。必要な権限: workflows の書き込み、actions・checks の読み取り",
   "agentGitHub.featureReason.app_permission_missing":
     "App にこの権限がありません。GitHub App の設定で加えてから、インストールを承認し直してください。",
   "agentGitHub.featureReason.over_workspace_ceiling":
@@ -534,7 +549,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.reviewerNotInstalled":
     "レビュー用 App がインストールされていないリポジトリ: {repositories}。そこでのレビューは GitHub が拒否します。",
   "agentGitHub.workflowsActions":
-    "ワークフローファイルの変更と Actions の実行を両方オンにすると、エージェントが許可リストのワークフローファイルを自分のブランチで変えられます。人がそのブランチをマージすると、変えたファイルが実行対象になります。",
+    "ワークフローファイルの変更と直接実行を両方オンにすると、エージェントが許可リストのワークフローファイルを自分のブランチで変えられます。人がそのブランチをマージすると、変えたファイルが実行対象になります。",
   "agentGitHub.ceilingNote":
     "ワークスペースの上限はオーナー・アドミンが 連携 > GitHub で決めます。",
   "agentGitHub.allowlistHint":
@@ -610,7 +625,8 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.refusal.agent_ref_refused": "agent/ ブランチの実行拒否",
   "agentGitHub.refusal.run_ref_unprovable":
     "プラットフォームが始めていない run",
-  "agentGitHub.refusal.actions_off": "Actions の実行オフ",
+  "agentGitHub.refusal.actions_off":
+    "このエージェントはワークフローの直接実行がオフです。管理者がエージェントの GitHub 設定でオンにできます。",
   "agentGitHub.refusal.github_settings_unsupported":
     "このサーバーが知らない設定",
   "agentGitHub.refusal.github_host_unsupported": "GitHub Enterprise",

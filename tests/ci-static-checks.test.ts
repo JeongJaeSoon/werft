@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -193,6 +194,7 @@ test("static checks keep one cache writer and report independent failures", () =
     "./.github/actions/bun-setup",
     "domains",
     "reuse",
+    "reused-k8s",
     "units",
   ]);
   const job = workflow.jobs.static;
@@ -275,8 +277,30 @@ test("required check only accepts verified product or documentation results", ()
     "needs.changes.outputs.docs_only == 'true'",
   );
   expect(workflow.jobs["docs-checks"]?.steps.at(-1)?.run).toBe(
-    "bun test ./tests",
+    "bun test --timeout=15000 ./tests",
   );
+});
+
+test("the suite steps give a test 15 s where bun gives 5, and only CI does", () => {
+  const runs = [
+    workflow.jobs["docs-checks"]?.steps.at(-1)?.run,
+    workflow.jobs["check-part"]?.steps.find(
+      (step) => step.name === "Tests of this part",
+    )?.run,
+    workflow.jobs["integration-domain"]?.steps.find(
+      (step) => step.name === "Tests of this domain",
+    )?.run,
+  ];
+  for (const run of runs) {
+    // One run of the suite, with one limit.
+    expect(run?.match(/\bbun test\b/g)).toHaveLength(1);
+    expect(run?.match(/--timeout\S*/g)).toEqual(["--timeout=15000"]);
+  }
+  // A limit in bunfig.toml would also hide a slow test on a developer's
+  // machine; integration-jobs.ts names the tests over bun's own 5 s.
+  expect(
+    readFileSync(join(import.meta.dir, "../bunfig.toml"), "utf8"),
+  ).not.toMatch(/^\s*timeout\s*=/m);
 });
 
 const plannedConsumers = [
@@ -632,7 +656,6 @@ test("integration refuses cancelled heavy jobs even after every domain passed", 
 
 test("e2e and quickstart start only with work, and the gate holds their results to the plan", () => {
   for (const [name, display, flag] of [
-    ["e2e", "e2e (scenario)", "product"],
     ["quickstart", "quickstart (guides)", "quickstart"],
   ] as const) {
     const job = workflow.jobs[name];
@@ -652,20 +675,19 @@ test("e2e and quickstart start only with work, and the gate holds their results 
     const manual = job?.steps[0];
     expect(manual?.name).toBe("Plan of a manual run");
     expect(manual?.if).toBe(`github.event.inputs.only == '${name}'`);
-    const variable = flag === "product" ? "PRODUCT" : "QUICKSTART";
-    expect(manual?.env?.[variable]).toBe(
+    expect(manual?.env?.QUICKSTART).toBe(
       `\${{ needs.changes.outputs.${flag} }}`,
     );
     const plan = (env: Record<string, string>) =>
       Bun.spawnSync(["bash", "-e", "-c", manual?.run ?? "exit 9"], {
         env: { PATH: Bun.env.PATH ?? "", ...env },
       }).exitCode;
-    expect(plan({ PLAN: "success", [variable]: "true" })).toBe(0);
+    expect(plan({ PLAN: "success", QUICKSTART: "true" })).toBe(0);
     for (const state of ["failure", "cancelled", "skipped", ""]) {
-      expect(plan({ PLAN: state, [variable]: "true" })).not.toBe(0);
+      expect(plan({ PLAN: state, QUICKSTART: "true" })).not.toBe(0);
     }
     for (const value of ["false", ""]) {
-      expect(plan({ PLAN: "success", [variable]: value })).not.toBe(0);
+      expect(plan({ PLAN: "success", QUICKSTART: value })).not.toBe(0);
     }
     const gate = workflow.jobs[`${name}-gate`];
     expect(gate?.needs).toEqual(["changes", name]);
@@ -673,6 +695,10 @@ test("e2e and quickstart start only with work, and the gate holds their results 
       "!cancelled()",
     );
   }
+  expect(workflow.jobs["e2e-gate"]?.needs).toEqual(["changes", "e2e"]);
+  expect(
+    workflow.jobs["e2e-gate"]?.steps.find((s) => s.id === "verdict")?.if,
+  ).toBe("!cancelled()");
   const e2e = (env: Record<string, string>) =>
     verdict("e2e-gate", { PLAN: "success", REUSED: "", ...env });
   expect(
@@ -760,8 +786,15 @@ test("the required e2e and quickstart names are gate jobs of this workflow, neve
   for (const job of Object.values(workflow.jobs)) {
     expect(job.permissions?.checks).toBeUndefined();
   }
-  const all = "(github.event.inputs.only || 'all') == 'all'";
-  for (const name of ["e2e", "quickstart"]) {
+  // A manual run of e2e alone reports through the gate too: a shard under
+  // the required name could cover another shard's failure.
+  for (const [name, all] of [
+    [
+      "e2e",
+      `contains(fromJSON('["all","e2e"]'), github.event.inputs.only || 'all')`,
+    ],
+    ["quickstart", "(github.event.inputs.only || 'all') == 'all'"],
+  ] as const) {
     const gate = workflow.jobs[`${name}-gate`];
     // It runs whenever it carries the name: a skipped check of a required
     // name passes. Skipped under another `only`, GitHub names the check by
@@ -771,13 +804,13 @@ test("the required e2e and quickstart names are gate jobs of this workflow, neve
     expect(gate?.steps.map((s) => s.id)).toEqual(["verdict", "cancelled"]);
     expect(JSON.stringify(gate)).not.toContain("continue-on-error");
   }
-  // Outside the gates and a manual run of e2e or quickstart alone (see
-  // above), no job carries those names, so a skipped one cannot stand in.
+  // Outside the gates and a manual run of quickstart alone (see above), no
+  // job carries those names, so a skipped one cannot stand in.
   for (const [id, job] of Object.entries(workflow.jobs)) {
     if (id === "e2e-gate" || id === "quickstart-gate") continue;
     const name = (job.name ?? id).replace(
-      /^\$\{\{ github\.event\.inputs\.only == '(e2e|quickstart)' && '\1' \|\| '(.*)' \}\}$/,
-      "$2",
+      /^\$\{\{ github\.event\.inputs\.only == 'quickstart' && 'quickstart' \|\| '(.*)' \}\}$/,
+      "$1",
     );
     expect(["e2e", "quickstart"]).not.toContain(name);
   }
@@ -785,6 +818,188 @@ test("the required e2e and quickstart names are gate jobs of this workflow, neve
     "verdict",
     "cancelled",
   ]);
+});
+
+test("docs/ci/checks.md names each required check by the one job that reports it", () => {
+  const root = join(import.meta.dir, "..");
+  const dir = join(root, ".github/workflows");
+  const reporters = readdirSync(dir).flatMap((file) => {
+    const { on, jobs } = Bun.YAML.parse(
+      readFileSync(join(dir, file), "utf8"),
+    ) as {
+      on: string | string[] | Record<string, unknown>;
+      jobs: Record<string, Job>;
+    };
+    const events =
+      typeof on === "string" ? [on] : Array.isArray(on) ? on : Object.keys(on);
+    if (!events.includes("pull_request")) return [];
+    return Object.entries(jobs).map(([id, job]) => {
+      // The name a pull request sees: `only` is a dispatch input, unset there.
+      const [, only, value, chosen, other] =
+        /^\$\{\{ (github\.event\.inputs\.only|\(github\.event\.inputs\.only \|\| 'all'\)) == '([^']*)' && '([^']*)' \|\| '([^']*)' \}\}$/.exec(
+          job.name ?? "",
+        ) ?? [];
+      const unset = only === "github.event.inputs.only" ? "" : "all";
+      // A gate's `contains(list, only || 'all') && 'name' || '... (gate)'`:
+      // true for a pull request, where `only` is unset.
+      const gate =
+        /^\$\{\{ contains\(fromJSON\('\[[^\]]*"all"[^\]]*\]'\), github\.event\.inputs\.only \|\| 'all'\) && '([^']*)' \|\| '[^']*' \}\}$/.exec(
+          job.name ?? "",
+        );
+      const name = gate
+        ? (gate[1] ?? id)
+        : only
+          ? unset === value
+            ? chosen
+            : other
+          : (job.name ?? id);
+      // An expression this test does not evaluate may still pick any string
+      // it quotes (images.yml's build). One taken from a matrix is not seen.
+      const quoted =
+        only || gate
+          ? []
+          : [...(job.name ?? "").matchAll(/'([^']*)'/g)].map(
+              ([, text]) => text,
+            );
+      return { file, id, name, quoted };
+    });
+  });
+  const section =
+    readFileSync(join(root, "docs/ci/checks.md"), "utf8")
+      .split(/^## 필수 check$/m)[1]
+      ?.split(/^### /m)[0] ?? "";
+  const rows = [
+    ...section.matchAll(/^\| `([^`]+)` \| `([^`]+)` · `([^`]+)` \|/gm),
+  ].map(([, name, file, id]) => ({ file, id, name, quoted: [] }));
+  // The ruleset's names (the document gives the command that compares them).
+  expect(rows.map((row) => row.name).sort()).toEqual([
+    "check",
+    "e2e",
+    "forbidden-terms",
+    "gitleaks",
+    "integration",
+    "quickstart",
+    "supply-chain",
+  ]);
+  for (const row of rows) {
+    // A second job of the name could report it skipped, and a skipped required
+    // check passes.
+    expect(
+      reporters.filter(
+        (job) => job.name === row.name || job.quoted.includes(row.name),
+      ),
+    ).toEqual([row]);
+  }
+});
+
+test("check:fast runs lint, the job assignment check and guard tests that exist", () => {
+  const root = join(import.meta.dir, "..");
+  const { scripts } = JSON.parse(
+    readFileSync(join(root, "package.json"), "utf8"),
+  ) as { scripts: Record<string, string> };
+  const steps = (scripts["check:fast"] ?? "")
+    .split("&&")
+    .map((step) => step.trim().split(/\s+/));
+  expect(steps.map((step) => step.join(" ")).slice(0, 2)).toEqual([
+    // `bun run lint` with the errors alone: with the warnings in, biome's
+    // diagnostic limit left the error that failed it out of the output.
+    "biome check --diagnostic-level=error .",
+    "bun .github/scripts/integration-jobs.ts files db 1 >/dev/null",
+  ]);
+  expect(steps).toHaveLength(3);
+  const [bun, test, ...files] = steps[2] ?? [];
+  expect([bun, test]).toEqual(["bun", "test"]);
+  expect(files.toSorted()).toEqual([
+    "./packages/client/src/schema.gen.test.ts",
+    "./packages/core/src/bundle-budget.test.ts",
+    "./packages/db/src/migration-folder.test.ts",
+    "./packages/db/src/schema.test.ts",
+    "./tests/architecture.test.ts",
+    "./tests/docs-self-hosting-facts.test.ts",
+  ]);
+  // A guard that moved would otherwise drop out on a developer's machine only.
+  for (const file of files) {
+    expect(existsSync(join(root, file))).toBe(true);
+  }
+});
+
+test("a failed push run of CI or Images on main is reported in an issue", () => {
+  const { on, permissions, jobs } = Bun.YAML.parse(
+    readFileSync(
+      join(import.meta.dir, "../.github/workflows/main-failure.yml"),
+      "utf8",
+    ),
+  ) as {
+    on: { workflow_run: Record<string, string[]> };
+    permissions: Record<string, string>;
+    concurrency?: unknown;
+    jobs: Record<string, Job>;
+  };
+  // The names are those of ci.yml and images.yml: a renamed workflow would
+  // stop being watched without a word.
+  const name = (file: string) =>
+    (
+      Bun.YAML.parse(
+        readFileSync(
+          join(import.meta.dir, "../.github/workflows", file),
+          "utf8",
+        ),
+      ) as { name: string }
+    ).name;
+  expect(on).toEqual({
+    workflow_run: {
+      workflows: [name("ci.yml"), name("images.yml")],
+      types: ["completed"],
+      branches: ["main"],
+    },
+  });
+  expect(permissions).toEqual({ contents: "read" });
+  expect(Object.keys(jobs)).toEqual(["report"]);
+  const report = jobs.report;
+  expect(report?.if).toBe(
+    `github.event.workflow_run.event == 'push' && contains(fromJSON('["failure","timed_out","startup_failure"]'), github.event.workflow_run.conclusion)`,
+  );
+  expect(report?.permissions).toEqual({
+    actions: "read",
+    contents: "read",
+    issues: "write",
+    "pull-requests": "read",
+  });
+  const step = report?.steps.at(-1);
+  // The run id reaches the shell through the environment, never the script text.
+  expect(step?.env?.RUN_ID).toBe("${{ github.event.workflow_run.id }}");
+  // The attempt that failed: read by id alone, a rerun may already be green.
+  expect(step?.env?.RUN_ATTEMPT).toBe(
+    "${{ github.event.workflow_run.run_attempt }}",
+  );
+  expect(step?.run).not.toContain("${{");
+  expect(step?.run).toContain(
+    'main-failure-body.sh "$RUN_ID" "$RUN_ATTEMPT" >body.md',
+  );
+  expect(step?.run).toContain("upsert-ci-issue.sh ci-main-failure");
+});
+
+test("every e2e shard runs, and the required e2e check waits for all of them", () => {
+  const job = workflow.jobs.e2e;
+  expect(job?.name).toBe(`e2e (scenario \${{ matrix.shard }}/3)`);
+  expect(job?.strategy as unknown).toEqual({
+    "fail-fast": false,
+    matrix: { shard: [1, 2, 3] },
+  });
+  expect(job?.if).toBe(
+    `!cancelled() && needs.changes.outputs.product == 'true' && contains(fromJSON('["all","e2e"]'), github.event.inputs.only || 'all')`,
+  );
+  expect(job?.steps.find((s) => s.id === "scenario")?.run).toBe(
+    `tests/e2e/run.sh --shard \${{ matrix.shard }}`,
+  );
+  // One record per shard: a shared artifact name fails the second upload.
+  expect(
+    job?.steps.find((s) => s.uses?.startsWith("actions/upload-artifact"))?.with
+      ?.name,
+  ).toBe(`e2e-record-\${{ matrix.shard }}`);
+  // The gate reads the matrix's one result, which is success only when every
+  // shard's is; its verdict rejects the others (see below).
+  expect(workflow.jobs["e2e-gate"]?.needs).toEqual(["changes", "e2e"]);
 });
 
 test("all product and site consumers use the same explicit plan", () => {
@@ -1074,3 +1289,46 @@ test("a heavy job that passed ran every step it carries", () => {
     );
   }
 });
+
+test.each(["k8s-replicas", "k8s-upgrade"])(
+  "%s runs every night and opens an issue when it fails outside a pull request",
+  (name) => {
+    const nightly = Bun.YAML.parse(
+      readFileSync(
+        join(import.meta.dir, `../.github/workflows/${name}.yml`),
+        "utf8",
+      ),
+    ) as {
+      on: { schedule?: { cron: string }[] };
+      permissions: Record<string, string>;
+      jobs: Record<
+        string,
+        {
+          needs?: string;
+          if?: string;
+          permissions?: Record<string, string>;
+          steps: { run?: string }[];
+        }
+      >;
+    };
+    // Once a day, every day.
+    expect(nightly.on.schedule?.map(({ cron }) => cron)).toEqual([
+      expect.stringMatching(/^\d+ \d+ \* \* \*$/),
+    ]);
+    const [checked] = Object.keys(nightly.jobs).filter(
+      (job) => job !== "report-failure",
+    );
+    const report = nightly.jobs["report-failure"];
+    expect(report?.needs).toBe(checked);
+    // Whatever the checked job ended as, other than success; a pull request's
+    // red check already says it.
+    expect(report?.if).toBe(
+      `always() && needs.${checked}.result != 'success' && github.event_name != 'pull_request'`,
+    );
+    expect(nightly.permissions).toEqual({ contents: "read" });
+    expect(report?.permissions).toEqual({ contents: "read", issues: "write" });
+    expect(report?.steps.at(-1)?.run).toContain(
+      `.github/scripts/upsert-ci-issue.sh ci-${name}-failure`,
+    );
+  },
+);

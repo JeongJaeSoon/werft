@@ -9,7 +9,11 @@ const UNDECIDED_REMEMBERED = 1_000;
 type Undecided = {
   tool: string;
   input: Record<string, unknown>;
-  basis: "trusted_tool" | "permission_mode" | "engine_internal";
+  basis:
+    | "trusted_tool"
+    | "permission_mode"
+    | "sandbox_boundary"
+    | "engine_internal";
 };
 
 /**

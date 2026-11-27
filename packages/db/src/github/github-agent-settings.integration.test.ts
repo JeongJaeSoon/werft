@@ -176,12 +176,14 @@ integration("GitHub agent settings, expand", () => {
     expect(rows.find((row) => row.workspace_id === fresh)).toMatchObject({
       revision: 0,
       user_link_connection_id: freshApp,
-      ceiling: { workflows: false },
+      // 0391 moves every ceiling to the two workflow switches; one never
+      // saved keeps revision 0.
+      ceiling: { workflows: true, checks: true, actions: false },
     });
     expect(rows.find((row) => row.workspace_id === saved)).toEqual({
       workspace_id: saved,
-      ceiling,
-      revision: 4,
+      ceiling: { ...ceiling, checks: true },
+      revision: 5,
       user_link_connection_id: savedApp,
     });
     expect(rows.some((row) => row.workspace_id === none)).toBe(false);

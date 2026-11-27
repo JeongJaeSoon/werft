@@ -67,6 +67,14 @@ jobs:
               *) fail "could not read tag sdk-v${VERSION} from origin" ;;
             esac
           fi
+      # A main push runs k8s-smoke only for some commits (ci-plan.sh), so its
+      # green run is no proof of it; none found stops before the publish.
+      - if: github.event_name == 'push' || inputs.version != ''
+        name: main CI passed k8s-smoke on this commit
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/release-auto.sh k8s-smoke
       - run: bun install --frozen-lockfile
       - run: bun test packages/sdk examples
       - name: SDK_VERSION matches package.json

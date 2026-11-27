@@ -1,0 +1,48 @@
+name: main failure
+
+# A push run of CI or Images that fails on main is seen only by whoever opens
+# the commit list: its pull request is already merged, and main-push-run.yml
+# looks for runs that are missing, not for red ones. This opens an issue, or
+# appends to the open one, naming the commit, its pull request and the failed
+# jobs. It reverts nothing.
+#
+# workflow_run reads this file from the default branch, so a pull request
+# cannot change what runs here. No concurrency group: a second pending run
+# would replace the first, and upsert-ci-issue.sh already folds two reports
+# made at once into one issue.
+on:
+  workflow_run:
+    workflows: [CI, Images]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    # Push runs only: a tag's run is not on main, the nightly Images run has
+    # its own issue, and a manual run has a person watching. A skipped job
+    # takes no runner, so a green run costs nothing here.
+    if: github.event.workflow_run.event == 'push' && contains(fromJSON('["failure","timed_out","startup_failure"]'), github.event.workflow_run.conclusion)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Open or update the main failure issue
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          .github/scripts/main-failure-body.sh "$RUN_ID" "$RUN_ATTEMPT" >body.md
+          .github/scripts/upsert-ci-issue.sh ci-main-failure \
+            "CI: a push run on main failed" body.md

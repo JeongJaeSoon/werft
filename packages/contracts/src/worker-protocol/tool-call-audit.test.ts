@@ -36,7 +36,8 @@ const report = {
 
 describe("tool call audit contract", () => {
   test("every basis stands under exactly one decision", () => {
-    expect(TOOL_AUDIT_BASIS_VALUES).toHaveLength(13);
+    expect(TOOL_AUDIT_BASIS_VALUES).toHaveLength(14);
+    expect(TOOL_AUDIT_BASIS_VERDICT.sandbox_boundary).toBe("allow");
     expect(TOOL_AUDIT_BASIS_VERDICT.approval_asked).toBe("require_approval");
     expect(TOOL_AUDIT_BASIS_VERDICT.approval_expired).toBe("deny");
   });
@@ -91,6 +92,25 @@ describe("tool call audit contract", () => {
       false,
       false,
       false,
+    ]);
+  });
+
+  // How a host one release behind reads a basis added after it, such as
+  // `sandbox_boundary`: that one report is dropped, the events are kept.
+  test("a basis the host does not know costs that report alone", () => {
+    const parsed = appendEventsRequestSchema.parse({
+      ...scope,
+      batch_key: "b1",
+      events: [event],
+      tool_decisions: [
+        { ...report, basis: "sandbox_boundary" },
+        { ...report, basis: "a_basis_from_a_newer_worker" },
+      ],
+    });
+    expect(parsed.events).toHaveLength(1);
+    expect(parsed.tool_decisions?.map((item) => item?.basis ?? null)).toEqual([
+      "sandbox_boundary",
+      null,
     ]);
   });
 

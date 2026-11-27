@@ -6,10 +6,15 @@
 # the `k8s-smoke` job in ci.yml and stays off that path.
 #
 # Not a required check. The pull request trigger covers only the chart, the
-# scripts and this file.
+# scripts and this file. The session flow it checks is product code outside
+# that trigger, so it also runs every night on main, and a failure there
+# opens an issue.
 name: K8s replicas
 
 on:
+  schedule:
+    # 04:07 KST, off the hour and apart from the other nightly checks.
+    - cron: '7 19 * * *'
   pull_request:
     paths:
       - deploy/helm/werft/**
@@ -69,3 +74,34 @@ jobs:
       - if: '!cancelled()'
         name: Nothing pulled from Docker Hub
         run: .github/scripts/assert-no-docker-hub-images.sh docker
+
+  # A job of its own, not a last step: a job timeout cancels every step left
+  # in that job, so only another job still sees a run that hung. One open
+  # issue per signal: repeats append to it. Not on a pull request, where the
+  # red check already says it.
+  report-failure:
+    needs: replicas
+    if: always() && needs.replicas.result != 'success' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # The job writes issues; nothing else in this workflow may.
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Open or update the failure issue
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ needs.replicas.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "<!-- ci-k8s-replicas-failure -->"
+            echo "The two-replica session flow on kind ended \`${RESULT}\` on \`${GITHUB_REF_NAME}\` @ \`${GITHUB_SHA}\` (${GITHUB_EVENT_NAME}, [run ${GITHUB_RUN_ID}](${RUN_URL}))."
+            echo
+            echo "It runs on pull requests only when the chart or its scripts change, so a product change merged since the last green night can be the cause. Reproduce with \`deploy/kind/replicas.sh\`."
+          } >body.md
+          .github/scripts/upsert-ci-issue.sh ci-k8s-replicas-failure \
+            "CI: K8s replicas failed (nightly)" body.md

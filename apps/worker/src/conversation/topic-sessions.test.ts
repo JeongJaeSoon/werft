@@ -12,12 +12,13 @@ import {
 import type {
   AgentRun,
   RuntimeEvent,
+  RuntimeHostDeps,
   RuntimeModule,
 } from "@werft-ai/runtime-core";
 import { fakeConversationTools } from "../testing/fake-conversation-tools.ts";
 import { fakePermitRelay } from "../testing/fake-permit-relay.ts";
 import { TopicDirectories } from "./topic-directories.ts";
-import { TopicSessions } from "./topic-sessions.ts";
+import { type TopicEngines, TopicSessions } from "./topic-sessions.ts";
 import { createConversationTurnRunner } from "./turn-runner.ts";
 
 let root: string;
@@ -33,10 +34,12 @@ const topic = () => crypto.randomUUID() as ConversationTopicId;
 /**
  * An engine module whose every run answers each input it is sent with
  * `reply(input)`, or ends the turn in error when that is null; it counts
- * starts and closes, and keeps what each run was sent.
+ * starts and closes, and keeps what each run was sent and the process
+ * observer it was started under.
  */
 function engine(reply: (text: string) => string | null = () => "ok") {
   const runs: { sent: string[]; closed: boolean }[] = [];
+  const observers: RuntimeHostDeps["processObserver"][] = [];
   const module = {
     descriptor: { kind: "test_engine" },
     builtinTools: ["Bash"],
@@ -44,8 +47,9 @@ function engine(reply: (text: string) => string | null = () => "ok") {
       kind: "test_engine",
       withNeutralFields: (event: unknown) => event,
     },
-    createRuntime: () => ({
+    createRuntime: (deps: RuntimeHostDeps) => ({
       start: () => {
+        observers.push(deps.processObserver);
         const record = { sent: [] as string[], closed: false };
         runs.push(record);
         const waiting: ((event: RuntimeEvent[]) => void)[] = [];
@@ -88,7 +92,7 @@ function engine(reply: (text: string) => string | null = () => "ok") {
       },
     }),
   } as unknown as RuntimeModule;
-  return { module, runs };
+  return { module, runs, observers };
 }
 
 const ended = (isError: boolean): RuntimeEvent => ({
@@ -257,6 +261,16 @@ describe("a topic's session", () => {
     expect(e.runs[0]?.closed).toBe(true);
   });
 
+  test("starts its engine under the session's own watch of its processes", async () => {
+    const s = setup();
+    const t = topic();
+    await s.run(turnOf(t, "one"));
+
+    expect(s.observers).toHaveLength(1);
+    expect(s.observers[0]).toBeDefined();
+    expect(s.observers[0]).toBe((await s.sessions.get(t))?.engines);
+  });
+
   test("of another topic is another engine and directory, which sees nothing of this one", async () => {
     const s = setup();
     const [a, b] = [topic(), topic()];
@@ -323,5 +337,264 @@ describe("the runtime's sessions", () => {
     await s.sessions.sweep();
 
     expect(await readdir(root)).toEqual([fresh]);
+  });
+});
+
+/** A turn of the event loop: what waits on no engine's exit has run by now. */
+const settled = () => new Promise((resolve) => setImmediate(resolve));
+
+/**
+ * Sessions whose engines exit when the test says, with what happened to them
+ * in order: no process is signalled, and no clock decides.
+ */
+function held(options: { limit?: number } = {}) {
+  const log: string[] = [];
+  let clock = 0;
+  const answers: ((exited: boolean) => void)[] = [];
+  const waits: number[] = [];
+  let wake = () => {};
+  const engines: TopicEngines = {
+    onSpawn: (pid) => void log.push(`spawned ${pid}`),
+    running: [],
+    exited: (waitMs) =>
+      new Promise((resolve) => {
+        waits.push(waitMs);
+        log.push("exit awaited");
+        answers.push(resolve);
+        wake();
+      }),
+    kill: () => void log.push("killed"),
+  };
+  class Logged extends TopicDirectories {
+    override async drop(topicId: ConversationTopicId): Promise<void> {
+      log.push("removed");
+      await super.drop(topicId);
+    }
+  }
+  const relay = fakePermitRelay();
+  const sessions = new TopicSessions(new Logged(root), relay, {
+    engines: () => engines,
+    now: () => clock,
+    ...(options.limit === undefined ? {} : { limit: options.limit }),
+  });
+  const run = {
+    events: () => (async function* () {})(),
+    finishInput: () => {},
+    close: async () => void log.push("closed"),
+  } as unknown as AgentRun;
+  return {
+    log,
+    /** How long each wait for an exit was given, in order. */
+    waits,
+    sessions,
+    relay,
+    run,
+    /** Settles once an exit is being waited for. */
+    asked: () =>
+      answers.length > 0
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => {
+            wake = resolve;
+          }),
+    /** The oldest wait for an exit ends: exited, or its time is up. */
+    answer: (exited: boolean) => answers.shift()?.(exited),
+    tick: (ms: number) => {
+      clock += ms;
+    },
+  };
+}
+
+describe("a dropped session's directory", () => {
+  test("is removed only once its engine, killed, has exited", async () => {
+    const s = held();
+    const t = topic();
+    await s.sessions.open(t, () => s.run);
+    s.log.length = 0;
+
+    const dropping = s.sessions.drop(t);
+    await settled();
+    // Closed and killed, the engine may still be writing its files.
+    expect(s.log).toEqual(["closed", "killed", "exit awaited"]);
+    expect((await stat(join(root, t))).isDirectory()).toBe(true);
+
+    s.answer(true);
+    await dropping;
+    expect(s.log).toEqual(["closed", "killed", "exit awaited", "removed"]);
+    expect(await stat(join(root, t)).catch(() => null)).toBeNull();
+  });
+
+  test("is left, and its topic not opened again, while its engine's exit is not seen", async () => {
+    const s = held();
+    const t = topic();
+    await s.sessions.open(t, () => s.run);
+    s.log.length = 0;
+
+    const dropping = s.sessions.drop(t);
+    await settled();
+    s.answer(false);
+    await expect(dropping).rejects.toThrow("did not exit");
+    expect(s.sessions.size).toBe(0);
+
+    // Opening the topic again ends that engine first, and fails while it lives.
+    let started = false;
+    const opening = s.sessions.open(t, () => {
+      started = true;
+      return s.run;
+    });
+    await settled();
+    s.answer(false);
+    await expect(opening).rejects.toThrow("did not exit");
+    expect(started).toBe(false);
+    // Killed once: by a later look its pid may be another process's. Waited
+    // for once: the later look is given no time.
+    expect(s.log).toEqual(["closed", "killed", "exit awaited", "exit awaited"]);
+    expect(s.waits.map((ms) => ms > 0)).toEqual([true, false]);
+    expect((await stat(join(root, t))).isDirectory()).toBe(true);
+
+    // Once it has exited, the next drop removes what it left.
+    const again = s.sessions.drop(t);
+    await settled();
+    s.answer(true);
+    await again;
+    expect(s.log.slice(-2)).toEqual(["exit awaited", "removed"]);
+    expect(await stat(join(root, t)).catch(() => null)).toBeNull();
+  });
+
+  test("is removed, when its start fails, once what the start left running has exited", async () => {
+    const s = held();
+    const t = topic();
+    const opening = s.sessions.open(t, (_directory, _key, engines) => {
+      engines.onSpawn(4242);
+      throw new Error("no start");
+    });
+    await s.asked();
+    // The first removal is of what the topic's path held before this open.
+    expect(s.log).toEqual([
+      "removed",
+      "spawned 4242",
+      "killed",
+      "exit awaited",
+    ]);
+    expect((await stat(join(root, t))).isDirectory()).toBe(true);
+
+    s.answer(true);
+    await expect(opening).rejects.toThrow("no start");
+    expect(s.log.at(-1)).toBe("removed");
+    expect(await stat(join(root, t)).catch(() => null)).toBeNull();
+  });
+
+  test("a failed turn whose engine's exit is not seen keeps its own reason; its topic's next turn fails, and starts no engine, until the exit is seen", async () => {
+    const s = held();
+    let fail = false;
+    const e = engine(() => (fail ? null : "ok"));
+    const runner = createConversationTurnRunner({
+      runtime: e.module,
+      sessions: s.sessions,
+      relay: s.relay,
+      tools: fakeConversationTools(),
+    });
+    const live = new AbortController().signal;
+    const t = topic();
+    await runner.run(turnOf(t, "one"), live);
+
+    fail = true;
+    const failing = runner.run(turnOf(t, "two", "keep"), live);
+    await s.asked();
+    s.answer(false);
+    expect(await failing).toEqual({
+      outcome: "failed",
+      reason: "engine_failed",
+      detail: "error_during_execution",
+    });
+    expect((await stat(join(root, t))).isDirectory()).toBe(true);
+
+    fail = false;
+    const refused = runner.run(turnOf(t, "three"), live);
+    // Looked at twice: by the sweep before the turn's session is read, then
+    // by the open.
+    await s.asked();
+    s.answer(false);
+    await s.asked();
+    s.answer(false);
+    expect(await refused).toEqual({
+      outcome: "failed",
+      reason: "runtime_failed",
+    });
+    expect(e.runs).toHaveLength(1);
+    expect((await stat(join(root, t))).isDirectory()).toBe(true);
+
+    const served = runner.run(turnOf(t, "four"), live);
+    await s.asked();
+    s.answer(true);
+    expect((await served).outcome).toBe("completed");
+    expect(e.runs.map((run) => run.sent)).toEqual([
+      ["context: one", "two"],
+      ["context: four"],
+    ]);
+  });
+
+  test("an engine whose exit is not seen holds back neither the sweep's other drops nor another topic's turn, and a later sweep removes what it left", async () => {
+    const s = held();
+    const e = engine();
+    const runner = createConversationTurnRunner({
+      runtime: e.module,
+      sessions: s.sessions,
+      relay: s.relay,
+      tools: fakeConversationTools(),
+    });
+    const live = new AbortController().signal;
+    const [stuck, idle, fresh] = [topic(), topic(), topic()];
+    await runner.run(turnOf(stuck, "a"), live);
+    await runner.run(turnOf(idle, "b"), live);
+    s.tick(CONVERSATION_TOPIC_SESSION_IDLE_MS - 1);
+    await runner.run(turnOf(fresh, "c"), live);
+    s.tick(1);
+    s.log.length = 0;
+
+    // The turn's look for its session sweeps the two that are idle by now.
+    const turn = runner.run(turnOf(fresh, "more", "keep"), live);
+    await s.asked();
+    await settled();
+    // Both killed and both exits waited for before either is answered.
+    expect(s.log).toEqual(["killed", "exit awaited", "killed", "exit awaited"]);
+    s.answer(false);
+    s.answer(true);
+    expect((await turn).outcome).toBe("completed");
+    expect(e.runs.map((run) => run.sent)).toEqual([
+      ["context: a"],
+      ["context: b"],
+      ["context: c", "more"],
+    ]);
+    expect((await readdir(root)).sort()).toEqual([stuck, fresh].sort());
+
+    // Looked at again without a wait or a second kill; removed once it exited.
+    const again = s.sessions.sweep();
+    await s.asked();
+    s.answer(true);
+    await again;
+    expect(s.waits.at(-1)).toBe(0);
+    expect(s.waits.slice(0, 2).every((ms) => ms > 0)).toBe(true);
+    expect(s.log.filter((entry) => entry === "killed")).toHaveLength(2);
+    expect(await readdir(root)).toEqual([fresh]);
+  });
+
+  test("a session dropped at the limit whose engine's exit is not seen does not fail the topic being opened, nor cost it a second wait", async () => {
+    const s = held({ limit: 2 });
+    const [first, second, third] = [topic(), topic(), topic()];
+    await s.sessions.open(first, () => s.run);
+    s.tick(1);
+    await s.sessions.open(second, () => s.run);
+    s.tick(1);
+    s.log.length = 0;
+
+    const opening = s.sessions.open(third, () => s.run);
+    await s.asked();
+    s.answer(false);
+    expect((await opening).topicId).toBe(third);
+    // After what the topic's path held before, the one idle longest was
+    // dropped, and no other for it.
+    expect(s.log).toEqual(["removed", "closed", "killed", "exit awaited"]);
+    expect(s.sessions.size).toBe(2);
+    expect((await readdir(root)).sort()).toEqual([first, second, third].sort());
   });
 });

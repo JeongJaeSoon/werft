@@ -145,7 +145,9 @@ if [ "$TESTS" = true ]; then
   fi
 fi
 if [ "$PRODUCT" = true ]; then
-  need step_passed "e2e (scenario)" "Alpha path against the compose stack"
+  for shard in 1 2 3; do
+    need step_passed "e2e (scenario ${shard}/3)" "Alpha path against the compose stack"
+  done
   need step_passed demo "Static build"
   need step_passed ui-pack "Install, type-check, build and render in an empty app"
   if jq -e 'index("docker") != null' <<<"$domains" >/dev/null; then

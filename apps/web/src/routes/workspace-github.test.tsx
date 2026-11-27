@@ -232,7 +232,7 @@ describe("GitHub 연결 › App 목록과 GitHub 링크", () => {
     });
     renderAt(PATH, routes(short));
     const need = await screen.findByText(
-      /Actions 실행, 워크플로 파일 수정을\(를\) 쓰려면 이 App에 Actions 쓰기, Workflows 쓰기 권한이 필요합니다/,
+      /workflow 파일 수정과 CI 결과 보기, workflow 직접 실행 \(실행·재실행·취소\)을\(를\) 쓰려면 이 App에 Actions 쓰기, Checks 읽기, Workflows 쓰기 권한이 필요합니다/,
     );
     expect(need).toBeDefined();
     expect(
@@ -255,7 +255,9 @@ describe("GitHub 연결 › App 목록과 GitHub 링크", () => {
     );
     renderAt(PATH, routes(short, {}, memberMe()));
     expect(
-      await screen.findByText(/이 App에 Workflows 쓰기 권한이 필요합니다/),
+      await screen.findByText(
+        /이 App에 Actions 읽기, Checks 읽기, Workflows 쓰기 권한이 필요합니다/,
+      ),
     ).toBeDefined();
     expect(screen.getByText(/acme의 owner가 .*승인하면/)).toBeDefined();
     expect(hrefs()).toEqual([]);
