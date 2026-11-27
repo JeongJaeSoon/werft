@@ -12,6 +12,7 @@ import {
   type ConversationTurnQueue,
   derivedSecretKey,
   ENDED_TURN_KEPT_MS,
+  MENTION_TURN_ATTEMPTS,
   openWithKey,
   type SecretKey,
   sameResult,
@@ -68,13 +69,18 @@ const notTaken = { outcome: "failed", reason: "not_taken" } as const;
  */
 export const SPAWN_INPUT_KEPT_MS = 60 * 60_000;
 
-// A turn ending keeps its sealed input only when it was leased (what is
-// sealed is then the input alone) and decided a task with no effect yet.
-const keepsInput = sql`(${queue.leaseId} IS NOT NULL AND EXISTS (
+// A turn ending keeps its sealed input only when what is sealed is the input
+// alone (a lease or an end untaken seals it so) and it decided a task with no
+// effect yet, or it is a mention's try with no decision that may be tried
+// again (v1-b/F1), whose next try takes the input from here.
+const keepsInput = sql`((${queue.leaseId} IS NOT NULL AND EXISTS (
   SELECT 1 FROM conversation_turns t
   WHERE t.id = ${queue.turnId}
     AND t.decision IN ('spawn_task', 'route_to_task')
-    AND t.task_effect IS NULL))`;
+    AND t.task_effect IS NULL)) OR (${queue.attempt} < ${MENTION_TURN_ATTEMPTS}
+  AND EXISTS (SELECT 1 FROM conversation_turns t
+    WHERE t.id = ${queue.turnId} AND t.origin = 'm2'
+      AND t.slack_installation_id IS NOT NULL AND t.decision IS NULL)))`;
 const keptInputAt = (now: Date) => ({
   turnNonce: sql`CASE WHEN ${keepsInput} THEN ${queue.turnNonce} END`,
   turnCiphertext: sql`CASE WHEN ${keepsInput} THEN ${queue.turnCiphertext} END`,
@@ -186,6 +192,39 @@ export function createPostgresConversationTurnQueue(
       .where(eq(queue.turnId, turnId))
       .returning({ told: told(sql`${queue.turnId}::text`) });
 
+  // A turn nobody took still holds its permit's token sealed: what it may
+  // keep for a try again is its input alone.
+  async function sealInputAlone(tx: Database, turnId: ConversationTurnId) {
+    const [sealed] = await tx
+      .select({ nonce: queue.turnNonce, ciphertext: queue.turnCiphertext })
+      .from(queue)
+      .where(eq(queue.turnId, turnId));
+    if (sealed?.nonce == null || sealed.ciphertext == null) return;
+    let input: { nonce: Uint8Array | null; ciphertext: Uint8Array | null } = {
+      nonce: null,
+      ciphertext: null,
+    };
+    try {
+      const turn = JSON.parse(
+        openWithKey(key, aadOf(turnId), {
+          nonce: Buffer.from(sealed.nonce),
+          ciphertext: Buffer.from(sealed.ciphertext),
+        }),
+      ) as { input?: unknown };
+      input = sealWithKey(
+        key,
+        aadOf(turnId),
+        JSON.stringify({ input: turn.input }),
+      );
+    } catch {
+      // Sealed under another key: nothing of it can be tried again.
+    }
+    await tx
+      .update(queue)
+      .set({ turnNonce: input.nonce, turnCiphertext: input.ciphertext })
+      .where(eq(queue.turnId, turnId));
+  }
+
   // A turn nobody took, or whose holder went quiet, ends here: never
   // requeued, since its permit may already be spent. One ended long enough
   // ago is forgotten, as the memory queue forgets it, but its row stays.
@@ -267,6 +306,7 @@ export function createPostgresConversationTurnQueue(
               (freed.get(row.topicId) ?? 0) + row.takeMs,
             ))
       ) {
+        await sealInputAlone(tx, row.turnId);
         await end(tx, row.turnId, notTaken, now);
         ended.add(row.turnId);
       }

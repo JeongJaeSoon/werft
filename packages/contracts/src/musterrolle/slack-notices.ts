@@ -98,6 +98,10 @@ const SLACK_NOTICE_MESSAGES_KO = {
   routeNoRight: "이 작업에 이어서 맡길 권한이 없어요",
   routeFailed: "작업에 넘기지 못했어요.",
   routeMirror: "원래 스레드에서 이어서 할게요 ↗",
+  // A mention's turn that ended with no decision (v1-b/F1): said once as it
+  // is tried again, and once when its last try ends with none either.
+  mentionRetrying: "지금 답하지 못했어요. 다시 해 볼게요",
+  mentionFailed: "세 번 시도했지만 답하지 못했어요. 잠시 뒤 다시 불러 주세요",
   storageLimit:
     "이 설치의 저장 한도에 남은 자리가 모자라 이 요청을 받지 못했어요. 관리자에게 한도를 올려 달라고 요청하세요",
 } as const;
@@ -192,6 +196,9 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     routeNoRight: "この作業に続けて任せる権限がありません",
     routeFailed: "作業に引き継げませんでした。",
     routeMirror: "元のスレッドで続けます ↗",
+    mentionRetrying: "今はお答えできませんでした。もう一度やってみます",
+    mentionFailed:
+      "3回試しましたが、お答えできませんでした。しばらくしてからもう一度呼んでください",
     storageLimit:
       "この環境の保存容量の上限に空きが足りず、このリクエストを受け付けられませんでした。管理者に上限を上げるよう依頼してください",
   },
@@ -275,6 +282,9 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     routeNoRight: "This request doesn't have permission to add to that task",
     routeFailed: "This couldn't be handed to the task.",
     routeMirror: "Continuing in the original thread ↗",
+    mentionRetrying: "I couldn't answer just now. I'll try again.",
+    mentionFailed:
+      "I tried three times but couldn't answer. Please mention me again in a moment.",
     storageLimit:
       "This installation's storage limit has too little room left, so this request was not taken. Ask an administrator to raise the limit",
   },

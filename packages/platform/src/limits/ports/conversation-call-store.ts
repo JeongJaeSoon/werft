@@ -224,6 +224,12 @@ export type ConversationMentionTurnInput = Omit<
   message: { teamId: string; channelId: string; ts: string };
   /** The Slack subject the mention was judged on, for a task it asks for. */
   slackSubject?: ConversationTurnSurfaceSubject | null;
+  /**
+   * The mention's earlier try, tried again as this turn (v1-b/F1): the
+   * mention's engagement moves to this turn and that one's thread status is
+   * marked set back, held by this one; `duplicate` once it moved already.
+   */
+  retryOf?: ConversationTurnId;
 };
 
 export type ConversationMentionTurnIssue =

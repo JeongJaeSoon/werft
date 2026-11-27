@@ -5,7 +5,9 @@ import {
   CONVERSATION_NEXT_TURN_MAX_WAIT_MS,
   CONVERSATION_TURN_LEASE_MS,
   CONVERSATION_TURN_TEXT_MAX,
+  type ConversationInputId,
   type ConversationTurnCallRefusal,
+  type ConversationTurnId,
   type ConversationTurnState,
   conversationDecisionTools,
   conversationIdSchema,
@@ -25,6 +27,8 @@ import {
   connectionOf,
   hashToken,
   type MentionTurnRequest,
+  type MentionTurnRetryRequests,
+  type MentionTurnRetryStart,
   type MentionTurnStart,
   type MentionTurnStatusStore,
   type SessionCatalog,
@@ -317,110 +321,145 @@ export function createMentionConversationTurns(deps: {
   statuses: Pick<MentionTurnStatusStore, "releaseReset">;
   agents: Pick<AgentStore, "get">;
   catalog: Pick<SessionCatalog, "connections">;
+  /** Where a try again reads its input; unset, nothing is tried again. */
+  retries?: MentionTurnRetryRequests;
   now?: () => Date;
 }) {
   const now = deps.now ?? (() => new Date());
+  // A try of the mention's input: the first, with an input id of its own,
+  // or the next after `retryOf`, with its input id and the next attempt.
+  async function begin(
+    request: MentionTurnRequest,
+    tried: {
+      inputId: ConversationInputId;
+      attempt: number;
+      retryOf?: ConversationTurnId;
+    },
+    queuing: () => Promise<void>,
+  ): Promise<MentionTurnStart> {
+    // Before the turn is written: a turn's input could never hold it.
+    if (request.text.length > CONVERSATION_TURN_TEXT_MAX) {
+      return { outcome: "too_long" };
+    }
+    const agent = await deps.agents.get(request.workspaceId, request.agentId);
+    if (agent === null) return { outcome: "unknown_agent" };
+    const release = agent.active_release;
+    if (release === null) return { outcome: "no_active_release" };
+    const connection = connectionOf(deps.catalog, release.connection_id);
+    const model = release.runtime_config_snapshot.model;
+    if (
+      connection === undefined ||
+      connection.provider.kind === "openai_responses" ||
+      typeof model !== "string"
+    ) {
+      return { outcome: "connection_unavailable" };
+    }
+    const turnId = conversationTurnIdSchema.parse(crypto.randomUUID());
+    const issued = await deps.calls.issueMentionTurn({
+      workspaceId: request.workspaceId,
+      agentId: request.agentId,
+      conversationId: request.conversationId,
+      topicId: request.topicId,
+      turnId,
+      requesterUserId: request.requesterUserId,
+      slackInstallationId: request.slackInstallationId,
+      message: request.message,
+      slackSubject: request.slackSubject,
+      ...(tried.retryOf === undefined ? {} : { retryOf: tried.retryOf }),
+      ttlMs: OPERATOR_TURN_TAKE_MS + CONVERSATION_TURN_LEASE_MS,
+      releaseId: release.id,
+      connectionId: release.connection_id,
+      model,
+      maxTokens: OPERATOR_TURN_MAX_TOKENS,
+      maxRequestBytes: OPERATOR_TURN_MAX_REQUEST_BYTES,
+    });
+    if (issued.outcome === "unavailable") {
+      return { outcome: "connection_unavailable" };
+    }
+    if (issued.outcome !== "issued") return { outcome: issued.outcome };
+    try {
+      await queuing();
+      const at = now();
+      const { inputId } = tried;
+      await deps.queue.enqueue(
+        {
+          turn_id: turnId,
+          scope: {
+            workspace_id: request.workspaceId,
+            agent_id: request.agentId,
+            conversation_id: request.conversationId,
+            topic_id: request.topicId,
+          },
+          model,
+          provider: {
+            kind: connection.provider.kind,
+            endpoint: connection.provider.endpoint,
+            auth: { kind: "egress_token", token: issued.token },
+          },
+          call: { max_tokens: OPERATOR_TURN_MAX_TOKENS },
+          // The instruction is the requester's message alone; what else
+          // the turn reads is assembled as data when a runtime takes it.
+          input: { id: inputId, text: request.text },
+          fresh_input: { id: crypto.randomUUID(), text: request.text },
+          decision_tools: [...conversationDecisionTools("user", issued.place)],
+        },
+        {
+          inputId,
+          attempt: tried.attempt,
+          takeBy: new Date(
+            Math.min(
+              at.getTime() + OPERATOR_TURN_TAKE_MS,
+              issued.expiresAt.getTime(),
+            ),
+          ),
+          now: at,
+          usableUntil: issued.expiresAt,
+        },
+      );
+    } catch (error) {
+      // A turn that could not be queued gets no calls.
+      await deps.calls.endTurn(turnId);
+      throw error;
+    } finally {
+      // Unreleased, the claim runs out and the next pass after it ends the
+      // turn as it is.
+      await deps.statuses.releaseReset(turnId);
+    }
+    return { outcome: "queued", turnId };
+  }
   return {
     /**
      * `queuing` runs once the turn is written and before a runtime can take
      * it, so what it tells the thread is never told after the turn's end.
      */
-    async start(
+    start(
       request: MentionTurnRequest,
       queuing: () => Promise<void>,
     ): Promise<MentionTurnStart> {
-      // Before the turn is written: a turn's input could never hold it.
-      if (request.text.length > CONVERSATION_TURN_TEXT_MAX) {
-        return { outcome: "too_long" };
+      // The engagement keeps a repeated event from a second turn, so the
+      // mention's first try has an input id of its own.
+      const inputId = conversationInputIdSchema.parse(crypto.randomUUID());
+      return begin(request, { inputId, attempt: 1 }, queuing);
+    },
+    /**
+     * The next try of a mention turn's input that ended with no decision
+     * (v1-b/F1): the same input id under the next attempt, a permit of its
+     * own, the release and connection the agent has now. What the thread
+     * hears of it is the ending pass's.
+     */
+    async retry(turnId: ConversationTurnId): Promise<MentionTurnRetryStart> {
+      const request = await deps.retries?.requestOf(turnId);
+      if (request === undefined || request === null) {
+        return { outcome: "input_gone" };
       }
-      const agent = await deps.agents.get(request.workspaceId, request.agentId);
-      if (agent === null) return { outcome: "unknown_agent" };
-      const release = agent.active_release;
-      if (release === null) return { outcome: "no_active_release" };
-      const connection = connectionOf(deps.catalog, release.connection_id);
-      const model = release.runtime_config_snapshot.model;
-      if (
-        connection === undefined ||
-        connection.provider.kind === "openai_responses" ||
-        typeof model !== "string"
-      ) {
-        return { outcome: "connection_unavailable" };
-      }
-      const turnId = conversationTurnIdSchema.parse(crypto.randomUUID());
-      const issued = await deps.calls.issueMentionTurn({
-        workspaceId: request.workspaceId,
-        agentId: request.agentId,
-        conversationId: request.conversationId,
-        topicId: request.topicId,
-        turnId,
-        requesterUserId: request.requesterUserId,
-        slackInstallationId: request.slackInstallationId,
-        message: request.message,
-        slackSubject: request.slackSubject,
-        ttlMs: OPERATOR_TURN_TAKE_MS + CONVERSATION_TURN_LEASE_MS,
-        releaseId: release.id,
-        connectionId: release.connection_id,
-        model,
-        maxTokens: OPERATOR_TURN_MAX_TOKENS,
-        maxRequestBytes: OPERATOR_TURN_MAX_REQUEST_BYTES,
-      });
-      if (issued.outcome === "unavailable") {
-        return { outcome: "connection_unavailable" };
-      }
-      if (issued.outcome !== "issued") return { outcome: issued.outcome };
-      try {
-        await queuing();
-        const at = now();
-        // The engagement keeps a repeated event from a second turn, so each
-        // turn's input is its own and tried once.
-        const inputId = conversationInputIdSchema.parse(crypto.randomUUID());
-        await deps.queue.enqueue(
-          {
-            turn_id: turnId,
-            scope: {
-              workspace_id: request.workspaceId,
-              agent_id: request.agentId,
-              conversation_id: request.conversationId,
-              topic_id: request.topicId,
-            },
-            model,
-            provider: {
-              kind: connection.provider.kind,
-              endpoint: connection.provider.endpoint,
-              auth: { kind: "egress_token", token: issued.token },
-            },
-            call: { max_tokens: OPERATOR_TURN_MAX_TOKENS },
-            // The instruction is the requester's message alone; what else
-            // the turn reads is assembled as data when a runtime takes it.
-            input: { id: inputId, text: request.text },
-            fresh_input: { id: crypto.randomUUID(), text: request.text },
-            decision_tools: [
-              ...conversationDecisionTools("user", issued.place),
-            ],
-          },
-          {
-            inputId,
-            attempt: 1,
-            takeBy: new Date(
-              Math.min(
-                at.getTime() + OPERATOR_TURN_TAKE_MS,
-                issued.expiresAt.getTime(),
-              ),
-            ),
-            now: at,
-            usableUntil: issued.expiresAt,
-          },
-        );
-      } catch (error) {
-        // A turn that could not be queued gets no calls.
-        await deps.calls.endTurn(turnId);
-        throw error;
-      } finally {
-        // Unreleased, the claim runs out and the next pass after it ends the
-        // turn as it is.
-        await deps.statuses.releaseReset(turnId);
-      }
-      return { outcome: "queued", turnId };
+      // Another pass wrote the next try already.
+      if (request === "moved") return { outcome: "duplicate" };
+      const { inputId, attempt, ...mention } = request;
+      return begin(
+        mention,
+        { inputId, attempt: attempt + 1, retryOf: turnId },
+        async () => {},
+      );
     },
   };
 }

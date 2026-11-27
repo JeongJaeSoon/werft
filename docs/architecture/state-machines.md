@@ -185,6 +185,61 @@ P4의 turn은 이벤트와 호출이 각각 control plane에 도착한 때로 �
 - 배경 작업 멈춤 알림은 checkpoint commit과 따로 보낸다. commit이 먼저 닿고 알림이 닿기 전에 worker가 fence되면(긴급 정지, 종료 등) 다음 turn의 입력과 세션 상세에 그 줄이 없다.
 - T6에서 멈춘 뒤 engine이 답하면서 새 작업을 시작하면, 알림 이벤트에는 처음 목록의 명령 이름만 들어 있다.
 
+### 멘션 턴의 시도
+
+Slack 멘션 턴이 결정 없이(`no_decision`) 끝나면, slack 역할의 턴 끝내기 pass가 같은 글로 다시 시도한다. 시도는 `conversation_turn_queue`의 한 줄이다. 같은 `input_id`에 `attempt`를 하나 올린 새 turn을 쓰고, 멘션(`conversation_engagements`)을 새 turn으로 옮긴다. 앞 turn은 그 자리에서 끝난 것으로 표시해 다시 집지 않는다.
+
+"밖으로 나간 것"은 다음 가운데 하나다. 나간 것이 있는 시도는 다시 하지 않는다. 같은 말이나 도구 효과가 두 번 나갈 수 있어서다.
+
+- turn에 결정이나 작업 효과(`decision`, `task_effect`)가 적혔다.
+- 그 turn의 `slack_outbox` 줄이 있다(다시 시도 안내 줄은 뺀다).
+- 그 turn의 provider 호출이 아직 `in_flight`이고, 끝 보고가 기다림 상한 안에 오지 않았다.
+
+provider 호출과 예산 원장 줄만으로는 나간 것으로 보지 않는다. 시도마다 자기 호출과 원장 줄을 따로 잡는다.
+
+| # | 지금 상태 | 다음 상태 | 조건 | 누가 |
+| --- | --- | --- | --- | --- |
+| M1 | 시도 N(N < 3)이 `no_decision`으로 끝남 | 시도 N+1 queued, 스레드에 다시 시도 안내 한 줄(글 하나에 한 번), 스레드는 처리 중 그대로 | 나간 것이 없음, 예산 거절이 아님, 긴급 정지가 아님, 글이 지워지지 않음, 앞 시도가 끝난 뒤 간격이 지남 | 턴 끝내기 pass |
+| M2 | 시도 3이 `no_decision`으로 끝남 | 실패 문구 한 줄, 스레드 active | 나간 것이 없음 | 턴 끝내기 pass |
+| M3 | 시도가 `no_decision`으로 끝남, permit의 거절이 `budget` | 그 예산 계정의 문구 한 줄(사람 또는 팀), 스레드 active | — | 턴 끝내기 pass |
+| M4 | 시도가 `no_decision`으로 끝남, 나간 것이 있음 | 실패 문구 한 줄, 스레드 active | 시도 횟수와 상관없음 | 턴 끝내기 pass |
+| M5 | 시도가 끝났고 그 호출이 `in_flight` | 그대로(기다림) | 끝난 때부터 30초 안 | 턴 끝내기 pass |
+| M6 | M5의 기다림 | M1(호출이 보고됨) 또는 M4(30초가 지남) | — | 턴 끝내기 pass |
+| M7 | 시도가 `emergency_stopped`로 끝남, 또는 다음 시도를 쓰기 전에 글이 지워짐 | 아무 말 없이 스레드 active | — | 턴 끝내기 pass |
+
+### 멘션 턴의 시도: 값
+
+값은 `packages/platform/src/conversations/conversation-turns.ts`에 있다.
+
+| 이름 | 값 | 뜻 |
+| --- | --- | --- |
+| `MENTION_TURN_ATTEMPTS` | 3 | 첫 시도를 포함한 시도 수 |
+| `MENTION_TURN_RETRY_DELAYS_MS` | 0, 10초 | 2번째, 3번째 시도 전 간격 |
+| `MENTION_TURN_CALL_SETTLE_WAIT_MS` | 30초 | M5의 기다림 상한. 주제는 호출을 하나만 받으므로, 앞 호출이 남은 채 다시 시도하면 동시성 거절이 난다 |
+
+### 멘션 턴의 시도: 막을 전이와 성질
+
+시험은 모두 `apps/control-host/src/slack/session-handler.integration.test.ts`에 있다.
+
+| # | 막을 전이 | 시험 |
+| --- | --- | --- |
+| MR1 | 네 번째 시도 | `three tries that all fail: one retry line and one failure line, no fourth try, the thread active` |
+| MR2 | 예산 거절된 시도의 다시 시도 | `a try a budget account refused is not tried again: the account's line alone, the thread active` |
+| MR3 | 나간 것이 있는 시도의 다시 시도 | `a try that left a Slack row is not tried again: the failure line at once, the thread active` |
+| MR4 | 호출이 남은 시도의 바로 다시 시도 | `a try whose call is still out waits for its report, and past the wait ends on the failure line` |
+| MR5 | 긴급 정지로 끝난 시도의 다시 시도나 안내 | `a try an emergency stop ended is not tried again and says nothing, the thread active` |
+| MR6 | 지워진 글의 다음 시도 | `a mention deleted before its next try is written ends with nothing said` |
+| MR7 | 나란히 돈 두 pass가 다음 시도를 둘 쓰는 것 | `two passes at once write one next try and one retry line` |
+
+M1·M2는 `a model that fails twice and answers the third time: …`와 MR1의 시험이, M6의 M1 갈래는 `a try whose call reports within the wait is tried again`이 본다.
+
+| # | 성질 | 시험 |
+| --- | --- | --- |
+| MP1 | 한 글의 시도는 같은 `input_id`에 attempt 1, 2, 3이고, 시도마다 원장 줄이 하나다 | `a model that fails twice and answers the third time: …` |
+| MP2 | 다시 시도 안내는 글 하나에 한 번, 끝 문구는 마지막 시도에 한 번이다. 모든 줄은 turn의 출처를 실어 글이 지워지면 나가지 않는다 | MR1, MR7의 시험 |
+| MP3 | 시도가 끝나는 모든 길에서 스레드는 active로 돌아간다 | M2, M3, M4, M7의 시험 |
+| MP4 | 다음 시도는 보관한 요청 사본으로 쓴다. 다시 시도하지 않는 turn의 사본은 그 자리에서 놓는다 | MR2의 시험 |
+
 ## 3. 대화 turn
 
 ### 작업 효과

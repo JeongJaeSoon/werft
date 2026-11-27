@@ -586,20 +586,54 @@ export function createPostgresConversationCalls(
           });
           // A retry of the event, or two passes at once, meets the first
           // turn's engagement: this turn goes back with the transaction.
-          const [engaged] = await tx
-            .insert(conversationEngagements)
-            .values({
-              workspaceId: input.workspaceId,
-              agentId: input.agentId,
-              teamId: message.teamId,
-              channelId: message.channelId,
-              ts: message.ts,
-              kind: "mention",
-              conversationTurnId: input.turnId,
-            })
-            .onConflictDoNothing()
-            .returning({ ts: conversationEngagements.ts });
+          const [engaged] =
+            input.retryOf === undefined
+              ? await tx
+                  .insert(conversationEngagements)
+                  .values({
+                    workspaceId: input.workspaceId,
+                    agentId: input.agentId,
+                    teamId: message.teamId,
+                    channelId: message.channelId,
+                    ts: message.ts,
+                    kind: "mention",
+                    conversationTurnId: input.turnId,
+                  })
+                  .onConflictDoNothing()
+                  .returning({ ts: conversationEngagements.ts })
+              : // A try again moves the engagement off the try it follows,
+                // once: a second pass finds it moved and takes this one back.
+                await tx
+                  .update(conversationEngagements)
+                  .set({ conversationTurnId: input.turnId })
+                  .where(
+                    and(
+                      eq(conversationEngagements.agentId, input.agentId),
+                      eq(conversationEngagements.teamId, message.teamId),
+                      eq(conversationEngagements.channelId, message.channelId),
+                      eq(conversationEngagements.ts, message.ts),
+                      eq(conversationEngagements.kind, "mention"),
+                      eq(
+                        conversationEngagements.conversationTurnId,
+                        input.retryOf,
+                      ),
+                    ),
+                  )
+                  .returning({ ts: conversationEngagements.ts });
           if (engaged === undefined) throw new MentionEngaged();
+          if (input.retryOf !== undefined) {
+            // The try it follows no longer holds the thread's "processing":
+            // this one does, until it ends.
+            await tx
+              .update(conversationTurns)
+              .set({ slackStatusResetAt: sql`now()` })
+              .where(
+                and(
+                  eq(conversationTurns.id, input.retryOf),
+                  isNull(conversationTurns.slackStatusResetAt),
+                ),
+              );
+          }
           return insertTurnPermitIn(tx, input, {
             kind: "user",
             userId: input.requesterUserId,
