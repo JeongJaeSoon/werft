@@ -65,13 +65,19 @@ const services = (
       POSTGRES: "true",
       POSTGRES_SERVICE_IMAGE: "mirror/postgres@sha256:2",
       SERVICES_DIR: join(dir, "records"),
-      SERVICES_WAIT_SECONDS: "2",
+      // Room for the launch to finish: the wait returns as soon as it has,
+      // and its deadline counts whole clock seconds, so "2" can be over
+      // after one. The tests of the deadline itself pass `shortWait`.
+      SERVICES_WAIT_SECONDS: "30",
       ...env,
     },
+    // A wait that ignored its deadline fails here, not at the job's limit.
+    timeout: 60_000,
   });
   return { code: result.exitCode, out: result.stdout.toString() };
 };
 const calls = () => readFileSync(join(dir, "calls"), "utf8");
+const shortWait = { SERVICES_WAIT_SECONDS: "2" };
 
 describe("ci-services.sh", () => {
   test("starts each enabled service on its old port and waits for both", () => {
@@ -118,7 +124,10 @@ describe("ci-services.sh", () => {
 
   test("fails with every log when a service never gets ready", () => {
     services("start");
-    const { code, out } = services("wait", { FAKE_PROBE: "down" });
+    const { code, out } = services("wait", {
+      ...shortWait,
+      FAKE_PROBE: "down",
+    });
     expect(code).toBe(1);
     expect(out).toContain("::error::postgres service not ready after 2s");
     expect(out).toContain("::error::localstack service not ready after 2s");
@@ -128,12 +137,24 @@ describe("ci-services.sh", () => {
   test("keeps its deadline when the daemon stops answering", () => {
     const env = { LOCALSTACK: "false", SERVICES_CALL_TIMEOUT: "1" };
     services("start", env);
+    // Once the launch has finished, the wait below gets as far as its probe.
+    expect(services("wait", env).code).toBe(0);
+    const probes = () =>
+      calls()
+        .split("\n")
+        .filter((line) => line.startsWith("exec ")).length;
+    const before = probes();
     const started = Date.now();
-    const { code, out } = services("wait", { ...env, FAKE_PROBE: "hang" });
+    const { code, out } = services("wait", {
+      ...env,
+      ...shortWait,
+      FAKE_PROBE: "hang",
+    });
     expect(code).toBe(1);
     expect(out).toContain("::error::postgres service not ready after 2s");
+    expect(probes()).toBeGreaterThan(before);
     expect(Date.now() - started).toBeLessThan(10_000);
-  });
+  }, 20_000);
 });
 
 describe("ci-services.sh service image pull", () => {
@@ -208,9 +229,13 @@ describe("ci-services.sh service image pull", () => {
       SERVICES_PULL_STALL: "4",
     };
     services("start", env);
-    const { code, out } = services("wait", env);
+    // After the pull has started and before its stall cuts it.
+    const { code, out } = services("wait", {
+      ...env,
+      SERVICES_WAIT_SECONDS: "3",
+    });
     expect(code).toBe(1);
-    expect(out).toContain("::error::postgres service not ready after 2s");
+    expect(out).toContain("::error::postgres service not ready after 3s");
     expect(out).toContain("-- the pull still running:");
     expect(out).toContain("6b37362b3da7: Pulling fs layer");
   });

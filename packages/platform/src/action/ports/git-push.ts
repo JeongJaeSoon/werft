@@ -59,8 +59,11 @@ export type GitPushResult =
       detail: string;
       /** `attribution_mismatch` only: the commits, oldest first. */
       mismatches?: AttributionMismatchDetail[];
-      /** GitHub refused a change under `.github/workflows/` (no `workflows`). */
-      reasonCode?: "workflows_permission_missing";
+      /**
+       * GitHub refused a change under `.github/workflows/` (no `workflows`).
+       * Whether the token asked for it is the caller's to say.
+       */
+      reasonCode?: "workflows_refused";
     };
 
 export interface Pushable {
