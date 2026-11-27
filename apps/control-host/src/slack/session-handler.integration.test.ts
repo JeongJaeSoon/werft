@@ -6984,30 +6984,41 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     ]);
   });
 
-  test("a task's stop read again in a channel turned private sends its binding to approval, and is no mention turn", async () => {
-    const { fixture, view, session, post, root } = await unstartedTask();
-    const ts = at(1);
-    const text = `<@${BOT_USER}> stop`;
-    await deliver(fixture, post(ts, { text }));
-    await drain(view.handle);
-    await sendOutbox({ closeLinks: true });
-    await expectLinkClosed(session);
-    // Slack sends the post's app_mention with no channel kind; asked, it
-    // says the channel is private now.
-    slack.channels.set(CHANNEL, { isPrivate: true });
-    await deliver(fixture, mention(ts, { text, thread_ts: root }));
-    expect(await drain(view.handle)).toMatchObject({ processed: 1, failed: 0 });
-    const [binding] = await db
-      .select()
-      .from(surfaceBindings)
-      .where(eq(surfaceBindings.id, fixture.bindingId));
-    expect(binding).toMatchObject({
-      status: "pending_approval",
-      surfaceKind: "private_channel",
-    });
-    expect(await conversationTurnsOf(fixture)).toEqual([]);
-    expect(await stopKeysOf(session)).toHaveLength(1);
-  });
+  test.each([["app_mention"], ["message with no channel_type"]])(
+    "a task's stop read again in a channel turned private sends its binding to approval, and is no mention turn (%s)",
+    async (replay) => {
+      const { fixture, view, session, post, root } = await unstartedTask();
+      const ts = at(1);
+      const text = `<@${BOT_USER}> stop`;
+      await deliver(fixture, post(ts, { text }));
+      await drain(view.handle);
+      await sendOutbox({ closeLinks: true });
+      await expectLinkClosed(session);
+      // Read again with no channel kind, the post asks Slack, which says the
+      // channel is private now.
+      slack.channels.set(CHANNEL, { isPrivate: true });
+      await deliver(
+        fixture,
+        replay === "app_mention"
+          ? mention(ts, { text, thread_ts: root })
+          : post(ts, { text, channel_type: undefined }),
+      );
+      expect(await drain(view.handle)).toMatchObject({
+        processed: 1,
+        failed: 0,
+      });
+      const [binding] = await db
+        .select()
+        .from(surfaceBindings)
+        .where(eq(surfaceBindings.id, fixture.bindingId));
+      expect(binding).toMatchObject({
+        status: "pending_approval",
+        surfaceKind: "private_channel",
+      });
+      expect(await conversationTurnsOf(fixture)).toEqual([]);
+      expect(await stopKeysOf(session)).toHaveLength(1);
+    },
+  );
 
   test.each([["channel"], [undefined]])(
     "an unmentioned stop word retried after its link closed is held for no judgment, in a channel listening to everything (channel_type %p)",
