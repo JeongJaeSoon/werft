@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
-  GITHUB_CEILING_NONE,
+  GITHUB_CEILING_DEFAULT,
   type GitHubAppPermissions,
   type GitHubAppRole,
   type GitHubAppUsage,
@@ -119,7 +119,7 @@ async function chooseUserLink(
     .insert(githubWorkspaceSettings)
     .values({
       workspaceId,
-      ceiling: GITHUB_CEILING_NONE,
+      ceiling: GITHUB_CEILING_DEFAULT,
       revision: 0,
       userLinkConnectionId: connectionId,
       updatedBy,
@@ -145,7 +145,7 @@ export async function writeOAuthSecret(
     .insert(githubWorkspaceSettings)
     .values({
       workspaceId: row.workspaceId,
-      ceiling: GITHUB_CEILING_NONE,
+      ceiling: GITHUB_CEILING_DEFAULT,
       oauthClientSecretSet: true,
       revision: 0,
       updatedBy,

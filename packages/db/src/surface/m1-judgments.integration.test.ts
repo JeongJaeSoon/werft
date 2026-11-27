@@ -4,8 +4,6 @@ import {
   type ConversationInputId,
   type ConversationTopicId,
   JUDGMENT_BUFFER_LIMIT_PER_CHANNEL,
-  type SlackNoticeVersionEntry,
-  slackNoticeVersionSchema,
 } from "@werft-ai/contracts";
 import {
   type JudgmentBatch,
@@ -44,24 +42,6 @@ import { createPostgresM1JudgmentStore } from "./m1-judgments.ts";
 import { createPostgresSlackSourceMarkStore } from "./slack-source-marks.ts";
 
 const integration = testDatabaseUrl() ? describe : describe.skip;
-
-// No notice is published yet; one is put in so the gate can open.
-const VERSIONS: readonly SlackNoticeVersionEntry[] = [
-  {
-    version: slackNoticeVersionSchema.parse(1),
-    text: {
-      ko: {
-        body: ["k"],
-        policyLink: { label: "l", href: "https://example.invalid" },
-      },
-      ja: {
-        body: ["j"],
-        policyLink: { label: "l", href: "https://example.invalid" },
-      },
-    },
-    requiresReapproval: true,
-  },
-];
 
 integration("M1 judgment records", () => {
   let database: TempDatabase;
@@ -126,11 +106,6 @@ integration("M1 judgment records", () => {
          (id, workspace_id, agent_id, provider, installation_id, external_principal_id, credential_ref)
        VALUES ($1, $2, $3, 'slack_bot', $4, 'U0BOTM1', 'slack/bot-m1')`,
       [randomUUID(), workspaceId, agentId, installationId],
-    );
-    await pool.query(
-      `INSERT INTO slack_notice_approvals (id, workspace_id, agent_id, slack_team_id, notice_version, approved_by)
-       VALUES ($1, $2, $3, $4, 1, $5)`,
-      [randomUUID(), workspaceId, agentId, TEAM, randomUUID()],
     );
   }, 120_000);
 
@@ -230,38 +205,50 @@ integration("M1 judgment records", () => {
       )
     ).rows;
 
-  test("with no notice published the gate is closed and nothing is written", async () => {
+  test("with the switch off the gate is closed and nothing is written", async () => {
     const place = await channel();
-    const store = createPostgresM1JudgmentStore(db, { versions: [] });
-    const place4 = {
-      workspaceId,
-      agentId,
-      teamId: TEAM,
-      channelId: place.channelId,
-    };
-    expect(await store.gateOpen(place4)).toBe(false);
+    const store = createPostgresM1JudgmentStore(db);
+    // Held while the switch is up, then judged after it went off.
     const inputId = await hold(place, "200.000001", "chatter");
-    const written = await store.recordBatch(
-      {
-        id: randomUUID() as never,
+    await pool.query(
+      "UPDATE agents SET conversation_rollout = 'off' WHERE id = $1",
+      [agentId],
+    );
+    try {
+      const place4 = {
         workspaceId,
         agentId,
-        conversationId: place.conversationId,
         teamId: TEAM,
         channelId: place.channelId,
-        releaseId,
-        inputs: [],
-      },
-      judgedRecord("k", ["200.000001"]),
-      [{ inputId, ts: "200.000001", body: "chatter", editMark: null }],
-    );
-    expect(written).toEqual({ outcome: "closed" });
-    expect(await rowsOf(place.channelId)).toEqual([]);
+      };
+      expect(await store.gateOpen(place4)).toBe(false);
+      const written = await store.recordBatch(
+        {
+          id: randomUUID() as never,
+          workspaceId,
+          agentId,
+          conversationId: place.conversationId,
+          teamId: TEAM,
+          channelId: place.channelId,
+          releaseId,
+          inputs: [],
+        },
+        judgedRecord("k", ["200.000001"]),
+        [{ inputId, ts: "200.000001", body: "chatter", editMark: null }],
+      );
+      expect(written).toEqual({ outcome: "closed" });
+      expect(await rowsOf(place.channelId)).toEqual([]);
+    } finally {
+      await pool.query(
+        "UPDATE agents SET conversation_rollout = 'shadow' WHERE id = $1",
+        [agentId],
+      );
+    }
   });
 
   test("an externally shared channel's gate is closed", async () => {
     const place = await channel({ externalShared: true });
-    const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+    const store = createPostgresM1JudgmentStore(db);
     expect(
       await store.gateOpen({
         workspaceId,
@@ -274,7 +261,7 @@ integration("M1 judgment records", () => {
 
   test("an emergency-stopped channel's gate is closed, so no reply waiting for a judgment is called", async () => {
     const place = await channel();
-    const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+    const store = createPostgresM1JudgmentStore(db);
     const at = {
       workspaceId,
       agentId,
@@ -292,7 +279,7 @@ integration("M1 judgment records", () => {
 
   test("a batch's record holds refs and codes, and its judged posts leave the buffer", async () => {
     const place = await channel();
-    const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+    const store = createPostgresM1JudgmentStore(db);
     const judged = await hold(place, "300.000001", "secret words one");
     const left = await hold(place, "300.000002", "secret words two");
     const batchStore = createPostgresJudgmentBatchStore(db);
@@ -390,7 +377,7 @@ integration("M1 judgment records", () => {
 
     test("is written with the server's speakers before the buffer goes, again after a lost compare", async () => {
       const place = await channel();
-      const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+      const store = createPostgresM1JudgmentStore(db);
       const batch = await closedBatch(place, [
         ["500.000001", "when does the release go out?"],
         ["500.000002", "friday, after the freeze"],
@@ -506,7 +493,7 @@ integration("M1 judgment records", () => {
 
     test("a write after the channel's delete makes no summary again", async () => {
       const place = await channel();
-      const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+      const store = createPostgresM1JudgmentStore(db);
       const batch = await closedBatch(place, [
         ["810.000001", "is this channel going away?"],
       ]);
@@ -564,7 +551,7 @@ integration("M1 judgment records", () => {
     test("another agent's channel delete, committed first, keeps the shared summary gone", async () => {
       const place = await channel();
       await otherBinding(place.channelId);
-      const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+      const store = createPostgresM1JudgmentStore(db);
       const batch = await closedBatch(place, [
         ["830.000001", "did the channel just go?"],
       ]);
@@ -593,7 +580,7 @@ integration("M1 judgment records", () => {
     test("a write that comes while another agent's channel delete runs waits for it, then writes nothing", async () => {
       const place = await channel();
       await otherBinding(place.channelId);
-      const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+      const store = createPostgresM1JudgmentStore(db);
       const batch = await closedBatch(place, [
         ["840.000001", "is anyone archiving this?"],
       ]);
@@ -632,7 +619,7 @@ integration("M1 judgment records", () => {
 
     test("three lost compares in a row drop the line and the record says so", async () => {
       const place = await channel();
-      const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+      const store = createPostgresM1JudgmentStore(db);
       const batch = await closedBatch(place, [
         ["600.000001", "who owns the oncall rota?"],
       ]);
@@ -679,7 +666,7 @@ integration("M1 judgment records", () => {
 
     test("one made from a body edited before the judgment survives that edit", async () => {
       const place = await channel();
-      const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+      const store = createPostgresM1JudgmentStore(db);
       await hold(place, "700.000001", "deploy at 3pm");
       const edited = new Date("2026-11-25T01:00:00.000Z");
       const marks = createPostgresSlackSourceMarkStore(db);
@@ -722,14 +709,25 @@ integration("M1 judgment records", () => {
     test("a closed gate writes no line", async () => {
       const place = await channel();
       const batch = await closedBatch(place, [["800.000001", "hello"]]);
-      const closed = createPostgresM1JudgmentStore(db, { versions: [] });
-      expect(
-        await writeM1SummaryLine(
-          closed,
-          batch,
-          draftOf(batch, "someone said hello"),
-        ),
-      ).toBeNull();
+      const closed = createPostgresM1JudgmentStore(db);
+      await pool.query(
+        "UPDATE agents SET conversation_rollout = 'off' WHERE id = $1",
+        [agentId],
+      );
+      try {
+        expect(
+          await writeM1SummaryLine(
+            closed,
+            batch,
+            draftOf(batch, "someone said hello"),
+          ),
+        ).toBeNull();
+      } finally {
+        await pool.query(
+          "UPDATE agents SET conversation_rollout = 'shadow' WHERE id = $1",
+          [agentId],
+        );
+      }
       expect(
         await createPostgresChannelSummaryStore(db).read(placeOf(batch)),
       ).toBeNull();
@@ -738,7 +736,7 @@ integration("M1 judgment records", () => {
 
   test("an engaged thread's reply waits outside batches, is judged, and its text goes", async () => {
     const place = await channel();
-    const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+    const store = createPostgresM1JudgmentStore(db);
     const inputId = await hold(place, "400.000001", "thanks all", "m1_engaged");
     await pool.query(
       "UPDATE conversation_inputs SET received_at = now() - interval '20 seconds' WHERE id = $1",
@@ -781,7 +779,7 @@ integration("M1 judgment records", () => {
 
   test("a reply given up leaves no row", async () => {
     const place = await channel();
-    const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+    const store = createPostgresM1JudgmentStore(db);
     await hold(place, "500.000001", "later", "m1_engaged");
     const claimed = await store.claimReply();
     if (claimed === null) throw new Error("none");
@@ -791,7 +789,7 @@ integration("M1 judgment records", () => {
 
   test("a reply unjudged past the buffer's time is dropped", async () => {
     const place = await channel();
-    const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+    const store = createPostgresM1JudgmentStore(db);
     await hold(place, "600.000001", "old", "m1_engaged");
     await pool.query(
       "UPDATE conversation_judgments SET created_at = now() - interval '11 minutes' WHERE slack_channel_id = $1",
@@ -888,7 +886,7 @@ integration("M1 judgment records", () => {
     expect(await request(place, onInput, "800.000003")).toBe(1);
   });
   test("an engaged reply past the channel's twelve an hour is rate limited", async () => {
-    const store = createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+    const store = createPostgresM1JudgmentStore(db);
     const counted = async (place: Place, n: number) => {
       for (let i = 0; i < n; i++) {
         await pool.query(
@@ -933,8 +931,7 @@ integration("M1 judgment records", () => {
   });
 
   describe("check spot ② (a1/J6)", () => {
-    const store = () =>
-      createPostgresM1JudgmentStore(db, { versions: VERSIONS });
+    const store = () => createPostgresM1JudgmentStore(db);
     const marks = () => createPostgresSlackSourceMarkStore(db);
     const mark = (place: Place, ts: string) => ({
       workspaceId,

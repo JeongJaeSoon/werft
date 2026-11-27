@@ -141,7 +141,12 @@ export function FeatureList({
           client.PUT("/v1/workspaces/{id}/github-settings", {
             params: { path: { id: workspaceId } },
             body: {
-              ceiling: { ...base.ceiling, [feature]: next },
+              ceiling: {
+                ...base.ceiling,
+                [feature]: next,
+                // One switch: images before it still read `checks`.
+                ...(feature === "workflows" ? { checks: next } : {}),
+              },
               revision: base.revision,
             },
           }),
@@ -210,12 +215,27 @@ export function FeatureList({
         badge={mark(feature)}
         description={t(`github.feature.${feature}Hint`)}
         meta={
-          using === null ? undefined : (
-            <Text as="div" variant="meta">
-              {feature === "review" && reviewer
-                ? t("github.ceiling.viaApp", { name: reviewer.name, using })
-                : using}
-            </Text>
+          using === null &&
+          feature !== "actions" &&
+          feature !== "workflows" ? undefined : (
+            <>
+              {feature === "actions" || feature === "workflows" ? (
+                <Text as="div" variant="meta">
+                  {t(
+                    feature === "actions"
+                      ? "github.feature.actionsHelp"
+                      : "github.feature.workflowsHelp",
+                  )}
+                </Text>
+              ) : null}
+              {using === null ? null : (
+                <Text as="div" variant="meta">
+                  {feature === "review" && reviewer
+                    ? t("github.ceiling.viaApp", { name: reviewer.name, using })
+                    : using}
+                </Text>
+              )}
+            </>
           )
         }
         control={

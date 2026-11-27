@@ -19,6 +19,11 @@ const SLACK_NOTICE_MESSAGES_KO = {
     "연결 설정이 바뀌어 시작하지 못했어요. 에이전트 관리자에게 문의하세요",
   failed: "지금은 요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요",
   capacityWait: "작업 자리를 기다리는 중이에요. 자리가 나면 바로 시작해요",
+  progressQueued: "곧 시작해요",
+  progressRunning: "작업하고 있어요",
+  progressNeedsInput: "확인을 기다리고 있어요",
+  progressIdle: "다음 요청을 기다리고 있어요",
+  progressStarted: "시작",
   noCapacity: "지금 자리가 없어 시작하지 못했어요. 잠시 뒤 다시 요청해 주세요",
   noCapacityPaused:
     "자리가 없어 다시 시작하지 못했어요. 세션은 일시 정지 상태로 두었으니 잠시 뒤 다시 시작해 주세요",
@@ -132,6 +137,11 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     failed:
       "現在リクエストを処理できませんでした。しばらくしてからもう一度お試しください",
     capacityWait: "作業の空きを待っています。空きが出しだい始めます",
+    progressQueued: "まもなく始めます",
+    progressRunning: "作業しています",
+    progressNeedsInput: "確認を待っています",
+    progressIdle: "次の依頼を待っています",
+    progressStarted: "開始",
     noCapacity:
       "今は空きがなく開始できませんでした。しばらくしてからもう一度リクエストしてください",
     noCapacityPaused:
@@ -222,6 +232,11 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     failed: "We couldn't process the request right now. Try again shortly",
     capacityWait:
       "Waiting for room to run this. It starts as soon as room frees up",
+    progressQueued: "Starting soon",
+    progressRunning: "Working on it",
+    progressNeedsInput: "Waiting for input",
+    progressIdle: "Waiting for the next request",
+    progressStarted: "Started",
     noCapacity:
       "There was no room to start this right now. Please ask again in a little while",
     noCapacityPaused:

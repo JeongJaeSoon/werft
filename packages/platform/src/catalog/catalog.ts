@@ -615,6 +615,11 @@ export type SessionGitHubMcp = {
   releaseId: string;
   /** The `mcp__github__<tool>` names the release's features expose. */
   tools: string[];
+  /**
+   * The names the release pin exposed before its `actions` stopped running
+   * workflows (94S-2406), when they differ: checkpoints made then name them.
+   */
+  pinTools?: string[];
 };
 
 /**
@@ -738,6 +743,12 @@ export type EgressUpstream = {
   target?: string;
   /** Set on the upstream request, replacing whatever the worker sent. */
   headers: Array<[string, string]>;
+  /**
+   * `public_https`: a server registered in the session's workspace. The proxy
+   * holds the upstream to https and public addresses by itself, not to its
+   * allowlists. A proxy from before ignores it.
+   */
+  allow?: "public_https";
 };
 
 function ceilingHolds(

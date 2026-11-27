@@ -5,6 +5,7 @@ import {
   type AgentGitHub,
   type AgentGitHubSettingsRow,
   catalogIdOfRef,
+  GITHUB_FEATURES_DEFAULT,
   GITHUB_FEATURES_NONE,
   type GitHubCeiling,
   type RepositoryCeiling,
@@ -335,17 +336,41 @@ describe("the agent GitHub tab's options", () => {
       author: {
         contents: "write",
         actions: "write",
+        checks: "read",
         issues: "read",
         workflows: "admin",
       },
       reviewer: "none",
     }).get(caller, AGENT);
     expect(read.options.features).toEqual({
-      workflows: { available: true, reason: null },
+      workflows: { available: false, reason: "over_workspace_ceiling" },
       actions: { available: true, reason: null },
       checks: { available: false, reason: "over_workspace_ceiling" },
       issues: { available: false, reason: "app_permission_missing" },
       review: { available: false, reason: "no_reviewer_app" },
+    });
+  });
+
+  test("workflow files and CI: a ceiling with workflows but not checks cannot offer the switch, which saves both", async () => {
+    const read = await serviceWith({
+      github: WITH_SETTINGS,
+      ceiling: { ...ALL_ON, checks: false },
+    }).get(caller, AGENT);
+    expect(read.options.features.workflows).toEqual({
+      available: false,
+      reason: "over_workspace_ceiling",
+    });
+  });
+
+  test("workflow files and CI: an author App without Checks read lacks the switch's permission", async () => {
+    const read = await serviceWith({
+      github: WITH_SETTINGS,
+      ceiling: ALL_ON,
+      author: { contents: "write", actions: "read", workflows: "write" },
+    }).get(caller, AGENT);
+    expect(read.options.features.workflows).toEqual({
+      available: false,
+      reason: "app_permission_missing",
     });
   });
 
@@ -377,13 +402,19 @@ describe("the agent GitHub tab's options", () => {
     expect(mixed.options.features.actions.available).toBe(true);
   });
 
-  test("legacy defaults: no repository, push approval off, nothing optional", async () => {
+  test("legacy defaults: no repository, push approval off, workflow edits on, direct runs off", async () => {
     const read = await serviceWith({}).get(caller, AGENT);
     expect(read.github).toBeNull();
     expect(read.legacy_defaults).toEqual({
       ...WITH_SETTINGS,
       repositories: [],
       push_approval: false,
+      features: { ...GITHUB_FEATURES_DEFAULT },
+    });
+    expect(read.legacy_defaults?.features).toMatchObject({
+      workflows: true,
+      checks: true,
+      actions: false,
     });
     const saved = await serviceWith({ github: WITH_SETTINGS }).get(
       caller,
@@ -391,6 +422,16 @@ describe("the agent GitHub tab's options", () => {
     );
     expect(saved.github).toEqual(WITH_SETTINGS);
     expect(saved.legacy_defaults).toBeNull();
+  });
+
+  test("legacy defaults are cut to the ceiling, so a first save does not ask over it", async () => {
+    const read = await serviceWith({
+      ceiling: { ...ALL_ON, workflows: false, checks: false },
+    }).get(caller, AGENT);
+    expect(read.legacy_defaults?.features).toMatchObject({
+      workflows: false,
+      checks: false,
+    });
   });
 
   test("an agent's row answers before the release's pin; one that cannot be read shows as none", async () => {

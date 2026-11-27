@@ -749,6 +749,8 @@ export function createWorkerGateway(deps: {
       workspaceId: string,
       serverId: string,
     ) => Promise<WorkspaceMcpCallCredential | null>;
+    /** Where the operator's credential allowlists put a server's URL. */
+    operatorListed?: (url: string) => "public" | "private" | null;
   };
   onMcpReceiptError?: (error: unknown) => void;
   // Called when the note on why a model was cut could not be written; the
@@ -1350,6 +1352,7 @@ export function createWorkerGateway(deps: {
       | "workspaceMcp"
       | "retiredMcp"
       | "sessionId"
+      | "githubMcp"
     >,
     current: RuntimeConfig,
     providerToken: string,
@@ -1395,12 +1398,29 @@ export function createWorkerGateway(deps: {
       const legacy = mcp.filter((server) => server.name !== GITHUB_MCP_SERVER);
       const attached = legacy.length !== mcp.length;
       const github = mcp.find((server) => server.name === GITHUB_MCP_SERVER);
-      const beforeAdded =
-        github === undefined
+      // Checkpoints made while an old pin's `actions` still ran workflows
+      // name the tools that pin exposed then (94S-2406).
+      const pinTools = binding.githubMcp?.pinTools;
+      const pinned =
+        github === undefined || pinTools === undefined
+          ? undefined
+          : {
+              ...github,
+              tools: pinTools,
+              ...(github.trusted === undefined
+                ? {}
+                : { trusted: trustedGitHubTools(pinTools) }),
+            };
+      const beforeAdded = [github, pinned].flatMap((server) =>
+        server === undefined
           ? []
-          : earlierGitHubServers(github).map((earlier) =>
-              mcp.map((server) => (server === github ? earlier : server)),
-            );
+          : [
+              ...(server === pinned ? [server] : []),
+              ...earlierGitHubServers(server),
+            ].map((earlier) =>
+              mcp.map((entry) => (entry === github ? earlier : entry)),
+            ),
+      );
       // Checkpoints made by a control-host that did not claim workspace
       // servers (mid-deploy) name the others only.
       const workspaceNames = new Set(

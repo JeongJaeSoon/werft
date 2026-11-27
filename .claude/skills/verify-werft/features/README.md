@@ -47,6 +47,6 @@
 - 세션 목록: `relation`·`q`·`status` 필터와 `/v1/sessions/counts`. `channel`·`created_by`는 응답 필드이며 query 필터가 아니다. 목록·상세에 `agent`·`created_by`·`channel`·`model`·`repository`가 있다.
 - 사용량: `/operations/usage`의 내 사용량·설치 전체, `/operations/limits`의 한도. 설치 전체와 `/v1/limits`(`scope` 없음 또는 `installation`)는 owner cookie만 허용한다. `/v1/limits?scope=me`는 로그인한 구성원 누구나 세션 한도만 읽는다.
 - Slack: 서명 검증 → inbox 중복 제거 → slack role claim·lease → binding·연결 계정이 맞으면 세션 생성(P-SLACK-MENTION-ONLY) → 세션이 기다리는 요청의 카드 → 카드 버튼의 서명된 interaction(P-SLACK-APPROVAL-CLICK).
-- 조용히 듣기(a1): 고지 승인 → 스위치 shadow → 멘션 없는 글의 버퍼·묶음·M1 판단 기록·채널 요약, 운영자 명령의 대화 턴, 끝을 모르는 예약 풀기(P-A1, mock Slack + 대화 런타임 overlay). M1은 Slack에 채널 안내 한 줄 말고는 올리지 않는다.
+- 조용히 듣기(a1): 스위치 shadow(승인 없음) → 멘션 없는 글의 버퍼·묶음·M1 판단 기록·채널 요약, 운영자 명령의 대화 턴, 끝을 모르는 예약 풀기(P-A1, mock Slack + 대화 런타임 overlay). M1은 Slack에 채널 안내 한 줄 말고는 올리지 않는다.
 - 데모: `VERIFY_DEMO_ACCOUNTS=1`로 별도 run을 띄운다. 기본 run은 bootstrap을 위해 seed를 끈다.
 - 보류: API key 마지막 사용 시각·발급자 이름은 아직 main에 없다. 검증 절차를 만들지 않는다.

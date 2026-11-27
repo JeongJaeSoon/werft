@@ -295,7 +295,8 @@ integration("installation settings", () => {
     expect(rotated.stored.get("connection:console_main")).toBe(
       "a-rotated-stored-key",
     );
-    expect(rotated.generation).toBe(opened.generation);
+    // A new value is a settings write: every replica reads again.
+    expect(rotated.generation).toBe(opened.generation + 1);
     const rotatedSnapshot = settingsSnapshot(rotated);
     expect(Object.keys(rotatedSnapshot.connections)).toEqual(
       Object.keys(snapshot.connections),

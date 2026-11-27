@@ -416,6 +416,7 @@ describe("making the author GitHub App from a manifest", () => {
       metadata: "read",
       actions: "write",
       workflows: "write",
+      checks: "read",
     });
   });
 

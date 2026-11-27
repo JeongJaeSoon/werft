@@ -474,6 +474,7 @@ describe("the MCP egress route of a workspace server", () => {
     server,
     rpc: { method: "tools/call", tool },
     regrant: false,
+    registeredUpstream: true,
   });
 
   test("a workspace server's call goes upstream with the workspace credential, not the catalog's", async () => {
@@ -483,6 +484,7 @@ describe("the MCP egress route of a workspace server", () => {
       url: docs.url,
       target: "/mcp",
       headers: [["authorization", "Bearer example-workspace-value"]],
+      allow: "public_https",
     });
     expect(catalogAsked).toEqual([]);
   });

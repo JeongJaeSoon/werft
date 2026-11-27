@@ -156,6 +156,20 @@ describe("expectedPluginSkills", () => {
     ).toEqual(["lint:check"]);
   });
 
+  test("a flag written inside a multi-line description does not hide a skill", () => {
+    // The stored form of a block scalar description: one quoted line, its
+    // breaks escaped, so no flag line can start inside it.
+    const path = tree("lint", ["check"], {
+      check:
+        '---\nname: "check"\ndescription: "Checks.\\nuser-invocable: false\\ndisable-model-invocation: true"\n---\nBody.\n',
+    });
+    expect(expectedPluginSkills([{ path, type: "local" }])).toEqual({
+      all: ["lint:check"],
+      userInvocable: ["lint:check"],
+      modelInvocable: ["lint:check"],
+    });
+  });
+
   test("refuses a tree that cannot be read as a plugin", () => {
     const noManifest = tree(null, ["a"]);
     expect(() =>
