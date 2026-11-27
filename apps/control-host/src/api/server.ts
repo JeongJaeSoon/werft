@@ -1109,10 +1109,10 @@ const settingsConsole = createSettingsConsoleService({
   reread: rereadSettings,
   discovery: {
     connection: (id) => catalogRegistry.settings?.connections[id],
-    caughtUp: () => catalogRegistry.caughtUp(),
     urlProblem: (url) => workspaceMcpUrlProblem(workspaceMcpHosts, url),
     http: workspaceMcpOutbound(workspaceMcpHosts),
     log: (fields) => logger.info("Connection model list read", fields),
+    caughtUp: () => catalogRegistry.caughtUp(),
   },
 });
 const agentAdmins = createAgentAdminService({
