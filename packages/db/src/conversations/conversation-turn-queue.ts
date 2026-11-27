@@ -70,7 +70,7 @@ const notTaken = { outcome: "failed", reason: "not_taken" } as const;
 export const SPAWN_INPUT_KEPT_MS = 60 * 60_000;
 
 // A turn ending keeps its sealed input only when what is sealed is the input
-// alone (a lease or an end untaken seals it so) and it decided a task with no
+// alone (a lease seals it so; an end before one reseals it right after) and it decided a task with no
 // effect yet, or it is a mention's try with no decision that may be tried
 // again (v1-b/F1), whose next try takes the input from here.
 const keepsInput = sql`((${queue.leaseId} IS NOT NULL AND EXISTS (
@@ -107,8 +107,8 @@ function outcomeOf(stored: unknown): ConversationTurnOutcome {
 
 /**
  * The request a turn that ended on spawn_task or route_to_task kept for its
- * task: its input as its runtime was given it, the one place a turn's input
- * is read from.
+ * task, or a mention's try kept for its next try: its input as its runtime
+ * was given it, the one place a turn's input is read from.
  * Null once it was let go, past its deadline, or when it cannot be opened.
  */
 export async function keptTurnRequest(
@@ -192,18 +192,17 @@ export function createPostgresConversationTurnQueue(
       .where(eq(queue.turnId, turnId))
       .returning({ told: told(sql`${queue.turnId}::text`) });
 
-  // A turn nobody took still holds its permit's token sealed: what it may
-  // keep for a try again is its input alone.
-  async function sealInputAlone(tx: Database, turnId: ConversationTurnId) {
+  // A turn that ended before a lease took its permit's token out (untaken,
+  // or not a turn this key opens) keeps, for a try again, its input alone,
+  // or nothing when it cannot be opened. Run after its end: an open row
+  // always holds its turn sealed.
+  async function keepInputAlone(tx: Database, turnId: ConversationTurnId) {
     const [sealed] = await tx
       .select({ nonce: queue.turnNonce, ciphertext: queue.turnCiphertext })
       .from(queue)
       .where(eq(queue.turnId, turnId));
     if (sealed?.nonce == null || sealed.ciphertext == null) return;
-    let input: { nonce: Uint8Array | null; ciphertext: Uint8Array | null } = {
-      nonce: null,
-      ciphertext: null,
-    };
+    let input: ReturnType<typeof sealWithKey> | null = null;
     try {
       const turn = JSON.parse(
         openWithKey(key, aadOf(turnId), {
@@ -221,7 +220,11 @@ export function createPostgresConversationTurnQueue(
     }
     await tx
       .update(queue)
-      .set({ turnNonce: input.nonce, turnCiphertext: input.ciphertext })
+      .set(
+        input === null
+          ? { turnNonce: null, turnCiphertext: null, inputKeptUntil: null }
+          : { turnNonce: input.nonce, turnCiphertext: input.ciphertext },
+      )
       .where(eq(queue.turnId, turnId));
   }
 
@@ -306,8 +309,8 @@ export function createPostgresConversationTurnQueue(
               (freed.get(row.topicId) ?? 0) + row.takeMs,
             ))
       ) {
-        await sealInputAlone(tx, row.turnId);
         await end(tx, row.turnId, notTaken, now);
+        await keepInputAlone(tx, row.turnId);
         ended.add(row.turnId);
       }
     }
@@ -397,6 +400,7 @@ export function createPostgresConversationTurnQueue(
           } catch {
             // Sealed under another key, or not a turn: no runtime can take it.
             await end(tx, row.turnId, notTaken, now);
+            await keepInputAlone(tx, row.turnId);
             continue;
           }
           const leaseId = conversationTurnLeaseIdSchema.parse(randomUUID());

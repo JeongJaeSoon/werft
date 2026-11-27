@@ -193,7 +193,7 @@ Slack 멘션 턴이 결정 없이(`no_decision`) 끝나면, slack 역할의 턴 
 
 - turn에 결정이나 작업 효과(`decision`, `task_effect`)가 적혔다.
 - 그 turn의 `slack_outbox` 줄이 있다(다시 시도 안내 줄은 뺀다).
-- 그 turn의 provider 호출이 아직 `in_flight`이고, 끝 보고가 기다림 상한 안에 오지 않았다.
+- 그 turn의 provider 호출의 끝 보고가 turn이 끝난 뒤 기다림 상한(30초) 안에 오지 않았다. 아직 `in_flight`이거나, 상한이 지난 뒤에 왔다. 어느 pass가 언제 읽어도 같게 판정한다.
 
 provider 호출과 예산 원장 줄만으로는 나간 것으로 보지 않는다. 시도마다 자기 호출과 원장 줄을 따로 잡는다.
 
@@ -230,15 +230,24 @@ provider 호출과 예산 원장 줄만으로는 나간 것으로 보지 않는�
 | MR5 | 긴급 정지로 끝난 시도의 다시 시도나 안내 | `a try an emergency stop ended is not tried again and says nothing, the thread active` |
 | MR6 | 지워진 글의 다음 시도 | `a mention deleted before its next try is written ends with nothing said` |
 | MR7 | 나란히 돈 두 pass가 다음 시도를 둘 쓰는 것 | `two passes at once write one next try and one retry line` |
+| MR8 | 끝 보고가 상한 뒤에 온 호출의 시도를 다시 하는 것 | `a call that reports past the wait counts as one still out, whichever pass reads it` |
+| MR9 | 다음 시도를 쓰지 못했는데 다시 시도 안내를 다는 것 | `a try whose kept input is gone ends on the failure line alone, with no retry line` |
+| MR10 | 열 수 없는 봉인(다른 key)이 큐 정리를 막거나 남는 것 | `an untaken try sealed under another key ends, keeps nothing, and its thread hears the failure line` |
 
 M1·M2는 `a model that fails twice and answers the third time: …`와 MR1의 시험이, M6의 M1 갈래는 `a try whose call reports within the wait is tried again`이 본다.
 
 | # | 성질 | 시험 |
 | --- | --- | --- |
-| MP1 | 한 글의 시도는 같은 `input_id`에 attempt 1, 2, 3이고, 시도마다 원장 줄이 하나다 | `a model that fails twice and answers the third time: …` |
-| MP2 | 다시 시도 안내는 글 하나에 한 번, 끝 문구는 마지막 시도에 한 번이다. 모든 줄은 turn의 출처를 실어 글이 지워지면 나가지 않는다 | MR1, MR7의 시험 |
+| MP1 | 한 글의 시도는 같은 `input_id`에 attempt 1, 2, 3이고, 시도마다 자기 원장 줄을 잡는다(승인된 provider 호출마다 한 줄) | `a model that fails twice and answers the third time: …` |
+| MP2 | 다시 시도 안내는 글 하나에 한 번, 다음 시도를 쓴 뒤에만 단다. 끝 문구는 마지막 시도에 한 번이다. 모든 줄은 turn의 출처를 실어, 보내기 시작하기 전에 글이 지워지면 나가지 않는다 | MR1, MR7, MR9, MR6의 시험 |
 | MP3 | 시도가 끝나는 모든 길에서 스레드는 active로 돌아간다 | M2, M3, M4, M7의 시험 |
-| MP4 | 다음 시도는 보관한 요청 사본으로 쓴다. 다시 시도하지 않는 turn의 사본은 그 자리에서 놓는다 | MR2의 시험 |
+| MP4 | 다음 시도는 보관한 요청 사본으로 쓴다. 다시 시도하지 않는 turn의 사본은 그 자리에서 놓는다. 놓기 전에 pass가 멈추면 보관 기한(1시간)의 sweep이 놓는다 | MR2의 시험 |
+
+알려진 한계:
+
+- 다음 시도의 permit은 썼는데 큐에 넣기 전에 프로세스가 멈추면, 그 시도는 큐에 없는 turn으로 조용히 끝난다(첫 시도와 같다). 다시 시도 안내는 큐에 넣기 직전에 달므로 이미 나갔을 수 있다.
+- 첫 시도가 밖으로 나간 것이 있어 바로 끝나도 실패 문구는 "세 번 시도했지만"이다(정해진 문구).
+- 롤링 업그레이드 중 앞선 이미지의 pass가 먼저 스레드를 active로 돌린 시도는 다시 시도하지 않는다.
 
 ## 3. 대화 turn
 

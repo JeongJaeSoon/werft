@@ -5826,7 +5826,7 @@ describe.each(ENGINES)(
       await drain(handler().handle);
       const turn = await leased();
       await report(turn, { outcome: "failed", reason: "engine_failed" });
-      // Something of the try already went to Slack: trying it again could
+      // Something of the try is on its way to Slack: trying it again could
       // say or do it twice.
       const [app] = await db
         .select({ id: schema.slackApps.id, appId: schema.slackApps.appId })
@@ -5952,6 +5952,79 @@ describe.each(ENGINES)(
       await sendOutbox();
       expect(postsIn("100.000100")).toEqual([]);
       expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
+    });
+
+    test("a call that reports past the wait counts as one still out, whichever pass reads it", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      const call = await callOn(turn);
+      await report(turn, { outcome: "failed", reason: "engine_failed" });
+      expect(await endings()).toMatchObject({ retried: 0, gaveUp: 0 });
+      await call.settle();
+      // Its report came 31 s after the try ended: a pass that reads it only
+      // now ends on the failure line, as one that read it out would have.
+      await db.execute(sql`
+        UPDATE conversation_calls c
+        SET ended_at = q.ended_at + interval '31 seconds'
+        FROM conversation_turn_queue q
+        WHERE q.turn_id = c.conversation_turn_id
+          AND c.conversation_turn_id = ${turn.turn_id}::uuid`);
+      expect(await endings()).toMatchObject({ retried: 0, gaveUp: 1 });
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100").map((post) => post.text)).toEqual([
+        line(SLACK_NOTICE_MESSAGES.en.mentionFailed),
+      ]);
+    });
+
+    test("a try whose kept input is gone ends on the failure line alone, with no retry line", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      await report(turn, { outcome: "failed", reason: "engine_failed" });
+      // As the sweep lets it go at its deadline.
+      await db.execute(sql`
+        UPDATE conversation_turn_queue
+        SET turn_nonce = NULL, turn_ciphertext = NULL, input_kept_until = NULL
+        WHERE turn_id = ${turn.turn_id}::uuid`);
+      expect(await endings()).toMatchObject({ retried: 0, gaveUp: 1 });
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100").map((post) => post.text)).toEqual([
+        line(SLACK_NOTICE_MESSAGES.en.mentionFailed),
+      ]);
+      expect(statusesOf("100.000100")).toEqual(["processing", "active"]);
+    });
+
+    test("an untaken try sealed under another key ends, keeps nothing, and its thread hears the failure line", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      const [queued] = await mentionTurnsOf(fixture);
+      if (queued === undefined) throw new Error("no turn");
+      await db.execute(sql`
+        UPDATE conversation_turn_queue SET turn_ciphertext = ${randomBytes(96)}
+        WHERE turn_id = ${queued.id}::uuid`);
+      const at = new Date(Date.now() + OPERATOR_TURN_TAKE_MS + 1_000);
+      expect(await endings(at)).toMatchObject({ failed: 0, gaveUp: 1 });
+      const { rows } = (await db.execute(sql`
+        SELECT state, turn_nonce IS NULL AS no_nonce, input_kept_until IS NULL AS not_kept
+        FROM conversation_turn_queue WHERE turn_id = ${queued.id}::uuid`)) as {
+        rows: { state: string; no_nonce: boolean; not_kept: boolean }[];
+      };
+      expect(rows).toEqual([
+        { state: "ended", no_nonce: true, not_kept: true },
+      ]);
+      slack.messages.length = 0;
+      await sendOutbox();
+      expect(postsIn("100.000100").map((post) => post.text)).toEqual([
+        line(SLACK_NOTICE_MESSAGES.en.mentionFailed),
+      ]);
     });
 
     test("a mention deleted before its next try is written ends with nothing said", async () => {

@@ -449,10 +449,13 @@ export function createMentionConversationTurns(deps: {
     /**
      * The next try of a mention turn's input that ended with no decision
      * (v1-b/F1): the same input id under the next attempt, a permit of its
-     * own, the release and connection the agent has now. What the thread
-     * hears of it is the ending pass's.
+     * own, the release and connection the agent has now. `queuing` is the
+     * ending pass's word to the thread, said once the try is written.
      */
-    async retry(turnId: ConversationTurnId): Promise<MentionTurnRetryStart> {
+    async retry(
+      turnId: ConversationTurnId,
+      queuing: () => Promise<void>,
+    ): Promise<MentionTurnRetryStart> {
       const request = await deps.retries?.requestOf(turnId);
       if (request === undefined || request === null) {
         return { outcome: "input_gone" };
@@ -463,7 +466,7 @@ export function createMentionConversationTurns(deps: {
       return begin(
         mention,
         { inputId, attempt: attempt + 1, retryOf: turnId },
-        async () => {},
+        queuing,
       );
     },
   };

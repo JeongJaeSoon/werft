@@ -551,7 +551,11 @@ export async function endMentionTurns(deps: {
   /** A mention's tries (v1-b/F1): what each left, and its thread lines. */
   retries: MentionTurnRetryStore;
   /** Writes and queues the next try of the turn's input. */
-  retry(turnId: ConversationTurnId): Promise<MentionTurnRetryStart>;
+  /** `queuing` runs once the next try is written, before a runtime can take it. */
+  retry(
+    turnId: ConversationTurnId,
+    queuing: () => Promise<void>,
+  ): Promise<MentionTurnRetryStart>;
   /**
    * Sets the thread's status: false when the thread shows none (the app is
    * gone, or Slack shows none there); throws when Slack may not have taken
@@ -640,8 +644,11 @@ export async function endMentionTurns(deps: {
     ) {
       return "wait";
     }
-    await deps.retries.tell(turnId, "retrying");
-    const started = await deps.retry(turnId);
+    // Said once the next try is written, so a try that cannot be written
+    // never says it, and before the next try can answer.
+    const started = await deps.retry(turnId, async () => {
+      await deps.retries.tell(turnId, "retrying");
+    });
     deps.logger.info("Mention turn tried again", {
       turn_id: turnId,
       attempt: attempt.attempt + 1,

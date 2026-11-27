@@ -97,7 +97,7 @@ The agent app holds the bot scope `reactions:write`. It is the scope for putting
 When a mention or DM turn of an agent whose conversation rollout is `on` ends with no decision (a model error, the time limit, a turn limit), the agent says `I couldn't answer just now. I'll try again.` once in the thread and tries the same message again. The second try starts at once, the third 10 seconds after the second ends. Each try reserves its own model calls. When all three end with no decision, it says `I tried three times but couldn't answer. Please mention me again in a moment.` Meanwhile the thread shows as processing, and goes back once it is over. It does not try again when:
 
 - a budget account refused the call: the budget notice alone is said;
-- the try already left something in Slack (an answer, a 👀, a notice): the failure line is said at once, so nothing is done twice; the same when the report that the try's model call ended does not come within 30 seconds;
+- the try already sent, or left to be sent, something in Slack (an answer, a 👀, a notice): the failure line is said at once, so nothing is done twice; the same when the report that the try's model call ended does not come within 30 seconds of the try's end;
 - an admin stopped the agent in an emergency, or the mention was deleted: nothing is said.
 
 ## Stop a task

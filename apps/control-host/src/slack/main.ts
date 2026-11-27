@@ -516,7 +516,7 @@ export function slackMentionTurnEndings(deps: {
     tasks: deps.tasks,
     calls,
     retries,
-    retry: (turnId) => mentionTurns.retry(turnId),
+    retry: (turnId, queuing) => mentionTurns.retry(turnId, queuing),
     setStatus: (turn, status) =>
       setMentionThreadStatus(
         { slack: deps.slack, botToken: deps.botToken },

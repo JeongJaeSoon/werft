@@ -15,6 +15,7 @@ import type {
   SecretKey,
   StoredSourceSet,
 } from "@werft-ai/platform";
+import { MENTION_TURN_CALL_SETTLE_WAIT_MS } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
 import {
   keptTurnRequest,
@@ -54,7 +55,13 @@ export function createPostgresMentionTurnRetries(
               OR EXISTS (SELECT 1 FROM slack_outbox o
                 WHERE o.conversation_turn_id = t.id
                   AND left(o.dedupe_key, ${MENTION_RETRY_NOTICE_KEY_PREFIX.length})
-                    <> ${MENTION_RETRY_NOTICE_KEY_PREFIX})) AS went_out,
+                    <> ${MENTION_RETRY_NOTICE_KEY_PREFIX})
+              -- A call whose report came past the wait counts as one still
+              -- out then, whichever pass reads it.
+              OR EXISTS (SELECT 1 FROM conversation_calls c
+                WHERE c.conversation_turn_id = t.id
+                  AND c.ended_at > q.ended_at
+                    + ${MENTION_TURN_CALL_SETTLE_WAIT_MS} * interval '1 millisecond')) AS went_out,
             EXISTS (SELECT 1 FROM conversation_calls c
               WHERE c.conversation_turn_id = t.id
                 AND c.state = 'in_flight') AS call_in_flight
