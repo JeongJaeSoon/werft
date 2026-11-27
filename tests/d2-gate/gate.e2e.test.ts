@@ -37,7 +37,9 @@ import {
  *    workspace volume and HOME, with one append response lost on the way;
  * B. a publish that fails at the manifest, then one that succeeds;
  * C. a transcript mirror that fails;
- * D. a worker that loses its lease while its turn is open;
+ * D. a worker that loses its lease while its turn is open, a worker killed
+ *    outright whose turn an operator settles, and the next message the first
+ *    session takes;
  * E. interrupts repeated on fresh sessions, as early as the API takes them
  *    and mid-response (D2_GATE_INTERRUPT_REPEAT rounds, 6 by default), and
  *    one that reaches a turn already over.
@@ -45,6 +47,8 @@ import {
 
 const env = gateEnv();
 const TURN_MS = 300_000;
+/** What `docker kill` leaves: 128 + SIGKILL. */
+const SIGKILL_EXIT = 137;
 const report = new GateReport();
 
 let api: PublicApi;
@@ -1091,7 +1095,7 @@ describe.skipIf(env === null)("D2 gate", () => {
       title: "neither the open turn's work nor the old attempt is promoted",
       input: "DB and bucket after the lost worker exited",
       expected:
-        "turn outcome unknown; recovery_required; no checkpoints row; no pointer",
+        "turn failed(worker_ownership_lost), outcome known; session active; no checkpoints row; no pointer",
       actual: {
         turn: turns.map((t) => ({
           status: t.status,
@@ -1107,19 +1111,52 @@ describe.skipIf(env === null)("D2 gate", () => {
       },
       pass:
         turns.length === 1 &&
-        turns[0]?.outcome_unknown === true &&
-        session.admission_state === "recovery_required" &&
+        turns[0]?.status === "failed" &&
+        turns[0]?.terminal_reason === "worker_ownership_lost" &&
+        turns[0]?.outcome_unknown === false &&
+        session.admission_state === "active" &&
         session.checkpoint_revision === null &&
         checkpoints.length === 0,
     });
 
+    // A worker killed outright leaves no word that it gave its lease up, so
+    // nobody can say what its turn did: the turn is unknown and waits on an
+    // operator. On a session of its own.
+    const killedSpec = {
+      id: "D3",
+      steps: [
+        { ...write("/workspace/d3.txt", "d3 turn 1\n"), delayMs: 30_000 },
+      ],
+      final: "D3 DONE",
+    };
+    const killedId = (await api.createSession(prompt("Turn one.", killedSpec)))
+      .session_id;
+    report.meta.session_d_killed = killedId;
+    await waitFor(
+      "the model call of D3",
+      async () => (await messages.requests("D3")).length > 0,
+      TURN_MS,
+      250,
+    );
+    const killed = await workers.running(killedId, 10_000);
+    const killedExit = exitOf(killed);
+    await run(["docker", "kill", killed.name]);
+    const [unknown] = await waitFor(
+      "the killed worker's turn to settle",
+      async () => {
+        const found = await turnRows(killedId);
+        return found.every((t) => t.status !== "running") ? found : null;
+      },
+      120_000,
+    ).catch(() => turnRows(killedId));
+    const held = await sessionRow(killedId);
     const decision = await api.call(
       "POST",
-      `/v1/sessions/${sessionId}/recovery-decisions`,
+      `/v1/sessions/${killedId}/recovery-decisions`,
       {
         decision: "abandon",
-        expected_revision: (await api.session(sessionId)).revision,
-        reason: "d2 gate: the lost attempt has no confirmed effect",
+        expected_revision: (await api.session(killedId)).revision,
+        reason: "d2 gate: the killed attempt has no confirmed effect",
         target_turn_id: "1",
       },
     );
@@ -1137,17 +1174,25 @@ describe.skipIf(env === null)("D2 gate", () => {
             250,
           )
         : null;
-    const [cleaned] = await turnRows(sessionId);
-    const cleanedSession = await sessionRow(sessionId);
+    const [cleaned] = await turnRows(killedId);
+    const cleanedSession = await sessionRow(killedId);
+    const killedCode = await killedExit;
     report.check({
       id: "D-03",
       criterion: "outcome_unknown 복구 결정",
       title:
         "an operator decision, not a worker restart, settles the unknown turn",
-      input: "abandon turn 1 after the lost execution is confirmed gone",
-      expected:
-        "202; recovery receipt succeeded; turn cancelled(operator_abandoned); session stopped",
+      input:
+        "docker kill a second session's worker mid-turn, then abandon turn 1 once the execution is confirmed gone",
+      expected: `exit ${SIGKILL_EXIT}; turn outcome unknown; recovery_required; then 202; recovery receipt succeeded; turn cancelled(operator_abandoned); session stopped`,
       actual: {
+        exit: killedCode,
+        unknown: {
+          status: unknown?.status,
+          reason: unknown?.terminal_reason,
+          unknown: unknown?.outcome_unknown,
+          admission: held.admission_state,
+        },
         response_status: decision.status,
         receipt,
         turn: {
@@ -1158,6 +1203,9 @@ describe.skipIf(env === null)("D2 gate", () => {
         admission: cleanedSession.admission_state,
       },
       pass:
+        killedCode === SIGKILL_EXIT &&
+        unknown?.outcome_unknown === true &&
+        held.admission_state === "recovery_required" &&
         decision.status === 202 &&
         receipt?.status === "succeeded" &&
         cleaned?.status === "cancelled" &&
@@ -1165,6 +1213,47 @@ describe.skipIf(env === null)("D2 gate", () => {
         cleaned?.outcome_unknown === true &&
         cleanedSession.admission_state === "stopped",
     });
+
+    // The lost turn's session goes on: its next message runs on a new worker.
+    // That turn is handed the lost turn's input ahead of its own.
+    const nextTurnId = await api.message(
+      sessionId,
+      prompt("Turn two.", { id: "D4", steps: [], final: "D4 DONE" }),
+    );
+    const successor = await workers.running(sessionId);
+    const next = await api.settle(sessionId, nextTurnId, TURN_MS);
+    const [, nextRow] = await turnRows(sessionId);
+    const after = await sessionRow(sessionId);
+    const covering = (await checkpointRows(sessionId)).at(-1);
+    report.check({
+      id: "D-04",
+      criterion: "fault: lease 상실",
+      title:
+        "the session of the lost turn takes its next message on a new worker",
+      input: "POST a message to the session whose turn failed as lost",
+      expected:
+        "turn 2 completed on another worker and attempt; session active; the pointer's checkpoint covers turn 2",
+      actual: {
+        status: next.status,
+        reason: next.terminal_reason,
+        lost_worker: worker.name,
+        worker: successor.name,
+        attempts: [turns[0]?.attempt_id, nextRow?.attempt_id],
+        admission: after.admission_state,
+        pointer: after.checkpoint_revision,
+        covered_turn: covering?.turn_id,
+        turn: nextRow?.id,
+      },
+      pass:
+        next.status === "completed" &&
+        successor.name !== worker.name &&
+        typeof nextRow?.attempt_id === "string" &&
+        nextRow.attempt_id !== turns[0]?.attempt_id &&
+        after.admission_state === "active" &&
+        after.checkpoint_revision !== null &&
+        covering?.turn_id === nextRow.id,
+    });
+    await stopWorker(successor);
     expect(report.failed().filter((c) => c.id.startsWith("D-"))).toEqual([]);
   }, 900_000);
 
