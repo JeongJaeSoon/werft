@@ -789,18 +789,22 @@ function narrowKept(words: readonly string[], place: Place): string | null {
     // A pathspec is a pattern to git (`.claud[e]/settings.json`, `*.json`),
     // and `*` crosses `/`: it is kept when it matches a kept name. git never
     // takes what is in `.git` as a path of the work tree.
-    if (!/[*?[]/.test(name)) return false;
+    if (!/[*?[\\]/.test(name)) return false;
     const pattern = globPattern(name);
     const names = [...KEPT_SAMPLES, ...keptNames(place.root)];
     if (names.some((kept) => pattern.test(kept))) return true;
+    // A rule of any folder (`**/.env`) keeps that name wherever it is.
+    const last = globPattern(name.slice(name.lastIndexOf("/") + 1));
+    if (KEPT_ANYWHERE.some((kept) => last.test(kept))) return true;
     // A file under a kept folder may be gone from the work tree and come
     // back from the index (`git restore '.claud?/settings.json'`).
     const slash = name.indexOf("/");
-    const head = slash === -1 ? undefined : globPattern(name.slice(0, slash));
+    const head = name.slice(0, slash);
     return (
-      head !== undefined &&
+      slash !== -1 &&
+      !head.includes("*") &&
       [...KEPT_FOLDERS, ...names.filter((kept) => !kept.includes("/"))].some(
-        (folder) => head.test(folder),
+        (folder) => globPattern(head).test(folder),
       )
     );
   };
@@ -931,22 +935,63 @@ function ghBodyFiles(words: readonly string[]): string[] {
   return files.filter((file) => file !== "");
 }
 
-/** A git pathspec pattern as a regular expression: `*` crosses `/`, case aside. */
+/** POSIX classes git takes inside brackets, as ranges. */
+const POSIX_CLASSES: Readonly<Record<string, string>> = {
+  alpha: "a-zA-Z",
+  digit: "0-9",
+  alnum: "a-zA-Z0-9",
+  lower: "a-z",
+  upper: "A-Z",
+  xdigit: "0-9a-fA-F",
+  space: "\\s",
+  blank: " \\t",
+};
+
+/**
+ * A git pathspec pattern as a regular expression: `*` crosses `/`, a
+ * backslash keeps the letter after it as it is, `[!a]` and `[[:alpha:]]` are
+ * classes, case aside. A class git knows and this does not is any one letter.
+ */
 function globPattern(glob: string): RegExp {
+  const literal = (char: string) =>
+    char.replace(/[.*+?^${}()|[\]\\/-]/g, "\\$&");
   let source = "";
   for (let at = 0; at < glob.length; at += 1) {
     const char = glob[at] as string;
-    const close = char === "[" ? glob.indexOf("]", at + 2) : -1;
     if (char === "*") source += ".*";
     else if (char === "?") source += ".";
-    else if (close !== -1) {
-      const inner = glob
-        .slice(at + 1, close)
-        .replace(/\\/g, "\\\\")
-        .replace(/^([!^]?)\]/, "$1\\]");
-      source += /^[!^]/.test(inner) ? `[^${inner.slice(1)}]` : `[${inner}]`;
-      at = close;
-    } else source += char.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+    else if (char === "\\" && at + 1 < glob.length) {
+      at += 1;
+      source += literal(glob[at] as string);
+    } else if (char === "[") {
+      let end = at + 1;
+      const negated = glob[end] === "!" || glob[end] === "^";
+      if (negated) end += 1;
+      let inner = "";
+      let known = true;
+      for (let first = true; end < glob.length; first = false) {
+        const next = glob[end] as string;
+        if (next === "]" && !first) break;
+        const posix = /^\[:(\w+):\]/.exec(glob.slice(end));
+        if (posix !== null) {
+          const range = POSIX_CLASSES[posix[1] as string];
+          if (range === undefined) known = false;
+          else inner += range;
+          end += posix[0].length;
+        } else if (next === "\\" && end + 1 < glob.length) {
+          inner += literal(glob[end + 1] as string);
+          end += 2;
+        } else {
+          inner += next === "-" ? "-" : literal(next);
+          end += 1;
+        }
+      }
+      if (end >= glob.length) source += literal(char);
+      else {
+        source += !known ? "." : `[${negated ? "^" : ""}${inner}]`;
+        at = end;
+      }
+    } else source += literal(char);
   }
   try {
     return new RegExp(`^${source}$`, "i");
@@ -977,16 +1022,23 @@ function keptNames(root: string): string[] {
   walk("", 0);
   return names;
 }
-// One name for each kept rule but those of `.git`: `**/*.pem` gives `.pem`,
-// `.claude/**` gives `.claude/settings.json`.
-const KEPT_SAMPLES = policy.sensitiveEditPaths
-  .filter((rule) => !rule.startsWith(".git/"))
-  .map((rule) =>
+// Names for each kept rule but those of `.git`, its `*` filled a few ways:
+// `.claude/**` gives `.claude/settings.json`, `**/credentials*` gives
+// `credentials.json`.
+const keptSamples = (rule: string) =>
+  ["", "x", ".json", "-x"].map((fill) =>
     rule
       .replace(/^\*\*\//, "")
       .replace(/\/\*\*$/, "/settings.json")
-      .replaceAll("*", ""),
+      .replaceAll("*", fill),
   );
+const KEPT_SAMPLES = policy.sensitiveEditPaths
+  .filter((rule) => !rule.startsWith(".git/"))
+  .flatMap(keptSamples);
+/** The names kept in any folder. */
+const KEPT_ANYWHERE = policy.sensitiveEditPaths
+  .filter((rule) => rule.startsWith("**/"))
+  .flatMap(keptSamples);
 /** The kept folders at the top but `.git`. */
 const KEPT_FOLDERS = policy.sensitiveEditPaths
   .filter((rule) => rule.endsWith("/**") && !rule.startsWith("**/"))
