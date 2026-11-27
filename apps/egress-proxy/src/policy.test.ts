@@ -183,13 +183,68 @@ describe("decideEgress", () => {
       await decideEgress(
         policy,
         { host: "metadata.test", port: 80 },
-        resolver({ "metadata.test": ["169.254.169.254"] }),
+        resolver({ "metadata.test": ["169.254.1.1"] }),
       ),
     ).toEqual({
       allowed: false,
       failure: "denied",
-      reason: "169.254.169.254 is link_local",
+      reason: "169.254.1.1 is link_local",
     });
+  });
+
+  test("a metadata address is refused from the private list, in every spelling", async () => {
+    for (const address of [
+      "169.254.169.254",
+      "169.254.170.2",
+      "100.100.100.200",
+      "fd00:ec2::254",
+      "fd00:ec2::254%eth0",
+      "::ffff:100.100.100.200",
+      "::ffff:6464:64c8",
+      "64:ff9b::6464:64c8",
+      "64:ff9b::a9fe:a9fe",
+    ]) {
+      expect(
+        await decideEgress(
+          policy,
+          { host: "metadata.test", port: 80 },
+          resolver({ "metadata.test": ["10.0.0.5", address] }),
+        ),
+        address,
+      ).toEqual({
+        allowed: false,
+        failure: "denied",
+        reason: `${address} is metadata`,
+      });
+    }
+  });
+
+  test("a metadata name is refused before it is resolved, trailing dot or not", async () => {
+    const listed: EgressPolicy = {
+      allow: [{ host: "metadata.google.internal", port: 80 }],
+      allowPrivate: [
+        { host: "metadata", port: 80 },
+        { host: "instance-data.ec2.internal", port: 80 },
+      ],
+    };
+    const asked: string[] = [];
+    const resolve = async (host: string) => {
+      asked.push(host);
+      return ["10.0.0.5"];
+    };
+    for (const host of [
+      "metadata.google.internal",
+      "Metadata.Google.Internal.",
+      "metadata",
+      "metadata.",
+      "instance-data.ec2.internal",
+    ]) {
+      expect(
+        await decideEgress(listed, { host, port: 80 }, resolve),
+        host,
+      ).toMatchObject({ allowed: false, failure: "denied" });
+    }
+    expect(asked).toEqual([]);
   });
 
   test("a host that does not resolve is denied, not allowed by default", async () => {

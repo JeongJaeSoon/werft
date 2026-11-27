@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type AddressClass,
   classifyAddress,
+  isMetadataName,
   isPrivateAddress,
 } from "./ip-address.ts";
 
@@ -15,7 +16,8 @@ describe("classifyAddress", () => {
     ["100.64.0.1", "private"],
     ["127.0.0.1", "loopback"],
     ["127.255.255.254", "loopback"],
-    ["169.254.169.254", "link_local"],
+    ["169.254.169.254", "metadata"],
+    ["169.254.169.253", "link_local"],
     ["224.0.0.1", "multicast"],
     ["255.255.255.255", "reserved"],
     ["192.0.2.1", "reserved"],
@@ -34,12 +36,14 @@ describe("classifyAddress", () => {
     ["2001:200::1", "public"],
     ["3fff:1000::1", "public"],
     // IPv4 inside IPv6 is judged as the IPv4 address.
-    ["::ffff:169.254.169.254", "link_local"],
-    ["::ffff:a9fe:a9fe", "link_local"],
+    ["::ffff:169.254.169.254", "metadata"],
+    ["::ffff:a9fe:a9fe", "metadata"],
+    ["::ffff:a9fe:1", "link_local"],
     ["::ffff:127.0.0.1", "loopback"],
     ["::ffff:10.0.0.1", "private"],
     ["::ffff:8.8.8.8", "public"],
-    ["64:ff9b::a9fe:a9fe", "link_local"],
+    ["64:ff9b::a9fe:a9fe", "metadata"],
+    ["64:ff9b::a9fe:1", "link_local"],
     ["64:ff9b::a00:1", "private"],
     ["64:ff9b::808:808", "public"],
     ["64:ff9b:1::a9fe:a9fe", "reserved"],
@@ -74,6 +78,36 @@ describe("classifyAddress", () => {
     expect(classifyAddress(address)).toBe(expected);
   });
 
+  // Each was private or link-local before; metadata is its own class so the
+  // private lists cannot reach it.
+  test.each<[string, AddressClass]>([
+    ["169.254.169.254", "metadata"],
+    ["169.254.170.2", "metadata"],
+    ["169.254.170.23", "metadata"],
+    ["100.100.100.200", "metadata"],
+    ["fd00:ec2::254", "metadata"],
+    ["fd00:ec2::23", "metadata"],
+    ["fd00:ec2::253", "metadata"],
+    ["FD00:EC2::254", "metadata"],
+    ["fd00:0ec2:0:0:0:0:0:254", "metadata"],
+    ["fd00:ec2::254%eth0", "metadata"],
+    ["fd00:ec2::254%25en0", "metadata"],
+    ["::ffff:100.100.100.200", "metadata"],
+    ["::ffff:6464:64c8", "metadata"],
+    ["64:ff9b::100.100.100.200", "metadata"],
+    ["64:ff9b::6464:64c8", "metadata"],
+    ["::ffff:169.254.170.2", "metadata"],
+    ["64:ff9b::a9fe:aa17", "metadata"],
+    // Their neighbours keep the class they had.
+    ["100.100.100.201", "private"],
+    ["169.254.170.3", "link_local"],
+    ["fd00:ec3::254", "private"],
+    ["fd01:ec2::254", "private"],
+    ["::ffff:100.100.100.201", "private"],
+  ])("%s is %s", (address, expected) => {
+    expect(classifyAddress(address)).toBe(expected);
+  });
+
   test("text that is not an address at all is null", () => {
     for (const text of [
       "example.com",
@@ -85,6 +119,8 @@ describe("classifyAddress", () => {
       "1::2::3",
       "1:2:3:4:5:6:7",
       "12345::1",
+      // A trailing dot is a name, never the address it looks like.
+      "100.100.100.200.",
     ]) {
       expect(classifyAddress(text), text).toBeNull();
     }
@@ -119,7 +155,29 @@ describe("isPrivateAddress", () => {
     ["64:ff9b::a00:1", false],
     ["2002:a00:1::1", false],
     ["::10.0.0.1", false],
+    // Metadata sits inside private ranges and is never taken as private.
+    ["100.100.100.200", false],
+    ["fd00:ec2::254", false],
+    ["fd00:ec2::254%eth0", false],
+    ["fd00:ec3::254", true],
   ])("%s is %p", (address, expected) => {
     expect(isPrivateAddress(address)).toBe(expected);
+  });
+});
+
+describe("isMetadataName", () => {
+  test.each<[string, boolean]>([
+    ["metadata", true],
+    ["metadata.google.internal", true],
+    ["instance-data.ec2.internal", true],
+    ["METADATA.Google.Internal", true],
+    ["metadata.google.internal.", true],
+    ["metadata.", true],
+    ["metadata.google.internal.evil.test", false],
+    ["my-metadata", false],
+    ["metadata.example.com", false],
+    ["api.example.com", false],
+  ])("%s is %p", (host, expected) => {
+    expect(isMetadataName(host)).toBe(expected);
   });
 });

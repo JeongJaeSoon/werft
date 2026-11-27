@@ -147,6 +147,20 @@ describe("provider request", () => {
       ],
     ],
     ["text that is not an address", [{ address: "bogus", family: 4 }]],
+    ["an ECS credentials address", [{ address: "169.254.170.2", family: 4 }]],
+    [
+      "a metadata address that would be carrier-grade NAT",
+      [{ address: "100.100.100.200", family: 4 }],
+    ],
+    [
+      "a metadata address inside fc00::/7",
+      [{ address: "fd00:ec2::254", family: 6 }],
+    ],
+    [
+      "a metadata address with a zone id",
+      [{ address: "fd00:ec2::254%eth0", family: 6 }],
+    ],
+    ["metadata through NAT64", [{ address: "64:ff9b::a9fe:a9fe", family: 6 }]],
     // Some resolvers read a leading zero as octal; this one was taken as
     // private 10.0.0.1 before the classes were shared with the egress proxy.
     ["a leading-zero IPv4 address", [{ address: "010.0.0.1", family: 4 }]],
@@ -182,6 +196,52 @@ describe("provider request", () => {
       const { request, sent } = narrow("10.20.30.40");
       await request("http://mcp.lan:8080/mcp", {}, NARROW);
       expect(sent[0]?.url).toBe("http://10.20.30.40:8080/mcp");
+    });
+
+    test("the private list does not lift the metadata refusal", async () => {
+      for (const [address, family] of [
+        ["100.100.100.200", 4],
+        ["fd00:ec2::254", 6],
+        ["::ffff:100.100.100.200", 6],
+        ["64:ff9b::6464:64c8", 6],
+      ] as const) {
+        const { request, sent } = harness({
+          "mcp.lan": [{ address, family }],
+        });
+        expect(
+          await refusal(request("http://mcp.lan:8080/mcp", {}, NARROW)),
+          address,
+        ).toBe("address_not_allowed");
+        expect(sent).toHaveLength(0);
+      }
+    });
+
+    test("a metadata name is refused before it is looked up, on the private list too", async () => {
+      const policy: NetworkPolicy = {
+        plainHttp: "refuse",
+        privateHosts: ["metadata.google.internal:80", "metadata:80"],
+      };
+      for (const url of [
+        "http://metadata.google.internal/computeMetadata/v1/",
+        "http://METADATA.google.internal./computeMetadata/v1/",
+        "http://metadata/latest/meta-data/",
+        "https://instance-data.ec2.internal/latest/meta-data/",
+      ]) {
+        const asked: string[] = [];
+        const request = createProviderRequest({
+          lookup: async (host) => {
+            asked.push(host);
+            return [{ address: "10.0.0.5", family: 4 }];
+          },
+          fetch: (async () => {
+            throw new Error("nothing may be sent");
+          }) as unknown as typeof fetch,
+        });
+        expect(await refusal(request(url, {}, policy)), url).toBe(
+          "address_not_allowed",
+        );
+        expect(asked, url).toEqual([]);
+      }
     });
 
     test("the private list does not lift the link-local refusal", async () => {

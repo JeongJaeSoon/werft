@@ -251,6 +251,15 @@ describe("billing", () => {
       "http://[64:ff9b::a00:1]:4000",
       "http://[2002:a00:1::1]:4000",
       "http://[fec0::1]:4000",
+      // A metadata service is never the operator's own model server.
+      "http://100.100.100.200:4000",
+      "http://169.254.169.254",
+      "http://[fd00:ec2::254]",
+      "http://[::ffff:100.100.100.200]",
+      "http://metadata.google.internal",
+      "http://metadata.google.internal.",
+      "http://metadata",
+      "http://instance-data.ec2.internal",
     ]) {
       expect(billingFitsEndpoint({ billing: "none", endpoint }), endpoint).toBe(
         false,

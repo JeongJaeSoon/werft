@@ -9,7 +9,11 @@
  * name again.
  */
 
-import { type AddressClass, classifyAddress } from "./ip-address.ts";
+import {
+  type AddressClass,
+  classifyAddress,
+  isMetadataName,
+} from "./ip-address.ts";
 import { messageOf } from "./message-of.ts";
 
 export { type AddressClass, classifyAddress };
@@ -17,6 +21,7 @@ export { type AddressClass, classifyAddress };
 /** Never reachable, whichever list the destination came from. */
 const ALWAYS_DENIED: ReadonlySet<AddressClass> = new Set<AddressClass>([
   "link_local",
+  "metadata",
   "multicast",
   "reserved",
   "unspecified",
@@ -30,7 +35,7 @@ export type EgressPolicy = {
   /**
    * Destinations deliberately inside the private plane — the worker gateway
    * on the daemon host, a self-hosted git remote. Private and loopback
-   * addresses pass here; link-local never does.
+   * addresses pass here; link-local and metadata never do.
    */
   allowPrivate: readonly EgressDestination[];
 };
@@ -112,6 +117,13 @@ export async function decideEgress(
       allowed: false,
       failure: "denied",
       reason: "destination is not allowlisted",
+    };
+  }
+  if (isMetadataName(host)) {
+    return {
+      allowed: false,
+      failure: "denied",
+      reason: `${host} is a metadata service`,
     };
   }
   let addresses: string[];

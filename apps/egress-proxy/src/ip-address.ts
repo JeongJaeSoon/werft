@@ -2,7 +2,8 @@
  * What an IP address is, for every caller that decides whether to reach it:
  * the egress proxy, the control plane's provider requests, and the catalog's
  * private-endpoint check. Where a spelling is ambiguous the answer is the one
- * that refuses more.
+ * that refuses more. A caller that does not refuse a class by name must not
+ * read it as reachable: `metadata` is neither private nor public.
  *
  * No imports, so the egress proxy, whose image installs nothing, runs the
  * same rules: apps/egress-proxy/src/ip-address.ts is a byte-for-byte copy,
@@ -12,6 +13,7 @@
 export type AddressClass =
   | "link_local"
   | "loopback"
+  | "metadata"
   | "multicast"
   | "private"
   | "public"
@@ -27,10 +29,23 @@ export function classifyAddress(address: string): AddressClass | null {
   return classifyIpv6(v6);
 }
 
+// Names cloud providers give their instance metadata service. Compared after
+// lowercasing and dropping a trailing dot, before the name is resolved.
+const METADATA_NAMES = new Set([
+  "metadata",
+  "metadata.google.internal",
+  "instance-data.ec2.internal",
+]);
+
+export function isMetadataName(host: string): boolean {
+  return METADATA_NAMES.has(host.toLowerCase().replace(/\.$/, ""));
+}
+
 /**
  * Only the operator's own network reaches it, written as itself: IPv4
  * private or loopback, IPv6 `::1` or fc00::/7. An IPv4 address carried
- * inside IPv6 (`::ffff:10.0.0.1`, NAT64) is not, nor is link-local.
+ * inside IPv6 (`::ffff:10.0.0.1`, NAT64) is not, nor is link-local or a
+ * metadata service.
  */
 export function isPrivateAddress(address: string): boolean {
   const v4 = parseIpv4(address);
@@ -41,7 +56,8 @@ export function isPrivateAddress(address: string): boolean {
   const v6 = parseIpv6(address);
   if (v6 === null) return false;
   const loopback = v6.slice(0, 15).every((byte) => byte === 0) && v6[15] === 1;
-  return loopback || ((v6[0] ?? 0) & 0xfe) === 0xfc;
+  if (loopback) return true;
+  return ((v6[0] ?? 0) & 0xfe) === 0xfc && classifyIpv6(v6) !== "metadata";
 }
 
 /** Rejects leading zeros, which some resolvers read as octal. */
@@ -109,7 +125,15 @@ function bytesOf(groups: number[]): number[] {
 }
 
 function classifyIpv4(octets: number[]): AddressClass {
-  const [a = 0, b = 0, c = 0] = octets;
+  const [a = 0, b = 0, c = 0, d = 0] = octets;
+  // Instance metadata hands out the node's cloud credentials: AWS and GCP at
+  // 169.254.169.254, ECS task credentials at 169.254.170.2 and .23, Alibaba
+  // at 100.100.100.200, which would otherwise be carrier-grade NAT.
+  if (a === 169 && b === 254 && c === 169 && d === 254) return "metadata";
+  if (a === 169 && b === 254 && c === 170 && (d === 2 || d === 23)) {
+    return "metadata";
+  }
+  if (a === 100 && b === 100 && c === 100 && d === 200) return "metadata";
   if (a === 0) return "unspecified";
   if (a === 127) return "loopback";
   if (a === 10) return "private";
@@ -144,6 +168,11 @@ function classifyIpv6(bytes: number[]): AddressClass {
     at(3) === 0x9b &&
     bytes.slice(4, 12).every((byte) => byte === 0);
   if (mapped || nat64) return classifyIpv4(bytes.slice(12));
+  // fd00:ec2::/32 is AWS's IPv6 metadata, DNS and time service, inside
+  // fc00::/7 where it would read as private.
+  if (at(0) === 0xfd && at(1) === 0x00 && at(2) === 0x0e && at(3) === 0xc2) {
+    return "metadata";
+  }
   if (at(0) === 0xff) return "multicast";
   if (at(0) === 0xfe && (at(1) & 0xc0) === 0x80) return "link_local";
   if ((at(0) & 0xfe) === 0xfc) return "private";

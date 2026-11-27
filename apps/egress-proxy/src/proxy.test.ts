@@ -527,7 +527,7 @@ describe("egress proxy", () => {
       expect(talk.isClosed()).toBe(false);
       // A destination the policy refuses is refused on a kept connection too.
       talk.send(kept("GET http://metadata.test/latest/meta-data/ HTTP/1.1"));
-      expect(await talk.waitFor("403")).toContain("link_local");
+      expect(await talk.waitFor("403")).toContain("metadata");
       expect(await waitFor(() => talk.isClosed(), 2_000)).toBe(true);
     });
 
@@ -1033,10 +1033,10 @@ describe("egress proxy", () => {
     }
   });
 
-  test("link-local is refused even though the host is allowlisted", async () => {
+  test("metadata is refused even though the host is allowlisted", async () => {
     const talk = await connect(proxy.port);
     talk.send(request("GET http://metadata.test/latest/meta-data/ HTTP/1.1"));
-    expect(await talk.waitFor("403")).toContain("link_local");
+    expect(await talk.waitFor("403")).toContain("169.254.169.254 is metadata");
     talk.close();
   });
 

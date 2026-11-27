@@ -10,6 +10,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { egressProxyConfigFromEnv } from "./config.ts";
 import {
   type Authorized,
   bodyReservation,
@@ -3846,6 +3847,36 @@ describe("startCredentialProxy", () => {
     });
     const response = await messages(server.port);
     expect(response.status).toBe(403);
+    expect(up.seen).toEqual([]);
+  });
+
+  test("an upstream on EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST that resolves to metadata gets no login", async () => {
+    const up = upstream(() => Response.json({ id: "msg_1" }));
+    const auth = authorizer(
+      granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    // The policy the proxy builds from its environment today.
+    const { credential } = egressProxyConfigFromEnv({
+      EGRESS_ALLOWLIST: "api.anthropic.com:443",
+      EGRESS_AUTHORIZER_URL: "http://api:3100",
+      EGRESS_AUTHORIZER_TOKEN: "a".repeat(32),
+      EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: `upstream.test:${up.port}`,
+    });
+    if (credential === null) throw new Error("no credential config");
+    for (const address of [
+      "100.100.100.200",
+      "fd00:ec2::254",
+      "::ffff:100.100.100.200",
+      "64:ff9b::a9fe:a9fe",
+    ]) {
+      const server = proxy(auth.url, up.port, {
+        policy: { allow: [], allowPrivate: credential.allowPrivate },
+        resolve: async () => [address],
+      });
+      expect((await messages(server.port)).status, address).toBe(403);
+    }
     expect(up.seen).toEqual([]);
   });
 
