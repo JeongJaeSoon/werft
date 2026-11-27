@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  changeTargets,
   sandboxAnswersChange,
   sandboxAnswersCommand,
   scriptOf,
@@ -26,8 +27,7 @@ describe("the script inside the engine's spelling", () => {
     ["/bin/zsh -lc 'it'\\''s'", "it's"],
     // No shell around it: the argv is the line.
     ["git status", "git status"],
-    ["bash script.sh", "bash script.sh"],
-    ["/bin/zsh -lic 'x'", "/bin/zsh -lic 'x'"],
+    ["make -C notes build", "make -C notes build"],
   ])("%s", (command, script) => {
     expect(scriptOf(command)).toBe(script);
   });
@@ -40,7 +40,16 @@ describe("the script inside the engine's spelling", () => {
     "/bin/zsh -lc x; id",
     "git status | cat",
     "echo $HOME",
-  ])("more than words is not read: %s", (command) => {
+    "git sta\\\ntus",
+    '/bin/zsh -lc "git sta\\\ntus"',
+    // A shell started in a form whose script is not certain.
+    "bash script.sh",
+    "/bin/zsh -lic 'x'",
+    "bash --login -c 'x'",
+    "bash -c 'git status' name",
+    "/usr/bin/env bash -c 'git status'",
+    "sudo touch a.txt",
+  ])("what does not read back as one script is not read: %s", (command) => {
     expect(scriptOf(command)).toBeUndefined();
   });
 });
@@ -75,6 +84,8 @@ describe("what the run answers itself", () => {
     ["the repository's own directory", "echo x > .git/config"],
     ["a path outside", "echo x > ../out.txt"],
     ["an absolute path outside", "cp notes/a.txt /tmp/a.txt"],
+    ["an ask rule inside a wrapper", "command git add -f notes/a.txt"],
+    ["a move of the shell to a kept place", "cd .git && echo x > config"],
   ])("kept for a person: %s", (_name, script) => {
     expect(command(script)).toBe(false);
   });
@@ -93,15 +104,61 @@ describe("what the run answers itself", () => {
   });
 
   test("a file change is answered for paths inside, with no wider grant", () => {
-    const change = (paths: string[], grantRoot?: unknown) =>
-      sandboxAnswersChange(paths, grantRoot, workspace);
-    expect(change(["notes/a.txt", join(workspace, "b.txt")])).toBe(true);
-    expect(change(["notes/a.txt"], null)).toBe(true);
+    const add = (path: string) => ({ path, kind: "add", diff: "+x" });
+    const change = (changes: unknown, grantRoot?: unknown) =>
+      sandboxAnswersChange(changes, grantRoot, workspace);
+    expect(change([add("notes/a.txt"), add(join(workspace, "b.txt"))])).toBe(
+      true,
+    );
+    expect(change([add("notes/a.txt")], null)).toBe(true);
+    expect(change([{ path: "notes/a.txt", kind: { type: "delete" } }])).toBe(
+      true,
+    );
     expect(change([])).toBe(false);
-    expect(change(["notes/a.txt"], workspace)).toBe(false);
-    expect(change(["notes/a.txt", "../out.txt"])).toBe(false);
-    expect(change([".env"])).toBe(false);
-    expect(change([".git/hooks/pre-commit"])).toBe(false);
-    expect(change([join(root, "out.txt")])).toBe(false);
+    expect(change(undefined)).toBe(false);
+    expect(change([add("notes/a.txt")], workspace)).toBe(false);
+    expect(change([add("notes/a.txt"), add("../out.txt")])).toBe(false);
+    for (const kept of [
+      ".env",
+      ".git/hooks/pre-commit",
+      join(root, "out.txt"),
+    ]) {
+      expect(change([add(kept)])).toBe(false);
+    }
+  });
+
+  test("a move is judged by where it goes as well", () => {
+    const move = (to: unknown, key = "move_path") => [
+      { path: "notes/a.txt", kind: { type: "update", [key]: to }, diff: "" },
+    ];
+    expect(changeTargets(move("notes/b.txt"))).toEqual([
+      "notes/a.txt",
+      "notes/b.txt",
+    ]);
+    expect(changeTargets(move(null))).toEqual(["notes/a.txt"]);
+    expect(sandboxAnswersChange(move("notes/b.txt"), null, workspace)).toBe(
+      true,
+    );
+    for (const to of [".env", "../out.txt", join(root, "out.txt")]) {
+      expect(sandboxAnswersChange(move(to), null, workspace)).toBe(false);
+      expect(sandboxAnswersChange(move(to, "movePath"), null, workspace)).toBe(
+        false,
+      );
+    }
+  });
+
+  test("a change record in a shape this does not know is not answered", () => {
+    for (const changes of [
+      [{ kind: "add", diff: "+x" }],
+      [{ path: "notes/a.txt" }],
+      [{ path: "notes/a.txt", kind: "rename" }],
+      [{ path: "notes/a.txt", kind: { type: "update", to: "notes/b.txt" } }],
+      [{ path: "notes/a.txt", kind: { type: "update", move_path: 7 } }],
+      [{ path: "notes/a.txt", kind: "add" }, "junk"],
+      "notes/a.txt",
+    ]) {
+      expect(changeTargets(changes)).toBeUndefined();
+      expect(sandboxAnswersChange(changes, null, workspace)).toBe(false);
+    }
   });
 });

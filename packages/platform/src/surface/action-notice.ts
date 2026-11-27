@@ -82,7 +82,7 @@ const PUSH_WHY: Record<UserLocale, Record<ExplainedPushReason, string>> = {
     non_fast_forward:
       "원격 브랜치가 앞서 있어서 덮어쓰지 않았어요. 에이전트에게 원격 변경을 받아 온 뒤 다시 push해 달라고 요청하세요.",
     repository_not_allowed:
-      "이 에이전트에 허용되지 않은 저장소예요. 에이전트 관리자에게 에이전트 GitHub 설정에서 저장소를 더해 달라고 요청하세요.",
+      "이 에이전트는 이 저장소에 push할 수 없어요. 에이전트 관리자에게 에이전트 GitHub 설정에서 저장소와 push 허용을 확인해 달라고 요청하세요.",
   },
   ja: {
     workflows_off:
@@ -96,7 +96,7 @@ const PUSH_WHY: Record<UserLocale, Record<ExplainedPushReason, string>> = {
     non_fast_forward:
       "リモートブランチが先に進んでいるため、上書きしませんでした。エージェントに、リモートの変更を取り込んでからもう一度pushするよう依頼してください。",
     repository_not_allowed:
-      "このエージェントには許可されていないリポジトリです。エージェントの管理者に、エージェントのGitHub設定でリポジトリを追加するよう依頼してください。",
+      "このエージェントはこのリポジトリにpushできません。エージェントの管理者に、エージェントのGitHub設定でリポジトリとpushの許可を確認するよう依頼してください。",
   },
   en: {
     workflows_off:
@@ -110,7 +110,7 @@ const PUSH_WHY: Record<UserLocale, Record<ExplainedPushReason, string>> = {
     non_fast_forward:
       "The remote branch is ahead, so it was not overwritten. Ask the agent to bring in the remote changes and push again.",
     repository_not_allowed:
-      "This agent is not allowed to work on this repository. Ask a person who manages the agent to add it in the agent's GitHub settings.",
+      "This agent cannot push to this repository. Ask a person who manages the agent to check the repository and its push setting in the agent's GitHub settings.",
   },
 };
 

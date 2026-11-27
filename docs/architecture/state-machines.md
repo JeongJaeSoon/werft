@@ -35,7 +35,7 @@
 - 질문 요청: 에이전트가 사람에게 묻는 질문.
 - 권한 요청: 엔진이 도구 호출을 사람에게 물었고 어댑터가 그 물음에 스스로 답하지 않은 경우.
 
-어댑터는 엔진이 물은 shell 명령과 파일 쓰기를 작업 공간 정책으로 다시 읽고, 정책이 사람에게 남기지 않은 호출에는 스스로 답한다(감사 근거 `sandbox_boundary`). 그런 호출은 요청이 되지 않으므로 위 전이를 일으키지 않는다. 사람에게 남는 권한 요청은 다음과 같다.
+어댑터는 엔진이 물은 shell 명령과 파일 쓰기를 작업 공간 정책으로 다시 읽고, 정책이 사람에게 남긴 것이 줄의 글자에 보이지 않으면 스스로 답한다(감사 근거 `sandbox_boundary`). 그런 호출은 요청이 되지 않으므로 위 전이를 일으키지 않는다. 판정은 글자로 하므로 변수·치환이 만드는 경로와 스크립트 안의 동작은 보지 못한다. 사람에게 남는 권한 요청은 다음과 같다.
 
 | 사람에게 남는 것 | 판정하는 곳 |
 | --- | --- |
@@ -43,14 +43,16 @@
 | 비밀 이름, `.git`, `.claude` 경로에 쓰기 | 같음, 파일 도구는 `writeKeptForPerson` |
 | 작업 공간 밖 경로 | 같음 |
 | Claude 엔진 auto 모드에서 확실히 나뉘지 않는 줄, 목록 밖 명령, 파일 도구 | `askedLineRefusal`(분류기가 뒤에 있어 좁게 읽는다) |
-| plan 모드, MCP 도구, release가 Bash나 파일 도구를 deny 규칙으로 좁힌 세션 | Claude 어댑터의 `canUseTool` |
+| 엔진이 물은 MCP 도구(서버가 판정하는 도구 제외), plan 모드에서 엔진이 물은 호출, release가 Bash나 파일 도구를 deny 규칙으로 좁힌 세션, shell의 위치를 모르는 호출 | Claude 어댑터의 `canUseTool` |
+| 읽어 낼 수 없는 명령 꼴(알 수 없는 shell 시작 꼴), 모르는 모양의 파일 변경 기록, 더 넓은 `grantRoot` | Codex 어댑터의 `sandbox-answers.ts` |
 
 - 서버가 판정하는 push 관문(push 요청의 allow·ask·deny)과 토큰 범위는 이 절의 대상이 아니고 바뀌지 않는다.
 
 지킬 성질:
 
 - 권한 요청이 줄어도 질문 요청의 기다림, park, 이어 하기는 그대로 동작한다.
-- 어댑터가 스스로 답한 호출은 요청을 만들지 않고, 감사에는 `sandbox_boundary`로 남는다.
+- 어댑터가 스스로 답한 호출은 요청을 만들지 않고, 감사에는 `sandbox_boundary`로 남는다(Claude는 도구가 실행된 뒤, Codex는 답할 때 보고한다).
+- park는 이미 도착해 처리 중인 답이 있으면 열리지 않는다. 답 없이 모두 만료된 park는 사람의 resume이 있어야 이어진다.
 
 시험: `packages/db/src/parked-requests.integration.test.ts`의 `a parked question waits like a permission, and its answer resumes the park`, `packages/adapters/runtimes/claude/src/sandbox-answers.test.ts`의 `a line the policy does not keep runs without a person, recorded as the sandbox's`와 `… still goes to a person` 표, `packages/adapters/runtimes/codex/src/run.test.ts`의 `work inside the session's sandbox` 묶음, `packages/runtime-core/src/asked-line.test.ts`.
 

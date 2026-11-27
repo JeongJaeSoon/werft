@@ -121,7 +121,7 @@ export const PUSH_REFUSAL_ERRORS: Record<
   repository_not_allowed: {
     code: "FORBIDDEN",
     message:
-      "The session's release does not let it work on this repository. A person who manages the agent can add it in the agent's GitHub settings; tell the requester",
+      "The session's release does not let it push to this repository: it is not listed, or pushes to it are set to deny. A person who manages the agent can change that in the agent's GitHub settings; tell the requester",
   },
   attribution_mismatch: {
     code: "FORBIDDEN",

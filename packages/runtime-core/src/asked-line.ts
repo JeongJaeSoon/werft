@@ -27,7 +27,6 @@ import { WORKSPACE_POLICY } from "./workspace-policy.ts";
  * engine's word.
  */
 const policy = WORKSPACE_POLICY;
-const ASK_PATTERNS = workspaceAskPatterns();
 
 /**
  * Readers the Claude engine runs unasked on its own, so no allow rule names
@@ -203,17 +202,41 @@ export function partsOf(command: string): Part[] | string {
 const globOf = (pattern: string, any: string) =>
   pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, any);
 
-const compiled = new WeakMap<readonly string[], RegExp[]>();
-/** The engines' rule syntax: `*` is any run of characters. */
-function asked(patterns: readonly string[], text: string): boolean {
-  let rules = compiled.get(patterns);
-  if (rules === undefined) {
-    rules = patterns.map(
-      (pattern) => new RegExp(`^${globOf(pattern, "[\\s\\S]*")}$`),
-    );
-    compiled.set(patterns, rules);
+/** The ask rules by the command each starts with; `*` is any run of characters. */
+const ASK_RULES = new Map<string, RegExp[]>();
+const ASK_RULES_ANY_COMMAND: RegExp[] = [];
+for (const pattern of workspaceAskPatterns()) {
+  const [head = ""] = pattern.split(" ");
+  const rule = new RegExp(`^${globOf(pattern, "[\\s\\S]*")}$`);
+  const rules = head.includes("*")
+    ? ASK_RULES_ANY_COMMAND
+    : ASK_RULES.get(head);
+  if (rules === undefined) ASK_RULES.set(head, [rule]);
+  else rules.push(rule);
+}
+
+function asked(text: string): boolean {
+  const [head = ""] = text.split(" ", 1);
+  return (
+    (ASK_RULES.get(head)?.some((rule) => rule.test(text)) ?? false) ||
+    ASK_RULES_ANY_COMMAND.some((rule) => rule.test(text))
+  );
+}
+
+/**
+ * Whether an ask rule names the command these words run. The rules are
+ * written for a command at the start of its text, and the engine takes a
+ * wrapper off before it tries them (`env X=1 cmd`, `xargs cmd`, `command cmd`,
+ * `X=1 cmd`), so here they are tried from every word a command may start at.
+ * What `echo` prints is text.
+ */
+function namesAsked(words: readonly string[], tail = ""): boolean {
+  const starts = PRINTERS.includes(words[0] ?? "") ? 1 : words.length;
+  for (let i = 0; i < Math.max(starts, 1); i += 1) {
+    if (i > 0 && /\s/.test(words[i] as string)) continue;
+    if (asked(words.slice(i).join(" ") + tail)) return true;
   }
-  return rules.some((rule) => rule.test(text));
+  return false;
 }
 
 const SENSITIVE = policy.sensitiveEditPaths.map((pattern) => {
@@ -254,13 +277,16 @@ function placeOf(at: LinePlace): Place | string {
 const inside = (root: string, path: string) =>
   path === root || path.startsWith(root + sep);
 
+/** A path as the workspace names it: as it is spelled, and where links lead it. */
+type Located = { spelled: string; real: string };
+
 /**
- * The path as the workspace names it, or undefined when it leaves: by its
+ * The path inside the workspace, or undefined when it leaves: by its
  * spelling, or by a link on the way, as the Claude engine judges one. A
  * `..` is refused outright: after a link it climbs from where the link
  * leads, not from where it is written.
  */
-function locate(place: Place, path: string): string | undefined {
+function locate(place: Place, path: string): Located | undefined {
   if (path.startsWith("~") || path.split("/").includes("..")) return undefined;
   const full = resolve(place.base, path);
   if (!inside(place.root, full)) return undefined;
@@ -274,25 +300,39 @@ function locate(place: Place, path: string): string | undefined {
       at = dirname(at);
     }
   }
+  let real: string;
   try {
-    if (!inside(place.root, realpathSync(at))) return undefined;
+    real = realpathSync(at);
   } catch {
     return undefined;
   }
-  return relative(place.root, full).split(sep).join("/");
+  if (!inside(place.root, real)) return undefined;
+  const named = (target: string) =>
+    relative(place.root, target).split(sep).join("/");
+  return {
+    spelled: named(full),
+    real: named(resolve(real, relative(at, full))),
+  };
 }
 
+/** A secret, `.git` or engine-settings path, by its name or through a link to one. */
+const sensitive = (located: Located) =>
+  SENSITIVE.some(
+    (rule) => rule.test(located.spelled) || rule.test(located.real),
+  );
+
 /**
- * Whether a word of a command whose operands are not known to be paths
- * plainly names a place outside the workspace: a home, a climb, a link that
- * leads out, or an absolute path under a directory that exists. `/re/` in an
- * awk or sed script is a pattern: nothing of it exists.
+ * Whether a word plainly names a place outside the workspace: a home, a
+ * climb, a link that leads out, or an absolute path whose first name exists.
+ * `/re/` in an awk or sed script is a pattern: nothing is called that.
  */
 function plainlyOutside(place: Place, word: string): boolean {
   if (word === "/dev/null" || locate(place, word) !== undefined) return false;
   if (!word.startsWith("/")) return true;
   try {
-    lstatSync(`/${word.split("/")[1]}`);
+    const first = word.split("/").find((name) => name !== "" && name !== ".");
+    // No name at all is the root itself.
+    if (first !== undefined) lstatSync(`/${first}`);
     return true;
   } catch {
     return false;
@@ -305,6 +345,27 @@ function pathsIn(word: string): string[] {
   if (word.startsWith("--")) return value;
   // `-f/etc/hosts` carries a path inside the option.
   return word.startsWith("-") ? [...value, word.slice(2)] : [...value, word];
+}
+
+/**
+ * Why a word given to a command that may do anything with it goes to a
+ * person: it plainly leaves the workspace, or (when the command may write)
+ * it names a secret, `.git` or engine-settings path.
+ */
+function wordKept(
+  place: Place,
+  word: string,
+  mayWrite: boolean,
+): string | null {
+  for (const path of pathsIn(word)) {
+    if (path === "") continue;
+    if (plainlyOutside(place, path)) return "a path outside the workspace";
+    const located = mayWrite ? locate(place, path) : undefined;
+    if (located !== undefined && sensitive(located)) {
+      return "a path that goes to a person";
+    }
+  }
+  return null;
 }
 
 function dotNamed(segments: string[]): boolean {
@@ -320,11 +381,10 @@ function dotNamed(segments: string[]): boolean {
 function writeKept(place: Place, path: string, narrow: boolean): string | null {
   const located = locate(place, path);
   if (located === undefined) return "a path outside the workspace";
-  if (located === "") return "a write to the workspace itself";
-  if (
-    SENSITIVE.some((rule) => rule.test(located)) ||
-    (narrow && dotNamed(located.split("/")))
-  ) {
+  if (located.spelled === "" || located.real === "") {
+    return "a write to the workspace itself";
+  }
+  if (sensitive(located) || (narrow && dotNamed(located.spelled.split("/")))) {
     return "a written path that goes to a person";
   }
   return null;
@@ -333,7 +393,15 @@ function writeKept(place: Place, path: string, narrow: boolean): string | null {
 const startsWith = (words: string[], command: string[]) =>
   command.every((token, index) => words[index] === token);
 
-function partKept(part: Part, place: Place, narrow: boolean): string | null {
+/** A word quoted this deep is not read further. */
+const NESTED_SCRIPTS = 3;
+
+function partKept(
+  part: Part,
+  place: Place,
+  narrow: boolean,
+  depth = 0,
+): string | null {
   const name = part.words[0];
   if (narrow) {
     if (name === undefined) return "a redirect without a command";
@@ -346,10 +414,7 @@ function partKept(part: Part, place: Place, narrow: boolean): string | null {
     redirect === undefined ? "" : ` ${redirect.op} ${redirect.target}`;
   // The rules were written for the line as typed; a quote taken off must not
   // hide a shape one of them names, nor a quote put on.
-  if (
-    asked(ASK_PATTERNS, part.words.join(" ") + tail) ||
-    asked(ASK_PATTERNS, part.written.join(" ") + tail)
-  ) {
+  if (namesAsked(part.words, tail) || namesAsked(part.written, tail)) {
     return "a part an ask rule names";
   }
   // `> /dev/null` writes nothing.
@@ -357,80 +422,206 @@ function partKept(part: Part, place: Place, narrow: boolean): string | null {
     const kept = writeKept(place, redirect.target, narrow);
     if (kept !== null) return kept;
   }
-  if (name === undefined) return null;
-  if (REF_COMMANDS.includes(name) || PRINTERS.includes(name)) return null;
+  if (name === undefined || PRINTERS.includes(name)) return null;
   const writes = policy.fs.allow.includes(name);
-  // The wide reading knows the operands of these alone to be paths; in any
-  // other command it keeps a word only when it plainly leaves the workspace.
-  const pathed = narrow || writes || READERS.includes(name);
+  const refs = REF_COMMANDS.includes(name);
+  // The operands of these are known to be paths; any other command's word is
+  // kept only when it plainly names a kept place.
+  const pathed = !refs && (narrow || writes || READERS.includes(name));
   for (const word of part.words.slice(1)) {
     if (writes && !word.startsWith("-")) {
       const kept = writeKept(place, word, narrow);
       if (kept !== null) return kept;
-    } else if (
-      pathsIn(word).some(
-        (path) =>
-          path !== "" &&
-          (pathed
-            ? locate(place, path) === undefined
-            : plainlyOutside(place, path)),
-      )
-    ) {
-      return "a path outside the workspace";
+    } else if (pathed) {
+      if (
+        pathsIn(word).some(
+          (path) => path !== "" && locate(place, path) === undefined,
+        )
+      ) {
+        return "a path outside the workspace";
+      }
+    } else if (!/\s/.test(word)) {
+      // A ref (`origin/main`, `a..b`) is not a path the policy keeps.
+      const kept = wordKept(place, word, !refs && !READ_ONLY.includes(name));
+      if (kept !== null) return kept;
+    } else if (!refs) {
+      // A quoted word with blanks in it may be a script (`sh -c '…'`,
+      // `eval "…"`, `ssh host '…'`); a message given to git is not.
+      const kept =
+        depth >= NESTED_SCRIPTS
+          ? "a script quoted too deep to read"
+          : keptIn(word, place.root, [place.base], depth + 1);
+      if (kept !== null) return kept;
     }
   }
   return null;
 }
 
-/** The line without its heredoc bodies: file content, not words of a command. */
-function outsideHeredocs(command: string): string {
+const MOVERS = ["cd", "pushd", "popd", "chdir"];
+const MOVER_PREFIXES = ["command", "builtin"];
+
+/**
+ * Where a part moves the shell: the directories it may stand in afterwards,
+ * undefined when the part moves nothing, or why the line goes to a person.
+ */
+function movedTo(
+  words: readonly string[],
+  root: string,
+  bases: readonly string[],
+): string[] | string | undefined {
+  const at = words.findIndex((word) => !MOVER_PREFIXES.includes(word));
+  const name = words[at];
+  if (name === undefined || !MOVERS.includes(name)) return undefined;
+  const [to, ...more] = words.slice(at + 1);
+  if (
+    name !== "cd" ||
+    to === undefined ||
+    more.length > 0 ||
+    to.startsWith("-") ||
+    /[$`~*?]/.test(to)
+  ) {
+    return "a shell moved to a place the line does not say";
+  }
+  const next: string[] = [];
+  for (const base of bases) {
+    if (locate({ root, base }, to) === undefined) {
+      return "a path outside the workspace";
+    }
+    next.push(resolve(base, to));
+  }
+  return next;
+}
+
+/** Commands that only read what they are given: a kept name there is not a write. */
+const READ_ONLY = [
+  ...READERS,
+  "find",
+  "rg",
+  "du",
+  "stat",
+  "file",
+  "tree",
+  "diff",
+  "sort",
+  "uniq",
+  "test",
+  "[",
+  "cd",
+];
+
+const HEREDOC_START =
+  /^[\w./:=@+,%\- \t>|&;]*<<(-?)[ \t]*(['"]?)([A-Za-z_]\w*)\2[\w./:=@+,%\- \t>|&;]*$/;
+
+/**
+ * The line without the heredoc bodies that are data. A body is taken out
+ * only where the shell cannot read it otherwise: no line outside the bodies
+ * holds a quote, a backslash or a comment, every `<<` starts a heredoc in
+ * plain words, each body ends at its delimiter, and a body the shell expands
+ * (an unquoted delimiter) holds no command substitution. Anything else is
+ * read whole, bodies included.
+ */
+function withoutHeredocBodies(command: string): string {
   const kept: string[] = [];
-  let until: string | undefined;
-  for (const line of command.split("\n")) {
-    if (until !== undefined) {
-      if (line.trim() === until) until = undefined;
+  const lines = command.split("\n");
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] as string;
+    kept.push(line);
+    if (!line.includes("<<")) {
+      if (/['"\\#]/.test(line)) return command;
       continue;
     }
-    kept.push(line);
-    until = /<<-?[ \t]*["']?([A-Za-z_]\w*)/.exec(line)?.[1];
+    const start = HEREDOC_START.exec(line);
+    if (start === null) return command;
+    const [, dash, quote, delimiter] = start;
+    const ends = (candidate: string) =>
+      (dash === "-" ? candidate.replace(/^\t+/, "") : candidate) === delimiter;
+    const end = lines.findIndex((candidate, at) => at > i && ends(candidate));
+    if (end === -1) return command;
+    const body = lines.slice(i + 1, end).join("\n");
+    if (quote === "" && /\$\(|`/.test(body)) return command;
+    i = end;
   }
   return kept.join("\n");
 }
 
+/** The part of a word the shell does not compute, when that part alone can be judged. */
+function literalOf(word: string): string | undefined {
+  const cut = word.indexOf("$");
+  if (cut === -1) return word;
+  const literal = word.slice(0, cut);
+  return /^[/~]|(^|\/)\.\.(\/|$)/.test(literal) ? literal : undefined;
+}
+
 /**
  * A line that does not split: what the policy keeps for a person is looked
- * for in its text, and what cannot be seen passes. A heredoc body is text
- * here too, so one that quotes an asked shape asks.
+ * for in its text, and what cannot be seen passes. The text is cut at every
+ * separator, quoted or not, so a script inside a quote is read as well.
  */
-function unsplitKept(command: string, place: Place): string | null {
-  for (const piece of command.split(/&&|\|\||[;|&\n]/)) {
-    const text = piece.trim();
-    if (
-      asked(ASK_PATTERNS, text) ||
-      asked(ASK_PATTERNS, text.replace(/['"]/g, ""))
-    ) {
+function unsplitKept(
+  command: string,
+  root: string,
+  from: readonly string[],
+): string | null {
+  const text = withoutHeredocBodies(command);
+  let bases = [...from];
+  for (const piece of text.split(/&&|\|\||[;|&\n()`]/)) {
+    const written = piece
+      .trim()
+      .split(/\s+/)
+      .filter((word) => word !== "");
+    const words = written
+      .map((word) => word.replace(/['"\\]/g, ""))
+      .filter((word) => word !== "");
+    if (words.length === 0) continue;
+    if (namesAsked(words) || namesAsked(written)) {
       return "a part an ask rule names";
     }
-  }
-  for (const [, quoted] of command.matchAll(
-    />>?[ \t]*("[^"]*"|'[^']*'|[^\s;&|<>()]+)/g,
-  )) {
-    const target = (quoted as string).replace(/^["']|["']$/g, "");
-    // A target the shell computes cannot be seen.
-    if (target === "/dev/null" || /[$`]/.test(target)) continue;
-    const kept = writeKept(place, target, false);
-    if (kept !== null) return kept;
-  }
-  // A word that plainly leaves the workspace, whatever command it is given
-  // to. One the shell computes cannot be seen.
-  for (const token of outsideHeredocs(command).split(/[\s;|&()<>]+/)) {
-    const word = token.replace(/['"]/g, "");
-    if (/[$`\\]/.test(word)) continue;
-    if (
-      pathsIn(word).some((path) => path !== "" && plainlyOutside(place, path))
-    ) {
-      return "a path outside the workspace";
+    const moved = movedTo(words, root, bases);
+    if (typeof moved === "string") return moved;
+    const mayWrite = !READ_ONLY.includes(words[0] as string);
+    for (const word of words) {
+      const literal = literalOf(word);
+      if (literal === undefined) continue;
+      for (const base of bases) {
+        const kept = wordKept({ root, base }, literal, mayWrite);
+        if (kept !== null) return kept;
+      }
     }
+    if (moved !== undefined) bases = [...bases, ...moved];
+  }
+  // Every base the line may have reached is tried for a redirect's target.
+  for (const [, quoted] of text.matchAll(
+    />>?\|?[ \t]*((?:"[^"]*"|'[^']*'|[^\s;&|<>()'"])+)/g,
+  )) {
+    const target = literalOf((quoted as string).replace(/['"\\]/g, ""));
+    if (target === undefined || target === "/dev/null") continue;
+    for (const base of bases) {
+      const kept = writeKept({ root, base }, target, false);
+      if (kept !== null) return kept;
+    }
+  }
+  return null;
+}
+
+/** The wide reading of a line whose shell may stand in any of `from`. */
+function keptIn(
+  command: string,
+  root: string,
+  from: readonly string[],
+  depth: number,
+): string | null {
+  const parts = partsOf(command);
+  if (typeof parts === "string") return unsplitKept(command, root, from);
+  let bases = [...from];
+  for (const part of parts) {
+    const moved = movedTo(part.words, root, bases);
+    if (typeof moved === "string") return moved;
+    for (const base of bases) {
+      const kept = partKept(part, { root, base }, false, depth);
+      if (kept !== null) return kept;
+    }
+    // A `cd` may not have run (`false && cd x`), so both places stay.
+    if (moved !== undefined) bases = [...bases, ...moved];
   }
   return null;
 }
@@ -441,14 +632,9 @@ function unsplitKept(command: string, place: Place): string | null {
  */
 export function keptForPerson(command: string, at: LinePlace): string | null {
   const place = placeOf(at);
-  if (typeof place === "string") return place;
-  const parts = partsOf(command);
-  if (typeof parts === "string") return unsplitKept(command, place);
-  for (const part of parts) {
-    const kept = partKept(part, place, false);
-    if (kept !== null) return kept;
-  }
-  return null;
+  return typeof place === "string"
+    ? place
+    : keptIn(command, place.root, [place.base], 0);
 }
 
 /**

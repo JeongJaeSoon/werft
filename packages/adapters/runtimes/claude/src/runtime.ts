@@ -40,6 +40,7 @@ import { TurnLedger } from "./turn-ledger.ts";
 const MIN_BUDGET_USD = 0.000001;
 
 const FILE_WRITE_TOOLS = ["Write", "Edit", "NotebookEdit"];
+const SHELLS_REMEMBERED = 1_000;
 
 const SETTINGS_SCHEMA =
   "https://json.schemastore.org/claude-code-settings.json";
@@ -243,7 +244,7 @@ export function buildSdkOptions(
   const answersAsks =
     "permissions" in settings &&
     !disallowed.some((rule) =>
-      /^(Bash|Write|Edit|NotebookEdit)(\(|$)/.test(rule),
+      /^(Bash|Write|Edit|MultiEdit|NotebookEdit)\s*(\(|$)/.test(rule.trim()),
     );
   /** Where the engine's shell stood when it took each Bash call. */
   const shellAt = new Map<string, string>();
@@ -461,6 +462,11 @@ export function buildSdkOptions(
                 return deny(admission.message, "hook_deny");
               if (answersAsks && toolName === "Bash") {
                 shellAt.set(input.tool_use_id, input.cwd);
+                // A call whose end the engine never reports is forgotten.
+                if (shellAt.size > SHELLS_REMEMBERED) {
+                  const [oldest] = shellAt.keys();
+                  if (oldest !== undefined) shellAt.delete(oldest);
+                }
               }
               // The one judgment this skips is the engine's permission
               // stage (a person's answer, the auto classifier). It comes

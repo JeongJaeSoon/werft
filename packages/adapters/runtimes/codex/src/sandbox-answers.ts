@@ -2,6 +2,8 @@ import { basename } from "node:path";
 import { keptForPerson, writeKeptForPerson } from "@werft-ai/runtime-core";
 
 const SHELLS = ["sh", "bash", "zsh"];
+/** Programs whose arguments start a shell or another program this cannot place. */
+const STARTS_A_SHELL = [...SHELLS, "dash", "ksh", "fish", "env", "sudo", "su"];
 const PLAIN = /[\w@%+=:,./-]/;
 const ESCAPED_IN_DOUBLE = ["$", "`", '"', "\\"];
 
@@ -27,6 +29,8 @@ function wordsOf(joined: string): string[] | undefined {
           return undefined;
         }
         const next = joined[i + 1];
+        // The shell takes a backslash and a newline out together.
+        if (inner === "\\" && next === "\n") return undefined;
         if (inner === "\\" && next !== undefined) {
           text += ESCAPED_IN_DOUBLE.includes(next) ? next : inner + next;
           i += 1;
@@ -35,6 +39,8 @@ function wordsOf(joined: string): string[] | undefined {
         }
       }
       word = (word ?? "") + text;
+    } else if (char === "\\" && joined[i + 1] === "\n") {
+      return undefined;
     } else if (char === "\\" && i + 1 < joined.length) {
       word = (word ?? "") + joined[i + 1];
       i += 1;
@@ -52,18 +58,21 @@ function wordsOf(joined: string): string[] | undefined {
  * The line a command request runs. The engine reports argv joined with shell
  * quoting, and a tool call's script arrives inside its own shell
  * (`/bin/zsh -lc '<script>'`); the ask patterns are written for the script.
- * Undefined when the request does not read back as words.
+ * Undefined when the request does not read back as words, or starts a shell
+ * in a form this does not know (`bash -c '<script>' name`, `env bash -c`,
+ * `bash --login -c`): which script runs there is not certain.
  */
 export function scriptOf(command: string): string | undefined {
   const words = wordsOf(command);
   if (words === undefined) return undefined;
-  const [shell, flag, script] = words;
+  const [first, flag, script] = words;
+  if (first === undefined) return undefined;
+  if (!STARTS_A_SHELL.includes(basename(first))) return command;
   return words.length === 3 &&
-    shell !== undefined &&
-    SHELLS.includes(basename(shell)) &&
+    SHELLS.includes(basename(first)) &&
     (flag === "-lc" || flag === "-c")
     ? script
-    : command;
+    : undefined;
 }
 
 /**
@@ -84,15 +93,53 @@ export function sandboxAnswersCommand(
   );
 }
 
-/** The same for a file change: every path it names, and no wider grant. */
+const CHANGE_KINDS = ["add", "update", "delete"];
+const MOVE_KEYS = ["move_path", "movePath"];
+
+/**
+ * Every path a file change touches, a move's destination included, or
+ * undefined when a record is not in a shape this knows: an answer is given
+ * only for a change read whole.
+ */
+export function changeTargets(changes: unknown): string[] | undefined {
+  if (!Array.isArray(changes) || changes.length === 0) return undefined;
+  const targets: string[] = [];
+  for (const change of changes) {
+    if (typeof change !== "object" || change === null) return undefined;
+    const { path, kind } = change as { path?: unknown; kind?: unknown };
+    if (typeof path !== "string" || path === "") return undefined;
+    targets.push(path);
+    if (typeof kind === "string") {
+      if (!CHANGE_KINDS.includes(kind)) return undefined;
+      continue;
+    }
+    if (typeof kind !== "object" || kind === null) return undefined;
+    for (const [key, value] of Object.entries(kind)) {
+      if (key === "type") {
+        if (typeof value !== "string" || !CHANGE_KINDS.includes(value)) {
+          return undefined;
+        }
+      } else if (MOVE_KEYS.includes(key)) {
+        if (typeof value === "string" && value !== "") targets.push(value);
+        else if (value !== null && value !== undefined) return undefined;
+      } else {
+        return undefined;
+      }
+    }
+  }
+  return targets;
+}
+
+/** The same for a file change: every path it touches, and no wider grant. */
 export function sandboxAnswersChange(
-  paths: readonly string[],
+  changes: unknown,
   grantRoot: unknown,
   workspace: string,
 ): boolean {
+  if (grantRoot !== undefined && grantRoot !== null) return false;
+  const targets = changeTargets(changes);
   return (
-    (grantRoot === undefined || grantRoot === null) &&
-    paths.length > 0 &&
-    paths.every((path) => writeKeptForPerson(path, workspace) === null)
+    targets?.every((path) => writeKeptForPerson(path, workspace) === null) ??
+    false
   );
 }

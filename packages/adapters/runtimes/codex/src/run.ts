@@ -1001,7 +1001,7 @@ export class CodexRun implements AgentRun {
       isCommand
         ? sandboxAnswersCommand(params, this.options.cwd)
         : sandboxAnswersChange(
-            changePaths(change as Item),
+            change?.changes,
             params.grantRoot,
             this.options.cwd,
           )

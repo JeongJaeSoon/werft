@@ -167,6 +167,22 @@ const steps: Step[] = [
   bash("ask_vehicle_tee_append", "echo beta | tee -a hello.txt", true),
   // The same command with a path that leaves the workspace stays a person's.
   bash("ask_tee_outside", "echo x | tee /tmp/werft-tee-out.txt", true),
+  // An asked command behind a wrapper, and a write after the shell moved
+  // into a kept place.
+  bash("ask_wrapped_forced_add", "command git add -f notes/sample.txt", true),
+  {
+    ...bash("ask_cd_then_write", "cd .git && echo x > moved-in.txt", true),
+    effect: fileExists((_, w) => join(w, ".git", "moved-in.txt")),
+  },
+  // So does one with a secret, `.git` or engine-settings path.
+  {
+    ...bash("ask_tee_secret", "echo KEY=1 | tee .env.local", true),
+    effect: fileExists((_, w) => join(w, ".env.local")),
+  },
+  {
+    ...bash("ask_tee_git_hook", "echo x | tee .git/hooks/post-commit", true),
+    effect: fileExists((_, w) => join(w, ".git", "hooks", "post-commit")),
+  },
   // Each of these would delete work that no object or reflog keeps, or leave
   // the repository, with the flag in a place a prefix match would miss.
   bash("git_checkout_discard", "git checkout -- notes/sample.txt", true),

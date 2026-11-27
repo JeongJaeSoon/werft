@@ -144,6 +144,12 @@ describe("the permission callback", () => {
       workspace,
     ],
     [
+      "a release whose deny rule is written with blanks",
+      TEE,
+      { disallowedTools: [" Bash (git push *) "] },
+      workspace,
+    ],
+    [
       "a release that denies a file tool",
       TEE,
       { disallowedTools: ["Write"] },

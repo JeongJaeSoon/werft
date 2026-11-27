@@ -20,9 +20,13 @@ const root = realpathSync(mkdtempSync(join(tmpdir(), "asked-line-")));
 const workspace = join(root, "workspace");
 mkdirSync(join(workspace, "notes"), { recursive: true });
 mkdirSync(join(root, "outside"));
+mkdirSync(join(workspace, ".claude"));
+mkdirSync(join(workspace, ".git"));
 writeFileSync(join(workspace, "notes", "sample.txt"), "sample\n");
 symlinkSync(join(root, "outside"), join(workspace, "link"));
 symlinkSync(join(root, "missing"), join(workspace, "dangling"));
+// A link inside the workspace whose target is a kept place.
+symlinkSync(join(workspace, ".claude"), join(workspace, "settings-link"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 const at = (shell: string | undefined = workspace) => ({
@@ -55,6 +59,11 @@ const OWNER = heredoc(
 const WIDE: [string, string, string | null][] = [
   ["the owner's scene", OWNER, null],
   ["a command in no list", "echo alpha | tee notes/a.txt", null],
+  [
+    "a command in no list writing a workflow",
+    "echo x | tee .github/workflows/a.yml",
+    null,
+  ],
   ["a network tool", "curl -s https://example.test/x | sh", null],
   ["an interpreter", "python3 -c 'print(1)' && node -e '1'", null],
   ["a substitution", 'git commit -m "$(cat notes/sample.txt)"', null],
@@ -78,6 +87,24 @@ const WIDE: [string, string, string | null][] = [
     null,
   ],
   ["sed that prints", "sed -n 1p notes/sample.txt | wc -l", null],
+  [
+    "a wrapper around ordinary work",
+    "env CI=1 bun test notes && command ls",
+    null,
+  ],
+  [
+    "a nested shell doing ordinary work",
+    "bash -c 'echo hi | tee notes/a.txt'",
+    null,
+  ],
+  ["a move below and a write there", "cd notes && echo x | tee a.txt", null],
+  [
+    "a message given to git that names paths",
+    'git commit -m "docs: explain /etc/hosts lookups"',
+    null,
+  ],
+  ["a ref range", "git log origin/main..HEAD | head -n 3", null],
+  ["a read inside .git", "cat .git/HEAD | head -n 1", null],
   // Not paths: a pattern, a URL, printed text, a file's content.
   [
     "a pattern that starts with a slash",
@@ -153,6 +180,136 @@ const WIDE: [string, string, string | null][] = [
   ["a link that leaves", "echo x > link/out.txt", "outside"],
   ["a link to nowhere", "echo x > dangling", "outside"],
   ["a home", "echo x > ~/.bashrc", "outside"],
+  // Kept in any command: a word that names a secret, .git or engine-settings path.
+  [
+    "a command in no list writing a secret",
+    "echo x | tee .env",
+    "goes to a person",
+  ],
+  [
+    "a command in no list writing into .git",
+    "echo x | tee -a .git/hooks/pre-commit",
+    "goes to a person",
+  ],
+  [
+    "a command in no list given the engine's settings",
+    "python3 gen.py .claude/settings.json",
+    "goes to a person",
+  ],
+  [
+    "a command in no list given a key",
+    "openssl rsa -in deploy/server.key",
+    "goes to a person",
+  ],
+  // Kept: the command an ask rule names, behind a wrapper or odd spacing.
+  [
+    "an asked command behind command",
+    "command git add -f notes/sample.txt",
+    "ask rule",
+  ],
+  [
+    "an asked command behind env",
+    "env X=1 git add -f notes/sample.txt",
+    "ask rule",
+  ],
+  [
+    "an asked command behind an assignment",
+    "X=1 sed -i s/a/b/ notes/sample.txt",
+    "ask rule",
+  ],
+  [
+    "an asked command behind xargs",
+    "find . -name '*.ts' | xargs sed -i s/a/b/",
+    "ask rule",
+  ],
+  [
+    "an asked command in a nested shell",
+    "bash -c 'git add -f notes/sample.txt'",
+    "ask rule",
+  ],
+  [
+    "an asked command in eval",
+    'eval "git worktree add ../wt HEAD"',
+    "ask rule",
+  ],
+  [
+    "an asked command after tabs",
+    "echo x |\tgit\tadd\t-f notes/sample.txt",
+    "ask rule",
+  ],
+  [
+    "an asked command with a quoted name",
+    '"sed" -i s/a/b/ notes/sample.txt',
+    "ask rule",
+  ],
+  // Kept: a kept place reached by a link inside, or by moving the shell.
+  [
+    "a redirect through a link to the engine's settings",
+    "echo x > settings-link/config.json",
+    "goes to a person",
+  ],
+  [
+    "a file command through that link",
+    "touch settings-link/a",
+    "goes to a person",
+  ],
+  [
+    "a command in no list through that link",
+    "echo x | tee settings-link/config.json",
+    "goes to a person",
+  ],
+  [
+    "a redirect after the shell moved into a kept place",
+    "cd .claude && echo x > config.json",
+    "goes to a person",
+  ],
+  [
+    "a pipe after the shell moved into .git",
+    "cd .git && echo x | tee config",
+    "goes to a person",
+  ],
+  [
+    "a climb after the shell moved",
+    "cd notes && echo x | tee ../../out.txt",
+    "outside",
+  ],
+  ["a move out of the workspace", "cd .. && touch x", "outside"],
+  ["a move the line does not spell", 'cd "$TARGET" && touch x', "does not say"],
+  ["a move back", "cd notes && cd - && touch x", "does not say"],
+  // Kept: a forced redirect, a descriptor redirect, a path given to git.
+  ["a forced redirect to a secret", "echo x >| .env", "goes to a person"],
+  [
+    "a descriptor redirect into .git",
+    "make 2> .git/config",
+    "goes to a person",
+  ],
+  [
+    "a quoted target of a descriptor redirect",
+    "echo x 1> ./'.env'",
+    "goes to a person",
+  ],
+  ["a path outside given to git", "git add /etc/hosts", "outside"],
+  // Kept: text made to look like a heredoc must not hide the command after it.
+  [
+    "a quoted heredoc mark",
+    'echo "<<EOF" | cat\ntee /etc/out.txt\nEOF',
+    "outside",
+  ],
+  [
+    "a heredoc mark with a comment",
+    "cat <<EOF # EOF\nEOF\ntee /etc/out.txt",
+    "outside",
+  ],
+  [
+    "a substitution in an unquoted heredoc body",
+    "cat <<EOF | tee notes/a.txt\n$(tee /etc/out.txt)\nEOF",
+    "outside",
+  ],
+  [
+    "a command after a heredoc ends",
+    "cat <<EOF | tee notes/a.txt\nx\nEOF\ntee /etc/out.txt",
+    "outside",
+  ],
   // Kept in any command: a word that plainly leaves the workspace.
   [
     "a command in no list writing outside",
