@@ -432,6 +432,8 @@ const startsWith = (words: string[], command: string[]) =>
 
 /** git options before its command that change only how it prints or locks. */
 const GIT_PLAIN_GLOBALS = [
+  "--version",
+  "--help",
   "--no-pager",
   "-P",
   "--no-optional-locks",
@@ -441,6 +443,8 @@ const GIT_PLAIN_GLOBALS = [
 
 /** `git config` options that only read or shape what is read. */
 const CONFIG_READ_OPTIONS = [
+  "--",
+  "--get-urlmatch",
   "--get",
   "--get-all",
   "--get-regexp",
@@ -455,6 +459,7 @@ const CONFIG_READ_OPTIONS = [
   "--all",
 ];
 const CONFIG_READ_ACTIONS = [
+  "--get-urlmatch",
   "--get",
   "--get-all",
   "--get-regexp",
@@ -621,34 +626,77 @@ function refPathsIn(word: string): string[] {
   return [...found];
 }
 
+/** The paths in a word that git reads from the repository's top: `rev:path`, `:(top)path`, `:/path`. */
+function rootRelative(word: string): string[] {
+  const value = word.includes("=") ? word.slice(word.indexOf("=") + 1) : word;
+  const at = value.indexOf(":");
+  if (at === -1) return [];
+  const rest = value.slice(at + 1);
+  const magic = /^(\([^)]*\)|[^\w./(]*)/.exec(rest);
+  return [rest, rest.slice(magic?.[0].length ?? 0)];
+}
+
 /**
  * The narrow reading's own checks of a part the policy allows: what git, gh
  * and grep do with the words that the ask rules do not see.
  */
 function narrowKept(words: readonly string[], place: Place): string | null {
   const [name] = words;
-  const keptPath = (path: string) => {
+  const keptPath = (path: string, base = place.base) => {
     if (path === "") return false;
-    const located = locate(place, path);
+    const located = locate({ root: place.root, base }, path);
     return located !== undefined && sensitive(located);
   };
   if (name === "git" || name === "gh") {
-    // A secret or engine-settings path given to git or gh: `git checkout
-    // HEAD -- .claude/settings.json`, `gh pr create --body-file .env`.
-    // What is given as a message is text.
+    // One pass in git's own order: a message flag takes the next word as
+    // text, `--` among it as well; the first `--` that is not a message ends
+    // the options, and every word past it is a path.
     let message = false;
+    let paths = false;
     for (const word of words.slice(1)) {
-      if (message) {
+      if (!paths && message) {
         message = false;
         continue;
       }
-      if (MESSAGE_FLAGS.includes(word)) {
-        message = true;
+      if (!paths && word === "--") {
+        paths = true;
         continue;
       }
-      if (MESSAGE_FLAGS.some((flag) => word.startsWith(`${flag}=`))) continue;
-      if (refPathsIn(word).some(keptPath))
+      if (!paths) {
+        if (MESSAGE_FLAGS.includes(word)) {
+          message = true;
+          continue;
+        }
+        // `--message=x`, and git's glued `-mx`.
+        if (
+          MESSAGE_FLAGS.some((flag) => word.startsWith(`${flag}=`)) ||
+          (name === "git" && /^-m./.test(word))
+        ) {
+          continue;
+        }
+        // git takes a long option by any unique start of its name.
+        const option = word.split("=")[0] as string;
+        if (
+          name === "git" &&
+          option.length > 2 &&
+          option.startsWith("--") &&
+          ("--pathspec-from-file".startsWith(option) ||
+            option.startsWith("--pathspec-from-file"))
+        ) {
+          return "a path list the line does not show";
+        }
+      }
+      // A secret or engine-settings path given to git or gh: `git checkout
+      // HEAD -- .claude/settings.json`, `gh pr create --body-file .env`.
+      // `HEAD:<path>` and `:(top)<path>` are from the repository's top,
+      // which may not be where the shell stands.
+      const candidates = refPathsIn(word);
+      if (
+        candidates.some((path) => keptPath(path)) ||
+        rootRelative(word).some((path) => keptPath(path, place.root))
+      ) {
         return "a path that goes to a person";
+      }
     }
   }
   if (name === "git") {
@@ -660,21 +708,6 @@ function narrowKept(words: readonly string[], place: Place): string | null {
     const globals = words.slice(1, at === -1 ? words.length : at);
     if (globals.some((word) => !GIT_PLAIN_GLOBALS.includes(word))) {
       return "a git option before its command";
-    }
-    const end = words.indexOf("--");
-    const options = end === -1 ? words : words.slice(0, end);
-    // git takes a long option by any unique start of its name.
-    if (
-      options.some((word) => {
-        const option = word.split("=")[0] as string;
-        return (
-          option.length > 2 &&
-          ("--pathspec-from-file".startsWith(option) ||
-            option.startsWith("--pathspec-from-file"))
-        );
-      })
-    ) {
-      return "a path list the line does not show";
     }
     const verb = words[at];
     // A patch names the paths it writes in its text, not in the line.

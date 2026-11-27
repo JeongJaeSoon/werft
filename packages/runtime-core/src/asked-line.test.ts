@@ -520,6 +520,11 @@ const NARROW: [string, string, string | null][] = [
     "git config User.Email bot@example.test",
     "git --no-pager log --oneline -3",
     "git commit -m .claude",
+    "git commit -m.claude",
+    "git commit -m --pathspec-from-file",
+    "git config --get -- user.email",
+    "git config --get-urlmatch http.proxy https://example.test",
+    "git --version",
     "git log --oneline -- --pathspec",
     "grep -r x notes --color=never",
     "mkdir -p newnotes && grep -rn x newnotes",
@@ -675,6 +680,8 @@ const NARROW: [string, string, string | null][] = [
       ],
       ["git --exec-path=notes status", "option before its command"],
       ["git show HEAD:.claude/settings.json", "goes to a person"],
+      ["git commit -m -- --pathspec-from-file=notes/l", "a path list"],
+      ["git diff -- -m .claude/settings.json", "goes to a person"],
       [
         "git checkout HEAD -- ':(top,literal).claude/settings.json'",
         "goes to a person",
@@ -902,6 +909,22 @@ describe("the narrow reading", () => {
         "mkdir -p .github/workflows && touch .github/workflows/a.yml",
         at(),
       ),
+    ).toBeNull();
+  });
+
+  test("a path git reads from the repository's top is judged from there", () => {
+    const below = at(join(workspace, "notes"));
+    expect(
+      askedLineRefusal("git show HEAD:.claude/settings.json", below),
+    ).toContain("goes to a person");
+    expect(
+      askedLineRefusal(
+        "git checkout HEAD -- ':(top).claude/settings.json'",
+        below,
+      ),
+    ).toContain("goes to a person");
+    expect(
+      askedLineRefusal("git show HEAD:notes/sample.txt", below),
     ).toBeNull();
   });
 
