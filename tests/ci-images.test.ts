@@ -509,6 +509,39 @@ describe("the D2 gate workflow", () => {
     }
   });
 
+  test("runs on pull requests that change the scheduler and turn paths, and names no path that is gone", () => {
+    const { paths } = (
+      Bun.YAML.parse(text) as { on: { pull_request: { paths: string[] } } }
+    ).on.pull_request;
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        "apps/control-host/src/main.ts",
+        "apps/control-host/src/pass-loop/**",
+        "apps/control-host/src/reconciler/**",
+        "apps/control-host/src/scheduler/**",
+        "packages/platform/src/scheduler/**",
+        "packages/db/src/scheduler/**",
+        "packages/adapters/execution/local-docker/src/**",
+        "packages/platform/src/sessions/**",
+        "packages/db/src/sessions/**",
+        "packages/platform/src/workers/**",
+        "apps/control-host/src/api/routes/workers/**",
+        "packages/platform/src/ports/worker-unit-of-work.ts",
+        "packages/db/src/worker-unit-of-work.ts",
+        "packages/db/src/postgres-unit-of-work.ts",
+        "packages/db/src/recovery-control.ts",
+        "apps/worker/src/**",
+      ]),
+    );
+    // A renamed directory or file would leave a pattern that never matches
+    // again.
+    const gone = paths.filter(
+      (pattern) =>
+        new Bun.Glob(pattern).scanSync({ cwd: root, dot: true }).next().done,
+    );
+    expect(gone).toEqual([]);
+  });
+
   test("lays both overlays over the stack, and checks nothing came from Docker Hub", () => {
     const gate = steps?.find((step) => step.run === "scripts/d2-gate/run.sh");
     expect(gate?.env?.D2_GATE_COMPOSE_OVERRIDE).toBe(
