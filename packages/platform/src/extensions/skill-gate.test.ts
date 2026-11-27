@@ -552,14 +552,17 @@ describe("edge cases", () => {
     ]);
   });
 
-  test("the manifest is held to the blocking rules only", () => {
+  test("the manifest is held to every rule: it carries plugin.json values", () => {
     const manifest = text(
       ".claude-plugin/plugin.json",
       '{"name":"s","description":"a‮b ​ system prompt"}\n',
     );
     const result = gate({ after: [...licensed("s"), manifest] });
     expect(rulesOf(result.blocks)).toEqual(["hidden_override"]);
-    expect(result.warnings).toEqual([]);
+    expect(rulesOf(result.warnings)).toEqual([
+      "hidden_unicode",
+      "instruction_like",
+    ]);
   });
 
   test("C1 controls and a carriage return inside a line warn; a CRLF line end does not", () => {
@@ -814,7 +817,7 @@ describe("second review", () => {
 
   test("a quote inside a URL does not hide its host", () => {
     const result = gate({
-      allowedHosts: new Set(["o"]),
+      allowedHosts: new Set(["outside.example"]),
       after: [
         ...licensed("s"),
         text(
@@ -823,7 +826,7 @@ describe("second review", () => {
         ),
       ],
     });
-    expect(result.warnings[0]?.samples).toContain("outside.example");
+    expect(result.warnings).toEqual([]);
   });
 
   test("a non-ASCII separator makes a license value unclassified", () => {
@@ -866,5 +869,30 @@ describe("second review", () => {
         }).warnings,
       ),
     ).toEqual(["license_notice_missing"]);
+  });
+});
+
+describe("third review", () => {
+  test("a skill new in an update is judged on its license like a first enable", () => {
+    const before = licensed("a");
+    const after = [...before, skillMd("b")];
+    expect(
+      rulesOf(
+        gate({ repositoryRootFiles: ["NOTICE"], before, after }).warnings,
+      ),
+    ).toEqual(["license_missing", "license_notice_missing"]);
+  });
+
+  test("npm ci reads as an install", () => {
+    const result = gate({
+      after: [...licensed("s"), text("skills/s/scripts/a.sh", "npm ci\n")],
+    });
+    expect(result.warnings[0]?.samples).toEqual(["package_install"]);
+  });
+
+  test("an operator glued to a parenthesis is not an expression", () => {
+    expect(isSpdxExpression("MIT AND(Apache-2.0)")).toBe(false);
+    expect(isSpdxExpression("(MIT)AND Apache-2.0")).toBe(false);
+    expect(isSpdxExpression("(MIT) AND (Apache-2.0)")).toBe(true);
   });
 });

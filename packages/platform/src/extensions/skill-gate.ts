@@ -137,7 +137,7 @@ export const NETWORK_CALL_PATTERNS: readonly { id: string; pattern: RegExp }[] =
     {
       id: "package_install",
       pattern:
-        /\b(?:pip3?|uv|npm|npx|pnpm|yarn|bun|bunx|gem|cargo|go|apt(?:-get)?|apk|brew|conda)(?:\s+-\S+(?:\s+[^\s-]\S*)??)*\s+(?:pip\s+)?(?:-\S+\s+)*(?:install|add|get|i)\b/,
+        /\b(?:pip3?|uv|npm|npx|pnpm|yarn|bun|bunx|gem|cargo|go|apt(?:-get)?|apk|brew|conda)(?:\s+-\S+(?:\s+[^\s-]\S*)??)*\s+(?:pip\s+)?(?:-\S+\s+)*(?:install|add|get|i|ci)\b/,
     },
     {
       id: "download",
@@ -236,6 +236,8 @@ const OPERATORS = new Set(["AND", "OR", "WITH", "(", ")"]);
 export function isSpdxExpression(value: string): boolean {
   // SPDX expressions are ASCII, split by spaces.
   if (/[^ -~]/.test(value)) return false;
+  // Operators are words: "MIT AND(Apache-2.0)" is not an expression.
+  if (/(?:AND|OR|WITH)\(|\)(?:AND|OR|WITH)\b/.test(value)) return false;
   const tokens = value.replace(/[()]/g, " $& ").trim().split(/ +/);
   let at = 0;
   const term = (): boolean => {
@@ -299,8 +301,6 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
   const old = new Map((before ?? []).map((file) => [file.path, file]));
   const files = after.filter((file) => file.path !== MANIFEST);
 
-  // The manifest is the validator's, but carries plugin.json values: it is
-  // held to the blocking rules and left out of the rest.
   for (const file of after) {
     const kind = kindOf(file);
     if ("refused" in kind) flag("file_type", file.path, kind.refused);
@@ -314,7 +314,6 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
     }
 
     const earlier = old.get(file.path);
-    if (file.path === MANIFEST) continue;
     const earlierKind = earlier === undefined ? null : kindOf(earlier);
     // Before the unchanged-bytes skip: media refused only for its execute bit
     // becomes allowed by a mode change alone.
@@ -357,14 +356,9 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
         if (pattern.test(plain)) flag("instruction_like", file.path, id);
       }
       if (!script) continue;
-      // Quotes and commas end a URL in code: ["https://a","https://b"] names
-      // two hosts. The line as written is read too, for a quote inside a URL.
-      const hosts = new Set(
-        [
-          ...plainTextHosts(line),
-          ...plainTextHosts(line.replace(/["'`,]/g, " ")),
-        ].filter((host) => !/["'`,]/.test(host)),
-      );
+      // A URL starts a new word: in ["https://a","https://b"] the first
+      // authority ends before the second, and a quote inside a URL stays.
+      const hosts = plainTextHosts(line.replace(/(?=https?:\/\/)/gi, " "));
       for (const host of hosts) {
         if (!allowedHosts.has(host))
           flag("host_not_allowlisted", file.path, host);
@@ -401,7 +395,10 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
     const skill = SKILL_FILE.exec(file.path)?.[1];
     if (skill === undefined) continue;
     const now = licenseState(after, skill);
-    const was = before === null ? null : licenseState(before, skill);
+    // A skill new in this version is judged as on a first enable.
+    const was = before?.some((f) => f.path === file.path)
+      ? licenseState(before, skill)
+      : null;
     const licenseChanged =
       was !== null &&
       (was.license !== now.license || was.licenseFiles !== now.licenseFiles);
