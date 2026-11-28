@@ -656,7 +656,21 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
         }),
       ),
     ).toEqual(refused);
-    expect(detail.agent.active_release_id).toBe(active);
+    const after = await agentsService.getAgent(caller, made.agent.id);
+    expect(after.agent.active_release_id).toBe(active);
+    expect(after.agent.activation_revision).toBe(
+      detail.agent.activation_revision,
+    );
+    // Another agent's row answers as missing, so nothing tells it is there.
+    const other = await newAgent(caller, { connection_id: TEST_CONNECTION_ID });
+    expect(
+      await refusalOf(
+        agentsService.activateAgent(caller, other.agent.id, {
+          release_id: topKey,
+          expected_revision: other.agent.activation_revision,
+        }),
+      ),
+    ).toMatchObject({ code: "NOT_FOUND" });
   });
 
   test("an active release this build cannot read leaves the detail readable and refuses a release that would carry its pin", async () => {
@@ -703,10 +717,21 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
         unreadable: "policy_pins_unreadable",
       },
     });
-    const saved = await agentsService.updateAgent(caller, made.agent.id, {
+    // Without an active release to read, a card alone has no connection to
+    // release on: the version is kept and nothing is released.
+    const cardOnly = await agentsService.updateAgent(caller, made.agent.id, {
       card: card("v2"),
     });
-    expect(saved.release.status).toBe("failed");
+    expect(cardOnly.release.status).toBe("unchanged");
+    const withConnection = await agentsService.updateAgent(
+      caller,
+      made.agent.id,
+      { card: card("v3"), connection_id: TEST_CONNECTION_ID },
+    );
+    expect(withConnection.release).toMatchObject({
+      status: "failed",
+      reason: "release_unreadable",
+    });
     expect(await releaseCount(made.agent.id)).toBe(before);
   });
 

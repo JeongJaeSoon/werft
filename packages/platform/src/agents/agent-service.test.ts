@@ -1445,6 +1445,7 @@ describe("a release row this build cannot read", () => {
         store: {
           findRelease: async () => ({
             unreadable: { id: ID, reason_code: "policy_pins_unreadable" },
+            agent_id: AGENT,
           }),
           autoModelMigration: async () => false,
         },
@@ -1469,5 +1470,27 @@ describe("a release row this build cannot read", () => {
     });
     expect(refused.message).toContain(ID);
     expect(refused.message).toContain("upgrade to a newer build");
+  });
+
+  test("named for another agent it answers as a release that is not there", async () => {
+    const error = await resolveAgentRelease(
+      {
+        store: {
+          findRelease: async () => ({
+            unreadable: { id: ID, reason_code: "policy_pins_unreadable" },
+            agent_id: AGENT,
+          }),
+          autoModelMigration: async () => false,
+        },
+        catalog: { connections: {} },
+      },
+      WORKSPACE,
+      ID,
+      "019a0000-0000-7000-8000-0000000000ff",
+    ).then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+    expect((error as SessionServiceError).code).toBe("NOT_FOUND");
   });
 });

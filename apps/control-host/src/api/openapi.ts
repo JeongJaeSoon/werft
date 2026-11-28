@@ -6183,12 +6183,12 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Release a version on a provider connection",
     description:
-      "The release id is a hash of the card, the connection and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. A model the connection does not offer, or a connection that is not enabled, answers 422. `repository_id` names the catalog repository the release pins, optional: 422 when the catalog has no such repository. Slack sessions and API sessions that send no `repository_id` start on it only while the agent has no GitHub settings; an agent with settings starts them without a repository. A request carrying `github` for an agent that already has GitHub settings answers 409 ALREADY_EXISTS with `reason_code: github_settings_exist`: those are saved with `PUT /v1/agents/{id}/github/settings`. Releasing approves and activates nothing.",
+      "The release id is a hash of the card, the connection and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. A model the connection does not offer, or a connection that is not enabled, answers 422. `repository_id` names the catalog repository the release pins, optional: 422 when the catalog has no such repository. Slack sessions and API sessions that send no `repository_id` start on it only while the agent has no GitHub settings; an agent with settings starts them without a repository. A request carrying `github` for an agent that already has GitHub settings answers 409 ALREADY_EXISTS with `reason_code: github_settings_exist`: those are saved with `PUT /v1/agents/{id}/github/settings`. A request without `github` for an agent without GitHub settings carries the active release's pin; while the active release is a row this build cannot read, it answers 409 RELEASE_SPEC_UNAVAILABLE with `details.reason_code` `release_unreadable` and the active `release_id`. Releasing approves and activates nothing.",
     auth: "session",
     body: "CreateAgentReleaseRequest",
     success: { status: 200, schema: "CreateAgentReleaseResponse" },
     errors: [400, 401, 403, 404, 409, 413, 422, 503],
-    errorCodes: { 409: ["ALREADY_EXISTS"] },
+    errorCodes: { 409: ["ALREADY_EXISTS", "RELEASE_SPEC_UNAVAILABLE"] },
     idempotent: false,
   },
   {
@@ -6198,7 +6198,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Point the agent at a release (compare-and-swap)",
     description:
-      "`expected_revision` is the agent's current `activation_revision` (-1 before the first activation); a stale one answers 409 REVISION_CONFLICT. Sending the same activation again is a no-op with a null `receipt_id`. A release whose connection is disabled or whose model left the connection's list answers 409 RELEASE_SPEC_UNAVAILABLE and has to be released again. A release whose card names a credential not bound to the agent answers 409 CREDENTIAL_UNBOUND with the missing names in `details.missing` (`ActivationCredentialUnboundDetails`). Sessions already pinned keep their release.",
+      "`expected_revision` is the agent's current `activation_revision` (-1 before the first activation); a stale one answers 409 REVISION_CONFLICT. Sending the same activation again is a no-op with a null `receipt_id`. A release whose connection is disabled or whose model left the connection's list answers 409 RELEASE_SPEC_UNAVAILABLE and has to be released again; a release row of this agent that this build cannot read answers it with `details.reason_code` `release_unreadable` (another agent's release id answers 404). A release whose card names a credential not bound to the agent answers 409 CREDENTIAL_UNBOUND with the missing names in `details.missing` (`ActivationCredentialUnboundDetails`). Sessions already pinned keep their release.",
     auth: "session",
     body: "ActivateAgentRequest",
     success: { status: 200, schema: "ActivateAgentResponse" },

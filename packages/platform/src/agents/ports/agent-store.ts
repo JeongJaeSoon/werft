@@ -202,7 +202,9 @@ export interface AgentStore {
   findRelease(
     workspaceId: string,
     releaseId: string,
-  ): Promise<AgentRelease | { unreadable: UnreadableRelease } | null>;
+  ): Promise<
+    AgentRelease | { unreadable: UnreadableRelease; agent_id: string } | null
+  >;
   /** The agent's status alone, for a check that must not read its releases. */
   agentStatus(
     workspaceId: string,

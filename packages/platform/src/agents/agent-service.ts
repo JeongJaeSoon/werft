@@ -106,10 +106,17 @@ export async function resolveAgentRelease(
   },
   workspaceId: string,
   releaseId: string,
+  /** The agent the caller acts on: another agent's row answers as missing. */
+  agentId?: string,
 ): Promise<AgentRelease> {
   const found = await deps.store.findRelease(workspaceId, releaseId);
   if (!found) throw NOT_FOUND();
-  if ("unreadable" in found) throw releaseUnreadable(found.unreadable);
+  if ("unreadable" in found) {
+    if (agentId !== undefined && found.agent_id !== agentId.toLowerCase()) {
+      throw NOT_FOUND();
+    }
+    throw releaseUnreadable(found.unreadable);
+  }
   const release = found;
   assertReleaseIdentity(release);
   const connectionId = release.connection_id;
@@ -249,8 +256,12 @@ export function agentReleaseReaders(
   catalog: Pick<SessionCatalogView, "connections">,
 ) {
   return {
-    resolveRelease: (workspaceId: string, releaseId: string) =>
-      resolveAgentRelease({ store, catalog }, workspaceId, releaseId),
+    resolveRelease: (
+      workspaceId: string,
+      releaseId: string,
+      agentId?: string,
+    ) =>
+      resolveAgentRelease({ store, catalog }, workspaceId, releaseId, agentId),
     envNames: (workspaceId: string, releaseId: string) =>
       agentEnvNames(store, workspaceId, releaseId),
     notRunnableReason: (
@@ -1447,7 +1458,11 @@ export function createAgentService(deps: {
       request: ActivateAgentRequest,
     ): Promise<ActivateAgentResponse> {
       const userId = await manageAgent(caller, agentId);
-      const release = await resolveRelease(caller.ownerId, request.release_id);
+      const release = await resolveRelease(
+        caller.ownerId,
+        request.release_id,
+        agentId,
+      );
       if (release.agent_id !== agentId.toLowerCase()) throw NOT_FOUND();
       // A release can predate the reserved list; its card is judged now.
       const version = await store.findVersion(

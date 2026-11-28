@@ -5,6 +5,7 @@ import {
   type AgentRelease,
   type AgentStatus,
   type AgentVersion,
+  agentIdSchema,
   agentReleaseIdSchema,
   agentReleaseSchema,
   behaviorKey,
@@ -230,7 +231,9 @@ async function activationSpans(
   return spans;
 }
 
-type ReadRelease = AgentRelease | { unreadable: UnreadableRelease };
+type ReadRelease =
+  | AgentRelease
+  | { unreadable: UnreadableRelease; agent_id: string };
 
 const readable = (read: ReadRelease): read is AgentRelease =>
   !("unreadable" in read);
@@ -297,6 +300,8 @@ function releaseOf(
         ? "policy_pins_unreadable"
         : "row_unreadable",
     },
+    // Kept off every response: a caller checks whose row it is first.
+    agent_id: agentIdSchema.parse(row.agentId),
   };
 }
 
