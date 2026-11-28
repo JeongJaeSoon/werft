@@ -209,8 +209,10 @@ export async function holdConversationCallLimitsIn(
   return null;
 }
 
-// The first instant of this month, UTC, as budget accounts cut months.
-const MONTH_START = sql`(date_trunc('month', ${DB_NOW} AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')`;
+// The first instant of the month (UTC) `at` falls in, as budget accounts
+// cut months.
+const monthStartOf = (at: Date) =>
+  sql`(date_trunc('month', ${at.toISOString()}::timestamptz AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')`;
 
 /**
  * Whether a call counts as one of unknown price: what settled it, once a
@@ -230,14 +232,17 @@ const UNKNOWN_PRICED = sql<boolean>`CASE
 
 /**
  * The tokens of the conversation calls of unknown price (UNKNOWN_PRICED)
- * held on the account (null: on none, then the agent's alone) this month: a
- * held call's reserve, a settled one's tokens, a resolved one's late report
- * or else what its resolve charged. A released call holds nothing.
+ * held on the account, or with none (null) the agent's calls held on none
+ * made in the month `at` falls in: a held call's reserve, a settled one's
+ * tokens, a resolved one's late report or else what its resolve charged. A
+ * released call holds nothing. An account is one month's, whenever its calls
+ * were made.
  */
 export async function unknownPriceTokensIn(
   tx: Database,
   accountId: BudgetAccountId | null,
   agentId: string,
+  at: Date,
 ): Promise<number> {
   const c = conversationCalls;
   const r = budgetReservations;
@@ -256,14 +261,13 @@ export async function unknownPriceTokensIn(
     .where(
       and(
         UNKNOWN_PRICED,
-        // An account is this month's: its calls were made in it, the bound
-        // only lets the index skip the months before.
-        gte(c.createdAt, sql`${MONTH_START} - interval '1 day'`),
         accountId === null
           ? and(
               isNull(r.accountId),
               eq(c.agentId, agentId),
-              gte(c.createdAt, MONTH_START),
+              // A released call holds nothing; the period index skips it.
+              ne(c.state, "released"),
+              gte(c.createdAt, monthStartOf(at)),
             )
           : eq(r.accountId, accountId),
       ),
@@ -280,8 +284,13 @@ export async function unknownPriceTokensIn(
  * prices, stay under the limit. A priced call adds nothing but is refused
  * once the month's reached it: a priced model can be answered by one nothing
  * prices, which settles with no amount. An unmetered call is not judged.
+ *
+ * The clock is read once, judging, and `createdAt` is it: the call is made
+ * in the month it was judged in, so a call on no account counts in the month
+ * the next one sums, however midnight falls. Unjudged, it is the time of the
+ * insert, after the locks.
  */
-function admitsUnknownPriceIn(
+function unknownPriceJudgeIn(
   tx: Database,
   call: {
     agentId: string;
@@ -289,17 +298,27 @@ function admitsUnknownPriceIn(
     tokens: number;
     limit: number;
   },
-): ((accountId: BudgetAccountId | null) => Promise<boolean>) | undefined {
-  if (call.pricedBy === "unmetered") return undefined;
+): {
+  admits: ((accountId: BudgetAccountId | null) => Promise<boolean>) | undefined;
+  createdAt: () => Date | typeof DB_NOW;
+} {
+  let judgedAt: Date | undefined;
+  const createdAt = () => judgedAt ?? DB_NOW;
+  if (call.pricedBy === "unmetered") return { admits: undefined, createdAt };
   if (!Number.isSafeInteger(call.limit) || call.limit < 1) {
     throw new RangeError(
       `the limit on tokens of unknown price must be a positive integer: ${call.limit}`,
     );
   }
-  return async (accountId) => {
-    const held = await unknownPriceTokensIn(tx, accountId, call.agentId);
-    const adding = call.pricedBy === "unknown" ? call.tokens : 0;
-    return held + adding < call.limit;
+  return {
+    admits: async (accountId) => {
+      const at = await dbNow(tx);
+      judgedAt = at;
+      const held = await unknownPriceTokensIn(tx, accountId, call.agentId, at);
+      const adding = call.pricedBy === "unknown" ? call.tokens : 0;
+      return held + adding < call.limit;
+    },
+    createdAt,
   };
 }
 
@@ -382,6 +401,12 @@ function issueIn(
     });
     if (limited) return limited;
     const choice = chooseBudgetAccount(input.root, agent.teamId);
+    const judge = unknownPriceJudgeIn(tx, {
+      agentId: input.agentId,
+      pricedBy: input.pricedBy,
+      tokens: input.reserve.tokens,
+      limit: input.unknownPriceTokenLimit,
+    });
     const reserved = await reserveBudgetIn(
       tx,
       {
@@ -391,12 +416,7 @@ function issueIn(
         reserve: input.reserve,
         unmetered: input.unmetered,
       },
-      admitsUnknownPriceIn(tx, {
-        agentId: input.agentId,
-        pricedBy: input.pricedBy,
-        tokens: input.reserve.tokens,
-        limit: input.unknownPriceTokenLimit,
-      }),
+      judge.admits,
     );
     if (reserved.outcome === "refused") {
       return {
@@ -427,9 +447,7 @@ function issueIn(
         maxTokens: input.maxTokens,
         maxRequestBytes: input.maxRequestBytes,
         reservePricedBy: input.pricedBy,
-        // Read after the locks, as MONTH_START is: a call on no account
-        // falls in the month the next issue under the agent's lock sums.
-        createdAt: DB_NOW,
+        createdAt: judge.createdAt(),
         expiresAt: fromDbNow(input.ttlMs),
         conversationId: input.conversationId,
         topicId: input.topicId,
@@ -1059,6 +1077,12 @@ export function createPostgresConversationCalls(
                   ? null
                   : { kind: "team", teamId },
           };
+          const judge = unknownPriceJudgeIn(tx, {
+            agentId: permit.agentId,
+            pricedBy: held.pricedBy,
+            tokens: held.reserve.tokens,
+            limit: input.unknownPriceTokenLimit,
+          });
           const reserved = await reserveBudgetIn(
             tx,
             {
@@ -1068,12 +1092,7 @@ export function createPostgresConversationCalls(
               reserve: held.reserve,
               unmetered: held.unmetered,
             },
-            admitsUnknownPriceIn(tx, {
-              agentId: permit.agentId,
-              pricedBy: held.pricedBy,
-              tokens: held.reserve.tokens,
-              limit: input.unknownPriceTokenLimit,
-            }),
+            judge.admits,
           );
           if (reserved.outcome === "refused") {
             // Kept as a budget refusal: the permit's refusal values are
@@ -1112,7 +1131,7 @@ export function createPostgresConversationCalls(
               maxRequestBytes: permit.maxRequestBytes,
               reservePricedBy: held.pricedBy,
               state: "in_flight",
-              createdAt: DB_NOW,
+              createdAt: judge.createdAt(),
               exchangeId: input.exchangeId,
               startedAt: DB_NOW,
               expiresAt: permit.expiresAt,

@@ -349,6 +349,21 @@ describe("a conversation call's limit on tokens of unknown price, by account and
     ).toBe("issued");
   });
 
+  test("an account counts all its calls, however long ago in its month they were made: one judged after midnight on last month's account sums last month", async () => {
+    const { agentId } = await agentOf();
+    const userId = randomUUID();
+    await costOnly(userId);
+    const limit = T + 1;
+    await issued(limit, agentId, person(userId), UNPRICED);
+    // As the account's month looks from past its end, the account the same.
+    await db.execute(
+      sql`UPDATE conversation_calls SET created_at = created_at - interval '40 days'`,
+    );
+    expect(
+      (await issue(limit, agentId, person(userId), UNPRICED)).outcome,
+    ).toBe("refused");
+  });
+
   test("a released call gives its room back", async () => {
     const { agentId } = await agentOf();
     const userId = randomUUID();

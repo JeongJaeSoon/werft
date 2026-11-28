@@ -649,7 +649,7 @@ M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는�
 3. 없고 `reserve_priced_by`가 `unknown`이면 미상이다.
 4. 없고 `reserve_priced_by`가 단가를 아는 출처이면(새 image가 발급하고 옛 image가 정산하거나 조정한 행), 정산 금액(`cost_usd`)이나 늦은 보고의 금액(`budget_adjustments.reported_cost_usd`)이 0일 때 미상으로 센다. 옛 image도 미상 답에는 금액을 붙이지 않으므로, 섞여 도는 동안 답이 미상 모델을 댄 호출을 놓치지 않는다. 금액 0인 단가 아는 호출을 미상으로 더 셀 수는 있다(안전한 쪽).
 
-새 호출의 `created_at`은 잠금을 잡은 뒤의 `clock_timestamp()`로 적는다. 계정 없는 호출의 월 경계를 판정과 같은 시계로 자르기 위해서다(트랜잭션 시작 시각 `now()`로 적으면 자정을 넘겨 기다린 발급이 지난달에 적혀 다음 발급의 합에서 빠진다).
+계정이 있는 호출은 그 계정(한 달의 행)에 잡힌 호출을 모두 센다. 만든 시각으로 자르지 않으므로, 자정 직전에 고른 지난달 계정으로 자정 뒤에 판정해도 그 계정의 한 달을 다 본다. 계정 없는 호출은 판정할 때 `clock_timestamp()`를 한 번 읽어 그 시각이 든 UTC 월에 만든 호출을 세고, 새 호출의 `created_at`도 그 시각으로 적는다. 그래서 자정이 잠금 대기, 합산, insert 사이 어디에 떨어져도 그 호출은 판정한 달에 든다(트랜잭션 시작 시각 `now()`로 적으면 자정을 넘겨 기다린 발급이 지난달에 적혀 다음 발급의 합에서 빠진다).
 
 세는 값(그 달의 미상 토큰 합)은 같은 계정(계정이 없으면 같은 에이전트의 계정 없는 호출)에서 위 규칙으로 미상인 호출의 토큰을 더한 것이다. 잡혀 있는 호출은 예약 토큰, 정산된 호출은 정산 토큰, 운영자가 닫은 호출은 늦은 보고의 토큰(없으면 닫을 때 잡은 토큰)이다. 풀린 호출은 0이다. 판정은 계정 행 잠금(계정이 없으면 에이전트의 호출 수 잠금) 아래에서 하므로, 같은 계정에 동시에 온 발급도 하나씩 센다.
 
@@ -681,13 +681,14 @@ M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는�
 | # | 성질 | 시험 |
 | --- | --- | --- |
 | CP1 | 풀린 호출은 자리를 돌려준다 | `a released call gives its room back` |
-| CP2 | 다음 UTC 월에는 0부터 센다 | `a new month (UTC) starts from nothing: last month's calls count no more`, CR5의 시험 |
+| CP2 | 다음 UTC 월에는 0부터 센다. 계정은 만든 시각과 상관없이 자기 호출을 모두 센다 | `a new month (UTC) starts from nothing: last month's calls count no more`, `an account counts all its calls, however long ago in its month they were made: one judged after midnight on last month's account sums last month`, CR5의 시험 |
 | CP3 | 같은 보고가 다시 오면 처음 정산이 저장한 표시로 답한다. 표시가 없는 옛 행은 두 모델로 다시 읽는다 | `a report again answers with what its first settlement stored` |
 
 알려진 한계:
 
 - 판정은 발급·승인 때 한다. 단가를 아는 모델로 열린 호출이 미상 모델의 답으로 정산되면, 그때 이미 열려 있던 호출들의 토큰만큼 합이 상한을 넘을 수 있다. 그다음 발급부터 거절된다.
-- 옛 image(API)가 발급한 호출은 표시가 없어(NULL) 합에 들지 않는다. 섞여 떠 있는 동안만이다. 옛 image는 이 판정도 하지 않는다.
+- 옛 image(API)가 발급한 호출은 표시가 없어(NULL) 합에 들지 않는다. 옛 image가 정산까지 했으면 옛 image가 내려간 뒤에도 그 달의 합에서 빠진 채로 남는다(새 image가 정산했으면 `unknown` 표시로 들어간다). 옛 image는 이 판정도 하지 않는다.
+- 단가를 아는 모델로 요청하고 미상 모델이 답한 호출의 보고가 끝내 오지 않으면, reconciler가 요청 때 예약(금액 있음)으로 닫는다. 그 토큰은 이 합에 들지 않지만 예약 금액이 금액 한도에 든다.
 - 세션의 미상 호출은 이 합에 들지 않는다. 세션 축 상한이 따로 막는다.
 - 풀린 호출은 자리를 돌려주므로, 상한에 닿은 달이라도 잡혀 있던 미상 호출이 풀리면 다시 열릴 수 있다.
 
