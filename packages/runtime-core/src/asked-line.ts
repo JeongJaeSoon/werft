@@ -1444,44 +1444,52 @@ function wideKept(
       written === undefined ? undefined : read.map((i) => written[i] as string),
     );
   }
-  const wraps = (word: string) => WRAPPERS.includes(nameOf(word));
-  // Right after `env`, any `NAME=VALUE` is a setting, a name the shell would
-  // not take (`env '>X=1' grep`) among them; after `command` it is a path.
-  const setting = (word: string, index: number) => {
-    if (ASSIGNMENT.test(word)) return true;
-    const wrapper = words.slice(0, index).filter(wraps).at(-1) ?? "";
-    return word.includes("=") && nameOf(wrapper) === "env";
-  };
-  const at = words.findIndex(
-    (word, index) => !setting(word, index) && TOOLS.includes(nameOf(word)),
-  );
+  // Read left to right as the shell and each wrapper do: settings, then a
+  // wrapper and its options, until git, gh or grep. Right after `env` any
+  // `NAME=VALUE` is a setting, a name the shell would not take
+  // (`env '>X=1' grep`) among them; after `command` it is a path.
+  const settings: string[] = [];
+  const wrappers: string[] = [];
+  const options: string[] = [];
+  let at = -1;
+  for (const [index, word] of words.entries()) {
+    const last = wrappers.at(-1);
+    const name = nameOf(word);
+    if (
+      (last === undefined && ASSIGNMENT.test(word)) ||
+      (last === "env" && word.includes("="))
+    ) {
+      settings.push(word);
+    } else if (last !== undefined && word.startsWith("-")) {
+      options.push(word);
+    } else if (TOOLS.includes(name)) {
+      at = index;
+      break;
+    } else if (WRAPPERS.includes(name)) {
+      wrappers.push(name);
+    } else {
+      // A word after a wrapper's option may be its value (`env -u X git`).
+      return options.length > 0 &&
+        words.slice(index).some((later) => TOOLS.includes(nameOf(later)))
+        ? "a wrapper the line does not read"
+        : null;
+    }
+  }
   if (at === -1) return null;
-  const before = words.slice(0, at);
-  const wrapper = before.findIndex(wraps);
-  const options = before.slice(wrapper + 1).filter((w) => w.startsWith("-"));
-  // `command -v git` only looks the name up.
-  if (
-    nameOf(before[wrapper] ?? "") === "command" &&
-    options.length > 0 &&
-    options.every((option) => /^-[vV]+$/.test(option))
-  ) {
-    return null;
-  }
-  // A wrapper's option may take a value (`env -u X`, `env -C dir`).
-  if (wrapper !== -1 && options.length > 0) {
+  if (options.length > 0) {
+    // `command -v git` only looks the name up.
+    if (
+      wrappers[0] === "command" &&
+      options.every((option) => /^-[vV]+$/.test(option))
+    ) {
+      return null;
+    }
+    // A wrapper's option may take a value (`env -u X`, `env -C dir`).
     return "a wrapper the line does not read";
-  }
-  if (
-    !before.every(
-      (word, index) =>
-        setting(word, index) || wraps(word) || word.startsWith("-"),
-    )
-  ) {
-    return null;
   }
   const tool = nameOf(words[at] as string);
   if (tool !== "grep") {
-    for (const word of before.filter(setting)) {
+    for (const word of settings) {
       const cut = word.indexOf("=");
       const key = word.slice(0, cut);
       const value = word.slice(cut + 1);

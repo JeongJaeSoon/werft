@@ -890,6 +890,17 @@ const WIDE: [string, string, string | null][] = [
     "env X=1 command ./build=debug/grep -r needle",
     "a search of a tree",
   ],
+  [
+    "a setting behind env that ends in a wrapper's name",
+    "env TAG=notes/command '>OTHER=demo' grep -r needle",
+    "a search of a tree",
+  ],
+  ["a timed build", "time -p make build | tail -1", null],
+  [
+    "git right after a wrapper's option",
+    "env -i git log",
+    "a wrapper the line does not read",
+  ],
   ["a message after clustered flags", "git commit -aq -m .claude", null],
   ["a gh body after a flag", "gh pr create --draft --body .claude", null],
   [
