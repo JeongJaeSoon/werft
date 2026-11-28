@@ -86,7 +86,7 @@ echo '{"images": {"worker": {"runtime": null}}}' > worker-reset.json
 echo '{"images": {"workerPrevious": {"runtime": null}}}' > worker-previous-reset.json
 ```
 
-먼저 egress proxy만 바꾼다. 배포된 control-host와 worker 이미지를 그대로 두고, egress proxy에는 대상 chart의 이미지가 적용되게 한다.
+먼저 egress proxy만 바꾼다. 배포된 control-host와 worker 이미지를 그대로 두고, egress proxy에는 대상 chart의 이미지가 적용되게 한다. 자체 이미지를 쓰느라 설치 values에 `images.controlHost`·`images.egressProxy`를 적은 설치는, 이 명령 전에 그 두 값을 대상 이미지로 바꾼다. 첫 upgrade의 control-host는 `proxy-phase.json`이 배포된 값으로 덮는다.
 
 ```bash
 KNOWN='{}'
@@ -101,7 +101,14 @@ deployed_values && next_workers control > control-phase.json \
   && kubectl -n werft rollout status deploy/werft-egress-proxy --timeout=600s
 ```
 
-다음으로 제어 영역을 바꾼다. 대화 런타임을 켠 설치(`conversationRuntime.enabled`, 기본 꺼짐)는 이 명령에 `--set conversationRuntime.enabled=false`를 더해 런타임을 내린다. 2단계의 명령은 설치 values대로 런타임을 새 worker 이미지로 다시 띄운다.
+다음으로 제어 영역을 바꾼다. 대화 런타임을 켠 설치(`conversationRuntime.enabled`, 기본 꺼짐)는 먼저 아래 명령으로 런타임을 내리고 Pod가 끝나기를 기다린다.
+
+```bash
+kubectl -n werft scale deploy/werft-conversation-runtime --replicas=0 \
+  && kubectl -n werft wait --for=delete pod -l app.kubernetes.io/instance=werft,app.kubernetes.io/component=conversation-runtime --timeout=120s
+```
+
+그리고 제어 영역 명령에 `--set conversationRuntime.enabled=false`를 더해, 이 upgrade가 런타임을 다시 띄우지 않게 한다. 2단계의 명령은 설치 values대로 런타임을 새 worker 이미지로 다시 띄운다.
 
 ```bash
 KNOWN='{}'

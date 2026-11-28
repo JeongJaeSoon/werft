@@ -90,7 +90,7 @@ echo '{"images": {"worker": {"runtime": null}}}' > worker-reset.json
 echo '{"images": {"workerPrevious": {"runtime": null}}}' > worker-previous-reset.json
 ```
 
-まず egress proxy だけを更新します。デプロイ済みの control-host と worker のイメージはそのままにし、egress proxy には対象 chart のイメージが適用されるようにします。
+まず egress proxy だけを更新します。デプロイ済みの control-host と worker のイメージはそのままにし、egress proxy には対象 chart のイメージが適用されるようにします。独自イメージを使うために環境の values で `images.controlHost`・`images.egressProxy` を指定している環境は、このコマンドの前に二つの値を対象イメージに変えます。最初の upgrade の control-host は `proxy-phase.json` がデプロイ済みの値で上書きします。
 
 ```bash
 KNOWN='{}'
@@ -105,7 +105,14 @@ deployed_values && next_workers control > control-phase.json \
   && kubectl -n werft rollout status deploy/werft-egress-proxy --timeout=600s
 ```
 
-次に制御領域を更新します。会話ランタイムを使う環境（`conversationRuntime.enabled`、既定は無効）は、このコマンドに `--set conversationRuntime.enabled=false` を加えてランタイムを停止します。手順 2 のコマンドは、環境の values のとおり新しい worker イメージでランタイムを起動し直します。
+次に制御領域を更新します。会話ランタイムを使う環境（`conversationRuntime.enabled`、既定は無効）は、先に下のコマンドでランタイムを停止し、Pod の終了を待ちます。
+
+```bash
+kubectl -n werft scale deploy/werft-conversation-runtime --replicas=0 \
+  && kubectl -n werft wait --for=delete pod -l app.kubernetes.io/instance=werft,app.kubernetes.io/component=conversation-runtime --timeout=120s
+```
+
+そのうえで制御領域のコマンドに `--set conversationRuntime.enabled=false` を加え、この upgrade がランタイムを起動し直さないようにします。手順 2 のコマンドは、環境の values のとおり新しい worker イメージでランタイムを起動し直します。
 
 ```bash
 KNOWN='{}'

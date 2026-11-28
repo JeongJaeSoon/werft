@@ -90,7 +90,7 @@ echo '{"images": {"worker": {"runtime": null}}}' > worker-reset.json
 echo '{"images": {"workerPrevious": {"runtime": null}}}' > worker-previous-reset.json
 ```
 
-First replace the egress proxy alone: keep the deployed control-host and worker images, and let the target chart's image apply to the egress proxy.
+First replace the egress proxy alone: keep the deployed control-host and worker images, and let the target chart's image apply to the egress proxy. An installation that runs its own images and sets `images.controlHost` and `images.egressProxy` in its values changes both to the target images before this command. In this first upgrade `proxy-phase.json` overrides the control-host with the deployed value.
 
 ```bash
 KNOWN='{}'
@@ -105,7 +105,14 @@ deployed_values && next_workers control > control-phase.json \
   && kubectl -n werft rollout status deploy/werft-egress-proxy --timeout=600s
 ```
 
-Then replace the control plane. An installation that runs the conversation runtime (`conversationRuntime.enabled`, off by default) adds `--set conversationRuntime.enabled=false` to this command to take the runtime down. The step 2 command brings it back on the new worker image, as your values say.
+Then replace the control plane. An installation that runs the conversation runtime (`conversationRuntime.enabled`, off by default) first takes the runtime down with the command below and waits for its Pod to end.
+
+```bash
+kubectl -n werft scale deploy/werft-conversation-runtime --replicas=0 \
+  && kubectl -n werft wait --for=delete pod -l app.kubernetes.io/instance=werft,app.kubernetes.io/component=conversation-runtime --timeout=120s
+```
+
+Then add `--set conversationRuntime.enabled=false` to the control plane command, so this upgrade does not start the runtime again. The step 2 command brings it back on the new worker image, as your values say.
 
 ```bash
 KNOWN='{}'
