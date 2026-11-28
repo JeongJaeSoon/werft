@@ -80,6 +80,8 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+          # The head the checkout's merge must have as its second parent.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BEFORE_SHA: ${{ github.event.before }}
           # A main push asks whether a release needs its commit.
           GH_REPO: ${{ github.repository }}

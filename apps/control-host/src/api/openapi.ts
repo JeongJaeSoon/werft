@@ -6393,7 +6393,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "createWorkspaceMcpServer",
     tag: "Workspace settings",
     summary: "Register a remote MCP server for the workspace",
-    description: `${WORKSPACE_MCP_MANAGERS} \`auth_kind: oauth\` pins what discovery finds; connect it with the OAuth start and callback. \`auth_kind: bearer\` stores the token, connects it under the caller and reads the server's tools. The name is the tool prefix \`mcp__<name>__\`: one taken by the installation catalog or by another server of this workspace answers 409 ALREADY_EXISTS, and \`github\` and \`browser\` are reserved. The URL is held to discovery's rules; a \`bearer\` server's name is resolved and judged before anything is stored. Writes a \`create_workspace_mcp_server\` receipt, never the token.`,
+    description: `${WORKSPACE_MCP_MANAGERS} \`auth_kind: oauth\` pins what discovery finds; connect it with the OAuth start and callback. \`auth_kind: bearer\` stores the token, connects it under the caller and reads the server's tools. \`auth_kind: none\` stores nothing, connects it under no one and reads the tools without a credential; its calls carry no credential, and a token, OAuth client, sign-in or disconnect asked of it answers 400 \`no_credential\`. The name is the tool prefix \`mcp__<name>__\`: one taken by the installation catalog or by another server of this workspace answers 409 ALREADY_EXISTS, and \`github\` and \`browser\` are reserved. The URL is held to discovery's rules; a \`bearer\` or \`none\` server's name is resolved and judged before anything is stored. Writes a \`create_workspace_mcp_server\` receipt, never the token.`,
     auth: "session",
     body: "CreateWorkspaceMcpServerRequest",
     requestExample: {
@@ -6553,7 +6553,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "disconnectWorkspaceMcpServer",
     tag: "Workspace settings",
     summary: "Disconnect a workspace MCP server",
-    description: `${WORKSPACE_MCP_MANAGERS} Deletes the stored tokens (a static token too) and asks the authorization server to revoke them (best effort; \`revoked\` null when there was nothing to revoke or no endpoint). Agents' next calls to the server are refused. Disabling the member who connected a server disconnects it too, without the revocation request. A server of an \`auth_kind\` this release does not know is left as it is and answers 400 \`auth_kind_unsupported\`. Writes a \`disconnect_workspace_mcp_server\` receipt.`,
+    description: `${WORKSPACE_MCP_MANAGERS} Deletes the stored tokens (a static token too) and asks the authorization server to revoke them (best effort; \`revoked\` null when there was nothing to revoke or no endpoint). Agents' next calls to the server are refused. Disabling the member who connected a server disconnects it too, without the revocation request. A server that takes no credential has nothing to disconnect and answers 400 \`no_credential\`. A server of an \`auth_kind\` this release does not know is left as it is and answers 400 \`auth_kind_unsupported\`. Writes a \`disconnect_workspace_mcp_server\` receipt.`,
     auth: "session",
     success: {
       status: 200,

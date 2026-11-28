@@ -24,6 +24,7 @@ import type {
 
 /** What control-host sends a server's calls with (`credentialFor`). */
 export type WorkspaceMcpCallCredential =
+  | { kind: "none" }
   | { kind: "bearer"; token: string }
   | { kind: "oauth"; accessToken: string };
 
@@ -141,7 +142,11 @@ export function createWorkspaceMcpEgress(deps: {
     );
     if (credential === null) return refuse("credential_unavailable");
     const token =
-      credential.kind === "bearer" ? credential.token : credential.accessToken;
+      credential.kind === "none"
+        ? null
+        : credential.kind === "bearer"
+          ? credential.token
+          : credential.accessToken;
     if (method === "tools/call" && tool !== null && !request.regrant) {
       const recorded = await store.recordCall({
         id: randomUUID(),
@@ -170,7 +175,9 @@ export function createWorkspaceMcpEgress(deps: {
         // As registered: the proxy would trim a trailing slash from `url`
         // and refuses a query in it.
         target: `${at.pathname}${at.search}`,
-        headers: [["authorization", `Bearer ${token}`]],
+        // A server that takes no credential gets no Authorization at all; the
+        // proxy drops the one the worker sent it.
+        headers: token === null ? [] : [["authorization", `Bearer ${token}`]],
         // The operator's private host stays under the proxy's lists.
         ...(listed !== "private" && at.protocol === "https:"
           ? { allow: "public_https" as const }

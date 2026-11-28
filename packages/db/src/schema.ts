@@ -4887,7 +4887,7 @@ export const workspaceMcpServers = pgTable(
       .references(() => workspaces.id, { onDelete: "cascade" }),
     name: text().notNull(),
     url: text().notNull(),
-    authKind: text("auth_kind").$type<"oauth" | "bearer">().notNull(),
+    authKind: text("auth_kind").$type<"oauth" | "bearer" | "none">().notNull(),
     oauth: jsonb().$type<WorkspaceMcpOAuthPin>(),
     tools: jsonb().$type<WorkspaceMcpTool[]>().notNull().default([]),
     toolsSkipped: integer("tools_skipped").notNull().default(0),
@@ -4919,7 +4919,7 @@ export const workspaceMcpServers = pgTable(
     ),
     check(
       "workspace_mcp_servers_auth_kind_check",
-      sql`${table.authKind} IN ('oauth', 'bearer')`,
+      sql`${table.authKind} IN ('oauth', 'bearer', 'none')`,
     ),
     check(
       "workspace_mcp_servers_oauth_check",

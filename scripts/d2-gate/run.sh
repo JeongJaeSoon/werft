@@ -13,7 +13,7 @@
 # Markdown) and every log land in D2_GATE_OUT (default: a fresh temp dir).
 #
 # D2_GATE_COMPOSE_OVERRIDE: more compose files after the gate's, separated by
-# colons as in COMPOSE_FILE; the nightly workflow (.github/workflows/d2-gate.yml)
+# colons as in COMPOSE_FILE; the D2 gate workflow (.github/workflows/d2-gate.yml)
 # passes the CI mirror overlays. D2_GATE_BUILD_ROOT: another checkout to build
 # the images from, while the gate itself runs from this one (scripts/soak/rc.sh).
 #
