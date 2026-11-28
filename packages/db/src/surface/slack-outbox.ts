@@ -2646,7 +2646,7 @@ export function createPostgresSlackOutboxStore(
             sql`starts_with(${t.dedupeKey}, ${prefix}::text)`,
             sql`right(${t.dedupeKey}, length(${suffix}::text)) = ${suffix}::text`,
             sql`length(${t.dedupeKey}) = length(${prefix}::text) + 36 + length(${suffix}::text)`,
-            sql`((${t.sessionLinkId} IS NULL AND ${t.slackTs} = ${slackTs}) OR ${t.slackTs} IS NULL)`,
+            sql`((${t.sessionLinkId} IS NULL AND ${t.slackTs} = ${slackTs}) OR (${t.slackTs} IS NULL AND ${t.status} IN ('sending', 'uncertain')))`,
           ),
         )
         .limit(1);

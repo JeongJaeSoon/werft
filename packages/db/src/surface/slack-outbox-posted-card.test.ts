@@ -65,11 +65,12 @@ async function card(input: {
   dedupeKey: string;
   // null: a post that never came back with its ts.
   slackTs?: string | null;
+  status?: "pending" | "sending" | "uncertain" | "failed";
 }) {
   await client.query(
     // A notice goes to one person alone.
-    `INSERT INTO slack_outbox (id, workspace_id, agent_id, slack_app_id, installation_id, kind, channel_id, thread_ts, session_id, session_link_id, body, dedupe_key, status, slack_ts, slack_user_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, '1.0', $8, $9, '{"text":"card"}', $10, $13, $11, $12)`,
+    `INSERT INTO slack_outbox (id, workspace_id, agent_id, slack_app_id, installation_id, kind, channel_id, thread_ts, session_id, session_link_id, body, dedupe_key, status, slack_ts, slack_user_id, claim_token, lease_expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, '1.0', $8, $9, '{"text":"card"}', $10, $13, $11, $12, $14, $15)`,
     [
       crypto.randomUUID(),
       WORKSPACE,
@@ -83,7 +84,12 @@ async function card(input: {
       input.dedupeKey,
       input.slackTs === undefined ? TS : input.slackTs,
       input.kind === "notice" ? "U0ONE" : null,
-      input.slackTs === null ? "uncertain" : "sent",
+      input.status ?? (input.slackTs === null ? "uncertain" : "sent"),
+      // A send under way holds its claim.
+      input.status === "sending" ? crypto.randomUUID() : null,
+      input.status === "sending"
+        ? new Date(Date.now() + 60_000).toISOString()
+        : null,
     ],
   );
 }
@@ -358,5 +364,23 @@ describe("the card a pressed message is", () => {
       slackTs: null,
     });
     expect(await at({ kind: "prompt", requestId: "toolu_8" })).toBeNull();
+    // A post in flight may be up already; one never tried or given up on is not.
+    for (const [requestId, status] of [
+      ["toolu_20", "sending"],
+      ["toolu_21", "pending"],
+      ["toolu_22", "failed"],
+    ] as const) {
+      await card({
+        sessionId,
+        linkId: l,
+        channelId: "C0ROOM",
+        dedupeKey: `prompt:${l}:${requestId}`,
+        slackTs: null,
+        status,
+      });
+    }
+    expect(await at({ kind: "prompt", requestId: "toolu_20" })).toBe("earlier");
+    expect(await at({ kind: "prompt", requestId: "toolu_21" })).toBeNull();
+    expect(await at({ kind: "prompt", requestId: "toolu_22" })).toBeNull();
   });
 });
