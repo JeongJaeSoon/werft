@@ -2,7 +2,9 @@ import {
   DEFAULT_USER_LOCALE,
   type PendingQuestion,
   type PushDecision,
+  pushRequestIdSchema,
   type QuestionAnswer,
+  requestIdSchema,
   SLACK_INTERACTION_ACTIONS,
   SLACK_NOTE_VIEW_CALLBACK,
   SLACK_NOTICE_MESSAGES,
@@ -13,6 +15,7 @@ import {
   type SlackNoticeMessage,
   type SlackQuestionViewMetadata,
   type SlackViewSubmissionPayload,
+  sessionIdSchema,
   sessionLinkIdSchema,
   slackBlockActionsPayloadSchema,
   slackInteractionPayloadSchema,
@@ -32,6 +35,7 @@ import type {
   SurfaceBindingStore,
   SurfaceConversationScope,
   SurfaceOutboxStore,
+  SurfacePostedCardKey,
   SurfaceProgressLink,
   TaskClose,
 } from "@werft-ai/platform";
@@ -130,7 +134,12 @@ export type SlackInteractionDeps = {
   botToken(workspaceId: string, slackAppId: string): Promise<string | null>;
   outbox: Pick<
     SurfaceOutboxStore,
-    "readerLocale" | "promptCard" | "progressLink" | "cards" | "aiLabelFor"
+    | "readerLocale"
+    | "promptCard"
+    | "postedCard"
+    | "progressLink"
+    | "cards"
+    | "aiLabelFor"
   >;
   /** The web page where a person links their Slack account. */
   connectUrl: string;
@@ -151,6 +160,15 @@ export type SlackInteractionDeps = {
 const OK: SlackInteractionResponse = { ok: true };
 const FOLLOW_UP_ATTEMPTS = 3;
 const CLEAR: SlackInteractionResponse = { response_action: "clear" };
+// The buttons of a request's card, each judged against the card pressed.
+const CARD_ACTIONS: ReadonlySet<string> = new Set([
+  SLACK_INTERACTION_ACTIONS.permissionAllow,
+  SLACK_INTERACTION_ACTIONS.permissionAllowSession,
+  SLACK_INTERACTION_ACTIONS.permissionDeny,
+  SLACK_INTERACTION_ACTIONS.questionOption,
+  SLACK_INTERACTION_ACTIONS.pushApprove,
+  SLACK_INTERACTION_ACTIONS.pushReject,
+]);
 
 const REQUEST_GONE_CODES = new Set([
   "REQUEST_EXPIRED",
@@ -376,7 +394,11 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     sessionId: string,
     request: { pushRequestId?: string; pendingRequestId?: string },
     action: "session.approve" | "session.submit" = "session.approve",
-    judged: { channelId?: string; refuse?: "surface_mismatch" } = {},
+    judged: {
+      channelId?: string;
+      refuse?: "surface_mismatch";
+      notice?: SlackNoticeMessage;
+    } = {},
   ): Promise<Allowed | { refused: string }> {
     const user = await deps.slack.userInfo(pressed.botToken, pressed.userId);
     const requestId = newRequestId();
@@ -402,7 +424,9 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         defer(() =>
           tell(
             pressed,
-            SLACK_NOTICE_MESSAGES[pressed.locale][told.message],
+            SLACK_NOTICE_MESSAGES[pressed.locale][
+              judged.notice ?? told.message
+            ],
             told.link_url,
           ),
         );
@@ -440,6 +464,52 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       });
     }
     return admit(pressed, sessionId, request, action, {
+      channelId: link.channelId,
+    });
+  }
+
+  /**
+   * A press on a posted card, the message `ts` of the pressed channel,
+   * judged at the channel of the link the card went out on (a mirror's own
+   * when it was one) whatever the value says. Refused as surface_mismatch,
+   * kept and told, when no row of the value's session posted that message
+   * for the value's request or turn.
+   */
+  async function admitOnCard(
+    pressed: Pressed,
+    ts: string,
+    value: SlackInteractionValue,
+    card: SurfacePostedCardKey | null,
+    action: "session.approve" | "session.submit",
+    request: { pushRequestId?: string; pendingRequestId?: string } = {},
+  ): Promise<Allowed | { refused: string }> {
+    const session = sessionIdSchema.safeParse(value.s);
+    const link =
+      session.success && card !== null
+        ? await deps.outbox.postedCard({
+            sessionId: session.data,
+            agentId: pressed.agentId,
+            channelId: pressed.channelId,
+            slackTs: ts,
+            card,
+          })
+        : null;
+    if (link === "earlier") {
+      return admit(pressed, value.s, request, action, {
+        refuse: "surface_mismatch",
+        notice: "pressEarlierCard",
+      });
+    }
+    const onIt =
+      link !== null &&
+      link.agentId.toLowerCase() === pressed.agentId.toLowerCase() &&
+      link.channelId === pressed.channelId;
+    if (!onIt || link === null) {
+      return admit(pressed, value.s, request, action, {
+        refuse: "surface_mismatch",
+      });
+    }
+    return admit(pressed, value.s, request, action, {
       channelId: link.channelId,
     });
   }
@@ -730,6 +800,17 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     });
   }
 
+  // The card a button's request names; null for a value no card could hold.
+  function promptKey(r: string): SurfacePostedCardKey | null {
+    const parsed = requestIdSchema.safeParse(r);
+    return parsed.success ? { kind: "prompt", requestId: parsed.data } : null;
+  }
+
+  function pushKey(r: string): SurfacePostedCardKey | null {
+    const parsed = pushRequestIdSchema.safeParse(r);
+    return parsed.success ? { kind: "push", pushRequestId: parsed.data } : null;
+  }
+
   function buttonValue(raw: string | undefined): SlackInteractionValue | null {
     try {
       return slackInteractionValueSchema.parse(JSON.parse(raw ?? ""));
@@ -853,9 +934,14 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
           return tell(pressed, text);
         });
     try {
-      const admitted = await admit(pressed, value.s, {
-        pendingRequestId: value.r,
-      });
+      const admitted = await admitOnCard(
+        pressed,
+        payload.message.ts,
+        value,
+        promptKey(value.r),
+        "session.approve",
+        { pendingRequestId: value.r },
+      );
       if ("refused" in admitted) {
         await show(copy.unavailable);
         return ok(`refused:${admitted.refused}`);
@@ -926,24 +1012,28 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       if (actionId === SLACK_INTERACTION_ACTIONS.taskCancel) {
         return ok(await closeTask(pressed, value, "cancelled"));
       }
-      // A press names its request, which the policy reads for a requester
-      // who left a private channel.
-      const push =
-        actionId === SLACK_INTERACTION_ACTIONS.pushApprove ||
-        actionId === SLACK_INTERACTION_ACTIONS.pushReject;
-      const admitted = await admit(
-        pressed,
-        value.s,
-        push ? { pushRequestId: value.r } : { pendingRequestId: value.r },
-      );
-      if ("refused" in admitted) return ok(`refused:${admitted.refused}`);
-      const card = cardOf(pressed, payload)(value);
       // Option buttons share a block, where Slack wants each id once.
       const kind = actionId.startsWith(
         `${SLACK_INTERACTION_ACTIONS.questionOption}:`,
       )
         ? SLACK_INTERACTION_ACTIONS.questionOption
         : actionId;
+      if (!CARD_ACTIONS.has(kind)) return ok("ignored");
+      // A press names its request, which the policy reads for a requester
+      // who left a private channel.
+      const push =
+        kind === SLACK_INTERACTION_ACTIONS.pushApprove ||
+        kind === SLACK_INTERACTION_ACTIONS.pushReject;
+      const admitted = await admitOnCard(
+        pressed,
+        payload.message.ts,
+        value,
+        push ? pushKey(value.r) : promptKey(value.r),
+        "session.approve",
+        push ? { pushRequestId: value.r } : { pendingRequestId: value.r },
+      );
+      if ("refused" in admitted) return ok(`refused:${admitted.refused}`);
+      const card = cardOf(pressed, payload)(value);
       switch (kind) {
         case SLACK_INTERACTION_ACTIONS.permissionAllow:
         case SLACK_INTERACTION_ACTIONS.permissionAllowSession:
@@ -1017,7 +1107,13 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
   ): Promise<string> {
     const turnId = Number(value.r);
     if (!Number.isSafeInteger(turnId) || turnId < 1) return "ignored";
-    const admitted = await admit(pressed, value.s, {}, "session.submit");
+    const admitted = await admitOnCard(
+      pressed,
+      ts,
+      value,
+      { kind: "turn", turnId },
+      "session.submit",
+    );
     if ("refused" in admitted) return `refused:${admitted.refused}`;
     // A later turn already went on from it: no turn, and the button goes.
     const superseded = await deps.sessions
@@ -1079,7 +1175,13 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
   ): Promise<string> {
     const turnId = Number(value.r);
     if (!Number.isSafeInteger(turnId) || turnId < 1) return "ignored";
-    const admitted = await admit(pressed, value.s, {}, "session.submit");
+    const admitted = await admitOnCard(
+      pressed,
+      ts,
+      value,
+      { kind: "turn", turnId },
+      "session.submit",
+    );
     if ("refused" in admitted) return `refused:${admitted.refused}`;
     // The session moved on another way (a decision elsewhere, a close): the
     // decision no longer applies and nothing is run.
@@ -1192,9 +1294,16 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       });
       if (pressed === null) return ok("refused:no_bot_token", CLEAR);
       locale = pressed.locale;
-      const admitted = await admit(pressed, metadata.s, {
-        pendingRequestId: metadata.r,
-      });
+      // The card the form was opened from, as the form names it: checked
+      // again now, whatever was checked when it opened.
+      const admitted = await admitOnCard(
+        pressed,
+        metadata.m,
+        value,
+        promptKey(metadata.r),
+        "session.approve",
+        { pendingRequestId: metadata.r },
+      );
       if ("refused" in admitted) {
         return ok(`refused:${admitted.refused}`, CLEAR);
       }
