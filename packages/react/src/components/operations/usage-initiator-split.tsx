@@ -10,6 +10,7 @@ import {
   GridTableRow,
   Meter,
   Section,
+  Text,
 } from "@werft-ai/ui";
 import type { JSX, ReactElement, ReactNode } from "react";
 
@@ -51,9 +52,16 @@ export function UsageInitiatorSplit({
   ] as const;
   const total = parts.reduce((sum, [, , usd]) => sum + Number(usd), 0);
   // Task sessions of calls of unknown price alone: a $0.00 would read as free.
+  const unknownCalls = totals?.unknown_price?.call_count ?? 0;
   const sessionUnpriced =
-    Number(totals?.cost_usd ?? 0) === 0 &&
-    (totals?.unknown_price?.call_count ?? 0) > 0;
+    Number(totals?.cost_usd ?? 0) === 0 && unknownCalls > 0;
+  // As the cost table: the known amount, then its calls of unknown price.
+  const unknownLine =
+    unknownCalls === 0
+      ? null
+      : sessionUnpriced
+        ? unknownPrice.calls(format.count(unknownCalls))
+        : `+ ${unknownPrice.calls(format.count(unknownCalls))}`;
   const row = (
     key: string,
     label: ReactNode,
@@ -78,12 +86,17 @@ export function UsageInitiatorSplit({
           />
         )}
       </GridTableCell>
-      <GridTableCell className="tabular-nums">
+      <GridTableCell lines className="items-end tabular-nums">
         <Value loading={loading}>
           {key === "session" && sessionUnpriced
             ? unknownPrice.noAmount
             : format.usd(usd)}
         </Value>
+        {key === "session" && !loading && unknownLine ? (
+          <Text as="span" variant="meta" title={unknownLine}>
+            {unknownLine}
+          </Text>
+        ) : null}
       </GridTableCell>
       <GridTableCell className="text-subtle-foreground tabular-nums">
         <Value loading={loading} width="2rem">

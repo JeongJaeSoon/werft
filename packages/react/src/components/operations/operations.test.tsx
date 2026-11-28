@@ -1440,7 +1440,24 @@ describe("UsageCostTable", () => {
         [...r.querySelectorAll("[role=cell]")].map((c) => c.textContent),
       )
       .find((cells) => cells[0] === "작업 세션");
-    expect(session?.[2]).toBe("금액 미상");
+    expect(session?.[2]).toBe("금액 미상단가 미상 2건");
+    unpriced.unmount();
+    // A known amount with calls of unknown price says it is not all.
+    const mixed = withPlatform(
+      <UsageInitiatorSplit
+        totals={{
+          ...totals,
+          unknown_price: { call_count: 2, token_count: 45 },
+        }}
+      />,
+    );
+    const mixedSession = mixed
+      .getAllByRole("row")
+      .map((r) =>
+        [...r.querySelectorAll("[role=cell]")].map((c) => c.textContent),
+      )
+      .find((cells) => cells[0] === "작업 세션");
+    expect(mixedSession?.[2]).toBe("$0.40+ 단가 미상 2건");
   });
 
   test("성과당 비용: 병합된 PR 수와 하나당 비용은 API 값 그대로, 병합된 PR이 없으면 빈 상태다", () => {
