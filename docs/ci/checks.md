@@ -89,7 +89,7 @@ PR의 merge를 막지 않는다. 경로가 닿는 PR에서 돌고, 일부는 밤
 
 | workflow | 지키는 것 | PR에서 도는 경로 | 야간 (UTC) | main·야간·수동 run이 실패하면 |
 | --- | --- | --- | --- | --- |
-| `d2-gate.yml` | 이 checkout으로 빌드한 이미지의 compose 스택 전체에서 D2 완료 gate 항목(A–E, R1–R2, H1–H5) | gate 자신의 파일과, worker를 끝내고 turn을 닫는 코드(scheduler, reconciler, pass-loop, sessions, workers, worker 앱, 로컬 Docker backend). ready for review로 바꿀 때만 | 없음. main push마다 | 이슈 `ci-d2-gate-failure` |
+| `d2-gate.yml` | 이 checkout으로 빌드한 이미지의 compose 스택 전체에서 D2 완료 gate 항목(A–E, R1–R2, H1–H5) | gate 자신의 파일과, worker를 끝내고 turn을 닫는 코드(scheduler, reconciler, pass-loop, sessions, workers, worker 앱, 로컬 Docker backend). ready for review로 바꿀 때만 | 없음. main push(대기는 가장 새 것 하나) | 이슈 `ci-d2-gate-failure` |
 | `keycloak-login.yml` | 실제 Keycloak을 상대로 provider 로그인이 끝까지 된다: 추가, 시험 로그인, 켜기, 연결, 첫 가입, 미확인 계정 거절, 끄면 세션 종료, 틀린 PKCE 거절, 로그에 secret 없음 | 로그인 API, web의 로그인 화면, Keycloak compose, verify 스크립트 | 매일 18:47 | 이슈 `ci-keycloak-login-failure` |
 | `k8s-replicas.yml` | api replica 둘 중 어디에 닿아도 세션 흐름이 맞고 turn이 두 번 돌지 않는다 | chart, kind 스크립트 | 없음 | 빨간 run뿐 |
 | `k8s-upgrade.yml` | 기다리는 세션과 멈춘 세션이 helm upgrade와 rollback을 지나도 그대로다 | chart, `upgrade-check.ts`, kind 스크립트 | 없음 | 빨간 run뿐 |
@@ -105,7 +105,7 @@ PR의 merge를 막지 않는다. 경로가 닿는 PR에서 돌고, 일부는 밤
 
 ### filter 밖 경로는 PR에서 보지 않는다
 
-경로 filter는 선을 그은 것이지 증명이 아니다. gate가 지키는 동작은 filter 밖의 코드도 바꿀 수 있다. filter 밖 경로만 바꾼 PR에서는 그 gate가 돌지 않는다. D2 gate는 병합 뒤의 main run이, 야간 run이 있는 gate는 그날 밤 run이 처음 본다. 야간이 없는 gate는 다음에 경로가 닿는 PR이나 수동 run까지 아무도 보지 않는다. main run이나 야간 run의 이슈가 열리면, 마지막으로 성공한 그 run 뒤에 merge된 PR 중 아래 경로를 바꾼 것부터 본다.
+경로 filter는 선을 그은 것이지 증명이 아니다. gate가 지키는 동작은 filter 밖의 코드도 바꿀 수 있다. filter 밖 경로만 바꾼 PR에서는 그 gate가 돌지 않는다. D2 gate는 병합 뒤의 main run이(병합이 몰려 밀려난 commit은 그다음 main run이), 야간 run이 있는 gate는 그날 밤 run이 처음 본다. 그 밖의 야간이 없는 gate는 다음에 경로가 닿는 PR이나 수동 run까지 아무도 보지 않는다. main run이나 야간 run의 이슈가 열리면, 마지막으로 성공한 그 run 뒤에 merge된 PR 중 아래 경로를 바꾼 것부터 본다.
 
 | gate | PR에서 보지 않는 경로 | 뒤를 받치는 것 |
 | --- | --- | --- |

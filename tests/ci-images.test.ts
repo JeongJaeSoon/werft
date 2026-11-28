@@ -510,9 +510,10 @@ describe("the D2 gate workflow", () => {
   });
 
   test("runs on ready for review, pushes to main and by hand, never on a pull request's push", () => {
-    const { on, concurrency } = Bun.YAML.parse(text) as {
+    const { on, concurrency, jobs } = Bun.YAML.parse(text) as {
       on: Record<string, Record<string, unknown> | null>;
       concurrency: Record<string, string>;
+      jobs: Record<string, { if?: string; needs?: string }>;
     };
     expect(Object.keys(on).sort()).toEqual([
       "pull_request",
@@ -520,6 +521,13 @@ describe("the D2 gate workflow", () => {
       "workflow_dispatch",
     ]);
     expect(on.pull_request?.types).toEqual(["ready_for_review"]);
+    // No other filter or condition may keep the gate from running.
+    expect(Object.keys(on.pull_request ?? {}).sort()).toEqual([
+      "paths",
+      "types",
+    ]);
+    expect(jobs["d2-gate"]?.if).toBeUndefined();
+    expect(jobs["d2-gate"]?.needs).toBeUndefined();
     // No path filter on main: it is what covers the paths a pull request skips.
     expect(on.push).toEqual({ branches: ["main"] });
     // A manual run shares no group, so a later push cannot replace it.
