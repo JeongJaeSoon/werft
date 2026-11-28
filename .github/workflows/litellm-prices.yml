@@ -86,6 +86,13 @@ jobs:
           # again; whether it still needs its pull request is asked below.
           pushed=false
           if git ls-remote --exit-code origin "refs/heads/$branch" >/dev/null; then
+            # It must hold what this run generated and is about to test: one
+            # written by an older script is not what the report describes.
+            git fetch --quiet origin "$branch"
+            if ! git diff --quiet FETCH_HEAD -- "$FILE"; then
+              echo "::error::$branch holds another snapshot than this run generates; delete the branch and run again"
+              exit 1
+            fi
             pushed=true
           fi
           {
@@ -120,7 +127,10 @@ jobs:
           # Open, merged or closed: a pull request this branch already had is
           # the answer a person gave, and is not opened again. A branch
           # without one is from a run that could not open it.
-          if [ "$(gh pr list --head "$BRANCH" --state all --json number --jq length)" != "0" ]; then
+          # Its own statement: a listing that fails must fail the step, not
+          # read as "it has one".
+          known=$(gh pr list --head "$BRANCH" --state all --json number --jq length)
+          if [ "$known" != "0" ]; then
             echo "\`$BRANCH\` already has its pull request." >>"$GITHUB_STEP_SUMMARY"
             exit 0
           fi

@@ -89,13 +89,24 @@ describe("the LiteLLM snapshot's lookups", () => {
   });
 
   test("a cache write is never charged below plain input, so a reserve of all long-lived writes is the dearest prompt", () => {
-    const { ratesFor } = liteLlmPrices([["m", 10, 20, 1, 1, 2]], []);
+    const { ratesFor } = liteLlmPrices(
+      [
+        ["m", 10, 20, 1, 1, 2],
+        // A cache read dearer than every write.
+        ["dear-read", 10, 20, 30, 10, 20],
+      ],
+      [],
+    );
     expect(ratesFor("m", 0, writes)).toEqual({
       input: 10,
       output: 20,
       cacheRead: 1,
       cacheWrite: 10,
       cacheWriteLong: 10,
+    });
+    expect(ratesFor("dear-read", 0, writes)).toMatchObject({
+      cacheRead: 30,
+      cacheWriteLong: 30,
     });
   });
 

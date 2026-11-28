@@ -775,8 +775,8 @@ describe("usage service", () => {
       // Read after the total, and past it: the part is cut to its whole.
       unknownPrice = { callCount: 2, tokens: 1_500, costUsd: "9.000000" };
       const late = await service().getUsageSummary(user("member"), query("me"));
-      expect(Number(late.cost_usd)).toBeLessThan(9);
-      expect(Number(late.unknown_price.cost_usd)).toBe(Number(late.cost_usd));
+      expect(late.cost_usd).toBe("1.250000");
+      expect(late.unknown_price.cost_usd).toBe("1.250000");
     } finally {
       unknownPrice = { callCount: 0, tokens: 0, costUsd: "0" };
     }

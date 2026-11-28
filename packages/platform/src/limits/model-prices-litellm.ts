@@ -87,9 +87,13 @@ function dearest(a: LiteLlmRates, b: LiteLlmRates): LiteLlmRates {
  * One rate card with every part filled. A part the snapshot does not price
  * is charged from the input rate, with no discount: a cache read at the
  * input rate, a cache write at the caller's multiple of it. A cache write is
- * never charged below plain input, nor a long-lived one below a short one:
- * a reserve counts every prompt token as the longest-lived write, and that
- * must be the dearest the prompt can cost.
+ * never charged below plain input, nor a long-lived one below a short one or
+ * a cache read: a reserve counts every prompt token as the longest-lived
+ * write, and no other way to charge a prompt token may cost more.
+ *
+ * How parts are filled and combined here is part of the price as much as
+ * the rows are: a change to it goes with a higher RULES in
+ * scripts/update-litellm-prices.ts, which PRICE_VERSION carries.
  */
 function filled(
   given: LiteLlmRates,
@@ -97,6 +101,7 @@ function filled(
   writes: WriteMultiples,
 ): LiteLlmRates {
   const input = given.input > 0 ? given.input : base.input;
+  const cacheRead = given.cacheRead > 0 ? given.cacheRead : input;
   const cacheWrite = Math.max(
     input,
     given.cacheWrite > 0 ? given.cacheWrite : input * writes.short,
@@ -104,10 +109,11 @@ function filled(
   return {
     input,
     output: given.output > 0 ? given.output : base.output,
-    cacheRead: given.cacheRead > 0 ? given.cacheRead : input,
+    cacheRead,
     cacheWrite,
     cacheWriteLong: Math.max(
       cacheWrite,
+      cacheRead,
       given.cacheWriteLong > 0 ? given.cacheWriteLong : input * writes.long,
     ),
   };

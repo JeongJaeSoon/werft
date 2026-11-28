@@ -113,6 +113,18 @@ describe("what the snapshot keeps of the upstream file", () => {
     expect(tokens).toEqual([["tiered", 1, 4, 0, 0, 0, 200_000, 0, 6, 0, 0, 3]]);
   });
 
+  test("refuses a tier past any prompt's length, which would print as null", () => {
+    expect(() =>
+      extract({
+        tiered: chat({
+          input_cost_per_token: 1e-6,
+          output_cost_per_token: 4e-6,
+          [`output_cost_per_token_above_${"9".repeat(310)}k_tokens`]: 6e-6,
+        }),
+      }),
+    ).toThrow(/a tier past/);
+  });
+
   test("a judgment model with an input rate, even when its answer is free", () => {
     const { tokens, decisions } = extract({
       judge: { mode: "decisions", input_cost_per_token: 1e-7 },
@@ -229,6 +241,8 @@ describe("what a moved pin reports for the pull request", () => {
     expect(fell(base, [2, 8, 0.1, 2.5, 4, 200_000, 4, 12, 0.4, 5, 8])).toBe(1);
     // The tier's output at half.
     expect(fell(base, [2, 8, 0.2, 2.5, 4, 200_000, 4, 6, 0.4, 5, 8])).toBe(1);
+    // A cache read left out before (charged from the input rate), priced now.
+    expect(fell([2, 8], [2, 8, 0.02])).toBe(1);
     // The tier starts later, and the tier is gone.
     expect(fell(base, [2, 8, 0.2, 2.5, 4, 272_000, 4, 12, 0.4, 5, 8])).toBe(1);
     expect(fell(base, [2, 8, 0.2, 2.5, 4])).toBe(1);

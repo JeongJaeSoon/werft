@@ -56,6 +56,8 @@ const PARTS = [
   "cache_creation_input_token_cost",
 ] as const;
 const MAX_USD_PER_MTOK = 1_000_000;
+/** No prompt is this long: a tier past it is a typo, and prints as null. */
+const MAX_TIER_K_TOKENS = 100_000;
 /** A cache write kept longer than the default costs more; either name. */
 const LONG_WRITES = ["_above_1hr", "_above_12hr"] as const;
 /** A long-prompt tier, by any part it prices: some give no input rate. */
@@ -154,6 +156,12 @@ export function extract(raw: unknown): Snapshot {
       ),
     ]
       .sort((a, b) => a - b)
+      .flatMap((k) => {
+        if (k > MAX_TIER_K_TOKENS) {
+          throw new ShapeError(`${model}: a tier past ${k}k tokens`);
+        }
+        return [k];
+      })
       .flatMap((k) => [
         k * 1000,
         ...ratesAt(model, entry, `_above_${k}k_tokens`),
@@ -234,8 +242,9 @@ const threshold = (index: number) => index >= 5 && (index - 5) % 6 === 0;
 
 /**
  * Models whose rates fell by half or more since `before`, whose tiers moved,
- * or that left: any part of a row, and the judgment models too. A rate read
- * too low undercounts a budget, so each is for a person to check.
+ * that price a part they left out before, or that left: any part of a row,
+ * and the judgment models too. A rate read too low undercounts a budget, so
+ * each is for a person to check. A model that is new is not listed.
  */
 export function drops(before: Snapshot, after: Snapshot): string[] {
   const tick = String.fromCharCode(96);
@@ -250,10 +259,16 @@ export function drops(before: Snapshot, after: Snapshot): string[] {
         lines.push(`${name}: no longer priced (was ${rates.join(", ")})`);
         continue;
       }
-      const fell = rates.some((rate, index) =>
-        threshold(index)
-          ? next[index] !== rate
-          : rate > 0 && (next[index] ?? 0) * 2 <= rate,
+      // A part left out was charged from the input rate; priced now, it
+      // may be charged far less, so that is named too.
+      const parts = Math.max(rates.length, next.length);
+      const fell = Array.from({ length: parts }, (_, index) => index).some(
+        (index) => {
+          const rate = rates[index] ?? 0;
+          const now = next[index] ?? 0;
+          if (threshold(index)) return now !== rate;
+          return rate > 0 ? now * 2 <= rate : now > 0;
+        },
       );
       if (fell) {
         lines.push(`${name}: ${rates.join(", ")} -> ${next.join(", ")}`);
@@ -397,8 +412,8 @@ if (import.meta.main) {
             ").",
           "",
           fell.length === 0
-            ? "No rate fell by half or more and no model left."
-            : "Models whose rates fell by half or more, whose tiers moved, or that left. Check each before merging: a rate read too low undercounts a budget. A row is USD per million tokens: input, output, cache read, cache write, long-lived cache write, then per long-prompt tier its prompt length and the same five.",
+            ? "No rate fell by half or more, no tier moved, no part left out is newly priced and no model left. New models are not listed."
+            : "Models whose rates fell by half or more, whose tiers moved, that now price a part they left out (it was charged from the input rate), or that left. New models are not listed. Check each before merging: a rate read too low undercounts a budget. A row is USD per million tokens: input, output, cache read, cache write, long-lived cache write, then per long-prompt tier its prompt length and the same five.",
           ...(fell.length === 0 ? [] : ["", ...fell]),
           "",
         ].join("\n"),

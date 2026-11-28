@@ -7,10 +7,12 @@ import {
 import type { HeldSpend } from "./ports/provider-exchange-ledger.ts";
 
 /**
- * A reserve priced as the dearest call its request could turn out to be:
- * every prompt token written to the longest-lived cache, which the table
- * charges at each model's highest write multiple. `pricedBy` is what prices
- * the model the request asked for.
+ * A reserve priced as the dearest way the request's own tokens can be charged
+ * for the model it names: every prompt token written to the longest-lived
+ * cache, which the table charges at each model's highest write multiple. It
+ * is an estimate, not a ceiling on the settlement: a dearer model answering
+ * or a fee the request did not announce (a web search) settles above it.
+ * `pricedBy` is what prices the model the request asked for.
  */
 export function priceReservation(reserve: ProviderUsage): {
   costUsd: number;
