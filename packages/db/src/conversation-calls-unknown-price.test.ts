@@ -234,9 +234,15 @@ describe("a conversation call's limit on tokens of unknown price, by account and
       reservedCostUsd: 0,
     });
     const marks = await db
-      .select({ pricedBy: conversationCalls.pricedBy })
+      .select({
+        reservePricedBy: conversationCalls.reservePricedBy,
+        pricedBy: conversationCalls.pricedBy,
+      })
       .from(conversationCalls);
-    expect(marks).toEqual([{ pricedBy: "unknown" }, { pricedBy: "unknown" }]);
+    expect(marks).toEqual([
+      { reservePricedBy: "unknown", pricedBy: null },
+      { reservePricedBy: "unknown", pricedBy: null },
+    ]);
   });
 
   test("a priced model's calls are as before on an account with no tokens of unknown price, however low the limit", async () => {
@@ -312,8 +318,32 @@ describe("a conversation call's limit on tokens of unknown price, by account and
     ).toBe("refused");
     await db
       .update(conversationCalls)
-      .set({ pricedBy: null })
+      .set({ reservePricedBy: null })
       .where(eq(conversationCalls.id, first.callId));
+    expect(
+      (await issue(limit, agentId, person(userId), UNPRICED)).outcome,
+    ).toBe("issued");
+  });
+
+  test("a call an older image settled stores no label: issued for a priced model, its tokens count when the report came to no amount, and not when it came to one", async () => {
+    const { agentId } = await agentOf();
+    const userId = randomUUID();
+    await costOnly(userId);
+    // Room for one reserve and less than the 940 tokens of a report besides.
+    const limit = T + 500;
+    const priced = await issued(limit, agentId, person(userId), PRICED);
+    await used(priced, usageOf(PRICED, 900));
+    const free = await issued(limit, agentId, person(userId), PRICED);
+    await used(free, usageOf(UNPRICED, 900));
+    // As an older image's settlement leaves them.
+    await db.update(conversationCalls).set({ pricedBy: null });
+    expect(await issue(limit, agentId, person(userId), UNPRICED)).toMatchObject(
+      { outcome: "refused", by: "unknown_price_tokens" },
+    );
+    await db
+      .update(conversationCalls)
+      .set({ reservePricedBy: null })
+      .where(eq(conversationCalls.id, free.callId));
     expect(
       (await issue(limit, agentId, person(userId), UNPRICED)).outcome,
     ).toBe("issued");
@@ -348,10 +378,7 @@ describe("a conversation call's limit on tokens of unknown price, by account and
     expect(
       (await issue(limit, agentId, person(userId), UNPRICED)).outcome,
     ).toBe("refused");
-    // The call and its account as last month left them.
-    await db.execute(
-      sql`UPDATE conversation_calls SET created_at = created_at - interval '40 days'`,
-    );
+    // The account as last month left it: the call, made today, is on it.
     await db.execute(
       sql`UPDATE budget_accounts SET period_start = (date_trunc('month', clock_timestamp() AT TIME ZONE 'UTC') - interval '1 month')::date`,
     );
@@ -523,8 +550,8 @@ describe("a conversation turn's calls on the limit on tokens of unknown price", 
       expect((await turn.call(1)).outcome).toBe("ok");
     }
     const marks = await db
-      .select({ pricedBy: conversationCalls.pricedBy })
+      .select({ reservePricedBy: conversationCalls.reservePricedBy })
       .from(conversationCalls);
-    expect(marks.every((row) => row.pricedBy === "table")).toBe(true);
+    expect(marks.every((row) => row.reservePricedBy === "table")).toBe(true);
   });
 });

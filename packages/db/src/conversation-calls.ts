@@ -213,11 +213,26 @@ export async function holdConversationCallLimitsIn(
 const MONTH_START = sql`(date_trunc('month', ${DB_NOW} AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')`;
 
 /**
- * The tokens of the conversation calls marked of unknown price held on the
- * account (null: on none, then the agent's alone) this month: a held call's
- * reserve, a settled one's tokens, a resolved one's late report or else what
- * its resolve charged. A released call holds nothing. A row an older image
- * wrote is not marked, so it is not counted.
+ * Whether a call counts as one of unknown price: what settled it, once a
+ * report has; before, what priced the model it was issued for. A report an
+ * older image settled writes no label: then a call issued for a priced model
+ * counts when the report came to no amount, as one nothing prices does, so
+ * a mixed rollout drops none of them. A row an older image issued has no
+ * label at all and does not count.
+ */
+const UNKNOWN_PRICED = sql<boolean>`CASE
+  WHEN ${conversationCalls.pricedBy} IS NOT NULL THEN ${conversationCalls.pricedBy} = 'unknown'
+  WHEN ${conversationCalls.reservePricedBy} IS NULL OR ${conversationCalls.reservePricedBy} = 'unmetered' THEN false
+  WHEN ${conversationCalls.reservePricedBy} = 'unknown' THEN true
+  ELSE (${conversationCalls.state} = 'settled' AND ${conversationCalls.costUsd} = 0)
+    OR ${budgetAdjustments.reportedCostUsd} = 0
+  END`;
+
+/**
+ * The tokens of the conversation calls of unknown price (UNKNOWN_PRICED)
+ * held on the account (null: on none, then the agent's alone) this month: a
+ * held call's reserve, a settled one's tokens, a resolved one's late report
+ * or else what its resolve charged. A released call holds nothing.
  */
 export async function unknownPriceTokensIn(
   tx: Database,
@@ -240,7 +255,7 @@ export async function unknownPriceTokensIn(
     .leftJoin(a, eq(a.callId, r.callId))
     .where(
       and(
-        eq(c.pricedBy, "unknown"),
+        UNKNOWN_PRICED,
         // An account is this month's: its calls were made in it, the bound
         // only lets the index skip the months before.
         gte(c.createdAt, sql`${MONTH_START} - interval '1 day'`),
@@ -411,7 +426,10 @@ function issueIn(
         model: input.model,
         maxTokens: input.maxTokens,
         maxRequestBytes: input.maxRequestBytes,
-        pricedBy: input.pricedBy,
+        reservePricedBy: input.pricedBy,
+        // Read after the locks, as MONTH_START is: a call on no account
+        // falls in the month the next issue under the agent's lock sums.
+        createdAt: DB_NOW,
         expiresAt: fromDbNow(input.ttlMs),
         conversationId: input.conversationId,
         topicId: input.topicId,
@@ -1092,8 +1110,9 @@ export function createPostgresConversationCalls(
               model: permit.model,
               maxTokens: permit.maxTokens,
               maxRequestBytes: permit.maxRequestBytes,
-              pricedBy: held.pricedBy,
+              reservePricedBy: held.pricedBy,
               state: "in_flight",
+              createdAt: DB_NOW,
               exchangeId: input.exchangeId,
               startedAt: DB_NOW,
               expiresAt: permit.expiresAt,

@@ -39,7 +39,8 @@ export type BudgetReserveResult =
       rootKind: BudgetRootKind;
     }
   // The reserve does not fit, or the agent's own work has no limit: no row.
-  // `by`: the caller's own judgment (alsoAdmits) refused it, not the limit.
+  // `by`: the caller's own judgment (reserveBudgetIn's admitsUnknownPrice)
+  // refused it, not the limit.
   | {
       outcome: "refused";
       accountId: BudgetAccountId | null;

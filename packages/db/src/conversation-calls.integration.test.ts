@@ -244,8 +244,10 @@ integration("conversation calls on PostgreSQL", () => {
       { costUsd: 1, tokens: null },
     );
     const unpriced = conversationCallReserve({ ...LIMITS, model: UNPRICED });
+    // An agent each: the account's row, not one agent's lock, orders them.
+    const callers = await Promise.all([0, 1, 2, 3].map(() => newAgent()));
     const results = await Promise.all(
-      [0, 1, 2, 3].map(() =>
+      callers.map(({ agentId, conversationId }) =>
         createConversationCalls({
           store: store(),
           catalog,

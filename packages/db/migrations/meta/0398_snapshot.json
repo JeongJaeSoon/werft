@@ -1,5 +1,5 @@
 {
-  "id": "20a496a7-1edb-4b44-bb8c-8be460f861de",
+  "id": "5ab61fbe-047a-4999-9cad-8d7f2bd5e6fa",
   "prevId": "c302eeaf-651e-422d-a503-8f0a44016b18",
   "version": "7",
   "dialect": "postgresql",
@@ -5788,6 +5788,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "reserve_priced_by": {
+          "name": "reserve_priced_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "priced_by": {
           "name": "priced_by",
           "type": "text",
@@ -6018,22 +6024,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "conversation_calls_price_unknown_idx": {
-          "name": "conversation_calls_price_unknown_idx",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"conversation_calls\".\"priced_by\" = 'unknown'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -6098,7 +6088,7 @@
       "checkConstraints": {
         "conversation_calls_priced_by_check": {
           "name": "conversation_calls_priced_by_check",
-          "value": "\"conversation_calls\".\"priced_by\" IN ('table', 'litellm', 'unknown', 'unmetered')"
+          "value": "\"conversation_calls\".\"reserve_priced_by\" IN ('table', 'litellm', 'unknown', 'unmetered') AND \"conversation_calls\".\"priced_by\" IN ('table', 'litellm', 'unknown', 'unmetered')"
         },
         "conversation_calls_conversation_turn_check": {
           "name": "conversation_calls_conversation_turn_check",

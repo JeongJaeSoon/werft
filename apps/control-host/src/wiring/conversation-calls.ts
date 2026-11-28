@@ -18,14 +18,13 @@ export function wireConversationCallExecutor(deps: {
   egressUrl: string;
   logger: Parameters<typeof createConversationCallExecutor>[0]["logger"];
 }): ConversationCallExecutor {
+  const config = installationConfigOf(deps.db, deps.logger);
   return createConversationCallExecutor({
     calls: createConversationCalls({
       store: createPostgresConversationCalls(deps.db),
       catalog: deps.catalog,
       unknownPriceTokenLimit: () =>
-        installationConfigOf(deps.db, deps.logger).get(
-          "unknown_price_session_token_limit",
-        ),
+        config.get("unknown_price_session_token_limit"),
     }),
     egressUrl: deps.egressUrl,
     http: oneHostOutbound(deps.egressUrl, { private: true }),
