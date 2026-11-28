@@ -9,6 +9,7 @@ import {
 } from "@werft-ai/contracts";
 import type {
   ConversationRouteStore,
+  ConversationRouteTask,
   ConversationRouteTaskThread,
   ConversationTurnSurfaceSubject,
   PendingConversationRoute,
@@ -17,9 +18,11 @@ import type {
 } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
 import {
+  adoptSessionParent,
   keptTurnRequest,
   lockedDeletedSource,
   releaseKeptTurnRequest,
+  standaloneTaskOf,
 } from "../conversations/index.ts";
 import {
   APPEND_MESSAGE,
@@ -88,10 +91,14 @@ async function openTaskThread(
   executor: Database,
   route: PendingConversationRoute,
   hold = false,
-): Promise<ConversationRouteTaskThread | null> {
-  const [task] = rowsOf<{ channel_id: string; thread_id: string }>(
+): Promise<(ConversationRouteTaskThread & { openedByTs: string }) | null> {
+  const [task] = rowsOf<{
+    channel_id: string;
+    thread_id: string;
+    opened_by_ts: string;
+  }>(
     await executor.execute(sql`
-      SELECT sl.channel_id, sl.thread_id FROM sessions s
+      SELECT sl.channel_id, sl.thread_id, sl.opened_by_ts FROM sessions s
       JOIN session_links sl ON sl.session_id = s.id
         AND sl.role = 'primary'
         AND sl.closed_at IS NULL AND sl.revoked_at IS NULL
@@ -107,7 +114,33 @@ async function openTaskThread(
   );
   return task === undefined
     ? null
-    : { channelId: task.channel_id, threadTs: task.thread_id };
+    : {
+        channelId: task.channel_id,
+        threadTs: task.thread_id,
+        openedByTs: task.opened_by_ts,
+      };
+}
+
+// The DM's own person, when the turn's requester is them (v1-b/DM3).
+const dmPersonOf = (route: PendingConversationRoute) =>
+  route.dm !== null && route.dm.personUserId === route.requesterUserId
+    ? route.dm.personUserId
+    : null;
+
+const standaloneOf = (route: PendingConversationRoute, person: string) =>
+  standaloneTaskOf(sql.raw("s"), {
+    workspaceId: route.workspaceId,
+    agentId: route.agentId,
+    personUserId: person,
+  });
+
+const threadRefOf = (route: PendingConversationRoute) =>
+  `${route.thread.channelId}:${route.thread.threadTs}`;
+
+class BindRefused extends Error {
+  constructor(readonly reason: "gone" | "thread_taken" | "other_parent") {
+    super(reason);
+  }
 }
 
 /**
@@ -133,6 +166,9 @@ export function createPostgresConversationRoutes(
         sources: StoredSourceSet | null;
         installation_id: string | null;
         slack_app_id: string | null;
+        conversation_kind: string;
+        person_user_id: string | null;
+        dm_binding_id: string | null;
         thread_ts: string | null;
         team_id: string | null;
         channel_id: string | null;
@@ -142,6 +178,14 @@ export function createPostgresConversationRoutes(
           SELECT t.workspace_id, t.agent_id, t.conversation_id, t.topic_id,
             t.requester_kind, t.requester_id, t.routed_session_id,
             t.slack_subject, t.sources,
+            c.kind AS conversation_kind, c.person_user_id,
+            (SELECT sb.id FROM surface_bindings sb
+              WHERE sb.installation_id = t.slack_installation_id
+                AND sb.agent_id = t.agent_id
+                -- A DM binding names no channel: the agent has one a workspace.
+                AND sb.surface_kind = 'dm' AND sb.status = 'ready'
+                AND sb.revoked_at IS NULL
+              ORDER BY sb.created_at DESC LIMIT 1) AS dm_binding_id,
             t.slack_installation_id AS installation_id,
             (SELECT sa.id FROM slack_installations i
               JOIN slack_apps sa ON sa.app_id = i.app_id
@@ -150,6 +194,7 @@ export function createPostgresConversationRoutes(
             tp.slack_thread_ts AS thread_ts,
             e.team_id, e.channel_id, e.ts
           FROM conversation_turns t
+          JOIN conversations c ON c.id = t.conversation_id
           JOIN conversation_topics tp ON tp.id = t.topic_id
           -- A person's mention alone hands work on (G2).
           JOIN conversation_engagements e ON e.conversation_turn_id = t.id
@@ -189,6 +234,13 @@ export function createPostgresConversationRoutes(
         requesterUserId: turn.requester_id,
         subject: turn.slack_subject,
         sources: turn.sources,
+        dm:
+          turn.conversation_kind === "dm" && turn.person_user_id !== null
+            ? {
+                personUserId: turn.person_user_id,
+                surfaceBindingId: turn.dm_binding_id,
+              }
+            : null,
       } as PendingConversationRoute;
     },
 
@@ -213,7 +265,107 @@ export function createPostgresConversationRoutes(
 
     requestText: (turnId) => keptTurnRequest(db, secretKey, turnId),
 
-    openTask: (route) => openTaskThread(db, route),
+    async openTask(route): Promise<ConversationRouteTask | null> {
+      const linked = await openTaskThread(db, route);
+      if (linked !== null) return { kind: "linked", ...linked };
+      const person = dmPersonOf(route);
+      if (person === null) return null;
+      const [row] = rowsOf<{ id: string }>(
+        await db.execute(sql`
+          SELECT s.id FROM sessions s
+          WHERE s.id = ${route.sessionId}::uuid
+            AND ${standaloneOf(route, person)}`),
+      );
+      return row === undefined ? null : { kind: "standalone" };
+    },
+
+    async bindStandalone(route) {
+      const person = dmPersonOf(route);
+      const bindingId = route.dm?.surfaceBindingId ?? null;
+      if (person === null || bindingId === null) return "gone";
+      const installationId = route.thread.installationId.toLowerCase();
+      const surfaceRef = threadRefOf(route);
+      try {
+        return await db.transaction(async (tx) => {
+          // The thread's reservation lock, first and alone, as a mention's.
+          await tx.execute(
+            sql`SELECT pg_advisory_xact_lock(hashtextextended(${`session_links:${installationId}:${surfaceRef}`}, 0))`,
+          );
+          const [session] = rowsOf<{ agent_release_id: string }>(
+            await tx.execute(sql`
+              SELECT s.agent_release_id FROM sessions s
+              WHERE s.id = ${route.sessionId}::uuid
+                AND ${standaloneOf(route, person)}
+              FOR UPDATE OF s`),
+          );
+          if (session === undefined) throw new BindRefused("gone");
+          const adopted = await adoptSessionParent(tx, route.sessionId, {
+            kind: "dm",
+            workspaceId: route.workspaceId,
+            agentId: route.agentId,
+            personUserId: person,
+          });
+          const [parent] = rowsOf<{ ok: boolean }>(
+            await tx.execute(sql`
+              SELECT parent_conversation_id = ${route.conversationId}::uuid AS ok
+              FROM sessions WHERE id = ${route.sessionId}::uuid`),
+          );
+          // Never another conversation's, whatever wrote it.
+          if (adopted === "other" || parent?.ok !== true) {
+            throw new BindRefused("other_parent");
+          }
+          const inserted = rowsOf<{ id: string }>(
+            await tx.execute(sql`
+              INSERT INTO session_links (id, workspace_id, owner_id, session_id,
+                installation_id, surface_binding_id, surface_ref, channel_id,
+                thread_id, opened_by_ts, agent_id, release_id, created_by)
+              VALUES (gen_random_uuid(), ${route.workspaceId}::uuid,
+                ${route.workspaceId}, ${route.sessionId}::uuid,
+                ${installationId}::uuid, ${bindingId}::uuid, ${surfaceRef},
+                ${route.thread.channelId}, ${route.thread.threadTs},
+                ${route.thread.messageTs}, ${route.agentId}::uuid,
+                ${session.agent_release_id}, ${route.requesterUserId}::uuid)
+              ON CONFLICT DO NOTHING
+              RETURNING id`),
+          );
+          if (inserted.length === 0) throw new BindRefused("thread_taken");
+          return "bound" as const;
+        });
+      } catch (error) {
+        if (error instanceof BindRefused) return error.reason;
+        throw error;
+      }
+    },
+
+    async unbindStandalone(route) {
+      await db.transaction(async (tx) => {
+        // As settle: the receipt read here is the last word on the input.
+        await lockConversationTurnInput(tx, {
+          workspaceId: route.workspaceId,
+          sessionId: route.sessionId,
+          turnId: route.turnId,
+        });
+        const dropped = rowsOf(
+          await tx.execute(sql`
+            DELETE FROM session_links
+            WHERE session_id = ${route.sessionId}::uuid
+              AND installation_id = ${route.thread.installationId.toLowerCase()}::uuid
+              AND surface_ref = ${threadRefOf(route)}
+              AND opened_by_ts = ${route.thread.messageTs}
+              AND closed_at IS NULL
+              AND NOT ${handedInput(route)}
+            RETURNING id`),
+        );
+        if (dropped.length === 0) return;
+        // With no link left, it is a standalone session again.
+        await tx.execute(sql`
+          UPDATE sessions SET parent_conversation_id = NULL
+          WHERE id = ${route.sessionId}::uuid
+            AND parent_conversation_id = ${route.conversationId}::uuid
+            AND NOT EXISTS (SELECT 1 FROM session_links
+              WHERE session_id = ${route.sessionId}::uuid)`);
+      });
+    },
 
     async settle(
       route,

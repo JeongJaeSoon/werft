@@ -42,6 +42,11 @@ export type PendingConversationRoute = {
   requesterUserId: string;
   subject: ConversationTurnSurfaceSubject | null;
   sources: StoredSourceSet | null;
+  /**
+   * A DM turn's: its person, and the DM's binding a standalone session's
+   * link is kept under (null when gone). Null for a channel turn.
+   */
+  dm: { personUserId: string; surfaceBindingId: string | null } | null;
 };
 
 /** The thread a task reports in: its open primary link's. */
@@ -49,6 +54,18 @@ export type ConversationRouteTaskThread = {
   channelId: string;
   threadTs: string;
 };
+
+/**
+ * The named task as the effect finds it: open in a thread, with the message
+ * that opened that thread's link, or a standalone session of the DM's
+ * person, which the hand-off binds to the turn's DM thread (v1-b/DM3).
+ */
+export type ConversationRouteTask =
+  | (ConversationRouteTaskThread & { kind: "linked"; openedByTs: string })
+  | { kind: "standalone" };
+
+/** Why a standalone session could not be bound to the turn's DM thread. */
+export type StandaloneBindRefusal = "gone" | "thread_taken" | "other_parent";
 
 /**
  * What the effect reads and writes of a turn. `settle` records the effect
@@ -69,13 +86,27 @@ export interface ConversationRouteStore {
   /** The request as the turn's runtime was given it; null once it is gone. */
   requestText(turnId: ConversationTurnId): Promise<string | null>;
   /**
-   * The named task's thread when it is still an open task of the turn's
-   * own conversation (G3): never one of another channel or another
-   * person's DM. Null otherwise.
+   * The named task when it is still an open task of the turn's own
+   * conversation (G3), never one of another channel or another person's DM,
+   * or for a DM turn, a standalone session of the DM's own person. Null
+   * otherwise.
    */
   openTask(
     route: PendingConversationRoute,
-  ): Promise<ConversationRouteTaskThread | null>;
+  ): Promise<ConversationRouteTask | null>;
+  /**
+   * Binds the named standalone session to the turn's DM thread, its parent
+   * the DM's conversation and its primary link opened by the turn's
+   * message, in one transaction, while it is still one: `bound`, or why not.
+   */
+  bindStandalone(
+    route: PendingConversationRoute,
+  ): Promise<"bound" | StandaloneBindRefusal>;
+  /**
+   * Takes back what `bindStandalone` wrote for this turn, unless the turn's
+   * input is in the session by now.
+   */
+  unbindStandalone(route: PendingConversationRoute): Promise<void>;
   /**
    * Records the effect. `line` is a server line for the turn's thread;
    * `mirror`, for a hand-off from another thread, points that thread at the
@@ -120,6 +151,11 @@ export const conversationRouteInputKey = (turnId: ConversationTurnId) =>
  * thread is pointed at the task and told once where the work goes on; the
  * task's reports stay in its own thread. Run again for the same turn, it
  * writes one input, one mirror row and one line.
+ *
+ * From a DM, the named task may be the person's standalone session
+ * (v1-b/DM3): it is bound to the DM thread before its input is written, so
+ * the input's turn reports there, and the thread is told once it is a task
+ * now. A hand-off that does not go through takes the binding back.
  */
 export async function routeConversationTurn(
   deps: {
@@ -148,6 +184,17 @@ export async function routeConversationTurn(
     agent_id: route.agentId,
     session_id: route.sessionId,
   };
+  // This turn bound a standalone session to its thread, now or on a run
+  // before this one.
+  const boundHere = (found: ConversationRouteTask | null) =>
+    found?.kind === "linked" &&
+    found.channelId === route.thread.channelId &&
+    found.threadTs === route.thread.threadTs &&
+    found.openedByTs === route.thread.messageTs;
+  let bound = false;
+  const unbind = async () => {
+    if (bound) await deps.store.unbindStandalone(route);
+  };
   const told = async (
     effect: ConversationRouteEffect,
     line: SlackNoticeMessage | null,
@@ -157,6 +204,7 @@ export async function routeConversationTurn(
       ...ids,
       reason,
     });
+    await unbind();
     if (await deps.store.settle(route, effect, line, null)) return effect;
     return settledElsewhere();
   };
@@ -165,14 +213,22 @@ export async function routeConversationTurn(
   const settledElsewhere = async () =>
     (await deps.store.handed(route)) ? routed(task) : ("none" as const);
   const routed = async (
-    task: ConversationRouteTaskThread | null,
+    task: ConversationRouteTask | null,
   ): Promise<ConversationRouteOutcome> => {
+    const standalone = bound || boundHere(task);
     const elsewhere =
-      task !== null &&
+      task?.kind === "linked" &&
       (task.channelId !== route.thread.channelId ||
         task.threadTs !== route.thread.threadTs);
     if (
-      !(await deps.store.settle(route, "routed", null, elsewhere ? task : null))
+      !(await deps.store.settle(
+        route,
+        "routed",
+        standalone ? "routeStandalone" : null,
+        elsewhere
+          ? { channelId: task.channelId, threadTs: task.threadTs }
+          : null,
+      ))
     ) {
       return "none";
     }
@@ -181,6 +237,7 @@ export async function routeConversationTurn(
   };
 
   const task = await deps.store.openTask(route);
+  bound = boundHere(task);
   // Written before a crash: it is the hand-off, whatever has changed since.
   if (await deps.store.handed(route)) return routed(task);
   // Deleted before the hand-off: nothing is written, and nothing is said.
@@ -205,6 +262,7 @@ export async function routeConversationTurn(
       reason,
     });
     if (await deps.store.handed(route)) return routed(task);
+    await unbind();
     const heard = await deps.tellRequester(
       route,
       routeRefusalNotice(reason, deps.connectUrl),
@@ -236,6 +294,13 @@ export async function routeConversationTurn(
   const requestText = await deps.store.requestText(turnId);
   if (requestText === null) {
     return told("failed", "routeFailed", "request_gone");
+  }
+  if (task.kind === "standalone") {
+    const binding = await deps.store.bindStandalone(route);
+    if (binding !== "bound") {
+      return told("failed", "routeFailed", `standalone_${binding}`);
+    }
+    bound = true;
   }
   try {
     await deps.sessions.appendMessage(
