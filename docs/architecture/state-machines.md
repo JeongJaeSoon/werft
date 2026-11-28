@@ -115,6 +115,39 @@
 
 시험: `apps/control-host/src/slack/outbox.integration.test.ts`의 `a task's close on …` 묶음과 `a work closed between a pass's progress and its link close keeps its link open for the closed update`, `apps/control-host/src/slack/session-handler.integration.test.ts`의 `a mention in the thread of a task its requester closed is a conversation turn, and its %s takes effect`, `packages/adapters/chat/slack/src/slack-interactions.test.ts`의 `the close buttons on a task's progress message` 묶음, `packages/platform/src/sessions/task-close.test.ts`, `packages/platform/src/sessions/outcome-refresher.test.ts`, `packages/db/src/sessions/task-close.test.ts`, `packages/db/src/close-control.integration.test.ts`의 `a task close that drains names its reason only once the session is closed; one lost to recovery leaves none`, `a pull request close that drains stores the reason judged under its lock and names it once closed`, `a pull request close does not wait on a refresh holding the pull request's row`.
 
+### 작업 닫기(시간 규칙: 14일 방치, 상한 뒤 7일 답 없음)가 일으키는 전이
+
+작업 세션(`task_closing` 있음)을 시간으로 닫는 길이다(v1-b/C2). reconciler pass마다 한 번, 한 번에 50개까지(`TASK_TIME_CLOSES_PER_PASS`) 고르고, 넘치는 것은 다음 pass로 넘긴다. 닫기는 C1과 같은 `closeAtomic`이다. 사유는 `abandoned`이고, status 이벤트의 actor는 `{kind: system, by: idle_rule}`이다(`packages/db/src/sessions/task-close.ts`의 `closeOnTimeRules`).
+
+시계는 데이터베이스 시계다. 마지막 활동은 세션이 만들어진 때, turn이 queued·시작·끝난 때 가운데 가장 늦은 것이다. 사람의 새 입력은 새 turn이므로 시계를 다시 시작한다. 걸리는 조건은 둘이다.
+
+- 방치: 마지막 활동 뒤 `task_closing.idleDays`(14)일이 지났다.
+- 상한 뒤 답 없음: 작업이 상한에 닿았고(turn 수 ≥ `task_interpretation.limits.turns`(40), 또는 끝난 turn들의 실행 시간 합 ≥ `limits.hours`(2)시간), 마지막 활동 뒤 `task_closing.quietAfterLimitDays`(7)일이 지났다.
+
+| 지금 상태 | 다음 상태 | 조건 | 누가 일으키나 |
+| --- | --- | --- | --- |
+| `active` (살아 있는 worker가 drain함) | `closing` 뒤 `closed` (status `stopped`) | 위 조건 하나를 채운 작업. queued·running turn이 없다. 사유는 `closed`가 될 때 쓴다(C1과 같음) | reconciler(system, `idle_rule`) |
+| `active` (drain할 worker 없음), `paused`, 이어 갈 수 있는 `stopped` | `closed` (status `stopped`) | 같음 | 같음 |
+| `pausing`, `stopping`, `resuming`, `recovery_required` | 그대로 | 고르지 않는다. 전이가 가라앉아 `active`·`paused`·`stopped`가 되면 다음 pass가 같은 조건으로 다시 판단한다. `recovery_required`는 복구 결정 뒤에야 가라앉는다 | — |
+| 이어 갈 수 없는 `stopped`, checkpoint가 덮지 못한 `active`, 레거시 pod | 그대로 | `closeAtomic`이 거절한다. 다음 pass에 다시 시도한다 | — |
+
+막을 전이(각각 거절 시험):
+
+- 작업이 아닌 세션(`task_closing` 없음, v1-b 전의 세션)은 얼마나 오래 쉬어도 닫히지 않는다.
+- queued·running turn이 있는 작업은 어느 규칙으로도 닫히지 않는다.
+- 상한에 닿지 않은 작업은 7일로 닫히지 않는다(14일만 건다). `task_interpretation`이 없는 작업도 같다.
+- 후보를 고른 뒤 세션을 잠그기 전에 들어온 입력(turn)이 있으면 닫지 않는다.
+
+지켜야 할 성질:
+
+- 조건은 닫기 트랜잭션이 세션을 잠근 뒤 같은 SQL로 다시 판단한다. turn은 세션 잠금 아래에서 들어오므로(`insertQueuedTurn`), 그 전에 커밋된 입력은 그 판단에 보인다.
+- 한 pass에서 닫는 수는 고른 수(50) 이하다.
+- pass마다 프로세스가 새로 뜨므로(`runPassLoop`) 고르는 순서는 무작위다. `closeAtomic`이 계속 거절하는 작업이 50개를 넘어도 다른 작업이 늘 밀려나지 않는다.
+- 닫힘 갱신의 문구는 '오래 답이 없어 작업을 닫았어요.'(`progressAbandoned`)이고, 스레드 링크는 `abandoned`로 닫힌다.
+- dry run에서는 닫지 않는다.
+
+시험: `packages/db/src/sessions/task-close.test.ts`의 `a task's time rules` 묶음과 `a close of a session no longer there is not_found, not closed work`, `apps/control-host/src/slack/outbox.integration.test.ts`의 `a task's time rules on …` 묶음, `apps/control-host/src/reconciler/reconcile.test.ts`.
+
 ### terminate가 일으키는 전이
 
 terminate는 사람이 세션을 강제로 끝내는 제어다(`POST /v1/sessions/{id}/terminate`, 관리자 terminate, 웹의 '세션 종료'). 판정은 `packages/db/src/control-unit-of-work.ts`의 `terminateAtomic`이 한다.

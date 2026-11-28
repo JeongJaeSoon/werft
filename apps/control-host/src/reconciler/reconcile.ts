@@ -46,6 +46,8 @@ export type ReconcilerRun = {
   // days, and the lines only they held.
   channelSummaryHistoryPruned: ChannelSummaryHistoryPrune;
   slackMembersPurged: number;
+  // Tasks this pass closed as abandoned; null on a dry run, which closes none.
+  tasksClosedIdle: number | null;
   ownership: OwnershipReconciled;
   // null on a dry run, which projects nothing.
   toolCalls: ToolCallProjection | null;
@@ -55,6 +57,10 @@ export type ReconcilerLogger = {
   info(message: string, fields?: Readonly<Record<string, unknown>>): void;
   warn(message: string, fields?: Readonly<Record<string, unknown>>): void;
 };
+
+// The most tasks one pass closes on their time rules (v1-b/C2); the rest
+// are left to the next pass.
+export const TASK_TIME_CLOSES_PER_PASS = 50;
 
 // The fill (packages/db sessions/neutral-fields.ts) passes rows once 60 seconds old
 // and runs every 15 seconds; held this long, it has stopped.
@@ -172,6 +178,9 @@ export async function runReconciler(input: {
     dryRun: boolean;
     limit: number;
   }): Promise<number>;
+  // Open tasks idle, or quiet past their limits, closed as abandoned
+  // (v1-b/C2), at most `limit` of them.
+  closeIdleTasks(limit: number): Promise<number>;
   // Agents no one live administers get their ownerless mark; agents that
   // have someone again lose it.
   reconcileOwnership(options: {
@@ -324,6 +333,13 @@ export async function runReconciler(input: {
     dry_run: dryRun,
     deleted_count: authAttemptsPurged,
   });
+  const tasksClosedIdle = dryRun
+    ? null
+    : await input.closeIdleTasks(TASK_TIME_CLOSES_PER_PASS);
+  input.logger.info("Idle tasks closed", {
+    dry_run: dryRun,
+    ...(tasksClosedIdle === null ? {} : { closed_count: tasksClosedIdle }),
+  });
   const ownership = await input.reconcileOwnership({ dryRun, limit });
   input.logger.info("Agent ownership reconciled", {
     dry_run: dryRun,
@@ -371,6 +387,7 @@ export async function runReconciler(input: {
     slackSourceMarksPurged,
     channelSummaryHistoryPruned,
     slackMembersPurged,
+    tasksClosedIdle,
     ownership,
     toolCalls,
   };

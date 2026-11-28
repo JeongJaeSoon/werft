@@ -7,11 +7,13 @@ import type {
   TaskCloses,
 } from "@werft-ai/platform";
 import { and, eq, sql } from "drizzle-orm";
+import { sessionWorkClosed } from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
 import { sessionOutcomes, sessions } from "../schema.ts";
 import { rowsOf } from "../statement-rows.ts";
 import {
   closeAtomic,
+  IDLE_RULE,
   PULL_REQUEST_EVENT,
   taskClosePayloadHash,
 } from "./close-control.ts";
@@ -51,6 +53,58 @@ async function pullRequestReason(
 }
 
 /**
+ * A task's time rules (v1-b/C2), on the database clock, over sessions `s`
+ * joined to their turns as `a` (`TURN_CLOCK`): no activity for the idle
+ * days of its closing rules, or for the quiet days once its turns or their
+ * working hours reached its limits. Never while a turn is queued or running.
+ * A session without closing rules is no task and is never due.
+ */
+const TIME_RULE_DUE = sql`
+  s.task_closing IS NOT NULL
+  AND s.task_closed_reason IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM turns q
+    WHERE q.session_id = s.id AND q.status IN ('queued', 'running'))
+  AND (
+    a.at <= now() - make_interval(days => (s.task_closing ->> 'idleDays')::int)
+    OR (
+      a.at <= now() - make_interval(
+        days => (s.task_closing ->> 'quietAfterLimitDays')::int)
+      AND (
+        a.turns >= (s.task_interpretation -> 'limits' ->> 'turns')::int
+        OR a.worked >= make_interval(
+          hours => (s.task_interpretation -> 'limits' ->> 'hours')::int))))`;
+
+/**
+ * A session's last activity (its creation, or a turn queued, started or
+ * ended: a person's new input is a new turn), its turns, and the time they
+ * ran. A turn is queued under the session's lock, so one read under it sees
+ * every turn committed before.
+ */
+const TURN_CLOCK = sql`
+  CROSS JOIN LATERAL (
+    SELECT
+      greatest(s.created_at, s.last_turn_at,
+        max(greatest(t.created_at, t.started_at, t.ended_at))) AS at,
+      count(t.id) AS turns,
+      coalesce(sum(t.ended_at - t.started_at), interval '0') AS worked
+    FROM turns t WHERE t.session_id = s.id) a`;
+
+/** A task its time rules, read under its lock, close as abandoned. */
+async function timeRuleReason(
+  tx: Database,
+  sessionId: string,
+): Promise<TaskClosedReason> {
+  const due = rowsOf<{ id: string }>(
+    await tx.execute(sql`
+      SELECT s.id FROM ${sessions} s ${TURN_CLOCK}
+      WHERE s.id = ${sessionId}::uuid AND ${TIME_RULE_DUE}`),
+  );
+  if (due.length === 0) throw new NotDue();
+  return "abandoned";
+}
+
+/**
  * The owner's close (closeAtomic) of a task with its closed reason in the
  * same transaction, on whatever revision the session is at. With no
  * principal it closes under the session owner's partition, as the system.
@@ -60,8 +114,8 @@ async function closeTask(
   input: {
     principal: Principal | null;
     sessionId: string;
-    reason: TaskClosedReason | typeof pullRequestReason;
-    by?: typeof PULL_REQUEST_EVENT;
+    reason: TaskClosedReason | typeof pullRequestReason | typeof timeRuleReason;
+    by?: typeof PULL_REQUEST_EVENT | typeof IDLE_RULE;
   },
 ): Promise<TaskCloseOutcome> {
   const sessionId = input.sessionId.toLowerCase();
@@ -108,8 +162,8 @@ async function closeTask(
         if (attempt < REVISION_ATTEMPTS) continue;
         return "refused";
       case "rejected":
-        return result.admissionState === "closed" ||
-          result.admissionState === "closing"
+        // A session gone (no row) is not_found above, not closed work.
+        return sessionWorkClosed(result.admissionState)
           ? "already_closed"
           : "refused";
       case "not_found":
@@ -168,6 +222,39 @@ export function createPostgresTaskCloses(db: Database): TaskCloses {
             sessionId: row.id,
             reason: pullRequestReason,
             by: PULL_REQUEST_EVENT,
+          });
+          if (outcome === "closing" || outcome === "closed") closed += 1;
+        } catch (error) {
+          failure ??= error;
+        }
+      }
+      if (failure !== undefined) throw failure;
+      return closed;
+    },
+
+    async closeOnTimeRules(limit) {
+      // The states closeAtomic closes from; one settling (pausing,
+      // stopping, resuming, recovery_required decided) is taken once it is
+      // in one. Each pass is a process of its own, so no cursor carries
+      // over: a random order keeps tasks the close keeps refusing from
+      // holding the others out of every pass.
+      const due = rowsOf<{ id: string }>(
+        await db.execute(sql`
+          SELECT s.id FROM ${sessions} s ${TURN_CLOCK}
+          WHERE s.admission_state IN ('active', 'paused', 'stopped')
+            AND ${TIME_RULE_DUE}
+          ORDER BY random()
+          LIMIT ${limit}`),
+      );
+      let closed = 0;
+      let failure: unknown;
+      for (const row of due) {
+        try {
+          const outcome = await closeTask(db, {
+            principal: null,
+            sessionId: row.id,
+            reason: timeRuleReason,
+            by: IDLE_RULE,
           });
           if (outcome === "closing" || outcome === "closed") closed += 1;
         } catch (error) {

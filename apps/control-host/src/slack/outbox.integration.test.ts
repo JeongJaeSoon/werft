@@ -9059,3 +9059,107 @@ describe.each(ENGINES)("a DM's thread on %s", (engine) => {
     ).toHaveLength(1);
   });
 });
+
+// v1-b/C2: a task its time rules close. The clock is moved by moving the
+// rows' own times back; the rules read the database clock.
+describe.each(ENGINES)("a task's time rules on %s", (engine) => {
+  useDatabase(engine);
+
+  const ko = SLACK_NOTICE_MESSAGES.ko;
+
+  const intervalOver = async () => {
+    await db
+      .update(slackOutbox)
+      .set({ nextAttemptAt: sql`now()` })
+      .where(eq(slackOutbox.kind, "progress"));
+    await db.execute(
+      sql`UPDATE slack_outbox_rate_blocks SET blocked_until = now() - interval '1 second'`,
+    );
+  };
+
+  /** A session in its thread, its progress message up, its one turn done. */
+  const sessionInThread = async (
+    closing: typeof TASK_CLOSING_DEFAULT | null,
+  ) => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db
+      .update(sessions)
+      .set({ taskClosing: closing })
+      .where(eq(sessions.id, sessionId));
+    await db.update(sessionLinks).set({ reportMode: "progress" });
+    await db
+      .update(turns)
+      .set({ status: "running" })
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 1)));
+    await outboxPass({ closeLinks: true });
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await intervalOver();
+    await outboxPass({ closeLinks: true });
+    slack.updates.length = 0;
+    return sessionId;
+  };
+
+  const daysPass = (sessionId: string, days: number) =>
+    db.execute(sql`
+      WITH moved AS (
+        UPDATE turns SET created_at = created_at - make_interval(days => ${days}),
+          started_at = started_at - make_interval(days => ${days}),
+          ended_at = ended_at - make_interval(days => ${days})
+        WHERE session_id = ${sessionId}::uuid RETURNING 1)
+      UPDATE sessions SET created_at = created_at - make_interval(days => ${days}),
+        last_turn_at = last_turn_at - make_interval(days => ${days})
+      WHERE id = ${sessionId}::uuid`);
+
+  const closeIdle = () =>
+    schema.createPostgresTaskCloses(db).closeOnTimeRules(50);
+
+  const stateOf = async (sessionId: string) =>
+    (
+      await db
+        .select({
+          admission: sessions.admissionState,
+          reason: sessions.taskClosedReason,
+        })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId))
+    )[0];
+
+  const lastWords = async () => {
+    for (let pass = 0; pass < 3; pass += 1) {
+      await intervalOver();
+      await outboxPass({ closeLinks: true });
+    }
+    return slack.updates.map(({ text }) => text.split("\n")[0]);
+  };
+
+  test("14 days without input: it closes as abandoned, its last report says so, and its link closes so", async () => {
+    const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
+    await daysPass(sessionId, 13);
+    expect(await closeIdle()).toBe(0);
+    await daysPass(sessionId, 1);
+    expect(await closeIdle()).toBe(1);
+    expect(await stateOf(sessionId)).toEqual({
+      admission: "closed",
+      reason: "abandoned",
+    });
+    expect(await lastWords()).toEqual([ko.progressAbandoned]);
+    const [link] = await db
+      .select({ closedReason: sessionLinks.closedReason })
+      .from(sessionLinks);
+    expect(link).toEqual({ closedReason: "abandoned" });
+    expect(await closeIdle()).toBe(0);
+  });
+
+  test("a session from before tasks stays open however long it sits", async () => {
+    const sessionId = await sessionInThread(null);
+    await daysPass(sessionId, 60);
+    expect(await closeIdle()).toBe(0);
+    expect(await stateOf(sessionId)).toEqual({
+      admission: "active",
+      reason: null,
+    });
+    expect(await lastWords()).toEqual([]);
+  });
+});

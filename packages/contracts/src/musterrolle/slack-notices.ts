@@ -28,6 +28,8 @@ const SLACK_NOTICE_MESSAGES_KO = {
   progressClosed: "작업을 마쳤어요",
   // Its task closed as cancelled, by its requester or its pull request.
   progressCancelled: "작업을 취소했어요",
+  // Its task closed as abandoned on its time rules (v1-b/C2).
+  progressAbandoned: "오래 답이 없어 작업을 닫았어요.",
   // The progress message's buttons that close its task (v1-b/C1).
   taskCloseComplete: "완료",
   taskCloseCancel: "취소",
@@ -159,6 +161,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     progressStarted: "開始",
     progressClosed: "作業を終えました",
     progressCancelled: "作業を取り消しました",
+    progressAbandoned: "長い間動きがないため作業を閉じました。",
     taskCloseComplete: "完了",
     taskCloseCancel: "取り消す",
     workStarted: "作業を始めました",
@@ -264,6 +267,8 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     progressStarted: "Started",
     progressClosed: "This task is done",
     progressCancelled: "This task was cancelled",
+    progressAbandoned:
+      "This task was closed after a long time without activity.",
     taskCloseComplete: "Done",
     taskCloseCancel: "Cancel",
     workStarted: "Started working on this",
