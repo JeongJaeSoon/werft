@@ -8196,6 +8196,35 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
     expect(postedLines()).toEqual([ko.progressRunning]);
   });
 
+  test("a first progress post that never went up gets no end once its thread moves off progress", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.update(surfaceBindings).set({ reportMode: "progress" });
+    await setTurn(sessionId, "running");
+    await outboxPass({ botToken: null });
+    expect(await progressRows()).toHaveLength(1);
+    await db.update(surfaceBindings).set({ reportMode: "per_step" });
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await db
+      .update(sessions)
+      .set({ admissionState: "closed", status: "stopped" })
+      .where(eq(sessions.id, sessionId));
+    for (let pass = 0; pass < 3; pass += 1) {
+      await intervalOver();
+      await outboxPass({ closeLinks: true });
+    }
+    // Its end would go as a first post: only the turn's own reply goes.
+    expect(postedLines()).toEqual(["Done."]);
+    expect(
+      (await progressRows()).filter(({ dedupeKey }) =>
+        dedupeKey.includes(":closed:"),
+      ),
+    ).toEqual([]);
+    const [link] = await db.select().from(sessionLinks);
+    expect(link?.closedAt).not.toBeNull();
+  });
+
   test("a progress message whose thread moved off progress mid-work still takes the work's end", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
@@ -8369,6 +8398,16 @@ describe.each(ENGINES)("a DM's thread on %s", (engine) => {
       );
     },
   );
+
+  test("a DM reads its agent's rollout even when its binding stores a mode", async () => {
+    const fixture = await agentInSlack();
+    const sessionId = await dmLink(fixture);
+    await db.update(surfaceBindings).set({ reportMode: "per_step" });
+    await rollout(fixture, "on");
+    await setTurn(sessionId, "queued");
+    await outboxPass();
+    expect(await progressRows()).toHaveLength(1);
+  });
 
   test("a DM's own report mode, once a link has one, wins over its default", async () => {
     const fixture = await agentInSlack();

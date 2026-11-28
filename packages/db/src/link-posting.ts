@@ -16,11 +16,14 @@ const unmovedSummary = (link: SQL) =>
  * binding's value is never read. Read on every pass while the link is open:
  * a channel picking a mode, or an agent's rollout moving, changes the open
  * threads that pick none. A closing link keeps the mode it closed under
- * (`closingReportMode`).
+ * (`closingReportMode`); a channel link closed with none, before closes kept
+ * one, reads as it did then: per_step, every channel's value before 0395.
  */
 export const reportModeOf = (link: SQL) => sql`coalesce(
   ${link}.report_mode,
-  (SELECT CASE WHEN pb.surface_kind = 'dm' THEN NULL ELSE pb.report_mode END
+  (SELECT CASE WHEN pb.surface_kind = 'dm' THEN NULL
+     WHEN ${link}.closed_at IS NOT NULL THEN ${defaultReportMode("off")}
+     ELSE pb.report_mode END
    FROM surface_bindings pb WHERE pb.id = ${link}.surface_binding_id),
   (SELECT CASE pa.conversation_rollout WHEN 'on' THEN ${defaultReportMode("on")}
      ELSE ${defaultReportMode("off")} END

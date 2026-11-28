@@ -569,8 +569,9 @@ const keepsProgressMessage = (link: SQL) => sql`(
   ${link}.role = 'primary' AND ${link}.thread_id <> '' AND ${reportsProgress(link)}
 )`;
 
-// Whether link `link` has a progress message up that it no longer keeps: its
-// mode moved off progress mid-work (a channel's pick, an agent's rollout).
+// Whether link `link` has a progress message up (Slack took it) that it no
+// longer keeps: its mode moved off progress mid-work (a channel's pick, an
+// agent's rollout). One never up gets no end: it would go as a first post.
 // The message takes no more updates, but still the work's end (idle, then
 // closed), so it never stays at running.
 const endsProgressMessage = (link: SQL) => sql`(
@@ -578,7 +579,8 @@ const endsProgressMessage = (link: SQL) => sql`(
   AND EXISTS (
     SELECT 1 FROM slack_outbox pm
     WHERE pm.installation_id = ${link}.installation_id
-      AND pm.progress_key = 'progress:' || ${link}.id)
+      AND pm.progress_key = 'progress:' || ${link}.id
+      AND pm.status = 'sent')
 )`;
 
 // How long a closed link still takes the follow-ups of answers stored before

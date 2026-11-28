@@ -176,7 +176,8 @@ describe("0395 binding report mode default", () => {
         { thread: "b-open-none", mode: "none", reports: false },
         { thread: "c-open-per-step", mode: "per_step", reports: true },
         { thread: "d-open-progress", mode: "progress", reports: true },
-        { thread: "e-closed-unset", mode: unset, reports: true },
+        // Closed before closes kept a mode: as it read then, whatever the rollout.
+        { thread: "e-closed-unset", mode: "per_step", reports: true },
         // An unmoved summary link stays silent whatever its mode reads.
         { thread: "f-unmoved-summary", mode: unset, reports: false },
         {
