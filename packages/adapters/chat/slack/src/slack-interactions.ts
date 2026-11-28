@@ -394,7 +394,11 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     sessionId: string,
     request: { pushRequestId?: string; pendingRequestId?: string },
     action: "session.approve" | "session.submit" = "session.approve",
-    judged: { channelId?: string; refuse?: "surface_mismatch" } = {},
+    judged: {
+      channelId?: string;
+      refuse?: "surface_mismatch";
+      notice?: SlackNoticeMessage;
+    } = {},
   ): Promise<Allowed | { refused: string }> {
     const user = await deps.slack.userInfo(pressed.botToken, pressed.userId);
     const requestId = newRequestId();
@@ -420,7 +424,9 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         defer(() =>
           tell(
             pressed,
-            SLACK_NOTICE_MESSAGES[pressed.locale][told.message],
+            SLACK_NOTICE_MESSAGES[pressed.locale][
+              judged.notice ?? told.message
+            ],
             told.link_url,
           ),
         );
@@ -487,6 +493,12 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
             card,
           })
         : null;
+    if (link === "earlier") {
+      return admit(pressed, value.s, request, action, {
+        refuse: "surface_mismatch",
+        notice: "pressEarlierCard",
+      });
+    }
     const onIt =
       link !== null &&
       link.agentId.toLowerCase() === pressed.agentId.toLowerCase() &&

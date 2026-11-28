@@ -58,16 +58,17 @@ async function link(
 
 async function card(input: {
   sessionId: string;
-  linkId: string;
+  linkId: string | null;
   channelId: string;
   kind?: "input_notice" | "failure_notice" | "notice";
   dedupeKey: string;
-  slackTs?: string;
+  // null: a post that never came back with its ts.
+  slackTs?: string | null;
 }) {
   await client.query(
     // A notice goes to one person alone.
     `INSERT INTO slack_outbox (id, workspace_id, agent_id, slack_app_id, installation_id, kind, channel_id, thread_ts, session_id, session_link_id, body, dedupe_key, status, slack_ts, slack_user_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, '1.0', $8, $9, '{"text":"card"}', $10, 'sent', $11, $12)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, '1.0', $8, $9, '{"text":"card"}', $10, $13, $11, $12)`,
     [
       crypto.randomUUID(),
       WORKSPACE,
@@ -79,8 +80,9 @@ async function card(input: {
       input.sessionId,
       input.linkId,
       input.dedupeKey,
-      input.slackTs ?? TS,
+      input.slackTs === undefined ? TS : input.slackTs,
       input.kind === "notice" ? "U0ONE" : null,
+      input.slackTs === null ? "uncertain" : "sent",
     ],
   );
 }
@@ -156,7 +158,10 @@ describe("the card a pressed message is", () => {
     });
     const found = async (
       input: Parameters<ReturnType<typeof store>["postedCard"]>[0],
-    ) => (await store().postedCard(input))?.id ?? null;
+    ) => {
+      const got = await store().postedCard(input);
+      return typeof got === "object" && got !== null ? got.id : got;
+    };
     const prompt = {
       sessionId,
       channelId: "C0ROOM",
@@ -252,5 +257,69 @@ describe("the card a pressed message is", () => {
     expect(await at(TS, "q_1")).toBeNull();
     expect(await at("1761300000.000300", "q_2")).toBeNull();
     expect(await at("1761300000.000400", "q_3")).toBeNull();
+  });
+
+  test("is earlier for a card of its key in that channel posted without its link, or whose ts never came back", async () => {
+    const sessionId = crypto.randomUUID();
+    const l = await link(sessionId);
+    const push = crypto.randomUUID();
+    // What a version before the link column wrote: the key, no link.
+    await card({
+      sessionId,
+      linkId: null,
+      channelId: "C0ROOM",
+      dedupeKey: `prompt:${l}:toolu_1`,
+    });
+    await card({
+      sessionId,
+      linkId: l,
+      channelId: "C0ROOM",
+      dedupeKey: `push:${l}:${push}`,
+      slackTs: null,
+    });
+    await card({
+      sessionId,
+      linkId: l,
+      channelId: "C0ROOM",
+      kind: "failure_notice",
+      dedupeKey: `failure:${l}:3`,
+      slackTs: null,
+    });
+    const at = (
+      card: Parameters<ReturnType<typeof store>["postedCard"]>[0]["card"],
+      over: { channelId?: string; slackTs?: string; sessionId?: string } = {},
+    ) =>
+      store().postedCard({
+        sessionId,
+        channelId: "C0ROOM",
+        slackTs: TS,
+        card,
+        ...over,
+      });
+    const prompt = { kind: "prompt", requestId: "toolu_1" } as const;
+    expect(await at(prompt)).toBe("earlier");
+    // Without its link the ts still names the message.
+    expect(await at(prompt, { slackTs: "1761300000.000999" })).toBeNull();
+    expect(await at(prompt, { channelId: "C0ELSE" })).toBeNull();
+    expect(await at(prompt, { sessionId: crypto.randomUUID() })).toBeNull();
+    expect(await at({ kind: "prompt", requestId: "toolu_11" })).toBeNull();
+    expect(await at({ kind: "prompt", requestId: "oolu_1" })).toBeNull();
+    // A key whose middle is no link id is no card's.
+    await card({
+      sessionId,
+      linkId: null,
+      channelId: "C0ROOM",
+      dedupeKey: "prompt:x:toolu_9",
+    });
+    expect(await at({ kind: "prompt", requestId: "toolu_9" })).toBeNull();
+    expect(await at({ kind: "push", pushRequestId: "toolu_1" })).toBeNull();
+    // No ts came back: any message of that channel may be it.
+    expect(await at({ kind: "push", pushRequestId: push })).toBe("earlier");
+    expect(await at({ kind: "prompt", requestId: push })).toBeNull();
+    expect(await at({ kind: "turn", turnId: 3 })).toBe("earlier");
+    expect(await at({ kind: "turn", turnId: 33 })).toBeNull();
+    expect(
+      await at({ kind: "turn", turnId: 3 }, { channelId: "C0ELSE" }),
+    ).toBeNull();
   });
 });

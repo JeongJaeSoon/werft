@@ -2626,7 +2626,26 @@ export function createPostgresSlackOutboxStore(
           ),
         )
         .limit(1);
-      return row ?? null;
+      if (row !== undefined) return row;
+      // A card of the key in that channel that cannot be matched to the
+      // message: one an earlier version posted without its link, or one
+      // whose post never came back with a ts (sending or uncertain).
+      const [earlier] = await db
+        .select({ id: t.id })
+        .from(t)
+        .where(
+          and(
+            eq(t.sessionId, sessionId.toLowerCase()),
+            eq(t.kind, kind),
+            eq(t.channelId, channelId),
+            sql`starts_with(${t.dedupeKey}, ${prefix}::text)`,
+            sql`right(${t.dedupeKey}, length(${suffix}::text)) = ${suffix}::text`,
+            sql`length(${t.dedupeKey}) = length(${prefix}::text) + 36 + length(${suffix}::text)`,
+            sql`((${t.sessionLinkId} IS NULL AND ${t.slackTs} = ${slackTs}) OR ${t.slackTs} IS NULL)`,
+          ),
+        )
+        .limit(1);
+      return earlier === undefined ? null : "earlier";
     },
 
     cards: createPostgresSlackCardSettleStore(db),

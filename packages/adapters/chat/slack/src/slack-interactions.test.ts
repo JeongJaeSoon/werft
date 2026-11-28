@@ -86,7 +86,7 @@ let postedCards: {
   channelId: string;
   slackTs: string;
   card?: SurfacePostedCardKey;
-  link: SurfaceProgressLink;
+  link: SurfaceProgressLink | "earlier";
 }[];
 let recorded: DecisionEntry[];
 let outcome: Awaited<ReturnType<SlackInteractionDeps["pending"]["outcome"]>>;
@@ -2213,6 +2213,16 @@ describe("a card's value against the message pressed", () => {
         "update",
       ].includes(call.method),
     );
+  const toldEarlier = () => {
+    const told = JSON.stringify(called("ephemeral")[0]?.args);
+    expect(called("ephemeral")).toHaveLength(1);
+    expect(told).toContain(SLACK_NOTICE_MESSAGES.en.pressEarlierCard);
+    expect(told).not.toContain(SLACK_NOTICE_MESSAGES.en.pressMismatch);
+  };
+  // The outbox holds SESSION's card but cannot tie it to the message.
+  const earlierCard = () => {
+    (postedCards[0] as (typeof postedCards)[number]).link = "earlier";
+  };
   const toldMismatch = () => {
     const told = called("ephemeral");
     expect(told).toHaveLength(1);
@@ -2287,6 +2297,27 @@ describe("a card's value against the message pressed", () => {
       : { s, r };
 
   describe.each(BUTTONS)("%s", (_, actionId, r, action, result) => {
+    test("its own card an earlier version posted, or whose post never came back, decides nothing and says so apart from a mismatch", async () => {
+      earlierCard();
+      const outcome = await send(
+        press(actionId, pressValue(actionId, SESSION, r), LINKED, onA),
+      );
+      expect((outcome as { result: string }).result).toBe(
+        "refused:surface_mismatch",
+      );
+      expect(changed()).toEqual([]);
+      expect(kept()).toEqual([
+        {
+          action,
+          session: SESSION,
+          channel: CHANNEL,
+          outcome: "deny",
+          reason: "surface_mismatch",
+        },
+      ]);
+      toldEarlier();
+    });
+
     test("another channel's session and its request, on this card, decide nothing, kept as a surface_mismatch deny and told to the presser alone", async () => {
       const outcome = await send(
         press(actionId, pressValue(actionId, NARROW_SESSION, r), LINKED, onA),
@@ -2389,7 +2420,7 @@ describe("a card's value against the message pressed", () => {
       "its own value on a card whose link is %s decides nothing",
       async (_, apart) => {
         const own = postedCards[0] as (typeof postedCards)[number];
-        own.link = { ...own.link, ...apart };
+        own.link = { ...(own.link as SurfaceProgressLink), ...apart };
         const outcome = await send(
           press(actionId, pressValue(actionId, SESSION, r), LINKED, onA),
         );
@@ -2498,6 +2529,16 @@ describe("a card's value against the message pressed", () => {
       expect(kept()[0]).toMatchObject({ channel: NARROW_CHANNEL });
     });
 
+    test("opened from its own card an earlier version posted shows nothing and says so", async () => {
+      earlierCard();
+      await send(press(actionId, { s: SESSION, r }, LINKED, onA));
+      expect(results.at(-1)).toBe("refused:surface_mismatch");
+      expect(JSON.stringify(called("viewUpdate")[0]?.args[1])).not.toContain(
+        "private_metadata",
+      );
+      toldEarlier();
+    });
+
     test("opened from its own card fills the form as before", async () => {
       await send(press(actionId, { s: SESSION, r }, LINKED, onA));
       expect(results.at(-1)).toBe("view_filled");
@@ -2589,6 +2630,78 @@ describe("a card's value against the message pressed", () => {
       "refused:surface_ceiling",
     );
     expect(called("answer")).toEqual([]);
+  });
+
+  // A form whose metadata names another real card is judged as a press of
+  // that card would be: its row, its link's channel, the submitter's rights.
+  test.each([
+    ["in a channel whose ceiling leaves approve out", "narrow"],
+    ["whose request is already answered", "answered"],
+    ["in a channel that allows approve", "allowed"],
+  ] as const)(
+    "a form opened from its own card and submitted naming another card %s ends as a press of that card",
+    async (_, target) => {
+      const card =
+        target === "narrow"
+          ? { s: NARROW_SESSION, c: NARROW_CHANNEL, t: NARROW_THREAD }
+          : { s: SESSION, c: LOCKED_CHANNEL, t: CARD_TS };
+      if (target !== "narrow") mirrorInto(LOCKED_CHANNEL);
+      const settle = () => {
+        if (target !== "answered") return;
+        listed = [];
+        outcome = { state: "answered", kind: "question" } as never;
+      };
+      const reset = () => {
+        calls = [];
+        recorded = [];
+        results = [];
+        deferred = [];
+      };
+      await send(
+        press(SLACK_INTERACTION_ACTIONS.questionOpen, { s: SESSION, r: "q_1" }),
+      );
+      const opened = JSON.parse(
+        (
+          called("viewUpdate")[0]?.args[1] as {
+            view: { private_metadata: string };
+          }
+        ).view.private_metadata,
+      );
+      settle();
+      reset();
+      const swapped = (await send(
+        submitted(SLACK_QUESTION_VIEW_CALLBACK, { ...opened, ...card }),
+      )) as { result: string };
+      const swappedKept = kept();
+      reset();
+      const direct = (await send(
+        press(
+          `${SLACK_INTERACTION_ACTIONS.questionOption}:0`,
+          { s: card.s, r: "q_1", o: "0" },
+          LINKED,
+          { channel: card.c, thread: card.t },
+        ),
+      )) as { result: string };
+      expect(swapped.result).toBe(
+        {
+          narrow: "refused:surface_ceiling",
+          answered: "already",
+          allowed: "answered",
+        }[target],
+      );
+      expect(swapped.result).toBe(direct.result);
+      expect(swappedKept[0]).toEqual(kept()[0]);
+    },
+  );
+
+  test("a submitted form of its own card an earlier version posted answers nothing and says so", async () => {
+    earlierCard();
+    const outcome = await send(submitted(SLACK_QUESTION_VIEW_CALLBACK, own));
+    expect((outcome as { result: string }).result).toBe(
+      "refused:surface_mismatch",
+    );
+    expect(called("answer")).toEqual([]);
+    toldEarlier();
   });
 
   test("a submitted form of its own card in a channel whose ceiling leaves approve out answers nothing", async () => {

@@ -937,14 +937,16 @@ export interface SurfaceOutboxStore {
   /**
    * The link of the card a row of the session sent as that message (its
    * channel and ts) for that key, a mirror link's when the card went out on
-   * one; null when no row did, or its link is revoked.
+   * one; "earlier" when a row of that key in that channel cannot be tied
+   * to the message (posted by an earlier version without its link, or with
+   * no ts recorded); null when no row did, or its link is revoked.
    */
   postedCard(input: {
     sessionId: string;
     channelId: string;
     slackTs: string;
     card: SurfacePostedCardKey;
-  }): Promise<SurfaceProgressLink | null>;
+  }): Promise<SurfaceProgressLink | "earlier" | null>;
   /** Requests of live linked sessions without their `input_notice` row. */
   unpromptedRequests(limit: number): Promise<SurfacePendingPrompt[]>;
   /** Moves `sending` rows whose lease ran out to `uncertain`. */
