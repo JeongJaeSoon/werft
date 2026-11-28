@@ -33,15 +33,36 @@ export function UsageTokenMix({
   totals,
   messages: override,
 }: UsageTokenMixProps): JSX.Element {
-  const { messages, format } = useOperationsMessages("usageTokenMix", override);
+  const { messages, format, unknownPrice } = useOperationsMessages(
+    "usageTokenMix",
+    override,
+  );
   const loading = totals === undefined;
   const total = totals?.token_count ?? 0;
+  // An API from before the field answers without it.
+  const unknownTokens = totals?.unknown_price?.token_count ?? 0;
   return (
     <Section
       title={messages.title}
       description={
         totals ? (
-          messages.description(format.tokens(total))
+          unknownTokens === 0 ? (
+            messages.description(format.tokens(total))
+          ) : (
+            <>
+              <span className="block">
+                {messages.description(format.tokens(total))}
+              </span>
+              <span className="block">
+                {unknownPrice.pricedTokens(
+                  format.tokens(Math.max(0, total - unknownTokens)),
+                )}
+              </span>
+              <span className="block">
+                {unknownPrice.unknownTokens(format.tokens(unknownTokens))}
+              </span>
+            </>
+          )
         ) : (
           <span aria-hidden="true" className="invisible">
             {messages.description(format.tokens(TYPICAL_TOTAL_TOKENS))}

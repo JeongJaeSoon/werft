@@ -10903,7 +10903,11 @@ export interface components {
                 cache_read_input_tokens: number;
                 cache_creation_input_tokens: number;
                 token_count: number;
-                cost_usd: string;
+                cost_usd: string | null;
+                unknown_price?: {
+                    call_count: number;
+                    token_count: number;
+                };
                 key: string | null;
                 label: string | null;
                 conversation?: {
@@ -10930,6 +10934,10 @@ export interface components {
                 cache_creation_input_tokens: number;
                 token_count: number;
                 cost_usd: string;
+                unknown_price?: {
+                    call_count: number;
+                    token_count: number;
+                };
                 conversation?: {
                     call_count: number;
                     cost_usd: string;

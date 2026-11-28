@@ -70,6 +70,24 @@ export interface UsageKpisMessages {
   readonly loading: string;
 }
 
+/**
+ * Calls nothing prices have no amount: these name them beside a cost, or in
+ * its place when nothing else is counted, so no figure reads as free.
+ */
+export interface UnknownPriceMessages {
+  /** In place of an amount: "금액 미상". */
+  readonly noAmount: string;
+  /** "단가 미상 3건". */
+  readonly calls: (calls: string) => string;
+  /** "$1.50 + 단가 미상 3건", as the session's own cost reads. */
+  readonly knownAndUnknown: (amount: string, calls: string) => string;
+  /** "금액 미상 (단가 미상 3건)". */
+  readonly unknown: (calls: string) => string;
+  /** The tokens the cost counts, apart from those of unknown price. */
+  readonly pricedTokens: (tokens: string) => string;
+  readonly unknownTokens: (tokens: string) => string;
+}
+
 export interface InstallationLimitsMessages {
   readonly capacity: string;
   readonly capacityNote: string;
@@ -307,6 +325,7 @@ export interface ToolDetailMessages {
 
 export interface OperationsMessages {
   readonly format: OperationsFormat;
+  readonly unknownPrice: UnknownPriceMessages;
   readonly sessionCounts: SessionCountsMessages;
   readonly findings: FindingsMessages;
   readonly toolTable: ToolTableMessages;
@@ -414,6 +433,14 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         (s) => `${s}초`,
         ["억", "만"],
       ),
+      unknownPrice: {
+        noAmount: "금액 미상",
+        calls: (calls) => `단가 미상 ${calls}건`,
+        knownAndUnknown: (amount, calls) => `${amount} + 단가 미상 ${calls}건`,
+        unknown: (calls) => `금액 미상 (단가 미상 ${calls}건)`,
+        pricedTokens: (tokens) => `비용을 센 호출의 토큰 ${tokens}`,
+        unknownTokens: (tokens) => `단가 미상 호출의 토큰 ${tokens}`,
+      },
       sessionCounts: {
         title: "지금 · 내가 볼 수 있는 세션",
         description:
@@ -532,7 +559,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
           `+ 단가 미상 ${calls}건 · 토큰 ${tokens}. 금액을 알 수 없어 비용에 들어 있지 않습니다`,
         costChart: "일자별 비용",
         tokens: "토큰",
-        tokensNote: "비용을 센 호출의 토큰",
+        tokensNote: "모든 호출의 토큰",
         tokensChart: "일자별 토큰",
         loading: "사용량을 읽는 중",
       },
@@ -636,7 +663,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
       usageTokenMix: {
         title: "토큰 구성",
         description: (total) =>
-          `비용을 센 호출의 토큰 ${total}을 종류별로 나눴습니다`,
+          `모든 호출의 토큰 ${total}을 종류별로 나눴습니다`,
         input: "입력",
         output: "출력",
         cacheRead: "캐시 읽기",
@@ -657,6 +684,14 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         (s) => `${s}秒`,
         ["億", "万"],
       ),
+      unknownPrice: {
+        noAmount: "金額不明",
+        calls: (calls) => `単価不明 ${calls}件`,
+        knownAndUnknown: (amount, calls) => `${amount} + 単価不明 ${calls}件`,
+        unknown: (calls) => `金額不明（単価不明 ${calls}件）`,
+        pricedTokens: (tokens) => `コストを数えた呼び出しのトークン ${tokens}`,
+        unknownTokens: (tokens) => `単価不明の呼び出しのトークン ${tokens}`,
+      },
       sessionCounts: {
         title: "現在 · 閲覧できるセッション",
         description:
@@ -775,7 +810,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
           `+ 単価不明 ${calls}件 · トークン ${tokens}。金額が分からないため、コストには含まれていません`,
         costChart: "日別コスト",
         tokens: "トークン",
-        tokensNote: "コストを数えた呼び出しのトークン",
+        tokensNote: "すべての呼び出しのトークン",
         tokensChart: "日別トークン",
         loading: "使用量を読み込み中",
       },
@@ -883,7 +918,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
       usageTokenMix: {
         title: "トークン構成",
         description: (total) =>
-          `コストを数えた呼び出しのトークン ${total} を種類別に分けました`,
+          `すべての呼び出しのトークン ${total} を種類別に分けました`,
         input: "入力",
         output: "出力",
         cacheRead: "キャッシュ読み取り",
@@ -903,6 +938,17 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
         (m) => `${m}m`,
         (s) => `${s}s`,
       ),
+      unknownPrice: {
+        noAmount: "Cost unknown",
+        calls: (calls) => `${calls} at unknown price`,
+        knownAndUnknown: (amount, calls) =>
+          `${amount} + calls of unknown price: ${calls}`,
+        unknown: (calls) => `Cost unknown (calls of unknown price: ${calls})`,
+        pricedTokens: (tokens) =>
+          `Tokens from calls in the cost estimate: ${tokens}`,
+        unknownTokens: (tokens) =>
+          `Tokens from calls of unknown price: ${tokens}`,
+      },
       sessionCounts: {
         title: "Now · sessions you can see",
         description:
@@ -1021,7 +1067,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
           `+ calls of unknown price: ${calls} · tokens ${tokens}. Their cost is not known, so it is not in this amount`,
         costChart: "Cost per day",
         tokens: "Tokens",
-        tokensNote: "Tokens from calls included in the cost estimate",
+        tokensNote: "Tokens from every call",
         tokensChart: "Tokens per day",
         loading: "Loading usage",
       },
@@ -1127,8 +1173,7 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
       },
       usageTokenMix: {
         title: "Token mix",
-        description: (total) =>
-          `${total} tokens from calls included in the cost estimate, by type`,
+        description: (total) => `${total} tokens from every call, by type`,
         input: "Input",
         output: "Output",
         cacheRead: "Cache read",
@@ -1142,3 +1187,21 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
       },
     },
   };
+
+/**
+ * A cost as `format.usd` reads it, with the calls of unknown price beside it,
+ * or in its place when no amount is known (`amount` null, or 0 with such
+ * calls): the session's own cost reads the same.
+ */
+export function costWithUnknownPrice(
+  messages: OperationsMessages,
+  amount: string | number | null,
+  unknownCalls: number,
+): string {
+  const { format, unknownPrice } = messages;
+  if (unknownCalls === 0) return format.usd(amount ?? 0);
+  const calls = format.count(unknownCalls);
+  return amount !== null && Number(amount) > 0
+    ? unknownPrice.knownAndUnknown(format.usd(amount), calls)
+    : unknownPrice.unknown(calls);
+}

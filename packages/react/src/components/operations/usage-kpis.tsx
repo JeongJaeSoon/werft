@@ -55,8 +55,14 @@ export function UsageKpis({
   unknownPrice,
   messages: override,
 }: UsageKpisProps): JSX.Element {
-  const { messages, format } = useOperationsMessages("usageKpis", override);
+  const {
+    messages,
+    format,
+    unknownPrice: unpriced,
+  } = useOperationsMessages("usageKpis", override);
   const totals = buckets === undefined ? undefined : totalsOf(buckets);
+  const unknownCalls = unknownPrice?.call_count ?? 0;
+  const unknownTokens = unknownPrice?.token_count ?? 0;
   const unknown =
     unknownPrice === undefined || unknownPrice.call_count === 0 ? null : (
       <span className="block">
@@ -95,7 +101,12 @@ export function UsageKpis({
       <StatCard
         label={messages.cost}
         badge={<Badge>{messages.estimated}</Badge>}
-        value={value("5rem", (t) => format.usd(t.cost_usd))}
+        // Nothing priced: a $0.00 here would read as free.
+        value={value("5rem", (t) =>
+          t.cost_usd === 0 && unknownCalls > 0
+            ? unpriced.noAmount
+            : format.usd(t.cost_usd),
+        )}
         chart={spark(spentOn, messages.costChart)}
         description={
           totals === undefined ? (
@@ -130,7 +141,25 @@ export function UsageKpis({
         label={messages.tokens}
         value={value("4rem", (t) => format.tokens(t.token_count))}
         chart={spark((b) => b.token_count, messages.tokensChart)}
-        description={messages.tokensNote}
+        description={
+          totals === undefined || unknownTokens === 0 ? (
+            messages.tokensNote
+          ) : (
+            <>
+              <span className="block">{messages.tokensNote}</span>
+              <span className="block">
+                {unpriced.pricedTokens(
+                  format.tokens(
+                    Math.max(0, totals.token_count - unknownTokens),
+                  ),
+                )}
+              </span>
+              <span className="block">
+                {unpriced.unknownTokens(format.tokens(unknownTokens))}
+              </span>
+            </>
+          )
+        }
       />
       {messages.loading ? (
         <output className="sr-only">{loading ? messages.loading : ""}</output>

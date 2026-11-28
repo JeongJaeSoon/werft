@@ -9,6 +9,7 @@ import {
 } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
 import {
+  costWithUnknownPrice,
   isSessionCutOff,
   OPERATIONS_MESSAGES,
   SessionRowOpener,
@@ -138,7 +139,11 @@ function WeekCost({ agentId }: { readonly agentId: string }) {
                 : t("agents.cards.unavailable"),
             }
           : data
-            ? OPERATIONS_MESSAGES[locale].format.usd(data.cost_usd)
+            ? costWithUnknownPrice(
+                OPERATIONS_MESSAGES[locale],
+                data.cost_usd,
+                data.unknown_price?.call_count ?? 0,
+              )
             : undefined
       }
       // A partial sum must not pass for the whole spend.

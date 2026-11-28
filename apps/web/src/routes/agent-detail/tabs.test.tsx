@@ -759,6 +759,55 @@ describe("에이전트 상세 탭", () => {
     );
   });
 
+  for (const [name, answer, shown, validate] of [
+    [
+      "단가 미상 호출만 있으면 최근 7일 비용이 $0.00이 아니라 금액 미상이다",
+      {
+        ...agentUsage("0.000000"),
+        unknown_price: { call_count: 2, token_count: 10 },
+      },
+      "금액 미상 (단가 미상 2건)",
+      "strict",
+    ],
+    [
+      "단가를 아는 비용과 단가 미상 호출이 섞이면 금액 + 단가 미상 N건이다",
+      {
+        ...agentUsage("0.420000"),
+        unknown_price: { call_count: 3, token_count: 10 },
+      },
+      "$0.42 + 단가 미상 3건",
+      "strict",
+    ],
+    [
+      "unknown_price 없는 옛 API의 답은 금액만 쓴다",
+      (({ unknown_price: _, ...old }) => old)(agentUsage("0.420000")),
+      "$0.42",
+      "warn",
+    ],
+  ] as const) {
+    test(name, async () => {
+      renderAt(
+        DETAIL,
+        {
+          "GET /v1/auth/me": () => json(200, me(undefined, "admin")),
+          ...agentServer().routes,
+          "GET /v1/agents": () =>
+            json(200, {
+              items: [
+                listed(AGENT_ID, { needs_input_count: 0, running_count: 0 }),
+              ],
+              next_cursor: null,
+            }),
+          "GET /v1/usage/summary": () => json(200, answer),
+        },
+        "ko",
+        validate,
+      );
+      const glance = await screen.findByRole("list", { name: "에이전트 현황" });
+      await waitFor(() => expect(figureTexts(glance)[2]?.[1]).toBe(shown));
+    });
+  }
+
   test("이 에이전트를 맡은 구성원에게는 수는 —지만 비용은 보인다", async () => {
     renderAt(DETAIL, {
       "GET /v1/auth/me": () => json(200, memberMe()),

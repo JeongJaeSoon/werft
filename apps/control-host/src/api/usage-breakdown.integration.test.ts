@@ -73,7 +73,7 @@ type Call = {
   costUsd: number;
 };
 
-const micro = (usd: string) => Math.round(Number(usd) * 1e6);
+const micro = (usd: string | null) => Math.round(Number(usd) * 1e6);
 
 integration("usage breakdown on PostgreSQL", () => {
   let database: TempDatabase;

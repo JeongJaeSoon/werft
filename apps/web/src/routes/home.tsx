@@ -21,6 +21,7 @@ import {
 import { useSessions, useWerft } from "@werft-ai/react";
 import { ApprovalInbox } from "@werft-ai/react/blocks";
 import {
+  costWithUnknownPrice,
   OPERATIONS_MESSAGES,
   SessionOverviewRow,
   SessionOverviewTable,
@@ -405,7 +406,15 @@ export function HomeScreen() {
   const unmeasured = <Unmeasured />;
   const unknown = t("home.overview.unknown");
   const number = new Intl.NumberFormat(locale);
-  const { usd, bytes } = OPERATIONS_MESSAGES[locale].format;
+  const { bytes } = OPERATIONS_MESSAGES[locale].format;
+  // Calls of unknown price have no amount; a period of only those must not
+  // read as $0.00.
+  const cost = (summary: UsageSummaryResponse) =>
+    costWithUnknownPrice(
+      OPERATIONS_MESSAGES[locale],
+      summary.cost_usd,
+      summary.unknown_price?.call_count ?? 0,
+    );
   // A partial sum must not pass for the whole spend.
   const costNote = (summary: UsageSummaryResponse | undefined) =>
     t(
@@ -421,7 +430,7 @@ export function HomeScreen() {
       tile={{ icon: Gauge }}
       eyebrow={t("home.glance.installation")}
       title={t("home.glance.installationTitle")}
-      value={installSummary ? usd(installSummary.cost_usd) : unknown}
+      value={installSummary ? cost(installSummary) : unknown}
       note={costNote(installSummary)}
       rows={[
         {
@@ -538,7 +547,7 @@ export function HomeScreen() {
       tile={{ icon: Gauge }}
       eyebrow={t("home.glance.mine")}
       title={t("home.glance.mineTitle")}
-      value={mySummary ? usd(mySummary.cost_usd) : unknown}
+      value={mySummary ? cost(mySummary) : unknown}
       note={costNote(mySummary)}
       rows={[
         {

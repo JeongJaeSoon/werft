@@ -970,6 +970,37 @@ describe("홈 요약", () => {
     expect(manager.classList.contains("invisible")).toBe(true);
   });
 
+  test("단가 미상 호출이 있으면 사용량 카드가 $0.00 대신 금액 미상이나 금액 + 단가 미상 N건을 쓴다", async () => {
+    renderAt("/", {
+      ...homeRoutes(),
+      [summaryRoute("me")]: () =>
+        json(200, {
+          ...summary("me", 3),
+          cost_usd: "0.000000",
+          unknown_price: { call_count: 6, token_count: 30 },
+        }),
+      [summaryRoute("installation")]: () =>
+        json(200, {
+          ...summary("installation", 12),
+          unknown_price: { call_count: 9, token_count: 45 },
+        }),
+    });
+    const overview = await screen.findByRole("region", { name: "한눈에 보기" });
+    await waitFor(() =>
+      expect(
+        cards(overview)
+          .filter((card) => card.title !== "진행 상황")
+          .map((card) => [card.title, card.value]),
+      ).toEqual(
+        expect.arrayContaining([
+          ["내가 시작한 세션 기준", "금액 미상 (단가 미상 6건)"],
+          ["전체 사용량", "$69.46 + 단가 미상 9건"],
+        ]),
+      ),
+    );
+    expect(overview.textContent).not.toContain("$0.00");
+  });
+
   test("소유자 홈은 구성원 카드 세 장 뒤에 전체 사용량과 확인할 항목을 두고, 답변 대기 수는 진행 상황에만 센다", async () => {
     renderAt("/", homeRoutes());
     const overview = await screen.findByRole("region", { name: "한눈에 보기" });

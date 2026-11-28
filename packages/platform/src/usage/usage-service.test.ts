@@ -236,6 +236,7 @@ function service(
           outputTokens: 2,
           cacheReadInputTokens: 3,
           cacheCreationInputTokens: 4,
+          unknownPrice: { callCount: 0, tokens: 0 },
         };
         return {
           rows: [
@@ -273,6 +274,7 @@ function service(
             cacheReadInputTokens: 6,
             cacheCreationInputTokens: 8,
             costUsd: "1.250000",
+            unknownPrice: { callCount: 0, tokens: 0 },
           },
         };
       },
@@ -850,6 +852,7 @@ describe("usage service", () => {
       cache_creation_input_tokens: 4,
       token_count: 10,
       cost_usd: "0.250000",
+      unknown_price: { call_count: 0, token_count: 0 },
     });
     expect(response.totals).toMatchObject({
       token_count: 20,
@@ -880,6 +883,7 @@ describe("usage service", () => {
       cacheReadInputTokens: Number("18014398509481982"),
       cacheCreationInputTokens: 0,
       costUsd: "0.000000",
+      unknownPrice: { callCount: 0, tokens: 0 },
     };
     const bound = createUsageService({
       authorization: createAuthorizationPolicy(),
@@ -946,6 +950,90 @@ describe("usage service", () => {
         token_count: max,
       });
     }
+  });
+
+  test("a breakdown row whose every token is of unknown price has no cost; a mixed or priced row keeps its own", async () => {
+    const figures = (
+      tokens: number,
+      costUsd: string,
+      unknown: { callCount: number; tokens: number },
+    ) => ({
+      sessionCount: 1,
+      inputTokens: tokens,
+      outputTokens: 0,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+      costUsd,
+      unknownPrice: unknown,
+    });
+    const notRead = async () => {
+      throw new Error("not read");
+    };
+    const bound = createUsageService({
+      authorization: createAuthorizationPolicy(),
+      limits,
+      reader: {
+        installationUsage: notRead,
+        agentExists: async () => false,
+        sessionUsage: async () => null,
+        usageSummary: notRead,
+        unknownPriceUsage: notRead,
+        usageSummaryGroups: notRead,
+        usageSeries: notRead,
+        usageBreakdown: async () => ({
+          rows: [
+            {
+              key: "claude-sonnet-5",
+              label: "claude-sonnet-5",
+              ...figures(30, "0.000084", { callCount: 0, tokens: 0 }),
+            },
+            {
+              key: "mixed-model",
+              label: "mixed-model",
+              ...figures(50, "1.500000", { callCount: 3, tokens: 20 }),
+            },
+            {
+              key: "verify-unpriced-model",
+              label: "verify-unpriced-model",
+              ...figures(45, "0.000000", { callCount: 2, tokens: 45 }),
+            },
+          ],
+          totals: {
+            ...figures(125, "1.500084", { callCount: 5, tokens: 65 }),
+            sessionCount: 3,
+          },
+        }),
+        usagePeople: notRead,
+        usageTools: notRead,
+        usageToolCalls: notRead,
+        usageToolDays: notRead,
+        usageOutcomes: notRead,
+        usageAchievements: notRead,
+      },
+    });
+    const response = usageBreakdownResponseSchema.parse(
+      await bound.getUsageBreakdown(
+        user("owner"),
+        usageBreakdownQuerySchema.parse({
+          scope: "installation",
+          since: "2026-10-01",
+          by: "model",
+        }),
+      ),
+    );
+    expect(
+      response.rows.map((row) => [row.key, row.cost_usd, row.unknown_price]),
+    ).toEqual([
+      ["claude-sonnet-5", "0.000084", { call_count: 0, token_count: 0 }],
+      ["mixed-model", "1.500000", { call_count: 3, token_count: 20 }],
+      ["verify-unpriced-model", null, { call_count: 2, token_count: 45 }],
+    ]);
+    // The totals stay the summary's: the known calls' cost, never null.
+    expect(response.totals).toMatchObject({
+      cost_usd: "1.500084",
+      token_count: 125,
+      unknown_price: { call_count: 5, token_count: 65 },
+    });
   });
 
   test("people: the workspace's for its owner and admins, one agent's after it is found, nobody else's", async () => {

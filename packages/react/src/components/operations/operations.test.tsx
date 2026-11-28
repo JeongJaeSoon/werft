@@ -24,7 +24,10 @@ const { UsageInitiatorSplit } = await import("./usage-initiator-split.tsx");
 const { UsageOutcomes } = await import("./usage-outcomes.tsx");
 const { UsageDailyCost } = await import("./usage-daily-cost.tsx");
 const { UsageBasis } = await import("./usage-basis.tsx");
-const { OPERATIONS_MESSAGES } = await import("./messages.ts");
+const { UsageTokenMix } = await import("./usage-token-mix.tsx");
+const { OPERATIONS_MESSAGES, costWithUnknownPrice } = await import(
+  "./messages.ts"
+);
 
 const TOOLS = [
   {
@@ -1063,6 +1066,37 @@ describe("UsageKpis", () => {
     const text = document.body.textContent ?? "";
     expect(text).toContain("$1,045.48");
     expect(text).not.toContain("단가 미상");
+    expect(text).toContain("모든 호출의 토큰");
+    expect(text).not.toContain("비용을 센 호출의 토큰");
+  });
+
+  test("단가 미상 호출만 있는 기간은 비용 카드 앞에 $0.00이 아니라 금액 미상을 둔다", () => {
+    const { getByText } = withPlatform(
+      <UsageKpis
+        buckets={BUCKETS.map((b) => ({ ...b, cost_usd: "0.000000" }))}
+        unknownPrice={{ call_count: 3, token_count: 45 }}
+      />,
+    );
+    const text = document.body.textContent ?? "";
+    expect(getByText("금액 미상")).toBeTruthy();
+    expect(text).not.toContain("$0.00");
+    expect(text).toContain("+ 단가 미상 3건 · 토큰 45.");
+  });
+
+  test("토큰 카드는 모든 호출의 토큰을 두고, 단가 미상 토큰이 있으면 비용을 센 토큰과 따로 줄로 적는다", () => {
+    const buckets = BUCKETS.map((b, i) => ({
+      ...b,
+      token_count: i === 0 ? 35 : 45,
+    }));
+    const { getByText } = withPlatform(
+      <UsageKpis
+        buckets={buckets}
+        unknownPrice={{ call_count: 2, token_count: 45 }}
+      />,
+    );
+    expect(getByText("모든 호출의 토큰")).toBeTruthy();
+    expect(getByText("비용을 센 호출의 토큰 35")).toBeTruthy();
+    expect(getByText("단가 미상 호출의 토큰 45")).toBeTruthy();
   });
 
   test("대화 호출이 끝나지 않은 날이 있으면 비용 카드가 적을 수 있다고 말한다", () => {
@@ -1126,6 +1160,51 @@ describe("UsageFilters", () => {
 });
 
 describe("UsageCostTable", () => {
+  test("단가 미상 호출만 있는 행은 금액 미상, 섞인 행은 금액과 + 단가 미상 N건, 단가를 아는 행은 그대로 쓴다", () => {
+    const figures = {
+      session_count: 1,
+      input_tokens: 45,
+      output_tokens: 0,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+      token_count: 45,
+    };
+    const table = withPlatform(
+      <UsageCostTable
+        label="모델별"
+        head="모델"
+        by="model"
+        rows={[
+          { key: "m1", label: "m1", ...figures, cost_usd: "3.00" },
+          {
+            key: "m2",
+            label: "m2",
+            ...figures,
+            cost_usd: "1.50",
+            unknown_price: { call_count: 3, token_count: 20 },
+          },
+          {
+            key: "m3",
+            label: "verify-unpriced-model",
+            ...figures,
+            cost_usd: null,
+            unknown_price: { call_count: 2, token_count: 45 },
+          },
+        ]}
+      />,
+    );
+    const cells = (i: number) =>
+      [
+        ...(table
+          .getAllByRole("row")
+          [i]?.querySelectorAll<HTMLElement>("[role=cell]") ?? []),
+      ].at(-1)?.textContent;
+    expect(cells(1)).toBe("$3.00");
+    expect(cells(2)).toBe("$1.50+ 단가 미상 3건");
+    expect(cells(3)).toBe("금액 미상단가 미상 2건");
+    expect(document.body.textContent).not.toContain("$0.00");
+  });
+
   const row = (key: string | null, label: string | null, cost: string) => ({
     key,
     label,
@@ -1584,5 +1663,70 @@ describe("OPERATIONS_MESSAGES format", () => {
     expect(OPERATIONS_MESSAGES.ko.format.tokens(123_456_789)).toBe("1.2억");
     expect(OPERATIONS_MESSAGES.ja.format.tokens(38_160_000)).toBe("3,816万");
     expect(OPERATIONS_MESSAGES.en.format.tokens(9_999)).toBe("9,999");
+  });
+
+  test("단가 미상 호출이 있는 비용은 세션 화면과 같은 꼴로, 없으면 금액만 쓴다", () => {
+    const cases = [
+      ["1.50", 0],
+      ["1.50", 3],
+      ["0.000000", 3],
+      [null, 2],
+    ] as const;
+    expect(
+      cases.map(([amount, calls]) =>
+        costWithUnknownPrice(OPERATIONS_MESSAGES.ko, amount, calls),
+      ),
+    ).toEqual([
+      "$1.50",
+      "$1.50 + 단가 미상 3건",
+      "금액 미상 (단가 미상 3건)",
+      "금액 미상 (단가 미상 2건)",
+    ]);
+    expect(costWithUnknownPrice(OPERATIONS_MESSAGES.en, "0", 1)).toBe(
+      "Cost unknown (calls of unknown price: 1)",
+    );
+    expect(costWithUnknownPrice(OPERATIONS_MESSAGES.ja, "1.50", 3)).toBe(
+      "$1.50 + 単価不明 3件",
+    );
+  });
+});
+
+describe("UsageTokenMix", () => {
+  const totals = {
+    session_count: 2,
+    input_tokens: 60,
+    output_tokens: 20,
+    cache_read_input_tokens: 0,
+    cache_creation_input_tokens: 0,
+    token_count: 80,
+    cost_usd: "0.000088",
+  };
+
+  test("모든 호출의 토큰을 나누고, 단가 미상 토큰이 있으면 비용을 센 토큰과 따로 적는다", () => {
+    const { getByText } = withPlatform(
+      <UsageTokenMix
+        totals={{
+          ...totals,
+          unknown_price: { call_count: 9, token_count: 45 },
+        }}
+      />,
+    );
+    expect(getByText("모든 호출의 토큰 80을 종류별로 나눴습니다")).toBeTruthy();
+    expect(getByText("비용을 센 호출의 토큰 35")).toBeTruthy();
+    expect(getByText("단가 미상 호출의 토큰 45")).toBeTruthy();
+  });
+
+  test("단가 미상 토큰이 없거나 옛 API가 칸 없이 답하면 그 줄이 없다", () => {
+    for (const shown of [
+      totals,
+      { ...totals, unknown_price: { call_count: 0, token_count: 0 } },
+    ]) {
+      const mix = withPlatform(<UsageTokenMix totals={shown} />);
+      const text = document.body.textContent ?? "";
+      expect(text).toContain("모든 호출의 토큰 80을 종류별로 나눴습니다");
+      expect(text).not.toContain("단가 미상");
+      expect(text).not.toContain("비용을 센");
+      mix.unmount();
+    }
   });
 });
