@@ -323,6 +323,19 @@ describe("once the rollout is on, a bound thread's unmentioned reply is routed b
     });
   });
 
+  test("work done, an escaped mention of another user is not addressed to them", async () => {
+    const { receipt } = await receive({
+      rollout: "on",
+      linked: true,
+      taken: false,
+      text: "&lt;@U2&gt; take a look",
+    });
+    expect(receipt?.judgment).toEqual({
+      grade: "m1",
+      rule: { decision: "reply", reason: "default_reply" },
+    });
+  });
+
   test("work done, a channel that listens to nothing: dropped, nothing held", async () => {
     const { receipt, taskReplies } = await receive({
       rollout: "on",
