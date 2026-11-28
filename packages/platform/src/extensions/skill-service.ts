@@ -211,6 +211,19 @@ export function createSkillService(deps: SkillServiceDeps) {
           "version_archived",
           "An archived version is not attached",
         );
+      case "unavailable":
+        throw refused(
+          "skill_unavailable",
+          result.availability === "withdrawn"
+            ? "The skill's repository was removed; it is only taken back or forbidden"
+            : "The skill is switched off in its repository; it is only taken back or forbidden",
+          { availability: result.availability },
+        );
+      case "repository_skill_workspace":
+        throw refused(
+          "repository_skill_workspace",
+          "A skill of a registered repository is attached to an agent, not to the workspace",
+        );
       case "not_attached":
         throw new Error("a detach outcome reached the attach path");
     }
@@ -321,14 +334,17 @@ export function createSkillService(deps: SkillServiceDeps) {
       await requirePermitted(authorization, caller, "workspace.read", {
         ...workspace(caller),
       });
-      const [rows, attachments, sources] = await Promise.all([
+      const [rows, attachments, sources, unavailable] = await Promise.all([
         store.list(caller.ownerId),
         store.listAttachments({ workspaceId: caller.ownerId }),
         deps.gitSources?.(caller.ownerId) ??
           Promise.resolve(new Map<string, SkillGitSource>()),
+        store.unavailableSkills(caller.ownerId),
       ]);
       const byName = new Map<string, ExtensionBundle[]>();
       for (const row of rows) {
+        // Its repository's screen shows it; no one picks it meanwhile.
+        if (unavailable.has(row.name)) continue;
         byName.set(row.name, [...(byName.get(row.name) ?? []), row]);
       }
       return {
@@ -668,6 +684,7 @@ export function createSkillService(deps: SkillServiceDeps) {
           mode: row.mode,
           follows: row.follows,
           version: row.bundle === null ? null : skillVersionViewOf(row.bundle),
+          availability: row.availability,
         })),
       };
     },

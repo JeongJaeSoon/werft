@@ -36,6 +36,11 @@ async function scopesOf(
   });
   const scopes = { workspace: [] as ScopeEntry[], agent: [] as ScopeEntry[] };
   for (const attachment of attachments) {
+    // Switched off or withdrawn: a new session starts without it, even when
+    // it is required. One already running keeps the version it pinned.
+    if (attachment.availability !== "ok" && attachment.mode !== "forbidden") {
+      continue;
+    }
     // A following row is the skill's current version as of this start.
     if (attachment.bundle === null) {
       if (attachment.mode === "required") {
