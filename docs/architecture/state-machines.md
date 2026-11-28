@@ -483,9 +483,9 @@ M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는�
 | 보류(`m1`) | 청하지 않은 턴 | M1이 `speak`. 앞 표의 턴 내기를 따른다 | M1 판단 pass |
 | 보류(`m1`) | 끝(턴 없음) | `quiet`, 판단 실패(`failed`), 판단을 부르지 못함(`not_called`: 예산·한도·모델 없음), 판단이 던짐. 보류한 글을 지운다 | M1 판단 pass |
 | (받음), 열린 작업 | 기다림(`m1_to_task`, 판단 전) | 처리표가 `m1_to_task`를 낸다. 글을 판단 버퍼에 보류하고 판단을 연다. 이벤트는 2초 뒤 다시 보도록 미룬다 | slack 역할 inbox pass |
-| (받음), 열린 작업 | 세션 턴 | `SLACK_ROLE_TASK_REPLY_WAIT_SEC`가 0이거나, 처리표가 `m1_to_task`를 내지 않거나(멈춤 낱말은 `stop_session`), 승인 전이거나, 들을 수 없는 사람의 글이거나, 채널의 판단 한도로 보류하지 못했거나, 버퍼 한도가 방금 보류한 글을 곧바로 밀어냈다(더 새 글이 버퍼를 채움). 한 번 보류됐던 글(`m1_to_task` 기록이 있다)은 다시 보류하지 않는다 | slack 역할 inbox pass |
+| (받음), 열린 작업 | 세션 턴 | `SLACK_ROLE_TASK_REPLY_WAIT_SEC`가 0이거나, 처리표가 `m1_to_task`를 내지 않거나(멈춤 낱말은 `stop_session`), 승인 전이거나, 들을 수 없는 사람의 글이거나, 버퍼 한도가 방금 보류한 글을 곧바로 밀어냈다(더 새 글이 버퍼를 채움). 한 번 보류됐던 글(`m1_to_task` 기록이 있다)은 다시 보류하지 않는다 | slack 역할 inbox pass |
 | 기다림 | 기다림 | 판단이 아직 없고, 판단을 연 지 `SLACK_ROLE_TASK_REPLY_WAIT_SEC`(기본 30초)가 지나지 않았다. 다시 미룬다 | slack 역할 inbox pass |
-| 기다림 | 기다림 | 판단 중 글이 고쳐져 판단이 무효가 됐다. 무효인 호출은 따로 `voided` 기록으로 남고, 답글의 판단은 고친 글로 다시 판단을 기다린다. 상한은 처음 보류한 때부터 센다 | M1 판단 pass |
+| 기다림 | 기다림 | 판단 중 글(또는 그 맥락)이 고쳐지거나 지워져 판단이 무효가 됐다. 무효인 호출은 따로 `voided` 기록으로 남고, 답글은 보류한 `m1`처럼 고친 글로 한 번 더 판단한다(다른 호출 키). 그 판단도 무효면 판단하지 못한 것(`failed`)으로 끝난다. 상한은 처음 보류한 때부터 센다 | M1 판단 pass |
 | 기다림 | 세션 턴 | `speak`, 판단 실패·부르지 못함·던짐(판단 기록이 `failed`·`not_called`로 끝나 보류한 행에 붙어 남는다), 상한을 넘어 난 `quiet`, 또는 기다림이 상한을 넘었다(끝나지 않은 판단을 `failed`/`timed_out`으로 끝내 포기한다). 세션의 턴이 보류한 행을 그 행의 글로 가져간다. 판단 중 글이 고쳐졌으면 고친 글이다 | slack 역할 inbox pass |
 | 기다림 | 끝(세션 턴 없음) | 상한 안에 난 `quiet`(판단을 연 때 + 상한 안에 기록됨). 보류한 글을 지운다 | slack 역할 inbox pass |
 | 기다림(작업이 그사이 `closing`·`closed`) | 위 기다림의 다음 상태 | 등급은 처음 보류할 때의 `m1_to_task`다. 닫힌 작업의 `m1`으로 다시 보류하지 않는다. 세션 턴으로 가면 세션의 지금 길이 받거나 거절한다 | slack 역할 inbox pass |
@@ -501,7 +501,9 @@ M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는�
 - 봇을 멘션한 글은 M1 판단으로 가지 않는다("a mention of the agent is no reply for M1: ..."). 열린 작업이면 세션의 턴이 되고, `closed` 세션은 이 PR 전과 같이 턴을 받지 않는다. 닫힌 세션의 스레드는 보통 링크가 닫힌 뒤(`SLACK_ROLE_CLOSE_LINKS`) 다음 멘션이 새 세션을 연다.
 - `shadow`·`off`에서는 기다리지 않는다("rollout shadow / off: nothing waits, the work takes the reply as before"). rollout은 이벤트를 볼 때마다 다시 읽으므로, 기다리는 사이 `shadow`·`off`로 내리면 다음 봄에서 지금의 길(세션)로 간다. 그 전에 `quiet`이 났어도 그렇다.
 - 보류한 행은 세션의 턴이 가져갈 때까지 판단 기록(끝났든 아니든)이 붙어 있어 채널의 M1 배치가 가져가지 않는다. 포기·판단 실패·편집 무효 어느 길에서도 기록을 떼지 않는다("M1 could not judge it (...): the work takes it anyway (PM Q2)", "a judgment that waited past its time is given up: ...", `packages/db/src/surface/m1-judgments.integration.test.ts` "a held reply of work going on edited while judged waits for its judgment again, its row kept").
-- 상한을 넘어 난 `quiet`은 답글을 작업에서 떼지 못한다("a quiet M1 gave past the wait does not keep the reply from the work").
+- 상한을 넘어 난 `quiet`은 답글을 작업에서 떼지 못한다("a quiet M1 gave past the wait does not keep the reply from the work"). 판단의 `judged_at`은 잠금을 기다린 뒤 실제로 쓴 시각(`clock_timestamp()`)이다.
+- 같은 claim 안에서 rollout을 내려도 `quiet`이 서지 않는다. 보류를 보는 transaction이 rollout을 다시 읽어(에이전트 행 `FOR SHARE`, 스위치는 `FOR UPDATE`) `on`이 아니면 지금의 길(세션)로 보낸다("a rollout lowered while a claim looks at its reply: ...").
+- 기다리는 사이 버퍼 한도에 밀려 판단기가 기록을 먼저 끝내도(`failed`) 그 글은 다시 보류하지 않는다("a reply the buffer's limit took while it waited, its record ended by the judge, is not held again").
 - 버퍼 한도에 곧바로 밀린 답글은 기다림을 다시 시작하지 않는다("a reply the buffer's limit takes at once goes to the work, with no wait left behind").
 - 기다리는 사이 작업이 닫혀도 답글을 `m1`으로 다시 보류하지 않는다("work closed while its reply waited: the reply keeps its grade and is judged once").
 
@@ -510,10 +512,18 @@ M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는�
 - 열린 작업의 답글은 판단하지 못해도 세션에 간다("M1 could not judge it (...): the work takes it anyway (PM Q2)"). 기다림이 상한을 넘으면 판단 실패로 보고 세션에 넣는다("a judgment that waited past its time is given up: ..."). 늦게 온 판단은 판단할 것이 없다.
 - 기다리는 이벤트는 lease를 놓고 그 스레드를 비켜 세운다. 같은 채널의 다른 스레드는 계속 처리된다("the reply waits for M1, its thread aside; ...", `packages/db/src/surface/slack-inbound-claims.test.ts` "a deferred row is released to wait its time; ..."). 같은 스레드의 뒤 이벤트와, 스레드 키 없이 채널의 줄에 서는 이벤트(멤버·이름·보관)는 미룬 행이 끝날 때까지 기다린다(채널 규칙을 바꾸는 이벤트가 앞 글을 앞지르지 않게 하는 claim의 규칙). 미룸은 시도 횟수를 쓰지 않아 최대 시도에 닿지 않는다(`packages/adapters/chat/slack/src/slack-inbox.test.ts` "a deferred event waits its time, released, and its waits spend no attempt").
 - 상한은 판단을 연 시각부터 센다. 포기는 아직 끝나지 않은(`outcome` 없는) 판단만 `failed`로 끝내고, 0행이면 다시 읽어 같은 순간 기록된 판단을 따른다. 그 판단이 `quiet`이어도 상한을 넘어 기록됐으면 세션으로 간다.
-- 보류·포기·`quiet`의 글 지움은 한 transaction에서 먼저 그 이벤트의 inbox 행을 lease와 함께 잡는다(`FOR UPDATE`, inbox 완료와 같은 순서). lease를 잃은 claim은 아무것도 쓰지 않고, 그 뒤 미룸이 claim 잃음으로 기록한다. 그래서 한 이벤트의 두 주인이 같은 글을 동시에 보류하고 세션에 넣지 않는다. 보류는 그 뒤 에이전트(gate) → 주제 → 글 표시 → 입력 → 판단 순, 포기는 판단 행만 잡는다.
+- 보류·포기·`quiet`의 글 지움은 한 transaction에서 먼저 그 이벤트의 inbox 행을 lease와 함께 잡는다(`FOR UPDATE`, inbox 완료와 같은 순서). lease를 잃은 claim은 아무것도 쓰지 않고, 그 뒤 미룸이 claim 잃음으로 기록한다. 그래서 한 이벤트의 두 주인이 같은 글을 동시에 보류하고 세션에 넣지 않는다. 보류는 그 뒤 에이전트(rollout·gate) → 글 표시 → 주제 → 입력 → 판단 순이다. 글 표시를 주제보다 먼저 잡는 것은 세션의 append(세션 → 글 표시 → 주제)와 같은 순서다. 포기는 판단 행만 잡는다.
 - `speak` 뒤의 세션 턴은 보류한 행을 그대로 가져간다(입력 하나, 판단이 가리키는 행).
 - M1 채널 시간 상한(맞물린 스레드 판단과 배치를 센다)은 `m1`·`m1_to_task` 판단을 세지 않는다. 그 판단이 예산·동시 호출 한도로 부르지 못하면(`not_called`) 위 표의 실패 길을 탄다.
 - 판단이 끝난 뒤 이벤트를 다시 보기까지 미룸 간격(2초)과 inbox pass 간격만큼 늦을 수 있고, M1 판단 pass가 도는 간격(기본 5초)도 기다림에 들어간다. 기본 상한 30초는 실측으로 정한 값이 아니다. 알려진 한계다.
+
+알려진 한계(Codex 리뷰에서 나온 것, 이 PR 밖):
+
+- 열린 작업이어도 세션의 admission이 `paused`·`stopped`면 세션 append가 이 PR 전과 같이 거절한다. 그 답글은 M1을 기다린 뒤 지금처럼 턴 없이 끝난다.
+- `closing` 세션이 close 실패로 `active`로 돌아가고, 그 사이 lease를 잃은 예전 claim이 세션에 append하면 같은 글에 청하지 않은 턴과 세션 턴이 둘 다 날 수 있다. lease 만료, rollout 전환, close 실패가 겹쳐야 한다.
+- 세션 없이 링크만 있는 스레드(여는 중이거나 열기 실패)의 답글은 이 길을 타지 않고 지금의 여는 길로 간다.
+- 기다리는 사이 링크가 닫히면(`SLACK_ROLE_CLOSE_LINKS`) 다음 봄은 묶이지 않은 스레드의 길로 가서 턴 없이 끝난다. 보류한 행은 판단 기록이 붙어 있어 배치가 가져가지 않고, 버퍼 시간이 지나면 지워진다.
+- 세션이 글을 넘겨받은 뒤(`{edited}`를 읽은 뒤 append 전) 온 편집은 세션에 가지 않는다. 세션이 바로 받은 글의 편집과 같다.
 
 ### mirror 스레드: 가리키는 작업
 

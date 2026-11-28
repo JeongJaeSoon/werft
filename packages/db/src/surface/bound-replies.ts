@@ -13,6 +13,7 @@ import {
   dropBufferedInputs,
   holdBufferedInput,
   JUDGMENT_BUFFER_TTL_MS,
+  lockSlackSourceMark,
   sessionWorkClosed,
 } from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
@@ -107,6 +108,14 @@ export function createPostgresBoundReplyStore(
         // writes nothing, and its defer then finds it lost. Two owners of
         // one event never hold, give up or append its post at once.
         if (!(await claimHeld(tx, reply.fence))) return "waiting";
+        // The rollout as of now, held against a switch until this ends: one
+        // lowered since the event's read takes the current path (the work).
+        const [agent] = rowsOf<{ on: boolean }>(
+          await tx.execute(sql`
+            SELECT conversation_rollout = 'on' AS on FROM agents
+            WHERE id = ${reply.agentId}::uuid FOR SHARE`),
+        );
+        if (agent?.on !== true) return "session";
         const session = (body: string | null): TaskReplyRoute =>
           body !== null && body !== reply.body ? { edited: body } : "session";
         const [held] = rowsOf<
@@ -183,9 +192,17 @@ export function createPostgresBoundReplyStore(
             WHERE id = ${before.id}::uuid AND outcome IS NULL`);
           return "session";
         }
-        // As the inbox's completion holds a reply: the gate under the
-        // agent's lock, then the topic, then the hold.
+        // The gate under the agent's lock, then the post's mark before its
+        // topic, the order a session's append of the post takes them in.
         if (!(await m1GateOpenForWrite(tx, reply))) return "session";
+        await tx.execute(
+          lockSlackSourceMark({
+            workspaceId: reply.workspaceId,
+            teamId: reply.teamId,
+            channelId: reply.channelId,
+            ts: reply.ts,
+          }),
+        );
         const topic = rowsOf(
           await tx.execute(sql`
             SELECT id FROM conversation_topics

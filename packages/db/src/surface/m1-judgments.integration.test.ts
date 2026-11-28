@@ -1240,7 +1240,7 @@ integration("M1 judgment records", () => {
       });
     });
 
-    test("a held reply of work going on edited while judged waits for its judgment again, its row kept", async () => {
+    test("a held reply of work going on edited while judged is judged once more on its new text, its row kept", async () => {
       await pool.query(
         "DELETE FROM conversation_judgments WHERE outcome IS NULL",
       );
@@ -1270,19 +1270,31 @@ integration("M1 judgment records", () => {
           judgedRecord(inputId, ["1950.000001"]),
           { read: { body: "before", editMark: null } },
         ),
-      ).toEqual({ voided: "voided_by_edit", rejudge: null });
-      // The reply's record keeps its held row (out of M1's batches) and
-      // waits for a judge again; the voided call has a row of its own.
-      const rows = await rowsOf(place.channelId);
-      expect(
-        rows.map((row) => [row.outcome, row.input_id, row.claimed_at === null]),
-      ).toEqual([
-        [null, inputId, true],
-        ["voided", null, false],
+      ).toMatchObject({ voided: "voided_by_edit", rejudge: { body: "after" } });
+      // The reply's record keeps its held row (out of M1's batches); the
+      // voided call has a row of its own.
+      let rows = await rowsOf(place.channelId);
+      expect(rows.map((row) => [row.outcome, row.input_id])).toEqual([
+        [null, inputId],
+        ["voided", null],
       ]);
-      const again = await store().claimReply();
-      expect(again?.id).toBe(claimed.id);
-      expect(again?.subject.posts.map((post) => post.body)).toEqual(["after"]);
+      // Voided again: it could not be judged, and the record stays.
+      await marks().markEdited(mark(place, "1950.000001"), "later");
+      expect(
+        await store().finishReply(
+          claimed.id,
+          judgedRecord(`${inputId}-rejudge`, ["1950.000001"]),
+          { read: { body: "after", editMark: null }, final: true },
+        ),
+      ).toMatchObject({ voided: "voided_by_edit", rejudge: null });
+      rows = await rowsOf(place.channelId);
+      expect(
+        rows.map((row) => [row.outcome, row.reason, row.input_id]),
+      ).toEqual([
+        ["voided", "voided_by_edit", null],
+        ["voided", "voided_by_edit", null],
+        ["failed", "provider_error", inputId],
+      ]);
     });
 
     test("a bound reply edited while judged is voided and not judged again", async () => {
@@ -1469,7 +1481,7 @@ integration("M1 judgment records", () => {
       });
     });
 
-    test("a bound reply whose context was deleted is voided and not judged again", async () => {
+    test("a held reply of work going on whose context was deleted is judged once more, as a held reply is", async () => {
       await pool.query(
         "DELETE FROM conversation_judgments WHERE outcome IS NULL",
       );
@@ -1501,7 +1513,10 @@ integration("M1 judgment records", () => {
           ]),
           { read: { body: "reply", editMark: null } },
         ),
-      ).toEqual({ voided: "voided_by_delete", rejudge: null });
+      ).toMatchObject({
+        voided: "voided_by_delete",
+        rejudge: { body: "reply" },
+      });
     });
 
     test("a context message edited while judged voids the result, and every post is judged again", async () => {

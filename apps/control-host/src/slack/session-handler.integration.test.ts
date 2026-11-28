@@ -33,6 +33,7 @@ import {
   conversationCallKeySchema,
   conversationDecisionTools,
   conversationRuntimeIdSchema,
+  conversationTopicIdSchema,
   conversationTurnIdSchema,
   conversationTurnLeaseIdSchema,
   DEFAULT_SURFACE_CEILING,
@@ -9287,6 +9288,92 @@ describe.each(ENGINES)(
         // Only the newer reply's judgment waits.
         expect(await judgments()).toEqual([
           expect.objectContaining({ grade: "m1_to_task", outcome: null }),
+        ]);
+      });
+
+      test("a reply the buffer's limit took while it waited, its record ended by the judge, is not held again", async () => {
+        const fixture = await agentInSlack("main", { rollout: "shadow" });
+        const { handle } = handler();
+        const OTHER = "100.000700";
+        await deliver(fixture, mention(THREAD));
+        await deliver(fixture, mention(OTHER));
+        expect(await drain(handle)).toMatchObject({ processed: 2 });
+        const opened = await sessionsOf(fixture);
+        for (const session of opened) {
+          await db
+            .update(sessions)
+            .set({ status: "queued" })
+            .where(eq(sessions.id, session.id));
+        }
+        expect(
+          await schema
+            .createPostgresInstallationConfigStore(db)
+            .importValue("judgment_buffer_limit_per_channel", 1),
+        ).toBe(true);
+        await rollout(fixture, "on");
+        await deliver(fixture, reply());
+        expect(await drain(handle)).toMatchObject({ deferred: 1 });
+        // A newer reply of the other work takes the channel's one place.
+        await deliver(
+          fixture,
+          message("100.000900", { thread_ts: OTHER, text: "a later one" }),
+        );
+        expect(await drain(handle)).toMatchObject({ deferred: 1 });
+        expect(await replyInput()).toEqual([]);
+        // The judge finds the older reply's row gone and ends its record.
+        await judgeReplies("speak");
+        await due();
+        expect(await drain(handle)).toMatchObject({ processed: 2 });
+        const told = await Promise.all(
+          opened.map((session) => messagesOf(session.id)),
+        );
+        expect(told.flat()).toEqual(
+          expect.arrayContaining(["and the next step", "a later one"]),
+        );
+        expect(await judgments()).toEqual([
+          expect.objectContaining({ grade: "m1_to_task", outcome: "failed" }),
+          expect.objectContaining({ grade: "m1_to_task", outcome: "judged" }),
+        ]);
+      });
+
+      test("a rollout lowered while a claim looks at its reply: a quiet under on does not stand, the work takes it", async () => {
+        const { fixture, handle } = await workThread("queued");
+        await deliver(fixture, reply());
+        expect(await drain(handle)).toMatchObject({ deferred: 1 });
+        expect((await judgeReplies("quiet")).judged).toBe(1);
+        await due();
+        // Claimed, its rollout read as on; the switch goes down before its
+        // hold is looked at.
+        const [claimed] = await createPostgresSlackInboundEventStore(db).claim({
+          limit: 10,
+          leaseMs: 30_000,
+          maxAttempts: 5,
+        });
+        if (claimed === undefined) throw new Error("nothing claimed");
+        await rollout(fixture, "shadow");
+        const [held] = await db
+          .select({ topicId: schema.conversationInputs.topicId })
+          .from(schema.conversationInputs)
+          .where(eq(schema.conversationInputs.slackTs, REPLY));
+        if (held === undefined) throw new Error("not held");
+        expect(
+          await schema.createPostgresBoundReplyStore(db).taskReply({
+            kind: "channel",
+            workspaceId: fixture.workspaceId,
+            agentId: fixture.agentId,
+            teamId: TEAM,
+            channelId: CHANNEL,
+            fence: { id: claimed.id, claimToken: claimed.claimToken },
+            topicId: conversationTopicIdSchema.parse(held.topicId),
+            ts: REPLY,
+            body: "and the next step",
+            slackUserId: PERSON,
+            rule: { decision: "reply", reason: "default_reply" },
+            waitMs: 30_000,
+          }),
+        ).toBe("session");
+        expect(await replyInput()).toEqual([
+          expect.objectContaining({ held: true }),
         ]);
       });
 
