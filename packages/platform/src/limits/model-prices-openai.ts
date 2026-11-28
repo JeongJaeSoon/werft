@@ -5,8 +5,9 @@
  * it was last checked against that page. The page gives no date of its own.
  *
  * Not priced: the cyber, Rosalind, Law and search models (a model missing
- * here falls to the fallback rate, which is the highest the platform knows
- * outside the Pro cards) and the data-residency uplift (the connection's
+ * here is priced from the LiteLLM snapshot, or at the unknown rate, which is
+ * the highest the platform knows outside the Pro cards) and the
+ * data-residency uplift (the connection's
  * default endpoint is not a regional one). `gpt-5.6-sol` is listed at its
  * promotional rate until 2026-11-30; the page does not say which of its
  * figures that is, so the table keeps what the page shows and the entry needs
@@ -198,6 +199,11 @@ export function openAiRatesFor(
   // A model whose long rates the page does not give is priced by the
   // fallback (undefined) past the threshold, not at its short rates.
   return promptTokens > OPENAI_LONG_CONTEXT_TOKENS ? entry.long : entry.short;
+}
+
+/** Whether the table names the model, whatever the prompt's length. */
+export function openAiNames(model: string): boolean {
+  return cardFor(model) !== undefined;
 }
 
 /** What a model the table names multiplies its rates by at `speed`. */

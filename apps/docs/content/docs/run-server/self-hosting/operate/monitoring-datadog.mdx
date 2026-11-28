@@ -14,7 +14,7 @@ Agent는 선택형 [`infra/compose.datadog.yml`](https://github.com/JeongJaeSoon
 `DD_API_KEY`와 Datadog용 PostgreSQL password는 저장소나 shell history에 넣지 않는다. 서버에서 운영자가 `/etc/werft/datadog.env`를 만들고 mode 600을 확인한다. 다른 절대 경로를 써야 할 때만 `DATADOG_ENV_FILE`로 바꾸며, 값은 예시 자리표시자이므로 실제 값을 문서·티켓·로그에 복사하지 않는다.
 
 ```dotenv
-DD_API_KEY=<operator-supplied>
+DD_API_KEY=[REDACTED]
 DD_SITE=datadoghq.com
 DD_ENV=alpha
 DD_VERSION=<release-sha>
@@ -32,7 +32,7 @@ Agent service는 이 절대 경로를 `env_file`로만 읽는다. compose YAML�
 PostgreSQL role은 `queue_messages`, `sessions`, `turns`, `attempts`, `provider_usage`에 `SELECT`만 허용하고 기본 transaction을 read-only로 고정한다. 아래 명령은 서버 운영자가 admin connection에서 한 번 실행한다.
 
 ```sql
-CREATE ROLE datadog LOGIN PASSWORD :'datadog_password';
+CREATE ROLE datadog LOGIN PASSWORD :'[REDACTED]';
 ALTER ROLE datadog SET default_transaction_read_only = on;
 GRANT CONNECT ON DATABASE sessions TO datadog;
 GRANT USAGE ON SCHEMA public TO datadog;
@@ -86,7 +86,7 @@ Agent는 Docker socket과 container log directory를 read-only로 mount하고 ho
 - checkpoint pending age: `checkpoint_pending_reason IS NOT NULL`인 session의 `updated_at` 중 가장 오래된 값을 쓴다. checkpoint와 무관한 같은 session 갱신이 이 시각을 움직일 수 있으므로 exact SLI가 아니라 하한 proxy다.
 - `outcome_unknown`: 최근 5분에 만들어진 `turns.outcome_unknown = true` row 수다.
 - stale lease: `exited`·`lost`가 아닌 attempt 가운데 `lease_expires_at < clock_timestamp()`인 수다.
-- provider 비용: 최근 1시간 `cost_usd` 합계와 `priced_by = 'fallback'` row 수다. `werft.provider.unmetered_tokens_1h`는 같은 1시간의 `priced_by = 'unmetered'` row 토큰 합계(input·output·cache write·cache read)다. `billing: none` 연결은 비용이 0으로 남으므로, 유료 upstream을 잘못 선언했을 때 드러나는 곳은 이 토큰 수뿐이다. monitor는 정의하지 않는다. 정상값이 설치의 로컬 모델 사용량에 달려 있어서다.
+- provider 비용: 최근 1시간 `cost_usd` 합계와 `priced_by`가 `unknown`(단가 미상)이거나 옛 값 `fallback`인 row 수다. `werft.provider.unmetered_tokens_1h`는 같은 1시간의 `priced_by = 'unmetered'` row 토큰 합계(input·output·cache write·cache read)다. `billing: none` 연결은 비용이 0으로 남으므로, 유료 upstream을 잘못 선언했을 때 드러나는 곳은 이 토큰 수뿐이다. monitor는 정의하지 않는다. 정상값이 설치의 로컬 모델 사용량에 달려 있어서다.
 
 어느 query도 `session_id`를 반환하지 않는다. [`log-metrics.json`](https://github.com/JeongJaeSoon/werft/blob/main/infra/datadog/definitions/log-metrics.json)의 group-by도 `service`·`env`와 낮은 cardinality 상태만 쓴다. `session_id`는 incident에서 원본 로그나 DB를 좁힐 때만 쓴다.
 

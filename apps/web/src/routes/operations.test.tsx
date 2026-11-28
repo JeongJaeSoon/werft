@@ -51,6 +51,7 @@ function series(scope: "me" | "installation", days: number) {
       until: "2026-10-25T00:00:00.000Z",
     },
     refreshed_at: NOW.toISOString(),
+    unknown_price: { call_count: 0, token_count: 0, cost_usd: "0" },
     buckets: Array.from({ length: days }, (_, i) => ({
       date: new Date(Date.UTC(2026, 9, 25 - days + i))
         .toISOString()

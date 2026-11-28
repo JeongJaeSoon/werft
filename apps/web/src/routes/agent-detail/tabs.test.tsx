@@ -62,6 +62,7 @@ const agentUsage = (cost: string) => {
     cost_complete: true,
     run_seconds: 0,
     token_count: 0,
+    unknown_price: { call_count: 0, token_count: 0, cost_usd: "0" },
     period: { since, until },
     refreshed_at: until,
     basis: {

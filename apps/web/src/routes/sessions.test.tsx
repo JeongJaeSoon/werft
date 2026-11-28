@@ -318,6 +318,12 @@ const usage: SessionUsageResponse = {
   cost_limit_usd: "25",
   token_count: 1234,
   token_limit: null,
+  unknown_price: {
+    call_count: 0,
+    token_count: 0,
+    cost_usd: "0",
+    token_limit: 5_000_000,
+  },
   budget_exceeded: true,
   queued_input_count: 0,
   queued_input_limit: 10,
@@ -2748,6 +2754,36 @@ describe("session detail", () => {
     });
     const progress = await sessionProgress();
     await waitFor(() => expect(progress.textContent).toContain("$1.50"));
+  });
+
+  const withUnknownPrice = (cost_usd: string) => ({
+    ...detailRoutes,
+    [`GET /v1/sessions/${SESSION_ID}/usage`]: () =>
+      json(200, {
+        ...usage,
+        cost: { ...usage.cost, amount_usd: "1.5" },
+        unknown_price: { ...usage.unknown_price, call_count: 3, cost_usd },
+      }),
+  });
+
+  test("calls of unknown price leave the amount and are named beside it with what the limits counted", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, withUnknownPrice("1.25"));
+    const progress = await sessionProgress();
+    await waitFor(() =>
+      expect(progress.textContent).toContain("$0.25 + 단가 미상 3건"),
+    );
+    expect(progress.textContent).toContain("상한 단가로 $1.25를 셉니다");
+    expect(progress.textContent).not.toContain("$1.50");
+  });
+
+  test("a cost that is all of unknown price shows no amount in its place", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, withUnknownPrice("1.5"));
+    const progress = await sessionProgress();
+    await waitFor(() =>
+      expect(progress.textContent).toContain("단가 미상 3건"),
+    );
+    expect(progress.textContent).not.toContain("+ 단가 미상");
+    expect(progress.textContent).toContain("상한 단가로 $1.50를 셉니다");
   });
 
   test("a turn that ended without a cost report is not called running", async () => {

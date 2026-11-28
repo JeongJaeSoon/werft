@@ -14,7 +14,7 @@ The Agent is created only by the optional [`infra/compose.datadog.yml`](https://
 Do not put `DD_API_KEY` or the PostgreSQL password for Datadog in the repository or in shell history. On the server, the operator creates `/etc/werft/datadog.env` and checks that its mode is 600. Change it with `DATADOG_ENV_FILE` only when you must use a different absolute path. The values are example placeholders, so do not copy real values into documents, tickets or logs.
 
 ```dotenv
-DD_API_KEY=<operator-supplied>
+DD_API_KEY=[REDACTED]
 DD_SITE=datadoghq.com
 DD_ENV=alpha
 DD_VERSION=<release-sha>
@@ -32,7 +32,7 @@ The Agent service reads this absolute path only as an `env_file`. The compose YA
 The PostgreSQL role is allowed only `SELECT` on `queue_messages`, `sessions`, `turns`, `attempts` and `provider_usage`, and its default transaction is fixed to read-only. The server operator runs the commands below once on an admin connection.
 
 ```sql
-CREATE ROLE datadog LOGIN PASSWORD :'datadog_password';
+CREATE ROLE datadog LOGIN PASSWORD :'[REDACTED]';
 ALTER ROLE datadog SET default_transaction_read_only = on;
 GRANT CONNECT ON DATABASE sessions TO datadog;
 GRANT USAGE ON SCHEMA public TO datadog;
@@ -86,7 +86,7 @@ The `custom_queries` in [`infra/datadog/conf.d/postgres.d/conf.yaml`](https://gi
 - checkpoint pending age: uses the oldest `updated_at` among sessions with `checkpoint_pending_reason IS NOT NULL`. Updates to the same session unrelated to the checkpoint can move this time, so it is a lower-bound proxy, not an exact SLI.
 - `outcome_unknown`: the number of `turns.outcome_unknown = true` rows created in the last 5 minutes.
 - stale lease: the number of attempts that are not `exited` or `lost` with `lease_expires_at < clock_timestamp()`.
-- provider cost: the total `cost_usd` over the last hour and the number of `priced_by = 'fallback'` rows. `werft.provider.unmetered_tokens_1h` is the token total (input, output, cache write, cache read) of `priced_by = 'unmetered'` rows over the same hour. A `billing: none` connection leaves cost at 0, so these token counts are the only place where a wrongly declared paid upstream shows up. No monitor is defined, because the normal value depends on the installation's local model usage.
+- provider cost: the total `cost_usd` over the last hour and the number of rows whose `priced_by` is `unknown` (a model nothing prices) or the older `fallback`. `werft.provider.unmetered_tokens_1h` is the token total (input, output, cache write, cache read) of `priced_by = 'unmetered'` rows over the same hour. A `billing: none` connection leaves cost at 0, so these token counts are the only place where a wrongly declared paid upstream shows up. No monitor is defined, because the normal value depends on the installation's local model usage.
 
 No query returns `session_id`. The group-by in [`log-metrics.json`](https://github.com/JeongJaeSoon/werft/blob/main/infra/datadog/definitions/log-metrics.json) also uses only `service`, `env` and low-cardinality states. `session_id` is used only to narrow down the original logs or the DB during an incident.
 

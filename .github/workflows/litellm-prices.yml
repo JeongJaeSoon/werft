@@ -1,0 +1,151 @@
+name: LiteLLM prices
+
+# The rates werft charges for a model its own tables do not name are a
+# snapshot of LiteLLM's price data in the repository
+# (packages/platform/src/limits/model-prices-litellm.gen.ts). A pull request
+# that touches the snapshot or its script must carry exactly what the script
+# writes from the pinned commit. Once a week the pin moves to the latest
+# upstream commit in a pull request; a person reads the rates and merges it.
+# Nothing here changes a rate on main. Not a required check.
+on:
+  schedule:
+    # Mondays 09:43 JST.
+    - cron: '43 0 * * 1'
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'LiteLLM commit to move the pin to (40 hex). Empty takes the latest commit of the price file.'
+        type: string
+        required: false
+  pull_request:
+    paths:
+      - packages/platform/src/limits/model-prices-litellm.gen.ts
+      - packages/platform/src/limits/model-prices-litellm.ts
+      - packages/platform/src/limits/model-prices-litellm.test.ts
+      - scripts/update-litellm-prices.ts
+      - tests/update-litellm-prices.test.ts
+      - .github/workflows/litellm-prices.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: litellm-prices-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # The file in the pull request against the pinned commit, fetched again.
+  snapshot:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/bun-setup
+      - run: bun install --frozen-lockfile
+      - run: bun test ./tests/update-litellm-prices.test.ts ./packages/platform/src/limits/model-prices-litellm.test.ts
+      - run: bun scripts/update-litellm-prices.ts --check
+
+  update:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # The job pushes one branch and opens its pull request, or files an issue
+    # when it cannot; nothing else in this workflow may write.
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      FILE: packages/platform/src/limits/model-prices-litellm.gen.ts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/bun-setup
+      - run: bun install --frozen-lockfile
+      - name: Move the pin
+        id: move
+        env:
+          SHA: ${{ inputs.sha }}
+        run: |
+          if [ -n "$SHA" ]; then
+            bun scripts/update-litellm-prices.ts --sha "$SHA" --report report.md
+          else
+            bun scripts/update-litellm-prices.ts --latest --report report.md
+          fi
+          if git diff --quiet -- "$FILE"; then
+            echo "The snapshot is already at the latest price data." >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          commit=$(sed -n 's/^  commit: "\([0-9a-f]\{40\}\)",$/\1/p' "$FILE")
+          [ -n "$commit" ]
+          branch="ci/litellm-prices-${commit:0:12}"
+          # A branch for this commit is a pull request already opened, or one a
+          # person closed: either way this run has nothing to add.
+          if git ls-remote --exit-code origin "refs/heads/$branch" >/dev/null; then
+            echo "\`$branch\` already exists." >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo "commit=$commit"
+            echo "branch=$branch"
+          } >>"$GITHUB_OUTPUT"
+          cat report.md >>"$GITHUB_STEP_SUMMARY"
+      # Before the branch exists: a snapshot the reader refuses, or one that
+      # prices a model above werft's own table for it, is not proposed.
+      - name: Test the new snapshot
+        if: steps.move.outputs.branch != ''
+        run: bun test ./tests/update-litellm-prices.test.ts ./packages/platform/src/limits/
+      - name: Push the branch
+        if: steps.move.outputs.branch != ''
+        env:
+          BRANCH: ${{ steps.move.outputs.branch }}
+          COMMIT: ${{ steps.move.outputs.commit }}
+        run: |
+          git checkout -b "$BRANCH"
+          git add -- "$FILE"
+          git -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "chore(platform): move the LiteLLM price snapshot to ${COMMIT:0:12}"
+          git push origin "$BRANCH"
+      - name: Open the pull request
+        if: steps.move.outputs.branch != ''
+        env:
+          BRANCH: ${{ steps.move.outputs.branch }}
+          COMMIT: ${{ steps.move.outputs.commit }}
+        run: |
+          {
+            cat report.md
+            echo "Written by \`scripts/update-litellm-prices.ts\` in [run ${GITHUB_RUN_ID}](${RUN_URL}). The rates of werft's own tables are not touched: this changes what a model outside them is charged."
+            echo
+            echo "The checks do not start on a pull request this workflow opens. Close and reopen it to run them. An older pull request of this workflow that is still open is replaced by this one."
+          } >body.md
+          gh pr create --base "$GITHUB_REF_NAME" --head "$BRANCH" \
+            --title "[확인] chore(platform): LiteLLM 단가 snapshot을 ${COMMIT:0:12}로 옮긴다" \
+            --body-file body.md
+      # One open issue for the signal: the data could not be read, the new
+      # snapshot fails its tests, or the repository does not let a workflow
+      # open a pull request (then the branch is there to open one from).
+      - name: Open or update the issue
+        if: failure()
+        env:
+          BRANCH: ${{ steps.move.outputs.branch }}
+        run: |
+          {
+            echo "<!-- litellm-prices -->"
+            echo "The weekly LiteLLM price snapshot update did not open a pull request. The [run](${RUN_URL}) log says why."
+            if [ -n "$BRANCH" ] && git ls-remote --exit-code origin "refs/heads/$BRANCH" >/dev/null; then
+              echo
+              echo "The new snapshot is on \`$BRANCH\`: [open a pull request from it](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${GITHUB_REF_NAME}...${BRANCH}?expand=1)."
+              if [ -f report.md ]; then
+                echo
+                cat report.md
+              fi
+            fi
+            echo
+            echo "[Run ${GITHUB_RUN_ID}](${RUN_URL}) on \`${GITHUB_SHA}\`. Close this issue once the snapshot is updated; the next failure opens a new one."
+          } >body.md
+          .github/scripts/upsert-ci-issue.sh litellm-prices \
+            "The LiteLLM price snapshot was not updated" body.md

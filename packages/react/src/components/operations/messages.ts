@@ -58,6 +58,16 @@ export interface UsageKpisMessages {
   readonly costIncomplete: string;
   /** Shown when the period had conversation calls: the cost's two parts. */
   readonly costSplit: (sessions: string, conversations: string) => string;
+  /**
+   * Shown when sessions of the period called a model nothing prices: the
+   * calls, their tokens, and what the limits counted for them, which the
+   * card's amount leaves out.
+   */
+  readonly costUnknown: (
+    calls: string,
+    tokens: string,
+    counted: string,
+  ) => string;
   readonly costChart: string;
   readonly tokens: string;
   readonly tokensNote: string;
@@ -523,6 +533,8 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
           "진행 중이거나 비용을 보고하지 않은 턴이 있어 실제보다 적을 수 있음",
         costSplit: (sessions, conversations) =>
           `세션 ${sessions} · 대화 ${conversations}`,
+        costUnknown: (calls, tokens, counted) =>
+          `+ 단가 미상 ${calls}건 · 토큰 ${tokens}. 한도 계산에는 상한 단가로 ${counted}를 셉니다`,
         costChart: "일자별 비용",
         tokens: "토큰",
         tokensNote: "비용을 센 호출의 토큰",
@@ -764,6 +776,8 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
           "実行中またはコスト未報告のターンがあるため、実際より少ない可能性があります",
         costSplit: (sessions, conversations) =>
           `セッション ${sessions} · 会話 ${conversations}`,
+        costUnknown: (calls, tokens, counted) =>
+          `+ 単価不明 ${calls}件 · トークン ${tokens}。上限の計算では最高単価で ${counted} と数えます`,
         costChart: "日別コスト",
         tokens: "トークン",
         tokensNote: "コストを数えた呼び出しのトークン",
@@ -1008,6 +1022,8 @@ export const OPERATIONS_MESSAGES: Readonly<Record<Locale, OperationsMessages>> =
           "Turns still running or without a reported cost may make this lower than the real cost",
         costSplit: (sessions, conversations) =>
           `Sessions ${sessions} · conversations ${conversations}`,
+        costUnknown: (calls, tokens, counted) =>
+          `+ calls of unknown price: ${calls} · tokens ${tokens}. The limits count them at the highest known rate, as ${counted}`,
         costChart: "Cost per day",
         tokens: "Tokens",
         tokensNote: "Tokens from calls included in the cost estimate",

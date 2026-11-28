@@ -54,6 +54,18 @@ export type UsageTotalsFilter =
   // Started from any release of the agent, whoever started them.
   | { kind: "agent"; ownerId: string; agentId: string };
 
+/**
+ * The calls marked as of unknown price (`provider_usage.price_unknown`) of
+ * one session, or of the sessions a summary adds up.
+ */
+export type UnknownPriceUsageRecord = {
+  callCount: number;
+  /** The four token columns, as the provider_tokens trigger sums them. */
+  tokens: number;
+  /** The sum of their `cost_usd` as the database prints the numeric. */
+  costUsd: string;
+};
+
 /** Sessions created in [since, until), read in one statement. */
 export type UsageSummaryRecord = {
   readAt: Date;
@@ -342,6 +354,15 @@ export interface UsageReader {
     filter: UsageTotalsFilter,
     period: { since: Date; until?: Date },
   ): Promise<UsageSummaryRecord>;
+  /**
+   * Of one session, or of the sessions `usageSummary` picks for the period:
+   * pass the summary's own `until`, so both read the same sessions.
+   */
+  unknownPriceUsage(
+    of:
+      | { sessionId: string }
+      | { filter: UsageTotalsFilter; period: { since: Date; until: Date } },
+  ): Promise<UnknownPriceUsageRecord>;
   usageOutcomes(
     filter: UsageTotalsFilter,
     period: { since: Date; until?: Date },

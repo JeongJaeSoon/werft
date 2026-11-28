@@ -121,7 +121,8 @@ export interface ConversationCallStore {
     callId: ConversationCallId;
     exchangeId: string;
     usage: ProviderUsage;
-    priceFor(call: { unmetered: boolean }): { costUsd: number };
+    /** `model` is the one the call was issued for, which its request names. */
+    priceFor(call: { unmetered: boolean; model: string }): { costUsd: number };
   }): Promise<ConversationCallSettle>;
   /**
    * Releases up to `limit` reservations whose token expired unused. A call

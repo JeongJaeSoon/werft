@@ -1287,7 +1287,7 @@ export interface paths {
         };
         /**
          * Execution limits for the whole installation
-         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Each key gives `value`, what applies now; `default`, what applies while nothing is saved; `saved`, false until an owner saves the key or an upgrade carries its old environment variable in; and `blocked`, true while that variable held a value the key does not accept and nothing is saved: only what the key sets is refused (503, retryable) until a value is saved, and no default stands in. `pending_request_ttl_sec` is how long a permission or question a session raised takes answers once registered (1 to 604800 seconds); while blocked, a permission or question is not registered. `queued_input_limit_per_session` is how many queued turns one session holds before the next input answers 429 (1 to 100000), and `storage_limit_bytes` the input bytes the installation retains before the next answers 413; while either is blocked, a new session or input is refused. `session_cost_limit_usd` (above 0, up to 1000000) and `session_token_limit` (0 sets none) stop a session that reached either: it is launched, claimed and given nothing more, and a new provider call is refused. A raised limit reaches a running worker at its next claim; a lowered one stops the next provider call. While either is blocked, no session is launched and no provider call is opened. `workspace_enforce` (`warn`, `fail`, `off`) is what a worker does once its workspace outgrows its quota, read at each claim. `session_archive_after_days` (0 archives nothing, otherwise 30 to 3650) and `session_archive_dry_run` (true only counts) are read by the session event archive job at each run; while either is blocked, the job moves nothing and exits 1. `session_archive` is not a setting: whether this API's object store settings could hold archived events (`reason`: `object_store_disabled` or `unversioned` when not); it does not know whether the job itself is turned off. `workspace_stopped_ttl_sec` and `workspace_paused_ttl_sec` (0 to 315360000 seconds) are how long a stopped session, and a paused one with a checkpoint to resume from, keep their workspace before a scheduler pass reclaims it; 0 reclaims it at the next pass, and a later resume restores from the checkpoint. While either is blocked, no stopped or paused session's workspace is reclaimed. The values apply to every workspace of the installation.
+         * @description The operator (`installation.settings.manage`, the workspace owner), signed in; an API key is 403 whatever its scopes. Each key gives `value`, what applies now; `default`, what applies while nothing is saved; `saved`, false until an owner saves the key or an upgrade carries its old environment variable in; and `blocked`, true while that variable held a value the key does not accept and nothing is saved: only what the key sets is refused (503, retryable) until a value is saved, and no default stands in. `pending_request_ttl_sec` is how long a permission or question a session raised takes answers once registered (1 to 604800 seconds); while blocked, a permission or question is not registered. `queued_input_limit_per_session` is how many queued turns one session holds before the next input answers 429 (1 to 100000), and `storage_limit_bytes` the input bytes the installation retains before the next answers 413; while either is blocked, a new session or input is refused. `session_cost_limit_usd` (above 0, up to 1000000) and `session_token_limit` (0 sets none) stop a session that reached either: it is launched, claimed and given nothing more, and a new provider call is refused. A raised limit reaches a running worker at its next claim; a lowered one stops the next provider call. While either is blocked, no session is launched and no provider call is opened. `unknown_price_session_token_limit` (1 or more; it cannot be switched off) is how many provider tokens a session may use on models nothing prices, whose calls are counted at the highest known rate: a provider call is refused once the tokens of the session's calls marked as of unknown price, with the reserves of its calls still in flight, reach it. It is judged when a provider call opens and by no other gate; while it is blocked, no provider call is opened. `workspace_enforce` (`warn`, `fail`, `off`) is what a worker does once its workspace outgrows its quota, read at each claim. `session_archive_after_days` (0 archives nothing, otherwise 30 to 3650) and `session_archive_dry_run` (true only counts) are read by the session event archive job at each run; while either is blocked, the job moves nothing and exits 1. `session_archive` is not a setting: whether this API's object store settings could hold archived events (`reason`: `object_store_disabled` or `unversioned` when not); it does not know whether the job itself is turned off. `workspace_stopped_ttl_sec` and `workspace_paused_ttl_sec` (0 to 315360000 seconds) are how long a stopped session, and a paused one with a checkpoint to resume from, keep their workspace before a scheduler pass reclaims it; 0 reclaims it at the next pass, and a later resume restores from the checkpoint. While either is blocked, no stopped or paused session's workspace is reclaimed. The values apply to every workspace of the installation.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -1691,7 +1691,7 @@ export interface paths {
         };
         /**
          * Estimated cost of a session and whether every turn reported it
-         * @description Reads the session's estimated provider cost and token count over its lifetime, its cost and token limits, and its queued input against the per-session limit. The cost is the platform's estimate from the model calls it saw, not a bill. `cost.complete: false` means a turn is still open or ended without reporting, so the true total is unknown; do not read it as zero. `budget_exceeded: true` means either limit is reached: no new turn is dispatched, but input is still accepted and queued. It changes nothing.
+         * @description Reads the session's estimated provider cost and token count over its lifetime, its cost and token limits, and its queued input against the per-session limit. The cost is the platform's estimate from the model calls it saw, not a bill: it is the amount the limits count. A call on a model that neither the platform's price tables nor its LiteLLM snapshot names is counted at the highest known rate, which is not what it cost; `unknown_price` gives those calls' count, their tokens, their part of the cost (`cost_usd`) and the session's limit on such tokens (`token_limit`, judged when a call opens, apart from `budget_exceeded`). `cost.complete: false` means a turn is still open or ended without reporting, so the true total is unknown; do not read it as zero. `budget_exceeded: true` means either limit is reached: no new turn is dispatched, but input is still accepted and queued. It changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -5330,7 +5330,7 @@ export interface paths {
          *     - `scope=installation`: every session of every owner. Only the workspace's owner and admins, signed in, read it: any other member and every API key get 403.
          *     - `scope=agent` with `agent_id`: the sessions started from any release of that agent, whoever started them. The workspace's owner and admins and the agent's admins read it; anyone else, and every API key, gets 403, and an agent of another workspace, or none, is 404 for everyone. `agent_id` is required with it and refused with any other scope, and `group_by` is refused with it.
          *
-         *     `cost_usd` is the sum of `cost.amount_usd` from `GET /v1/sessions/{id}/usage` over the same sessions: an estimate, not a bill. `cost_complete: false` means one of them has a turn still open or one that ended without reporting its cost, so the true total is unknown. `run_seconds` is wall-clock turn time, waiting for an answer included; an open turn counts up to `refreshed_at`. Sessions from before tokens were metered count 0 tokens.
+         *     `cost_usd` is the sum of `cost.amount_usd` from `GET /v1/sessions/{id}/usage` over the same sessions: an estimate, not a bill, and the amount the limits counted. `unknown_price` is the part of it no price is known for: the calls on a model neither the price tables nor the LiteLLM snapshot names, their tokens, and what the limits counted for them at the highest known rate. `cost_complete: false` means one of them has a turn still open or one that ended without reporting its cost, so the true total is unknown. `run_seconds` is wall-clock turn time, waiting for an answer included; an open turn counts up to `refreshed_at`. Sessions from before tokens were metered count 0 tokens.
          *
          *     `group_by=agent` or `group_by=user` adds `groups`: the same sessions, each once, under its agent or the user holding it, largest cost first, read in the same statement as the totals. The groups' `session_count`, `cost_usd` and `run_seconds` add up to the totals (`run_seconds` is the floor of the running total minus the floor of the one before it, so two groups of 1.5 seconds read 1 and 2), and `cost_complete` is false when any group's is. `id` is the agent id or user id; it is null for sessions without an agent, or started by a key no person created. `name` is the agent's name or the user's display name (never an email); under `scope=me` a user other than the caller is null. Without `group_by` there is no `groups`. It changes nothing.
          *
@@ -5410,7 +5410,9 @@ export interface paths {
          *
          *     The buckets of one response add up to the summary of the same period: `session_count`, `cost_usd` and `token_count` sum, and `cost_complete` is false on a day whose sessions include one the summary would mark incomplete. `run_seconds` is the floor of the running total of turn time minus the floor of the one before it, so two days of 0.6 seconds read 0 and 1, as the summary reads 1. A long session's cost and time count on the day it started.
          *
-         *     `conversation_cost_usd` is the conversation calls (a Slack mention or DM an agent answers, not a session) created that day, apart from `cost_usd`: the day's whole spend is the two together. It counts a call as it settled, as `GET /v1/usage/breakdown?by=agent` `conversation` does, under the same `scope` (`me`: the calls asked for by the caller as a person; a key no person created has none). `conversation_cost_complete` is false on a day with a call reserved, in flight or resolved without a report. It changes nothing.
+         *     `conversation_cost_usd` is the conversation calls (a Slack mention or DM an agent answers, not a session) created that day, apart from `cost_usd`: the day's whole spend is the two together. It counts a call as it settled, as `GET /v1/usage/breakdown?by=agent` `conversation` does, under the same `scope` (`me`: the calls asked for by the caller as a person; a key no person created has none). `conversation_cost_complete` is false on a day with a call reserved, in flight or resolved without a report.
+         *
+         *     `unknown_price` is of the whole period, as the summary gives it: the sessions' calls on a model nothing prices, counted in `cost_usd` at the highest known rate. It changes nothing.
          *
          *     **Scope:** `sessions:read` (API key or cookie session).
          */
@@ -6147,6 +6149,7 @@ export interface components {
             storage_limit_bytes?: number;
             session_cost_limit_usd?: number;
             session_token_limit?: number;
+            unknown_price_session_token_limit?: number;
             /** @enum {string} */
             workspace_enforce?: "warn" | "fail" | "off";
             max_turn_seconds?: number;
@@ -9420,6 +9423,12 @@ export interface components {
                 saved: boolean;
                 blocked: boolean;
             };
+            unknown_price_session_token_limit: {
+                value: number;
+                default: number;
+                saved: boolean;
+                blocked: boolean;
+            };
             workspace_enforce: {
                 /** @enum {string} */
                 value: "warn" | "fail" | "off";
@@ -9501,6 +9510,12 @@ export interface components {
                 blocked: boolean;
             };
             session_token_limit: {
+                value: number;
+                default: number;
+                saved: boolean;
+                blocked: boolean;
+            };
+            unknown_price_session_token_limit: {
                 value: number;
                 default: number;
                 saved: boolean;
@@ -10549,6 +10564,11 @@ export interface components {
             cost_usd: string;
             cost_complete: boolean;
             token_count: number;
+            unknown_price: {
+                call_count: number;
+                token_count: number;
+                cost_usd: string;
+            };
             run_seconds: number;
             basis: {
                 /** @constant */
@@ -10700,6 +10720,11 @@ export interface components {
             };
             /** Format: date-time */
             refreshed_at: string;
+            unknown_price: {
+                call_count: number;
+                token_count: number;
+                cost_usd: string;
+            };
             buckets: {
                 /** Format: date */
                 date: string;
@@ -10849,6 +10874,12 @@ export interface components {
             cost_limit_usd: string | null;
             token_count: number;
             token_limit: number | null;
+            unknown_price: {
+                call_count: number;
+                token_count: number;
+                cost_usd: string;
+                token_limit: number;
+            };
             budget_exceeded: boolean;
             queued_input_count: number;
             queued_input_limit: number;
@@ -22894,6 +22925,12 @@ export interface operations {
                      *         "saved": false,
                      *         "blocked": false
                      *       },
+                     *       "unknown_price_session_token_limit": {
+                     *         "value": 5000000,
+                     *         "default": 5000000,
+                     *         "saved": false,
+                     *         "blocked": false
+                     *       },
                      *       "workspace_enforce": {
                      *         "value": "warn",
                      *         "default": "warn",
@@ -23058,6 +23095,12 @@ export interface operations {
                      *       "session_token_limit": {
                      *         "value": 0,
                      *         "default": 0,
+                     *         "saved": false,
+                     *         "blocked": false
+                     *       },
+                     *       "unknown_price_session_token_limit": {
+                     *         "value": 5000000,
+                     *         "default": 5000000,
                      *         "saved": false,
                      *         "blocked": false
                      *       },
@@ -25795,6 +25838,12 @@ export interface operations {
                      *       "cost_limit_usd": "20",
                      *       "token_count": 182450,
                      *       "token_limit": null,
+                     *       "unknown_price": {
+                     *         "call_count": 0,
+                     *         "token_count": 0,
+                     *         "cost_usd": "0",
+                     *         "token_limit": 5000000
+                     *       },
                      *       "budget_exceeded": false,
                      *       "queued_input_count": 1,
                      *       "queued_input_limit": 20
@@ -52122,6 +52171,11 @@ export interface operations {
                      *       "cost_usd": "3.218400",
                      *       "cost_complete": false,
                      *       "token_count": 1824500,
+                     *       "unknown_price": {
+                     *         "call_count": 3,
+                     *         "token_count": 41200,
+                     *         "cost_usd": "0.824000"
+                     *       },
                      *       "run_seconds": 5410,
                      *       "basis": {
                      *         "sessions": "created_in_period",
@@ -52562,6 +52616,11 @@ export interface operations {
                      *         "until": "2026-10-11T08:15:43.000Z"
                      *       },
                      *       "refreshed_at": "2026-10-11T08:15:43.000Z",
+                     *       "unknown_price": {
+                     *         "call_count": 3,
+                     *         "token_count": 41200,
+                     *         "cost_usd": "0.212000"
+                     *       },
                      *       "buckets": [
                      *         {
                      *           "date": "2026-10-09",

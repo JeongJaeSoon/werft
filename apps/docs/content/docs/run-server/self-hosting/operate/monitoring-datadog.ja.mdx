@@ -14,7 +14,7 @@ Agentは、選択式の[`infra/compose.datadog.yml`](https://github.com/JeongJae
 `DD_API_KEY`とDatadog用のPostgreSQL passwordは、リポジトリやshell historyに入れません。サーバーで運用者が`/etc/werft/datadog.env`を作り、mode 600を確認します。別の絶対パスを使う必要があるときだけ`DATADOG_ENV_FILE`で変えます。値は例のプレースホルダーなので、実際の値をドキュメント・チケット・ログにコピーしません。
 
 ```dotenv
-DD_API_KEY=<operator-supplied>
+DD_API_KEY=[REDACTED]
 DD_SITE=datadoghq.com
 DD_ENV=alpha
 DD_VERSION=<release-sha>
@@ -32,7 +32,7 @@ Agent serviceは、この絶対パスを`env_file`としてだけ読みます。
 PostgreSQL roleは、`queue_messages`、`sessions`、`turns`、`attempts`、`provider_usage`に`SELECT`だけを許可し、既定のtransactionをread-onlyに固定します。次のコマンドは、サーバーの運用者がadmin connectionで1回実行します。
 
 ```sql
-CREATE ROLE datadog LOGIN PASSWORD :'datadog_password';
+CREATE ROLE datadog LOGIN PASSWORD :'[REDACTED]';
 ALTER ROLE datadog SET default_transaction_read_only = on;
 GRANT CONNECT ON DATABASE sessions TO datadog;
 GRANT USAGE ON SCHEMA public TO datadog;
@@ -86,7 +86,7 @@ Agentは、Docker socketとcontainer log directoryをread-onlyでmountし、host
 - checkpoint pending age: `checkpoint_pending_reason IS NOT NULL`のsessionの`updated_at`のうち最も古い値を使います。checkpointと無関係な同じsessionの更新がこの時刻を動かすことがあるので、正確なSLIではなく下限のproxyです。
 - `outcome_unknown`: 直近5分に作られた`turns.outcome_unknown = true`のrow数です。
 - stale lease: `exited`・`lost`でないattemptのうち、`lease_expires_at < clock_timestamp()`である数です。
-- providerのコスト: 直近1時間の`cost_usd`の合計と、`priced_by = 'fallback'`のrow数です。`werft.provider.unmetered_tokens_1h`は、同じ1時間の`priced_by = 'unmetered'`のrowのトークン合計(input・output・cache write・cache read)です。`billing: none` の接続はコストが0のまま残るので、有料のupstreamを誤って宣言したときに表に出るのはこのトークン数だけです。monitorは定義しません。正常値がインストールのローカルモデルの使用量に依存するためです。
+- providerのコスト: 直近1時間の`cost_usd`の合計と、`priced_by`が`unknown`(単価不明)または以前の値`fallback`のrow数です。`werft.provider.unmetered_tokens_1h`は、同じ1時間の`priced_by = 'unmetered'`のrowのトークン合計(input・output・cache write・cache read)です。`billing: none` の接続はコストが0のまま残るので、有料のupstreamを誤って宣言したときに表に出るのはこのトークン数だけです。monitorは定義しません。正常値がインストールのローカルモデルの使用量に依存するためです。
 
 どのqueryも`session_id`を返しません。[`log-metrics.json`](https://github.com/JeongJaeSoon/werft/blob/main/infra/datadog/definitions/log-metrics.json)のgroup-byも、`service`・`env`とcardinalityの低い状態だけを使います。`session_id`は、incidentで元のログやDBを絞り込むときだけ使います。
 

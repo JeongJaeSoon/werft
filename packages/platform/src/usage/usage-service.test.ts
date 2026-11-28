@@ -32,6 +32,7 @@ import {
 } from "../musterrolle/policy.ts";
 import type {
   SessionUsageRecord,
+  UsageReader,
   UsageToolCallsFilter,
   UsageTotalsFilter,
 } from "./ports/usage-reader.ts";
@@ -100,6 +101,10 @@ function serviceKey(): Caller {
 }
 
 const asked: UsageTotalsFilter[] = [];
+// What the reader says of the calls marked as of unknown price, and what it
+// was asked for.
+let unknownPrice = { callCount: 0, tokens: 0, costUsd: "0" };
+const unknownPriceAsked: unknown[] = [];
 const peopleAsked: { ownerId: string; agentId?: string }[] = [];
 
 function service(
@@ -125,6 +130,10 @@ function service(
       agentExists: async (ownerId, agentId) =>
         ownerId === WORKSPACE && agentId === AGENT,
       sessionUsage: async () => session,
+      unknownPriceUsage: async (of) => {
+        unknownPriceAsked.push(of);
+        return unknownPrice;
+      },
       usageSummary: async (filter, period) => {
         asked.push(filter);
         return {
@@ -639,6 +648,9 @@ describe("usage service", () => {
         usageSummary: async () => {
           throw new Error("not read");
         },
+        unknownPriceUsage: async () => {
+          throw new Error("not read");
+        },
         usageSummaryGroups: async () => {
           throw new Error("not read");
         },
@@ -693,6 +705,7 @@ describe("usage service", () => {
       cost_usd: "1.250000",
       cost_complete: true,
       token_count: 42,
+      unknown_price: { call_count: 0, token_count: 0, cost_usd: "0" },
       run_seconds: 90,
       basis: {
         sessions: "created_in_period",
@@ -705,6 +718,57 @@ describe("usage service", () => {
       query("me"),
     );
     expect(open.cost_complete).toBe(false);
+  });
+
+  test("calls of unknown price are given apart, for the summary's own sessions and for one session with its limit", async () => {
+    unknownPrice = { callCount: 2, tokens: 1_500, costUsd: "0.030000" };
+    unknownPriceAsked.length = 0;
+    try {
+      const summary = await service().getUsageSummary(
+        user("member"),
+        query("me"),
+      );
+      expect(summary.unknown_price).toEqual({
+        call_count: 2,
+        token_count: 1_500,
+        cost_usd: "0.030000",
+      });
+      // The same sessions the summary read: its filter, and the end it read to.
+      expect(unknownPriceAsked).toEqual([
+        {
+          filter: asked.at(-1),
+          period: { since: query("me").since, until: readAt },
+        },
+      ]);
+      const session = await service().getSessionUsage(
+        testCaller("owner-a"),
+        record.sessionId,
+      );
+      expect(session.unknown_price).toEqual({
+        call_count: 2,
+        token_count: 1_500,
+        cost_usd: "0.030000",
+        // The contract's default where no setting is wired.
+        token_limit: 5_000_000,
+      });
+      expect(unknownPriceAsked.at(-1)).toEqual({ sessionId: record.sessionId });
+      const limited = createUsageService({
+        authorization: createAuthorizationPolicy(),
+        limits,
+        unknownPriceTokenLimit: async () => 2_000,
+        reader: {
+          ...({} as UsageReader),
+          sessionUsage: async () => record,
+          unknownPriceUsage: async () => unknownPrice,
+        },
+      });
+      expect(
+        (await limited.getSessionUsage(testCaller("owner-a"), record.sessionId))
+          .unknown_price.token_limit,
+      ).toBe(2_000);
+    } finally {
+      unknownPrice = { callCount: 0, tokens: 0, costUsd: "0" };
+    }
   });
 
   test("groups name another person only to the installation reader, and agents to anyone", async () => {
@@ -825,6 +889,9 @@ describe("usage service", () => {
         usageSummary: async () => {
           throw new Error("not read");
         },
+        unknownPriceUsage: async () => {
+          throw new Error("not read");
+        },
         usageSummaryGroups: async () => {
           throw new Error("not read");
         },
@@ -942,15 +1009,25 @@ describe("usage service", () => {
         .catch((caught: unknown) => caught);
       expect((error as SessionServiceError).code, role).toBe("FORBIDDEN");
     }
+    unknownPrice = { callCount: 2, tokens: 900, costUsd: "0.500000" };
     const response = usageSeriesResponseSchema.parse(
-      await service(record, 1).getUsageSeries(user("owner"), seriesQuery("me")),
+      await service(record, 1)
+        .getUsageSeries(user("owner"), seriesQuery("me"))
+        .finally(() => {
+          unknownPrice = { callCount: 0, tokens: 0, costUsd: "0" };
+        }),
     );
+    // The period the buckets cover, not a day of it.
+    expect(unknownPriceAsked.at(-1)).toMatchObject({
+      period: { since: new Date("2026-10-01T00:00:00.000Z"), until: readAt },
+    });
     expect(response).toEqual({
       period: {
         since: "2026-10-01T00:00:00.000Z",
         until: readAt.toISOString(),
       },
       refreshed_at: readAt.toISOString(),
+      unknown_price: { call_count: 2, token_count: 900, cost_usd: "0.500000" },
       buckets: [
         {
           date: "2026-10-01",

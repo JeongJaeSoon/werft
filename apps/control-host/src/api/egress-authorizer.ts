@@ -688,15 +688,12 @@ export function createEgressAuthorizer(deps: {
         callId: report.conversation_call_id,
         usage: counted,
       });
-      if (priced.pricedBy === "fallback") {
-        deps.logger.warn(
-          "Conversation call usage priced at the fallback rate",
-          {
-            conversation_call_id: report.conversation_call_id,
-            model: usage.model,
-            cost_usd: priced.costUsd,
-          },
-        );
+      if (priced.pricedBy === "unknown") {
+        deps.logger.warn("Conversation call usage priced at the unknown rate", {
+          conversation_call_id: report.conversation_call_id,
+          model: usage.model,
+          cost_usd: priced.costUsd,
+        });
       }
       return { cost_usd: priced.costUsd, priced_by: priced.pricedBy };
     }
@@ -706,8 +703,8 @@ export function createEgressAuthorizer(deps: {
         judgmentId: report.judgment_id,
         usage: counted,
       });
-      if (priced.pricedBy === "fallback") {
-        deps.logger.warn("Judgment usage priced at the fallback rate", {
+      if (priced.pricedBy === "unknown") {
+        deps.logger.warn("Judgment usage priced at the unknown rate", {
           judgment_id: report.judgment_id,
           model: usage.model,
           cost_usd: priced.costUsd,
@@ -721,8 +718,8 @@ export function createEgressAuthorizer(deps: {
       attemptId: report.attempt_id,
       usage: counted,
     });
-    if (priced.pricedBy === "fallback") {
-      deps.logger.warn("Provider usage priced at the fallback rate", {
+    if (priced.pricedBy === "unknown") {
+      deps.logger.warn("Provider usage priced at the unknown rate", {
         session_id: report.session_id,
         model: usage.model,
         speed: usage.speed,
@@ -735,6 +732,15 @@ export function createEgressAuthorizer(deps: {
         exchange_id: report.exchange_id,
         session_id: report.session_id,
         attempt_id: report.attempt_id,
+      });
+    }
+    if (priced.reservedWithPriceVersion !== undefined) {
+      // Two releases' replicas shared the call: its reserve and its
+      // settlement read different price data.
+      deps.logger.info("Provider usage settled with other price data", {
+        exchange_id: report.exchange_id,
+        session_id: report.session_id,
+        reserved_with: priced.reservedWithPriceVersion,
       });
     }
     return { cost_usd: priced.costUsd, priced_by: priced.pricedBy };
@@ -804,7 +810,7 @@ export function createEgressAuthorizer(deps: {
           throw new WorkerGatewayError(
             403,
             "BUDGET_EXCEEDED",
-            "The session's spend with this call's reserve reaches its cost or token limit",
+            "The session's spend with this call's reserve reaches its cost or token limit, or its limit on tokens of unknown price",
           );
         }
         // The refusal stands whether or not its record lands.

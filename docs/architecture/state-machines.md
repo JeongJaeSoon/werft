@@ -150,6 +150,45 @@ terminate는 사람이 세션을 강제로 끝내는 제어다(`POST /v1/session
 - 웹에서 `mode` `off`로 끈 바인딩은 이 안내를 받지 않는다. rollout `on`에서는 조용하고, `off`·`shadow`에서는 지금처럼 인가 판정의 거절 안내가 나간다.
 - 소유자 없음이 되기 전에 버퍼에 담긴 글은 지우지 않는다. 버퍼의 수명(10분)이 지나면 사라진다. 비활성은 버퍼의 정리 길이 따로 지운다.
 
+### 모델 호출의 예약이 일으키는 전이: 단가 미상 토큰 상한
+
+세션의 모델 호출은 나가기 전에 예약을 연다(`packages/db/src/provider-exchanges.ts`의 open). 예약은 세션의 금액·토큰 한도와 예산 계정에 더해, **단가 미상 토큰 상한**(`INSTALLATION_CONFIG`의 `unknown_price_session_token_limit`)으로도 판정한다. 단가 미상은 자체 단가표와 LiteLLM snapshot 어느 쪽도 이름을 모르는 모델이다. 이런 호출은 금액을 상한 단가로 세는데, 그 값이 실제 단가보다 낮을 수 있어서 가격과 무관한 토큰 수로 한 번 더 막는다.
+
+세는 값(미상 토큰 합)은 그 세션에서 다음 셋을 더한 것이다. 정산된 호출 가운데 미상으로 표시된 것(`provider_usage.price_unknown`)의 토큰, 미상 모델로 열려 있는 예약의 토큰, 그리고 지금 여는 호출이 미상이면 그 예약의 토큰이다.
+
+| 지금 상태 | 다음 상태 | 조건 | 누가 일으키나 |
+| --- | --- | --- | --- |
+| 예약 없음 | 예약 열림 | 금액·토큰 한도와 예산 계정이 받아들이고, 미상 토큰 합이 상한보다 작다 | proxy의 exchange open |
+| 예약 없음 | 거절(403 `BUDGET_EXCEEDED`, 세션 축), 아무것도 잡지 않음 | 미상 토큰 합이 상한 이상이다(`>=`). 첫 호출도 예약의 추정 토큰만으로 걸린다. 정산된 미상 토큰만으로 상한에 닿은 세션은 단가를 아는 모델의 호출도 거절한다 | 같음 |
+| 예약 열림 | 정산됨 | usage 보고가 왔다. 예약이 말한 모델과 답이 말한 모델 가운데 비싼 쪽으로 금액을 세고, 둘 중 하나라도 미상이면 그 호출의 토큰이 미상 토큰 합에 든다 | proxy의 usage 보고 |
+| 예약 열림 | 풀림 | 호출이 나가지 않아 proxy가 release했다. 그 예약의 토큰이 미상 토큰 합에서 빠진다 | proxy의 release |
+| 예약 열림 | 그대로(끝을 모름) | 보고도 release도 없이 lease가 끝났다. 예약은 풀리지 않고 금액·토큰 한도와 미상 토큰 합에 잡힌 채 남는다. 이 변경 전과 같다 | 없음(시간) |
+
+막을 전이:
+
+| # | 막을 전이 | 거절하는 시험 |
+| --- | --- | --- |
+| UR1 | 미상 토큰 합이 상한 이상인데 예약이 열리는 것 | `packages/platform/src/limits/reservations.test.ts`의 `refuses the first call when its reserve alone reaches the limit`, `counts settled tokens marked unknown with every held reserve for an unpriced model`, `packages/db/src/provider-exchanges.test.ts`의 `the first call is refused when its reserve alone reaches the limit, and nothing is held`, `apps/control-host/src/api/egress-authorizer.test.ts`의 `an open for a model nothing prices answers 403 BUDGET_EXCEEDED at the session's limit on such tokens; a priced model's does not` |
+| UR2 | 미상 토큰이 하나도 없는 세션이 이 상한으로 거절되는 것 | `never refuses a session with no tokens of unknown price, however low it is set`(두 파일에 같은 이름) |
+| UR3 | 요청은 단가를 아는 모델로 하고 답은 미상 모델로 받아 상한을 비켜 가는 것 | `once its settled tokens reach the limit, the session opens no further call, priced or not`, `a report is priced with the model its open reserved for, and the call is marked when either model is unpriced` |
+| UR4 | 과금 없음(`billing: none`) 세션의 호출이 미상으로 세어지는 것 | `an unmetered session's reserves are not of unknown price` |
+| UR5 | 상한이 0이나 빈 값으로 저장돼 판정이 꺼지는 것 | `packages/contracts/src/api/installation-config.test.ts`의 거절 값 표, `apps/control-host/src/wiring/installation-config.test.ts`의 `an open is judged against the session's budget and its limit on tokens of unknown price, from one read` |
+
+지킬 성질:
+
+| # | 성질 | 시험 |
+| --- | --- | --- |
+| UP1 | 허용 전이마다 성공이 있다. 상한 아래의 미상 호출은 열리고, 풀린 예약은 자리를 돌려준다 | `its call opens while the reserve stays under the session's limit on such tokens`, `the limit counts the session's settled calls marked unknown with its held reserves, and a release gives room back` |
+| UP2 | 거절된 open은 세션에도 예산 계정에도 아무것도 잡지 않는다 | `the first call is refused when its reserve alone reaches the limit, and nothing is held` |
+| UP3 | 정산은 예약이 말한 모델과 답이 말한 모델 가운데 비싼 쪽이다. 자기 exchange 행을 찾지 못한 보고는 답 모델만으로 센다 | `packages/platform/src/workers/worker-gateway.test.ts`의 `a billed call settles at the dearer of the model its open reserved for and the one that answered`, `packages/db/src/provider-exchanges.test.ts`의 `a report that finds no exchange row of its own is priced by the model that answered alone` |
+| UP4 | 단가 출처를 적지 않은 옛 API가 연 예약도 예약 내용으로 다시 판정한다 | `a reserve an older API opened, with no price source on its row, is judged from the reserve itself` |
+
+알려진 한계:
+
+- dispatch 판정은 이 상한을 읽지 않는다. 상한에 닿은 세션의 새 턴은 worker까지 가고, 첫 모델 호출이 거절된다.
+- 세션 없는 호출(대화 호출, 대화 턴의 호출, 판정 호출)에는 세션 축인 이 상한이 닿지 않는다. 계정 예산의 금액·토큰 축과 호출별 상한이 막는다.
+- 이 변경 전의 API가 정산한 호출은 미상으로 표시되지 않아 합에 들지 않는다.
+
 ## 2. turn·attempt
 
 turn은 `queued → running → completed | failed | interrupted | outcome_unknown | cancelled`로 간다. attempt는 worker 하나가 세션을 쥔 기간이다. checkpoint pointer는 세션이 복원할 수 있는 마지막 revision을 가리키고, 그 revision의 행은 자기가 덮는 turn을 이름으로 가진다.

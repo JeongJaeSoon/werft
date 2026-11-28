@@ -365,7 +365,10 @@ export function OperationsOverviewScreen() {
               />
             </Card>
           ) : (
-            <UsageKpis buckets={series.data?.buckets} />
+            <UsageKpis
+              buckets={series.data?.buckets}
+              unknownPrice={series.data?.unknown_price}
+            />
           )}
         </Section>
       </div>
@@ -562,7 +565,10 @@ export function OperationsUsageScreen() {
           aria-busy={fetching || undefined}
           className="flex min-w-0 flex-col gap-8"
         >
-          <UsageKpis buckets={shown?.series.data?.buckets} />
+          <UsageKpis
+            buckets={shown?.series.data?.buckets}
+            unknownPrice={shown?.series.data?.unknown_price}
+          />
           {empty ? (
             <EmptyState title={t("operations.usageEmpty")} />
           ) : (

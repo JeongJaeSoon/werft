@@ -18,6 +18,21 @@ import {
 const countSchema = z.number().int().nonnegative();
 
 /**
+ * Calls on a model nothing prices: neither price table nor the LiteLLM
+ * snapshot names the model the request asked for, or the one that answered.
+ * The limits count such a call at the highest known rate, which is not what
+ * it cost: `cost_usd` is that counted amount, their part of the cost beside
+ * it, never a price. `token_count` is their tokens, whatever they cost.
+ */
+const unknownPriceFiguresSchema = z
+  .object({
+    call_count: countSchema,
+    token_count: countSchema,
+    cost_usd: costUsdSchema,
+  })
+  .strict();
+
+/**
  * What the storage limit counts today. A reader must not assume
  * events, checkpoints or worker disks are inside `used_bytes`.
  */
@@ -120,7 +135,10 @@ export const limitsQuerySchema = z.object({
 /**
  * GET /v1/sessions/{id}/usage. The cost is an estimate, never a
  * bill: every Messages call the egress proxy saw, the engine's and a tool's
- * alike, priced by the platform's table. A session from before
+ * alike, priced by the platform's tables, then the LiteLLM snapshot. It is
+ * the amount the limits count: a call on a model neither prices is in it at
+ * the highest known rate, and `unknown_price` says how much of it that is.
+ * A session from before
  * that also carries the engine's own turn totals up to then. `complete` is
  * about turn reports only: false while a turn is running or when a turn
  * ended without reporting a cost, in which case the true total is unknown.
@@ -149,7 +167,13 @@ export const sessionUsageResponseSchema = z
     // Every token of the same calls the cost counts, whatever they cost.
     token_count: countSchema,
     token_limit: countSchema.nullable(),
-    // Either limit reached.
+    // `token_limit` here is the session's limit on tokens of unknown price,
+    // judged when a call opens with the calls still in flight counted; it is
+    // not part of `budget_exceeded`.
+    unknown_price: unknownPriceFiguresSchema
+      .extend({ token_limit: countSchema })
+      .strict(),
+    // The cost limit or the token limit reached.
     budget_exceeded: z.boolean(),
     queued_input_count: countSchema,
     queued_input_limit: countSchema,
@@ -479,7 +503,9 @@ export const usageToolCallsResponseSchema = z
 /**
  * A session counts in the period it was created in, so `cost_usd` is the sum
  * of `GET /v1/sessions/{id}/usage` `cost.amount_usd` over the same sessions
- * and `cost_complete` is false when any of them is.
+ * and `cost_complete` is false when any of them is. It is the amount the
+ * limits counted; `unknown_price` is the part of it, and of the sessions'
+ * calls, that no price is known for.
  */
 export const usageSummaryResponseSchema = z
   .object({
@@ -493,6 +519,7 @@ export const usageSummaryResponseSchema = z
     cost_usd: costUsdSchema,
     cost_complete: z.boolean(),
     token_count: countSchema,
+    unknown_price: unknownPriceFiguresSchema,
     // Wall-clock time turns ran: an open turn counts up to `refreshed_at`.
     run_seconds: countSchema,
     basis: z
@@ -720,6 +747,9 @@ export const usageSeriesResponseSchema = z
       .object({ since: timestampSchema, until: timestampSchema })
       .strict(),
     refreshed_at: timestampSchema,
+    // Of the whole period, not of a day: what the buckets' cost holds of
+    // calls on a model nothing prices.
+    unknown_price: unknownPriceFiguresSchema,
     buckets: z.array(
       z
         .object({

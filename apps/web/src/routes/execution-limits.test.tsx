@@ -39,6 +39,7 @@ const DEFAULTS: InstallationConfig = {
   storage_limit_bytes: entry(1_073_741_824),
   session_cost_limit_usd: entry(25),
   session_token_limit: entry(0),
+  unknown_price_session_token_limit: entry(5_000_000),
   workspace_enforce: entry("warn" as const),
   max_turn_seconds: entry(3600),
   provider_max_retries: entry(2),
@@ -776,6 +777,7 @@ describe("limitValueOf", () => {
         "session_archive_dry_run",
         // Not on this screen yet: saved through the API.
         "judgment_buffer_limit_per_channel",
+        "unknown_price_session_token_limit",
       ].sort(),
     ).toEqual([...INSTALLATION_CONFIG_KEYS].sort());
     const archive = INSTALLATION_CONFIG.session_archive_after_days;

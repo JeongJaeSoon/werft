@@ -277,6 +277,25 @@ describe("createInstallationConfigSource", () => {
     expect(source.loaded()).toBe(true);
   });
 
+  test("an open is judged against the session's budget and its limit on tokens of unknown price, from one read", async () => {
+    const memory = memoryStore();
+    const { source, advance } = sourceOver(memory);
+    expect(await source.exchangeBudget()).toEqual({
+      costUsd: 25,
+      tokens: null,
+      unknownPriceTokens: 5_000_000,
+    });
+    memory.saved.unknown_price_session_token_limit = 20_000;
+    advance(10_000);
+    expect((await source.exchangeBudget()).unknownPriceTokens).toBe(20_000);
+    // 0 is no value for it: the key is blocked, never read as "no limit".
+    memory.saved.unknown_price_session_token_limit = 0;
+    advance(10_000);
+    await expect(source.exchangeBudget()).rejects.toBeInstanceOf(
+      InstallationConfigUnavailableError,
+    );
+  });
+
   test("a saved token limit of 0 sets none; any other is the limit", async () => {
     const memory = memoryStore({ session_token_limit: 0 });
     const { source, advance } = sourceOver(memory);

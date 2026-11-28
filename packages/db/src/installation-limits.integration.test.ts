@@ -609,13 +609,13 @@ integration("installation limits on PostgreSQL", () => {
         attemptId: claimed.attempt_id,
         usage: usage({ model: "some-alias", outputTokens: 1_000_000 }),
       });
-      expect(priced.pricedBy).toBe("fallback");
+      expect(priced.pricedBy).toBe("unknown");
       expect(priced.costUsd).toBeGreaterThanOrEqual(50);
       const [row] = await db
         .select({ pricedBy: providerUsage.pricedBy })
         .from(providerUsage)
         .where(eq(providerUsage.sessionId, session.session_id));
-      expect(row?.pricedBy).toBe("fallback");
+      expect(row?.pricedBy).toBe("unknown");
     });
 
     test("a fast call with web searches is priced at the fast rate plus the search fee, and the row says why", async () => {

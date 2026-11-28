@@ -889,13 +889,38 @@ function UsageFigures({ usage }: { readonly usage: SessionUsageResponse }) {
 function Cost({ usage }: { readonly usage: SessionUsageResponse }) {
   const { t, locale } = useBlockText();
   const { cost } = usage;
+  // An API from before the field answers without it while an upgrade rolls.
+  const unknown: Pick<
+    SessionUsageResponse["unknown_price"],
+    "call_count" | "cost_usd"
+  > = usage.unknown_price ?? { call_count: 0, cost_usd: "0" };
+  const { usd } = OPERATIONS_MESSAGES[locale].format;
+  // What the limits counted for calls nothing prices is not what they cost:
+  // the amount is the rest, and that part is named apart from it.
+  const knownMicroUsd =
+    Math.round(Number(cost.amount_usd) * 1e6) -
+    Math.round(Number(unknown.cost_usd) * 1e6);
   return (
     <span className="flex min-w-0 flex-col">
       <span className="tabular-nums">
         {cost.kind === "unmetered"
           ? t("session.usage.unmetered")
-          : OPERATIONS_MESSAGES[locale].format.usd(cost.amount_usd)}
+          : unknown.call_count === 0
+            ? usd(cost.amount_usd)
+            : knownMicroUsd > 0
+              ? t("session.usage.knownAndUnknownPrice", {
+                  amount: usd(knownMicroUsd / 1e6),
+                  count: unknown.call_count,
+                })
+              : t("session.usage.unknownPrice", { count: unknown.call_count })}
       </span>
+      {unknown.call_count > 0 ? (
+        <span className="text-caption text-muted-foreground">
+          {t("session.usage.unknownPriceCounted", {
+            amount: usd(unknown.cost_usd),
+          })}
+        </span>
+      ) : null}
       {cost.complete ? null : (
         <span className="text-caption text-muted-foreground">
           {cost.open_turn_count > 0

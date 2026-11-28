@@ -81,7 +81,7 @@ scrape ごとに DB を読んで集計します。scrape 間隔を短くする�
 ### 費用とトークン
 
 - 費用は `provider_usage.cost_usd` の合計です。呼び出しの記録時にプラットフォーム価格表が計算した値です。メトリクスは単価を再計算せず、別の単価設定も持ちません。
-- `priced_by` はその呼び出しの価格根拠です。`table`（価格表にあるモデル）、`fallback`（価格表にないため最高単価で計算）、`unmetered`（接続が `billing: none` のため費用 0）があります。セルフホストモデルなど費用 0 の呼び出しの使用量は、`priced_by="unmetered"` のトークン数で確認します。
+- `priced_by` はその呼び出しの価格根拠です。`table`（価格表にあるモデル）、`litellm`（価格表になく、リリースに含まれる LiteLLM snapshot の単価で計算）、`unknown`（どこにもないモデルのため最高単価で計算。この値ができる前の呼び出しは `fallback`）、`unmetered`（接続が `billing: none` のため費用 0）があります。セルフホストモデルなど費用 0 の呼び出しの使用量は、`priced_by="unmetered"` のトークン数で確認します。
 - **期間の基準は呼び出しの記録時刻（`provider_usage.recorded_at`）です。** 期間費用は `increase(werft_provider_cost_usd_total[1h])` のように counter の増分で見ます。
 - `GET /v1/usage/summary` とは三点異なります。期間内に作成して期間内に課金したセッションだけなら、両者は一致します。
   - summary は期間内に**作成した**セッション（`sessions.created_at`）を選び、そのセッションの費用全体を足します。期間前に作成したセッションが期間内に使った費用はメトリクスにだけ入ります。
@@ -124,6 +124,6 @@ compose の Datadog overlay は PostgreSQL custom query で類似の値を出し
 | `werft.queue.oldest_age_seconds` | `werft_input_queue_oldest_age_seconds`（同じ意味） |
 | `werft.provider.cost_usd_1h` | `increase(werft_provider_cost_usd_total[1h])` |
 | `werft.provider.unmetered_tokens_1h` | `increase(werft_provider_tokens_total{priced_by="unmetered"}[1h])` の合計 |
-| `werft.provider.fallback_pricing_count_1h` | 対応なし（呼び出し数ではなく `priced_by="fallback"` の費用・トークンを見ます） |
+| `werft.provider.fallback_pricing_count_1h` | 対応なし（呼び出し数ではなく `priced_by="unknown"` と以前の値 `fallback` の費用・トークンを見ます） |
 | `werft.turn.outcome_unknown_count` | 対応なし。`werft_turns_outcome_unknown` は直近 5 分の発生数ではなく、現在残っている数です |
 | `werft.checkpoint.pending_age_seconds`、`werft.lease.stale_count` | 対応なし |

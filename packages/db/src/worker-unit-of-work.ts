@@ -152,6 +152,7 @@ import {
 } from "./musterrolle/model-cut-notices.ts";
 import {
   lockProviderExchange,
+  reservedCallOf,
   settleProviderExchange,
 } from "./provider-exchanges.ts";
 import type { Database } from "./queries.ts";
@@ -2876,7 +2877,13 @@ export function createPostgresWorkerUnitOfWork(
           .limit(1)
           .for("update");
         if (!pair) return { outcome: "unknown_attempt" };
-        const priced = input.priceFor(pair);
+        // What the call's open reserved for, while its row is still there:
+        // the settlement below deletes it.
+        const reserved = await reservedCallOf(tx, input);
+        const priced = input.priceFor({
+          unmetered: pair.unmetered,
+          requestModel: reserved?.requestModel ?? null,
+        });
         // What makes two reports the same call. The price is left out: it
         // may have moved between them.
         const call = {
@@ -2905,6 +2912,9 @@ export function createPostgresWorkerUnitOfWork(
             ...call,
             costUsd: sql`LEAST(ceil(${priced.costUsd}::numeric * 1000000) / 1000000, ${MAX_SESSION_COST_USD})`,
             pricedBy: priced.pricedBy,
+            requestModel: reserved?.requestModel ?? null,
+            priceVersion: input.priceVersion ?? null,
+            priceUnknown: priced.unknown ?? false,
           })
           .onConflictDoNothing({ target: providerUsage.exchangeId })
           .returning({
@@ -2964,11 +2974,17 @@ export function createPostgresWorkerUnitOfWork(
             tokens: reservationTokens(input.usage),
           },
         });
+        const reservedWith = reserved?.priceVersion ?? null;
         return {
           outcome: "recorded",
           costUsd: inserted.costUsd,
           pricedBy: inserted.pricedBy,
           ...(ledger.foreignRow ? { ledgerForeignRow: true as const } : {}),
+          ...(reservedWith !== null &&
+          input.priceVersion !== undefined &&
+          reservedWith !== input.priceVersion
+            ? { reservedWithPriceVersion: reservedWith }
+            : {}),
         };
       });
     },

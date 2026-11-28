@@ -398,6 +398,12 @@ describe("the session's GitHub pull requests", () => {
     cost_limit_usd: "25",
     token_count: 12345,
     token_limit: null,
+    unknown_price: {
+      call_count: 0,
+      token_count: 0,
+      cost_usd: "0",
+      token_limit: 5_000_000,
+    },
     budget_exceeded: false,
     queued_input_count: 0,
     queued_input_limit: 10,

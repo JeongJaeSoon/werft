@@ -5,7 +5,10 @@ import { isIP } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PGlite } from "@electric-sql/pglite";
-import type { BootstrapClaimResponse } from "@werft-ai/contracts";
+import {
+  type BootstrapClaimResponse,
+  UNKNOWN_PRICE_SESSION_TOKEN_LIMIT,
+} from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   createPostgresSessionUnitOfWork,
@@ -245,6 +248,7 @@ async function topology(
           admitsReservations({
             costUsd: SESSION_COST_LIMIT_USD,
             tokens: null,
+            unknownPriceTokens: UNKNOWN_PRICE_SESSION_TOKEN_LIMIT,
           }),
       }),
       logger: createLogger({ sinks: [] }),

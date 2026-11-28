@@ -3258,7 +3258,11 @@ describe("a conversation call's usage report", () => {
 
   // The store decides from the reservation whether the call is priced; a
   // replay of an unmetered call never asks for a price at all.
-  function reported(unmetered: boolean, replay = false) {
+  function reported(
+    unmetered: boolean,
+    replay = false,
+    issuedFor = usage.model,
+  ) {
     const unused = async (): Promise<never> => {
       throw new Error("not under test");
     };
@@ -3276,7 +3280,9 @@ describe("a conversation call's usage report", () => {
       unknownByAgent: unused,
       settleAtomic: async (input) => ({
         outcome: replay ? "already_settled" : "settled",
-        costUsd: replay ? 0 : input.priceFor({ unmetered }).costUsd,
+        costUsd: replay
+          ? 0
+          : input.priceFor({ unmetered, model: issuedFor }).costUsd,
         unmetered,
       }),
     };
@@ -3309,6 +3315,14 @@ describe("a conversation call's usage report", () => {
   test("a billed call is priced from the table", async () => {
     expect((await reported(false)).pricedBy).toBe("table");
   });
+
+  test("a billed call is charged the dearer of the model it was issued for and the one that answered", async () => {
+    const answered = await reported(false);
+    // Issued for a model nothing prices; the answer names a table model.
+    const issued = await reported(false, false, "gemma4-local");
+    expect(issued.pricedBy).toBe("unknown");
+    expect(issued.costUsd).toBeGreaterThan(answered.costUsd);
+  });
 });
 
 describe("unmetered sessions", () => {
@@ -3330,12 +3344,16 @@ describe("unmetered sessions", () => {
 
   // The catalog is empty on purpose: a replica that does not know the
   // session's connection prices its calls from the row all the same.
-  function priced(unmetered: boolean, reported = usage) {
+  function priced(
+    unmetered: boolean,
+    reported = usage,
+    requestModel: string | null = null,
+  ) {
     const instance = createWorkerGateway({
       work: work({
         recordProviderUsageAtomic: async (input) => ({
           outcome: "recorded",
-          ...input.priceFor({ unmetered }),
+          ...input.priceFor({ unmetered, requestModel }),
         }),
       }),
       catalog: { connections: {}, repositories: {} },
@@ -3361,11 +3379,21 @@ describe("unmetered sessions", () => {
     });
   });
 
-  test("a call on a billed session prices as before: the table, or the fallback", async () => {
+  test("a call on a billed session is priced by the table, or as unknown for a model nothing prices", async () => {
     expect((await priced(false)).pricedBy).toBe("table");
     expect(
       (await priced(false, { ...usage, model: "gemma4-local" })).pricedBy,
-    ).toBe("fallback");
+    ).toBe("unknown");
+  });
+
+  test("a billed call settles at the dearer of the model its open reserved for and the one that answered", async () => {
+    const answered = await priced(false, usage, usage.model);
+    // The answer names a table model; the request asked for one nothing prices.
+    const asked = await priced(false, usage, "gemma4-local");
+    expect(asked.pricedBy).toBe("unknown");
+    expect(asked.costUsd).toBeGreaterThan(answered.costUsd);
+    // A report that found no exchange row settles at the answer's rates.
+    expect(await priced(false, usage, null)).toEqual(answered);
   });
 
   test("the claim gives an unmetered session no budget and a billed one what is left", async () => {

@@ -1034,6 +1034,41 @@ describe("UsageKpis", () => {
     expect(text).not.toContain("실제보다 적을 수 있음");
   });
 
+  test("단가 미상 호출이 있으면 그 몫을 금액에서 빼고 건수·토큰·한도에 센 금액을 따로 적는다", () => {
+    withPlatform(
+      <UsageKpis
+        buckets={BUCKETS.map((b, i) => ({
+          ...b,
+          conversation_cost_usd: i === 0 ? "4.52" : "0",
+        }))}
+        unknownPrice={{
+          call_count: 12,
+          token_count: 18160000,
+          cost_usd: "45.48",
+        }}
+      />,
+    );
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("$1,004.52");
+    expect(text).toContain("세션 $1,000.00 · 대화 $4.52");
+    expect(text).toContain(
+      "+ 단가 미상 12건 · 토큰 1,816만. 한도 계산에는 상한 단가로 $45.48를 셉니다",
+    );
+    expect(text).not.toContain("$1,050.00");
+  });
+
+  test("단가 미상 호출이 없으면 비용 카드에 그 줄이 없다", () => {
+    withPlatform(
+      <UsageKpis
+        buckets={BUCKETS}
+        unknownPrice={{ call_count: 0, token_count: 0, cost_usd: "0" }}
+      />,
+    );
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("$1,045.48");
+    expect(text).not.toContain("단가 미상");
+  });
+
   test("대화 호출이 끝나지 않은 날이 있으면 비용 카드가 적을 수 있다고 말한다", () => {
     const { getByText } = withPlatform(
       <UsageKpis

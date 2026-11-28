@@ -189,6 +189,7 @@ import {
 import type {
   ConversationTaskDraft,
   ConversationTurnSurfaceSubject,
+  PricedBy,
   ProviderUsage,
   SecretOwnerRef,
   StoredSourceSet,
@@ -3703,21 +3704,35 @@ export const providerUsage = pgTable(
       scale: 6,
       mode: "number",
     }).notNull(),
-    // `fallback`: the model was not in the price table and every part was
-    // charged at the highest known rate. `unmetered`: the session's connection
-    // declared `billing: none`, so the call cost nothing.
-    pricedBy: text("priced_by")
-      .$type<"table" | "fallback" | "unmetered">()
-      .notNull(),
+    // Whose rates won: the platform's tables, the LiteLLM snapshot
+    // (`litellm`), or the highest known rate for a model neither prices
+    // (`unknown`; `fallback` in rows from before the snapshot).
+    // `unmetered`: the session's connection declared `billing: none`, so
+    // the call cost nothing.
+    pricedBy: text("priced_by").$type<PricedBy>().notNull(),
+    // The model the request asked for, from the call's exchange row; null
+    // when the report found none, and in rows from before. The call is
+    // charged the dearer of it and `model`, the one that answered.
+    requestModel: text("request_model"),
+    // The price data that settled the call (PRICE_VERSION); null before.
+    priceVersion: text("price_version"),
+    // Nothing prices the model asked for or the one that answered, whichever
+    // rates won: the call's tokens count toward the session's limit on
+    // tokens of unknown price. False in every row from before.
+    priceUnknown: boolean("price_unknown").notNull().default(false),
     recordedAt: timestamp("recorded_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
   (table) => [
     index("provider_usage_session_idx").on(table.sessionId),
+    // What an open sums to judge that limit: these rows alone.
+    index("provider_usage_session_price_unknown_idx")
+      .on(table.sessionId)
+      .where(sql`${table.priceUnknown}`),
     check(
       "provider_usage_priced_by_check",
-      sql`${table.pricedBy} IN ('table', 'fallback', 'unmetered')`,
+      sql`${table.pricedBy} IN ('table', 'litellm', 'unknown', 'fallback', 'unmetered')`,
     ),
     check("provider_usage_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
   ],
@@ -3762,6 +3777,12 @@ export const providerExchanges = pgTable(
     // holds the account row.
     budgetRootKind: text("budget_root_kind").$type<BudgetRootKind>(),
     budgetAccountId: uuid("budget_account_id").$type<BudgetAccountId>(),
+    // What priced the reserve when the call opened, and with which price
+    // data (PRICE_VERSION): `unknown` is a request for a model nothing
+    // prices. Null in a row an older API opened and in a release's mark; an
+    // open judges every held reserve again from `reserve`, never from these.
+    pricedBy: text("priced_by").$type<PricedBy>(),
+    priceVersion: text("price_version"),
   },
   (table) => [
     index("provider_exchanges_lease_idx").on(table.leaseExpiresAt),

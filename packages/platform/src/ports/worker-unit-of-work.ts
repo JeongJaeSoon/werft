@@ -222,16 +222,22 @@ export type EgressAuthorization =
 // One Messages call the egress proxy metered. The ids are the ones the
 // proxy's grant carried, so the attempt may have ended since. `priceFor` is
 // asked with the session row locked, since whether the session is billed
-// decides the price.
+// decides the price. `requestModel` is the model the call's open reserved
+// for, read from its exchange row; null when the report finds no row of its
+// own. `unknown` marks a call whose tokens count toward the session's limit
+// on tokens of unknown price; absent is false.
 export type ProviderUsageInput = {
   exchangeId: string;
   sessionId: string;
   attemptId: string;
   usage: ProviderUsage;
-  priceFor(session: { unmetered: boolean }): {
+  priceFor(session: { unmetered: boolean; requestModel: string | null }): {
     costUsd: number;
     pricedBy: PricedBy;
+    unknown?: boolean;
   };
+  // The price data `priceFor` reads, recorded with the call.
+  priceVersion?: string;
 };
 
 export type ProviderUsageResult =
@@ -245,6 +251,9 @@ export type ProviderUsageResult =
       // The provider exchange ledger holds a row under this exchange id that
       // names another session or attempt; it was left in place.
       ledgerForeignRow?: true;
+      // The price data the call's open reserved with, when it is not what
+      // settled it: another release's replica opened the call.
+      reservedWithPriceVersion?: string;
     }
   // No such attempt of that session.
   | { outcome: "unknown_attempt" }

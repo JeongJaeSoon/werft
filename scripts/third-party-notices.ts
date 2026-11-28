@@ -746,7 +746,6 @@ export function render(rows: readonly Row[], base: BaseImage): string {
           "",
         ]),
     ...DERIVED_DATA,
-    ...EXTERNAL_DATA,
     "## NOTICE 전문",
     "",
     ...(withNotices.length === 0
@@ -784,20 +783,11 @@ const DERIVED_DATA = [
   "- **라이선스.** MIT. 첫 조각을 들일 때 upstream LICENSE 원문을 저작권 줄까지 그대로 `apps/web/src/vendor/affectui/free/LICENSE`에 복사한다.",
   "- **쓰임.** 그대로 옮긴 파일은 위 폴더에 두며, 웹 콘솔이 import하면 control-host 이미지의 웹 bundle에 들어간다. Radix와 werft 토큰으로 다시 짠 파일은 packages/ui에 둘 수 있고, 파일 머리에 이 LICENSE를 가리키는 고지 한 줄을 둔다.",
   "",
-];
-
-// Data a repository tool reads at run time; none of it is in an image or
-// copied into the repository, but its license is stated here all the same.
-const EXTERNAL_DATA = [
-  "## 이미지 밖에서 읽는 외부 데이터",
-  "",
-  "배포 이미지에 들어가지 않고 저장소에도 옮겨 오지 않지만, 저장소의 도구가 실행할 때 받아 읽는 외부 데이터다.",
-  "",
   "### LiteLLM 단가 데이터 (`model_prices_and_context_window.json`)",
   "",
-  "- **출처.** BerriAI/litellm 저장소의 `model_prices_and_context_window.json`(https://github.com/BerriAI/litellm).",
-  "- **라이선스.** MIT, Copyright (c) 2023 Berri AI. LiteLLM은 `enterprise/` 디렉터리 밖이 MIT이고, 이 파일도 그 밖에 있다. 허락 조건 전문은 https://github.com/BerriAI/litellm/blob/main/LICENSE 에 있다.",
-  "- **쓰임.** CI의 `litellm-price-drift.yml`이 매주(그리고 단가표를 고치는 PR에서) 정한 commit의 이 파일을 받아 werft의 OpenAI 단가표와 Claude 단가표에 대조하기만 한다. 그 commit SHA를 보고서와 issue에 적는다. 파일의 내용은 werft의 이미지·패키지·저장소에 넣거나 옮기지 않고, 과금에 쓰지 않는다.",
+  "- **출처.** BerriAI/litellm 저장소의 `model_prices_and_context_window.json`(https://github.com/BerriAI/litellm). 옮겨 온 commit과 그 파일 전체의 sha256은 `packages/platform/src/limits/model-prices-litellm.gen.ts` 머리에 있다.",
+  "- **라이선스.** MIT, Copyright (c) 2023 Berri AI. LiteLLM은 `enterprise/` 디렉터리 밖이 MIT이고, 이 파일도 그 밖에 있다. 저작권 고지와 허락 조건 전문은 위 생성 파일 머리에 싣는다. 원문은 https://github.com/BerriAI/litellm/blob/main/LICENSE 에 있다.",
+  "- **쓰임.** `scripts/update-litellm-prices.ts`가 정한 commit의 이 파일에서 mode가 chat·responses·completion·decisions인 항목의 token 단가만 뽑아 위 생성 파일을 만든다. 생성 파일은 control-host 이미지와 worker 이미지에 소스로 들어가고, werft의 OpenAI·Claude 단가표에 없는 모델의 비용을 세는 데 쓴다. 실행 중에는 이 데이터를 받아 오지 않는다. CI의 `litellm-prices.yml`이 매주 최신 commit으로 옮기는 PR을 열고, 생성 파일을 고치는 PR마다 정한 commit에서 다시 만든 것과 같은지 확인한다. CI의 `litellm-price-drift.yml`은 따로, 매주(그리고 단가표를 고치는 PR에서) 이 파일을 받아 werft의 OpenAI 단가표와 Claude 단가표에 대조하고 그 commit SHA를 보고서와 issue에 적는다.",
   "",
 ];
 

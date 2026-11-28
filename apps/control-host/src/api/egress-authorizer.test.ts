@@ -11,10 +11,10 @@ import { createLogger, type LogRecord } from "@werft-ai/observability";
 import {
   admitsReservations,
   createWorkerGateway,
+  type ExchangeBudget,
   hashJudgmentToken,
   type ProviderExchangeInput,
   type ProviderExchangeLedger,
-  type SessionBudget,
   WorkerGatewayError,
 } from "@werft-ai/platform";
 import { acceptAllCheckpoints } from "@werft-ai/platform/testing/checkpoints";
@@ -437,10 +437,10 @@ describe("the provider exchange ledger route", () => {
   let records: LogRecord[];
   let withLedger: (request: Request) => Promise<Response>;
   // Room for a few of these reserves; a test narrows it to none.
-  let budget: SessionBudget;
+  let budget: ExchangeBudget;
 
   beforeEach(() => {
-    budget = { costUsd: 25, tokens: null };
+    budget = { costUsd: 25, tokens: null, unknownPriceTokens: 5_000_000 };
     records = [];
     withLedger = createEgressAuthorizer({
       gateway,
@@ -649,6 +649,79 @@ describe("the provider exchange ledger route", () => {
     expect(refused.status).toBe(403);
     expect(await refused.json()).toMatchObject({ code: "BUDGET_EXCEEDED" });
     expect(await ledgerRows()).toEqual([]);
+  });
+
+  test("an open for a model nothing prices answers 403 BUDGET_EXCEEDED at the session's limit on such tokens; a priced model's does not", async () => {
+    const claim = await claimed(db, gateway);
+    const open = (model: string) =>
+      send({
+        op: "open",
+        exchange_id: crypto.randomUUID(),
+        session_id: claim.session_id,
+        attempt_id: claim.attempt_id,
+        reserve: { ...reserve, model },
+      });
+    // A reserve is 900 + 4,096 tokens.
+    budget.unknownPriceTokens = 4_996;
+    const refused = await open("no-table-and-no-snapshot-names-this");
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({
+      code: "BUDGET_EXCEEDED",
+      message:
+        "The session's spend with this call's reserve reaches its cost or token limit, or its limit on tokens of unknown price",
+    });
+    expect(await ledgerRows()).toEqual([]);
+    expect((await open("claude-opus-5")).status).toBe(201);
+    budget.unknownPriceTokens = 4_997;
+    expect((await open("no-table-and-no-snapshot-names-this")).status).toBe(
+      201,
+    );
+  });
+
+  test("a report is charged the dearer of the model its open reserved for and the model the answer names", async () => {
+    const claim = await claimed(db, gateway);
+    const call = {
+      exchange_id: crypto.randomUUID(),
+      session_id: claim.session_id,
+      attempt_id: claim.attempt_id,
+    };
+    await send({
+      op: "open",
+      ...call,
+      reserve: { ...reserve, model: "no-table-and-no-snapshot-names-this" },
+    });
+    // The proxy's report carries the answer's model alone, as before.
+    const reported = await withLedger(
+      new Request(`http://authorizer.invalid${EGRESS_USAGE_PATH}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${AUTHORIZER_TOKEN}`,
+        },
+        body: JSON.stringify({ ...call, usage: used }),
+      }),
+    );
+    expect(reported.status).toBe(200);
+    expect(await reported.json()).toMatchObject({ priced_by: "unknown" });
+    const [row] = await db
+      .select({
+        model: schema.providerUsage.model,
+        requestModel: schema.providerUsage.requestModel,
+        priceUnknown: schema.providerUsage.priceUnknown,
+      })
+      .from(schema.providerUsage)
+      .where(eq(schema.providerUsage.exchangeId, call.exchange_id));
+    expect(row).toEqual({
+      model: "claude-opus-5",
+      requestModel: "no-table-and-no-snapshot-names-this",
+      priceUnknown: true,
+    });
+    expect(
+      records.filter(
+        (record) =>
+          record.message === "Provider usage priced at the unknown rate",
+      ),
+    ).toHaveLength(1);
   });
 
   test("a release marks the call and its late open answers released; one for no such attempt is 404", async () => {
@@ -1398,7 +1471,7 @@ describe("the budget account an open holds its call on", () => {
     );
     const refused = await send({ op: "open", ...call });
     expect(((await refused.json()) as { message: string }).message).toBe(
-      "The session's spend with this call's reserve reaches its cost or token limit",
+      "The session's spend with this call's reserve reaches its cost or token limit, or its limit on tokens of unknown price",
     );
     expect(kept).toEqual([]);
   });

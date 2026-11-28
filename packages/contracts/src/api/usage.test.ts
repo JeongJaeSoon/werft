@@ -190,6 +190,7 @@ describe("usageSeriesResponseSchema", () => {
         until: "2026-10-24T00:00:00Z",
       },
       refreshed_at: "2026-10-24T12:40:00Z",
+      unknown_price: { call_count: 2, token_count: 9000, cost_usd: "1.50" },
       buckets: [
         {
           date: "2026-10-22",

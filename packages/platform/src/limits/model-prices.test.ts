@@ -4,8 +4,13 @@ import {
   MODEL_PRICES,
   priceJudgmentUsage,
   priceProviderUsage,
+  priceSettledUsage,
 } from "./model-prices.ts";
 import { CLAUDE_CARDS, claudeCardsSchema } from "./model-prices-claude.ts";
+import {
+  LITELLM_DECISION_RATES,
+  LITELLM_TOKEN_RATES,
+} from "./model-prices-litellm.gen.ts";
 import { OPENAI_CARDS, openAiCardsSchema } from "./model-prices-openai.ts";
 
 const nothing = {
@@ -54,7 +59,7 @@ describe("priceProviderUsage", () => {
         model: "claude-sonnet-4-5-20990101",
         outputTokens: 1_000_000,
       }).pricedBy,
-    ).toBe("fallback");
+    ).toBe("unknown");
   });
 
   test("an unknown model pays the highest known rate for each part", () => {
@@ -72,10 +77,10 @@ describe("priceProviderUsage", () => {
         model: "litellm-alias",
         outputTokens: 1_000_000,
       }),
-    ).toEqual({ costUsd: highest, pricedBy: "fallback" });
+    ).toEqual({ costUsd: highest, pricedBy: "unknown" });
     expect(
       priceProviderUsage({ ...nothing, model: "constructor" }).pricedBy,
-    ).toBe("fallback");
+    ).toBe("unknown");
   });
 
   test("a fast answer pays the fast rates, cache multipliers on top", () => {
@@ -132,7 +137,7 @@ describe("priceProviderUsage", () => {
       speed: "turbo",
       inputTokens: 1_000_000,
     });
-    expect(past.pricedBy).toBe("fallback");
+    expect(past.pricedBy).toBe("unknown");
     expect(past.costUsd).toBeCloseTo(20 * 6, 9);
   });
 
@@ -215,7 +220,7 @@ describe("priceProviderUsage", () => {
         outputTokens: 1_000_000,
         inferenceGeo: "eu",
       }),
-    ).toEqual({ costUsd: highest.output * 1.1, pricedBy: "fallback" });
+    ).toEqual({ costUsd: highest.output * 1.1, pricedBy: "unknown" });
   });
 
   test("a model from before 4.6 pays standard rates whatever the geo says", () => {
@@ -242,7 +247,7 @@ describe("priceProviderUsage", () => {
       });
     expect(at("claude-sonnet-4-5", 200_000).pricedBy).toBe("table");
     const over = at("claude-sonnet-4-5-20250929", 200_001);
-    expect(over.pricedBy).toBe("fallback");
+    expect(over.pricedBy).toBe("unknown");
     // 50,001 in, 100,000 written for five minutes, 50,000 read.
     expect(over.costUsd).toBeGreaterThan((50_001 * highest.input) / 1_000_000);
     expect(at("claude-sonnet-4-6", 900_000).pricedBy).toBe("table");
@@ -322,7 +327,7 @@ describe("priceJudgmentUsage", () => {
       model: "claude-sonnet-5",
       inputTokens: 1_000_000,
     });
-    expect(priced.pricedBy).toBe("fallback");
+    expect(priced.pricedBy).toBe("unknown");
     expect(priced.costUsd).toBeGreaterThan(2);
   });
 });
@@ -352,7 +357,7 @@ describe("priceProviderUsage for an OpenAI model", () => {
     ).toEqual({ costUsd: 30, pricedBy: "table" });
     expect(
       priceProviderUsage({ ...call, model: "gpt-5.5-preview" }),
-    ).toMatchObject({ pricedBy: "fallback" });
+    ).toMatchObject({ pricedBy: "unknown" });
   });
 
   test("a prompt past 272K input tokens, cache included, pays the long-context card on every part", () => {
@@ -383,7 +388,7 @@ describe("priceProviderUsage for an OpenAI model", () => {
       model: "gpt-5.4-mini",
       inputTokens: 300_000,
     });
-    expect(priced.pricedBy).toBe("fallback");
+    expect(priced.pricedBy).toBe("unknown");
     expect(priced.costUsd).toBeGreaterThan((300_000 * 0.75) / 1_000_000);
   });
 
@@ -516,13 +521,13 @@ describe("priceProviderUsage for an OpenAI model", () => {
     };
     expect(priceProviderUsage({ ...long, model: "gpt-5.2-pro" })).toEqual({
       costUsd: 60 + 270,
-      pricedBy: "fallback",
+      pricedBy: "unknown",
     });
     // The fallback for every other model keeps the non-Pro highest: $20 in
     // (gpt-6-astra long), $80 out (claude-fable-5-2 fast).
     expect(priceProviderUsage({ ...long, model: "gpt-9" })).toEqual({
       costUsd: 20 + 80,
-      pricedBy: "fallback",
+      pricedBy: "unknown",
     });
   });
 
@@ -542,7 +547,7 @@ describe("priceProviderUsage for an OpenAI model", () => {
         expect([model, speed, past.pricedBy]).toEqual([
           model,
           speed,
-          "fallback",
+          "unknown",
         ]);
         expect([model, speed, past.costUsd >= atCard.costUsd]).toEqual([
           model,
@@ -677,7 +682,7 @@ describe("priceProviderUsage for an OpenAI model", () => {
       model: "gpt-6-astra",
       inputTokens: 1_000_000,
     });
-    expect(unknown.pricedBy).toBe("fallback");
+    expect(unknown.pricedBy).toBe("unknown");
     expect(unknown.costUsd).toBeGreaterThanOrEqual(longest.costUsd);
   });
 
@@ -687,7 +692,7 @@ describe("priceProviderUsage for an OpenAI model", () => {
       model: "gpt-9",
       outputTokens: 1_000_000,
     });
-    expect(priced.pricedBy).toBe("fallback");
+    expect(priced.pricedBy).toBe("unknown");
     expect(priced.costUsd).toBeGreaterThanOrEqual(50);
   });
 
@@ -703,7 +708,7 @@ describe("priceProviderUsage for an OpenAI model", () => {
     ] as const) {
       expect(priceProviderUsage({ ...call, speed })).toEqual({
         costUsd: standard * multiple,
-        pricedBy: "fallback",
+        pricedBy: "unknown",
       });
     }
   });
@@ -716,7 +721,7 @@ describe("priceProviderUsage for an OpenAI model", () => {
       cacheCreationInputTokens: 1_000_000,
       cacheCreation1hInputTokens: 1_000_000,
     });
-    expect(twelveHours.pricedBy).toBe("fallback");
+    expect(twelveHours.pricedBy).toBe("unknown");
     expect(twelveHours.costUsd).toBeCloseTo(plain.costUsd * 2.5, 9);
   });
 
@@ -724,11 +729,11 @@ describe("priceProviderUsage for an OpenAI model", () => {
     // gpt-5.4-mini has no long-context card, so 300K of input is the fallback's.
     const call = { ...openAi, model: "gpt-5.4-mini", inputTokens: 300_000 };
     const standard = priceProviderUsage(call);
-    expect(standard.pricedBy).toBe("fallback");
+    expect(standard.pricedBy).toBe("unknown");
     // Fast is the dearest fast multiple, 2.5x.
     expect(priceProviderUsage({ ...call, speed: "fast" })).toEqual({
       costUsd: standard.costUsd * 2.5,
-      pricedBy: "fallback",
+      pricedBy: "unknown",
     });
     const twelveHours = priceProviderUsage({
       ...call,
@@ -768,7 +773,7 @@ describe("priceProviderUsage for an OpenAI model", () => {
             const known = priceProviderUsage({ ...usage, model });
             const unknown = priceProviderUsage({ ...usage, model: "gpt-9" });
             expect(known.pricedBy).toBe("table");
-            expect(unknown.pricedBy).toBe("fallback");
+            expect(unknown.pricedBy).toBe("unknown");
             expect([model, speed, inferenceGeo, part, unknown.costUsd]).toEqual(
               [
                 model,
@@ -809,5 +814,150 @@ describe("priceProviderUsage for an OpenAI model", () => {
       inputTokens: 1_000_000,
     });
     expect(hourLong.costUsd).toBeCloseTo(input.costUsd * 2, 9);
+  });
+});
+
+describe("a model neither table names", () => {
+  // A snapshot entry the tables do not name, with no long-prompt tier: its
+  // row is input, output and at most the three cache rates.
+  const row = LITELLM_TOKEN_RATES.find(
+    ([name, ...rates]) =>
+      rates.length === 3 &&
+      !Object.hasOwn(CLAUDE_CARDS, name) &&
+      !Object.hasOwn(OPENAI_CARDS, name.replace(/-\d{4}-\d{2}-\d{2}$/, "")),
+  );
+  if (row === undefined) throw new Error("the snapshot has no such entry");
+  const [listed, input = 0, output = 0, cacheRead = 0] = row;
+  const unknownModel = "no-table-and-no-snapshot-names-this";
+  // What a million input tokens of a model nothing prices cost.
+  const unknownInput = priceProviderUsage({
+    ...nothing,
+    model: unknownModel,
+    inputTokens: 1_000_000,
+  });
+
+  test("is priced from the LiteLLM snapshot when it lists the model", () => {
+    const priced = priceProviderUsage({
+      ...nothing,
+      model: listed,
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheReadInputTokens: 1_000_000,
+    });
+    expect(priced.pricedBy).toBe("litellm");
+    expect(priced.costUsd).toBeCloseTo(input + output + cacheRead, 9);
+  });
+
+  test("the snapshot's rates still pay the dearest multiple off the standard speed and the global geo", () => {
+    const call = { ...nothing, model: listed, outputTokens: 1_000_000 };
+    expect(
+      priceProviderUsage({ ...call, inferenceGeo: "unknown" }).costUsd,
+    ).toBeCloseTo(output * 1.1, 9);
+    expect(priceProviderUsage({ ...call, speed: "turbo" }).costUsd).toBeCloseTo(
+      output * 6,
+      9,
+    );
+  });
+
+  test("a model the tables name is never priced from the snapshot, even past its card", () => {
+    // gpt-5.4-mini has no long-context card; the snapshot may list it.
+    const past = priceProviderUsage({
+      ...nothing,
+      model: "gpt-5.4-mini",
+      inputTokens: 300_000,
+    });
+    expect(past.pricedBy).toBe("unknown");
+    expect(
+      priceProviderUsage({ ...nothing, model: "claude-sonnet-5" }).pricedBy,
+    ).toBe("table");
+  });
+
+  test("one in neither is unknown: the highest rates, and a cache read at the input rate", () => {
+    const part = (usage: Partial<typeof nothing>) =>
+      priceProviderUsage({ ...nothing, model: unknownModel, ...usage });
+    expect(unknownInput.pricedBy).toBe("unknown");
+    for (const model of Object.keys(MODEL_PRICES)) {
+      const known = priceProviderUsage({
+        ...nothing,
+        model,
+        inputTokens: 1_000_000,
+      });
+      expect([model, known.costUsd <= unknownInput.costUsd]).toEqual([
+        model,
+        true,
+      ]);
+    }
+    // No discount: nothing says the endpoint gives one.
+    expect(part({ cacheReadInputTokens: 1_000_000 }).costUsd).toBe(
+      unknownInput.costUsd,
+    );
+  });
+
+  test("a settlement charges the dearer of the model asked for and the model that answered", () => {
+    const usage = { ...nothing, model: listed, outputTokens: 1_000_000 };
+    const answered = priceProviderUsage(usage);
+    const asked = priceProviderUsage({ ...usage, model: "claude-sonnet-5" });
+    expect(asked.costUsd).not.toBe(answered.costUsd);
+    const dearer = asked.costUsd > answered.costUsd ? asked : answered;
+    expect(priceSettledUsage(usage, "claude-sonnet-5")).toEqual({
+      ...dearer,
+      unknown: false,
+    });
+    // The same model, or a report with no request on record, is the answer's.
+    expect(priceSettledUsage(usage, listed)).toEqual({
+      ...answered,
+      unknown: false,
+    });
+    expect(priceSettledUsage(usage, null)).toEqual({
+      ...answered,
+      unknown: false,
+    });
+  });
+
+  test("a settlement is unknown when either model is, whichever rates won", () => {
+    const cheap = { ...nothing, model: listed, outputTokens: 1_000_000 };
+    // Asked for an unknown model, answered as a listed one: the unknown
+    // rate wins and the call is marked.
+    expect(priceSettledUsage(cheap, unknownModel)).toEqual({
+      ...priceProviderUsage({ ...cheap, model: unknownModel }),
+      unknown: true,
+    });
+    // Asked for a table model, answered as an unknown one.
+    const answeredUnknown = { ...cheap, model: unknownModel };
+    expect(priceSettledUsage(answeredUnknown, "claude-sonnet-5")).toEqual({
+      ...priceProviderUsage(answeredUnknown),
+      unknown: true,
+    });
+    // A call that used nothing costs nothing and is still marked.
+    expect(
+      priceSettledUsage({ ...nothing, model: listed }, unknownModel),
+    ).toMatchObject({ costUsd: 0, unknown: true });
+  });
+
+  test("a judgment model goes to the snapshot's judgment entries, then to the unknown rate", () => {
+    const [judge, judgeInput, judgeOutput] = LITELLM_DECISION_RATES[0] ?? [];
+    if (judge === undefined) throw new Error("the snapshot has no judge");
+    expect(
+      priceJudgmentUsage({
+        ...nothing,
+        model: judge,
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+      }),
+    ).toEqual({
+      costUsd: (judgeInput ?? 0) + (judgeOutput ?? 0),
+      pricedBy: "litellm",
+    });
+    expect(
+      priceJudgmentUsage({
+        ...nothing,
+        model: unknownModel,
+        inputTokens: 1_000_000,
+      }),
+    ).toEqual(unknownInput);
+    // A session model's entry is not a judgment model's.
+    expect(priceJudgmentUsage({ ...nothing, model: listed }).pricedBy).toBe(
+      "unknown",
+    );
   });
 });

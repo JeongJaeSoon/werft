@@ -40,6 +40,7 @@ import {
   checkpointOutputTotals,
   checkpoints,
   conversationCalls,
+  providerUsage,
   sessionAchievements,
   sessionEventArchives,
   sessionModelUsage,
@@ -928,6 +929,41 @@ export function createPostgresUsageReader(db: Database): UsageReader {
         })
         .from(picked);
       if (!row) throw new Error("usage summary read returned no row");
+      return row;
+    },
+
+    // The rows are few (provider_usage_session_price_unknown_idx holds
+    // them alone), so a period reads them all and keeps its sessions'.
+    async unknownPriceUsage(of) {
+      const ofSessions =
+        "sessionId" in of
+          ? eq(providerUsage.sessionId, of.sessionId)
+          : inArray(
+              providerUsage.sessionId,
+              db
+                .select({ id: sessions.id })
+                .from(sessions)
+                .where(
+                  and(
+                    sql`${sessions.createdAt} >= ${of.period.since.toISOString()}::timestamptz`,
+                    sql`${sessions.createdAt} < ${of.period.until.toISOString()}::timestamptz`,
+                    startedBy(of.filter),
+                  ),
+                ),
+            );
+      const [row] = await db
+        .select({
+          callCount: sql<number>`count(*)`.mapWith(Number),
+          tokens:
+            sql<number>`coalesce(sum(${providerUsage.inputTokens} + ${providerUsage.outputTokens}
+            + ${providerUsage.cacheCreationInputTokens} + ${providerUsage.cacheReadInputTokens}), 0)`.mapWith(
+              Number,
+            ),
+          costUsd: sql<string>`coalesce(sum(${providerUsage.costUsd}), 0)::text`,
+        })
+        .from(providerUsage)
+        .where(and(providerUsage.priceUnknown, ofSessions));
+      if (!row) throw new Error("unknown price usage read returned no row");
       return row;
     },
 

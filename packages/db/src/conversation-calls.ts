@@ -1091,7 +1091,9 @@ export function createPostgresConversationCalls(
           // and the report adds the call's one adjustment to its account.
           const costUsd = unmetered
             ? 0
-            : toStoredCost(input.priceFor({ unmetered }).costUsd);
+            : toStoredCost(
+                input.priceFor({ unmetered, model: call.model }).costUsd,
+              );
           const adjusted = await settleBudgetIn(tx, {
             callId: input.callId,
             actual: { costUsd, tokens: reservationTokens(input.usage) },
@@ -1119,7 +1121,9 @@ export function createPostgresConversationCalls(
         // settles an unknown one at what it says.
         const costUsd = unmetered
           ? 0
-          : toStoredCost(input.priceFor({ unmetered }).costUsd);
+          : toStoredCost(
+              input.priceFor({ unmetered, model: call.model }).costUsd,
+            );
         const tokens = reservationTokens(input.usage);
         const settled = await settleBudgetIn(tx, {
           callId: input.callId,

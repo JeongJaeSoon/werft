@@ -24,12 +24,18 @@ export function spentOn(bucket: Bucket): number {
   return Number(bucket.cost_usd) + Number(bucket.conversation_cost_usd);
 }
 
-function totalsOf(buckets: readonly Bucket[]): Totals {
+function totalsOf(buckets: readonly Bucket[], unknownUsd: number): Totals {
+  const sessions = buckets.reduce((sum, b) => sum + Number(b.cost_usd), 0);
+  // What the limits counted for calls nothing prices is not what they cost:
+  // the amounts are the rest, and the card names that part apart from them.
+  const known = Math.max(0, sessions - unknownUsd);
   return {
     session_count: buckets.reduce((sum, b) => sum + b.session_count, 0),
     run_seconds: buckets.reduce((sum, b) => sum + b.run_seconds, 0),
-    cost_usd: buckets.reduce((sum, b) => sum + spentOn(b), 0),
-    session_cost_usd: buckets.reduce((sum, b) => sum + Number(b.cost_usd), 0),
+    cost_usd:
+      known +
+      buckets.reduce((sum, b) => sum + Number(b.conversation_cost_usd), 0),
+    session_cost_usd: known,
     conversation_cost_usd: buckets.reduce(
       (sum, b) => sum + Number(b.conversation_cost_usd),
       0,
@@ -44,16 +50,32 @@ function totalsOf(buckets: readonly Bucket[]): Totals {
 export interface UsageKpisProps {
   /** GET /v1/usage/series `buckets` of the period; undefined while read. */
   readonly buckets: readonly Bucket[] | undefined;
+  /** GET /v1/usage/series `unknown_price` of the same answer. */
+  readonly unknownPrice?: UsageSeriesResponse["unknown_price"] | undefined;
   readonly messages?: Partial<UsageKpisMessages> | undefined;
 }
 
 /** Sessions, run time, cost and tokens of a period, each over its daily line. */
 export function UsageKpis({
   buckets,
+  unknownPrice,
   messages: override,
 }: UsageKpisProps): JSX.Element {
   const { messages, format } = useOperationsMessages("usageKpis", override);
-  const totals = buckets === undefined ? undefined : totalsOf(buckets);
+  const totals =
+    buckets === undefined
+      ? undefined
+      : totalsOf(buckets, Number(unknownPrice?.cost_usd ?? 0));
+  const unknown =
+    unknownPrice === undefined || unknownPrice.call_count === 0 ? null : (
+      <span className="block">
+        {messages.costUnknown(
+          format.count(unknownPrice.call_count),
+          format.tokens(unknownPrice.token_count),
+          format.usd(unknownPrice.cost_usd),
+        )}
+      </span>
+    );
   const loading = totals === undefined;
   const spark = (pick: (bucket: Bucket) => number, label: string) =>
     buckets === undefined ? (
@@ -92,18 +114,21 @@ export function UsageKpis({
             <span aria-hidden="true" className="invisible">
               {messages.costIncomplete}
             </span>
-          ) : totals.conversation_cost_usd === 0 ? (
+          ) : totals.conversation_cost_usd === 0 && unknown === null ? (
             totals.cost_complete ? undefined : (
               messages.costIncomplete
             )
           ) : (
             <>
-              <span className="block">
-                {messages.costSplit(
-                  format.usd(totals.session_cost_usd),
-                  format.usd(totals.conversation_cost_usd),
-                )}
-              </span>
+              {totals.conversation_cost_usd === 0 ? null : (
+                <span className="block">
+                  {messages.costSplit(
+                    format.usd(totals.session_cost_usd),
+                    format.usd(totals.conversation_cost_usd),
+                  )}
+                </span>
+              )}
+              {unknown}
               {totals.cost_complete ? null : (
                 <span className="block">{messages.costIncomplete}</span>
               )}
