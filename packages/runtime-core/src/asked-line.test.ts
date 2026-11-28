@@ -938,9 +938,9 @@ const WIDE: [string, string, string | null][] = [
     "a wrapper the line does not read",
   ],
   [
-    "a time program given a setting it runs as a program",
-    "LC_ALL=C time REVIEW_MARKER=demo git status",
-    null,
+    "a setting behind two time keywords",
+    "time time REVIEW_MARKER=demo git status",
+    "a setting that may make git or gh run a program",
   ],
   [
     "a program named command behind env",

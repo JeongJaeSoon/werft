@@ -1477,14 +1477,11 @@ function wideKept(
     ) {
       return null;
     }
-    // The `time` keyword, first on the line, starts a simple command,
-    // settings and all.
-    if (
-      ((wrappers.length === 0 ||
-        (words[0] === "time" && wrappers.length === 1)) &&
-        ASSIGNMENT.test(word)) ||
-      (last === "env" && word.includes("="))
-    ) {
+    // A shell setting is read wherever it stands before the tool: the
+    // `time` keyword passes it on (`time time X=1 git`), and where the shell
+    // would run it as a program instead, reading it as a setting only
+    // parks more.
+    if (ASSIGNMENT.test(word) || (last === "env" && word.includes("="))) {
       settings.push(word);
     } else if (TOOLS.includes(name)) {
       at = index;
