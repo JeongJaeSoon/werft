@@ -3681,7 +3681,7 @@ export interface paths {
         get: operations["listSlackBindings"];
         /**
          * Set how the agent answers in one Slack channel or its DMs
-         * @description Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `on` (in use; the agent's `mention_only` setting says whether it also answers a top-level message without a mention). `m1_judgments_per_hour` (1 to 60) is how many M1 judgments the channel may have in an hour; a missing one keeps the channel's, and a new channel starts at 12. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. A binding that is `left` stays `left` when saved for its private channel (its `mode` and `ceiling` are edited, `home: true` answers 400); saved for a channel Slack now calls public, it is `ready` again. A channel under an emergency stop (`emergency_stop` set) stays `off` until a save sets `mode` `on` with a `reason` (400 without one); that save ends the stop on every binding of the channel it covered (each of the agent's installs in the Slack team), and its receipt keeps the reason and the stop it ended with those bindings. A binding saved while the stop holds starts stopped. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.
+         * @description Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `on` (in use; the agent's `mention_only` setting says whether it also answers a top-level message without a mention). `m1_judgments_per_hour` (1 to 60) is how many M1 judgments the channel may have in an hour; a missing one keeps the channel's, and a new channel starts at 12. `report_mode` is how the channel's threads hear of their work: `notify_only` (one line when it starts, then only its end), `progress` (one progress message kept up to date, then its end) or `per_step` (a reply for every turn); a thread's own mode wins. `null` picks none, and the threads then hear by the agent's default: `progress` while the agent answers in conversations (`conversation_rollout` `on`), `per_step` otherwise. A missing one keeps the channel's; a new channel picks none. A change applies at once to the open threads that pick none, never to closed ones. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. A binding that is `left` stays `left` when saved for its private channel (its `mode` and `ceiling` are edited, `home: true` answers 400); saved for a channel Slack now calls public, it is `ready` again. A channel under an emergency stop (`emergency_stop` set) stays `off` until a save sets `mode` `on` with a `reason` (400 without one); that save ends the stop on every binding of the channel it covered (each of the agent's installs in the Slack team), and its receipt keeps the reason and the stop it ended with those bindings. A binding saved while the stop holds starts stopped. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -6609,6 +6609,7 @@ export interface components {
             /** @enum {string} */
             listen?: "free" | "mention" | "off";
             m1_judgments_per_hour?: number;
+            report_mode?: ("notify_only" | "progress" | "per_step") | null;
             /** @default false */
             home: boolean;
             ceiling?: {
@@ -13149,6 +13150,7 @@ export interface components {
                 /** @enum {string} */
                 listen: "free" | "mention" | "off";
                 m1_judgments_per_hour: number;
+                report_mode: ("notify_only" | "progress" | "per_step") | null;
                 ceiling: {
                     actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
                     /** @enum {string} */
@@ -13300,6 +13302,7 @@ export interface components {
                 /** @enum {string} */
                 listen: "free" | "mention" | "off";
                 m1_judgments_per_hour: number;
+                report_mode: ("notify_only" | "progress" | "per_step") | null;
                 ceiling: {
                     actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
                     /** @enum {string} */
@@ -13355,6 +13358,7 @@ export interface components {
                 /** @enum {string} */
                 listen: "free" | "mention" | "off";
                 m1_judgments_per_hour: number;
+                report_mode: ("notify_only" | "progress" | "per_step") | null;
                 ceiling: {
                     actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
                     /** @enum {string} */
@@ -13408,6 +13412,7 @@ export interface components {
                 /** @enum {string} */
                 listen: "free" | "mention" | "off";
                 m1_judgments_per_hour: number;
+                report_mode: ("notify_only" | "progress" | "per_step") | null;
                 ceiling: {
                     actions: ("session.read" | "session.submit" | "session.control" | "session.approve")[];
                     /** @enum {string} */
@@ -40748,6 +40753,7 @@ export interface operations {
                      *         "mode": "off",
                      *         "listen": "free",
                      *         "m1_judgments_per_hour": 12,
+                     *         "report_mode": null,
                      *         "ceiling": {
                      *           "actions": [
                      *             "session.read",

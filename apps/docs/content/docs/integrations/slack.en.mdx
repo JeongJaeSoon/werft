@@ -101,7 +101,7 @@ When a mention or DM turn of an agent whose conversation rollout is `on` ends wi
 - before the next try, an admin stopped the agent in an emergency (also when stopped and turned on again while the next try waits), the agent's conversation rollout is no longer `on`, or the mention was deleted: nothing is said.
 ## Task reports
 
-How a task (session) reports its work in its thread is set by its report mode (`report_mode`). Approval and question cards, mirrored web and API instructions, and the room-wait and stop notices follow their own settings and rules. A task's link with none uses its channel's; the default is `per_step`. This release has no screen or API that changes it.
+How a task (session) reports its work in its thread is set by its report mode (`report_mode`). Approval and question cards, mirrored web and API instructions, and the room-wait and stop notices follow their own settings and rules. A task's link with none uses its channel's. When the channel picks none either, it is `progress` while the agent answers in conversations (conversation rollout `on`) and `per_step` otherwise (`off`, `shadow`). A channel's report mode is picked in the web console, in the agent's Slack tab, in the **Reports** column of the connected channels table (`binding.manage`, the same right as listening). **Default** leaves the channel with none, so the rule above applies, and its name shows the mode that applies now. A change of the channel's mode or of the rollout applies at once to open tasks whose link has none. Nothing goes to a closed task's thread.
 
 | Report mode | What the thread gets |
 |---|---|

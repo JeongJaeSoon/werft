@@ -6953,6 +6953,39 @@ describe.each(ENGINES)("closing a closed session's link on %s", (engine) => {
     expect(await rows()).toEqual(before);
     expect(posted()).toEqual([]);
   });
+
+  test("on: a closed thread that picks no mode takes nothing when the channel's mode or the agent's rollout changes", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await closeSession(sessionId, true);
+    expect(await outboxPass({ closeLinks: true })).toMatchObject({
+      linksClosed: 1,
+    });
+    const before = await rows();
+    const sent = posted().length;
+
+    for (const reportMode of [
+      "progress",
+      "notify_only",
+      "per_step",
+      null,
+    ] as const) {
+      await db.update(surfaceBindings).set({ reportMode });
+      expect(await outboxPass({ closeLinks: true })).toMatchObject({
+        enqueued: 0,
+        linksClosed: 0,
+      });
+    }
+    await db.execute(sql`UPDATE agents SET conversation_rollout = 'on'`);
+    expect(await outboxPass({ closeLinks: true })).toMatchObject({
+      enqueued: 0,
+      linksClosed: 0,
+    });
+    expect(await rows()).toEqual(before);
+    expect(posted()).toHaveLength(sent);
+  });
 });
 
 describe.each(ENGINES)("a reaction on %s", (engine) => {
@@ -8085,5 +8118,68 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
     await outboxPass();
     expect(await progressRows()).toEqual([]);
     expect(postedLines()).toEqual([ko.capacityWait]);
+  });
+
+  // v1-b/P3: a thread whose link and channel pick none reports by its
+  // agent's rollout; a mode picked anywhere holds whatever the rollout.
+  test.each([
+    ["off", []],
+    ["shadow", []],
+    ["on", [ko.progressRunning]],
+  ] as const)(
+    "rollout %s: a thread that picks no mode keeps a progress message only when on",
+    async (rollout, lines) => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await db.execute(
+        sql`UPDATE agents SET conversation_rollout = ${rollout}`,
+      );
+      await setTurn(sessionId, "running");
+      await outboxPass();
+      expect(postedLines()).toEqual([...lines]);
+    },
+  );
+
+  test("rollout on: a mode the channel or the thread picked holds", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.execute(sql`UPDATE agents SET conversation_rollout = 'on'`);
+    await db.update(surfaceBindings).set({ reportMode: "per_step" });
+    await setTurn(sessionId, "running");
+    await outboxPass();
+    await db.update(surfaceBindings).set({ reportMode: null });
+    await db.update(sessionLinks).set({ reportMode: "per_step" });
+    await outboxPass();
+    expect(postedLines()).toEqual([]);
+    expect(await progressRows()).toEqual([]);
+  });
+
+  test("the channel's mode changed mid-work reaches the thread that picks none at once, not one that picks its own", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await setTurn(sessionId, "running");
+    await outboxPass();
+    expect(postedLines()).toEqual([]);
+    await db.update(surfaceBindings).set({ reportMode: "progress" });
+    await outboxPass();
+    expect(postedLines()).toEqual([ko.progressRunning]);
+  });
+
+  test("a thread that picked its own mode keeps it when the channel's changes", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.update(sessionLinks).set({ reportMode: "per_step" });
+    await setTurn(sessionId, "running");
+    await outboxPass();
+    await db.update(surfaceBindings).set({ reportMode: "progress" });
+    await outboxPass();
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await outboxPass();
+    expect(await progressRows()).toEqual([]);
+    expect(postedLines()).toEqual(["Done."]);
   });
 });

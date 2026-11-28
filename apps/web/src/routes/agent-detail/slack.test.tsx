@@ -92,6 +92,7 @@ const BINDING: components["schemas"]["ListSlackBindingsResponse"]["items"][numbe
     mode: "on",
     listen: "free",
     m1_judgments_per_hour: 12,
+    report_mode: null,
     ceiling: { actions: ["session.read"], disclosure: "summary" },
     home: true,
     memory_write_policy: "deny",
@@ -699,6 +700,132 @@ describe("Slack management", () => {
     expect(document.body.textContent).not.toContain("internal message");
   });
 
+  test("shows each channel's report mode, its default by what applies now, and sends report_mode only when it is changed", async () => {
+    let row: typeof BINDING = { ...BINDING };
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/notice`]: () =>
+        json(200, {
+          notice: null,
+          state: "no_notice",
+          rollout: "on",
+          can_approve: true,
+          approvals: [],
+        }),
+      [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [row] }),
+      [`PUT ${PATH}/slack-bindings`]: async (request: Request) => {
+        const body = await request.json();
+        row = {
+          ...row,
+          listen: body.listen ?? row.listen,
+          report_mode:
+            body.report_mode === undefined ? row.report_mode : body.report_mode,
+        };
+        return json(200, { slack_binding: row, receipt_id: ID });
+      },
+    });
+    const user = await setupUser();
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
+    const report = (await within(list).findByRole("combobox", {
+      name: "채널 ID: C123 보고 방식",
+    })) as HTMLSelectElement;
+    expect(report.value).toBe("default");
+    await waitFor(() =>
+      expect(
+        [...report.options].map((option) => [option.value, option.textContent]),
+      ).toEqual([
+        ["default", "기본 (지금: 진행 메시지 하나)"],
+        ["notify_only", "알림만"],
+        ["progress", "진행 메시지 하나"],
+        ["per_step", "단계마다 새 글"],
+      ]),
+    );
+    const bodies = () =>
+      api.calls
+        .filter((call) => call.method === "PUT")
+        .map((call) => call.body as Record<string, unknown>);
+
+    await user.selectOptions(
+      within(list).getByRole("combobox", { name: "채널 ID: C123 듣기" }),
+      "mention",
+    );
+    await waitFor(() => expect(bodies()).toHaveLength(1));
+    expect("report_mode" in (bodies()[0] ?? {})).toBe(false);
+
+    await user.selectOptions(report, "per_step");
+    await waitFor(() => expect(report.value).toBe("per_step"));
+    expect(bodies()[1]).toMatchObject({
+      channel_id: "C123",
+      report_mode: "per_step",
+      home: true,
+    });
+    expect("listen" in (bodies()[1] ?? {})).toBe(false);
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "보고 방식을 저장했습니다. 따로 고르지 않은 진행 중인 작업에도 바로 쓰입니다.",
+        ),
+      ).toBeDefined(),
+    );
+
+    // Back to the default: stored as none picked.
+    await user.selectOptions(report, "default");
+    await waitFor(() => expect(report.value).toBe("default"));
+    expect(bodies()[2]).toMatchObject({ report_mode: null });
+    expect(bodies()).toHaveLength(3);
+  });
+
+  test("names per step as the default while the agent does not answer in conversations", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/notice`]: () =>
+        json(200, {
+          notice: null,
+          state: "no_notice",
+          rollout: "shadow",
+          can_approve: true,
+          approvals: [],
+        }),
+    });
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
+    const report = (await within(list).findByRole("combobox", {
+      name: "채널 ID: C123 보고 방식",
+    })) as HTMLSelectElement;
+    await waitFor(() =>
+      expect(report.options[0]?.textContent).toBe(
+        "기본 (지금: 단계마다 새 글)",
+      ),
+    );
+  });
+
+  test("names the channel whose report mode was refused and keeps its value", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, { items: [{ ...BINDING, report_mode: "notify_only" }] }),
+      [`PUT ${PATH}/slack-bindings`]: () =>
+        apiError(409, "REVISION_CONFLICT", "internal message", false),
+    });
+    const user = await setupUser();
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
+    const report = (await within(list).findByRole("combobox", {
+      name: "채널 ID: C123 보고 방식",
+    })) as HTMLSelectElement;
+    await user.selectOptions(report, "progress");
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toStartWith(
+      "채널 ID: C123의 보고 방식을 저장하지 못했습니다.",
+    );
+    expect(report.value).toBe("notify_only");
+    expect(report.getAttribute("aria-invalid")).toBe("true");
+    expect(
+      within(list)
+        .getByRole("combobox", { name: "채널 ID: C123 듣기" })
+        .getAttribute("aria-invalid"),
+    ).toBe("false");
+    expect(document.body.textContent).not.toContain("internal message");
+  });
+
   test("says listening applies after the conversation switch only while the switch is off", async () => {
     const hint = "듣기 설정은 에이전트의 대화 스위치를 켠 뒤부터 적용됩니다.";
     renderAt(DETAIL, {
@@ -787,6 +914,8 @@ describe("Slack management", () => {
     });
     const list = await screen.findByRole("table", { name: "연결된 채널" });
     await waitFor(() => expect(list.textContent).toContain("듣지 않음"));
+    // Its report mode too: none picked, so the default.
+    expect(list.textContent).toContain("기본");
     expect(within(list).queryAllByRole("combobox")).toHaveLength(0);
     expect(within(list).queryAllByRole("switch")).toHaveLength(0);
   });

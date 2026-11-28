@@ -212,6 +212,16 @@ export const slackKo = {
   "slack.listenFailed": "{channel}의 듣기 설정을 저장하지 못했습니다. {reason}",
   "slack.listenExternalShared":
     "{channel}: 외부 조직과 공유한 채널은 멘션으로만 들을 수 있습니다. 멘션에만이나 듣지 않음으로 정하세요.",
+  "slack.reportColumn": "보고 방식",
+  "slack.report.notify_only": "알림만",
+  "slack.report.progress": "진행 메시지 하나",
+  "slack.report.per_step": "단계마다 새 글",
+  "slack.report.default": "기본 (지금: {mode})",
+  "slack.report.defaultPlain": "기본",
+  "slack.reportOf": "{channel} 보고 방식",
+  "slack.reportSaved":
+    "보고 방식을 저장했습니다. 따로 고르지 않은 진행 중인 작업에도 바로 쓰입니다.",
+  "slack.reportFailed": "{channel}의 보고 방식을 저장하지 못했습니다. {reason}",
   "slack.capColumn": "시간당 판단",
   "slack.capOf": "{channel} 시간당 판단 상한",
   "slack.capRange": "1에서 {max} 사이의 정수로 정하세요.",

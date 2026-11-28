@@ -1,4 +1,4 @@
-import { DEFAULT_REPORT_MODE } from "@werft-ai/contracts";
+import { defaultReportMode } from "@werft-ai/contracts";
 import { type SQL, sql } from "drizzle-orm";
 import type { Database } from "./queries.ts";
 import { rowsOf } from "./statement-rows.ts";
@@ -9,16 +9,24 @@ import { rowsOf } from "./statement-rows.ts";
 const unmovedSummary = (link: SQL) =>
   sql`(${link}.visibility = 'summary' AND ${link}.report_mode IS NULL)`;
 
-// A link's own `report_mode` wins, else its binding's.
-const reportModeOf = (link: SQL) => sql`coalesce(
+/**
+ * The report mode a link's thread hears of its work by: the link's own, else
+ * its channel's, else the default of its agent's conversation rollout
+ * (`defaultReportMode`). Read on every pass, never stored: a channel picking
+ * a mode, or an agent's rollout moving, changes the threads that pick none.
+ */
+export const reportModeOf = (link: SQL) => sql`coalesce(
   ${link}.report_mode,
   (SELECT pb.report_mode FROM surface_bindings pb WHERE pb.id = ${link}.surface_binding_id),
-  ${DEFAULT_REPORT_MODE}
+  (SELECT CASE pa.conversation_rollout WHEN 'on' THEN ${defaultReportMode("on")}
+     ELSE ${defaultReportMode("off")} END
+   FROM agents pa WHERE pa.id = ${link}.agent_id),
+  ${defaultReportMode("off")}
 )`;
 
 /**
  * Whether a link's thread hears of its turns: replies, failures and notices.
- * A link's own `report_mode` wins, else its binding's. Only `none` (a moved
+ * Its mode is `reportModeOf`. Only `none` (a moved
  * `summary` link) is silent; until the modes post differently, every other
  * one posts once per turn, as `full` did.
  */
