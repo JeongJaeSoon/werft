@@ -16,6 +16,7 @@
  *      root, a "musterrolle/" or "kollegium/" path segment, a "routes/..."
  *      key of the control host, and the links of the verify docs.
  *   4. Run biome on what it rewrote (import order and line width follow the path).
+ *      The contracts index keeps its order: see keptOrder.
  *   5. Regenerate the tables of docs/architecture/modules.md.
  *   6. Fail if a relative import still names a file that does not exist.
  *
@@ -467,6 +468,17 @@ function rewriteText(file: string, text: string): string {
   return result;
 }
 
+/**
+ * Files whose statement order is part of what ships. packages/core bundles
+ * every contracts module in the order this index names them, and that order
+ * decides the gzip size its bundle budget holds. A path that sorts elsewhere
+ * after the move must not re-sort them, so the file opts out of biome's sort.
+ */
+const keptOrder: Readonly<Record<string, string>> = {
+  "packages/contracts/src/index.ts":
+    "// biome-ignore-all assist/source/organizeImports: packages/core bundles the contracts in this order, and its bundle budget measures the gzip of that order\n",
+};
+
 const binary =
   /\.(png|jpe?g|gif|webp|ico|icns|woff2?|ttf|otf|pdf|zip|gz|tgz|bundle|payload|wasm|mp4)$/i;
 const rewritten: string[] = [];
@@ -480,12 +492,14 @@ for (const file of after) {
   const text = read(onDisk);
   if (text.includes("\0")) continue;
   if (isScript(file)) scripts.push(file);
-  const next = rewriteText(
+  let next = rewriteText(
     file,
     isScript(file) ? applyEdits(text, scriptEdits(file, text)) : text,
   );
   if (next === text) continue;
   rewritten.push(file);
+  const opening = keptOrder[file] ?? "";
+  if (!next.startsWith(opening)) next = opening + next;
   if (!checkOnly) writeFileSync(join(root, file), next);
 }
 
