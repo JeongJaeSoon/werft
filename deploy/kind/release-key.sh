@@ -34,11 +34,15 @@ kind_release_key() {
 # Pod, or nothing once an owner exists (the command issues none then). The
 # Pod is picked once: deploy/<name> picks again on every exec, and the file
 # made in one Pod is not in another. It is a Ready Pod not being deleted: a
-# Pod of a replaced ReplicaSet still reads Running while it terminates.
+# Pod of a replaced ReplicaSet still reads Running while it terminates. The
+# list is taken whole before grep reads it: in a pipe, grep -m 1 leaves at the
+# first of two Pods, and a kubectl that writes the second after that dies of
+# SIGPIPE; under pipefail that read as no Pod, so no link, and the first login
+# can answer 401.
 kind_setup_link_token() {
-  local pod
+  local pods pod
   # shellcheck disable=SC2016 # $name is the template's variable, not the shell's
-  pod="$(kubectl -n "$NAMESPACE" get pod -l app.kubernetes.io/component=api -o go-template='{{range .items}}{{$name := .metadata.name}}{{if not .metadata.deletionTimestamp}}{{range .status.conditions}}{{if and (eq .type "Ready") (eq .status "True")}}{{$name}}{{"\n"}}{{end}}{{end}}{{end}}{{end}}' \
-    | grep -m 1 -E "^$1-api-[a-z0-9]+-[a-z0-9]+$")" || return 0
+  pods="$(kubectl -n "$NAMESPACE" get pod -l app.kubernetes.io/component=api -o go-template='{{range .items}}{{$name := .metadata.name}}{{if not .metadata.deletionTimestamp}}{{range .status.conditions}}{{if and (eq .type "Ready") (eq .status "True")}}{{$name}}{{"\n"}}{{end}}{{end}}{{end}}{{end}}')" || return 0
+  pod="$(grep -m 1 -E "^$1-api-[a-z0-9]+-[a-z0-9]+$" <<<"$pods")" || return 0
   setup_link_token "$E2E_OWNER_EMAIL" kubectl -n "$NAMESPACE" exec "pod/$pod" -c api -- 2>/dev/null || true
 }
