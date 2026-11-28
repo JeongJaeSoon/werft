@@ -92,13 +92,14 @@ export const executionLimitsKo = {
   "limits.unknownTokens.hint":
     "세션 하나가 단가 미상 호출에 쓸 수 있는 토큰 수입니다. 무제한 지출을 막는 장치입니다.",
   "limits.unknownTokens.detail":
-    "요청한 모델이나 답한 모델의 단가를 정하지 못한 호출은 단가 미상으로 표시하고 비용을 가장 높은 단가로 셉니다. 실제 단가는 더 높을 수 있어서 비용과 따로 토큰 수로 막습니다. 끌 수 없습니다.",
+    "요청한 모델이나 답한 모델의 단가를 정하지 못한 호출은 단가 미상으로 표시합니다. 단가를 모르는 쪽은 가장 높은 단가로 쳐서 둘 가운데 비싼 금액을 세지만, 실제 단가는 더 높을 수 있습니다. 그래서 비용과 따로 토큰 수로 막습니다. 끌 수 없습니다.",
   "limits.unknownTokens.label": "단가 미상 토큰 한도",
   "limits.unknownTokens.unit": "토큰",
   "limits.unknownTokens.value": "{value} 토큰",
-  "limits.unknownTokens.refused": "세션의 모델 호출을 모두 막습니다.",
+  "limits.unknownTokens.refused":
+    "모든 세션에서 새 모델 호출을 막습니다. 이미 나간 호출은 그대로 끝납니다.",
   "limits.unknownTokens.applies":
-    "저장하면 10초 안에 적용됩니다. 한도에 닿은 세션은 다음 모델 호출이 거절됩니다. 단가 미상 호출이 없는 세션에는 닿지 않습니다.",
+    "저장하면 10초 안에 적용됩니다. 한도에 닿은 세션은 다음 모델 호출이 거절됩니다. 여는 호출의 예상 토큰도 함께 세므로 첫 호출이 거절될 수도 있습니다. 끝난 호출에도 지금 여는 호출에도 단가 미상이 없는 세션에는 닿지 않습니다.",
   "limits.unknownTokens.invalid":
     "1부터 {max}까지의 정수를 적으세요. 0으로 끌 수 없습니다.",
   "limits.unknownTokens.saved": "단가 미상 토큰 한도를 저장했습니다.",
@@ -285,14 +286,14 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
     "limits.unknownTokens.hint":
       "The tokens one session may use on calls of unknown price. It keeps spend from running without a limit.",
     "limits.unknownTokens.detail":
-      "A call whose requested or answering model cannot be priced is marked as of unknown price and counted at the highest known rate. Its real price may be higher, so tokens are limited apart from cost. It cannot be turned off.",
+      "A call whose requested or answering model cannot be priced is marked as of unknown price. The model that cannot be priced is taken at the highest known rate and the dearer of the two amounts is counted, but the real price may be higher. So tokens are limited apart from cost. It cannot be turned off.",
     "limits.unknownTokens.label": "Limit on tokens of unknown price",
     "limits.unknownTokens.unit": "tokens",
     "limits.unknownTokens.value": "{value} tokens",
     "limits.unknownTokens.refused":
-      "every model call of every session is stopped.",
+      "no session can start a new model call; a call already under way finishes.",
     "limits.unknownTokens.applies":
-      "A save applies within 10 seconds. A session at the limit has its next model call refused. A session with no call of unknown price is not affected.",
+      "A save applies within 10 seconds. A session at the limit has its next model call refused. The estimated tokens of the call being opened count too, so a first call can be refused. A session with no call of unknown price, finished or being opened, is not affected.",
     "limits.unknownTokens.invalid":
       "Enter a whole number from 1 to {max}. It cannot be 0.",
     "limits.unknownTokens.saved": "Saved the limit on tokens of unknown price.",
@@ -481,14 +482,14 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
     "limits.unknownTokens.hint":
       "1 つのセッションが単価不明の呼び出しに使えるトークン数です。無制限の支出を防ぐための仕組みです。",
     "limits.unknownTokens.detail":
-      "要求したモデルか応答したモデルの単価を決められない呼び出しは、単価不明として記録し、費用を最高単価で数えます。実際の単価はそれより高い場合があるため、費用とは別にトークン数で止めます。無効にはできません。",
+      "要求したモデルか応答したモデルの単価を決められない呼び出しは、単価不明として記録します。単価を決められない側は最高単価で計算し、二つのうち高い金額を数えますが、実際の単価はそれより高い場合があります。そのため費用とは別にトークン数で止めます。無効にはできません。",
     "limits.unknownTokens.label": "単価不明トークンの上限",
     "limits.unknownTokens.unit": "トークン",
     "limits.unknownTokens.value": "{value} トークン",
     "limits.unknownTokens.refused":
-      "セッションのモデル呼び出しをすべて止めます。",
+      "すべてのセッションで新しいモデル呼び出しを止めます。すでに始まった呼び出しは最後まで進みます。",
     "limits.unknownTokens.applies":
-      "保存すると 10 秒以内に適用されます。上限に達したセッションは次のモデル呼び出しが拒否されます。単価不明の呼び出しがないセッションには影響しません。",
+      "保存すると 10 秒以内に適用されます。上限に達したセッションは次のモデル呼び出しが拒否されます。開こうとする呼び出しの見積もりトークンも数えるため、最初の呼び出しが拒否されることもあります。終わった呼び出しにも今開く呼び出しにも単価不明がないセッションには影響しません。",
     "limits.unknownTokens.invalid":
       "1 から {max} までの整数を入力してください。0 にはできません。",
     "limits.unknownTokens.saved": "単価不明トークンの上限を保存しました。",
