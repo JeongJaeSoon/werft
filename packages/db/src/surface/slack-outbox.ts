@@ -2566,6 +2566,30 @@ export function createPostgresSlackOutboxStore(
       return drawn === null ? null : { ...drawn, conversationScope };
     },
 
+    async progressLink(sessionId) {
+      if (!UUID.test(sessionId)) return null;
+      const l = sessionLinks;
+      const [row] = await db
+        .select({
+          id: l.id,
+          agentId: l.agentId,
+          channelId: l.channelId,
+          threadId: l.threadId,
+        })
+        .from(l)
+        // As keepsProgressMessage reads a link; the newest when there were several.
+        .where(
+          and(
+            eq(l.sessionId, sessionId.toLowerCase()),
+            eq(l.role, "primary"),
+            ne(l.threadId, ""),
+          ),
+        )
+        .orderBy(sql`${l.createdAt} DESC`, sql`${l.id} DESC`)
+        .limit(1);
+      return row ?? null;
+    },
+
     cards: createPostgresSlackCardSettleStore(db),
 
     async expireSending() {

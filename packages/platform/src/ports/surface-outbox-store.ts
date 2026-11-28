@@ -476,6 +476,14 @@ export type SurfacePendingPrompt = SurfaceLinkedTurnTarget & {
       };
 };
 
+/** Where a session's progress message is: its link, the agent and the thread. */
+export type SurfaceProgressLink = {
+  id: string;
+  agentId: string;
+  channelId: string;
+  threadId: string;
+};
+
 /**
  * What a posted card is redrawn from: its row's language and link, the
  * request as the database holds it now, and the Slack account of whoever
@@ -910,6 +918,11 @@ export interface SurfaceOutboxStore {
     channelId: string;
     slackTs: string;
   }): Promise<SurfacePromptCard | null>;
+  /**
+   * The link whose thread keeps the session's progress message (a primary
+   * link with a thread), open, revoked or closed; null when it has none.
+   */
+  progressLink(sessionId: string): Promise<SurfaceProgressLink | null>;
   /** Requests of live linked sessions without their `input_notice` row. */
   unpromptedRequests(limit: number): Promise<SurfacePendingPrompt[]>;
   /** Moves `sending` rows whose lease ran out to `uncertain`. */

@@ -87,7 +87,8 @@
 작업 세션(`task_closing` 있음)을 닫는 두 길이다. 둘 다 사람의 close와 같은 `closeAtomic`으로 닫고, 같은 트랜잭션에서 세션의 `task_closed_reason`을 쓴다(`packages/db/src/sessions/task-close.ts`).
 
 - PR 사건: outcome refresher가 pass를 끝낼 때 한 번에 100개까지 고른다. `task_closing.eventRules`가 켜진 작업이어야 한다. 세션의 `github_pull_request` 성과 가운데 하나라도 `merged`면 `completed`로 닫는다. `merged`가 없고 `closed`가 있으면서 `open`이 없을 때만 `cancelled`로 닫는다. status 이벤트의 actor는 `{kind: system, by: pull_request_event}`이다.
-- 요청자의 완료·취소: 작업 진행 메시지의 [완료]·[취소] 버튼이다. 누른 사람이 그 세션의 `session.control` 권한을 가져야 한다. 권한이 없으면 누른 사람에게만 ephemeral 안내가 간다.
+- 요청자의 완료·취소: 작업 진행 메시지의 [완료]·[취소] 버튼이다. 누른 사람이 그 세션의 `session.control` 권한을 가져야 한다. 권한은 세션의 진행 메시지가 있는 스레드(primary link)의 채널 ceiling으로 보며, 누른 채널의 ceiling을 쓰지 않는다. 권한이 없으면 누른 사람에게만 ephemeral 안내가 간다.
+  - 버튼 값의 세션·link가 누른 메시지의 스레드와 맞지 않으면(다른 세션, 다른 link, 다른 채널·스레드, link가 없는 세션) 아무것도 닫지 않는다. 권한 판단 기록에 `surface_mismatch` 거절을 남기고, 누른 사람에게만 ephemeral 안내가 간다.
 
 | 지금 상태 | 다음 상태 | 조건 | 누가 일으키나 |
 | --- | --- | --- | --- |
