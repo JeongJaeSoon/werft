@@ -81,10 +81,12 @@ const TIME_RULE_DUE = sql`
  * an input taken into its thread's topic (a reply held for M1's judgment is
  * one before it is a turn, bound-replies.ts), and a Slack event of its
  * thread the inbox has not processed yet (a reply the buffer let go of
- * waits there for its retry to hand it to the task). Through its open link
- * only: one closes after its session does. Turns and answers are written
- * under the session's lock; posts and events are not, so one committed
- * before the read under the lock is seen, and one after comes to a closed task.
+ * waits there for its retry to hand it to the task). A reply M1 keeps quiet
+ * counts only until its judgment settles it: then it is gone from both. Through
+ * its open link only: one closes after its session does. Turns and answers
+ * are written under the session's lock; posts and events are not, so one
+ * committed and still there, and still recent enough, when the close reads
+ * under the lock is seen, and one after meets a task closing or closed.
  */
 const TURN_CLOCK = sql`
   CROSS JOIN LATERAL (
@@ -105,6 +107,7 @@ const TURN_CLOCK = sql`
           JOIN slack_installations si ON si.id = l.installation_id
           JOIN slack_apps sa ON sa.app_id = si.app_id
           JOIN slack_inbound_events e ON e.status = 'received'
+            AND e.team_id = si.team_id
             AND e.conversation_key =
               sa.id::text || ':' || l.channel_id || ':' || l.thread_id
           WHERE l.session_id = s.id AND l.closed_at IS NULL)) AS at,

@@ -9213,7 +9213,7 @@ describe.each(ENGINES)("a task's time rules on %s", (engine) => {
     });
   });
 
-  test("a reply the inbox has yet to hand on, the buffer having let it go, keeps it open", async () => {
+  test("a reply of its thread waiting in the inbox keeps it open until it is older than the idle days", async () => {
     const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
     await daysPass(sessionId, 15);
     const event = {
