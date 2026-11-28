@@ -4,7 +4,7 @@ import {
   randomBytes,
   verify,
 } from "node:crypto";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GitBundleFixture } from "./git-bundle.ts";
@@ -133,10 +133,22 @@ export type FakeGitHub = {
     name: string,
     files: Record<string, string>,
     /** `ownerId`: the owning account's id; unset, one per owner login. */
-    options?: { branch?: string; private?: boolean; ownerId?: number },
+    options?: {
+      branch?: string;
+      private?: boolean;
+      ownerId?: number;
+      /** Private to its enterprise: `private: true`, `visibility: "internal"`. */
+      internal?: boolean;
+      /** The SPDX id GitHub names as its license; unset, none. */
+      license?: string;
+    },
   ): Promise<number>;
   /** Makes a served repository private or public, as its owner can. */
   setPrivate(owner: string, name: string, on: boolean): void;
+  /** Makes a served repository internal: not public, and not plain private. */
+  setInternal(owner: string, name: string): void;
+  /** While on, a recursive tree listing is cut short and says `truncated`. */
+  truncateTrees(on: boolean): void;
   /** Points `branch` at a bundle's commit (`seedServedBranch`). */
   seedBranch(
     owner: string,
@@ -186,6 +198,11 @@ export type FakeGitHub = {
    */
   failNext(count: number, status: number, path?: RegExp): void;
   /**
+   * The next REST call whose path under the repository matches (`""` for
+   * the repository itself) answers `body` (200) in place of its own answer.
+   */
+  answerNext(path: RegExp, body: unknown): void;
+  /**
    * REST calls whose `/repos/{owner}/{name}/…` path matches wait, unanswered,
    * until `release`; `waiting` counts the ones that arrived.
    */
@@ -218,13 +235,14 @@ export type FakeGitHub = {
   appendCommit(owner: string, name: string, branch: string): Promise<string>;
   /**
    * Commits on top of `branch`, which must exist: each path gets its text,
-   * or is removed when null. Returns the commit.
+   * becomes a symlink to `symlink`, or is removed when null. Returns the
+   * commit.
    */
   writeFiles(
     owner: string,
     name: string,
     branch: string,
-    files: Record<string, string | null>,
+    files: Record<string, string | null | { symlink: string }>,
   ): Promise<string>;
   /** Points a full ref (`refs/tags/v1`) at a commit, or deletes it on null. */
   setRef(
@@ -295,6 +313,8 @@ type Served = {
   ownerId: number;
   defaultBranch: string;
   private: boolean;
+  internal: boolean;
+  license: string | null;
   pulls: FakeGitHubPullRequest[];
   comments: Map<number, FakeGitHubComment[]>;
   runs: FakeGitHubWorkflowRun[];
@@ -481,6 +501,18 @@ export async function startFakeGitHub(
     return on === undefined || on.includes(repository);
   }
 
+  /** `visibility` and `license` as GitHub's repository answers carry them. */
+  function visibilityOf(repo: Served) {
+    return {
+      visibility: !repo.private
+        ? "public"
+        : repo.internal
+          ? "internal"
+          : "private",
+      license: repo.license === null ? null : { spdx_id: repo.license },
+    };
+  }
+
   function installationRepository(key: string): Record<string, unknown> {
     const [owner = "", name = ""] = key.split("/");
     const repo = served.get(key);
@@ -492,7 +524,7 @@ export async function startFakeGitHub(
       html_url: `${origin()}/${key}`,
       default_branch: repo?.defaultBranch,
       private: repo?.private ?? true,
-      visibility: repo?.private === false ? "public" : "private",
+      ...(repo === undefined ? { visibility: "private" } : visibilityOf(repo)),
     };
   }
 
@@ -520,6 +552,7 @@ export async function startFakeGitHub(
     count: 0,
     status: 500,
   };
+  let answered: { path: RegExp; body: unknown } | null = null;
   const users = new Map<string, number>();
   let failingUser = false;
   const appFailures = new Map<number, number>();
@@ -618,6 +651,11 @@ export async function startFakeGitHub(
         { status: failures.status },
       );
     }
+    if (answered?.path.test(`${rest}${url.search}`)) {
+      const { body: instead } = answered;
+      answered = null;
+      return Response.json(instead);
+    }
     const can = (permission: string, level: "read" | "write") =>
       (outside && level === "read") ||
       grant.permissions[permission] === "write" ||
@@ -633,7 +671,7 @@ export async function startFakeGitHub(
         owner: { login: owner, id: found.ownerId },
         default_branch: found.defaultBranch,
         private: found.private,
-        visibility: found.private ? "private" : "public",
+        ...visibilityOf(found),
       });
     }
     const pullJson = (pull: FakeGitHubPullRequest) => ({
@@ -991,12 +1029,14 @@ export async function startFakeGitHub(
           : ["ls-tree", "-r", "-t", "-l", treeRead[1]],
       );
       if (listed === undefined) return notFound();
+      const cut = truncatedTrees && url.searchParams.get("recursive") !== null;
       return Response.json({
         sha: treeRead[1],
-        truncated: false,
+        truncated: cut,
         tree: listed
           .split("\n")
           .filter((line) => line !== "")
+          .slice(0, cut ? 1 : undefined)
           .map((line) => {
             const [meta = "", path = ""] = line.split("\t");
             const [mode = "", type = "", sha = "", size = "-"] =
@@ -1258,6 +1298,11 @@ export async function startFakeGitHub(
         if (carried === undefined) {
           return Response.json({ message: "Bad credentials" }, { status: 401 });
         }
+        if (answered?.path.test("")) {
+          const { body: instead } = answered;
+          answered = null;
+          return Response.json(instead);
+        }
         const key = [...served.entries()].find(
           ([, repo]) => repo.id === Number(byId[1]),
         )?.[0];
@@ -1384,6 +1429,7 @@ export async function startFakeGitHub(
     },
   });
   let nextId = 1000;
+  let truncatedTrees = false;
   const ownerIds = new Map<string, number>();
   return {
     origin: origin(),
@@ -1467,6 +1513,9 @@ export async function startFakeGitHub(
     failNext(count, status, path) {
       failures = { count, status, path };
     },
+    answerNext(path, body) {
+      answered = { path, body };
+    },
     holdRest(path) {
       let release = () => {};
       const hold = {
@@ -1520,6 +1569,8 @@ export async function startFakeGitHub(
         ownerId: repoOptions.ownerId ?? (ownerIds.get(owner) as number),
         defaultBranch: branch,
         private: repoOptions.private ?? true,
+        internal: repoOptions.internal ?? false,
+        license: repoOptions.license ?? null,
         pulls: [],
         comments: new Map(),
         runs: [],
@@ -1531,6 +1582,16 @@ export async function startFakeGitHub(
       const found = served.get(`${owner}/${name}`);
       if (!found) throw new Error(`no repository ${owner}/${name}`);
       found.private = on;
+      found.internal = false;
+    },
+    setInternal(owner, name) {
+      const found = served.get(`${owner}/${name}`);
+      if (!found) throw new Error(`no repository ${owner}/${name}`);
+      found.private = true;
+      found.internal = true;
+    },
+    truncateTrees(on) {
+      truncatedTrees = on;
     },
     seedBranch(owner, name, branch, bundle) {
       return seedServedBranch(
@@ -1608,7 +1669,11 @@ export async function startFakeGitHub(
             await runTestGit(["rm", "--quiet", "--", path], work);
           } else {
             await mkdir(join(work, path, ".."), { recursive: true });
-            await Bun.write(join(work, path), contents);
+            if (typeof contents === "string") {
+              await Bun.write(join(work, path), contents);
+            } else {
+              await symlink(contents.symlink, join(work, path));
+            }
           }
         }
         await commitAll(work, "files");

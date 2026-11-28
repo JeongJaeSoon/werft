@@ -92,6 +92,7 @@ const BINDING: components["schemas"]["ListSlackBindingsResponse"]["items"][numbe
     mode: "on",
     listen: "free",
     m1_judgments_per_hour: 12,
+    report_mode: null,
     ceiling: { actions: ["session.read"], disclosure: "summary" },
     home: true,
     memory_write_policy: "deny",
@@ -699,6 +700,134 @@ describe("Slack management", () => {
     expect(document.body.textContent).not.toContain("internal message");
   });
 
+  test("shows each channel's report mode, its default by what applies now, and sends report_mode only when it is changed", async () => {
+    let row: typeof BINDING = { ...BINDING };
+    const { api } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/notice`]: () =>
+        json(200, {
+          notice: null,
+          state: "no_notice",
+          rollout: "on",
+          can_approve: true,
+          approvals: [],
+        }),
+      [`GET ${PATH}/slack-bindings`]: () => json(200, { items: [row] }),
+      [`PUT ${PATH}/slack-bindings`]: async (request: Request) => {
+        const body = await request.json();
+        row = {
+          ...row,
+          listen: body.listen ?? row.listen,
+          report_mode:
+            body.report_mode === undefined ? row.report_mode : body.report_mode,
+        };
+        return json(200, { slack_binding: row, receipt_id: ID });
+      },
+    });
+    const user = await setupUser();
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
+    const report = (await within(list).findByRole("combobox", {
+      name: "채널 ID: C123 보고 방식",
+    })) as HTMLSelectElement;
+    expect(report.value).toBe("default");
+    await waitFor(() =>
+      expect(
+        [...report.options].map((option) => [option.value, option.textContent]),
+      ).toEqual([
+        ["default", "기본 (지금: 진행 메시지 하나)"],
+        ["notify_only", "알림만"],
+        ["progress", "진행 메시지 하나"],
+        ["per_step", "단계마다 새 글"],
+      ]),
+    );
+    const bodies = () =>
+      api.calls
+        .filter((call) => call.method === "PUT")
+        .map((call) => call.body as Record<string, unknown>);
+
+    await user.selectOptions(
+      within(list).getByRole("combobox", { name: "채널 ID: C123 듣기" }),
+      "mention",
+    );
+    await waitFor(() => expect(bodies()).toHaveLength(1));
+    expect("report_mode" in (bodies()[0] ?? {})).toBe(false);
+
+    await user.selectOptions(report, "per_step");
+    await waitFor(() => expect(report.value).toBe("per_step"));
+    expect(bodies()[1]).toMatchObject({
+      channel_id: "C123",
+      report_mode: "per_step",
+      home: true,
+    });
+    expect("listen" in (bodies()[1] ?? {})).toBe(false);
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "보고 방식을 저장했습니다. 따로 고르지 않은 진행 중인 작업에도 바로 쓰입니다.",
+        ),
+      ).toBeDefined(),
+    );
+
+    // Back to the default: stored as none picked.
+    await user.selectOptions(report, "default");
+    await waitFor(() => expect(report.value).toBe("default"));
+    expect(bodies()[2]).toMatchObject({ report_mode: null });
+    expect(bodies()).toHaveLength(3);
+  });
+
+  test("names per step as the default while the agent does not answer in conversations", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/notice`]: () =>
+        json(200, {
+          notice: null,
+          state: "no_notice",
+          rollout: "shadow",
+          can_approve: true,
+          approvals: [],
+        }),
+    });
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
+    const report = (await within(list).findByRole("combobox", {
+      name: "채널 ID: C123 보고 방식",
+    })) as HTMLSelectElement;
+    await waitFor(() =>
+      expect(report.options[0]?.textContent).toBe(
+        "기본 (지금: 단계마다 새 글)",
+      ),
+    );
+  });
+
+  test("names the channel whose report mode was refused and keeps its value", async () => {
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack-bindings`]: () =>
+        json(200, { items: [{ ...BINDING, report_mode: "notify_only" }] }),
+      [`PUT ${PATH}/slack-bindings`]: () =>
+        apiError(409, "REVISION_CONFLICT", "internal message", false),
+    });
+    const user = await setupUser();
+    const list = await screen.findByRole("table", { name: "연결된 채널" });
+    const report = (await within(list).findByRole("combobox", {
+      name: "채널 ID: C123 보고 방식",
+    })) as HTMLSelectElement;
+    await user.selectOptions(report, "progress");
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toStartWith(
+      "채널 ID: C123의 보고 방식을 저장하지 못했습니다.",
+    );
+    expect(report.value).toBe("notify_only");
+    expect(report.getAttribute("aria-invalid")).toBe("true");
+    expect(report.getAttribute("aria-describedby")).toBe(alert.id);
+    // The refusal is the report select's alone.
+    const listen = within(list).getByRole("combobox", {
+      name: "채널 ID: C123 듣기",
+    });
+    expect(listen.getAttribute("aria-invalid")).toBe("false");
+    expect(listen.hasAttribute("aria-describedby")).toBe(false);
+    expect(document.body.textContent).not.toContain("internal message");
+  });
+
   test("says listening applies after the conversation switch only while the switch is off", async () => {
     const hint = "듣기 설정은 에이전트의 대화 스위치를 켠 뒤부터 적용됩니다.";
     renderAt(DETAIL, {
@@ -787,6 +916,8 @@ describe("Slack management", () => {
     });
     const list = await screen.findByRole("table", { name: "연결된 채널" });
     await waitFor(() => expect(list.textContent).toContain("듣지 않음"));
+    // Its report mode too: none picked, so the default.
+    expect(list.textContent).toContain("기본");
     expect(within(list).queryAllByRole("combobox")).toHaveLength(0);
     expect(within(list).queryAllByRole("switch")).toHaveLength(0);
   });
@@ -3801,6 +3932,7 @@ describe("M1 shadow records on the Slack tab (a1/S3)", () => {
         outcome: "judged",
         decision: "speak",
         reason: "needs_agent",
+        answer: "replied",
         judged_at: AT,
       },
     ],
@@ -3857,6 +3989,253 @@ describe("M1 shadow records on the Slack tab (a1/S3)", () => {
     expect(document.body.textContent).toContain(
       "M1 지침: 릴리스 2026-10-11_10:01:00, commit abcdef0",
     );
+  });
+
+  test("picking a reason asks the server for it, keeps it in the URL, and clearing drops it", async () => {
+    const needsAgent = {
+      ...JUDGMENTS,
+      recent: JUDGMENTS.recent.filter((row) => row.reason === "needs_agent"),
+    };
+    const { api, history } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+      [`GET ${PATH}/slack/judgments?reason=needs_agent`]: () =>
+        json(200, needsAgent),
+      [`GET ${PATH}/slack/judgments?reason=timed_out`]: () =>
+        json(200, { ...JUDGMENTS, recent: [] }),
+    });
+    const user = await setupUser();
+    const select = await screen.findByLabelText("이유로 거르기");
+    const names = (select as HTMLSelectElement).options.length;
+    // "All reasons" and each of the 17 codes the contract lists.
+    expect(names).toBe(18);
+    await user.selectOptions(select, "needs_agent");
+    await waitFor(() =>
+      expect(history.location.search).toContain("judgment_reason=needs_agent"),
+    );
+    expect(history.location.search).toContain("tab=slack");
+    await waitFor(() =>
+      expect(
+        api.calls.some((call) => call.search === "?reason=needs_agent"),
+      ).toBe(true),
+    );
+    await user.selectOptions(select, "timed_out");
+    expect(
+      await screen.findByText("고른 조건의 판단이 최근 목록에 없습니다"),
+    ).toBeDefined();
+    expect(screen.queryByRole("table", { name: "최근 판단" })).toBeNull();
+    // The counts per channel stay on screen.
+    expect(screen.getByRole("table", { name: "채널별 판단" })).toBeDefined();
+    await user.selectOptions(select, "");
+    await waitFor(() =>
+      expect(history.location.search).not.toContain("judgment_reason"),
+    );
+    expect(screen.getByRole("table", { name: "최근 판단" })).toBeDefined();
+  });
+
+  test("while a new reason's list is on its way no row of the last list shows under it", async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+      [`GET ${PATH}/slack/judgments?reason=timed_out`]: async () => {
+        await held;
+        return json(200, { ...JUDGMENTS, recent: [] });
+      },
+    });
+    const user = await setupUser();
+    expect(
+      await screen.findByRole("table", { name: "최근 판단" }),
+    ).toBeDefined();
+    await user.selectOptions(
+      await screen.findByLabelText("이유로 거르기"),
+      "timed_out",
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("table", { name: "최근 판단" })).toBeNull(),
+    );
+    expect(
+      screen.queryByText("고른 조건의 판단이 최근 목록에 없습니다"),
+    ).toBeNull();
+    // The counts and the choice stay while it loads.
+    expect(screen.getByRole("table", { name: "채널별 판단" })).toBeDefined();
+    release();
+    expect(
+      await screen.findByText("고른 조건의 판단이 최근 목록에 없습니다"),
+    ).toBeDefined();
+  });
+
+  test("a row shows what became of its judgment, or none", async () => {
+    const [first] = JUDGMENTS.recent;
+    if (!first) throw new Error("fixture");
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () =>
+        json(200, {
+          ...JUDGMENTS,
+          recent: [
+            first,
+            {
+              ...first,
+              id: "00000000-0000-4000-8000-0000000000b2",
+              decision: "quiet",
+              answer: null,
+            },
+          ],
+        }),
+    });
+    const recent = await screen.findByRole("table", { name: "최근 판단" });
+    expect(within(recent).getByText("답하기로 정함")).toBeDefined();
+    expect(within(recent).getByText("없음")).toBeDefined();
+  });
+
+  test("picking an outcome asks the server for it, alone or with a reason, and keeps both in the URL", async () => {
+    const { api, history } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+      [`GET ${PATH}/slack/judgments?answer=no_reply`]: () =>
+        json(200, { ...JUDGMENTS, recent: [] }),
+      [`GET ${PATH}/slack/judgments?answer=replied`]: () =>
+        json(200, JUDGMENTS),
+      [`GET ${PATH}/slack/judgments?reason=needs_agent&answer=replied`]: () =>
+        json(200, JUDGMENTS),
+    });
+    const user = await setupUser();
+    const select = await screen.findByLabelText("결과로 거르기");
+    // "All outcomes" and the seven answers the contract lists.
+    expect((select as HTMLSelectElement).options.length).toBe(8);
+    await user.selectOptions(select, "replied");
+    await waitFor(() =>
+      expect(history.location.search).toContain("judgment_answer=replied"),
+    );
+    expect(history.location.search).toContain("tab=slack");
+    await waitFor(() =>
+      expect(api.calls.some((call) => call.search === "?answer=replied")).toBe(
+        true,
+      ),
+    );
+    await user.selectOptions(
+      screen.getByLabelText("이유로 거르기"),
+      "needs_agent",
+    );
+    await waitFor(() =>
+      expect(
+        api.calls.some(
+          (call) => call.search === "?reason=needs_agent&answer=replied",
+        ),
+      ).toBe(true),
+    );
+    expect(history.location.search).toContain("judgment_reason=needs_agent");
+    expect(history.location.search).toContain("judgment_answer=replied");
+    await user.selectOptions(select, "no_reply");
+    await waitFor(() =>
+      expect(history.location.search).toContain("judgment_answer=no_reply"),
+    );
+    await user.selectOptions(select, "");
+    await waitFor(() =>
+      expect(history.location.search).not.toContain("judgment_answer"),
+    );
+    expect(history.location.search).toContain("judgment_reason=needs_agent");
+  });
+
+  test("while a new outcome's list is on its way no row of the last list shows under it", async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+      [`GET ${PATH}/slack/judgments?answer=no_reply`]: async () => {
+        await held;
+        return json(200, { ...JUDGMENTS, recent: [] });
+      },
+    });
+    const user = await setupUser();
+    try {
+      expect(
+        await screen.findByRole("table", { name: "최근 판단" }),
+      ).toBeDefined();
+      await user.selectOptions(
+        await screen.findByLabelText("결과로 거르기"),
+        "no_reply",
+      );
+      await waitFor(() =>
+        expect(screen.queryByRole("table", { name: "최근 판단" })).toBeNull(),
+      );
+      expect(
+        screen.queryByText("고른 조건의 판단이 최근 목록에 없습니다"),
+      ).toBeNull();
+    } finally {
+      release();
+    }
+    expect(
+      await screen.findByText("고른 조건의 판단이 최근 목록에 없습니다"),
+    ).toBeDefined();
+  });
+
+  test("an outcome with no row says so and hides the table", async () => {
+    const { api } = renderAt(`${DETAIL}&judgment_answer=no_reply`, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments?answer=no_reply`]: () =>
+        json(200, { ...JUDGMENTS, recent: [] }),
+    });
+    const select = await screen.findByLabelText("결과로 거르기");
+    expect((select as HTMLSelectElement).value).toBe("no_reply");
+    expect(
+      await screen.findByText("고른 조건의 판단이 최근 목록에 없습니다"),
+    ).toBeDefined();
+    expect(
+      api.calls
+        .filter((call) => call.path.endsWith("/slack/judgments"))
+        .map((call) => call.search),
+    ).toEqual(["?answer=no_reply"]);
+  });
+
+  test("an unknown outcome in the URL is ignored and not sent", async () => {
+    const { api } = renderAt(`${DETAIL}&judgment_answer=nope`, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+    });
+    const select = await screen.findByLabelText("결과로 거르기");
+    expect((select as HTMLSelectElement).value).toBe("");
+    expect(
+      api.calls
+        .filter((call) => call.path.endsWith("/slack/judgments"))
+        .map((call) => call.search),
+    ).toEqual([""]);
+  });
+
+  test("a reason in the opening URL is asked for and shown chosen", async () => {
+    const { api } = renderAt(`${DETAIL}&judgment_reason=needs_agent`, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments?reason=needs_agent`]: () =>
+        json(200, JUDGMENTS),
+    });
+    const select = await screen.findByLabelText("이유로 거르기");
+    expect((select as HTMLSelectElement).value).toBe("needs_agent");
+    expect(
+      api.calls
+        .filter((call) => call.path.endsWith("/slack/judgments"))
+        .map((call) => call.search),
+    ).toEqual(["?reason=needs_agent"]);
+  });
+
+  test("an unknown reason in the URL is not sent to the server", async () => {
+    const { api } = renderAt(`${DETAIL}&judgment_reason=nope`, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+    });
+    const select = await screen.findByLabelText("이유로 거르기");
+    expect((select as HTMLSelectElement).value).toBe("");
+    expect(
+      api.calls
+        .filter((call) => call.path.endsWith("/slack/judgments"))
+        .map((call) => call.search),
+    ).toEqual([""]);
   });
 
   test("says there is nothing to see, and which release has no instructions", async () => {

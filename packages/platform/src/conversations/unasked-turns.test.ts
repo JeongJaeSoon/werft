@@ -237,11 +237,13 @@ describe("a reply that spoke (v1-b/U1)", () => {
   function claimOf(
     grade: "m1_engaged" | "m1" | "m1_to_task",
     topic = true,
+    held?: boolean,
   ): ClaimedReplyJudgment {
     const inputId = conversationInputIdSchema.parse(randomUUID());
     return {
       id: conversationJudgmentIdSchema.parse(randomUUID()),
       rateLimited: false,
+      ...(held === undefined ? {} : { held }),
       subject: {
         grade,
         workspaceId: randomUUID(),
@@ -301,11 +303,20 @@ describe("a reply that spoke (v1-b/U1)", () => {
     ]);
   });
 
-  test("a bound thread's reply, a task's, or one with no topic makes no turn here", async () => {
+  test("a closed work's reply held from its session (m1) is answered in its thread too", async () => {
+    const claim = claimOf("m1", true, true);
+    expect((await run([claim])).map((each) => each.judgmentId)).toEqual([
+      claim.id,
+    ]);
+  });
+
+  test("a bound thread's reply its session took, a task's, or one with no topic makes no turn here", async () => {
     expect(
       await run([
         claimOf("m1"),
-        claimOf("m1_to_task"),
+        claimOf("m1", true, false),
+        claimOf("m1_to_task", true, true),
+        claimOf("m1", false, true),
         claimOf("m1_engaged", false),
       ]),
     ).toEqual([]);

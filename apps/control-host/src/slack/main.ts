@@ -12,6 +12,7 @@ import {
   createDatabaseIdentityReader,
   createPostgresAgentIdentityStore,
   createPostgresAgentStore,
+  createPostgresBoundReplyStore,
   createPostgresCallerLimitGate,
   createPostgresCatalogRepositoryStore,
   createPostgresChannelMemberStore,
@@ -106,6 +107,7 @@ import {
   drainSlackOutbox,
   SLACK_INPUT_HOLD_MS,
   SLACK_REACTION_SCOPE,
+  SLACK_TASK_REPLY_WAIT_MS,
   type SlackAudienceCache,
   type SlackInboundHandler,
   type SlackInboxDrain,
@@ -131,6 +133,7 @@ export function slackRoleSettings(environment: Environment): {
   passBudgetMs: number;
   inputHoldMs: number;
   closeLinks: boolean;
+  taskReplyWaitMs: number;
 } {
   const { passTimeoutMs } = passLoopConfigFromEnv(
     environment,
@@ -156,6 +159,11 @@ export function slackRoleSettings(environment: Environment): {
       environment.SLACK_ROLE_CLOSE_LINKS ?? "true",
       "SLACK_ROLE_CLOSE_LINKS",
     ),
+    taskReplyWaitMs:
+      integerSetting(environment, "SLACK_ROLE_TASK_REPLY_WAIT_SEC", {
+        min: 0,
+        default: SLACK_TASK_REPLY_WAIT_MS / 1000,
+      }) * 1000,
   };
 }
 
@@ -232,6 +240,8 @@ export function slackSessionHandler(deps: {
   catalog?: ReturnType<typeof slackCatalog>;
   /** Slack's answers about channels and people, kept across passes. */
   audienceCache?: SlackAudienceCache;
+  /** How long a reply of work going on waits for its judgment. */
+  taskReplyWaitMs?: number;
 }): SlackInboundHandler {
   const { db, environment, logger } = deps;
   const catalog = deps.catalog ?? slackCatalog(db, environment);
@@ -270,6 +280,15 @@ export function slackSessionHandler(deps: {
     sessionLinks: createPostgresSessionLinkStore(db),
     conversations: createPostgresConversationStore(db),
     buffer: createPostgresJudgmentBufferStore(db),
+    boundReplies: createPostgresBoundReplyStore(db, {
+      bufferLimit: () =>
+        installationConfigOf(db, logger).get(
+          "judgment_buffer_limit_per_channel",
+        ),
+    }),
+    ...(deps.taskReplyWaitMs === undefined
+      ? {}
+      : { taskReplyWaitMs: deps.taskReplyWaitMs }),
     mentionTurns: createMentionConversationTurns({
       calls: createConversationCalls({
         store: createPostgresConversationCalls(db),
@@ -613,6 +632,7 @@ export async function main(
         notices: createOutboxSlackNoticeSink(outbox),
         catalog,
         audienceCache,
+        taskReplyWaitMs: settings.taskReplyWaitMs,
       }),
       logger,
       concurrency: SLACK_INBOX_CONCURRENCY,

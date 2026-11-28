@@ -11,13 +11,17 @@ import { migrate } from "./migrate.ts";
 import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
 import type { Database } from "./queries.ts";
 import { rowsOf } from "./statement-rows.ts";
-import { migrationsThrough } from "./testing/migrations-through.ts";
+import {
+  BINDING_REPORT_MODE_DEFAULT,
+  migrationsThrough,
+} from "./testing/migrations-through.ts";
 
 const TAG = "0326_link_posting";
 
 let client: PGlite;
 let db: Database;
 let before: string;
+let through: string;
 const bindingId = randomUUID();
 
 // What a host from before 0323 writes: `visibility` at most, no new column.
@@ -57,13 +61,16 @@ beforeAll(async () => {
   );
   fullId = (await oldHostLink("full")).rows[0]?.id ?? "";
   summaryId = (await oldHostLink("summary")).rows[0]?.id ?? "";
-  await migrate(drizzle(client), { migrationsFolder: MIGRATIONS_FOLDER });
+  // Not to the last: 0395 empties the binding's per_step read below.
+  through = migrationsThrough(BINDING_REPORT_MODE_DEFAULT, { exclusive: true });
+  await migrate(drizzle(client), { migrationsFolder: through });
   db = drizzle(client) as unknown as Database;
 });
 
 afterAll(async () => {
   await client.close();
   rmSync(before, { recursive: true, force: true });
+  rmSync(through, { recursive: true, force: true });
 });
 
 // The columns as the outbox reads them, by `visibility`.

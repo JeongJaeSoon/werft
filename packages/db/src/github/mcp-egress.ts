@@ -1,5 +1,4 @@
 import {
-  agentGitHubSchema,
   effectiveGitHubPolicy,
   GITHUB_MCP_FIXED_TOOLS,
   type GitHubCeiling,
@@ -8,6 +7,7 @@ import {
   githubPolicySourceOf,
   type ReceiptActor,
   retiredCatalogServerOf,
+  storedAgentGitHubSchema,
 } from "@werft-ai/contracts";
 import {
   deniedMcpTools,
@@ -180,7 +180,7 @@ export async function sessionGitHubMcpOf(
   // A pin this image cannot read exposes nothing rather than guessing.
   if (settings === null || settings === "invalid") return null;
   const tools = githubMcpToolNames(githubMcpTools(settings));
-  const pinned = agentGitHubSchema.safeParse(release.pin);
+  const pinned = storedAgentGitHubSchema.safeParse(release.pin);
   const pinTools = pinned.success
     ? githubMcpToolNames(githubMcpTools(pinned.data))
     : tools;

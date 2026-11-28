@@ -29,6 +29,7 @@ const home = (
   mode: "on",
   listen: "free",
   m1JudgmentsPerHour: 12,
+  reportMode: null,
   ceiling: DEFAULT_SURFACE_CEILING as SurfaceBindingRecord["ceiling"],
   home: true,
   memoryWritePolicy: "deny",

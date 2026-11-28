@@ -86,6 +86,21 @@ export function requestDeadline(options: RequestDeadlineOptions) {
   };
 }
 
+/**
+ * Runs `work` under a deadline of its own. What a handler must still write
+ * once its request has timed out, a result or a lease to let go, is otherwise
+ * refused by the request's deadline, which stays in force past the 503.
+ */
+export function beyondRequest<A extends unknown[], T>(
+  work: (...args: A) => Promise<T>,
+  deadlineMs = REQUEST_DEADLINE_MS,
+): (...args: A) => Promise<T> {
+  return (...args) =>
+    runWithDeadline(new RequestDeadline(performance.now() + deadlineMs), () =>
+      work(...args),
+    );
+}
+
 // Wall-clock cap on receiving a body. The idle clock alone never fires on a
 // sender that drips a byte at a time. 64 KiB (REQUEST_BODY_MAX_BYTES) in
 // 15 s is 4 KiB/s; the time also counts against REQUEST_DEADLINE_MS.

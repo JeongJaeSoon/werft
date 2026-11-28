@@ -170,6 +170,34 @@ export const DEFAULT_SURFACE_CEILING = {
   disclosure: "full",
 } as const satisfies z.infer<typeof surfaceCeilingSchema>;
 
+/**
+ * How a thread hears of a session's turns. `none` is what a `summary` link
+ * moved to: it stays readable on such links, and no writer may pick it.
+ */
+export const SESSION_LINK_REPORT_MODE_VALUES = [
+  "notify_only",
+  "progress",
+  "per_step",
+  "none",
+] as const;
+export type SessionLinkReportMode =
+  (typeof SESSION_LINK_REPORT_MODE_VALUES)[number];
+export const REPORT_MODE_CHOICES = [
+  "notify_only",
+  "progress",
+  "per_step",
+] as const satisfies readonly SessionLinkReportMode[];
+export type ReportModeChoice = (typeof REPORT_MODE_CHOICES)[number];
+export const reportModeChoiceSchema = z.enum(REPORT_MODE_CHOICES);
+/**
+ * The report mode of a thread whose link and channel pick none: one progress
+ * message where the agent's conversation rollout is on, one post per turn
+ * while it is off or shadow, as before the modes.
+ */
+export const defaultReportMode = (
+  rollout: ConversationRollout,
+): ReportModeChoice => (rollout === "on" ? "progress" : "per_step");
+
 /** A place where one agent works: (installation, external surface) → agent. */
 export const surfaceBindingSchema = z
   .object({
@@ -189,6 +217,11 @@ export const surfaceBindingSchema = z
     mode: bindingModeSchema,
     listen: bindingListenSchema,
     m1_judgments_per_hour: m1JudgmentsPerHourSchema,
+    /**
+     * How the channel's threads hear of their work, unless a thread says.
+     * Null: none picked, so `defaultReportMode` of the agent's rollout.
+     */
+    report_mode: reportModeChoiceSchema.nullable(),
     ceiling: surfaceCeilingSchema,
     /** The agent's home channel; an agent has one at most, never a DM. */
     home: z.boolean(),
@@ -319,28 +352,6 @@ export const SESSION_LINK_VISIBILITY_VALUES = ["full", "summary"] as const;
 export const sessionLinkVisibilitySchema = z.enum(
   SESSION_LINK_VISIBILITY_VALUES,
 );
-
-/**
- * How a thread hears of a session's turns. `none` is what a `summary` link
- * moved to: it stays readable on such links, and no writer may pick it.
- */
-export const SESSION_LINK_REPORT_MODE_VALUES = [
-  "notify_only",
-  "progress",
-  "per_step",
-  "none",
-] as const;
-export type SessionLinkReportMode =
-  (typeof SESSION_LINK_REPORT_MODE_VALUES)[number];
-export const REPORT_MODE_CHOICES = [
-  "notify_only",
-  "progress",
-  "per_step",
-] as const satisfies readonly SessionLinkReportMode[];
-export type ReportModeChoice = (typeof REPORT_MODE_CHOICES)[number];
-export const reportModeChoiceSchema = z.enum(REPORT_MODE_CHOICES);
-/** A channel's report mode until it picks one: one post per turn, as before. */
-export const DEFAULT_REPORT_MODE: ReportModeChoice = "per_step";
 
 /**
  * `(installation_id, surface_ref)` is the natural key and stays reserved after
