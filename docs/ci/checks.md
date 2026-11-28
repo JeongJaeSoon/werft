@@ -186,6 +186,8 @@ bun run check:fast
 
 - 새로 넣는 재시도는 infra 단계에만 둔다: 이미지 pull, 서비스 기동, registry에 올린 직후의 읽기, 배포 API.
 - 오류 문장이 정해진 것과 같을 때만, 횟수와 간격의 상한을 두고 다시 한다. 다른 오류는 바로 실패한다. 오류를 가리지 않고 다시 하는 예전 것이 둘 있다: `pages.yml`의 deploy(한 번), `check-agent-sdk-compat-job.sh`의 API 호출(세 번까지). 새로 넣는 것은 이 규칙을 따른다.
+- 올린 직후의 읽기 재시도는 셋이다: `chart-push.sh`(main chart의 태그 `not found`), `image-index.sh`(staging tag 조회의 `not found`), `image-pull.sh`(방금 push한 digest를 pull할 때의 `manifest unknown`, 다섯 번까지, 합계 75초). 어느 것도 push나 build를 다시 하지 않는다.
+- 이미지 layer cache에 쓰는 일은 `ignore-error=true`로 하므로 cache 쓰기의 503은 build를 실패시키지 않는다. cache를 읽는 쪽(`cache-from`)과 build 자체의 실패는 그대로 실패한다.
 - 시험 assertion은 다시 하지 않는다. 실패한 suite를 통과할 때까지 돌리는 step은 두지 않는다. 상태가 자리 잡기를 기다리는 probe(서비스 준비, NetworkPolicy가 node에 닿기)는 재시도가 아니라 그 검사의 일부다.
 
 ### timeout
