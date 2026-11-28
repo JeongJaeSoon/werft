@@ -270,7 +270,8 @@ export function createPostgresSlackInboundEventStore(
         if ("buffered" in received) {
           const input = received;
           // One taker per topic at a time, so the topic's highest number plus
-          // one is free.
+          // one is free. The topic before the post's mark (in the hold), the
+          // order an unasked turn's issue and a mention's try again take.
           const topic = await tx.execute(sql`
             SELECT id FROM conversation_topics
             WHERE id = ${input.topicId}::uuid
@@ -336,6 +337,20 @@ export function createPostgresSlackInboundEventStore(
         .returning({ status: t.status });
       if (row === undefined) return "lost";
       return row.status === "failed" ? "failed" : "retry";
+    },
+
+    async defer(fence, { retryInMs }) {
+      const rows = await db
+        .update(t)
+        .set({
+          nextAttemptAt: sql`now() + make_interval(secs => ${retryInMs / 1000})`,
+          // The claim that found it waiting is given back.
+          attempts: sql`GREATEST(${t.attempts} - 1, 0)`,
+          ...released,
+        })
+        .where(leaseHeld(fence))
+        .returning({ id: t.id });
+      return rows.length > 0;
     },
   };
 }

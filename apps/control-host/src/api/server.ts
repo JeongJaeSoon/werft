@@ -85,6 +85,7 @@ import {
   createPostgresSlackSettingsStore,
   createPostgresSlackSourceMarkStore,
   createPostgresSurfaceBindingStore,
+  createPostgresTaskCloses,
   createPostgresTeamStore,
   createPostgresTopicTurnContexts,
   createPostgresTurnInterrupts,
@@ -183,6 +184,7 @@ import {
   createSkillRepositoryService,
   createSkillService,
   createSurfaceBindingService,
+  createTaskClose,
   createTeamService,
   createTopicSessionChecks,
   createUnsolicitedTurnSpeaker,
@@ -1392,8 +1394,10 @@ const pullRequestDrain = createPullRequestDrain({
 // Each replica reads the state of the pull requests sessions opened; the
 // rate-limit budget is shared through the database (§10).
 const sessionOutcomes = createPostgresSessionOutcomes(db);
+const taskCloses = createPostgresTaskCloses(db);
 const outcomeRefresher = createOutcomeRefresher({
   store: sessionOutcomes,
+  tasks: taskCloses,
   gate: github,
   catalog,
   connections: githubConnections,
@@ -1861,6 +1865,7 @@ const slackInteractions = wireSlackInteractions({
   pushes: pushRequests,
   sessions,
   followUps: createPostgresPushFollowUpStore(db),
+  tasks: createTaskClose({ authorization, closes: taskCloses }),
   outbox: createPostgresSlackOutboxStore(db),
   // The card's label asks what the policy asks a press (answer 15).
   requesterLeft: (card) =>

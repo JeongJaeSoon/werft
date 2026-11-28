@@ -95,17 +95,32 @@ describe("slack role startup", () => {
     expect(started.length).toBe(0);
   });
 
-  test("settings default to a 60s lease, batches of 10, half the pass timeout and an hour's hold", () => {
+  test("settings default to a 60s lease, batches of 10, half the pass timeout, an hour's hold and a 30s judgment wait", () => {
     expect(slackRoleSettings({})).toEqual({
       batchSize: 10,
       leaseMs: 60_000,
       passBudgetMs: 30_000,
       inputHoldMs: 3_600_000,
       closeLinks: true,
+      taskReplyWaitMs: 30_000,
     });
     expect(
       slackRoleSettings({ SLACK_ROLE_INPUT_HOLD_SEC: "120" }).inputHoldMs,
     ).toBe(120_000);
+  });
+
+  test("a reply of work going on waits SLACK_ROLE_TASK_REPLY_WAIT_SEC for its judgment", () => {
+    expect(
+      slackRoleSettings({ SLACK_ROLE_TASK_REPLY_WAIT_SEC: "5" })
+        .taskReplyWaitMs,
+    ).toBe(5_000);
+    expect(
+      slackRoleSettings({ SLACK_ROLE_TASK_REPLY_WAIT_SEC: "0" })
+        .taskReplyWaitMs,
+    ).toBe(0);
+    expect(() =>
+      slackRoleSettings({ SLACK_ROLE_TASK_REPLY_WAIT_SEC: "-1" }),
+    ).toThrow("SLACK_ROLE_TASK_REPLY_WAIT_SEC");
   });
 
   test("link closing is on unless SLACK_ROLE_CLOSE_LINKS turns it off", () => {

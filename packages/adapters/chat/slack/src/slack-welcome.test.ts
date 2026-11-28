@@ -51,6 +51,7 @@ function binding(
     mode: "on",
     listen: "free",
     m1JudgmentsPerHour: 12,
+    reportMode: null,
     ceiling: DEFAULT_SURFACE_CEILING as SurfaceBindingRecord["ceiling"],
     home: false,
     memoryWritePolicy: "deny",

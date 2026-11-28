@@ -93,6 +93,15 @@ async function run(
       release: () => Promise.resolve(),
       claim: () => Promise.resolve({ outcome: "counted" as const }),
     },
+    // Before the rollout is on, a bound thread's reply goes on as before.
+    buffer: {
+      place: () =>
+        Promise.resolve({
+          rollout: "shadow",
+          agentActive: true,
+          channelState: "active",
+        }),
+    },
     sessionLinks: {
       slackTurn: () => Promise.resolve(null),
       find: async () => found,
