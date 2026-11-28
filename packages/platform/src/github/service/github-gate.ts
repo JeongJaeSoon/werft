@@ -213,6 +213,11 @@ export function createGitHubGate(deps: {
         }
         const offIn = mergeOffIn(context);
         if (offIn !== null) return await refuse("merge_off", { off_in: offIn });
+        // The lists below drop every repository of an agent with GitHub off;
+        // that is not a repository outside them.
+        if (context.agent !== null && !context.agent.githubEnabled) {
+          return await refuse("github_disabled");
+        }
       }
       if (
         !own &&
@@ -333,7 +338,10 @@ export function createGitHubGate(deps: {
           work.pushRequestId === undefined
             ? null
             : await store.ownPullRequest(context.sessionId, work.pushRequestId);
-        if (recorded?.repositoryId !== repositoryId) {
+        if (
+          recorded?.opened !== true ||
+          recorded.repositoryId !== repositoryId
+        ) {
           return await refuse("not_own_pull_request");
         }
       }

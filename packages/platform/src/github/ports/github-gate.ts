@@ -243,14 +243,16 @@ export interface GitHubGateStore {
   ): Promise<GitHubDispatchRecord | null>;
   recordReceipt(receipt: GitHubGateReceipt): Promise<string>;
   /**
-   * The repository of the pull request recorded for this session's push
-   * request, or null when the push request is another session's or opened
-   * none.
+   * The pull request a merge of this session's push request takes, picked as
+   * the pull request service picks it (the push request's own, else the
+   * latest on its branch): its repository, and whether the platform opened
+   * it on GitHub rather than adopting one it found there. Null when the push
+   * request is another session's or no pull request is recorded for it.
    */
   ownPullRequest(
     sessionId: string,
     pushRequestId: string,
-  ): Promise<{ repositoryId: string } | null>;
+  ): Promise<{ repositoryId: string; opened: boolean } | null>;
 }
 
 /** A GitHub connection: one App and its own token cache. */

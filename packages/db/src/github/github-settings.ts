@@ -421,12 +421,18 @@ export function createPostgresGitHubGateStore(
       };
     },
 
-    // The pull request `merge` reads for the push request: its own row, or
-    // the one another push request of the session opened on its branch.
+    // The row `merge` takes, in the order pull-request-service picks it: the
+    // push request's own, else the latest on its branch. The receipt that
+    // recorded the row says whether GitHub made it then (`created`) or the
+    // platform adopted one someone had opened.
     async ownPullRequest(rawSessionId, rawPushRequestId) {
       const sessionId = rawSessionId.toLowerCase();
+      const pushRequestId = rawPushRequestId.toLowerCase();
       const [row] = await db
-        .select({ repositoryId: pushRequests.repositoryId })
+        .select({
+          repositoryId: pushRequests.repositoryId,
+          opened: sql<boolean>`coalesce((${receipts.result} ->> 'created') = 'true', false)`,
+        })
         .from(pushRequests)
         .innerJoin(
           pullRequests,
@@ -440,11 +446,22 @@ export function createPostgresGitHubGateStore(
             ),
           ),
         )
+        .leftJoin(
+          receipts,
+          and(
+            eq(receipts.id, pullRequests.receiptId),
+            eq(receipts.operation, "open_pull_request"),
+          ),
+        )
         .where(
           and(
-            eq(pushRequests.id, rawPushRequestId.toLowerCase()),
+            eq(pushRequests.id, pushRequestId),
             eq(pushRequests.sessionId, sessionId),
           ),
+        )
+        .orderBy(
+          desc(sql`${pullRequests.pushRequestId} = ${pushRequests.id}`),
+          desc(pullRequests.createdAt),
         )
         .limit(1);
       return row ?? null;

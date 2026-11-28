@@ -213,7 +213,10 @@ function harness(
     >;
     pins?: Pick<GitHubPinStore, "get" | "pinFirst">;
     /** The pull requests recorded per push request: session and repository. */
-    pullRequests?: Record<string, { sessionId: string; repositoryId: string }>;
+    pullRequests?: Record<
+      string,
+      { sessionId: string; repositoryId: string; opened?: boolean }
+    >;
   } = {},
 ) {
   const catalog = options.catalog ?? CATALOG;
@@ -293,7 +296,10 @@ function harness(
       ownPullRequestReads.push(pushRequestId);
       const recorded = options.pullRequests?.[pushRequestId];
       return recorded?.sessionId === sessionId
-        ? { repositoryId: recorded.repositoryId }
+        ? {
+            repositoryId: recorded.repositoryId,
+            opened: recorded.opened ?? true,
+          }
         : null;
     },
   };
@@ -1733,6 +1739,13 @@ describe("another repository than the session's", () => {
               sessionId: SESSION,
               repositoryId: "tools",
             },
+            // This session's branch, but a pull request someone else opened
+            // and the platform adopted.
+            "77777777-7777-4777-8777-777777777777": {
+              sessionId: SESSION,
+              repositoryId: "docs",
+              opened: false,
+            },
           },
         });
         for (const work of [
@@ -1740,6 +1753,7 @@ describe("another repository than the session's", () => {
           merge(),
           merge("66666666-6666-4666-8666-666666666666"),
           merge("55555555-5555-4555-8555-555555555555"),
+          merge("77777777-7777-4777-8777-777777777777"),
         ]) {
           expect((await refused(grant(work))).reason).toBe(
             "not_own_pull_request",
@@ -1789,6 +1803,23 @@ describe("another repository than the session's", () => {
           expect(ownPullRequestReads).toEqual([]);
           expect(author?.issued).toEqual([]);
         }
+      });
+
+      test("with the agent's GitHub off it is github_disabled, not repository_not_allowed", async () => {
+        const { grant, author, ownPullRequestReads } = harness({
+          catalog: ATTACHED,
+          repositoryId: null,
+          github: mergeOn,
+          ceiling: both,
+          attached: ["docs"],
+          githubEnabled: false,
+          pullRequests: recorded,
+        });
+        expect((await refused(grant(merge(PUSH)))).reason).toBe(
+          "github_disabled",
+        );
+        expect(ownPullRequestReads).toEqual([]);
+        expect(author?.issued).toEqual([]);
       });
 
       test("a repository the session may not work on is repository_not_allowed with both switches on", async () => {

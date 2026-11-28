@@ -13,6 +13,7 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresPullRequests } from "./action/pull-requests.ts";
 import {
   createPostgresGitHubGateStore,
   createPostgresGitHubSettingsStore,
@@ -587,40 +588,54 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       if (created.outcome !== "written") throw new Error("not written");
       return created.request;
     };
-    const opened = async (
+    const pullRequests = createPostgresPullRequests(db);
+    // created false: a pull request found on the branch and adopted.
+    const opened = (
       sessionId: string,
       push: { id: string; target_branch: string },
       number: number,
+      created = true,
     ) =>
-      pool.query(
-        `INSERT INTO pull_requests (session_id, url, owner_id, repository_id, number, push_request_id, head, base)
-         VALUES ($1, $2, $3, 'sample-app', $4, $5, $6, 'main')`,
-        [
-          sessionId,
-          `https://github.com/acme/app/pull/${number}`,
-          workspaceId,
-          number,
-          push.id,
-          push.target_branch,
-        ],
-      );
+      pullRequests.savePullRequest({
+        ownerId: workspaceId,
+        sessionId,
+        pushRequestId: push.id,
+        actor: ownerActor(userId),
+        repositoryId: "sample-app",
+        number,
+        url: `https://github.com/acme/app/pull/${number}`,
+        title: created ? "t" : null,
+        head: push.target_branch,
+        base: "main",
+        created,
+      });
     const mine = await session(workspaceId, releaseId, userId);
     const theirs = await session(workspaceId, releaseId, userId);
     const quiet = await session(workspaceId, releaseId, userId);
+    const adopter = await session(workspaceId, releaseId, userId);
     const first = await pushed(mine);
     const later = await pushed(mine);
     const other = await pushed(theirs);
     const unopened = await pushed(quiet);
+    const adopted = await pushed(adopter);
     await opened(mine, first, 7);
     await opened(theirs, other, 8);
+    await opened(adopter, adopted, 9, false);
     const store = createPostgresGitHubGateStore(db);
 
     expect(await store.ownPullRequest(mine, first.id)).toEqual({
       repositoryId: "sample-app",
+      opened: true,
     });
     // A later push of the session reuses its branch's pull request.
     expect(await store.ownPullRequest(mine, later.id.toUpperCase())).toEqual({
       repositoryId: "sample-app",
+      opened: true,
+    });
+    // Recorded for the push request, but someone else opened it on GitHub.
+    expect(await store.ownPullRequest(adopter, adopted.id)).toEqual({
+      repositoryId: "sample-app",
+      opened: false,
     });
     // Another session's push request, though it opened one in the same
     // repository, and a push request that opened none.

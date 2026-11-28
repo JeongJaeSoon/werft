@@ -89,6 +89,8 @@ function harness(
     /** The switch as the session read it when it started; absent, no snapshot. */
     startMerge?: boolean;
     mergeableState?: string;
+    /** The pull request of PUSH was found on the branch, not made by the platform. */
+    adopted?: boolean;
   } = {},
 ) {
   const state = {
@@ -273,7 +275,10 @@ function harness(
         );
         return pushed !== undefined &&
           pullRequests.some((entry) => entry.push_request_id === pushed.id)
-          ? { repositoryId: pushed.repositoryId }
+          ? {
+              repositoryId: pushed.repositoryId,
+              opened: !(options.adopted === true && pushed.id === PUSH),
+            }
           : null;
       },
     },
@@ -416,6 +421,21 @@ describe("merging in a repository the session attached (94S-2556)", () => {
     // One that started with it on merges.
     expect(await harness({ startMerge: true }).merge(PUSH)).toMatchObject({
       merged: true,
+    });
+  });
+
+  test("a pull request on the session's branch that someone else opened, and the platform adopted, is not_own_pull_request", async () => {
+    const h = harness({ adopted: true });
+    expect((await refusal(h.merge(PUSH))).details).toMatchObject({
+      refusal: "github_refused",
+      reason_code: "not_own_pull_request",
+    });
+    expect(h.calls).toEqual([]);
+    expect(h.minted).toEqual([]);
+    expect(h.gateReceipts.at(-1)).toMatchObject({
+      operation: "merge_pull_request",
+      status: "failed",
+      result: { reason_code: "not_own_pull_request", push_request_id: PUSH },
     });
   });
 
