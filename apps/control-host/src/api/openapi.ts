@@ -6198,7 +6198,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Point the agent at a release (compare-and-swap)",
     description:
-      "`expected_revision` is the agent's current `activation_revision` (-1 before the first activation); a stale one answers 409 REVISION_CONFLICT. Sending the same activation again is a no-op with a null `receipt_id`. A release whose connection is disabled or whose model left the connection's list answers 409 RELEASE_SPEC_UNAVAILABLE and has to be released again; a release row of this agent that this build cannot read answers it with `details.reason_code` `release_unreadable` (another agent's release id answers 404). A release whose card names a credential not bound to the agent answers 409 CREDENTIAL_UNBOUND with the missing names in `details.missing` (`ActivationCredentialUnboundDetails`). Sessions already pinned keep their release.",
+      "`expected_revision` is the agent's current `activation_revision` (-1 before the first activation); a stale one answers 409 REVISION_CONFLICT. Sending the same activation again is a no-op with a null `receipt_id`. A release whose connection is disabled or whose model left the connection's list answers 409 RELEASE_SPEC_UNAVAILABLE and has to be released again; a release row of this agent that this build cannot read answers it with `details.reason_code` `release_unreadable` (such a row of another agent answers 404). A release whose card names a credential not bound to the agent answers 409 CREDENTIAL_UNBOUND with the missing names in `details.missing` (`ActivationCredentialUnboundDetails`). Sessions already pinned keep their release.",
     auth: "session",
     body: "ActivateAgentRequest",
     success: { status: 200, schema: "ActivateAgentResponse" },
