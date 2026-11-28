@@ -57,11 +57,14 @@ const item = (n: number, channelId: string): JudgmentReviewItem => ({
   outcome: "judged",
   decision: "quiet",
   reason: "human_conversation",
+  answer: null,
   judgedAt: NOW,
 });
 
 function service(options: { tallies: JudgmentTallyRow[]; allow?: boolean }) {
   const listed: string[][] = [];
+  const reasons: (string | undefined)[] = [];
+  const answers: (string | undefined)[] = [];
   const review = createJudgmentReviewService({
     authorization: {
       authorize: async () =>
@@ -77,13 +80,15 @@ function service(options: { tallies: JudgmentTallyRow[]; allow?: boolean }) {
       tallies: async () => options.tallies,
       recent: async (input) => {
         listed.push(input.channels.map((channel) => channel.channelId));
+        reasons.push(input.reason);
+        answers.push(input.answer);
         return input.channels.map((channel, index) =>
           item(index + 1, channel.channelId),
         );
       },
     },
   });
-  return { review, listed };
+  return { review, listed, reasons, answers };
 }
 
 describe("who sees M1's shadow records (a1/S3)", () => {
@@ -132,9 +137,47 @@ describe("who sees M1's shadow records (a1/S3)", () => {
         outcome: "judged",
         decision: "quiet",
         reason: "human_conversation",
+        answer: null,
         judged_at: NOW.toISOString(),
       },
     ]);
+  });
+
+  test("a reason narrows the list only: the store is asked for it, the counts stay whole", async () => {
+    const { review, reasons } = service({
+      tallies: [
+        tally("C0PUBLIC", "public_channel", { count: 2 }),
+        tally("C0PUBLIC", "public_channel", {
+          reason: "needs_agent",
+          decision: "speak",
+          count: 3,
+        }),
+      ],
+    });
+    const all = await review.getSlackJudgments(person, AGENT);
+    const narrowed = await review.getSlackJudgments(person, AGENT, {
+      reason: "needs_agent",
+    });
+    expect(reasons).toEqual([undefined, "needs_agent"]);
+    expect(narrowed.channels).toEqual(all.channels);
+  });
+
+  test("an answer narrows the list only, with or without a reason, and a row carries its answer", async () => {
+    const { review, reasons, answers } = service({
+      tallies: [tally("C0PUBLIC", "public_channel", { count: 2 })],
+    });
+    const all = await review.getSlackJudgments(person, AGENT);
+    const narrowed = await review.getSlackJudgments(person, AGENT, {
+      answer: "no_reply",
+    });
+    await review.getSlackJudgments(person, AGENT, {
+      reason: "needs_agent",
+      answer: "replied",
+    });
+    expect(answers).toEqual([undefined, "no_reply", "replied"]);
+    expect(reasons).toEqual([undefined, undefined, "needs_agent"]);
+    expect(narrowed.channels).toEqual(all.channels);
+    expect(all.recent.map((row) => row.answer)).toEqual([null]);
   });
 
   test("a private channel's counts, list and links are read like a public one's", async () => {

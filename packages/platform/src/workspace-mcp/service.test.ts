@@ -729,6 +729,22 @@ describe("the address check before a server is stored", () => {
     expect(context.addressAsked).toEqual([]);
   });
 
+  // The https-IP cause comes from the injected check; apps/control-host/src/api/workspace-mcp.test.ts runs it for real.
+  test("a malformed URL, account information and a fragment all answer url_invalid", async () => {
+    const causes = [
+      "mcp.example.com/mcp",
+      "https://user@mcp.example.com/mcp",
+      "https://mcp.example.com/mcp#section",
+    ];
+    for (const url of causes) {
+      const context = setup();
+      expect(
+        await refusal(context.service.create(admin, { ...bearerBody, url })),
+      ).toEqual({ code: "BAD_REQUEST", reason: "url_invalid" });
+      expect(context.addressAsked).toEqual([]);
+    }
+  });
+
   test("a URL refused before the lookup is never looked up", async () => {
     const context = setup({ urlProblem: "url_invalid" });
     expect(await refusal(context.service.create(admin, bearerBody))).toEqual({

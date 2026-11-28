@@ -26,6 +26,24 @@ describe("agentSearch", () => {
     expect(agentSearch({ tab: "nope", notice: "other" })).toEqual({});
   });
 
+  test("keeps a judgment reason the list has and drops any other", () => {
+    expect(agentSearch({ tab: "slack", judgment_reason: "timed_out" })).toEqual(
+      {
+        tab: "slack",
+        judgment_reason: "timed_out",
+      },
+    );
+    expect(
+      agentSearch({ judgment_answer: "no_reply", judgment_reason: "unclear" }),
+    ).toEqual({ judgment_answer: "no_reply", judgment_reason: "unclear" });
+    expect(agentSearch({ judgment_answer: "nope" })).toEqual({});
+    expect(agentSearch({ judgment_answer: "toString" })).toEqual({});
+    expect(agentSearch({ judgment_answer: ["replied"] })).toEqual({});
+    expect(agentSearch({ judgment_reason: "nope" })).toEqual({});
+    expect(agentSearch({ judgment_reason: "toString" })).toEqual({});
+    expect(agentSearch({ judgment_reason: ["timed_out"] })).toEqual({});
+  });
+
   test("an old tab value is still a tab", () => {
     for (const tab of [
       "card",

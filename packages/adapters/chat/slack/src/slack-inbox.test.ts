@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   drainSlackInbox,
+  SlackInboundDeferred,
   SlackInboundDropped,
   type SlackInboxLogger,
   slackConversationKey,
@@ -578,5 +579,44 @@ describe("drainSlackInbox lines", () => {
     ).rejects.toThrow("database gone");
     expect(handled).toEqual(["Ev1", "Ev2"]);
     expect([...inbox.lease.values()][1]?.state).toBe("processed");
+  });
+});
+
+describe("drainSlackInbox deferral", () => {
+  test("a deferred event waits its time, released, and its waits spend no attempt", async () => {
+    let clock = 1_000_000;
+    const inbox = createMemorySlackInboundEventStore({ now: () => clock });
+    await received(inbox, "Ev1");
+    let waits = 6;
+    const pass = () =>
+      drainSlackInbox({
+        inbox: inbox.store,
+        handler: async () => {
+          if (waits > 0) {
+            waits -= 1;
+            throw new SlackInboundDeferred(2_000);
+          }
+        },
+        logger: recorder().logger,
+        concurrency: 5,
+        leaseMs: 60_000,
+        deadline: Number.POSITIVE_INFINITY,
+        now: () => clock,
+      });
+    // More waits than an event has attempts.
+    for (let wait = 0; wait < 6; wait += 1) {
+      expect(await pass()).toMatchObject({
+        claimed: 1,
+        deferred: 1,
+        retried: 0,
+        failed: 0,
+      });
+      const row = [...inbox.lease.values()][0];
+      expect(row).toMatchObject({ state: "received", attempts: 0 });
+      expect(row?.nextAttemptAt).toBe(clock + 2_000);
+      expect(await pass()).toMatchObject({ claimed: 0 });
+      clock += 2_000;
+    }
+    expect(await pass()).toMatchObject({ claimed: 1, processed: 1 });
   });
 });

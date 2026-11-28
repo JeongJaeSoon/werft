@@ -4,6 +4,8 @@ import {
   GITHUB_AGENT_REF_PREFIX,
   githubFeaturesSchema,
   githubRefNamesAgentBranch,
+  storedAgentGitHubFeaturesSchema,
+  storedGitHubFeaturesSchema,
 } from "../musterrolle/github-settings.ts";
 import {
   AGENT_DESCRIPTION_MAX_LENGTH,
@@ -520,7 +522,7 @@ function keyWords(key: string): string[] {
     .filter((word) => word.length > 0);
 }
 
-// `env:ANTHROPIC_API_KEY`, `secret:slack/bot`, `vault:kv/data/x#field`. A
+// `env:ANTHROPIC_API_KEY`, `secret:[REDACTED]`, `vault:kv/data/x#field`. A
 // reference names where the value lives; it is not the value.
 const REFERENCE_VALUE = /^[a-z][a-z0-9+.-]*:.+$/;
 
@@ -603,36 +605,66 @@ export const AGENT_GITHUB_ACTIONS_ALLOW_MAX = 32;
  * without it runs as before: every repository the workspace ceiling allows, no
  * push approval, no optional permission.
  */
-export const agentGitHubSchema = z
+const agentGitHubFields = {
+  /** Catalog repository ids. */
+  repositories: z
+    .array(z.string().min(1).max(128))
+    .min(1)
+    .max(AGENT_GITHUB_REPOSITORIES_MAX),
+  push_approval: z.boolean(),
+  features: githubFeaturesSchema,
+  actions_allow: z
+    .array(
+      z
+        .object({
+          /** A file under `.github/workflows/`, never a path. */
+          workflow: z.string().regex(/^[A-Za-z0-9._-]+\.ya?ml$/),
+          /** A branch, or a glob with `*` that stops at `/`; absent: the default branch. */
+          ref: z.string().min(1).max(255).optional(),
+        })
+        .strict(),
+    )
+    .max(AGENT_GITHUB_ACTIONS_ALLOW_MAX),
+};
+
+export const agentGitHubSchema = z.object(agentGitHubFields).strict();
+
+/**
+ * A stored pin as it is read: `features` leaves out what this build does not
+ * know (`storedGitHubFeaturesSchema`). Anything else unknown still fails the
+ * read, since a key there may narrow (an allow-list entry's condition) and
+ * dropping it would widen.
+ */
+export const storedAgentGitHubSchema = z
+  .object({ ...agentGitHubFields, features: storedGitHubFeaturesSchema })
+  .strict();
+
+/**
+ * A release's pin as its row holds it. The release id hashes the pin as
+ * stored, so a boolean switch this build does not know is kept here; every
+ * policy reader drops it (`storedAgentGitHubSchema`).
+ */
+export const releasePinGitHubSchema = z
   .object({
-    /** Catalog repository ids. */
-    repositories: z
-      .array(z.string().min(1).max(128))
-      .min(1)
-      .max(AGENT_GITHUB_REPOSITORIES_MAX),
-    push_approval: z.boolean(),
-    features: githubFeaturesSchema,
-    actions_allow: z
-      .array(
-        z
-          .object({
-            /** A file under `.github/workflows/`, never a path. */
-            workflow: z.string().regex(/^[A-Za-z0-9._-]+\.ya?ml$/),
-            /** A branch, or a glob with `*` that stops at `/`; absent: the default branch. */
-            ref: z.string().min(1).max(255).optional(),
-          })
-          .strict(),
-      )
-      .max(AGENT_GITHUB_ACTIONS_ALLOW_MAX),
+    ...agentGitHubFields,
+    features: storedGitHubFeaturesSchema.catchall(z.boolean()),
   })
   .strict();
+
+const settingsRepositories = z.array(z.string().min(1).max(128));
 
 /**
  * The agent's own GitHub settings, not pinned on any release. Unlike a pin
  * the list may be empty: switched on, with no repository yet.
  */
 export const agentGitHubSettingsSchema = agentGitHubSchema.extend({
-  repositories: z.array(z.string().min(1).max(128)),
+  repositories: settingsRepositories,
+});
+
+/** A stored settings row or start snapshot as it is read, as for a pin. */
+export const storedAgentGitHubSettingsSchema = storedAgentGitHubSchema.extend({
+  repositories: settingsRepositories,
+  features: storedAgentGitHubFeaturesSchema,
 });
 
 /**
@@ -729,7 +761,8 @@ export function pushDecisionOf(policy: {
 /**
  * The agent's settings as a session read them when it started
  * (`sessions.github_policy_start`). The envelope is not strict so a later
- * image may add a field; `settings` is, so a list this image cannot read
+ * image may add a field; `settings` is but for its `features`
+ * (`storedAgentGitHubSettingsSchema`), so a list this image cannot read
  * closes the session instead of being guessed at.
  */
 export const githubPolicyStartSchema = z.object({
@@ -737,7 +770,7 @@ export const githubPolicyStartSchema = z.object({
   enabled: z.boolean(),
   /** `agent_github_settings.revision` the snapshot was taken from. */
   revision: z.number().int(),
-  settings: agentGitHubSettingsSchema,
+  settings: storedAgentGitHubSettingsSchema,
   /**
    * `push_attached` at start. On the envelope, not in `settings`, so an image
    * from before it still reads the snapshot. Absent: `allow`, as a null
@@ -921,7 +954,7 @@ export function effectiveGitHubPolicy(input: {
   const current =
     agentRow === null
       ? null
-      : agentGitHubSettingsSchema.safeParse({
+      : storedAgentGitHubSettingsSchema.safeParse({
           repositories: agentRow.repositories,
           push_approval: agentRow.pushApproval,
           features: agentRow.features,
@@ -937,7 +970,9 @@ export function effectiveGitHubPolicy(input: {
   });
   if (input.source === "release") {
     const hasPin = input.releasePin !== null && input.releasePin !== undefined;
-    const pin = hasPin ? agentGitHubSchema.safeParse(input.releasePin) : null;
+    const pin = hasPin
+      ? storedAgentGitHubSchema.safeParse(input.releasePin)
+      : null;
     if (agentRow === null || current === null) {
       if (pin === null) return { ...UNSET, source: "release", settings: null };
       if (!pin.success) return invalid("release");
@@ -1081,8 +1116,11 @@ export const policyPinsSchema = z
       })
       .strict()
       .optional(),
-    /** Absent on every release made before it, and on one with no repository. */
-    github: agentGitHubSchema.optional(),
+    /**
+     * Absent on every release made before it, and on one with no repository.
+     * Read as stored: a switch a newer build pinned is kept, for the id.
+     */
+    github: releasePinGitHubSchema.optional(),
   })
   .strict();
 
