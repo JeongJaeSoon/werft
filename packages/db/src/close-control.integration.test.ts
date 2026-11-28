@@ -30,10 +30,7 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
-import {
-  closeAtomic,
-  taskClosePayloadHash,
-} from "./sessions/close-control.ts";
+import { closeAtomic, taskClosePayloadHash } from "./sessions/close-control.ts";
 import { createPostgresWorkerPendingStore } from "./sessions/pending-control.ts";
 import { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
 import {
