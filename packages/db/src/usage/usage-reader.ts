@@ -1248,34 +1248,37 @@ export function createPostgresUsageReader(db: Database): UsageReader {
         sessionModelUsage.sessionCreatedAt,
         sessionModelUsage.sessionId,
       );
-      // One transaction, so both statements read the same now().
-      const { rows, unknown } = await db.transaction(async (tx) => {
-        await tx.execute(sql`SET LOCAL jit = off`);
-        const grouped = rowsOf<BreakdownRow>(
-          await tx.execute(
-            by === "agent"
-              ? breakdownByAgent(
-                  inPeriod,
-                  pairs,
-                  talkInPeriod(filter, since, until),
-                )
-              : breakdownByModel(
-                  inPeriod,
-                  pairs,
-                  ofPeriod(
-                    sessionPreMeteringCost.sessionCreatedAt,
-                    sessionPreMeteringCost.sessionId,
+      // One snapshot, so both statements read the same rows and now().
+      const { rows, unknown } = await db.transaction(
+        async (tx) => {
+          await tx.execute(sql`SET LOCAL jit = off`);
+          const grouped = rowsOf<BreakdownRow>(
+            await tx.execute(
+              by === "agent"
+                ? breakdownByAgent(
+                    inPeriod,
+                    pairs,
+                    talkInPeriod(filter, since, until),
+                  )
+                : breakdownByModel(
+                    inPeriod,
+                    pairs,
+                    ofPeriod(
+                      sessionPreMeteringCost.sessionCreatedAt,
+                      sessionPreMeteringCost.sessionId,
+                    ),
                   ),
-                ),
-          ),
-        );
-        return {
-          rows: grouped,
-          unknown: rowsOf<UnknownPriceGroupRow>(
-            await tx.execute(unknownPriceByKey(inPeriod, by)),
-          ),
-        };
-      });
+            ),
+          );
+          return {
+            rows: grouped,
+            unknown: rowsOf<UnknownPriceGroupRow>(
+              await tx.execute(unknownPriceByKey(inPeriod, by)),
+            ),
+          };
+        },
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      );
       const total = rows.find((row) => row.total);
       if (!total) throw new Error("usage breakdown read returned no total");
       return {

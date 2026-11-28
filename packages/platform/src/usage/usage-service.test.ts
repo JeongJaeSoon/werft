@@ -952,7 +952,7 @@ describe("usage service", () => {
     }
   });
 
-  test("a breakdown row whose every token is of unknown price has no cost; a mixed or priced row keeps its own", async () => {
+  test("a breakdown row of calls of unknown price whose known amount is 0 has no cost; a row with an amount keeps it", async () => {
     const figures = (
       tokens: number,
       costUsd: string,
@@ -997,6 +997,24 @@ describe("usage service", () => {
               label: "verify-unpriced-model",
               ...figures(45, "0.000000", { callCount: 2, tokens: 45 }),
             },
+            // The rollup's tokens are capped and the unknown sum is not: no
+            // count of tokens says whether an amount was priced.
+            {
+              key: "capped-mixed",
+              label: "capped-mixed",
+              ...figures(Number.MAX_SAFE_INTEGER, "0.000015", {
+                callCount: 1,
+                tokens: Number.MAX_SAFE_INTEGER + 5,
+              }),
+            },
+            {
+              key: "capped-unpriced",
+              label: "capped-unpriced",
+              ...figures(Number.MAX_SAFE_INTEGER, "0.000000", {
+                callCount: 1,
+                tokens: Number.MAX_SAFE_INTEGER - 1,
+              }),
+            },
           ],
           totals: {
             ...figures(125, "1.500084", { callCount: 5, tokens: 65 }),
@@ -1027,6 +1045,16 @@ describe("usage service", () => {
       ["claude-sonnet-5", "0.000084", { call_count: 0, token_count: 0 }],
       ["mixed-model", "1.500000", { call_count: 3, token_count: 20 }],
       ["verify-unpriced-model", null, { call_count: 2, token_count: 45 }],
+      [
+        "capped-mixed",
+        "0.000015",
+        { call_count: 1, token_count: Number.MAX_SAFE_INTEGER },
+      ],
+      [
+        "capped-unpriced",
+        null,
+        { call_count: 1, token_count: Number.MAX_SAFE_INTEGER - 1 },
+      ],
     ]);
     // The totals stay the summary's: the known calls' cost, never null.
     expect(response.totals).toMatchObject({

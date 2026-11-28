@@ -118,16 +118,10 @@ function breakdownFigures(
   };
 }
 
-// No token of known price under a row with calls of unknown price: its 0
-// is no amount, so none is given.
+// A row of calls of unknown price whose known amount is 0 has no amount,
+// as the session detail reads it.
 function breakdownRowCost(figures: UsageBreakdownFiguresRecord): string | null {
-  const tokens =
-    figures.inputTokens +
-    figures.outputTokens +
-    figures.cacheReadInputTokens +
-    figures.cacheCreationInputTokens;
-  return figures.unknownPrice.callCount > 0 &&
-    tokens <= figures.unknownPrice.tokens
+  return figures.unknownPrice.callCount > 0 && Number(figures.costUsd) === 0
     ? null
     : figures.costUsd;
 }

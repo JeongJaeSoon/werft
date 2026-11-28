@@ -38,7 +38,7 @@ export function UsageInitiatorSplit({
   sessionsLink,
   messages: override,
 }: UsageInitiatorSplitProps): JSX.Element {
-  const { messages, format } = useOperationsMessages(
+  const { messages, format, unknownPrice } = useOperationsMessages(
     "usageInitiatorSplit",
     override,
   );
@@ -50,6 +50,10 @@ export function UsageInitiatorSplit({
     ["session", messages.session, totals?.cost_usd ?? "0"],
   ] as const;
   const total = parts.reduce((sum, [, , usd]) => sum + Number(usd), 0);
+  // Task sessions of calls of unknown price alone: a $0.00 would read as free.
+  const sessionUnpriced =
+    Number(totals?.cost_usd ?? 0) === 0 &&
+    (totals?.unknown_price?.call_count ?? 0) > 0;
   const row = (
     key: string,
     label: ReactNode,
@@ -75,7 +79,11 @@ export function UsageInitiatorSplit({
         )}
       </GridTableCell>
       <GridTableCell className="tabular-nums">
-        <Value loading={loading}>{format.usd(usd)}</Value>
+        <Value loading={loading}>
+          {key === "session" && sessionUnpriced
+            ? unknownPrice.noAmount
+            : format.usd(usd)}
+        </Value>
       </GridTableCell>
       <GridTableCell className="text-subtle-foreground tabular-nums">
         <Value loading={loading} width="2rem">

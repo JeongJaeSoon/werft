@@ -1083,6 +1083,22 @@ describe("UsageKpis", () => {
     expect(text).toContain("+ 단가 미상 3건 · 토큰 45.");
   });
 
+  test("대화 비용이 있어도 단가 미상 호출만 있는 세션 몫은 $0.00이 아니라 금액 미상이다", () => {
+    withPlatform(
+      <UsageKpis
+        buckets={BUCKETS.map((b) => ({
+          ...b,
+          cost_usd: "0.000000",
+          conversation_cost_usd: "0.300000",
+        }))}
+        unknownPrice={{ call_count: 3, token_count: 45 }}
+      />,
+    );
+    const text = document.body.textContent ?? "";
+    expect(text).not.toContain("$0.00");
+    expect(text).toContain("금액 미상");
+  });
+
   test("토큰 카드는 모든 호출의 토큰을 두고, 단가 미상 토큰이 있으면 비용을 센 토큰과 따로 줄로 적는다", () => {
     const buckets = BUCKETS.map((b, i) => ({
       ...b,
@@ -1407,6 +1423,24 @@ describe("UsageCostTable", () => {
     // Without people the parts stand alone.
     const bare = withPlatform(<UsageInitiatorSplit totals={totals} />);
     expect(bare.getAllByRole("row")).toHaveLength(3);
+    bare.unmount();
+    // Task sessions of calls of unknown price alone have no amount.
+    const unpriced = withPlatform(
+      <UsageInitiatorSplit
+        totals={{
+          ...totals,
+          cost_usd: "0.000000",
+          unknown_price: { call_count: 2, token_count: 45 },
+        }}
+      />,
+    );
+    const session = unpriced
+      .getAllByRole("row")
+      .map((r) =>
+        [...r.querySelectorAll("[role=cell]")].map((c) => c.textContent),
+      )
+      .find((cells) => cells[0] === "작업 세션");
+    expect(session?.[2]).toBe("금액 미상");
   });
 
   test("성과당 비용: 병합된 PR 수와 하나당 비용은 API 값 그대로, 병합된 PR이 없으면 빈 상태다", () => {

@@ -124,7 +124,9 @@ export function UsageKpis({
               {totals.conversation_cost_usd === 0 ? null : (
                 <span className="block">
                   {messages.costSplit(
-                    format.usd(totals.session_cost_usd),
+                    totals.session_cost_usd === 0 && unknownCalls > 0
+                      ? unpriced.noAmount
+                      : format.usd(totals.session_cost_usd),
                     format.usd(totals.conversation_cost_usd),
                   )}
                 </span>
