@@ -896,6 +896,14 @@ const NARROW: [string, string, string | null][] = [
       ["git checkout HEAD -- 'apps?web?.en[v]'", "goes to a person"],
       ["git checkout HEAD -- 'apps/web[/].en[v]'", "goes to a person"],
       ["git checkout HEAD -- 'apps/web/.e[!N]v'", "goes to a person"],
+      [
+        `git commit -${"n".repeat(40)}F.claude/settings.json`,
+        "too long to read",
+      ],
+      [
+        `git commit -${"n".repeat(31)}F.claude/settings.json`,
+        "goes to a person",
+      ],
       ["git checkout HEAD -- '.cl[!A]ude/settings.json'", "goes to a person"],
       ["git checkout HEAD -- '.c[z-al]aude/settings.json'", "goes to a person"],
     ] as const

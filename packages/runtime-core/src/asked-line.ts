@@ -875,6 +875,11 @@ function narrowKept(words: readonly string[], place: Place): string | null {
       // HEAD -- .claude/settings.json`, `gh pr create --body-file .env`.
       // `HEAD:<path>`, `:0:<path>` and `:(top)<path>` are from the
       // repository's top, which may not be where the shell stands.
+      // Tails are read for so many letters only; git takes a flag again and
+      // again (`-nnn…nF<file>`), so a longer cluster is not answered for.
+      if (new RegExp(`^-\\w{${CLUSTER_LETTERS + 1}}`).test(word)) {
+        return "a cluster of short options too long to read";
+      }
       const paths = refPathsIn(word);
       if (
         paths.some((path) => keptPath(path)) ||
