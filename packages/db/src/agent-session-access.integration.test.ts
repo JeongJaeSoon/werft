@@ -10,7 +10,7 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresSessionShareStore } from "./musterrolle/session-shares.ts";
+import { createPostgresSessionShareStore } from "./access-control/session-shares.ts";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,

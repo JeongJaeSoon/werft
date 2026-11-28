@@ -43,6 +43,21 @@ import {
   startRepositoryOf,
 } from "@werft-ai/contracts";
 import {
+  type AuthorizationPolicy,
+  agentPrivateError,
+  type Caller,
+  isAgentPrivate,
+  refusedUnlessUndecided,
+  requirePermitted,
+  SessionServiceError,
+  wouldAllow,
+} from "../access-control/index.ts";
+import type {
+  CallerLimitDimension,
+  CallerLimitGate,
+} from "../access-control/ports/agent-caller-limits-store.ts";
+import type { CredentialBindingStore } from "../access-control/ports/credential-binding-store.ts";
+import {
   claimCatalogOf,
   connectionModels,
   connectionOf,
@@ -69,21 +84,6 @@ import {
   type Setting,
   sessionBudgetOf,
 } from "../limits/index.ts";
-import {
-  type AuthorizationPolicy,
-  agentPrivateError,
-  type Caller,
-  isAgentPrivate,
-  refusedUnlessUndecided,
-  requirePermitted,
-  SessionServiceError,
-  wouldAllow,
-} from "../musterrolle/index.ts";
-import type {
-  CallerLimitDimension,
-  CallerLimitGate,
-} from "../musterrolle/ports/agent-caller-limits-store.ts";
-import type { CredentialBindingStore } from "../musterrolle/ports/credential-binding-store.ts";
 import { additionalRepositoryAllowed } from "./additional-repositories.ts";
 import type {
   RecoveryDecisionResult,

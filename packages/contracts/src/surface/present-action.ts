@@ -1,4 +1,4 @@
-import { MCP_TOOL_PREFIX } from "../kollegium/agents.ts";
+import { MCP_TOOL_PREFIX } from "../agents/agents.ts";
 
 /*
  * Says in words what a request waiting for a person is, for every surface

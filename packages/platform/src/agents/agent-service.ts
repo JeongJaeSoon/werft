@@ -40,6 +40,23 @@ import {
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import {
+  ACTOR_INACTIVE,
+  type AuthorizationPolicy,
+  type Caller,
+  MANAGEMENT_ROLES,
+  NOT_FOUND,
+  OUTRANKED,
+  type Principal,
+  receiptActorOf,
+  requirePermitted,
+  SessionServiceError,
+  TEAM_HOLDING,
+  TEAM_NOT_ALLOWED,
+  TEAM_NOT_FOUND,
+} from "../access-control/index.ts";
+import type { WorkspaceKeyStore } from "../access-control/ports/api-key-store.ts";
+import type { CredentialBindingStore } from "../access-control/ports/credential-binding-store.ts";
+import {
   connectionModels,
   connectionOf,
   modelMoves,
@@ -54,23 +71,6 @@ import {
   type SessionExtensionsDeps,
 } from "../extensions/index.ts";
 import type { GitHubSettingsStore } from "../github/ports/github-settings.ts";
-import {
-  ACTOR_INACTIVE,
-  type AuthorizationPolicy,
-  type Caller,
-  MANAGEMENT_ROLES,
-  NOT_FOUND,
-  OUTRANKED,
-  type Principal,
-  receiptActorOf,
-  requirePermitted,
-  SessionServiceError,
-  TEAM_HOLDING,
-  TEAM_NOT_ALLOWED,
-  TEAM_NOT_FOUND,
-} from "../musterrolle/index.ts";
-import type { WorkspaceKeyStore } from "../musterrolle/ports/api-key-store.ts";
-import type { CredentialBindingStore } from "../musterrolle/ports/credential-binding-store.ts";
 import { pendingField, viewerFor } from "../sessions/index.ts";
 import type { AgentWelcomable } from "../surface/ports/agent-welcomable.ts";
 import type { ModelMoveStep } from "./model-move-runner.ts";

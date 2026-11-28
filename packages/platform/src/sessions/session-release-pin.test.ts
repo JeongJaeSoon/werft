@@ -11,6 +11,13 @@ import {
   scopesForRole,
   sessionCredentialUnboundDetailsSchema,
 } from "@werft-ai/contracts";
+import { SessionServiceError } from "../access-control/index.ts";
+import {
+  callerFor,
+  createAuthorizationPolicy,
+  noAgentAuthority,
+} from "../access-control/policy.ts";
+import type { AgentContact } from "../access-control/ports/credential-binding-store.ts";
 import { releaseNotRunnableReason } from "../agents/agent-service.ts";
 import type { SessionCatalogView } from "../catalog/catalog.ts";
 import {
@@ -18,13 +25,6 @@ import {
   type SessionLimits,
   type Setting,
 } from "../limits/installation-limits.ts";
-import { SessionServiceError } from "../musterrolle/index.ts";
-import {
-  callerFor,
-  createAuthorizationPolicy,
-  noAgentAuthority,
-} from "../musterrolle/policy.ts";
-import type { AgentContact } from "../musterrolle/ports/credential-binding-store.ts";
 import {
   testCatalog,
   testConnection,

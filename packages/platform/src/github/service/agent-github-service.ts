@@ -22,13 +22,6 @@ import {
   type RepositoryCeiling,
   repositoryRefOf,
 } from "@werft-ai/contracts";
-import { repoRefOf } from "../../action/ports/forge.ts";
-import type { AgentStore } from "../../agents/ports/agent-store.ts";
-import {
-  GITHUB_API_BASE,
-  repositoryInCeiling,
-  type SessionCatalog,
-} from "../../catalog/index.ts";
 import {
   ACTOR_INACTIVE,
   type AuthorizationPolicy,
@@ -38,7 +31,14 @@ import {
   OUTRANKED,
   requirePermitted,
   SessionServiceError,
-} from "../../musterrolle/index.ts";
+} from "../../access-control/index.ts";
+import { repoRefOf } from "../../action/ports/forge.ts";
+import type { AgentStore } from "../../agents/ports/agent-store.ts";
+import {
+  GITHUB_API_BASE,
+  repositoryInCeiling,
+  type SessionCatalog,
+} from "../../catalog/index.ts";
 import { pendingField, viewerFor } from "../../sessions/index.ts";
 import type { AgentGitHubStore } from "../ports/agent-github-store.ts";
 import type {

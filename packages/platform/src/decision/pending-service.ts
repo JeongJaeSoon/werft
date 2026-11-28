@@ -12,7 +12,7 @@ import {
   requireAllowed,
   requirePermitted,
   SessionServiceError,
-} from "../musterrolle/index.ts";
+} from "../access-control/index.ts";
 import {
   idempotencyConflict,
   payloadHash,

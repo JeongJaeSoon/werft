@@ -8,7 +8,7 @@ import {
   type Caller,
   requirePermitted,
   SessionServiceError,
-} from "../musterrolle/index.ts";
+} from "../access-control/index.ts";
 import type { SessionOutcomeStore } from "./ports/session-outcomes.ts";
 
 /** What the session made, and why GitHub work of it was refused; reads only. */

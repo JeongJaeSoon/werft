@@ -1,10 +1,10 @@
 import type { ListSessionOutputsResponse } from "@werft-ai/contracts";
 import type { StoredOutput } from "@werft-ai/runtime-core";
+import { type Caller, SessionServiceError } from "../access-control/index.ts";
 import type {
   SessionOutputBodyResult,
   SessionOutputsResult,
 } from "../checkpoints/index.ts";
-import { type Caller, SessionServiceError } from "../musterrolle/index.ts";
 import type { SessionService } from "./session-service.ts";
 
 export interface SessionOutputSource {

@@ -20,16 +20,16 @@ import {
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit/callers";
-import type {
-  InstallationLimits,
-  SessionLimits,
-} from "../limits/installation-limits.ts";
-import { SessionServiceError } from "../musterrolle/index.ts";
+import { SessionServiceError } from "../access-control/index.ts";
 import {
   type Caller,
   callerFor,
   createAuthorizationPolicy,
-} from "../musterrolle/policy.ts";
+} from "../access-control/policy.ts";
+import type {
+  InstallationLimits,
+  SessionLimits,
+} from "../limits/installation-limits.ts";
 import type {
   SessionUsageRecord,
   UsageReader,

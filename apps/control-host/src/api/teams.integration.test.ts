@@ -43,12 +43,12 @@ import { createApiApp } from "./app.ts";
 import { DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { PasswordChecks } from "./password-checks.ts";
-import { registerAgentRoutes } from "./routes/agents/agents.ts";
 import {
   registerAuthRoutes,
   registerPublicAuthRoutes,
-} from "./routes/musterrolle/auth.ts";
-import { registerTeamRoutes } from "./routes/musterrolle/teams.ts";
+} from "./routes/access-control/auth.ts";
+import { registerTeamRoutes } from "./routes/access-control/teams.ts";
+import { registerAgentRoutes } from "./routes/agents/agents.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 

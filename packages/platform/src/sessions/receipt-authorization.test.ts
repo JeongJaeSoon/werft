@@ -4,7 +4,7 @@ import { testCaller } from "@werft-ai/testkit/callers";
 import {
   createAuthorizationPolicy,
   type IdentityReader,
-} from "../musterrolle/policy.ts";
+} from "../access-control/policy.ts";
 import { createSessionService } from "./session-service.ts";
 
 const receipt: Receipt = {

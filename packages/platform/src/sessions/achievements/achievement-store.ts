@@ -6,7 +6,7 @@ import type {
   AchievementRuleRequest,
   AchievementType,
 } from "@werft-ai/contracts";
-import type { TeamActor } from "../../musterrolle/ports/team-store.ts";
+import type { TeamActor } from "../../access-control/ports/team-store.ts";
 
 type Write = { actor: TeamActor; receiptId: string };
 

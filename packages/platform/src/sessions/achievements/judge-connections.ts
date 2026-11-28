@@ -1,9 +1,9 @@
+import { SessionServiceError } from "../../access-control/index.ts";
 import {
   type ConnectionNetwork,
   type EgressUpstream,
   judgeUpstreamOf,
 } from "../../catalog/index.ts";
-import { SessionServiceError } from "../../musterrolle/index.ts";
 import type { SettingsSnapshot } from "../installation-settings.ts";
 
 /**

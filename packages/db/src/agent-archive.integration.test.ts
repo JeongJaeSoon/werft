@@ -23,11 +23,11 @@ import {
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresAgentAdminStore } from "./access-control/agent-admins.ts";
+import { createPostgresWorkspaceKeyStore } from "./access-control/api-keys.ts";
+import { createPostgresCredentialBindingStore } from "./access-control/credential-bindings.ts";
+import { createDatabaseIdentityReader } from "./access-control/identity-reader.ts";
 import { agentDeleted, createPostgresAgentStore } from "./agents.ts";
-import { createPostgresAgentAdminStore } from "./musterrolle/agent-admins.ts";
-import { createPostgresWorkspaceKeyStore } from "./musterrolle/api-keys.ts";
-import { createPostgresCredentialBindingStore } from "./musterrolle/credential-bindings.ts";
-import { createDatabaseIdentityReader } from "./musterrolle/identity-reader.ts";
 import { createPostgresSessionReader } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {

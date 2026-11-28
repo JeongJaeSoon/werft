@@ -6,7 +6,7 @@ import type {
   SkillSyncTriggerKind,
   WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { Principal } from "../../musterrolle/index.ts";
+import type { Principal } from "../../access-control/index.ts";
 
 /** What started a check of a GitHub skill. */
 export type SkillSyncTrigger = {

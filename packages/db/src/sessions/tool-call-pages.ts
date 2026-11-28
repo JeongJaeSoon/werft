@@ -4,6 +4,7 @@ import type {
   UsageToolCallsFilter,
 } from "@werft-ai/platform";
 import { type SQL, sql } from "drizzle-orm";
+import { sessionVisibleTo } from "../access-control/index.ts";
 import { servedTitle } from "../conversations/index.ts";
 import {
   decodeToolCallCursor,
@@ -11,7 +12,6 @@ import {
   rethrowCursorCastError,
   type ToolCallCursor,
 } from "../cursors.ts";
-import { sessionVisibleTo } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
 import { periodParts, scopeOf } from "./tool-calls.ts";

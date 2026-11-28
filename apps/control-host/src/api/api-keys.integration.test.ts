@@ -57,12 +57,12 @@ import {
   issueApiKey,
 } from "./keys.ts";
 import { PasswordChecks } from "./password-checks.ts";
-import { registerAgentRoutes } from "./routes/agents/agents.ts";
-import { registerApiKeyRoutes } from "./routes/musterrolle/api-keys.ts";
+import { registerApiKeyRoutes } from "./routes/access-control/api-keys.ts";
 import {
   registerAuthRoutes,
   registerPublicAuthRoutes,
-} from "./routes/musterrolle/auth.ts";
+} from "./routes/access-control/auth.ts";
+import { registerAgentRoutes } from "./routes/agents/agents.ts";
 import { registerReceiptRoutes } from "./routes/sessions/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions/sessions.ts";
 

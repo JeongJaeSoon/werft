@@ -46,10 +46,10 @@ export const baseline: Baseline = {
   directFetch: {},
   slackFiles: [],
   slackExports: {
-    "musterrolle/agent-identity-service.ts": 1,
-    "musterrolle/policy.ts": 2,
-    "musterrolle/ports/agent-identity-store.ts": 2,
-    "musterrolle/ports/workspace-settings.ts": 1,
+    "access-control/agent-identity-service.ts": 1,
+    "access-control/policy.ts": 2,
+    "access-control/ports/agent-identity-store.ts": 2,
+    "access-control/ports/workspace-settings.ts": 1,
   },
   testRelativeImports: [
     // The package entry that exports this (`@werft-ai/react/components`)

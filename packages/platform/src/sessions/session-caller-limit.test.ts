@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { SESSION_SCOPE_VALUES } from "@werft-ai/contracts";
-import type { SessionServiceError } from "../musterrolle/index.ts";
-import { callerFor } from "../musterrolle/policy.ts";
+import type { SessionServiceError } from "../access-control/index.ts";
+import { callerFor } from "../access-control/policy.ts";
 import type {
   CallerLimitDimension,
   CallerLimitGate,
-} from "../musterrolle/ports/agent-caller-limits-store.ts";
+} from "../access-control/ports/agent-caller-limits-store.ts";
 import { testCatalog } from "../testing/catalog-fakes.ts";
 import type {
   AcceptSessionInput,

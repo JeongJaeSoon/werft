@@ -11,6 +11,8 @@ import {
   type PullRequest,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
+import { SessionServiceError } from "../../access-control/index.ts";
+import { createAuthorizationPolicy } from "../../access-control/policy.ts";
 import {
   repositoryBinding,
   type SessionCatalog,
@@ -21,8 +23,6 @@ import {
   type GitHubGateReceipt,
 } from "../../github/ports/github-gate.ts";
 import { createGitHubGate } from "../../github/service/github-gate.ts";
-import { SessionServiceError } from "../../musterrolle/index.ts";
-import { createAuthorizationPolicy } from "../../musterrolle/policy.ts";
 import type { GitHubApi } from "../ports/github-api.ts";
 import type {
   PullRequestReceipt,

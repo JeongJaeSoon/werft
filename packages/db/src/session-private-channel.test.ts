@@ -6,7 +6,7 @@ import { callerFor, type SessionViewer } from "@werft-ai/platform";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { createPostgresSessionShareStore } from "./musterrolle/session-shares.ts";
+import { createPostgresSessionShareStore } from "./access-control/session-shares.ts";
 import { createPostgresSessionReader } from "./postgres-unit-of-work.ts";
 import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";

@@ -3,11 +3,11 @@ import type {
   UserLocale,
   WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { Principal } from "../musterrolle/index.ts";
+import type { Principal } from "../access-control/index.ts";
 import {
   refusals,
   type UnrecordedAllow,
-} from "../musterrolle/ports/decision-log.ts";
+} from "../access-control/ports/decision-log.ts";
 
 export type IdentityUser = {
   id: string;

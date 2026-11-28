@@ -12,11 +12,11 @@ import {
   type RepositoryCeiling,
   repositoryRefOf,
 } from "@werft-ai/contracts";
-import type { SessionCatalog } from "../../catalog/catalog.ts";
 import {
   callerFor,
   createAuthorizationPolicy,
-} from "../../musterrolle/policy.ts";
+} from "../../access-control/policy.ts";
+import type { SessionCatalog } from "../../catalog/catalog.ts";
 import type { AgentGitHubStore } from "../ports/agent-github-store.ts";
 import { createAgentGitHubService } from "./agent-github-service.ts";
 

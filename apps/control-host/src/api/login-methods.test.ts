@@ -33,7 +33,7 @@ import { recordRouteErrors } from "./route-error-coverage.ts";
 import {
   registerAuthRoutes,
   registerPublicAuthRoutes,
-} from "./routes/musterrolle/auth.ts";
+} from "./routes/access-control/auth.ts";
 
 // The routes of an invite's sign-up and of a person's own ways to sign in,
 // over stores that answer what each test says. What the database does with

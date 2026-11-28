@@ -40,7 +40,7 @@
 - [세션](./sessions.md): fake model 대본으로 세션 생성·turn 완료·권한 요청·pause/resume (전체 경로는 `docs/quickstart.md` 3장), 웹 사용자가 개인 key로 만든 세션이 웹 `/sessions`에 보이기.
 - [운영 조회](./ops-endpoints.md): `/readyz`, `/docs`(API reference), `/v1/limits`(owner, `scope=me`는 구성원), `/v1/usage/summary`, 세션 usage.
 - [GitHub sandbox](./github-sandbox.md): 실제 `JeongJaeSoon/werft-sandbox`. 별도 run(`scripts/verify/github-sandbox/overlay.yml`, 버리는 master key)에서 App 등록(키는 파일 경로로만), 상한, 에이전트 릴리스의 GitHub 설정, clone·push(사람 cookie로 승인)·PR, 바로 인정 규칙의 PR 성과, workflow dispatch·rerun 거절, 게이트 receipt, 자기 PR 닫기와 volume 유지 정리.
-- [멤버·팀·권한 (Musterrolle)](./musterrolle.md): 시나리오 a–g 전부. a(초대·역할 변경·OWNER_PROTECTED·LAST_OWNER·비활성화와 재활성화), b(팀과 팀을 에이전트 관리자로), c(Slack 계정 연결과 멘션·승인 판정, mock IdP overlay), d(권한별 개인 key와 에이전트 key), e(판정 기록·보존 기간·공유 범위·SSE 끊김·감사 열람·관리 목록), f(자격 연결), g(에이전트의 Slack 앱 연결). DM 기본 "나만"만 경로가 없다.
+- [멤버·팀·권한 (Musterrolle)](./access-control.md): 시나리오 a–g 전부. a(초대·역할 변경·OWNER_PROTECTED·LAST_OWNER·비활성화와 재활성화), b(팀과 팀을 에이전트 관리자로), c(Slack 계정 연결과 멘션·승인 판정, mock IdP overlay), d(권한별 개인 key와 에이전트 key), e(판정 기록·보존 기간·공유 범위·SSE 끊김·감사 열람·관리 목록), f(자격 연결), g(에이전트의 Slack 앱 연결). DM 기본 "나만"만 경로가 없다.
 
 ## 현재 구현과 보류
 

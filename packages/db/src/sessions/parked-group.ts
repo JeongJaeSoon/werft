@@ -22,9 +22,9 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { enqueueEndedIntentNotices } from "../access-control/index.ts";
 import { newTurnSources } from "../conversations/index.ts";
 import { dbNow } from "../db-clock.ts";
-import { enqueueEndedIntentNotices } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import { moveToResuming } from "../resume-control.ts";
 import {

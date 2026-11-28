@@ -5,7 +5,7 @@ import {
   type AuthorizationPolicy,
   AuthorizationUndecidedError,
   SessionServiceError,
-} from "../musterrolle/index.ts";
+} from "../access-control/index.ts";
 import type {
   StopQueuedInput,
   StopQueuedResult,

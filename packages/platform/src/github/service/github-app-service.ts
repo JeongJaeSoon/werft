@@ -23,7 +23,6 @@ import {
   type StartGitHubAppManifestResponse,
   type StartGitHubInstallationResponse,
 } from "@werft-ai/contracts";
-import { repoRefOf } from "../../action/ports/forge.ts";
 import {
   ACTOR_INACTIVE,
   type AuthorizationPolicy,
@@ -34,7 +33,8 @@ import {
   requirePermitted,
   SECRET_STORE_OFF,
   SessionServiceError,
-} from "../../musterrolle/index.ts";
+} from "../../access-control/index.ts";
+import { repoRefOf } from "../../action/ports/forge.ts";
 import type { SecretAudit } from "../../secrets/ports/secret-store.ts";
 import { hashToken } from "../../token-hash.ts";
 import {

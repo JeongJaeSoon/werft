@@ -53,6 +53,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import { enqueueWorkerImageReplacedNotices } from "../access-control/index.ts";
 import { readPointerImageRuntime } from "../checkpoints/index.ts";
 import {
   LAUNCHABLE_ADMISSION_STATES,
@@ -62,7 +63,6 @@ import {
 } from "../control-shared.ts";
 import { expireOverdueTerminations } from "../control-unit-of-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "../db-clock.ts";
-import { enqueueWorkerImageReplacedNotices } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import {
   attempts,

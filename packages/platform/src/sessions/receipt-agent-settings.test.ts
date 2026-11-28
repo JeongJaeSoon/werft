@@ -4,7 +4,10 @@ import {
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
-import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
+import {
+  callerFor,
+  createAuthorizationPolicy,
+} from "../access-control/policy.ts";
 import { createSessionService } from "./session-service.ts";
 
 // agent-rbac (b), receipt reads: a receipt that records an agent's settings

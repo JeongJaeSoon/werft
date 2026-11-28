@@ -8,7 +8,7 @@ import {
   callerFor,
   type TeamActor,
 } from "@werft-ai/platform";
-import { createPostgresTeamStore } from "../musterrolle/member-teams.ts";
+import { createPostgresTeamStore } from "../access-control/member-teams.ts";
 import type { Database } from "../queries.ts";
 import { memberships, users, workspaces } from "../schema.ts";
 

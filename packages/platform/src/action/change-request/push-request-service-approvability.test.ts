@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { Principal, PushRequest } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
+import { createAuthorizationPolicy } from "../../access-control/policy.ts";
 import type { PushSourceResult } from "../../checkpoints/checkpoint-service.ts";
-import { createAuthorizationPolicy } from "../../musterrolle/policy.ts";
 import type { PushRequestStore } from "../ports/push-requests.ts";
 import { createPushRequestService } from "./push-request-service.ts";
 

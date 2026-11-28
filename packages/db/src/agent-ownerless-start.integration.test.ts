@@ -10,8 +10,8 @@ import {
 import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool, type PoolClient } from "pg";
-import { createPostgresAgentAdminStore } from "./musterrolle/agent-admins.ts";
-import { createPostgresMemberStore } from "./musterrolle/members.ts";
+import { createPostgresAgentAdminStore } from "./access-control/agent-admins.ts";
+import { createPostgresMemberStore } from "./access-control/members.ts";
 import {
   createPostgresSessionUnitOfWork,
   lockedNotRunnable,

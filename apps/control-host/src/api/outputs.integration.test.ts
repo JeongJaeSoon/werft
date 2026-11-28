@@ -48,7 +48,7 @@ import { PasswordChecks } from "./password-checks.ts";
 import {
   registerAuthRoutes,
   registerPublicAuthRoutes,
-} from "./routes/musterrolle/auth.ts";
+} from "./routes/access-control/auth.ts";
 import { registerSessionOutputRoutes } from "./routes/sessions/outputs.ts";
 import { registerSessionRoutes } from "./routes/sessions/sessions.ts";
 

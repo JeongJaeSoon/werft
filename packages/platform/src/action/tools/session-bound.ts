@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { ReceiptActor } from "@werft-ai/contracts";
-import type { AuthorizationPolicy, Caller } from "../../musterrolle/index.ts";
+import type {
+  AuthorizationPolicy,
+  Caller,
+} from "../../access-control/index.ts";
 import type { PushActor } from "../change-request/push-decision.ts";
 import type { GitHubMcpServices } from "./handler.ts";
 

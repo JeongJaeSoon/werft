@@ -21,8 +21,8 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresExtensionBundleStore } from "./extensions/extension-bundles.ts";
-import { createPostgresSkillGitSourceStore } from "./extensions/skill-git-sources.ts";
+import { createPostgresExtensionBundleStore } from "./extensions/bundles/extension-bundles.ts";
+import { createPostgresSkillGitSourceStore } from "./extensions/skills/skill-git-sources.ts";
 import * as schema from "./schema.ts";
 import {
   extensionBundles,

@@ -3914,42 +3914,42 @@ describe("architecture", () => {
     expect(
       await inFixture(
         {
-          [platformFile("musterrolle/internal.ts")]:
+          [platformFile("access-control/internal.ts")]:
             'import { a } from "../beta/service.ts";',
-          [platformFile("musterrolle/entrance.ts")]: [
+          [platformFile("access-control/entrance.ts")]: [
             'import { a } from "../beta/index.ts";',
             'import { b } from "../gamma";',
           ].join("\n"),
-          [platformFile("musterrolle/typed.ts")]:
+          [platformFile("access-control/typed.ts")]:
             'import type { T } from "../beta/service.ts";',
-          [platformFile("musterrolle/reexport.ts")]:
+          [platformFile("access-control/reexport.ts")]:
             'export * from "../beta/deep/inner.ts";',
-          [platformFile("musterrolle/dynamic.ts")]:
+          [platformFile("access-control/dynamic.ts")]:
             'export const m = import("../beta/index.ts");',
-          [platformFile("musterrolle/wrapped.ts")]: [
+          [platformFile("access-control/wrapped.ts")]: [
             'export const m = import(("../beta/service.ts"));',
             'export const n = require((("../gamma/index.ts")));',
           ].join("\n"),
-          [platformFile("musterrolle/asserted.ts")]: [
+          [platformFile("access-control/asserted.ts")]: [
             'export const a = import("../beta/service.ts" as string);',
             'export const b = import("../gamma/index.ts" satisfies string);',
             'export const c = import("../beta/index.ts"!);',
           ].join("\n"),
-          [platformFile("musterrolle/root.ts")]: 'import "../index.ts";',
-          [platformFile("musterrolle/named.ts")]: [
+          [platformFile("access-control/root.ts")]: 'import "../index.ts";',
+          [platformFile("access-control/named.ts")]: [
             'import { a } from "@werft-ai/platform";',
             'import { b } from "@werft-ai/platform/testing/refusal";',
             'import { c } from "@werft-ai/contracts";',
           ].join("\n"),
-          [platformFile("musterrolle/allowed.ts")]: [
+          [platformFile("access-control/allowed.ts")]: [
             'import "../beta/ports/store.ts";',
             'import "../ports/shared.ts";',
             'import "../testing/refusal.ts";',
             'import "./policy.ts";',
           ].join("\n"),
-          [platformFile("musterrolle/internal.test.ts")]:
+          [platformFile("access-control/internal.test.ts")]:
             'import "../beta/service.ts";',
-          [platformFile("musterrolle/policy.ts")]: stub,
+          [platformFile("access-control/policy.ts")]: stub,
           // Only musterrolle is held to this: beta may import an entrance.
           [platformFile("beta/service.ts")]: 'import "../gamma/index.ts";',
           [platformFile("beta/deep/inner.ts")]: stub,
@@ -3963,20 +3963,20 @@ describe("architecture", () => {
         musterrolleOutwardImports,
       ),
     ).toEqual([
-      "musterrolle/asserted.ts -> beta/index.ts",
-      "musterrolle/asserted.ts -> beta/service.ts",
-      "musterrolle/asserted.ts -> gamma/index.ts",
-      "musterrolle/dynamic.ts -> beta/index.ts",
-      "musterrolle/entrance.ts -> beta/index.ts",
-      "musterrolle/entrance.ts -> gamma/index.ts",
-      "musterrolle/internal.ts -> beta/service.ts",
-      "musterrolle/named.ts -> @werft-ai/platform",
-      "musterrolle/named.ts -> @werft-ai/platform/testing/refusal",
-      "musterrolle/reexport.ts -> beta/deep/inner.ts",
-      "musterrolle/root.ts -> index.ts",
-      "musterrolle/typed.ts -> beta/service.ts",
-      "musterrolle/wrapped.ts -> beta/service.ts",
-      "musterrolle/wrapped.ts -> gamma/index.ts",
+      "access-control/asserted.ts -> beta/index.ts",
+      "access-control/asserted.ts -> beta/service.ts",
+      "access-control/asserted.ts -> gamma/index.ts",
+      "access-control/dynamic.ts -> beta/index.ts",
+      "access-control/entrance.ts -> beta/index.ts",
+      "access-control/entrance.ts -> gamma/index.ts",
+      "access-control/internal.ts -> beta/service.ts",
+      "access-control/named.ts -> @werft-ai/platform",
+      "access-control/named.ts -> @werft-ai/platform/testing/refusal",
+      "access-control/reexport.ts -> beta/deep/inner.ts",
+      "access-control/root.ts -> index.ts",
+      "access-control/typed.ts -> beta/service.ts",
+      "access-control/wrapped.ts -> beta/service.ts",
+      "access-control/wrapped.ts -> gamma/index.ts",
     ]);
   });
 

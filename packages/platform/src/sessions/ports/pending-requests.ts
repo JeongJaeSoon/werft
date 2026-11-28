@@ -12,7 +12,7 @@ import type {
   SurfaceKind,
 } from "@werft-ai/contracts";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
-import type { Principal } from "../../musterrolle/index.ts";
+import type { Principal } from "../../access-control/index.ts";
 import type {
   FenceRejection,
   WorkerFence,

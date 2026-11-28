@@ -33,7 +33,7 @@ import { createApiApp } from "./app.ts";
 import { DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore } from "./keys.ts";
 import { PasswordChecks } from "./password-checks.ts";
-import { registerPublicAuthRoutes } from "./routes/musterrolle/auth.ts";
+import { registerPublicAuthRoutes } from "./routes/access-control/auth.ts";
 import { registerUsageRoutes } from "./routes/usage/usage.ts";
 
 const integration = testDatabaseUrl() ? test : test.skip;

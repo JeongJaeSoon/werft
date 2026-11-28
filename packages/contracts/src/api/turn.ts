@@ -1,8 +1,5 @@
 import { z } from "zod";
-import {
-  slackPermalinkSchema,
-  surfaceKindSchema,
-} from "../kollegium/surfaces.ts";
+import { slackPermalinkSchema, surfaceKindSchema } from "../agents/surfaces.ts";
 import {
   attemptIdSchema,
   epochSchema,

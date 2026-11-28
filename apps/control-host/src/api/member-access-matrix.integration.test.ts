@@ -28,8 +28,8 @@ import { PasswordChecks } from "./password-checks.ts";
 import {
   registerAuthRoutes,
   registerPublicAuthRoutes,
-} from "./routes/musterrolle/auth.ts";
-import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
+} from "./routes/access-control/auth.ts";
+import { registerMemberRoutes } from "./routes/access-control/members.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;
 

@@ -1,12 +1,11 @@
 import { z } from "zod";
-
+import { displayNameSchema } from "../access-control/workspaces.ts";
 import {
   AGENT_WORKSPACE_MCP_SERVERS_MAX,
   MCP_RESERVED_SERVER_NAMES,
   mcpServerIdSchema,
   WERFT_MCP_SERVER,
-} from "../kollegium/agents.ts";
-import { displayNameSchema } from "../musterrolle/workspaces.ts";
+} from "../agents/agents.ts";
 import {
   receiptIdSchema,
   timestampSchema,

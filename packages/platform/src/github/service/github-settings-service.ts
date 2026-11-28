@@ -13,8 +13,6 @@ import {
   type PutGitHubUserLinkAppRequest,
   type PutGitHubUserLinkAppResponse,
 } from "@werft-ai/contracts";
-import { prepareTemplateText } from "../../action/index.ts";
-import type { PullRequestSettingsStore } from "../../action/ports/pull-request-settings.ts";
 import {
   ACTOR_INACTIVE,
   type AuthorizationPolicy,
@@ -27,7 +25,9 @@ import {
   requirePermitted,
   SECRET_STORE_OFF,
   SessionServiceError,
-} from "../../musterrolle/index.ts";
+} from "../../access-control/index.ts";
+import { prepareTemplateText } from "../../action/index.ts";
+import type { PullRequestSettingsStore } from "../../action/ports/pull-request-settings.ts";
 import {
   type GitHubAppCredential,
   type GitHubAppDirectory,

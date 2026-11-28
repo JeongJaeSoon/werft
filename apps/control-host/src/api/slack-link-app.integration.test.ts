@@ -68,8 +68,8 @@ import { PasswordChecks } from "./password-checks.ts";
 import {
   registerAuthRoutes,
   registerPublicAuthRoutes,
-} from "./routes/musterrolle/auth.ts";
-import { registerLinkedAccountRoutes } from "./routes/musterrolle/linked-accounts.ts";
+} from "./routes/access-control/auth.ts";
+import { registerLinkedAccountRoutes } from "./routes/access-control/linked-accounts.ts";
 import { registerSlackAppRoutes } from "./routes/surface/slack-apps.ts";
 import { registerSlackSecretRoutes } from "./routes/surface/slack-secrets.ts";
 import { createSlackOidcTransport } from "./slack-link.ts";

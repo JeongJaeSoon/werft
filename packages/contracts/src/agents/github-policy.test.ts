@@ -1,0 +1,1066 @@
+import { describe, expect, test } from "bun:test";
+import { z } from "zod";
+
+import { githubCeilingSchema } from "../access-control/github-settings.ts";
+import {
+  type AgentGitHub,
+  type AgentGitHubSettingsRow,
+  agentGitHubInputSchema,
+  agentGitHubSchema,
+  agentGitHubSettingsInputSchema,
+  agentGitHubSettingsSchema,
+  type EffectiveGitHubPolicy,
+  effectiveGitHubPolicy,
+  GITHUB_POLICY_CLOSED,
+  type GitHubPolicyStart,
+  githubPolicyStartSchema,
+  meetGitHubSettings,
+  meetPushAttached,
+  newSessionGitHubPolicy,
+  policyPinsSchema,
+  pushAttachedOf,
+  pushDecisionOf,
+} from "./agents.ts";
+
+const PIN: AgentGitHub = {
+  repositories: ["app"],
+  push_approval: false,
+  features: {
+    workflows: false,
+    actions: true,
+    checks: false,
+    issues: false,
+    review: false,
+  },
+  actions_allow: [],
+};
+
+/**
+ * PIN as a session no person saved switches for reads it (94S-2406): its old
+ * `actions` reads CI and edits workflow files, and runs nothing directly.
+ */
+const PIN_READ: AgentGitHub = {
+  ...PIN,
+  features: { ...PIN.features, workflows: true, checks: true, actions: false },
+  actions_allow: [],
+};
+
+const ROW: AgentGitHubSettingsRow = {
+  repositories: ["infra"],
+  pushApproval: true,
+  features: { ...PIN.features, actions: false },
+  actionsAllow: [{ workflow: "ci.yml" }],
+  startRepositoryId: "infra",
+  pushAttached: null,
+  revision: 4,
+  updatedBy: null,
+};
+
+const SETTINGS = {
+  repositories: ROW.repositories,
+  push_approval: ROW.pushApproval,
+  features: ROW.features,
+  actions_allow: ROW.actionsAllow,
+};
+
+const PERSON = "6f1d3a52-0b0e-4d67-9a43-1d6b1d0f2c11";
+
+/** What the resolver returns for a field the case does not care about. */
+function policy(
+  fields: Omit<Partial<EffectiveGitHubPolicy>, "settings"> & {
+    source: EffectiveGitHubPolicy["source"];
+    settings: unknown;
+  },
+): EffectiveGitHubPolicy {
+  return {
+    startRepositoryId: null,
+    agentSettingsRevision: null,
+    currentRepositories: null,
+    startActionsAllow: null,
+    enabledAtStart: true,
+    // Nobody chose to be asked (owner decision, Orchestrator item 147).
+    pushAttached: "allow",
+    ...fields,
+  } as EffectiveGitHubPolicy;
+}
+
+const ALL_ON = {
+  workflows: true,
+  actions: true,
+  checks: true,
+  issues: true,
+  review: true,
+};
+const ALL_OFF = {
+  workflows: false,
+  actions: false,
+  checks: false,
+  issues: false,
+  review: false,
+};
+
+describe("effectiveGitHubPolicy", () => {
+  const cases: Array<
+    [string, Parameters<typeof effectiveGitHubPolicy>[0], unknown]
+  > = [
+    [
+      "a release session on a release from before settings has no list",
+      { source: "release", releasePin: null, agentRow: null },
+      policy({ source: "release", settings: null }),
+    ],
+    [
+      "an absent pin reads as none, as a missing jsonb key does",
+      { source: "release", releasePin: undefined, agentRow: null },
+      policy({ source: "release", settings: null }),
+    ],
+    [
+      "a release session reads its pin; the pin's actions runs nothing directly",
+      { source: "release", releasePin: PIN, agentRow: null },
+      policy({ source: "release", settings: PIN_READ }),
+    ],
+    [
+      "a pin this image cannot read is invalid",
+      { source: "release", releasePin: { repositories: [] }, agentRow: null },
+      policy({ source: "release", settings: "invalid", pushAttached: "ask" }),
+    ],
+    [
+      "an agent session reads the agent's row, not the pin",
+      { source: "agent", releasePin: PIN, agentRow: ROW },
+      policy({
+        source: "agent",
+        settings: SETTINGS,
+        startRepositoryId: "infra",
+        agentSettingsRevision: 4,
+      }),
+    ],
+    [
+      "an agent session whose row is gone is closed, not legacy",
+      { source: "agent", releasePin: PIN, agentRow: null },
+      policy({ source: "agent", settings: GITHUB_POLICY_CLOSED }),
+    ],
+    [
+      "an empty list is legal on the row",
+      {
+        source: "agent",
+        releasePin: null,
+        agentRow: { ...ROW, repositories: [], startRepositoryId: null },
+      },
+      policy({
+        source: "agent",
+        settings: { ...SETTINGS, repositories: [] },
+        agentSettingsRevision: 4,
+      }),
+    ],
+    [
+      "a row this image cannot read is invalid",
+      {
+        source: "agent",
+        releasePin: PIN,
+        agentRow: { ...ROW, features: { unknown: true } },
+      },
+      policy({
+        source: "agent",
+        settings: "invalid",
+        agentSettingsRevision: 4,
+        pushAttached: "ask",
+      }),
+    ],
+    [
+      "a source this image does not know is invalid",
+      { source: "team", releasePin: PIN, agentRow: ROW },
+      policy({ source: "agent", settings: "invalid", pushAttached: "ask" }),
+    ],
+    [
+      "no source at all is invalid, never the release",
+      { source: null, releasePin: PIN, agentRow: null },
+      policy({ source: "agent", settings: "invalid", pushAttached: "ask" }),
+    ],
+  ];
+
+  for (const [name, input, expected] of cases) {
+    test(name, () => {
+      expect(effectiveGitHubPolicy(input)).toEqual(expected as never);
+    });
+  }
+
+  test("closed allows nothing and asks for no approval nobody chose", () => {
+    expect(GITHUB_POLICY_CLOSED.repositories).toEqual([]);
+    expect(GITHUB_POLICY_CLOSED.push_approval).toBe(false);
+    expect(GITHUB_POLICY_CLOSED.actions_allow).toEqual([]);
+    expect(Object.values(GITHUB_POLICY_CLOSED.features)).not.toContain(true);
+  });
+
+  test("a list past the old cap of 32 reads", () => {
+    const many = Array.from({ length: 40 }, (_, i) => `repo-${i}`);
+    expect(
+      agentGitHubSettingsSchema.safeParse({ ...SETTINGS, repositories: many })
+        .success,
+    ).toBe(true);
+    const read = effectiveGitHubPolicy({
+      source: "agent",
+      releasePin: null,
+      agentRow: { ...ROW, repositories: many },
+    });
+    expect(read.settings).toMatchObject({ repositories: many });
+  });
+});
+
+describe("a release session and a row a person saved", () => {
+  const human: AgentGitHubSettingsRow = {
+    ...ROW,
+    repositories: ["app", "infra"],
+    updatedBy: PERSON,
+    features: ALL_OFF,
+    pushApproval: true,
+    actionsAllow: [{ workflow: "ci.yml" }],
+  };
+  const pin: AgentGitHub = {
+    repositories: ["app", "docs"],
+    push_approval: false,
+    features: { ...ALL_ON, review: false },
+    actions_allow: [{ workflow: "deploy.yml" }],
+  };
+  // No saved switch: the pin's direct runs and its allow-list do not apply.
+  const pinRead: AgentGitHub = {
+    ...pin,
+    features: { ...pin.features, actions: false },
+    actions_allow: [],
+  };
+
+  test("narrows the pin: lists meet, approval ORs, features AND", () => {
+    const read = effectiveGitHubPolicy({
+      source: "release",
+      releasePin: pin,
+      agentRow: { ...human, features: { ...ALL_ON, issues: false } },
+    });
+    expect(read).toEqual(
+      policy({
+        source: "release",
+        settings: {
+          repositories: ["app"],
+          push_approval: true,
+          // The pin runs nothing directly, whatever the row says (94S-2406).
+          features: { ...ALL_ON, issues: false, review: false, actions: false },
+          actions_allow: [{ workflow: "ci.yml" }],
+        },
+        agentSettingsRevision: 4,
+        startActionsAllow: [],
+      }),
+    );
+  });
+
+  test("a first save keeps what the session read from an old pin: CI on, direct runs still off (94S-2406)", () => {
+    const old: AgentGitHub = {
+      ...pin,
+      features: { ...pin.features, workflows: false, checks: false },
+    };
+    const read = effectiveGitHubPolicy({
+      source: "release",
+      releasePin: old,
+      agentRow: { ...human, features: ALL_ON },
+    });
+    expect(read.settings).toMatchObject({
+      features: { workflows: true, checks: true, actions: false },
+    });
+    expect(read.startActionsAllow).toEqual([]);
+  });
+
+  test("a repository the person added back is not wider than the pin", () => {
+    const read = effectiveGitHubPolicy({
+      source: "release",
+      releasePin: pin,
+      agentRow: { ...human, repositories: ["app", "docs", "new-one"] },
+    });
+    expect(read.settings).toMatchObject({ repositories: ["app", "docs"] });
+  });
+
+  test("a pin that waives approval stays waived only if the row waives too", () => {
+    const waived = effectiveGitHubPolicy({
+      source: "release",
+      releasePin: pin,
+      agentRow: { ...human, pushApproval: false },
+    });
+    expect(waived.settings).toMatchObject({ push_approval: false });
+    const asked = effectiveGitHubPolicy({
+      source: "release",
+      releasePin: pin,
+      agentRow: human,
+    });
+    expect(asked.settings).toMatchObject({ push_approval: true });
+  });
+
+  test("with no pin the settings stay null and only the list is added", () => {
+    const read = effectiveGitHubPolicy({
+      source: "release",
+      releasePin: undefined,
+      agentRow: human,
+    });
+    expect(read).toEqual(
+      policy({
+        source: "release",
+        settings: null,
+        agentSettingsRevision: 4,
+        currentRepositories: ["app", "infra"],
+        // The person turned push approval on after the start.
+        pushAttached: "ask",
+      }),
+    );
+    expect(pushDecisionOf(read)).toBe("ask");
+    const off = effectiveGitHubPolicy({
+      source: "release",
+      releasePin: undefined,
+      agentRow: { ...human, pushApproval: false },
+    });
+    expect(off.pushAttached).toBe("allow");
+    expect(pushDecisionOf(off)).toBe("allow");
+  });
+
+  test("a row a migration wrote (updatedBy null) changes nothing", () => {
+    const migrated = { ...human, updatedBy: null };
+    expect(
+      effectiveGitHubPolicy({
+        source: "release",
+        releasePin: pin,
+        agentRow: migrated,
+      }),
+    ).toEqual(policy({ source: "release", settings: pinRead }));
+    expect(
+      effectiveGitHubPolicy({
+        source: "release",
+        releasePin: undefined,
+        agentRow: migrated,
+      }),
+    ).toEqual(policy({ source: "release", settings: null }));
+  });
+
+  test("no row changes nothing", () => {
+    expect(
+      effectiveGitHubPolicy({
+        source: "release",
+        releasePin: pin,
+        agentRow: null,
+      }),
+    ).toEqual(policy({ source: "release", settings: pinRead }));
+  });
+
+  const unreadable: Array<[string, AgentGitHubSettingsRow]> = [
+    ["a row that does not parse, saved by a person", { ...human, features: 1 }],
+    [
+      "a row that does not parse, written by a migration",
+      { ...human, features: 1, updatedBy: null },
+    ],
+    [
+      "an updatedBy that is neither a string nor null",
+      { ...human, updatedBy: undefined as unknown as string },
+    ],
+    [
+      "an updatedBy that is a number",
+      { ...human, updatedBy: 7 as unknown as string },
+    ],
+  ];
+  for (const [name, row] of unreadable) {
+    for (const releasePin of [pin, undefined]) {
+      test(`${name} closes the session (${releasePin === undefined ? "no pin" : "pin"})`, () => {
+        const read = effectiveGitHubPolicy({
+          source: "release",
+          releasePin,
+          agentRow: row,
+        });
+        expect(read.settings).toBe("invalid");
+        expect(read.source).toBe("release");
+      });
+    }
+  }
+
+  test("a pin this image cannot read stays invalid under a person's row", () => {
+    expect(
+      effectiveGitHubPolicy({
+        source: "release",
+        releasePin: { repositories: [] },
+        agentRow: human,
+      }).settings,
+    ).toBe("invalid");
+  });
+});
+
+describe("an agent session with a start snapshot", () => {
+  const start: GitHubPolicyStart = {
+    enabled: true,
+    revision: 2,
+    settings: {
+      repositories: ["a", "b", "c"],
+      push_approval: false,
+      features: { ...ALL_ON, review: false },
+      actions_allow: [{ workflow: "ci.yml" }],
+    },
+  };
+  const now: AgentGitHubSettingsRow = {
+    repositories: ["c", "d", "a"],
+    pushApproval: false,
+    features: ALL_ON,
+    actionsAllow: [{ workflow: "release.yml" }],
+    startRepositoryId: null,
+    pushAttached: null,
+    revision: 5,
+    updatedBy: PERSON,
+  };
+
+  test("meets the start and the row now", () => {
+    expect(
+      effectiveGitHubPolicy({
+        source: "agent",
+        releasePin: null,
+        agentRow: now,
+        start,
+      }),
+    ).toEqual(
+      policy({
+        source: "agent",
+        settings: {
+          repositories: ["a", "c"],
+          push_approval: false,
+          features: { ...ALL_ON, review: false },
+          actions_allow: [{ workflow: "release.yml" }],
+        },
+        agentSettingsRevision: 5,
+        startActionsAllow: [{ workflow: "ci.yml" }],
+      }),
+    );
+  });
+
+  test("a repository added after the start does not open", () => {
+    const read = effectiveGitHubPolicy({
+      source: "agent",
+      releasePin: null,
+      agentRow: { ...now, repositories: ["a", "b", "c", "new"] },
+      start,
+    });
+    expect(read.settings).toMatchObject({ repositories: ["a", "b", "c"] });
+  });
+
+  test("a repository taken off closes at once", () => {
+    const read = effectiveGitHubPolicy({
+      source: "agent",
+      releasePin: null,
+      agentRow: { ...now, repositories: ["a"] },
+      start,
+    });
+    expect(read.settings).toMatchObject({ repositories: ["a"] });
+  });
+
+  test("a feature or an approval turned on later does not widen", () => {
+    const read = effectiveGitHubPolicy({
+      source: "agent",
+      releasePin: null,
+      agentRow: { ...now, features: ALL_ON, pushApproval: true },
+      start,
+    });
+    expect(read.settings).toMatchObject({
+      push_approval: true,
+      features: { review: false },
+    });
+  });
+
+  test("GitHub off at the start stays off for the session", () => {
+    const read = effectiveGitHubPolicy({
+      source: "agent",
+      releasePin: null,
+      agentRow: now,
+      start: { ...start, enabled: false },
+    });
+    expect(read.enabledAtStart).toBe(false);
+  });
+
+  test("a snapshot this image cannot read is invalid", () => {
+    for (const unreadable of [{}, { enabled: true }, "x", 3]) {
+      expect(
+        effectiveGitHubPolicy({
+          source: "agent",
+          releasePin: null,
+          agentRow: now,
+          start: unreadable,
+        }).settings,
+      ).toBe("invalid");
+    }
+  });
+
+  test("a row that is gone is closed whatever the snapshot says", () => {
+    expect(
+      effectiveGitHubPolicy({
+        source: "agent",
+        releasePin: null,
+        agentRow: null,
+        start,
+      }).settings,
+    ).toEqual(GITHUB_POLICY_CLOSED);
+  });
+
+  test("a session with no snapshot reads the row alone", () => {
+    expect(
+      effectiveGitHubPolicy({
+        source: "agent",
+        releasePin: null,
+        agentRow: now,
+        start: null,
+      }).settings,
+    ).toMatchObject({ repositories: ["c", "d", "a"] });
+  });
+
+  describe("a session with its own attached list", () => {
+    const grown = { ...now, repositories: ["a", "b", "c", "new"] };
+
+    test("a repository turned on after the start opens, one taken off closes; an empty list counts as its own", () => {
+      for (const attachedRepositoryIds of [[], ["a"], ["a", "b", "c"]]) {
+        expect(
+          effectiveGitHubPolicy({
+            source: "agent",
+            releasePin: null,
+            agentRow: grown,
+            start,
+            attachedRepositoryIds,
+          }).settings,
+        ).toMatchObject({ repositories: ["a", "b", "c", "new"] });
+        expect(
+          effectiveGitHubPolicy({
+            source: "agent",
+            releasePin: null,
+            agentRow: { ...now, repositories: ["a"] },
+            start,
+            attachedRepositoryIds,
+          }).settings,
+        ).toMatchObject({ repositories: ["a"] });
+      }
+    });
+
+    test("a null list, an absent one or no snapshot keeps today's reading", () => {
+      for (const extra of [{ attachedRepositoryIds: null }, {}]) {
+        expect(
+          effectiveGitHubPolicy({
+            source: "agent",
+            releasePin: null,
+            agentRow: grown,
+            start,
+            ...extra,
+          }).settings,
+        ).toMatchObject({ repositories: ["a", "b", "c"] });
+      }
+      // With no snapshot there was never an intersection to remove.
+      expect(
+        effectiveGitHubPolicy({
+          source: "agent",
+          releasePin: null,
+          agentRow: grown,
+          start: null,
+          attachedRepositoryIds: [],
+        }).settings,
+      ).toMatchObject({ repositories: ["a", "b", "c", "new"] });
+    });
+
+    test("only the repository list is released: features, approval and the Actions list stay at the start", () => {
+      const read = effectiveGitHubPolicy({
+        source: "agent",
+        releasePin: null,
+        agentRow: { ...grown, features: ALL_ON, pushApproval: true },
+        start,
+        attachedRepositoryIds: [],
+      });
+      expect(read.settings).toMatchObject({
+        repositories: ["a", "b", "c", "new"],
+        push_approval: true,
+        features: { review: false },
+        actions_allow: [{ workflow: "release.yml" }],
+      });
+      expect(read.startActionsAllow).toEqual([{ workflow: "ci.yml" }]);
+      expect(read.enabledAtStart).toBe(true);
+    });
+
+    test("a release session never reads the list: the pin still caps it", () => {
+      const read = effectiveGitHubPolicy({
+        source: "release",
+        releasePin: { ...PIN, repositories: ["a"] },
+        agentRow: grown,
+        attachedRepositoryIds: [],
+      });
+      expect(read.settings).toMatchObject({ repositories: ["a"] });
+    });
+
+    test("a snapshot this image cannot read stays invalid whatever the list", () => {
+      expect(
+        effectiveGitHubPolicy({
+          source: "agent",
+          releasePin: null,
+          agentRow: grown,
+          start: { enabled: true },
+          attachedRepositoryIds: [],
+        }).settings,
+      ).toBe("invalid");
+    });
+  });
+});
+
+describe("meetGitHubSettings", () => {
+  const left: AgentGitHub = {
+    repositories: ["a", "b"],
+    push_approval: false,
+    features: ALL_ON,
+    actions_allow: [],
+  };
+
+  test("never gives more than either side", () => {
+    const right: AgentGitHub = {
+      repositories: ["b", "c"],
+      push_approval: true,
+      features: { ...ALL_OFF, checks: true },
+      actions_allow: [{ workflow: "x.yml" }],
+    };
+    for (const [a, b] of [
+      [left, right],
+      [right, left],
+    ] as const) {
+      const met = meetGitHubSettings(a, b);
+      expect(met.repositories).toEqual(["b"]);
+      expect(met.push_approval).toBe(true);
+      expect(met.features).toEqual({ ...ALL_OFF, checks: true });
+    }
+  });
+});
+
+describe("push_attached: a push to an attached repository", () => {
+  const person = { ...ROW, updatedBy: PERSON };
+  const START: GitHubPolicyStart = {
+    enabled: true,
+    revision: 2,
+    settings: PIN,
+  };
+
+  test("a value is read as it is stored; none reads as allow; an unknown one is refused", () => {
+    expect(pushAttachedOf("allow")).toBe("allow");
+    expect(pushAttachedOf("ask")).toBe("ask");
+    expect(pushAttachedOf("deny")).toBe("deny");
+    // A row from before the column: nobody chose to be asked.
+    expect(pushAttachedOf(null)).toBe("allow");
+    expect(pushAttachedOf(undefined)).toBe("allow");
+    // A value a later image wrote must not widen anything here.
+    expect(pushAttachedOf("ask_once")).toBe("deny");
+  });
+
+  test("the stricter side wins: deny > ask > allow", () => {
+    const values = ["allow", "ask", "deny"] as const;
+    const rank = { allow: 0, ask: 1, deny: 2 };
+    for (const a of values) {
+      for (const b of values) {
+        expect(meetPushAttached(a, b)).toBe(rank[a] >= rank[b] ? a : b);
+        expect(meetPushAttached(a, b)).toBe(meetPushAttached(b, a));
+      }
+    }
+  });
+
+  test("an agent session with no snapshot reads the row as it is now", () => {
+    const read = (pushAttached: string | null) =>
+      effectiveGitHubPolicy({
+        source: "agent",
+        releasePin: undefined,
+        agentRow: { ...person, pushAttached },
+      }).pushAttached;
+    expect(read("allow")).toBe("allow");
+    expect(read("ask")).toBe("ask");
+    expect(read("deny")).toBe("deny");
+    expect(read(null)).toBe("allow");
+  });
+
+  test("a snapshot only narrows: allow at start and ask now is ask; ask at start and allow now is ask", () => {
+    const read = (atStart: "allow" | "ask" | "deny" | undefined, now: string) =>
+      effectiveGitHubPolicy({
+        source: "agent",
+        releasePin: undefined,
+        agentRow: { ...person, pushAttached: now },
+        start: {
+          ...START,
+          ...(atStart === undefined ? {} : { push_attached: atStart }),
+        },
+      }).pushAttached;
+    expect(read("allow", "allow")).toBe("allow");
+    expect(read("allow", "ask")).toBe("ask");
+    expect(read("allow", "deny")).toBe("deny");
+    expect(read("ask", "allow")).toBe("ask");
+    expect(read("deny", "allow")).toBe("deny");
+    // A snapshot from before the value was kept reads as allow, and the
+    // row now still narrows it.
+    expect(read(undefined, "allow")).toBe("allow");
+    expect(read(undefined, "ask")).toBe("ask");
+  });
+
+  test("a snapshot that carries the value still parses for an image that does not know it", () => {
+    // The envelope is not strict: an older schema ignores the extra key.
+    const older = githubPolicyStartSchema.omit({ push_attached: true });
+    expect(older.safeParse({ ...START, push_attached: "allow" }).success).toBe(
+      true,
+    );
+    expect(githubPolicyStartSchema.safeParse(START).success).toBe(true);
+  });
+
+  test("a release session allows: a person's row sets it, a migration's does not", () => {
+    const read = (pushAttached: string | null, updatedBy: string | null) =>
+      effectiveGitHubPolicy({
+        source: "release",
+        releasePin: PIN,
+        agentRow: { ...ROW, pushAttached, updatedBy },
+      }).pushAttached;
+    expect(read("allow", PERSON)).toBe("allow");
+    expect(read("ask", PERSON)).toBe("ask");
+    expect(read("deny", PERSON)).toBe("deny");
+    expect(read(null, PERSON)).toBe("allow");
+    // A row a migration wrote changes nothing for a session on its release.
+    expect(read("deny", null)).toBe("allow");
+    expect(
+      effectiveGitHubPolicy({
+        source: "release",
+        releasePin: PIN,
+        agentRow: null,
+      }).pushAttached,
+    ).toBe("allow");
+    expect(newSessionGitHubPolicy(null, PIN).pushAttached).toBe("allow");
+  });
+
+  test("a policy that cannot be read does not widen the value", () => {
+    const read = effectiveGitHubPolicy({
+      source: "agent",
+      releasePin: undefined,
+      agentRow: {
+        ...person,
+        repositories: "a later shape",
+        pushAttached: "allow",
+      },
+    });
+    expect(read.settings).toBe("invalid");
+    expect(read.pushAttached).toBe("ask");
+  });
+});
+
+describe("newSessionGitHubPolicy", () => {
+  test("no row keeps today's answer: the release", () => {
+    expect(newSessionGitHubPolicy(null, PIN).source).toBe("release");
+    expect(newSessionGitHubPolicy(null, PIN).settings).toEqual(PIN_READ);
+    expect(newSessionGitHubPolicy(null, undefined).settings).toBeNull();
+  });
+
+  test("a new session starts at the row's own push_attached", () => {
+    const start = (pushAttached: string | null) =>
+      newSessionGitHubPolicy({ ...ROW, pushAttached }, PIN).pushAttached;
+    expect(start("allow")).toBe("allow");
+    expect(start("deny")).toBe("deny");
+    expect(start(null)).toBe("allow");
+  });
+
+  test("a row makes the session the agent's", () => {
+    const read = newSessionGitHubPolicy(ROW, PIN);
+    expect(read.source).toBe("agent");
+    expect(read.startRepositoryId).toBe("infra");
+  });
+});
+
+describe("pushDecisionOf: one rule for every repository", () => {
+  type Decision = "allow" | "ask" | "deny";
+  const TABLE: Array<[boolean, Decision, Decision]> = [
+    [true, "allow", "allow"],
+    [true, "ask", "ask"],
+    [true, "deny", "deny"],
+    [false, "allow", "ask"],
+    [false, "ask", "ask"],
+    [false, "deny", "deny"],
+  ];
+
+  for (const [off, attached, expected] of TABLE) {
+    test(`push_approval ${off ? "false" : "true"} × push_attached ${attached}`, () => {
+      const policy = {
+        settings: { ...PIN, push_approval: !off },
+        pushAttached: attached,
+      };
+      expect(pushDecisionOf(policy)).toBe(expected);
+    });
+  }
+
+  // Not changed by 94S-2398: pinned because CI reads after push and PR rely
+  // on the push going through with no person under the defaults.
+  test("under the defaults a push needs no person: push approval off and no push_attached chosen allow it", () => {
+    expect(
+      pushDecisionOf({
+        settings: { ...PIN, push_approval: false },
+        pushAttached: pushAttachedOf(null),
+      }),
+    ).toBe("allow");
+    expect(
+      pushDecisionOf({
+        settings: GITHUB_POLICY_CLOSED,
+        pushAttached: pushAttachedOf(undefined),
+      }),
+    ).toBe("allow");
+  });
+
+  test("settings that cannot be read ask, and deny still denies", () => {
+    expect(pushDecisionOf({ settings: "invalid", pushAttached: "allow" })).toBe(
+      "ask",
+    );
+    expect(pushDecisionOf({ settings: "invalid", pushAttached: "deny" })).toBe(
+      "deny",
+    );
+  });
+
+  test("no settings at all (no row, no pin) asks nobody; push_attached still applies", () => {
+    expect(pushDecisionOf({ settings: null, pushAttached: "allow" })).toBe(
+      "allow",
+    );
+    expect(pushDecisionOf({ settings: null, pushAttached: "ask" })).toBe("ask");
+    expect(pushDecisionOf({ settings: null, pushAttached: "deny" })).toBe(
+      "deny",
+    );
+  });
+
+  test("a snapshot that started open and is narrowed meets to the stricter value", () => {
+    const row = { ...ROW, pushApproval: false, updatedBy: PERSON };
+    const start: GitHubPolicyStart = {
+      enabled: true,
+      revision: 2,
+      settings: { ...PIN, push_approval: false },
+      push_attached: "allow",
+    };
+    const asked = effectiveGitHubPolicy({
+      source: "agent",
+      releasePin: null,
+      agentRow: { ...row, pushApproval: true, pushAttached: "allow" },
+      start,
+    });
+    expect(pushDecisionOf(asked)).toBe("ask");
+    const denied = effectiveGitHubPolicy({
+      source: "agent",
+      releasePin: null,
+      agentRow: { ...row, pushAttached: "deny" },
+      start,
+    });
+    expect(pushDecisionOf(denied)).toBe("deny");
+  });
+});
+
+describe("stored keys this build does not know (94S-2491)", () => {
+  const KNOWN = { ...ALL_OFF, review: true };
+  const later = { ...KNOWN, later_switch: true };
+  const person: AgentGitHubSettingsRow = {
+    ...ROW,
+    features: later,
+    updatedBy: PERSON,
+  };
+  const pinWith = (features: object) => ({ ...PIN, features });
+  const featuresOf = (read: EffectiveGitHubPolicy): unknown =>
+    read.settings === null || read.settings === "invalid"
+      ? read.settings
+      : read.settings.features;
+
+  test("a row, a pin and a start snapshot read without a feature key they do not know", () => {
+    expect(
+      featuresOf(
+        effectiveGitHubPolicy({
+          source: "agent",
+          releasePin: null,
+          agentRow: person,
+        }),
+      ),
+    ).toEqual(KNOWN);
+    expect(
+      featuresOf(
+        effectiveGitHubPolicy({
+          source: "release",
+          releasePin: pinWith(later),
+          agentRow: null,
+        }),
+      ),
+    ).toEqual(KNOWN);
+    expect(
+      featuresOf(
+        effectiveGitHubPolicy({
+          source: "agent",
+          releasePin: null,
+          agentRow: { ...person, features: KNOWN },
+          start: {
+            enabled: true,
+            revision: 1,
+            settings: { ...SETTINGS, features: later },
+          },
+        }),
+      ),
+    ).toEqual(KNOWN);
+  });
+
+  test("a known key with a bad value, or an unknown key outside the switches, still closes the session", () => {
+    for (const [releasePin, agentRow] of [
+      [null, { ...person, features: { ...KNOWN, merge: "yes" } }],
+      [null, { ...person, features: { ...KNOWN, review: "yes" } }],
+      [{ ...PIN, later_list: [] }, null],
+      [
+        { ...PIN, actions_allow: [{ workflow: "ci.yml", only_on: "tag" }] },
+        null,
+      ],
+    ] as const) {
+      const read = effectiveGitHubPolicy({
+        source: agentRow === null ? "release" : "agent",
+        releasePin,
+        agentRow,
+      });
+      expect(read.settings).toBe("invalid");
+    }
+  });
+
+  test("a pin never holds `merge`: one stored there is left out like any key a pin does not know", () => {
+    const pinned = effectiveGitHubPolicy({
+      source: "release",
+      releasePin: pinWith({ ...KNOWN, merge: true }),
+      agentRow: null,
+    });
+    expect(featuresOf(pinned)).toEqual(KNOWN);
+    // What a pin reads as still parses as a pin, which refuses the key.
+    expect(agentGitHubSchema.safeParse(pinned.settings).success).toBe(true);
+  });
+
+  test("a release keeps reading with one in its pin, as stored, since its id hashes the pin", () => {
+    const parsed = policyPinsSchema.safeParse({ github: pinWith(later) });
+    expect(parsed.success && parsed.data.github?.features).toEqual(later);
+    expect(
+      policyPinsSchema.safeParse({
+        github: pinWith({ ...KNOWN, later_switch: "on" }),
+      }).success,
+    ).toBe(false);
+  });
+
+  test("a save still refuses one: settings, a release pin and the ceiling stay strict", () => {
+    expect(
+      agentGitHubSettingsInputSchema.safeParse({ ...SETTINGS, features: later })
+        .success,
+    ).toBe(false);
+    for (const features of [later, { ...KNOWN, merge: false }]) {
+      expect(agentGitHubInputSchema.safeParse(pinWith(features)).success).toBe(
+        false,
+      );
+    }
+    expect(
+      githubCeilingSchema.safeParse({
+        ...ALL_OFF,
+        merge: false,
+        later_switch: true,
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("an agent's merge switch (94S-2492)", () => {
+  const KNOWN = { ...ALL_OFF, review: true };
+  const ON = { ...KNOWN, merge: true };
+  const person: AgentGitHubSettingsRow = {
+    ...ROW,
+    features: ON,
+    updatedBy: PERSON,
+  };
+  const startWith = (features: object) => ({
+    enabled: true,
+    revision: 1,
+    settings: { ...SETTINGS, features },
+  });
+  const mergeOf = (read: EffectiveGitHubPolicy) =>
+    read.settings === null || read.settings === "invalid"
+      ? read.settings
+      : (read.settings.features.merge ?? false);
+
+  test("a save takes it on, off or left out, and nothing but a boolean", () => {
+    for (const features of [ON, { ...KNOWN, merge: false }, KNOWN]) {
+      expect(
+        agentGitHubSettingsInputSchema.safeParse({ ...SETTINGS, features })
+          .success,
+      ).toBe(true);
+    }
+    expect(
+      agentGitHubSettingsInputSchema.safeParse({
+        ...SETTINGS,
+        features: { ...KNOWN, merge: "yes" },
+      }).success,
+    ).toBe(false);
+  });
+
+  test("it is on for a session only when the row has it on now and the session started with it on", () => {
+    const agent = (features: object, start?: object) =>
+      effectiveGitHubPolicy({
+        source: "agent",
+        releasePin: null,
+        agentRow: { ...person, features },
+        ...(start === undefined ? {} : { start }),
+      });
+    // No snapshot: the row as it is now.
+    expect(mergeOf(agent(ON))).toBe(true);
+    expect(mergeOf(agent(KNOWN))).toBe(false);
+    expect(mergeOf(agent({ ...KNOWN, merge: false }))).toBe(false);
+    expect(mergeOf(agent(ON, startWith(ON)))).toBe(true);
+    // Started with it off, or before the key: turning it on later is for the
+    // next session.
+    expect(mergeOf(agent(ON, startWith(KNOWN)))).toBe(false);
+    expect(mergeOf(agent(ON, startWith({ ...KNOWN, merge: false })))).toBe(
+      false,
+    );
+    // Turned off after the start: off from the next call.
+    expect(mergeOf(agent(KNOWN, startWith(ON)))).toBe(false);
+  });
+
+  test("a session on a release's pin never has it on, whatever the row says", () => {
+    for (const agentRow of [null, person]) {
+      expect(
+        mergeOf(
+          effectiveGitHubPolicy({
+            source: "release",
+            releasePin: PIN,
+            agentRow,
+          }),
+        ),
+      ).toBe(false);
+    }
+    // No pin and no row: no settings at all, so no optional permission.
+    expect(
+      effectiveGitHubPolicy({
+        source: "release",
+        releasePin: null,
+        agentRow: null,
+      }).settings,
+    ).toBeNull();
+  });
+
+  // Rollback (94S-2491 read first): #2373 reads `features` without the keys
+  // it does not know and checks `merge` as an optional boolean; the build
+  // before it reads the five known keys strictly.
+  test("the switches this build stores pass the #2373 switch schema, and the strict one before it only without the key (both shapes copied here)", () => {
+    const five = {
+      workflows: z.boolean(),
+      actions: z.boolean(),
+      checks: z.boolean(),
+      issues: z.boolean(),
+      review: z.boolean(),
+    };
+    const at2373 = z.object({ ...five, merge: z.boolean().optional() });
+    const before2373 = z.object(five).strict();
+    const written = (features: object) => {
+      // A start snapshot, a first save and a GET response all carry this.
+      const read = newSessionGitHubPolicy({ ...person, features }, null);
+      if (read.settings === null || read.settings === "invalid") {
+        throw new Error("unread");
+      }
+      return read.settings.features;
+    };
+    expect(written(ON)).toEqual(ON);
+    // This build's own response schema takes it.
+    expect(
+      agentGitHubSettingsSchema.safeParse({
+        ...SETTINGS,
+        features: written(ON),
+      }).success,
+    ).toBe(true);
+    expect(at2373.safeParse(written(ON)).success).toBe(true);
+    expect(before2373.safeParse(written(ON)).success).toBe(false);
+    // A row nobody gave the key is written back without it.
+    expect(Object.keys(written(KNOWN))).not.toContain("merge");
+    expect(before2373.safeParse(written(KNOWN)).success).toBe(true);
+  });
+});

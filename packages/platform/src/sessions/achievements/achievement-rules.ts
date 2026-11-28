@@ -23,8 +23,8 @@ import {
   OUTRANKED,
   requirePermitted,
   SessionServiceError,
-} from "../../musterrolle/index.ts";
-import type { TeamActor } from "../../musterrolle/ports/team-store.ts";
+} from "../../access-control/index.ts";
+import type { TeamActor } from "../../access-control/ports/team-store.ts";
 import type { AchievementRuleStore } from "./achievement-store.ts";
 import {
   type JudgeConnections,

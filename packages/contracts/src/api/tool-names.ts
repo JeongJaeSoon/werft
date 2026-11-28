@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MCP_SERVER_ID_PATTERN, MCP_TOOL_PREFIX } from "../kollegium/agents.ts";
+import { MCP_SERVER_ID_PATTERN, MCP_TOOL_PREFIX } from "../agents/agents.ts";
 
 export const MCP_TOOL_NAME_MAX = 128;
 

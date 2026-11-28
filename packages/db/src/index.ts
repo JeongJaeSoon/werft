@@ -1,9 +1,35 @@
+export * from "./access-control/agent-admins.ts";
+export * from "./access-control/agent-authority.ts";
+export * from "./access-control/agent-caller-limits.ts";
+export * from "./access-control/agent-identities.ts";
+export * from "./access-control/agent-ownership.ts";
+export * from "./access-control/api-keys.ts";
+export * from "./access-control/audit-events.ts";
+export * from "./access-control/auth-attempts.ts";
+export * from "./access-control/authz-decisions.ts";
+export * from "./access-control/credential-bindings.ts";
+export {
+  createPostgresEnvVariableStore,
+  purgeExpiredEnvStart,
+} from "./access-control/env-variables.ts";
+export * from "./access-control/identity.ts";
+export * from "./access-control/identity-reader.ts";
+export * from "./access-control/invites.ts";
+export * from "./access-control/linked-accounts.ts";
+export * from "./access-control/login-methods.ts";
+export * from "./access-control/login-providers.ts";
+export * from "./access-control/login-settings.ts";
+export * from "./access-control/member-teams.ts";
+export * from "./access-control/members.ts";
+export * from "./access-control/session-shares.ts";
+export * from "./access-control/slack-settings.ts";
+export * from "./access-control/surface-bindings.ts";
+export * from "./access-control/workspace-settings.ts";
 export * from "./action/pull-request-drain.ts";
 export * from "./action/pull-request-settings.ts";
 export * from "./action/pull-requests.ts";
 export * from "./action/push-follow-ups.ts";
 export * from "./action/push-intents.ts";
-export * from "./agents/agent-workspace-mcp.ts";
 export * from "./agents/retired-catalog-drafts.ts";
 export * from "./agents.ts";
 export * from "./budget-accounts.ts";
@@ -51,9 +77,12 @@ export {
   budgetChoiceOfCall,
   recordBudgetAccountRefusal,
 } from "./exchange-budget.ts";
-export * from "./extensions/extension-bundles.ts";
-export { createPostgresSkillGitSourceStore } from "./extensions/skill-git-sources.ts";
-export { createPostgresSkillRepositoryStore } from "./extensions/skill-repositories.ts";
+export * from "./extensions/builtin/status.ts";
+export * from "./extensions/bundles/extension-bundles.ts";
+export * from "./extensions/mcp/agent-workspace-mcp.ts";
+export * from "./extensions/mcp/workspace-mcp.ts";
+export { createPostgresSkillGitSourceStore } from "./extensions/skills/skill-git-sources.ts";
+export { createPostgresSkillRepositoryStore } from "./extensions/skills/skill-repositories.ts";
 export * from "./github/agent-github.ts";
 export * from "./github/catalog-repositories.ts";
 export * from "./github/github-app-manifest-states.ts";
@@ -69,34 +98,6 @@ export * from "./installation-config.ts";
 export * from "./installation-settings.ts";
 export * from "./link-posting.ts";
 export * from "./migration-head.ts";
-export * from "./musterrolle/agent-admins.ts";
-export * from "./musterrolle/agent-authority.ts";
-export * from "./musterrolle/agent-caller-limits.ts";
-export * from "./musterrolle/agent-identities.ts";
-export * from "./musterrolle/agent-ownership.ts";
-export * from "./musterrolle/api-keys.ts";
-export * from "./musterrolle/audit-events.ts";
-export * from "./musterrolle/auth-attempts.ts";
-export * from "./musterrolle/authz-decisions.ts";
-export * from "./musterrolle/credential-bindings.ts";
-export {
-  createPostgresEnvVariableStore,
-  purgeExpiredEnvStart,
-} from "./musterrolle/env-variables.ts";
-export * from "./musterrolle/identity.ts";
-export * from "./musterrolle/identity-reader.ts";
-export * from "./musterrolle/invites.ts";
-export * from "./musterrolle/linked-accounts.ts";
-export * from "./musterrolle/login-methods.ts";
-export * from "./musterrolle/login-providers.ts";
-export * from "./musterrolle/login-settings.ts";
-export * from "./musterrolle/member-teams.ts";
-export * from "./musterrolle/members.ts";
-export * from "./musterrolle/session-shares.ts";
-export * from "./musterrolle/slack-settings.ts";
-export * from "./musterrolle/surface-bindings.ts";
-export * from "./musterrolle/workspace-mcp.ts";
-export * from "./musterrolle/workspace-settings.ts";
 export * from "./postgres-unit-of-work.ts";
 export {
   createProviderExchangeLedger,
@@ -179,5 +180,4 @@ export * from "./telemetry-ingest-store.ts";
 export * from "./usage/agent-usage.ts";
 export * from "./usage/metrics-reader.ts";
 export * from "./usage/usage-reader.ts";
-export * from "./werft-mcp/status.ts";
 export { createPostgresWorkerUnitOfWork } from "./worker-unit-of-work.ts";

@@ -4,13 +4,16 @@ import { rmSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { and, eq } from "drizzle-orm";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
+import { credentialsAllowed } from "./access-control/administers.ts";
+import {
+  sessionReach,
+  startReach,
+} from "./access-control/agent-caller-limits.ts";
+import { lockUnboundRefs } from "./access-control/credential-bindings.ts";
 import { agentSummaries } from "./agent-summaries.ts";
 import { retiredSessionMcpOf } from "./github/mcp-egress.ts";
 import { migrate } from "./migrate.ts";
 import { MIGRATIONS_FOLDER } from "./migration-journal.ts";
-import { credentialsAllowed } from "./musterrolle/administers.ts";
-import { sessionReach, startReach } from "./musterrolle/agent-caller-limits.ts";
-import { lockUnboundRefs } from "./musterrolle/credential-bindings.ts";
 import * as schema from "./schema.ts";
 import { fixtureTeamSql } from "./testing/fixture-team.ts";
 import { migrationsThrough } from "./testing/migrations-through.ts";

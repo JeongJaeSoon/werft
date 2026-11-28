@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
+import type { AgentGitHub } from "../agents/agents.ts";
 import { PULL_REQUEST_REFUSAL_VALUES } from "../api/pull-request.ts";
 import { PUSH_REFUSAL_VALUES } from "../api/push-request.ts";
-import type { AgentGitHub } from "../kollegium/agents.ts";
 import { runtimeConfigSchema } from "../worker-protocol/index.ts";
 import {
   ACTION_REFUSAL_CODE_PATTERN,

@@ -2,18 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import { type Principal, scopesForRole } from "@werft-ai/contracts";
 import { userPrincipal } from "@werft-ai/testkit/callers";
-import type { CatalogConnection } from "../catalog/catalog.ts";
-import { SessionServiceError } from "../musterrolle/index.ts";
+import { SessionServiceError } from "../access-control/index.ts";
 import {
   type Caller,
   callerFor,
   createAuthorizationPolicy,
-} from "../musterrolle/policy.ts";
+} from "../access-control/policy.ts";
+import type { CatalogConnection } from "../catalog/catalog.ts";
 import {
   type OutboundHttp,
   OutboundRefusedError,
   type OutboundRequest,
-} from "../workspace-mcp/ports/workspace-mcp-store.ts";
+} from "../extensions/ports/workspace-mcp-store.ts";
 import type {
   SettingsConsoleResult,
   SettingsDocumentStore,

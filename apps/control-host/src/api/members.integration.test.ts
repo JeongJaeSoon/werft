@@ -52,9 +52,9 @@ import { PasswordChecks } from "./password-checks.ts";
 import {
   registerAuthRoutes,
   registerPublicAuthRoutes,
-} from "./routes/musterrolle/auth.ts";
-import { registerInviteRoutes } from "./routes/musterrolle/invites.ts";
-import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
+} from "./routes/access-control/auth.ts";
+import { registerInviteRoutes } from "./routes/access-control/invites.ts";
+import { registerMemberRoutes } from "./routes/access-control/members.ts";
 import { registerEventRoutes } from "./routes/sessions/events.ts";
 import { registerReceiptRoutes } from "./routes/sessions/receipts.ts";
 import { registerSessionRoutes } from "./routes/sessions/sessions.ts";

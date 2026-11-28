@@ -1,6 +1,13 @@
 import { z } from "zod";
 import { repositoryAttachFailureSchema } from "../action/github-mcp.ts";
 import {
+  AGENT_WORKSPACE_MCP_SERVERS_MAX,
+  mcpServerIdSchema,
+  RESPONSE_LANGUAGE_VALUES,
+} from "../agents/agents.ts";
+import { runtimeEnvSchema } from "../agents/env-variables.ts";
+import { surfaceKindSchema } from "../agents/surfaces.ts";
+import {
   postSessionAnswerRequestSchema,
   rememberRuleSchema,
 } from "../api/answer.ts";
@@ -19,13 +26,6 @@ import {
   sessionRuntimeSchema,
   terminalTurnStatusSchema,
 } from "../api/session.ts";
-import {
-  AGENT_WORKSPACE_MCP_SERVERS_MAX,
-  mcpServerIdSchema,
-  RESPONSE_LANGUAGE_VALUES,
-} from "../kollegium/agents.ts";
-import { runtimeEnvSchema } from "../kollegium/env-variables.ts";
-import { surfaceKindSchema } from "../kollegium/surfaces.ts";
 import { AGENT_DESCRIPTION_MAX_LENGTH } from "../shared/agent-card.ts";
 import { workspaceEnforceSchema } from "../shared/execution.ts";
 import {

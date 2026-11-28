@@ -104,7 +104,7 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select a.slug, a.ac
 - `orca click`이 접힌 영역 아래 버튼(상세의 "저장")을 누르지 못할 때가 있다. `orca eval --expression "[...document.querySelectorAll('button')].find(b=>b.textContent==='저장').click()"`로 누른다. `browser.mjs click`은 처음부터 이렇게 누른다.
 - 비활성된 사람의 탭은 열린 채로는 `me`의 staleTime(30초)이 지나고 포커스가 돌아와야 로그인 화면으로 간다. 다시 열면 바로 간다.
 - `GET /v1/members`가 owner·admin(`member.manage`) 전용이라 member는 구성원 목록을 못 본다. 권한 없음 화면이 맞는 결과다.
-- 웹 카드 폼에는 `credential_refs`가 없어 웹에서 만든 에이전트는 바로 활성화된다. API로 `capabilities.credential_refs`를 넣은 카드는 연결 전 활성화가 `409 CREDENTIAL_UNBOUND`다. 자격 연결은 접근 탭(`?tab=access`)에 있다. Slack 앱 설치 설정은 API로 한다([musterrolle.md](./musterrolle.md) f·g).
+- 웹 카드 폼에는 `credential_refs`가 없어 웹에서 만든 에이전트는 바로 활성화된다. API로 `capabilities.credential_refs`를 넣은 카드는 연결 전 활성화가 `409 CREDENTIAL_UNBOUND`다. 자격 연결은 접근 탭(`?tab=access`)에 있다. Slack 앱 설치 설정은 API로 한다([access-control.md](./access-control.md) f·g).
 - 초대 token은 URL 경로에 있다. 텍스트 증거에는 링크를 남기지 않는다. 초대 링크 스크린샷의 token은 수락이나 회수 뒤 무효다.
 - 같은 사람을 두 번 초대하지 않는다. `invite`는 그 사람의 `users/<who>`가 이미 있으면 새 비밀번호를 만들지 않고 그대로 쓴다.
 

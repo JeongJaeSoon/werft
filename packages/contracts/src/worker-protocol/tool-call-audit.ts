@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { surfaceKindSchema } from "../kollegium/surfaces.ts";
+import { surfaceKindSchema } from "../agents/surfaces.ts";
 import { INT4_MAX, sha256HexSchema } from "../shared/ids.ts";
 
 // The tool-call audit record.
