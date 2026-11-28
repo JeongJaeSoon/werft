@@ -24,9 +24,9 @@
 # A main build whose inputs differ from origin/main's (queued behind a pin
 # change, or a rerun) never writes: its entry would pass for a current one.
 # publish-main fetches origin/main before this step; a shallow checkout fetches
-# it here. A build that passed this check before the change ends within its job
-# timeout (publish-main 20 minutes), so its entry is inside those 30 minutes and
-# the next build writes again.
+# it here. A build that fetched before the change ends within its job timeout
+# (publish-main 20 minutes), so while the commit time is close to the merge time
+# its entry is inside those 30 minutes and the next build writes again.
 #
 # Never fails the job and never holds it: the listing and the fetch each stop
 # after LIST_TIMEOUT seconds, a listing that fails writes as before, and ignore-error=true keeps a
@@ -67,9 +67,13 @@ superseded() {
   [ "$GITHUB_REF" = refs/heads/main ] || return 1
   # A shallow checkout's origin/main is its own commit.
   if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = true ]; then
+    # To a file: a remote helper that outlives git must not hold the step's log.
+    local log
+    log="$(mktemp)"
     bounded git fetch -q --no-tags --depth=1 \
-      origin +refs/heads/main:refs/remotes/origin/main >&2 ||
-      echo "::warning::could not fetch origin/main for ${scope}" >&2
+      origin +refs/heads/main:refs/remotes/origin/main >"$log" 2>&1 ||
+      echo "::warning::could not fetch origin/main for ${scope}: $(cat "$log")" >&2
+    rm -f "$log"
   fi
   local status=0
   git diff --quiet HEAD refs/remotes/origin/main -- "${inputs[@]}" >&2 || status=$?

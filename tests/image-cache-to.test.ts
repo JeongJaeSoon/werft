@@ -94,6 +94,7 @@ function run(
     return {
       exitCode: result.exitCode,
       stdout: result.stdout.toString(),
+      stderr: result.stderr.toString(),
       args: readFileSync(join(dir, "args"), "utf8"),
     };
   } finally {
@@ -258,19 +259,19 @@ test("a fetch that hangs is cut at LIST_TIMEOUT and the job goes on", () => {
     git(repo, ["clone", "-q", "--depth=1", `file://${origin}`, shallow]);
     rmSync(repo, { recursive: true });
     renameSync(shallow, repo);
-    // The script's git, first on PATH, never returns from a fetch.
+    // The script's git, first on PATH, hangs on a fetch in a child that
+    // inherits its output, as a remote helper does.
     const fake = join(repo, "..", "git");
     writeFileSync(
       fake,
-      `#!/usr/bin/env bash\n[ "$1" = fetch ] && exec sleep 30\nexec "${Bun.which("git")}" "$@"\n`,
+      `#!/usr/bin/env bash\nif [ "$1" = fetch ]; then echo fetch >"$(dirname "$0")/fetched"; sleep 20; exit 0; fi\nexec "${Bun.which("git")}" "$@"\n`,
     );
     chmodSync(fake, 0o755);
   };
   const started = Date.now();
-  expect(run("", 0, { LIST_TIMEOUT: "1" }, hanging)).toMatchObject({
-    exitCode: 0,
-    stdout: write,
-  });
+  const result = run("", 0, { LIST_TIMEOUT: "1" }, hanging);
+  expect(result).toMatchObject({ exitCode: 0, stdout: write });
+  expect(result.stderr).toContain("could not fetch origin/main");
   expect(Date.now() - started).toBeLessThan(10_000);
 });
 
