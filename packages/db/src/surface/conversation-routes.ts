@@ -17,6 +17,7 @@ import type {
   StoredSourceSet,
 } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
+import { findPgError } from "../control-shared.ts";
 import {
   adoptSessionParent,
   keptTurnRequest,
@@ -152,39 +153,47 @@ const ownBindOf = (route: PendingConversationRoute) => sql`
  * queued for it.
  */
 async function dropOwnBind(tx: Database, route: PendingConversationRoute) {
-  // The link first, as the outbox takes it before the session: a row being
-  // queued for it is in before this reads. Not a key lock, so an input's
-  // status rows still commit against it.
-  const [link] = rowsOf<{ id: string }>(
-    await tx.execute(sql`
-      SELECT sl.id FROM session_links sl WHERE ${ownBindOf(route)}
-      FOR NO KEY UPDATE OF sl`),
-  );
-  if (link === undefined) return;
-  // Then the session, as an input's write takes it: one writing now ends
-  // before the rows below are read.
-  await tx.execute(sql`
-    SELECT 1 FROM sessions WHERE id = ${route.sessionId}::uuid FOR UPDATE`);
-  const dropped = rowsOf(
-    await tx.execute(sql`
-      DELETE FROM session_links sl
-      WHERE sl.id = ${link.id}::uuid
-        AND NOT ${handedInput(route)}
-        AND NOT EXISTS (SELECT 1 FROM turns t
-          WHERE t.session_id = sl.session_id AND t.created_at >= sl.created_at)
-        -- A row queued for it (its work's report): the thread is the session's.
-        AND NOT EXISTS (SELECT 1 FROM slack_outbox o
-          WHERE o.session_link_id = sl.id)
-      RETURNING sl.id`),
-  );
-  if (dropped.length === 0) return;
-  await tx.execute(sql`
-    UPDATE sessions SET parent_conversation_id = NULL
-    WHERE id = ${route.sessionId}::uuid
-      AND parent_conversation_id = ${route.conversationId}::uuid
-      AND NOT EXISTS (SELECT 1 FROM session_links
-        WHERE session_id = ${route.sessionId}::uuid)`);
+  try {
+    // A savepoint, and no waiting: writers take the link and the session in
+    // either order (the outbox link first, a notice the session first), so
+    // one that holds either now keeps the bind, as a used one is kept.
+    await tx.transaction(async (sp) => {
+      const [link] = rowsOf<{ id: string }>(
+        await sp.execute(sql`
+          SELECT sl.id FROM session_links sl WHERE ${ownBindOf(route)}
+          FOR NO KEY UPDATE OF sl NOWAIT`),
+      );
+      if (link === undefined) return;
+      await sp.execute(sql`
+        SELECT 1 FROM sessions WHERE id = ${route.sessionId}::uuid
+        FOR UPDATE NOWAIT`);
+      const dropped = rowsOf(
+        await sp.execute(sql`
+          DELETE FROM session_links sl
+          WHERE sl.id = ${link.id}::uuid
+            AND NOT ${handedInput(route)}
+            AND NOT EXISTS (SELECT 1 FROM turns t
+              WHERE t.session_id = sl.session_id
+                AND t.created_at >= sl.created_at)
+            -- A row queued for it (its work's report): the thread is the session's.
+            AND NOT EXISTS (SELECT 1 FROM slack_outbox o
+              WHERE o.session_link_id = sl.id)
+          RETURNING sl.id`),
+      );
+      if (dropped.length === 0) return;
+      await sp.execute(sql`
+        UPDATE sessions SET parent_conversation_id = NULL
+        WHERE id = ${route.sessionId}::uuid
+          AND parent_conversation_id = ${route.conversationId}::uuid
+          AND NOT EXISTS (SELECT 1 FROM session_links
+            WHERE session_id = ${route.sessionId}::uuid)`);
+    });
+  } catch (error) {
+    if (findPgError(error, LOCK_NOT_AVAILABLE) === undefined) throw error;
+  }
 }
+
+const LOCK_NOT_AVAILABLE = "55P03";
 
 class BindRefused extends Error {
   constructor(readonly reason: "gone" | "thread_taken" | "other_parent") {
