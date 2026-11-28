@@ -5169,11 +5169,13 @@ describe("startCredentialProxy", () => {
         async () => {
           const up = inside(() => Response.json({ id: "msg_1" }));
           let asks = 0;
+          let hold = false;
+          let held = 0;
           let answer: (() => void) | undefined;
           const auth = authorizer((async () => {
             asks += 1;
-            // Every ask after the first two waits to be let go.
-            if (asks > 2) {
+            if (hold) {
+              held += 1;
               await new Promise<void>((go) => {
                 answer = go;
               });
@@ -5202,12 +5204,17 @@ describe("startCredentialProxy", () => {
               }),
             },
           );
-          // The second call is granted; its regrant has been asked and not
-          // answered when the body ends.
-          while (asks < 3) await Bun.sleep(5);
+          // The slow call is granted; from then on its regrants are asked
+          // and not answered, and one is under way when the body ends.
+          const first = asks;
+          while (asks < first + 1) await Bun.sleep(5);
+          hold = true;
+          while (held < 1) await Bun.sleep(5);
           body?.enqueue(new TextEncoder().encode('"m"}'));
           body?.close();
-          expect((await slow).status).toBe(503);
+          const response = await slow;
+          expect(response.status).toBe(503);
+          expect(response.headers.get("retry-after")).not.toBeNull();
           expect(up.seen).toHaveLength(1);
           answer?.();
         },

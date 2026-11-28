@@ -111,12 +111,15 @@ export function createInstallationHosts(deps: {
   // Per name, each address it answered with and when that lapses. One map
   // per name for the life of the process, only ever added to and aged.
   const answered = new Map<string, Map<string, number>>();
-  // One question per name at a time: callers that overlap share its answer,
-  // so none of them writes an older answer over a newer one.
-  const asking = new Map<string, Promise<boolean>>();
+  // One collection of every name at a time: calls that overlap share it and
+  // its outcome, so none builds a list on an older answer than another, or
+  // on a name whose newer question failed.
+  let collecting: Promise<readonly string[] | null> | undefined;
 
   /** Whether `name` answered; what it answered with is in `answered`. */
   async function ask(name: string): Promise<boolean> {
+    // An address names itself; its key is already in the list.
+    if (isIP(name) !== 0) return true;
     let answers: readonly { address: string }[];
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -150,28 +153,15 @@ export function createInstallationHosts(deps: {
     return true;
   }
 
-  function asked(name: string): Promise<boolean> {
-    // An address names itself; its key is already in the list.
-    if (isIP(name) !== 0) return Promise.resolve(true);
-    let pending = asking.get(name);
-    if (pending === undefined) {
-      pending = ask(name).finally(() => asking.delete(name));
-      asking.set(name, pending);
-    }
-    return pending;
-  }
-
-  return async () => {
+  async function collect(): Promise<readonly string[] | null> {
     const hosts = new Set<string>(wired.map(({ key }) => key));
     for (const address of interfaces()) {
       const key = answerKey(address);
       if (key === null) return null;
       hosts.add(key);
     }
-    const all = await Promise.all(wired.map(({ name }) => asked(name)));
+    const all = await Promise.all(wired.map(({ name }) => ask(name)));
     if (all.includes(false)) return null;
-    // Read now, not as each question ended: a call that overlapped this
-    // one may have learnt another address of a name meanwhile.
     const at = now();
     for (const { name } of wired) {
       for (const [address, end] of answered.get(name) ?? []) {
@@ -179,5 +169,12 @@ export function createInstallationHosts(deps: {
       }
     }
     return hosts.size > MAX_DENIED_HOSTS ? null : [...hosts];
+  }
+
+  return () => {
+    collecting ??= collect().finally(() => {
+      collecting = undefined;
+    });
+    return collecting;
   };
 }

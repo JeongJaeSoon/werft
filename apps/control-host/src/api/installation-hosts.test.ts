@@ -182,29 +182,45 @@ describe("createInstallationHosts", () => {
     expect(await third).toEqual(["api", "172.20.0.8", "172.20.0.9"]);
   });
 
-  test("a call waiting on a slow name gives what an overlapping call learnt of a fast one", async () => {
-    let fast = ["172.20.0.3"];
+  test("calls that overlap share one collection of every name: no name is asked again while another is waited for", async () => {
+    let fast: string[] | Error = ["172.20.0.3"];
     let slow: ((addresses: string[]) => void) | undefined;
+    const asked: string[] = [];
     const hosts = createInstallationHosts({
       names: ["api", "db"],
       interfaces: () => [],
-      lookup: (host) =>
-        host === "api"
-          ? Promise.resolve(fast.map((address) => ({ address, family: 4 })))
-          : new Promise((resolve) => {
-              slow = (addresses) =>
-                resolve(addresses.map((address) => ({ address, family: 4 })));
-            }),
+      lookup: (host) => {
+        asked.push(host);
+        if (host === "db") {
+          return new Promise((resolve) => {
+            slow = (addresses) =>
+              resolve(addresses.map((address) => ({ address, family: 4 })));
+          });
+        }
+        return fast instanceof Error
+          ? Promise.reject(fast)
+          : Promise.resolve(fast.map((address) => ({ address, family: 4 })));
+      },
     });
     const first = hosts();
     await Bun.sleep(1);
-    fast = ["172.20.0.8"];
+    // What a second question of the fast name would get meanwhile: a
+    // failure. It is not asked, so the first call does not go out on an
+    // answer a newer question could not confirm.
+    fast = new Error("EAI_AGAIN");
     const second = hosts();
     await Bun.sleep(1);
     slow?.(["172.20.0.2"]);
-    const both = ["api", "db", "172.20.0.3", "172.20.0.8", "172.20.0.2"];
-    expect(await first).toEqual(both);
-    expect(await second).toEqual(both);
+    const one = ["api", "db", "172.20.0.3", "172.20.0.2"];
+    expect(await first).toEqual(one);
+    expect(await second).toEqual(one);
+    expect(asked).toEqual(["api", "db"]);
+    // The next collection asks every name again, and fails as a whole.
+    const third = hosts();
+    await Bun.sleep(1);
+    slow?.(["172.20.0.2"]);
+    expect(await third).toBeNull();
+    expect(asked).toEqual(["api", "db", "api", "db"]);
   });
 
   test("a name configured relative and absolute is asked both ways, and both answers are held off", async () => {
