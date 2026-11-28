@@ -917,8 +917,31 @@ const WIDE: [string, string, string | null][] = [
     "exec -- -tools/git status",
     "a wrapper the line does not read",
   ],
-  ["a look-up behind builtin", "builtin command -v git", null],
-  ["a look-up behind time", "time command -v git", null],
+  [
+    "a look-up behind builtin",
+    "builtin command -v git",
+    "a wrapper the line does not read",
+  ],
+  [
+    "a program named command behind time",
+    "time command -v git",
+    "a wrapper the line does not read",
+  ],
+  [
+    "a program named command behind a setting and time",
+    "LC_ALL=C time command -v git",
+    "a wrapper the line does not read",
+  ],
+  [
+    "a time program behind command",
+    "command time command -v git",
+    "a wrapper the line does not read",
+  ],
+  [
+    "a time program given a setting it runs as a program",
+    "LC_ALL=C time REVIEW_MARKER=demo git status",
+    null,
+  ],
   [
     "a program named command behind env",
     "env command -v git",

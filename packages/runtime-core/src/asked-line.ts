@@ -1397,8 +1397,6 @@ const PROGRAM_ENV =
 const QUIET_PROGRAMS = ["", "cat", "true", ":"];
 /** A redirect before a command: `2>/dev/null`, `&>`, `<in`, not `<<` or `<(`. */
 const REDIRECT = /^(?:\d+|&)?(?:>&|<&|<>|>>?\|?|<(?![<(]))/;
-/** Wrappers the shell itself runs, so `command` behind them is the builtin. */
-const SHELL_WRAPPERS = ["builtin", "command", "time"];
 const SHELL_KEYWORDS = [
   "if",
   "then",
@@ -1456,7 +1454,6 @@ function wideKept(
   // The options of the last wrapper, and whether a `--` ended them.
   let own: string[] = [];
   let ended = false;
-  const wrapperWords: string[] = [];
   let at = -1;
   for (const [index, word] of words.entries()) {
     const last = wrappers.at(-1);
@@ -1468,21 +1465,23 @@ function wideKept(
       continue;
     }
     // `command -v git` only looks names up.
-    // Only the builtin, reached by the shell alone (`env command` runs a
-    // program of that name), and only on options of its own (`env -u
-    // command -v` gives `-v` to env).
+    // Only `command` as the line's first word is surely the builtin
+    // (`env command` and `time command` run a program of that name), and
+    // only on options of its own.
     if (
-      wrapperWords.at(-1) === "command" &&
-      wrapperWords.every((wrapper) => SHELL_WRAPPERS.includes(wrapper)) &&
+      words[0] === "command" &&
+      wrappers.length === 1 &&
       own.length > 0 &&
       own.length === options.length &&
       own.every((option) => /^-[vV]+$/.test(option))
     ) {
       return null;
     }
-    // The `time` keyword starts a simple command, settings and all.
+    // The `time` keyword, first on the line, starts a simple command,
+    // settings and all.
     if (
-      (wrappers.every((wrapper) => wrapper === "time") &&
+      ((wrappers.length === 0 ||
+        (words[0] === "time" && wrappers.length === 1)) &&
         ASSIGNMENT.test(word)) ||
       (last === "env" && word.includes("="))
     ) {
@@ -1494,7 +1493,6 @@ function wideKept(
       wrappers.push(name);
       own = [];
       ended = false;
-      wrapperWords.push(word);
     } else {
       // A word after a wrapper's option may be its value (`env -u X git`).
       return options.length > 0 &&
