@@ -81,6 +81,7 @@ function plan(
   base = f.base,
   baseRef = "main",
   gh: Parameters<typeof fakeGh>[0] = "tagged",
+  head = "",
 ) {
   const result = Bun.spawnSync(["bash", script], {
     cwd: f.repo,
@@ -94,19 +95,24 @@ function plan(
       RUNNER_TEMP: f.temporary,
       GITHUB_OUTPUT: f.output,
       GH_REPO: "owner/repo",
+      HEAD_SHA: head,
       PATH: `${fakeGh(gh)}:${Bun.env.PATH}`,
     },
   });
-  const output = existsSync(f.output) ? readFileSync(f.output, "utf8") : "";
+  const written = existsSync(f.output) ? readFileSync(f.output, "utf8") : "";
+  const { base: diffBase, ...output } = Object.fromEntries(
+    written
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => line.split("=")),
+  );
   return {
     exitCode: result.exitCode,
-    output: Object.fromEntries(
-      output
-        .trim()
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => line.split("=")),
-    ),
+    output,
+    /** The base the plan diffed against; "" where it kept the full plan. */
+    base: diffBase,
+    stdout: result.stdout.toString(),
     stderr: result.stderr.toString(),
   };
 }
@@ -480,6 +486,7 @@ test("both workflows give the plan what the release lookup needs", () => {
     ).toMatchObject({
       GH_REPO: "$" + "{{ github.repository }}",
       GH_TOKEN: "$" + "{{ github.token }}",
+      HEAD_SHA: "$" + "{{ github.event.pull_request.head.sha }}",
     });
   }
 });
@@ -562,14 +569,110 @@ test("a merge checkout keeps multi-commit prose PRs eligible", () => {
   expect(plan(f).output.docs_only).toBe("true");
 });
 
-test("an event base that differs from the checkout parent uses full validation", () => {
-  const f = fixture(["README.md", "packages/a.ts"], ["packages/a.ts"]);
+/**
+ * A PR opened on f.base whose later push GitHub merged onto a newer main
+ * (actualBase) that changed packages/a.ts, which the PR changes back: the
+ * stale event base sees only docs/prose.md.
+ */
+function staleBaseMerge(path = "packages/a.ts") {
+  const f = fixture(["README.md", path], [path]);
   const actualBase = git(f.repo, "rev-parse", "HEAD");
-  put(f.repo, "packages/a.ts", "before\n");
+  put(f.repo, path, "before\n");
   put(f.repo, "docs/prose.md", "prose\n");
-  commit(f.repo);
+  const head = commit(f.repo);
   mergePullRequest(f, actualBase);
-  expect(plan(f).output).toEqual(full);
+  expect(git(f.repo, "diff", "--name-only", f.base, "HEAD")).toBe(
+    "docs/prose.md",
+  );
+  return { f, actualBase, head };
+}
+
+test("an event base that differs from the checkout parent uses full validation", () => {
+  const { f, actualBase, head } = staleBaseMerge();
+  for (const other of ["", f.base, actualBase]) {
+    const result = plan(f, "pull_request", f.base, "main", "tagged", other);
+    expect(result.output).toEqual(full);
+    expect(result.base).toBe("");
+    expect(result.stdout).toContain("keeping full validation");
+  }
+  // The PR head itself as the checkout: no merge to read a parent from.
+  git(f.repo, "switch", "--quiet", "--detach", head);
+  expect(
+    plan(f, "pull_request", f.base, "main", "tagged", head).output,
+  ).toEqual(full);
+});
+
+test("GitHub's merge of the event head diffs against its first parent", () => {
+  const { f, actualBase, head } = staleBaseMerge();
+  const result = plan(f, "pull_request", f.base, "main", "tagged", head);
+  expect(result.exitCode).toBe(0);
+  expect(result.output).toEqual(shared);
+  expect(result.base).toBe(actualBase);
+  expect(result.stdout).toContain(
+    `Merge parents: HEAD^1=${actualBase} HEAD^2=${head} head=${head} event base=${f.base}`,
+  );
+  const prose = fixture(undefined, ["docs/first.md"]);
+  const mainAhead = git(prose.repo, "rev-parse", "HEAD");
+  git(prose.repo, "switch", "--quiet", "--detach", prose.base);
+  put(prose.repo, "docs/second.md", "prose\n");
+  const proseHead = commit(prose.repo);
+  mergePullRequest(prose, mainAhead);
+  const docs = plan(
+    prose,
+    "pull_request",
+    prose.base,
+    "main",
+    "tagged",
+    proseHead,
+  );
+  expect(docs.output.docs_only).toBe("true");
+  expect(docs.base).toBe(mainAhead);
+});
+
+test("a main push diffs its before whatever the checkout's parents are", () => {
+  const { f, head } = staleBaseMerge();
+  const result = plan(f, "push", f.base, "main", "tagged", head);
+  expect(result.base).toBe(f.base);
+  expect(result.output.docs_only).toBe("true");
+  expect(result.stdout).not.toContain("Merge parents");
+});
+
+test("the SDK consumer check reads the plan's base, not the event's", () => {
+  const workflow = Bun.YAML.parse(
+    readFileSync(join(import.meta.dir, "../.github/workflows/ci.yml"), "utf8"),
+  ) as {
+    jobs: {
+      changes: {
+        steps: { id?: string; env?: Record<string, string>; run?: string }[];
+      };
+    };
+  };
+  const sdk = workflow.jobs.changes.steps.find((step) => step.id === "sdk");
+  expect(sdk?.env?.BASE_SHA).toBe("$" + "{{ steps.plan.outputs.base }}");
+  const sdkRun = (f: ReturnType<typeof fixture>, base: string) => {
+    const output = join(f.temporary, "sdk-output");
+    rmSync(output, { force: true });
+    const result = Bun.spawnSync(["bash", "-e", "-c", sdk?.run ?? "exit 1"], {
+      cwd: f.repo,
+      env: {
+        ...Bun.env,
+        BASE_SHA: base,
+        GITHUB_EVENT_NAME: "pull_request",
+        RUNNER_TEMP: f.temporary,
+        GITHUB_OUTPUT: output,
+      },
+    });
+    expect(result.exitCode).toBe(0);
+    return readFileSync(output, "utf8").trim();
+  };
+  const { f, head } = staleBaseMerge("packages/sdk/src/a.ts");
+  // The event base hides the SDK path main changed and the PR changed back.
+  expect(sdkRun(f, f.base)).toBe("run=false");
+  expect(
+    sdkRun(f, plan(f, "pull_request", f.base, "main", "tagged", head).base),
+  ).toBe("run=true");
+  // Where the plan kept full validation it gives no base, and the check runs.
+  expect(sdkRun(f, plan(f).base)).toBe("run=true");
 });
 
 test("renames and deletions classify the old path as well as the new one", () => {

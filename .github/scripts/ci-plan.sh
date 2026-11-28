@@ -172,9 +172,28 @@ if [ -n "$base" ] && ! git fetch --no-tags --depth=1 origin "$base"; then
   unreadable "cannot fetch the event base"
 fi
 
+# A pull request's base.sha stays at the main it was opened on, while GitHub
+# merges every push onto the main of that moment. Diffing the stale base
+# against that merge can hide a path main changed and the PR changed back, so
+# only the merge's own first parent may stand in for it: when the checkout is
+# GitHub's two-parent merge of this very head (HEAD^2 = the event's head SHA),
+# HEAD^1 is the main this run tests against.
+if [ -n "$base" ] && [ "$event" = pull_request ]; then
+  first_parent=$(git rev-parse --verify -q 'HEAD^1' || true)
+  second_parent=$(git rev-parse --verify -q 'HEAD^2' || true)
+  third_parent=$(git rev-parse --verify -q 'HEAD^3' || true)
+  echo "Merge parents: HEAD^1=${first_parent:-none} HEAD^2=${second_parent:-none} head=${HEAD_SHA:-none} event base=$base"
+  if [ -n "$first_parent" ] && [ -n "$second_parent" ] && [ -z "$third_parent" ] &&
+    [ "$second_parent" = "${HEAD_SHA:-}" ]; then
+    base=$first_parent
+  fi
+fi
+
+diff_base=
 if [ -n "$base" ]; then
   checkout_base=$(git rev-parse --verify 'HEAD^1' 2>/dev/null || true)
   if [ "$event" = push ] || [ "$base" = "$checkout_base" ]; then
+    diff_base=$base
     paths="${RUNNER_TEMP:?}/ci-paths"
     git diff --name-only --no-renames -z "$base" HEAD >"$paths"
     docs_only=true
@@ -288,5 +307,6 @@ printf '%s\n' \
   "docs_only=$docs_only" \
   "helm=$helm" \
   "k8s=$k8s" \
-  "domains=$domains" >>"${GITHUB_OUTPUT:?}"
+  "domains=$domains" \
+  "base=$diff_base" >>"${GITHUB_OUTPUT:?}"
 echo "CI plan: files=$count docs_only=$docs_only tests=$tests product=$product demo=$demo ui_pack=$ui_pack site=$site quickstart=$quickstart helm=$helm k8s=$k8s domains=$domains"
