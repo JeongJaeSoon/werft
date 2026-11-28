@@ -49,6 +49,7 @@ import {
   BOT_SCOPES,
   bootstrapRequestSchema,
   bootstrapResponseSchema,
+  checkSkillRepositoryResponseSchema,
   checkSkillResponseSchema,
   closeLostCheckpointNoticesRequestSchema,
   closeSessionRequestSchema,
@@ -267,6 +268,8 @@ import {
   putGitHubUserLinkAppResponseSchema,
   putSkillAttachmentRequestSchema,
   putSkillAutoApproveRequestSchema,
+  putSkillRepositoryRefRequestSchema,
+  putSkillRepositoryRefResponseSchema,
   putSkillSyncRequestSchema,
   putSlackAppBotsRequestSchema,
   putSlackBindingRequestSchema,
@@ -285,9 +288,12 @@ import {
   recheckSlackAppEventsResponseSchema,
   recoveryDecisionRequestSchema,
   registerGitHubSkillRequestSchema,
+  registerSkillRepositoryRequestSchema,
+  registerSkillRepositoryResponseSchema,
   registerSkillRequestSchema,
   registerSkillResponseSchema,
   rejudgeSessionResponseSchema,
+  removeSkillRepositoryResponseSchema,
   requestBodyInvalidDetailsSchema,
   rerunWorkflowRequestSchema,
   rerunWorkflowResponseSchema,
@@ -340,6 +346,9 @@ import {
   skillAttachmentResponseSchema,
   skillListSchema,
   skillNameParamsSchema,
+  skillRepositoryDetailSchema,
+  skillRepositoryListSchema,
+  skillRepositoryParamsSchema,
   skillSyncResponseSchema,
   skillVersionChangeResponseSchema,
   skillVersionFilesSchema,
@@ -803,6 +812,14 @@ const responseComponents = {
   RegisterSkillRequest: registerSkillRequestSchema,
   RegisterSkillResponse: registerSkillResponseSchema,
   RegisterGitHubSkillRequest: registerGitHubSkillRequestSchema,
+  RegisterSkillRepositoryRequest: registerSkillRepositoryRequestSchema,
+  RegisterSkillRepositoryResponse: registerSkillRepositoryResponseSchema,
+  SkillRepositoryList: skillRepositoryListSchema,
+  SkillRepositoryDetail: skillRepositoryDetailSchema,
+  RemoveSkillRepositoryResponse: removeSkillRepositoryResponseSchema,
+  CheckSkillRepositoryResponse: checkSkillRepositoryResponseSchema,
+  PutSkillRepositoryRefRequest: putSkillRepositoryRefRequestSchema,
+  PutSkillRepositoryRefResponse: putSkillRepositoryRefResponseSchema,
   CheckSkillResponse: checkSkillResponseSchema,
   PutSkillSyncRequest: putSkillSyncRequestSchema,
   SkillSyncResponse: skillSyncResponseSchema,
@@ -1232,6 +1249,56 @@ const EXAMPLE_AGENT_WORKSPACE_MCP_SERVER = {
 };
 const WORKSPACE_MCP_MANAGERS =
   "Owners and admins signed in to the console as a person; never an API key.";
+const EXAMPLE_SKILL_REPOSITORY_ID = "5b8d2f60-9c1e-4a37-b2d4-6e0f1a3c5d79";
+const EXAMPLE_SKILL_REPOSITORY = {
+  id: EXAMPLE_SKILL_REPOSITORY_ID,
+  repository_id: 123456789,
+  repository: "acme/skills",
+  ref: "main",
+  access: "public",
+  connection_id: "019a0000-0000-7000-8000-0000000000b1",
+  installation_id: 4242,
+  owner_id: 9919,
+  license: "Apache-2.0",
+  state: "active",
+  last_commit: "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+  last_sync: {
+    at: "2026-11-28T09:00:00.000Z",
+    trigger: { kind: "register", user_id: EXAMPLE_USER_ID },
+    commit: "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+    result: "listed",
+    issues: [],
+  },
+  skill_count: 1,
+  created_by: EXAMPLE_USER_ID,
+  created_at: "2026-11-28T09:00:00.000Z",
+  removed_by: null,
+  removed_at: null,
+};
+const EXAMPLE_SKILL_REPOSITORY_DETAIL = {
+  repository: EXAMPLE_SKILL_REPOSITORY,
+  skills: [
+    {
+      id: "0e4a7c19-3b5d-4f82-9a6c-1d2e3f4a5b6c",
+      path: "skills/release-notes",
+      name: "release-notes",
+      description: "Drafts release notes from merged pull requests.",
+      license: "Apache-2.0",
+      status: "off",
+      issues: [],
+      name_owner: null,
+      name_shared: false,
+      present: true,
+      enabled: false,
+      tree_sha: "9d1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+      file_count: 3,
+      size_bytes: 4096,
+      has_scripts: false,
+    },
+  ],
+};
+const SKILL_REPOSITORY_LISTING =
+  "The listing reads the tree of the ref's commit once and, of its contents, only the `SKILL.md` files, with the parser an upload meets: every directory holding a `SKILL.md` is one entry with its `name`, `description` and `license`. What the tree alone refuses is judged before anything is fetched and listed in the entry's `issues` (`status` `unavailable`): a symlink or a submodule (by the entry's mode), a path the checker never accepts, another `SKILL.md` below it, more than 255 files, a file over 1 MiB, more than 8 MiB together, or a `SKILL.md` over 64 KiB, which is not fetched. A name another skill of the workspace holds is `conflict`. A tree GitHub cut short, more than 200 skill directories, a skill directory whose path is over 1024 bytes (`path_too_long`), or more than 4 MiB of `SKILL.md` files to fetch (by the tree's sizes; one over 64 KiB is not fetched and not counted) refuse the whole listing.";
 const SKILL_MANAGERS =
   "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`.";
 const EXAMPLE_SKILL_VERSION_ID = "7c3e9a1f-2d4b-4e6a-8f0c-5b1d3e7a9c20";
@@ -2461,7 +2528,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary:
       "Start making the author GitHub App from a manifest (owner or admin)",
-    description: `Returns the manifest for a new author App and the GitHub URL the browser form-POSTs it to (field \`manifest\`), with a new single-use \`state\` in that URL, valid ${GITHUB_APP_MANIFEST_STATE_TTL_SECONDS / 60} minutes and bound to the caller and the workspace. \`owner\` picks an organization (its owners can create the App) or the caller's own account; a private App (\`public: false\`, the default) installs only on that account. The manifest asks for \`contents\` and \`pull_requests\` write and \`metadata\` read, plus \`actions\` and \`workflows\` write with \`actions: true\`; its webhook is off, its redirect is the console's \`/settings/workspace/integrations/github/new-app\` and its callback the account-link page. The App it makes is always another author connection, beside any registered: \`replace\` is ignored, and moving to the new App is removing the old connection afterwards. API keys are refused.`,
+    description: `Returns the manifest for a new author App and the GitHub URL the browser form-POSTs it to (field \`manifest\`), with a new single-use \`state\` in that URL, valid ${GITHUB_APP_MANIFEST_STATE_TTL_SECONDS / 60} minutes and bound to the caller and the workspace. \`owner\` picks an organization (its owners can create the App) or the caller's own account; a private App (\`public: false\`, the default) installs only on that account. The manifest asks for \`contents\`, \`pull_requests\` and \`workflows\` write and \`metadata\`, \`checks\` and \`actions\` read (editing workflow files and reading CI); \`actions: true\` asks for \`actions\` write instead, to run workflows directly; its webhook is off, its redirect is the console's \`/settings/workspace/integrations/github/new-app\` and its callback the account-link page. The App it makes is always another author connection, beside any registered: \`replace\` is ignored, and moving to the new App is removing the old connection afterwards. API keys are refused.`,
     auth: "session",
     body: "StartGitHubAppManifestRequest",
     requestExample: {
@@ -2912,7 +2979,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary: "Change the workspace's GitHub ceiling (owner or admin)",
     description:
-      "Replaces the ceiling. `revision` is the one last read; a stale one is 409 `REVISION_CONFLICT` and nothing changes. Lowering a feature refuses it from the next GitHub token on (409 `GITHUB_REFUSED` `over_workspace_ceiling`), for sessions of every release that turns it on; raising it lets the same releases use it again. `merge` is read on every merge call, so turning it on needs no new release and applies from the next call, and turning it off refuses the next call with `GITHUB_REFUSED` `merge_off` before GitHub is called; a body without `merge` saves it as false. Writes a `set_github_ceiling` receipt with the ceiling before and after. API keys are refused.",
+      "Replaces the ceiling. `revision` is the one last read; a stale one is 409 `REVISION_CONFLICT` and nothing changes. Lowering a feature refuses it from the next GitHub token on (409 `GITHUB_REFUSED` `over_workspace_ceiling`), for sessions of every release that turns it on; raising it lets the same releases use it again. `merge` is read on every merge call, so turning it on needs no new release and applies from the next call, and turning it off refuses the next call before GitHub is called (the `merge_pull_request` tool answers `github_refused` with `details.reason_code` `merge_off`); a body without `merge` saves it as false. An agent merges only with its own `features.merge` on as well (`PUT /v1/agents/{id}/github/settings`); the refusal's `details.off_in` (`agent`, `ceiling` or `both`) names the side that is off. Writes a `set_github_ceiling` receipt with the ceiling before and after. API keys are refused.",
     auth: "session",
     body: "PutGitHubSettingsRequest",
     requestExample: {
@@ -5340,7 +5407,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "GitHub work",
     summary: "Review a pull request in the session's repository",
     description:
-      "Submits a review (`APPROVE`, `REQUEST_CHANGES` or `COMMENT`) on pull request `number` of the session's repository with the workspace's reviewer App, a second App apart from the one that opens pull requests, since GitHub refuses an approval from a pull request's own author. Any open pull request in the repository can be reviewed, whoever opened it. The agent's release must turn on `review` under the workspace ceiling; without a reviewer App the call is refused (409 `GITHUB_REFUSED` `no_reviewer_app`). The token is the reviewer App's, scoped to this repository with `contents: read` and `pull_requests: write`.\n\n`commit_id` is the head the caller read and is required: GitHub files the review on that commit, so nothing pushed after the read is approved. The platform also reads the pull request first, and when its head is not `commit_id` it submits nothing and refuses with 409 `GITHUB_REFUSED` `stale_commit` (`error.details.head_sha` is the head it read). `body` (required unless `APPROVE`) goes to GitHub only, with mentions and cross-references neutralized and secret-shaped lines replaced by `[REDACTED]`. Whether an approval satisfies the repository's required reviews is GitHub's rule, as are branch protection and CODEOWNERS. Leaves a `review_pull_request` receipt either way, naming the commit, the event and, when the platform opened the pull request, the session and agent that opened it; never the body.",
+      "Submits a review (`APPROVE`, `REQUEST_CHANGES` or `COMMENT`) on pull request `number` of the session's repository with the workspace's reviewer App, a second App apart from the one that opens pull requests, since GitHub refuses an approval from a pull request's own author. Any open pull request in the repository can be reviewed, whoever opened it. The agent's GitHub settings must have `review` on under the workspace ceiling: with it off the call is refused (403 `GITHUB_REFUSED` `review_off`) and no token is asked for; without a reviewer App the call is refused (409 `GITHUB_REFUSED` `no_reviewer_app`). The token is the reviewer App's, scoped to this repository with `contents: read` and `pull_requests: write`.\n\n`commit_id` is the head the caller read and is required: GitHub files the review on that commit, so nothing pushed after the read is approved. The platform also reads the pull request first, and when its head is not `commit_id` it submits nothing and refuses with 409 `GITHUB_REFUSED` `stale_commit` (`error.details.head_sha` is the head it read). `body` (required unless `APPROVE`) goes to GitHub only, with mentions and cross-references neutralized and secret-shaped lines replaced by `[REDACTED]`. Whether an approval satisfies the repository's required reviews is GitHub's rule, as are branch protection and CODEOWNERS. Leaves a `review_pull_request` receipt either way, naming the commit, the event and, when the platform opened the pull request, the session and agent that opened it; never the body.",
     scope: "write",
     body: "SubmitPullRequestReviewRequest",
     requestExample: {
@@ -6701,6 +6768,139 @@ export const API_ROUTE_DECLARATIONS = [
     errorCodes: { 502: ["GITHUB_UNAVAILABLE"] },
   },
   {
+    method: "get",
+    path: "/v1/workspace/skill-repositories",
+    operationId: "listSkillRepositories",
+    tag: "Workspace settings",
+    summary: "List the workspace's skill repositories",
+    description:
+      "Every GitHub repository the workspace registered for its skills, oldest first, removed ones too (`state` `removed`). Each carries the ref it follows, the commit and result of its last listing (`last_sync`) and how many skill directories that listing found. Owners and admins read it.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "SkillRepositoryList",
+      description: "The repositories.",
+      example: { items: [EXAMPLE_SKILL_REPOSITORY] },
+    },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/workspace/skill-repositories",
+    operationId: "registerSkillRepository",
+    tag: "Workspace settings",
+    summary: "Register a public GitHub repository for its skills",
+    description: `${SKILL_MANAGERS} Registering is the approval: no review follows. \`url\` is \`https://github.com/<owner>/<name>\`; \`ref\` is a branch, a tag or a commit SHA, and left out it is the repository's default branch as it is named now, kept by that name. The repository must be public (GitHub's \`visibility\` \`public\`; private and internal are refused) and is read with an installation of the workspace's oldest author App that has one, whether or not that installation covers it. ${SKILL_REPOSITORY_LISTING} Every skill is listed switched off, and nothing here switches one on, so no skill version is made. Registering a repository that was removed brings the same row back (\`outcome\` \`restored\`), at the ref given, with every switch off. Refused with 400 \`reason_code\` \`no_installation\`, \`repository_not_found\`, \`repository_not_public\`, \`ref_not_found\` or \`listing_refused\` (with \`details.issues\`); a repository the workspace already follows is 409 \`ALREADY_EXISTS\` \`repository_already_registered\`; GitHub unreachable or refusing the App is 502 \`GITHUB_UNAVAILABLE\`. Writes a \`register_skill_repository\` receipt with the address, the repository's and its owner's GitHub ids, the ref, the commit and the license GitHub names.`,
+    auth: "session",
+    body: "RegisterSkillRepositoryRequest",
+    requestExample: { url: "https://github.com/acme/skills" },
+    success: {
+      status: 201,
+      schema: "RegisterSkillRepositoryResponse",
+      description: "The repository and its listing.",
+      example: {
+        outcome: "registered",
+        ...EXAMPLE_SKILL_REPOSITORY_DETAIL,
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 409, 502, 503],
+    errorCodes: { 409: ["ALREADY_EXISTS"], 502: ["GITHUB_UNAVAILABLE"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/workspace/skill-repositories/{id}",
+    operationId: "getSkillRepository",
+    tag: "Workspace settings",
+    summary: "One skill repository and the skills it lists",
+    description:
+      "The repository and every skill directory its listings found, by path. A directory gone from the repository stays with `present: false`. `status` is `off`, `unavailable` (with `issues`) or `conflict` (`name_owner` is the source of the workspace skill that holds the name); `name_shared` says another listed directory, here or in another registered repository, reads the same name. Owners and admins read it.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "SkillRepositoryDetail",
+      description: "The repository and its skills.",
+      example: EXAMPLE_SKILL_REPOSITORY_DETAIL,
+    },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "delete",
+    path: "/v1/workspace/skill-repositories/{id}",
+    operationId: "removeSkillRepository",
+    tag: "Workspace settings",
+    summary: "Remove a skill repository",
+    description: `${SKILL_MANAGERS} The repository becomes \`removed\` and a listing that was running writes nothing. No row is deleted: registering the same repository again brings it back. Writes a \`remove_skill_repository\` receipt; one already removed answers \`receipt_id: null\`.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "RemoveSkillRepositoryResponse",
+      description: "The repository, removed.",
+      example: {
+        repository: {
+          ...EXAMPLE_SKILL_REPOSITORY,
+          state: "removed",
+          removed_by: EXAMPLE_USER_ID,
+          removed_at: "2026-11-29T09:00:00.000Z",
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/workspace/skill-repositories/{id}/check",
+    operationId: "checkSkillRepository",
+    tag: "Workspace settings",
+    summary: "Read a skill repository's listing again now",
+    description: `${SKILL_MANAGERS} Resolves the ref to a commit again and reads the listing there. ${SKILL_REPOSITORY_LISTING} One listing holds a repository at a time; while it does this answers \`queued\` and the process that runs it reads once more when it ends. A read that outlasts its hold may overlap the next and writes nothing. Should the process that holds the repository stop first, or fail to start the queued read, that request may be lost; checks answer \`queued\` until its hold (5 minutes) has passed, and one made after that reads the listing. A listing that reads GitHub for longer than the request's 30 seconds answers 503 and goes on: what it read is recorded unless the repository was removed, restored or pointed elsewhere meanwhile or another check took it over, and a check queued behind it is then read. GitHub is asked whether the repository is public before any file is read and again after. \`last_sync\` records the time, who asked, the commit and the result: \`listed\`, \`source_missing\` (the ref or the repository is gone, or it is no longer public), \`rejected\` with \`issues\`, or \`github_unavailable\`. Only \`listed\` changes the skills shown. A removed repository is 400 \`repository_removed\`.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "CheckSkillRepositoryResponse",
+      description: "The listing ran, or was queued behind one that runs.",
+      example: { outcome: "checked", ...EXAMPLE_SKILL_REPOSITORY_DETAIL },
+    },
+    errors: [400, 401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/workspace/skill-repositories/{id}/ref",
+    operationId: "putSkillRepositoryRef",
+    tag: "Workspace settings",
+    summary: "Point a skill repository at another ref",
+    description: `${SKILL_MANAGERS} The repository must still be public (400 \`repository_not_public\`) and GitHub must resolve \`ref\` to a commit first (400 \`ref_not_found\`; GitHub not answering is 502 \`GITHUB_UNAVAILABLE\`). The repository then follows it, a listing that was running at the old ref writes nothing, and the listing is read at the new one: \`check\` says whether it ended (\`checked\`) or waits behind a running one (\`queued\`). Writes an \`update_skill_repository_ref\` receipt with the ref before and after; the ref it already follows answers \`receipt_id: null\` and reads nothing. The listing starts even when the request's 30 seconds end just after the change commits; should the process stop between the two, or the deadline cut off the answer of the commit itself, \`last_sync\` is left as it was, and sending the same ref again reads nothing, so run a check. The repository may change while this call checks its ref: removed since, it answers 404; already at \`ref\`, 200 with \`receipt_id: null\`; restored or pointed elsewhere, 409 \`REVISION_CONFLICT\` (\`repository_changed\`) and nothing is written. An \`Idempotency-Key\` is not read: sending the call again is a new change. A removed repository is 400 \`repository_removed\`.`,
+    auth: "session",
+    body: "PutSkillRepositoryRefRequest",
+    requestExample: { ref: "v2" },
+    success: {
+      status: 200,
+      schema: "PutSkillRepositoryRefResponse",
+      description: "The repository at the new ref.",
+      example: {
+        ...EXAMPLE_SKILL_REPOSITORY_DETAIL,
+        repository: { ...EXAMPLE_SKILL_REPOSITORY, ref: "v2" },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        check: "checked",
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 502, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"], 502: ["GITHUB_UNAVAILABLE"] },
+    errorNotes: {
+      REVISION_CONFLICT:
+        "Here no revision is sent: the repository was restored or pointed at another ref while this call checked its ref (`reason_code` `repository_changed`). Read it again and send the change again.",
+      REQUEST_TIMEOUT:
+        "Here no key is read; nothing was changed, so send the request again.",
+      BACKEND_UNAVAILABLE:
+        "Here no key is read, and a change this call committed before the deadline stands: read the repository again, and send the change again only if its ref is still not the one wanted.",
+    },
+    idempotent: false,
+  },
+  {
     method: "post",
     path: "/v1/workspace/skills/{name}/revert",
     operationId: "revertSkill",
@@ -7566,6 +7766,7 @@ export const API_ROUTE_DECLARATIONS = [
             checks: { available: false, reason: "over_workspace_ceiling" },
             issues: { available: false, reason: "over_workspace_ceiling" },
             review: { available: false, reason: "no_reviewer_app" },
+            merge: { available: true, reason: null },
           },
         },
       },
@@ -7639,7 +7840,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Save the agent's GitHub settings",
     description:
-      "Replaces the agent's whole settings row in one transaction and makes no release: a new session reads it at once, and a change that narrows reaches running sessions too. `expected_revision` is `settings_revision` as read (null when there was no row); another value answers 409 `REVISION_CONFLICT`. `push_attached` is optional: left out, a first save writes `allow` and a later save keeps the row's value. `updated_by` is always the caller, so the first save of an agent also fixes the rollback floor at the snapshot-reading image. Only repositories the save adds are checked against the catalog and the workspace's repository ceiling, and features it turns on against the feature ceiling (400 with `reason_code`). Writes a `set_agent_github` receipt with `result.change = \"settings\"` and the values before and after; `receipt_id` is null when a person's row already held them. Agent managers with a web session only; API keys are refused.",
+      "Replaces the agent's whole settings row in one transaction and makes no release: a new session reads it at once, and a change that narrows reaches running sessions too. `expected_revision` is `settings_revision` as read (null when there was no row); another value answers 409 `REVISION_CONFLICT`. `push_attached` is optional: left out, a first save writes `allow` and a later save keeps the row's value. `updated_by` is always the caller, so the first save of an agent also fixes the rollback floor at the snapshot-reading image. Only repositories the save adds are checked against the catalog and the workspace's repository ceiling, and features it turns on against the feature ceiling (400 with `reason_code`). `settings.features.merge` (optional; left out it is off) lets the agent squash-merge the pull request its own session opened, under the ceiling's `merge`; a release pin never carries it. Writes a `set_agent_github` receipt with `result.change = \"settings\"` and the values before and after; `receipt_id` is null when a person's row already held them. Agent managers with a web session only; API keys are refused.",
     auth: "session",
     body: "PutAgentGitHubSettingsRequest",
     requestExample: {
@@ -9790,7 +9991,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Current outcome of an accepted command",
     description:
-      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `resolve_push`, `push`: `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it. Receipts written before the rename say `decide_push`, `decision`, `already_decided` and `PUSH_REQUEST_DECIDED` instead.\n- `open_pull_request`, `update_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`, and for an open or update whose body came from structured fields also `template` (`{commit, path?, blob_sha?, skipped?}`: the default branch's commit read, the template used or the reason one was passed over; never its text); `created` is false when the call answered an open pull request, edited the marked comment, or (always, for `update_pull_request`) changed the title or body of the pull request with the built-in `github` MCP server's `update_pull_request`.\n- `close_pull_request`, `reopen_pull_request`: the same fields plus `{state, changed}`, written when the session's agent closes or reopens the pull request of its push request with the built-in `github` MCP server's tools of those names; `state` is the pull request's state after the call and `changed` is false when it was already in that state. A merged pull request is refused with `pull_request_merged` (`PULL_REQUEST_MERGED`).\n- `merge_pull_request`: the same fields as `close_pull_request` plus `{merged, changed, head_sha, merge_commit_sha, method}`, written when the session's agent squash-merges the pull request of its push request with the built-in `github` MCP server's `merge_pull_request`; `method` is `squash`, or null when the pull request was already merged on the pushed commit (`changed` false). A refusal is `failed` with `reason_code` `merge_off` (the workspace has not allowed merging; `GITHUB_REFUSED`) before GitHub is called, or `merge_blocked` (`PULL_REQUEST_MERGE_BLOCKED`), `head_moved` or `pull_request_closed` (`PULL_REQUEST_CLOSED`). A receipt refused with `merge_off` names no connection, App or role.\n- `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, outside the workspace ceiling, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`), `allowed_in_newer_release` (off the session's release but allowed by the agent's active release: the session keeps the release it started with, and a new session can attach it; `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n- `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.\n- `set_slack_allowed_bots`: `{agent_id, added, removed, count_before, count_after, by}`; `by` is `web` for a save in the console (the user is the receipt's `actor`) and `operator_cli` for a change made with the `slack-app.ts` bot commands; both write it only when the list changed.\n- `approve_slack_notice`, `revoke_slack_notice`: no longer written, since the Slack notice approval is retired; ones written before still read, with `{agent_id, approval_id, slack_team_id, notice_version, notice_locale}` and `{agent_id, approval_ids, slack_team_ids, notice_versions}`.\n- `set_conversation_rollout`: `{agent_id, before, after, by, reason, buffered_dropped}`; `by` is `web` (a workspace owner or admin, the receipt's `actor`) or `operator_cli` (`slack-notice.ts set-rollout`), and `reason` is null. Receipts written while the approval stood may also say `reason` `notice_revoked` (`by` `web`: a revoke lowered the switch) or `not_approved`, `not_installed` or `no_notice` (`by` `reconciler`: the switch lowered to `off` by itself); no new receipt does. `buffered_dropped` counts the held messages a change to `off` removed.\n- `delete_slack_app`: `{slack_app_id, app_id, kind, agent_id, closed, slack_cleanup}`: a Slack app deleted through the API, by the receipt's `actor`. `closed` counts what the delete closed in Werft (`installations`, `identities`, `bindings`, `outbox` messages cancelled as `app_deleted`, `buffered` messages dropped); `slack_cleanup` is null until Slack's side was tried, then `{outcome, failed_steps, message}` as the delete answered. No token is in it.\n- `resolve_unknown_budget`: `{call_id, call_kind, session_id, agent_id, conversation_turn_id, account_id, owner_kind, owner_id, period_start, resolution, reason, held_cost_usd, held_tokens, charged_cost_usd, charged_tokens, unknown_at, run_id, by}`, written by the `budget-unknown.ts` operator command for each budget reservation of unknown end it resolves, or by the reconciler (`by` `reconciler`, no `actor`) for one whose turn ended and whose call can no longer run; `resolution` is `spent` (charged at what it held), `refunded` (charged nothing, with its `reason`) or `estimated` (the reconciler's: charged at what it held), and `target_ref` is the account's owner (a person, or a team) or, with no account, the workspace.\n\nAny credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. A receipt that names an agent or a release of one (`agent_id`, `agent_ids`, `release_id`, `agent_release_id`, or the agent as `target_ref` or `actor.agent_id`) is shown only with those ids to a reader who may use that agent (`GET /v1/usable-agents`); for anyone else a private agent's ids are left out (a list loses them, a single field is `null`) and a receipt whose target is that agent or one of its releases answers 404, as a receipt that does not exist does. It changes nothing.",
+      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `resolve_push`, `push`: `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it. Receipts written before the rename say `decide_push`, `decision`, `already_decided` and `PUSH_REQUEST_DECIDED` instead.\n- `open_pull_request`, `update_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`, and for an open or update whose body came from structured fields also `template` (`{commit, path?, blob_sha?, skipped?}`: the default branch's commit read, the template used or the reason one was passed over; never its text); `created` is false when the call answered an open pull request, edited the marked comment, or (always, for `update_pull_request`) changed the title or body of the pull request with the built-in `github` MCP server's `update_pull_request`.\n- `close_pull_request`, `reopen_pull_request`: the same fields plus `{state, changed}`, written when the session's agent closes or reopens the pull request of its push request with the built-in `github` MCP server's tools of those names; `state` is the pull request's state after the call and `changed` is false when it was already in that state. A merged pull request is refused with `pull_request_merged` (`PULL_REQUEST_MERGED`).\n- `merge_pull_request`: the same fields as `close_pull_request` plus `{merged, changed, head_sha, merge_commit_sha, method}`, written when the session's agent squash-merges the pull request of its push request with the built-in `github` MCP server's `merge_pull_request`; `method` is `squash`, or null when the pull request was already merged on the pushed commit (`changed` false). A refusal is `failed` with `reason_code` `merge_off` (merging is off in the agent's GitHub settings, the workspace ceiling or both, as `off_in` says; `GITHUB_REFUSED`) before GitHub is called, or `merge_blocked` (`PULL_REQUEST_MERGE_BLOCKED`), `head_moved` or `pull_request_closed` (`PULL_REQUEST_CLOSED`). A receipt refused with `merge_off` names no connection, App or role.\n- `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, outside the workspace ceiling, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`), `allowed_in_newer_release` (off the session's release but allowed by the agent's active release: the session keeps the release it started with, and a new session can attach it; `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n- `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.\n- `set_slack_allowed_bots`: `{agent_id, added, removed, count_before, count_after, by}`; `by` is `web` for a save in the console (the user is the receipt's `actor`) and `operator_cli` for a change made with the `slack-app.ts` bot commands; both write it only when the list changed.\n- `approve_slack_notice`, `revoke_slack_notice`: no longer written, since the Slack notice approval is retired; ones written before still read, with `{agent_id, approval_id, slack_team_id, notice_version, notice_locale}` and `{agent_id, approval_ids, slack_team_ids, notice_versions}`.\n- `set_conversation_rollout`: `{agent_id, before, after, by, reason, buffered_dropped}`; `by` is `web` (a workspace owner or admin, the receipt's `actor`) or `operator_cli` (`slack-notice.ts set-rollout`), and `reason` is null. Receipts written while the approval stood may also say `reason` `notice_revoked` (`by` `web`: a revoke lowered the switch) or `not_approved`, `not_installed` or `no_notice` (`by` `reconciler`: the switch lowered to `off` by itself); no new receipt does. `buffered_dropped` counts the held messages a change to `off` removed.\n- `delete_slack_app`: `{slack_app_id, app_id, kind, agent_id, closed, slack_cleanup}`: a Slack app deleted through the API, by the receipt's `actor`. `closed` counts what the delete closed in Werft (`installations`, `identities`, `bindings`, `outbox` messages cancelled as `app_deleted`, `buffered` messages dropped); `slack_cleanup` is null until Slack's side was tried, then `{outcome, failed_steps, message}` as the delete answered. No token is in it.\n- `resolve_unknown_budget`: `{call_id, call_kind, session_id, agent_id, conversation_turn_id, account_id, owner_kind, owner_id, period_start, resolution, reason, held_cost_usd, held_tokens, charged_cost_usd, charged_tokens, unknown_at, run_id, by}`, written by the `budget-unknown.ts` operator command for each budget reservation of unknown end it resolves, or by the reconciler (`by` `reconciler`, no `actor`) for one whose turn ended and whose call can no longer run; `resolution` is `spent` (charged at what it held), `refunded` (charged nothing, with its `reason`) or `estimated` (the reconciler's: charged at what it held), and `target_ref` is the account's owner (a person, or a team) or, with no account, the workspace.\n\nAny credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. A receipt that names an agent or a release of one (`agent_id`, `agent_ids`, `release_id`, `agent_release_id`, or the agent as `target_ref` or `actor.agent_id`) is shown only with those ids to a reader who may use that agent (`GET /v1/usable-agents`); for anyone else a private agent's ids are left out (a list loses them, a single field is `null`) and a receipt whose target is that agent or one of its releases answers 404, as a receipt that does not exist does. It changes nothing.",
     scope: "read",
     success: {
       status: 200,
@@ -10014,6 +10215,7 @@ const PATH_PARAMETER_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "receipts/{id}": "The receipt's id.",
   "secrets/{purpose}": "Which of the Slack app's secrets.",
   "sessions/{id}": "The session's id.",
+  "skill-repositories/{id}": "The skill repository's id.",
   "skills/{name}": "The skill's name.",
   "slack-bindings/{binding_id}": "The Slack binding's id.",
   "teams/{team_id}": "The team's id.",
@@ -10106,6 +10308,8 @@ function paramsSchemaFor(path: string): z.ZodObject {
     return workspaceVariableParamsSchema;
   if (path.startsWith("/v1/workspace/mcp-servers/{id}"))
     return workspaceMcpServerParamsSchema;
+  if (path.startsWith("/v1/workspace/skill-repositories/{id}"))
+    return skillRepositoryParamsSchema;
   if (path.startsWith("/v1/workspace/skills/versions/{id}"))
     return skillVersionParamsSchema;
   if (path.startsWith("/v1/workspace/skills/{name}"))

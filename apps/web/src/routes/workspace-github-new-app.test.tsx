@@ -105,7 +105,7 @@ describe("새 GitHub App 만들기", () => {
 
     await user.type(login, "acme");
     await user.click(
-      screen.getByRole("checkbox", { name: "Actions·워크플로 권한도 받기" }),
+      screen.getByRole("checkbox", { name: "workflow 직접 실행 권한도 받기" }),
     );
     await user.click(screen.getByRole("button", { name: "GitHub에서 만들기" }));
     await waitFor(() => expect(posted).toHaveLength(1));

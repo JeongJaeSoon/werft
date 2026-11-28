@@ -6,6 +6,7 @@ import {
   type SlackNoticeMessage,
   slackMirrorCorrelationIdSchema,
   slackNoticeText,
+  TURN_TOOL_CALL_LIMIT_REASON,
 } from "@werft-ai/contracts";
 import type {
   SurfaceAfterTurnReply,
@@ -498,7 +499,9 @@ export async function enqueueSlackTurnAnswers(deps: {
                 ]
               : turn.terminalReason === "codex_sandbox_not_installed"
                 ? SLACK_NOTICE_MESSAGES[locale].codexSandboxNotInstalled
-                : SLACK_NOTICE_MESSAGES[locale].failed;
+                : turn.terminalReason === TURN_TOOL_CALL_LIMIT_REASON
+                  ? SLACK_NOTICE_MESSAGES[locale].toolCallLimit
+                  : SLACK_NOTICE_MESSAGES[locale].failed;
     await deps.outbox.enqueue({
       workspaceId: turn.workspaceId,
       agentId: turn.agentId,

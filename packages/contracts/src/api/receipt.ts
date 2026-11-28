@@ -231,6 +231,12 @@ export const RECEIPT_OPERATION_VALUES = [
   // A Git skill's sync paused or turned back on, or its auto-approve
   // requested, consented to or turned off.
   "update_extension_sync",
+  // A skill repository registered (or brought back after a removal),
+  // removed, or pointed at another ref: its GitHub id, ref and commit, never
+  // a file's content.
+  "register_skill_repository",
+  "remove_skill_repository",
+  "update_skill_repository_ref",
   // Sign-in providers, by the owner. Field names and counts only: never a
   // client secret, and of a stored one the last four characters.
   "create_login_provider",

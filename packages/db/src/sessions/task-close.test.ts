@@ -1,13 +1,13 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import type { PGlite } from "@electric-sql/pglite";
 import { TASK_CLOSING_DEFAULT } from "@werft-ai/contracts";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import type { Database } from "../queries.ts";
 import * as schema from "../schema.ts";
-import { sessionOutcomes, sessions } from "../schema.ts";
+import { events, sessionOutcomes, sessions } from "../schema.ts";
 import { newPartitionedSession } from "../testing/sessions.ts";
 import { createPostgresTaskCloses } from "./task-close.ts";
 
@@ -131,3 +131,41 @@ test.each([
     expect(await taskOf(sessionId)).toEqual(after);
   },
 );
+
+// 94S-2539 (M14): who the status event of a close names.
+describe("the actor a task's close is recorded as", () => {
+  const actorsOf = async (sessionId: string) =>
+    (
+      await db
+        .select({ payload: events.payload })
+        .from(events)
+        .where(and(eq(events.sessionId, sessionId), eq(events.type, "status")))
+    )
+      .map(({ payload }) => (payload as { actor?: unknown }).actor)
+      .filter((actor) => actor !== undefined);
+
+  test("a pull request's close names the pull request event, not the owner", async () => {
+    const sessionId = await taskWithPullRequest("1", "merged");
+    expect(await createPostgresTaskCloses(db).closeOnPullRequests(10)).toBe(1);
+    expect(await actorsOf(sessionId)).toEqual([
+      { kind: "system", by: "pull_request_event" },
+    ]);
+  });
+
+  test("its requester's close names the owner it closed under", async () => {
+    const sessionId = await taskWithPullRequest("1", "open");
+    const [session] = await db
+      .select({ ownerId: sessions.ownerId })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    const ownerId = session?.ownerId ?? "";
+    expect(
+      await createPostgresTaskCloses(db).close({
+        principal: { ownerId },
+        sessionId,
+        reason: "cancelled",
+      }),
+    ).toBe("closed");
+    expect(await actorsOf(sessionId)).toEqual([{ owner_id: ownerId }]);
+  });
+});

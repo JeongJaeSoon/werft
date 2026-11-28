@@ -299,6 +299,10 @@ The app also receives `channel_shared` and `channel_unshared`, sent when a chann
 
 A turn whose instruction is a message deleted in Slack (including the tombstone of a message with replies) is withheld in the web console and the API. Its instruction, the agent's replies and what its tools read and returned show as "Deleted in Slack"; the tools' names and when the message was deleted are kept. An audit read shows the same. A session title cut or made from the first message is withheld too; a title a person gave is kept. A turn that only inherited the message, such as a later turn of the same session, is not withheld. Nothing stored is erased: it is withheld when read.
 
+## Messages that write entities out
+
+When a person writes an entity out as text (`&amp;amp;`, `&lt;!channel&gt;`), Slack's `text` escapes one level less than what was written, so the agent receives the message with one more level read than the person wrote. The bot's own output is escaped as before, so these characters never make a mention or a notification.
+
 ## Next steps
 
 - [API key](/api-keys)

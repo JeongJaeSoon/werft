@@ -7622,6 +7622,11 @@ export const skillGitSources = pgTable(
     // checks alone. A host from before writes the grant and not this, so
     // what it turned on, or paused and resumed, reads as off.
     autoApproveChecksGrantId: uuid("auto_approve_checks_grant_id"),
+    // The skill repository this skill was switched on in; null for a skill
+    // registered on its own.
+    repositorySourceId: uuid("repository_source_id").references(
+      () => skillRepositories.id,
+    ),
     createdBy: uuid("created_by")
       .notNull()
       .references(() => users.id),
@@ -7654,6 +7659,134 @@ export const skillGitSources = pgTable(
     check(
       "skill_git_sources_auto_approve_check",
       sql`${table.autoApprove} IN ('off', 'requested', 'on') AND (${table.autoApprove} = 'off') = (${table.autoApproveRequestedBy} IS NULL) AND (${table.autoApprove} = 'on') = (${table.autoApproveConsentedBy} IS NOT NULL) AND (${table.autoApprove} = 'on') = (${table.autoApproveGrantId} IS NOT NULL)`,
+    ),
+  ],
+);
+
+// A public GitHub repository a workspace registered for its skills.
+// Registering is the approval: every SKILL.md directory in it is listed in
+// `skill_repository_skills`, each switched off. A removed row stays, so
+// registering the same repository again brings it back.
+export const skillRepositories = pgTable(
+  "skill_repositories",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    repositoryId: bigint("repository_id", { mode: "number" }).notNull(),
+    // `owner/name` when it was registered; the id is what is matched.
+    repository: text().notNull(),
+    ref: text().notNull(),
+    access: text().notNull().default("public"),
+    // The author App connection and the installation whose access reads it;
+    // the installation need not cover the repository.
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => githubApps.id),
+    installationId: bigint("installation_id", { mode: "number" }).notNull(),
+    // The owning account when it was registered: a transfer changes it.
+    ownerId: bigint("owner_id", { mode: "number" }).notNull(),
+    // The license as GitHub named it at the last listing, an SPDX id.
+    license: text(),
+    // Raised by a removal, a restore and a ref change: a listing or a check
+    // that read GitHub under another generation writes nothing.
+    generation: bigint({ mode: "number" }).notNull().default(1),
+    lastCommit: text("last_commit"),
+    lastSync: jsonb("last_sync"),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    // The listing's lease, as a skill's check holds its source row.
+    checkingUntil: timestamp("checking_until", { withTimezone: true }),
+    checkingToken: uuid("checking_token"),
+    checkAgain: jsonb("check_again"),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    removedBy: uuid("removed_by").references(() => users.id),
+  },
+  (table) => [
+    uniqueIndex("skill_repositories_workspace_repository_uniq").on(
+      table.workspaceId,
+      table.repositoryId,
+    ),
+    check(
+      "skill_repositories_access_check",
+      sql`${table.access} IN ('public')`,
+    ),
+    check(
+      "skill_repositories_ids_check",
+      sql`${table.installationId} > 0 AND ${table.repositoryId} > 0 AND ${table.ownerId} > 0 AND ${table.generation} > 0`,
+    ),
+    check(
+      "skill_repositories_removed_check",
+      sql`(${table.removedAt} IS NULL) = (${table.removedBy} IS NULL)`,
+    ),
+  ],
+);
+
+// One SKILL.md directory of a skill repository, as its last listing read it.
+// The switch is off until an admin turns it on; nothing turns it on yet.
+export const skillRepositorySkills = pgTable(
+  "skill_repository_skills",
+  {
+    id: uuid().primaryKey(),
+    skillRepositoryId: uuid("skill_repository_id")
+      .notNull()
+      .references(() => skillRepositories.id),
+    // The directory; empty for the repository root.
+    path: text().notNull(),
+    // The SKILL.md frontmatter name; null when it could not be read. A
+    // name is unique per workspace through the skill's source row, not here.
+    name: text(),
+    description: text(),
+    license: text(),
+    // The directory's git tree as the listing saw it, and as it was when its
+    // content last passed the gate: a failed check is run again.
+    treeSha: text("tree_sha").notNull(),
+    passedTreeSha: text("passed_tree_sha"),
+    fileCount: integer("file_count").notNull(),
+    totalBytes: bigint("total_bytes", { mode: "number" }).notNull(),
+    hasScripts: boolean("has_scripts").notNull(),
+    // Why the listing check refuses it; empty when it does not.
+    listingIssues: jsonb("listing_issues").notNull().default([]),
+    // False once the directory is gone from the repository.
+    present: boolean().notNull().default(true),
+    enabled: boolean().notNull().default(false),
+    enabledBy: uuid("enabled_by").references(() => users.id),
+    enabledAt: timestamp("enabled_at", { withTimezone: true }),
+    // New each time the switch is turned on: a check that read the switch
+    // under another grant writes nothing.
+    enableGrantId: uuid("enable_grant_id"),
+    lastGate: jsonb("last_gate"),
+    notice: jsonb(),
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+    acknowledgedBy: uuid("acknowledged_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("skill_repository_skills_path_uniq").on(
+      table.skillRepositoryId,
+      table.path,
+    ),
+    check(
+      "skill_repository_skills_name_check",
+      sql`${table.name} IS NULL OR ${table.name} ~ '^[a-z0-9][a-z0-9-]{0,63}$'`,
+    ),
+    check(
+      "skill_repository_skills_enabled_check",
+      sql`NOT ${table.enabled} OR ${table.enableGrantId} IS NOT NULL`,
     ),
   ],
 );

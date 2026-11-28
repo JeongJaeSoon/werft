@@ -967,6 +967,18 @@ test("hands the worker the operator's idle lifetime when it is set", () => {
   ).toContain("WORKER_IDLE_TIMEOUT_SEC=600");
 });
 
+test("hands the worker the operator's turn tool call limit when it is set", () => {
+  const intent = intentFor();
+  const base = configFor("unix:///fake.sock");
+  const without = workerEnvironmentFor(base, intent, "nonce-abc");
+  expect(without.some((entry) => entry.startsWith(ENV.maxTurnToolCalls))).toBe(
+    false,
+  );
+  expect(
+    workerEnvironmentFor({ ...base, maxTurnToolCalls: 5 }, intent, "nonce-abc"),
+  ).toContain("WORKER_MAX_TURN_TOOL_CALLS=5");
+});
+
 test("hands the worker no OTEL_* key even when the scheduler's own environment has them", () => {
   // Standard OTel keys mean something to auto-configuring libraries: a worker
   // given them would export to whatever they name. Tracing reaches the worker

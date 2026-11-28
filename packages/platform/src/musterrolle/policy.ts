@@ -422,6 +422,17 @@ export interface AuthorizationPolicy {
     options?: { record?: false | "deny" },
   ): Promise<AuthorizationDecision>;
   /**
+   * A deny for `reason`, decided before the policy by a caller that found
+   * the request itself does not hold (a Slack press whose value is not of
+   * the message pressed), kept in the log as authorize keeps its own.
+   * createAuthorizationPolicy's has it; a caller that needs it says so in
+   * its own type.
+   */
+  refuse?(
+    request: AuthorizationRequest,
+    reason: "surface_mismatch",
+  ): Promise<AuthorizationDecision>;
+  /**
    * The conversations of the private channels whose sessions this subject
    * may pass the door of now (SessionViewer.privateChannels), for a
    * read across sessions. Records nothing. Only cached member lists are
@@ -667,7 +678,7 @@ export function createAuthorizationPolicy(
       warn(message: string, fields?: Readonly<Record<string, unknown>>): void;
     };
   } = {},
-): AuthorizationPolicy {
+): AuthorizationPolicy & Required<Pick<AuthorizationPolicy, "refuse">> {
   const identity = deps.identity ?? authenticatedIdentity;
   const errorName = (error: unknown) =>
     error instanceof Error ? error.name : typeof error;
@@ -1453,6 +1464,28 @@ export function createAuthorizationPolicy(
         }
         return refusedUnrecorded(decision);
       }
+    },
+    async refuse(request, reason) {
+      const decision: AuthorizationDecision = {
+        outcome: "deny",
+        reason_code: reason,
+        effective_scopes: [],
+        policy_version: POLICY_VERSION,
+        decision_id: newDecisionId(),
+      };
+      const parsed = authorizationRequestSchema.safeParse(request);
+      if (!decisions || !parsed.success) return decision;
+      try {
+        await decisions.record({ request: parsed.data, decision });
+      } catch (error) {
+        // A refusal stands unrecorded, as authorize's does.
+        deps.logger?.warn("Authorization decision could not be recorded", {
+          action: parsed.data.action,
+          outcome: decision.outcome,
+          error_name: errorName(error),
+        });
+      }
+      return decision;
     },
   };
 }

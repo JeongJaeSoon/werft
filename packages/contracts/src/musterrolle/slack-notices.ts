@@ -43,6 +43,9 @@ const SLACK_NOTICE_MESSAGES_KO = {
     "자리가 없어 다시 시작하지 못했어요. 세션은 일시 정지 상태로 두었으니 잠시 뒤 다시 시작해 주세요",
   codexSandboxNotInstalled:
     "이 에이전트의 실행 환경(Codex sandbox)이 이 설치에 없어요. 관리자에게 알려 주세요",
+  // A turn its tool call limit ended; the session takes the next reply.
+  toolCallLimit:
+    "도구를 너무 많이 불러 이번 턴을 멈췄어요. 이어서 하려면 답글을 주세요",
   ownershipLost:
     "작업이 중간에 끊겼어요. 서버 연결이 잠시 끊겼어요. 마지막 저장 지점 뒤에 한 일은 확인이 필요해요.",
   ownershipLostContinue: "이어서 하기",
@@ -95,6 +98,8 @@ const SLACK_NOTICE_MESSAGES_KO = {
   nothingToStop: "지금 멈출 작업이 없어요.",
   stopNotPermitted: "작업을 맡긴 사람만 멈출 수 있어요",
   taskCloseNotPermitted: "이 작업을 닫을 권한이 없어요",
+  // A press whose value is not of the message pressed (surface_mismatch).
+  pressMismatch: "이 메시지에서는 그 요청을 처리할 수 없어요",
   // A budget account's refusal, never the session's own limit: whose
   // monthly limit it is, as the ledger charged the call.
   budgetAccountUser:
@@ -175,6 +180,8 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "空きがなく再開できませんでした。セッションは一時停止のままにしてあるので、しばらくしてからもう一度再開してください",
     codexSandboxNotInstalled:
       "このエージェントの実行環境（Codex サンドボックス）がこの環境にありません。管理者に知らせてください",
+    toolCallLimit:
+      "ツールを呼び出しすぎたため、このターンを止めました。続けるには返信してください",
     ownershipLost:
       "作業が途中で途切れました。サーバーとの接続が一時的に切れました。最後の保存地点より後に行ったことは確認が必要です。",
     ownershipLostContinue: "続きから進める",
@@ -220,6 +227,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     nothingToStop: "今止める作業はありません。",
     stopNotPermitted: "作業を依頼した人だけが止められます",
     taskCloseNotPermitted: "この作業を閉じる権限がありません",
+    pressMismatch: "このメッセージからはその操作はできません",
     budgetAccountUser:
       "依頼した人の今月の予算上限に達したため、モデルを呼び出せませんでした。来月1日（UTC）に解除されます。それより前に使うには、ワークスペースの管理者に上限を上げてもらってください",
     budgetAccountTeam:
@@ -282,6 +290,8 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "There was no room to resume this. The session stays paused; please resume it again in a little while",
     codexSandboxNotInstalled:
       "This agent's runtime (the Codex sandbox) is not installed here. Tell an administrator",
+    toolCallLimit:
+      "This turn called tools too many times, so it was stopped. Reply to continue",
     ownershipLost:
       "The work was cut off partway. The connection to the server dropped for a moment. What it did after the last save point needs checking.",
     ownershipLostContinue: "Continue",
@@ -326,6 +336,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     nothingToStop: "There's nothing to stop right now.",
     stopNotPermitted: "Only the person who asked for this task can stop it",
     taskCloseNotPermitted: "You don't have permission to close this task",
+    pressMismatch: "That request can't be made from this message",
     budgetAccountUser:
       "The requester's monthly budget limit was reached, so the model could not be called. It lifts on the 1st of next month (UTC), or sooner when a workspace admin raises the limit",
     budgetAccountTeam:
@@ -366,6 +377,7 @@ const NOTICE_FOR: Record<
   stale_link: "connect",
   role: "noRight",
   surface_ceiling: "noRight",
+  surface_mismatch: "pressMismatch",
   agent_ceiling: "noRight",
   agent_private: "noRight",
   caller_limited: "noRight",

@@ -308,10 +308,15 @@ describe("making the author GitHub App from a manifest", () => {
       callback_urls: [CALLBACK],
       setup_url: `${ORIGIN}/settings/workspace/integrations/github`,
       public: false,
+      // Workflow edits and CI reads are on by default for an agent, so every
+      // App asks for them; running workflows directly is not asked.
       default_permissions: {
         contents: "write",
         pull_requests: "write",
         metadata: "read",
+        workflows: "write",
+        checks: "read",
+        actions: "read",
       },
       default_events: [],
       request_oauth_on_install: false,

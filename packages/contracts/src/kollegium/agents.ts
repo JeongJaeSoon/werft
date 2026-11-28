@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  agentGitHubFeaturesSchema,
   GITHUB_AGENT_REF_PREFIX,
   githubFeaturesSchema,
   githubRefNamesAgentBranch,
@@ -655,10 +656,12 @@ const settingsRepositories = z.array(z.string().min(1).max(128));
 
 /**
  * The agent's own GitHub settings, not pinned on any release. Unlike a pin
- * the list may be empty: switched on, with no repository yet.
+ * the list may be empty (switched on, with no repository yet), and its
+ * `features` may turn `merge` on.
  */
 export const agentGitHubSettingsSchema = agentGitHubSchema.extend({
   repositories: settingsRepositories,
+  features: agentGitHubFeaturesSchema,
 });
 
 /** A stored settings row or start snapshot as it is read, as for a pin. */
@@ -783,14 +786,15 @@ export type GitHubPolicyStart = z.infer<typeof githubPolicyStartSchema>;
 /**
  * What a session may do when it started under `start` and the settings are
  * `current` now. Only narrows, per field: the repository lists intersect, a
- * push needs approval if either asks for it, a feature needs both.
+ * push needs approval if either asks for it, a feature needs both (`merge`
+ * too, which a pin never has: a session on a release's pin does not merge).
  * `actions_allow` holds globs and branch meanings, so it is not intersected:
  * the result keeps the current list and the caller also checks the start's.
  */
 export function meetGitHubSettings(
-  start: AgentGitHub,
-  current: AgentGitHub,
-): AgentGitHub {
+  start: AgentGitHubSettings,
+  current: AgentGitHubSettings,
+): AgentGitHubSettings {
   const kept = new Set(current.repositories);
   return {
     repositories: start.repositories.filter((id) => kept.has(id)),
@@ -801,6 +805,9 @@ export function meetGitHubSettings(
       checks: start.features.checks && current.features.checks,
       issues: start.features.issues && current.features.issues,
       review: start.features.review && current.features.review,
+      ...(start.features.merge && current.features.merge
+        ? { merge: true }
+        : {}),
     },
     actions_allow: current.actions_allow,
   };
@@ -857,7 +864,7 @@ export type EffectiveGitHubPolicy = {
    * Once a session has a start to compare with (its pin, or its snapshot)
    * this is the meet of that start and the agent's settings now.
    */
-  settings: AgentGitHub | "invalid" | null;
+  settings: AgentGitHubSettings | "invalid" | null;
   /** Kept for compatibility, not read to start a session; a release's is `repository_id`. */
   startRepositoryId: string | null;
   agentSettingsRevision: number | null;
