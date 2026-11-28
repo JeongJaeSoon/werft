@@ -3,7 +3,11 @@ import { apiErrorResponseSchema } from "@werft-ai/contracts";
 import { currentDeadline } from "@werft-ai/db/pool";
 import { MemoryLogSink, StructuredLogger } from "@werft-ai/observability";
 import { createApiApp } from "./app.ts";
-import { CLOSING_IDLE_TIMEOUT_SECONDS, readBodyWithin } from "./deadline.ts";
+import {
+  beyondRequest,
+  CLOSING_IDLE_TIMEOUT_SECONDS,
+  readBodyWithin,
+} from "./deadline.ts";
 
 function appWith(
   options: Pick<
@@ -65,6 +69,31 @@ describe("request deadline", () => {
     expect((await app.request("/v1/auth/stuck")).status).toBe(503);
     // A worker long poll legitimately waits longer than any API deadline.
     expect((await app.request("/internal/slow")).status).toBe(200);
+  });
+
+  test("what a timed-out handler must still write runs under a deadline of its own", async () => {
+    let late: Promise<Array<number | undefined>> | undefined;
+    const { app } = appWith({
+      registerRoutes: (router) => {
+        router.get("/slow", async () => {
+          late = (async () => {
+            await Bun.sleep(80);
+            return [
+              currentDeadline()?.remainingMs(),
+              await beyondRequest(async () =>
+                currentDeadline()?.remainingMs(),
+              )(),
+            ];
+          })();
+          return await never;
+        });
+      },
+    });
+    const response = await app.request("/v1/slow", { headers: owner });
+    expect(response.status).toBe(503);
+    const [ofRequest, ofItsOwn] = (await late) ?? [];
+    expect(ofRequest).toBeLessThanOrEqual(0);
+    expect(ofItsOwn).toBeGreaterThan(0);
   });
 
   test("statements see the budget while the handler runs and none once it has answered", async () => {

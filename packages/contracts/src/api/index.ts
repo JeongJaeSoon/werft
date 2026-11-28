@@ -19,6 +19,7 @@ export * from "./receipt.ts";
 export * from "./repository-ceiling.ts";
 export * from "./session.ts";
 export * from "./session-outcome.ts";
+export * from "./skill-repositories.ts";
 export * from "./skills.ts";
 export * from "./tool-names.ts";
 export * from "./turn.ts";

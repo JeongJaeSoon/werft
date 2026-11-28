@@ -3399,6 +3399,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/workspace/skill-repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the workspace's skill repositories
+         * @description Every GitHub repository the workspace registered for its skills, oldest first, removed ones too (`state` `removed`). Each carries the ref it follows, the commit and result of its last listing (`last_sync`) and how many skill directories that listing found. Owners and admins read it.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["listSkillRepositories"];
+        put?: never;
+        /**
+         * Register a public GitHub repository for its skills
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Registering is the approval: no review follows. `url` is `https://github.com/<owner>/<name>`; `ref` is a branch, a tag or a commit SHA, and left out it is the repository's default branch as it is named now, kept by that name. The repository must be public (GitHub's `visibility` `public`; private and internal are refused) and is read with an installation of the workspace's oldest author App that has one, whether or not that installation covers it. The listing reads the tree of the ref's commit once and, of its contents, only the `SKILL.md` files, with the parser an upload meets: every directory holding a `SKILL.md` is one entry with its `name`, `description` and `license`. What the tree alone refuses is judged before anything is fetched and listed in the entry's `issues` (`status` `unavailable`): a symlink or a submodule (by the entry's mode), a path the checker never accepts, another `SKILL.md` below it, more than 255 files, a file over 1 MiB, more than 8 MiB together, or a `SKILL.md` over 64 KiB, which is not fetched. A name another skill of the workspace holds is `conflict`. A tree GitHub cut short, more than 200 skill directories, a skill directory whose path is over 1024 bytes (`path_too_long`), or more than 4 MiB of `SKILL.md` files to fetch (by the tree's sizes; one over 64 KiB is not fetched and not counted) refuse the whole listing. Every skill is listed switched off, and nothing here switches one on, so no skill version is made. Registering a repository that was removed brings the same row back (`outcome` `restored`), at the ref given, with every switch off. Refused with 400 `reason_code` `no_installation`, `repository_not_found`, `repository_not_public`, `ref_not_found` or `listing_refused` (with `details.issues`); a repository the workspace already follows is 409 `ALREADY_EXISTS` `repository_already_registered`; GitHub unreachable or refusing the App is 502 `GITHUB_UNAVAILABLE`. Writes a `register_skill_repository` receipt with the address, the repository's and its owner's GitHub ids, the ref, the commit and the license GitHub names.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["registerSkillRepository"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspace/skill-repositories/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One skill repository and the skills it lists
+         * @description The repository and every skill directory its listings found, by path. A directory gone from the repository stays with `present: false`. `status` is `off`, `unavailable` (with `issues`) or `conflict` (`name_owner` is the source of the workspace skill that holds the name); `name_shared` says another listed directory, here or in another registered repository, reads the same name. Owners and admins read it.
+         *
+         *     **Auth:** cookie session only; no scope.
+         */
+        get: operations["getSkillRepository"];
+        put?: never;
+        post?: never;
+        /**
+         * Remove a skill repository
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. The repository becomes `removed` and a listing that was running writes nothing. No row is deleted: registering the same repository again brings it back. Writes a `remove_skill_repository` receipt; one already removed answers `receipt_id: null`.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        delete: operations["removeSkillRepository"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspace/skill-repositories/{id}/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read a skill repository's listing again now
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Resolves the ref to a commit again and reads the listing there. The listing reads the tree of the ref's commit once and, of its contents, only the `SKILL.md` files, with the parser an upload meets: every directory holding a `SKILL.md` is one entry with its `name`, `description` and `license`. What the tree alone refuses is judged before anything is fetched and listed in the entry's `issues` (`status` `unavailable`): a symlink or a submodule (by the entry's mode), a path the checker never accepts, another `SKILL.md` below it, more than 255 files, a file over 1 MiB, more than 8 MiB together, or a `SKILL.md` over 64 KiB, which is not fetched. A name another skill of the workspace holds is `conflict`. A tree GitHub cut short, more than 200 skill directories, a skill directory whose path is over 1024 bytes (`path_too_long`), or more than 4 MiB of `SKILL.md` files to fetch (by the tree's sizes; one over 64 KiB is not fetched and not counted) refuse the whole listing. One listing holds a repository at a time; while it does this answers `queued` and the process that runs it reads once more when it ends. A read that outlasts its hold may overlap the next and writes nothing. Should the process that holds the repository stop first, or fail to start the queued read, that request may be lost; checks answer `queued` until its hold (5 minutes) has passed, and one made after that reads the listing. A listing that reads GitHub for longer than the request's 30 seconds answers 503 and goes on: what it read is recorded unless the repository was removed, restored or pointed elsewhere meanwhile or another check took it over, and a check queued behind it is then read. GitHub is asked whether the repository is public before any file is read and again after. `last_sync` records the time, who asked, the commit and the result: `listed`, `source_missing` (the ref or the repository is gone, or it is no longer public), `rejected` with `issues`, or `github_unavailable`. Only `listed` changes the skills shown. A removed repository is 400 `repository_removed`.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        post: operations["checkSkillRepository"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/workspace/skill-repositories/{id}/ref": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Point a skill repository at another ref
+         * @description Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. The repository must still be public (400 `repository_not_public`) and GitHub must resolve `ref` to a commit first (400 `ref_not_found`; GitHub not answering is 502 `GITHUB_UNAVAILABLE`). The repository then follows it, a listing that was running at the old ref writes nothing, and the listing is read at the new one: `check` says whether it ended (`checked`) or waits behind a running one (`queued`). Writes an `update_skill_repository_ref` receipt with the ref before and after; the ref it already follows answers `receipt_id: null` and reads nothing. The listing starts even when the request's 30 seconds end just after the change commits; should the process stop between the two, or the deadline cut off the answer of the commit itself, `last_sync` is left as it was, and sending the same ref again reads nothing, so run a check. The repository may change while this call checks its ref: removed since, it answers 404; already at `ref`, 200 with `receipt_id: null`; restored or pointed elsewhere, 409 `REVISION_CONFLICT` (`repository_changed`) and nothing is written. An `Idempotency-Key` is not read: sending the call again is a new change. A removed repository is 400 `repository_removed`.
+         *
+         *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
+         */
+        put: operations["putSkillRepositoryRef"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/workspace/skills/{name}/revert": {
         parameters: {
             query?: never;
@@ -8727,7 +8827,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "bootstrap_owner" | "lock_login" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "delete_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_team_budget_limit" | "set_agent_usage" | "set_agent_caller_limits" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "request_surface_binding" | "resolve_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "merge_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "delete_slack_app" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_github_pull_request_settings" | "set_agent_pull_request_settings" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "create_connection" | "create_mcp_server" | "set_settings_credential" | "set_connection_auto_mode" | "set_connection_models" | "disable_connection" | "enable_connection" | "disable_mcp_server" | "set_mcp_server_workspaces" | "resolve_repository" | "set_agent_github" | "set_agent_mcp" | "set_agent_workspace_mcp" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "set_web_fetch_preflight" | "rejudge_session" | "review_achievement" | "set_env_variable" | "delete_env_variable" | "set_env_variable_grants" | "resolve_session_env" | "reject_session_env" | "resolve_session_engine_settings" | "set_workspace_engine_settings" | "set_agent_engine_settings" | "register_extension" | "approve_extension" | "attach_extension" | "detach_extension" | "archive_extension" | "revert_extension" | "update_extension_sync" | "create_login_provider" | "update_login_provider" | "refresh_login_provider_discovery" | "set_login_provider_secret" | "test_login_provider" | "enable_login_provider" | "disable_login_provider" | "delete_login_provider" | "link_login_method" | "unlink_login_method" | "set_password_login" | "set_emergency_admin" | "update_slack_settings" | "update_github_webhook_settings" | "update_installation_config" | "create_workspace_mcp_server" | "delete_workspace_mcp_server" | "set_workspace_mcp_credential" | "connect_workspace_mcp_server" | "disconnect_workspace_mcp_server" | "delete_conversation_records" | "set_slack_allowed_bots" | "approve_slack_notice" | "revoke_slack_notice" | "resolve_unknown_budget" | "set_conversation_rollout" | "emergency_stop_surface_binding";
+            operation: "create_session" | "append_message" | "answer" | "interrupt" | "pause" | "close" | "terminate" | "resume" | "recovery_decision" | "revoke_execution" | "issue_password_reset" | "reset_password" | "recover_owner" | "bootstrap_owner" | "lock_login" | "takeover" | "link_account" | "unlink_account" | "invite_member" | "accept_invite" | "revoke_invite" | "change_member_role" | "disable_member" | "enable_member" | "disable_user" | "enable_user" | "create_agent" | "update_agent" | "create_agent_release" | "activate_agent" | "delete_agent" | "create_api_key" | "revoke_api_key" | "create_team" | "rename_team" | "delete_team" | "add_team_member" | "remove_team_member" | "set_team_member_role" | "set_agent_managing_team" | "set_team_budget_limit" | "set_agent_usage" | "set_agent_caller_limits" | "set_agent_access_settings" | "add_agent_admin" | "remove_agent_admin" | "bind_credential" | "unbind_credential" | "link_agent_identity" | "revoke_agent_identity" | "set_surface_binding" | "request_surface_binding" | "resolve_surface_binding" | "share_session" | "request_push" | "resolve_push" | "decide_push" | "push" | "open_pull_request" | "update_pull_request" | "comment_pull_request" | "close_pull_request" | "reopen_pull_request" | "merge_pull_request" | "call_mcp" | "set_slack_secret" | "delete_slack_secret" | "delete_slack_app" | "set_github_app" | "delete_github_app" | "mint_github_token" | "set_github_ceiling" | "set_github_pull_request_settings" | "set_agent_pull_request_settings" | "add_repository" | "set_repository_branch" | "remove_repository" | "import_repository" | "import_connection" | "import_mcp_server" | "create_connection" | "create_mcp_server" | "set_settings_credential" | "set_connection_auto_mode" | "set_connection_models" | "disable_connection" | "enable_connection" | "disable_mcp_server" | "set_mcp_server_workspaces" | "resolve_repository" | "set_agent_github" | "set_agent_mcp" | "set_agent_workspace_mcp" | "set_repository_github_app" | "review_pull_request" | "dispatch_workflow" | "rerun_workflow" | "attach_repository" | "set_github_packages_token" | "delete_github_packages_token" | "set_github_packages_allowlist" | "fetch_github_package" | "create_achievement_category" | "update_achievement_category" | "archive_achievement_category" | "create_achievement_type" | "update_achievement_type" | "archive_achievement_type" | "create_achievement_rule" | "update_achievement_rule" | "disable_achievement_rule" | "enable_achievement_rule" | "set_achievement_judge" | "set_web_fetch_preflight" | "rejudge_session" | "review_achievement" | "set_env_variable" | "delete_env_variable" | "set_env_variable_grants" | "resolve_session_env" | "reject_session_env" | "resolve_session_engine_settings" | "set_workspace_engine_settings" | "set_agent_engine_settings" | "register_extension" | "approve_extension" | "attach_extension" | "detach_extension" | "archive_extension" | "revert_extension" | "update_extension_sync" | "register_skill_repository" | "remove_skill_repository" | "update_skill_repository_ref" | "create_login_provider" | "update_login_provider" | "refresh_login_provider_discovery" | "set_login_provider_secret" | "test_login_provider" | "enable_login_provider" | "disable_login_provider" | "delete_login_provider" | "link_login_method" | "unlink_login_method" | "set_password_login" | "set_emergency_admin" | "update_slack_settings" | "update_github_webhook_settings" | "update_installation_config" | "create_workspace_mcp_server" | "delete_workspace_mcp_server" | "set_workspace_mcp_credential" | "connect_workspace_mcp_server" | "disconnect_workspace_mcp_server" | "delete_conversation_records" | "set_slack_allowed_bots" | "approve_slack_notice" | "revoke_slack_notice" | "resolve_unknown_budget" | "set_conversation_rollout" | "emergency_stop_surface_binding";
             target_ref: {
                 /** Format: uuid */
                 session_id: string;
@@ -12653,6 +12753,469 @@ export interface components {
              * @description The author App connection that reads it; may be left out while the workspace has one.
              */
             connection_id?: string;
+        };
+        RegisterSkillRepositoryRequest: {
+            /** @description The repository's address on github.com: `https://github.com/<owner>/<name>`. */
+            url: string;
+            /** @description A branch, a tag or a 40-character commit. Left out, the repository's default branch as it is named now. */
+            ref?: string;
+        };
+        RegisterSkillRepositoryResponse: {
+            repository: {
+                /** Format: uuid */
+                id: string;
+                repository_id: number;
+                repository: string;
+                ref: string;
+                /** @enum {string} */
+                access: "public";
+                /** Format: uuid */
+                connection_id: string;
+                installation_id: number;
+                /** @description The owning GitHub account's id when it was registered. */
+                owner_id: number;
+                /** @description The repository's license as GitHub names it (an SPDX id) at the last listing; null when GitHub names none. */
+                license: string | null;
+                /**
+                 * @description `removed`: its skills are withdrawn. Registering the same repository again brings the row back.
+                 * @enum {string}
+                 */
+                state: "active" | "removed";
+                /** @description The commit of the listing shown. */
+                last_commit: string | null;
+                last_sync: {
+                    /** Format: date-time */
+                    at: string;
+                    trigger: {
+                        /** @enum {string} */
+                        kind: "register" | "manual" | "ref";
+                        user_id: string | null;
+                    };
+                    /** @description The commit the ref named; null when it was not resolved. */
+                    commit: string | null;
+                    /** @enum {string} */
+                    result: "listed" | "github_unavailable" | "source_missing" | "rejected";
+                    /** @description Why the listing was refused; empty otherwise. */
+                    issues: {
+                        path: string;
+                        code: string;
+                        message: string;
+                    }[];
+                } | null;
+                /** @description Skill directories the last listing found. */
+                skill_count: number;
+                /** Format: uuid */
+                created_by: string;
+                /** Format: date-time */
+                created_at: string;
+                removed_by: string | null;
+                removed_at: string | null;
+            };
+            /** @description Every skill directory listed, by path. */
+            skills: {
+                /** Format: uuid */
+                id: string;
+                /** @description The directory holding `SKILL.md`; empty for the root. */
+                path: string;
+                /** @description The `SKILL.md` frontmatter `name`; null when it could not be read. */
+                name: string | null;
+                description: string | null;
+                license: string | null;
+                /** @enum {string} */
+                status: "off" | "unavailable" | "conflict";
+                /** @description What the listing check refused, from the tree's paths, modes and sizes and from `SKILL.md`; empty unless `unavailable`. */
+                issues: {
+                    path: string;
+                    code: string;
+                    message: string;
+                }[];
+                /** @description The source of the workspace skill that holds this name; null when none does. */
+                name_owner: ("upload" | "github") | null;
+                /** @description Another listed directory, in this or another registered repository, reads the same name. */
+                name_shared: boolean;
+                /** @description False once the directory is gone from the repository. */
+                present: boolean;
+                enabled: boolean;
+                tree_sha: string;
+                file_count: number;
+                size_bytes: number;
+                /** @description A file with an execute bit or without a document extension, as the tree names them. */
+                has_scripts: boolean;
+            }[];
+            /**
+             * @description `restored`: the repository was registered before and removed; the same row is active again, every skill switched off.
+             * @enum {string}
+             */
+            outcome: "registered" | "restored";
+            /** Format: uuid */
+            receipt_id: string;
+        };
+        SkillRepositoryList: {
+            items: {
+                /** Format: uuid */
+                id: string;
+                repository_id: number;
+                repository: string;
+                ref: string;
+                /** @enum {string} */
+                access: "public";
+                /** Format: uuid */
+                connection_id: string;
+                installation_id: number;
+                /** @description The owning GitHub account's id when it was registered. */
+                owner_id: number;
+                /** @description The repository's license as GitHub names it (an SPDX id) at the last listing; null when GitHub names none. */
+                license: string | null;
+                /**
+                 * @description `removed`: its skills are withdrawn. Registering the same repository again brings the row back.
+                 * @enum {string}
+                 */
+                state: "active" | "removed";
+                /** @description The commit of the listing shown. */
+                last_commit: string | null;
+                last_sync: {
+                    /** Format: date-time */
+                    at: string;
+                    trigger: {
+                        /** @enum {string} */
+                        kind: "register" | "manual" | "ref";
+                        user_id: string | null;
+                    };
+                    /** @description The commit the ref named; null when it was not resolved. */
+                    commit: string | null;
+                    /** @enum {string} */
+                    result: "listed" | "github_unavailable" | "source_missing" | "rejected";
+                    /** @description Why the listing was refused; empty otherwise. */
+                    issues: {
+                        path: string;
+                        code: string;
+                        message: string;
+                    }[];
+                } | null;
+                /** @description Skill directories the last listing found. */
+                skill_count: number;
+                /** Format: uuid */
+                created_by: string;
+                /** Format: date-time */
+                created_at: string;
+                removed_by: string | null;
+                removed_at: string | null;
+            }[];
+        };
+        SkillRepositoryDetail: {
+            repository: {
+                /** Format: uuid */
+                id: string;
+                repository_id: number;
+                repository: string;
+                ref: string;
+                /** @enum {string} */
+                access: "public";
+                /** Format: uuid */
+                connection_id: string;
+                installation_id: number;
+                /** @description The owning GitHub account's id when it was registered. */
+                owner_id: number;
+                /** @description The repository's license as GitHub names it (an SPDX id) at the last listing; null when GitHub names none. */
+                license: string | null;
+                /**
+                 * @description `removed`: its skills are withdrawn. Registering the same repository again brings the row back.
+                 * @enum {string}
+                 */
+                state: "active" | "removed";
+                /** @description The commit of the listing shown. */
+                last_commit: string | null;
+                last_sync: {
+                    /** Format: date-time */
+                    at: string;
+                    trigger: {
+                        /** @enum {string} */
+                        kind: "register" | "manual" | "ref";
+                        user_id: string | null;
+                    };
+                    /** @description The commit the ref named; null when it was not resolved. */
+                    commit: string | null;
+                    /** @enum {string} */
+                    result: "listed" | "github_unavailable" | "source_missing" | "rejected";
+                    /** @description Why the listing was refused; empty otherwise. */
+                    issues: {
+                        path: string;
+                        code: string;
+                        message: string;
+                    }[];
+                } | null;
+                /** @description Skill directories the last listing found. */
+                skill_count: number;
+                /** Format: uuid */
+                created_by: string;
+                /** Format: date-time */
+                created_at: string;
+                removed_by: string | null;
+                removed_at: string | null;
+            };
+            /** @description Every skill directory listed, by path. */
+            skills: {
+                /** Format: uuid */
+                id: string;
+                /** @description The directory holding `SKILL.md`; empty for the root. */
+                path: string;
+                /** @description The `SKILL.md` frontmatter `name`; null when it could not be read. */
+                name: string | null;
+                description: string | null;
+                license: string | null;
+                /** @enum {string} */
+                status: "off" | "unavailable" | "conflict";
+                /** @description What the listing check refused, from the tree's paths, modes and sizes and from `SKILL.md`; empty unless `unavailable`. */
+                issues: {
+                    path: string;
+                    code: string;
+                    message: string;
+                }[];
+                /** @description The source of the workspace skill that holds this name; null when none does. */
+                name_owner: ("upload" | "github") | null;
+                /** @description Another listed directory, in this or another registered repository, reads the same name. */
+                name_shared: boolean;
+                /** @description False once the directory is gone from the repository. */
+                present: boolean;
+                enabled: boolean;
+                tree_sha: string;
+                file_count: number;
+                size_bytes: number;
+                /** @description A file with an execute bit or without a document extension, as the tree names them. */
+                has_scripts: boolean;
+            }[];
+        };
+        RemoveSkillRepositoryResponse: {
+            repository: {
+                /** Format: uuid */
+                id: string;
+                repository_id: number;
+                repository: string;
+                ref: string;
+                /** @enum {string} */
+                access: "public";
+                /** Format: uuid */
+                connection_id: string;
+                installation_id: number;
+                /** @description The owning GitHub account's id when it was registered. */
+                owner_id: number;
+                /** @description The repository's license as GitHub names it (an SPDX id) at the last listing; null when GitHub names none. */
+                license: string | null;
+                /**
+                 * @description `removed`: its skills are withdrawn. Registering the same repository again brings the row back.
+                 * @enum {string}
+                 */
+                state: "active" | "removed";
+                /** @description The commit of the listing shown. */
+                last_commit: string | null;
+                last_sync: {
+                    /** Format: date-time */
+                    at: string;
+                    trigger: {
+                        /** @enum {string} */
+                        kind: "register" | "manual" | "ref";
+                        user_id: string | null;
+                    };
+                    /** @description The commit the ref named; null when it was not resolved. */
+                    commit: string | null;
+                    /** @enum {string} */
+                    result: "listed" | "github_unavailable" | "source_missing" | "rejected";
+                    /** @description Why the listing was refused; empty otherwise. */
+                    issues: {
+                        path: string;
+                        code: string;
+                        message: string;
+                    }[];
+                } | null;
+                /** @description Skill directories the last listing found. */
+                skill_count: number;
+                /** Format: uuid */
+                created_by: string;
+                /** Format: date-time */
+                created_at: string;
+                removed_by: string | null;
+                removed_at: string | null;
+            };
+            /** @description Null when it already was removed. */
+            receipt_id: string | null;
+        };
+        CheckSkillRepositoryResponse: {
+            repository: {
+                /** Format: uuid */
+                id: string;
+                repository_id: number;
+                repository: string;
+                ref: string;
+                /** @enum {string} */
+                access: "public";
+                /** Format: uuid */
+                connection_id: string;
+                installation_id: number;
+                /** @description The owning GitHub account's id when it was registered. */
+                owner_id: number;
+                /** @description The repository's license as GitHub names it (an SPDX id) at the last listing; null when GitHub names none. */
+                license: string | null;
+                /**
+                 * @description `removed`: its skills are withdrawn. Registering the same repository again brings the row back.
+                 * @enum {string}
+                 */
+                state: "active" | "removed";
+                /** @description The commit of the listing shown. */
+                last_commit: string | null;
+                last_sync: {
+                    /** Format: date-time */
+                    at: string;
+                    trigger: {
+                        /** @enum {string} */
+                        kind: "register" | "manual" | "ref";
+                        user_id: string | null;
+                    };
+                    /** @description The commit the ref named; null when it was not resolved. */
+                    commit: string | null;
+                    /** @enum {string} */
+                    result: "listed" | "github_unavailable" | "source_missing" | "rejected";
+                    /** @description Why the listing was refused; empty otherwise. */
+                    issues: {
+                        path: string;
+                        code: string;
+                        message: string;
+                    }[];
+                } | null;
+                /** @description Skill directories the last listing found. */
+                skill_count: number;
+                /** Format: uuid */
+                created_by: string;
+                /** Format: date-time */
+                created_at: string;
+                removed_by: string | null;
+                removed_at: string | null;
+            };
+            /** @description Every skill directory listed, by path. */
+            skills: {
+                /** Format: uuid */
+                id: string;
+                /** @description The directory holding `SKILL.md`; empty for the root. */
+                path: string;
+                /** @description The `SKILL.md` frontmatter `name`; null when it could not be read. */
+                name: string | null;
+                description: string | null;
+                license: string | null;
+                /** @enum {string} */
+                status: "off" | "unavailable" | "conflict";
+                /** @description What the listing check refused, from the tree's paths, modes and sizes and from `SKILL.md`; empty unless `unavailable`. */
+                issues: {
+                    path: string;
+                    code: string;
+                    message: string;
+                }[];
+                /** @description The source of the workspace skill that holds this name; null when none does. */
+                name_owner: ("upload" | "github") | null;
+                /** @description Another listed directory, in this or another registered repository, reads the same name. */
+                name_shared: boolean;
+                /** @description False once the directory is gone from the repository. */
+                present: boolean;
+                enabled: boolean;
+                tree_sha: string;
+                file_count: number;
+                size_bytes: number;
+                /** @description A file with an execute bit or without a document extension, as the tree names them. */
+                has_scripts: boolean;
+            }[];
+            /**
+             * @description `queued`: a listing of the repository was running, and the process that runs it reads once more when it ends. Should that process stop first, or fail to start that read, the queued request may be lost; checks answer `queued` until its hold (5 minutes) has passed, and one made after that reads the listing.
+             * @enum {string}
+             */
+            outcome: "checked" | "queued";
+        };
+        PutSkillRepositoryRefRequest: {
+            ref: string;
+        };
+        PutSkillRepositoryRefResponse: {
+            repository: {
+                /** Format: uuid */
+                id: string;
+                repository_id: number;
+                repository: string;
+                ref: string;
+                /** @enum {string} */
+                access: "public";
+                /** Format: uuid */
+                connection_id: string;
+                installation_id: number;
+                /** @description The owning GitHub account's id when it was registered. */
+                owner_id: number;
+                /** @description The repository's license as GitHub names it (an SPDX id) at the last listing; null when GitHub names none. */
+                license: string | null;
+                /**
+                 * @description `removed`: its skills are withdrawn. Registering the same repository again brings the row back.
+                 * @enum {string}
+                 */
+                state: "active" | "removed";
+                /** @description The commit of the listing shown. */
+                last_commit: string | null;
+                last_sync: {
+                    /** Format: date-time */
+                    at: string;
+                    trigger: {
+                        /** @enum {string} */
+                        kind: "register" | "manual" | "ref";
+                        user_id: string | null;
+                    };
+                    /** @description The commit the ref named; null when it was not resolved. */
+                    commit: string | null;
+                    /** @enum {string} */
+                    result: "listed" | "github_unavailable" | "source_missing" | "rejected";
+                    /** @description Why the listing was refused; empty otherwise. */
+                    issues: {
+                        path: string;
+                        code: string;
+                        message: string;
+                    }[];
+                } | null;
+                /** @description Skill directories the last listing found. */
+                skill_count: number;
+                /** Format: uuid */
+                created_by: string;
+                /** Format: date-time */
+                created_at: string;
+                removed_by: string | null;
+                removed_at: string | null;
+            };
+            /** @description Every skill directory listed, by path. */
+            skills: {
+                /** Format: uuid */
+                id: string;
+                /** @description The directory holding `SKILL.md`; empty for the root. */
+                path: string;
+                /** @description The `SKILL.md` frontmatter `name`; null when it could not be read. */
+                name: string | null;
+                description: string | null;
+                license: string | null;
+                /** @enum {string} */
+                status: "off" | "unavailable" | "conflict";
+                /** @description What the listing check refused, from the tree's paths, modes and sizes and from `SKILL.md`; empty unless `unavailable`. */
+                issues: {
+                    path: string;
+                    code: string;
+                    message: string;
+                }[];
+                /** @description The source of the workspace skill that holds this name; null when none does. */
+                name_owner: ("upload" | "github") | null;
+                /** @description Another listed directory, in this or another registered repository, reads the same name. */
+                name_shared: boolean;
+                /** @description False once the directory is gone from the repository. */
+                present: boolean;
+                enabled: boolean;
+                tree_sha: string;
+                file_count: number;
+                size_bytes: number;
+                /** @description A file with an execute bit or without a document extension, as the tree names them. */
+                has_scripts: boolean;
+            }[];
+            /** @description Null when the repository already followed that ref. */
+            receipt_id: string | null;
+            /** @description The listing this call ran at the new ref; null when the ref did not change. */
+            check: ("checked" | "queued") | null;
         };
         CheckSkillResponse: {
             /**
@@ -37771,6 +38334,957 @@ export interface operations {
                 };
             };
             /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    listSkillRepositories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The repositories. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "5b8d2f60-9c1e-4a37-b2d4-6e0f1a3c5d79",
+                     *           "repository_id": 123456789,
+                     *           "repository": "acme/skills",
+                     *           "ref": "main",
+                     *           "access": "public",
+                     *           "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                     *           "installation_id": 4242,
+                     *           "owner_id": 9919,
+                     *           "license": "Apache-2.0",
+                     *           "state": "active",
+                     *           "last_commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                     *           "last_sync": {
+                     *             "at": "2026-11-28T09:00:00.000Z",
+                     *             "trigger": {
+                     *               "kind": "register",
+                     *               "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                     *             },
+                     *             "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                     *             "result": "listed",
+                     *             "issues": []
+                     *           },
+                     *           "skill_count": 1,
+                     *           "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *           "created_at": "2026-11-28T09:00:00.000Z",
+                     *           "removed_by": null,
+                     *           "removed_at": null
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SkillRepositoryList"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    registerSkillRepository: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "url": "https://github.com/acme/skills"
+                 *     }
+                 */
+                "application/json": components["schemas"]["RegisterSkillRepositoryRequest"];
+            };
+        };
+        responses: {
+            /** @description The repository and its listing. */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "outcome": "registered",
+                     *       "repository": {
+                     *         "id": "5b8d2f60-9c1e-4a37-b2d4-6e0f1a3c5d79",
+                     *         "repository_id": 123456789,
+                     *         "repository": "acme/skills",
+                     *         "ref": "main",
+                     *         "access": "public",
+                     *         "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                     *         "installation_id": 4242,
+                     *         "owner_id": 9919,
+                     *         "license": "Apache-2.0",
+                     *         "state": "active",
+                     *         "last_commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                     *         "last_sync": {
+                     *           "at": "2026-11-28T09:00:00.000Z",
+                     *           "trigger": {
+                     *             "kind": "register",
+                     *             "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                     *           },
+                     *           "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                     *           "result": "listed",
+                     *           "issues": []
+                     *         },
+                     *         "skill_count": 1,
+                     *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "created_at": "2026-11-28T09:00:00.000Z",
+                     *         "removed_by": null,
+                     *         "removed_at": null
+                     *       },
+                     *       "skills": [
+                     *         {
+                     *           "id": "0e4a7c19-3b5d-4f82-9a6c-1d2e3f4a5b6c",
+                     *           "path": "skills/release-notes",
+                     *           "name": "release-notes",
+                     *           "description": "Drafts release notes from merged pull requests.",
+                     *           "license": "Apache-2.0",
+                     *           "status": "off",
+                     *           "issues": [],
+                     *           "name_owner": null,
+                     *           "name_shared": false,
+                     *           "present": true,
+                     *           "enabled": false,
+                     *           "tree_sha": "9d1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                     *           "file_count": 3,
+                     *           "size_bytes": 4096,
+                     *           "has_scripts": false
+                     *         }
+                     *       ],
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["RegisterSkillRepositoryResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "ALREADY_EXISTS";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `GITHUB_UNAVAILABLE`: GitHub did not give the App's installations or repositories. `error.details.reason_code` is `github_unavailable` (GitHub did not answer, answered 5xx, or rate-limited the App; try again later) or `github_app_auth_failed` (GitHub refused the App's JWT: the key was revoked or the App deleted; a retry does not help). */
+            502: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "GITHUB_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getSkillRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The skill repository's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The repository and its skills. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "repository": {
+                     *         "id": "5b8d2f60-9c1e-4a37-b2d4-6e0f1a3c5d79",
+                     *         "repository_id": 123456789,
+                     *         "repository": "acme/skills",
+                     *         "ref": "main",
+                     *         "access": "public",
+                     *         "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                     *         "installation_id": 4242,
+                     *         "owner_id": 9919,
+                     *         "license": "Apache-2.0",
+                     *         "state": "active",
+                     *         "last_commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                     *         "last_sync": {
+                     *           "at": "2026-11-28T09:00:00.000Z",
+                     *           "trigger": {
+                     *             "kind": "register",
+                     *             "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                     *           },
+                     *           "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                     *           "result": "listed",
+                     *           "issues": []
+                     *         },
+                     *         "skill_count": 1,
+                     *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "created_at": "2026-11-28T09:00:00.000Z",
+                     *         "removed_by": null,
+                     *         "removed_at": null
+                     *       },
+                     *       "skills": [
+                     *         {
+                     *           "id": "0e4a7c19-3b5d-4f82-9a6c-1d2e3f4a5b6c",
+                     *           "path": "skills/release-notes",
+                     *           "name": "release-notes",
+                     *           "description": "Drafts release notes from merged pull requests.",
+                     *           "license": "Apache-2.0",
+                     *           "status": "off",
+                     *           "issues": [],
+                     *           "name_owner": null,
+                     *           "name_shared": false,
+                     *           "present": true,
+                     *           "enabled": false,
+                     *           "tree_sha": "9d1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                     *           "file_count": 3,
+                     *           "size_bytes": 4096,
+                     *           "has_scripts": false
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SkillRepositoryDetail"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    removeSkillRepository: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                /** @description The skill repository's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The repository, removed. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "repository": {
+                     *         "id": "5b8d2f60-9c1e-4a37-b2d4-6e0f1a3c5d79",
+                     *         "repository_id": 123456789,
+                     *         "repository": "acme/skills",
+                     *         "ref": "main",
+                     *         "access": "public",
+                     *         "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                     *         "installation_id": 4242,
+                     *         "owner_id": 9919,
+                     *         "license": "Apache-2.0",
+                     *         "state": "removed",
+                     *         "last_commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                     *         "last_sync": {
+                     *           "at": "2026-11-28T09:00:00.000Z",
+                     *           "trigger": {
+                     *             "kind": "register",
+                     *             "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                     *           },
+                     *           "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                     *           "result": "listed",
+                     *           "issues": []
+                     *         },
+                     *         "skill_count": 1,
+                     *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "created_at": "2026-11-28T09:00:00.000Z",
+                     *         "removed_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "removed_at": "2026-11-29T09:00:00.000Z"
+                     *       },
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["RemoveSkillRepositoryResponse"];
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    checkSkillRepository: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                /** @description The skill repository's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The listing ran, or was queued behind one that runs. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "outcome": "checked",
+                     *       "repository": {
+                     *         "id": "5b8d2f60-9c1e-4a37-b2d4-6e0f1a3c5d79",
+                     *         "repository_id": 123456789,
+                     *         "repository": "acme/skills",
+                     *         "ref": "main",
+                     *         "access": "public",
+                     *         "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                     *         "installation_id": 4242,
+                     *         "owner_id": 9919,
+                     *         "license": "Apache-2.0",
+                     *         "state": "active",
+                     *         "last_commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                     *         "last_sync": {
+                     *           "at": "2026-11-28T09:00:00.000Z",
+                     *           "trigger": {
+                     *             "kind": "register",
+                     *             "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                     *           },
+                     *           "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                     *           "result": "listed",
+                     *           "issues": []
+                     *         },
+                     *         "skill_count": 1,
+                     *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "created_at": "2026-11-28T09:00:00.000Z",
+                     *         "removed_by": null,
+                     *         "removed_at": null
+                     *       },
+                     *       "skills": [
+                     *         {
+                     *           "id": "0e4a7c19-3b5d-4f82-9a6c-1d2e3f4a5b6c",
+                     *           "path": "skills/release-notes",
+                     *           "name": "release-notes",
+                     *           "description": "Drafts release notes from merged pull requests.",
+                     *           "license": "Apache-2.0",
+                     *           "status": "off",
+                     *           "issues": [],
+                     *           "name_owner": null,
+                     *           "name_shared": false,
+                     *           "present": true,
+                     *           "enabled": false,
+                     *           "tree_sha": "9d1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                     *           "file_count": 3,
+                     *           "size_bytes": 4096,
+                     *           "has_scripts": false
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CheckSkillRepositoryResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: . Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BACKEND_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+        };
+    };
+    putSkillRepositoryRef: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with a cookie session: the literal `werft-web`. */
+                "X-Requested-With"?: "werft-web";
+            };
+            path: {
+                /** @description The skill repository's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "ref": "v2"
+                 *     }
+                 */
+                "application/json": components["schemas"]["PutSkillRepositoryRefRequest"];
+            };
+        };
+        responses: {
+            /** @description The repository at the new ref. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "repository": {
+                     *         "id": "5b8d2f60-9c1e-4a37-b2d4-6e0f1a3c5d79",
+                     *         "repository_id": 123456789,
+                     *         "repository": "acme/skills",
+                     *         "ref": "v2",
+                     *         "access": "public",
+                     *         "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                     *         "installation_id": 4242,
+                     *         "owner_id": 9919,
+                     *         "license": "Apache-2.0",
+                     *         "state": "active",
+                     *         "last_commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                     *         "last_sync": {
+                     *           "at": "2026-11-28T09:00:00.000Z",
+                     *           "trigger": {
+                     *             "kind": "register",
+                     *             "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                     *           },
+                     *           "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                     *           "result": "listed",
+                     *           "issues": []
+                     *         },
+                     *         "skill_count": 1,
+                     *         "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                     *         "created_at": "2026-11-28T09:00:00.000Z",
+                     *         "removed_by": null,
+                     *         "removed_at": null
+                     *       },
+                     *       "skills": [
+                     *         {
+                     *           "id": "0e4a7c19-3b5d-4f82-9a6c-1d2e3f4a5b6c",
+                     *           "path": "skills/release-notes",
+                     *           "name": "release-notes",
+                     *           "description": "Drafts release notes from merged pull requests.",
+                     *           "license": "Apache-2.0",
+                     *           "status": "off",
+                     *           "issues": [],
+                     *           "name_owner": null,
+                     *           "name_shared": false,
+                     *           "present": true,
+                     *           "enabled": false,
+                     *           "tree_sha": "9d1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                     *           "file_count": 3,
+                     *           "size_bytes": 4096,
+                     *           "has_scripts": false
+                     *         }
+                     *       ],
+                     *       "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                     *       "check": "checked"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["PutSkillRepositoryRefResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
+                };
+            };
+            /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "UNAUTHORIZED";
+                        };
+                    };
+                };
+            };
+            /** @description - `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them. */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "FORBIDDEN";
+                        };
+                    };
+                };
+            };
+            /** @description - `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists. */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "NOT_FOUND";
+                        };
+                    };
+                };
+            };
+            /** @description - `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). Here no key is read; nothing was changed, so send the request again. */
+            408: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REQUEST_TIMEOUT";
+                        };
+                    };
+                };
+            };
+            /** @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. Here no revision is sent: the repository was restored or pointed at another ref while this call checked its ref (`reason_code` `repository_changed`). Read it again and send the change again. */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "REVISION_CONFLICT";
+                        };
+                    };
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description - `GITHUB_UNAVAILABLE`: GitHub did not give the App's installations or repositories. `error.details.reason_code` is `github_unavailable` (GitHub did not answer, answered 5xx, or rate-limited the App; try again later) or `github_app_auth_failed` (GitHub refused the App's JWT: the key was revoked or the App deleted; a retry does not help). */
+            502: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "GITHUB_UNAVAILABLE";
+                        };
+                    };
+                };
+            };
+            /** @description - `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Here no key is read, and a change this call committed before the deadline stands: read the repository again, and send the change again only if its ref is still not the one wanted. */
             503: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
