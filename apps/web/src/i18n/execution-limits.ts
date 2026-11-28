@@ -11,6 +11,8 @@ export const executionLimitsKo = {
   "limits.defaultIs": "기본값은 {value}입니다.",
   "limits.blocked":
     "쓸 수 있는 값이 없습니다. 업그레이드 때 환경 변수 {env}의 값이 범위를 벗어나 옮겨 오지 못했거나, 저장된 값이 이 버전의 범위를 벗어났습니다. 값을 저장할 때까지 {refused} 환경 변수가 남아 있으면 저장한 뒤 지우세요.",
+  "limits.blockedSaved":
+    "쓸 수 있는 값이 없습니다. 저장된 값이 이 버전의 범위를 벗어났습니다. 값을 저장할 때까지 {refused}",
   "limits.useDefault": "기본값으로",
   "limits.save": "저장",
   "limits.section.title": "한도",
@@ -88,15 +90,15 @@ export const executionLimitsKo = {
   "limits.tokens.saved": "세션 토큰 한도를 저장했습니다.",
   "limits.unknownTokens.title": "단가 미상 토큰",
   "limits.unknownTokens.hint":
-    "단가를 모르는 모델로 세션 하나가 쓸 수 있는 토큰 수입니다. 무제한 지출을 막는 장치입니다.",
+    "세션 하나가 단가 미상 호출에 쓸 수 있는 토큰 수입니다. 무제한 지출을 막는 장치입니다.",
   "limits.unknownTokens.detail":
-    "단가표에 없는 모델의 호출은 비용을 가장 높은 단가로 세지만 실제 단가는 더 높을 수 있습니다. 그래서 비용과 따로 토큰 수로 막습니다. 끌 수 없습니다.",
+    "요청한 모델이나 답한 모델의 단가를 정하지 못한 호출은 단가 미상으로 표시하고 비용을 가장 높은 단가로 셉니다. 실제 단가는 더 높을 수 있어서 비용과 따로 토큰 수로 막습니다. 끌 수 없습니다.",
   "limits.unknownTokens.label": "단가 미상 토큰 한도",
   "limits.unknownTokens.unit": "토큰",
   "limits.unknownTokens.value": "{value} 토큰",
-  "limits.unknownTokens.refused": "단가를 모르는 모델의 다음 호출을 막습니다.",
+  "limits.unknownTokens.refused": "세션의 모델 호출을 모두 막습니다.",
   "limits.unknownTokens.applies":
-    "저장하면 10초 안에 적용됩니다. 한도에 닿은 세션은 다음 모델 호출이 거절됩니다. 단가를 모르는 모델을 부르지 않는 세션에는 닿지 않습니다.",
+    "저장하면 10초 안에 적용됩니다. 한도에 닿은 세션은 다음 모델 호출이 거절됩니다. 단가 미상 호출이 없는 세션에는 닿지 않습니다.",
   "limits.unknownTokens.invalid":
     "1부터 {max}까지의 정수를 적으세요. 0으로 끌 수 없습니다.",
   "limits.unknownTokens.saved": "단가 미상 토큰 한도를 저장했습니다.",
@@ -201,6 +203,8 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
     "limits.defaultIs": "The default is {value}.",
     "limits.blocked":
       "No usable value. At the upgrade, the environment variable {env} was out of range and was not carried in, or the saved value is out of this version's range. Until a value is saved, {refused} If the variable is still set, remove it after saving.",
+    "limits.blockedSaved":
+      "No usable value. The saved value is out of this version's range. Until a value is saved, {refused}",
     "limits.useDefault": "Use the default",
     "limits.save": "Save",
     "limits.section.title": "Limits",
@@ -279,16 +283,16 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
     "limits.tokens.saved": "Saved the session token limit.",
     "limits.unknownTokens.title": "Tokens of unknown price",
     "limits.unknownTokens.hint":
-      "The tokens one session may use on models whose price is unknown. It keeps spend from running without a limit.",
+      "The tokens one session may use on calls of unknown price. It keeps spend from running without a limit.",
     "limits.unknownTokens.detail":
-      "A call to a model the price tables do not list is counted at the highest known rate, and its real price may be higher. So tokens are limited apart from cost. It cannot be turned off.",
+      "A call whose requested or answering model cannot be priced is marked as of unknown price and counted at the highest known rate. Its real price may be higher, so tokens are limited apart from cost. It cannot be turned off.",
     "limits.unknownTokens.label": "Limit on tokens of unknown price",
     "limits.unknownTokens.unit": "tokens",
     "limits.unknownTokens.value": "{value} tokens",
     "limits.unknownTokens.refused":
-      "the next call to a model of unknown price is stopped.",
+      "every model call of every session is stopped.",
     "limits.unknownTokens.applies":
-      "A save applies within 10 seconds. A session at the limit has its next model call refused. A session that calls no model of unknown price is not affected.",
+      "A save applies within 10 seconds. A session at the limit has its next model call refused. A session with no call of unknown price is not affected.",
     "limits.unknownTokens.invalid":
       "Enter a whole number from 1 to {max}. It cannot be 0.",
     "limits.unknownTokens.saved": "Saved the limit on tokens of unknown price.",
@@ -394,6 +398,8 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
     "limits.defaultIs": "既定は {value} です。",
     "limits.blocked":
       "使える値がありません。アップグレード時に環境変数 {env} の値が範囲外で移せなかったか、保存された値がこのバージョンの範囲外です。値を保存するまで、{refused} 環境変数が残っていれば、保存したあと削除してください。",
+    "limits.blockedSaved":
+      "使える値がありません。保存された値がこのバージョンの範囲外です。値を保存するまで、{refused}",
     "limits.useDefault": "既定に戻す",
     "limits.save": "保存",
     "limits.section.title": "上限",
@@ -473,16 +479,16 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
     "limits.tokens.saved": "セッションのトークン上限を保存しました。",
     "limits.unknownTokens.title": "単価不明のトークン",
     "limits.unknownTokens.hint":
-      "単価が分からないモデルで 1 つのセッションが使えるトークン数です。無制限の支出を防ぐための仕組みです。",
+      "1 つのセッションが単価不明の呼び出しに使えるトークン数です。無制限の支出を防ぐための仕組みです。",
     "limits.unknownTokens.detail":
-      "単価表にないモデルの呼び出しは費用を最高単価で数えますが、実際の単価はそれより高い場合があります。そのため費用とは別にトークン数で止めます。無効にはできません。",
+      "要求したモデルか応答したモデルの単価を決められない呼び出しは、単価不明として記録し、費用を最高単価で数えます。実際の単価はそれより高い場合があるため、費用とは別にトークン数で止めます。無効にはできません。",
     "limits.unknownTokens.label": "単価不明トークンの上限",
     "limits.unknownTokens.unit": "トークン",
     "limits.unknownTokens.value": "{value} トークン",
     "limits.unknownTokens.refused":
-      "単価が分からないモデルの次の呼び出しを止めます。",
+      "セッションのモデル呼び出しをすべて止めます。",
     "limits.unknownTokens.applies":
-      "保存すると 10 秒以内に適用されます。上限に達したセッションは次のモデル呼び出しが拒否されます。単価が分からないモデルを呼ばないセッションには影響しません。",
+      "保存すると 10 秒以内に適用されます。上限に達したセッションは次のモデル呼び出しが拒否されます。単価不明の呼び出しがないセッションには影響しません。",
     "limits.unknownTokens.invalid":
       "1 から {max} までの整数を入力してください。0 にはできません。",
     "limits.unknownTokens.saved": "単価不明トークンの上限を保存しました。",

@@ -255,6 +255,14 @@ const fieldsOf = (keys: readonly string[]): Field[] =>
  * that is blocked (it takes any valid value, the default shown included);
  * and the rows whose text cannot be sent.
  */
+/**
+ * The number limits this answer carries. During an upgrade the API that
+ * answers may be the release before the one that served this page, and it
+ * knows fewer keys: the rest of the screen still saves.
+ */
+const answeredOf = (config: InstallationConfig) =>
+  NUMBER_LIMITS.filter((limit) => config[limit.key] !== undefined);
+
 function pendingOf(
   config: InstallationConfig,
   drafts: Drafts,
@@ -263,7 +271,7 @@ function pendingOf(
   const invalid: Row[] = [];
   const differs = (key: InstallationConfigKey, value: unknown) =>
     value !== config[key].value || config[key].blocked;
-  for (const limit of NUMBER_LIMITS) {
+  for (const limit of answeredOf(config)) {
     const value = limitValueOf(
       limit,
       drafts[limit.key] ?? `${config[limit.key].value}`,
@@ -449,7 +457,7 @@ function Limits({
     >
       {/* One block: the form's gap-4 would otherwise add to each row's rule. */}
       <div>
-        {NUMBER_LIMITS.map((limit) => (
+        {answeredOf(config).map((limit) => (
           <NumberRow
             key={limit.key}
             limit={limit}
@@ -498,14 +506,16 @@ function Blocked({
   refused,
 }: {
   readonly id: string;
-  readonly env: string;
+  readonly env: string | undefined;
   readonly refused: string;
 }) {
   const { t } = useI18n();
   return (
     <Alert variant="amber" role="status">
       <AlertDescription id={id}>
-        {t("limits.blocked", { env, refused })}
+        {env === undefined
+          ? t("limits.blockedSaved", { refused })
+          : t("limits.blocked", { env, refused })}
       </AlertDescription>
     </Alert>
   );
@@ -540,8 +550,7 @@ function NumberRow({
 
   return (
     <FormRow label={t(`limits.${name}.title`)} hint={t(`limits.${name}.hint`)}>
-      {/* Blocked is a value an old variable held: a key without one never is. */}
-      {entry.blocked && limit.env !== undefined ? (
+      {entry.blocked ? (
         <Blocked
           id={`${id}-blocked`}
           env={limit.env}
