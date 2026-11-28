@@ -8273,6 +8273,64 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
     expect(link?.closedAt).not.toBeNull();
   });
 
+  test.skipIf(engine === "PGlite")(
+    "a close waits for a first progress post a pass is beginning, and then for its end",
+    async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await db.update(surfaceBindings).set({ reportMode: "progress" });
+      await setTurn(sessionId, "running");
+      await outboxPass({ botToken: null });
+      await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+      await outboxPass({ botToken: null });
+      const outbox = createPostgresSlackOutboxStore(db);
+      const claim = (await outbox.claim({ limit: 10, leaseMs: 30_000 })).find(
+        ({ dedupeKey }) => dedupeKey.includes(":running:"),
+      );
+      if (!claim) throw new Error("no first progress post claimed");
+      let held!: () => void;
+      const hold = new Promise<void>((resolve) => {
+        held = resolve;
+      });
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      // A beginSend that read the thread on progress, kept open.
+      const beginning = db.transaction(async (tx) => {
+        await tx.execute(
+          sql`SELECT 1 FROM slack_outbox WHERE id = ${claim.id}::uuid FOR UPDATE`,
+        );
+        held();
+        await released;
+        await tx.execute(
+          sql`UPDATE slack_outbox SET status = 'sending' WHERE id = ${claim.id}::uuid`,
+        );
+      });
+      await hold;
+      await db.execute(sql`UPDATE agents SET conversation_rollout = 'shadow'`);
+      await db.update(surfaceBindings).set({ reportMode: null });
+      await db
+        .update(sessions)
+        .set({ admissionState: "closed", status: "stopped" })
+        .where(eq(sessions.id, sessionId));
+      const closing = outbox.closeFinishedLinks(10);
+      expect(
+        await Promise.race([
+          closing.then(() => "closed"),
+          Bun.sleep(300).then(() => "waiting"),
+        ]),
+      ).toBe("waiting");
+      release();
+      await beginning;
+      // The post is on its way: the thread stays open for its end.
+      expect(await closing).toBe(0);
+      const [link] = await db.select().from(sessionLinks);
+      expect(link?.closedAt).toBeNull();
+    },
+  );
+
   test("a first progress post a pass claimed before its thread moved off progress does not go up", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);

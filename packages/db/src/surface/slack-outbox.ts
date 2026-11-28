@@ -1318,8 +1318,24 @@ export function createPostgresSlackOutboxStore(
       // turn past its mark lacks its report row (its last report is in);
       // else no turn still owes its instruction. Under the row locks, so an enqueue that
       // holds one is waited for.
-      const rows = rowsOf<unknown>(
-        await db.execute(sql`
+      const rows = await db.transaction(async (tx) => {
+        // A progress row a pass is about to send (beginSend holds it) is
+        // waited for first, so the close below, a statement of its own,
+        // reads it as that pass left it, and a send that begins after reads
+        // the link closed: the first post never goes up behind the close.
+        await tx.execute(sql`
+          SELECT o.id FROM ${t} o
+          JOIN session_links l2 ON l2.installation_id = o.installation_id
+            AND o.progress_key = 'progress:' || l2.id
+          JOIN ${sessions} s ON s.id = l2.session_id
+          WHERE s.admission_state = 'closed'
+            AND l2.closed_at IS NULL
+            AND l2.revoked_at IS NULL
+            AND o.status IN ('pending', 'sending')
+          ORDER BY o.id
+          FOR UPDATE OF o`);
+        return rowsOf<unknown>(
+          await tx.execute(sql`
         UPDATE session_links l SET closed_at = now(), closed_reason = c.reason,
           report_mode = ${closingReportMode(sql.raw("l"))}
         FROM (
@@ -1390,7 +1406,8 @@ export function createPostgresSlackOutboxStore(
         WHERE l.id = c.id
         RETURNING l.id
       `),
-      );
+        );
+      });
       return rows.length;
     },
 
