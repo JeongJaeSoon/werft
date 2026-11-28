@@ -88,7 +88,7 @@ export const agentGitHubKo = {
   "agentGitHub.feature.mergeHint":
     "사용자가 머지하라고 지시하면 자기 세션이 연 PR을 squash로 머지합니다. 필요한 권한: contents 쓰기, pull requests 읽기",
   "agentGitHub.feature.mergeHelp":
-    "켜면 에이전트가 스스로 자기 PR을 머지합니다. 필수 check와 리뷰 조건은 저장소 규칙이 정합니다. 규칙이 없는 저장소에서는 바로 병합됩니다.",
+    "켜면 에이전트가 스스로 자기 PR을 머지합니다. 필수 check와 리뷰 조건은 저장소 규칙이 정합니다. 규칙이 없는 저장소에서는 check나 리뷰를 기다리지 않습니다. 충돌이 있거나 draft인 PR은 병합하지 않습니다.",
   "agentGitHub.feature.actions": "workflow 직접 실행 (실행·재실행·취소)",
   "agentGitHub.feature.actionsHint":
     "허용 목록의 workflow만 실행(workflow_dispatch)하거나 다시 실행합니다. 필요한 권한: actions 쓰기",
@@ -318,7 +318,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.feature.mergeHint":
     "When a person tells it to, squash-merges a pull request its own session opened. Needs: contents write, pull requests read",
   "agentGitHub.feature.mergeHelp":
-    "When on, the agent merges its own pull requests on its own. The repository's rules decide on required checks and reviews. A repository with no such rules merges at once.",
+    "When on, the agent merges its own pull requests on its own. The repository's rules decide on required checks and reviews. A repository with no such rules waits for no check or review. A pull request with a conflict, or a draft, is not merged.",
   "agentGitHub.feature.actions": "Run workflows directly (run, rerun, cancel)",
   "agentGitHub.feature.actionsHint":
     "Runs (workflow_dispatch) or reruns only workflows on the allow list. Needs: actions write",
@@ -551,7 +551,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.feature.mergeHint":
     "人が指示したとき、自分のセッションが開いた PR を squash でマージします。必要な権限: contents の書き込み、pull requests の読み取り",
   "agentGitHub.feature.mergeHelp":
-    "オンにすると、エージェントが自分で自分の PR をマージします。必須チェックとレビューの条件はリポジトリのルールが決めます。ルールのないリポジトリではすぐにマージされます。",
+    "オンにすると、エージェントが自分で自分の PR をマージします。必須チェックとレビューの条件はリポジトリのルールが決めます。ルールのないリポジトリではチェックやレビューを待ちません。競合がある PR や draft の PR はマージしません。",
   "agentGitHub.feature.actions":
     "ワークフローの直接実行 (実行・再実行・キャンセル)",
   "agentGitHub.feature.actionsHint":

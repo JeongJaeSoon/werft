@@ -63,6 +63,7 @@ import { PrivateChannelsPending } from "../../components/private-channels-pendin
 import { type Notify, useToast } from "../../components/toast.tsx";
 import {
   errorKey,
+  gitHubRefusalLabel,
   type MessageKey,
   type Translate,
   useI18n,
@@ -253,9 +254,7 @@ function ReceiptRow({
     result.purpose && receipt.operation === "mint_github_token"
       ? t(`agentGitHub.purpose.${result.purpose}` as MessageKey)
       : null,
-    result.reason_code
-      ? t(`agentGitHub.refusal.${result.reason_code}` as MessageKey)
-      : null,
+    result.reason_code ? gitHubRefusalLabel(t, result.reason_code) : null,
     result.reason_code === "ambiguous_app" ||
     result.reason_code === "pinned_app_removed"
       ? t(`agentGitHub.refusalNext.${result.reason_code}`)

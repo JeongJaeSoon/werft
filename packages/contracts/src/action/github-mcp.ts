@@ -309,7 +309,7 @@ export const ciReadRepositorySchema = z
 
 /** What a CI read says of the repository it reads. */
 const CI_READ_REPOSITORY =
-  "`repository` (`owner/name`) names the repository read; without it, the session's own. Only a github.com repository of this session is read: the session's own, or one added to it (`list_repositories` shows it as `attached`); one it shows as `not_attached`, or any repository it does not list, is refused with `github_refused` and `reason_code` `repository_not_allowed`. In a session with no repository of its own (a Slack DM), a call without it is refused with `github_refused` and `reason_code` `workflow_review_need_session_repository`.";
+  "`repository` (`owner/name`) names the repository read; without it, the session's own. Only a github.com repository of this session is read: the session's own, or one added to the session that the agent's GitHub settings still allow; any other, one `list_repositories` shows as `not_attached` (allowed, not added yet) included, is refused with `github_refused` and `reason_code` `repository_not_allowed`. In a session with no repository of its own (a Slack DM), a call without it is refused with `github_refused` and `reason_code` `workflow_review_need_session_repository`.";
 
 /** At most this many check runs and this many workflow runs are answered. */
 export const GITHUB_CI_RUNS_MAX = 100;
@@ -701,7 +701,7 @@ export const GITHUB_MCP_TOOLS = {
     feature: "review",
     actionClass: "review",
     description:
-      'Submit a review of a pull request as the reviewer App, on the commit named by `commit_id`. With "Approve reviews" off it is refused with `feature_off` and `reason_code` `review_off`, and `details` say where it is off and who turns it on.',
+      'Submit a review of a pull request as the reviewer App, on the commit named by `commit_id`. With "Approve reviews" off it is refused with `feature_off` and `reason_code` `review_off`, and `details` say where it is off and who turns it on; turned off while the call runs, it is refused with `github_refused` and the same `reason_code`.',
     refusals: [...GITHUB_WORK_REFUSALS, "stale_commit"],
   },
   list_repositories: {

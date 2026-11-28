@@ -772,6 +772,38 @@ describe("에이전트 GitHub 탭", () => {
     ).toHaveLength(1);
   });
 
+  test("이 콘솔이 모르는 거절 이유 code는 code 그대로 보인다 (94S-2492)", async () => {
+    const { server } = await activeAgent();
+    renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [`GET ${PATH}/github/activity`]: () =>
+          json(200, {
+            items: [
+              {
+                id: RECEIPT_ID,
+                operation: "review_pull_request",
+                target_ref: {
+                  resource: { kind: "agent", id: AGENT_ID },
+                  workspace_id: null,
+                },
+                status: "failed",
+                // A reason a later server added.
+                result: { purpose: "review", reason_code: "later_reason" },
+                error: null,
+                created_at: "2026-10-30T00:00:00.000Z",
+                updated_at: "2026-10-30T00:00:00.000Z",
+              },
+            ],
+          }),
+      }),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
+    await openSection(user, "최근 기록");
+    expect(await screen.findByText("later_reason")).toBeTruthy();
+  });
+
   test("바꾼 것은 저장 전 상자에 세고, 되돌리면 상자가 사라진다", async () => {
     const { server } = await activeAgent();
     renderAt(DETAIL, routesFor(server, TAB));
@@ -2368,7 +2400,7 @@ describe("에이전트 GitHub 탭", () => {
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "켜면 에이전트가 스스로 자기 PR을 머지합니다. 필수 check와 리뷰 조건은 저장소 규칙이 정합니다. 규칙이 없는 저장소에서는 바로 병합됩니다.",
+        "켜면 에이전트가 스스로 자기 PR을 머지합니다. 필수 check와 리뷰 조건은 저장소 규칙이 정합니다. 규칙이 없는 저장소에서는 check나 리뷰를 기다리지 않습니다. 충돌이 있거나 draft인 PR은 병합하지 않습니다.",
       ),
     ).toBeTruthy();
     await user.click(merge);

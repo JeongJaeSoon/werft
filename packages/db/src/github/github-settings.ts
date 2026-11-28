@@ -53,23 +53,38 @@ export async function workspaceFeatureCeiling(
   return (await readSettings(db, workspaceId)).ceiling;
 }
 
-async function readSettings(db: Database, workspaceId: string) {
-  const [row] = await db
-    .select({
-      ceiling: githubWorkspaceSettings.ceiling,
-      repositoryCeiling: githubWorkspaceSettings.repositoryCeiling,
-      revision: githubWorkspaceSettings.revision,
-    })
-    .from(githubWorkspaceSettings)
-    .where(eq(githubWorkspaceSettings.workspaceId, workspaceId))
-    .limit(1);
-  return row === undefined
+const workspaceSettingsColumns = {
+  ceiling: githubWorkspaceSettings.ceiling,
+  repositoryCeiling: githubWorkspaceSettings.repositoryCeiling,
+  ceilingRevision: githubWorkspaceSettings.revision,
+};
+
+/** No row (a null revision under a left join) reads as the default. */
+function workspaceSettingsOf(
+  row:
+    | {
+        ceiling: unknown;
+        repositoryCeiling: unknown;
+        ceilingRevision: number | null;
+      }
+    | undefined,
+) {
+  return row === undefined || row.ceilingRevision === null
     ? { ceiling: GITHUB_CEILING_DEFAULT, repositoryCeiling: null, revision: 0 }
     : {
         ceiling: ceilingOf(row.ceiling),
         repositoryCeiling: repositoryCeilingOf(row.repositoryCeiling),
-        revision: row.revision,
+        revision: row.ceilingRevision,
       };
+}
+
+async function readSettings(db: Database, workspaceId: string) {
+  const [row] = await db
+    .select(workspaceSettingsColumns)
+    .from(githubWorkspaceSettings)
+    .where(eq(githubWorkspaceSettings.workspaceId, workspaceId))
+    .limit(1);
+  return workspaceSettingsOf(row);
 }
 
 /**
@@ -348,6 +363,10 @@ export function createPostgresGitHubGateStore(
           githubEnabled: agents.githubEnabled,
           releaseId: agentReleases.id,
           ...githubPolicyColumns,
+          // The ceiling comes in the statement that reads the agent's
+          // switches: read apart, a grant could pair a switch and a ceiling
+          // that were never on together.
+          ...workspaceSettingsColumns,
         })
         .from(sessions)
         .leftJoin(agentReleases, eq(agentReleases.id, sessions.agentReleaseId))
@@ -356,12 +375,18 @@ export function createPostgresGitHubGateStore(
           agentGitHubSettings,
           eq(agentGitHubSettings.agentId, agents.id),
         )
+        .leftJoin(
+          githubWorkspaceSettings,
+          eq(
+            githubWorkspaceSettings.workspaceId,
+            sql`coalesce(${agents.workspaceId}, ${sessions.workspaceId})`,
+          ),
+        )
         .where(eq(sessions.id, sessionId))
         .limit(1);
       if (row === undefined) return null;
       const workspaceId = row.workspaceId ?? row.sessionWorkspaceId;
-      const settings =
-        workspaceId === null ? null : await readSettings(db, workspaceId);
+      const settings = workspaceId === null ? null : workspaceSettingsOf(row);
       const policy = githubPolicyOfRow(row);
       return {
         ownerId: row.ownerId,
