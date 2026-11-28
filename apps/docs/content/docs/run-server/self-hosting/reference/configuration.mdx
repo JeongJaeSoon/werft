@@ -275,6 +275,7 @@ Helm chart(`deploy/helm/werft`, 설치 절차는 [Kubernetes 설치 (Helm chart)
 | `SLACK_ROLE_INTERVAL_SEC`, `SLACK_ROLE_PASS_TIMEOUT_SEC`, `SLACK_ROLE_MAX_CONSECUTIVE_FAILURES`, `SLACK_ROLE_HEALTH_STALE_SEC`, `SLACK_ROLE_BATCH_SIZE`, `SLACK_ROLE_LEASE_SEC`, `SLACK_ROLE_INPUT_HOLD_SEC` | `slack.intervalSec`, `slack.passTimeoutSec`, `slack.maxConsecutiveFailures`, `slack.healthStaleSec`, `slack.batchSize`, `slack.leaseSec`, `slack.inputHoldSec` | 기본 2, 60, 3, 90, 10, 60, 3600. `SLACK_ROLE_INPUT_HOLD_SEC`는 웹 입력의 Slack 글 위치를 기다리는 줄이 보내지 않은 채 닫히기까지의 초다. `slack.enabled: false`면 slack Deployment를 그리지 않는다 |
 | `PLATFORM_ALLOW_UNATTENDED_PERMISSIONS`(slack) | `api.extraEnv` | slack은 api와 같은 카탈로그를 읽으므로 api의 값을 따른다. `slack.extraEnv`에 적으면 그 값이 이긴다 |
 | `SLACK_ROLE_CLOSE_LINKS`(slack) | `slack.extraEnv` | 기본 `true`. 닫힌 세션의 Slack 스레드 연결을 마지막 보고 줄을 넣은 뒤 닫고, 같은 스레드의 다음 멘션은 새 세션이 된다. `false`면 닫힌 세션의 스레드가 연결을 그대로 붙든다 |
+| `SLACK_ROLE_TASK_REPLY_WAIT_SEC`(slack) | `slack.extraEnv` | 기본 30. 대화 rollout이 `on`일 때, 열린 작업의 스레드에 멘션 없이 단 답글이 M1 판단을 기다리는 초다. 판단 중에는 그 스레드의 이벤트와 채널 전체에 걸린 이벤트(멤버·이름·보관)를 미루고, 채널의 다른 스레드는 계속 처리한다. 다만 그런 채널 전체 이벤트가 채널 줄 맨 앞에 서면 다른 스레드도 그 뒤에서 기다린다. 이 시간이 지나면 판단 실패로 보고 답글을 작업의 세션에 보낸다(세션이 `paused`·`stopped`면 지금처럼 받지 않는다). 이 시간 뒤에 난 판단은 기록만 남고 답글을 작업에서 떼지 못한다. 실제로 넣는 시점은 다시 보는 간격(2초), slack 역할·M1 판단 pass의 주기, 줄에 밀린 이벤트만큼 더 늦을 수 있다. `0`이면 기다리지 않는다 |
 
 어느 Deployment에나 `extraEnv`로 env를 더할 수 있다. Secret에서 오는 값(`DATABASE_URL`, `EGRESS_AUTHORIZER_TOKEN`, AWS key, 카탈로그 credential)은 [Kubernetes 설치 (Helm chart)의 준비 절](/run-server/self-hosting/kubernetes)의 표에 있다.
 

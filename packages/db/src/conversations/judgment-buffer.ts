@@ -376,13 +376,16 @@ export async function holdBufferedInput(
   );
   if (heldRow !== undefined) {
     if (input.judgment !== undefined) {
+      const bound = input.judgment === "m1_engaged" ? null : input.judgment;
       await requestReplyJudgment(tx, {
         ...message,
         agentId: row.agentId,
         topicId: input.topicId,
         inputId: heldRow.id,
         sessionId: null,
-        rule: { decision: "none", reason: "stray_reply" },
+        ...(bound === null
+          ? { rule: { decision: "none", reason: "stray_reply" } }
+          : { heldAs: bound.grade, rule: bound.rule }),
       });
     }
     const dropped = await keepChannelLimit(

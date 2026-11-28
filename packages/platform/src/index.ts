@@ -140,6 +140,7 @@ export * from "./sessions/ports/session-unit-of-work.ts";
 export * from "./sessions/ports/settings-document-store.ts";
 export * from "./surface/ports/surface-app-store.ts";
 export * from "./surface/ports/surface-config-token-store.ts";
+export * from "./surface/ports/bound-reply-store.ts";
 export * from "./surface/ports/surface-inbound-event-store.ts";
 export * from "./surface/ports/surface-install-store.ts";
 export * from "./ports/surface-outbox-store.ts";
