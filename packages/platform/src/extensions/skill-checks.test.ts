@@ -7,6 +7,7 @@ import {
   INSTRUCTION_PATTERNS,
   LARGE_CHANGE_LINES,
   plainTextHostExtractor,
+  plainTextHosts,
   UNREADABLE,
 } from "./skill-checks.ts";
 
@@ -226,6 +227,27 @@ describe("what a check cannot be talked out of", () => {
     expect(rules(known, [...base, file("more.txt", many)])).toEqual([]);
     expect(rules(known, [...base, file("more.txt", brackets)])).toEqual([]);
     expect(performance.now() - started).toBeLessThan(1500);
+  });
+
+  test("a host with non-ASCII or a percent-escape is read up to 259 characters, and past that names no host", () => {
+    // No DNS name passes 253; a parser's mapping of a longer one is quadratic.
+    const accent = String.fromCharCode(0xe9);
+    const hostOf = (label: string) => `${label}.example`;
+    const at = hostOf(accent.repeat(251));
+    const past = hostOf(accent.repeat(252));
+    expect([at.length, past.length]).toEqual([259, 260]);
+    expect(plainTextHosts(`https://${at}/a`).size).toBe(1);
+    expect(plainTextHosts(`https://${past}/a`)).toEqual(new Set());
+    expect(plainTextHosts(`https://${"%61".repeat(84)}.example/a`)).toEqual(
+      new Set(),
+    );
+    // Only the host counts, not the userinfo before it, and ASCII has no limit.
+    expect(
+      plainTextHosts(`https://${"u".repeat(300)}@${accent}.example/a`).size,
+    ).toBe(1);
+    expect(plainTextHosts(`https://${"a".repeat(300)}.example/a`)).toEqual(
+      new Set([`${"a".repeat(300)}.example`]),
+    );
   });
 });
 
