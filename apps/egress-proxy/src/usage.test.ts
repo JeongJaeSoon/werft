@@ -714,6 +714,27 @@ describe("an answer whose usage names no token count", () => {
     ).toMatchObject(fromRequest);
   });
 
+  test("only the tokens come from the request: the searches, speed and model the answer named stay", () => {
+    expect(
+      json({ server_tool_use: { web_search_requests: 2 }, speed: "fast" }),
+    ).toMatchObject({
+      ...fromRequest,
+      web_search_requests: 2,
+      speed: "fast",
+    });
+    // An alias nothing prices keeps its name, so the call is still of
+    // unknown price whatever the request asked for.
+    for (const body of [
+      '{"model":"alias-nothing-prices","usage":{}}',
+      '{"model":"alias-nothing-prices"}',
+    ]) {
+      expect(metered("application/json", [body])).toMatchObject({
+        ...fromRequest,
+        model: "alias-nothing-prices",
+      });
+    }
+  });
+
   test("one count read is a measured answer: the rest are 0, an explicit 0 stands", () => {
     expect(json({ output_tokens: 7 })).toMatchObject({
       model: "claude-sonnet-4-5",

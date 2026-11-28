@@ -469,12 +469,20 @@ export function usageMeter(
             : typeof body?.model === "string"
               ? body.model
               : undefined;
-          const counts = countsOf(body?.usage);
-          if (model !== undefined && namesTokens(counts)) {
+          if (model !== undefined) {
+            const said = { ...countsOf(body?.usage), ...responseExtras(body) };
+            if (namesTokens(said)) return usageOf(model, said, false, request);
+            // Only the tokens come from the request: the model, searches and
+            // speed the answer named still price it, so that an alias nothing
+            // prices is not charged as the model asked for.
+            const { input_tokens, output_tokens } = requestEstimate(
+              request,
+              options.responses === true,
+            );
             return usageOf(
               model,
-              { ...counts, ...responseExtras(body) },
-              false,
+              { ...said, input_tokens, output_tokens },
+              true,
               request,
             );
           }
