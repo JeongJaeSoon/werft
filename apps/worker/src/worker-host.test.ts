@@ -10,12 +10,15 @@ import {
   type ReleaseRequest,
   type RuntimeConfig,
   TURN_BUDGET_EXCEEDED_REASON,
+  TURN_TOOL_CALL_LIMIT_REASON,
   type WorkspaceDescriptor,
 } from "@werft-ai/contracts";
 import {
+  type AgentInput,
   type AgentRun,
   type CheckpointPreparation,
   type ImageRuntime,
+  type RuntimeEvent,
   WorkerGatewayRequestError,
 } from "@werft-ai/runtime-core";
 import type {
@@ -100,6 +103,7 @@ function harness(
     gateway?: FakeWorkerGateway;
     imageRuntime?: ImageRuntime;
     logger?: WorkerLogger;
+    maxTurnToolCalls?: number;
     placeInstructions?: WorkerHostOptions["placeInstructions"];
     /** Input uuids the engine session a resumed run opens already holds. */
     resumedTranscript?: string[];
@@ -155,6 +159,9 @@ function harness(
     ...(overrides.placeInstructions === undefined
       ? {}
       : { placeInstructions: overrides.placeInstructions }),
+    ...(overrides.maxTurnToolCalls === undefined
+      ? {}
+      : { maxTurnToolCalls: overrides.maxTurnToolCalls }),
   });
   return {
     budgets,
@@ -167,6 +174,248 @@ function harness(
     workspaces,
   };
 }
+
+function toolUseMessage(
+  ids: string[],
+  parentToolUseId: string | null = null,
+): EngineMessage {
+  return {
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: ids.map((id) => ({
+        type: "tool_use",
+        id,
+        name: "Bash",
+        input: {},
+      })),
+    },
+    parent_tool_use_id: parentToolUseId,
+    session_id: "fake-session",
+  };
+}
+
+/**
+ * A run that speaks the Codex adapter's event contract
+ * (packages/adapters/runtimes/codex/src/mapper.ts): each tool item is a public
+ * `tool_use` event then its `tool.called`, a turn ends with a public
+ * `result` and `turn.ended`, and an interrupt ends it `interrupted`.
+ * `calls[n]` is how many tool items the n-th turn starts.
+ */
+function codexShaped(base: AgentRun, calls: number[]): AgentRun {
+  const sent: AgentInput[] = [];
+  let arrived = () => {};
+  let interrupted = () => {};
+  let closed = () => {};
+  const ended = new Promise<void>((resolve) => {
+    closed = resolve;
+  });
+  const result = (inputs: string[], stopped: boolean): RuntimeEvent[] => {
+    const subtype = stopped ? "interrupted" : "success";
+    return [
+      {
+        type: "public",
+        event: {
+          id: crypto.randomUUID(),
+          event: "result",
+          data: { type: "result", subtype, is_error: stopped },
+        },
+        inputs,
+      } as RuntimeEvent,
+      {
+        type: "turn.ended",
+        turn: {
+          isError: stopped,
+          abortedByStop: stopped,
+          budgetExceeded: false,
+          ...(stopped ? { failure: { reason: "interrupted" } } : {}),
+          engineResult: {
+            subtype,
+            is_error: stopped,
+            terminal_reason: stopped ? "interrupted" : null,
+          },
+          cost: { countRestarted: false, unknown: true },
+          usage: {},
+          engineSessionId: "thread-1",
+          inputs,
+        },
+      },
+    ];
+  };
+  async function* stream(): AsyncGenerator<RuntimeEvent> {
+    for (const [turn, count] of calls.entries()) {
+      while (sent.length <= turn) {
+        await new Promise<void>((resolve) => {
+          arrived = resolve;
+        });
+      }
+      const inputs = [(sent[turn] as AgentInput).uuid];
+      let stopped = false;
+      const stop = new Promise<void>((resolve) => {
+        interrupted = () => {
+          stopped = true;
+          resolve();
+        };
+      });
+      for (let call = 0; call < count && !stopped; call += 1) {
+        const id = `call-${turn}-${call}`;
+        yield {
+          type: "public",
+          event: {
+            id: crypto.randomUUID(),
+            event: "tool_use",
+            data: {
+              type: "assistant",
+              message: {
+                role: "assistant",
+                content: [
+                  { type: "tool_use", id, name: "exec_command", input: {} },
+                ],
+              },
+            },
+          },
+          inputs,
+        } as RuntimeEvent;
+        yield { type: "tool.called", toolCallId: id, tool: "exec_command" };
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      if (!stopped) {
+        await Promise.race([
+          stop,
+          new Promise((resolve) => setTimeout(resolve, 50)),
+        ]);
+      }
+      yield* result(inputs, stopped);
+    }
+    // A real engine keeps its stream open until the host closes it.
+    await ended;
+  }
+  return {
+    ready: () => base.ready(),
+    events: () => stream(),
+    send: (input) => {
+      sent.push(input);
+      arrived();
+    },
+    finishInput: () => base.finishInput(),
+    holdsInput: async (uuid) => sent.some((input) => input.uuid === uuid),
+    answer: (answer) => base.answer(answer),
+    interrupt: async () => {
+      interrupted();
+      return { stillQueued: [] };
+    },
+    prepareCheckpoint: (point) => base.prepareCheckpoint(point),
+    leaseCheckpoint: (point) => base.leaseCheckpoint(point),
+    abort: () => {
+      closed();
+      base.abort();
+    },
+    close: () => {
+      closed();
+      return base.close();
+    },
+  };
+}
+
+describe("WorkerHost turn tool call limit", () => {
+  test("the call past the limit ends only that turn tool_call_limit, and the next turn runs from zero", async () => {
+    const { gateway, host, runtime } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: toolUseMessage(["t1", "t2"]) },
+        { type: "emit", message: toolUseMessage(["t3"]) },
+        // A subagent's call counts toward its turn.
+        { type: "emit", message: toolUseMessage(["t4"], "t3") },
+        // Parallel calls in one message count one by one.
+        { type: "emit", message: toolUseMessage(["t5", "t6"]) },
+        { type: "delay", delayMs: 10_000 },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+        {
+          type: "emit",
+          message: toolUseMessage(["u1", "u2", "u3", "u4", "u5"]),
+        },
+        { type: "emit", message: assistantMessage("done") },
+        { type: "emit", message: resultMessage(uuidForTurn(2)) },
+        { type: "await-input" },
+      ],
+      { maxTurnToolCalls: 5 },
+    );
+    gateway.enqueue("loop on a tool");
+    gateway.enqueue("go on");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "failed", reason: TURN_TOOL_CALL_LIMIT_REASON },
+      { turnId: "2", status: "completed", reason: null },
+    ]);
+    expect(summary.outcome).toBe("idle");
+    expect(gateway.finalized.map((f) => f.terminal.reason)).toEqual([
+      "tool_call_limit",
+      null,
+    ]);
+    expect(runtime.inputs).toHaveLength(2);
+  });
+
+  test("a turn that makes exactly the limit's calls ends as the engine says", async () => {
+    const { gateway, host } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: toolUseMessage(["t1", "t2", "t3"]) },
+        { type: "emit", message: toolUseMessage(["t4", "t5"]) },
+        { type: "emit", message: assistantMessage("done") },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      { maxTurnToolCalls: 5 },
+    );
+    gateway.enqueue("five calls");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "completed", reason: null },
+    ]);
+  });
+
+  test("a call the engine names twice counts once", async () => {
+    const { gateway, host } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: toolUseMessage(["t1", "t2", "t3", "t4"]) },
+        { type: "emit", message: toolUseMessage(["t4", "t5"]) },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      { maxTurnToolCalls: 5 },
+    );
+    gateway.enqueue("a repeated block");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "completed", reason: null },
+    ]);
+  });
+
+  test("a Codex run is cut at the same call, and its next turn runs", async () => {
+    const { gateway, host } = harness([{ type: "await-input" }], {
+      maxTurnToolCalls: 3,
+      wrap: (run) => codexShaped(run, [10, 3]),
+    });
+    gateway.enqueue("loop on a command");
+    gateway.enqueue("go on");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "failed", reason: TURN_TOOL_CALL_LIMIT_REASON },
+      { turnId: "2", status: "completed", reason: null },
+    ]);
+    expect(summary.outcome).toBe("idle");
+  });
+});
 
 describe("WorkerHost workspace quota", () => {
   const usage = (bytes: number): WorkspaceMeasurement => ({

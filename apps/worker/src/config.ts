@@ -2,7 +2,10 @@ import {
   WORKER_HEARTBEAT_INTERVAL_MS,
   WORKER_LEASE_SAFETY_MARGIN_MS,
 } from "@werft-ai/contracts";
-import { DEFAULT_WORKSPACE_QUOTA_MB } from "@werft-ai/contracts/execution";
+import {
+  DEFAULT_WORKSPACE_QUOTA_MB,
+  workerMaxTurnToolCallsOf,
+} from "@werft-ai/contracts/execution";
 import {
   integerSetting,
   positiveNumberSetting,
@@ -21,7 +24,8 @@ import type { WorkspaceQuotaLimits } from "./workspace-quota.ts";
  * the execution backends inject (`ENV` in
  * `packages/contracts/src/shared/execution.ts`), object store included; the
  * rest is timers and limits, of which a launcher sets only
- * `WORKER_MAX_TURN_SEC` and `WORKER_PROVIDER_MAX_RETRIES`. What the engine
+ * `WORKER_MAX_TURN_SEC`, `WORKER_PROVIDER_MAX_RETRIES`, `WORKER_IDLE_TIMEOUT_SEC`
+ * and `WORKER_MAX_TURN_TOOL_CALLS`. What the engine
  * runs — model, tools, permission mode, provider — is not here: the claim
  * carries it, resolved by the server from the session's spec.
  */
@@ -53,6 +57,7 @@ export type WorkerEnvironment = WorkerObjectStoreEnvironment & {
   WORKER_IDLE_TIMEOUT_SEC?: string | undefined;
   WORKER_LEASE_SAFETY_MARGIN_SEC?: string | undefined;
   WORKER_MAX_TURN_SEC?: string | undefined;
+  WORKER_MAX_TURN_TOOL_CALLS?: string | undefined;
   WORKER_NEXT_INPUT_RETRY_SEC?: string | undefined;
   WORKER_NEXT_INPUT_WAIT_SEC?: string | undefined;
   WORKER_PROVIDER_MAX_RETRIES?: string | undefined;
@@ -163,6 +168,8 @@ export type WorkerConfig = {
   objectStore: WorkerObjectStoreConfig;
   runtime: WorkerRuntimeSettings;
   timeouts: WorkerTimeouts;
+  /** The tool calls one turn may make; the call past it ends the turn. */
+  maxTurnToolCalls?: number;
   /** How long and how large one attached repository's fetch may get. */
   attachLimits?: AttachLimits;
 };
@@ -274,6 +281,7 @@ export function workerConfigFromEnv(
       ),
       ...(stopGraceMs === undefined ? {} : { stopGraceMs }),
     },
+    maxTurnToolCalls: workerMaxTurnToolCallsOf(environment),
     attachLimits: {
       timeoutMs: seconds(
         environment,
