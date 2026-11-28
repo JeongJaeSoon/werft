@@ -39,6 +39,7 @@ import {
   SESSION_SCOPE_VALUES,
   SLACK_NOTICE_MESSAGES,
   slackMirrorCorrelationIdSchema,
+  TASK_CLOSING_DEFAULT,
 } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
@@ -7977,6 +7978,51 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
     expect(await progressRows()).toHaveLength(3);
   });
 
+  // 94S-2502: the work closes after the pass read its progress and before it
+  // closes links, so no closed update is in yet when the link close runs.
+  test("a work closed between a pass's progress and its link close keeps its link open for the closed update", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.update(sessionLinks).set({ reportMode: "progress" });
+    await setTurn(sessionId, "running");
+    await outboxPass({ closeLinks: true });
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await intervalOver();
+    await outboxPass({ closeLinks: true });
+
+    const store = createPostgresSlackOutboxStore(db);
+    const closesFirst = {
+      ...store,
+      async closeFinishedLinks(limit: number) {
+        await db
+          .update(sessions)
+          .set({ admissionState: "closed", status: "stopped" })
+          .where(eq(sessions.id, sessionId));
+        return store.closeFinishedLinks(limit);
+      },
+    };
+    await intervalOver();
+    expect(
+      await outboxPass({ closeLinks: true, outbox: closesFirst }),
+    ).toMatchObject({ linksClosed: 0 });
+    const linkClosedAt = async () =>
+      (
+        await db.select({ closedAt: sessionLinks.closedAt }).from(sessionLinks)
+      )[0]?.closedAt;
+    expect(await linkClosedAt()).toBeNull();
+
+    await intervalOver();
+    await outboxPass({ closeLinks: true });
+    await intervalOver();
+    await outboxPass({ closeLinks: true });
+    expect(slack.updates.map(({ text }) => text.split("\n")[0])).toEqual([
+      ko.progressIdle,
+      ko.progressClosed,
+    ]);
+    expect(await linkClosedAt()).not.toBeNull();
+  });
+
   // 94S-2477: the message speaks as the agent answers: its card's language,
   // else, following the user, the starter's, else English.
   test.each([
@@ -8447,6 +8493,240 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
     await outboxPass();
     expect(await progressRows()).toEqual([]);
     expect(postedLines()).toEqual(["Done."]);
+  });
+});
+
+// v1-b/C1: a task closes on its pull request merged or closed, and on its
+// requester's done or cancel; its progress message says so last.
+describe.each(ENGINES)("a task's close on %s", (engine) => {
+  useDatabase(engine);
+
+  const ko = SLACK_NOTICE_MESSAGES.ko;
+  const closes = () => schema.createPostgresTaskCloses(db);
+
+  const intervalOver = async () => {
+    await db
+      .update(slackOutbox)
+      .set({ nextAttemptAt: sql`now()` })
+      .where(eq(slackOutbox.kind, "progress"));
+    await db.execute(
+      sql`UPDATE slack_outbox_rate_blocks SET blocked_until = now() - interval '1 second'`,
+    );
+  };
+
+  beforeEach(() => {
+    slack.updates.length = 0;
+  });
+
+  /** A task in its thread: its progress message up, its one turn done. */
+  const taskInThread = async (
+    closing: typeof TASK_CLOSING_DEFAULT | null = TASK_CLOSING_DEFAULT,
+  ) => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db
+      .update(sessions)
+      .set({ taskClosing: closing })
+      .where(eq(sessions.id, sessionId));
+    await db.update(sessionLinks).set({ reportMode: "progress" });
+    await db
+      .update(turns)
+      .set({ status: "running" })
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 1)));
+    await outboxPass({ closeLinks: true });
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await intervalOver();
+    await outboxPass({ closeLinks: true });
+    slack.updates.length = 0;
+    return sessionId;
+  };
+
+  let number = 0;
+  const pullRequest = async (
+    sessionId: string,
+    state: "open" | "merged" | "closed",
+  ) => {
+    number += 1;
+    const [session] = await db
+      .select({ ownerId: sessions.ownerId })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    const id = randomUUID();
+    await db.insert(schema.sessionOutcomes).values({
+      id,
+      ownerId: session?.ownerId ?? "",
+      sessionId,
+      type: "github_pull_request",
+      url: `https://github.com/acme/app/pull/${number}`,
+      externalId: String(number),
+      state,
+      stateChangedAt: new Date(),
+    });
+    return id;
+  };
+  const settle = (id: string, state: "merged" | "closed") =>
+    db
+      .update(schema.sessionOutcomes)
+      .set({ state })
+      .where(eq(schema.sessionOutcomes.id, id));
+
+  const taskOf = async (sessionId: string) =>
+    (
+      await db
+        .select({
+          admission: sessions.admissionState,
+          reason: sessions.taskClosedReason,
+        })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId))
+    )[0];
+  const linkOf = async () =>
+    (
+      await db
+        .select({ closedReason: sessionLinks.closedReason })
+        .from(sessionLinks)
+    )[0];
+  /** The message's updates once the outbox has run its course. */
+  const lastWords = async () => {
+    for (let pass = 0; pass < 3; pass += 1) {
+      await intervalOver();
+      await outboxPass({ closeLinks: true });
+    }
+    return slack.updates.map(({ text }) => text.split("\n")[0]);
+  };
+
+  test("its pull request merged: it closes as completed, the message says it is done, and the link closes so", async () => {
+    const sessionId = await taskInThread();
+    await pullRequest(sessionId, "merged");
+    expect(await closes().closeOnPullRequests(10)).toBe(1);
+    expect(await taskOf(sessionId)).toEqual({
+      admission: "closed",
+      reason: "completed",
+    });
+    expect(await lastWords()).toEqual([ko.progressClosed]);
+    expect(await linkOf()).toEqual({ closedReason: "completed" });
+    // Closed once: a later pass finds nothing to close.
+    expect(await closes().closeOnPullRequests(10)).toBe(0);
+  });
+
+  test("its pull request closed unmerged: it closes as cancelled, and the message says it was cancelled", async () => {
+    const sessionId = await taskInThread();
+    await pullRequest(sessionId, "closed");
+    expect(await closes().closeOnPullRequests(10)).toBe(1);
+    expect(await taskOf(sessionId)).toEqual({
+      admission: "closed",
+      reason: "cancelled",
+    });
+    expect(await lastWords()).toEqual([ko.progressCancelled]);
+    expect(await linkOf()).toEqual({ closedReason: "cancelled" });
+  });
+
+  test("of two pull requests one closed and one open, it waits; once the open one merges, it closes as completed", async () => {
+    const sessionId = await taskInThread();
+    await pullRequest(sessionId, "closed");
+    const open = await pullRequest(sessionId, "open");
+    expect(await closes().closeOnPullRequests(10)).toBe(0);
+    expect(await taskOf(sessionId)).toEqual({
+      admission: "active",
+      reason: null,
+    });
+    await settle(open, "merged");
+    expect(await closes().closeOnPullRequests(10)).toBe(1);
+    expect(await taskOf(sessionId)).toEqual({
+      admission: "closed",
+      reason: "completed",
+    });
+  });
+
+  test.each([
+    [
+      "a task whose event rules are off",
+      { ...TASK_CLOSING_DEFAULT, eventRules: false },
+    ],
+    ["a session that is no task", null],
+  ] as const)(
+    "%s stays open on its merged pull request",
+    async (_, closing) => {
+      const sessionId = await taskInThread(closing);
+      await pullRequest(sessionId, "merged");
+      expect(await closes().closeOnPullRequests(10)).toBe(0);
+      expect(await taskOf(sessionId)).toEqual({
+        admission: "active",
+        reason: null,
+      });
+    },
+  );
+
+  test.each([
+    ["completed", ko.progressClosed],
+    ["cancelled", ko.progressCancelled],
+  ] as const)(
+    "its requester's %s closes it so, once, and the message says it last",
+    async (reason, said) => {
+      const sessionId = await taskInThread();
+      const [session] = await db
+        .select({ ownerId: sessions.ownerId })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId));
+      const principal = { ownerId: session?.ownerId ?? "" };
+      expect(await closes().close({ principal, sessionId, reason })).toBe(
+        "closed",
+      );
+      expect(await taskOf(sessionId)).toEqual({ admission: "closed", reason });
+      // A second press, of either button, finds it closed and keeps the first.
+      expect(
+        await closes().close({ principal, sessionId, reason: "cancelled" }),
+      ).toBe("already_closed");
+      expect(await taskOf(sessionId)).toEqual({ admission: "closed", reason });
+      expect(await lastWords()).toEqual([said]);
+      expect(await linkOf()).toEqual({ closedReason: reason });
+    },
+  );
+
+  test("a session that is no task is not closed as one", async () => {
+    const sessionId = await taskInThread(null);
+    const [session] = await db
+      .select({ ownerId: sessions.ownerId })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId));
+    expect(
+      await closes().close({
+        principal: { ownerId: session?.ownerId ?? "" },
+        sessionId,
+        reason: "completed",
+      }),
+    ).toBe("not_task");
+    expect((await taskOf(sessionId))?.admission).toBe("active");
+  });
+
+  test("a task's message carries its close buttons until it closes; another session's has none", async () => {
+    const actionsOf = (blocks: unknown) =>
+      (typeof blocks === "string" ? JSON.parse(blocks) : blocks) as {
+        type: string;
+        elements?: { action_id?: string; value?: string }[];
+      }[];
+    const sessionId = await taskInThread();
+    const [link] = await db.select({ id: sessionLinks.id }).from(sessionLinks);
+    const [post] = posted();
+    const buttons = actionsOf(
+      (post as { options?: { blocks?: unknown } }).options?.blocks,
+    ).find((block) => block.type === "actions")?.elements;
+    expect(buttons?.map((button) => button.action_id)).toEqual([
+      "task.complete",
+      "task.cancel",
+    ]);
+    expect(buttons?.map((button) => JSON.parse(button.value ?? ""))).toEqual([
+      { s: sessionId, r: link?.id },
+      { s: sessionId, r: link?.id },
+    ]);
+    await pullRequest(sessionId, "merged");
+    await closes().closeOnPullRequests(10);
+    await lastWords();
+    const [closed] = slack.updates;
+    expect(
+      actionsOf(closed?.blocks).some((block) => block.type === "actions"),
+    ).toBe(false);
   });
 });
 

@@ -3932,6 +3932,7 @@ describe("M1 shadow records on the Slack tab (a1/S3)", () => {
         outcome: "judged",
         decision: "speak",
         reason: "needs_agent",
+        answer: "replied",
         judged_at: AT,
       },
     ],
@@ -3988,6 +3989,253 @@ describe("M1 shadow records on the Slack tab (a1/S3)", () => {
     expect(document.body.textContent).toContain(
       "M1 지침: 릴리스 2026-10-11_10:01:00, commit abcdef0",
     );
+  });
+
+  test("picking a reason asks the server for it, keeps it in the URL, and clearing drops it", async () => {
+    const needsAgent = {
+      ...JUDGMENTS,
+      recent: JUDGMENTS.recent.filter((row) => row.reason === "needs_agent"),
+    };
+    const { api, history } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+      [`GET ${PATH}/slack/judgments?reason=needs_agent`]: () =>
+        json(200, needsAgent),
+      [`GET ${PATH}/slack/judgments?reason=timed_out`]: () =>
+        json(200, { ...JUDGMENTS, recent: [] }),
+    });
+    const user = await setupUser();
+    const select = await screen.findByLabelText("이유로 거르기");
+    const names = (select as HTMLSelectElement).options.length;
+    // "All reasons" and each of the 17 codes the contract lists.
+    expect(names).toBe(18);
+    await user.selectOptions(select, "needs_agent");
+    await waitFor(() =>
+      expect(history.location.search).toContain("judgment_reason=needs_agent"),
+    );
+    expect(history.location.search).toContain("tab=slack");
+    await waitFor(() =>
+      expect(
+        api.calls.some((call) => call.search === "?reason=needs_agent"),
+      ).toBe(true),
+    );
+    await user.selectOptions(select, "timed_out");
+    expect(
+      await screen.findByText("고른 조건의 판단이 최근 목록에 없습니다"),
+    ).toBeDefined();
+    expect(screen.queryByRole("table", { name: "최근 판단" })).toBeNull();
+    // The counts per channel stay on screen.
+    expect(screen.getByRole("table", { name: "채널별 판단" })).toBeDefined();
+    await user.selectOptions(select, "");
+    await waitFor(() =>
+      expect(history.location.search).not.toContain("judgment_reason"),
+    );
+    expect(screen.getByRole("table", { name: "최근 판단" })).toBeDefined();
+  });
+
+  test("while a new reason's list is on its way no row of the last list shows under it", async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+      [`GET ${PATH}/slack/judgments?reason=timed_out`]: async () => {
+        await held;
+        return json(200, { ...JUDGMENTS, recent: [] });
+      },
+    });
+    const user = await setupUser();
+    expect(
+      await screen.findByRole("table", { name: "최근 판단" }),
+    ).toBeDefined();
+    await user.selectOptions(
+      await screen.findByLabelText("이유로 거르기"),
+      "timed_out",
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("table", { name: "최근 판단" })).toBeNull(),
+    );
+    expect(
+      screen.queryByText("고른 조건의 판단이 최근 목록에 없습니다"),
+    ).toBeNull();
+    // The counts and the choice stay while it loads.
+    expect(screen.getByRole("table", { name: "채널별 판단" })).toBeDefined();
+    release();
+    expect(
+      await screen.findByText("고른 조건의 판단이 최근 목록에 없습니다"),
+    ).toBeDefined();
+  });
+
+  test("a row shows what became of its judgment, or none", async () => {
+    const [first] = JUDGMENTS.recent;
+    if (!first) throw new Error("fixture");
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () =>
+        json(200, {
+          ...JUDGMENTS,
+          recent: [
+            first,
+            {
+              ...first,
+              id: "00000000-0000-4000-8000-0000000000b2",
+              decision: "quiet",
+              answer: null,
+            },
+          ],
+        }),
+    });
+    const recent = await screen.findByRole("table", { name: "최근 판단" });
+    expect(within(recent).getByText("답하기로 정함")).toBeDefined();
+    expect(within(recent).getByText("없음")).toBeDefined();
+  });
+
+  test("picking an outcome asks the server for it, alone or with a reason, and keeps both in the URL", async () => {
+    const { api, history } = renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+      [`GET ${PATH}/slack/judgments?answer=no_reply`]: () =>
+        json(200, { ...JUDGMENTS, recent: [] }),
+      [`GET ${PATH}/slack/judgments?answer=replied`]: () =>
+        json(200, JUDGMENTS),
+      [`GET ${PATH}/slack/judgments?reason=needs_agent&answer=replied`]: () =>
+        json(200, JUDGMENTS),
+    });
+    const user = await setupUser();
+    const select = await screen.findByLabelText("결과로 거르기");
+    // "All outcomes" and the seven answers the contract lists.
+    expect((select as HTMLSelectElement).options.length).toBe(8);
+    await user.selectOptions(select, "replied");
+    await waitFor(() =>
+      expect(history.location.search).toContain("judgment_answer=replied"),
+    );
+    expect(history.location.search).toContain("tab=slack");
+    await waitFor(() =>
+      expect(api.calls.some((call) => call.search === "?answer=replied")).toBe(
+        true,
+      ),
+    );
+    await user.selectOptions(
+      screen.getByLabelText("이유로 거르기"),
+      "needs_agent",
+    );
+    await waitFor(() =>
+      expect(
+        api.calls.some(
+          (call) => call.search === "?reason=needs_agent&answer=replied",
+        ),
+      ).toBe(true),
+    );
+    expect(history.location.search).toContain("judgment_reason=needs_agent");
+    expect(history.location.search).toContain("judgment_answer=replied");
+    await user.selectOptions(select, "no_reply");
+    await waitFor(() =>
+      expect(history.location.search).toContain("judgment_answer=no_reply"),
+    );
+    await user.selectOptions(select, "");
+    await waitFor(() =>
+      expect(history.location.search).not.toContain("judgment_answer"),
+    );
+    expect(history.location.search).toContain("judgment_reason=needs_agent");
+  });
+
+  test("while a new outcome's list is on its way no row of the last list shows under it", async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    renderAt(DETAIL, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+      [`GET ${PATH}/slack/judgments?answer=no_reply`]: async () => {
+        await held;
+        return json(200, { ...JUDGMENTS, recent: [] });
+      },
+    });
+    const user = await setupUser();
+    try {
+      expect(
+        await screen.findByRole("table", { name: "최근 판단" }),
+      ).toBeDefined();
+      await user.selectOptions(
+        await screen.findByLabelText("결과로 거르기"),
+        "no_reply",
+      );
+      await waitFor(() =>
+        expect(screen.queryByRole("table", { name: "최근 판단" })).toBeNull(),
+      );
+      expect(
+        screen.queryByText("고른 조건의 판단이 최근 목록에 없습니다"),
+      ).toBeNull();
+    } finally {
+      release();
+    }
+    expect(
+      await screen.findByText("고른 조건의 판단이 최근 목록에 없습니다"),
+    ).toBeDefined();
+  });
+
+  test("an outcome with no row says so and hides the table", async () => {
+    const { api } = renderAt(`${DETAIL}&judgment_answer=no_reply`, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments?answer=no_reply`]: () =>
+        json(200, { ...JUDGMENTS, recent: [] }),
+    });
+    const select = await screen.findByLabelText("결과로 거르기");
+    expect((select as HTMLSelectElement).value).toBe("no_reply");
+    expect(
+      await screen.findByText("고른 조건의 판단이 최근 목록에 없습니다"),
+    ).toBeDefined();
+    expect(
+      api.calls
+        .filter((call) => call.path.endsWith("/slack/judgments"))
+        .map((call) => call.search),
+    ).toEqual(["?answer=no_reply"]);
+  });
+
+  test("an unknown outcome in the URL is ignored and not sent", async () => {
+    const { api } = renderAt(`${DETAIL}&judgment_answer=nope`, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+    });
+    const select = await screen.findByLabelText("결과로 거르기");
+    expect((select as HTMLSelectElement).value).toBe("");
+    expect(
+      api.calls
+        .filter((call) => call.path.endsWith("/slack/judgments"))
+        .map((call) => call.search),
+    ).toEqual([""]);
+  });
+
+  test("a reason in the opening URL is asked for and shown chosen", async () => {
+    const { api } = renderAt(`${DETAIL}&judgment_reason=needs_agent`, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments?reason=needs_agent`]: () =>
+        json(200, JUDGMENTS),
+    });
+    const select = await screen.findByLabelText("이유로 거르기");
+    expect((select as HTMLSelectElement).value).toBe("needs_agent");
+    expect(
+      api.calls
+        .filter((call) => call.path.endsWith("/slack/judgments"))
+        .map((call) => call.search),
+    ).toEqual(["?reason=needs_agent"]);
+  });
+
+  test("an unknown reason in the URL is not sent to the server", async () => {
+    const { api } = renderAt(`${DETAIL}&judgment_reason=nope`, {
+      ...routes(APP, true),
+      [`GET ${PATH}/slack/judgments`]: () => json(200, JUDGMENTS),
+    });
+    const select = await screen.findByLabelText("이유로 거르기");
+    expect((select as HTMLSelectElement).value).toBe("");
+    expect(
+      api.calls
+        .filter((call) => call.path.endsWith("/slack/judgments"))
+        .map((call) => call.search),
+    ).toEqual([""]);
   });
 
   test("says there is nothing to see, and which release has no instructions", async () => {

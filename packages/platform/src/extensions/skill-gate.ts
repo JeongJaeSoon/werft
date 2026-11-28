@@ -475,8 +475,12 @@ export function gateSkillVersion(input: SkillGateInput): SkillGateResult {
     for (const char of file.path.match(OVERRIDE) ?? []) {
       flag("hidden_override", file.path, codePoint(char));
     }
-    if ("text" in kind) {
-      for (const char of kind.text.match(OVERRIDE) ?? []) {
+    // Media whose bytes are also text (an ASCII head such as "true" or
+    // "%PDF-") still runs under sh or shows in an editor: its overrides block.
+    const readable =
+      "text" in kind ? kind.text : "media" in kind ? textOf(file) : null;
+    if (readable !== null) {
+      for (const char of readable.match(OVERRIDE) ?? []) {
         flag("hidden_override", file.path, codePoint(char));
       }
     }

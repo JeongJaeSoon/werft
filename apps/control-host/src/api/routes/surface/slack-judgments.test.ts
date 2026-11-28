@@ -45,6 +45,57 @@ describe("GET /v1/agents/{id}/slack/judgments", () => {
     expect(asked).toEqual([AGENT]);
   });
 
+  test("no reason asks the service for the unfiltered read; a known reason is passed on", async () => {
+    const asked: unknown[] = [];
+    const server = app(async (_caller, _agentId, query) => {
+      asked.push(query);
+      return READ;
+    });
+    expect((await server.request(path, { headers: owner })).status).toBe(200);
+    const filtered = await server.request(`${path}?reason=needs_agent`, {
+      headers: owner,
+    });
+    expect(filtered.status).toBe(200);
+    const answered = await server.request(
+      `${path}?answer=no_reply&reason=needs_agent`,
+      { headers: owner },
+    );
+    expect(answered.status).toBe(200);
+    expect(asked).toEqual([
+      {},
+      { reason: "needs_agent" },
+      { answer: "no_reply", reason: "needs_agent" },
+    ]);
+  });
+
+  test("a reason the list has no code for is 400 and asks no service", async () => {
+    let called = false;
+    const server = app(async () => {
+      called = true;
+      return READ;
+    });
+    for (const query of [
+      "reason=nope",
+      "reason=",
+      "reason=needs_agent&x=1",
+      "reason=needs_agent&reason=nope",
+      "reason=nope&reason=needs_agent",
+      "reason=needs_agent&reason=needs_agent",
+      "answer=nope",
+      "answer=",
+      "answer=replied&answer=nope",
+      "answer=nope&answer=replied",
+      "answer=replied&answer=replied",
+      "answer=Replied",
+    ]) {
+      const response = await server.request(`${path}?${query}`, {
+        headers: owner,
+      });
+      expect(response.status).toBe(400);
+    }
+    expect(called).toBe(false);
+  });
+
   test("an agent id that is no uuid finds nothing and asks no service", async () => {
     let called = false;
     const response = await app(async () => {

@@ -804,18 +804,23 @@ integration("M1 judgment records", () => {
     expect(await rowsOf(place.channelId)).toEqual([]);
   });
 
-  test("a bound reply is graded by its session's status", async () => {
+  test("a bound reply is graded by its session's admission (decision 35)", async () => {
     const place = await channel();
     const session = await newPartitionedSession(db, "m1-grade");
+    await pool.query("UPDATE sessions SET status = 'idle' WHERE id = $1", [
+      session.sessionId,
+    ]);
     const grades: string[] = [];
-    for (const [status, ts] of [
-      ["running", "700.000001"],
-      ["idle", "700.000002"],
+    for (const [admission, ts] of [
+      ["active", "700.000001"],
+      ["stopped", "700.000002"],
+      ["closing", "700.000003"],
+      ["closed", "700.000004"],
     ] as const) {
-      await pool.query("UPDATE sessions SET status = $2 WHERE id = $1", [
-        session.sessionId,
-        status,
-      ]);
+      await pool.query(
+        "UPDATE sessions SET admission_state = $2 WHERE id = $1",
+        [session.sessionId, admission],
+      );
       const inputId = await hold(place, ts, "reply");
       await db.transaction((tx) =>
         requestReplyJudgment(tx, {
@@ -836,7 +841,7 @@ integration("M1 judgment records", () => {
       );
       grades.push(rows[0]?.grade ?? "none");
     }
-    expect(grades).toEqual(["m1_to_task", "m1"]);
+    expect(grades).toEqual(["m1_to_task", "m1_to_task", "m1", "m1"]);
   });
   test("a bound reply writes no waiting row with the switch off or in a shared channel", async () => {
     const request = async (
@@ -1235,15 +1240,73 @@ integration("M1 judgment records", () => {
       });
     });
 
+    test("a held reply of work going on edited while judged is judged once more on its new text, its row kept", async () => {
+      await pool.query(
+        "DELETE FROM conversation_judgments WHERE outcome IS NULL",
+      );
+      const place = await channel();
+      const inputId = await hold(place, "1950.000001", "before");
+      await db.transaction((tx) =>
+        requestReplyJudgment(tx, {
+          workspaceId,
+          agentId,
+          teamId: TEAM,
+          channelId: place.channelId,
+          ts: "1950.000001",
+          topicId: place.topicId,
+          inputId,
+          sessionId: null,
+          heldAs: "m1_to_task",
+          rule: { decision: "reply", reason: "default_reply" },
+        }),
+      );
+      const claimed = await store().claimReply();
+      if (claimed === null) throw new Error("none");
+      expect(claimed.subject.grade).toBe("m1_to_task");
+      await marks().markEdited(mark(place, "1950.000001"), "after");
+      expect(
+        await store().finishReply(
+          claimed.id,
+          judgedRecord(inputId, ["1950.000001"]),
+          { read: { body: "before", editMark: null } },
+        ),
+      ).toMatchObject({ voided: "voided_by_edit", rejudge: { body: "after" } });
+      // The reply's record keeps its held row (out of M1's batches); the
+      // voided call has a row of its own.
+      let rows = await rowsOf(place.channelId);
+      expect(rows.map((row) => [row.outcome, row.input_id])).toEqual([
+        [null, inputId],
+        ["voided", null],
+      ]);
+      // Voided again: it could not be judged, and the record stays.
+      await marks().markEdited(mark(place, "1950.000001"), "later");
+      expect(
+        await store().finishReply(
+          claimed.id,
+          judgedRecord(`${inputId}-rejudge`, ["1950.000001"]),
+          { read: { body: "after", editMark: null }, final: true },
+        ),
+      ).toMatchObject({ voided: "voided_by_edit", rejudge: null });
+      rows = await rowsOf(place.channelId);
+      expect(
+        rows.map((row) => [row.outcome, row.reason, row.input_id]),
+      ).toEqual([
+        ["voided", "voided_by_edit", null],
+        ["voided", "voided_by_edit", null],
+        ["failed", "provider_error", inputId],
+      ]);
+    });
+
     test("a bound reply edited while judged is voided and not judged again", async () => {
       await pool.query(
         "DELETE FROM conversation_judgments WHERE outcome IS NULL",
       );
       const place = await channel();
       const session = await newPartitionedSession(db, "m1-j6");
-      await pool.query("UPDATE sessions SET status = 'idle' WHERE id = $1", [
-        session.sessionId,
-      ]);
+      await pool.query(
+        "UPDATE sessions SET status = 'idle', admission_state = 'closed' WHERE id = $1",
+        [session.sessionId],
+      );
       const inputId = await hold(place, "1900.000001", "reply");
       await db.transaction((tx) =>
         requestReplyJudgment(tx, {
@@ -1418,7 +1481,7 @@ integration("M1 judgment records", () => {
       });
     });
 
-    test("a bound reply whose context was deleted is voided and not judged again", async () => {
+    test("a held reply of work going on whose context was deleted is judged once more, as a held reply is", async () => {
       await pool.query(
         "DELETE FROM conversation_judgments WHERE outcome IS NULL",
       );
@@ -1450,7 +1513,62 @@ integration("M1 judgment records", () => {
           ]),
           { read: { body: "reply", editMark: null } },
         ),
-      ).toEqual({ voided: "voided_by_delete", rejudge: null });
+      ).toMatchObject({
+        voided: "voided_by_delete",
+        rejudge: { body: "reply" },
+      });
+    });
+
+    test("a held reply of work going on evicted while judged keeps its record, ended, when its result is voided", async () => {
+      await pool.query(
+        "DELETE FROM conversation_judgments WHERE outcome IS NULL",
+      );
+      const place = await channel();
+      const session = await newPartitionedSession(db, "m1-j6-evicted");
+      const inputId = await hold(place, "2500.000003", "reply");
+      await db.transaction((tx) =>
+        requestReplyJudgment(tx, {
+          workspaceId,
+          agentId,
+          teamId: TEAM,
+          channelId: place.channelId,
+          ts: "2500.000003",
+          topicId: place.topicId,
+          inputId,
+          sessionId: session.sessionId,
+          rule: { decision: "reply", reason: "default_reply" },
+        }),
+      );
+      const claimed = await store().claimReply();
+      if (claimed === null) throw new Error("none");
+      // The buffer's limit takes its row while the model reads it, and a
+      // context message it read is deleted.
+      await pool.query("DELETE FROM conversation_inputs WHERE id = $1", [
+        inputId,
+      ]);
+      await marks().markDeleted(mark(place, "2500.000001"));
+      expect(
+        await store().finishReply(
+          claimed.id,
+          withContext(judgedRecord(inputId, ["2500.000003"]), [
+            place,
+            "2500.000001",
+          ]),
+          { read: { body: "reply", editMark: null } },
+        ),
+      ).toMatchObject({ voided: "voided_by_delete", rejudge: null });
+      const { rows } = await pool.query(
+        "SELECT grade, outcome, reason, refs FROM conversation_judgments WHERE id = $1",
+        [claimed.id],
+      );
+      expect(rows).toEqual([
+        {
+          grade: "m1_to_task",
+          outcome: "failed",
+          reason: "provider_error",
+          refs: ["2500.000003"],
+        },
+      ]);
     });
 
     test("a context message edited while judged voids the result, and every post is judged again", async () => {
