@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   CloseReceiptResult,
   ControlAcceptedResponse,
+  TaskClosedReason,
 } from "@werft-ai/contracts";
 import {
   type CloseSessionInput,
@@ -39,11 +40,14 @@ import { pauseBlocker } from "./pause-control.ts";
 import { hasRestorePoint, restoreBaseRevision } from "./pause-policy.ts";
 import { awaitingInputAt } from "./pending-status.ts";
 import { recordEvent, recordStatus } from "./session-events.ts";
+import { recordTaskClosedReason } from "./task-fields.ts";
 
 const SESSION_CLOSED_SUBTYPE = "session_closed";
 
 /** Who closed a session from the API container's operator command. */
 export const OPERATOR_CLI = "operator_cli";
+/** Who closed a task on its pull request merged or closed (v1-b/C1). */
+export const PULL_REQUEST_EVENT = "pull_request_event";
 
 type SessionRow = typeof sessions.$inferSelect;
 
@@ -122,7 +126,11 @@ export async function finishClose(
  */
 export function closeAtomic(
   db: Database,
-  input: CloseSessionInput & { by?: typeof OPERATOR_CLI },
+  input: CloseSessionInput & {
+    by?: typeof OPERATOR_CLI | typeof PULL_REQUEST_EVENT;
+    /** A task's closed reason, written with the close (v1-b/C1). */
+    taskClosedReason?: TaskClosedReason;
+  },
 ): Promise<CloseSessionResult & { into?: "closing" | "closed" }> {
   const sessionId = input.sessionId.toLowerCase();
   const scope: IdempotencyScope = {
@@ -214,6 +222,9 @@ export function closeAtomic(
         updatedAt: now,
       })
       .where(eq(sessions.id, sessionId));
+    if (input.taskClosedReason !== undefined) {
+      await recordTaskClosedReason(tx, sessionId, input.taskClosedReason);
+    }
 
     const receiptId = randomUUID();
     // Waiting on an execution, whether drained or killed: the receipt
@@ -239,7 +250,10 @@ export function closeAtomic(
         actor:
           input.by === undefined
             ? { owner_id: input.principal.ownerId }
-            : { kind: "operator", by: input.by },
+            : {
+                kind: input.by === OPERATOR_CLI ? "operator" : "system",
+                by: input.by,
+              },
       },
       turnRowId: null,
       now,

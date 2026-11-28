@@ -4,6 +4,7 @@ import {
   type PendingQuestion,
   SLACK_INTERACTION_ACTIONS,
   SLACK_NOTE_VIEW_CALLBACK,
+  SLACK_NOTICE_MESSAGES,
   SLACK_QUESTION_VIEW_CALLBACK,
   scopesForRole,
   type WorkspaceRole,
@@ -58,6 +59,9 @@ let role: WorkspaceRole;
 let answerError: Error | null;
 let continueError: Error | null;
 let startFreshError: Error | null;
+// What closing a task answers a press of its progress message's buttons.
+let taskClose: "closed" | "not_permitted" | "already_closed" | "refused" =
+  "closed";
 let outcome: Awaited<ReturnType<SlackInteractionDeps["pending"]["outcome"]>>;
 let listed: unknown[];
 let pushState: "requested" | "approved" | "rejected" | null;
@@ -329,6 +333,12 @@ function deps(): SlackInteractionDeps {
         return undefined;
       }) as never,
       queuePushFollowUp: record("append") as never,
+    },
+    tasks: {
+      close: (async (...args: unknown[]) => {
+        calls.push({ method: "task_close", args });
+        return taskClose;
+      }) as never,
     },
     followUps: {
       async hold(input) {
@@ -1821,5 +1831,60 @@ describe("the start-fresh button on the notice of a turn of unknown outcome with
     expect((outcome as { result: string }).result).toBe("failed");
     expect(called("update")).toEqual([]);
     expect(called("ephemeral")).toHaveLength(1);
+  });
+});
+
+describe("the close buttons on a task's progress message", () => {
+  const pressClose = (actionId: string, user = LINKED) =>
+    press(actionId, { s: SESSION, r: "link-1" }, user);
+
+  test.each([
+    [SLACK_INTERACTION_ACTIONS.taskComplete, "completed"],
+    [SLACK_INTERACTION_ACTIONS.taskCancel, "cancelled"],
+  ] as const)(
+    "%s closes the task as %s for the presser, who is told nothing",
+    async (actionId, reason) => {
+      taskClose = "closed";
+      const outcome = await send(pressClose(actionId));
+      expect((outcome as { result: string }).result).toBe("task_closed");
+      const [closed] = called("task_close");
+      expect(closed?.args.slice(1)).toEqual([SESSION, reason]);
+      expect(
+        (closed?.args[0] as { actor: { userId: string } }).actor.userId,
+      ).toBe(USER);
+      expect(called("ephemeral")).toEqual([]);
+    },
+  );
+
+  test("someone who may not control the session closes nothing and alone is told so", async () => {
+    taskClose = "not_permitted";
+    const outcome = await send(
+      pressClose(SLACK_INTERACTION_ACTIONS.taskCancel),
+    );
+    expect((outcome as { result: string }).result).toBe(
+      "refused:not_permitted",
+    );
+    const [told] = called("ephemeral");
+    expect(JSON.stringify(told?.args)).toContain(
+      SLACK_NOTICE_MESSAGES.en.taskCloseNotPermitted,
+    );
+    expect(JSON.stringify(told?.args)).toContain(LINKED);
+  });
+
+  test("a person who may not send to the agent reaches no close", async () => {
+    const outcome = await send(
+      pressClose(SLACK_INTERACTION_ACTIONS.taskComplete, STRANGER),
+    );
+    expect((outcome as { result: string }).result).toStartWith("refused:");
+    expect(called("task_close")).toEqual([]);
+  });
+
+  test("a task already closed takes the press as nothing new", async () => {
+    taskClose = "already_closed";
+    const outcome = await send(
+      pressClose(SLACK_INTERACTION_ACTIONS.taskComplete),
+    );
+    expect((outcome as { result: string }).result).toBe("task_already_closed");
+    expect(called("ephemeral")).toEqual([]);
   });
 });

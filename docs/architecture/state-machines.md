@@ -82,6 +82,35 @@
 
 시험: `packages/db/src/stop-control.test.ts`, `apps/control-host/src/slack/session-handler.integration.test.ts`의 Slack stop 시험(재처리 두 경우는 `… after an outbox pass closed the link stops once …`, `… lost its lease after the stop …`, 다시 열린 스레드는 `… after the thread opened new work stops nothing there …`, 판정 버퍼는 `an unmentioned stop word retried after its link closed is held for no judgment …`, 비공개 전환은 `… in a channel turned private sends its binding to approval …`, 닫힌 스레드의 새 멈춤 낱말은 `a new stop word mentioned in a thread whose task the stop closed …`).
 
+### 작업 닫기(PR 사건, 요청자의 완료·취소)가 일으키는 전이
+
+작업 세션(`task_closing` 있음)을 닫는 두 길이다. 둘 다 사람의 close와 같은 `closeAtomic`으로 닫고, 같은 트랜잭션에서 세션의 `task_closed_reason`을 쓴다(`packages/db/src/sessions/task-close.ts`).
+
+- PR 사건: outcome refresher가 pass를 끝낼 때 한 번에 100개까지 고른다. `task_closing.eventRules`가 켜진 작업이어야 한다. 세션의 `github_pull_request` 성과 가운데 하나라도 `merged`면 `completed`로 닫는다. `merged`가 없고 `closed`가 있으면서 `open`이 없을 때만 `cancelled`로 닫는다. status 이벤트의 actor는 `{kind: system, by: pull_request_event}`이다.
+- 요청자의 완료·취소: 작업 진행 메시지의 [완료]·[취소] 버튼이다. 누른 사람이 그 세션의 `session.control` 권한을 가져야 한다. 권한이 없으면 누른 사람에게만 ephemeral 안내가 간다.
+
+| 지금 상태 | 다음 상태 | 조건 | 누가 일으키나 |
+| --- | --- | --- | --- |
+| `active` (살아 있는 worker가 drain함) | `closing` 뒤 `closed` (status `stopped`) | 위 조건을 채운 작업 세션. `task_closed_reason`은 `closing`이 될 때 쓴다. `closed`는 실행이 사라진 것이 보일 때 된다(`confirmExecutionGone`) | PR 사건(system), 세션을 제어할 수 있는 요청자 |
+| `active` (drain할 worker 없음), `paused`, 이어 갈 수 있는 `stopped` | `closed` (status `stopped`) | 같음. `active`는 checkpoint가 마지막으로 돈 턴을 덮을 때만 닫힌다(`pauseBlocker`) | 같음 |
+| `closing`, `closed` | 그대로 | 요청자에게는 `already_closed`로 답한다. 처음 닫은 사유가 남는다 | 같음 |
+| `recovery_required`, 이어 갈 수 없는 `stopped`, checkpoint가 덮지 못한 `active` | 그대로 | `closeAtomic`이 거절한다. 요청자는 실패 안내를 받는다. PR 사건은 다음 pass에 다시 시도한다 | 같음 |
+
+막을 전이:
+
+- 작업이 아닌 세션(`task_closing` 없음)은 어느 길로도 작업으로 닫히지 않는다(요청자에게 `not_task`).
+- `eventRules`가 꺼진 작업은 PR 사건으로 닫히지 않는다.
+- `closed` PR과 `open` PR이 함께 있는 작업은 닫히지 않는다. 열린 PR이 `merged`가 되면 `completed`로 닫힌다.
+- 권한이 없는 사람이 누른 버튼은 세션을 바꾸지 않는다.
+
+지켜야 할 성질:
+
+- 작업의 스레드 링크는 다음 outbox pass의 `closeFinishedLinks`가 `task_closed_reason`으로 닫는다. 진행 메시지가 있는 링크는 닫힘 갱신 행(취소면 '작업을 취소했어요')이 생긴 뒤에 닫힌다. 같은 pass에서 진행 갱신을 넣은 뒤 링크를 닫기 전에 세션이 닫혀도 같다.
+- 닫힌 작업의 진행 메시지에는 버튼이 없다.
+- 요청자가 닫은 작업의 스레드에 온 멘션은 대화 turn이 된다(`spawn_task`면 새 작업과 새 링크, `reply`면 답만).
+
+시험: `apps/control-host/src/slack/outbox.integration.test.ts`의 `a task's close on …` 묶음과 `a work closed between a pass's progress and its link close keeps its link open for the closed update`, `apps/control-host/src/slack/session-handler.integration.test.ts`의 `a mention in the thread of a task its requester closed is a conversation turn, and its %s takes effect`, `packages/adapters/chat/slack/src/slack-interactions.test.ts`의 `the close buttons on a task's progress message` 묶음, `packages/platform/src/sessions/task-close.test.ts`, `packages/platform/src/sessions/outcome-refresher.test.ts`.
+
 ### terminate가 일으키는 전이
 
 terminate는 사람이 세션을 강제로 끝내는 제어다(`POST /v1/sessions/{id}/terminate`, 관리자 terminate, 웹의 '세션 종료'). 판정은 `packages/db/src/control-unit-of-work.ts`의 `terminateAtomic`이 한다.

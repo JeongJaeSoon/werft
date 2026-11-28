@@ -4916,6 +4916,61 @@ describe.each(ENGINES)(
     const threadUrl = (ts: string) =>
       `https://slack.com/archives/${CHANNEL}/p${ts.replace(".", "")}`;
 
+    // v1-b/C1: once its task closed, a mention in the thread is a new
+    // conversation turn, and what that turn decides takes effect (M2).
+    test.each(["spawn_task", "reply"] as const)(
+      "a mention in the thread of a task its requester closed is a conversation turn, and its %s takes effect",
+      async (tool) => {
+        const fixture = await agentInSlack("main", { rollout: "on" });
+        const task = await openTask(fixture, "100.000100");
+        const [opened] = await sessionsOf(fixture);
+        expect(
+          await schema.createPostgresTaskCloses(db).close({
+            principal: { ownerId: opened?.ownerId ?? "" },
+            sessionId: task,
+            reason: "completed",
+          }),
+        ).toBe("closed");
+        const outbox = schema.createPostgresSlackOutboxStore(db);
+        await sendOutbox();
+        await outbox.advanceAnswered();
+        await outbox.closeFinishedLinks(10);
+        expect(
+          (await links()).map((link) => [link.sessionId, link.closedReason]),
+        ).toEqual([[task, "completed"]]);
+
+        await deliver(
+          fixture,
+          mention("100.000300", { thread_ts: "100.000100" }),
+        );
+        await drain(handler().handle);
+        expect(await mentionTurnsOf(fixture)).toHaveLength(2);
+        if (tool === "spawn_task") {
+          await spawnDecided();
+          expect(await endings()).toMatchObject({ spawned: 1 });
+          const [, next] = await sessionsOf(fixture);
+          expect(next?.id).not.toBe(task);
+          // The closed link stays history; the new task has a link of its own.
+          expect(
+            (await links())
+              .map((link) => [link.sessionId, link.closedReason])
+              .sort((a, b) => String(a[1]).localeCompare(String(b[1]))),
+          ).toEqual([
+            [task, "completed"],
+            [next?.id ?? null, null],
+          ]);
+        } else {
+          await decided("Done already: see the merged change.");
+          await endings();
+          await sendOutbox();
+          expect(postsIn("100.000100").map((post) => post.text)).toEqual([
+            "Done already: see the merged change.\n\nAI agent · Werft",
+          ]);
+          expect(await sessionsOf(fixture)).toHaveLength(1);
+        }
+      },
+    );
+
     test("a new top-level post handed to an open task: one input of that task, one mirror row, one pointer line, no new task", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       const task = await openTask(fixture, "100.000100");
