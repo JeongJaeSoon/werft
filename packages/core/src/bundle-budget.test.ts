@@ -61,11 +61,8 @@ const BUDGET_BYTES: Record<string, number> = {
   // bytes over 155, so they move to 158 and 156. Merged with main's channel
   // report mode and judgment answer filter, ./schemas is 38 bytes over 158,
   // so it moves to 159. The agent's merge switch (94S-2492) put ./forms 14
-  // bytes over 156 on top of that, so it moves to 157. Renaming two contracts
-  // folders reordered the modules in the bundle: the same 613612 minified
-  // bytes gzip 206 bytes larger, which put ./schemas 128 bytes over 159, so
-  // it moves to 160.
-  "./schemas": 160 * 1024,
+  // bytes over 156 on top of that, so it moves to 157.
+  "./schemas": 159 * 1024,
   "./forms": 157 * 1024,
 };
 
