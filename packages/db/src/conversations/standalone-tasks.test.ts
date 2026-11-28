@@ -689,10 +689,12 @@ describe("a DM person's standalone sessions (v1-b/DM3)", () => {
     ) =>
       db.execute(sql`
         INSERT INTO session_outcomes (id, owner_id, session_id, type, url,
-          external_id, state, state_changed_at)
+          external_id, state, state_changed_at, merged_at, closed_at)
         VALUES (gen_random_uuid(), ${ws}, ${sessionId}::uuid,
           'github_pull_request', ${`https://github.com/acme/app/pull/${n}`},
-          ${n}, ${state}, ${at}::timestamptz)`);
+          ${n}, ${state}, ${at}::timestamptz,
+          ${state === "merged" ? at : null}::timestamptz,
+          ${state === "open" ? null : at}::timestamptz)`);
     const before = new Date(Date.now() - 60_000).toISOString();
     const handed = await session();
     await pr(handed, "10", "merged", before);

@@ -8563,6 +8563,9 @@ describe.each(ENGINES)("a task's close on %s", (engine) => {
       externalId: String(number),
       state,
       stateChangedAt: new Date(),
+      // As a refresh saves them: GitHub's time of the merge or close.
+      mergedAt: state === "merged" ? new Date() : null,
+      closedAt: state === "open" ? null : new Date(),
     });
     return id;
   };
