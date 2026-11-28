@@ -577,6 +577,10 @@ describe("the registered-private mark", () => {
   test("hostKey reads a host as an upstream URL naming it is read", () => {
     const keys: Array<[string, string | null]> = [
       ["DB.", "db"],
+      ["db..", "db"],
+      ["Model.Internal...", "model.internal"],
+      ["10.0.0.5.", "10.0.0.5"],
+      ["127.1..", "127.0.0.1"],
       ["api_internal", "api_internal"],
       ["10.0.0.5", "10.0.0.5"],
       ["2130706433", "127.0.0.1"],
@@ -590,6 +594,7 @@ describe("the registered-private mark", () => {
       // Not a host alone.
       ["", null],
       [".", null],
+      ["..", null],
       ["db:5432", null],
       ["[fd00::1]:80", null],
       ["db/path", null],
@@ -598,8 +603,11 @@ describe("the registered-private mark", () => {
       ["fe80::1%eth0", null],
       ["1.2.3.4.5", null],
     ];
-    for (const [host, key] of keys)
+    for (const [host, key] of keys) {
       expect([host, hostKey(host)]).toEqual([host, key]);
+      // A kept key is read again as itself.
+      if (key !== null) expect([host, hostKey(key)]).toEqual([host, key]);
+    }
   });
 
   test("parseGrant keeps the mark with its deny list, each host in one spelling", () => {
@@ -611,6 +619,10 @@ describe("the registered-private mark", () => {
     ]);
     expect(parsed.allow).toBe("private");
     expect(parsed.deny).toEqual(["db", "fd00::1", "10.0.0.7", "127.0.0.1"]);
+    // Kept as the key the upstream's own name has, however many dots end it.
+    expect(
+      marked("http://model.internal:4000/v1", ["model.internal.."]).deny,
+    ).toEqual([hostKey("model.internal") ?? ""]);
     expect(marked("http://model.internal:4000/v1").deny).toEqual([]);
     const most = Array.from({ length: 256 }, (_, index) => `h${index}`);
     expect(marked("http://model.internal:4000/v1", most).deny).toHaveLength(
@@ -4265,6 +4277,26 @@ describe("startCredentialProxy", () => {
     expect(up.seen).toEqual([]);
   });
 
+  test("of several judged addresses the first alone is dialled, and none after it", async () => {
+    const up = upstream(() => Response.json({ id: "msg_1" }));
+    const auth = authorizer(
+      granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    // The upstream listens on 127.0.0.1 alone: nothing answers on ::1.
+    let addresses = ["127.0.0.1", "::1"];
+    const server = proxy(auth.url, up.port, {
+      resolve: async () => addresses,
+    });
+    expect((await messages(server.port)).status).toBe(200);
+    expect(up.seen).toHaveLength(1);
+    // The first fails to connect: the POST is not sent to the second.
+    addresses = ["::1", "127.0.0.1"];
+    expect((await messages(server.port)).status).toBe(502);
+    expect(up.seen).toHaveLength(1);
+  });
+
   test("a grant URL spelling a metadata address as one number is judged as that address", async () => {
     const up = upstream(() => Response.json({ id: "msg_1" }));
     for (const spelled of ["1684301000", "0x646464c8", "0144.0144.0144.0310"]) {
@@ -5133,7 +5165,7 @@ describe("startCredentialProxy", () => {
       });
 
       test("the grant's deny list is held by name and by address, before the private rules", async () => {
-        const deny = ["Postgres.", "10.0.0.7", "FD00:0:0:0:0:0:0:7"];
+        const deny = ["Postgres.", "db..", "10.0.0.7", "FD00:0:0:0:0:0:0:7"];
         let url = "";
         let addresses: string[] = [];
         const { server, looked, lines } = marked(
@@ -5144,6 +5176,8 @@ describe("startCredentialProxy", () => {
         for (const named of [
           "http://postgres:5432/mcp",
           "http://POSTGRES.:5432/mcp",
+          "http://db:5432/mcp",
+          "http://db..:5432/mcp",
           "http://10.0.0.7:8080/mcp",
           "http://167772167:8080/mcp",
           "http://[fd00::7]:8080/mcp",

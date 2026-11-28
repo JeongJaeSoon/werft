@@ -1007,7 +1007,8 @@ const MAX_AUTHORIZER_ADDRESSES = 64;
  * case, no trailing dot, an address as the URL parser writes it (which reads
  * `2130706433` and `0x7f.1` as 127.0.0.1), and an IPv4-mapped address as
  * the IPv4 address a socket takes it to. null when the text is not a host
- * alone: a port, a path, a zone.
+ * alone: a port, a path, a zone. A key's key is itself: a deny entry is kept
+ * as its key and compared with an upstream's, so `x..` has to be `x` too.
  */
 export function hostKey(host: string): string | null {
   const bare =
@@ -1017,7 +1018,8 @@ export function hostKey(host: string): string | null {
   if (v6 && isIP(bare) !== 6) return null;
   try {
     const key = normalizeHost(
-      new URL(`http://${v6 ? `[${bare}]` : bare}/`).hostname,
+      new URL(`http://${v6 ? `[${bare}]` : bare.replace(/\.+$/, "")}/`)
+        .hostname,
     );
     const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(key);
     if (mapped !== null) {
