@@ -860,7 +860,11 @@ function GitHubSettings({
                 }
               />
               {FEATURES.map((feature) => {
-                const option = data.options.features[feature];
+                // A server from before a switch answers no option for it.
+                const option = data.options.features[feature] ?? {
+                  available: false,
+                  reason: null,
+                };
                 const on = settings.features[feature] ?? false;
                 // GitHub refuses a review where the reviewer App is not installed.
                 const uninstalled =

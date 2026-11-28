@@ -348,17 +348,20 @@ export function createAgentGitHubService(deps: {
                         reads(permissions.actions) && reads(permissions.checks)
                       )),
                 );
-        const reason: AgentGitHubFeatureUnavailable | null = enterprise
-          ? "github_host_unsupported"
-          : !settings.ceiling[feature] ||
-              // Turning workflows on saves checks with it.
-              (feature === "workflows" && !settings.ceiling.checks)
-            ? "over_workspace_ceiling"
-            : feature === "review" && !reviewers.present
-              ? "no_reviewer_app"
-              : missing
-                ? "app_permission_missing"
-                : null;
+        // Merging is the default work's token (contents), which the gate
+        // issues on any host: only the ceiling and the App limit it.
+        const reason: AgentGitHubFeatureUnavailable | null =
+          enterprise && feature !== "merge"
+            ? "github_host_unsupported"
+            : !settings.ceiling[feature] ||
+                // Turning workflows on saves checks with it.
+                (feature === "workflows" && !settings.ceiling.checks)
+              ? "over_workspace_ceiling"
+              : feature === "review" && !reviewers.present
+                ? "no_reviewer_app"
+                : missing
+                  ? "app_permission_missing"
+                  : null;
         return { available: reason === null, reason };
       };
 

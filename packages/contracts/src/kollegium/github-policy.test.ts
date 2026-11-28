@@ -1031,7 +1031,7 @@ describe("an agent's merge switch (94S-2492)", () => {
   // Rollback (94S-2491 read first): #2373 reads `features` without the keys
   // it does not know and checks `merge` as an optional boolean; the build
   // before it reads the five known keys strictly.
-  test("what this build writes back reads on #2373, and on the build before it only while no row has the key", () => {
+  test("the switches this build stores pass the #2373 switch schema, and the strict one before it only without the key (both shapes copied here)", () => {
     const five = {
       workflows: z.boolean(),
       actions: z.boolean(),

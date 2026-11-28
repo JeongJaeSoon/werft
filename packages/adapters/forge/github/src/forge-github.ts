@@ -107,11 +107,20 @@ function clientOf(
     (limit: string) =>
     (
       retryAfter: number,
-      options: { method?: string; url?: string },
+      options: {
+        method?: string;
+        url?: string;
+        // Octokit's own type for it does not know the retry plugin's key.
+        request?: object;
+      },
       _octokit: unknown,
       retryCount: number,
     ) => {
+      // A request that asked for no retry (a merge, a dispatch) may have
+      // taken effect: the throttling plugin would send it again on its own.
+      const asked = options.request as { retries?: number } | undefined;
       const retrying =
+        asked?.retries !== 0 &&
         retryCount < RATE_LIMIT_RETRIES &&
         retryAfter <= RATE_LIMIT_MAX_WAIT_SECONDS;
       // `url` is the route template: it never carries a token.

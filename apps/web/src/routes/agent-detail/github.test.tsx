@@ -2380,6 +2380,23 @@ describe("에이전트 GitHub 탭", () => {
     expect(sent[0]?.settings.features).toMatchObject(SETTINGS.features);
   });
 
+  test("머지 option이 없는 응답(이 스위치가 없던 서버)에서도 탭이 그려지고 머지 스위치는 잠긴다 (94S-2492)", async () => {
+    const { server } = await activeAgent();
+    const { merge: _merge, ...before } = TAB.options.features;
+    renderAt(
+      DETAIL,
+      routesFor(server, {
+        ...TAB,
+        options: { ...TAB.options, features: before },
+      }),
+    );
+    await screen.findByRole("heading", { name: "Actions 허용 목록" });
+    const merge = switchNamed("자기 PR 머지");
+    expect(merge.getAttribute("aria-checked")).toBe("false");
+    expect(merge.hasAttribute("disabled")).toBe(true);
+    expect(switchNamed("리뷰 승인").hasAttribute("disabled")).toBe(false);
+  });
+
   test("Actions를 끄면 허용 목록도 비워서 저장한다", async () => {
     const { server } = await activeAgent();
     const sent: { settings: Settings }[] = [];

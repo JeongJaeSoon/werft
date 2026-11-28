@@ -14305,8 +14305,7 @@
                   "actions",
                   "checks",
                   "issues",
-                  "review",
-                  "merge"
+                  "review"
                 ],
                 "additionalProperties": false
               }
@@ -50606,7 +50605,7 @@
           "Workspace settings"
         ],
         "summary": "Change the workspace's GitHub ceiling (owner or admin)",
-        "description": "Replaces the ceiling. `revision` is the one last read; a stale one is 409 `REVISION_CONFLICT` and nothing changes. Lowering a feature refuses it from the next GitHub token on (409 `GITHUB_REFUSED` `over_workspace_ceiling`), for sessions of every release that turns it on; raising it lets the same releases use it again. `merge` is read on every merge call, so turning it on needs no new release and applies from the next call, and turning it off refuses the next call with `GITHUB_REFUSED` `merge_off` before GitHub is called; a body without `merge` saves it as false. An agent merges only with its own `features.merge` on as well (`PUT /v1/agents/{id}/github/settings`); `error.details.off_in` (`agent`, `ceiling` or `both`) names the side that is off. Writes a `set_github_ceiling` receipt with the ceiling before and after. API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Replaces the ceiling. `revision` is the one last read; a stale one is 409 `REVISION_CONFLICT` and nothing changes. Lowering a feature refuses it from the next GitHub token on (409 `GITHUB_REFUSED` `over_workspace_ceiling`), for sessions of every release that turns it on; raising it lets the same releases use it again. `merge` is read on every merge call, so turning it on needs no new release and applies from the next call, and turning it off refuses the next call before GitHub is called (the `merge_pull_request` tool answers `github_refused` with `details.reason_code` `merge_off`); a body without `merge` saves it as false. An agent merges only with its own `features.merge` on as well (`PUT /v1/agents/{id}/github/settings`); the refusal's `details.off_in` (`agent`, `ceiling` or `both`) names the side that is off. Writes a `set_github_ceiling` receipt with the ceiling before and after. API keys are refused.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []

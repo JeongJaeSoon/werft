@@ -407,16 +407,19 @@ describe("the agent GitHub tab's options", () => {
     expect(lacking.options.features.checks.available).toBe(true);
   });
 
-  test("only GitHub Enterprise repositories chosen: every optional permission is unsupported", async () => {
+  test("only GitHub Enterprise repositories chosen: every optional permission but merging is unsupported", async () => {
     const read = await serviceWith({
       github: { ...WITH_SETTINGS, repositories: ["ghe-app"] },
     }).get(caller, AGENT);
-    for (const option of Object.values(read.options.features)) {
+    const { merge, ...rest } = read.options.features;
+    for (const option of Object.values(rest)) {
       expect(option).toEqual({
         available: false,
         reason: "github_host_unsupported",
       });
     }
+    // The gate puts no host limit on a merge, so the tab does not either.
+    expect(merge).toEqual({ available: true, reason: null });
     const mixed = await serviceWith({
       github: { ...WITH_SETTINGS, repositories: ["sample-app", "ghe-app"] },
       author: { actions: "write" },
