@@ -2,6 +2,7 @@ import {
   AGENT_GITHUB_ACTIVITY_LIMIT,
   AGENT_GITHUB_REPOSITORIES_MAX,
   type AgentGitHubActivityResponse,
+  type AgentGitHubFeatures,
   type AgentGitHubFeatureUnavailable,
   type AgentGitHubRepositoryUnavailable,
   type AgentGitHubResponse,
@@ -9,7 +10,6 @@ import {
   catalogIdOfRef,
   GITHUB_FEATURES_DEFAULT,
   type GitHubAppRole,
-  type GitHubFeatures,
   githubEffectiveFeatures,
   githubFeaturesOverCeiling,
   newSessionGitHubPolicy,
@@ -55,12 +55,13 @@ import type { GitHubRepositoryService } from "./github-repository-service.ts";
 
 type Repository = SessionCatalog["repositories"][string];
 
-const FEATURES: readonly (keyof GitHubFeatures)[] = [
+const FEATURES: readonly (keyof AgentGitHubFeatures)[] = [
   "workflows",
   "actions",
   "checks",
   "issues",
   "review",
+  "merge",
 ];
 
 /** What the first save writes for a workspace with no repository ceiling. */
@@ -327,30 +328,40 @@ export function createAgentGitHubService(deps: {
       };
       const authors = known("author");
       const reviewers = known("reviewer");
-      const featureOption = (feature: keyof GitHubFeatures) => {
+      const featureOption = (feature: keyof AgentGitHubFeatures) => {
         const missing =
           feature === "review"
             ? reviewers.permissions.some(
                 (permissions) => !writes(permissions.pull_requests),
               )
-            : authors.permissions.some(
-                (permissions) =>
-                  !writes(permissions[feature]) ||
-                  // The switch also reads CI.
-                  (feature === "workflows" &&
-                    !(reads(permissions.actions) && reads(permissions.checks))),
-              );
-        const reason: AgentGitHubFeatureUnavailable | null = enterprise
-          ? "github_host_unsupported"
-          : !settings.ceiling[feature] ||
-              // Turning workflows on saves checks with it.
-              (feature === "workflows" && !settings.ceiling.checks)
-            ? "over_workspace_ceiling"
-            : feature === "review" && !reviewers.present
-              ? "no_reviewer_app"
-              : missing
-                ? "app_permission_missing"
-                : null;
+            : feature === "merge"
+              ? // GitHub's merge endpoint wants Contents: write.
+                authors.permissions.some(
+                  (permissions) => !writes(permissions.contents),
+                )
+              : authors.permissions.some(
+                  (permissions) =>
+                    !writes(permissions[feature]) ||
+                    // The switch also reads CI.
+                    (feature === "workflows" &&
+                      !(
+                        reads(permissions.actions) && reads(permissions.checks)
+                      )),
+                );
+        // Merging is the default work's token (contents), which the gate
+        // issues on any host: only the ceiling and the App limit it.
+        const reason: AgentGitHubFeatureUnavailable | null =
+          enterprise && feature !== "merge"
+            ? "github_host_unsupported"
+            : !settings.ceiling[feature] ||
+                // Turning workflows on saves checks with it.
+                (feature === "workflows" && !settings.ceiling.checks)
+              ? "over_workspace_ceiling"
+              : feature === "review" && !reviewers.present
+                ? "no_reviewer_app"
+                : missing
+                  ? "app_permission_missing"
+                  : null;
         return { available: reason === null, reason };
       };
 
@@ -509,7 +520,7 @@ export function createAgentGitHubService(deps: {
             }
           }
           const before = current?.features;
-          const wasOn = (feature: keyof GitHubFeatures) =>
+          const wasOn = (feature: keyof AgentGitHubFeatures) =>
             typeof before === "object" &&
             before !== null &&
             (before as Record<string, unknown>)[feature] === true;

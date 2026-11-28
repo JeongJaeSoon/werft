@@ -60,9 +60,10 @@ const BUDGET_BYTES: Record<string, number> = {
   // receipt operations put ./schemas 804 bytes over 157 and ./forms 382
   // bytes over 155, so they move to 158 and 156. Merged with main's channel
   // report mode and judgment answer filter, ./schemas is 38 bytes over 158,
-  // so it moves to 159.
+  // so it moves to 159. The agent's merge switch (94S-2492) put ./forms 14
+  // bytes over 156 on top of that, so it moves to 157.
   "./schemas": 159 * 1024,
-  "./forms": 156 * 1024,
+  "./forms": 157 * 1024,
 };
 
 test("every entry has a budget", () => {
