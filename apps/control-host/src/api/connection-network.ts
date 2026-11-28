@@ -11,7 +11,7 @@ import {
   type PinnedRequest,
 } from "./oidc/provider-http.ts";
 import { outboundUnder } from "./outbound-http.ts";
-import { registeredNetwork } from "./registered-network.ts";
+import { refusedHost, registeredNetwork } from "./registered-network.ts";
 
 const LOOKUP_TIMEOUT_MS = 10_000;
 
@@ -27,6 +27,10 @@ export function connectionNetworkCheck(
 ): (endpoint: string) => Promise<EndpointNetwork> {
   return async (endpoint) => {
     const host = new URL(endpoint).hostname.replace(/^\[|\]$/g, "");
+    const hosts = await own();
+    const known = new Set(hosts ?? []);
+    // Before the name is looked up, as the proxy refuses it.
+    if (refusedHost(host, known)) return { problem: "address_not_allowed" };
     const deadline = AbortSignal.timeout(LOOKUP_TIMEOUT_MS);
     let addresses: string[];
     try {
@@ -44,8 +48,7 @@ export function connectionNetworkCheck(
       return { problem: "unreachable" };
     }
     if (addresses.length === 0) return { problem: "unreachable" };
-    const hosts = await own();
-    const network = registeredNetwork(host, addresses, new Set(hosts ?? []));
+    const network = registeredNetwork(host, addresses, known);
     if (network === null) return { problem: "address_not_allowed" };
     if (network === "private" && hosts === null) {
       return { problem: "installation_hosts_unavailable" };

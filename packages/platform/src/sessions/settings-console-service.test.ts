@@ -19,7 +19,10 @@ import type {
   SettingsDocumentStore,
   SettingsRow,
 } from "./ports/settings-document-store.ts";
-import { createSettingsConsoleService } from "./settings-console-service.ts";
+import {
+  createSettingsConsoleService,
+  type EndpointNetwork,
+} from "./settings-console-service.ts";
 import type { SettingsKind } from "./settings-document.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
@@ -98,9 +101,13 @@ function service(
     urlProblem?: string | null;
     http?: OutboundHttp;
     caughtUp?: () => Promise<void>;
+    endpointNetwork?: (endpoint: string) => Promise<EndpointNetwork>;
+    privateHttp?: OutboundHttp;
   } = {},
 ) {
   const writes: unknown[][] = [];
+  /** What each create kept the row as, when the service said. */
+  const registered: unknown[] = [];
   const uses: unknown[] = [];
   const logged: Record<string, unknown>[] = [];
   const sent: OutboundRequest[] = [];
@@ -133,7 +140,10 @@ function service(
       return options.use ?? { agents: 0, sessions: 0, judgeNamed: false };
     },
     listRows: async (kind) => options.rows?.[kind] ?? [],
-    create: record("create"),
+    create: (add, value, actor, as) => {
+      if (as !== undefined) registered.push(as);
+      return record("create")(add, value, actor);
+    },
     setValue: record("setValue"),
     setConnectionModels: record("setConnectionModels"),
     disable: record("disable"),
@@ -151,7 +161,13 @@ function service(
     reread: async () => {
       rereads += 1;
     },
+    ...(options.endpointNetwork === undefined
+      ? {}
+      : { endpointNetwork: options.endpointNetwork }),
     discovery: {
+      ...(options.privateHttp === undefined
+        ? {}
+        : { privateHttp: options.privateHttp }),
       connection: (id) => {
         const resolved =
           typeof options.resolved === "function"
@@ -169,7 +185,15 @@ function service(
       log: (fields) => logged.push(fields),
     },
   });
-  return { settings, writes, uses, rereads: () => rereads, logged, sent };
+  return {
+    settings,
+    writes,
+    registered,
+    uses,
+    rereads: () => rereads,
+    logged,
+    sent,
+  };
 }
 
 const NEW_CONNECTION = {
@@ -1071,5 +1095,216 @@ describe("a repository's own GitHub App key", () => {
       ).toBe("NOT_FOUND");
     }
     expect(writes).toEqual([]);
+  });
+});
+
+describe("a new connection's network", () => {
+  const INSIDE = {
+    ...NEW_CONNECTION,
+    kind: "litellm" as const,
+    endpoint: "http://llm.corp:4000",
+  };
+  const judging = (answer: EndpointNetwork, asked: string[] = []) => ({
+    endpointNetwork: async (endpoint: string) => {
+      asked.push(endpoint);
+      return answer;
+    },
+  });
+
+  test("nothing is resolved for a caller who may not write, or for an entry that is refused", async () => {
+    const asked: string[] = [];
+    const { settings, writes } = service(
+      judging({ network: "private" }, asked),
+    );
+    for (const who of [caller("admin"), caller("member"), apiKey]) {
+      expect(
+        (
+          await refusal(
+            settings.createConnection(who, {
+              ...INSIDE,
+              acknowledge_private: true,
+            }),
+          )
+        ).code,
+      ).toBe("FORBIDDEN");
+    }
+    expect(
+      (
+        await refusal(
+          settings.createConnection(caller("owner"), {
+            ...INSIDE,
+            endpoint: "ftp://llm.corp",
+            acknowledge_private: true,
+          }),
+        )
+      ).details,
+    ).toMatchObject({ reason_code: "invalid_entry" });
+    expect(asked).toEqual([]);
+    expect(writes).toEqual([]);
+  });
+
+  test("an endpoint on the internal network is refused until the owner acknowledges it", async () => {
+    const { settings, writes, registered } = service(
+      judging({ network: "private" }),
+    );
+    for (const acknowledge_private of [undefined, false]) {
+      const unacknowledged = await refusal(
+        settings.createConnection(caller("owner"), {
+          ...INSIDE,
+          ...(acknowledge_private === undefined ? {} : { acknowledge_private }),
+        }),
+      );
+      expect(unacknowledged.code).toBe("BAD_REQUEST");
+      expect(unacknowledged.details).toEqual({
+        reason_code: "private_address_unacknowledged",
+      });
+      // The warning the owner acknowledges: what is sent to this server.
+      expect(unacknowledged.message).toContain("whole conversation");
+      expect(unacknowledged.message).toContain("acknowledge_private");
+    }
+    expect(writes).toEqual([]);
+    const made = await settings.createConnection(caller("owner"), {
+      ...INSIDE,
+      billing: "none",
+      acknowledge_private: true,
+    });
+    expect(made).toEqual({ id: "console", receipt_id: RECEIPT });
+    expect(writes).toHaveLength(1);
+    // Plain http and billing none are a private row's alone.
+    expect(writes[0]?.[1]).toMatchObject({
+      entry: { endpoint: "http://llm.corp:4000", billing: "none" },
+    });
+    expect(registered).toEqual([
+      { network: "private", acknowledgedPrivate: true },
+    ]);
+  });
+
+  test("an acknowledgement opens nothing that is never reached", async () => {
+    const { settings, writes } = service(
+      judging({ problem: "address_not_allowed" }),
+    );
+    const never = await refusal(
+      settings.createConnection(caller("owner"), {
+        ...INSIDE,
+        acknowledge_private: true,
+      }),
+    );
+    expect(never.code).toBe("BAD_REQUEST");
+    expect(never.details).toEqual({ reason_code: "address_not_allowed" });
+    expect(writes).toEqual([]);
+  });
+
+  test("a public endpoint is kept as public: https only, and never unbilled", async () => {
+    const { settings, writes, registered } = service(
+      judging({ network: "public" }),
+    );
+    // An acknowledgement nobody needed is not recorded as one.
+    await settings.createConnection(caller("owner"), {
+      ...NEW_CONNECTION,
+      acknowledge_private: true,
+    });
+    expect(registered).toEqual([
+      { network: "public", acknowledgedPrivate: false },
+    ]);
+    const plain = await refusal(
+      settings.createConnection(caller("owner"), {
+        ...INSIDE,
+        id: "plain",
+        acknowledge_private: true,
+      }),
+    );
+    expect(plain.details).toEqual({ reason_code: "url_insecure" });
+    const unbilled = await refusal(
+      settings.createConnection(caller("owner"), {
+        ...NEW_CONNECTION,
+        id: "unbilled",
+        billing: "none",
+      }),
+    );
+    expect(unbilled.details).toEqual({ reason_code: "invalid_entry" });
+    expect(unbilled.message).toContain("connections.unbilled.billing");
+    expect(writes).toHaveLength(1);
+  });
+
+  test("a name that does not resolve, or hosts that cannot be told, save nothing and may be tried again", async () => {
+    for (const [problem, reason] of [
+      ["unreachable", "endpoint_unreachable"],
+      ["installation_hosts_unavailable", "installation_hosts_unavailable"],
+    ] as const) {
+      const { settings, writes } = service(judging({ problem }));
+      const failed = await refusal(
+        settings.createConnection(caller("owner"), {
+          ...INSIDE,
+          acknowledge_private: true,
+        }),
+      );
+      expect(failed.code).toBe("BACKEND_UNAVAILABLE");
+      expect(failed.details).toEqual({ reason_code: reason });
+      expect(writes).toEqual([]);
+    }
+  });
+
+  test("a private connection's model list is asked under the private rules, not the operator's list", async () => {
+    const key = "sk-ant-example-0001";
+    const resolved = (network?: "public" | "private") => ({
+      console: {
+        provider: {
+          kind: "litellm" as const,
+          endpoint: "http://llm.corp:4000",
+          auth: {
+            kind: "bearer" as const,
+            value: key,
+            ref: { stored: "connection:console" },
+          },
+        },
+        models: [],
+        ...(network === undefined ? {} : { network }),
+      },
+    });
+    const row = connectionRow("console", {
+      entry: {
+        kind: "litellm",
+        endpoint: "http://llm.corp:4000",
+        auth: { kind: "bearer", stored: "connection:console" },
+      },
+    });
+    const viaPrivate: OutboundRequest[] = [];
+    const answer = async (request: OutboundRequest) => {
+      viaPrivate.push(request);
+      return {
+        status: 200,
+        headers: new Headers(),
+        text: JSON.stringify({ data: [{ id: "model-a" }] }),
+      };
+    };
+    const inside = service({
+      rows: { connection: [row] },
+      resolved: resolved("private"),
+      // The operator's list does not name it: not asked for a private row.
+      urlProblem: "host_not_allowed",
+      privateHttp: answer,
+    });
+    const listed = await inside.settings.discoverConnectionModels(
+      caller("owner"),
+      "console",
+    );
+    expect(listed.models.map((model) => model.id)).toEqual(["model-a"]);
+    expect(viaPrivate).toHaveLength(1);
+    expect(inside.sent).toEqual([]);
+    // A row with no network keeps to the operator's list, as before.
+    const before = service({
+      rows: { connection: [row] },
+      resolved: resolved(),
+      urlProblem: "host_not_allowed",
+      privateHttp: answer,
+    });
+    expect(
+      (
+        await refusal(
+          before.settings.discoverConnectionModels(caller("owner"), "console"),
+        )
+      ).details,
+    ).toEqual({ reason_code: "host_not_allowed" });
+    expect(viaPrivate).toHaveLength(1);
   });
 });

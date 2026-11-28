@@ -1510,3 +1510,83 @@ describe("a decision the store could not give", () => {
     expect(await response.json()).not.toHaveProperty("retryable");
   });
 });
+
+describe("egress authorizer: the private mark's feature", () => {
+  const shared = "p".repeat(40);
+  function recording() {
+    const asked: Array<{ route: string; reads: unknown }> = [];
+    const refuse = async () => {
+      throw new Error("not this route");
+    };
+    const handle = createEgressAuthorizer({
+      gateway: {
+        authorizeEgress: (async (request: {
+          registeredPrivateUpstream?: boolean;
+        }) => {
+          asked.push({
+            route: "provider",
+            reads: request.registeredPrivateUpstream,
+          });
+          return {
+            session_id: "s",
+            attempt_id: "a",
+            upstream: { url: "u", headers: [] },
+          };
+        }) as never,
+        authorizeObjectAccess: refuse,
+        authorizeConversationCallEgress: async () => null,
+        recordConversationCallUsage: refuse,
+        authorizePackagesEgress: refuse,
+        recordProviderUsage: refuse,
+        authorizeJudgmentEgress: (async (request: {
+          registeredPrivateUpstream?: boolean;
+        }) => {
+          asked.push({
+            route: "judgment",
+            reads: request.registeredPrivateUpstream,
+          });
+          return { judgment_id: "j", upstream: { url: "u", headers: [] } };
+        }) as never,
+        recordJudgmentUsage: refuse,
+        authorizeMcpEgress: refuse as never,
+      },
+      logger: createLogger({ sinks: [] }),
+      token: shared,
+    });
+    const send = (purpose: "provider" | "judgment", features?: string) =>
+      handle(
+        new Request(`http://authorizer.invalid${EGRESS_AUTHORIZER_PATH}`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${shared}`,
+            ...(features === undefined
+              ? {}
+              : { [EGRESS_FEATURES_HEADER]: features }),
+          },
+          body: JSON.stringify({ token: "t".repeat(20), purpose }),
+        }),
+      );
+    return { asked, send };
+  }
+
+  test("a provider or judgment authorize says whether the proxy reads the private mark", async () => {
+    const { asked, send } = recording();
+    const said: Array<[string | undefined, boolean]> = [
+      ["registered-upstream,registered-private-upstream", true],
+      [" later-feature ,  registered-private-upstream ", true],
+      // A proxy with the public mark alone, one from before any mark, and
+      // a feature that only starts the same way.
+      ["registered-upstream", false],
+      [undefined, false],
+      ["registered-private-upstream-v2", false],
+    ];
+    for (const purpose of ["provider", "judgment"] as const) {
+      for (const [features, reads] of said) {
+        asked.length = 0;
+        expect((await send(purpose, features)).status).toBe(200);
+        expect(asked).toEqual([{ route: purpose, reads }]);
+      }
+    }
+  });
+});

@@ -43,6 +43,18 @@ export function addressKey(address: string): string | null {
 }
 
 /**
+ * Whether a registered upstream may never be this host, whatever it
+ * resolves to: a metadata name, one of the installation's `own` hosts, or
+ * text that is no host. Told before the name is looked up.
+ */
+export function refusedHost(host: string, own: ReadonlySet<string>): boolean {
+  const name = host.replace(/^\[|\]$/g, "");
+  if (isMetadataName(name.replace(/\.+$/, ""))) return true;
+  const key = hostKey(name);
+  return key === null || own.has(key);
+}
+
+/**
  * What the addresses a registered upstream's name resolves to make it:
  * `public` when every one is, `private` when every one is private as
  * written, null when it may not be registered or reached at all. The one
@@ -60,10 +72,7 @@ export function registeredNetwork(
   addresses: readonly string[],
   own: ReadonlySet<string>,
 ): "public" | "private" | null {
-  const name = host.replace(/^\[|\]$/g, "");
-  if (isMetadataName(name.replace(/\.+$/, ""))) return null;
-  const key = hostKey(name);
-  if (key === null || own.has(key)) return null;
+  if (refusedHost(host, own)) return null;
   let network: "public" | "private" | null = null;
   for (const address of addresses) {
     const at = addressKey(address);

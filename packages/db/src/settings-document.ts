@@ -486,7 +486,15 @@ type HeldRow = {
   entry: unknown;
   credentialSource: string | null;
   disabled: boolean;
+  /** A connection's, when its row says one. */
+  network?: "public" | "private" | null;
 };
+
+/** What a held connection is kept as, for its receipt; nothing when unsaid. */
+const networkOf = (held: HeldRow) =>
+  held.network === "public" || held.network === "private"
+    ? { network: held.network }
+    : {};
 
 /** The row under its lock, as an entry, or null. */
 async function heldRow(
@@ -506,6 +514,7 @@ async function heldRow(
             entry: row.definition,
             credentialSource: row.credentialSource,
             disabled: row.disabledAt !== null,
+            network: row.network,
           }
         : null;
     }
@@ -820,7 +829,9 @@ function consoleWrites(
           DISABLED[owner.kind],
           {
             [TARGET[owner.kind]]: owner.id,
-            ...(owner.kind === "connection" ? endpointOf(held.entry) : {}),
+            ...(owner.kind === "connection"
+              ? { ...endpointOf(held.entry), ...networkOf(held) }
+              : {}),
             source: "console",
           },
         );
@@ -866,6 +877,7 @@ function consoleWrites(
         const receiptId = await consoleReceipt(tx, actor, "enable_connection", {
           connection_id: id,
           ...endpointOf(held.entry),
+          ...networkOf(held),
           source: "console",
         });
         return { outcome: "done" as const, receiptId };
