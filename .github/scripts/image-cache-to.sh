@@ -28,8 +28,8 @@
 # timeout (publish-main 20 minutes), so its entry is inside those 30 minutes and
 # the next build writes again.
 #
-# Never fails the job and never holds it: a listing that fails or takes longer
-# than LIST_TIMEOUT seconds writes as before, and ignore-error=true keeps a
+# Never fails the job and never holds it: the listing and the fetch each stop
+# after LIST_TIMEOUT seconds, a listing that fails writes as before, and ignore-error=true keeps a
 # failed upload from failing the build.
 set -uo pipefail
 
@@ -38,18 +38,25 @@ today="${TODAY:-$(date -u +%F)}"
 limit="${LIST_TIMEOUT:-20}"
 to="type=gha,scope=${scope},mode=min,ignore-error=true"
 
+# Runs a command for at most LIST_TIMEOUT seconds.
+bounded() {
+  "$@" &
+  local pid=$! killer status
+  # TERM first; KILL two seconds later, for a command that ignores TERM.
+  (sleep "$limit" && kill "$pid" && sleep 2 && kill -9 "$pid") >/dev/null 2>&1 &
+  killer=$!
+  wait "$pid"
+  status=$?
+  kill "$killer" >/dev/null 2>&1
+  return "$status"
+}
+
 out="$(mktemp)"
-gh api -X GET "repos/${GITHUB_REPOSITORY:?}/actions/caches" \
+bounded gh api -X GET "repos/${GITHUB_REPOSITORY:?}/actions/caches" \
   -f key="index-${scope}-" -f ref="${GITHUB_REF:?}" \
   -f sort=created_at -f direction=desc -f per_page=1 \
-  --jq '.actions_caches[0].created_at // ""' >"$out" 2>&1 &
-pid=$!
-# TERM first; KILL two seconds later, for a gh that ignores TERM.
-(sleep "$limit" && kill "$pid" && sleep 2 && kill -9 "$pid") >/dev/null 2>&1 &
-killer=$!
-wait "$pid"
+  --jq '.actions_caches[0].created_at // ""' >"$out" 2>&1
 status=$?
-kill "$killer" >/dev/null 2>&1
 latest="$(cat "$out")"
 rm -f "$out"
 
@@ -58,10 +65,9 @@ inputs=("apps/${APP%-codex}/Dockerfile" scripts/fetch-pinned.ts)
 # True only when git shows that main has moved the inputs away from HEAD's.
 superseded() {
   [ "$GITHUB_REF" = refs/heads/main ] || return 1
-  # A shallow checkout's origin/main is its own commit. The low-speed options
-  # end a stalled fetch.
+  # A shallow checkout's origin/main is its own commit.
   if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = true ]; then
-    git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 fetch -q --no-tags --depth=1 \
+    bounded git fetch -q --no-tags --depth=1 \
       origin +refs/heads/main:refs/remotes/origin/main >&2 ||
       echo "::warning::could not fetch origin/main for ${scope}" >&2
   fi

@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -246,6 +247,31 @@ test("a shallow main build asks origin whether main has moved the inputs", () =>
     exitCode: 0,
     stdout: "to=\n",
   });
+});
+
+test("a fetch that hangs is cut at LIST_TIMEOUT and the job goes on", () => {
+  const hanging: Checkout = (repo) => {
+    unchanged(repo);
+    const origin = join(repo, "..", "origin");
+    git(repo, ["clone", "-q", "--bare", repo, origin]);
+    const shallow = join(repo, "..", "shallow");
+    git(repo, ["clone", "-q", "--depth=1", `file://${origin}`, shallow]);
+    rmSync(repo, { recursive: true });
+    renameSync(shallow, repo);
+    // The script's git, first on PATH, never returns from a fetch.
+    const fake = join(repo, "..", "git");
+    writeFileSync(
+      fake,
+      `#!/usr/bin/env bash\n[ "$1" = fetch ] && exec sleep 30\nexec "${Bun.which("git")}" "$@"\n`,
+    );
+    chmodSync(fake, 0o755);
+  };
+  const started = Date.now();
+  expect(run("", 0, { LIST_TIMEOUT: "1" }, hanging)).toMatchObject({
+    exitCode: 0,
+    stdout: write,
+  });
+  expect(Date.now() - started).toBeLessThan(10_000);
 });
 
 test("a main build behind other changes, or on another ref, still writes", () => {
