@@ -687,8 +687,8 @@ DELETE FROM provider_connections WHERE definition->>'kind' = 'openai_decisions';
 
 - 変わるのは egress proxy のイメージだけなので、[2. egress proxy → control-host → worker の順序](#2-egress-proxy--control-host--worker-순서)の最初の手順から適用されます。以前の control-host はこの報告をそのまま受け付けます。以前の proxy が残っている間、その proxy を通る呼び出しは従来どおり 0 で精算されます。
 - 更新の前に、DB で最近の精算（`provider_usage`、`conversation_calls.usage`）のうち、トークンがすべて 0 で `estimated` が `false` の行を数えます（読み取りのみ）。conversation call のエラー応答と、応答が明示した 0 も同じ形なので、その数のすべてが空の usage とは限りません。
-- 空の usage を返す課金接続（一部のセルフホストの gateway など）を使う環境では、更新後にセッションの費用とトークンが増え、上限に早く達します。proxy の警告 `Provider usage estimated` も増えるため、この警告にアラートを設定している場合は基準を見直します。
-- 以前の proxy に戻してもかまいません。戻すと空の usage の応答は再び 0 で精算され、推定として記録済みの行はそのまま残ります。
+- 空の usage を返す課金接続（一部のセルフホストの gateway など）を使う環境では、更新後にトークン（単価が分かる呼び出しはセッションの費用も）が増え、上限に早く達します。proxy の警告 `Provider usage estimated` も増えるため、この警告にアラートを設定している場合は基準を見直します。
+- 以前の proxy に戻しても報告は壊れません。戻すと空の usage の応答のトークンは再び 0 で精算され、推定として記録済みの行はそのまま残ります。ただし、このリリースの API のまま `v0.5.0` の proxy に戻すと、運用者の一覧外の内部ネットワークのモデル接続と、どちらの credential 一覧にもない MCP サーバーへのセッションからの呼び出しは 403（`egress_proxy_outdated`）になります（[ワークスペース MCP サーバーをアドレスで検査するリリース](#워크스페이스-mcp-서버를-주소로-검사하는-릴리스)）。
 
 <a id="사용량-응답에-단가-미상-칸을-더한-릴리스" />
 ### 使用量の応答に単価不明の欄を追加するリリース

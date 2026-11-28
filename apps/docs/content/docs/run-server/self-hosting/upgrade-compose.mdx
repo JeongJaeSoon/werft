@@ -623,8 +623,8 @@ DELETE FROM provider_connections WHERE definition->>'kind' = 'openai_decisions';
 
 - 바뀌는 것은 egress proxy 이미지뿐이라, [2. egress proxy → control-host → worker 순서](#2-egress-proxy--control-host--worker-순서)의 첫 단계부터 적용된다. 앞선 control-host는 이 보고를 그대로 받는다. 앞선 proxy가 남아 있는 동안 그 proxy를 지나는 호출은 전처럼 0으로 정산된다.
 - 올리기 전에 DB에서 최근 정산(`provider_usage`, `conversation_calls.usage`) 가운데 토큰이 모두 0이고 `estimated`가 `false`인 행을 센다(읽기만 한다). conversation call의 오류 응답과 응답이 명시한 0도 같은 꼴이므로 그 수가 모두 빈 usage는 아니다.
-- 빈 usage를 보내는 과금 연결(일부 자체 호스팅 gateway 등)을 쓰는 설치는 올린 뒤 세션 비용과 토큰이 늘고 한도에 더 일찍 닿는다. proxy 경고 `Provider usage estimated`도 늘므로, 이 경고에 알림을 걸어 두었으면 기준을 다시 본다.
-- 앞선 proxy로 되돌려도 된다. 되돌리면 빈 usage 응답이 다시 0으로 정산되고, 이미 추정으로 적힌 행은 그대로다.
+- 빈 usage를 보내는 과금 연결(일부 자체 호스팅 gateway 등)을 쓰는 설치는 올린 뒤 토큰이 늘고(단가를 아는 호출은 세션 비용도) 한도에 더 일찍 닿는다. proxy 경고 `Provider usage estimated`도 늘므로, 이 경고에 알림을 걸어 두었으면 기준을 다시 본다.
+- 앞선 proxy로 되돌려도 보고는 깨지지 않는다. 되돌리면 빈 usage 응답의 토큰이 다시 0으로 정산되고, 이미 추정으로 적힌 행은 그대로다. 다만 이 판의 API를 둔 채 `v0.5.0` proxy로 되돌리면, 운영자 목록 밖의 내부 네트워크 모델 연결과 두 credential 목록에 없는 MCP 서버를 부르는 세션 호출이 403(`egress_proxy_outdated`)이다([워크스페이스 MCP 서버를 주소로 검사하는 릴리스](#워크스페이스-mcp-서버를-주소로-검사하는-릴리스)).
 
 ### 사용량 응답에 단가 미상 칸을 더한 릴리스
 

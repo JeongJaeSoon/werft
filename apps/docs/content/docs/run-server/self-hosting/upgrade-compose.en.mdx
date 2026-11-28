@@ -687,8 +687,8 @@ From this release, when a successful response states no token count at all (`usa
 
 - Only the egress proxy image changes, so it applies from the first step of [2. egress proxy → control-host → worker order](#2-egress-proxy--control-host--worker-순서). An earlier control-host accepts these reports as they are. While an earlier proxy remains, calls through it still settle at 0 as before.
 - Before upgrading, count in the database the recent settlements (`provider_usage`, `conversation_calls.usage`) whose tokens are all 0 and whose `estimated` is `false` (read only). Error responses of conversation calls and a 0 the response states look the same, so not all of that count is empty usage.
-- On an installation with a billed connection that sends empty usage (some self-hosted gateways, for example), session cost and tokens rise after the upgrade and limits are reached earlier. The proxy warning `Provider usage estimated` also rises, so revisit the threshold if you alert on it.
-- Rolling back to an earlier proxy is fine. Empty usage responses then settle at 0 again, and rows already recorded as estimates stay.
+- On an installation with a billed connection that sends empty usage (some self-hosted gateways, for example), tokens (and, for calls with a known price, session cost) rise after the upgrade and limits are reached earlier. The proxy warning `Provider usage estimated` also rises, so revisit the threshold if you alert on it.
+- Rolling back to an earlier proxy does not break the reports. The tokens of empty usage responses then settle at 0 again, and rows already recorded as estimates stay. However, if you go back to the `v0.5.0` proxy while keeping this release's API, session calls to internal-network model connections outside the operator list, and to MCP servers on neither credential list, get 403 (`egress_proxy_outdated`) ([The release that checks workspace MCP servers by address](#워크스페이스-mcp-서버를-주소로-검사하는-릴리스)).
 
 <a id="사용량-응답에-단가-미상-칸을-더한-릴리스" />
 ### The release that adds unknown-price fields to usage responses
