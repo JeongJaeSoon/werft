@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import {
+  type BudgetAccountId,
   CONVERSATION_TURN_MODEL_CALL_LIMIT,
   CONVERSATION_TURN_TOOL_CALL_LIMIT,
   type ConversationCallClass,
@@ -17,6 +18,7 @@ import {
   CONVERSATION_CALL_LIMITS,
   type ConversationCallIssue,
   type ConversationCallIssueInput,
+  type ConversationCallPricedBy,
   type ConversationCallStore,
   type ConversationTurnCallAuthorization,
   type ConversationTurnPermitInput,
@@ -32,6 +34,7 @@ import {
   desc,
   eq,
   gt,
+  gte,
   isNotNull,
   isNull,
   lt,
@@ -206,6 +209,85 @@ export async function holdConversationCallLimitsIn(
   return null;
 }
 
+// The first instant of this month, UTC, as budget accounts cut months.
+const MONTH_START = sql`(date_trunc('month', ${DB_NOW} AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')`;
+
+/**
+ * The tokens of the conversation calls marked of unknown price held on the
+ * account (null: on none, then the agent's alone) this month: a held call's
+ * reserve, a settled one's tokens, a resolved one's late report or else what
+ * its resolve charged. A released call holds nothing. A row an older image
+ * wrote is not marked, so it is not counted.
+ */
+export async function unknownPriceTokensIn(
+  tx: Database,
+  accountId: BudgetAccountId | null,
+  agentId: string,
+): Promise<number> {
+  const c = conversationCalls;
+  const r = budgetReservations;
+  const a = budgetAdjustments;
+  const [row] = await tx
+    .select({
+      tokens: sql<string>`COALESCE(sum(CASE ${r.state}
+        WHEN 'reserved' THEN ${r.tokens}
+        WHEN 'settled' THEN ${r.settledTokens}
+        WHEN 'resolved' THEN COALESCE(${a.reportedTokens}, ${r.settledTokens})
+        ELSE 0 END), 0)::text`,
+    })
+    .from(c)
+    .innerJoin(r, eq(r.callId, sql`${c.id}::text`))
+    .leftJoin(a, eq(a.callId, r.callId))
+    .where(
+      and(
+        eq(c.pricedBy, "unknown"),
+        // An account is this month's: its calls were made in it, the bound
+        // only lets the index skip the months before.
+        gte(c.createdAt, sql`${MONTH_START} - interval '1 day'`),
+        accountId === null
+          ? and(
+              isNull(r.accountId),
+              eq(c.agentId, agentId),
+              gte(c.createdAt, MONTH_START),
+            )
+          : eq(r.accountId, accountId),
+      ),
+    );
+  return Number(row?.tokens ?? 0);
+}
+
+/**
+ * Whether one more call fits under the limit on tokens of unknown price, as
+ * reserveBudgetIn asks it with the account's row locked, or with no account
+ * under the agent's limit lock (holdConversationCallLimitsIn): so two calls
+ * of one account, or of one agent on none, are judged in turn. The month's
+ * marked tokens with this call's reserve, when its model is one nothing
+ * prices, stay under the limit. A priced call adds nothing but is refused
+ * once the month's reached it: a priced model can be answered by one nothing
+ * prices, which settles with no amount. An unmetered call is not judged.
+ */
+function admitsUnknownPriceIn(
+  tx: Database,
+  call: {
+    agentId: string;
+    pricedBy: ConversationCallPricedBy;
+    tokens: number;
+    limit: number;
+  },
+): ((accountId: BudgetAccountId | null) => Promise<boolean>) | undefined {
+  if (call.pricedBy === "unmetered") return undefined;
+  if (!Number.isSafeInteger(call.limit) || call.limit < 1) {
+    throw new RangeError(
+      `the limit on tokens of unknown price must be a positive integer: ${call.limit}`,
+    );
+  }
+  return async (accountId) => {
+    const held = await unknownPriceTokensIn(tx, accountId, call.agentId);
+    const adding = call.pricedBy === "unknown" ? call.tokens : 0;
+    return held + adding < call.limit;
+  };
+}
+
 function issueIn(
   db: Database,
   input: ConversationCallIssueInput,
@@ -285,18 +367,28 @@ function issueIn(
     });
     if (limited) return limited;
     const choice = chooseBudgetAccount(input.root, agent.teamId);
-    const reserved = await reserveBudgetIn(tx, {
-      callId: input.callId,
-      workspaceId: input.workspaceId,
-      choice,
-      reserve: input.reserve,
-      unmetered: input.unmetered,
-    });
+    const reserved = await reserveBudgetIn(
+      tx,
+      {
+        callId: input.callId,
+        workspaceId: input.workspaceId,
+        choice,
+        reserve: input.reserve,
+        unmetered: input.unmetered,
+      },
+      admitsUnknownPriceIn(tx, {
+        agentId: input.agentId,
+        pricedBy: input.pricedBy,
+        tokens: input.reserve.tokens,
+        limit: input.unknownPriceTokenLimit,
+      }),
+    );
     if (reserved.outcome === "refused") {
       return {
         outcome: "refused",
         rootKind: choice.rootKind,
         accountId: reserved.accountId,
+        by: reserved.by ?? "budget",
       };
     }
     // A fresh id under its own lock: nothing else reserved it.
@@ -319,6 +411,7 @@ function issueIn(
         model: input.model,
         maxTokens: input.maxTokens,
         maxRequestBytes: input.maxRequestBytes,
+        pricedBy: input.pricedBy,
         expiresAt: fromDbNow(input.ttlMs),
         conversationId: input.conversationId,
         topicId: input.topicId,
@@ -948,20 +1041,32 @@ export function createPostgresConversationCalls(
                   ? null
                   : { kind: "team", teamId },
           };
-          const reserved = await reserveBudgetIn(tx, {
-            callId: input.callId,
-            workspaceId: permit.workspaceId,
-            choice,
-            reserve: held.reserve,
-            unmetered: held.unmetered,
-          });
+          const reserved = await reserveBudgetIn(
+            tx,
+            {
+              callId: input.callId,
+              workspaceId: permit.workspaceId,
+              choice,
+              reserve: held.reserve,
+              unmetered: held.unmetered,
+            },
+            admitsUnknownPriceIn(tx, {
+              agentId: permit.agentId,
+              pricedBy: held.pricedBy,
+              tokens: held.reserve.tokens,
+              limit: input.unknownPriceTokenLimit,
+            }),
+          );
           if (reserved.outcome === "refused") {
+            // Kept as a budget refusal: the permit's refusal values are
+            // what an older image reads and its CHECK holds.
             await refuse("budget");
             return {
               outcome: "refused",
               turnId: permit.turnId,
               rootKind: choice.rootKind,
               accountId: reserved.accountId,
+              by: reserved.by ?? "budget",
             };
           }
           if (reserved.outcome !== "reserved") {
@@ -987,6 +1092,7 @@ export function createPostgresConversationCalls(
               model: permit.model,
               maxTokens: permit.maxTokens,
               maxRequestBytes: permit.maxRequestBytes,
+              pricedBy: held.pricedBy,
               state: "in_flight",
               exchangeId: input.exchangeId,
               startedAt: DB_NOW,
@@ -1107,27 +1213,33 @@ export function createPostgresConversationCalls(
                 costUsd: call.costUsd ?? 0,
                 unmetered,
                 model: call.model,
+                pricedBy: call.pricedBy,
               }
             : { outcome: "conflict" };
         }
+        const priced = unmetered
+          ? { costUsd: 0, pricedBy: "unmetered" as const }
+          : input.priceFor({ unmetered, model: call.model });
+        const costUsd = unmetered ? 0 : toStoredCost(priced.costUsd);
         if (call.state === "resolved") {
           // An operator closed it while its end was unknown: it stays closed,
-          // and the report adds the call's one adjustment to its account.
-          const costUsd = unmetered
-            ? 0
-            : toStoredCost(
-                input.priceFor({ unmetered, model: call.model }).costUsd,
-              );
+          // and the report adds the call's one adjustment to its account,
+          // and says what priced it: a report again answers with that.
           const adjusted = await settleBudgetIn(tx, {
             callId: input.callId,
             actual: { costUsd, tokens: reservationTokens(input.usage) },
           });
           if (adjusted === "adjusted") {
+            await tx
+              .update(conversationCalls)
+              .set({ pricedBy: priced.pricedBy })
+              .where(eq(conversationCalls.id, input.callId));
             return {
               outcome: "settled",
               costUsd,
               unmetered,
               model: call.model,
+              pricedBy: priced.pricedBy,
             };
           }
           if (adjusted !== "already_adjusted") {
@@ -1144,16 +1256,12 @@ export function createPostgresConversationCalls(
             costUsd: first?.costUsd ?? 0,
             unmetered,
             model: call.model,
+            pricedBy: call.pricedBy,
           };
         }
         // Bound and not settled is in flight, its end unknown or not, held
         // either way: a release takes only an unbound row. A late report
         // settles an unknown one at what it says.
-        const costUsd = unmetered
-          ? 0
-          : toStoredCost(
-              input.priceFor({ unmetered, model: call.model }).costUsd,
-            );
         const tokens = reservationTokens(input.usage);
         const settled = await settleBudgetIn(tx, {
           callId: input.callId,
@@ -1171,11 +1279,18 @@ export function createPostgresConversationCalls(
             usage: input.usage,
             costUsd,
             tokens,
+            pricedBy: priced.pricedBy,
             endedAt: DB_NOW,
             unknownAt: null,
           })
           .where(eq(conversationCalls.id, input.callId));
-        return { outcome: "settled", costUsd, unmetered, model: call.model };
+        return {
+          outcome: "settled",
+          costUsd,
+          unmetered,
+          model: call.model,
+          pricedBy: priced.pricedBy,
+        };
       });
     },
 

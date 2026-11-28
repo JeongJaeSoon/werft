@@ -224,7 +224,7 @@ terminate는 사람이 세션을 강제로 끝내는 제어다(`POST /v1/session
 
 - dispatch 판정은 이 상한을 읽지 않는다. 상한에 닿은 세션의 새 턴은 worker까지 가고, 첫 모델 호출이 거절된다. 그 턴은 `api_error`(403)로 끝나고, 세션의 `attention`과 사용량의 `budget_exceeded`에는 이 상한이 드러나지 않는다.
 - 판정은 호출을 열 때 한다. 단가를 아는 모델로 열린 호출이 미상 모델의 답으로 정산되면, 그때 이미 열려 있던 호출들의 토큰만큼 합이 상한을 넘을 수 있다. 정산은 세션의 open 잠금을 잡지 않는다. 그다음 open부터 거절된다.
-- 세션 없는 호출(대화 호출, 대화 턴의 호출, 판정 호출)에는 세션 축인 이 상한이 닿지 않는다. 대화 호출과 대화 턴의 호출이 단가 미상이면 금액이 없어 계정 예산의 금액 축이 세지 못한다. 그 호출을 막는 것은 호출별 상한(출력 토큰과 요청 크기), 턴당 모델 호출 수, 그리고 토큰 한도를 정해 둔 계정의 토큰 축이다. 판정 호출은 플랫폼이 정한 모델만 부르고 proxy가 요청한 모델로 보고하므로 단가 미상이 되지 않고, 워크스페이스의 하루 판정 금액 한도가 막는다.
+- 세션 없는 호출(대화 호출, 대화 턴의 호출, 판정 호출)에는 세션 축인 이 상한이 닿지 않는다. 대화 호출과 대화 턴의 호출은 같은 상한 값을 예산 계정(계정이 없으면 에이전트)의 UTC 월 단위로 따로 센다(3절 "대화 호출과 턴 호출의 예약: 단가 미상 토큰 월 상한"). 판정 호출은 플랫폼이 정한 모델만 부르고 proxy가 요청한 모델로 보고하므로 단가 미상이 되지 않고, 워크스페이스의 하루 판정 금액 한도가 막는다.
 - 이 변경 전의 API가 정산한 호출은 미상으로 표시되지 않아 합에 들지 않는다.
 
 ## 2. turn·attempt
@@ -637,6 +637,51 @@ M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는�
 
 - 안내는 가리키는 작업이 바뀔 때만 단다. A→B→A면 두 번 단다. 안내의 중복 키는 mirror 줄의 id와 `rev`라서 같은 바뀜에 두 번 달리지 않는다. cascade로 지워진 뒤 새로 생긴 줄은 id가 달라 `rev` 1부터 다시 안내한다.
 - 줄 바꾸기와 안내 달기는 한 transaction이다. 두 글이 같은 작업으로 동시에 넘어가도 안내는 하나다(스레드의 유일 인덱스가 순서를 정한다).
+
+### 대화 호출과 턴 호출의 예약: 단가 미상 토큰 월 상한
+
+대화 호출(M1 판정, 채널 요약 접기)은 발급할 때, 대화 턴의 호출은 proxy가 새 exchange로 물을 때 예산 계정에 예약한다. 단가 미상 모델의 호출은 금액이 없어 계정의 금액 한도가 세지 못하므로, 세션과 같은 값(`INSTALLATION_CONFIG`의 `unknown_price_session_token_limit`, 기본 5,000,000, 끌 수 없음)을 **예약이 잡히는 예산 계정 × UTC 월**로 센다. owner가 없어 계정 없이 잡히는 호출(팀이 없는 에이전트의 key·slack_bot 호출)은 **에이전트 × UTC 월**로 센다. `conversation_calls.agent_id`는 NOT NULL이라 둘 다에 들지 않는 호출은 없다. 과금 없음(`billing: none`) 연결의 호출은 세지도 막지도 않는다.
+
+표시는 `conversation_calls.priced_by`(`table`·`litellm`·`unknown`·`unmetered`, NULL 허용)다. 잡혀 있는 동안은 요청 모델의 단가 출처, 정산 뒤에는 정산한 출처다. NULL(옛 image가 쓴 행)은 미상이 아닌 것으로 읽는다.
+
+세는 값(그 달의 미상 토큰 합)은 같은 계정(계정이 없으면 같은 에이전트의 계정 없는 호출)에서 `priced_by = 'unknown'`인 호출의 토큰을 더한 것이다. 잡혀 있는 호출은 예약 토큰, 정산된 호출은 정산 토큰, 운영자가 닫은 호출은 늦은 보고의 토큰(없으면 닫을 때 잡은 토큰)이다. 풀린 호출은 0이다. 판정은 계정 행 잠금(계정이 없으면 에이전트의 호출 수 잠금) 아래에서 하므로, 같은 계정에 동시에 온 발급도 하나씩 센다.
+
+| 지금 상태 | 다음 상태 | 조건 | 누가 일으키나 |
+| --- | --- | --- | --- |
+| 발급 전 | 예약됨(`reserved`) | 금액·토큰 한도와 호출 수 제한이 받아들이고, 합에 (미상 모델이면) 이 예약의 토큰을 더한 값이 상한보다 작다 | M1 판정·요약 접기의 issue |
+| 발급 전 | 거절(`refused`, `by: unknown_price_tokens`), 아무것도 잡지 않음 | 위 값이 상한 이상(`>=`). 합이 이미 상한에 닿았으면 단가를 아는 모델의 호출도 거절한다 | 같음 |
+| permit의 새 exchange | 진행 중(`in_flight`) | 발급과 같은 조건 | proxy의 grant |
+| permit의 새 exchange | 거절(403 `BUDGET_EXCEEDED`), permit의 `refusal`은 `budget`, 턴은 `no_decision`으로 끝난다 | 발급과 같은 거절 조건. 안내 문구는 "이번 달 단가 미상 토큰이 상한에 닿았고 다음 달 1일(UTC)에 풀린다"이다 | 같음 |
+| 예약됨·진행 중 | 정산됨 | usage 보고. 요청 모델과 답 모델이 둘 다 단가를 알면 비싼 쪽, 하나라도 미상이면 금액 없이 `unknown`으로 표시하고 정산 토큰이 합에 든다 | proxy의 usage 보고 |
+| 예약됨 | 풀림 | 토큰이 쓰이지 않고 끝났다. 합에서 빠진다 | reconciler |
+| 진행 중(끝 모름) | 닫힘(`resolved`) | 운영자가 닫았다. 늦은 보고가 오면 그 보고로 표시와 토큰을 고친다 | 운영자, 늦은 보고 |
+| 이번 달의 합 | 0 | UTC 월이 바뀌어 새 계정 행이 생긴다(계정 없는 호출은 그 달에 만든 호출만 센다) | 없음(시간) |
+
+막을 전이:
+
+| # | 막을 전이 | 거절하는 시험 |
+| --- | --- | --- |
+| CR1 | 합이 상한 이상인데 발급·승인되는 것 | `packages/db/src/conversation-calls-unknown-price.test.ts`의 `an account with only a cost limit: calls for a model nothing prices are issued under the limit and refused once their reserves reach it, with nothing held`, `a turn's calls for a model nothing prices are granted under the team account's limit and refused once it is reached, the permit keeping a budget refusal; a priced turn is refused too`, `packages/db/src/conversation-calls.integration.test.ts`의 `four issues at once for a model nothing prices on an account with only a cost limit: those under its limit on tokens of unknown price are issued, the rest refused with nothing held` |
+| CR2 | 미상 토큰을 쓰지 않은 계정에서 단가를 아는 호출이 이 상한으로 거절되는 것 | `a priced model's calls are as before on an account with no tokens of unknown price, however low the limit`, `a priced turn on an account with no tokens of unknown price is granted as before, however low the limit` |
+| CR3 | 단가를 아는 모델로 요청하고 미상 모델 이름으로 답받아 상한을 비켜 가는 것 | `a priced call answered by a model nothing prices is marked at its settlement, and its tokens count`, `once the month's tokens of unknown price reach the limit, a priced call is refused too; an unmetered one is not judged`, `apps/control-host/src/api/egress-authorizer-turn.test.ts`의 `a priced call answered by a model nothing prices counts on the account's month of tokens of unknown price; at the limit the next turn's call is refused, saying why and when it lifts` |
+| CR4 | 과금 없음 호출이 세어지거나 막히는 것 | CR3의 둘째 시험 |
+| CR5 | 계정 없이 잡히는 호출이 상한 밖에 남는 것 | `a call held on no account counts against its agent alone, by month` |
+| CR6 | 옛 image가 쓴 행(표시 NULL)이 미상으로 세어지는 것 | `a row an older image wrote, with no mark, is read as priced` |
+
+지킬 성질:
+
+| # | 성질 | 시험 |
+| --- | --- | --- |
+| CP1 | 풀린 호출은 자리를 돌려준다 | `a released call gives its room back` |
+| CP2 | 다음 UTC 월에는 0부터 센다 | `a new month (UTC) starts from nothing: last month's calls count no more`, CR5의 시험 |
+| CP3 | 같은 보고가 다시 오면 처음 정산이 저장한 표시로 답한다. 표시가 없는 옛 행은 두 모델로 다시 읽는다 | `a report again answers with what its first settlement stored` |
+
+알려진 한계:
+
+- 판정은 발급·승인 때 한다. 단가를 아는 모델로 열린 호출이 미상 모델의 답으로 정산되면, 그때 이미 열려 있던 호출들의 토큰만큼 합이 상한을 넘을 수 있다. 그다음 발급부터 거절된다.
+- 옛 image(API)가 발급하거나 정산한 호출은 표시가 없어(NULL) 합에 들지 않는다. 섞여 떠 있는 동안만이다.
+- 세션의 미상 호출은 이 합에 들지 않는다. 세션 축 상한이 따로 막는다.
+- 옛 image가 닫힌 호출의 늦은 보고를 조정했으면, 표시는 예약 때 것으로 남는다.
 
 ## 4. rollout 스위치
 

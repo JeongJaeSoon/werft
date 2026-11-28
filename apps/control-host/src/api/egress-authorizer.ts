@@ -593,7 +593,12 @@ export function createEgressAuthorizer(deps: {
       }
       deps.logger.info("Conversation turn call refused", {
         turn_id: called.turnId,
-        refused_by: called.outcome === "refused" ? "budget" : "concurrency",
+        refused_by:
+          called.outcome === "refused"
+            ? called.by === "unknown_price_tokens"
+              ? "unknown_price_tokens"
+              : "budget"
+            : "concurrency",
         ...(called.outcome === "refused"
           ? {
               budget_root_kind: called.rootKind,
@@ -609,7 +614,9 @@ export function createEgressAuthorizer(deps: {
         ? new WorkerGatewayError(
             403,
             "BUDGET_EXCEEDED",
-            "The turn's budget account cannot hold this call's reserve",
+            called.by === "unknown_price_tokens"
+              ? "This month's tokens on models with no known price have reached their limit for the turn's budget account (its agent's, with no account): no conversation call opens, priced or not, until the 1st of next month (UTC)"
+              : "The turn's budget account cannot hold this call's reserve",
           )
         : new WorkerGatewayError(
             403,

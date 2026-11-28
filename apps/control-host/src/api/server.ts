@@ -1449,6 +1449,8 @@ const m1Judgments =
             calls: createConversationCalls({
               store: createPostgresConversationCalls(db),
               catalog,
+              unknownPriceTokenLimit: () =>
+                installationConfig.get("unknown_price_session_token_limit"),
             }),
             queue: createPostgresConversationTurnQueue(db, secretKey),
             statuses: createPostgresMentionTurnStatuses(db),
@@ -1735,6 +1737,8 @@ const workers = createWorkerGateway({
       }),
   options: {
     sessionBudget: installationConfig.sessionBudget,
+    unknownPriceTokenLimit: () =>
+      installationConfig.get("unknown_price_session_token_limit"),
     workspaceEnforce: () => installationConfig.get("workspace_enforce"),
     leaseTtlMs: settings.leaseTtlMs,
     // How long a permission or question takes answers. The worker waits
@@ -2121,6 +2125,8 @@ const operatorTurns =
           calls: createConversationCalls({
             store: conversationCallStore,
             catalog,
+            unknownPriceTokenLimit: () =>
+              installationConfig.get("unknown_price_session_token_limit"),
           }),
           agents: agentStore,
           catalog,

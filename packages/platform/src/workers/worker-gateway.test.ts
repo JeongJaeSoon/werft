@@ -3285,6 +3285,8 @@ describe("a conversation call's usage report", () => {
           : input.priceFor({ unmetered, model: issuedFor }).costUsd,
         unmetered,
         model: issuedFor,
+        // As a call an older image settled: the answer is read again.
+        pricedBy: null,
       }),
     };
     const instance = createWorkerGateway({

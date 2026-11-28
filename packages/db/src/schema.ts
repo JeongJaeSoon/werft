@@ -4073,6 +4073,11 @@ export const conversationCalls = pgTable(
       .defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     endedAt: timestamp("ended_at", { withTimezone: true }),
+    // What priced the call: its model's rates while it is held, what settled
+    // it once reported. Null on a row an older image wrote, read as priced.
+    // The calls marked unknown are what the limit on tokens of unknown price
+    // counts for their account (or, with none, their agent) and month.
+    pricedBy: text("priced_by").$type<Exclude<PricedBy, "fallback">>(),
     // In flight past the lease with no report: its end is unknown, still
     // held. Older images ignore it and treat the row as in flight.
     unknownAt: timestamp("unknown_at", { withTimezone: true }),
@@ -4151,6 +4156,14 @@ export const conversationCalls = pgTable(
     index("conversation_calls_conversation_turn_idx")
       .on(table.conversationTurnId)
       .where(sql`${table.conversationTurnId} IS NOT NULL`),
+    // The calls of unknown price an issue sums, by the month they fall in.
+    index("conversation_calls_price_unknown_idx")
+      .on(table.createdAt)
+      .where(sql`${table.pricedBy} = 'unknown'`),
+    check(
+      "conversation_calls_priced_by_check",
+      sql`${table.pricedBy} IN ('table', 'litellm', 'unknown', 'unmetered')`,
+    ),
     check(
       "conversation_calls_conversation_turn_check",
       sql`${table.conversationTurnId} IS NULL OR COALESCE(${table.callClass} = 'm2', false)`,

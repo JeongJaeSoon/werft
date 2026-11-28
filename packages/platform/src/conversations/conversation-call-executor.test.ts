@@ -132,12 +132,18 @@ describe("createConversationCallExecutor", () => {
 
   test("a refused reservation never calls the provider", async () => {
     const { executor, requests } = harness({
-      issue: () => ({ outcome: "refused", rootKind: "none", accountId: null }),
+      issue: () => ({
+        outcome: "refused",
+        rootKind: "none",
+        accountId: null,
+        by: "budget",
+      }),
     });
     expect(await executor.run(request)).toEqual({
       outcome: "refused",
       rootKind: "none",
       accountId: null,
+      by: "budget",
     });
     expect(requests).toHaveLength(0);
   });

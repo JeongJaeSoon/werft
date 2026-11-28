@@ -6,6 +6,7 @@ import {
   type SessionCatalog,
 } from "@werft-ai/platform";
 import { oneHostOutbound } from "../api/outbound-http.ts";
+import { installationConfigOf } from "./installation-config.ts";
 
 /**
  * The conversation call executor over PostgreSQL, sending through the egress
@@ -21,6 +22,10 @@ export function wireConversationCallExecutor(deps: {
     calls: createConversationCalls({
       store: createPostgresConversationCalls(deps.db),
       catalog: deps.catalog,
+      unknownPriceTokenLimit: () =>
+        installationConfigOf(deps.db, deps.logger).get(
+          "unknown_price_session_token_limit",
+        ),
     }),
     egressUrl: deps.egressUrl,
     http: oneHostOutbound(deps.egressUrl, { private: true }),

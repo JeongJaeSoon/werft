@@ -470,7 +470,8 @@ describe("the unasked turn of a judgment that spoke (v1-b/U1)", () => {
         tokenHash: hashConversationCallToken(token),
         exchangeId: randomUUID(),
         callId: conversationCallIdSchema.parse(randomUUID()),
-        reserveFor: () => ({ reserve, unmetered: false }),
+        reserveFor: () => ({ reserve, unmetered: false, pricedBy: "table" }),
+        unknownPriceTokenLimit: 5_000_000,
       });
       expect(granted.outcome).toBe(outcome);
       if (granted.outcome === "refused") {
