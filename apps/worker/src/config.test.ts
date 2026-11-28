@@ -68,6 +68,17 @@ describe("workerConfigFromEnv", () => {
     });
   });
 
+  test("takes the turn tool call limit the scheduler passed, 500 otherwise", () => {
+    expect(workerConfigFromEnv(launched).maxTurnToolCalls).toBe(500);
+    expect(
+      workerConfigFromEnv({ ...launched, WORKER_MAX_TURN_TOOL_CALLS: "5" })
+        .maxTurnToolCalls,
+    ).toBe(5);
+    expect(() =>
+      workerConfigFromEnv({ ...launched, WORKER_MAX_TURN_TOOL_CALLS: "0" }),
+    ).toThrow("WORKER_MAX_TURN_TOOL_CALLS must be an integer from 1 to 100000");
+  });
+
   test("fits the drain inside the launcher's stop grace", () => {
     const drain = (grace: string | undefined) =>
       workerConfigFromEnv({ ...launched, WORKER_STOP_GRACE_SEC: grace })

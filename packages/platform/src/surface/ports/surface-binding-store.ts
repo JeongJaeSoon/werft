@@ -2,6 +2,7 @@ import type {
   BindingListen,
   BindingMode,
   MemoryWritePolicy,
+  ReportModeChoice,
   SessionShareScope,
   SurfaceBindingStatus,
   SurfaceCeiling,
@@ -100,6 +101,8 @@ export type SurfaceBindingRecord = {
   listen: BindingListen;
   /** M1's judgments per hour in the channel. */
   m1JudgmentsPerHour: number;
+  /** Null until a person picks one: the agent's rollout then says. */
+  reportMode: ReportModeChoice | null;
   ceiling: SurfaceCeiling;
   home: boolean;
   memoryWritePolicy: MemoryWritePolicy;
@@ -206,6 +209,8 @@ export interface SurfaceBindingStore {
     newListen?: BindingListen;
     /** Absent keeps the channel's; a new channel then has the starting cap. */
     m1JudgmentsPerHour?: number;
+    /** Absent keeps the channel's; null, or a new channel, picks none. */
+    reportMode?: ReportModeChoice | null;
     home: boolean;
     ceiling: SurfaceCeiling;
     managerRoles: readonly WorkspaceRole[];

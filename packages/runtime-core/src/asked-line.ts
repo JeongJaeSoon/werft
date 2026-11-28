@@ -1,4 +1,4 @@
-import { lstatSync, realpathSync } from "node:fs";
+import { lstatSync, readdirSync, realpathSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { workspaceAskPatterns } from "./workspace-ask-patterns.ts";
 import { WORKSPACE_POLICY } from "./workspace-policy.ts";
@@ -512,6 +512,638 @@ const COMMIT_FLAGS = [
 const startsWith = (words: string[], command: string[]) =>
   command.every((token, index) => words[index] === token);
 
+/** git options before its command that change only how it prints or locks. */
+const GIT_PLAIN_GLOBALS = [
+  "--version",
+  "--help",
+  "--no-pager",
+  "-P",
+  "--no-optional-locks",
+  "--literal-pathspecs",
+  "--no-replace-objects",
+];
+
+/**
+ * git options whose value is a program git runs: `git grep
+ * --open-files-in-pager`, `git difftool --extcmd`, `git rebase --exec`,
+ * `git push --exec`, `git fetch --upload-pack`, `git push --receive-pack`.
+ */
+const GIT_RUNNING_OPTIONS = [
+  "--open-files-in-pager",
+  "--extcmd",
+  "--exec",
+  "--upload-pack",
+  "--receive-pack",
+  "--authors-prog",
+];
+/**
+ * The short options of those, by the git command that has one, with the
+ * letters whose value is the rest of a cluster (`git grep -eFOO` is a pattern).
+ */
+const GIT_RUNNING_SHORT: Readonly<Record<string, [string, string]>> = {
+  grep: ["O", "efABCm"],
+  difftool: ["x", "t"],
+  rebase: ["x", "sXCS"],
+  "ls-remote": ["u", "o"],
+};
+/** git commands that run what the line gives them, whatever the options. */
+const GIT_RUNNING_VERBS = ["filter-branch", "send-email", "instaweb", "daemon"];
+
+/** Whether a short-option cluster sets `letter` before a letter that takes the rest as its value. */
+function clusterSets(
+  word: string,
+  [letter, values]: [string, string],
+): boolean {
+  if (!/^-[^-]/.test(word)) return false;
+  for (const char of word.slice(1)) {
+    if (char === letter) return true;
+    if (values.includes(char)) return false;
+  }
+  return false;
+}
+
+/** `git config` options that only read or shape what is read. */
+const CONFIG_READ_OPTIONS = [
+  "--",
+  "--get-urlmatch",
+  "--get",
+  "--get-all",
+  "--get-regexp",
+  "--list",
+  "-l",
+  "--local",
+  "--show-origin",
+  "--show-scope",
+  "--name-only",
+  "-z",
+  "--null",
+  "--all",
+  "--bool",
+  "--int",
+  "--bool-or-int",
+  "--path",
+  "--expiry-date",
+  "--no-type",
+];
+const CONFIG_READ_ACTIONS = [
+  "--get-urlmatch",
+  "--get",
+  "--get-all",
+  "--get-regexp",
+  "--list",
+  "-l",
+];
+/** Keys a narrow line may set: who the commits are by, and nothing that runs. */
+const CONFIG_KEYS_SET = ["user.name", "user.email"];
+/** Verbs of the newer `git config <verb>` form. */
+const CONFIG_VERBS = [
+  "get",
+  "list",
+  "set",
+  "unset",
+  "edit",
+  "rename-section",
+  "remove-section",
+];
+
+const configOption = (word: string) =>
+  CONFIG_READ_OPTIONS.includes(word) ||
+  /^-[lz]+$/.test(word) ||
+  /^--type=\w+$/.test(word);
+
+/**
+ * Whether `git config`, after its verb, only reads, or sets who the commits
+ * are by. Anything else may set a key that makes git run a program
+ * (`core.hooksPath`, `core.editor`, `core.fsmonitor`) or open an editor.
+ */
+function configReads(rest: readonly string[]): boolean {
+  const setOption = (word: string) => word === "--local" || word === "--";
+  const options = rest.filter((word) => word.startsWith("-"));
+  const operands = rest.filter((word) => !word.startsWith("-"));
+  const userKey = (key: string | undefined) =>
+    CONFIG_KEYS_SET.includes((key ?? "").toLowerCase());
+  const [first] = operands;
+  if (first !== undefined && CONFIG_VERBS.includes(first)) {
+    if (first === "get" || first === "list") return options.every(configOption);
+    return (
+      first === "set" &&
+      operands.length === 3 &&
+      userKey(operands[1]) &&
+      options.every(setOption)
+    );
+  }
+  if (operands.length === 2 && userKey(first) && options.every(setOption)) {
+    return true;
+  }
+  if (options.every(configOption)) {
+    return (
+      options.some(
+        (word) =>
+          CONFIG_READ_ACTIONS.includes(word) || /^-[lz]*l[lz]*$/.test(word),
+      ) || operands.length === 1
+    );
+  }
+  return false;
+}
+
+/** grep options that take a value; a short one takes the rest of its cluster or the next word. */
+const GREP_SHORT_VALUES = "efmABCdD";
+// Joined strings: tests/architecture.test.ts reads a quote right after the
+// word from as an import.
+const GREP_LONG_VALUES = [
+  "--regexp --file --max-count --after-context --before-context --context",
+  "--directories --devices --label --include --exclude --exclude-dir",
+  "--exclude-from --binary-files",
+]
+  .join(" ")
+  .split(" ");
+/** grep options whose value is a file of patterns or names. */
+const GREP_LISTS = "--exclude-from --file".split(" ");
+const GREP_LONG_FLAGS = ["--recursive", "--dereference-recursive"];
+
+/** A long grep option by its full name, as GNU getopt takes a unique start of one. */
+function grepLong(option: string): string | undefined {
+  const known = [...GREP_LONG_VALUES, ...GREP_LONG_FLAGS];
+  if (known.includes(option)) return option;
+  const starts = known.filter((name) => name.startsWith(option));
+  return starts.length === 1 ? starts[0] : undefined;
+}
+
+/** What grep is given: whether it recurses, the files it reads, and whether a pattern came by option. */
+function grepOperands(words: readonly string[]): {
+  recurses: boolean;
+  /** What it searches. */
+  files: string[];
+  /** Files it reads patterns or names from. */
+  lists: string[];
+} {
+  let recurses = false;
+  let patterned = false;
+  const files: string[] = [];
+  const lists: string[] = [];
+  const positional: string[] = [];
+  const recurse = (value: string) =>
+    value !== "" && "recurse".startsWith(value);
+  for (let i = 1; i < words.length; i += 1) {
+    const word = words[i] as string;
+    if (word === "--") {
+      positional.push(...words.slice(i + 1));
+      break;
+    }
+    if (word.startsWith("--")) {
+      const cut = word.indexOf("=");
+      const option = grepLong(cut === -1 ? word : word.slice(0, cut));
+      if (option === undefined) continue;
+      if (GREP_LONG_FLAGS.includes(option)) {
+        recurses = true;
+        continue;
+      }
+      let value = word.slice(cut + 1);
+      if (cut === -1) {
+        i += 1;
+        value = words[i] ?? "";
+      }
+      if (option === "--directories" && recurse(value)) recurses = true;
+      if (option === "--regexp" || option === "--file") patterned = true;
+      if (GREP_LISTS.includes(option)) lists.push(value);
+      continue;
+    }
+    if (word.startsWith("-") && word.length > 1) {
+      for (let at = 1; at < word.length; at += 1) {
+        const letter = word[at] as string;
+        if (letter === "r" || letter === "R") recurses = true;
+        if (!GREP_SHORT_VALUES.includes(letter)) continue;
+        let value = word.slice(at + 1);
+        if (value === "") {
+          i += 1;
+          value = words[i] ?? "";
+        }
+        if (letter === "d" && recurse(value)) recurses = true;
+        if (letter === "e" || letter === "f") patterned = true;
+        if (letter === "f") lists.push(value);
+        break;
+      }
+      continue;
+    }
+    positional.push(word);
+  }
+  files.push(...(patterned ? positional : positional.slice(1)));
+  return { recurses, files, lists };
+}
+
+/** What in a git or gh word may be a path: an option's value, a glued cluster's tail, `@file`, a `file#label`. What follows a `:` is {@link rootRelative}'s. */
+function refPathsIn(word: string): string[] {
+  const found = new Set([word, ...pathsIn(word)]);
+  // A cluster of short options ends in the last one's value (`-nF.env`):
+  // a value may start after any option letter.
+  if (/^-[^-]/.test(word)) {
+    for (
+      let at = 2;
+      at < word.length &&
+      at <= CLUSTER_LETTERS + 1 &&
+      /\w/.test(word[at - 1] ?? "");
+      at += 1
+    ) {
+      found.add(word.slice(at));
+    }
+  }
+  for (const path of [...found]) {
+    if (path.startsWith("@")) found.add(path.slice(1));
+    if (path.includes("#")) found.add(path.slice(0, path.indexOf("#")));
+  }
+  return [...found];
+}
+
+/** The paths in a word that git may read from the repository's top: what follows any `:`, with a pathspec's magic taken off. */
+function rootRelative(word: string): string[] {
+  const found: string[] = [];
+  // git splits `<rev>:<path>` at the first `:` outside `@{…}`, and
+  // `:<n>:<path>` at the second.
+  const colons: number[] = [];
+  let depth = 0;
+  for (let at = 0; at < word.length && colons.length < 3; at += 1) {
+    if (word[at] === "{") depth += 1;
+    else if (word[at] === "}" && depth > 0) depth -= 1;
+    else if (word[at] === ":" && depth === 0) colons.push(at);
+  }
+  for (const at of colons) {
+    const rest = word.slice(at + 1);
+    // `:/x` is `:(top)x` in short, as `:!x` and `:^x` leave x out.
+    const magic = /^(\([^)]*\)|[^\w.(]*)/.exec(rest);
+    found.push(rest, rest.slice(magic?.[0].length ?? 0));
+  }
+  return found;
+}
+
+/**
+ * The narrow reading's own checks of a part the policy allows: what git, gh
+ * and grep do with the words that the ask rules do not see.
+ */
+function narrowKept(words: readonly string[], place: Place): string | null {
+  const [name] = words;
+  // A path is judged where it lands, `..` taken as spelled, and by its name
+  // alone as well: git may read it from a tree, not the work tree
+  // (`HEAD:.claude/settings.json` with `.claude` a broken link), and
+  // `:(icase)` matches any case.
+  let keptHere: string[] | undefined;
+  const keptPath = (path: string, base = place.base): boolean => {
+    if (path === "" || path.startsWith("~")) return false;
+    const full = resolve(base, path);
+    if (!inside(place.root, full)) return false;
+    const name = relative(place.root, full).split(sep).join("/");
+    const named = (spelled: string) =>
+      sensitive({ spelled, real: spelled }) ||
+      sensitive({
+        spelled: spelled.toLowerCase(),
+        real: spelled.toLowerCase(),
+      });
+    const located = locate({ root: place.root, base: place.root }, name || ".");
+    if ((located !== undefined && sensitive(located)) || named(name)) {
+      return true;
+    }
+    // A pathspec is a pattern to git (`.claud[e]/settings.json`, `*.json`),
+    // and `*` crosses `/`: it is kept when it matches a kept name. git never
+    // takes what is in `.git` as a path of the work tree.
+    if (!/[*?[\\]/.test(name)) return false;
+    const pieces = globPieces(name);
+    keptHere ??= keptNames(place.root);
+    const names = [...KEPT_SAMPLES, ...keptHere];
+    if (names.some((kept) => globMatches(pieces, kept))) return true;
+    // A rule of any folder (`**/.env`) keeps that name wherever it is, and
+    // `*` and `?` may stand for the `/` before it (`apps/web*.env`): an
+    // end of the pattern that matches `/<name>` reaches one. An end of `*`
+    // alone (`git add 'foo*'`) names no kept name; a secret inside a folder
+    // the line names is not read here.
+    let letters = 0;
+    const fits = pieces.map(() => false);
+    for (let at = pieces.length - 1; at >= 0; at -= 1) {
+      if (pieces[at] !== "*") letters += 1;
+      fits[at] = letters > 0 && letters <= KEPT_ANYWHERE_LONGEST + 1;
+    }
+    if (
+      pieces.some(
+        (_, from) =>
+          fits[from] &&
+          KEPT_ANYWHERE.some((kept) =>
+            globMatches(pieces.slice(from), `/${kept}`),
+          ),
+      )
+    ) {
+      return true;
+    }
+    // A file under a kept folder may be gone from the work tree and come
+    // back from the index (`git restore '.claud?/settings.json'`).
+    const slash = name.indexOf("/");
+    const head = globPieces(name.slice(0, slash));
+    return (
+      slash !== -1 &&
+      !head.includes("*") &&
+      [...KEPT_FOLDERS, ...names.filter((kept) => !kept.includes("/"))].some(
+        (folder) => globMatches(head, folder),
+      )
+    );
+  };
+  if (name === "git" || name === "gh") {
+    // Which option takes a value is not known here (`-F -m`, `-e -m`,
+    // `-m --`), so no word is skipped as a message or a value: every word
+    // is read as a path and as an option.
+    for (const word of words.slice(1)) {
+      // git takes a long option by any unique start of its name.
+      const option = word.split("=")[0] as string;
+      const longStart = (full: string) =>
+        option.length > 2 &&
+        option.startsWith("--") &&
+        (full.startsWith(option) || option.startsWith(full));
+      // Every command with it has `--pathspec-file-nul` too, so git takes
+      // no start shorter than `--pathspec-fr` for it.
+      if (
+        name === "git" &&
+        option.length >= "--pathspec-fr".length &&
+        longStart("--pathspec-from-file")
+      ) {
+        return "a path list the line does not show";
+      }
+      if (name === "git" && GIT_RUNNING_OPTIONS.some(longStart)) {
+        return "a git option that runs a program";
+      }
+      // A secret or engine-settings path given to git or gh: `git checkout
+      // HEAD -- .claude/settings.json`, `gh pr create --body-file .env`.
+      // `HEAD:<path>`, `:0:<path>` and `:(top)<path>` are from the
+      // repository's top, which may not be where the shell stands.
+      // Tails are read for so many letters only; git takes a flag again and
+      // again (`-nnn…nF<file>`), so a longer cluster is not answered for.
+      if (new RegExp(`^-\\w{${CLUSTER_LETTERS + 1}}`).test(word)) {
+        return "a cluster of short options too long to read";
+      }
+      const paths = refPathsIn(word);
+      if (
+        paths.some((path) => keptPath(path)) ||
+        rootRelative(word).some(
+          (path) => keptPath(path) || keptPath(path, place.root),
+        )
+      ) {
+        return "a path that goes to a person";
+      }
+      // `-nF../../x`: the common check cuts only two letters off a cluster.
+      if (
+        paths.some(
+          (path) =>
+            path !== "" && !path.startsWith("~") && plainlyOutside(place, path),
+        )
+      ) {
+        return "a path outside the workspace";
+      }
+    }
+  }
+  if (name === "git") {
+    // Only options that change how it prints may come before the command:
+    // others take a value (`--namespace x`) or change what runs.
+    const at = words.findIndex(
+      (word, index) => index > 0 && !word.startsWith("-"),
+    );
+    const globals = words.slice(1, at === -1 ? words.length : at);
+    if (globals.some((word) => !GIT_PLAIN_GLOBALS.includes(word))) {
+      return "a git option before its command";
+    }
+    const verb = words[at];
+    // A patch names the paths it writes in its text, not in the line.
+    if (verb === "apply" || verb === "am") {
+      return "a patch the line does not show";
+    }
+    if (verb === "config" && !configReads(words.slice(at + 1))) {
+      return "a git setting the workspace policy keeps for a person";
+    }
+    const rest = at === -1 ? [] : words.slice(at + 1);
+    const short = GIT_RUNNING_SHORT[verb ?? ""];
+    if (
+      (short !== undefined && rest.some((word) => clusterSets(word, short))) ||
+      GIT_RUNNING_VERBS.includes(verb ?? "") ||
+      (verb === "bisect" && rest.includes("run")) ||
+      // `git submodule--helper foreach` is what `git submodule foreach` runs.
+      ((verb ?? "").startsWith("submodule") && rest.includes("foreach"))
+    ) {
+      return "a git option that runs a program";
+    }
+    // Files git leaves out by .gitignore are where secrets live; a search
+    // that takes them in reads every one (`git grep --untracked
+    // --no-exclude-standard KEY`).
+    if (
+      verb === "grep" &&
+      rest.some(
+        (word) =>
+          word.length >= "--no-exc".length &&
+          "--no-exclude-standard".startsWith(word.split("=")[0] as string),
+      )
+    ) {
+      return "a search of the workspace or a kept path";
+    }
+  }
+  if (name === "grep") {
+    const { recurses, files, lists } = grepOperands(words);
+    for (const file of [...files, ...lists]) {
+      if (keptPath(file)) return "a path that goes to a person";
+    }
+    if (recurses) {
+      // A tree searched is read whole, secrets in it as well: the search
+      // must name where it starts, and that may not be the workspace itself.
+      if (files.length === 0)
+        return "a search of a tree the line does not name";
+      for (const file of files) {
+        const located = locate(place, file);
+        if (located === undefined) return "a path outside the workspace";
+        if (located.spelled === "" || located.real === "") {
+          return "a search of the workspace or a kept path";
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** The files gh reads as a body: `--body-file x`, `--body-file=x`, `-F x`, `-Fx`, `-dF x`. */
+function ghBodyFiles(words: readonly string[]): string[] {
+  const files: string[] = [];
+  words.forEach((word, index) => {
+    const next = words[index + 1] ?? "";
+    if (word === "--body-file") files.push(next);
+    else if (word.startsWith("--body-file=")) files.push(word.slice(12));
+    else if (/^-[^-]/.test(word) && word.includes("F")) {
+      // pflag takes `-F=x` as `x`.
+      files.push(word.slice(word.indexOf("F") + 1).replace(/^=/, "") || next);
+    }
+  });
+  return files.filter((file) => file !== "");
+}
+
+/** One letter of a pathspec pattern, or `*`, which stands for any run of letters, `/` among them. */
+type GlobPiece = "*" | ((letter: string) => boolean);
+
+/** POSIX classes git takes inside brackets. */
+const POSIX_CLASSES: Readonly<Record<string, RegExp>> = {
+  alpha: /[a-z]/i,
+  digit: /[0-9]/,
+  alnum: /[a-z0-9]/i,
+  lower: /[a-z]/,
+  upper: /[A-Z]/,
+  xdigit: /[0-9a-f]/i,
+  space: /\s/,
+  blank: /[ \t]/,
+  punct: /[!-/:-@[-`{-~]/,
+};
+
+/**
+ * A git pathspec pattern as letters: `*` and `?` cross `/`, a backslash
+ * keeps the letter after it as it is, `[!a]` and `[[:alpha:]]` are classes,
+ * and a range backwards (`[z-a]`) is left out of its class as git leaves it.
+ * A class git knows and this does not is any one letter. Case is aside.
+ */
+function globPieces(glob: string): GlobPiece[] {
+  const same = (letter: string) => (other: string) =>
+    other.toLowerCase() === letter.toLowerCase();
+  const pieces: GlobPiece[] = [];
+  const closing = glob.lastIndexOf("]");
+  for (let at = 0; at < glob.length; at += 1) {
+    const char = glob[at] as string;
+    if (char === "*") {
+      if (pieces.at(-1) !== "*") pieces.push("*");
+    } else if (char === "?") pieces.push(() => true);
+    else if (char === "\\" && at + 1 < glob.length) {
+      at += 1;
+      pieces.push(same(glob[at] as string));
+    } else if (char === "[" && closing > at + 1) {
+      let end = at + 1;
+      const negated = glob[end] === "!" || glob[end] === "^";
+      if (negated) end += 1;
+      const tests: ((letter: string) => boolean)[] = [];
+      let known = true;
+      // One letter of the class, a backslash keeping the next as it is.
+      const letter = () => {
+        const next = glob[end] as string;
+        if (next === "\\" && end + 1 < glob.length) {
+          end += 2;
+          return glob[end - 1] as string;
+        }
+        end += 1;
+        return next;
+      };
+      for (let first = true; end < glob.length; first = false) {
+        if (glob[end] === "]" && !first) break;
+        const posix = /^\[:(\w+):\]/.exec(glob.slice(end));
+        if (posix !== null) {
+          const range = POSIX_CLASSES[posix[1] as string];
+          if (range === undefined) known = false;
+          else tests.push((other) => range.test(other));
+          end += posix[0].length;
+          continue;
+        }
+        const from = letter();
+        if (
+          glob[end] === "-" &&
+          end + 1 < glob.length &&
+          glob[end + 1] !== "]"
+        ) {
+          end += 1;
+          const to = letter();
+          tests.push((other) => from <= other && other <= to);
+        } else tests.push((other) => other === from);
+      }
+      if (end >= glob.length) pieces.push(same(char));
+      else {
+        pieces.push(
+          // Either case in or out of the class, so the pattern is read as
+          // matching whenever git might match it.
+          known
+            ? (other) =>
+                [other.toLowerCase(), other.toUpperCase()].some(
+                  (cased) => tests.some((test) => test(cased)) !== negated,
+                )
+            : () => true,
+        );
+        at = end;
+      }
+    } else pieces.push(same(char));
+  }
+  return pieces;
+}
+
+/** Whether pattern letters match a name, going back only to the last `*`. */
+function globMatches(pieces: readonly GlobPiece[], name: string): boolean {
+  let piece = 0;
+  let at = 0;
+  let star = -1;
+  let mark = 0;
+  while (at < name.length) {
+    const next = pieces[piece];
+    if (next === "*") {
+      star = piece;
+      mark = at;
+      piece += 1;
+    } else if (next?.(name[at] as string)) {
+      piece += 1;
+      at += 1;
+    } else if (star !== -1) {
+      piece = star + 1;
+      mark += 1;
+      at = mark;
+    } else return false;
+  }
+  while (pieces[piece] === "*") piece += 1;
+  return piece === pieces.length;
+}
+
+/** Kept names a pattern may reach: the kept entries at the top and what is below them, but not `.git`. */
+function keptNames(root: string): string[] {
+  const names: string[] = [];
+  const walk = (folder: string, depth: number) => {
+    let entries: string[];
+    try {
+      entries = readdirSync(resolve(root, folder || "."));
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const name = folder === "" ? entry : `${folder}/${entry}`;
+      if (name === ".git" || names.length >= KEPT_NAMES_READ) continue;
+      const located = locate({ root, base: root }, name);
+      const kept = located !== undefined && sensitive(located);
+      if (kept) names.push(name);
+      if ((kept || depth > 0) && depth < 3) walk(name, depth + 1);
+    }
+  };
+  walk("", 0);
+  return names;
+}
+// Names for each kept rule but those of `.git`, its `*` filled a few ways:
+// `.claude/**` gives `.claude/settings.json`, `**/credentials*` gives
+// `credentials.json`.
+const keptSamples = (rule: string) =>
+  ["", "x", ".json", "-x"].map((fill) =>
+    rule
+      .replace(/^\*\*\//, "")
+      .replace(/\/\*\*$/, "/settings.json")
+      .replaceAll("*", fill),
+  );
+const KEPT_SAMPLES = policy.sensitiveEditPaths
+  .filter((rule) => !rule.startsWith(".git/"))
+  .flatMap(keptSamples);
+/** The names kept in any folder, and how long the longest is. */
+const KEPT_ANYWHERE = policy.sensitiveEditPaths
+  .filter((rule) => rule.startsWith("**/"))
+  .flatMap(keptSamples);
+const KEPT_ANYWHERE_LONGEST = Math.max(
+  ...KEPT_ANYWHERE.map((name) => name.length),
+);
+/** The kept folders at the top but `.git`. */
+const KEPT_FOLDERS = policy.sensitiveEditPaths
+  .filter((rule) => rule.endsWith("/**") && !rule.startsWith("**/"))
+  .map((rule) => rule.slice(0, -3))
+  .filter((folder) => folder !== ".git");
+/** More kept names than this are not read for a pattern. */
+const KEPT_NAMES_READ = 500;
+
+/** More letters than this in one cluster of short options is not a cluster. */
+const CLUSTER_LETTERS = 32;
+
 /** A word quoted this deep is not read further. */
 const NESTED_SCRIPTS = 3;
 
@@ -552,6 +1184,20 @@ function partKept(
   // `> /dev/null` writes nothing.
   if (redirect !== undefined && redirect.target !== "/dev/null") {
     const kept = writeKept(place, redirect.target, narrow);
+    if (kept !== null) return kept;
+  }
+  // gh sends the file it is given as a body: a secret there leaves the
+  // workspace, in either reading (`gh pr create --body-file .env`).
+  if (name === "gh") {
+    for (const path of ghBodyFiles(part.words)) {
+      const located = locate(place, path);
+      if (located !== undefined && sensitive(located)) {
+        return "a path that goes to a person";
+      }
+    }
+  }
+  if (narrow) {
+    const kept = narrowKept(part.words, place);
     if (kept !== null) return kept;
   }
   if (name === undefined) return null;

@@ -231,6 +231,12 @@ export const RECEIPT_OPERATION_VALUES = [
   // A Git skill's sync paused or turned back on, or its auto-approve
   // requested, consented to or turned off.
   "update_extension_sync",
+  // A skill repository registered (or brought back after a removal),
+  // removed, or pointed at another ref: its GitHub id, ref and commit, never
+  // a file's content.
+  "register_skill_repository",
+  "remove_skill_repository",
+  "update_skill_repository_ref",
   // Sign-in providers, by the owner. Field names and counts only: never a
   // client secret, and of a stored one the last four characters.
   "create_login_provider",
@@ -371,7 +377,16 @@ export const receiptSchema = z.object({
   created_at: timestampSchema,
   updated_at: timestampSchema,
 });
-export const getReceiptResponseSchema = receiptSchema;
+// A reader may meet an operation a newer replica wrote while versions run
+// mixed, so the single-receipt read carries the name as stored instead of
+// failing the whole response. Writers keep the strict `receiptSchema`.
+export const receiptReadSchema = receiptSchema.extend({
+  operation: z.string().min(1).meta({
+    description:
+      "What the receipt records. Known values are listed by the write side, but a newer server may return a value this version does not know: show it as is.",
+  }),
+});
+export const getReceiptResponseSchema = receiptReadSchema;
 
 export const receiptAcceptedResponseSchema = z.object({
   receipt_id: receiptIdSchema,
@@ -419,6 +434,7 @@ export type ReceiptSessionTarget = z.infer<typeof receiptSessionTargetSchema>;
 export type ReceiptResourceTarget = z.infer<typeof receiptResourceTargetSchema>;
 export type ReceiptTarget = z.infer<typeof receiptTargetSchema>;
 export type Receipt = z.infer<typeof receiptSchema>;
+export type ReceiptRead = z.infer<typeof receiptReadSchema>;
 export type ReceiptAcceptedResponse = z.infer<
   typeof receiptAcceptedResponseSchema
 >;

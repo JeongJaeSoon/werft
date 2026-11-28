@@ -15,7 +15,7 @@ import type {
   PermissionWaitRequest,
   PlatformPrompt,
   PostSessionMessageResponse,
-  Receipt,
+  ReceiptRead,
   SessionDetail,
   SessionExtension,
   SessionSummary,
@@ -361,7 +361,7 @@ export interface SessionReader {
     turnId: string,
   ): Promise<TurnDetail | null>;
   // null when the receipt does not exist or belongs to another owner.
-  getReceipt(ownerId: string, receiptId: string): Promise<Receipt | null>;
+  getReceipt(ownerId: string, receiptId: string): Promise<ReceiptRead | null>;
   /**
    * Which of these agents and releases `viewer` may not use: the ids
    * given that name such an agent or a release of one, and, when `sessionId`

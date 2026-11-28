@@ -56,6 +56,10 @@ export {
   createPostgresMentionTurnStatuses,
   leaveMentionThreadResets,
 } from "./mention-turn-statuses.ts";
+export {
+  CLOSED_WORK_ADMISSION_STATES,
+  sessionWorkClosed,
+} from "./session-work.ts";
 export { takeSlackTurnInput } from "./slack-turn-inputs.ts";
 export {
   lockSlackChannelMarks,

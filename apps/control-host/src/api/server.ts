@@ -75,6 +75,7 @@ import {
   createPostgresSessionUnitOfWork,
   createPostgresSettingsDocumentStore,
   createPostgresSkillGitSourceStore,
+  createPostgresSkillRepositoryStore,
   createPostgresSlackAppStore,
   createPostgresSlackConfigTokenStore,
   createPostgresSlackGuestSetting,
@@ -84,6 +85,7 @@ import {
   createPostgresSlackSettingsStore,
   createPostgresSlackSourceMarkStore,
   createPostgresSurfaceBindingStore,
+  createPostgresTaskCloses,
   createPostgresTeamStore,
   createPostgresTopicTurnContexts,
   createPostgresTurnInterrupts,
@@ -179,8 +181,10 @@ import {
   createSettingsConsoleService,
   createSettingsDocumentService,
   createSkillGitSync,
+  createSkillRepositoryService,
   createSkillService,
   createSurfaceBindingService,
+  createTaskClose,
   createTeamService,
   createTopicSessionChecks,
   createUnsolicitedTurnSpeaker,
@@ -334,6 +338,10 @@ import {
   refuseDeletedAgents,
   registerAgentRoutes,
 } from "./routes/agents/agents.ts";
+import {
+  listingBeyondRequest,
+  registerSkillRepositoryRoutes,
+} from "./routes/extensions/skill-repositories.ts";
 import { registerSkillRoutes } from "./routes/extensions/skills.ts";
 import { registerAgentGitHubRoutes } from "./routes/github/agent-github.ts";
 import { registerGitHubAppRoutes } from "./routes/github/github-app.ts";
@@ -1386,8 +1394,10 @@ const pullRequestDrain = createPullRequestDrain({
 // Each replica reads the state of the pull requests sessions opened; the
 // rate-limit budget is shared through the database (§10).
 const sessionOutcomes = createPostgresSessionOutcomes(db);
+const taskCloses = createPostgresTaskCloses(db);
 const outcomeRefresher = createOutcomeRefresher({
   store: sessionOutcomes,
+  tasks: taskCloses,
   gate: github,
   catalog,
   connections: githubConnections,
@@ -1494,6 +1504,7 @@ const extensionBundles = extensionBundleSource(checkpointStorage, db);
 const skillObjects = extensionBundleObjects(checkpointStorage);
 // One host reader for auto-approve and the review screen, so they agree.
 const skillHosts = renderedHostExtractor;
+const skillReader = wireGitHubSkillReader({ logger });
 const skillGitSync =
   skillObjects === undefined
     ? undefined
@@ -1505,7 +1516,7 @@ const skillGitSync =
           objects: skillObjects,
           hosts: skillHosts,
         }),
-        reader: wireGitHubSkillReader({ logger }),
+        reader: skillReader,
         apps: (workspaceId) =>
           githubAppStore.credentials("author", workspaceId),
         installationFor: (app, repo) =>
@@ -1528,6 +1539,22 @@ if (skillGitSync !== undefined) {
   };
   setInterval(daily, SKILL_DAILY_CHECK_PASS_MS).unref();
 }
+// Registered repositories list their skills switched off; without the bucket
+// a skill could never be switched on, so the routes are absent with the rest.
+const skillRepositoryListing = listingBeyondRequest(
+  createPostgresSkillRepositoryStore(db),
+  (workspaceId: string) => githubAppStore.credentials("author", workspaceId),
+);
+const skillRepositories =
+  skillObjects === undefined
+    ? undefined
+    : createSkillRepositoryService({
+        authorization,
+        store: skillRepositoryListing.store,
+        reader: skillReader,
+        apps: skillRepositoryListing.apps,
+        installations: (app) => githubAppDirectory.installations(app),
+      });
 const skills =
   skillObjects === undefined
     ? undefined
@@ -1838,6 +1865,7 @@ const slackInteractions = wireSlackInteractions({
   pushes: pushRequests,
   sessions,
   followUps: createPostgresPushFollowUpStore(db),
+  tasks: createTaskClose({ authorization, closes: taskCloses }),
   outbox: createPostgresSlackOutboxStore(db),
   // The card's label asks what the policy asks a press (answer 15).
   requesterLeft: (card) =>
@@ -1999,6 +2027,9 @@ const app = createApiApp({
     registerEnvVariableRoutes(router, envVariableService);
     registerWorkspaceMcpServerRoutes(router, workspaceMcp);
     if (skills !== undefined) registerSkillRoutes(router, skills, skillGitSync);
+    if (skillRepositories !== undefined) {
+      registerSkillRepositoryRoutes(router, skillRepositories);
+    }
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,

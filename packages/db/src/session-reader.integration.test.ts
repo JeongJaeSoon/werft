@@ -543,6 +543,23 @@ integration("session reader on PostgreSQL", () => {
     expect(receipt?.target_ref).toEqual(target);
   });
 
+  test("a receipt with an operation this build does not know still reads back", async () => {
+    const id = crypto.randomUUID();
+    await db.insert(receipts).values({
+      id,
+      ownerId: OWNER,
+      operation: "operation_from_a_newer_replica",
+      targetRef: {
+        session_id: crypto.randomUUID(),
+        turn_id: null,
+        request_id: null,
+      },
+      status: "succeeded",
+    });
+    const receipt = await createPostgresSessionReader(db).getReceipt(OWNER, id);
+    expect(receipt?.operation).toBe("operation_from_a_newer_replica");
+  });
+
   test("a receipt reads back with the actor that made it", async () => {
     const id = crypto.randomUUID();
     const actor = {

@@ -25,6 +25,7 @@ describe("localDockerConfigFromEnv", () => {
       },
       requestTimeoutMs: 30_000,
       idleTimeoutSeconds: 1800,
+      maxTurnToolCalls: 500,
       stopTimeoutSeconds: 120,
       tmpfsSizeBytes: 256 * 1024 * 1024,
       user: "1000:1000",

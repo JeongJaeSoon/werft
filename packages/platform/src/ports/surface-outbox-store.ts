@@ -374,6 +374,8 @@ export type SurfaceProgressDue = SurfaceLinkedTurnTarget & {
   updates: number;
   /** When the session's first turn was asked, in epoch seconds. */
   startedAt: number | null;
+  /** The session is a task: its message carries the buttons that close it. */
+  task: boolean;
 };
 
 /**

@@ -88,6 +88,7 @@ const columns = {
   mode: surfaceBindings.mode,
   listen: surfaceBindings.listen,
   m1JudgmentsPerHour: surfaceBindings.m1JudgmentsPerHour,
+  reportMode: surfaceBindings.reportMode,
   ceilingActions: surfaceBindings.ceilingActions,
   ceilingDisclosure: surfaceBindings.ceilingDisclosure,
   home: surfaceBindings.home,
@@ -219,6 +220,7 @@ async function writeReceipt(
       mode: binding.mode,
       listen: binding.listen,
       m1_judgments_per_hour: binding.m1JudgmentsPerHour,
+      report_mode: binding.reportMode,
       home: binding.home,
       ceiling: binding.ceiling,
       status: binding.status,
@@ -360,6 +362,9 @@ async function set(
         ...(input.m1JudgmentsPerHour === undefined
           ? {}
           : { m1JudgmentsPerHour: input.m1JudgmentsPerHour }),
+        ...(input.reportMode === undefined
+          ? {}
+          : { reportMode: input.reportMode }),
         home: input.home,
         ceilingActions: [...input.ceiling.actions],
         ceilingDisclosure: input.ceiling.disclosure,

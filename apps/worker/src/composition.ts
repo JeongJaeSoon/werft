@@ -206,6 +206,9 @@ export function createWorkerHost(
           kind === runtime.descriptor.kind ? runtime.eventCodec : undefined,
       }),
     timeouts: config.timeouts,
+    ...(config.maxTurnToolCalls === undefined
+      ? {}
+      : { maxTurnToolCalls: config.maxTurnToolCalls }),
     workspace,
     ...(overrides.workspaceQuota === undefined
       ? {}
