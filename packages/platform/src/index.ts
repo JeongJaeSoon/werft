@@ -103,6 +103,7 @@ export * from "./musterrolle/ports/credential-binding-store.ts";
 export * from "./musterrolle/ports/env-variable-store.ts";
 export * from "./extensions/ports/extension-bundle-store.ts";
 export * from "./extensions/ports/skill-git-source-store.ts";
+export * from "./extensions/ports/skill-repository-store.ts";
 export * from "./musterrolle/ports/decision-log.ts";
 export * from "./scheduler/ports/execution-backend.ts";
 export * from "./github/ports/github-app-store.ts";
@@ -232,6 +233,13 @@ export {
   UNREADABLE,
 } from "./extensions/skill-checks.ts";
 export * from "./extensions/skill-git-sync.ts";
+export * from "./extensions/skill-repositories.ts";
+export {
+  listSkillRepository,
+  repositoryRootFiles,
+  SKILL_REPOSITORY_LIMITS,
+  type SkillListing,
+} from "./extensions/skill-repository-listing.ts";
 export * from "./workspace-mcp/ports/workspace-mcp-store.ts";
 export {
   type WorkspaceMcpRemoteDeps,

@@ -56,9 +56,11 @@ const BUDGET_BYTES: Record<string, number> = {
   // events' after_turn mark put ./forms 73 bytes over 153, so it moves to
   // 154. The CI read tools' repository argument and their descriptions put
   // ./schemas 391 bytes over 156 and ./forms 119 bytes over 154, so they
-  // move to 157 and 155.
-  "./schemas": 157 * 1024,
-  "./forms": 155 * 1024,
+  // move to 157 and 155. The skill repository schemas and their three
+  // receipt operations put ./schemas 804 bytes over 157 and ./forms 382
+  // bytes over 155, so they move to 158 and 156.
+  "./schemas": 158 * 1024,
+  "./forms": 156 * 1024,
 };
 
 test("every entry has a budget", () => {

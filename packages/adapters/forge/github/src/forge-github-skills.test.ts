@@ -50,6 +50,8 @@ describe("reading a skill from GitHub with the App's installation", () => {
       fullName: "acme/skills",
       ownerId: 5000,
       public: false,
+      defaultBranch: "main",
+      license: null,
     });
     expect(
       await reader.repository(app(), INSTALLATION, "acme", "missing"),
@@ -228,7 +230,7 @@ describe("reading a public repository the installation does not cover", () => {
       "anthropics",
       "open",
       { "skills/pdf/SKILL.md": "---\nname: pdf\n---\nPDF.\n" },
-      { private: false, ownerId: 4242 },
+      { private: false, ownerId: 4242, license: "Apache-2.0" },
     );
     closedId = await other.createRepository(
       "anthropics",
@@ -255,6 +257,8 @@ describe("reading a public repository the installation does not cover", () => {
       fullName: "anthropics/open",
       ownerId: 4242,
       public: true,
+      defaultBranch: "main",
+      license: "Apache-2.0",
     });
     const id = open?.id ?? 0;
     expect(await reader.repositoryById(otherApp(), INSTALLATION, id)).toEqual(
@@ -308,6 +312,121 @@ describe("reading a public repository the installation does not cover", () => {
         found?.id ?? 0,
       ),
     ).toEqual(found);
+  });
+
+  test("an internal repository it covers is not public, by name or by id", async () => {
+    const reader = createGitHubSkillReader();
+    other.setInternal("acme", "installed");
+    try {
+      const found = await reader.repository(
+        otherApp(),
+        INSTALLATION,
+        "acme",
+        "installed",
+      );
+      expect(found).toMatchObject({
+        fullName: "acme/installed",
+        public: false,
+      });
+      expect(
+        await reader.repositoryById(otherApp(), INSTALLATION, found?.id ?? 0),
+      ).toMatchObject({ public: false });
+    } finally {
+      other.setPrivate("acme", "installed", true);
+    }
+  });
+
+  test("a license GitHub could not name reads as none", async () => {
+    await other.createRepository(
+      "anthropics",
+      "unnamed",
+      { "LICENSE.txt": "Some terms.\n" },
+      { private: false, license: "NOASSERTION" },
+    );
+    expect(
+      await createGitHubSkillReader().repository(
+        otherApp(),
+        INSTALLATION,
+        "anthropics",
+        "unnamed",
+      ),
+    ).toMatchObject({ license: null });
+  });
+
+  test("lists the whole tree of a commit in one read, with each entry's mode, kind and size", async () => {
+    const reader = createGitHubSkillReader();
+    const id =
+      (await reader.repository(otherApp(), INSTALLATION, "anthropics", "open"))
+        ?.id ?? 0;
+    const head = await other.writeFiles("anthropics", "open", "main", {
+      NOTICE: "Notices.\n",
+      "skills/pdf/link.md": { symlink: "SKILL.md" },
+    });
+    const before = other.apiRequests.length;
+    const tree = await reader.tree(otherApp(), INSTALLATION, id, head);
+    expect(tree?.truncated).toBe(false);
+    expect(tree?.sha).toMatch(/^[0-9a-f]{40}$/);
+    expect(
+      tree?.entries.map(({ path, mode, type, size }) => ({
+        path,
+        mode,
+        type,
+        size,
+      })),
+    ).toEqual([
+      { path: "NOTICE", mode: "100644", type: "blob", size: 9 },
+      { path: "skills", mode: "040000", type: "tree", size: 0 },
+      { path: "skills/pdf", mode: "040000", type: "tree", size: 0 },
+      { path: "skills/pdf/SKILL.md", mode: "100644", type: "blob", size: 23 },
+      { path: "skills/pdf/link.md", mode: "120000", type: "blob", size: 8 },
+    ]);
+    expect(
+      other.apiRequests
+        .slice(before)
+        .filter((request) => request.path.includes("/git/trees/")),
+    ).toHaveLength(1);
+    expect(
+      await reader.tree(otherApp(), INSTALLATION, id, "0".repeat(40)),
+    ).toBeNull();
+  });
+
+  test("reads blobs by sha in one call, leaving out one that is not there", async () => {
+    const reader = createGitHubSkillReader();
+    const id =
+      (await reader.repository(otherApp(), INSTALLATION, "anthropics", "open"))
+        ?.id ?? 0;
+    const head = (await other.refs("anthropics", "open"))["refs/heads/main"];
+    const tree = await reader.tree(otherApp(), INSTALLATION, id, head ?? "");
+    const skill = tree?.entries.find(
+      (entry) => entry.path === "skills/pdf/SKILL.md",
+    );
+    const gone = "f".repeat(40);
+    const before = other.tokenRequests.length;
+    const blobs = await reader.blobs(otherApp(), INSTALLATION, id, [
+      skill?.sha ?? "",
+      gone,
+    ]);
+    expect([...blobs.keys()]).toEqual([skill?.sha ?? ""]);
+    expect(text(blobs.get(skill?.sha ?? "") ?? new Uint8Array())).toBe(
+      "---\nname: pdf\n---\nPDF.\n",
+    );
+    expect(other.tokenRequests.length - before).toBe(1);
+  });
+
+  test("a tree GitHub cut short says so", async () => {
+    const reader = createGitHubSkillReader();
+    const id =
+      (await reader.repository(otherApp(), INSTALLATION, "anthropics", "open"))
+        ?.id ?? 0;
+    const head = (await other.refs("anthropics", "open"))["refs/heads/main"];
+    other.truncateTrees(true);
+    try {
+      expect(
+        await reader.tree(otherApp(), INSTALLATION, id, head ?? ""),
+      ).toMatchObject({ truncated: true });
+    } finally {
+      other.truncateTrees(false);
+    }
   });
 });
 

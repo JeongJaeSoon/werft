@@ -49,6 +49,7 @@ import {
   BOT_SCOPES,
   bootstrapRequestSchema,
   bootstrapResponseSchema,
+  checkSkillRepositoryResponseSchema,
   checkSkillResponseSchema,
   closeLostCheckpointNoticesRequestSchema,
   closeSessionRequestSchema,
@@ -266,6 +267,8 @@ import {
   putGitHubUserLinkAppResponseSchema,
   putSkillAttachmentRequestSchema,
   putSkillAutoApproveRequestSchema,
+  putSkillRepositoryRefRequestSchema,
+  putSkillRepositoryRefResponseSchema,
   putSkillSyncRequestSchema,
   putSlackAppBotsRequestSchema,
   putSlackBindingRequestSchema,
@@ -283,9 +286,12 @@ import {
   recheckSlackAppEventsResponseSchema,
   recoveryDecisionRequestSchema,
   registerGitHubSkillRequestSchema,
+  registerSkillRepositoryRequestSchema,
+  registerSkillRepositoryResponseSchema,
   registerSkillRequestSchema,
   registerSkillResponseSchema,
   rejudgeSessionResponseSchema,
+  removeSkillRepositoryResponseSchema,
   requestBodyInvalidDetailsSchema,
   rerunWorkflowRequestSchema,
   rerunWorkflowResponseSchema,
@@ -338,6 +344,9 @@ import {
   skillAttachmentResponseSchema,
   skillListSchema,
   skillNameParamsSchema,
+  skillRepositoryDetailSchema,
+  skillRepositoryListSchema,
+  skillRepositoryParamsSchema,
   skillSyncResponseSchema,
   skillVersionChangeResponseSchema,
   skillVersionFilesSchema,
@@ -799,6 +808,14 @@ const responseComponents = {
   RegisterSkillRequest: registerSkillRequestSchema,
   RegisterSkillResponse: registerSkillResponseSchema,
   RegisterGitHubSkillRequest: registerGitHubSkillRequestSchema,
+  RegisterSkillRepositoryRequest: registerSkillRepositoryRequestSchema,
+  RegisterSkillRepositoryResponse: registerSkillRepositoryResponseSchema,
+  SkillRepositoryList: skillRepositoryListSchema,
+  SkillRepositoryDetail: skillRepositoryDetailSchema,
+  RemoveSkillRepositoryResponse: removeSkillRepositoryResponseSchema,
+  CheckSkillRepositoryResponse: checkSkillRepositoryResponseSchema,
+  PutSkillRepositoryRefRequest: putSkillRepositoryRefRequestSchema,
+  PutSkillRepositoryRefResponse: putSkillRepositoryRefResponseSchema,
   CheckSkillResponse: checkSkillResponseSchema,
   PutSkillSyncRequest: putSkillSyncRequestSchema,
   SkillSyncResponse: skillSyncResponseSchema,
@@ -1228,6 +1245,56 @@ const EXAMPLE_AGENT_WORKSPACE_MCP_SERVER = {
 };
 const WORKSPACE_MCP_MANAGERS =
   "Owners and admins signed in to the console as a person; never an API key.";
+const EXAMPLE_SKILL_REPOSITORY_ID = "5b8d2f60-9c1e-4a37-b2d4-6e0f1a3c5d79";
+const EXAMPLE_SKILL_REPOSITORY = {
+  id: EXAMPLE_SKILL_REPOSITORY_ID,
+  repository_id: 123456789,
+  repository: "acme/skills",
+  ref: "main",
+  access: "public",
+  connection_id: "019a0000-0000-7000-8000-0000000000b1",
+  installation_id: 4242,
+  owner_id: 9919,
+  license: "Apache-2.0",
+  state: "active",
+  last_commit: "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+  last_sync: {
+    at: "2026-11-28T09:00:00.000Z",
+    trigger: { kind: "register", user_id: EXAMPLE_USER_ID },
+    commit: "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+    result: "listed",
+    issues: [],
+  },
+  skill_count: 1,
+  created_by: EXAMPLE_USER_ID,
+  created_at: "2026-11-28T09:00:00.000Z",
+  removed_by: null,
+  removed_at: null,
+};
+const EXAMPLE_SKILL_REPOSITORY_DETAIL = {
+  repository: EXAMPLE_SKILL_REPOSITORY,
+  skills: [
+    {
+      id: "0e4a7c19-3b5d-4f82-9a6c-1d2e3f4a5b6c",
+      path: "skills/release-notes",
+      name: "release-notes",
+      description: "Drafts release notes from merged pull requests.",
+      license: "Apache-2.0",
+      status: "off",
+      issues: [],
+      name_owner: null,
+      name_shared: false,
+      present: true,
+      enabled: false,
+      tree_sha: "9d1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+      file_count: 3,
+      size_bytes: 4096,
+      has_scripts: false,
+    },
+  ],
+};
+const SKILL_REPOSITORY_LISTING =
+  "The listing reads the tree of the ref's commit once and, of its contents, only the `SKILL.md` files, with the parser an upload meets: every directory holding a `SKILL.md` is one entry with its `name`, `description` and `license`. What the tree alone refuses is judged before anything is fetched and listed in the entry's `issues` (`status` `unavailable`): a symlink or a submodule (by the entry's mode), a path the checker never accepts, another `SKILL.md` below it, more than 255 files, a file over 1 MiB, more than 8 MiB together, or a `SKILL.md` over 64 KiB, which is not fetched. A name another skill of the workspace holds is `conflict`. A tree GitHub cut short, more than 200 skill directories, or `SKILL.md` files over 4 MiB together refuse the whole listing.";
 const SKILL_MANAGERS =
   "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`.";
 const EXAMPLE_SKILL_VERSION_ID = "7c3e9a1f-2d4b-4e6a-8f0c-5b1d3e7a9c20";
@@ -6697,6 +6764,130 @@ export const API_ROUTE_DECLARATIONS = [
     errorCodes: { 502: ["GITHUB_UNAVAILABLE"] },
   },
   {
+    method: "get",
+    path: "/v1/workspace/skill-repositories",
+    operationId: "listSkillRepositories",
+    tag: "Workspace settings",
+    summary: "List the workspace's skill repositories",
+    description:
+      "Every GitHub repository the workspace registered for its skills, oldest first, removed ones too (`state` `removed`). Each carries the ref it follows, the commit and result of its last listing (`last_sync`) and how many skill directories that listing found. Owners and admins read it.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "SkillRepositoryList",
+      description: "The repositories.",
+      example: { items: [EXAMPLE_SKILL_REPOSITORY] },
+    },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/workspace/skill-repositories",
+    operationId: "registerSkillRepository",
+    tag: "Workspace settings",
+    summary: "Register a public GitHub repository for its skills",
+    description: `${SKILL_MANAGERS} Registering is the approval: no review follows. \`url\` is \`https://github.com/<owner>/<name>\`; \`ref\` is a branch, a tag or a commit SHA, and left out it is the repository's default branch as it is named now, kept by that name. The repository must be public (GitHub's \`visibility\` \`public\`; private and internal are refused) and is read with an installation of the workspace's oldest author App that has one, whether or not that installation covers it. ${SKILL_REPOSITORY_LISTING} Every skill is listed switched off, and nothing here switches one on, so no skill version is made. Registering a repository that was removed brings the same row back (\`outcome\` \`restored\`), at the ref given, with every switch off. Refused with 400 \`reason_code\` \`no_installation\`, \`repository_not_found\`, \`repository_not_public\`, \`ref_not_found\` or \`listing_refused\` (with \`details.issues\`); a repository the workspace already follows is 409 \`ALREADY_EXISTS\` \`repository_already_registered\`; GitHub unreachable or refusing the App is 502 \`GITHUB_UNAVAILABLE\`. Writes a \`register_skill_repository\` receipt with the address, the repository's and its owner's GitHub ids, the ref, the commit and the license GitHub names.`,
+    auth: "session",
+    body: "RegisterSkillRepositoryRequest",
+    requestExample: { url: "https://github.com/acme/skills" },
+    success: {
+      status: 201,
+      schema: "RegisterSkillRepositoryResponse",
+      description: "The repository and its listing.",
+      example: {
+        outcome: "registered",
+        ...EXAMPLE_SKILL_REPOSITORY_DETAIL,
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 409, 502, 503],
+    errorCodes: { 409: ["ALREADY_EXISTS"], 502: ["GITHUB_UNAVAILABLE"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/workspace/skill-repositories/{id}",
+    operationId: "getSkillRepository",
+    tag: "Workspace settings",
+    summary: "One skill repository and the skills it lists",
+    description:
+      "The repository and every skill directory its listings found, by path. A directory gone from the repository stays with `present: false`. `status` is `off`, `unavailable` (with `issues`) or `conflict` (`name_owner` is the source of the workspace skill that holds the name); `name_shared` says another listed directory, here or in another registered repository, reads the same name. Owners and admins read it.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "SkillRepositoryDetail",
+      description: "The repository and its skills.",
+      example: EXAMPLE_SKILL_REPOSITORY_DETAIL,
+    },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "delete",
+    path: "/v1/workspace/skill-repositories/{id}",
+    operationId: "removeSkillRepository",
+    tag: "Workspace settings",
+    summary: "Remove a skill repository",
+    description: `${SKILL_MANAGERS} The repository becomes \`removed\` and a listing that was running writes nothing. No row is deleted: registering the same repository again brings it back. Writes a \`remove_skill_repository\` receipt; one already removed answers \`receipt_id: null\`.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "RemoveSkillRepositoryResponse",
+      description: "The repository, removed.",
+      example: {
+        repository: {
+          ...EXAMPLE_SKILL_REPOSITORY,
+          state: "removed",
+          removed_by: EXAMPLE_USER_ID,
+          removed_at: "2026-11-29T09:00:00.000Z",
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/workspace/skill-repositories/{id}/check",
+    operationId: "checkSkillRepository",
+    tag: "Workspace settings",
+    summary: "Read a skill repository's listing again now",
+    description: `${SKILL_MANAGERS} Resolves the ref to a commit again and reads the listing there. ${SKILL_REPOSITORY_LISTING} One listing runs per repository at a time; while one runs this answers \`queued\` and that listing runs once more when it ends. \`last_sync\` records the time, who asked, the commit and the result: \`listed\`, \`source_missing\` (the ref or the repository is gone, or it is no longer public), \`rejected\` with \`issues\`, or \`github_unavailable\`. Only \`listed\` changes the skills shown. A removed repository is 400 \`repository_removed\`.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "CheckSkillRepositoryResponse",
+      description: "The listing ran, or was queued behind one that runs.",
+      example: { outcome: "checked", ...EXAMPLE_SKILL_REPOSITORY_DETAIL },
+    },
+    errors: [400, 401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/workspace/skill-repositories/{id}/ref",
+    operationId: "putSkillRepositoryRef",
+    tag: "Workspace settings",
+    summary: "Point a skill repository at another ref",
+    description: `${SKILL_MANAGERS} GitHub must resolve \`ref\` to a commit first (400 \`ref_not_found\`; GitHub not answering is 502 \`GITHUB_UNAVAILABLE\`). The repository then follows it, a listing that was running at the old ref writes nothing, and the listing is read at the new one: \`check\` says whether it ended (\`checked\`) or waits behind a running one (\`queued\`). Writes an \`update_skill_repository_ref\` receipt with the ref before and after; the ref it already follows answers \`receipt_id: null\` and reads nothing. A removed repository is 400 \`repository_removed\`.`,
+    auth: "session",
+    body: "PutSkillRepositoryRefRequest",
+    requestExample: { ref: "v2" },
+    success: {
+      status: 200,
+      schema: "PutSkillRepositoryRefResponse",
+      description: "The repository at the new ref.",
+      example: {
+        ...EXAMPLE_SKILL_REPOSITORY_DETAIL,
+        repository: { ...EXAMPLE_SKILL_REPOSITORY, ref: "v2" },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        check: "checked",
+      },
+    },
+    errors: [400, 401, 403, 404, 502, 503],
+    errorCodes: { 502: ["GITHUB_UNAVAILABLE"] },
+  },
+  {
     method: "post",
     path: "/v1/workspace/skills/{name}/revert",
     operationId: "revertSkill",
@@ -10007,6 +10198,7 @@ const PATH_PARAMETER_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "receipts/{id}": "The receipt's id.",
   "secrets/{purpose}": "Which of the Slack app's secrets.",
   "sessions/{id}": "The session's id.",
+  "skill-repositories/{id}": "The skill repository's id.",
   "skills/{name}": "The skill's name.",
   "slack-bindings/{binding_id}": "The Slack binding's id.",
   "teams/{team_id}": "The team's id.",
@@ -10099,6 +10291,8 @@ function paramsSchemaFor(path: string): z.ZodObject {
     return workspaceVariableParamsSchema;
   if (path.startsWith("/v1/workspace/mcp-servers/{id}"))
     return workspaceMcpServerParamsSchema;
+  if (path.startsWith("/v1/workspace/skill-repositories/{id}"))
+    return skillRepositoryParamsSchema;
   if (path.startsWith("/v1/workspace/skills/versions/{id}"))
     return skillVersionParamsSchema;
   if (path.startsWith("/v1/workspace/skills/{name}"))

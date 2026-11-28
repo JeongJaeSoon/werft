@@ -1301,6 +1301,8 @@ function skillRepositoryOf(data: unknown): GitHubSkillRepository {
     full_name?: unknown;
     owner?: { id?: unknown };
     visibility?: unknown;
+    default_branch?: unknown;
+    license?: { spdx_id?: unknown } | null;
   };
   const id = Number(repo.id);
   const ownerId = Number(repo.owner?.id);
@@ -1309,16 +1311,26 @@ function skillRepositoryOf(data: unknown): GitHubSkillRepository {
     !Number.isSafeInteger(id) ||
     id <= 0 ||
     !Number.isSafeInteger(ownerId) ||
-    ownerId <= 0
+    ownerId <= 0 ||
+    typeof repo.default_branch !== "string"
   ) {
-    throw new Error("GitHub answered a repository without its id or owner");
+    throw new Error(
+      "GitHub answered a repository without its id, owner or default branch",
+    );
   }
+  const spdx = repo.license?.spdx_id;
   // Only GitHub's own word: no `visibility` is not public.
   return {
     id,
     fullName: repo.full_name,
     ownerId,
     public: repo.visibility === "public",
+    defaultBranch: repo.default_branch,
+    // GitHub's NOASSERTION is a license file it could not name.
+    license:
+      typeof spdx === "string" && spdx !== "" && spdx !== "NOASSERTION"
+        ? spdx
+        : null,
   };
 }
 
@@ -1526,6 +1538,75 @@ export function createGitHubSkillReader(
         }
         return { kind: "files", files };
       }),
+
+    tree: (app, installationId, repositoryId, commit) =>
+      asking("skill repository tree", app, installationId, (request, headers) =>
+        orNull(async () => {
+          const { data: head } = await request(
+            "GET /repositories/{id}/git/commits/{sha}",
+            { id: repositoryId, sha: commit, headers },
+          );
+          const sha = (head as { tree: { sha: string } }).tree.sha;
+          const { data } = await request(
+            "GET /repositories/{id}/git/trees/{sha}",
+            { id: repositoryId, sha, recursive: "1", headers },
+          );
+          const listed = data as { tree: TreeItem[]; truncated?: boolean };
+          return {
+            sha,
+            truncated: listed.truncated === true,
+            entries: listed.tree.flatMap((item) =>
+              item.path === undefined ||
+              item.sha === undefined ||
+              (item.type !== "blob" &&
+                item.type !== "tree" &&
+                item.type !== "commit")
+                ? []
+                : [
+                    {
+                      path: item.path,
+                      mode: item.mode ?? "",
+                      type: item.type,
+                      sha: item.sha,
+                      size: item.size ?? 0,
+                    },
+                  ],
+            ),
+          };
+        }),
+      ),
+
+    blobs: (app, installationId, repositoryId, shas) =>
+      asking(
+        "skill repository blobs",
+        app,
+        installationId,
+        async (request, headers) => {
+          const read = new Map<string, Uint8Array>();
+          for (let start = 0; start < shas.length; start += SKILL_BLOB_READS) {
+            await Promise.all(
+              shas.slice(start, start + SKILL_BLOB_READS).map(async (sha) => {
+                const blob = await orNull(async () => {
+                  const { data } = await request(
+                    "GET /repositories/{id}/git/blobs/{sha}",
+                    { id: repositoryId, sha, headers },
+                  );
+                  return data as { content?: string; encoding?: string };
+                });
+                if (blob === null) return;
+                if (blob.encoding !== "base64" || blob.content === undefined) {
+                  throw new Error("GitHub answered a blob that is not base64");
+                }
+                read.set(
+                  sha,
+                  Uint8Array.from(Buffer.from(blob.content, "base64")),
+                );
+              }),
+            );
+          }
+          return read;
+        },
+      ),
 
     isBranch: (app, installationId, repositoryId, ref) =>
       asking("skill branch", app, installationId, async (request, headers) => {
