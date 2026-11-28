@@ -345,7 +345,7 @@ master key는 `PLATFORM_SECRET_KEY` 대신, 키를 담은 파일의 경로를 `P
 ## 사용량과 비용 계측
 
 - 세션 비용은 credential route가 센다. proxy는 2xx `/v1/messages` 응답(JSON과 SSE 모두)에서 usage를 읽는다. 응답이 끝나거나 끊기면 authorizer listener의 `POST /usage`로 보고한다. `count_tokens`와 오류 응답은 세지 않는다.
-  - 응답이 usage를 다 말하지 않으면 많게 추정한다. `message_stop` 전에 끊긴 stream은 전달한 content 한 글자를 token 하나로 쳐서 output에 넣고, 전달한 web search 결과 블록 하나를 검색 한 번으로 친다. usage를 읽지 못한 JSON 응답(끊김, 8 MiB 초과, JSON 아님)은 요청으로 센다. 요청 1 byte를 input token 하나로, `max_tokens`를 output 전부로 본다. 이런 호출은 proxy가 `Provider usage estimated` 경고를 남기고 ledger에 `estimated=true`로 적힌다.
+  - 응답이 usage를 다 말하지 않으면 많게 추정한다. `message_stop` 전에 끊긴 stream은 전달한 content 한 글자를 token 하나로 쳐서 output에 넣고, 전달한 web search 결과 블록 하나를 검색 한 번으로 친다. usage를 읽지 못한 JSON 응답(끊김, 8 MiB 초과, JSON 아님)은 요청으로 센다. 요청 1 byte를 input token 하나로, `max_tokens`를 output 전부로 본다. usage가 있어도 토큰 수를 하나도 0 이상의 정수로 말하지 않은 응답(`usage: {}`, 칸이 모두 null·음수·문자열인 경우)은 usage가 없는 응답과 같이 요청으로 센다. stream이면 끝까지 그런 경우이고, output은 전달한 글자 수와 `max_tokens` 가운데 큰 쪽이다. 토큰 칸 하나라도 숫자로 읽히면(0도) 실측으로 보고 빠진 칸은 0이다. 이런 호출은 proxy가 `Provider usage estimated` 경고를 남기고 ledger에 `estimated=true`로 적힌다.
   - API는 가격표로 USD를 구해 micro-dollar 단위로 올림한다. 그 금액을 `provider_usage`에 교환 하나당 한 줄로 쓰고, 같은 트랜잭션에서 세션 비용에 더한다. 그래서 ledger 합과 세션 비용이 맞는다.
   - engine의 호출과 도구가 engine의 token으로 직접 부른 호출을 똑같이 센다.
   - 보고에는 proxy가 교환마다 만든 id가 붙는다. authorizer가 답하지 못하면 1·5·15초 뒤에 다시 보내고, 같은 id는 한 번만 센다. 끝내 보고하지 못하면 proxy가 `Provider usage went unreported` 오류 로그를 남기고 그 교환은 세지 않는다.

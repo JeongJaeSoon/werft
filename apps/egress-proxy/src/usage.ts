@@ -210,6 +210,15 @@ function countsOf(value: unknown): Counts {
   return counts;
 }
 
+/**
+ * An answer names its use only by a token count it reads as one: a usage with
+ * none (`{}`, or each count null, negative or not a number) says no more
+ * than no usage, and is estimated as that is. A count of 0 stands.
+ */
+function namesTokens(counts: Counts): boolean {
+  return COUNTS.some((name) => counts[name] !== undefined);
+}
+
 function usageOf(
   model: string,
   counts: Counts,
@@ -410,10 +419,13 @@ export function usageMeter(
       },
       result(request) {
         if (model === undefined) return requestEstimate(request, responses);
-        if (stopped) return usageOf(model, counts, false, request);
+        const named = namesTokens(counts);
+        if (stopped && named) return usageOf(model, counts, false, request);
         // Hidden reasoning is billed as output yet never delivered, so a cut
-        // Responses stream is charged what the request allowed.
-        const allowed = responses ? requestEstimate(request, true) : undefined;
+        // Responses stream is charged what the request allowed, as is a
+        // stream that ended without naming a token.
+        const allowed =
+          responses || !named ? requestEstimate(request, responses) : undefined;
         return usageOf(
           model,
           {
@@ -457,14 +469,11 @@ export function usageMeter(
             : typeof body?.model === "string"
               ? body.model
               : undefined;
-          if (
-            model !== undefined &&
-            typeof body.usage === "object" &&
-            body.usage !== null
-          ) {
+          const counts = countsOf(body?.usage);
+          if (model !== undefined && namesTokens(counts)) {
             return usageOf(
               model,
-              { ...countsOf(body.usage), ...responseExtras(body) },
+              { ...counts, ...responseExtras(body) },
               false,
               request,
             );

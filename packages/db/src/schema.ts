@@ -3709,7 +3709,8 @@ export const providerUsage = pgTable(
     // predates it does; they were priced with no geo multiplier.
     inferenceGeo: text("inference_geo").notNull().default("unknown"),
     // The proxy estimated the call high because its answer did not say what
-    // it used: a stream cut short, or a body it could not read.
+    // it used: a stream cut short, a body it could not read, or a usage that
+    // named no token count.
     estimated: boolean().notNull(),
     // What was charged: the priced amount rounded up to the micro-dollar,
     // clamped to what the column holds. Exactly what the session got. 0

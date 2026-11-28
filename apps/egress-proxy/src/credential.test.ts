@@ -1393,6 +1393,46 @@ describe("startCredentialProxy", () => {
     expect(report?.usage).toMatchObject({ input_tokens: 9, output_tokens: 3 });
   });
 
+  test("a conversation call answered with an empty usage is reported as estimated from its request, not as nothing used", async () => {
+    const up = upstream(() =>
+      Response.json({ id: "msg_1", model: "m-call", usage: {} }),
+    );
+    const auth = authorizer((body) =>
+      body.token === WORKER_TOKEN
+        ? Response.json({
+            conversation_call_id: "call-1",
+            upstream: {
+              url: `http://upstream.test:${up.port}/base`,
+              headers: [["x-api-key", PROVIDER_KEY]],
+            },
+            request_limits: {
+              path: "/v1/messages",
+              model: "m-call",
+              max_tokens: 64,
+              max_request_bytes: 80,
+            },
+          })
+        : new Response("unknown", { status: 401 }),
+    );
+    const server = proxy(auth.url, up.port);
+    const body = '{"model":"m-call","max_tokens":64,"messages":[]}';
+    const response = await messages(server.port, {
+      path: "/provider/v1/messages",
+      body,
+    });
+    expect(response.status).toBe(200);
+    await until(() => auth.reported.length === 1);
+    expect(auth.reported[0]).toMatchObject({
+      conversation_call_id: "call-1",
+      usage: {
+        model: "m-call",
+        input_tokens: new TextEncoder().encode(body).byteLength,
+        output_tokens: 64,
+        estimated: true,
+      },
+    });
+  });
+
   test("a conversation call to a model endpoint off the operator's lists is refused before its name is looked up: its grant carries no private mark", async () => {
     const looked: string[] = [];
     const auth = authorizer(() =>
