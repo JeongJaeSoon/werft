@@ -601,7 +601,7 @@ integration("installation limits on PostgreSQL", () => {
       expect(await sessionCost(session.session_id)).toBe(0);
     });
 
-    test("a model the table does not know is charged at the highest known rates", async () => {
+    test("a model nothing prices has no amount: the call is recorded as unknown and the session's cost stays", async () => {
       const { session, claimed } = await bound();
       const priced = await gateway.recordProviderUsage({
         exchangeId: crypto.randomUUID(),
@@ -610,12 +610,21 @@ integration("installation limits on PostgreSQL", () => {
         usage: usage({ model: "some-alias", outputTokens: 1_000_000 }),
       });
       expect(priced.pricedBy).toBe("unknown");
-      expect(priced.costUsd).toBeGreaterThanOrEqual(50);
+      expect(priced.costUsd).toBe(0);
       const [row] = await db
-        .select({ pricedBy: providerUsage.pricedBy })
+        .select({
+          pricedBy: providerUsage.pricedBy,
+          costUsd: providerUsage.costUsd,
+          priceUnknown: providerUsage.priceUnknown,
+        })
         .from(providerUsage)
         .where(eq(providerUsage.sessionId, session.session_id));
-      expect(row?.pricedBy).toBe("unknown");
+      expect(row).toEqual({
+        pricedBy: "unknown",
+        costUsd: 0,
+        priceUnknown: true,
+      });
+      expect(await sessionCost(session.session_id)).toBe(0);
     });
 
     test("a fast call with web searches is priced at the fast rate plus the search fee, and the row says why", async () => {

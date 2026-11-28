@@ -81,7 +81,7 @@ The first matching row determines `state`. Each session matches exactly one row,
 ### Costs and tokens
 
 - Cost sums `provider_usage.cost_usd`, calculated when the call was recorded using platform prices. Metrics neither reprice calls nor maintain separate price settings.
-- `priced_by` records the pricing basis: `table` (listed model), `litellm` (a model the tables do not list, priced from the LiteLLM snapshot the release carries), `unknown` (a model nothing prices, using the highest rates; calls from before this value existed say `fallback`), or `unmetered` (connection `billing: none`, cost 0). Track usage for zero-cost calls such as self-hosted models through tokens with `priced_by="unmetered"`.
+- `priced_by` records the pricing basis: `table` (listed model), `litellm` (a model the tables do not list, priced from the LiteLLM snapshot the release carries), `unknown` (a model nothing prices: the call has no amount, so its cost stays 0 and only its tokens count; releases before this value existed charged such calls the highest rates and said `fallback`), or `unmetered` (connection `billing: none`, cost 0). Track usage for zero-cost calls such as self-hosted models through tokens with `priced_by="unmetered"`.
 - **Time windows use the call recording time (`provider_usage.recorded_at`).** Use counter increases such as `increase(werft_provider_cost_usd_total[1h])` for period costs.
 - There are three differences from `GET /v1/usage/summary`. Results match if all sessions were created and charged within the period.
   - summary selects sessions **created** in the period (`sessions.created_at`) and sums their entire costs. Costs incurred during the period by older sessions appear only in metrics.
@@ -124,6 +124,6 @@ The Compose Datadog overlay produces similar values through PostgreSQL custom qu
 | `werft.queue.oldest_age_seconds` | `werft_input_queue_oldest_age_seconds` (same meaning) |
 | `werft.provider.cost_usd_1h` | `increase(werft_provider_cost_usd_total[1h])` |
 | `werft.provider.unmetered_tokens_1h` | Sum of `increase(werft_provider_tokens_total{priced_by="unmetered"}[1h])` |
-| `werft.provider.fallback_pricing_count_1h` | No equivalent (use costs/tokens with `priced_by="unknown"` and the older `fallback` instead of call counts) |
+| `werft.provider.fallback_pricing_count_1h` | No equivalent (instead of call counts, use tokens with `priced_by="unknown"`, which carry no cost, and costs/tokens with the older `fallback`) |
 | `werft.turn.outcome_unknown_count` | No equivalent. `werft_turns_outcome_unknown` is the current remaining count, not the count created in the last 5 minutes |
 | `werft.checkpoint.pending_age_seconds`, `werft.lease.stale_count` | No equivalents |

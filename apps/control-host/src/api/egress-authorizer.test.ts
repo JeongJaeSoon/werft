@@ -473,6 +473,17 @@ describe("the provider exchange ledger route", () => {
     return db.select().from(schema.providerExchanges);
   }
 
+  async function spendOf(sessionId: string) {
+    const [session] = await db
+      .select({
+        costUsd: schema.sessions.costUsd,
+        providerTokens: schema.sessions.providerTokens,
+      })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, sessionId));
+    return session;
+  }
+
   test("an API without the ledger answers the route 404, as an older one does", async () => {
     const response = await ask(
       { op: "renew", exchange_id: crypto.randomUUID() },
@@ -678,7 +689,7 @@ describe("the provider exchange ledger route", () => {
     );
   });
 
-  test("a report is charged the dearer of the model its open reserved for and the model the answer names", async () => {
+  test("a report has no amount when nothing prices the model its open reserved for, whatever model the answer names", async () => {
     const claim = await claimed(db, gateway);
     const call = {
       exchange_id: crypto.randomUUID(),
@@ -702,11 +713,17 @@ describe("the provider exchange ledger route", () => {
       }),
     );
     expect(reported.status).toBe(200);
-    expect(await reported.json()).toMatchObject({ priced_by: "unknown" });
+    // The wire keeps its number: 0 beside `unknown` is no amount.
+    expect(await reported.json()).toEqual({
+      cost_usd: 0,
+      priced_by: "unknown",
+    });
     const [row] = await db
       .select({
         model: schema.providerUsage.model,
         requestModel: schema.providerUsage.requestModel,
+        costUsd: schema.providerUsage.costUsd,
+        pricedBy: schema.providerUsage.pricedBy,
         priceUnknown: schema.providerUsage.priceUnknown,
       })
       .from(schema.providerUsage)
@@ -714,14 +731,93 @@ describe("the provider exchange ledger route", () => {
     expect(row).toEqual({
       model: "claude-opus-5",
       requestModel: "no-table-and-no-snapshot-names-this",
+      costUsd: 0,
+      pricedBy: "unknown",
       priceUnknown: true,
+    });
+    expect(await spendOf(claim.session_id)).toEqual({
+      costUsd: 0,
+      providerTokens: 940,
     });
     expect(
       records.filter(
-        (record) =>
-          record.message === "Provider usage priced at the unknown rate",
+        (record) => record.message === "Provider usage has no known price",
       ),
     ).toHaveLength(1);
+  });
+
+  test("a call opened for a priced model and answered by one nothing prices settles with no amount and holds nothing after", async () => {
+    const claim = await claimed(db, gateway);
+    const call = {
+      exchange_id: crypto.randomUUID(),
+      session_id: claim.session_id,
+      attempt_id: claim.attempt_id,
+    };
+    // The reserve holds claude-opus-5's amount while the call is open.
+    expect((await send({ op: "open", ...call, reserve })).status).toBe(201);
+    const reported = await withLedger(
+      new Request(`http://authorizer.invalid${EGRESS_USAGE_PATH}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${AUTHORIZER_TOKEN}`,
+        },
+        body: JSON.stringify({
+          ...call,
+          usage: { ...used, model: "no-table-and-no-snapshot-names-this" },
+        }),
+      }),
+    );
+    expect(reported.status).toBe(200);
+    expect(await reported.json()).toEqual({
+      cost_usd: 0,
+      priced_by: "unknown",
+    });
+    // The reserve is gone and nothing took its place in the session's cost.
+    expect(await ledgerRows()).toEqual([]);
+    expect(await spendOf(claim.session_id)).toEqual({
+      costUsd: 0,
+      providerTokens: 940,
+    });
+    const [row] = await db
+      .select({
+        requestModel: schema.providerUsage.requestModel,
+        costUsd: schema.providerUsage.costUsd,
+        priceUnknown: schema.providerUsage.priceUnknown,
+      })
+      .from(schema.providerUsage)
+      .where(eq(schema.providerUsage.exchangeId, call.exchange_id));
+    expect(row).toEqual({
+      requestModel: "claude-opus-5",
+      costUsd: 0,
+      priceUnknown: true,
+    });
+  });
+
+  test("a session its priced calls took to the cost limit opens no call for a model nothing prices, which would add no amount", async () => {
+    const claim = await claimed(db, gateway);
+    const open = () =>
+      send({
+        op: "open",
+        exchange_id: crypto.randomUUID(),
+        session_id: claim.session_id,
+        attempt_id: claim.attempt_id,
+        reserve: { ...reserve, model: "no-table-and-no-snapshot-names-this" },
+      });
+    budget.costUsd = 5;
+    const spent = (costUsd: number) =>
+      db
+        .update(schema.sessions)
+        .set({ costUsd })
+        .where(eq(schema.sessions.id, claim.session_id));
+    await spent(5);
+    const refused = await open();
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({ code: "BUDGET_EXCEEDED" });
+    expect(await ledgerRows()).toEqual([]);
+    // Under the limit the same open is held, whatever its tokens would cost.
+    await spent(4.99);
+    expect((await open()).status).toBe(201);
   });
 
   test("a release marks the call and its late open answers released; one for no such attempt is 404", async () => {

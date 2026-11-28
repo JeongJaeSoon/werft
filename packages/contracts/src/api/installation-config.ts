@@ -73,9 +73,9 @@ export const INSTALLATION_CONFIG = {
     default: 0,
   },
   /**
-   * Provider tokens a session may use on models nothing prices, whose calls
-   * are charged the highest known rate. That rate can be below the real one,
-   * so this limit holds whatever the price; it cannot be switched off.
+   * Provider tokens a session may use on models nothing prices. Their calls
+   * have no amount for the cost limit to count, so this limit is all that
+   * holds them; it cannot be switched off.
    */
   unknown_price_session_token_limit: {
     schema: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),

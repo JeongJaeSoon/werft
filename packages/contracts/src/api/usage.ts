@@ -20,15 +20,13 @@ const countSchema = z.number().int().nonnegative();
 /**
  * Calls on a model nothing prices: neither price table nor the LiteLLM
  * snapshot names the model the request asked for, or the one that answered.
- * The limits count such a call at the highest known rate, or at its other
- * model's when that is dearer, which is not what it cost: `cost_usd` is that counted amount, their part of the cost beside
- * it, never a price. `token_count` is their tokens, whatever they cost.
+ * Such a call has no amount: no cost beside these figures holds any part of
+ * it, and no cost limit counts it. `token_count` is their tokens.
  */
 const unknownPriceFiguresSchema = z
   .object({
     call_count: countSchema,
     token_count: countSchema,
-    cost_usd: costUsdSchema,
   })
   .strict();
 
@@ -136,8 +134,8 @@ export const limitsQuerySchema = z.object({
  * GET /v1/sessions/{id}/usage. The cost is an estimate, never a
  * bill: every Messages call the egress proxy saw, the engine's and a tool's
  * alike, priced by the platform's tables, then the LiteLLM snapshot. It is
- * the amount the limits count: a call on a model neither prices is in it at
- * the highest known rate, and `unknown_price` says how much of it that is.
+ * the cost of the calls whose price is known: a call on a model neither
+ * prices adds nothing to it, and `unknown_price` counts those calls apart.
  * A session from before
  * that also carries the engine's own turn totals up to then. `complete` is
  * about turn reports only: false while a turn is running or when a turn
@@ -503,9 +501,9 @@ export const usageToolCallsResponseSchema = z
 /**
  * A session counts in the period it was created in, so `cost_usd` is the sum
  * of `GET /v1/sessions/{id}/usage` `cost.amount_usd` over the same sessions
- * and `cost_complete` is false when any of them is. It is the amount the
- * limits counted; `unknown_price` is the part of it, and of the sessions'
- * calls, that no price is known for.
+ * and `cost_complete` is false when any of them is. It is the cost of the
+ * calls whose price is known; `unknown_price` counts the sessions' calls no
+ * price is known for, which are not in it.
  */
 export const usageSummaryResponseSchema = z
   .object({
@@ -747,8 +745,8 @@ export const usageSeriesResponseSchema = z
       .object({ since: timestampSchema, until: timestampSchema })
       .strict(),
     refreshed_at: timestampSchema,
-    // Of the whole period, not of a day: what the buckets' cost holds of
-    // calls on a model nothing prices.
+    // Of the whole period, not of a day: the calls on a model nothing
+    // prices, which the buckets' cost leaves out.
     unknown_price: unknownPriceFiguresSchema,
     buckets: z.array(
       z

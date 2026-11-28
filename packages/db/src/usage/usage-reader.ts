@@ -959,7 +959,6 @@ export function createPostgresUsageReader(db: Database): UsageReader {
             + ${providerUsage.cacheCreationInputTokens} + ${providerUsage.cacheReadInputTokens}), 0)`.mapWith(
               Number,
             ),
-          costUsd: sql<string>`coalesce(sum(${providerUsage.costUsd}), 0)::text`,
         })
         .from(providerUsage)
         .where(and(providerUsage.priceUnknown, ofSessions));

@@ -80,7 +80,7 @@ Identify API_CONTAINER from this installation's status and project label. On Kub
 <a id="과금-없는-연결-billing-none" />
 ### Unmetered connections (`billing: none`)
 
-Self-hosted models (Ollama, private-network LiteLLM, etc.) have no per-token charge. If absent from the price table and left unchanged, they use the highest fallback rate and hit the session cost limit and SDK `maxBudgetUsd`, cutting turns. Declare such a connection with `billing: none`.
+Self-hosted models (Ollama, private-network LiteLLM, etc.) have no per-token charge. Left unchanged, a name neither the price tables nor the LiteLLM price snapshot lists is given no amount, but its calls are marked as of unknown price and stop at the session's limit on tokens of unknown price (`unknown_price_session_token_limit`). A name the snapshot does list is priced at those rates and counts toward the session cost limit. Declare such a connection with `billing: none`.
 
 ```yaml
 kind: litellm
@@ -93,7 +93,7 @@ models:
   - qwen3-coder
 ```
 
-- If omitted, it is `per_token`, priced from the price table or fallback.
+- If omitted, it is `per_token`, priced from the price tables and the LiteLLM price snapshot; a model in none of them is recorded as of unknown price, with no amount.
 - Provider calls from a session released on a `none` connection record cost 0 and ledger `priced_by=unmetered`, regardless of the model name in the response. Tokens are still recorded. Session cost does not grow, so none of the four cost-limit checks (egress authorization, `nextInput`, message acceptance, engine) stops it.
 - The claim's `remaining_budget_usd` is `null`, and the worker passes no `maxBudgetUsd` to the SDK, because the SDK prices an unknown model at its own estimate and cuts the turn on that budget. With no budget to hold, the worker does not drain when the SDK's cost tally restarts (for example after `/clear`).
 - `GET /v1/sessions/{id}/usage` answers `cost.kind: "unmetered"` with `amount_usd` `"0.000000"`. No cost limit applies to the session, so `cost_limit_usd` is `null`, and the limit notice (`attention.reason`) names no dollar limit. `budget_exceeded` becomes `true` only on the token limit.

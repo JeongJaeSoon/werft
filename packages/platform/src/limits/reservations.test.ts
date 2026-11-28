@@ -169,6 +169,38 @@ describe("the limit on tokens of unknown price", () => {
     expect(admitsUnder(1_000)({ ...held, reserves: [known] })).toBe(false);
   });
 
+  test("a reserve for an unpriced model holds no amount: the cost limit is left to the priced calls", () => {
+    expect(priceReservation(unknown)).toEqual({
+      costUsd: 0,
+      pricedBy: "unknown",
+    });
+    const cost = reservationCostUsd(known);
+    expect(cost).toBeGreaterThan(0);
+    const admits = admitsReservations({
+      costUsd: cost * 1.5,
+      tokens: null,
+      unknownPriceTokens: 1_000_000,
+    });
+    expect(
+      admits({ ...session, reserves: [unknown, unknown, unknown, known] }),
+    ).toBe(true);
+    expect(admits({ ...session, reserves: [unknown, known, known] })).toBe(
+      false,
+    );
+  });
+
+  test("a session its priced calls took to the cost limit opens no call for an unpriced model either", () => {
+    const admits = admitsReservations({
+      costUsd: 5,
+      tokens: null,
+      unknownPriceTokens: 1_000_000,
+    });
+    expect(admits({ ...session, costUsd: 4.99, reserves: [unknown] })).toBe(
+      true,
+    );
+    expect(admits({ ...session, costUsd: 5, reserves: [unknown] })).toBe(false);
+  });
+
   test("an unmetered session's reserves are not of unknown price", () => {
     expect(
       admitsUnder(1_000)({ ...session, unmetered: true, reserves: [unknown] }),

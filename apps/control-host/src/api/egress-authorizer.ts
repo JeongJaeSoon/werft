@@ -689,10 +689,9 @@ export function createEgressAuthorizer(deps: {
         usage: counted,
       });
       if (priced.pricedBy === "unknown") {
-        deps.logger.warn("Conversation call usage priced at the unknown rate", {
+        deps.logger.warn("Conversation call usage has no known price", {
           conversation_call_id: report.conversation_call_id,
           model: usage.model,
-          cost_usd: priced.costUsd,
         });
       }
       return { cost_usd: priced.costUsd, priced_by: priced.pricedBy };
@@ -704,10 +703,9 @@ export function createEgressAuthorizer(deps: {
         usage: counted,
       });
       if (priced.pricedBy === "unknown") {
-        deps.logger.warn("Judgment usage priced at the unknown rate", {
+        deps.logger.warn("Judgment usage has no known price", {
           judgment_id: report.judgment_id,
           model: usage.model,
-          cost_usd: priced.costUsd,
         });
       }
       return { cost_usd: priced.costUsd, priced_by: priced.pricedBy };
@@ -719,12 +717,11 @@ export function createEgressAuthorizer(deps: {
       usage: counted,
     });
     if (priced.pricedBy === "unknown") {
-      deps.logger.warn("Provider usage priced at the unknown rate", {
+      deps.logger.warn("Provider usage has no known price", {
         session_id: report.session_id,
         model: usage.model,
         speed: usage.speed,
         inference_geo: usage.inference_geo,
-        cost_usd: priced.costUsd,
       });
     }
     if (priced.ledgerForeignRow) {

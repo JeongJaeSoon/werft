@@ -3698,27 +3698,30 @@ export const providerUsage = pgTable(
     // it used: a stream cut short, or a body it could not read.
     estimated: boolean().notNull(),
     // What was charged: the priced amount rounded up to the micro-dollar,
-    // clamped to what the column holds. Exactly what the session got.
+    // clamped to what the column holds. Exactly what the session got. 0
+    // beside `unknown` is no amount, not a price of nothing.
     costUsd: numeric("cost_usd", {
       precision: 14,
       scale: 6,
       mode: "number",
     }).notNull(),
-    // Whose rates won: the platform's tables, the LiteLLM snapshot
-    // (`litellm`), or the highest known rate for a model neither prices
-    // (`unknown`; `fallback` in rows from before the snapshot).
-    // `unmetered`: the session's connection declared `billing: none`, so
-    // the call cost nothing.
+    // Whose rates won: the platform's tables or the LiteLLM snapshot
+    // (`litellm`). `unknown`: neither prices the model, and the call has
+    // no amount. `fallback`: rows from before the snapshot, which charged
+    // such a model the highest rates the tables had. `unmetered`: the
+    // session's connection declared `billing: none`, so the call cost
+    // nothing.
     pricedBy: text("priced_by").$type<PricedBy>().notNull(),
     // The model the request asked for, from the call's exchange row; null
     // when the report found none, and in rows from before. The call is
-    // charged the dearer of it and `model`, the one that answered.
+    // charged the dearer of it and `model`, the one that answered, or
+    // nothing when either has no price.
     requestModel: text("request_model"),
     // The price data that settled the call (PRICE_VERSION); null before.
     priceVersion: text("price_version"),
-    // Nothing prices the model asked for or the one that answered, whichever
-    // rates won: the call's tokens count toward the session's limit on
-    // tokens of unknown price. False in every row from before.
+    // Nothing prices the model asked for or the one that answered (the row
+    // says `unknown`): the call's tokens count toward the session's limit
+    // on tokens of unknown price. False in every row from before.
     priceUnknown: boolean("price_unknown").notNull().default(false),
     recordedAt: timestamp("recorded_at", { withTimezone: true })
       .notNull()

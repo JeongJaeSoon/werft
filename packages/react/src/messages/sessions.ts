@@ -57,10 +57,10 @@ export const sessionsKo = {
 
   "session.usage": "사용량",
   "session.usage.unmetered": "과금 없음",
-  "session.usage.unknownPrice": "단가 미상 {count}건",
+  "session.usage.unknownPrice": "금액 미상 (단가 미상 {count}건)",
   "session.usage.knownAndUnknownPrice": "{amount} + 단가 미상 {count}건",
-  "session.usage.unknownPriceCounted":
-    "단가 미상 호출은 한도 계산에 상한 단가로 {amount}를 셉니다. 실제 금액이 아닙니다",
+  "session.usage.unknownPriceNote":
+    "단가 미상 호출은 금액을 알 수 없어 비용과 비용 한도에 들어가지 않습니다",
   "session.usage.incomplete": "진행 중인 턴이 있어 아직 확정되지 않았습니다",
   "session.usage.unreported":
     "비용을 보고하지 않고 끝난 턴이 있어 실제보다 적을 수 있습니다",
@@ -396,11 +396,12 @@ export const sessionsEn: Record<keyof typeof sessionsKo, string> = {
 
   "session.usage": "Usage",
   "session.usage.unmetered": "Not billed",
-  "session.usage.unknownPrice": "Calls of unknown price: {count}",
+  "session.usage.unknownPrice":
+    "Cost unknown (calls of unknown price: {count})",
   "session.usage.knownAndUnknownPrice":
     "{amount} + calls of unknown price: {count}",
-  "session.usage.unknownPriceCounted":
-    "The limits count calls of unknown price at the highest known rate, as {amount}. That is not what they cost",
+  "session.usage.unknownPriceNote":
+    "The cost of calls of unknown price is not known, so it is in neither the cost nor the cost limit",
   "session.usage.incomplete": "Not final while a turn is still running",
   "session.usage.unreported":
     "A turn ended without reporting its cost, so the real total may be higher",
@@ -746,10 +747,10 @@ export const sessionsJa: Record<keyof typeof sessionsKo, string> = {
 
   "session.usage": "使用量",
   "session.usage.unmetered": "課金なし",
-  "session.usage.unknownPrice": "単価不明 {count}件",
+  "session.usage.unknownPrice": "金額不明（単価不明 {count}件）",
   "session.usage.knownAndUnknownPrice": "{amount} + 単価不明 {count}件",
-  "session.usage.unknownPriceCounted":
-    "単価不明の呼び出しは、上限の計算では最高単価で {amount} と数えます。実際の金額ではありません",
+  "session.usage.unknownPriceNote":
+    "単価不明の呼び出しは金額が分からないため、コストにもコストの上限にも含まれません",
   "session.usage.incomplete": "実行中のターンがあるため、まだ確定していません",
   "session.usage.unreported":
     "コストを報告せずに終了したターンがあるため、実際より少なく表示されている可能性があります",

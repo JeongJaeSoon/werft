@@ -24,18 +24,12 @@ export function spentOn(bucket: Bucket): number {
   return Number(bucket.cost_usd) + Number(bucket.conversation_cost_usd);
 }
 
-function totalsOf(buckets: readonly Bucket[], unknownUsd: number): Totals {
-  const sessions = buckets.reduce((sum, b) => sum + Number(b.cost_usd), 0);
-  // What the limits counted for calls nothing prices is not what they cost:
-  // the amounts are the rest, and the card names that part apart from them.
-  const known = Math.max(0, sessions - unknownUsd);
+function totalsOf(buckets: readonly Bucket[]): Totals {
   return {
     session_count: buckets.reduce((sum, b) => sum + b.session_count, 0),
     run_seconds: buckets.reduce((sum, b) => sum + b.run_seconds, 0),
-    cost_usd:
-      known +
-      buckets.reduce((sum, b) => sum + Number(b.conversation_cost_usd), 0),
-    session_cost_usd: known,
+    cost_usd: buckets.reduce((sum, b) => sum + spentOn(b), 0),
+    session_cost_usd: buckets.reduce((sum, b) => sum + Number(b.cost_usd), 0),
     conversation_cost_usd: buckets.reduce(
       (sum, b) => sum + Number(b.conversation_cost_usd),
       0,
@@ -62,17 +56,13 @@ export function UsageKpis({
   messages: override,
 }: UsageKpisProps): JSX.Element {
   const { messages, format } = useOperationsMessages("usageKpis", override);
-  const totals =
-    buckets === undefined
-      ? undefined
-      : totalsOf(buckets, Number(unknownPrice?.cost_usd ?? 0));
+  const totals = buckets === undefined ? undefined : totalsOf(buckets);
   const unknown =
     unknownPrice === undefined || unknownPrice.call_count === 0 ? null : (
       <span className="block">
         {messages.costUnknown(
           format.count(unknownPrice.call_count),
           format.tokens(unknownPrice.token_count),
-          format.usd(unknownPrice.cost_usd),
         )}
       </span>
     );

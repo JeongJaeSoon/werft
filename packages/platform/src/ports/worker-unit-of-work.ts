@@ -224,8 +224,8 @@ export type EgressAuthorization =
 // asked with the session row locked, since whether the session is billed
 // decides the price. `requestModel` is the model the call's open reserved
 // for, read from its exchange row; null when the report finds no row of its
-// own. `unknown` marks a call whose tokens count toward the session's limit
-// on tokens of unknown price; absent is false.
+// own. A call priced by `unknown` has no amount (`costUsd` 0): its tokens
+// count toward the session's limit on tokens of unknown price instead.
 export type ProviderUsageInput = {
   exchangeId: string;
   sessionId: string;
@@ -234,7 +234,6 @@ export type ProviderUsageInput = {
   priceFor(session: { unmetered: boolean; requestModel: string | null }): {
     costUsd: number;
     pricedBy: PricedBy;
-    unknown?: boolean;
   };
   // The price data `priceFor` reads, recorded with the call.
   priceVersion?: string;

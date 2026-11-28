@@ -3316,12 +3316,13 @@ describe("a conversation call's usage report", () => {
     expect((await reported(false)).pricedBy).toBe("table");
   });
 
-  test("a billed call is charged the dearer of the model it was issued for and the one that answered", async () => {
-    const answered = await reported(false);
+  test("a billed call has no amount when nothing prices the model it was issued for, whatever answered", async () => {
+    expect((await reported(false)).costUsd).toBeGreaterThan(0);
     // Issued for a model nothing prices; the answer names a table model.
-    const issued = await reported(false, false, "gemma4-local");
-    expect(issued.pricedBy).toBe("unknown");
-    expect(issued.costUsd).toBeGreaterThan(answered.costUsd);
+    expect(await reported(false, false, "gemma4-local")).toEqual({
+      costUsd: 0,
+      pricedBy: "unknown",
+    });
   });
 });
 
@@ -3386,12 +3387,20 @@ describe("unmetered sessions", () => {
     ).toBe("unknown");
   });
 
-  test("a billed call settles at the dearer of the model its open reserved for and the one that answered", async () => {
+  test("a billed call settles at the dearer of two priced models, and with no amount when nothing prices either", async () => {
     const answered = await priced(false, usage, usage.model);
-    // The answer names a table model; the request asked for one nothing prices.
-    const asked = await priced(false, usage, "gemma4-local");
-    expect(asked.pricedBy).toBe("unknown");
-    expect(asked.costUsd).toBeGreaterThan(answered.costUsd);
+    expect(answered.costUsd).toBeGreaterThan(0);
+    // The request asked for a dearer table model than the one that answered.
+    const dearer = await priced(false, usage, "claude-opus-5");
+    expect(dearer.pricedBy).toBe("table");
+    expect(dearer.costUsd).toBeGreaterThan(answered.costUsd);
+    // Nothing prices the model asked for, or the one that answered: the
+    // other one's price is not charged in its place.
+    const unpriced = { costUsd: 0, pricedBy: "unknown" } as const;
+    expect(await priced(false, usage, "gemma4-local")).toEqual(unpriced);
+    expect(
+      await priced(false, { ...usage, model: "gemma4-local" }, usage.model),
+    ).toEqual(unpriced);
     // A report that found no exchange row settles at the answer's rates.
     expect(await priced(false, usage, null)).toEqual(answered);
   });

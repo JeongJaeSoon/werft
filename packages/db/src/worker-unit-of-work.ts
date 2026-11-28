@@ -2917,7 +2917,7 @@ export function createPostgresWorkerUnitOfWork(
             pricedBy: priced.pricedBy,
             requestModel: reserved?.requestModel ?? null,
             priceVersion: input.priceVersion ?? null,
-            priceUnknown: priced.unknown ?? false,
+            priceUnknown: priced.pricedBy === "unknown",
           })
           .onConflictDoNothing({ target: providerUsage.exchangeId })
           .returning({

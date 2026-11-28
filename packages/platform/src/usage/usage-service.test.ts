@@ -103,7 +103,7 @@ function serviceKey(): Caller {
 const asked: UsageTotalsFilter[] = [];
 // What the reader says of the calls marked as of unknown price, and what it
 // was asked for.
-let unknownPrice = { callCount: 0, tokens: 0, costUsd: "0" };
+let unknownPrice = { callCount: 0, tokens: 0 };
 const unknownPriceAsked: unknown[] = [];
 const peopleAsked: { ownerId: string; agentId?: string }[] = [];
 
@@ -705,7 +705,7 @@ describe("usage service", () => {
       cost_usd: "1.250000",
       cost_complete: true,
       token_count: 42,
-      unknown_price: { call_count: 0, token_count: 0, cost_usd: "0" },
+      unknown_price: { call_count: 0, token_count: 0 },
       run_seconds: 90,
       basis: {
         sessions: "created_in_period",
@@ -721,18 +721,19 @@ describe("usage service", () => {
   });
 
   test("calls of unknown price are given apart, for the summary's own sessions and for one session with its limit", async () => {
-    unknownPrice = { callCount: 2, tokens: 1_500, costUsd: "0.030000" };
+    unknownPrice = { callCount: 2, tokens: 1_500 };
     unknownPriceAsked.length = 0;
     try {
       const summary = await service().getUsageSummary(
         user("member"),
         query("me"),
       );
+      // No amount: the summary's cost holds none for these calls.
       expect(summary.unknown_price).toEqual({
         call_count: 2,
         token_count: 1_500,
-        cost_usd: "0.030000",
       });
+      expect(summary.cost_usd).toBe("1.250000");
       // The same sessions the summary read: its filter, and the end it read to.
       expect(unknownPriceAsked).toEqual([
         {
@@ -747,8 +748,6 @@ describe("usage service", () => {
       expect(session.unknown_price).toEqual({
         call_count: 2,
         token_count: 1_500,
-        // This session's cost is 0: the part is cut to its whole.
-        cost_usd: "0.000000",
         // The contract's default where no setting is wired.
         token_limit: 5_000_000,
       });
@@ -769,16 +768,10 @@ describe("usage service", () => {
       ).toEqual({
         call_count: 2,
         token_count: 1_500,
-        cost_usd: "0.030000",
         token_limit: 2_000,
       });
-      // Read after the total, and past it: the part is cut to its whole.
-      unknownPrice = { callCount: 2, tokens: 1_500, costUsd: "9.000000" };
-      const late = await service().getUsageSummary(user("member"), query("me"));
-      expect(late.cost_usd).toBe("1.250000");
-      expect(late.unknown_price.cost_usd).toBe("1.250000");
     } finally {
-      unknownPrice = { callCount: 0, tokens: 0, costUsd: "0" };
+      unknownPrice = { callCount: 0, tokens: 0 };
     }
   });
 
@@ -1020,12 +1013,12 @@ describe("usage service", () => {
         .catch((caught: unknown) => caught);
       expect((error as SessionServiceError).code, role).toBe("FORBIDDEN");
     }
-    unknownPrice = { callCount: 2, tokens: 900, costUsd: "0.500000" };
+    unknownPrice = { callCount: 2, tokens: 900 };
     const response = usageSeriesResponseSchema.parse(
       await service(record, 1)
         .getUsageSeries(user("owner"), seriesQuery("me"))
         .finally(() => {
-          unknownPrice = { callCount: 0, tokens: 0, costUsd: "0" };
+          unknownPrice = { callCount: 0, tokens: 0 };
         }),
     );
     // The period the buckets cover, not a day of it.
@@ -1038,7 +1031,7 @@ describe("usage service", () => {
         until: readAt.toISOString(),
       },
       refreshed_at: readAt.toISOString(),
-      unknown_price: { call_count: 2, token_count: 900, cost_usd: "0.500000" },
+      unknown_price: { call_count: 2, token_count: 900 },
       buckets: [
         {
           date: "2026-10-01",

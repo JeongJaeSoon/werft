@@ -1,7 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  FAST_MODEL_PRICES,
-  MODEL_PRICES,
   priceJudgmentUsage,
   priceProviderUsage,
   priceSettledUsage,
@@ -62,22 +60,21 @@ describe("priceProviderUsage", () => {
     ).toBe("unknown");
   });
 
-  test("an unknown model pays the highest known rate for each part", () => {
-    // Fast rates are known rates: claude-fable-5-2 fast's $80 out is the highest.
-    const highest = Math.max(
-      ...[
-        ...Object.values(MODEL_PRICES),
-        ...Object.values(FAST_MODEL_PRICES),
-      ].map((price) => price.outputUsdPerMtok),
-    );
-    expect(highest).toBe(80);
+  test("a model nothing prices has no amount, whatever the call used", () => {
     expect(
       priceProviderUsage({
         ...nothing,
         model: "litellm-alias",
+        inputTokens: 1_000_000,
         outputTokens: 1_000_000,
+        cacheCreationInputTokens: 1_000_000,
+        cacheCreation1hInputTokens: 1_000_000,
+        cacheReadInputTokens: 1_000_000,
+        speed: "fast",
+        inferenceGeo: "us",
+        webSearchRequests: 10,
       }),
-    ).toEqual({ costUsd: highest, pricedBy: "unknown" });
+    ).toEqual({ costUsd: 0, pricedBy: "unknown" });
     expect(
       priceProviderUsage({ ...nothing, model: "constructor" }).pricedBy,
     ).toBe("unknown");
@@ -130,15 +127,6 @@ describe("priceProviderUsage", () => {
       }),
       // 200K at $0.50 long input, times 6.
     ).toEqual({ costUsd: 0.6, pricedBy: "table" });
-    // Past a pre-4.6 model's window the fallback keeps that multiple too.
-    const past = priceProviderUsage({
-      ...nothing,
-      model: "claude-sonnet-4-5",
-      speed: "turbo",
-      inputTokens: 1_000_000,
-    });
-    expect(past.pricedBy).toBe("unknown");
-    expect(past.costUsd).toBeCloseTo(20 * 6, 9);
   });
 
   test("each web search adds $0.01; web fetch and code execution add nothing", () => {
@@ -152,17 +140,6 @@ describe("priceProviderUsage", () => {
       }),
     ).toEqual({ costUsd: 0.03, pricedBy: "table" });
   });
-
-  const highest = (() => {
-    const prices = [
-      ...Object.values(MODEL_PRICES),
-      ...Object.values(FAST_MODEL_PRICES),
-    ];
-    return {
-      input: Math.max(...prices.map((price) => price.inputUsdPerMtok)),
-      output: Math.max(...prices.map((price) => price.outputUsdPerMtok)),
-    };
-  })();
 
   test("US-only inference pays 1.1x on every token rate, fast and cache ones included, but not on search fees", () => {
     const tokens = {
@@ -212,15 +189,6 @@ describe("priceProviderUsage", () => {
         }),
       ]).toEqual([inferenceGeo, { costUsd: 11, pricedBy: "table" }]);
     }
-    // A model no table knows still pays the highest rate at that multiplier.
-    expect(
-      priceProviderUsage({
-        ...nothing,
-        model: "claude-unknown",
-        outputTokens: 1_000_000,
-        inferenceGeo: "eu",
-      }),
-    ).toEqual({ costUsd: highest.output * 1.1, pricedBy: "unknown" });
   });
 
   test("a model from before 4.6 pays standard rates whatever the geo says", () => {
@@ -236,7 +204,7 @@ describe("priceProviderUsage", () => {
     }
   });
 
-  test("a model from before 4.6 past 200K input, cache included, pays the highest rate; 4.6 and later keep theirs", () => {
+  test("a model from before 4.6 past 200K input, cache included, has no amount at any speed; 4.6 and later keep theirs", () => {
     const at = (model: string, input: number) =>
       priceProviderUsage({
         ...nothing,
@@ -246,10 +214,18 @@ describe("priceProviderUsage", () => {
         cacheReadInputTokens: 50_000,
       });
     expect(at("claude-sonnet-4-5", 200_000).pricedBy).toBe("table");
-    const over = at("claude-sonnet-4-5-20250929", 200_001);
-    expect(over.pricedBy).toBe("unknown");
-    // 50,001 in, 100,000 written for five minutes, 50,000 read.
-    expect(over.costUsd).toBeGreaterThan((50_001 * highest.input) / 1_000_000);
+    expect(at("claude-sonnet-4-5-20250929", 200_001)).toEqual({
+      costUsd: 0,
+      pricedBy: "unknown",
+    });
+    expect(
+      priceProviderUsage({
+        ...nothing,
+        model: "claude-sonnet-4-5",
+        speed: "turbo",
+        inputTokens: 1_000_000,
+      }),
+    ).toEqual({ costUsd: 0, pricedBy: "unknown" });
     expect(at("claude-sonnet-4-6", 900_000).pricedBy).toBe("table");
     expect(at("claude-opus-4-6", 900_000).pricedBy).toBe("table");
   });
@@ -321,14 +297,15 @@ describe("priceJudgmentUsage", () => {
     ).toEqual({ costUsd: 0.00006, pricedBy: "table" });
   });
 
-  test("a model the judge table does not know is charged the highest rate", () => {
-    const priced = priceJudgmentUsage({
-      ...nothing,
-      model: "claude-sonnet-5",
-      inputTokens: 1_000_000,
-    });
-    expect(priced.pricedBy).toBe("unknown");
-    expect(priced.costUsd).toBeGreaterThan(2);
+  test("a model the judge table does not know has no amount", () => {
+    expect(
+      priceJudgmentUsage({
+        ...nothing,
+        model: "claude-sonnet-5",
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+      }),
+    ).toEqual({ costUsd: 0, pricedBy: "unknown" });
   });
 });
 
@@ -382,14 +359,37 @@ describe("priceProviderUsage for an OpenAI model", () => {
     ).toBeCloseTo(0.36 + 0.1 + 30, 9);
   });
 
-  test("a model with no long-context card is priced by the fallback past 272K", () => {
-    const priced = priceProviderUsage({
-      ...openAi,
-      model: "gpt-5.4-mini",
-      inputTokens: 300_000,
-    });
-    expect(priced.pricedBy).toBe("unknown");
-    expect(priced.costUsd).toBeGreaterThan((300_000 * 0.75) / 1_000_000);
+  test("a model the table does not name, or one past a card with no long-context rates, has no amount at any speed", () => {
+    // gpt-5.4-mini, gpt-5.2-pro and gpt-5-nano have no long card.
+    for (const model of [
+      "gpt-9",
+      "gpt-5.4-mini",
+      "gpt-5.2-pro",
+      "gpt-5-nano",
+    ]) {
+      for (const speed of ["standard", "fast", "ultrafast", "turbo"]) {
+        const call = {
+          ...openAi,
+          model,
+          speed,
+          outputTokens: 1_000_000,
+          cacheCreationInputTokens: 1_000,
+          cacheCreation1hInputTokens: 1_000,
+          webSearchRequests: 2,
+        };
+        expect([
+          model,
+          speed,
+          priceProviderUsage({ ...call, inputTokens: 272_001 }),
+        ]).toEqual([model, speed, { costUsd: 0, pricedBy: "unknown" }]);
+        // Up to its card's length a model the table names is the table's.
+        expect([
+          model,
+          speed,
+          priceProviderUsage({ ...call, inputTokens: 270_000 }).pricedBy,
+        ]).toEqual([model, speed, model === "gpt-9" ? "unknown" : "table"]);
+      }
+    }
   });
 
   test("a cache write costs 1.25x the input rate, a 12-hour one 2.5x", () => {
@@ -510,54 +510,6 @@ describe("priceProviderUsage for an OpenAI model", () => {
     ).toEqual({ costUsd: 18 + 27, pricedBy: "table" });
   });
 
-  test("a Pro model past its card is charged the highest Pro rates, other models are not", () => {
-    // gpt-5.2-pro has no long card; the highest Pro rate is $60 in, $270 out.
-    // The fallback prices an unknown geo high too, so this call names one.
-    const long = {
-      ...openAi,
-      inferenceGeo: "global",
-      inputTokens: 1_000_000,
-      outputTokens: 1_000_000,
-    };
-    expect(priceProviderUsage({ ...long, model: "gpt-5.2-pro" })).toEqual({
-      costUsd: 60 + 270,
-      pricedBy: "unknown",
-    });
-    // The fallback for every other model keeps the non-Pro highest: $20 in
-    // (gpt-6-astra long), $80 out (claude-fable-5-2 fast).
-    expect(priceProviderUsage({ ...long, model: "gpt-9" })).toEqual({
-      costUsd: 20 + 80,
-      pricedBy: "unknown",
-    });
-  });
-
-  test("a longer prompt never costs less for a model past its card, at any speed", () => {
-    // gpt-5.2-pro and gpt-5-nano have no long card and are on no speed tab.
-    for (const model of ["gpt-5.2-pro", "gpt-5-nano", "gpt-5.4-mini"]) {
-      for (const speed of ["standard", "fast", "ultrafast", "turbo"]) {
-        const call = {
-          ...openAi,
-          model,
-          speed,
-          inferenceGeo: "global",
-          outputTokens: 100_000,
-        };
-        const atCard = priceProviderUsage({ ...call, inputTokens: 272_000 });
-        const past = priceProviderUsage({ ...call, inputTokens: 272_001 });
-        expect([model, speed, past.pricedBy]).toEqual([
-          model,
-          speed,
-          "unknown",
-        ]);
-        expect([model, speed, past.costUsd >= atCard.costUsd]).toEqual([
-          model,
-          speed,
-          true,
-        ]);
-      }
-    }
-  });
-
   test("every card names its source page and the day it was checked", () => {
     for (const [model, entry] of Object.entries(OPENAI_CARDS)) {
       expect([model, entry.source, entry.checked]).toEqual([
@@ -671,124 +623,6 @@ describe("priceProviderUsage for an OpenAI model", () => {
     ).toBeCloseTo(0.01, 9);
   });
 
-  test("the fallback is never cheaper than a known long-context card", () => {
-    const unknown = priceProviderUsage({
-      ...openAi,
-      model: "gpt-9",
-      inputTokens: 1_000_000,
-    });
-    const longest = priceProviderUsage({
-      ...openAi,
-      model: "gpt-6-astra",
-      inputTokens: 1_000_000,
-    });
-    expect(unknown.pricedBy).toBe("unknown");
-    expect(unknown.costUsd).toBeGreaterThanOrEqual(longest.costUsd);
-  });
-
-  test("an OpenAI model the table does not know is charged the highest rate", () => {
-    const priced = priceProviderUsage({
-      ...openAi,
-      model: "gpt-9",
-      outputTokens: 1_000_000,
-    });
-    expect(priced.pricedBy).toBe("unknown");
-    expect(priced.costUsd).toBeGreaterThanOrEqual(50);
-  });
-
-  // Fast is gpt-5.5's 2.5x, and a tier past fast the highest multiple the
-  // table knows.
-  test("a model no table names is charged the dearest multiple of its tier away from the standard speed", () => {
-    const call = { ...openAi, model: "gpt-9", outputTokens: 1_000_000 };
-    const standard = priceProviderUsage(call).costUsd;
-    for (const [speed, multiple] of [
-      ["fast", 2.5],
-      ["ultrafast", 6],
-      ["unknown", 6],
-    ] as const) {
-      expect(priceProviderUsage({ ...call, speed })).toEqual({
-        costUsd: standard * multiple,
-        pricedBy: "unknown",
-      });
-    }
-  });
-
-  test("a model no table names is charged a 12-hour cache write at 2.5x the input rate", () => {
-    const call = { ...openAi, model: "gpt-9" };
-    const plain = priceProviderUsage({ ...call, inputTokens: 1_000_000 });
-    const twelveHours = priceProviderUsage({
-      ...call,
-      cacheCreationInputTokens: 1_000_000,
-      cacheCreation1hInputTokens: 1_000_000,
-    });
-    expect(twelveHours.pricedBy).toBe("unknown");
-    expect(twelveHours.costUsd).toBeCloseTo(plain.costUsd * 2.5, 9);
-  });
-
-  test("an OpenAI model past its table's prompt length is charged the same multipliers", () => {
-    // gpt-5.4-mini has no long-context card, so 300K of input is the fallback's.
-    const call = { ...openAi, model: "gpt-5.4-mini", inputTokens: 300_000 };
-    const standard = priceProviderUsage(call);
-    expect(standard.pricedBy).toBe("unknown");
-    // Fast is the dearest fast multiple, 2.5x.
-    expect(priceProviderUsage({ ...call, speed: "fast" })).toEqual({
-      costUsd: standard.costUsd * 2.5,
-      pricedBy: "unknown",
-    });
-    const twelveHours = priceProviderUsage({
-      ...call,
-      inputTokens: 0,
-      cacheCreationInputTokens: 300_000,
-      cacheCreation1hInputTokens: 300_000,
-    });
-    expect(twelveHours.costUsd).toBeCloseTo(standard.costUsd * 2.5, 9);
-  });
-
-  test("the fallback is never cheaper than a known model, part by part, at the same speed, prompt length and geo", () => {
-    // One part at a time, so a low rate on one cannot hide behind another.
-    const partsOf = (size: number) => [
-      { inputTokens: size },
-      { cacheReadInputTokens: size },
-      { cacheCreationInputTokens: size },
-      { cacheCreationInputTokens: size, cacheCreation1hInputTokens: size },
-    ];
-    const usages = [
-      // Up to 272K of input is the short card, past it the long one.
-      ...partsOf(100_000),
-      ...partsOf(272_000),
-      ...partsOf(272_001),
-      { outputTokens: 100_000 },
-      { inputTokens: 272_001, outputTokens: 100_000 },
-    ];
-    for (const model of [
-      "gpt-6-astra",
-      "gpt-6.1-sol",
-      "gpt-5.6-sol",
-      "gpt-5.5",
-    ]) {
-      for (const speed of ["standard", "fast", "ultrafast", "turbo"]) {
-        for (const inferenceGeo of ["unknown", "global"]) {
-          for (const part of usages) {
-            const usage = { ...nothing, ...part, speed, inferenceGeo };
-            const known = priceProviderUsage({ ...usage, model });
-            const unknown = priceProviderUsage({ ...usage, model: "gpt-9" });
-            expect(known.pricedBy).toBe("table");
-            expect(unknown.pricedBy).toBe("unknown");
-            expect([model, speed, inferenceGeo, part, unknown.costUsd]).toEqual(
-              [
-                model,
-                speed,
-                inferenceGeo,
-                part,
-                Math.max(unknown.costUsd, known.costUsd),
-              ],
-            );
-          }
-        }
-      }
-    }
-  });
-
   test("a model the Claude table names keeps its own rates and Claude's cache writes when its speed is not one the table has", () => {
     // $25 out at the highest multiple either table has (6x).
     expect(
@@ -841,12 +675,7 @@ describe("a model neither table names", () => {
   if (row === undefined) throw new Error("the snapshot has no such entry");
   const [listed, input = 0, output = 0, cacheRead = 0] = row;
   const unknownModel = "no-table-and-no-snapshot-names-this";
-  // What a million input tokens of a model nothing prices cost.
-  const unknownInput = priceProviderUsage({
-    ...nothing,
-    model: unknownModel,
-    inputTokens: 1_000_000,
-  });
+  const unpriced = { costUsd: 0, pricedBy: "unknown" } as const;
 
   test("is priced from the LiteLLM snapshot when it lists the model", () => {
     const priced = priceProviderUsage({
@@ -865,10 +694,32 @@ describe("a model neither table names", () => {
     expect(
       priceProviderUsage({ ...call, inferenceGeo: "unknown" }).costUsd,
     ).toBeCloseTo(output * 1.1, 9);
-    expect(priceProviderUsage({ ...call, speed: "turbo" }).costUsd).toBeCloseTo(
-      output * 6,
-      9,
-    );
+    // It may be an OpenAI call: fast is gpt-5.5's 2.5x, and a tier past fast
+    // the highest multiple that table knows.
+    for (const [speed, multiple] of [
+      ["fast", 2.5],
+      ["ultrafast", 6],
+      ["turbo", 6],
+      ["unknown", 6],
+    ] as const) {
+      expect(priceProviderUsage({ ...call, speed }).costUsd).toBeCloseTo(
+        output * multiple,
+        9,
+      );
+    }
+  });
+
+  test("a cache write the snapshot does not price costs the dearer provider's multiple of the input rate", () => {
+    const written = (hourLong: number) =>
+      priceProviderUsage({
+        ...nothing,
+        model: listed,
+        cacheCreationInputTokens: 1_000_000,
+        cacheCreation1hInputTokens: hourLong,
+      }).costUsd;
+    // OpenAI's 30 minutes (1.25x) and 12 hours (2.5x).
+    expect(written(0)).toBeCloseTo(input * 1.25, 9);
+    expect(written(1_000_000)).toBeCloseTo(input * 2.5, 9);
   });
 
   test("a model the tables name is never priced from the snapshot, even past its card", () => {
@@ -884,25 +735,17 @@ describe("a model neither table names", () => {
     ).toBe("table");
   });
 
-  test("one in neither is unknown: the highest rates, and a cache read at the input rate", () => {
-    const part = (usage: Partial<typeof nothing>) =>
-      priceProviderUsage({ ...nothing, model: unknownModel, ...usage });
-    expect(unknownInput.pricedBy).toBe("unknown");
-    for (const model of Object.keys(MODEL_PRICES)) {
-      const known = priceProviderUsage({
+  test("one in neither is unknown and has no amount: no other model's rate stands in", () => {
+    expect(
+      priceProviderUsage({
         ...nothing,
-        model,
+        model: unknownModel,
         inputTokens: 1_000_000,
-      });
-      expect([model, known.costUsd <= unknownInput.costUsd]).toEqual([
-        model,
-        true,
-      ]);
-    }
-    // No discount: nothing says the endpoint gives one.
-    expect(part({ cacheReadInputTokens: 1_000_000 }).costUsd).toBe(
-      unknownInput.costUsd,
-    );
+        outputTokens: 1_000_000,
+        cacheReadInputTokens: 1_000_000,
+        webSearchRequests: 3,
+      }),
+    ).toEqual(unpriced);
   });
 
   test("a settlement charges the dearer of the model asked for and the model that answered", () => {
@@ -911,42 +754,28 @@ describe("a model neither table names", () => {
     const asked = priceProviderUsage({ ...usage, model: "claude-sonnet-5" });
     expect(asked.costUsd).not.toBe(answered.costUsd);
     const dearer = asked.costUsd > answered.costUsd ? asked : answered;
-    expect(priceSettledUsage(usage, "claude-sonnet-5")).toEqual({
-      ...dearer,
-      unknown: false,
-    });
+    expect(priceSettledUsage(usage, "claude-sonnet-5")).toEqual(dearer);
     // The same model, or a report with no request on record, is the answer's.
-    expect(priceSettledUsage(usage, listed)).toEqual({
-      ...answered,
-      unknown: false,
-    });
-    expect(priceSettledUsage(usage, null)).toEqual({
-      ...answered,
-      unknown: false,
-    });
+    expect(priceSettledUsage(usage, listed)).toEqual(answered);
+    expect(priceSettledUsage(usage, null)).toEqual(answered);
   });
 
-  test("a settlement is unknown when either model is, whichever rates won", () => {
-    const cheap = { ...nothing, model: listed, outputTokens: 1_000_000 };
-    // Asked for an unknown model, answered as a listed one: the unknown
-    // rate wins and the call is marked.
-    expect(priceSettledUsage(cheap, unknownModel)).toEqual({
-      ...priceProviderUsage({ ...cheap, model: unknownModel }),
-      unknown: true,
-    });
+  test("a settlement has no amount when nothing prices either model, whatever the other one costs", () => {
+    const priced = { ...nothing, model: listed, outputTokens: 1_000_000 };
+    expect(priceProviderUsage(priced).costUsd).toBeGreaterThan(0);
+    // Asked for an unknown model, answered as a listed one.
+    expect(priceSettledUsage(priced, unknownModel)).toEqual(unpriced);
     // Asked for a table model, answered as an unknown one.
-    const answeredUnknown = { ...cheap, model: unknownModel };
-    expect(priceSettledUsage(answeredUnknown, "claude-sonnet-5")).toEqual({
-      ...priceProviderUsage(answeredUnknown),
-      unknown: true,
-    });
-    // A call that used nothing costs nothing and is still marked.
     expect(
-      priceSettledUsage({ ...nothing, model: listed }, unknownModel),
-    ).toMatchObject({ costUsd: 0, unknown: true });
+      priceSettledUsage({ ...priced, model: unknownModel }, "claude-sonnet-5"),
+    ).toEqual(unpriced);
+    // A table model asked for past its card is unknown as well.
+    const long = { ...nothing, model: "claude-sonnet-5", inputTokens: 300_000 };
+    expect(priceProviderUsage(long).pricedBy).toBe("table");
+    expect(priceSettledUsage(long, "gpt-5.4-mini")).toEqual(unpriced);
   });
 
-  test("a judgment model goes to the snapshot's judgment entries, then to the unknown rate", () => {
+  test("a judgment model goes to the snapshot's judgment entries, and has no amount in neither", () => {
     const [judge, judgeInput, judgeOutput] = LITELLM_DECISION_RATES[0] ?? [];
     if (judge === undefined) throw new Error("the snapshot has no judge");
     expect(
@@ -966,7 +795,7 @@ describe("a model neither table names", () => {
         model: unknownModel,
         inputTokens: 1_000_000,
       }),
-    ).toEqual(unknownInput);
+    ).toEqual(unpriced);
     // A session model's entry is not a judgment model's.
     expect(priceJudgmentUsage({ ...nothing, model: listed }).pricedBy).toBe(
       "unknown",

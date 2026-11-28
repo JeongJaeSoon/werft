@@ -401,7 +401,6 @@ describe("the session's GitHub pull requests", () => {
     unknown_price: {
       call_count: 0,
       token_count: 0,
-      cost_usd: "0",
       token_limit: 5_000_000,
     },
     budget_exceeded: false,

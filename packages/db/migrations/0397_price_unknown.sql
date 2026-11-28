@@ -1,7 +1,8 @@
 -- migrate:no-transaction
 -- A model neither price table names is priced from the LiteLLM snapshot
--- (priced_by 'litellm'), and one nothing prices at the highest known rate
--- (priced_by 'unknown'; 'fallback' stays for rows from before). A call records
+-- (priced_by 'litellm'), and one nothing prices has no amount (priced_by
+-- 'unknown', cost_usd 0; 'fallback' stays for rows from before, which were
+-- charged the highest known rate). A call records
 -- the model its request asked for (request_model), the price data that
 -- settled it (price_version) and whether either model is one nothing prices
 -- (price_unknown): the tokens of those calls are what a session's limit on

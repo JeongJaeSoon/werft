@@ -12,7 +12,8 @@ import type { HeldSpend } from "./ports/provider-exchange-ledger.ts";
  * cache, which the table charges at each model's highest write multiple. It
  * is an estimate, not a ceiling on the settlement: a dearer model answering
  * or a fee the request did not announce (a web search) settles above it.
- * `pricedBy` is what prices the model the request asked for.
+ * `pricedBy` is what prices the model the request asked for; one nothing
+ * prices reserves no amount.
  */
 export function priceReservation(reserve: ProviderUsage): {
   costUsd: number;
@@ -54,10 +55,10 @@ export type ExchangeBudget = SessionBudget & { unknownPriceTokens: number };
  * both limits. An unmetered session's reserves cost nothing but still count
  * their tokens.
  *
- * A model nothing prices is charged the highest known rate, which its real
- * price may exceed, so its tokens are held to a limit no price enters: the
- * tokens of the session's settled calls marked unknown, with every held
- * reserve for such a model, stay under `unknownPriceTokens`. A session with
+ * A call on a model nothing prices has no amount, so the cost limit never
+ * counts it and its tokens are held to a limit no price enters: the tokens
+ * of the session's settled calls marked unknown, with every held reserve
+ * for such a model, stay under `unknownPriceTokens`. A session with
  * none of either is never refused by it. An unmetered session's calls are
  * not of unknown price: its connection declared them free.
  */

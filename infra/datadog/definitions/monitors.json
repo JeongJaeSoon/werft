@@ -183,7 +183,7 @@
       "name": "[Werft] provider fallback pricing",
       "type": "metric alert",
       "query": "max(last_1h):max:werft.provider.fallback_pricing_count_1h{*} > 0",
-      "message": "Provider usage was priced at the unknown rate: no price table or snapshot entry priced the call's model. Verify the model's real price before interpreting cost.",
+      "message": "Provider usage had no known price: no price table or snapshot entry prices the call's model, so the call has no amount and cost_usd leaves it out. Find the model's real price before interpreting cost.",
       "tags": ["service:egress-proxy", "threshold_stage:first-week-tuning"],
       "options": {
         "thresholds": { "critical": 0 },

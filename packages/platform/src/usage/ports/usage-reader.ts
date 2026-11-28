@@ -62,8 +62,6 @@ export type UnknownPriceUsageRecord = {
   callCount: number;
   /** The four token columns, as the provider_tokens trigger sums them. */
   tokens: number;
-  /** The sum of their `cost_usd` as the database prints the numeric. */
-  costUsd: string;
 };
 
 /** Sessions created in [since, until), read in one statement. */

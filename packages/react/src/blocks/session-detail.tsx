@@ -889,36 +889,28 @@ function UsageFigures({ usage }: { readonly usage: SessionUsageResponse }) {
 function Cost({ usage }: { readonly usage: SessionUsageResponse }) {
   const { t, locale } = useBlockText();
   const { cost } = usage;
-  // An API from before the field answers without it while an upgrade rolls.
-  const unknown: Pick<
-    SessionUsageResponse["unknown_price"],
-    "call_count" | "cost_usd"
-  > = usage.unknown_price ?? { call_count: 0, cost_usd: "0" };
+  // Calls nothing prices have no amount, so the amount is the others' alone
+  // and those are named beside it: with nothing else, no figure is shown that
+  // could read as free. An API from before the field answers without it.
+  const unknownCalls = usage.unknown_price?.call_count ?? 0;
   const { usd } = OPERATIONS_MESSAGES[locale].format;
-  // What the limits counted for calls nothing prices is not what they cost:
-  // the amount is the rest, and that part is named apart from it.
-  const knownMicroUsd =
-    Math.round(Number(cost.amount_usd) * 1e6) -
-    Math.round(Number(unknown.cost_usd) * 1e6);
   return (
     <span className="flex min-w-0 flex-col">
       <span className="tabular-nums">
         {cost.kind === "unmetered"
           ? t("session.usage.unmetered")
-          : unknown.call_count === 0
+          : unknownCalls === 0
             ? usd(cost.amount_usd)
-            : knownMicroUsd > 0
+            : Number(cost.amount_usd) > 0
               ? t("session.usage.knownAndUnknownPrice", {
-                  amount: usd(knownMicroUsd / 1e6),
-                  count: unknown.call_count,
+                  amount: usd(cost.amount_usd),
+                  count: unknownCalls,
                 })
-              : t("session.usage.unknownPrice", { count: unknown.call_count })}
+              : t("session.usage.unknownPrice", { count: unknownCalls })}
       </span>
-      {unknown.call_count > 0 ? (
+      {unknownCalls > 0 ? (
         <span className="text-caption text-muted-foreground">
-          {t("session.usage.unknownPriceCounted", {
-            amount: usd(unknown.cost_usd),
-          })}
+          {t("session.usage.unknownPriceNote")}
         </span>
       ) : null}
       {cost.complete ? null : (

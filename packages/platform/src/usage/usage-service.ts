@@ -70,14 +70,6 @@ export function decimalUsd(value: number): string {
 // response.
 const saturated = (count: number) => Math.min(count, Number.MAX_SAFE_INTEGER);
 
-/** A cost column's text ("12.340000", "0") in whole micro-dollars, exactly. */
-function microUsd(cost: string): bigint {
-  const [whole = "0", fraction = ""] = cost.split(".");
-  return (
-    BigInt(whole) * 1_000_000n + BigInt(fraction.padEnd(6, "0").slice(0, 6))
-  );
-}
-
 // token_count is the four columns, as the provider_tokens trigger sums them.
 function conversationOf(
   record: UsageConversationCostRecord | undefined,
@@ -172,20 +164,9 @@ export function createUsageService(deps: {
 }) {
   const { authorization, reader } = deps;
   const limitsNow = () => readSetting(deps.limits);
-  // The figures are read after the total they are a part of, and a session's
-  // cost stops at what its column holds: the part is never given as more
-  // than the whole it is shown beside. A call settled between the two reads
-  // is then all of what is given, until the next read has it in the total.
-  const unknownPriceFigures = (
-    record: UnknownPriceUsageRecord,
-    wholeMicroUsd: bigint,
-  ) => ({
+  const unknownPriceFigures = (record: UnknownPriceUsageRecord) => ({
     call_count: record.callCount,
     token_count: saturated(record.tokens),
-    cost_usd:
-      microUsd(record.costUsd) > wholeMicroUsd
-        ? `${wholeMicroUsd / 1_000_000n}.${String(wholeMicroUsd % 1_000_000n).padStart(6, "0")}`
-        : record.costUsd,
   });
 
   function requireInstallationReader(actor: Caller) {
@@ -336,7 +317,6 @@ export function createUsageService(deps: {
             filter,
             period: { since: query.since, until: summary.until },
           }),
-          microUsd(summary.costUsd),
         ),
         run_seconds: summary.runSeconds,
         basis: {
@@ -536,10 +516,6 @@ export function createUsageService(deps: {
             filter,
             period: { since: query.since, until: series.until },
           }),
-          series.buckets.reduce(
-            (sum, bucket) => sum + microUsd(bucket.costUsd),
-            0n,
-          ),
         ),
         buckets: series.buckets.map((bucket) => ({
           date: bucket.date,
@@ -740,7 +716,7 @@ export function createUsageService(deps: {
         token_count: usage.providerTokens,
         token_limit: limits.sessionTokenLimit,
         unknown_price: {
-          ...unknownPriceFigures(unknownPrice, microUsd(usage.costUsd)),
+          ...unknownPriceFigures(unknownPrice),
           token_limit: await readSetting(
             deps.unknownPriceTokenLimit ?? UNKNOWN_PRICE_SESSION_TOKEN_LIMIT,
           ),

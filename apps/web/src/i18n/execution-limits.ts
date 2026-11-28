@@ -92,7 +92,7 @@ export const executionLimitsKo = {
   "limits.unknownTokens.hint":
     "세션 하나가 단가 미상 호출에 쓸 수 있는 토큰 수입니다. 무제한 지출을 막는 장치입니다.",
   "limits.unknownTokens.detail":
-    "요청한 모델이나 답한 모델의 단가를 정하지 못한 호출은 단가 미상으로 표시합니다. 단가를 모르는 쪽은 가장 높은 단가로 쳐서 둘 가운데 비싼 금액을 세지만, 실제 단가는 더 높을 수 있습니다. 그래서 비용과 따로 토큰 수로 막습니다. 끌 수 없습니다.",
+    "요청한 모델이나 답한 모델의 단가를 정하지 못한 호출은 단가 미상으로 표시합니다. 단가 미상 호출에는 금액을 붙이지 않아 비용 한도가 세지 못합니다. 그래서 비용과 따로 토큰 수로 막습니다. 끌 수 없습니다.",
   "limits.unknownTokens.label": "단가 미상 토큰 한도",
   "limits.unknownTokens.unit": "토큰",
   "limits.unknownTokens.value": "{value} 토큰",
@@ -286,7 +286,7 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
     "limits.unknownTokens.hint":
       "The tokens one session may use on calls of unknown price. It keeps spend from running without a limit.",
     "limits.unknownTokens.detail":
-      "A call whose requested or answering model cannot be priced is marked as of unknown price. The model that cannot be priced is taken at the highest known rate and the dearer of the two amounts is counted, but the real price may be higher. So tokens are limited apart from cost. It cannot be turned off.",
+      "A call whose requested or answering model cannot be priced is marked as of unknown price. Such a call is given no amount, so the cost limit cannot count it. So tokens are limited apart from cost. It cannot be turned off.",
     "limits.unknownTokens.label": "Limit on tokens of unknown price",
     "limits.unknownTokens.unit": "tokens",
     "limits.unknownTokens.value": "{value} tokens",
@@ -482,7 +482,7 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
     "limits.unknownTokens.hint":
       "1 つのセッションが単価不明の呼び出しに使えるトークン数です。無制限の支出を防ぐための仕組みです。",
     "limits.unknownTokens.detail":
-      "要求したモデルか応答したモデルの単価を決められない呼び出しは、単価不明として記録します。単価を決められない側は最高単価で計算し、二つのうち高い金額を数えますが、実際の単価はそれより高い場合があります。そのため費用とは別にトークン数で止めます。無効にはできません。",
+      "要求したモデルか応答したモデルの単価を決められない呼び出しは、単価不明として記録します。単価不明の呼び出しには金額を付けないため、費用の上限では数えられません。そのため費用とは別にトークン数で止めます。無効にはできません。",
     "limits.unknownTokens.label": "単価不明トークンの上限",
     "limits.unknownTokens.unit": "トークン",
     "limits.unknownTokens.value": "{value} トークン",
