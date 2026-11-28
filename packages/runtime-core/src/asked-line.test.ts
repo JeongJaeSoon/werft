@@ -839,6 +839,21 @@ const WIDE: [string, string, string | null][] = [
     "echo \\>|grep -r needle .",
     "a search of the workspace or a kept path",
   ],
+  [
+    "a search of a folder with output thrown away",
+    "grep -rq needle packages &> /dev/null",
+    null,
+  ],
+  [
+    "a search with output appended away",
+    "grep -rq needle packages &>> /dev/null",
+    null,
+  ],
+  [
+    "a search with no path but a redirect",
+    "grep -r needle 2>&1 | head",
+    "a search of a tree",
+  ],
   ["a message after clustered flags", "git commit -aq -m .claude", null],
   ["a gh body after a flag", "gh pr create --draft --body .claude", null],
   [

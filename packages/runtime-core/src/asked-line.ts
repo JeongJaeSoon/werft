@@ -1422,7 +1422,7 @@ function wideKept(
 ): string | null {
   // The command is read without what the shell takes away before it runs:
   // a keyword that starts a compound command (`if grep -r x .; then`) and
-  // a redirect (`2>/dev/null grep`, `2> /dev/null grep`).
+  // a redirect anywhere (`2>/dev/null grep`, `grep -r x dir &> /dev/null`).
   const read: number[] = [];
   for (let i = 0; i < words.length; i += 1) {
     const word = words[i] as string;
@@ -1433,10 +1433,6 @@ function wideKept(
       continue;
     }
     read.push(i);
-    if (!ASSIGNMENT.test(word) && TOOLS.includes(nameOf(word))) {
-      for (let next = i + 1; next < words.length; next += 1) read.push(next);
-      break;
-    }
   }
   if (read.length < words.length) {
     return wideKept(
