@@ -18,6 +18,13 @@ export const BEFORE_PROFILE_REMOVAL = "0269_session_caller_limit";
 export const ENGINE_SETTINGS_DROP = "0357_drop_engine_settings";
 
 /**
+ * The migration that empties every binding's stored per_step and drops the
+ * column's default. A test of an earlier one that reads them migrates to just
+ * before it.
+ */
+export const BINDING_REPORT_MODE_DEFAULT = "0395_binding_report_mode_default";
+
+/**
  * A copy of the migrations folder whose journal ends at `lastTag` (or just
  * before it, with `exclusive`). The caller removes it.
  */

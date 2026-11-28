@@ -197,7 +197,10 @@ import {
 } from "./schema.ts";
 import { movedSessionPin } from "./session-spec-pin.ts";
 import { queueAchievementJudgment } from "./sessions/achievement-judgments.ts";
-import { finishClose } from "./sessions/close-control.ts";
+import {
+  finishClose,
+  recordDrainedTaskClose,
+} from "./sessions/close-control.ts";
 import {
   contextCoverage,
   contextGap,
@@ -4822,6 +4825,7 @@ export function createPostgresWorkerUnitOfWork(
                 updatedAt: observedAt,
               })
               .where(eq(receipts.id, open.id));
+            await recordDrainedTaskClose(tx, session, open.id);
             controlResults.push({
               acceptedAt: open.acceptedAt,
               controlId: open.id,

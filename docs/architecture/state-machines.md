@@ -82,6 +82,39 @@
 
 시험: `packages/db/src/stop-control.test.ts`, `apps/control-host/src/slack/session-handler.integration.test.ts`의 Slack stop 시험(재처리 두 경우는 `… after an outbox pass closed the link stops once …`, `… lost its lease after the stop …`, 다시 열린 스레드는 `… after the thread opened new work stops nothing there …`, 판정 버퍼는 `an unmentioned stop word retried after its link closed is held for no judgment …`, 비공개 전환은 `… in a channel turned private sends its binding to approval …`, 닫힌 스레드의 새 멈춤 낱말은 `a new stop word mentioned in a thread whose task the stop closed …`).
 
+### 작업 닫기(PR 사건, 요청자의 완료·취소)가 일으키는 전이
+
+작업 세션(`task_closing` 있음)을 닫는 두 길이다. 둘 다 사람의 close와 같은 `closeAtomic`으로 닫고, 같은 트랜잭션에서 세션의 `task_closed_reason`을 쓴다(`packages/db/src/sessions/task-close.ts`).
+
+- PR 사건: outcome refresher가 pass를 끝낼 때 한 번에 100개까지 고른다. `task_closing.eventRules`가 켜진 작업이어야 한다. 세션의 `github_pull_request` 성과 가운데 하나라도 `merged`면 `completed`로 닫는다. `merged`가 없고 `closed`가 있으면서 `open`이 없을 때만 `cancelled`로 닫는다. status 이벤트의 actor는 `{kind: system, by: pull_request_event}`이다.
+- 요청자의 완료·취소: 작업 진행 메시지의 [완료]·[취소] 버튼이다. 누른 사람이 그 세션의 `session.control` 권한을 가져야 한다. 권한이 없으면 누른 사람에게만 ephemeral 안내가 간다.
+
+| 지금 상태 | 다음 상태 | 조건 | 누가 일으키나 |
+| --- | --- | --- | --- |
+| `active` (살아 있는 worker가 drain함) | `closing` 뒤 `closed` (status `stopped`) | 위 조건을 채운 작업 세션. `closed`는 실행이 사라진 것이 보일 때 된다(`confirmExecutionGone`). `task_closed_reason`은 그때 쓴다. `closing` 동안은 close의 idempotency 행(`payload_hash` `task_close:<사유>`)만 사유를 든다 | PR 사건(system), 세션을 제어할 수 있는 요청자 |
+| `active` (drain할 worker 없음), `paused`, 이어 갈 수 있는 `stopped` | `closed` (status `stopped`) | 같음. `active`는 checkpoint가 마지막으로 돈 턴을 덮을 때만 닫힌다(`pauseBlocker`) | 같음 |
+| `closing`, `closed` | 그대로 | 요청자에게는 `already_closed`로 답한다. 처음 닫은 사유가 남는다 | 같음 |
+| `closing` | `recovery_required`, `stopping`·`stopped`, `active` | drain이 실패했거나(결과를 모르는 턴, checkpoint 없음) terminate가 앞질렀다. 세션에는 사유가 남지 않아 열린 일로 돌아가고, PR 사건이나 요청자가 다시 닫을 수 있다 | worker·reconciler, terminate |
+| `recovery_required`, 이어 갈 수 없는 `stopped`, checkpoint가 덮지 못한 `active` | 그대로 | `closeAtomic`이 거절한다. 요청자는 실패 안내를 받는다. PR 사건은 다음 pass에 다시 시도한다 | 같음 |
+
+막을 전이:
+
+- 작업이 아닌 세션(`task_closing` 없음)은 어느 길로도 작업으로 닫히지 않는다(요청자에게 `not_task`).
+- `eventRules`가 꺼진 작업은 PR 사건으로 닫히지 않는다.
+- `merged` PR 없이 `closed` PR과 `open` PR이 함께 있는 작업은 닫히지 않는다. 열린 PR이 `merged`가 되면 `completed`로 닫힌다.
+- 권한이 없는 사람이 누른 버튼은 세션을 바꾸지 않는다.
+
+지켜야 할 성질:
+
+- 작업의 스레드 링크는 다음 outbox pass의 `closeFinishedLinks`가 `task_closed_reason`으로 닫는다. 진행 메시지가 있는 링크는 닫힘 갱신 행(취소면 '작업을 취소했어요')이 생긴 뒤에 닫힌다. 같은 pass에서 진행 갱신을 넣은 뒤 링크를 닫기 전에 세션이 닫혀도 같다.
+- 닫힌 작업의 진행 메시지에는 버튼이 없다.
+- PR 사건의 사유는 닫기 트랜잭션이 세션을 잠근 뒤 그 세션의 PR 성과를 다시 읽어 정한다. pass가 후보를 고른 뒤, 닫기가 세션을 잠그기 전에 커밋된 PR 저장·refresh(새로 열린 PR, merge, 다시 열림)는 그 닫기에 보인다. PR 저장은 세션을 먼저 잠그므로 닫기가 먼저 잠갔으면 닫기 뒤에 저장된다. 성과 행은 잠그지 않는다: refresh는 성과 행을 잡은 채 세션을 기다리므로(`queueAchievementJudgment`), 잠그면 서로 기다린다.
+- drain하는 닫기의 사유는 닫기를 받을 때 정한 값이다. 미병합 PR로 `cancelled`를 받은 뒤 실행이 사라지기 전에 PR이 다시 열려도 `closed`에는 `cancelled`가 남는다.
+- PR 사건 pass는 replica마다 지난 pass가 멈춘 세션 id 뒤에서 이어 고른다. `closeAtomic`이 계속 거절하는 작업이 한 번에 고르는 수(100)보다 많아도 그 뒤 작업이 밀리지 않는다.
+- 요청자가 닫은 작업의 스레드에 온 멘션은 대화 turn이 된다(`spawn_task`면 새 작업과 새 링크, `reply`면 답만).
+
+시험: `apps/control-host/src/slack/outbox.integration.test.ts`의 `a task's close on …` 묶음과 `a work closed between a pass's progress and its link close keeps its link open for the closed update`, `apps/control-host/src/slack/session-handler.integration.test.ts`의 `a mention in the thread of a task its requester closed is a conversation turn, and its %s takes effect`, `packages/adapters/chat/slack/src/slack-interactions.test.ts`의 `the close buttons on a task's progress message` 묶음, `packages/platform/src/sessions/task-close.test.ts`, `packages/platform/src/sessions/outcome-refresher.test.ts`, `packages/db/src/sessions/task-close.test.ts`, `packages/db/src/close-control.integration.test.ts`의 `a task close that drains names its reason only once the session is closed; one lost to recovery leaves none`, `a pull request close that drains stores the reason judged under its lock and names it once closed`, `a pull request close does not wait on a refresh holding the pull request's row`.
+
 ### terminate가 일으키는 전이
 
 terminate는 사람이 세션을 강제로 끝내는 제어다(`POST /v1/sessions/{id}/terminate`, 관리자 terminate, 웹의 '세션 종료'). 판정은 `packages/db/src/control-unit-of-work.ts`의 `terminateAtomic`이 한다.
@@ -467,13 +500,13 @@ M1·M2는 `a model that fails twice and answers the third time: …`와 MR1의 �
 
 ### 청하지 않은 턴
 
-M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는데 에이전트가 대화 턴으로 답한다(v1-b/U1). 대화 rollout이 `on`일 때만 턴을 낸다. 판단 하나(`conversation_judgments`의 한 줄)가 턴 하나를 낳고, 그 줄의 `target_ts`(답할 글), `turn_id`(낸 턴), `answer`(어떻게 끝났나)에 상태가 남는다. 버퍼의 묶음 판단(`buffer_m1`)과 최근 관여한 스레드의 답글 판단(`m1_engaged`)이 턴을 낸다. 닫힌 작업에 묶인 스레드의 답글(`m1`)과 작업 스레드의 답글(`m1_to_task`)은 낳지 않는다. 그 답글은 판단과 같은 transaction에서 이미 세션의 턴이 되었으므로, 세션이 답하고 판단은 기록만 남는다.
+M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는데 에이전트가 대화 턴으로 답한다(v1-b/U1). 대화 rollout이 `on`일 때만 턴을 낸다. 판단 하나(`conversation_judgments`의 한 줄)가 턴 하나를 낳고, 그 줄의 `target_ts`(답할 글), `turn_id`(낸 턴), `answer`(어떻게 끝났나)에 상태가 남는다. 버퍼의 묶음 판단(`buffer_m1`)과 최근 관여한 스레드의 답글 판단(`m1_engaged`)이 턴을 낸다. 닫힌 작업에 묶인 스레드의 답글(`m1`)은 rollout `on`에서 세션에 가지 않고 판단 버퍼에 보류된 채 판단받으므로, `speak`면 턴을 낸다. 같은 답글이 `shadow`·`off`에서 이미 세션의 턴이 된 뒤 판단받았으면 세션이 답하고 판단은 기록만 남는다. 작업 스레드의 답글(`m1_to_task`)은 턴을 낳지 않는다. `speak`면 작업의 다음 턴이 된다(아래 "작업 스레드의 답글").
 
 | 지금 상태 | 다음 상태 | 조건 | 누가 일으키나 |
 | --- | --- | --- | --- |
 | (판단 전) | `speak`, `target_ts` 있음 | M1이 `speak`로 답하고 `reply_to`가 읽은 글(refs) 가운데 하나를 가리킨다. 답글 판단은 그 답글 자신이다 | M1 판단 pass |
 | (판단 전) | `quiet`/`invalid_target` | 묶음 판단의 `speak`가 답할 글을 고르지 않았거나, 읽지 않은 글을 가리켰다. 턴을 내지 않는다 | M1 판단 pass |
-| `speak`, `turn_id`·`answer` 없음 | `turn_id` 있음 | rollout `on`, 채널 binding이 살아 있고(`ready`, `mode = on`, 외부 공유 아님, 긴급 정지 아님) 판단한 글을 아직 듣는다(묶음 판단의 글은 듣기 `free`일 때만, 관여한 스레드의 답글은 `free`나 `mention`일 때). 에이전트가 `active`이고 채널이 보관되지 않았으며, 턴의 출처 글에 지움 표식이 없다. 턴(요청자 없음, root none)과 permit, 판단의 `turn_id`를 한 transaction에 쓰고, 답할 글의 첫 시도(attempt 1)로 큐에 넣는다 | 판단을 기록한 M1 판단 pass |
+| `speak`, `turn_id`·`answer` 없음 | `turn_id` 있음 | rollout `on`, 채널 binding이 살아 있고(`ready`, `mode = on`, 외부 공유 아님, 긴급 정지 아님) 판단한 글을 아직 듣는다(묶음 판단의 글은 듣기 `free`일 때만, 관여한 스레드와 닫힌 작업 스레드의 답글은 `free`나 `mention`일 때). 닫힌 작업 스레드의 답글(`m1`)은 세션의 턴이 그 글을 가져가지 않았을 때만이다. 에이전트가 `active`이고 채널이 보관되지 않았으며, 턴의 출처 글에 지움 표식이 없다. 턴(요청자 없음, root none)과 permit, 판단의 `turn_id`를 한 transaction에 쓰고, 답할 글의 첫 시도(attempt 1)로 큐에 넣는다 | 판단을 기록한 M1 판단 pass |
 | `speak`, `turn_id`·`answer` 없음 | 그대로 | rollout `shadow`·`off`. 판단만 남는다 | M1 판단 pass |
 | `speak`, `turn_id`·`answer` 없음 | `answer` = `source_deleted` | 턴의 출처 글에 지움 표식이 있다 | M1 판단 pass |
 | `speak`, `turn_id`·`answer` 없음 | `answer` = `channel_stopped` | 살아 있는 binding이 없거나(판단한 글을 더 듣지 않는 경우 포함) 긴급 정지 중이다. 턴을 낼 때 에이전트가 `active`가 아니거나(이미 보관된 에이전트는 `not_started`) 채널이 보관·삭제됐을 때도 같다 | M1 판단 pass |
@@ -493,9 +526,9 @@ M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는�
 - 턴이 있는 판단에 `not_started`류를 덮어쓰지 않는다. 끝은 한 번만 쓴다("why no turn was made is written once ...", "a reply is replied ..., written once").
 - 아직 `running`인 턴의 끝을 쓰지 않는다("a running turn writes nothing yet").
 - `target_ts`는 refs 밖이거나 `speak`가 아닌 판단에 둘 수 없다. `turn_id`·`answer`는 `target_ts` 없이 둘 수 없고, `answer`는 위 값만 받는다. `speak`는 `invalid_target`을 이유로 가질 수 없다(CHECK, "conversation_judgments' unasked columns" 시험들). refs에 NULL이 섞여 있어도 refs 밖의 `target_ts`는 막고, 결정이 없는 `judged` 행도 `target_ts`를 가질 수 없다("a target not among the refs is refused, a null among them too", "a judged record with no decision holds no target").
-- 속도 제한(`rate_limited`)·`quiet`·기록되지 않은 판단, `m1`·`m1_to_task` 답글은 턴을 내지 않는다(`packages/platform/src/conversations/unasked-turns.test.ts`). DB도 그 둘의 판단으로는 턴을 쓰지 않는다("a bound session's reply that spoke (m1) / (m1_to_task) makes none: the session answers it").
+- 속도 제한(`rate_limited`)·`quiet`·기록되지 않은 판단, `m1_to_task` 답글, 보류되지 않은(세션이 가져간) `m1` 답글은 턴을 내지 않는다(`packages/platform/src/conversations/unasked-turns.test.ts`). DB도 `m1_to_task` 판단과, 세션의 턴이 가져간 글의 `m1` 판단으로는 턴을 쓰지 않는다("a reply of work going on that spoke (m1_to_task) makes none: the work answers it", "a closed work's reply its session took (m1) makes none: one post, one answer"). 보류된 `m1` 답글은 턴을 낸다("a closed work's held reply that spoke (m1) makes its one unasked turn").
 - 묶음을 닫은 뒤 채널 듣기가 `mention`으로 바뀌면 묶음 판단은 턴을 내지 않는다. 관여한 스레드의 답글 판단은 낸다("listening for mentions alone: no turn", "an engaged reply still speaks while the channel hears mentions alone"). 판단 뒤 채널이 보관되었거나 에이전트가 멈췄으면 턴을 내지 않는다("the channel archived / the agent paused since the judgment: no turn"). 에이전트 상태는 잠근 채 읽는다. 채널 상태는 잠그지 않고 읽으므로, 턴을 쓰는 transaction과 같은 순간에 commit되는 채널 보관은 놓칠 수 있다.
-- 닫힌 작업 스레드의 답글은 `speak`여도 청하지 않은 턴이 없고 세션의 턴 하나만 남는다(`packages/db/src/conversations/unasked-turns.test.ts`의 "the session takes it as its one turn; M1's speak makes no unasked turn").
+- `shadow`·`off`에서 세션이 가져간 닫힌 작업 스레드의 답글은 `speak`여도 청하지 않은 턴이 없고 세션의 턴 하나만 남는다(`packages/db/src/conversations/unasked-turns.test.ts`의 "the session takes it as its one turn; M1's speak makes no unasked turn", `apps/control-host/src/slack/session-handler.integration.test.ts`의 "one post, one answer: a reply a session took makes no unasked turn, though M1 spoke").
 
 지킬 성질:
 
@@ -511,6 +544,72 @@ M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는�
 - 판단 기록과 턴 내기는 다른 transaction이다. 그 틈에 같은 주제의 마지막 다른 버퍼 행이 지워지면(다른 묶음의 기록, 기한 지난 행 정리) 주제도 지워져 턴이 나지 않고 `not_started`가 남는다. 잘못 올리는 글은 없다. 다시 시도하지 않는다. 알려진 한계다.
 - rollout을 `shadow`·`off`로 내리거나 binding만 철회해도 이미 낸 턴은 계속 돌아 답할 수 있다. 멘션 턴과 같다. 내림과 철회는 다음 턴부터 적용되고, 지금 멈추는 것은 긴급 정지가 맡는다. 긴급 정지는 채널의 돌고 있는 대화 턴을 요청자와 상관없이 끝내고, 보내기 시작하지 않은 글(`sending` 전)을 막는다. 이미 `sending`이 된 글은 올라갈 수 있다. W1은 `on` → `shadow` 때 큐에 든(아직 시작하지 않은) 대화 턴을 취소한다(W1 사양).
 - `shadow`에서 기록한 직후 `on`이 되면, 판단이 남은 주제를 다른 글이 쓰고 있을 때만 턴이 난다. 비어서 지워졌으면 `not_started`가 남는다.
+
+### 작업 스레드의 답글
+
+작업에 묶인 Slack 스레드에 사람이 봇을 멘션하지 않고 단 답글이다(v1-b/U1). rollout `on`에서만 이 길을 탄다. `shadow`·`off`에서는 예전처럼 세션이 바로 받는다(`shadow`는 곁에 판단 기록만 남기고, 그 기록의 등급도 아래 결정 35를 따른다: `idle`인 `active` 세션의 답글은 `m1_to_task`). 작업이 열렸는지는 결정 35대로 묶인 세션의 `admission_state`로 본다(`packages/db/src/conversations/session-work.ts`의 `sessionWorkClosed`). `closing`·`closed`면 닫힌 작업(`m1`), 그 밖이면(`idle`·`paused`·`stopped` 세션 포함) 열린 작업(`m1_to_task`)이다. 세션이 없으면 닫힌 작업으로 본다. 봇을 멘션한 답글은 이 길을 타지 않고 지금의 멘션 길로 간다.
+
+| 지금 상태 | 다음 상태 | 조건 | 누가 일으키나 |
+| --- | --- | --- | --- |
+| (받음), 닫힌 작업 | 보류(`m1`, 판단 전) | 처리표가 `m1`을 낸다. binding이 승인됐고, 글이 텍스트이며 들을 수 있는 사람의 글이다. 글을 판단 버퍼에 보류하고 판단을 연다. 세션에는 가지 않는다 | slack 역할 inbox pass |
+| (받음), 닫힌 작업 | 버림 | 처리표가 `m1`을 내지 않거나(듣기 `off` 등), 승인 전이거나, 들을 수 없는 사람의 글이다. 세션에도 가지 않는다 | slack 역할 inbox pass |
+| 보류(`m1`) | 청하지 않은 턴 | M1이 `speak`. 앞 표의 턴 내기를 따른다 | M1 판단 pass |
+| 보류(`m1`) | 끝(턴 없음) | `quiet`, 판단 실패(`failed`), 판단을 부르지 못함(`not_called`: 예산·한도·모델 없음), 판단이 던짐. 보류한 글을 지운다 | M1 판단 pass |
+| (받음), 열린 작업 | 기다림(`m1_to_task`, 판단 전) | 처리표가 `m1_to_task`를 낸다. 글을 판단 버퍼에 보류하고 판단을 연다. 이벤트는 2초 뒤 다시 보도록 미룬다 | slack 역할 inbox pass |
+| (받음), 열린 작업 | 세션 턴 | `SLACK_ROLE_TASK_REPLY_WAIT_SEC`가 0이거나, 처리표가 `m1_to_task`를 내지 않거나(멈춤 낱말은 `stop_session`), 승인 전이거나, 들을 수 없는 사람의 글이거나, 버퍼 한도가 방금 보류한 글을 곧바로 밀어냈다(더 새 글이 버퍼를 채움). 한 번 보류됐던 글(`m1_to_task` 기록이 있다)은 다시 보류하지 않는다. 기다리는 사이나 판단 중 버퍼 한도에 밀린 글의 기록도 지우지 않고 `failed`로 끝내 둔다 | slack 역할 inbox pass |
+| 기다림 | 기다림 | 판단이 아직 없고, 판단을 연 지 `SLACK_ROLE_TASK_REPLY_WAIT_SEC`(기본 30초)가 지나지 않았다. 다시 미룬다 | slack 역할 inbox pass |
+| 기다림 | 기다림 | 판단 중 글(또는 그 맥락)이 고쳐지거나 지워져 판단이 무효가 됐다. 무효인 호출은 따로 `voided` 기록으로 남고, 답글은 보류한 `m1`처럼 고친 글로 한 번 더 판단한다(다른 호출 키). 그 판단도 무효면 판단하지 못한 것(`failed`)으로 끝난다. 상한은 처음 보류한 때부터 센다 | M1 판단 pass |
+| 기다림 | 세션 턴 | `speak`, 판단 실패·부르지 못함·던짐(판단 기록이 `failed`·`not_called`로 끝나 보류한 행에 붙어 남는다), 상한을 넘어 난 `quiet`, 또는 기다림이 상한을 넘었다(끝나지 않은 판단을 `failed`/`timed_out`으로 끝내 포기한다). 세션의 턴이 보류한 행을 그 행의 글로 가져간다. 판단 중 글이 고쳐졌으면 고친 글이다 | slack 역할 inbox pass |
+| 기다림 | 끝(세션 턴 없음) | 상한 안에 난 `quiet`(판단을 연 때 + 상한 안에 기록됨). 보류한 글을 지운다 | slack 역할 inbox pass |
+| 기다림(작업이 그사이 `closing`·`closed`) | 위 기다림의 다음 상태 | 등급은 처음 보류할 때의 `m1_to_task`다. 닫힌 작업의 `m1`으로 다시 보류하지 않는다. 세션 턴으로 가면 세션의 지금 길이 받거나 거절한다 | slack 역할 inbox pass |
+
+막을 전이(괄호는 그 거절을 고정하는 시험, 따로 적지 않으면 `apps/control-host/src/slack/session-handler.integration.test.ts`의 "Slack replies in a work's thread once the rollout is on"):
+
+- 한 글이 세션의 턴과 청하지 않은 턴을 둘 다 낳지 않는다. rollout `on`에서 닫힌 작업의 멘션 없는 답글은 세션에 가지 않는다("an unmentioned reply goes to no session; ..."). 세션의 턴이 가져간 글의 `m1` 판단은 `speak`여도 DB가 턴을 `duplicate`로 거절한다("one post, one answer: ...", `packages/db/src/conversations/unasked-turns.test.ts` "a closed work's reply its session took (m1) makes none"). `m1_to_task` 판단은 청하지 않은 턴을 내지 않는다("its speak makes it the work's next turn"에서 speaker를 부르지 않음).
+- 닫힌 작업의 답글은 판단하지 못하면 세션에도 청하지 않은 턴에도 가지 않는다("M1 could not judge it (failed / budget_refused / throws): left unanswered, the work done").
+- 닫힌 작업의 답글이 `quiet`이면 턴이 없다("kept quiet (no_reply): no turn of any kind").
+- 열린 작업의 답글이 `quiet`이면 세션이 듣지 못한다("kept quiet: the work never hears it, and its held text goes").
+- 멈춤 낱말은 판단을 기다리지 않는다("a stop word is no reply to judge: nothing waits for M1").
+- `idle`·`stopped` 세션의 작업은 닫힌 작업으로 보지 않는다("idle work, admission active / stopped, is open (decision 35): ..."). `closing`은 턴이 아직 돌아도 닫힌 작업이다("work closing (decision 35), its turn still running: ...", `packages/db/src/conversations/session-work.test.ts`).
+- 봇을 멘션한 글은 M1 판단으로 가지 않는다("a mention of the agent is no reply for M1: ..."). 열린 작업이면 세션의 턴이 되고, `closed` 세션은 이 PR 전과 같이 턴을 받지 않는다. 닫힌 세션의 스레드는 보통 링크가 닫힌 뒤(`SLACK_ROLE_CLOSE_LINKS`) 다음 멘션이 새 세션을 연다.
+- `shadow`·`off`에서는 기다리지 않는다("rollout shadow / off: nothing waits, the work takes the reply as before"). rollout은 이벤트를 볼 때마다 다시 읽으므로, 기다리는 사이 `shadow`·`off`로 내리면 다음 봄에서 지금의 길(세션)로 간다. 그 전에 `quiet`이 났어도 그렇다.
+- 보류한 행은 세션의 턴이 가져갈 때까지 판단 기록(끝났든 아니든)이 붙어 있어 채널의 M1 배치가 가져가지 않는다. 포기·판단 실패·편집 무효 어느 길에서도 기록을 떼지 않는다("M1 could not judge it (...): the work takes it anyway (PM Q2)", "a judgment that waited past its time is given up: ...", `packages/db/src/surface/m1-judgments.integration.test.ts` "a held reply of work going on edited while judged waits for its judgment again, its row kept").
+- 상한을 넘어 난 `quiet`은 답글을 작업에서 떼지 못한다("a quiet M1 gave past the wait does not keep the reply from the work"). 판단의 `judged_at`은 잠금을 기다린 뒤 실제로 쓴 시각(`clock_timestamp()`)이다.
+- 같은 claim 안에서 rollout을 내려도 `quiet`이 서지 않는다. 보류를 보는 transaction이 rollout을 다시 읽어(에이전트 행 `FOR SHARE`, 스위치는 `FOR UPDATE`) `on`이 아니면 지금의 길(세션)로 보낸다("a rollout lowered while a claim looks at its reply: ...").
+- 기다리는 사이 버퍼 한도에 밀려 판단기가 기록을 먼저 끝내도(`failed`) 그 글은 다시 보류하지 않는다("a reply the buffer's limit took while it waited, its record ended by the judge, is not held again").
+- 버퍼 한도에 곧바로 밀린 답글은 기다림을 다시 시작하지 않는다("a reply the buffer's limit takes at once goes to the work, with no wait left behind").
+- 기다리는 사이 작업이 닫혀도 답글을 `m1`으로 다시 보류하지 않는다("work closed while its reply waited: the reply keeps its grade and is judged once").
+- 기다리는 사이 밀린 글을 세션으로 보낸 뒤 그 append가 실패해 이벤트를 다시 봐도 다시 보류하지 않는다(기록을 `failed`로 끝내 둔다, "a reply evicted while it waits is sent to the work once: ..."). 판단 중 밀린 글의 판단이 맥락 삭제로 무효가 돼도 기록의 refs를 지우지 않는다(`packages/db/src/surface/m1-judgments.integration.test.ts` "a held reply of work going on evicted while judged keeps its record, ended, ...").
+- 한 번 보류된 글은 다음 봄에서 그 보류가 답한다. 처음 보류할 때 한 검사(듣는 사람인지, 채널이 듣는지)를 다시 하지 않으므로 Slack이 그 순간 audience를 말하지 못해도 상한 안의 `quiet`이 선다(`packages/adapters/chat/slack/src/slack-thread-judgment.test.ts` "a reply held before answers by its hold, though Slack cannot say its audience now").
+- 채널 종류를 말하지 않는 이벤트는 공개 채널로 묶인 채널이면 판단 전에 Slack에 종류를 묻는다. 비공개로 바뀌었으면 M1이 읽기 전에 지금의 길이 승인 대기로 보낸다("an event that does not say its channel turned private is not judged before the channel's kind is").
+- 한 답글에 청하지 않은 턴은 하나다. 같은 글이 다른 이벤트로 다시 보류돼 `speak`이 나도 두 번째 턴은 `duplicate`로 거절한다(`packages/db/src/conversations/unasked-turns.test.ts` "a reply held again by a second event of it is answered once").
+- 기다리는 사이 밀린 글의 기록을 끝내려다 판단기가 먼저 판정을 썼으면 그 판정을 다시 읽어 따른다(상한 안의 `quiet`이면 세션에 가지 않는다).
+- 세션 턴은 `m1_to_task` 판단이 붙고 배치가 갖지 않은 보류 행만 가져간다. 배치가 가진 행은 버퍼에 남는다(`packages/db/src/conversations/unasked-turns.test.ts` "a post a batch holds stays the batch's when a session's turn takes it").
+
+지킬 성질:
+
+- 열린 작업의 답글은 판단하지 못해도 세션에 간다("M1 could not judge it (...): the work takes it anyway (PM Q2)"). 기다림이 상한을 넘으면 판단 실패로 보고 세션에 넣는다("a judgment that waited past its time is given up: ..."). 늦게 온 판단은 기록만 남고 답글의 길을 바꾸지 못한다.
+- 기다리는 이벤트는 lease를 놓고 그 스레드를 비켜 세운다. 같은 채널의 다른 스레드는 계속 처리된다("the reply waits for M1, its thread aside; ...", `packages/db/src/surface/slack-inbound-claims.test.ts` "a deferred row is released to wait its time; ..."). 같은 스레드의 뒤 이벤트와, 스레드 키 없이 채널의 줄에 서는 이벤트(멤버·이름·보관)는 미룬 행이 끝날 때까지 기다린다(채널 규칙을 바꾸는 이벤트가 앞 글을 앞지르지 않게 하는 claim의 규칙). 그런 채널 전체 이벤트가 채널 줄의 맨 앞에 서면 그 뒤의 다른 스레드도 그 이벤트를 기다린다. 미룸은 시도 횟수를 쓰지 않아 최대 시도에 닿지 않는다(`packages/adapters/chat/slack/src/slack-inbox.test.ts` "a deferred event waits its time, released, and its waits spend no attempt").
+- 상한은 판단을 연 시각부터 센다. 포기는 아직 끝나지 않은(`outcome` 없는) 판단만 `failed`로 끝내고, 0행이면 다시 읽어 같은 순간 기록된 판단을 따른다. 그 판단이 `quiet`이어도 상한을 넘어 기록됐으면 세션으로 간다.
+- 보류·포기·`quiet`의 글 지움은 한 transaction에서 먼저 그 이벤트의 inbox 행을 lease와 함께 잡는다(`FOR UPDATE`, inbox 완료와 같은 순서). lease를 잃은 claim은 아무것도 쓰지 않고, 그 뒤 미룸이 claim 잃음으로 기록한다. 그래서 한 이벤트의 두 주인이 같은 글을 동시에 보류하거나 포기하지 않는다. 세션의 append는 이 transaction 밖이라 fence가 덮지 않는다(아래 한계). 보류는 그 뒤 에이전트(rollout·gate, binding) → 글 표시 → 주제 → 대화 → 입력 → 판단 → 채널 버퍼 한도 순이다. 글 표시를 주제보다 먼저 잡는 것은 세션의 append(세션 → 글 표시 → 주제)와 같은 순서다. 닫힌 작업의 보류(inbox 완료)는 청하지 않은 턴 발행·멘션 재시도와 같이 주제 → 글 표시 순이다. 발행은 교착에 끊기면 다시 하지 않으므로 그쪽과 순서를 맞췄다. lease를 잃은 예전 claim이 같은 글을 append하는 것과 맞물리면(`closing` → `active` 되돌림이 있어야 한다) PostgreSQL이 한쪽을 끊고, 끊긴 쪽(append 또는 inbox 완료)은 다시 시도된다. 포기는 판단 행만 잡는다.
+- `speak` 뒤의 세션 턴은 보류한 행을 그대로 가져간다(입력 하나, 판단이 가리키는 행).
+- 기다리는 사이 편집된 글은 고친 글로 세션에 간다. 푼 글이 이벤트의 처음 글과 같아도(글자로 친 `<@봇>`을 진짜 멘션으로 고친 편집) 행의 편집 시각으로 안다("an edit to a mention of a reply that wrote one out: ...").
+- M1 채널 시간 상한(맞물린 스레드 판단과 배치를 센다)은 `m1`·`m1_to_task` 판단을 세지 않는다. 그 판단이 예산·동시 호출 한도로 부르지 못하면(`not_called`) 위 표의 실패 길을 탄다.
+- 판단이 끝난 뒤 이벤트를 다시 보기까지 미룸 간격(2초)과 inbox pass 간격만큼 늦을 수 있고, M1 판단 pass가 도는 간격(기본 5초)도 기다림에 들어간다. 기본 상한 30초는 실측으로 정한 값이 아니다. 알려진 한계다.
+
+알려진 한계(Codex 리뷰에서 나온 것, 이 PR 밖):
+
+- 열린 작업이어도 세션의 admission이 `paused`·`stopped`면 세션 append가 이 PR 전과 같이 거절한다. 그 답글은 M1을 기다린 뒤 지금처럼 턴 없이 끝난다.
+- `closing` 세션이 close 실패로 `active`로 돌아가고, 그 사이 lease를 잃은 예전 claim이 세션에 append하면 같은 글에 청하지 않은 턴과 세션 턴이 둘 다 날 수 있다. lease 만료, rollout 전환, close 실패가 겹쳐야 한다.
+- 세션 없이 링크만 있는 스레드(여는 중이거나 열기 실패)의 답글은 이 길을 타지 않고 지금의 여는 길로 간다.
+- 기다리는 사이 링크가 닫히면(`SLACK_ROLE_CLOSE_LINKS`) 다음 봄은 묶이지 않은 스레드의 길로 가서 턴 없이 끝난다. 보류한 행은 판단 기록이 붙어 있어 배치가 가져가지 않고, 버퍼 시간이 지나면 지워진다. 그 사이 글이 버퍼에서 밀렸고 최근 맞물린 스레드면, 묶이지 않은 길이 그 글을 `m1_engaged`로 다시 보류해 판단할 수 있다.
+- lease를 잃은 예전 claim이 fence를 지난 뒤(또는 `shadow`일 때 이벤트를 읽고) 멈췄다 살아나 append하면, append는 fence 밖이라 판단이 나기 전이나 새 주인이 상한 안의 `quiet`을 본 뒤에도 그 답글을 세션에 넣을 수 있다. 닫힌 작업에서 두 종류 턴이 나려면 위 `closing` → `active` 되돌림이 있어야 한다. inbox의 at-least-once 처리는 이 PR 전과 같다.
+- 보류한 글이 편집된 뒤 버퍼에서 밀리면 고친 글이 남지 않아, 세션은 이벤트의 처음 글을 받는다.
+- 편집으로 고친 보류 글은 버퍼에 Slack 글자를 푼 채로 남는다. 그래서 세션에 넘길 때 그 안에서 봇 멘션을 벗기면, 글자로 친 `<@봇>`도 멘션으로 읽히고, 멘션의 표시 이름에 든 `>`에서 멘션이 끝난 것으로 읽힌다.
+- 기다리는 사이 세션이 정상 종료되면(`closing`·`closed`) 등급은 `m1_to_task`로 남는다. 그래서 `speak`이나 판단 실패여도 세션 append가 admission에서 거절되고, 청하지 않은 턴도 나지 않는다.
+- 같은 글이 다른 이벤트 ID로 다시 들어오고 그 사이 스레드가 새 작업에 다시 묶이면, 닫힌 작업의 판단과 새 작업의 세션이 한 글에 둘 다 답하거나, 새 보류와 청하지 않은 턴 발행이 교착할 수 있다(Slack은 한 앱에 한 글을 한 이벤트로 보내고, 재시도는 같은 이벤트 ID다).
+- 버퍼 시간(10분)보다 오래 그 이벤트를 다시 보지 못하면(긴 장애) 예전 기록을 찾지 못해 다시 보류한다.
+- 세션이 글을 넘겨받은 뒤(`{edited}`를 읽은 뒤 append 전) 온 편집은 세션에 가지 않는다. 세션이 바로 받은 글의 편집과 같다.
 
 ### mirror 스레드: 가리키는 작업
 
