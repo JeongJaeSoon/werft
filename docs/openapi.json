@@ -35346,7 +35346,7 @@
           "url": {
             "type": "string",
             "maxLength": 300,
-            "pattern": "^https:\\/\\/github\\.com\\/([A-Za-z0-9][A-Za-z0-9-]{0,38})\\/([A-Za-z0-9._-]{1,100}?)(?:\\.git)?\\/?$",
+            "pattern": "^https:\\/\\/github\\.com\\/([A-Za-z0-9][A-Za-z0-9-]{0,38})\\/(?!\\.\\.?(?:\\.git)?\\/?$)([A-Za-z0-9._-]{1,100}?)(?:\\.git)?\\/?$",
             "description": "The repository's address on github.com: `https://github.com/<owner>/<name>`."
           },
           "ref": {

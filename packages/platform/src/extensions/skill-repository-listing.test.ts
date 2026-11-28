@@ -122,6 +122,21 @@ describe("listing a skill repository", () => {
     ]);
   });
 
+  test("an executable bit alone makes scripts, even on a document's extension", async () => {
+    const { entries } = await listed({
+      "skills/run/SKILL.md": skillFile("run"),
+      "skills/run/start.md": { mode: "100755", text: "#!/bin/sh\n" },
+      "skills/docs/SKILL.md": skillFile("docs"),
+      "skills/docs/guide.md": "plain\n",
+    });
+    expect(
+      entries.map(({ path, hasScripts }) => ({ path, hasScripts })),
+    ).toEqual([
+      { path: "skills/docs", hasScripts: false },
+      { path: "skills/run", hasScripts: true },
+    ]);
+  });
+
   test("a SKILL.md at the root is the whole repository, under the root tree", async () => {
     const { entries } = await listed({
       "SKILL.md": skillFile("solo"),
@@ -379,9 +394,10 @@ describe("a repository past what a listing reads", () => {
           skillFile(`s${i}`),
         ]),
       );
-    const most = await listed(files(SKILL_REPOSITORY_LIMITS.maxSkills));
-    expect(most.entries).toHaveLength(SKILL_REPOSITORY_LIMITS.maxSkills);
-    const over = treeOf(files(SKILL_REPOSITORY_LIMITS.maxSkills + 1));
+    // The bound is the number itself, not whatever the constant holds.
+    const most = await listed(files(200));
+    expect(most.entries).toHaveLength(200);
+    const over = treeOf(files(201));
     expect(await listSkillRepository(over.tree, over.readBlobs)).toMatchObject({
       kind: "refused",
       issues: [{ code: "too_many_skills" }],
