@@ -743,7 +743,20 @@ describe("a DM person's standalone sessions (v1-b/DM3)", () => {
       UPDATE sessions SET admission_state = 'paused',
         task_closing = ${JSON.stringify(TASK_CLOSING_DEFAULT)}::jsonb
       WHERE id IN (${late}::uuid, ${reclosed}::uuid)`);
+    // Reopened from the session, not refreshed yet: closed, no close time.
+    const reopened = await session();
+    expect(await routes().bindStandalone(route(reopened))).toBe("bound");
+    await db.execute(sql`
+      INSERT INTO session_outcomes (id, owner_id, session_id, type, url,
+        external_id, state, state_changed_at, closed_at)
+      VALUES (gen_random_uuid(), ${ws}, ${reopened}::uuid,
+        'github_pull_request', 'https://github.com/acme/app/pull/42', '42',
+        'closed', now(), NULL)`);
+    await db.execute(sql`
+      UPDATE sessions SET admission_state = 'paused'
+      WHERE id = ${reopened}::uuid`);
     expect(await closes.closeOnPullRequests(100)).toBe(1);
+    expect(await reasonOf(reopened)).toBe(null);
     expect(await reasonOf(late)).toBe(null);
     expect(await reasonOf(reclosed)).toBe("cancelled");
 

@@ -72,14 +72,15 @@ async function pullRequestReason(
  */
 const SETTLED_AS_TASK = sql`(
   s.task_interpretation IS NOT NULL
+  OR NOT EXISTS (SELECT 1 FROM session_links fl
+    WHERE fl.session_id = s.id AND fl.role = 'primary')
   OR CASE o.state
       WHEN 'merged' THEN coalesce(o.merged_at, o.state_changed_at)
-      WHEN 'closed' THEN coalesce(o.closed_at, o.state_changed_at)
+      -- No close time on a closed one: a reopen not refreshed yet.
+      WHEN 'closed' THEN o.closed_at
       ELSE o.state_changed_at
-    END >= coalesce(
-      (SELECT min(fl.created_at) FROM session_links fl
-        WHERE fl.session_id = s.id AND fl.role = 'primary'),
-      '-infinity'::timestamptz))`;
+    END >= (SELECT min(fl.created_at) FROM session_links fl
+      WHERE fl.session_id = s.id AND fl.role = 'primary'))`;
 
 /**
  * A task's time rules (v1-b/C2), on the database clock, over sessions `s`
