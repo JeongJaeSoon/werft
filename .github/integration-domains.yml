@@ -188,7 +188,6 @@ domains:
       - tests/e2e/real-model.
       - tests/execution-backend-env.
       - tests/fetch-pinned.
-      - tests/forbidden-terms.
       - tests/soak/
       - tests/ci-issue-scripts.
       - tests/integration-jobs.
