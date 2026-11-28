@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { SessionServiceError } from "@werft-ai/platform";
+import { resolveAgentRelease, SessionServiceError } from "@werft-ai/platform";
 
 import { ApiHttpError } from "../app.ts";
 import { mapped } from "./errors.ts";
@@ -39,6 +39,36 @@ describe("the variable errors a session start can answer", () => {
     expect(error).toMatchObject({
       status: 400,
       code: "VARIABLE_NAME_RESERVED",
+    });
+  });
+});
+
+describe("a start on a release this build cannot read", () => {
+  test("is a 409 that is not worth retrying, with no Retry-After", async () => {
+    const id = `sha256:${"3".repeat(64)}`;
+    const agentId = "019a0000-0000-7000-8000-00000000b0a1";
+    const error = await mapped(() =>
+      resolveAgentRelease(
+        {
+          store: {
+            findRelease: async () => ({
+              unreadable: { id, reason_code: "policy_pins_unreadable" },
+              agent_id: agentId,
+            }),
+            autoModelMigration: async () => false,
+          },
+          catalog: { connections: {} },
+        },
+        "019a0000-0000-7000-8000-000000000001",
+        id,
+      ),
+    ).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ApiHttpError);
+    expect(error).toMatchObject({
+      status: 409,
+      code: "RELEASE_SPEC_UNAVAILABLE",
+      retryable: false,
+      retryAfterSeconds: undefined,
     });
   });
 });
