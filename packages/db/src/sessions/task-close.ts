@@ -77,17 +77,6 @@ async function closeTask(
       .limit(1);
     if (!row) return "not_found";
     if (row.taskClosing === null) return "not_task";
-    let decided: TaskClosedReason;
-    if (typeof input.reason === "function") {
-      try {
-        decided = await input.reason(db, sessionId);
-      } catch (error) {
-        if (error instanceof NotDue) return "refused";
-        throw error;
-      }
-    } else {
-      decided = input.reason;
-    }
     let result: Awaited<ReturnType<typeof closeAtomic>>;
     try {
       result = await closeAtomic(db, {
@@ -95,12 +84,15 @@ async function closeTask(
         sessionId,
         idempotencyKey: randomUUID(),
         // closeAtomic stores the reason's own hash once it is judged.
-        payloadHash: taskClosePayloadHash(decided),
+        payloadHash:
+          typeof input.reason === "function"
+            ? "task_close"
+            : taskClosePayloadHash(input.reason),
         expectedRevision: row.revision,
         reason: null,
         now: new Date(),
         ...(input.by === undefined ? {} : { by: input.by }),
-        taskClosedReason: decided,
+        taskClosedReason: input.reason,
       });
     } catch (error) {
       if (error instanceof NotDue) return "refused";

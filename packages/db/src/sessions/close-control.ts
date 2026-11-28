@@ -273,7 +273,7 @@ export function closeAtomic(
         updatedAt: now,
       })
       .where(eq(sessions.id, sessionId));
-    if (taskClosedReason !== undefined) {
+    if (taskClosedReason !== undefined && into === "closed") {
       await recordTaskClosedReason(tx, sessionId, taskClosedReason);
     }
 
