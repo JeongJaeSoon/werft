@@ -73,11 +73,15 @@ export async function requestReplyJudgment(
     sessionId: string | null;
     /** A held reply of a thread bound to work (v1-b/U1). */
     heldAs?: "m1" | "m1_to_task";
+    /** Of one held `m1_to_task`: the session whose work it waits on. */
+    workSessionId?: string;
     rule: JudgmentRule;
   },
 ): Promise<void> {
   let grade: string = input.heldAs ?? "m1_engaged";
+  let workSessionId = input.workSessionId ?? null;
   if (input.sessionId !== null) {
+    workSessionId = input.sessionId;
     const [session] = rowsOf<{ admission_state: string }>(
       await tx.execute(sql`
         SELECT admission_state FROM sessions WHERE id = ${input.sessionId}::uuid`),
@@ -88,12 +92,13 @@ export async function requestReplyJudgment(
     INSERT INTO conversation_judgments (
       id, workspace_id, agent_id, conversation_id, grade, slack_team_id,
       slack_channel_id, refs, input_id, prompt_version, rule_decision,
-      rule_reason
+      rule_reason, work_session_id
     )
     SELECT ${randomUUID()}::uuid, ${input.workspaceId}::uuid,
       ${input.agentId}::uuid, t.conversation_id, ${grade}, ${input.teamId},
       ${input.channelId}, ARRAY[${input.ts}]::text[], ${input.inputId}::uuid,
-      ${M1_PROMPT_VERSION}, ${input.rule.decision}, ${input.rule.reason}
+      ${M1_PROMPT_VERSION}, ${input.rule.decision}, ${input.rule.reason},
+      ${grade === "m1_to_task" ? workSessionId : null}::uuid
     FROM conversation_topics t
     JOIN agents a ON a.id = t.agent_id
     WHERE t.id = ${input.topicId}::uuid

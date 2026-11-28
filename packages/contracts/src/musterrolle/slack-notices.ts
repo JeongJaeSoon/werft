@@ -119,6 +119,9 @@ const SLACK_NOTICE_MESSAGES_KO = {
   taskChannel: "이 채널에서는 작업을 시작할 수 없어요",
   taskNoRight: "이 요청으로는 작업을 시작할 권한이 없어요",
   taskFailed: "작업을 시작하지 못했어요.",
+  // A mention in a task's thread while the task wraps up (closing): taken
+  // up once it is done, said once per closing.
+  taskClosingWait: "작업을 마무리하고 있어요. 끝나면 이 글에 이어서 답할게요.",
   taskLimitConversation:
     "이 대화에 열린 작업이 3개라 새 작업을 시작하지 않았어요. 열린 작업이 끝나면 다시 요청해 주세요",
   taskLimitAgent:
@@ -245,6 +248,8 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     taskChannel: "このチャンネルでは作業を始められません",
     taskNoRight: "このリクエストでは作業を始める権限がありません",
     taskFailed: "作業を始められませんでした。",
+    taskClosingWait:
+      "作業をまとめています。終わったら、この投稿に続けて返信します。",
     taskLimitConversation:
       "この会話には進行中の作業が3件あるため、新しい作業は始めませんでした。進行中の作業が終わってから、もう一度依頼してください",
     taskLimitAgent:
@@ -356,6 +361,8 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     taskChannel: "Tasks can't be started in this channel",
     taskNoRight: "This request doesn't have permission to start a task",
     taskFailed: "The task couldn't be started.",
+    taskClosingWait:
+      "I'm wrapping up the task. Once it's done, I'll reply to this message.",
     taskLimitConversation:
       "This conversation already has 3 open tasks, so a new one wasn't started. Ask again once one of them finishes",
     taskLimitAgent:

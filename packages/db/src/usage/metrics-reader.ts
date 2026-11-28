@@ -64,6 +64,11 @@ export type PlatformMetricsSnapshot = {
    * turns with `no_capacity` at one moment, so one is a session and an end.
    */
   noCapacityFailures: number;
+  /**
+   * Replies held for their work's judgment (`m1_to_task`) M1 spoke to that
+   * neither an unasked turn nor a session's turn took, ten minutes on.
+   */
+  heldRepliesUnanswered: number;
   /** `firstAt` is the earliest call of the name, whatever its outcome. */
   toolCalls: {
     name: string;
@@ -129,6 +134,7 @@ export async function readPlatformMetrics(
     outcomeUnknownTurns,
     waitingForCapacity,
     noCapacityFailures,
+    heldRepliesUnanswered,
     toolCallRows,
     providerUsageRows,
     launchQueue,
@@ -141,6 +147,7 @@ export async function readPlatformMetrics(
     readOutcomeUnknownTurns(db),
     readWaitingForCapacity(db),
     readNoCapacityFailures(db),
+    readHeldRepliesUnanswered(db),
     readToolCalls(db),
     readProviderUsage(db),
     options.budget === null ? null : readLaunchQueue(db, options.budget),
@@ -154,6 +161,7 @@ export async function readPlatformMetrics(
     outcomeUnknownTurns,
     waitingForCapacity,
     noCapacityFailures,
+    heldRepliesUnanswered,
     toolCalls: toolCallRows,
     providerUsage: providerUsageRows,
     launchQueue,
@@ -294,6 +302,29 @@ async function readNoCapacityFailures(db: Database) {
     .from(turns)
     .where(eq(turns.terminalReason, "no_capacity"));
   return row?.count ?? 0;
+}
+
+// By post: a post held twice is one reply, answered by an unasked turn of
+// any of its judgments (an `m1` one too) or by a session turn of its input.
+async function readHeldRepliesUnanswered(db: Database) {
+  const [row] = rowsOf<{ count: string }>(
+    await db.execute(sql`
+      SELECT count(*) AS count FROM (
+        SELECT j.agent_id, j.slack_team_id, j.slack_channel_id, j.target_ts
+        FROM conversation_judgments j
+        WHERE j.target_ts IS NOT NULL
+        GROUP BY j.agent_id, j.slack_team_id, j.slack_channel_id, j.target_ts
+        HAVING bool_or(j.grade = 'm1_to_task' AND j.decision = 'speak'
+            AND j.judged_at < now() - interval '10 minutes')
+          AND bool_and(j.turn_id IS NULL)) p
+      WHERE NOT EXISTS (
+        SELECT 1 FROM conversation_inputs i
+        WHERE i.agent_id = p.agent_id
+          AND i.slack_team_id = p.slack_team_id
+          AND i.slack_channel_id = p.slack_channel_id
+          AND i.slack_ts = p.target_ts AND i.turn_id IS NOT NULL)`),
+  );
+  return Number(row?.count ?? 0);
 }
 
 // A call whose permission request a person denied counts as denied. tool_use

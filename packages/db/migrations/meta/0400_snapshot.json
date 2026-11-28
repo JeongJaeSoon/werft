@@ -1,5 +1,5 @@
 {
-  "id": "6e143df6-b6b0-4b17-84e7-55184de4331e",
+  "id": "06b51521-4555-4bac-84c8-76278d5e0b9e",
   "prevId": "72edec81-f099-47d0-8f0d-916f6db60bb0",
   "version": "7",
   "dialect": "postgresql",
@@ -5788,18 +5788,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "reserve_priced_by": {
-          "name": "reserve_priced_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "priced_by": {
-          "name": "priced_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "unknown_at": {
           "name": "unknown_at",
           "type": "timestamp with time zone",
@@ -6086,10 +6074,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "conversation_calls_priced_by_check": {
-          "name": "conversation_calls_priced_by_check",
-          "value": "\"conversation_calls\".\"reserve_priced_by\" IN ('table', 'litellm', 'unknown', 'unmetered') AND \"conversation_calls\".\"priced_by\" IN ('table', 'litellm', 'unknown', 'unmetered')"
-        },
         "conversation_calls_conversation_turn_check": {
           "name": "conversation_calls_conversation_turn_check",
           "value": "\"conversation_calls\".\"conversation_turn_id\" IS NULL OR COALESCE(\"conversation_calls\".\"call_class\" = 'm2', false)"
@@ -6790,6 +6774,12 @@
         "answer": {
           "name": "answer",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "work_session_id": {
+          "name": "work_session_id",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
