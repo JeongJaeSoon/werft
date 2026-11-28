@@ -1437,11 +1437,13 @@ export function createSlackSessionHandler(
       return;
     }
 
-    // A held text an edit changed is decoded already: no mention is read
-    // out of it again.
+    // A held text an edit changed is decoded already, so it is not decoded
+    // again; the agent's mention is still taken out of it, as an edit may add
+    // one (a stop, say).
     const message =
-      editedText ??
-      unescapeSlackText(withoutBotMention(event.text, agent.botUserId));
+      editedText === undefined
+        ? unescapeSlackText(withoutBotMention(event.text, agent.botUserId))
+        : withoutBotMention(editedText, agent.botUserId);
     if (!messageTextSchema.safeParse(message).success) {
       deps.logger.info("Slack message has no text to send; ignored", ids);
       return;
