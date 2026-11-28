@@ -116,6 +116,10 @@ async function receive(options: {
     boundReplies: {
       heldForWork: async () => options.held ?? false,
       answeredUnasked: async () => false,
+      closedWork: async () =>
+        (options.work ?? "closed") === "open"
+          ? null
+          : { admission: "closed" as const },
       work: async (sessionId: string) => {
         workAsked.push(sessionId);
         return options.work ?? "closed";
