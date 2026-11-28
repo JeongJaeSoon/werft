@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { egressProxyConfigFromEnv } from "./config.ts";
 import {
   type Authorized,
+  addressMemory,
   bodyReservation,
   type CredentialProxyServer,
   decidedWithin,
@@ -582,7 +583,9 @@ describe("the registered-private mark", () => {
       ["010.0.0.5", "8.0.0.5"],
       ["[FD00::1]", "fd00::1"],
       ["fd00:0:0:0:0:0:0:1", "fd00::1"],
-      ["::ffff:10.0.0.5", "::ffff:a00:5"],
+      // IPv4-mapped is the IPv4 address a socket takes it to.
+      ["::ffff:10.0.0.5", "10.0.0.5"],
+      ["[::FFFF:A00:5]", "10.0.0.5"],
       // Not a host alone.
       ["", null],
       [".", null],
@@ -636,6 +639,9 @@ describe("the registered-private mark", () => {
     expect(
       grant({ url: "http://model.internal:4000/v1", allow: "private" }),
     ).toBeNull();
+    // On every route, the built-in server and the routes that do not read
+    // the mark included: a grant is read before its route is known.
+    expect(grant({ url: "/mcp/github", allow: "private" })).toBeNull();
   });
 
   test("without the private mark a deny list is not read", () => {
@@ -766,18 +772,15 @@ describe("the registered-private mark", () => {
     expect(privateRefusal("10.0.0.8", own)).toBeNull();
   });
 
-  test("installationHosts adds this proxy's addresses and the authorizer, by name and by address", async () => {
-    const looked: string[] = [];
-    const hosts = await installationHosts(
-      ["db", "10.0.0.7"],
-      "api",
-      ["172.20.0.4", "fd00:0:0:0:0:0:0:4", "fe80::1%eth0"],
-      async (host) => {
-        looked.push(host);
-        return ["172.20.0.3"];
-      },
-    );
-    expect([...(hosts ?? [])].sort()).toEqual(
+  test("installationHosts holds the grant's hosts, the authorizer and the addresses given, each in one spelling", () => {
+    const hosts = installationHosts(["db", "10.0.0.7"], "api", [
+      "172.20.0.4",
+      "fd00:0:0:0:0:0:0:4",
+      "fe80::1%eth0",
+      "::ffff:172.20.0.3",
+      "not-an-address",
+    ]);
+    expect([...hosts].sort()).toEqual(
       [
         "db",
         "10.0.0.7",
@@ -788,25 +791,28 @@ describe("the registered-private mark", () => {
         "172.20.0.3",
       ].sort(),
     );
-    // The grant's names are compared as names: the authorizer sends their
-    // addresses, and a name this network cannot resolve would stall the call.
-    expect(looked).toEqual(["api"]);
-    // An authorizer named by address is that address.
-    const literal = await installationHosts([], "172.20.0.3", [], async () => {
-      throw new Error("not asked");
-    });
-    expect([...(literal ?? [])]).toEqual(["172.20.0.3"]);
+    // An authorizer that answers on an IPv4-mapped address is the IPv4
+    // address an upstream would be dialled at, and the other way round.
+    expect(privateRefusal("172.20.0.3", hosts)).toBe(
+      "172.20.0.3 is the installation's own",
+    );
+    expect(privateRefusal("::ffff:172.20.0.4", hosts)).toBe(
+      "::ffff:172.20.0.4 is the installation's own",
+    );
+    expect([...installationHosts([], "172.20.0.3", [])]).toEqual([
+      "172.20.0.3",
+    ]);
   });
 
-  test("installationHosts has no answer while the authorizer's name does not resolve", async () => {
-    expect(
-      await installationHosts(["db"], "api", [], async () => []),
-    ).toBeNull();
-    expect(
-      await installationHosts(["db"], "api", [], async () => {
-        throw new Error("getaddrinfo ENOTFOUND api");
-      }),
-    ).toBeNull();
+  test("addressMemory keeps what a name resolved to until it is that old", () => {
+    let now = 1_000;
+    const seen = addressMemory(300, () => now);
+    expect(seen(["10.0.0.7"])).toEqual(["10.0.0.7"]);
+    now += 200;
+    // The name moved: the address it had is still remembered for a while.
+    expect(seen(["10.0.0.8"]).sort()).toEqual(["10.0.0.7", "10.0.0.8"]);
+    now += 200;
+    expect(seen(["10.0.0.8"])).toEqual(["10.0.0.8"]);
   });
 });
 
@@ -4819,21 +4825,32 @@ describe("startCredentialProxy", () => {
         grant = grantOf(`http://${INSIDE}:4000/mcp`, {});
         expect((await call(server.port, TOOLS_CALL)).status).toBe(403);
         expect((await messages(server.port)).status).toBe(403);
-        // A deny list alone is no mark.
-        grant = grantOf(`http://${INSIDE}:4000/mcp`, { deny: [] });
-        expect((await call(server.port, TOOLS_CALL)).status).toBe(403);
         expect(looked).toEqual(["upstream.test", "upstream.test"]);
         expect(lines.join("\n")).toContain("destination is not allowlisted");
-        expect(lines.join("\n")).not.toContain("not private");
+        // A deny list alone is no mark: it does not close the listed host.
+        const listed = `http://upstream.test:${up.port}/mcp`;
+        grant = grantOf(listed, { deny: ["upstream.test", "127.0.0.1"] });
+        expect((await call(server.port, TOOLS_CALL)).status).toBe(200);
+        expect(up.seen).toHaveLength(3);
+        expect(lines.join("\n")).not.toContain("installation's own");
+        // With the mark the same listed host is held to the private rules,
+        // which loopback does not pass.
+        grant = grantOf(listed);
+        expect((await call(server.port, TOOLS_CALL)).status).toBe(403);
+        // A private mark without its deny list is no grant at all.
+        grant = grantOf(listed, { allow: "private" });
+        expect((await call(server.port, TOOLS_CALL)).status).toBe(503);
+        expect(up.seen).toHaveLength(3);
       });
 
       test.skipIf(lan === undefined)(
         "the mark opens a name that resolves privately, for an MCP server and a model alike",
         async () => {
           const up = inside();
+          let addresses = [lan ?? ""];
           const { server, looked } = marked(
             () => grantOf(`http://${INSIDE}.:${up.port}/base`),
-            async () => [lan ?? ""],
+            async () => addresses,
             { selfAddresses: () => [] },
           );
           expect((await call(server.port, TOOLS_CALL)).status).toBe(200);
@@ -4847,6 +4864,10 @@ describe("startCredentialProxy", () => {
           ]);
           // Looked up afresh for each exchange.
           expect(looked).toEqual([INSIDE, INSIDE]);
+          // And judged afresh: the answer that passed a moment ago is not kept.
+          addresses = ["93.184.216.34"];
+          expect((await call(server.port, TOOLS_CALL)).status).toBe(403);
+          expect(up.seen).toHaveLength(2);
         },
       );
 
@@ -4938,7 +4959,7 @@ describe("startCredentialProxy", () => {
           ["127.0.0.2", "is loopback, not private"],
           ["127.255.255.254", "is loopback, not private"],
           ["::1", "is loopback, not private"],
-          ["::ffff:127.0.0.1", "is loopback, not private"],
+          ["::ffff:127.0.0.2", "is loopback, not private"],
           ["169.254.10.10", "is link_local"],
           ["fe80::1", "is link_local"],
           ["0.0.0.0", "is unspecified"],
@@ -5005,7 +5026,7 @@ describe("startCredentialProxy", () => {
           ["http://2852039166/mcp", "169.254.169.254", "is metadata"],
           ["http://0xa9fea9fe/mcp", "169.254.169.254", "is metadata"],
           // IPv4-mapped IPv6 and NAT64.
-          ["http://[::ffff:127.0.0.1]/mcp", "::ffff:7f00:1", "is loopback"],
+          ["http://[::ffff:127.0.0.2]/mcp", "::ffff:7f00:2", "is loopback"],
           ["http://[0:0:0:0:0:0:0:1]/mcp", "::1", "is loopback"],
           [
             "http://[::ffff:169.254.169.254]/mcp",
@@ -5097,6 +5118,9 @@ describe("startCredentialProxy", () => {
         expect((await call(server.port, TOOLS_CALL)).status).toBe(403);
         // By its host, before any lookup, and whatever the port.
         url = "http://127.0.0.1:9/mcp";
+        expect((await call(server.port, TOOLS_CALL)).status).toBe(403);
+        // And in the IPv4-mapped spelling of the same address.
+        url = "http://[::ffff:127.0.0.1]:9/mcp";
         expect((await call(server.port, TOOLS_CALL)).status).toBe(403);
         expect(looked).toEqual([]);
         expect(lines.join("\n")).toContain(
