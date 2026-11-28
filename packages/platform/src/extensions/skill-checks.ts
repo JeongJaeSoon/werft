@@ -15,6 +15,37 @@ export const LARGE_CHANGE_LINES = 300;
 const MAX_SAMPLES = 20;
 
 /**
+ * NFKC of a line, in pieces cut just before an ASCII character past 256 code
+ * units: ASCII neither composes with what precedes it nor reorders, so the
+ * pieces give the whole line's NFKC. One long run with no ASCII (combining
+ * marks, or characters that decompose into them) takes time quadratic in its
+ * length, so it is cut every 1,024 units from where it starts: the cuts
+ * depend on the run alone, not on what comes before it.
+ */
+export function nfkc(line: string): string {
+  if (line.length <= 256) return line.normalize("NFKC");
+  const pieces: string[] = [];
+  let at = 0;
+  while (at < line.length) {
+    let end = Math.min(at + 256, line.length);
+    let run = end;
+    while (run > at && line.charCodeAt(run - 1) > 0x7f) run--;
+    while (
+      end < line.length &&
+      line.charCodeAt(end) > 0x7f &&
+      end - run < 1024
+    ) {
+      end++;
+    }
+    const last = line.charCodeAt(end - 1);
+    if (end < line.length && last >= 0xd800 && last <= 0xdbff) end++;
+    pieces.push(line.slice(at, end).normalize("NFKC"));
+    at = end;
+  }
+  return pieces.join("");
+}
+
+/**
  * Sentences that read as an instruction to the agent rather than to the
  * reader of a skill. Matched on added lines after NFKC and lower-casing.
  * The one list; tests hold a match and a near miss for each.
@@ -40,7 +71,7 @@ export const INSTRUCTION_PATTERNS: readonly { id: string; pattern: RegExp }[] =
     {
       id: "ignore_instructions_ko",
       pattern:
-        /(?:이전|앞의|위의|기존|모든)\s*(?:의\s*)?(?:모든\s*)?(?:지시|지침|명령|규칙)\S{0,4}\s*(?:을|를)?\s*(?:무시|잊)/,
+        /(?:이전|앞의|위의|기존|모든)\s*(?:의\s*)?(?:모든\s*)?(?:지시|지침|명령|규칙)\S{0,4}\s*(?:(?:을|를)\s*)?(?:무시|잊)/,
     },
     {
       id: "send_credentials_ko",
@@ -84,6 +115,11 @@ const count = (text: string, char: string): number =>
 
 /** The host a client reaches, or null when no URL parser would take it. */
 function parsedHost(scheme: string, authority: string): string | null {
+  // A parser's IDN mapping of a long non-ASCII (or percent-escaped) host, such
+  // as a run of combining marks, takes time quadratic in its length, and no
+  // such DNS name passes 253 characters. ASCII hosts parse in linear time.
+  const host = authority.slice(authority.lastIndexOf("@") + 1);
+  if (host.length > 253 + 6 && /[^\x20-\x7e]|%/.test(host)) return null;
   try {
     // Userinfo, ports, percent-escapes, quotes and IDN spellings resolve as
     // a client resolves them.
@@ -300,7 +336,7 @@ export function checkSkillVersion(
       for (const char of line.match(HIDDEN) ?? []) {
         flag("hidden_unicode", file.path, codePoint(char));
       }
-      const plain = line.normalize("NFKC").replace(HIDDEN, "").toLowerCase();
+      const plain = nfkc(line).replace(HIDDEN, "").toLowerCase();
       for (const { id, pattern } of INSTRUCTION_PATTERNS) {
         if (pattern.test(plain)) flag("instruction_like", file.path, id);
       }

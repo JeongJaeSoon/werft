@@ -162,19 +162,12 @@ describe("ci.yml and the Pages deploy", () => {
   });
 });
 
-test("only the main Pages build writes the shared Next cache", () => {
-  const ciSteps = ci.jobs.docs?.steps ?? [];
-  const pageSteps = pages.jobs.docs?.steps ?? [];
-  const restore = (steps: typeof ciSteps) =>
-    steps.find((s) => s.id === "docs-cache");
-  expect(restore(ciSteps)?.with?.path).toBe("apps/docs/.next/cache");
-  expect(restore(pageSteps)?.with).toEqual(restore(ciSteps)?.with);
-  const saves = (steps: typeof ciSteps) =>
-    steps.filter((s) => s.uses?.startsWith("actions/cache/save@"));
-  expect(saves(ciSteps)).toEqual([]);
-  expect(saves(pageSteps)).toHaveLength(1);
-  expect(saves(pageSteps)[0]?.if).toBe(
-    "github.ref == 'refs/heads/main' && steps.docs-cache.outputs.cache-hit != 'true'",
-  );
-  expect(saves(pageSteps)[0]?.with?.path).toBe("apps/docs/.next/cache");
+// A main writer would build the site on every push that changes it to save
+// the 26 s a warm Next cache takes off a 74 s build (2026-11-28), and the
+// restore alone never hit: no step keeps a Next cache.
+test("the docs builds keep no Next cache", () => {
+  for (const steps of [ci.jobs.docs?.steps ?? [], pages.jobs.docs?.steps ?? []])
+    expect(steps.filter((s) => s.uses?.startsWith("actions/cache"))).toEqual(
+      [],
+    );
 });
