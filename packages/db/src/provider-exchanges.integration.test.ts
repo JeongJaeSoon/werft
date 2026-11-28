@@ -348,6 +348,7 @@ integration("the provider exchange ledger under concurrent writers", () => {
     expect(seen).toEqual({
       costUsd: 0.0084,
       providerTokens: RESERVE.inputTokens + 80,
+      unknownPriceTokens: 0,
       unmetered: false,
       reserves: [RESERVE],
     });

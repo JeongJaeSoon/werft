@@ -11,6 +11,10 @@
  *
  * An OpenAI model, which an `openai_responses` session calls, is priced from
  * `model-prices-openai.ts`.
+ *
+ * A model neither table names is priced from the LiteLLM snapshot
+ * (`model-prices-litellm.ts`), and one that is in none of the three is
+ * unknown: its calls have no amount, and no other model's rates stand in.
  */
 
 import {
@@ -22,14 +26,20 @@ import {
   WEB_SEARCH_MICRO_USD,
 } from "./model-prices-claude.ts";
 import {
-  OPENAI_ALL_RATES,
+  liteLlmDecisionRatesFor,
+  liteLlmRatesFor,
+} from "./model-prices-litellm.ts";
+
+export { PRICE_VERSION } from "./model-prices-litellm.ts";
+
+import {
   OPENAI_CACHE_WRITE_12H,
   OPENAI_CACHE_WRITE_30M,
   TOP_SPEED_MULTIPLIER as OPENAI_TOP_SPEED_MULTIPLIER,
-  openAiFallbackFloor,
-  openAiFallbackSpeedMultiplier,
+  openAiNames,
   openAiRatesFor,
   openAiSpeedMultiplier,
+  openAiTierMultiplier,
 } from "./model-prices-openai.ts";
 
 type ModelPrice = {
@@ -48,35 +58,12 @@ function price(input: number, output: number, cacheRead: number): ModelPrice {
 
 const CARDS = Object.entries(CLAUDE_CARDS);
 
-/** Exact model ids as an answer names them, aliases and dated ids both. */
-export const MODEL_PRICES: Readonly<Record<string, ModelPrice>> =
-  Object.fromEntries(CARDS.map(([model, card]) => [model, card.standard]));
-
 /**
  * A model from before Claude 4.6 (a card without `geo`) has a 200K window,
  * and its card's rates stop there: an answer that used more came from a
  * provider charging a long-context rate the table does not know.
  */
 const BEFORE_4_6_CONTEXT_TOKENS = 200_000;
-
-/** `speed: "fast"` rates, a multiple of the standard ones for the models offering it. */
-export const FAST_MODEL_PRICES: Readonly<Record<string, ModelPrice>> =
-  Object.fromEntries(
-    CARDS.flatMap(([model, { standard, fast }]) =>
-      fast === undefined
-        ? []
-        : [
-            [
-              model,
-              price(
-                standard.inputUsdPerMtok * fast,
-                standard.outputUsdPerMtok * fast,
-                standard.cacheReadUsdPerMtok * fast,
-              ),
-            ],
-          ],
-    ),
-  );
 
 /**
  * What a speed multiplies a Claude model's rates by. A tier its card does not
@@ -97,30 +84,21 @@ function claudeSpeedMultiplier(card: ClaudeCard, speed: string): number {
 }
 
 /**
- * A model no table knows is charged every part at the highest rate either
- * table has, and an unknown geo at the highest multiplier too.
+ * A call nothing prices: it has no amount, which the ledger stores as 0
+ * beside `unknown`. No rate is guessed for it, so no cost limit counts it;
+ * a session of such a model is held to a token limit of its own.
  */
-const FALLBACK_PRICE: ModelPrice = (() => {
-  const prices = [
-    ...Object.values(MODEL_PRICES),
-    ...Object.values(FAST_MODEL_PRICES),
-    ...OPENAI_ALL_RATES,
-  ];
-  return price(
-    Math.max(...prices.map((known) => known.inputUsdPerMtok)),
-    Math.max(...prices.map((known) => known.outputUsdPerMtok)),
-    Math.max(...prices.map((known) => known.cacheReadUsdPerMtok)),
-  );
-})();
+const UNPRICED = { costUsd: 0, pricedBy: "unknown" } as const;
+/** A model the tables price pays the highest multiplier for a geo none lists. */
 const FALLBACK_GEO_PERCENT = Math.max(...Object.values(GEO_PERCENT));
 
 /**
- * The fallback for a model the Claude table does not name: one no table
- * knows, or an OpenAI one whose table has no rates for the prompt's length.
- * Either may be an OpenAI call, so away from the standard speed every rate
- * is multiplied by the dearest multiple the OpenAI table has for that tier,
- * and its cache writes cost what the dearer of the two providers charges. A
- * model the Claude table names keeps its own multiples and cache writes.
+ * For a model the snapshot prices, which neither table names. It may be an
+ * OpenAI call, so away from the standard speed every rate is multiplied by
+ * the dearest multiple the OpenAI table has for that tier, and a cache write
+ * the snapshot does not price costs what the dearer of the two providers
+ * charges. A model the Claude table names keeps its own multiples and cache
+ * writes.
  */
 const NON_CLAUDE_SHORT_WRITE = Math.max(CACHE_WRITE_5M, OPENAI_CACHE_WRITE_30M);
 const NON_CLAUDE_LONG_WRITE = Math.max(CACHE_WRITE_1H, OPENAI_CACHE_WRITE_12H);
@@ -146,17 +124,28 @@ export type ProviderUsage = {
 };
 
 /**
- * Which rates priced a call: the table's, the fallback's (a model the table
- * does not know), or none, for a connection that declared `billing: none`.
+ * Which rates priced a call: the platform's tables, the LiteLLM snapshot,
+ * none because nothing prices its model (`unknown`), or none because its
+ * connection declared `billing: none`. `fallback` is in rows of releases
+ * before the snapshot, which charged such a model the highest rates the
+ * tables had; no call is given it now.
  */
-export type PricedBy = "table" | "fallback" | "unmetered";
+export type PricedBy =
+  | "table"
+  | "litellm"
+  | "unknown"
+  | "fallback"
+  | "unmetered";
+
+/** What prices a metered call today. */
+export type PriceSource = "table" | "litellm" | "unknown";
 
 export function priceProviderUsage(usage: ProviderUsage): {
   costUsd: number;
-  pricedBy: "table" | "fallback";
+  pricedBy: PriceSource;
 } {
   // An OpenAI model has no speed or geo to price: its own table decides, and
-  // a model or prompt length it does not cover falls through to the fallback.
+  // a model or prompt length it does not cover is decided below.
   const openAi = openAiRatesFor(
     usage.model,
     usage.inputTokens +
@@ -207,23 +196,31 @@ export function priceProviderUsage(usage: ProviderUsage): {
       : card.long !== undefined && promptTokens > card.long.aboveTokens
         ? card.long.rates
         : card.standard;
-  const floor = nonClaude ? openAiFallbackFloor(usage.model) : undefined;
+  // The snapshot fills in only for a model neither table names: one a table
+  // names past its card has outgrown rates the platform checked itself.
+  const lite =
+    nonClaude && !openAiNames(usage.model)
+      ? liteLlmRatesFor(usage.model, promptTokens, {
+          short: NON_CLAUDE_SHORT_WRITE,
+          long: NON_CLAUDE_LONG_WRITE,
+        })
+      : undefined;
   const rates =
     known ??
-    (floor === undefined
-      ? FALLBACK_PRICE
-      : price(
-          Math.max(FALLBACK_PRICE.inputUsdPerMtok, floor.inputUsdPerMtok),
-          Math.max(FALLBACK_PRICE.outputUsdPerMtok, floor.outputUsdPerMtok),
-          Math.max(
-            FALLBACK_PRICE.cacheReadUsdPerMtok,
-            floor.cacheReadUsdPerMtok,
-          ),
-        ));
-  // Past its window a Claude model keeps its own multiple on the fallback.
+    (lite === undefined
+      ? undefined
+      : price(lite.input, lite.output, lite.cacheRead));
+  if (rates === undefined) return UNPRICED;
+  // Tokens times a rate, in the order the tables' own multiples have always
+  // been applied: another order moves a product's last bit, and with it a
+  // charge by a micro-dollar.
+  const written = (tokens: number, snapshot: number | undefined, of: number) =>
+    snapshot === undefined
+      ? tokens * rates.inputUsdPerMtok * of
+      : tokens * snapshot;
   const speedMultiplier =
     card === undefined
-      ? openAiFallbackSpeedMultiplier(usage.model, usage.speed)
+      ? openAiTierMultiplier(usage.speed)
       : claudeSpeedMultiplier(card, usage.speed);
   const oneHour = Math.min(
     usage.cacheCreation1hInputTokens,
@@ -231,12 +228,16 @@ export function priceProviderUsage(usage: ProviderUsage): {
   );
   const perMtok =
     usage.inputTokens * rates.inputUsdPerMtok +
-    (usage.cacheCreationInputTokens - oneHour) *
-      rates.inputUsdPerMtok *
-      (nonClaude ? NON_CLAUDE_SHORT_WRITE : CACHE_WRITE_5M) +
-    oneHour *
-      rates.inputUsdPerMtok *
-      (nonClaude ? NON_CLAUDE_LONG_WRITE : CACHE_WRITE_1H) +
+    written(
+      usage.cacheCreationInputTokens - oneHour,
+      lite?.cacheWrite,
+      nonClaude ? NON_CLAUDE_SHORT_WRITE : CACHE_WRITE_5M,
+    ) +
+    written(
+      oneHour,
+      lite?.cacheWriteLong,
+      nonClaude ? NON_CLAUDE_LONG_WRITE : CACHE_WRITE_1H,
+    ) +
     usage.cacheReadInputTokens * rates.cacheReadUsdPerMtok +
     usage.outputTokens * rates.outputUsdPerMtok;
   return {
@@ -244,8 +245,29 @@ export function priceProviderUsage(usage: ProviderUsage): {
       ((perMtok * speedMultiplier * geo) / 100 +
         usage.webSearchRequests * WEB_SEARCH_MICRO_USD) /
       1_000_000,
-    pricedBy: known === undefined ? "fallback" : "table",
+    pricedBy: known === undefined ? "litellm" : "table",
   };
+}
+
+/**
+ * A call's settlement: the dearer of what the model that answered costs and
+ * what the model the request asked for would have. An endpoint is free to
+ * answer under any name, and one that names a cheap model in place of the
+ * one it ran would otherwise settle at the cheap one's rates. When nothing
+ * prices either model the call is `unknown` and has no amount: the other
+ * model's price is not taken for it.
+ */
+export function priceSettledUsage(
+  usage: ProviderUsage,
+  requestModel: string | null,
+): { costUsd: number; pricedBy: PriceSource } {
+  const answered = priceProviderUsage(usage);
+  if (requestModel === null || requestModel === usage.model) return answered;
+  const asked = priceProviderUsage({ ...usage, model: requestModel });
+  if (asked.pricedBy === "unknown" || answered.pricedBy === "unknown") {
+    return UNPRICED;
+  }
+  return asked.costUsd > answered.costUsd ? asked : answered;
 }
 
 /**
@@ -256,15 +278,23 @@ export const JUDGE_MODEL_PRICES: Readonly<Record<string, ModelPrice>> = {
   "gpt-6-luna": price(0.1, 0, 0),
 };
 
-/** One judgment call; a model the table does not know is priced high. */
+/**
+ * One judgment call: the table, then the snapshot's judgment models. A
+ * model in neither has no amount.
+ */
 export function priceJudgmentUsage(usage: ProviderUsage): {
   costUsd: number;
-  pricedBy: "table" | "fallback";
+  pricedBy: PriceSource;
 } {
   const known = Object.hasOwn(JUDGE_MODEL_PRICES, usage.model)
     ? JUDGE_MODEL_PRICES[usage.model]
     : undefined;
-  const rates = known ?? FALLBACK_PRICE;
+  const lite =
+    known === undefined ? liteLlmDecisionRatesFor(usage.model) : undefined;
+  const rates =
+    known ??
+    (lite === undefined ? undefined : price(lite.input, lite.output, 0));
+  if (rates === undefined) return UNPRICED;
   const input =
     usage.inputTokens +
     usage.cacheCreationInputTokens +
@@ -274,6 +304,6 @@ export function priceJudgmentUsage(usage: ProviderUsage): {
       (input * rates.inputUsdPerMtok +
         usage.outputTokens * rates.outputUsdPerMtok) /
       1_000_000,
-    pricedBy: known === undefined ? "fallback" : "table",
+    pricedBy: known === undefined ? "litellm" : "table",
   };
 }

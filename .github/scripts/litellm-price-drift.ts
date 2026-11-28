@@ -8,9 +8,10 @@
  * https://github.com/BerriAI/litellm, read at one commit whose SHA the report
  * records (`--sha`, or the file's latest commit on `main`). LiteLLM is MIT
  * licensed outside its `enterprise/` directory, Copyright (c) 2023 Berri AI
- * (https://github.com/BerriAI/litellm/blob/main/LICENSE). The data is fetched
- * at run time and not stored in this repository; the tests use figures from
- * werft's own table.
+ * (https://github.com/BerriAI/litellm/blob/main/LICENSE). This check fetches
+ * the data at run time; the tests use figures from werft's own table. The
+ * rates werft charges for a model its tables do not name are another thing:
+ * a snapshot in the repository, written by scripts/update-litellm-prices.ts.
  *
  * usage: bun .github/scripts/litellm-price-drift.ts [--sha <40-hex>] [--out <file>]
  * exit:  0 no drift, 1 drift (report written), 2 the data could not be read

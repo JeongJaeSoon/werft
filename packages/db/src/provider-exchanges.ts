@@ -9,7 +9,12 @@ import type {
   ProviderExchangeReleaseResult,
   ProviderUsage,
 } from "@werft-ai/platform";
-import { reservationCostUsd, reservationTokens } from "@werft-ai/platform";
+import {
+  PRICE_VERSION,
+  priceReservation,
+  reservationCostUsd,
+  reservationTokens,
+} from "@werft-ai/platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import {
   lockBudgetCall,
@@ -69,6 +74,39 @@ export async function lockProviderExchange(
 }
 
 /**
+ * What the report's own exchange row says of the call's open, read under
+ * the exchange's lock before the report prices: the model the request asked
+ * for, and the price data the reserve was priced with. Null without a row of
+ * the reporter's: an open that never landed, a row the reconciler took after
+ * an older API's report, or one another owner holds. A release's mark keeps
+ * the reserve it was sent, so a report after it still finds the model.
+ */
+export async function reservedCallOf(
+  tx: Database,
+  input: { exchangeId: string; sessionId: string; attemptId: string },
+): Promise<{ requestModel: string; priceVersion: string | null } | null> {
+  const [row] = await tx
+    .select({
+      requestModel: sql<
+        string | null
+      >`${providerExchanges.reserve} ->> 'model'`,
+      priceVersion: providerExchanges.priceVersion,
+    })
+    .from(providerExchanges)
+    .where(
+      and(
+        eq(providerExchanges.exchangeId, input.exchangeId),
+        eq(providerExchanges.sessionId, input.sessionId),
+        eq(providerExchanges.attemptId, input.attemptId),
+      ),
+    )
+    .limit(1);
+  return row === undefined || row.requestModel === null
+    ? null
+    : { requestModel: row.requestModel, priceVersion: row.priceVersion };
+}
+
+/**
  * The report's half, in the report's own transaction after it recorded or
  * replayed: deletes the row when it is the reporter's. A row of another
  * owner stays, and the caller is told so it can say it.
@@ -114,7 +152,12 @@ export async function settleProviderExchange(
 /**
  * One session's opens wait here, after their exchange's lock, so two never
  * judge the same sum. A key space of its own; the report and the release
- * never take it, and only lower a sum an open reads in one statement. The id
+ * never take it: an open reads its sums in one statement, so it counts each
+ * call as held or as settled, never as both or neither. What a report
+ * settles is not held to its reserve. In particular one whose answer names
+ * an unpriced model adds to the tokens of unknown price for a call opened as
+ * a priced one, so calls already open can carry a session past that limit by
+ * their own tokens before the next open is refused. The id
  * is hashed as PostgreSQL spells a uuid, so every spelling of one session
  * takes one lock.
  */
@@ -296,6 +339,14 @@ export function createProviderExchangeLedger(
             providerTokens: sessions.providerTokens,
             unmetered: sessions.unmetered,
             workspaceId: sessions.workspaceId,
+            // The tokens of the session's settled calls marked as of unknown
+            // price, summed as the provider_usage trigger sums a call's.
+            unknownPriceTokens: sql<number>`COALESCE((
+              SELECT sum(${providerUsage.inputTokens} + ${providerUsage.outputTokens}
+                + ${providerUsage.cacheCreationInputTokens} + ${providerUsage.cacheReadInputTokens})
+              FROM ${providerUsage}
+              WHERE ${providerUsage.sessionId} = ${sessions.id}
+                AND ${providerUsage.priceUnknown}), 0)`.mapWith(Number),
             reserves: sql<ProviderUsage[]>`COALESCE((
               SELECT json_agg(${providerExchanges.reserve})
               FROM ${providerExchanges}
@@ -310,6 +361,7 @@ export function createProviderExchangeLedger(
           !admission.admits({
             costUsd: held.costUsd,
             providerTokens: held.providerTokens,
+            unknownPriceTokens: held.unknownPriceTokens,
             unmetered: held.unmetered,
             reserves: [...held.reserves, input.reserve],
           })
@@ -368,6 +420,10 @@ export function createProviderExchangeLedger(
           reserve: input.reserve,
           leaseExpiresAt: fromDbNow(PROVIDER_EXCHANGE_LEASE_MS),
           ...budget,
+          pricedBy: held.unmetered
+            ? "unmetered"
+            : priceReservation(input.reserve).pricedBy,
+          priceVersion: PRICE_VERSION,
         });
         return { outcome: "created" };
       });

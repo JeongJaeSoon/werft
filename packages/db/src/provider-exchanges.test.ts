@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
 import {
+  admitsReservations,
   type BudgetChoice,
   type HeldSpend,
+  PRICE_VERSION,
   type ProviderUsage,
+  priceSettledUsage,
   reservationCostUsd,
   reservationTokens,
 } from "@werft-ai/platform";
@@ -1193,5 +1196,333 @@ describe("holding a call on a budget account beside its session", () => {
     ).toMatchObject({ outcome: "budget_exceeded", by: "account" });
     expect(await reservationOf(own)).toBeUndefined();
     expect((await rows()).map((row) => row.exchangeId)).toEqual([key]);
+  });
+});
+
+describe("a model nothing prices", () => {
+  // No table and no snapshot entry names it: 1,000 tokens a call.
+  const UNPRICED: ProviderUsage = {
+    ...RESERVE,
+    model: "no-table-and-no-snapshot-names-this",
+    inputTokens: 600,
+    outputTokens: 400,
+  };
+  const TOKENS = reservationTokens(UNPRICED);
+  const used = (model = UNPRICED.model): ProviderUsage => ({
+    ...UNPRICED,
+    model,
+    estimated: false,
+  });
+
+  // The session's own limit on tokens of unknown price, and no other limit.
+  const limited = (unknownPriceTokens: number) =>
+    createProviderExchangeLedger(db, {
+      admits: async () =>
+        admitsReservations({
+          costUsd: 1_000_000,
+          tokens: null,
+          unknownPriceTokens,
+        }),
+    });
+
+  // A report priced as the gateway prices it, with what it was asked for.
+  function settle(who: Owner, exchangeId: string, usage: ProviderUsage) {
+    const asked: { unmetered: boolean; requestModel: string | null }[] = [];
+    return createPostgresWorkerUnitOfWork(db)
+      .recordProviderUsageAtomic({
+        exchangeId,
+        ...who,
+        usage,
+        priceFor: (call) => {
+          asked.push(call);
+          return priceSettledUsage(usage, call.requestModel);
+        },
+        priceVersion: PRICE_VERSION,
+      })
+      .then((result) => ({ result, asked }));
+  }
+
+  const settled = (exchangeId: string) =>
+    db
+      .select({
+        model: providerUsage.model,
+        requestModel: providerUsage.requestModel,
+        pricedBy: providerUsage.pricedBy,
+        priceVersion: providerUsage.priceVersion,
+        priceUnknown: providerUsage.priceUnknown,
+      })
+      .from(providerUsage)
+      .where(eq(providerUsage.exchangeId, exchangeId));
+
+  test("an open records what priced its reserve and with which price data", async () => {
+    const who = await owner();
+    const free = await owner();
+    await db
+      .update(sessions)
+      .set({ unmetered: true })
+      .where(eq(sessions.id, free.sessionId));
+    const ledger = ledgerOf();
+    const opens = [
+      [who, RESERVE, "table"],
+      [who, UNPRICED, "unknown"],
+      // Its connection declared the calls free: not of unknown price.
+      [free, UNPRICED, "unmetered"],
+    ] as const;
+    for (const [session, reserve, pricedBy] of opens) {
+      const exchangeId = crypto.randomUUID();
+      await ledger.open({ exchangeId, ...session, reserve });
+      const [row] = await db
+        .select({
+          pricedBy: providerExchanges.pricedBy,
+          priceVersion: providerExchanges.priceVersion,
+        })
+        .from(providerExchanges)
+        .where(eq(providerExchanges.exchangeId, exchangeId));
+      expect(row).toEqual({ pricedBy, priceVersion: PRICE_VERSION });
+    }
+  });
+
+  test("its call opens while the reserve stays under the session's limit on such tokens", async () => {
+    const who = await owner();
+    expect(
+      await limited(TOKENS + 1).open({
+        exchangeId: crypto.randomUUID(),
+        ...who,
+        reserve: UNPRICED,
+      }),
+    ).toEqual({ outcome: "created" });
+  });
+
+  test("the first call is refused when its reserve alone reaches the limit, and nothing is held", async () => {
+    const who = await owner();
+    expect(
+      await limited(TOKENS).open({
+        exchangeId: crypto.randomUUID(),
+        ...who,
+        reserve: UNPRICED,
+      }),
+    ).toEqual({
+      outcome: "budget_exceeded",
+      by: "session",
+      accountId: null,
+      owner: null,
+    });
+    expect(await rows()).toEqual([]);
+  });
+
+  test("the limit counts the session's settled calls marked unknown with its held reserves, and a release gives room back", async () => {
+    const who = await owner();
+    const ledger = limited(3 * TOKENS);
+    const first = crypto.randomUUID();
+    await ledger.open({ exchangeId: first, ...who, reserve: UNPRICED });
+    await settle(who, first, used());
+    // 1,000 settled and this reserve: under 3,000.
+    const second = crypto.randomUUID();
+    expect(
+      await ledger.open({ exchangeId: second, ...who, reserve: UNPRICED }),
+    ).toEqual({ outcome: "created" });
+    // 1,000 settled, 1,000 held and this reserve reach it.
+    const third = {
+      exchangeId: crypto.randomUUID(),
+      ...who,
+      reserve: UNPRICED,
+    };
+    expect((await ledger.open(third)).outcome).toBe("budget_exceeded");
+    // A priced model's call is refused no sooner: it adds none.
+    expect(
+      await ledger.open({
+        exchangeId: crypto.randomUUID(),
+        ...who,
+        reserve: RESERVE,
+      }),
+    ).toEqual({ outcome: "created" });
+    await ledger.release({ exchangeId: second, ...who, reserve: UNPRICED });
+    expect(await ledger.open(third)).toEqual({ outcome: "created" });
+    // Another session is judged on its own.
+    expect(
+      await ledger.open({
+        exchangeId: crypto.randomUUID(),
+        ...(await owner()),
+        reserve: UNPRICED,
+      }),
+    ).toEqual({ outcome: "created" });
+  });
+
+  test("a session with no tokens of unknown price is never refused by it, however low it is set", async () => {
+    const who = await owner();
+    const ledger = limited(1);
+    for (const exchangeId of [crypto.randomUUID(), crypto.randomUUID()]) {
+      expect(
+        await ledger.open({ exchangeId, ...who, reserve: RESERVE }),
+      ).toEqual({ outcome: "created" });
+    }
+  });
+
+  test("once its settled tokens reach the limit the session opens no call, priced or not", async () => {
+    const who = await owner();
+    const first = crypto.randomUUID();
+    await limited(TOKENS + 1).open({
+      exchangeId: first,
+      ...who,
+      reserve: UNPRICED,
+    });
+    await settle(who, first, used());
+    expect(
+      (
+        await limited(TOKENS).open({
+          exchangeId: crypto.randomUUID(),
+          ...who,
+          reserve: RESERVE,
+        })
+      ).outcome,
+    ).toBe("budget_exceeded");
+  });
+
+  test("calls opened for a priced model whose answers name an unpriced one are marked, and the open after them is refused", async () => {
+    const who = await owner();
+    const ledger = limited(TOKENS);
+    const first = crypto.randomUUID();
+    const second = crypto.randomUUID();
+    // Both open: a priced model's reserve adds nothing to the sum, so calls
+    // already open can carry the session past the limit by their own tokens.
+    for (const exchangeId of [first, second]) {
+      expect(
+        await ledger.open({ exchangeId, ...who, reserve: RESERVE }),
+      ).toEqual({ outcome: "created" });
+    }
+    await settle(who, first, used());
+    await settle(who, second, used());
+    expect(await settled(second)).toEqual([
+      {
+        model: UNPRICED.model,
+        requestModel: RESERVE.model,
+        pricedBy: "unknown",
+        priceVersion: PRICE_VERSION,
+        priceUnknown: true,
+      },
+    ]);
+    expect(
+      (
+        await ledger.open({
+          exchangeId: crypto.randomUUID(),
+          ...who,
+          reserve: RESERVE,
+        })
+      ).outcome,
+    ).toBe("budget_exceeded");
+  });
+
+  test("a reserve an older API opened, with no price source on its row, is judged from the reserve itself", async () => {
+    const who = await owner();
+    const ledger = limited(2 * TOKENS);
+    const first = crypto.randomUUID();
+    await ledger.open({ exchangeId: first, ...who, reserve: UNPRICED });
+    await db
+      .update(providerExchanges)
+      .set({ pricedBy: null, priceVersion: null })
+      .where(eq(providerExchanges.exchangeId, first));
+    expect(
+      (
+        await ledger.open({
+          exchangeId: crypto.randomUUID(),
+          ...who,
+          reserve: UNPRICED,
+        })
+      ).outcome,
+    ).toBe("budget_exceeded");
+  });
+
+  test("a report is priced with the model its open reserved for, and the call is marked when either model is unpriced", async () => {
+    const who = await owner();
+    const ledger = ledgerOf();
+    // Asked for an unpriced model; the answer names a priced one.
+    const spoofed = crypto.randomUUID();
+    await ledger.open({ exchangeId: spoofed, ...who, reserve: UNPRICED });
+    const { result, asked } = await settle(who, spoofed, used("gpt-5.5"));
+    expect(asked).toEqual([{ unmetered: false, requestModel: UNPRICED.model }]);
+    expect(result).toMatchObject({ outcome: "recorded", pricedBy: "unknown" });
+    expect(await settled(spoofed)).toEqual([
+      {
+        model: "gpt-5.5",
+        requestModel: UNPRICED.model,
+        pricedBy: "unknown",
+        priceVersion: PRICE_VERSION,
+        priceUnknown: true,
+      },
+    ]);
+    // Asked for and answered by a priced model: not marked.
+    const plain = crypto.randomUUID();
+    await ledger.open({ exchangeId: plain, ...who, reserve: RESERVE });
+    await settle(who, plain, USED);
+    expect(await settled(plain)).toEqual([
+      {
+        model: "gpt-5.5",
+        requestModel: "gpt-5.5",
+        pricedBy: "table",
+        priceVersion: PRICE_VERSION,
+        priceUnknown: false,
+      },
+    ]);
+    // The next open's judge is given the marked call's tokens, and no others.
+    let seen: HeldSpend | undefined;
+    await ledgerOf((held) => {
+      seen = held;
+      return true;
+    }).open({ exchangeId: crypto.randomUUID(), ...who, reserve: RESERVE });
+    expect(seen?.unknownPriceTokens).toBe(TOKENS);
+  });
+
+  test("a report after its call's release still finds the model the release named", async () => {
+    const who = await owner();
+    const exchangeId = crypto.randomUUID();
+    await ledgerOf().release({ exchangeId, ...who, reserve: UNPRICED });
+    const { asked } = await settle(who, exchangeId, used("gpt-5.5"));
+    expect(asked).toEqual([{ unmetered: false, requestModel: UNPRICED.model }]);
+  });
+
+  test("a report that finds no exchange row of its own is priced by the model that answered alone", async () => {
+    const who = await owner();
+    // No open at all.
+    const unopened = crypto.randomUUID();
+    const none = await settle(who, unopened, used("gpt-5.5"));
+    expect(none.asked).toEqual([{ unmetered: false, requestModel: null }]);
+    expect(await settled(unopened)).toEqual([
+      {
+        model: "gpt-5.5",
+        requestModel: null,
+        pricedBy: "table",
+        priceVersion: PRICE_VERSION,
+        priceUnknown: false,
+      },
+    ]);
+    // A row under the id that another owner holds is not the report's.
+    const other = await owner();
+    const foreign = crypto.randomUUID();
+    await ledgerOf().open({ exchangeId: foreign, ...other, reserve: UNPRICED });
+    const theirs = await settle(who, foreign, used("gpt-5.5"));
+    expect(theirs.asked).toEqual([{ unmetered: false, requestModel: null }]);
+    expect(theirs.result).toMatchObject({ ledgerForeignRow: true });
+  });
+
+  test("a call opened with other price data than settles it says which", async () => {
+    const who = await owner();
+    const ledger = ledgerOf();
+    const same = crypto.randomUUID();
+    await ledger.open({ exchangeId: same, ...who, reserve: RESERVE });
+    expect((await settle(who, same, USED)).result).toEqual({
+      outcome: "recorded",
+      costUsd: expect.any(Number),
+      pricedBy: "table",
+    });
+    const moved = crypto.randomUUID();
+    await ledger.open({ exchangeId: moved, ...who, reserve: RESERVE });
+    await db
+      .update(providerExchanges)
+      .set({ priceVersion: "litellm@an-older-release/r1" })
+      .where(eq(providerExchanges.exchangeId, moved));
+    expect((await settle(who, moved, USED)).result).toMatchObject({
+      outcome: "recorded",
+      reservedWithPriceVersion: "litellm@an-older-release/r1",
+    });
   });
 });

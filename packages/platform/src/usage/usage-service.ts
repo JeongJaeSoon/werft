@@ -2,6 +2,7 @@ import {
   type InstallationLimitsResponse,
   type MemberLimitsResponse,
   type SessionUsageResponse,
+  UNKNOWN_PRICE_SESSION_TOKEN_LIMIT,
   USAGE_RECENT_ACHIEVEMENTS_LIMIT,
   USAGE_TOOLS_LIMIT,
   type UsageAchievementsQuery,
@@ -39,6 +40,7 @@ import {
 import type { WorkerLimits } from "../scheduler/ports/execution-backend.ts";
 import { pendingField, viewerFor } from "../sessions/index.ts";
 import type {
+  UnknownPriceUsageRecord,
   UsageAchievementCountsRecord,
   UsageBreakdownFiguresRecord,
   UsageConversationCostRecord,
@@ -156,9 +158,16 @@ export function createUsageService(deps: {
   // Read per request, as the gates read them. The worker limits are what a
   // launch reserved now takes; a running worker keeps its own.
   limits: Setting<InstallationLimits & SessionLimits & WorkerLimits>;
+  // A session's limit on tokens of unknown price; the contract's default
+  // where none is wired.
+  unknownPriceTokenLimit?: Setting<number>;
 }) {
   const { authorization, reader } = deps;
   const limitsNow = () => readSetting(deps.limits);
+  const unknownPriceFigures = (record: UnknownPriceUsageRecord) => ({
+    call_count: record.callCount,
+    token_count: saturated(record.tokens),
+  });
 
   function requireInstallationReader(actor: Caller) {
     return requirePermitted(authorization, actor, "usage.installation_read", {
@@ -289,7 +298,10 @@ export function createUsageService(deps: {
         since: query.since,
         ...(query.until === undefined ? {} : { until: query.until }),
       };
-      const totals = (summary: UsageSummaryRecord) => ({
+      const totals = async (
+        filter: UsageTotalsFilter,
+        summary: UsageSummaryRecord,
+      ) => ({
         scope: query.scope,
         period: {
           since: query.since.toISOString(),
@@ -300,6 +312,12 @@ export function createUsageService(deps: {
         cost_usd: summary.costUsd,
         cost_complete: summary.incompleteTurnCount === 0,
         token_count: summary.providerTokens,
+        unknown_price: unknownPriceFigures(
+          await reader.unknownPriceUsage({
+            filter,
+            period: { since: query.since, until: summary.until },
+          }),
+        ),
         run_seconds: summary.runSeconds,
         basis: {
           sessions: "created_in_period" as const,
@@ -309,7 +327,7 @@ export function createUsageService(deps: {
       });
       if (query.scope === "agent") {
         const filter = await agentFilter(actor, query.agent_id);
-        return totals(await reader.usageSummary(filter, period));
+        return totals(filter, await reader.usageSummary(filter, period));
       }
       const filter = await filterFor(actor, query.scope);
       const grouped =
@@ -324,7 +342,7 @@ export function createUsageService(deps: {
         filter.kind === "installation" ||
         (filter.kind === "user" && id === filter.userId);
       return {
-        ...totals(summary),
+        ...(await totals(filter, summary)),
         ...(grouped
           ? {
               groups: grouped.groups.map((group) => ({
@@ -493,6 +511,12 @@ export function createUsageService(deps: {
           until: series.until.toISOString(),
         },
         refreshed_at: series.readAt.toISOString(),
+        unknown_price: unknownPriceFigures(
+          await reader.unknownPriceUsage({
+            filter,
+            period: { since: query.since, until: series.until },
+          }),
+        ),
         buckets: series.buckets.map((bucket) => ({
           date: bucket.date,
           session_count: bucket.sessionCount,
@@ -670,6 +694,7 @@ export function createUsageService(deps: {
         throw new SessionServiceError("NOT_FOUND", "Resource not found");
       }
       const limits = await limitsNow();
+      const unknownPrice = await reader.unknownPriceUsage({ sessionId });
       return {
         session_id: usage.sessionId,
         period: "session_lifetime",
@@ -690,6 +715,12 @@ export function createUsageService(deps: {
           : decimalUsd(limits.sessionCostLimitUsd),
         token_count: usage.providerTokens,
         token_limit: limits.sessionTokenLimit,
+        unknown_price: {
+          ...unknownPriceFigures(unknownPrice),
+          token_limit: await readSetting(
+            deps.unknownPriceTokenLimit ?? UNKNOWN_PRICE_SESSION_TOKEN_LIMIT,
+          ),
+        },
         // The predicate dispatch stops at, so this and the gate agree.
         budget_exceeded: budgetExceeded(
           {

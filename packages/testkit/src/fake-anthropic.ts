@@ -336,8 +336,8 @@ function anthropicResponse(
     content: reply.content,
     stop_reason: reply.stopReason,
     stop_sequence: null,
-    // The API always says where it ran; the egress proxy prices a call that
-    // does not say at the highest rate.
+    // The API always says where it ran; a call that does not say is priced
+    // at the highest geo multiplier.
     usage: {
       inference_geo: "global",
       ...(reply.usage ?? { input_tokens: 1, output_tokens: 4 }),

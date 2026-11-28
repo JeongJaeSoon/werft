@@ -309,6 +309,7 @@ describe("a conversation call's reservation", () => {
       outcome: "settled",
       costUsd: BILLED,
       unmetered: false,
+      model: MODEL,
     });
     expect(await callOf(call.callId)).toMatchObject({
       state: "settled",
@@ -343,6 +344,7 @@ describe("a conversation call's reservation", () => {
       outcome: "already_settled",
       costUsd: BILLED,
       unmetered: false,
+      model: MODEL,
     });
     expect(
       await settle(call.callId, exchange, { ...USED, outputTokens: 41 }),
@@ -369,11 +371,13 @@ describe("a conversation call's reservation", () => {
       outcome: "settled",
       costUsd: 0,
       unmetered: true,
+      model: MODEL,
     });
     expect(await settle(result.callId, exchange)).toEqual({
       outcome: "already_settled",
       costUsd: 0,
       unmetered: true,
+      model: MODEL,
     });
   });
 

@@ -32,12 +32,14 @@ export type ProviderExchangeInput = {
 };
 
 /**
- * What one session holds when a call asks to open: its stored spend, and
- * the reserves of its unreleased rows with the new call's among them.
+ * What one session holds when a call asks to open: its stored spend, the
+ * tokens of its settled calls marked as of unknown price, and the reserves
+ * of its unreleased rows with the new call's among them.
  */
 export type HeldSpend = {
   costUsd: number;
   providerTokens: number;
+  unknownPriceTokens: number;
   unmetered: boolean;
   reserves: readonly ProviderUsage[];
 };
@@ -49,8 +51,9 @@ export type ProviderExchangeOpenResult =
   | { outcome: "settled" }
   // Released before this open arrived: nothing counts it.
   | { outcome: "released" }
-  // The session's spend, or the account's, with this call's reserve reaches
-  // a limit: nothing is held on either. `by` names which, for the log.
+  // The session's spend or its tokens of unknown price, or the account's
+  // spend, with this call's reserve reaches a limit: nothing is held on
+  // either. `by` names which, for the log.
   | {
       outcome: "budget_exceeded";
       by: "session" | "account";
