@@ -1,4 +1,4 @@
-import { lstatSync, readdirSync, realpathSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { workspaceAskPatterns } from "./workspace-ask-patterns.ts";
 import { WORKSPACE_POLICY } from "./workspace-policy.ts";
@@ -61,6 +61,8 @@ const DELIMITER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 type Part = {
   words: string[];
+  /** A `~` or `^` inside a word, unquoted: a git revision's (`HEAD~1`, `HEAD^`). */
+  revision?: string;
   /** The words as they were written, quotes included. */
   written: string[];
   redirect?: { op: ">" | ">>"; target: string };
@@ -71,7 +73,7 @@ type Part = {
 };
 
 type Token =
-  | { kind: "word"; text: string; written: string }
+  | { kind: "word"; text: string; written: string; revision?: string }
   | { kind: "end"; op: "&&" | ";" | "\n" | "|" }
   | { kind: "redirect"; op: ">" | ">>" }
   | { kind: "heredoc" };
@@ -79,9 +81,15 @@ type Token =
 /**
  * The tokens of a line, or why it cannot be split with certainty. A single
  * `|` ends a command only under `pipes`: each side of it is then judged as a
- * command of its own.
+ * command of its own. Under `revisions`, a `~` or `^` inside a word is a
+ * letter of it: the shell reads `~` as a home only where a word or a value
+ * after `=` or `:` starts, so `HEAD~1` and `HEAD^` are revisions.
  */
-function tokensOf(command: string, pipes: boolean): Token[] | string {
+function tokensOf(
+  command: string,
+  pipes: boolean,
+  revisions = false,
+): Token[] | string {
   const tokens: Token[] = [];
   let pending: string | undefined;
   let i = 0;
@@ -156,11 +164,22 @@ function tokensOf(command: string, pipes: boolean): Token[] | string {
       continue;
     }
     let text = "";
+    let revision: string | undefined;
     const start = i;
     for (; i < command.length; i += 1) {
       const next = command[i] as string;
+      const before = command[i - 1] ?? "";
       if (BARE.test(next)) {
         text += next;
+      } else if (
+        revisions &&
+        (next === "~" || next === "^") &&
+        i > start &&
+        // After a `/` it starts a name: a pattern to a shell with extended globs.
+        (/[\w.@+,%-]/.test(before) || before === "~" || before === "^")
+      ) {
+        text += next;
+        revision ??= next;
       } else if (next === "'") {
         const close = command.indexOf("'", i + 1);
         if (close === -1) return "an open quote";
@@ -179,14 +198,23 @@ function tokensOf(command: string, pipes: boolean): Token[] | string {
         return `a ${next} outside a quote`;
       }
     }
-    tokens.push({ kind: "word", text, written: command.slice(start, i) });
+    tokens.push({
+      kind: "word",
+      text,
+      written: command.slice(start, i),
+      ...(revision === undefined ? {} : { revision }),
+    });
   }
   return pending === undefined ? tokens : "a heredoc without its body";
 }
 
 /** The parts of a line, or why it is not a plain list of simple commands. */
-export function partsOf(command: string, pipes = false): Part[] | string {
-  const tokens = tokensOf(command, pipes);
+export function partsOf(
+  command: string,
+  pipes = false,
+  revisions = false,
+): Part[] | string {
+  const tokens = tokensOf(command, pipes, revisions);
   if (typeof tokens === "string") return tokens;
   const parts: Part[] = [];
   let current: Part = { words: [], written: [] };
@@ -203,10 +231,15 @@ export function partsOf(command: string, pipes = false): Part[] | string {
     } else if (token.kind === "word") {
       current.words.push(token.text);
       current.written.push(token.written);
+      if (token.revision !== undefined) current.revision ??= token.revision;
     } else if (token.kind === "redirect") {
       const target = tokens[i + 1];
       if (target?.kind !== "word" || current.redirect !== undefined) {
         return "a redirect without one target";
+      }
+      // A file written is no revision.
+      if (target.revision !== undefined) {
+        return `a ${target.revision} outside a quote`;
       }
       current.redirect = { op: token.op, target: target.text };
       i += 1;
@@ -732,7 +765,7 @@ function grepOperands(words: readonly string[]): {
 }
 
 /** What in a git or gh word may be a path: an option's value, a glued cluster's tail, `@file`, a `file#label`. What follows a `:` is {@link rootRelative}'s. */
-function refPathsIn(word: string): string[] {
+function refPathsIn(word: string, globbed = false): string[] {
   const found = new Set([word, ...pathsIn(word)]);
   // A cluster of short options ends in the last one's value (`-nF.env`):
   // a value may start after any option letter.
@@ -750,6 +783,8 @@ function refPathsIn(word: string): string[] {
   for (const path of [...found]) {
     if (path.startsWith("@")) found.add(path.slice(1));
     if (path.includes("#")) found.add(path.slice(0, path.indexOf("#")));
+    // A shell with extended globs reads `a~b` as a less b.
+    if (globbed) for (const piece of path.split(/[~^]/)) found.add(piece);
   }
   return [...found];
 }
@@ -775,11 +810,362 @@ function rootRelative(word: string): string[] {
   return found;
 }
 
+/** What a git verb is given past its options, by the options that take a value. */
+function gitOperands(
+  rest: readonly string[],
+  shortValues: string,
+  longValues: readonly string[],
+): { operands: string[]; pathspecs: string[] | undefined } {
+  const operands: string[] = [];
+  for (let i = 0; i < rest.length; i += 1) {
+    const word = rest[i] as string;
+    if (word === "--") return { operands, pathspecs: rest.slice(i + 1) };
+    if (word.startsWith("--")) {
+      // git takes a long option by any unique start of its name.
+      const option = word.split("=")[0] as string;
+      if (
+        !word.includes("=") &&
+        option.length > 2 &&
+        longValues.some((full) => full.startsWith(option))
+      ) {
+        i += 1;
+      }
+      continue;
+    }
+    if (word.startsWith("-") && word !== "-") {
+      const at = [...word.slice(1)].findIndex((l) => shortValues.includes(l));
+      if (at !== -1 && at + 2 === word.length) i += 1;
+      continue;
+    }
+    operands.push(word);
+  }
+  return { operands, pathspecs: undefined };
+}
+
 /**
- * The narrow reading's own checks of a part the policy allows: what git, gh
- * and grep do with the words that the ask rules do not see.
+ * Which of these options the words before any `--` leave set, by their long
+ * name: a short cluster's letter or a long option by its name or a start of
+ * it, the last of it and its `--no-` form winning. An option that takes a
+ * value takes the next word when none is glued to it.
  */
-function narrowKept(words: readonly string[], place: Place): string | null {
+function optionsSet(
+  words: readonly string[],
+  options: readonly (readonly [letter: string, long: string])[],
+  shortValues = "",
+  longValues: readonly string[] = [],
+): Set<string> {
+  const longs = options.map(([, long]) => long);
+  const named = (option: string) =>
+    option.length > 2 ? longs.filter((full) => full.startsWith(option)) : [];
+  const set = new Set<string>();
+  for (let i = 0; i < words.length; i += 1) {
+    const word = words[i] as string;
+    if (word === "--") break;
+    if (word.startsWith("--")) {
+      const option = word.split("=")[0] as string;
+      const on = named(option);
+      for (const long of on) set.add(long);
+      if (on.length === 0 && option.startsWith("--no-")) {
+        for (const long of named(`--${option.slice(5)}`)) set.delete(long);
+      }
+      if (
+        !word.includes("=") &&
+        option.length > 2 &&
+        longValues.some((full) => full.startsWith(option))
+      ) {
+        i += 1;
+      }
+      continue;
+    }
+    if (!/^-[^-]/.test(word)) continue;
+    for (let at = 1; at < word.length; at += 1) {
+      const letter = word[at] as string;
+      for (const [short, long] of options) {
+        if (short === letter) set.add(long || `-${short}`);
+      }
+      if (shortValues.includes(letter)) {
+        if (at + 1 === word.length) i += 1;
+        break;
+      }
+    }
+  }
+  return set;
+}
+
+/**
+ * Whether git would read `word` as a revision when it is also a path: a
+ * branch, tag or remote-tracking branch of that name (git checks out a
+ * remote's branch by its short name), a revision spelling, or an object
+ * name, in the repository git runs in, found by walking up out of `from`.
+ * A repository it cannot find counts as one.
+ */
+function namesRevision(word: string, from: string): boolean {
+  if (/[~^:]|@\{|^@$|^-|^[0-9a-f]{4,40}$|^[A-Z_]*HEAD$/.test(word)) {
+    return true;
+  }
+  let gitDir: string | undefined;
+  for (let dir = from; gitDir === undefined; dir = dirname(dir)) {
+    const dotGit = resolve(dir, ".git");
+    try {
+      gitDir = lstatSync(dotGit).isDirectory()
+        ? dotGit
+        : resolve(
+            dir,
+            (
+              /^gitdir: (.*)$/m.exec(readFileSync(dotGit, "utf8"))?.[1] ?? ""
+            ).trim(),
+          );
+    } catch {
+      if (dirname(dir) === dir) return true;
+    }
+  }
+  let common = gitDir;
+  try {
+    common = resolve(
+      gitDir,
+      readFileSync(resolve(gitDir, "commondir"), "utf8").trim(),
+    );
+  } catch {}
+  const names = [`refs/heads/${word}`, `refs/tags/${word}`];
+  const exists = (path: string) => {
+    try {
+      return lstatSync(path).isFile();
+    } catch {
+      return false;
+    }
+  };
+  if (
+    names.some(
+      (name) => exists(resolve(common, name)) || exists(resolve(gitDir, name)),
+    )
+  ) {
+    return true;
+  }
+  try {
+    for (const remote of readdirSync(resolve(common, "refs/remotes"))) {
+      if (exists(resolve(common, "refs/remotes", remote, word))) return true;
+    }
+  } catch {}
+  try {
+    const packed = readFileSync(resolve(common, "packed-refs"), "utf8");
+    return packed.split("\n").some((line) => {
+      const ref = line.split(" ")[1] ?? "";
+      return (
+        names.includes(ref) ||
+        ref.replace(/^refs\/remotes\/[^/]+\//, "\0") === `\0${word}`
+      );
+    });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Why a git verb writes the whole work tree, or what in it the line does not
+ * name, over a kept path: a pathspec of the workspace's top (`.`, `:/`), one
+ * that only leaves paths out (`:!x`), another branch's tree, or ignored and
+ * untracked files cleaned or stashed away.
+ */
+function workTreeKept(
+  verb: string,
+  rest: readonly string[],
+  place: Place,
+): string | null {
+  const whole = "a write of the whole work tree";
+  // A pathspec by its magic: `:(top,exclude)x`, `:/!x`, `:^x`.
+  const spans = (pathspec: string) => {
+    let path = pathspec;
+    let top = false;
+    let exclude = false;
+    if (path.startsWith(":")) {
+      const long = /^:\(([^)]*)\)/.exec(path);
+      if (long !== null) {
+        const magic = (long[1] as string).split(",");
+        top = magic.includes("top");
+        exclude = magic.includes("exclude");
+        path = path.slice(long[0].length);
+      } else {
+        const short = /^:([^\w.(:]*):?/.exec(path) as RegExpExecArray;
+        const magic = short[1] as string;
+        top = magic.includes("/");
+        exclude = magic.includes("!") || magic.includes("^");
+        path = path.slice(short[0].length);
+      }
+    }
+    const base = top ? place.root : place.base;
+    return { exclude, root: resolve(base, path || ".") === place.root };
+  };
+  const coversAll = (pathspecs: readonly string[]) => {
+    const read = pathspecs.map(spans);
+    return (
+      read.some((spec) => !spec.exclude && spec.root) ||
+      (read.length > 0 && read.every((spec) => spec.exclude))
+    );
+  };
+  const onDisk = (word: string) => {
+    try {
+      lstatSync(resolve(place.base, word));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  if (verb === "checkout") {
+    const { operands, pathspecs } = gitOperands(rest, "bB", [
+      "--orphan",
+      "--conflict",
+    ]);
+    const set = optionsSet(
+      rest,
+      [
+        ["f", "--force"],
+        ["", "--detach"],
+        ["", "--orphan"],
+        ["b", ""],
+        ["B", ""],
+      ],
+      "bB",
+      ["--orphan", "--conflict"],
+    );
+    const force = set.has("--force");
+    if (pathspecs !== undefined && pathspecs.length > 0) {
+      return coversAll(pathspecs) ? whole : null;
+    }
+    // A new branch from a start point is how work begins (`git checkout -b x
+    // origin/main`); the tree it brings is not read here. `-f` throws every
+    // change away.
+    if (
+      set.has("-b") ||
+      set.has("-B") ||
+      set.has("--orphan") ||
+      operands.length === 0
+    ) {
+      return force ? whole : null;
+    }
+    if (pathspecs !== undefined) return "a switch to another tree";
+    // git takes one operand as a branch when it names one, a file of the
+    // same name or not: only a path on disk that names no revision is read
+    // as a path. More operands are a tree and its paths, or paths alone.
+    const path = (word: string) =>
+      onDisk(word) && !namesRevision(word, place.base);
+    const [first] = operands as [string];
+    if (operands.length === 1) {
+      return !path(first) || set.has("--detach")
+        ? "a switch to another tree"
+        : coversAll(operands)
+          ? whole
+          : null;
+    }
+    return coversAll(path(first) ? operands : operands.slice(1)) ? whole : null;
+  }
+  if (verb === "switch") {
+    const values = ["--create", "--force-create", "--orphan", "--conflict"];
+    const { operands, pathspecs } = gitOperands(rest, "cC", values);
+    const set = optionsSet(
+      rest,
+      [
+        ["f", "--force"],
+        ["", "--discard-changes"],
+        ["", "--orphan"],
+        ["c", "--create"],
+        ["C", "--force-create"],
+      ],
+      "cC",
+      values,
+    );
+    // An orphan starts from no tree: every tracked file leaves the work tree.
+    if (
+      set.has("--force") ||
+      set.has("--discard-changes") ||
+      set.has("--orphan")
+    ) {
+      return whole;
+    }
+    if (set.has("--create") || set.has("--force-create")) return null;
+    return operands.length > 0 || (pathspecs?.length ?? 0) > 0
+      ? "a switch to another tree"
+      : null;
+  }
+  if (verb === "restore") {
+    const values = ["--source", "--conflict", "--pathspec-from-file"];
+    const { operands, pathspecs } = gitOperands(rest, "s", values);
+    const set = optionsSet(
+      rest,
+      [
+        ["S", "--staged"],
+        ["W", "--worktree"],
+      ],
+      "s",
+      values,
+    );
+    if (set.has("--staged") && !set.has("--worktree")) return null;
+    return coversAll(pathspecs ?? operands) ? whole : null;
+  }
+  if (verb === "rm") {
+    const values = ["--pathspec-from-file"];
+    const { operands, pathspecs } = gitOperands(rest, "", values);
+    if (optionsSet(rest, [["", "--cached"]], "", values).size > 0) return null;
+    return coversAll(pathspecs ?? operands) ? whole : null;
+  }
+  if (verb === "reset") {
+    const modes = optionsSet(
+      rest,
+      [
+        ["", "--hard"],
+        ["", "--merge"],
+        ["", "--keep"],
+      ],
+      "",
+      ["--pathspec-from-file"],
+    );
+    return modes.size > 0 ? whole : null;
+  }
+  if (verb === "read-tree") {
+    return optionsSet(rest, [["u", ""]], "", ["--index-output", "--prefix"])
+      .size > 0
+      ? "a switch to another tree"
+      : null;
+  }
+  if (verb === "clean") {
+    if (optionsSet(rest, [["n", "--dry-run"]], "e", ["--exclude"]).size > 0) {
+      return null;
+    }
+    const { operands, pathspecs } = gitOperands(rest, "e", ["--exclude"]);
+    const given = pathspecs ?? operands;
+    return given.length === 0 || coversAll(given) ? whole : null;
+  }
+  if (verb === "stash") {
+    const [action] = rest;
+    const pushes =
+      action === undefined ||
+      action.startsWith("-") ||
+      action === "push" ||
+      action === "save";
+    const untracked = optionsSet(
+      rest,
+      [
+        ["u", "--include-untracked"],
+        ["a", "--all"],
+      ],
+      "m",
+      ["--message", "--pathspec-from-file"],
+    );
+    return pushes && untracked.size > 0 ? whole : null;
+  }
+  return null;
+}
+
+/**
+ * The checks of git, gh and grep words that the ask rules do not see. The
+ * narrow reading runs them all on a part the policy allows; the wide one
+ * runs them but the work-tree ones (`wide`).
+ */
+function narrowKept(
+  words: readonly string[],
+  place: Place,
+  wide = false,
+  written?: readonly string[],
+): string | null {
   const [name] = words;
   // A path is judged where it lands, `..` taken as spelled, and by its name
   // alone as well: git may read it from a tree, not the work tree
@@ -847,7 +1233,30 @@ function narrowKept(words: readonly string[], place: Place): string | null {
     // Which option takes a value is not known here (`-F -m`, `-e -m`,
     // `-m --`), so no word is skipped as a message or a value: every word
     // is read as a path and as an option.
-    for (const word of words.slice(1)) {
+    // The wide reading takes what follows a message flag as text, up to a
+    // `--`, as its own reading of gh and of git's message verbs does
+    // (`git grep -e -m` gives `-m` as a pattern).
+    const gitVerb = words.find(
+      (word, index) => index > 0 && !word.startsWith("-"),
+    );
+    let options =
+      wide && (name === "gh" || GIT_MESSAGE_VERBS.includes(gitVerb ?? ""));
+    let message = false;
+    const valued =
+      name === "git" ? GIT_MESSAGE_VALUES[gitVerb ?? ""] : undefined;
+    for (const [index, word] of words.slice(1).entries()) {
+      if (word === "--") options = false;
+      if (options) {
+        const text =
+          message || MESSAGE_FLAGS.some((flag) => word.startsWith(`${flag}=`));
+        // `-F -m` gives `-m` as a file: a flag right after an option
+        // that takes a value is not read as one.
+        message =
+          !message &&
+          MESSAGE_FLAGS.includes(word) &&
+          !takesValue(words[index] ?? "", valued);
+        if (text) continue;
+      }
       // git takes a long option by any unique start of its name.
       const option = word.split("=")[0] as string;
       const longStart = (full: string) =>
@@ -863,7 +1272,13 @@ function narrowKept(words: readonly string[], place: Place): string | null {
       ) {
         return "a path list the line does not show";
       }
-      if (name === "git" && GIT_RUNNING_OPTIONS.some(longStart)) {
+      // `--author` is an option of its own (`git log --author=x`), not a
+      // start of `--authors-prog`.
+      if (
+        name === "git" &&
+        option !== "--author" &&
+        GIT_RUNNING_OPTIONS.some(longStart)
+      ) {
         return "a git option that runs a program";
       }
       // A secret or engine-settings path given to git or gh: `git checkout
@@ -875,7 +1290,11 @@ function narrowKept(words: readonly string[], place: Place): string | null {
       if (new RegExp(`^-\\w{${CLUSTER_LETTERS + 1}}`).test(word)) {
         return "a cluster of short options too long to read";
       }
-      const paths = refPathsIn(word);
+      // Only a letter the shell sees: `'.mcp.json~old'` is a name.
+      const globbed = /[~^]/.test(
+        (written?.[index + 1] ?? "").replace(/'[^']*'|"[^"]*"/g, ""),
+      );
+      const paths = refPathsIn(word, globbed);
       if (
         paths.some((path) => keptPath(path)) ||
         rootRelative(word).some(
@@ -937,6 +1356,10 @@ function narrowKept(words: readonly string[], place: Place): string | null {
     ) {
       return "a search of the workspace or a kept path";
     }
+    if (!wide && verb !== undefined) {
+      const kept = workTreeKept(verb, rest, place);
+      if (kept !== null) return kept;
+    }
   }
   if (name === "grep") {
     const { recurses, files, lists } = grepOperands(words);
@@ -958,6 +1381,143 @@ function narrowKept(words: readonly string[], place: Place): string | null {
     }
   }
   return null;
+}
+
+const WRAPPERS = ["env", "command", "builtin", "exec", "nohup", "time"];
+/** A git trace is written to a file its value names, unless the value is a switch or a descriptor. */
+const TRACE_ENV = /^GIT_TRACE\w*$/;
+const TRACE_SWITCH = /^(\d?|true|false)$/i;
+const TOOLS = ["git", "gh", "grep"];
+/** Settings of a git or gh environment that run nothing. */
+const QUIET_ENV =
+  /^(LC_\w+|LANG|LANGUAGE|TZ|TERM|COLUMNS|NO_COLOR|FORCE_COLOR|CLICOLOR(_FORCE)?|CI|GIT_OPTIONAL_LOCKS|GIT_CONFIG_NOSYSTEM|GIT_TERMINAL_PROMPT|GIT_(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)|GH_REPO|GH_HOST|GH_PROMPT_DISABLED|GH_NO_UPDATE_NOTIFIER|GH_FORCE_TTY)$/;
+/** A pager or an editor, and the values of one that run nothing. */
+const PROGRAM_ENV =
+  /^(GIT_PAGER|GH_PAGER|PAGER|GIT_EDITOR|GH_EDITOR|EDITOR|VISUAL|GIT_SEQUENCE_EDITOR)$/;
+const QUIET_PROGRAMS = ["", "cat", "true", ":"];
+/** A redirect before a command: `2>/dev/null`, `&>`, `<in`, not `<<` or `<(`. */
+const REDIRECT = /^(?:\d+|&)?(?:>&|<&|<>|>>?\|?|<(?![<(]))/;
+const SHELL_KEYWORDS = [
+  "if",
+  "then",
+  "elif",
+  "else",
+  "while",
+  "until",
+  "do",
+  "!",
+  "{",
+];
+
+/**
+ * The wide reading of git, gh and grep: {@link narrowKept} but the work-tree
+ * checks, on the command behind any wrapper or setting (`env X=1 git`,
+ * `/usr/bin/grep`). A setting of git's or gh's environment may name a program
+ * (`GIT_PAGER=sh`, `GIT_DIR=.claude`), so only those known to run nothing pass.
+ */
+function wideKept(
+  words: readonly string[],
+  place: Place,
+  written?: readonly string[],
+): string | null {
+  // The command is read without what the shell takes away before it runs:
+  // a keyword that starts a compound command (`if grep -r x .; then`) and
+  // a redirect anywhere (`2>/dev/null grep`, `grep -r x dir &> /dev/null`).
+  const read: number[] = [];
+  for (let i = 0; i < words.length; i += 1) {
+    const word = words[i] as string;
+    if (read.length === 0 && SHELL_KEYWORDS.includes(word)) continue;
+    // Only in a line read as text: a split one has its redirects taken out,
+    // and a quoted `'>'` is an argument.
+    const raw = written?.[i];
+    const redirect = raw === undefined ? null : REDIRECT.exec(raw);
+    if (redirect !== null) {
+      if (redirect[0] === raw) i += 1;
+      continue;
+    }
+    read.push(i);
+  }
+  if (read.length < words.length) {
+    return wideKept(
+      read.map((i) => words[i] as string),
+      place,
+      written === undefined ? undefined : read.map((i) => written[i] as string),
+    );
+  }
+  // Read left to right as the shell and each wrapper do: settings, then a
+  // wrapper and its options, until git, gh or grep. Right after `env` any
+  // `NAME=VALUE` is a setting, a name the shell would not take
+  // (`env '>X=1' grep`) among them; after `command` it is a path.
+  const settings: string[] = [];
+  const wrappers: string[] = [];
+  const options: string[] = [];
+  let at = -1;
+  for (const [index, word] of words.entries()) {
+    const last = wrappers.at(-1);
+    const name = nameOf(word);
+    if (last !== undefined && word.startsWith("-")) {
+      // A tool's path that starts with `-` (`env X=1 -tools/grep`) and an
+      // option with its value glued on (`env -u/x/grep`) look alike.
+      if (word.includes("/") && TOOLS.includes(name)) {
+        return "a wrapper the line does not read";
+      }
+      options.push(word);
+      continue;
+    }
+    // `command -v git` only looks names up. Only `command` as the line's
+    // first word is surely the builtin (`env command` and `time command`
+    // run a program of that name).
+    if (
+      words[0] === "command" &&
+      wrappers.length === 1 &&
+      options.length > 0 &&
+      options.every((option) => /^-[vV]+$/.test(option))
+    ) {
+      return null;
+    }
+    // A shell setting is read wherever it stands before the tool: the
+    // `time` keyword passes it on (`time time X=1 git`), and where the shell
+    // would run it as a program instead, reading it as a setting only
+    // parks more.
+    if (ASSIGNMENT.test(word) || (last === "env" && word.includes("="))) {
+      settings.push(word);
+    } else if (TOOLS.includes(name)) {
+      at = index;
+      break;
+    } else if (WRAPPERS.includes(name)) {
+      wrappers.push(name);
+    } else {
+      // A word after a wrapper's option may be its value (`env -u X git`).
+      return options.length > 0 &&
+        words.slice(index).some((later) => TOOLS.includes(nameOf(later)))
+        ? "a wrapper the line does not read"
+        : null;
+    }
+  }
+  if (at === -1) return null;
+  // A wrapper's option may take a value (`env -u X`, `env -C dir`).
+  if (options.length > 0) return "a wrapper the line does not read";
+  const tool = nameOf(words[at] as string);
+  if (tool !== "grep") {
+    for (const word of settings) {
+      const cut = word.indexOf("=");
+      const key = word.slice(0, cut);
+      const value = word.slice(cut + 1);
+      if (
+        !QUIET_ENV.test(key) &&
+        !(TRACE_ENV.test(key) && TRACE_SWITCH.test(value)) &&
+        !(PROGRAM_ENV.test(key) && QUIET_PROGRAMS.includes(value))
+      ) {
+        return "a setting that may make git or gh run a program";
+      }
+    }
+  }
+  return narrowKept(
+    [tool, ...words.slice(at + 1)],
+    place,
+    true,
+    written?.slice(at),
+  );
 }
 
 /** The files gh reads as a body: `--body-file x`, `--body-file=x`, `-F x`, `-Fx`, `-dF x`. */
@@ -1172,6 +1732,10 @@ function partKept(
     if (part.piped && !filterReadsText(part.words)) {
       return `${name} is not a command the workspace policy lets read a pipe`;
     }
+    // Only git has revisions; elsewhere the letter stays unread.
+    if (part.revision !== undefined && name !== "git") {
+      return `a ${part.revision} outside a quote`;
+    }
   }
   const redirect = part.redirect;
   const tail =
@@ -1196,10 +1760,10 @@ function partKept(
       }
     }
   }
-  if (narrow) {
-    const kept = narrowKept(part.words, place);
-    if (kept !== null) return kept;
-  }
+  const tools = narrow
+    ? narrowKept(part.words, place, false, part.written)
+    : wideKept(part.words, place);
+  if (tools !== null) return tools;
   if (name === undefined) return null;
   // The command's own path is not judged: a program found by PATH lives
   // outside the workspace as well, and running one is not a path the policy
@@ -1257,6 +1821,51 @@ function partKept(
 }
 
 const MESSAGE_FLAGS = ["-m", "--message", "--title", "--body"];
+/** git verbs whose `-m` is a message, with the options of each that take a value. */
+const GIT_MESSAGE_VALUES: Readonly<
+  Record<string, readonly [string, readonly string[]]>
+> = {
+  commit: [
+    "FCct",
+    [
+      "--file",
+      "--author",
+      "--date",
+      "--template",
+      "--reuse-message",
+      "--reedit-message",
+      "--fixup",
+      "--squash",
+      "--trailer",
+      "--cleanup",
+      "--pathspec-from-file",
+    ],
+  ],
+  tag: ["Fu", ["--file", "--local-user", "--cleanup", "--format"]],
+  notes: ["FCc", ["--file", "--reuse-message", "--reedit-message", "--ref"]],
+  stash: ["", ["--pathspec-from-file"]],
+  merge: [
+    "FsX",
+    ["--file", "--strategy", "--strategy-option", "--into-name", "--cleanup"],
+  ],
+};
+const GIT_MESSAGE_VERBS = Object.keys(GIT_MESSAGE_VALUES);
+
+/** Whether an option takes the next word as its value, by the options that take one. */
+function takesValue(
+  word: string,
+  valued: readonly [string, readonly string[]] | undefined,
+): boolean {
+  if (valued === undefined || !word.startsWith("-") || word.includes("=")) {
+    return false;
+  }
+  const [letters, longs] = valued;
+  if (word.startsWith("--")) {
+    return word.length > 2 && longs.some((full) => full.startsWith(word));
+  }
+  const at = [...word.slice(1)].findIndex((letter) => letters.includes(letter));
+  return at !== -1 && at + 2 === word.length;
+}
 /** More places than this for one line's shell is not a line to answer for. */
 const PLACES_FOLLOWED = 8;
 
@@ -1367,6 +1976,81 @@ function withoutHeredocBodies(command: string): string {
   return kept.join("\n");
 }
 
+/**
+ * The text without the bodies of `$(cat <<'EOF'` … `EOF` `)` the shell runs:
+ * under a quoted delimiter the body is printed as written, and it ends at
+ * the first line that is the delimiter alone. The text before each is read
+ * as the shell does (quotes, a backslash, a comment), so a start inside a
+ * comment or a single quote is left in place.
+ */
+function withoutCatBodies(text: string): string {
+  const start =
+    /\$\(cat <<(['"])([A-Za-z_]\w*)\1\n(?:(?!\2\n)[^\n]*\n)*\2\n\)/g;
+  let out = "";
+  let read = 0;
+  // A `$( )` opens quotes and comments of its own, inside a double quote
+  // too; `parens` counts the `( )` it holds and `cases` the `case` whose
+  // patterns end in `)`, so only its own `)` ends it.
+  const frames: { quote: "" | "'" | '"'; parens: number; cases: number }[] = [
+    { quote: "", parens: 0, cases: 0 },
+  ];
+  // `case` and `esac` as a command's first word, not an argument.
+  const word = (name: string) =>
+    text.startsWith(name, read) &&
+    /(^|[\n;&|(])[ \t]*(?:(?:if|then|elif|else|while|until|do|time|time[ \t]+-p|!|\{)[ \t]+)*$/.test(
+      text.slice(Math.max(0, read - 80), read),
+    ) &&
+    /^$|[\s;&|)]/.test(text[read + name.length] ?? "");
+  let comment = false;
+  let escaped = false;
+  const scan = (to: number) => {
+    for (; read < to; read += 1) {
+      const char = text[read] as string;
+      const frame = frames[frames.length - 1] as (typeof frames)[number];
+      out += char;
+      if (comment) {
+        if (char === "\n") comment = false;
+      } else if (escaped) {
+        escaped = false;
+      } else if (frame.quote === "'") {
+        if (char === "'") frame.quote = "";
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "$" && text[read + 1] === "(") {
+        out += "(";
+        read += 1;
+        frames.push({ quote: "", parens: 0, cases: 0 });
+      } else if (frame.quote === '"') {
+        if (char === '"') frame.quote = "";
+      } else if (char === "'" || char === '"') {
+        frame.quote = char;
+      } else if (char === "#" && /^$|[\s;&|()]/.test(text[read - 1] ?? "")) {
+        comment = true;
+      } else if (char === "(") {
+        frame.parens += 1;
+      } else if (char === ")") {
+        if (frame.parens > 0) frame.parens -= 1;
+        else if (frame.cases === 0 && frames.length > 1) frames.pop();
+      } else if (word("case")) {
+        frame.cases += 1;
+      } else if (word("esac") && frame.cases > 0) {
+        frame.cases -= 1;
+      }
+    }
+  };
+  for (const match of text.matchAll(start)) {
+    const at = match.index;
+    if (at < read) continue;
+    scan(at);
+    const frame = frames[frames.length - 1] as (typeof frames)[number];
+    if (comment || escaped || frame.quote === "'") continue;
+    out += "$()";
+    read = at + match[0].length;
+  }
+  scan(text.length);
+  return out;
+}
+
 const spelledOut = (words: readonly string[]) =>
   words
     .join(" ")
@@ -1439,6 +2123,22 @@ function unsplitKept(
       bases = next;
     }
   }
+  // git, gh and grep are looked for outside the bodies `$(cat <<'EOF' …)`
+  // gives as text: a pull request's body may show a command it does not run.
+  // A redirect's `&` and `|` (`2>&1`, `&>`, `>|`) do not end a command.
+  for (const piece of withoutCatBodies(text).split(
+    /&&|\|\||(?<!(?<!\\)[<>])&(?!>)|(?<!(?<!\\)>)\||[;\n()`]/,
+  )) {
+    const written = piece
+      .trim()
+      .split(/\s+/)
+      .filter((word) => word.replace(/['"\\]/g, "") !== "");
+    const words = written.map((word) => word.replace(/['"\\]/g, ""));
+    for (const base of bases) {
+      const kept = wideKept(words, { root, base }, written);
+      if (kept !== null) return kept;
+    }
+  }
   // Every base the line may have reached is tried for a redirect's target.
   for (const [, quoted] of text.matchAll(
     />>?\|?[ \t]*((?:"[^"]*"|'[^']*'|[^\s;&|<>()'"])+)/g,
@@ -1503,7 +2203,7 @@ export function askedLineRefusal(
   command: string,
   at: LinePlace,
 ): string | null {
-  const parts = partsOf(command, true);
+  const parts = partsOf(command, true, true);
   if (typeof parts === "string") return parts;
   const place = placeOf(at);
   if (typeof place === "string") return place;

@@ -22,6 +22,31 @@ mkdirSync(join(workspace, "notes"), { recursive: true });
 mkdirSync(join(root, "outside"));
 mkdirSync(join(workspace, ".claude"));
 mkdirSync(join(workspace, ".git"));
+// Branches that are also directories: one loose, one a remote's, packed.
+mkdirSync(join(workspace, ".git", "refs", "heads", "release"), {
+  recursive: true,
+});
+writeFileSync(
+  join(workspace, ".git", "refs", "heads", "release", "v1.2"),
+  "0\n",
+);
+writeFileSync(
+  join(workspace, ".git", "packed-refs"),
+  "0 refs/remotes/origin/feature\n",
+);
+mkdirSync(join(workspace, "release", "v1.2"), { recursive: true });
+mkdirSync(join(workspace, "feature"));
+// A submodule with a branch that is also one of its directories.
+mkdirSync(join(workspace, "sub", ".git", "refs", "heads", "hotfix"), {
+  recursive: true,
+});
+writeFileSync(
+  join(workspace, "sub", ".git", "refs", "heads", "hotfix", "v2"),
+  "0\n",
+);
+mkdirSync(join(workspace, "sub", "hotfix", "v2"), { recursive: true });
+mkdirSync(join(workspace, "app", "@modal"), { recursive: true });
+writeFileSync(join(workspace, "app", "@modal", "page.tsx"), "x\n");
 writeFileSync(join(workspace, "notes", "sample.txt"), "sample\n");
 symlinkSync(join(root, "outside"), join(workspace, "link"));
 symlinkSync(join(root, "missing"), join(workspace, "dangling"));
@@ -502,13 +527,488 @@ const WIDE: [string, string, string | null][] = [
     "gh release create v1 -F notes/sample.txt",
     null,
   ],
-  // Left as they are in this reading: git's own checks are the narrow one's.
+  // git's, gh's and grep's own checks are the narrow one's but the work tree's.
   [
     "git given engine settings",
     "git checkout HEAD -- .claude/settings.json",
+    "a path that goes to a person",
+  ],
+  [
+    "git running a program by option",
+    "git grep -O sh x",
+    "a git option that runs a program",
+  ],
+  [
+    "git given engine settings from a tree",
+    "git show HEAD:.claude/settings.json",
+    "a path that goes to a person",
+  ],
+  [
+    "git given a patch",
+    "git apply notes/p.patch",
+    "a patch the line does not show",
+  ],
+  [
+    "git given a hook folder",
+    "git config core.hooksPath notes",
+    "a git setting",
+  ],
+  [
+    "git given a program folder",
+    "git --exec-path=notes status",
+    "a git option that runs a program",
+  ],
+  [
+    "git given a program to diff with",
+    "git difftool -x sh",
+    "a git option that runs a program",
+  ],
+  [
+    "git called by its path",
+    "/usr/bin/git config core.editor vi",
+    "a git setting",
+  ],
+  [
+    "git behind env",
+    "env GIT_PAGER=sh git log",
+    "a setting that may make git or gh run a program",
+  ],
+  [
+    "git behind a setting",
+    "GIT_EXTERNAL_DIFF=sh git diff",
+    "a setting that may make git or gh run a program",
+  ],
+  [
+    "git given another git folder",
+    "GIT_DIR=.claude git status",
+    "a setting that may make git or gh run a program",
+  ],
+  [
+    "git behind a wrapper's option",
+    "env -u X git config core.editor vi",
+    "a wrapper the line does not read",
+  ],
+  [
+    "git in a line that does not split",
+    "git status | git config core.editor vi",
+    "a git setting",
+  ],
+  [
+    "git beside a variable",
+    "git config core.editor vi; echo $X",
+    "a git setting",
+  ],
+  [
+    "git in a nested shell",
+    "bash -c 'git config core.editor vi'",
+    "a git setting",
+  ],
+  [
+    "gh given release notes from a secret",
+    "gh release create v1 --notes-file .env",
+    "a path that goes to a person",
+  ],
+  [
+    "gh given a secret as a release asset",
+    "gh release upload v1 .env",
+    "a path that goes to a person",
+  ],
+  [
+    "gh given a secret as a gist",
+    "gh gist create .env",
+    "a path that goes to a person",
+  ],
+  [
+    "gh given a secret as a secret",
+    "gh secret set X -f .env",
+    "a path that goes to a person",
+  ],
+  [
+    "grep of a tree it does not name",
+    "grep -r API_KEY",
+    "a search of a tree the line does not name",
+  ],
+  [
+    "grep told to recurse after its pattern",
+    "grep x -r",
+    "a search of a tree the line does not name",
+  ],
+  [
+    "grep told to recurse by --directories",
+    "grep --dir=recurse x",
+    "a search of a tree the line does not name",
+  ],
+  [
+    "grep of the workspace",
+    "grep -rn x .",
+    "a search of the workspace or a kept path",
+  ],
+  // Still answered: git's own work and quiet settings.
+  ["a revision before a pathspec", "git diff HEAD~1 -- notes/sample.txt", null],
+  ["a quiet pager", "GIT_PAGER=cat git log", null],
+  ["a quiet editor", "GIT_EDITOR=true git rebase --continue", null],
+  ["grep in a C locale", "LC_ALL=C grep -rn sample notes", null],
+  ["a message that names engine settings", "git commit -m .claude", null],
+  [
+    "a long message that starts with a dash",
+    "git commit -m '-Refactor_the_payment_gateway_adapter_layer'",
     null,
   ],
-  ["git running a program by option", "git grep -O sh x", null],
+  [
+    "git behind env called by its path",
+    "/usr/bin/env git apply notes/p.patch",
+    "a patch the line does not show",
+  ],
+  [
+    "git behind a setting whose value names git",
+    "env LC_ALL=notes/git git apply notes/p.patch",
+    "a patch the line does not show",
+  ],
+  [
+    "a git pattern that looks like a message flag",
+    "git grep -e -m .claude/settings.json",
+    "a path that goes to a person",
+  ],
+  [
+    "a git trace written to a file",
+    "GIT_TRACE2_EVENT=/tmp/x.json git status",
+    "a setting that may make git or gh run a program",
+  ],
+  ["a git trace to stderr", "GIT_TRACE=1 git status", null],
+  ["a lock setting", "GIT_OPTIONAL_LOCKS=0 git status", null],
+  ["a look-up of git", "command -v git", null],
+  [
+    "a body that shows git and grep lines",
+    "gh pr create --title x --body \"$(cat <<'EOF'\ngit config core.editor vi\ngrep -r x\nEOF\n)\"",
+    null,
+  ],
+  [
+    "git run by a substitution",
+    'git commit -m "$(git config core.editor vi)"',
+    "a git setting",
+  ],
+  [
+    "git after a body's end",
+    "git commit -m \"$(cat <<'EOF'\nx\nEOF\ngit config core.editor vi\n)\"",
+    "a git setting",
+  ],
+  [
+    "a body start in a comment",
+    "(\n# $(cat <<'true'\ngrep -r needle .\ntrue\n)",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a message flag given as a file",
+    "git commit -F -m .mcp.json",
+    "a path that goes to a person",
+  ],
+  ["a message after a flag that takes none", "git commit -a -m .claude", null],
+  [
+    "a git -m that is no message",
+    "git log -m .claude/settings.json",
+    "a path that goes to a person",
+  ],
+  [
+    "a git glob that reaches a kept name",
+    "git diff -- .mcp.json~backup; echo $X",
+    "a path that goes to a person",
+  ],
+  ["a quoted name with a ~", "git diff -- '.mcp.json~backup'; echo $X", null],
+  [
+    "a body after an apostrophe in double quotes",
+    "git commit -m \"don't run this: $(cat <<'EOF'\ngrep -r needle .\nEOF\n)\"",
+    null,
+  ],
+  [
+    "a body after a # inside a word and in double quotes",
+    "gh pr create --title v1#2 --body \"See #42: $(cat <<'EOF'\ngrep -r needle .\nEOF\n)\"",
+    null,
+  ],
+  [
+    "a body start after ; #",
+    "git status;# $(cat <<'EOF'\ngrep -r needle .\nEOF\n)",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "an escaped body start",
+    "echo \\$(cat <<'EOF'\ngrep -r needle .\nEOF\n)",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a body start in a comment inside a substitution in double quotes",
+    "gh pr create --title docs --body \"$(\n  # Example: $(cat <<'true'\n  grep -r needle .\ntrue\n)\"",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a body inside nested substitutions after an apostrophe",
+    "gh pr create --title docs --body \"$(\n  printf '%s\\n' \"What's new:\n$(cat <<'EOF'\ngrep -r needle .\nEOF\n)\"\n)\"",
+    null,
+  ],
+  [
+    "a body after a substitution has closed",
+    "echo \"$(date) it's $(cat <<'EOF'\ngrep -r needle .\nEOF\n)\"",
+    null,
+  ],
+  [
+    "a body after a subshell inside a substitution",
+    'echo "$( (true); echo "it\'s" ) $(cat <<\'EOF\'\ngrep -r needle .\nEOF\n)"',
+    null,
+  ],
+  [
+    "a body start in a comment after a case pattern",
+    "gh pr create --title docs --body \"$(\n  case docs in\n    docs)\n      # Example: $(cat <<'true'\n      grep -r needle .\n      ;;\n  esac\ntrue\n)\"",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a body after a case inside a substitution",
+    "echo \"$(case x in x) true ;; esac) it's $(cat <<'EOF'\ngrep -r needle .\nEOF\n)\"",
+    null,
+  ],
+  [
+    "an esac given as an argument inside a case",
+    "gh pr create --title docs --body \"$(\n  case docs in\n    other) printf '%s' esac ;;\n    docs)\n      # Example: $(cat <<'true'\n      grep -r needle .\n      ;;\n  esac\ntrue\n)\"",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a case given as an argument",
+    "gh pr create --title 'Handle case statements' --body \"$(git log -1 --grep case --format=%s)\nIt's covered by this example:\n$(cat <<'EOF'\ngrep -r needle .\nEOF\n)\"",
+    null,
+  ],
+  [
+    "a search in an if",
+    "if grep -rq needle .; then echo found; fi",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a search after do",
+    'for x in a; do grep -r "$x"; done',
+    "a search of a tree",
+  ],
+  [
+    "a body start in a comment after an if case pattern",
+    "gh pr create --title docs --body \"$(\n  if case docs in\n    docs)\n      # Example: $(cat <<'true'\n      grep -r needle .\n      ;;\n  esac; then true; fi\ntrue\n)\"",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a search after a redirect",
+    "if 2>/dev/null grep -r needle .; then echo found; fi",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a search after a spaced redirect",
+    "2> /dev/null grep -r needle . | head",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a search after a redirect and a setting",
+    "LC_ALL=C &>/dev/null grep -r needle . | head",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a body start in a comment after a timed case pattern",
+    "gh pr create --title docs --body \"$(\n  time case docs in\n    docs)\n      # Example: $(cat <<'true'\n      grep -r needle .\n      ;;\n  esac\ntrue\n)\"",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a search after 2>&1",
+    "if 2>&1 grep -r needle .; then echo found; fi",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a search after 2>|",
+    "if 2>| /dev/null grep -r needle .; then echo found; fi",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a search after a spaced 2>&",
+    "if 2>& 1 grep -r needle .; then echo found; fi",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a body start in a comment after a time -p case pattern",
+    "gh pr create --title docs --body \"$(\n  time -p case docs in\n    docs)\n      # Example: $(cat <<'true'\n      grep -r needle .\n      ;;\n  esac\ntrue\n)\"",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a search after a spaced <>",
+    "if 0<> /dev/null grep -r needle .; then echo found; fi",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a search after an escaped > and a pipe",
+    "echo \\>|grep -r needle .",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a search of a folder with output thrown away",
+    "grep -rq needle packages &> /dev/null",
+    null,
+  ],
+  [
+    "a search with output appended away",
+    "grep -rq needle packages &>> /dev/null",
+    null,
+  ],
+  [
+    "a search with no path but a redirect",
+    "grep -r needle 2>&1 | head",
+    "a search of a tree",
+  ],
+  [
+    "a quoted redirect as a grep pattern",
+    "grep -rq '2>&1' . packages",
+    "a search of the workspace or a kept path",
+  ],
+  ["a quoted > as a grep pattern", "grep -r '>' packages", null],
+  [
+    "a quoted > as a message",
+    "git commit -m '>' --pathspec-from-file=paths.txt",
+    "a path list the line does not show",
+  ],
+  [
+    "a search behind env and a name the shell would not set",
+    "env '>TAG=demo' grep -r needle .",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "git behind env and a name the shell would not set",
+    "env '>TAG=demo' git log",
+    "a setting that may make git or gh run a program",
+  ],
+  [
+    "a setting behind env that ends in a tool's name",
+    "env '>TAG=notes/grep' grep -r needle",
+    "a search of a tree",
+  ],
+  [
+    "a tool by a path holding = behind command",
+    "command ./build=debug/grep -r needle",
+    "a search of a tree",
+  ],
+  [
+    "a tool by a path holding = behind env and command",
+    "env X=1 command ./build=debug/grep -r needle",
+    "a search of a tree",
+  ],
+  [
+    "a setting behind env that ends in a wrapper's name",
+    "env TAG=notes/command '>OTHER=demo' grep -r needle",
+    "a search of a tree",
+  ],
+  ["a timed build", "time -p make build | tail -1", null],
+  [
+    "git behind time and a setting",
+    "time REVIEW_MARKER=demo git status",
+    "a setting that may make git or gh run a program",
+  ],
+  [
+    "grep behind an env option holding =",
+    "env --unset=LANG grep needle README.md",
+    "a wrapper the line does not read",
+  ],
+  ["a look-up of several names", "command -v bash git", null],
+  [
+    "git run by command with a default path",
+    "command -p git log",
+    "a wrapper the line does not read",
+  ],
+  [
+    "a tool by a path that starts with -",
+    "env LC_ALL=C -tools/grep -r needle",
+    "a wrapper the line does not read",
+  ],
+  [
+    "an option whose glued value ends in a tool's name",
+    "env -u/x/grep grep -r '>'",
+    "a wrapper the line does not read",
+  ],
+  [
+    "a tool by a path that starts with - behind time",
+    "time -p time LC_ALL=C -tools/grep -r needle",
+    "a wrapper the line does not read",
+  ],
+  [
+    "a command given as env's option value",
+    "env -u command -v git status",
+    "a wrapper the line does not read",
+  ],
+  [
+    "a program by a path that looks like an option",
+    "exec -- -tools/git status",
+    "a wrapper the line does not read",
+  ],
+  [
+    "a look-up behind builtin",
+    "builtin command -v git",
+    "a wrapper the line does not read",
+  ],
+  [
+    "a program named command behind time",
+    "time command -v git",
+    "a wrapper the line does not read",
+  ],
+  [
+    "a program named command behind a setting and time",
+    "LC_ALL=C time command -v git",
+    "a wrapper the line does not read",
+  ],
+  [
+    "a time program behind command",
+    "command time command -v git",
+    "a wrapper the line does not read",
+  ],
+  [
+    "a setting behind two time keywords",
+    "time time REVIEW_MARKER=demo git status",
+    "a setting that may make git or gh run a program",
+  ],
+  [
+    "a program named command behind env",
+    "env command -v git",
+    "a wrapper the line does not read",
+  ],
+  [
+    "a program named command behind exec",
+    "exec command -v git",
+    "a wrapper the line does not read",
+  ],
+  [
+    "a program named command behind nohup",
+    "nohup command -v git",
+    "a wrapper the line does not read",
+  ],
+  ["a look-up of several names, long", "command -V bash git", null],
+  [
+    "git right after a wrapper's option",
+    "env -i git log",
+    "a wrapper the line does not read",
+  ],
+  ["a message after clustered flags", "git commit -aq -m .claude", null],
+  ["a gh body after a flag", "gh pr create --draft --body .claude", null],
+  [
+    "a message flag given as a long option's value",
+    "git commit -C -m .mcp.json",
+    "a path that goes to a person",
+  ],
+  [
+    "a message flag given as an author",
+    "git commit --author -m .mcp.json",
+    "a path that goes to a person",
+  ],
+  ["an author given to git", "git log --author=x --oneline", null],
+  // The work-tree checks are the narrow reading's alone.
+  ["a checkout of the top", "git checkout HEAD -- .", null],
+  ["a checkout of a branch", "git checkout main", null],
+  [
+    "a body that names a search",
+    "gh pr create --title x --body \"$(cat <<'EOF'\nfix how grep -r reads\nEOF\n)\"",
+    null,
+  ],
+  [
+    "a commit message from a heredoc",
+    "git add -A && git commit -m \"$(cat <<'EOF'\nfeat: x\nEOF\n)\"",
+    null,
+  ],
 ];
 
 // The narrow reading (auto). Null when the line splits with certainty and
@@ -1068,6 +1568,355 @@ const NARROW: [string, string, string | null][] = [
   ["the repository removed", "git status && rm -rf .git", "ask rule"],
   ["the workspace removed", "git status && rm -rf .", "workspace itself"],
   ["a redirect to the workspace", "git status > .", "workspace itself"],
+  // A git revision's `~` and `^` are its own; a home is where a word starts.
+  ["a revision before a pathspec", "git diff HEAD~1 -- notes/sample.txt", null],
+  ["a soft reset to a revision", "git reset --soft HEAD~1", null],
+  ["a revision's parent", "git show HEAD^", null],
+  ["revisions chained in a range", "git log --oneline HEAD~2^^..HEAD", null],
+  ["a rebase onto a revision", "git rebase -i HEAD~3", null],
+  ["a reset of the index to a revision", "git reset HEAD~1", null],
+  [
+    "a home after a pathspec's --",
+    "git diff -- ~/.ssh/x",
+    "a ~ outside a quote",
+  ],
+  [
+    "a home given to a checkout",
+    "git checkout HEAD -- ~/x",
+    "a ~ outside a quote",
+  ],
+  ["a home after =", "git diff --output=~/x", "a ~ outside a quote"],
+  ["a home after :", "git show HEAD:~/x", "a ~ outside a quote"],
+  ["a home alone", "git log ~", "a ~ outside a quote"],
+  ["a ~ in a word not git's", "cat notes~x", "a ~ outside a quote"],
+  [
+    "a ^ in a word not git's",
+    "grep -n a^b notes/sample.txt",
+    "a ^ outside a quote",
+  ],
+  [
+    "a kept path from a revision",
+    "git show HEAD~1:.claude/settings.json",
+    "a path that goes to a person",
+  ],
+  [
+    "a kept path checked out of a revision",
+    "git checkout HEAD^ -- .claude/settings.json",
+    "a path that goes to a person",
+  ],
+  // A write of the whole work tree, or of what the line does not name,
+  // reaches kept paths too.
+  ["a restore of the top", "git restore .", "a write of the whole work tree"],
+  [
+    "a checkout of the top",
+    "git checkout -- .",
+    "a write of the whole work tree",
+  ],
+  [
+    "a checkout of the top without --",
+    "git checkout .",
+    "a write of the whole work tree",
+  ],
+  [
+    "a checkout of the top, written with a slash",
+    "git checkout HEAD -- ./",
+    "a write of the whole work tree",
+  ],
+  [
+    "a checkout of the top by magic",
+    "git restore ':(top)'",
+    "a write of the whole work tree",
+  ],
+  [
+    "a checkout of the top in short magic",
+    "git restore ':/'",
+    "a write of the whole work tree",
+  ],
+  [
+    "an exclude-only pathspec",
+    "git checkout HEAD -- ':(exclude)notes'",
+    "a write of the whole work tree",
+  ],
+  [
+    "an exclude-only pathspec in short",
+    "git checkout HEAD -- ':!notes'",
+    "a write of the whole work tree",
+  ],
+  [
+    "exclude-only pathspecs, ^ and !",
+    "git restore -- ':^notes' ':!link'",
+    "a write of the whole work tree",
+  ],
+  [
+    "an exclude with top magic",
+    "git restore ':(top,exclude)notes'",
+    "a write of the whole work tree",
+  ],
+  ["a forced checkout", "git checkout -f", "a write of the whole work tree"],
+  [
+    "a forced checkout, long",
+    "git checkout --force",
+    "a write of the whole work tree",
+  ],
+  ["a checkout of a branch", "git checkout main", "a switch to another tree"],
+  [
+    "a checkout of the last branch",
+    "git checkout -",
+    "a switch to another tree",
+  ],
+  [
+    "a checkout of a branch before --",
+    "git checkout main --",
+    "a switch to another tree",
+  ],
+  ["a switch to a branch", "git switch main", "a switch to another tree"],
+  ["a switch to the last branch", "git switch -", "a switch to another tree"],
+  [
+    "a detached switch",
+    "git switch --detach HEAD~1",
+    "a switch to another tree",
+  ],
+  [
+    "a tree read into the work tree",
+    "git read-tree -u -m HEAD other",
+    "a switch to another tree",
+  ],
+  [
+    "a tree read into the work tree, clustered",
+    "git read-tree -mu HEAD",
+    "a switch to another tree",
+  ],
+  [
+    "a clean of ignored files",
+    "git clean -fdx",
+    "a write of the whole work tree",
+  ],
+  [
+    "a clean of the whole tree",
+    "git clean -fd",
+    "a write of the whole work tree",
+  ],
+  [
+    "a clean with an exclude only",
+    "git clean -fd -e notes",
+    "a write of the whole work tree",
+  ],
+  ["a clean of the top", "git clean -f -- .", "a write of the whole work tree"],
+  [
+    "a stash of every file",
+    "git stash push --all",
+    "a write of the whole work tree",
+  ],
+  [
+    "a stash of untracked files",
+    "git stash -u",
+    "a write of the whole work tree",
+  ],
+  [
+    "a stash save of untracked files",
+    "git stash save --include-untracked",
+    "a write of the whole work tree",
+  ],
+  [
+    "a stash of every file, clustered",
+    "git stash push -qa",
+    "a write of the whole work tree",
+  ],
+  [
+    "a stash of untracked files, abbreviated",
+    "git stash --inc",
+    "a write of the whole work tree",
+  ],
+  ["a hard reset", "git reset --hard", "a write of the whole work tree"],
+  [
+    "a hard reset to a branch",
+    "git reset --hard origin/main",
+    "a write of the whole work tree",
+  ],
+  ["a merge reset", "git reset --merge", "a write of the whole work tree"],
+  [
+    "a keep reset, abbreviated",
+    "git reset --kee HEAD~1",
+    "a write of the whole work tree",
+  ],
+  ["a removal of the top", "git rm -r .", "a write of the whole work tree"],
+  [
+    "a removal by an exclude only",
+    "git rm -r -- ':!notes'",
+    "a write of the whole work tree",
+  ],
+  // Still runs unasked: work on named paths, the index, and new branches.
+  ["a new branch", "git checkout -b feat/x", null],
+  ["a new branch from a start point", "git checkout -b x origin/main", null],
+  [
+    "a new switched branch from a start point",
+    "git switch -c feat/x sandbox/main",
+    null,
+  ],
+  ["a switch that detaches where it stands", "git switch --detach", null],
+  ["a checkout of a file", "git checkout notes/sample.txt", null],
+  ["a checkout of a folder", "git checkout -- notes", null],
+  [
+    "an exclude beside a named path",
+    "git checkout HEAD -- notes/sample.txt ':!notes/x'",
+    null,
+  ],
+  ["a restore of the index", "git restore --staged .", null],
+  ["a restore of the index, short", "git restore -S .", null],
+  ["an index removal of the top", "git rm --cached -r .", null],
+  ["a removal of a file", "git rm notes/sample.txt", null],
+  ["a dry clean", "git clean -n", null],
+  ["a dry clean, clustered", "git clean -fdn", null],
+  ["a clean of a named folder", "git clean -fd notes", null],
+  ["a plain stash", "git stash", null],
+  ["a stash list", "git stash list", null],
+  ["a stash pop", "git stash pop", null],
+  ["a stash of a named path", "git stash push -m 'wip u' -- notes", null],
+  ["a tree read into the index", "git read-tree HEAD", null],
+  ["every change added", "git add -A", null],
+  ["the top added", "git add .", null],
+  // The last of an option and its --no- form decides, and -- ends options.
+  [
+    "a dry clean turned off",
+    "git clean -n --no-dry-run -fd",
+    "a write of the whole work tree",
+  ],
+  [
+    "a dry-run letter given as a pathspec",
+    "git clean -fd -- . -n",
+    "a write of the whole work tree",
+  ],
+  [
+    "an index restore turned off",
+    "git restore -S --no-staged .",
+    "a write of the whole work tree",
+  ],
+  [
+    "an index removal turned off",
+    "git rm --cached --no-cached -r .",
+    "a write of the whole work tree",
+  ],
+  ["a pathspec named like an option", "git stash push -- -u", null],
+  ["a reset of a path named like an option", "git reset HEAD -- --hard", null],
+  // A switch that forces, or starts from no tree.
+  [
+    "a forced switch",
+    "git switch --force main",
+    "a write of the whole work tree",
+  ],
+  [
+    "an orphan switch",
+    "git switch --orphan new",
+    "a write of the whole work tree",
+  ],
+  [
+    "a switch that drops changes",
+    "git switch --discard-changes --detach",
+    "a write of the whole work tree",
+  ],
+  [
+    "a detached checkout of a name on disk",
+    "git checkout --detach notes/sample.txt",
+    "a switch to another tree",
+  ],
+  // A shell with extended globs reads ~ and ^ inside a word as patterns.
+  [
+    "a kept name before a ~",
+    "git restore .mcp.json~other",
+    "a path that goes to a person",
+  ],
+  ["a ^ that starts a name", "git restore .claude/^x", "a ^ outside a quote"],
+  [
+    "a ~ in a redirect target",
+    "echo x > notes/out~other",
+    "a ~ outside a quote",
+  ],
+  [
+    "a ^ in a redirect target",
+    "git status > notes/out^x",
+    "a ^ outside a quote",
+  ],
+  // An option's value is not an option, and a --no- form turns off only its own.
+  [
+    "an exclude given -n as its pattern",
+    "git clean -f --exclude -n",
+    "a write of the whole work tree",
+  ],
+  [
+    "a stash message given --",
+    "git stash push -m -- -u",
+    "a write of the whole work tree",
+  ],
+  ["a stash message given -u", "git stash push -m -u", null],
+  [
+    "an orphan switch with force turned off",
+    "git switch --orphan new --no-force",
+    "a write of the whole work tree",
+  ],
+  [
+    "a forced checkout that makes a branch",
+    "git checkout -f -b topic HEAD~1",
+    "a write of the whole work tree",
+  ],
+  ["a forced new branch", "git switch -C topic origin/main", null],
+  [
+    "the top first among paths",
+    "git checkout . notes/sample.txt",
+    "a write of the whole work tree",
+  ],
+  [
+    "a ^ that starts a name in a folder",
+    "git restore notes/^sample.txt",
+    "a ^ outside a quote",
+  ],
+  ["a quoted name with a ~", "git diff -- '.mcp.json~backup'", null],
+  // git takes one operand as a branch even when a file has its name.
+  [
+    "a checkout of a directory that names no branch",
+    "git checkout notes",
+    null,
+  ],
+  [
+    "a checkout of a branch that is also a directory",
+    "git checkout 'release/v1.2'",
+    "a switch to another tree",
+  ],
+  [
+    "a forced checkout of a branch that is also a directory",
+    "git checkout -qf release/v1.2",
+    "a switch to another tree",
+  ],
+  [
+    "a checkout of a remote's packed branch that is also a directory",
+    "git checkout feature",
+    "a switch to another tree",
+  ],
+  ["a forced checkout of a file", "git checkout -f notes/sample.txt", null],
+  [
+    "a checkout of a file with an @ in its path",
+    "git checkout 'app/@modal/page.tsx'",
+    null,
+  ],
+  [
+    "a checkout of a reflog entry",
+    "git checkout 'main@{1}'",
+    "a switch to another tree",
+  ],
+  [
+    "a forced checkout of a file after --",
+    "git checkout -f -- notes/sample.txt",
+    null,
+  ],
+  [
+    "an author given to git",
+    "git commit --author='A <a@example.test>' -m x",
+    null,
+  ],
+  [
+    "a program for authors",
+    "git svn fetch --authors-prog=sh",
+    "a git option that runs a program",
+  ],
 ];
 
 describe("the wide reading", () => {
@@ -1237,5 +2086,14 @@ describe("the narrow reading", () => {
     expect(
       partsOf("cat > notes/a.txt <<'EOF'\nEOFX\n EOF\nEOF\ngit status"),
     ).toHaveLength(2);
+  });
+});
+
+describe("the repository a checkout runs in", () => {
+  test("a submodule's branch that is also its directory", () => {
+    const sub = join(workspace, "sub");
+    expect(askedLineRefusal("git checkout -qf 'hotfix/v2'", at(sub))).toContain(
+      "a switch to another tree",
+    );
   });
 });
