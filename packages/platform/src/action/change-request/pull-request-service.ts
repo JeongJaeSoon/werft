@@ -403,6 +403,7 @@ export function createPullRequestService(deps: {
         ...(code === "GITHUB_REFUSED"
           ? { reason_code: fields.reason_code ?? refusal }
           : {}),
+        ...(fields.off_in == null ? {} : { off_in: fields.off_in }),
       });
     };
     const session = {
@@ -532,6 +533,7 @@ export function createPullRequestService(deps: {
         return await refuse("github_refused", {
           ...fields,
           reason_code: error.reasonCode,
+          ...(error.offIn === undefined ? {} : { off_in: error.offIn }),
         });
       }
       if (error instanceof GitHubUnavailableError) {
@@ -1353,7 +1355,9 @@ export function createPullRequestService(deps: {
     /**
      * Squash-merges the pull request of this session's push request, on the
      * commit that push request pushed. The gate refuses before GitHub is
-     * called when the workspace has not allowed merging.
+     * called unless the agent's settings and the workspace ceiling both have
+     * merging on. GitHub's rules decide the rest: nothing here reads a check,
+     * bypasses a rule or sends the merge a second time.
      */
     async merge(
       actor: PushActor,

@@ -133,13 +133,15 @@ export function githubAppManifest(input: {
     callback_urls: [input.callbackUrl],
     setup_url: `${origin}/settings/workspace/integrations/github`,
     public: input.public,
+    // Editing workflow files and reading CI is on by default for an agent,
+    // so every App asks for it; only running workflows directly is opt-in.
     default_permissions: {
       contents: "write",
       pull_requests: "write",
       metadata: "read",
-      ...(input.actions
-        ? { actions: "write", workflows: "write", checks: "read" }
-        : {}),
+      workflows: "write",
+      checks: "read",
+      actions: input.actions ? "write" : "read",
     },
     // GitHub rejects a hook URL it cannot reach, even an inactive one, so a
     // server without a public address asks for no webhook at all.

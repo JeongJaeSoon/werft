@@ -11,10 +11,13 @@ import {
 } from "@werft-ai/contracts";
 import {
   createAuthorizationPolicy,
+  createTaskClose,
+  type DecisionEntry,
   type IdentityReader,
   type LinkedSubject,
   SessionServiceError,
   type SurfaceAiLabel,
+  type SurfaceProgressLink,
   type SurfacePromptCard,
 } from "@werft-ai/platform";
 import { slackAiLabelBlock } from "./slack-ai-label.ts";
@@ -40,6 +43,13 @@ const LINKED = "U0LINKED";
 const STRANGER = "U0STRANGER";
 const USER = "019a0000-0000-7000-8000-000000000101";
 const NOW = new Date("2026-11-03T00:00:00Z");
+// SESSION's thread link, and a second channel whose ceiling leaves
+// session.control out, with a task of its own.
+const LINK = "019a0000-0000-7000-8000-0000000000b1";
+const LOCKED_CHANNEL = "C0LOCKED";
+const LOCKED_THREAD = "1761300000.000300";
+const LOCKED_SESSION = "019a0000-0000-7000-8000-0000000000a6";
+const LOCKED_LINK = "019a0000-0000-7000-8000-0000000000b2";
 
 const question: PendingQuestion = {
   question_id: "q-1",
@@ -62,6 +72,10 @@ let startFreshError: Error | null;
 // What closing a task answers a press of its progress message's buttons.
 let taskClose: "closed" | "not_permitted" | "already_closed" | "refused" =
   "closed";
+// Set: the press reaches the platform's own close, judged by the policy.
+let realTaskClose: boolean;
+let progressLinks: Record<string, SurfaceProgressLink>;
+let recorded: DecisionEntry[];
 let outcome: Awaited<ReturnType<SlackInteractionDeps["pending"]["outcome"]>>;
 let listed: unknown[];
 let pushState: "requested" | "approved" | "rejected" | null;
@@ -102,6 +116,22 @@ beforeEach(() => {
   flow = "legacy";
   posted = null;
   postedScope = undefined;
+  realTaskClose = false;
+  recorded = [];
+  progressLinks = {
+    [SESSION]: {
+      id: LINK,
+      agentId: AGENT,
+      channelId: CHANNEL,
+      threadId: THREAD_TS,
+    },
+    [LOCKED_SESSION]: {
+      id: LOCKED_LINK,
+      agentId: AGENT,
+      channelId: LOCKED_CHANNEL,
+      threadId: LOCKED_THREAD,
+    },
+  };
 });
 
 const OTHER_USER = "019a0000-0000-7000-8000-000000000102";
@@ -183,6 +213,26 @@ const identity: IdentityReader = {
 };
 
 function deps(): SlackInteractionDeps {
+  const authorization = createAuthorizationPolicy({
+    identity,
+    slackGuests: { enabled: async () => false },
+    credentials: { unboundRefs: async () => [] },
+    sessions: {
+      visibleTo: async () => true,
+      originOf: async () => ({ creatorUserId: USER, creatorApiKeyId: null }),
+    },
+    agents: {
+      agentOf: async () => AGENT,
+      agentOfRelease: async () => null,
+      isAdmin: async () => false,
+      isInside: async () => true,
+    },
+    decisions: {
+      record: async (entry) => {
+        recorded.push(entry);
+      },
+    },
+  });
   return {
     signingSecrets: {
       async forAgent(agentId) {
@@ -196,22 +246,7 @@ function deps(): SlackInteractionDeps {
           : null;
       },
     } as SlackInteractionDeps["signingSecrets"],
-    authorization: createAuthorizationPolicy({
-      identity,
-      slackGuests: { enabled: async () => false },
-      credentials: { unboundRefs: async () => [] },
-      sessions: {
-        visibleTo: async () => true,
-        originOf: async () => ({ creatorUserId: USER, creatorApiKeyId: null }),
-      },
-      agents: {
-        agentOf: async () => AGENT,
-        agentOfRelease: async () => null,
-        isAdmin: async () => false,
-        isInside: async () => true,
-      },
-      decisions: { record: async () => {} },
-    }),
+    authorization,
     agents: {
       async resolveSlackEvent(key) {
         return key.appId === APP && key.teamId === TEAM
@@ -237,11 +272,17 @@ function deps(): SlackInteractionDeps {
         return channelLeft ? ({ status: "left" } as never) : null;
       },
       async resolveSlackChannel(installationId, channelId) {
-        if (installationId !== INSTALLATION || channelId !== CHANNEL) {
+        const locked = channelId === LOCKED_CHANNEL;
+        if (
+          installationId !== INSTALLATION ||
+          (channelId !== CHANNEL && !locked)
+        ) {
           return null;
         }
         return {
-          id: "019a0000-0000-7000-8000-0000000000a4",
+          id: locked
+            ? "019a0000-0000-7000-8000-0000000000a7"
+            : "019a0000-0000-7000-8000-0000000000a4",
           workspaceId: WORKSPACE,
           agentId: AGENT,
           installationId: INSTALLATION,
@@ -252,12 +293,14 @@ function deps(): SlackInteractionDeps {
           m1JudgmentsPerHour: 12,
           reportMode: null,
           ceiling: {
-            actions: [
-              "session.read",
-              "session.submit",
-              "session.control",
-              "session.approve",
-            ],
+            actions: locked
+              ? ["session.read", "session.submit", "session.approve"]
+              : [
+                  "session.read",
+                  "session.submit",
+                  "session.control",
+                  "session.approve",
+                ],
             disclosure: "full",
           },
           home: false,
@@ -335,12 +378,22 @@ function deps(): SlackInteractionDeps {
       }) as never,
       queuePushFollowUp: record("append") as never,
     },
-    tasks: {
-      close: (async (...args: unknown[]) => {
-        calls.push({ method: "task_close", args });
-        return taskClose;
-      }) as never,
-    },
+    tasks: realTaskClose
+      ? createTaskClose({
+          authorization,
+          closes: {
+            close: async (input) => {
+              calls.push({ method: "store_close", args: [input] });
+              return "closing";
+            },
+          },
+        })
+      : {
+          close: (async (...args: unknown[]) => {
+            calls.push({ method: "task_close", args });
+            return taskClose;
+          }) as never,
+        },
     followUps: {
       async hold(input) {
         calls.push({ method: "hold", args: [input] });
@@ -368,6 +421,7 @@ function deps(): SlackInteractionDeps {
     },
     botToken: async () => "xoxb-fixture",
     outbox: {
+      progressLink: async (sessionId) => progressLinks[sessionId] ?? null,
       aiLabelFor: async (input) => {
         calls.push({ method: "aiLabel", args: [input] });
         return aiLabel;
@@ -433,14 +487,19 @@ const asked = slackPromptMessage(
   { locale: "en", requesterSlackUserId: null },
 ).blocks;
 
-function press(actionId: string, value: Record<string, string>, user = LINKED) {
+function press(
+  actionId: string,
+  value: Record<string, string>,
+  user = LINKED,
+  at = { channel: CHANNEL, thread: THREAD_TS },
+) {
   return form({
     type: "block_actions",
     api_app_id: APP,
     team: { id: TEAM },
     user: { id: user },
-    channel: { id: CHANNEL },
-    message: { ts: CARD_TS, thread_ts: THREAD_TS, blocks: asked },
+    channel: { id: at.channel },
+    message: { ts: CARD_TS, thread_ts: at.thread, blocks: asked },
     trigger_id: "trigger-1",
     actions: [{ action_id: actionId, value: JSON.stringify(value) }],
   });
@@ -1837,7 +1896,7 @@ describe("the start-fresh button on the notice of a turn of unknown outcome with
 
 describe("the close buttons on a task's progress message", () => {
   const pressClose = (actionId: string, user = LINKED) =>
-    press(actionId, { s: SESSION, r: "link-1" }, user);
+    press(actionId, { s: SESSION, r: LINK }, user);
 
   test.each([
     [SLACK_INTERACTION_ACTIONS.taskComplete, "completed"],
@@ -1886,6 +1945,159 @@ describe("the close buttons on a task's progress message", () => {
       pressClose(SLACK_INTERACTION_ACTIONS.taskComplete),
     );
     expect((outcome as { result: string }).result).toBe("task_already_closed");
+    expect(called("ephemeral")).toEqual([]);
+  });
+});
+
+// 94S-2538: a close button's value names its session and its thread's link;
+// a press whose value is not of the message pressed closes nothing, and the
+// session is judged at its own channel's ceiling.
+describe("a close button's value against the message pressed", () => {
+  const onA = { channel: CHANNEL, thread: THREAD_TS };
+  const onLocked = { channel: LOCKED_CHANNEL, thread: LOCKED_THREAD };
+  const refusedAs = (reason: string) =>
+    recorded
+      .filter((entry) => entry.decision.reason_code === reason)
+      .map((entry) => ({
+        action: entry.request.action,
+        session: entry.request.resource.id,
+        outcome: entry.decision.outcome,
+      }));
+
+  beforeEach(() => {
+    realTaskClose = true;
+  });
+
+  test.each([
+    [
+      "another channel's session with this message's link",
+      LOCKED_SESSION,
+      LINK,
+    ],
+    ["another channel's session and link", LOCKED_SESSION, LOCKED_LINK],
+    ["this session with another session's link", SESSION, LOCKED_LINK],
+    ["a link that is no id", SESSION, "link-1"],
+  ] as const)(
+    "%s closes nothing, is kept as a surface_mismatch deny and told to the presser alone",
+    async (_, s, r) => {
+      const outcome = await send(
+        press(SLACK_INTERACTION_ACTIONS.taskComplete, { s, r }, LINKED, onA),
+      );
+      expect((outcome as { result: string }).result).toBe(
+        "refused:surface_mismatch",
+      );
+      expect(called("store_close")).toEqual([]);
+      expect(refusedAs("surface_mismatch")).toEqual([
+        { action: "session.submit", session: s, outcome: "deny" },
+      ]);
+      const told = called("ephemeral");
+      expect(told).toHaveLength(1);
+      expect(JSON.stringify(told[0]?.args)).toContain(
+        SLACK_NOTICE_MESSAGES.en.pressMismatch,
+      );
+      expect(JSON.stringify(told[0]?.args)).toContain(LINKED);
+    },
+  );
+
+  test("its own value pressed in another thread of the channel, or for a session with no thread, closes nothing", async () => {
+    const elsewhere = { channel: CHANNEL, thread: "1761300000.000900" };
+    expect(
+      (
+        (await send(
+          press(
+            SLACK_INTERACTION_ACTIONS.taskCancel,
+            { s: SESSION, r: LINK },
+            LINKED,
+            elsewhere,
+          ),
+        )) as { result: string }
+      ).result,
+    ).toBe("refused:surface_mismatch");
+    delete progressLinks[SESSION];
+    expect(
+      (
+        (await send(
+          press(
+            SLACK_INTERACTION_ACTIONS.taskCancel,
+            { s: SESSION, r: LINK },
+            LINKED,
+            onA,
+          ),
+        )) as { result: string }
+      ).result,
+    ).toBe("refused:surface_mismatch");
+    expect(called("store_close")).toEqual([]);
+  });
+
+  test.each([
+    ["another channel, the same thread", { channelId: "C0ELSEWHERE" }],
+    ["another agent", { agentId: crypto.randomUUID() }],
+  ] as const)(
+    "its own value pressed where its link is of %s closes nothing",
+    async (_, apart) => {
+      progressLinks[SESSION] = {
+        ...(progressLinks[SESSION] as SurfaceProgressLink),
+        ...apart,
+      };
+      const outcome = await send(
+        press(
+          SLACK_INTERACTION_ACTIONS.taskComplete,
+          { s: SESSION, r: LINK },
+          LINKED,
+          onA,
+        ),
+      );
+      expect((outcome as { result: string }).result).toBe(
+        "refused:surface_mismatch",
+      );
+      expect(called("store_close")).toEqual([]);
+    },
+  );
+
+  test("on its own message, a task whose channel may submit but not control is not closed", async () => {
+    const outcome = await send(
+      press(
+        SLACK_INTERACTION_ACTIONS.taskComplete,
+        { s: LOCKED_SESSION, r: LOCKED_LINK },
+        LINKED,
+        onLocked,
+      ),
+    );
+    expect((outcome as { result: string }).result).toBe(
+      "refused:not_permitted",
+    );
+    expect(called("store_close")).toEqual([]);
+    // Let in as a message typed there would be, then refused the close.
+    expect(
+      recorded.map((entry) => [
+        entry.request.action,
+        entry.decision.reason_code,
+      ]),
+    ).toEqual([
+      ["session.submit", "ok"],
+      ["session.control", "surface_ceiling"],
+    ]);
+    expect(JSON.stringify(called("ephemeral")[0]?.args)).toContain(
+      SLACK_NOTICE_MESSAGES.en.taskCloseNotPermitted,
+    );
+  });
+
+  test("on its own message, a task whose channel may control it closes as before", async () => {
+    const outcome = await send(
+      press(
+        SLACK_INTERACTION_ACTIONS.taskComplete,
+        { s: SESSION, r: LINK },
+        LINKED,
+        onA,
+      ),
+    );
+    expect((outcome as { result: string }).result).toBe("task_closing");
+    const [closed] = called("store_close");
+    expect(closed?.args[0]).toMatchObject({
+      sessionId: SESSION,
+      reason: "completed",
+    });
+    expect(refusedAs("surface_mismatch")).toEqual([]);
     expect(called("ephemeral")).toEqual([]);
   });
 });
