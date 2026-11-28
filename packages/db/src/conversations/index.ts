@@ -59,6 +59,7 @@ export {
 export {
   CLOSED_WORK_ADMISSION_STATES,
   sessionWorkClosed,
+  threadWorkAdmission,
 } from "./session-work.ts";
 export { takeSlackTurnInput } from "./slack-turn-inputs.ts";
 export {

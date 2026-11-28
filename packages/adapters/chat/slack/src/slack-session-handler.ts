@@ -167,6 +167,12 @@ export function withoutBotMention(text: string, botUserId: string): string {
 export const SLACK_TASK_REPLY_WAIT_MS = 30_000;
 /** How soon a reply waiting for its judgment is looked at again. */
 export const SLACK_TASK_REPLY_RECHECK_MS = 2_000;
+/**
+ * How often a mention looks again at work in its thread that is closing,
+ * or closed with its link still open (94S-2537, 94S-2506): it waits until
+ * the link closes or the close fails, however long the drain takes.
+ */
+export const SLACK_CLOSED_WORK_MENTION_RECHECK_MS = 5_000;
 
 export type SlackSessionHandlerDeps = {
   inbox: Pick<SurfaceInboundEventStore, "renew">;
@@ -586,7 +592,65 @@ export function createSlackSessionHandler(
         route: typeof route === "object" ? "edited" : route,
       });
       if (typeof route === "object") editedText = route.edited;
-      return route === "quiet" ? null : "session";
+      if (route === "quiet") return null;
+      // Closed since it was held (94S-2506): as a closed work's reply, it
+      // goes to no session. M1's speak answered it with an unasked turn as
+      // it was written, and a reply M1 could not judge is left.
+      if ((await deps.boundReplies.work(sessionId)) === "closed") {
+        deps.logger.info("Slack reply of work closed while it waited", ids);
+        return null;
+      }
+      return "session";
+    };
+
+    /**
+     * A mention in a thread bound to work that is closed (decision 35) with
+     * its link still open, once the rollout is on (94S-2537, 94S-2506): it
+     * waits out the work's drain (closing) and its link's close, to be the
+     * conversation turn a closed thread's mention is, or the work's turn
+     * again should the close fail. Whoever mentioned is told once a
+     * closing. Returns when the work is open, or the rollout is not on.
+     */
+    const waitOutClosedWork = async (
+      link: SessionLinkRecord,
+      sessionId: string,
+    ): Promise<void> => {
+      const place = await deps.buffer.place({
+        kind: "channel",
+        workspaceId: agent.workspaceId,
+        agentId: agent.agentId,
+        teamId: claim.teamId,
+        channelId: event.channel,
+      });
+      if (place.rollout !== "on") return;
+      const closed = await deps.boundReplies.closedWork(sessionId);
+      if (closed === null) return;
+      if (closed.admission === "closing" && !fromBot) {
+        await deps.notices.recordInThread({
+          workspaceId: agent.workspaceId,
+          agentId: agent.agentId,
+          installationId: agent.installationId,
+          slackAppId: claim.slackAppId,
+          teamId: claim.teamId,
+          channelId: event.channel,
+          threadTs,
+          sessionId,
+          sessionLinkId: link.id,
+          notice: { message: "taskClosingWait" },
+          // A close found by its receipt; one asked by another principal
+          // is keyed by the session, so a later closing of it says nothing.
+          onceKey: `${agent.installationId}:${surfaceRef}:closing_wait:${
+            closed.closeReceiptId ?? sessionId
+          }`,
+          readerSlackUserId: event.user,
+        });
+      }
+      deps.logger.info("Slack mention waits for its thread's work to close", {
+        ...ids,
+        session_id: sessionId,
+        admission: closed.admission,
+      });
+      throw new SlackInboundDeferred(SLACK_CLOSED_WORK_MENTION_RECHECK_MS);
     };
 
     /**
@@ -1480,6 +1544,15 @@ export function createSlackSessionHandler(
       const stopped = await stopRequest(caller, found, sessionId);
       if (stopped) return;
     }
+    if (
+      found !== null &&
+      sessionId !== null &&
+      found.openedByTs !== event.ts &&
+      mentioned &&
+      !dm
+    ) {
+      await waitOutClosedWork(found, sessionId);
+    }
     const slackMessage: SlackMessageRef = {
       team_id: claim.teamId,
       channel_id: event.channel,
@@ -1624,6 +1697,16 @@ export function createSlackSessionHandler(
         RETRYABLE_SESSION_CODES.has(error.code)
       ) {
         throw error;
+      }
+      // Closed since the look above: the mention waits as it would have.
+      if (
+        (error.code === "SESSION_CLOSING" || error.code === "SESSION_CLOSED") &&
+        mentioned &&
+        !dm &&
+        link.sessionId !== null &&
+        link.openedByTs !== event.ts
+      ) {
+        await waitOutClosedWork(link, link.sessionId);
       }
       deps.logger.warn("Slack input refused by the session", {
         ...ids,

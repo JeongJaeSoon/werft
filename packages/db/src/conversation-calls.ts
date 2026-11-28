@@ -47,6 +47,10 @@ import {
   settleBudgetIn,
 } from "./budget-accounts.ts";
 import { lockedDeletedSource } from "./conversations/deleted-sources.ts";
+import {
+  CLOSED_WORK_ADMISSION_STATES,
+  threadWorkAdmission,
+} from "./conversations/session-work.ts";
 import { DB_NOW, dbNow, fromDbNow } from "./db-clock.ts";
 import { PROVIDER_EXCHANGE_LEASE_MS } from "./provider-exchanges.ts";
 import type { Database } from "./queries.ts";
@@ -749,13 +753,30 @@ export function createPostgresConversationCalls(
                 AND (b.listen = 'free' OR (b.listen = 'mention' AND EXISTS (
                   SELECT 1 FROM conversation_judgments j
                   WHERE j.id = ${input.judgmentId}::uuid
-                    AND j.grade IN ('m1_engaged', 'm1'))))
+                    AND j.grade IN ('m1_engaged', 'm1', 'm1_to_task'))))
                 AND NOT b.external_shared AND b.emergency_stopped_at IS NULL
               ORDER BY b.id
               LIMIT 1
               FOR SHARE OF b`),
           );
           if (binding === undefined) return { outcome: "no_binding" };
+          const untaken = sql`NOT EXISTS (
+            SELECT 1 FROM conversation_inputs i
+            WHERE i.agent_id = ${input.agentId}::uuid
+              AND i.slack_team_id = ${input.teamId}
+              AND i.slack_channel_id = ${input.channelId}
+              AND i.slack_ts = conversation_judgments.target_ts
+              AND i.turn_id IS NOT NULL)`;
+          // The admission of the thread's latest work, read unlocked: a close
+          // that fails back to open work after this is 94S-2519's. No
+          // session there is closed work, as sessionWorkClosed reads it.
+          const workClosed = sql`COALESCE(${threadWorkAdmission(
+            sql`${input.agentId}::uuid`,
+            sql`${input.topicId}::uuid`,
+          )}, 'closed') IN (${sql.join(
+            CLOSED_WORK_ADMISSION_STATES.map((state) => sql`${state}`),
+            sql`, `,
+          )})`;
           await tx.insert(conversationTurns).values({
             id: input.turnId,
             workspaceId: input.workspaceId,
@@ -780,29 +801,27 @@ export function createPostgresConversationCalls(
                 AND agent_id = ${input.agentId}::uuid
                 -- A post a session's turn took already is the session's to
                 -- answer: of a bound thread, only a reply of work done that
-                -- none took (v1-b/U1 B), never one of work going on. A
-                -- session that takes the post after this turn is not barred
-                -- here: work done (closing, closed) takes no turn.
-                AND (grade IN ('buffer_m1', 'm1_engaged') OR (
-                  grade = 'm1' AND NOT EXISTS (
-                    SELECT 1 FROM conversation_inputs i
-                    WHERE i.agent_id = ${input.agentId}::uuid
-                      AND i.slack_team_id = ${input.teamId}
-                      AND i.slack_channel_id = ${input.channelId}
-                      AND i.slack_ts = conversation_judgments.target_ts
-                      AND i.turn_id IS NOT NULL)))
+                -- none took (v1-b/U1 B), or one of work going on that none
+                -- took and whose work closed while it waited (94S-2506),
+                -- never one of work still going on. A session that takes the
+                -- post after this turn is not barred here: work done
+                -- (closing, closed) takes no turn, and the receive path
+                -- sends no answered hold to the work.
+                AND (grade IN ('buffer_m1', 'm1_engaged')
+                  OR (grade = 'm1' AND ${untaken})
+                  OR (grade = 'm1_to_task' AND ${untaken} AND ${workClosed}))
                 AND decision = 'speak' AND target_ts IS NOT NULL
                 AND turn_id IS NULL AND answer IS NULL
                 -- One unasked turn a reply: the same post held again (a
                 -- second event of it) is not answered twice. The post's
                 -- mark, locked above, orders two such issues.
-                AND NOT (grade IN ('m1', 'm1_engaged') AND EXISTS (
+                AND NOT (grade IN ('m1', 'm1_engaged', 'm1_to_task') AND EXISTS (
                   SELECT 1 FROM conversation_judgments o
                   WHERE o.agent_id = ${input.agentId}::uuid
                     AND o.slack_team_id = ${input.teamId}
                     AND o.slack_channel_id = ${input.channelId}
                     AND o.target_ts = conversation_judgments.target_ts
-                    AND o.grade IN ('m1', 'm1_engaged')
+                    AND o.grade IN ('m1', 'm1_engaged', 'm1_to_task')
                     AND o.turn_id IS NOT NULL
                     AND o.id <> conversation_judgments.id))
               RETURNING id`),

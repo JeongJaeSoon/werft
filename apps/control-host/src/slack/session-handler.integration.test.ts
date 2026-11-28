@@ -8,6 +8,7 @@ import {
 } from "bun:test";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
+  createOutboxSlackNoticeSink,
   createRowDelivery,
   createSlackAudienceCache,
   createSlackBotApi,
@@ -85,6 +86,10 @@ import {
   verifySlackInstallation,
   workspaces,
 } from "@werft-ai/db";
+import {
+  confirmExecutionGone,
+  launchSession,
+} from "@werft-ai/db/testing/launches";
 import { createLogger } from "@werft-ai/observability";
 import {
   type Caller,
@@ -94,6 +99,7 @@ import {
   createAuthorizationPolicy,
   createSurfaceBindingService,
   createTopicSessionChecks,
+  createWorkerGateway,
   hashConversationCallToken,
   type M1Judge,
   type M1Speaker,
@@ -462,6 +468,7 @@ function handler(
   audienceCache?: SlackAudienceCache,
   environment: Record<string, string> = LIMITS,
   taskReplyWaitMs?: number,
+  sink?: ReturnType<typeof createOutboxSlackNoticeSink>,
 ) {
   const notices = createMemorySlackNoticeSink();
   // A pass reads the catalog before its first event (main); here each event
@@ -479,7 +486,7 @@ function handler(
     logger: log,
     secretKey: key,
     leaseMs: 30_000,
-    notices: notices.sink,
+    notices: sink ?? notices.sink,
     slackApiUrl: slack.url,
     ...(inbox === undefined ? {} : { inbox }),
     ...(audienceCache === undefined ? {} : { audienceCache }),
@@ -4985,6 +4992,328 @@ describe.each(ENGINES)(
       },
     );
 
+    // 94S-2537, 94S-2506: a mention in the thread of a task whose work is
+    // closed while its link is open waits for the link to close, then is
+    // the closed thread's conversation turn (C1), whose spawn_task opens
+    // the work again in a new session.
+    const workerGateway = async () =>
+      createWorkerGateway({
+        work: schema.createPostgresWorkerUnitOfWork(db),
+        catalog: await settingsCatalog(db),
+        checkpoints: { verify: async () => ({ status: "verified" }) },
+        pending: schema.createPostgresWorkerPendingStore(db),
+        options: {
+          sessionBudget: { costUsd: 1_000, tokens: null },
+          leaseTtlMs: 60_000,
+          sleep: async () => {},
+        },
+      });
+    /**
+     * A task whose first turn a live worker runs, closed by its requester:
+     * closeAtomic leaves it closing while the worker drains. `finish` ends
+     * the drain as the worker does, and the session is closed.
+     */
+    const drainingTask = async (fixture: Fixture) => {
+      const task = await openTask(fixture, "100.000100");
+      const gateway = await workerGateway();
+      const launch = await launchSession(db, { sessionId: task });
+      const claimed = await gateway.bootstrapClaim(
+        { kind: "bootstrap" },
+        {
+          execution_id: launch.executionId,
+          execution_generation: launch.generation,
+          credential: { kind: "launch_nonce", nonce: launch.nonce },
+        },
+      );
+      const principal = {
+        kind: "session" as const,
+        attemptId: claimed.attempt_id,
+        sessionId: claimed.session_id,
+        leaseEpoch: claimed.lease_epoch,
+        executionGeneration: claimed.execution_generation,
+        authRevision: claimed.auth_revision,
+      };
+      const scope = {
+        session_id: claimed.session_id,
+        turn_id: null,
+        attempt_id: claimed.attempt_id,
+        lease_epoch: claimed.lease_epoch,
+        execution_generation: claimed.execution_generation,
+        auth_revision: claimed.auth_revision,
+      };
+      const next = await gateway.nextInput(principal, scope);
+      const turnId = next.input?.turn_id;
+      if (turnId === undefined) throw new Error("no input delivered");
+      const [opened] = await sessionsOf(fixture);
+      expect(
+        await schema.createPostgresTaskCloses(db).close({
+          principal: { ownerId: opened?.ownerId ?? "" },
+          sessionId: task,
+          reason: "completed",
+        }),
+      ).toBe("closing");
+      const finish = async () => {
+        const [receipt] = await db
+          .select({ id: schema.receipts.id })
+          .from(schema.receipts)
+          .where(
+            and(
+              eq(schema.receipts.operation, "close"),
+              sql`${schema.receipts.targetRef}->>'session_id' = ${task}`,
+            ),
+          );
+        await gateway.finalize(principal, {
+          ...scope,
+          turn_id: turnId,
+          finalize_key: `${scope.attempt_id}:${turnId}`,
+          final_source_sequence: 0,
+          terminal: {
+            status: "completed",
+            reason: null,
+            result: null,
+            usage: null,
+          },
+          checkpoint: {
+            revision: 0,
+            manifest_ref: `manifests/${task}/0`,
+            manifest_sha256: "c".repeat(64),
+          },
+        });
+        await gateway.release(principal, {
+          ...scope,
+          reason: "pause",
+          pause_control_id: receipt?.id ?? "",
+        });
+        await confirmExecutionGone(db, launch.executionId);
+      };
+      return { task, finish };
+    };
+    const closeLinks = async () => {
+      const outbox = schema.createPostgresSlackOutboxStore(db);
+      await sendOutbox();
+      await outbox.advanceAnswered();
+      return outbox.closeFinishedLinks(10);
+    };
+    const linesIn = async (threadTs: string) => {
+      await sendOutbox();
+      return postsIn(threadTs).map((post) => post.text);
+    };
+    // Its notices go through the outbox, which keeps one per key, as main.
+    const outboxHandler = () =>
+      handler(
+        undefined,
+        logger,
+        undefined,
+        LIMITS,
+        undefined,
+        createOutboxSlackNoticeSink(schema.createPostgresSlackOutboxStore(db)),
+      );
+    const WAIT_LINE = `${SLACK_NOTICE_MESSAGES.en.taskClosingWait}\n\nAI agent · Werft`;
+    const FAILED_LINE = SLACK_NOTICE_MESSAGES.en.failed;
+    const dueNow = () =>
+      db
+        .update(slackInboundEvents)
+        .set({ nextAttemptAt: sql`now()` })
+        .where(eq(slackInboundEvents.status, "received"));
+    const admissionOf = async (sessionId: string) =>
+      (
+        await db
+          .select({ admission: sessions.admissionState })
+          .from(sessions)
+          .where(eq(sessions.id, sessionId))
+      )[0]?.admission;
+
+    test("a mention while its task drains waits past a 31-minute drain, told once, then opens the work again in a new session", async () => {
+      slack.messages.length = 0;
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const { task, finish } = await drainingTask(fixture);
+      expect(await admissionOf(task)).toBe("closing");
+      const { handle } = outboxHandler();
+      await deliver(
+        fixture,
+        mention("100.000300", { thread_ts: "100.000100" }),
+      );
+      expect(await drain(handle)).toMatchObject({ deferred: 1, processed: 0 });
+      // Looked at again while the drain goes on: still waiting, no new line.
+      for (let pass = 0; pass < 3; pass += 1) {
+        await dueNow();
+        expect(await drain(handle)).toMatchObject({ deferred: 1 });
+      }
+      const said = await linesIn("100.000100");
+      expect(said.filter((text) => text === WAIT_LINE)).toHaveLength(1);
+      expect(said.some((text) => text.includes(FAILED_LINE))).toBe(false);
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      expect(await taskTurns(task)).toHaveLength(1);
+      // The drain runs past 31 minutes: neither the inbox nor the buffer's
+      // ten minutes lets the waiting mention go.
+      await db.execute(sql`
+        UPDATE slack_inbound_events
+        SET received_at = received_at - interval '31 minutes'
+        WHERE status = 'received'`);
+      await dueNow();
+      expect(await drain(handle)).toMatchObject({ deferred: 1 });
+      await finish();
+      expect(await admissionOf(task)).toBe("closed");
+      // Closed, its link not yet: it still waits (gap 1 of 94S-2506).
+      await dueNow();
+      expect(await drain(handle)).toMatchObject({ deferred: 1 });
+      expect(await closeLinks()).toBe(1);
+      await dueNow();
+      expect(await drain(handle)).toMatchObject({ processed: 1, deferred: 0 });
+      expect(await mentionTurnsOf(fixture)).toHaveLength(2);
+      await spawnDecided();
+      expect(await endings()).toMatchObject({ spawned: 1 });
+      const [, next] = await sessionsOf(fixture);
+      expect(next?.id).toBeDefined();
+      expect(next?.id).not.toBe(task);
+      // Its wait was said once in all: spawnDecided cleared the posts.
+      const waits = await db
+        .select({ id: schema.slackOutbox.id })
+        .from(schema.slackOutbox)
+        .where(sql`${schema.slackOutbox.dedupeKey} LIKE '%:closing_wait:%'`);
+      expect(waits).toHaveLength(1);
+      expect(
+        (await linesIn("100.000100")).some((text) =>
+          text.includes(FAILED_LINE),
+        ),
+      ).toBe(false);
+    });
+
+    test("two mentions in one closing: one line in the thread", async () => {
+      slack.messages.length = 0;
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await drainingTask(fixture);
+      const { handle } = outboxHandler();
+      await deliver(
+        fixture,
+        mention("100.000300", { thread_ts: "100.000100" }),
+      );
+      await deliver(
+        fixture,
+        mention("100.000400", { thread_ts: "100.000100" }),
+      );
+      for (let pass = 0; pass < 3; pass += 1) {
+        await dueNow();
+        await drain(handle);
+      }
+      const said = await linesIn("100.000100");
+      expect(said.filter((text) => text === WAIT_LINE)).toHaveLength(1);
+      expect(said.some((text) => text.includes(FAILED_LINE))).toBe(false);
+    });
+
+    // 94S-2544: closing as closeAtomic leaves it, a live worker draining
+    // the task's turn with the close's receipt on record, not set by SQL.
+    test("an unmentioned reply while its task drains for real: M1's hold (m1), no wait, nothing for the task", async () => {
+      slack.messages.length = 0;
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const { task } = await drainingTask(fixture);
+      expect(await admissionOf(task)).toBe("closing");
+      const { handle } = outboxHandler();
+      await deliver(
+        fixture,
+        message("100.000300", { thread_ts: "100.000100" }),
+      );
+      expect(await drain(handle)).toMatchObject({ processed: 1, deferred: 0 });
+      const held = await db
+        .select({
+          grade: schema.conversationJudgments.grade,
+          held: schema.conversationInputs.bufferExpiresAt,
+        })
+        .from(schema.conversationJudgments)
+        .innerJoin(
+          schema.conversationInputs,
+          eq(
+            schema.conversationInputs.id,
+            schema.conversationJudgments.inputId,
+          ),
+        )
+        .where(eq(schema.conversationInputs.slackTs, "100.000300"));
+      expect(held.map((row) => [row.grade, row.held !== null])).toEqual([
+        ["m1", true],
+      ]);
+      expect(await taskTurns(task)).toHaveLength(1);
+      expect(
+        (await linesIn("100.000100")).some((text) => text === WAIT_LINE),
+      ).toBe(false);
+    });
+
+    test("a mention after its task closed, before its link did (94S-2506 gap 1): it waits for the link, unsaid, then is the thread's conversation turn", async () => {
+      slack.messages.length = 0;
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await openTask(fixture, "100.000100");
+      const [opened] = await sessionsOf(fixture);
+      expect(
+        await schema.createPostgresTaskCloses(db).close({
+          principal: { ownerId: opened?.ownerId ?? "" },
+          sessionId: task,
+          reason: "completed",
+        }),
+      ).toBe("closed");
+      const { handle } = outboxHandler();
+      await deliver(
+        fixture,
+        mention("100.000300", { thread_ts: "100.000100" }),
+      );
+      expect(await drain(handle)).toMatchObject({ deferred: 1 });
+      const said = await linesIn("100.000100");
+      expect(said.some((text) => text === WAIT_LINE)).toBe(false);
+      expect(said.some((text) => text.includes(FAILED_LINE))).toBe(false);
+      expect(await closeLinks()).toBe(1);
+      await dueNow();
+      expect(await drain(handle)).toMatchObject({ processed: 1 });
+      expect(await mentionTurnsOf(fixture)).toHaveLength(2);
+      await spawnDecided();
+      expect(await endings()).toMatchObject({ spawned: 1 });
+      expect(await sessionsOf(fixture)).toHaveLength(2);
+    });
+
+    test("a close that fails back to open work: the waiting mention is that work's next turn", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const { task } = await drainingTask(fixture);
+      const { handle } = outboxHandler();
+      await deliver(
+        fixture,
+        mention("100.000300", {
+          thread_ts: "100.000100",
+          text: `<@${BOT_USER}> and add the risks`,
+        }),
+      );
+      expect(await drain(handle)).toMatchObject({ deferred: 1 });
+      // As a drain that fails leaves it (state-machines §1).
+      await db
+        .update(sessions)
+        .set({ admissionState: "active" })
+        .where(eq(sessions.id, task));
+      await dueNow();
+      expect(await drain(handle)).toMatchObject({ processed: 1 });
+      expect((await taskTurns(task)).map((turn) => turn.message)).toEqual([
+        expect.any(String),
+        "and add the risks",
+      ]);
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+    });
+
+    test.each(["shadow", "off"] as const)(
+      "rollout %s: a mention while its task closes goes the current way, no wait",
+      async (rollout) => {
+        const fixture = await agentInSlack("main", { rollout: "on" });
+        await drainingTask(fixture);
+        await db
+          .update(schema.agents)
+          .set({ conversationRollout: rollout })
+          .where(eq(schema.agents.id, fixture.agentId));
+        const { handle } = outboxHandler();
+        await deliver(
+          fixture,
+          mention("100.000300", { thread_ts: "100.000100" }),
+        );
+        expect(await drain(handle)).toMatchObject({
+          processed: 1,
+          deferred: 0,
+        });
+      },
+    );
+
     test("a new top-level post handed to an open task: one input of that task, one mirror row, one pointer line, no new task", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       const task = await openTask(fixture, "100.000100");
@@ -9095,7 +9424,12 @@ describe.each(ENGINES)(
     /** `admission` closing or closed is closed work (decision 35). */
     async function workThread(
       status: "queued" | "running" | "idle",
-      admission: "active" | "stopped" | "closing" | "closed" = "active",
+      admission:
+        | "active"
+        | "stopped"
+        | "paused"
+        | "closing"
+        | "closed" = "active",
     ) {
       const fixture = await agentInSlack("main", { rollout: "shadow" });
       const { handle } = handler();
@@ -9463,6 +9797,93 @@ describe.each(ENGINES)(
         ]);
       });
 
+      for (const admission of ["closing", "closed"] as const) {
+        test(`work ${admission} while its reply waited (94S-2506): M1's speak answers it with one unasked turn, and the work takes nothing`, async () => {
+          const { fixture, handle, sessionId } = await workThread("queued");
+          await deliver(fixture, reply());
+          expect(await drain(handle)).toMatchObject({ deferred: 1 });
+          await db
+            .update(sessions)
+            .set({ admissionState: admission })
+            .where(eq(sessions.id, sessionId));
+          const { speaker, outcomes } = issuing();
+          expect((await judgeReplies("speak", speaker)).judged).toBe(1);
+          expect(outcomes).toEqual(["issued"]);
+          await due();
+          expect(await drain(handle)).toMatchObject({
+            processed: 1,
+            deferred: 0,
+          });
+          expect(await messagesOf(sessionId)).toEqual(["summarize the thread"]);
+          const turns = await unaskedTurns();
+          expect(turns).toHaveLength(1);
+          expect(await judgments()).toEqual([
+            expect.objectContaining({
+              grade: "m1_to_task",
+              decision: "speak",
+              turnId: turns[0]?.id,
+            }),
+          ]);
+        });
+      }
+
+      for (const said of ["failed", "budget_refused", "throws"] as const) {
+        test(`work closed while its reply waited, M1 could not judge it (${said}): no turn of any kind`, async () => {
+          const { fixture, handle, sessionId } = await workThread("queued");
+          await deliver(fixture, reply());
+          expect(await drain(handle)).toMatchObject({ deferred: 1 });
+          await db
+            .update(sessions)
+            .set({ admissionState: "closed" })
+            .where(eq(sessions.id, sessionId));
+          const { speaker, outcomes } = issuing();
+          await judgeReplies(said, speaker);
+          expect(outcomes).toEqual([]);
+          await due();
+          expect(await drain(handle)).toMatchObject({ processed: 1 });
+          expect(await messagesOf(sessionId)).toEqual(["summarize the thread"]);
+          expect(await unaskedTurns()).toEqual([]);
+        });
+      }
+
+      test("work closed when M1 spoke and open again before the reply is looked at: the unasked turn is its one answer, the work takes nothing", async () => {
+        const { fixture, handle, sessionId } = await workThread("queued");
+        await deliver(fixture, reply());
+        expect(await drain(handle)).toMatchObject({ deferred: 1 });
+        await db
+          .update(sessions)
+          .set({ admissionState: "closing" })
+          .where(eq(sessions.id, sessionId));
+        const { speaker, outcomes } = issuing();
+        await judgeReplies("speak", speaker);
+        expect(outcomes).toEqual(["issued"]);
+        // A close that failed back to open work.
+        await db
+          .update(sessions)
+          .set({ admissionState: "active" })
+          .where(eq(sessions.id, sessionId));
+        await due();
+        expect(await drain(handle)).toMatchObject({ processed: 1 });
+        expect(await messagesOf(sessionId)).toEqual(["summarize the thread"]);
+        expect(await unaskedTurns()).toHaveLength(1);
+      });
+
+      test("work open when M1 spoke: no unasked turn is offered, and the work takes the reply", async () => {
+        const { fixture, handle, sessionId } = await workThread("queued");
+        await deliver(fixture, reply());
+        expect(await drain(handle)).toMatchObject({ deferred: 1 });
+        const { speaker, outcomes } = issuing();
+        await judgeReplies("speak", speaker);
+        expect(outcomes).toEqual([]);
+        await due();
+        expect(await drain(handle)).toMatchObject({ processed: 1 });
+        expect(await messagesOf(sessionId)).toEqual([
+          "summarize the thread",
+          "and the next step",
+        ]);
+        expect(await unaskedTurns()).toEqual([]);
+      });
+
       test("work closed while its reply waited: the reply keeps its grade and is judged once", async () => {
         const { fixture, handle, sessionId } = await workThread("queued");
         await deliver(fixture, reply());
@@ -9815,7 +10236,7 @@ describe.each(ENGINES)(
         });
       }
 
-      for (const admission of ["active", "closed"] as const) {
+      for (const admission of ["active", "stopped", "paused"] as const) {
         test(`a mention of the agent is no reply for M1: it goes the mention's way as before (admission ${admission})`, async () => {
           const { fixture, handle, sessionId } = await workThread(
             "idle",
@@ -9832,8 +10253,8 @@ describe.each(ENGINES)(
             processed: 1,
             deferred: 0,
           });
-          // Open work takes it as its turn; closed work's session takes no
-          // turn, as before this path existed.
+          // Open work takes it as its turn; a stopped or paused session
+          // refuses it, as before (94S-2520): none of them waits.
           expect(await messagesOf(sessionId)).toEqual(
             admission === "active"
               ? ["summarize the thread", "and the next step"]
@@ -9845,6 +10266,31 @@ describe.each(ENGINES)(
               ? [expect.objectContaining({ held: false })]
               : [],
           );
+          expect(await unaskedTurns()).toEqual([]);
+        });
+      }
+
+      for (const admission of ["closing", "closed"] as const) {
+        test(`a mention of the agent in work ${admission}, its link open, waits for the link to close (94S-2506): no turn, no judgment`, async () => {
+          const { fixture, handle, sessionId } = await workThread(
+            "running",
+            admission,
+          );
+          await deliver(
+            fixture,
+            mention(REPLY, {
+              thread_ts: THREAD,
+              text: `<@${BOT_USER}> and the next step`,
+            }),
+          );
+          expect(await drain(handle)).toMatchObject({
+            processed: 0,
+            deferred: 1,
+          });
+          await due();
+          expect(await drain(handle)).toMatchObject({ deferred: 1 });
+          expect(await messagesOf(sessionId)).toEqual(["summarize the thread"]);
+          expect(await judgments()).toEqual([]);
           expect(await unaskedTurns()).toEqual([]);
         });
       }

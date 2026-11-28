@@ -359,8 +359,44 @@ describe("the unasked turn of a judgment that spoke (v1-b/U1)", () => {
     expect((await issue(at, judgmentId).issued).outcome).toBe("issued");
   });
 
+  /** Work bound to the place's thread, its link open, at `admission`. */
+  async function threadWork(at: Place, admission: "active" | "closing") {
+    await client.query(
+      `INSERT INTO slack_apps (id, workspace_id, kind, state, redirect_url,
+        app_id, client_id, agent_id)
+       VALUES ($1, $2, 'agent', 'created', 'https://console.example/slack',
+        $3, 'client', $4)`,
+      [randomUUID(), WORKSPACE, APP, AGENT],
+    );
+    const { sessionId, ownerId } = await newPartitionedSession(db, "work");
+    await client.query(
+      "UPDATE sessions SET admission_state = $2 WHERE id = $1",
+      [sessionId, admission],
+    );
+    await client.query(
+      `INSERT INTO session_links (id, workspace_id, owner_id, session_id,
+        installation_id, surface_binding_id, surface_ref, channel_id,
+        thread_id, opened_by_ts, agent_id, release_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '100.000001', '100.000001',
+        $9, 'rel-work')`,
+      [
+        randomUUID(),
+        WORKSPACE,
+        ownerId,
+        sessionId,
+        at.installationId,
+        at.bindingId,
+        `${CHANNEL}:100.000001`,
+        CHANNEL,
+        AGENT,
+      ],
+    );
+    return sessionId;
+  }
+
   test("a reply of work going on that spoke (m1_to_task) makes none: the work answers it", async () => {
     const at = await place();
+    await threadWork(at, "active");
     const judgmentId = await spoke(
       at,
       "100.000002",
@@ -374,6 +410,25 @@ describe("the unasked turn of a judgment that spoke (v1-b/U1)", () => {
       answer: null,
     });
   });
+
+  for (const [name, admission] of [
+    ["closing as it is answered", "closing"],
+    ["gone from its thread", null],
+  ] as const) {
+    test(`a reply held for its work (m1_to_task), that work ${name} (94S-2506): one unasked turn`, async () => {
+      const at = await place();
+      if (admission !== null) await threadWork(at, admission);
+      const judgmentId = await spoke(
+        at,
+        "100.000002",
+        ["100.000002"],
+        "m1_to_task",
+      );
+      expect((await issue(at, judgmentId).issued).outcome).toBe("issued");
+      expect((await turnsOf()).rows).toHaveLength(1);
+      expect((await issue(at, judgmentId).issued).outcome).toBe("duplicate");
+    });
+  }
 
   /** The reply as the judgment buffer holds it, no turn's yet. */
   const heldReply = (ts: string) =>

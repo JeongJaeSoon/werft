@@ -1,4 +1,5 @@
 import { type AdmissionState, admissionStateSchema } from "@werft-ai/contracts";
+import { type SQL, sql } from "drizzle-orm";
 
 /**
  * The admissions a session's work is closed in (decision 35): closing or
@@ -21,3 +22,19 @@ export function sessionWorkClosed(admissionState: string | undefined): boolean {
     admissionStateSchema.parse(admissionState),
   );
 }
+
+/**
+ * The admission_state of the session the latest link of a topic's Slack
+ * thread names, as a scalar subquery; null when none names one. The link
+ * is read by its install and surface ref, as the receive path finds it.
+ */
+export const threadWorkAdmission = (agentId: SQL, topicId: SQL): SQL => sql`(
+  SELECT s.admission_state FROM session_links l
+  JOIN sessions s ON s.id = l.session_id
+  JOIN conversation_topics tp ON tp.id = ${topicId}
+  WHERE l.installation_id IN (
+      SELECT i.id FROM slack_installations i
+      JOIN slack_apps sa ON sa.app_id = i.app_id
+      WHERE sa.agent_id = ${agentId} AND i.team_id = tp.slack_team_id)
+    AND l.surface_ref = tp.slack_channel_id || ':' || tp.slack_thread_ts
+  ORDER BY l.created_at DESC LIMIT 1)`;

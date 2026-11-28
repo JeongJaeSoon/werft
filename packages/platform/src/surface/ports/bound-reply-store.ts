@@ -38,6 +38,12 @@ export type BoundReplyPost = {
   ts: string;
 };
 
+/** Work that is closed (decision 35), as a mention in its thread waits on it. */
+export type ClosedWork =
+  // receiptIdSchema parsed.
+  | { admission: "closing"; closeReceiptId: string | null }
+  | { admission: "closed" };
+
 /** The receive path's reads and holds of a bound thread's replies. */
 export interface BoundReplyStore {
   /**
@@ -45,6 +51,12 @@ export interface BoundReplyStore {
    * closing or closed, decision 35), as a reply's judgment grades it.
    */
   work(sessionId: string): Promise<"open" | "closed">;
+  /**
+   * The session's work as a mention in its thread sees it (94S-2537): null
+   * while it is open; `closing` with the close receipt its drain waits on
+   * (null when none is found), or `closed`.
+   */
+  closedWork(sessionId: string): Promise<ClosedWork | null>;
   /**
    * Whether the post was held for its work's (`m1_to_task`) judgment: it
    * keeps that grade though the work closed while it waited.

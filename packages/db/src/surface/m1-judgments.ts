@@ -34,6 +34,8 @@ import {
   m1ChannelCap,
   type ReadChanges,
   type ReadMessage,
+  sessionWorkClosed,
+  threadWorkAdmission,
 } from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
@@ -588,6 +590,19 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
         };
         return claimed;
       }
+    },
+
+    async heldWorkClosed(id) {
+      const [row] = rowsOf<{ admission: string | null }>(
+        await db.execute(sql`
+          SELECT ${threadWorkAdmission(sql`j.agent_id`, sql`i.topic_id`)}
+            AS admission
+          FROM conversation_judgments j
+          JOIN conversation_inputs i ON i.id = j.input_id
+          WHERE j.id = ${id}::uuid AND j.grade = 'm1_to_task'
+            AND i.buffer_expires_at IS NOT NULL`),
+      );
+      return row !== undefined && sessionWorkClosed(row.admission ?? undefined);
     },
 
     async finishReply(id, record, options = {}) {

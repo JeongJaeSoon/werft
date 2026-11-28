@@ -2,6 +2,7 @@ import {
   type ConversationInputId,
   type ConversationJudgmentId,
   JUDGMENT_BUFFER_LIMIT_PER_CHANNEL,
+  receiptIdSchema,
 } from "@werft-ai/contracts";
 import type {
   BoundReplyStore,
@@ -17,6 +18,7 @@ import {
   sessionWorkClosed,
 } from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
+import { CLOSE } from "../sessions/index.ts";
 import { rowsOf } from "../statement-rows.ts";
 import { m1GateOpenForWrite } from "./m1-judgments.ts";
 
@@ -96,6 +98,36 @@ export function createPostgresBoundReplyStore(
       return sessionWorkClosed(session?.admission_state) ? "closed" : "open";
     },
 
+    async closedWork(sessionId) {
+      // The close receipt a closing's drain waits on, by the owner's index:
+      // read only while closing, and newest first, so the scan stops at it.
+      // A close another principal asked for is not found this way.
+      const [session] = rowsOf<{
+        admission_state: string;
+        receipt_id: string | null;
+      }>(
+        await db.execute(sql`
+          SELECT s.admission_state,
+            CASE WHEN s.admission_state = 'closing' THEN (
+              SELECT r.id FROM receipts r
+              WHERE r.owner_id = s.owner_id::text AND r.operation = ${CLOSE}
+                AND r.status = 'accepted'
+                AND r.target_ref->>'session_id' = s.id::text
+              ORDER BY r.created_at DESC LIMIT 1) END AS receipt_id
+          FROM sessions s WHERE s.id = ${sessionId}::uuid`),
+      );
+      if (!sessionWorkClosed(session?.admission_state)) return null;
+      if (session?.admission_state !== "closing")
+        return { admission: "closed" };
+      return {
+        admission: "closing",
+        closeReceiptId:
+          session.receipt_id === null
+            ? null
+            : receiptIdSchema.parse(session.receipt_id),
+      };
+    },
+
     async heldForWork(post) {
       // Its held row's, or one whose text went (kept quiet, or evicted); a
       // record beside a row a session took is the shadow's, not a hold.
@@ -141,6 +173,7 @@ export function createPostgresBoundReplyStore(
             edited: boolean;
             judgment_id: ConversationJudgmentId | null;
             grade: string | null;
+            answered: boolean | null;
             lapsed: boolean | null;
           } & Ended
         >(
@@ -148,6 +181,7 @@ export function createPostgresBoundReplyStore(
             SELECT i.id, i.buffer_expires_at IS NOT NULL AS held, i.body,
               i.body_edited_at IS NOT NULL AS edited,
               j.id AS judgment_id, j.grade, j.outcome, j.decision,
+              j.turn_id IS NOT NULL AS answered,
               j.created_at <= now() - ${secs(reply.waitMs)} AS lapsed,
               j.judged_at <= j.created_at + ${secs(reply.waitMs)} AS in_time
             FROM conversation_inputs i
@@ -164,6 +198,9 @@ export function createPostgresBoundReplyStore(
           ) {
             return "session";
           }
+          // An unasked turn answered it, the work closed when M1 spoke
+          // (94S-2506): one post, one answer, should the work be open again.
+          if (held.answered === true) return "quiet";
           let ended: Ended | undefined = held;
           if (held.outcome === null) {
             if (held.lapsed !== true) return "waiting";

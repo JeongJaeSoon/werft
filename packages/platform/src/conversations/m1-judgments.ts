@@ -125,6 +125,12 @@ export interface M1JudgmentStore {
    */
   claimReply(options?: { now?: Date }): Promise<ClaimedReplyJudgment | null>;
   /**
+   * Whether the work of a reply held for its judgment (`m1_to_task`) is
+   * closed now (decision 35): its speak is then the unasked turn a closed
+   * work's reply gets (94S-2506). False for any other record.
+   */
+  heldWorkClosed(id: ConversationJudgmentId): Promise<boolean>;
+  /**
    * Writes a reply's record, or drops its row when `record` is null or the
    * gate has closed; a held reply's text goes either way, unless it waits
    * for its judgment again. `read`: the text the judgment read. `final`:
@@ -440,13 +446,15 @@ export type ReplyJudgmentRun = {
 
 /** Judges waiting replies one at a time until none waits or `deadline` passes. */
 export async function runReplyJudgments(deps: {
-  store: Pick<M1JudgmentStore, "claimReply" | "finishReply">;
+  store: Pick<M1JudgmentStore, "claimReply" | "finishReply" | "heldWorkClosed">;
   judge: M1Judge;
   /**
    * Makes a turn of a reply that spoke and no session took: one in a thread
    * the agent took part in (`m1_engaged`), or one held in a thread of work
    * done (`m1`, v1-b/U1 B). A reply a session took is the session's to
-   * answer, and a reply of work going on (`m1_to_task`) goes to its work.
+   * answer, and a reply of work going on (`m1_to_task`) goes to its work;
+   * one whose work closed while it waited is offered too, and the write
+   * makes its turn only if the work is closed then (94S-2506).
    */
   speaker?: M1Speaker;
   logger: {
@@ -512,7 +520,10 @@ export async function runReplyJudgments(deps: {
         deps.speaker !== undefined &&
         target !== null &&
         (subject.grade === "m1_engaged" ||
-          (subject.grade === "m1" && claimed.held === true)) &&
+          (subject.grade === "m1" && claimed.held === true) ||
+          (subject.grade === "m1_to_task" &&
+            claimed.held === true &&
+            (await deps.store.heldWorkClosed(claimed.id)))) &&
         subject.topicId !== null
       ) {
         await speakSafely(deps.speaker, deps.logger, {
