@@ -1458,10 +1458,12 @@ function wideKept(
   for (const [index, word] of words.entries()) {
     const last = wrappers.at(-1);
     const name = nameOf(word);
-    // A path that starts with `-` and names a tool runs it
-    // (`env X=1 -tools/grep`); reading it as the tool only parks more.
-    const program = word.includes("/") && TOOLS.includes(name);
-    if (last !== undefined && !ended && word.startsWith("-") && !program) {
+    if (last !== undefined && !ended && word.startsWith("-")) {
+      // A tool's path that starts with `-` (`env X=1 -tools/grep`) and an
+      // option with its value glued on (`env -u/x/grep`) look alike.
+      if (word.includes("/") && TOOLS.includes(name)) {
+        return "a wrapper the line does not read";
+      }
       options.push(word);
       own.push(word);
       ended = word === "--";

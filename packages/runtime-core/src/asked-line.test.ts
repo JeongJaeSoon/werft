@@ -910,7 +910,12 @@ const WIDE: [string, string, string | null][] = [
   [
     "a tool by a path that starts with -",
     "env LC_ALL=C -tools/grep -r needle",
-    "a search of a tree",
+    "a wrapper the line does not read",
+  ],
+  [
+    "an option whose glued value ends in a tool's name",
+    "env -u/x/grep grep -r '>'",
+    "a wrapper the line does not read",
   ],
   [
     "a tool by a path that starts with - behind time",
