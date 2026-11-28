@@ -113,9 +113,10 @@ export function createInstallationHosts(deps: {
   const answered = new Map<string, Map<string, number>>();
   // One question per name at a time: callers that overlap share its answer,
   // so none of them writes an older answer over a newer one.
-  const asking = new Map<string, Promise<string[] | null>>();
+  const asking = new Map<string, Promise<boolean>>();
 
-  async function ask(name: string): Promise<string[] | null> {
+  /** Whether `name` answered; what it answered with is in `answered`. */
+  async function ask(name: string): Promise<boolean> {
     let answers: readonly { address: string }[];
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -130,12 +131,12 @@ export function createInstallationHosts(deps: {
         }),
       ]);
     } catch {
-      return null;
+      return false;
     } finally {
       clearTimeout(timer);
     }
     const keys = answers.map(({ address }) => answerKey(address));
-    if (keys.length === 0 || keys.includes(null)) return null;
+    if (keys.length === 0 || keys.includes(null)) return false;
     const at = now();
     let until = answered.get(name);
     if (until === undefined) {
@@ -146,12 +147,12 @@ export function createInstallationHosts(deps: {
     for (const [address, end] of until) {
       if (end <= at) until.delete(address);
     }
-    return [...until.keys()];
+    return true;
   }
 
-  function addressesOf(name: string): Promise<string[] | null> {
+  function asked(name: string): Promise<boolean> {
     // An address names itself; its key is already in the list.
-    if (isIP(name) !== 0) return Promise.resolve([]);
+    if (isIP(name) !== 0) return Promise.resolve(true);
     let pending = asking.get(name);
     if (pending === undefined) {
       pending = ask(name).finally(() => asking.delete(name));
@@ -167,12 +168,15 @@ export function createInstallationHosts(deps: {
       if (key === null) return null;
       hosts.add(key);
     }
-    const resolved = await Promise.all(
-      wired.map(({ name }) => addressesOf(name)),
-    );
-    for (const addresses of resolved) {
-      if (addresses === null) return null;
-      for (const address of addresses) hosts.add(address);
+    const all = await Promise.all(wired.map(({ name }) => asked(name)));
+    if (all.includes(false)) return null;
+    // Read now, not as each question ended: a call that overlapped this
+    // one may have learnt another address of a name meanwhile.
+    const at = now();
+    for (const { name } of wired) {
+      for (const [address, end] of answered.get(name) ?? []) {
+        if (end > at) hosts.add(address);
+      }
     }
     return hosts.size > MAX_DENIED_HOSTS ? null : [...hosts];
   };

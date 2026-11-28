@@ -2872,6 +2872,9 @@ export function startCredentialProxy(
       let unsure = false;
       const watchGrant = (grant: EgressGrant) => {
         regrant = setTimeout(async () => {
+          // From its start: a call that would connect while it is under way
+          // has no answer either.
+          unsure = true;
           const again = await authorize(
             token,
             route.purpose,

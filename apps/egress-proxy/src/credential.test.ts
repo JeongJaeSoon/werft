@@ -5164,6 +5164,55 @@ describe("startCredentialProxy", () => {
         },
       );
 
+      test.skipIf(lan === undefined)(
+        "a regrant still under way when the body ends holds the call too",
+        async () => {
+          const up = inside(() => Response.json({ id: "msg_1" }));
+          let asks = 0;
+          let answer: (() => void) | undefined;
+          const auth = authorizer((async () => {
+            asks += 1;
+            // Every ask after the first two waits to be let go.
+            if (asks > 2) {
+              await new Promise<void>((go) => {
+                answer = go;
+              });
+            }
+            return Response.json(grantOf(`http://${INSIDE}:${up.port}`));
+          }) as unknown as () => Response);
+          const server = proxy(auth.url, 1, {
+            resolve: async () => [lan ?? ""],
+            selfAddresses: () => [],
+            regrantIntervalMs: 20,
+            regrantGraceMs: 60_000,
+          });
+          expect((await messages(server.port)).status).toBe(200);
+          expect(up.seen).toHaveLength(1);
+          let body: ReadableStreamDefaultController<Uint8Array> | undefined;
+          const slow = fetch(
+            `http://127.0.0.1:${server.port}/provider/v1/messages`,
+            {
+              method: "POST",
+              headers: { "x-api-key": WORKER_TOKEN },
+              body: new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(new TextEncoder().encode('{"model":'));
+                  body = controller;
+                },
+              }),
+            },
+          );
+          // The second call is granted; its regrant has been asked and not
+          // answered when the body ends.
+          while (asks < 3) await Bun.sleep(5);
+          body?.enqueue(new TextEncoder().encode('"m"}'));
+          body?.close();
+          expect((await slow).status).toBe(503);
+          expect(up.seen).toHaveLength(1);
+          answer?.();
+        },
+      );
+
       test("the mark holds the name to private addresses: a public answer, a mixed one and none are refused", async () => {
         let addresses: () => Promise<string[]> = async () => ["93.184.216.34"];
         const { server, looked, lines } = marked(

@@ -182,6 +182,31 @@ describe("createInstallationHosts", () => {
     expect(await third).toEqual(["api", "172.20.0.8", "172.20.0.9"]);
   });
 
+  test("a call waiting on a slow name gives what an overlapping call learnt of a fast one", async () => {
+    let fast = ["172.20.0.3"];
+    let slow: ((addresses: string[]) => void) | undefined;
+    const hosts = createInstallationHosts({
+      names: ["api", "db"],
+      interfaces: () => [],
+      lookup: (host) =>
+        host === "api"
+          ? Promise.resolve(fast.map((address) => ({ address, family: 4 })))
+          : new Promise((resolve) => {
+              slow = (addresses) =>
+                resolve(addresses.map((address) => ({ address, family: 4 })));
+            }),
+    });
+    const first = hosts();
+    await Bun.sleep(1);
+    fast = ["172.20.0.8"];
+    const second = hosts();
+    await Bun.sleep(1);
+    slow?.(["172.20.0.2"]);
+    const both = ["api", "db", "172.20.0.3", "172.20.0.8", "172.20.0.2"];
+    expect(await first).toEqual(both);
+    expect(await second).toEqual(both);
+  });
+
   test("a name configured relative and absolute is asked both ways, and both answers are held off", async () => {
     const hosts = createInstallationHosts({
       names: installationHostNames({
