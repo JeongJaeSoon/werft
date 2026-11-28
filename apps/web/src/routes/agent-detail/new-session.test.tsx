@@ -988,6 +988,180 @@ describe("이 판이 읽을 수 없는 릴리스", () => {
     );
   });
 
+  // The two shapes of a detail whose active release cannot be read.
+  const unreadableActive = (detail: AgentDetail, carried: boolean) => {
+    const id = detail.agent.active_release_id;
+    if (id === null) throw new Error("no active release");
+    return {
+      id,
+      detail: {
+        ...detail,
+        active_release: carried ? detail.active_release : null,
+        // Each shape alone: the list names the id only when a release is
+        // carried too.
+        unreadable_releases: carried
+          ? [{ id, reason_code: "policy_pins_unreadable" as const }]
+          : [],
+      },
+    };
+  };
+  const reasonFor = (release: string) =>
+    agentsKo["newSession.releaseUnreadable"].replace("{release}", release);
+  const TO_RELEASE = agentsKo["agent.tabs.toRelease"];
+
+  for (const [shape, carried] of [
+    ["상세에 릴리스가 없으면", false],
+    ["읽지 못한 목록에 그 id가 있으면", true],
+  ] as const) {
+    test(`활성 릴리스를 읽지 못하고 ${shape} 새 세션 버튼을 막고 이유와 릴리스 탭 링크를 보인다`, async () => {
+      const server = await released();
+      const { id, detail } = unreadableActive(server.detail(), carried);
+      const { history } = renderAt(DETAIL, {
+        ...meAs(me()),
+        ...server.routes,
+        [`GET ${PATH}`]: () => json(200, detail),
+      });
+      await expectBlocked(reasonFor(id));
+      const link = screen.getByRole("link", { name: TO_RELEASE });
+      expect(link.parentElement?.textContent).toBe(
+        `${reasonFor(id)} ${TO_RELEASE}`,
+      );
+      expect(link.getAttribute("href")).toBe(`${DETAIL}?tab=release`);
+      await (await setupUser()).click(link);
+      await waitFor(() =>
+        expect(history.location.search).toContain("tab=release"),
+      );
+      expect(document.activeElement).toBe(
+        screen.getByRole("tab", { name: agentsKo["agent.tabs.release"] }),
+      );
+    });
+  }
+
+  test("이유가 여럿이면 권한, 에이전트 상태, 읽지 못하는 릴리스 순으로 한 줄씩 보인다", async () => {
+    const server = await released();
+    const { id, detail } = unreadableActive(server.detail(), false);
+    let who = me(["sessions:read"], "member");
+    let status: AgentDetail["agent"]["status"] = "paused";
+    const { services } = renderAt(DETAIL, {
+      ...server.routes,
+      "GET /v1/auth/me": () => json(200, who),
+      [`GET ${PATH}`]: () =>
+        json(200, { ...detail, agent: { ...detail.agent, status } }),
+    });
+    // Not expectBlocked: its tap leaves the tooltip open for the next step.
+    const onlyReason = async (reason: string, linked: boolean) => {
+      await screen.findAllByText(reason);
+      expect((await button()).getAttribute("aria-disabled")).toBe("true");
+      expect(screen.queryByRole("link", { name: TO_RELEASE }) !== null).toBe(
+        linked,
+      );
+      expect(document.body.textContent?.includes(reasonFor(id))).toBe(linked);
+    };
+    await onlyReason("sessions:write 권한이 있어야 할 수 있습니다.", false);
+    who = me();
+    await services.queryClient.invalidateQueries();
+    await onlyReason(
+      "일시 정지된 에이전트라 세션을 시작할 수 없습니다.",
+      false,
+    );
+    status = "active";
+    await services.queryClient.invalidateQueries();
+    await onlyReason(reasonFor(id), true);
+  });
+
+  test("읽지 못한 행이 활성 릴리스가 아니면 아무것도 막지 않는다", async () => {
+    const server = await released();
+    renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      [`GET ${PATH}`]: () =>
+        json(200, {
+          ...server.detail(),
+          unreadable_releases: [
+            { id: OLDER, reason_code: "policy_pins_unreadable" },
+          ],
+        }),
+    });
+    const { dialog } = await openDialog();
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+    expect(document.body.textContent).not.toContain(reasonFor(OLDER));
+  });
+
+  test("대화상자를 연 사이 활성 릴리스를 읽지 못하게 되면 까닭을 보이고 요청을 보내지 않는다", async () => {
+    const server = await released();
+    let detail: AgentDetail = server.detail();
+    const { api, services } = renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      [`GET ${PATH}`]: () => json(200, detail),
+      "POST /v1/sessions": created,
+    });
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
+    const next = unreadableActive(detail, false);
+    detail = next.detail;
+    await services.queryClient.invalidateQueries();
+    await waitFor(() =>
+      expect(within(dialog).getByRole("alert").textContent).toBe(
+        reasonFor(next.id),
+      ),
+    );
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    expect(within(dialog).getByRole("alert").textContent).toBe(
+      reasonFor(next.id),
+    );
+    expect(
+      api.calls.filter(
+        (call) => call.method === "POST" && call.path === "/v1/sessions",
+      ),
+    ).toHaveLength(0);
+  });
+
+  test("응답을 받지 못한 요청은 그 뒤 활성 릴리스를 읽지 못해도 같은 key와 본문으로 다시 보낸다", async () => {
+    const server = await released();
+    let detail: AgentDetail = server.detail();
+    let posts = 0;
+    const { api, services, history } = renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      [`GET ${PATH}`]: () => json(200, detail),
+      "POST /v1/sessions": () =>
+        ++posts === 1
+          ? apiError(503, "BACKEND_UNAVAILABLE", "lost", true)
+          : created(),
+    });
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    const lost = (await within(dialog).findByRole("alert")).textContent;
+    const next = unreadableActive(detail, false);
+    detail = next.detail;
+    await services.queryClient.invalidateQueries();
+    await screen.findAllByText(reasonFor(next.id));
+    // The request is still unanswered, not refused for the new release.
+    expect(within(dialog).getByRole("alert").textContent).toBe(lost);
+    // A different message would be a new request, which has no release.
+    await user.type(within(dialog).getByLabelText(MESSAGE), "!");
+    expect(within(dialog).getByRole("alert").textContent).toBe(
+      reasonFor(next.id),
+    );
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    expect(posts).toBe(1);
+    await user.type(within(dialog).getByLabelText(MESSAGE), "{backspace}");
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    await waitFor(() =>
+      expect(history.location.pathname).toBe(`/sessions/${SESSION_ID}`),
+    );
+    const sent = api.calls.filter(
+      (call) => call.method === "POST" && call.path === "/v1/sessions",
+    );
+    expect(sent).toHaveLength(2);
+    expect(sent[1]?.body).toEqual(sent[0]?.body);
+    expect(sent[1]?.headers.get("Idempotency-Key")).toBe(
+      sent[0]?.headers.get("Idempotency-Key") ?? "",
+    );
+  });
+
   test("안내는 세 언어 모두 고치는 법을 담는다", () => {
     for (const table of [agentsKo, agentsEn, agentsJa]) {
       for (const key of [

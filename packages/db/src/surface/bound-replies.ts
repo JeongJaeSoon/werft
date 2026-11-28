@@ -2,6 +2,7 @@ import {
   type ConversationInputId,
   type ConversationJudgmentId,
   JUDGMENT_BUFFER_LIMIT_PER_CHANNEL,
+  receiptIdSchema,
 } from "@werft-ai/contracts";
 import type {
   BoundReplyStore,
@@ -15,8 +16,10 @@ import {
   JUDGMENT_BUFFER_TTL_MS,
   lockSlackSourceMark,
   sessionWorkClosed,
+  threadWorkSession,
 } from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
+import { CLOSE } from "../sessions/index.ts";
 import { rowsOf } from "../statement-rows.ts";
 import { m1GateOpenForWrite } from "./m1-judgments.ts";
 
@@ -31,6 +34,13 @@ const atPost = (post: Post, alias: string) => {
     AND ${a}.slack_team_id = ${post.teamId}
     AND ${a}.slack_channel_id = ${post.channelId}`;
 };
+
+/** The unasked turn of the post held for its work, by the post: its held row may be gone. */
+const answeredOf = (post: Post): SQL => sql`
+  SELECT 1 FROM conversation_judgments j
+  WHERE ${atPost(post, "j")} AND j.grade = 'm1_to_task'
+    AND j.target_ts = ${post.ts} AND j.turn_id IS NOT NULL
+  LIMIT 1`;
 
 /** The post's `m1_to_task` records still in the buffer's time (alias `j`). */
 const taskJudgmentsOf = (post: Post): SQL => sql`${atPost(post, "j")}
@@ -96,6 +106,37 @@ export function createPostgresBoundReplyStore(
       return sessionWorkClosed(session?.admission_state) ? "closed" : "open";
     },
 
+    async closedWork(sessionId) {
+      // The close receipt a closing's drain waits on, by the owner's index:
+      // closeAtomic writes it under the session owner's partition, whoever
+      // asked (another owner is not_found). Read only while closing, newest
+      // first, so the scan stops at it.
+      const [session] = rowsOf<{
+        admission_state: string;
+        receipt_id: string | null;
+      }>(
+        await db.execute(sql`
+          SELECT s.admission_state,
+            CASE WHEN s.admission_state = 'closing' THEN (
+              SELECT r.id FROM receipts r
+              WHERE r.owner_id = s.owner_id::text AND r.operation = ${CLOSE}
+                AND r.status = 'accepted'
+                AND r.target_ref->>'session_id' = s.id::text
+              ORDER BY r.created_at DESC LIMIT 1) END AS receipt_id
+          FROM sessions s WHERE s.id = ${sessionId}::uuid`),
+      );
+      if (!sessionWorkClosed(session?.admission_state)) return null;
+      if (session?.admission_state !== "closing")
+        return { admission: "closed" };
+      return {
+        admission: "closing",
+        closeReceiptId:
+          session.receipt_id === null
+            ? null
+            : receiptIdSchema.parse(session.receipt_id),
+      };
+    },
+
     async heldForWork(post) {
       // Its held row's, or one whose text went (kept quiet, or evicted); a
       // record beside a row a session took is the shadow's, not a hold.
@@ -111,6 +152,34 @@ export function createPostgresBoundReplyStore(
       return rows.length > 0;
     },
 
+    async heldWorkSession(post) {
+      // Its newest hold, its held row's at any age as taskReply reads it; a
+      // record from before the column names the thread's work as of its
+      // hold, as M1 reads it.
+      const [row] = rowsOf<{ session_id: string | null; spoke: boolean }>(
+        await db.execute(sql`
+          SELECT j.decision IS NOT DISTINCT FROM 'speak' AND j.turn_id IS NULL
+              AS spoke,
+            COALESCE(j.work_session_id, ${threadWorkSession(
+              sql`j.agent_id`,
+              sql`i.topic_id`,
+              sql`i.received_at`,
+            )}) AS session_id
+          FROM conversation_judgments j
+          LEFT JOIN conversation_inputs i ON i.id = j.input_id
+          WHERE ${atPost(post, "j")} AND j.grade = 'm1_to_task'
+            AND j.refs = ARRAY[${post.ts}]::text[]
+          ORDER BY j.created_at DESC LIMIT 1`),
+      );
+      return row === undefined
+        ? null
+        : { sessionId: row.session_id, spokeUnanswered: row.spoke };
+    },
+
+    async answeredUnasked(post) {
+      return rowsOf(await db.execute(answeredOf(post))).length > 0;
+    },
+
     async taskReply(reply) {
       const limit = await bufferLimit();
       return db.transaction(async (tx): Promise<TaskReplyRoute> => {
@@ -119,6 +188,11 @@ export function createPostgresBoundReplyStore(
         // one event never hold or give up its post at once; the work's
         // append after this is outside it.
         if (!(await claimHeld(tx, reply.fence))) return "waiting";
+        // An unasked turn answered it, the work closed when M1 spoke
+        // (94S-2506): one post, one answer, whatever the rollout is now.
+        if (rowsOf(await tx.execute(answeredOf(reply))).length > 0) {
+          return "quiet";
+        }
         // The rollout as of now, held against a switch until this ends: one
         // lowered since the event's read takes the current path (the work).
         const [agent] = rowsOf<{ on: boolean }>(
@@ -253,7 +327,11 @@ export function createPostgresBoundReplyStore(
             channelId: reply.channelId,
             ts: reply.ts,
             buffered: { body: reply.body, slackUserId: reply.slackUserId },
-            judgment: { grade: "m1_to_task", rule: reply.rule },
+            judgment: {
+              grade: "m1_to_task",
+              rule: reply.rule,
+              workSessionId: reply.sessionId,
+            },
           },
           limit,
         );
