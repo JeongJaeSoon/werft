@@ -51,7 +51,7 @@ RUN --mount=type=bind,source=scripts/image-prune.sh,target=/tmp/image-prune.sh \
 # 1.24.11 and links module versions the image scan fails on (24 fixable High
 # or Critical for 8.30.1). The same shape as the git-lfs stage in
 # apps/worker/Dockerfile, with its Go and CA pins: the build moves brotli,
-# compress and x/text to the GITLEAKS_* versions below; go.mod and go.sum
+# compress, x/text and xz to the GITLEAKS_* versions below; go.mod and go.sum
 # must then hash to the pins, which fixes every module the binary links.
 # Bumped by hand with GITLEAKS_* in scripts/third-party-notices.ts;
 # tests/images.test.ts keeps them equal. On the build platform: Go
@@ -61,7 +61,8 @@ ARG GITLEAKS_VERSION=8.30.1
 ARG GITLEAKS_BROTLI=1.2.7
 ARG GITLEAKS_COMPRESS=1.20.2
 ARG GITLEAKS_X_TEXT=0.39.0
-ARG GITLEAKS_GO=1.27.3
+ARG GITLEAKS_XZ=0.5.15
+ARG GITLEAKS_GO=1.27.4
 ARG BUILDARCH
 ARG TARGETARCH
 # The release has no source asset: GitHub's archive of the tag (its embedded
@@ -73,10 +74,10 @@ RUN --mount=type=bind,source=scripts/fetch-pinned.ts,target=/tmp/fetch-pinned.ts
   e90fb266d75837e75894c778bf594ab8e2787f12dce5a62651f21b893eaf9abb \
   /tmp/gitleaks-src.tar.gz \
   https://codeload.github.com/gitleaks/gitleaks/tar.gz/refs/tags/v${GITLEAKS_VERSION}
-ADD --checksum=sha256:65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40 \
+ADD --checksum=sha256:7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840 \
   https://dl.google.com/go/go${GITLEAKS_GO}.linux-amd64.tar.gz \
   /tmp/go-amd64.tar.gz
-ADD --checksum=sha256:a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49 \
+ADD --checksum=sha256:3392582988a273a87ab5043ee1b2c9c17a2c3c00580bf9326c47a2e0aaaeac92 \
   https://dl.google.com/go/go${GITLEAKS_GO}.linux-arm64.tar.gz \
   /tmp/go-arm64.tar.gz
 # CA roots for the module proxy, as in the git-lfs stage.
@@ -98,8 +99,9 @@ RUN mkdir /tmp/gitleaks \
   && go get "github.com/andybalholm/brotli@v${GITLEAKS_BROTLI}" \
     "github.com/klauspost/compress@v${GITLEAKS_COMPRESS}" \
     "golang.org/x/text@v${GITLEAKS_X_TEXT}" \
-  && echo "231366d3f9b40e40a6b6e951f5ea0d8709008bff8057b556d94de7b929552a8a  go.mod" | sha256sum -c - \
-  && echo "9b21048f07cf9eb07ec2c6ea6d8c26b99f1bfc19fd7d24826dd9f5e50436d204  go.sum" | sha256sum -c - \
+    "github.com/ulikunitz/xz@v${GITLEAKS_XZ}" \
+  && echo "a13ed4c5bd482e1f8b9c459d304cac2613329f66cc9d464bd5899a3884b1c2c4  go.mod" | sha256sum -c - \
+  && echo "34afad49c62791658bbf2343cb8fbaf4d130d1601fd4dc10d1633afb819d3d26  go.sum" | sha256sum -c - \
   && CGO_ENABLED=0 GOOS=linux GOARCH="$TARGETARCH" go build -trimpath \
     -ldflags="-s -w -X github.com/zricethezav/gitleaks/v8/version.Version=${GITLEAKS_VERSION}" \
     -o /tmp/gitleaks/gitleaks . \
