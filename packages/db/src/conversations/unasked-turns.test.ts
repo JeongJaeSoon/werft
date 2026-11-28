@@ -788,6 +788,19 @@ describe("conversation_judgments' unasked columns (migration)", () => {
 });
 
 describe("a closed work's thread reply that spoke (v1-b/U1)", () => {
+  test("a reply held again by a second event of it is answered once", async () => {
+    const at = await place();
+    const first = await spoke(at, "100.000007", ["100.000007"], "m1");
+    expect(
+      (await issue(at, first, { sources: ["100.000007"] }).issued).outcome,
+    ).toBe("issued");
+    const again = await spoke(at, "100.000007", ["100.000007"], "m1");
+    expect(
+      (await issue(at, again, { sources: ["100.000007"] }).issued).outcome,
+    ).toBe("duplicate");
+    expect(await judgmentOf(again)).toEqual({ turn_id: null, answer: null });
+  });
+
   test("a post a batch holds stays the batch's when a session's turn takes it", async () => {
     const at = await place();
     const session = await newPartitionedSession(db, "unasked-batched");
@@ -808,6 +821,11 @@ describe("a closed work's thread reply that spoke (v1-b/U1)", () => {
           channelId: CHANNEL,
           ts: "100.000006",
           buffered: { body: "where is the deploy doc?", slackUserId: "U0P" },
+          // A work's judgment beside it, as a shadow append can write.
+          judgment: {
+            grade: "m1_to_task",
+            rule: { decision: "reply", reason: "default_reply" },
+          },
         },
         JUDGMENT_BUFFER_LIMIT_PER_CHANNEL,
       ),

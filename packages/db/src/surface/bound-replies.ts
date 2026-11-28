@@ -197,8 +197,22 @@ export function createPostgresBoundReplyStore(
         );
         if (before !== undefined) {
           if (kept(before)) return "quiet";
-          // The work takes it; a record still waiting ends kept.
-          await tx.execute(endUnjudged(sql`j.id = ${before.id}::uuid`));
+          // The work takes it; a record still waiting ends kept. Its judge
+          // writing first, its verdict stands as the hold's would.
+          const ended = rowsOf(
+            await tx.execute(
+              sql`${endUnjudged(sql`j.id = ${before.id}::uuid`)} RETURNING j.id`,
+            ),
+          );
+          if (ended.length === 0 && before.outcome === null) {
+            const [now] = rowsOf<Ended>(
+              await tx.execute(sql`
+                SELECT outcome, decision,
+                  judged_at <= created_at + ${secs(reply.waitMs)} AS in_time
+                FROM conversation_judgments WHERE id = ${before.id}::uuid`),
+            );
+            if (now !== undefined && kept(now)) return "quiet";
+          }
           return "session";
         }
         // The gate under the agent's lock, then the post's mark before its

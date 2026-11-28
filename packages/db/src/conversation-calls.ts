@@ -793,6 +793,18 @@ export function createPostgresConversationCalls(
                       AND i.turn_id IS NOT NULL)))
                 AND decision = 'speak' AND target_ts IS NOT NULL
                 AND turn_id IS NULL AND answer IS NULL
+                -- One unasked turn a reply: the same post held again (a
+                -- second event of it) is not answered twice. The post's
+                -- mark, locked above, orders two such issues.
+                AND NOT (grade IN ('m1', 'm1_engaged') AND EXISTS (
+                  SELECT 1 FROM conversation_judgments o
+                  WHERE o.agent_id = ${input.agentId}::uuid
+                    AND o.slack_team_id = ${input.teamId}
+                    AND o.slack_channel_id = ${input.channelId}
+                    AND o.target_ts = conversation_judgments.target_ts
+                    AND o.grade IN ('m1', 'm1_engaged')
+                    AND o.turn_id IS NOT NULL
+                    AND o.id <> conversation_judgments.id))
               RETURNING id`),
           );
           if (taken.length === 0) throw new JudgmentTaken();
