@@ -6477,7 +6477,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "disconnectWorkspaceMcpServer",
     tag: "Workspace settings",
     summary: "Disconnect a workspace MCP server",
-    description: `${WORKSPACE_MCP_MANAGERS} Deletes the stored tokens (a static token too) and asks the authorization server to revoke them (best effort; \`revoked\` null when there was nothing to revoke or no endpoint). Agents' next calls to the server are refused. Disabling the member who connected a server disconnects it too, without the revocation request. A server that takes no credential has nothing to disconnect and answers 400 \`no_credential\`. Writes a \`disconnect_workspace_mcp_server\` receipt.`,
+    description: `${WORKSPACE_MCP_MANAGERS} Deletes the stored tokens (a static token too) and asks the authorization server to revoke them (best effort; \`revoked\` null when there was nothing to revoke or no endpoint). Agents' next calls to the server are refused. Disabling the member who connected a server disconnects it too, without the revocation request. A server that takes no credential has nothing to disconnect and answers 400 \`no_credential\`. A server of an \`auth_kind\` this release does not know is left as it is and answers 400 \`auth_kind_unsupported\`. Writes a \`disconnect_workspace_mcp_server\` receipt.`,
     auth: "session",
     success: {
       status: 200,

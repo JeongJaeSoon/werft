@@ -754,6 +754,12 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
         serverId,
       });
       if (result.outcome === "no_credential") throw NO_CREDENTIAL();
+      if (result.outcome === "unsupported_kind") {
+        throw refused(
+          "auth_kind_unsupported",
+          "This release does not support the server's authentication; delete the server, or upgrade",
+        );
+      }
       if (result.outcome !== "disconnected") throw notDone(result.outcome);
       return {
         server: view(result.record),

@@ -838,6 +838,12 @@ export function createPostgresWorkspaceMcpStore(
         if (server.authKind === "none") {
           return { outcome: "no_credential" as const };
         }
+        // A kind this release does not know is a later release's to change:
+        // disconnected here, it could be left in a state that release cannot
+        // connect again.
+        if (server.authKind !== "bearer" && server.authKind !== "oauth") {
+          return { outcome: "unsupported_kind" as const };
+        }
         const connection = await heldConnection(tx, server.id);
         const revocation = await revocationOf(
           tx,
