@@ -56,7 +56,8 @@ export type WorkspaceMcpServerRecord = {
   workspaceId: string;
   name: string;
   url: string;
-  authKind: WorkspaceMcpAuthKind;
+  /** A kind a later release stored reads as itself; nothing here sends with it. */
+  authKind: WorkspaceMcpAuthKind | (string & {});
   oauth: WorkspaceMcpOAuthPin | null;
   tools: WorkspaceMcpTool[];
   toolsSkipped: number;

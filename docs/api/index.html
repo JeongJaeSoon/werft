@@ -33380,10 +33380,18 @@
             "type": "string"
           },
           "auth_kind": {
-            "type": "string",
-            "enum": [
-              "oauth",
-              "bearer"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "oauth",
+                  "bearer"
+                ]
+              },
+              {
+                "type": "string",
+                "minLength": 1
+              }
             ]
           },
           "redirect_uri": {

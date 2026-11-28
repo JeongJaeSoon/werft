@@ -10,6 +10,9 @@ export const workspaceMcpKo = {
     "보기만 할 수 있습니다. 등록과 연결은 오너와 어드민이 합니다.",
   "workspaceMcp.auth.oauth": "OAuth",
   "workspaceMcp.auth.bearer": "정적 token",
+  "workspaceMcp.auth.unsupported": "지원하지 않는 인증",
+  "workspaceMcp.auth.unsupportedNotice":
+    "이 판은 이 서버의 인증 방식({kind})을 지원하지 않습니다. 여기서는 token이나 OAuth를 바꾸거나 다시 연결할 수 없습니다. API를 새 판으로 올리거나 서버를 삭제하세요.",
   "workspaceMcp.state.none": "연결 안 됨",
   "workspaceMcp.state.active": "연결됨",
   "workspaceMcp.state.needs_reauth": "다시 연결 필요",
@@ -215,6 +218,9 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
     "You can only view these. Owners and admins register and connect servers.",
   "workspaceMcp.auth.oauth": "OAuth",
   "workspaceMcp.auth.bearer": "Static token",
+  "workspaceMcp.auth.unsupported": "Unsupported authentication",
+  "workspaceMcp.auth.unsupportedNotice":
+    "This version does not support this server's authentication ({kind}). You cannot change its token or OAuth or connect it again here. Upgrade the API, or delete the server.",
   "workspaceMcp.state.none": "Not connected",
   "workspaceMcp.state.active": "Connected",
   "workspaceMcp.state.needs_reauth": "Reconnect needed",
@@ -421,6 +427,9 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
     "表示のみできます。登録と接続はオーナーとアドミンが行います。",
   "workspaceMcp.auth.oauth": "OAuth",
   "workspaceMcp.auth.bearer": "静的 token",
+  "workspaceMcp.auth.unsupported": "未対応の認証",
+  "workspaceMcp.auth.unsupportedNotice":
+    "この版はこのサーバーの認証方式（{kind}）に対応していません。ここでは token や OAuth の変更、再接続はできません。API を新しい版に上げるか、サーバーを削除してください。",
   "workspaceMcp.state.none": "未接続",
   "workspaceMcp.state.active": "接続済み",
   "workspaceMcp.state.needs_reauth": "再接続が必要",

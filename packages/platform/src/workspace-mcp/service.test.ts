@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { scopesForRole, type WorkspaceRole } from "@werft-ai/contracts";
+import {
+  scopesForRole,
+  type WorkspaceRole,
+  workspaceMcpServerListSchema,
+} from "@werft-ai/contracts";
 import { userPrincipal } from "@werft-ai/testkit/callers";
 import {
   type Caller,
@@ -736,6 +740,55 @@ describe("the address check before a server is stored", () => {
       reason: "url_invalid",
     });
     expect(context.addressAsked).toEqual([]);
+  });
+
+  test("a server of a kind a later release stored lists as stored and takes no credential change", async () => {
+    const context = setup({ remote: { oauth: false, accepted: [FAKE_TOKEN] } });
+    const created = await context.service.create(admin, {
+      name: "wiki",
+      url: FAKE_MCP_URL,
+      auth_kind: "bearer",
+      token: FAKE_TOKEN,
+    });
+    const stored = context.memory.stored(created.id);
+    if (!stored) throw new Error("the server is not stored");
+    stored.record.authKind = "none";
+    stored.bearer = null;
+
+    const listed = workspaceMcpServerListSchema.parse(
+      await context.service.list(member),
+    );
+    expect(listed.items).toMatchObject([
+      {
+        id: created.id,
+        auth_kind: "none",
+        redirect_uri: null,
+        oauth: null,
+        bearer: null,
+      },
+    ]);
+    expect(
+      await refusal(
+        context.service.putBearerToken(admin, created.id, {
+          token: FAKE_TOKEN,
+        }),
+      ),
+    ).toEqual({ code: "BAD_REQUEST", reason: "not_bearer" });
+    expect(
+      await refusal(
+        context.service.putOAuthClient(admin, created.id, { client_id: "c1" }),
+      ),
+    ).toEqual({ code: "BAD_REQUEST", reason: "not_oauth" });
+    expect(
+      await refusal(context.service.startOAuth(admin, created.id)),
+    ).toEqual({ code: "BAD_REQUEST", reason: "not_oauth" });
+    // Nothing to send its calls with: the grant is refused, not filled.
+    expect(
+      await context.service.credentialFor(WORKSPACE, created.id),
+    ).toBeNull();
+    expect(
+      await refusal(context.service.refreshTools(admin, created.id)),
+    ).toEqual({ code: "BAD_REQUEST", reason: "not_connected" });
   });
 
   test("a bearer server that passes is stored and its tools read", async () => {

@@ -12301,8 +12301,7 @@ export interface components {
             id: string;
             name: string;
             url: string;
-            /** @enum {string} */
-            auth_kind: "oauth" | "bearer";
+            auth_kind: ("oauth" | "bearer") | string;
             redirect_uri: string | null;
             oauth: {
                 issuer: string;
