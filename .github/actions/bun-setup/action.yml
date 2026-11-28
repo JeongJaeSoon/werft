@@ -1,5 +1,5 @@
 name: Bun setup
-description: Pin the Bun version and restore the matching ~/.bun/install/cache.
+description: Pin the Bun version and, for a scope that asks, restore the matching ~/.bun/install/cache.
 
 inputs:
   cache-scope:
@@ -16,11 +16,14 @@ inputs:
     default: "false"
   restore-cache:
     description: >-
-      `"false"` skips the cache restore, for a job that installs nothing and
-      whose scripts import only node: built-ins and files of this repository
-      (Bun fetches any other import into this cache). It also skips the save,
-      so it cannot be combined with `save-cache: "true"`.
-    default: "true"
+      `"true"` restores the install cache (and lets `save-cache` write it).
+      Off by default: a cold `bun install --frozen-lockfile` of the root
+      lockfile takes 7-11 s on ubuntu-24.04, while restoring the cache that
+      main kept (1.1 GB, 1,165 packages) takes about 22 s before the 2-3 s
+      install it shortens (2026-11-28). A job without the cache installs
+      from the registry, which is what a cache miss did before. `"false"`
+      also skips the save, so it cannot be combined with `save-cache: "true"`.
+    default: "false"
 
 runs:
   using: composite

@@ -11,10 +11,12 @@ import {
   type RuntimeKind,
   rememberRuleSchema,
   type SessionEventPayload,
+  SLACK_DM_THREAD_REQUIRED_CODE,
   SLACK_NOTICE_VERSIONS,
   SLACK_USER_CHANNEL_CODE,
   type SlackNoticeVersionEntry,
   slackOutboxChannelRefused,
+  slackOutboxDmThreadRefused,
   TURN_EMERGENCY_STOPPED_REASON,
   type UserLocale,
   withStoredNeutralFields,
@@ -148,6 +150,16 @@ export class SlackOutboxUserChannelError extends Error {
   constructor(readonly kind: string) {
     super(`A ${kind} outbox row may not name a Slack user as its channel`);
     this.name = "SlackOutboxUserChannelError";
+  }
+}
+
+/** An outbox row bound for the top of a DM (slackOutboxDmThreadRefused). */
+export class SlackOutboxDmThreadError extends Error {
+  readonly code = SLACK_DM_THREAD_REQUIRED_CODE;
+
+  constructor(readonly kind: string) {
+    super(`A ${kind} outbox row in a direct message must name its thread`);
+    this.name = "SlackOutboxDmThreadError";
   }
 }
 
@@ -559,8 +571,8 @@ const keepsProgressMessage = (link: SQL) => sql`(
 
 // Whether link `link` has a progress message up that it no longer keeps: its
 // mode moved off progress mid-work (a channel's pick, an agent's rollout).
-// The message takes no more updates, but still its last word once the work
-// closes, so it never stays at running.
+// The message takes no more updates, but still the work's end (idle, then
+// closed), so it never stays at running.
 const endsProgressMessage = (link: SQL) => sql`(
   ${link}.role = 'primary' AND ${link}.thread_id <> '' AND ${reportsTurns(link)}
   AND EXISTS (
@@ -586,7 +598,8 @@ const linkTakes = (row: SQL) => sql`(
     -- A link's own progress message (slackProgressKey) only while it keeps one.
     WHEN 'progress' THEN ${reportsTurns(sql.raw("l"))}
       AND (${row}.progress_key IS DISTINCT FROM 'progress:' || l.id OR ${keepsProgressMessage(sql.raw("l"))}
-        OR (${row}.dedupe_key LIKE 'progress:%:closed:%' AND ${endsProgressMessage(sql.raw("l"))}))
+        OR ((${row}.dedupe_key LIKE 'progress:%:idle:%' OR ${row}.dedupe_key LIKE 'progress:%:closed:%')
+          AND ${endsProgressMessage(sql.raw("l"))}))
     ELSE ${reportsTurns(sql.raw("l"))}
   END
 )`;
@@ -1120,6 +1133,10 @@ export function createPostgresSlackOutboxStore(
     async enqueue(input, whileHome) {
       if (slackOutboxChannelRefused(input.channelId)) {
         throw new SlackOutboxUserChannelError(input.kind);
+      }
+      // A row held for a web input's post takes that post's thread later.
+      if (input.heldForInputId == null && slackOutboxDmThreadRefused(input)) {
+        throw new SlackOutboxDmThreadError(input.kind);
       }
       return db.transaction(async (tx) => {
         if (whileHome) {
@@ -2103,7 +2120,8 @@ export function createPostgresSlackOutboxStore(
                 ) END
               ) AS state,
               last.dedupe_key AS last_key,
-              coalesce(last.updates, 0) AS updates
+              coalesce(last.updates, 0) AS updates,
+              ${keepsProgressMessage(sql.raw('"session_links"'))} AS keeps
             FROM session_links
             JOIN sessions ON sessions.id = session_links.session_id
             JOIN slack_installations i ON i.id = session_links.installation_id
@@ -2126,14 +2144,14 @@ export function createPostgresSlackOutboxStore(
               AND session_links.closed_at IS NULL
               AND i.status <> 'revoked'
               -- Never a top-level post: the message lives in the thread.
-              -- One its link stopped keeping takes only its last word.
               AND (${keepsProgressMessage(sql.raw('"session_links"'))}
-                OR (sessions.admission_state = 'closed'
-                  AND ${endsProgressMessage(sql.raw('"session_links"'))}))
+                OR ${endsProgressMessage(sql.raw('"session_links"'))})
           ) due
           -- What the newest update shows, whatever its number: two passes
           -- that numbered theirs alike both go in, and the newer state wins.
           WHERE due.state IS NOT NULL
+            -- One its link stopped keeping takes only the work's end.
+            AND (due.keeps OR due.state LIKE 'idle:%' OR due.state LIKE 'closed:%')
             AND regexp_replace(due.last_key, '^progress:[^:]+:[0-9]+:', '') IS DISTINCT FROM due.state
             -- After the last word, even one a stale update came in behind.
             AND NOT EXISTS (
@@ -2621,6 +2639,9 @@ export function createPostgresSlackOutboxStore(
             eq(t.kind, "reply"),
             eq(t.status, "uncertain"),
             sql`${t.sessionId} IS NOT NULL`,
+            // A reply at a DM's top from before the guard: its notice could
+            // stand nowhere a DM takes, so none is owed.
+            sql`NOT (${t.channelId} LIKE 'D%' AND ${t.threadTs} = '')`,
             sql`NOT EXISTS (
               SELECT 1 FROM ${t} n WHERE n.dedupe_key = 'uncertain:' || ${t.id}
             )`,

@@ -12,14 +12,16 @@ const unmovedSummary = (link: SQL) =>
 /**
  * The report mode a link's thread hears of its work by: the link's own, else
  * its channel's, else the default of its agent's conversation rollout
- * (`defaultReportMode`). Read on every pass while the link is open: a channel
- * picking a mode, or an agent's rollout moving, changes the open threads that
- * pick none. A closing link keeps the mode it closed under
+ * (`defaultReportMode`). A DM has no report mode to choose (v1-b/DM2): its
+ * binding's value is never read. Read on every pass while the link is open:
+ * a channel picking a mode, or an agent's rollout moving, changes the open
+ * threads that pick none. A closing link keeps the mode it closed under
  * (`closingReportMode`).
  */
 export const reportModeOf = (link: SQL) => sql`coalesce(
   ${link}.report_mode,
-  (SELECT pb.report_mode FROM surface_bindings pb WHERE pb.id = ${link}.surface_binding_id),
+  (SELECT CASE WHEN pb.surface_kind = 'dm' THEN NULL ELSE pb.report_mode END
+   FROM surface_bindings pb WHERE pb.id = ${link}.surface_binding_id),
   (SELECT CASE pa.conversation_rollout WHEN 'on' THEN ${defaultReportMode("on")}
      ELSE ${defaultReportMode("off")} END
    FROM agents pa WHERE pa.id = ${link}.agent_id),
@@ -31,7 +33,9 @@ export const reportModeOf = (link: SQL) => sql`coalesce(
  * or a rollout changed later never moves what a closed thread still takes
  * (its follow-ups, a day on). An unmoved `summary` link keeps its NULL.
  */
-export const closingReportMode = (link: SQL) => sql`(CASE WHEN ${unmovedSummary(link)}
+export const closingReportMode = (
+  link: SQL,
+) => sql`(CASE WHEN ${unmovedSummary(link)}
   THEN ${link}.report_mode ELSE ${reportModeOf(link)} END)`;
 
 /**

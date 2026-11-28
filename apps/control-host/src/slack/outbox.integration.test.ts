@@ -67,6 +67,7 @@ import {
   pushRequests,
   receipts,
   registerSlackInstallation,
+  SlackOutboxDmThreadError,
   sessionLinks,
   sessions,
   slackApps,
@@ -366,7 +367,7 @@ async function mention(
     teamId: TEAM,
     appId: APP_ID,
     eventId,
-    eventType: "app_mention",
+    eventType: String(event.type),
     eventSubtype: null,
     eventTime: new Date(Date.now() + eventCounter),
     status: "received",
@@ -2947,6 +2948,33 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       ]);
       const [link] = await db.select().from(sessionLinks);
       expect(link?.closedAt).not.toBeNull();
+    });
+
+    test("a channel's mode or rollout changed after its link closed brings no follow-up the link did not owe", async () => {
+      const fixture = await agentInSlack();
+      await db.update(surfaceBindings).set({ reportMode: "notify_only" });
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("first")]]);
+      await sayAfterTurn(sessionId, 1, [text("later")]);
+      await db
+        .update(sessions)
+        .set({ admissionState: "closed" })
+        .where(eq(sessions.id, sessionId));
+      await outboxPass({ closeLinks: true });
+      await outboxPass({ closeLinks: true });
+      const [link] = await db.select().from(sessionLinks);
+      expect(link?.closedAt).not.toBeNull();
+      // It keeps the mode it closed under.
+      expect(link?.reportMode).toBe("notify_only");
+      expect(await followUps()).toEqual([]);
+
+      await db.update(surfaceBindings).set({ reportMode: null });
+      await db.execute(sql`UPDATE agents SET conversation_rollout = 'shadow'`);
+      await outboxPass({ closeLinks: true });
+      await db.update(surfaceBindings).set({ reportMode: "per_step" });
+      await outboxPass({ closeLinks: true });
+      expect(await followUps()).toEqual([]);
     });
 
     test("an answer stored after its link closed, or a link closed over a day ago, gets no follow-up", async () => {
@@ -8168,6 +8196,43 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
     expect(postedLines()).toEqual([ko.progressRunning]);
   });
 
+  test("a progress message whose thread moved off progress mid-work still takes the work's end", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.execute(sql`UPDATE agents SET conversation_rollout = 'on'`);
+    await setTurn(sessionId, "running");
+    await outboxPass();
+    expect(postedLines()).toEqual([ko.progressRunning]);
+    // The channel picks per_step: a post per turn, the message no more
+    // running updates, but still the work's end.
+    await db.update(surfaceBindings).set({ reportMode: "per_step" });
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await intervalOver();
+    await outboxPass();
+    await intervalOver();
+    await outboxPass();
+    expect(postedLines()).toEqual([ko.progressRunning, "Done."]);
+    expect(slack.updates.map(({ text }) => text.split("\n")[0])).toEqual([
+      ko.progressIdle,
+    ]);
+
+    await db
+      .update(sessions)
+      .set({ admissionState: "closed", status: "stopped" })
+      .where(eq(sessions.id, sessionId));
+    for (let pass = 0; pass < 3; pass += 1) {
+      await intervalOver();
+      await outboxPass({ closeLinks: true });
+    }
+    expect(slack.updates.map(({ text }) => text.split("\n")[0])).toEqual([
+      ko.progressIdle,
+      ko.progressClosed,
+    ]);
+    const [link] = await db.select().from(sessionLinks);
+    expect(link?.closedAt).not.toBeNull();
+  });
+
   test("a thread that picked its own mode keeps it when the channel's changes", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
@@ -8181,5 +8246,325 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
     await outboxPass();
     expect(await progressRows()).toEqual([]);
     expect(postedLines()).toEqual(["Done."]);
+  });
+});
+
+// v1-b/DM2: a DM's answers, progress message and reports all go in the
+// thread of the person's DM post, never at the top of the DM or to a channel.
+describe.each(ENGINES)("a DM's thread on %s", (engine) => {
+  useDatabase(engine);
+
+  const DM = "D0OWNER";
+  const ko = SLACK_NOTICE_MESSAGES.ko;
+
+  beforeEach(() => {
+    slack.updates.length = 0;
+  });
+
+  // The person's top-level DM to the agent: under rollout off it opens its
+  // work in the post's thread, as before conversation turns.
+  const directMessage = (fixture: Fixture) =>
+    mention(fixture, THREAD, PERSON, {
+      type: "message",
+      channel: DM,
+      channel_type: "im",
+      text: "summarize the week",
+    });
+  const rollout = (fixture: Fixture, to: "off" | "shadow" | "on") =>
+    db
+      .update(schema.agents)
+      .set({ conversationRollout: to })
+      .where(eq(schema.agents.id, fixture.agentId));
+  const progressRows = () =>
+    db
+      .select({ threadTs: slackOutbox.threadTs })
+      .from(slackOutbox)
+      .where(eq(slackOutbox.kind, "progress"));
+  const setTurn = (sessionId: string, status: "queued" | "running") =>
+    db
+      .update(turns)
+      .set({ status })
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 1)));
+  const intervalOver = async () => {
+    await db
+      .update(slackOutbox)
+      .set({ nextAttemptAt: sql`now()` })
+      .where(eq(slackOutbox.kind, "progress"));
+    await db.execute(
+      sql`UPDATE slack_outbox_rate_blocks SET blocked_until = now() - interval '1 second'`,
+    );
+  };
+  const dmLink = async (fixture: Fixture) => {
+    await directMessage(fixture);
+    const sessionId = await sessionOf(fixture);
+    const [link] = await db
+      .select({
+        channelId: sessionLinks.channelId,
+        threadId: sessionLinks.threadId,
+        reportMode: sessionLinks.reportMode,
+        surfaceKind: surfaceBindings.surfaceKind,
+      })
+      .from(sessionLinks)
+      .innerJoin(
+        surfaceBindings,
+        eq(surfaceBindings.id, sessionLinks.surfaceBindingId),
+      );
+    expect(link).toEqual({
+      channelId: DM,
+      threadId: THREAD,
+      reportMode: null,
+      surfaceKind: "dm",
+    });
+    return sessionId;
+  };
+
+  test("rollout on: a DM task's progress message, replies and failures all go in the DM post's thread, none to a channel", async () => {
+    const fixture = await agentInSlack();
+    const sessionId = await dmLink(fixture);
+    await rollout(fixture, "on");
+    await setTurn(sessionId, "running");
+    await outboxPass();
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await intervalOver();
+    await outboxPass();
+    await addTurn(sessionId, 2);
+    await endTurn(sessionId, 2, "failed");
+    await intervalOver();
+    await outboxPass();
+
+    const lines = posted().map((message) => message.text.split("\n")[0]);
+    expect(lines).toContain(ko.progressRunning);
+    expect(lines).toContain("Done.");
+    expect(
+      (await rows()).filter((row) => row.kind === "failure_notice"),
+    ).toHaveLength(1);
+    expect(posted().length).toBeGreaterThanOrEqual(3);
+    for (const message of posted()) {
+      expect(message.channelId).toBe(DM);
+      expect(message.threadTs).toBe(THREAD);
+    }
+    for (const row of await rows()) {
+      expect([row.channelId, row.threadTs]).toEqual([DM, THREAD]);
+    }
+    expect(slack.updates.every((update) => update.channelId === DM)).toBe(true);
+  });
+
+  // A DM has no report mode to choose: progress once the agent's rollout is
+  // on, and per_step under off and shadow, which keep what people see.
+  test.each([
+    ["on", 1],
+    ["shadow", 0],
+    ["off", 0],
+  ] as const)(
+    "rollout %s: a DM task keeps %i progress message",
+    async (to, kept) => {
+      const fixture = await agentInSlack();
+      const sessionId = await dmLink(fixture);
+      await rollout(fixture, to);
+      await setTurn(sessionId, "queued");
+      await outboxPass();
+      expect(await progressRows()).toHaveLength(kept);
+      expect(posted().map((message) => message.channelId)).toEqual(
+        kept === 1 ? [DM] : [],
+      );
+    },
+  );
+
+  test("a DM's own report mode, once a link has one, wins over its default", async () => {
+    const fixture = await agentInSlack();
+    const sessionId = await dmLink(fixture);
+    await rollout(fixture, "on");
+    await db.update(sessionLinks).set({ reportMode: "per_step" });
+    await setTurn(sessionId, "queued");
+    await outboxPass();
+    expect(await progressRows()).toEqual([]);
+  });
+
+  // v1-b/P3: a channel picks its mode; one that picks none reads its
+  // agent's rollout, as a DM does.
+  test("rollout on: a channel's binding keeps a mode it picked; one that picks none reads progress, as a DM", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await rollout(fixture, "on");
+    await db.update(surfaceBindings).set({ reportMode: "per_step" });
+    await setTurn(sessionId, "queued");
+    await outboxPass();
+    expect(await progressRows()).toEqual([]);
+    await db.update(surfaceBindings).set({ reportMode: null });
+    await outboxPass();
+    expect(await progressRows()).toHaveLength(1);
+  });
+
+  test("a reply, failure notice or notice with no thread in a DM is refused as it is enqueued; one in the thread is not", async () => {
+    const fixture = await agentInSlack();
+    const sessionId = await dmLink(fixture);
+    const [link] = await db
+      .select({
+        id: sessionLinks.id,
+        installationId: sessionLinks.installationId,
+      })
+      .from(sessionLinks);
+    if (!link) throw new Error("no link");
+    const entry = (
+      kind: "reply" | "failure_notice" | "notice",
+      threadTs: string,
+    ) => ({
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      slackAppId: fixture.slackAppId,
+      installationId: link.installationId,
+      kind,
+      channelId: DM,
+      threadTs,
+      slackUserId: null,
+      sessionId,
+      sessionLinkId: link.id,
+      body: { text: "x" },
+      dedupeKey: `dm-top:${kind}:${threadTs}`,
+    });
+    const outbox = createPostgresSlackOutboxStore(db);
+    for (const kind of ["reply", "failure_notice", "notice"] as const) {
+      await expect(outbox.enqueue(entry(kind, ""))).rejects.toBeInstanceOf(
+        SlackOutboxDmThreadError,
+      );
+    }
+    expect((await rows()).filter((row) => row.threadTs === "")).toEqual([]);
+    expect(await outbox.enqueue(entry("reply", THREAD))).toBe("enqueued");
+  });
+
+  test("a top-level DM row written around the store fails at its send and is never posted", async () => {
+    const fixture = await agentInSlack();
+    const sessionId = await dmLink(fixture);
+    const [link] = await db
+      .select({
+        id: sessionLinks.id,
+        installationId: sessionLinks.installationId,
+      })
+      .from(sessionLinks);
+    if (!link) throw new Error("no link");
+    await endTurn(sessionId, 1, "completed", [[text("hi")]]);
+    await outboxPass();
+    const before = posted().length;
+    const id = randomUUID();
+    await db.insert(slackOutbox).values({
+      id,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      slackAppId: fixture.slackAppId,
+      installationId: link.installationId,
+      kind: "failure_notice",
+      channelId: DM,
+      threadTs: "",
+      sessionId,
+      sessionLinkId: link.id,
+      body: { text: "at the top" },
+      dedupeKey: `dm-top:${id}`,
+    });
+    expect(await outboxPass()).toMatchObject({ failed: 1 });
+    const [row] = await db
+      .select({ status: slackOutbox.status, errorCode: slackOutbox.errorCode })
+      .from(slackOutbox)
+      .where(eq(slackOutbox.id, id));
+    expect(row).toEqual({ status: "failed", errorCode: "dm_thread_required" });
+    expect(posted()).toHaveLength(before);
+  });
+
+  // However the DM's work ends, its thread goes back to active: Slack would
+  // otherwise keep "processing" there for an hour.
+  test.each([
+    ["completes", { status: "completed" }],
+    ["fails", { status: "failed" }],
+    [
+      "times out waiting for room",
+      { status: "failed", terminalReason: "no_capacity" },
+    ],
+    ["is stopped while it runs", { status: "interrupted" }],
+    ["is stopped before it starts", { status: "cancelled" }],
+  ] as const)(
+    "rollout on: a DM task's thread shows active once the work %s",
+    async (_, end) => {
+      const fixture = await agentInSlack();
+      const sessionId = await dmLink(fixture);
+      await rollout(fixture, "on");
+      await outboxPass();
+      expect(slack.statuses).toEqual([
+        { channelId: DM, threadTs: THREAD, status: "processing" },
+      ]);
+      await db
+        .update(turns)
+        .set({ ...end, endedAt: new Date() })
+        .where(eq(turns.sessionId, sessionId));
+      await outboxPass();
+      await outboxPass();
+      expect(slack.statuses).toEqual([
+        { channelId: DM, threadTs: THREAD, status: "processing" },
+        { channelId: DM, threadTs: THREAD, status: "active" },
+      ]);
+    },
+  );
+
+  // Closing is an end too: the thread shows closed, not processing.
+  test("rollout on: a DM task's thread shows closed once its session closes", async () => {
+    const fixture = await agentInSlack();
+    const sessionId = await dmLink(fixture);
+    await rollout(fixture, "on");
+    await outboxPass();
+    await db
+      .update(turns)
+      .set({ status: "completed", endedAt: new Date() })
+      .where(eq(turns.sessionId, sessionId));
+    await db
+      .update(sessions)
+      .set({ admissionState: "closed", status: "stopped" })
+      .where(eq(sessions.id, sessionId));
+    await outboxPass({ closeLinks: true });
+    await outboxPass({ closeLinks: true });
+    expect(slack.statuses).toEqual([
+      { channelId: DM, threadTs: THREAD, status: "processing" },
+      { channelId: DM, threadTs: THREAD, status: "closed" },
+    ]);
+  });
+
+  // A reply written at a DM's top before the guard, whose send went
+  // uncertain: its notice has nowhere to go, and the pass goes on.
+  test("an uncertain DM reply with no thread gets no notice and stops no pass", async () => {
+    const fixture = await agentInSlack();
+    const sessionId = await dmLink(fixture);
+    const [link] = await db
+      .select({
+        id: sessionLinks.id,
+        installationId: sessionLinks.installationId,
+      })
+      .from(sessionLinks);
+    if (!link) throw new Error("no link");
+    const id = randomUUID();
+    await db.insert(slackOutbox).values({
+      id,
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      slackAppId: fixture.slackAppId,
+      installationId: link.installationId,
+      kind: "reply",
+      channelId: DM,
+      threadTs: "",
+      sessionId,
+      sessionLinkId: link.id,
+      body: { text: "at the top" },
+      dedupeKey: `dm-top:${id}`,
+      status: "uncertain",
+    });
+    await endTurn(sessionId, 1, "completed", [[text("hi")]]);
+    await outboxPass();
+    await outboxPass();
+    expect(
+      await db
+        .select({ id: slackOutbox.id })
+        .from(slackOutbox)
+        .where(eq(slackOutbox.dedupeKey, `uncertain:${id}`)),
+    ).toEqual([]);
+    expect(
+      posted().filter((m) => m.channelId === DM && m.threadTs === THREAD),
+    ).toHaveLength(1);
   });
 });

@@ -818,11 +818,13 @@ describe("Slack management", () => {
     );
     expect(report.value).toBe("notify_only");
     expect(report.getAttribute("aria-invalid")).toBe("true");
-    expect(
-      within(list)
-        .getByRole("combobox", { name: "채널 ID: C123 듣기" })
-        .getAttribute("aria-invalid"),
-    ).toBe("false");
+    expect(report.getAttribute("aria-describedby")).toBe(alert.id);
+    // The refusal is the report select's alone.
+    const listen = within(list).getByRole("combobox", {
+      name: "채널 ID: C123 듣기",
+    });
+    expect(listen.getAttribute("aria-invalid")).toBe("false");
+    expect(listen.hasAttribute("aria-describedby")).toBe(false);
     expect(document.body.textContent).not.toContain("internal message");
   });
 
