@@ -69,27 +69,17 @@ spec:
         - {protocol: TCP, port: 3129}
   {{- if .Values.networkPolicy.egressProxy.restrict }}
   egress:
+    # DNS is held off exceptCidrs as every other port is.
     - ports:
         - {protocol: UDP, port: 53}
         - {protocol: TCP, port: 53}
+      {{- with include "ap.proxyEgressPeers" . }}
+      {{- . | nindent 6 }}
+      {{- end }}
     - ports:
         {{- include "ap.proxyEgressPorts" . | nindent 8 }}
-      {{- with .Values.networkPolicy.egressProxy.exceptCidrs }}
-      to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            {{- $v4 := list }}{{- range . }}{{- if not (contains ":" .) }}{{- $v4 = append $v4 . }}{{- end }}{{- end }}
-            {{- with $v4 }}
-            except:
-              {{- toYaml . | nindent 14 }}
-            {{- end }}
-        - ipBlock:
-            cidr: "::/0"
-            {{- $v6 := list }}{{- range . }}{{- if contains ":" . }}{{- $v6 = append $v6 . }}{{- end }}{{- end }}
-            {{- with $v6 }}
-            except:
-              {{- toYaml . | nindent 14 }}
-            {{- end }}
+      {{- with include "ap.proxyEgressPeers" . }}
+      {{- . | nindent 6 }}
       {{- end }}
   {{- end }}
 ---

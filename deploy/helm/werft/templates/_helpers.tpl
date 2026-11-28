@@ -528,9 +528,39 @@ ranges: every port but the database's, the two metrics listeners' and
 networkPolicy.egressProxy.denyPorts. A policy only allows, so what is denied
 is what no range holds.
 */}}
+{{- /* What the API holds a private upstream off beside what it finds by itself: its own Services by name, the last of them every api Pod's address, then the operator's. */}}
+{{- define "ap.privateDenyHosts" -}}
+{{- $api := include "ap.apiHost" . -}}
+{{- $own := list $api (printf "%s-authorizer" $api) (include "ap.apiInternalHost" .) (printf "%s-pods" $api) -}}
+{{- if .Values.api.metrics.enabled }}{{- $own = append $own (printf "%s-metrics" $api) }}{{- end -}}
+{{- join "," (compact (append $own (.Values.config.egress.privateDenyHosts | default ""))) -}}
+{{- end -}}
+{{- /* The peers of the proxy's egress: every address of both families but exceptCidrs. Nothing when none is named: a rule with no `to` is every peer. */}}
+{{- define "ap.proxyEgressPeers" -}}
+{{- with .Values.networkPolicy.egressProxy.exceptCidrs -}}
+to:
+  - ipBlock:
+      cidr: 0.0.0.0/0
+      {{- $v4 := list }}{{- range . }}{{- if not (contains ":" .) }}{{- $v4 = append $v4 . }}{{- end }}{{- end }}
+      {{- with $v4 }}
+      except:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  - ipBlock:
+      cidr: "::/0"
+      {{- $v6 := list }}{{- range . }}{{- if contains ":" . }}{{- $v6 = append $v6 . }}{{- end }}{{- end }}
+      {{- with $v6 }}
+      except:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end -}}
+{{- end -}}
 {{- define "ap.proxyEgressPorts" -}}
 {{- $denied := list (printf "%05d" (int .Values.networkPolicy.slack.databasePort)) (printf "%05d" (int .Values.api.metrics.port)) (printf "%05d" (int .Values.metrics.port)) -}}
-{{- range .Values.networkPolicy.egressProxy.denyPorts }}{{- $denied = append $denied (printf "%05d" (int .)) -}}{{- end -}}
+{{- range .Values.networkPolicy.egressProxy.denyPorts }}
+{{- if eq (int .) 53 }}{{- fail "networkPolicy.egressProxy.denyPorts: 53 is DNS, which the proxy resolves every upstream by" }}{{- end }}
+{{- $denied = append $denied (printf "%05d" (int .)) -}}
+{{- end -}}
 {{- $next := 1 -}}
 {{- range ($denied | uniq | sortAlpha) }}
 {{- $port := atoi (trimPrefix "0" (trimPrefix "0" (trimPrefix "0" (trimPrefix "0" .)))) -}}

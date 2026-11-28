@@ -185,8 +185,10 @@ config:
     credentialPrivateAllowlist: ""
     # Hosts a model connection registered as on the internal network is never
     # sent to, beside the ones the API finds by itself (its own addresses,
-    # its database, gateway and object store): a front VIP or NAT address.
-    # Comma separated names or IPs, no port.
+    # its database and object store) and the chart's own api Services, which
+    # the chart lists ahead of this: a front VIP or NAT address. Comma
+    # separated names or IPs, no port. Each name must resolve from the api
+    # Pod: while one does not, those connections' calls are refused.
     privateDenyHosts: ""
     # Public hosts the packages route follows a registry's redirect to.
     packagesRedirectAllowlist: ""
@@ -572,10 +574,13 @@ networkPolicy:
     # network is dialled from the proxy, and none of those is one it may be.
     # false leaves the proxy's egress open, as it was before this policy.
     restrict: true
-    # More TCP ports the proxy never dials.
+    # More TCP ports the proxy never dials. Not 53: it resolves by it.
     denyPorts: []
-    # Destinations the proxy never dials on any port, as CIDRs: the
-    # database's subnet, a node-local service. Empty: none.
+    # Destinations the proxy never dials on any port, DNS included, as CIDRs:
+    # the database's subnet, a node-local service. Empty: none. These are
+    # ipBlock peers: under a CNI that does not match Pods by ipBlock (Cilium)
+    # naming one also shuts the proxy off every Pod, the API and the cluster
+    # DNS among them, so hold those addresses off with that CNI's own policy.
     exceptCidrs: []
   metrics:
     # Peers allowed to scrape the metrics port (NetworkPolicy `from`

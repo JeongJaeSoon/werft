@@ -1794,21 +1794,71 @@ function checkProxyEgress(
   }
   if (!admits("UDP", 53)) fail("egress does not reach DNS over UDP");
   if (admits("UDP", 5432)) fail("egress reaches UDP beyond DNS");
-  const open = rules.find((rule) => (rule.ports ?? []).some((p) => p.endPort));
-  const held = (open?.to ?? []).flatMap((peer) => peer.ipBlock?.except ?? []);
-  if (
-    JSON.stringify([...held].sort()) !==
-    JSON.stringify([...(expected.except ?? [])].sort())
-  ) {
-    fail(`egress excepts ${JSON.stringify(held)}`);
+  // Every rule, the DNS one too: a rule without the exception would reach
+  // an excepted address on its ports.
+  for (const rule of rules) {
+    const held = (rule.to ?? []).flatMap((peer) => peer.ipBlock?.except ?? []);
+    if (
+      JSON.stringify([...held].sort()) !==
+      JSON.stringify([...(expected.except ?? [])].sort())
+    ) {
+      fail(`an egress rule excepts ${JSON.stringify(held)}`);
+    }
+    // Each family's whole range, or the other family would be shut by naming one.
+    const cidrs = (rule.to ?? []).map((peer) => peer.ipBlock?.cidr);
+    if (
+      (expected.except ?? []).length > 0 &&
+      JSON.stringify(cidrs) !== '["0.0.0.0/0","::/0"]'
+    ) {
+      fail(`egress names ${JSON.stringify(cidrs)}, not both address families`);
+    }
   }
-  // Each family's whole range, or the other family would be shut by naming one.
-  const cidrs = (open?.to ?? []).map((peer) => peer.ipBlock?.cidr);
+  return found;
+}
+
+/**
+ * What the API holds a private upstream off by name: each Service of its
+ * own the chart renders, among them a headless one that answers with every
+ * api Pod, then the operator's. A name with no Service behind it would not
+ * resolve, and the API then refuses every such connection's call.
+ */
+function checkPrivateDenyHosts(
+  label: string,
+  manifests: Manifest[],
+  given: string[],
+): string[] {
+  const found: string[] = [];
+  const api = manifests.find(
+    (m) => m.kind === "Deployment" && m.metadata.name === "ap-werft-api",
+  );
+  const value: string | undefined = api?.spec.template.spec.containers[0].env
+    // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
+    .find((e: any) => e.name === "EGRESS_PRIVATE_DENY_HOSTS")?.value;
+  const services = manifests.filter(
+    (m) =>
+      m.kind === "Service" &&
+      m.spec.selector?.["app.kubernetes.io/component"] === "api",
+  );
+  const own = services.map((m) => m.metadata.name).sort();
+  const listed = (value ?? "").split(",");
   if (
-    (expected.except ?? []).length > 0 &&
-    JSON.stringify(cidrs) !== '["0.0.0.0/0","::/0"]'
+    JSON.stringify(listed.slice(0, own.length).sort()) !==
+      JSON.stringify(own) ||
+    JSON.stringify(listed.slice(own.length)) !== JSON.stringify(given)
   ) {
-    fail(`egress names ${JSON.stringify(cidrs)}, not both address families`);
+    found.push(
+      `${label}: EGRESS_PRIVATE_DENY_HOSTS is ${value}, not the api Services ${own.join(",")} then ${given.join(",")}`,
+    );
+  }
+  const pods = services.filter((m) => m.spec.clusterIP === "None");
+  if (
+    pods.length !== 1 ||
+    pods[0]?.spec.publishNotReadyAddresses !== true ||
+    !listed.includes(pods[0]?.metadata.name ?? "")
+  ) {
+    found.push(
+      `${label}: no one headless api Service, unready Pods included, among the denied hosts`,
+    );
   }
   return found;
 }
@@ -2434,7 +2484,32 @@ errors.push(
     ]),
     { restricted: false, denied: [] },
   ),
+  ...checkPrivateDenyHosts("default", render(["-f", ciDigests]), []),
+  ...checkPrivateDenyHosts(
+    "private deny hosts, api metrics and the operator's",
+    render([
+      "-f",
+      ciDigests,
+      "--set",
+      "api.metrics.enabled=true",
+      "--set",
+      "config.egress.privateDenyHosts=vip.internal\\,172.30.64.1",
+    ]),
+    ["vip.internal", "172.30.64.1"],
+  ),
 );
+{
+  // DNS is how the proxy finds every upstream: it is not a port to deny.
+  const { ok, out } = helmTemplate([
+    "-f",
+    ciDigests,
+    "--set",
+    "networkPolicy.egressProxy.denyPorts={53}",
+  ]);
+  if (ok || !out.includes("53 is DNS")) {
+    errors.push("proxy egress: denyPorts takes 53, which shuts DNS");
+  }
+}
 const CURRENT_RUNTIME = {
   engine: "claude",
   sdkVersion: "0.3.280",

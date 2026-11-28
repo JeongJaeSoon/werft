@@ -2656,6 +2656,13 @@ export function createWorkerGateway(deps: {
           "The workspace has spent its judgment budget for the day",
         );
       }
+      // Read before the upstream is waited for, so both are of one
+      // snapshot: a connection disabled in between is not handed out
+      // without its mark.
+      const network =
+        result.connectionId === null
+          ? undefined
+          : deps.judgments.network?.(result.connectionId);
       const upstream =
         result.connectionId === null
           ? null
@@ -2672,9 +2679,7 @@ export function createWorkerGateway(deps: {
         judgment_id: result.judgmentId,
         upstream: await marked(
           upstream,
-          result.connectionId === null
-            ? undefined
-            : deps.judgments.network?.(result.connectionId),
+          network,
           request.registeredPrivateUpstream,
         ),
       };

@@ -3,9 +3,9 @@ import {
   type OutboundHttp,
   OutboundRefusedError,
 } from "@werft-ai/platform";
+import { freshLookup } from "./installation-hosts.ts";
 import {
   createProviderRequest,
-  defaultLookup,
   hostPortOf,
   type Lookup,
   type PinnedRequest,
@@ -23,7 +23,7 @@ const LOOKUP_TIMEOUT_MS = 10_000;
  */
 export function connectionNetworkCheck(
   own: () => Promise<readonly string[] | null>,
-  lookup: Lookup = defaultLookup,
+  lookup: Lookup = freshLookup,
 ): (endpoint: string) => Promise<EndpointNetwork> {
   return async (endpoint) => {
     const host = new URL(endpoint).hostname.replace(/^\[|\]$/g, "");
@@ -64,7 +64,7 @@ export function connectionNetworkCheck(
  */
 export function privateConnectionOutbound(
   own: () => Promise<readonly string[] | null>,
-  request: PinnedRequest = createProviderRequest(),
+  request: PinnedRequest = createProviderRequest({ lookup: freshLookup }),
 ): OutboundHttp {
   return async (outbound) => {
     const hosts = await own();

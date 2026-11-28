@@ -1488,6 +1488,49 @@ describe("a decision the store could not give", () => {
     });
   });
 
+  test("a retryable refusal that names its reason is undecided too, and one that is not stays a refusal", async () => {
+    const unknown = asking(async () => {
+      throw new WorkerGatewayError(
+        503,
+        "BACKEND_UNAVAILABLE",
+        "The installation's own addresses could not be told",
+        true,
+        undefined,
+        "private_deny_unavailable",
+      );
+    });
+    const held = await unknown.ask();
+    expect(held.status).toBe(503);
+    expect(held.headers.get("retry-after")).toBe("1");
+    expect(await held.json()).toEqual({
+      code: "BACKEND_UNAVAILABLE",
+      message: "The installation's own addresses could not be told",
+      retryable: true,
+      details: { reason_code: "private_deny_unavailable" },
+    });
+    expect(unknown.records.map((record) => record.message)).toEqual([
+      "Egress authorization refused",
+    ]);
+    const outdated = asking(async () => {
+      throw new WorkerGatewayError(
+        403,
+        "FORBIDDEN",
+        "The egress proxy is older than this connection needs",
+        false,
+        undefined,
+        "egress_proxy_outdated",
+      );
+    });
+    const refused = await outdated.ask();
+    expect(refused.status).toBe(403);
+    expect(refused.headers.get("retry-after")).toBeNull();
+    expect(await refused.json()).toEqual({
+      code: "FORBIDDEN",
+      message: "The egress proxy is older than this connection needs",
+      details: { reason_code: "egress_proxy_outdated" },
+    });
+  });
+
   test("any other failure is a 503 that is not marked retryable", async () => {
     const { ask, records } = asking(async () => {
       throw new Error("a bug, not an outage");

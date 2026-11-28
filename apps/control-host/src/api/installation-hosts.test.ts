@@ -6,7 +6,7 @@ import {
 } from "./installation-hosts.ts";
 
 describe("installationHostNames", () => {
-  test("reads the hosts the API is wired to, each in one spelling", () => {
+  test("reads the hosts the API is wired to, as configured and each once", () => {
     expect(
       installationHostNames({
         DATABASE_URL: "postgresql://user:pw@Postgres.:5432/sessions",
@@ -14,7 +14,8 @@ describe("installationHostNames", () => {
         AWS_ENDPOINT_URL: "http://[FD00::9]:8333",
         EGRESS_AUTHORIZER_HOST: "0.0.0.0",
         KUBERNETES_SERVICE_HOST: "10.96.0.1",
-        EGRESS_PRIVATE_DENY_HOSTS: " vip.internal , 172.30.64.1,,",
+        // The gateway's name again, in two more spellings.
+        EGRESS_PRIVATE_DENY_HOSTS: " vip.internal , 172.30.64.1,,API,api.",
       }).sort(),
     ).toEqual(
       [
@@ -22,8 +23,9 @@ describe("installationHostNames", () => {
         "10.96.0.1",
         "172.30.64.1",
         "api",
-        "fd00::9",
-        "postgres",
+        "[fd00::9]",
+        // As written: the resolver is asked the absolute name.
+        "Postgres.",
         "vip.internal",
       ].sort(),
     );
@@ -127,7 +129,7 @@ describe("createInstallationHosts", () => {
     expect(await over()).toBeNull();
   });
 
-  test("an address a name moved off stays denied for five minutes, and the name is asked again after thirty seconds", async () => {
+  test("a name is asked on every call, and an address it moved off stays denied for five minutes", async () => {
     let clock = 1_000_000;
     let answer = ["172.20.0.3"];
     const asked: string[] = [];
@@ -142,16 +144,52 @@ describe("createInstallationHosts", () => {
     });
     expect(await hosts()).toEqual(["api", "172.20.0.3"]);
     answer = ["172.20.0.8"];
-    clock += 29_999;
-    expect(await hosts()).toEqual(["api", "172.20.0.3"]);
-    expect(asked).toHaveLength(1);
     clock += 1;
     // The replica that answered before is gone from the name's answer, and
     // is still held off.
     expect(await hosts()).toEqual(["api", "172.20.0.3", "172.20.0.8"]);
     expect(asked).toHaveLength(2);
-    clock += 5 * 60_000 - 30_000;
+    clock += 5 * 60_000 - 1;
     expect(await hosts()).toEqual(["api", "172.20.0.8"]);
+    expect(asked).toHaveLength(3);
+  });
+
+  test("calls that overlap share one question, so a late answer never replaces a newer one", async () => {
+    const answers: Array<(addresses: string[]) => void> = [];
+    const hosts = createInstallationHosts({
+      names: ["api"],
+      interfaces: () => [],
+      lookup: () =>
+        new Promise((resolve) => {
+          answers.push((addresses) =>
+            resolve(addresses.map((address) => ({ address, family: 4 }))),
+          );
+        }),
+    });
+    const first = hosts();
+    const second = hosts();
+    await Promise.resolve();
+    expect(answers).toHaveLength(1);
+    answers[0]?.(["172.20.0.8"]);
+    expect(await first).toEqual(["api", "172.20.0.8"]);
+    expect(await second).toEqual(["api", "172.20.0.8"]);
+    // The question is over: the next call asks again.
+    const third = hosts();
+    await Promise.resolve();
+    expect(answers).toHaveLength(2);
+    answers[1]?.(["172.20.0.9"]);
+    expect(await third).toEqual(["api", "172.20.0.8", "172.20.0.9"]);
+  });
+
+  test("a name is asked as it is configured and compared without its trailing dot", async () => {
+    const asked: string[] = [];
+    const hosts = createInstallationHosts({
+      names: ["Postgres.", "[fd00::9]"],
+      interfaces: () => [],
+      lookup: answering({ "Postgres.": ["172.20.0.2"] }, asked),
+    });
+    expect(await hosts()).toEqual(["postgres", "fd00::9", "172.20.0.2"]);
+    expect(asked).toEqual(["Postgres."]);
   });
 
   test("a name that stops resolving leaves no list, whatever it answered before", async () => {
@@ -168,7 +206,7 @@ describe("createInstallationHosts", () => {
     });
     expect(await hosts()).toEqual(["api", "172.20.0.3"]);
     fail = true;
-    clock += 30_000;
+    clock += 1;
     expect(await hosts()).toBeNull();
     fail = false;
     expect(await hosts()).toEqual(["api", "172.20.0.3"]);

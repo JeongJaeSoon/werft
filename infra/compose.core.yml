@@ -303,7 +303,8 @@ services:
       # addresses, postgres, its gateway and object store): names or IPs, no
       # port. The proxy shares a network with postgres here, so this list and
       # the database's own login are what keep such a connection off it.
-      EGRESS_PRIVATE_DENY_HOSTS: ${EGRESS_PRIVATE_DENY_HOSTS:-}
+      # `api` is this service's own name: it answers with every replica.
+      EGRESS_PRIVATE_DENY_HOSTS: api,${EGRESS_PRIVATE_DENY_HOSTS:-}
       # Read by the API alone: every lease it grants carries its deadline
       # into the database, and the reconciler refuses to start with its own.
       HEARTBEAT_TTL_SEC: ${HEARTBEAT_TTL_SEC:-30}

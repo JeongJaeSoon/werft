@@ -336,9 +336,16 @@ function problem(status: number, code: string, message: string): Response {
  * so no grant; marked apart from every other 503 because this one alone may
  * be answered differently a moment later, and the proxy asks again on it.
  */
-function undecided(message: string): Response {
+function undecided(message: string, reasonCode?: string): Response {
   return Response.json(
-    { code: "BACKEND_UNAVAILABLE", message, retryable: true },
+    {
+      code: "BACKEND_UNAVAILABLE",
+      message,
+      retryable: true,
+      ...(reasonCode === undefined
+        ? {}
+        : { details: { reason_code: reasonCode } }),
+    },
     { status: 503, headers: { "retry-after": "1" } },
   );
 }
@@ -898,6 +905,16 @@ export function createEgressAuthorizer(deps: {
             ? {}
             : { reason_code: error.reasonCode }),
         });
+        // Retryable and named: what the gateway could not tell this once
+        // (the installation's own addresses, for a private upstream's deny
+        // list). No decision, as when the store cannot be read.
+        if (
+          error.status === 503 &&
+          error.retryable &&
+          error.reasonCode !== undefined
+        ) {
+          return undecided(error.message, error.reasonCode);
+        }
         if (error.receiptId !== undefined || error.reasonCode !== undefined) {
           return Response.json(
             {
