@@ -103,4 +103,4 @@
 | `mcp` | workspace 원격 MCP 서버와 에이전트 지정 |
 | `builtin` | 내장 werft MCP 서버와 그 안내 |
 
-이름이 `skill-`, `skills.`, `extension-bundle`, `workspace-mcp`, `agent-workspace-mcp`, `agent-mcp`, `werft-mcp`로 시작하는 파일은 세 층에서 `extensions` 아래, 그 이름의 폴더에만 둡니다. 실행 중 MCP 호출을 중계하는 파일(이름이 `mcp-egress`로 끝남)은 Kiel 몫이라 예외이고, platform에서는 `workers/mcp-egress`에 모읍니다.
+이름이 `skill-`, `skills.`, `extension-bundle`, `workspace-mcp`, `agent-workspace-mcp`, `agent-mcp`, `werft-mcp`로 시작하는 파일은 세 층에서 `extensions` 아래, 그 이름의 폴더에만 둡니다(port는 `extensions/ports`). 실행 중 MCP 호출을 중계하는 파일(이름이 `mcp-egress`로 끝남)은 Kiel 몫이라 예외이고, platform에서는 `workers/mcp-egress`(port는 `workers/ports`)에 모읍니다.

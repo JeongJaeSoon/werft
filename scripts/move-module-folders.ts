@@ -13,13 +13,16 @@
  *      relative path strings: read against the file's old place, written
  *      against its new one.
  *   3. In every text file, rewrite a moved path written out of the repository
- *      root, a "musterrolle/" or "kollegium/" path segment, a "routes/..."
- *      key of the control host, and the links of the verify docs.
+ *      root, a "musterrolle/" or "kollegium/" path segment (no other folder
+ *      or name in the repository is spelled so, so the segment alone says
+ *      what is meant), a "routes/..." key route errors are filed under, and
+ *      the links of the verify docs. Nothing inside a URL is rewritten.
  *   4. Run biome on what it rewrote (import order and line width follow the path).
  *      The contracts index keeps its order: see keptOrder.
  *   5. Regenerate the tables of docs/architecture/modules.md.
- *   6. Fail if a relative import still names a file that does not exist, or
- *      names one file from where it is and another from where it was.
+ *   6. Fail if a relative import still names a file that does not exist. An
+ *      import that names one file from where its file is and another from
+ *      where it was is left as written and listed: run the typecheck.
  *
  * Running it again changes nothing: a rule matches an old path only, never
  * the place it moves to. On a branch cut before the move, merge main first
@@ -252,7 +255,10 @@ for (const path of before) {
         `${path}: ${to} already exists; merge the two by hand, then run again`,
       );
     moves.set(path, to);
-    landing.set(to, [...(landing.get(to) ?? []), path]);
+    // By its lower-case form: on a file system that ignores case, Audit.ts
+    // and audit.ts are one file.
+    const name = to.toLowerCase();
+    landing.set(name, [...(landing.get(name) ?? []), path]);
   }
   for (const layer of [platform, db, routes]) {
     const folder = `${layer}extensions/`;
@@ -267,12 +273,22 @@ for (const path of before) {
       );
   }
 }
-// Several rules gather files into one folder, so two old files can claim one name.
-for (const [to, from] of landing)
+// Several rules gather files into one folder, so two old files can claim one
+// name, or one can claim as a file the name another needs as a folder.
+const staying = new Set(
+  before.filter((path) => !moves.has(path)).map((path) => path.toLowerCase()),
+);
+for (const [to, from] of landing) {
   if (from.length > 1)
     problems.push(
       `${from.join(" and ")}: both move to ${to}; merge them by hand, then run again`,
     );
+  for (let folder = dirname(to); folder !== "."; folder = dirname(folder))
+    if (landing.has(folder) || staying.has(folder))
+      problems.push(
+        `${from.join(" and ")}: ${folder} is a file, so nothing can move below it`,
+      );
+}
 if (problems.length > 0) {
   console.error(problems.join("\n"));
   process.exit(2);
@@ -386,6 +402,19 @@ function isModuleSpecifier(node: ts.Node): boolean {
 }
 
 const apiRoot = "apps/control-host/src/api/";
+const routeErrorTable = `${apiRoot}route-error-coverage.ts`;
+
+function isRouteErrorKey(file: string, node: ts.Node): boolean {
+  if (file === routeErrorTable) return ts.isPropertyAssignment(node.parent);
+  const call = node.parent;
+  return (
+    file.startsWith(apiRoot) &&
+    ts.isCallExpression(call) &&
+    call.arguments[0] === node &&
+    ts.isIdentifier(call.expression) &&
+    call.expression.text === "recordRouteErrors"
+  );
+}
 
 function scriptEdits(file: string, text: string): Edit[] {
   const source = ts.createSourceFile(
@@ -399,15 +428,15 @@ function scriptEdits(file: string, text: string): Edit[] {
   const visit = (node: ts.Node) => {
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
       let next = repairedRelative(node.text, file, isModuleSpecifier(node));
-      // A key the control host's tests file route errors under: a path below api/.
+      // A key route errors are filed under: a test file's path below api/,
+      // in the coverage table or as what a test hands recordRouteErrors().
       if (
         next === undefined &&
-        file.startsWith(apiRoot) &&
-        node.text.startsWith("routes/")
+        node.text.startsWith("routes/") &&
+        isRouteErrorKey(file, node) &&
+        existsAfter(mapPath(apiRoot + node.text))
       )
-        next = existsAfter(mapPath(apiRoot + node.text))
-          ? mapPath(apiRoot + node.text).slice(apiRoot.length)
-          : undefined;
+        next = mapPath(apiRoot + node.text).slice(apiRoot.length);
       if (next !== undefined && next !== node.text)
         edits.push({
           start: node.getStart(source) + 1,
@@ -472,22 +501,32 @@ function mapToken(token: string): string {
   return mapPath(slash ? bare.slice(0, -1) : bare) + slash + dots;
 }
 
-/** Whether the match at `index` is part of an address ("https://host/musterrolle/x"): not a path of this repository. */
-function inAddress(text: string, index: number): boolean {
-  const word = /[^\s"'`()<>[\]]*$/.exec(text.slice(0, index))?.[0] ?? "";
-  return word.includes("://");
-}
+/**
+ * Addresses are not paths of this repository: a URL with a scheme
+ * ("https://[::1]/musterrolle/x"), one without ("//host/musterrolle/x") and
+ * an scp-style remote ("git@host:org/musterrolle"). Each runs to the next
+ * space, quote or angle bracket, brackets and parentheses included.
+ */
+const address =
+  /(?:[a-z][a-z0-9+.-]*:\/\/|(?<![:\w/])\/\/(?=[\w[])|[\w.-]+@[\w.-]+:)[^\s"'`<>]*/gi;
 
-/** `replace`, leaving a match inside an address as it is. */
+/** `replace`, leaving a match that overlaps an address as it is. */
 function replacePaths(
   text: string,
   pattern: RegExp,
   mapped: (match: string, ...groups: (string | undefined)[]) => string,
 ): string {
+  const addresses = [...text.matchAll(address)].map(
+    (found) => [found.index, found.index + found[0].length] as const,
+  );
   return text.replace(pattern, (match: string, ...rest: unknown[]) => {
     const index = rest.find((value) => typeof value === "number") as number;
     const groups = rest.slice(0, rest.indexOf(index)) as (string | undefined)[];
-    return inAddress(text, index) ? match : mapped(match, ...groups);
+    return addresses.some(
+      ([start, end]) => index < end && index + match.length > start,
+    )
+      ? match
+      : mapped(match, ...groups);
   });
 }
 
@@ -832,7 +871,7 @@ const mapText = [
   `| ${code("mcp")} | workspace 원격 MCP 서버와 에이전트 지정 |`,
   `| ${code("builtin")} | 내장 werft MCP 서버와 그 안내 |`,
   "",
-  `이름이 ${["skill-", "skills.", "extension-bundle", "workspace-mcp", "agent-workspace-mcp", "agent-mcp", "werft-mcp"].map(code).join(", ")}로 시작하는 파일은 세 층에서 ${code("extensions")} 아래, 그 이름의 폴더에만 둡니다. 실행 중 MCP 호출을 중계하는 파일(이름이 ${code("mcp-egress")}로 끝남)은 Kiel 몫이라 예외이고, platform에서는 ${code("workers/mcp-egress")}에 모읍니다.`,
+  `이름이 ${["skill-", "skills.", "extension-bundle", "workspace-mcp", "agent-workspace-mcp", "agent-mcp", "werft-mcp"].map(code).join(", ")}로 시작하는 파일은 세 층에서 ${code("extensions")} 아래, 그 이름의 폴더에만 둡니다(port는 ${code("extensions/ports")}). 실행 중 MCP 호출을 중계하는 파일(이름이 ${code("mcp-egress")}로 끝남)은 Kiel 몫이라 예외이고, platform에서는 ${code("workers/mcp-egress")}(port는 ${code("workers/ports")})에 모읍니다.`,
   "",
 ].join("\n");
 
@@ -887,16 +926,16 @@ console.log(
     `${mapFile}: ${mapChanged ? (checkOnly ? "would change" : "written") : "unchanged"}`,
   ].join(", "),
 );
+// A warning, not a failure: a branch may mean the file the path names from
+// here ("../index.ts" written after the move), and the typecheck says which.
+if (twoReadings.length > 0)
+  console.error(
+    `${twoReadings.length} import(s) read two ways and were left as written; run the typecheck and check each:\n${twoReadings.join("\n")}`,
+  );
 if (checkOnly && (moves.size > 0 || rewritten.length > 0 || mapChanged)) {
   for (const [from, to] of moves) console.log(`  mv ${from} -> ${to}`);
   for (const file of rewritten) console.log(`  rewrite ${file}`);
   process.exit(1);
-}
-if (twoReadings.length > 0) {
-  console.error(
-    `${twoReadings.length} import(s) read two ways and were left as written; check each by hand:\n${twoReadings.join("\n")}`,
-  );
-  process.exitCode = 1;
 }
 if (dangling.length > 0) {
   console.error(
