@@ -433,8 +433,8 @@ function isRouteErrorKey(file: string, node: ts.Node): boolean {
   const parent = value.parent;
   if (file === routeErrorTable) {
     // A property name of ROUTE_ERROR_TESTS, written plainly or computed; not
-    // a value. The table itself may be wrapped: parentheses, a type, a call
-    // that takes it.
+    // a value. The table itself may be wrapped: parentheses, a type,
+    // Object.freeze().
     const name = ts.isComputedPropertyName(parent) ? parent : value;
     const property = name.parent;
     if (!ts.isPropertyAssignment(property) || property.name !== name)
@@ -442,7 +442,8 @@ function isRouteErrorKey(file: string, node: ts.Node): boolean {
     let table = unwrapped(property.parent);
     while (
       ts.isCallExpression(table.parent) &&
-      table.parent.expression !== table
+      table.parent.arguments[0] === table &&
+      table.parent.expression.getText() === "Object.freeze"
     )
       table = unwrapped(table.parent);
     return (
@@ -558,27 +559,29 @@ const address =
 /**
  * The literals of a script whose value holds an address that its source
  * spells with an escape the pattern above does not read (a slash written as
- * a hex escape, say). Such a literal is left whole.
+ * a hex escape, say). The text of such a literal is left as it is.
  */
 function escapedAddresses(file: string, text: string) {
   const found: (readonly [number, number])[] = [];
   if (!/\.([cm]?[jt]s|[jt]sx)$/.test(file) || !text.includes("\\"))
     return found;
   const source = parsed(file, text);
+  // An address of the value that the source does not hold as it stands.
+  const spelled = (piece: ts.LiteralLikeNode) =>
+    [...piece.text.matchAll(address)].some(
+      (match) => !piece.getText(source).includes(match[0]),
+    );
   const visit = (node: ts.Node) => {
-    // A template is read whole, a placeholder standing for each expression.
-    const value = ts.isStringLiteralLike(node)
-      ? node.text
+    // The fixed text of a template is kept together, since an address may
+    // run across an expression; the expressions themselves are still read.
+    const pieces = ts.isStringLiteralLike(node)
+      ? [node]
       : ts.isTemplateExpression(node)
-        ? node.head.text +
-          node.templateSpans.map((span) => `x${span.literal.text}`).join("")
-        : undefined;
-    if (
-      value !== undefined &&
-      node.getText(source).includes("\\") &&
-      value.search(address) !== -1
-    )
-      found.push([node.getStart(source), node.getEnd()]);
+        ? [node.head, ...node.templateSpans.map((span) => span.literal)]
+        : [];
+    if (pieces.some(spelled))
+      for (const piece of pieces)
+        found.push([piece.getStart(source), piece.getEnd()]);
     ts.forEachChild(node, visit);
   };
   visit(source);
