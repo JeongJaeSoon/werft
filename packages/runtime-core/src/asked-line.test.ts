@@ -1009,6 +1009,117 @@ const WIDE: [string, string, string | null][] = [
     "git add -A && git commit -m \"$(cat <<'EOF'\nfeat: x\nEOF\n)\"",
     null,
   ],
+  [
+    "a recursive egrep with no tree",
+    "egrep -r x",
+    "a tree the line does not name",
+  ],
+  [
+    "a recursive egrep of the workspace",
+    "egrep -R x .",
+    "a search of the workspace",
+  ],
+  [
+    "a recursive fgrep with no tree",
+    "fgrep -r x",
+    "a tree the line does not name",
+  ],
+  [
+    "a recursive egrep by its path",
+    "/usr/bin/egrep -r x",
+    "a tree the line does not name",
+  ],
+  ["a recursive zgrep", "zgrep -r x", "a tree the line does not name"],
+  ["a recursive zegrep", "zegrep -r x", "a tree the line does not name"],
+  ["a recursive zfgrep", "zfgrep -r x", "a tree the line does not name"],
+  ["a recursive ggrep", "ggrep -r x", "a tree the line does not name"],
+  ["an alias of grep quoted", "'egrep' -r x", "a tree the line does not name"],
+  ["an alias of grep escaped", "\\fgrep -r x", "a tree the line does not name"],
+  ["a process search that ends in grep", "pgrep -af node", "a grep by a name"],
+  [
+    "a file named like an alias of grep",
+    "ls egrep notes/x.pem",
+    "an ask rule names",
+  ],
+  [
+    "an alias of grep behind env and its path",
+    "/usr/bin/env X=1 /bin/fgrep -r x",
+    "a tree the line does not name",
+  ],
+  [
+    "an alias of grep behind a wrapper's option",
+    "env -u X egrep -r x",
+    "a wrapper the line does not read",
+  ],
+  [
+    "an alias of grep by a path that starts with -",
+    "env X=1 -tools/egrep x",
+    "a wrapper the line does not read",
+  ],
+  [
+    "an alias of grep in a line that does not split",
+    "egrep -r x || true",
+    "a tree the line does not name",
+  ],
+  [
+    "an alias of grep in a quoted script",
+    "bash -c 'fgrep -r x'",
+    "a tree the line does not name",
+  ],
+  [
+    "an alias of grep given a pattern file that is kept",
+    "egrep -rnf.env notes",
+    "goes to a person",
+  ],
+  [
+    "an alias of grep read by the ask rules",
+    "egrep -n 'in .env' notes/sample.txt",
+    "an ask rule names",
+  ],
+  ["a plain egrep after a pipe", "ps aux | egrep -v grep", null],
+  ["a plain egrep of a file", "egrep -rn 'a|b' notes", null],
+  ["a look-up of a grep not known", "command -v pgrep", null],
+  ["a grep not known by its name", "rgrep x notes", "a grep by a name"],
+  [
+    "a grep not known by its path",
+    "/usr/bin/bzgrep x notes/sample.txt",
+    "a grep by a name",
+  ],
+  [
+    "a grep not known behind a setting",
+    "LC_ALL=C ugrep x notes",
+    "a grep by a name",
+  ],
+  [
+    "a grep not known in a line that does not split",
+    "xzgrep x notes || true",
+    "a grep by a name",
+  ],
+  [
+    "a grep not known behind a wrapper's option",
+    "env -u X rgrep x",
+    "a wrapper the line does not read",
+  ],
+  [
+    "a program of git's that ends in grep",
+    "/usr/lib/git-core/git-grep x",
+    "a grep by a name",
+  ],
+  [
+    "git by its path reading a kept file",
+    "/usr/bin/git show HEAD:.claude/settings.json",
+    "goes to a person",
+  ],
+  [
+    "git by its path running a program",
+    "/usr/bin/git difftool -x sh",
+    "a git option that runs a program",
+  ],
+  [
+    "gh by its path sending a kept file",
+    "/usr/bin/gh gist create .mcp.json",
+    "goes to a person",
+  ],
 ];
 
 // The narrow reading (auto). Null when the line splits with certainty and
@@ -1917,6 +2028,14 @@ const NARROW: [string, string, string | null][] = [
     "git svn fetch --authors-prog=sh",
     "a git option that runs a program",
   ],
+  ["an alias of grep", "egrep -n x notes/sample.txt", "egrep is not a command"],
+  [
+    "grep by its path",
+    "/usr/bin/grep -n x notes/sample.txt",
+    "is not a command",
+  ],
+  ["git by its path", "/usr/bin/git status", "is not a command"],
+  ["gh by its path", "/usr/bin/gh pr view 1", "is not a command"],
 ];
 
 describe("the wide reading", () => {
