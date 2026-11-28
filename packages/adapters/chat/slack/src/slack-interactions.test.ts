@@ -250,6 +250,7 @@ function deps(): SlackInteractionDeps {
           mode: "on",
           listen: "free",
           m1JudgmentsPerHour: 12,
+          reportMode: null,
           ceiling: {
             actions: [
               "session.read",

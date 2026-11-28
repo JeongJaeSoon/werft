@@ -2951,6 +2951,33 @@ describe.each(ENGINES)("the Slack outbox on %s", (engine) => {
       expect(link?.closedAt).not.toBeNull();
     });
 
+    test("a channel's mode or rollout changed after its link closed brings no follow-up the link did not owe", async () => {
+      const fixture = await agentInSlack();
+      await db.update(surfaceBindings).set({ reportMode: "notify_only" });
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await endTurn(sessionId, 1, "completed", [[text("first")]]);
+      await sayAfterTurn(sessionId, 1, [text("later")]);
+      await db
+        .update(sessions)
+        .set({ admissionState: "closed" })
+        .where(eq(sessions.id, sessionId));
+      await outboxPass({ closeLinks: true });
+      await outboxPass({ closeLinks: true });
+      const [link] = await db.select().from(sessionLinks);
+      expect(link?.closedAt).not.toBeNull();
+      // It keeps the mode it closed under.
+      expect(link?.reportMode).toBe("notify_only");
+      expect(await followUps()).toEqual([]);
+
+      await db.update(surfaceBindings).set({ reportMode: null });
+      await db.execute(sql`UPDATE agents SET conversation_rollout = 'shadow'`);
+      await outboxPass({ closeLinks: true });
+      await db.update(surfaceBindings).set({ reportMode: "per_step" });
+      await outboxPass({ closeLinks: true });
+      expect(await followUps()).toEqual([]);
+    });
+
     test("an answer stored after its link closed, or a link closed over a day ago, gets no follow-up", async () => {
       const fixture = await agentInSlack();
       await mention(fixture, THREAD);
@@ -6955,6 +6982,39 @@ describe.each(ENGINES)("closing a closed session's link on %s", (engine) => {
     expect(await rows()).toEqual(before);
     expect(posted()).toEqual([]);
   });
+
+  test("on: a closed thread that picks no mode takes nothing when the channel's mode or the agent's rollout changes", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await closeSession(sessionId, true);
+    expect(await outboxPass({ closeLinks: true })).toMatchObject({
+      linksClosed: 1,
+    });
+    const before = await rows();
+    const sent = posted().length;
+
+    for (const reportMode of [
+      "progress",
+      "notify_only",
+      "per_step",
+      null,
+    ] as const) {
+      await db.update(surfaceBindings).set({ reportMode });
+      expect(await outboxPass({ closeLinks: true })).toMatchObject({
+        enqueued: 0,
+        linksClosed: 0,
+      });
+    }
+    await db.execute(sql`UPDATE agents SET conversation_rollout = 'on'`);
+    expect(await outboxPass({ closeLinks: true })).toMatchObject({
+      enqueued: 0,
+      linksClosed: 0,
+    });
+    expect(await rows()).toEqual(before);
+    expect(posted()).toHaveLength(sent);
+  });
 });
 
 describe.each(ENGINES)("a reaction on %s", (engine) => {
@@ -8133,6 +8193,307 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
     expect(await progressRows()).toEqual([]);
     expect(postedLines()).toEqual([ko.capacityWait]);
   });
+
+  // v1-b/P3: a thread whose link and channel pick none reports by its
+  // agent's rollout; a mode picked anywhere holds whatever the rollout.
+  test.each([
+    ["off", []],
+    ["shadow", []],
+    ["on", [ko.progressRunning]],
+  ] as const)(
+    "rollout %s: a thread that picks no mode keeps a progress message only when on",
+    async (rollout, lines) => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await db.execute(
+        sql`UPDATE agents SET conversation_rollout = ${rollout}`,
+      );
+      await setTurn(sessionId, "running");
+      await outboxPass();
+      expect(postedLines()).toEqual([...lines]);
+    },
+  );
+
+  test("rollout on: a mode the channel or the thread picked holds", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.execute(sql`UPDATE agents SET conversation_rollout = 'on'`);
+    await db.update(surfaceBindings).set({ reportMode: "per_step" });
+    await setTurn(sessionId, "running");
+    await outboxPass();
+    await db.update(surfaceBindings).set({ reportMode: null });
+    await db.update(sessionLinks).set({ reportMode: "per_step" });
+    await outboxPass();
+    expect(postedLines()).toEqual([]);
+    expect(await progressRows()).toEqual([]);
+  });
+
+  test("the channel's mode changed mid-work reaches the thread that picks none at once, not one that picks its own", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await setTurn(sessionId, "running");
+    await outboxPass();
+    expect(postedLines()).toEqual([]);
+    await db.update(surfaceBindings).set({ reportMode: "progress" });
+    await outboxPass();
+    expect(postedLines()).toEqual([ko.progressRunning]);
+  });
+
+  test("a first progress post still being sent takes its end when its thread moves off progress", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.update(surfaceBindings).set({ reportMode: "progress" });
+    await setTurn(sessionId, "running");
+    await outboxPass({ botToken: null });
+    // Another pass has it on its way to Slack.
+    await db
+      .update(slackOutbox)
+      .set({
+        status: "sending",
+        claimToken: randomUUID(),
+        leaseExpiresAt: sql`now() + interval '1 minute'`,
+      })
+      .where(eq(slackOutbox.kind, "progress"));
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await db
+      .update(sessions)
+      .set({ admissionState: "closed", status: "stopped" })
+      .where(eq(sessions.id, sessionId));
+    // The close's edit is enqueued while the thread still keeps progress;
+    // then the channel picks per_step and the thread closes.
+    await outboxPass();
+    await db.update(surfaceBindings).set({ reportMode: "per_step" });
+    await outboxPass({ closeLinks: true });
+
+    // Slack took it: the message gets its end.
+    await db
+      .update(slackOutbox)
+      .set({
+        status: "sent",
+        slackTs: "1792800010.000500",
+        claimToken: null,
+        leaseExpiresAt: null,
+      })
+      .where(eq(slackOutbox.status, "sending"));
+    for (let pass = 0; pass < 3; pass += 1) {
+      await intervalOver();
+      await outboxPass({ closeLinks: true });
+    }
+    expect(
+      slack.updates.map(({ ts, text }) => [ts, text.split("\n")[0]]),
+    ).toEqual([["1792800010.000500", ko.progressClosed]]);
+    const [link] = await db.select().from(sessionLinks);
+    expect(link?.closedAt).not.toBeNull();
+  });
+
+  test("a first progress post that never went up gets no end once its thread moves off progress", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.update(surfaceBindings).set({ reportMode: "progress" });
+    await setTurn(sessionId, "running");
+    await outboxPass({ botToken: null });
+    expect(await progressRows()).toHaveLength(1);
+    await db.update(surfaceBindings).set({ reportMode: "per_step" });
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await db
+      .update(sessions)
+      .set({ admissionState: "closed", status: "stopped" })
+      .where(eq(sessions.id, sessionId));
+    for (let pass = 0; pass < 3; pass += 1) {
+      await intervalOver();
+      await outboxPass({ closeLinks: true });
+    }
+    // Its end would go as a first post: only the turn's own reply goes.
+    expect(postedLines()).toEqual(["Done."]);
+    expect(
+      (await progressRows()).filter(({ dedupeKey }) =>
+        dedupeKey.includes(":closed:"),
+      ),
+    ).toEqual([]);
+    const [link] = await db.select().from(sessionLinks);
+    expect(link?.closedAt).not.toBeNull();
+  });
+
+  test.skipIf(engine === "PGlite")(
+    "a first progress post begun while a close holds its thread waits, then reads the thread closed",
+    async () => {
+      const fixture = await agentInSlack();
+      await mention(fixture, THREAD);
+      const sessionId = await sessionOf(fixture);
+      await db.execute(sql`UPDATE agents SET conversation_rollout = 'on'`);
+      await setTurn(sessionId, "running");
+      await outboxPass({ botToken: null });
+      await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+      await outboxPass({ botToken: null });
+      const outbox = createPostgresSlackOutboxStore(db);
+      const claim = (await outbox.claim({ limit: 10, leaseMs: 30_000 })).find(
+        ({ dedupeKey }) => dedupeKey.includes(":running:"),
+      );
+      if (!claim) throw new Error("no first progress post claimed");
+      let held!: () => void;
+      const hold = new Promise<void>((resolve) => {
+        held = resolve;
+      });
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      // A close's transaction as closeFinishedLinks runs it, kept open: the
+      // rollout went to shadow, so the thread closes per_step.
+      const closing = db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT id FROM session_links FOR UPDATE`);
+        held();
+        await released;
+        await tx.execute(sql`
+          UPDATE session_links SET closed_at = now(),
+            closed_reason = 'completed', report_mode = 'per_step'`);
+      });
+      // The holder failing before it holds ends the test, not a hang.
+      await Promise.race([
+        hold,
+        closing.then(() => {
+          throw new Error("the close ended before it held the link");
+        }),
+      ]);
+      try {
+        const begun = outbox.beginSend(claim);
+        expect(
+          await Promise.race([
+            begun.then(() => "begun"),
+            Bun.sleep(300).then(() => "waiting"),
+          ]),
+        ).toBe("waiting");
+        release();
+        await closing;
+        expect(await begun).toBe(false);
+      } finally {
+        release();
+        await closing.catch(() => {});
+      }
+      const [first] = await db
+        .select()
+        .from(slackOutbox)
+        .where(eq(slackOutbox.id, claim.id));
+      expect(first).toMatchObject({
+        status: "failed",
+        errorCode: "not_addressed",
+      });
+    },
+  );
+
+  test("a first progress post a pass claimed before its thread moved off progress does not go up", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.update(surfaceBindings).set({ reportMode: "progress" });
+    await setTurn(sessionId, "running");
+    await outboxPass({ botToken: null });
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await outboxPass({ botToken: null });
+    const outbox = createPostgresSlackOutboxStore(db);
+    const claim = (await outbox.claim({ limit: 10, leaseMs: 30_000 })).find(
+      ({ dedupeKey }) => dedupeKey.includes(":running:"),
+    );
+    if (!claim) throw new Error("no first progress post claimed");
+    await db.update(surfaceBindings).set({ reportMode: "per_step" });
+    await db
+      .update(sessions)
+      .set({ admissionState: "closed", status: "stopped" })
+      .where(eq(sessions.id, sessionId));
+    // Another pass closes the thread before the claim's pass sends.
+    expect(await outbox.closeFinishedLinks(10)).toBe(1);
+    expect(await outbox.beginSend(claim)).toBe(false);
+    const [first] = await db
+      .select()
+      .from(slackOutbox)
+      .where(eq(slackOutbox.id, claim.id));
+    expect(first).toMatchObject({
+      status: "failed",
+      errorCode: "not_addressed",
+    });
+  });
+
+  test("a progress message gone from Slack is not put up again once its thread moves off progress", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.execute(sql`UPDATE agents SET conversation_rollout = 'on'`);
+    await setTurn(sessionId, "running");
+    await outboxPass();
+    expect(postedLines()).toEqual([ko.progressRunning]);
+    slack.failures.set("chat.update", "message_not_found");
+    await db.update(surfaceBindings).set({ reportMode: "per_step" });
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await db
+      .update(sessions)
+      .set({ admissionState: "closed", status: "stopped" })
+      .where(eq(sessions.id, sessionId));
+    for (let pass = 0; pass < 4; pass += 1) {
+      await intervalOver();
+      await outboxPass({ closeLinks: true });
+    }
+    slack.failures.delete("chat.update");
+    expect(postedLines()).toEqual([ko.progressRunning, "Done."]);
+    const [link] = await db.select().from(sessionLinks);
+    expect(link?.closedAt).not.toBeNull();
+  });
+
+  test("a progress message whose thread moved off progress mid-work still takes the work's end", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.execute(sql`UPDATE agents SET conversation_rollout = 'on'`);
+    await setTurn(sessionId, "running");
+    await outboxPass();
+    expect(postedLines()).toEqual([ko.progressRunning]);
+    // The channel picks per_step: a post per turn, the message no more
+    // running updates, but still the work's end.
+    await db.update(surfaceBindings).set({ reportMode: "per_step" });
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await intervalOver();
+    await outboxPass();
+    await intervalOver();
+    await outboxPass();
+    expect(postedLines()).toEqual([ko.progressRunning, "Done."]);
+    expect(slack.updates.map(({ text }) => text.split("\n")[0])).toEqual([
+      ko.progressIdle,
+    ]);
+
+    await db
+      .update(sessions)
+      .set({ admissionState: "closed", status: "stopped" })
+      .where(eq(sessions.id, sessionId));
+    for (let pass = 0; pass < 3; pass += 1) {
+      await intervalOver();
+      await outboxPass({ closeLinks: true });
+    }
+    expect(slack.updates.map(({ text }) => text.split("\n")[0])).toEqual([
+      ko.progressIdle,
+      ko.progressClosed,
+    ]);
+    const [link] = await db.select().from(sessionLinks);
+    expect(link?.closedAt).not.toBeNull();
+  });
+
+  test("a thread that picked its own mode keeps it when the channel's changes", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.update(sessionLinks).set({ reportMode: "per_step" });
+    await setTurn(sessionId, "running");
+    await outboxPass();
+    await db.update(surfaceBindings).set({ reportMode: "progress" });
+    await outboxPass();
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await outboxPass();
+    expect(await progressRows()).toEqual([]);
+    expect(postedLines()).toEqual(["Done."]);
+  });
 });
 
 // v1-b/C1: a task closes on its pull request merged or closed, and on its
@@ -8490,6 +8851,16 @@ describe.each(ENGINES)("a DM's thread on %s", (engine) => {
     },
   );
 
+  test("a DM reads its agent's rollout even when its binding stores a mode", async () => {
+    const fixture = await agentInSlack();
+    const sessionId = await dmLink(fixture);
+    await db.update(surfaceBindings).set({ reportMode: "per_step" });
+    await rollout(fixture, "on");
+    await setTurn(sessionId, "queued");
+    await outboxPass();
+    expect(await progressRows()).toHaveLength(1);
+  });
+
   test("a DM's own report mode, once a link has one, wins over its default", async () => {
     const fixture = await agentInSlack();
     const sessionId = await dmLink(fixture);
@@ -8500,14 +8871,20 @@ describe.each(ENGINES)("a DM's thread on %s", (engine) => {
     expect(await progressRows()).toEqual([]);
   });
 
-  test("rollout on: a channel's binding keeps its own mode; only a DM reads progress", async () => {
+  // v1-b/P3: a channel picks its mode; one that picks none reads its
+  // agent's rollout, as a DM does.
+  test("rollout on: a channel's binding keeps a mode it picked; one that picks none reads progress, as a DM", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
     const sessionId = await sessionOf(fixture);
     await rollout(fixture, "on");
+    await db.update(surfaceBindings).set({ reportMode: "per_step" });
     await setTurn(sessionId, "queued");
     await outboxPass();
     expect(await progressRows()).toEqual([]);
+    await db.update(surfaceBindings).set({ reportMode: null });
+    await outboxPass();
+    expect(await progressRows()).toHaveLength(1);
   });
 
   test("a reply, failure notice or notice with no thread in a DM is refused as it is enqueued; one in the thread is not", async () => {

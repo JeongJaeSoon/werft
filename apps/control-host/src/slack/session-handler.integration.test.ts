@@ -4659,7 +4659,12 @@ describe.each(ENGINES)(
         nonce: null,
       });
       await sendOutbox();
-      expect(slack.messages).toEqual([]);
+      // Rollout on, the task's thread picks no mode: its one progress
+      // message (v1-b/P3), and nothing says the attach failed.
+      expect(threadPosts().map((post) => post.text.split("\n")[0])).toEqual([
+        SLACK_NOTICE_MESSAGES.en.progressQueued,
+      ]);
+      expect(slack.messages).toHaveLength(1);
     });
 
     // The effect runs outside the channel's inbox lease: another pass can
