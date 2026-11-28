@@ -28,14 +28,14 @@ Confirm [context, namespace, and fullname](/run-server/self-hosting/kubernetes#�
 <a id="단계" />
 ## Steps
 
-<a id="1-대상-chart와-제어-영역-우선-교체" />
-### 1. Target chart and control plane first
+<a id="1-대상-chart로-egress-proxy-제어-영역-순서로-교체" />
+### 1. Target chart: egress proxy, then control plane
 
-Set VERSION to the exact chart version. Pass installation-specific values without `--reuse-values`. For protocol/manifest/usage changes, do not replace control-host and worker in one upgrade.
+Set VERSION to the exact chart version. Pass installation-specific values without `--reuse-values`. Replace images in the order egress proxy, control-host, worker ([the same order on the Compose page](/run-server/self-hosting/upgrade-compose#2-egress-proxy--control-host--worker-순서)). This step runs `helm upgrade` twice (the egress proxy, then the control plane); step 2 replaces the worker. An installation earlier than `v0.5.0` first upgrades to `v0.5.0` as the [`v0.5.0` upgrade page](https://github.com/JeongJaeSoon/werft/tree/v0.5.0) says.
 
 Skip this step when you upgrade to the profile removal release. Old workers cannot read that release's control-host answers, so no new session starts between step 1 and step 2. Replace the control-host and the worker together in one upgrade with step 2 ([Upgrade order of the profile removal release](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)).
 
-When you upgrade to the release that moves credentials named by env into the database (migration `0285_credential_carried_auth`), stop every old api before this step with `kubectl -n werft scale deploy/werft-api --replicas=0`, and wait for its pods to end with `kubectl -n werft wait --for=delete pod -l app.kubernetes.io/instance=werft,app.kubernetes.io/component=api --timeout=120s`. Once `kubectl -n werft get pods -l app.kubernetes.io/instance=werft,app.kubernetes.io/component=api -o name` prints nothing, run the `helm upgrade` below with `--set api.replicas=1` added. Scaling does not wait for the pods to end, and an api that is ending still runs its push executor while it drains requests (up to 35 seconds). The chart runs several api replicas by default, and one that has not read the move yet may fail a moved push request with `catalog_changed` or refuse a token reissue. After the api log shows the move (`… took its credential from …`), step 2 puts the replica count back to your values ([Credentials named by env move into the database once](/run-server/self-hosting/upgrade-compose#env로-가리키던-자격-증명은-db로-한-번-옮긴다)).
+When you upgrade to the release that moves credentials named by env into the database (migration `0285_credential_carried_auth`), stop every old api before the `helm upgrade` that replaces the control plane, with `kubectl -n werft scale deploy/werft-api --replicas=0`, and wait for its pods to end with `kubectl -n werft wait --for=delete pod -l app.kubernetes.io/instance=werft,app.kubernetes.io/component=api --timeout=120s`. Once `kubectl -n werft get pods -l app.kubernetes.io/instance=werft,app.kubernetes.io/component=api -o name` prints nothing, run that `helm upgrade` with `--set api.replicas=1` added. Scaling does not wait for the pods to end, and an api that is ending still runs its push executor while it drains requests (up to 35 seconds). The chart runs several api replicas by default, and one that has not read the move yet may fail a moved push request with `catalog_changed` or refuse a token reissue. After the api log shows the move (`… took its credential from …`), step 2 puts the replica count back to your values ([Credentials named by env move into the database once](/run-server/self-hosting/upgrade-compose#env로-가리키던-자격-증명은-db로-한-번-옮긴다)).
 
 When you upgrade to the release that removes external credential sources (migration `0288_remove_external_credentials`), delete `secrets.catalogEnv` and `config.aws.secretsManagerEndpointUrl` from your values. While either is set the render stops (`secrets.catalogEnv is removed: credentials are entered in the console…`, `config.aws.secretsManagerEndpointUrl is removed…`). Model keys in the Secret no longer reach the api, so enter them in the console before upgrading. For disabled rows, `needs_value` and the settings document, follow [The release that removes external credential sources](/run-server/self-hosting/upgrade-compose#외부-자격-증명-출처를-없앤-릴리스).
 
@@ -90,6 +90,23 @@ echo '{"images": {"worker": {"runtime": null}}}' > worker-reset.json
 echo '{"images": {"workerPrevious": {"runtime": null}}}' > worker-previous-reset.json
 ```
 
+First replace the egress proxy alone: keep the deployed control-host and worker images, and let the target chart's image apply to the egress proxy.
+
+```bash
+KNOWN='{}'
+deployed_values && next_workers control > control-phase.json \
+  && jq --slurpfile d deployed-values.json \
+    'del(.images.egressProxy) | .images.controlHost = $d[0].images.controlHost' \
+    control-phase.json > proxy-phase.json \
+  && helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+    --namespace werft -f values-<installation>.yaml \
+    -f worker-reset.json -f worker-previous-reset.json -f proxy-phase.json \
+    --set-json 'upgrade.approvedSessions=[]' --timeout 10m \
+  && kubectl -n werft rollout status deploy/werft-egress-proxy --timeout=600s
+```
+
+Then replace the control plane. An installation that runs the conversation runtime (`conversationRuntime.enabled`, off by default) adds `--set conversationRuntime.enabled=false` to this command to take the runtime down. The step 2 command brings it back on the new worker image, as your values say.
+
 ```bash
 KNOWN='{}'
 deployed_values && next_workers control > control-phase.json \
@@ -100,14 +117,14 @@ deployed_values && next_workers control > control-phase.json \
   && kubectl -n werft rollout status deploy/werft-api --timeout=600s
 ```
 
-This intermediate upgrade applies the new chart's control-host while retaining current worker/egress proxy. What it retains is the images. The chart is applied as a whole, so the egress proxy's settings (the allowlist is an env value of its Deployment) take the new chart's values and the proxy Pods restart in this upgrade. An installation that sets `config.egress.privateAllowlist` itself reads [The release that moves the worker gateway to port 3200](/run-server/self-hosting/upgrade-compose#worker-gateway를-3200-포트로-옮긴-릴리스) first. Verify migration, replacement of **all** APIs, and readiness before proceeding. Image changes do not replace already-running workers; new images apply at the next launch.
+Both upgrades apply the chart as a whole; only the images are not all changed yet. In the first upgrade the current control-host runs under the new chart's settings, and the `upgrade-check` and migrate hooks also run on the current control-host image. The egress proxy's settings (the allowlist is an env value of its Deployment) and its NetworkPolicy take the new chart's values from the first upgrade on. An installation that sets `config.egress.privateAllowlist` itself reads [The release that moves the worker gateway to port 3200](/run-server/self-hosting/upgrade-compose#worker-gateway를-3200-포트로-옮긴-릴리스) first. After the second upgrade, verify migration, replacement of **all** APIs, and readiness before proceeding. Image changes do not replace already-running workers; new images apply at the next launch.
 
 `next_workers control` writes the deployed worker images and egress proxy as they are. For a single-image installation it writes the deployed `images.worker` and `images.workerPrevious` with `images.workers: []`. The published chart defaults to a list of the target release's two images, so without `images.workers: []` this upgrade would replace the worker images too. The target chart's `images.worker.runtime` is empty, so the deployed runtime stays as it is, and an installation deployed without a runtime stays without one. For a list installation it writes the deployed list ([Upgrading an image-list installation](#이미지-목록-설치의-upgrade)). The commands are joined with `&&`: when the chart cannot be pulled or the deployed values cannot be read, `helm upgrade` does not run.
 
-When you upgrade to the release that checks workspace MCP servers by address, the proxy image is still the current one between steps 1 and 2, so a session's calls to a server on neither credential list get 403, and the `call_mcp` receipt reason is `egress_proxy_outdated`. They work again once the new proxy takes requests. See [the same section in the Compose page](/run-server/self-hosting/upgrade-compose#워크스페이스-mcp-서버를-주소로-검사하는-릴리스).
+This order changes the egress proxy first, so the `egress_proxy_outdated` 403 window of the release that checks workspace MCP servers by address does not occur ([the same section in the Compose page](/run-server/self-hosting/upgrade-compose#워크스페이스-mcp-서버를-주소로-검사하는-릴리스)).
 
-<a id="2-최종-worker와-proxy-교체" />
-### 2. Final worker and proxy replacement
+<a id="2-최종-worker-교체" />
+### 2. Final worker replacement
 
 Published charts default to the target release's Claude and Codex images in `images.workers` and leave `images.worker` and `images.workerPrevious` empty. A single-image installation takes the entry of the engine it deploys from the target release's `files/release-images.json` into `images.worker` and passes it with `images.workers: []` (`worker.json`). The chart cannot know the previous image, which varies per installation. A worker-digest change is `refused` unless target images.workerPrevious equals the currently deployed worker; approval cannot bypass this ([checks](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외)). Save the current image in a file and pass it too. Pass this file unchanged also when you upgrade to the profile removal release. The image in it (a worker built before the profile removal) is outside the support window, but no session launches on it ([Upgrade order of the profile removal release](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)).
 
@@ -145,14 +162,14 @@ fi
 - Do not pass all of `helm get values --all` as values; old digests override the new chart. Extract only .images.worker.
 - Charts published from `v*` tags follow the same procedure.
 
-Do not pass control-phase.json to the final upgrade. Replace worker-previous.json only on success and retain it for future upgrades. Clear approvals each upgrade and inspect the new affected list.
+Do not pass proxy-phase.json or control-phase.json to the final upgrade. Replace worker-previous.json only on success and retain it for future upgrades. Clear approvals each upgrade and inspect the new affected list.
 
 <a id="이미지-목록-설치의-upgrade" />
 #### Upgrading an image-list installation
 
 An installation that sets its worker images with `images.workers` (one that runs Claude and Codex together, including one installed with the published chart's defaults) builds its values file with `next_workers final` instead of the `worker.json` above. Converting a single-image installation to a list for the first time uses the same procedure. Helm replaces a list as a whole instead of merging it, so the list in your values or from the last upgrade never gets a new release's images by itself: build the list with this procedure for every release. Do not upgrade a list installation with a chart that lacks `files/next-workers.jq` and `files/release-images.json` (a release from before this procedure).
 
-**Step 1 (control plane).** Do step 1 above unchanged. For a list installation, `next_workers control` passes the deployed list and clears the digest and runtime of `images.worker` and `images.workerPrevious`, since the chart refuses single values beside a list even when the installation's values still set them. When converting a single-image installation for the first time, this step keeps the single image.
+**Step 1 (egress proxy and control plane).** Do step 1 above unchanged. For a list installation, `next_workers control` passes the deployed list and clears the digest and runtime of `images.worker` and `images.workerPrevious`, since the chart refuses single values beside a list even when the installation's values still set them. When converting a single-image installation for the first time, this step keeps the single image.
 
 **Step 2 (final list).** The target release's two images are added to the deployed images: the deployed list for a list installation, or the deployed `images.worker` and (if set) `images.workerPrevious` for a single-image installation. Do not pass `worker-previous.json`; the previous image is read from the deployed values.
 

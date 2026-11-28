@@ -28,14 +28,14 @@ outcome: "サポート範囲と worker pin を保持して chart を更新しま
 <a id="단계" />
 ## 手順
 
-<a id="1-대상-chart와-제어-영역-우선-교체" />
-### 1. 対象 chart と制御領域を先に更新
+<a id="1-대상-chart로-egress-proxy-제어-영역-순서로-교체" />
+### 1. 対象 chart で egress proxy、制御領域の順に更新
 
-`VERSION` は正確な対象 chart バージョンです。`--reuse-values` を使わず、環境ごとの values だけを渡します。protocol・manifest・usage に変更があれば、control-host と worker を同じ upgrade で更新しません。
+`VERSION` は正確な対象 chart バージョンです。`--reuse-values` を使わず、環境ごとの values だけを渡します。イメージは egress proxy、control-host、worker の順に変えます（[Compose 文書の同じ順序](/run-server/self-hosting/upgrade-compose#2-egress-proxy--control-host--worker-순서)）。この手順では `helm upgrade` を二回実行し（egress proxy、次に制御領域）、worker は手順 2 で変えます。`v0.5.0` より前の環境は、先に [`v0.5.0` のアップグレード文書](https://github.com/JeongJaeSoon/werft/tree/v0.5.0)のとおり `v0.5.0` まで更新します。
 
 プロファイル削除リリースへ更新するときは、この手順を行いません。そのリリースの control-host の応答を以前の worker が読めないため、手順 1 と手順 2 の間は新しいセッションが一つも起動しません。手順 2 で control-host と worker を一つの upgrade で一緒に更新します（[プロファイル削除リリースのアップグレード順序](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)）。
 
-env で指していた資格情報を DB へ移すリリース（migration `0285_credential_carried_auth`）へ更新するときは、この手順の前に `kubectl -n werft scale deploy/werft-api --replicas=0` で以前の api をすべて止め、`kubectl -n werft wait --for=delete pod -l app.kubernetes.io/instance=werft,app.kubernetes.io/component=api --timeout=120s` で Pod の終了を待ちます。`kubectl -n werft get pods -l app.kubernetes.io/instance=werft,app.kubernetes.io/component=api -o name` が何も出力しなくなったら、下の `helm upgrade` に `--set api.replicas=1` を加えて実行します。scale は終了を待たず、終了中の api も要求を処理し終えるまで（最大 35 秒）push 実行器を動かします。chart の既定の api replica は複数で、まだ移したことを読んでいない replica が、移した push 要求を `catalog_changed` で失敗させたり、トークン再発行を拒否したりすることがあります。api のログで移した行（`… took its credential from …`）を確かめたあと、手順 2 が replica 数を values のとおりに戻します（[env で指していた資格情報は DB へ一度移す](/run-server/self-hosting/upgrade-compose#env로-가리키던-자격-증명은-db로-한-번-옮긴다)）。
+env で指していた資格情報を DB へ移すリリース（migration `0285_credential_carried_auth`）へ更新するときは、制御領域を更新する `helm upgrade` の前に `kubectl -n werft scale deploy/werft-api --replicas=0` で以前の api をすべて止め、`kubectl -n werft wait --for=delete pod -l app.kubernetes.io/instance=werft,app.kubernetes.io/component=api --timeout=120s` で Pod の終了を待ちます。`kubectl -n werft get pods -l app.kubernetes.io/instance=werft,app.kubernetes.io/component=api -o name` が何も出力しなくなったら、その `helm upgrade` に `--set api.replicas=1` を加えて実行します。scale は終了を待たず、終了中の api も要求を処理し終えるまで（最大 35 秒）push 実行器を動かします。chart の既定の api replica は複数で、まだ移したことを読んでいない replica が、移した push 要求を `catalog_changed` で失敗させたり、トークン再発行を拒否したりすることがあります。api のログで移した行（`… took its credential from …`）を確かめたあと、手順 2 が replica 数を values のとおりに戻します（[env で指していた資格情報は DB へ一度移す](/run-server/self-hosting/upgrade-compose#env로-가리키던-자격-증명은-db로-한-번-옮긴다)）。
 
 外部の資格情報の出所をなくしたリリース（migration `0288_remove_external_credentials`）へ更新するときは、values から `secrets.catalogEnv` と `config.aws.secretsManagerEndpointUrl` を削除します。残っているとレンダーが止まります（`secrets.catalogEnv is removed: credentials are entered in the console…`、`config.aws.secretsManagerEndpointUrl is removed…`）。Secret のモデル key は api に渡らなくなるため、更新の前にコンソールでそのキーを入れます。停止した行、`needs_value`、設定文書は[外部の資格情報の出所をなくしたリリース](/run-server/self-hosting/upgrade-compose#외부-자격-증명-출처를-없앤-릴리스)に従います。
 
@@ -90,6 +90,23 @@ echo '{"images": {"worker": {"runtime": null}}}' > worker-reset.json
 echo '{"images": {"workerPrevious": {"runtime": null}}}' > worker-previous-reset.json
 ```
 
+まず egress proxy だけを更新します。デプロイ済みの control-host と worker のイメージはそのままにし、egress proxy には対象 chart のイメージが適用されるようにします。
+
+```bash
+KNOWN='{}'
+deployed_values && next_workers control > control-phase.json \
+  && jq --slurpfile d deployed-values.json \
+    'del(.images.egressProxy) | .images.controlHost = $d[0].images.controlHost' \
+    control-phase.json > proxy-phase.json \
+  && helm upgrade --install werft oci://ghcr.io/jeongjaesoon/werft --version "$VERSION" \
+    --namespace werft -f values-<installation>.yaml \
+    -f worker-reset.json -f worker-previous-reset.json -f proxy-phase.json \
+    --set-json 'upgrade.approvedSessions=[]' --timeout 10m \
+  && kubectl -n werft rollout status deploy/werft-egress-proxy --timeout=600s
+```
+
+次に制御領域を更新します。会話ランタイムを使う環境（`conversationRuntime.enabled`、既定は無効）は、このコマンドに `--set conversationRuntime.enabled=false` を加えてランタイムを停止します。手順 2 のコマンドは、環境の values のとおり新しい worker イメージでランタイムを起動し直します。
+
 ```bash
 KNOWN='{}'
 deployed_values && next_workers control > control-phase.json \
@@ -100,14 +117,14 @@ deployed_values && next_workers control > control-phase.json \
   && kubectl -n werft rollout status deploy/werft-api --timeout=600s
 ```
 
-中間 upgrade は新 chart の control-host を適用し、worker・egress proxy は現在のものを維持します。維持するのはイメージです。chart は丸ごと適用されるため、egress proxy の設定（allowlist はその Deployment の env です）は新 chart の値になり、proxy Pod もこの upgrade で起動し直します。`config.egress.privateAllowlist` を自分で設定している環境は、先に [worker gateway を 3200 番ポートへ移したリリース](/run-server/self-hosting/upgrade-compose#worker-gateway를-3200-포트로-옮긴-릴리스)を読みます。migration、**すべての** API の更新、ready を確認してから次に進みます。起動済み worker はイメージ変更だけでは交代せず、次の launch から新イメージを使います。
+どちらの upgrade も chart を丸ごと適用し、まだ変えていないのはイメージだけです。最初の upgrade では現在の control-host が新しい chart の設定の下で動き、`upgrade-check` と migrate の hook も現在の control-host イメージで動きます。egress proxy の設定（allowlist はその Deployment の env です）と NetworkPolicy は最初の upgrade から新 chart の値になります。`config.egress.privateAllowlist` を自分で設定している環境は、先に [worker gateway を 3200 番ポートへ移したリリース](/run-server/self-hosting/upgrade-compose#worker-gateway를-3200-포트로-옮긴-릴리스)を読みます。二回目の upgrade の後、migration、**すべての** API の更新、ready を確認してから次に進みます。起動済み worker はイメージ変更だけでは交代せず、次の launch から新イメージを使います。
 
 `next_workers control` はデプロイ済みの worker イメージと egress proxy をそのまま書きます。単一イメージの環境には、デプロイ済みの `images.worker`・`images.workerPrevious` と `images.workers: []` を書きます。公開 chart の既定値は対象リリースの二つのイメージの一覧なので、`images.workers: []` がないとこの upgrade が worker イメージまで変えます。対象 chart の `images.worker.runtime` は空なので、デプロイ済みの runtime はそのまま残り、runtime なしでデプロイした環境は runtime なしのままです。一覧の環境にはデプロイ済みの一覧を書きます（[イメージ一覧の環境の upgrade](#이미지-목록-설치의-upgrade)）。コマンドは `&&` でつながっており、chart を取得できない、またはデプロイ済みの値を読めない場合、`helm upgrade` は実行されません。
 
-ワークスペース MCP サーバーをアドレスで検査するリリースへ更新するときは、手順 1 と手順 2 の間は proxy イメージが現在のものなので、二つの credential 一覧のどちらにもないサーバーを呼ぶセッションの呼び出しが 403 になり、`call_mcp` receipt の理由は `egress_proxy_outdated` です。新しい proxy が要求を受け始めれば戻ります。詳しくは [Compose 文書の同じ節](/run-server/self-hosting/upgrade-compose#워크스페이스-mcp-서버를-주소로-검사하는-릴리스)を参照してください。
+この順序では egress proxy が先に変わるため、ワークスペース MCP サーバーをアドレスで検査するリリースの `egress_proxy_outdated` の 403 の期間は生じません（[Compose 文書の同じ節](/run-server/self-hosting/upgrade-compose#워크스페이스-mcp-서버를-주소로-검사하는-릴리스)）。
 
-<a id="2-최종-worker와-proxy-교체" />
-### 2. 最終的な worker と proxy の更新
+<a id="2-최종-worker-교체" />
+### 2. 最終的な worker の更新
 
 公開 chart は既定値として対象リリースの Claude・Codex の二つのイメージを `images.workers` に含み、`images.worker` と `images.workerPrevious` は空です。単一イメージの環境は、対象リリースの `files/release-images.json` からデプロイするエンジンの項目を `images.worker` として取り出し、`images.workers: []` と一緒に渡します（`worker.json`）。直前のイメージは環境ごとに違い、chart は判断できません。worker digest が変わる upgrade は、対象の `images.workerPrevious` が現在デプロイ済みのイメージでなければ `refused` で止まり、承認でも続行できません（[アップグレード前検査](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외)）。そのため現在のイメージをファイルに保存して一緒に渡します。プロファイル削除リリースへ更新するときも、このファイルをそのまま渡します。ファイルのイメージ（プロファイル削除前にビルドした worker）はサポート範囲に入りませんが、そのイメージで起動するセッションはありません（[プロファイル削除リリースのアップグレード順序](/run-server/self-hosting/upgrade-compose#프로필-제거-릴리스의-업그레이드-순서)）。
 
@@ -145,14 +162,14 @@ fi
 - `helm get values --all` 全体を values ファイルとして渡しません。以前の digest が新 chart の値を上書きします。`.images.worker` だけを取り出します。
 - `v*` タグで公開した chart も同じ手順です。
 
-最終 upgrade には control-phase.json を渡しません。worker-previous.json は成功後だけ置き換え、以後の upgrade 用にも保持します。承認一覧は毎 upgrade で空にし、新しい affected 一覧を確認します。
+最終 upgrade には proxy-phase.json と control-phase.json を渡しません。worker-previous.json は成功後だけ置き換え、以後の upgrade 用にも保持します。承認一覧は毎 upgrade で空にし、新しい affected 一覧を確認します。
 
 <a id="이미지-목록-설치의-upgrade" />
 #### イメージ一覧の環境の upgrade
 
 `images.workers` で worker イメージを渡す環境（Claude と Codex を一緒に動かす環境、公開 chart の既定値で設置した環境を含む）は、上の `worker.json` の代わりに `next_workers final` で values ファイルを作ります。単一イメージの環境を初めて一覧に切り替えるときもこの手順を使います。Helm は一覧を統合せず丸ごと置き換えるため、環境の values や前回の upgrade の一覧に新しいリリースのイメージは自動では入りません。リリースごとにこの手順で一覧を作ります。`files/next-workers.jq` と `files/release-images.json` がない chart（この手順ができる前のリリース）では一覧の環境を upgrade しません。
 
-**1 段階目（制御領域）。** 上の手順 1 をそのまま行います。一覧の環境では、`next_workers control` がデプロイ済みの一覧を渡し、`images.worker` と `images.workerPrevious` の digest・runtime を空にします。環境の values が単一の値を書いていても、chart は一覧の横の単一の値を拒否するためです。単一イメージの環境を初めて一覧に切り替えるときは、この段階では単一イメージが維持されます。
+**1 段階目（egress proxy と制御領域）。** 上の手順 1 をそのまま行います。一覧の環境では、`next_workers control` がデプロイ済みの一覧を渡し、`images.worker` と `images.workerPrevious` の digest・runtime を空にします。環境の values が単一の値を書いていても、chart は一覧の横の単一の値を拒否するためです。単一イメージの環境を初めて一覧に切り替えるときは、この段階では単一イメージが維持されます。
 
 **2 段階目（最終の一覧）。** 対象リリースの二つのイメージを、デプロイ済みのイメージに加えます。一覧の環境ではデプロイ済みの一覧が、単一イメージの環境ではデプロイ済みの `images.worker` と（あれば）`images.workerPrevious` がデプロイ済みのイメージです。`worker-previous.json` は渡しません。直前のイメージはデプロイ済みの値から読みます。
 

@@ -29,12 +29,18 @@ outcome: "互換性とバックアップを確認して新 release を適用し�
 
 [パッケージ契約](/run-server/self-hosting/reference/packages)から対象タグを選び、[設置時の release 生成](/run-server/self-hosting/single-server#3-release-입력-생성)と同じ方法で checkout 外に release-new.json を作ります。生成前に対象 source commit を checkout し、`bun install --frozen-lockfile` を実行します。release の `source_commit` はこの checkout の HEAD でなければなりません。先に[バックアップ](/run-server/self-hosting/backup-and-restore)を実行します。
 
-<a id="2-api--proxy--worker-순서" />
-### 2. API → proxy → worker の順序
+<a id="2-egress-proxy--control-host--worker-순서" />
+### 2. egress proxy → control-host → worker の順序
 
-protocol または[実行前ゲート](#실행-전-게이트)のフィールドに変更があれば、全イメージを一度に変えません。先に新 source commit を checkout して依存関係をインストールし、対象 release の control_host だけを新イメージに変え、worker・egress_proxy は現在のままにした中間 release ファイルを作ります。中間 release も新 source commit の compose ファイルで適用するため、egress proxy はイメージだけが現在のもので、設定（allowlist など）は新 release の値で作り直されます。同じ settings digest・source_commit 条件を守ります。中間 release で upgrade し、API が ready で全 API インスタンスが新バージョンになったことを確認します。
+protocol または[実行前ゲート](#실행-전-게이트)のフィールドに変更があれば、全イメージを一度に変えず、egress proxy、control-host、worker の順に三回 upgrade します。先に新 source commit を checkout して依存関係をインストールします。三つの release ファイルは同じ settings digest・source_commit 条件を守ります。中間 release も新 source commit の compose ファイルで適用するため、イメージをまだ変えていない役割にも、compose ファイルの新しい設定（allowlist、env の既定値など）が最初の upgrade から適用されます。
 
-次に egress proxy と worker を対象 digest に変えた最終 release で upgrade します。これにより API より先に proxy・worker が新フィールドを送ることを防ぎます。test-ops 環境は中間・最終 release 入力をそれぞれ `scripts/test-ops.sh upgrade` で適用します。
+1. egress_proxy だけを対象 digest に変え、control_host と worker は現在のイメージのままにした中間 release で upgrade します。
+2. control_host も対象 digest に変え、worker は現在のイメージのままにした中間 release で upgrade します。会話ランタイム（`conversation-runtime`、既定は無効）を使う環境は、この upgrade の前にランタイムを停止します。upgrade 後、API が ready で全 API インスタンスが新バージョンになったことを確認します。
+3. worker も対象 digest に変えた最終 release で upgrade し、停止した会話ランタイムを新しい worker イメージで起動し直します。
+
+proxy を先に変えると、新しい control-host が grant に載せる印に従う proxy がすでに動いています。worker を最後に変えると、control-host より先に worker が新フィールドを送ることはありません。test-ops 環境は三つの release 入力をそれぞれ `scripts/test-ops.sh upgrade` で適用します。
+
+この順序は `v0.5.0` 以降の環境で使います。それより前の環境は、先に [`v0.5.0` のアップグレード文書](https://github.com/JeongJaeSoon/werft/tree/v0.5.0)のとおり `v0.5.0` まで更新します。以前の control-host は新しい compose ファイルの設定（worker gateway のアドレスなど）と合わないことがあります。
 
 プロファイル削除リリースへ更新するときは、この順序に従いません。中間 release なしで最終 release へ直接更新します。以前の worker が新しい control-host の応答を読めないためです（[プロファイル削除リリースのアップグレード順序](#프로필-제거-릴리스의-업그레이드-순서)）。
 
@@ -123,7 +129,7 @@ SDK を上げるリリースでは、イメージが載せるランタイムの�
 
 プロファイル削除リリースへは、control-host と worker のイメージを一つの upgrade で一緒に更新します。このリリースの control-host は `bootstrap-claim` の応答から `runtime.profile_id` と `profile_fingerprint` を外しました。プロファイル削除前にビルドした worker（`v0.1.3` を含む）は、この二つのフィールドを必須として読みます。そのため、その worker は応答を受け取るとすぐに `POST /bootstrap-claim answered a body this worker cannot read` を残して exit 1 で終了します。セッションは三回 launch された後、`recovery_required`（`STARTUP_FAILED`、`execution_gone`）で停止します。API はこの要求に 200 を返すため、API ログで worker 要求の 400 を探してもこの失敗は分かりません。セッションの turn 1 が完了するかで分かります。
 
-- このリリースでは、上の [2. API → proxy → worker の順序](#2-api--proxy--worker-순서)の中間 release と、[Kubernetes アップグレードの手順 1](/run-server/self-hosting/upgrade-kubernetes#1-대상-chart와-제어-영역-우선-교체)を行いません。新しい control-host と以前の worker が一緒に動く間は、新しいセッションが一つも起動しないためです。Compose は最終 release へ直接 `upgrade` し、Kubernetes は手順 2 のコマンドで直接更新します。
+- このリリースでは、上の [2. egress proxy → control-host → worker の順序](#2-egress-proxy--control-host--worker-순서)の中間 release と、[Kubernetes アップグレードの手順 1](/run-server/self-hosting/upgrade-kubernetes#1-대상-chart로-egress-proxy-제어-영역-순서로-교체)を行いません。新しい control-host と以前の worker が一緒に動く間は、新しいセッションが一つも起動しないためです。Compose は最終 release へ直接 `upgrade` し、Kubernetes は手順 2 のコマンドで直接更新します。
 - プロファイル削除前にビルドした worker イメージは、このリリースのサポート範囲に入りません。そのようなイメージを `images.workerPrevious` にわざわざ入れません。ただし Kubernetes の[アップグレード前検査](/run-server/self-hosting/upgrade-kubernetes#3-검사-결과와-예외)は、worker イメージが変わる upgrade では `images.workerPrevious` が現在デプロイ済みのイメージであることを要求し、承認でも続行できません。そのため、この upgrade には手順 2 のスクリプトが作った `worker-previous.json`（現在デプロイ済みの worker イメージ）をそのまま渡します。Compose の `upgrade` が残す `previous-worker` ファイルも同じです。そのイメージで起動するセッションはありません。`0270` がセッションを空にし、新しいセッションは常に現在のイメージで起動し、その後の checkpoint は現在のイメージが残すためです。次に worker イメージを変える upgrade で、直前のイメージはこのリリースのイメージに変わります。
 - 更新後、新しいセッション一つが turn 1 を完了するかを確認します。
 
@@ -652,7 +658,7 @@ DELETE FROM provider_connections WHERE definition->>'kind' = 'openai_decisions';
 
 このリリースから、api は `/internal`（worker と会話ランタイムが呼ぶ gateway）を公開ポート 3000 ではなく 3200（`INTERNAL_API_PORT`）だけで受けます。scheduler が worker に渡す `WORKER_GATEWAY_URL` と egress proxy の `EGRESS_PRIVATE_ALLOWLIST` が同じアドレスを指しているときだけ、worker は gateway に届きます。migration はありません。
 
-- release の compose ファイル（Kubernetes では chart）を丸ごと適用します。egress proxy の設定は control-host と同時か、それより先に適用します。`scripts/test-ops.sh upgrade` は、scheduler が依存する egress proxy も設定が変わっていれば作り直します。[2. API → proxy → worker の順序](#2-api--proxy--worker-순서)の中間 release でも同じです。proxy はイメージだけが現在のもので、allowlist は新しい値になります。Kubernetes の chart は allowlist を egress proxy Deployment の env に入れるため、同じ `helm upgrade` が proxy Pod を新しい値で起動し直します。
+- release の compose ファイル（Kubernetes では chart）を丸ごと適用します。egress proxy の設定は control-host と同時か、それより先に適用します。`scripts/test-ops.sh upgrade` は、scheduler が依存する egress proxy も設定が変わっていれば作り直します。[2. egress proxy → control-host → worker の順序](#2-egress-proxy--control-host--worker-순서)の最初の中間 release から allowlist は新しい値になります。Kubernetes の chart は allowlist を egress proxy Deployment の env に入れるため、同じ `helm upgrade` が proxy Pod を新しい値で起動し直します。
 - デフォルト値を使う環境では作業はありません。`WORKER_GATEWAY_URL` は `http://api:3200`、`EGRESS_PRIVATE_ALLOWLIST` は `api:3200,host.docker.internal:3200` がデフォルトです。
 - 2 つの値を自分で設定している環境は `api:3000` を `api:3200` に変えます。Kubernetes で `config.egress.privateAllowlist` を設定している環境は `<fullname>-api:3000` を `<fullname>-api-internal:3200` に変えます。手で編集した proxy 設定を使う環境も allowlist に `api:3200` を加え、control-host を更新する前に proxy を再起動します。
 - allowlist が古い値のままだと、proxy は worker の gateway 呼び出しを 403（`egress denied: destination is not allowlisted`）で拒否し、worker は claim の前に終了します。セッションは開始しません。このとき次の記録が残ります。
@@ -669,5 +675,5 @@ DELETE FROM provider_connections WHERE definition->>'kind' = 'openai_decisions';
 
 - egress proxy を API より先に更新します。新しい API は grant に登録済みサーバーの印（`allow: public_https`）を載せ、新しい proxy だけがその印に従います。新しい proxy と以前の API の組み合わせは印がないため、従来どおりです。
 - 以前の proxy と新しい API が混在すると（API を先に更新した場合や proxy を戻した場合）、`EGRESS_CREDENTIAL_ALLOWLIST` と `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` のどちらにもない host のサーバーは登録・認証・ツール一覧は動きますが、セッションからの呼び出しは 403 です。記録は `call_mcp` receipt の理由 `egress_proxy_outdated` と API ログ `Egress authorization refused` に残ります。403 の基準は API に設定された二つの一覧です。そのどちらかにある host のサーバーはこの判定を通り、以前の proxy 自身の一覧で従来どおり判定されます。proxy を更新すれば戻り、データは変わりません。
-- [2. API → proxy → worker の順序](#2-api--proxy--worker-순서)の中間 release は API を先に変えます。中間 release と最終 release の間は、どちらの一覧にもないサーバーを呼ぶセッションの呼び出しが 403 になります。
+- [2. egress proxy → control-host → worker の順序](#2-egress-proxy--control-host--worker-순서)に従うと proxy が先に変わるため、この 403 の期間は生じません。
 - プライベートアドレスや http のサーバーは従来どおり `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` にある host だけです。その host が公開アドレスに解決される場合、登録は `address_not_allowed` で拒否されます。
