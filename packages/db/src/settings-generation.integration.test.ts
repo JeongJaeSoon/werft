@@ -163,6 +163,43 @@ integration("the settings generation two API replicas judge on", () => {
     expect(opened.stored.get(`connection:${id}`)).toBe("put-key-2222");
   });
 
+  test("a value sealed under another key, written again as the same text, raises the generation", async () => {
+    const other = SecretKey.fromHex("5c".repeat(32), "other test key");
+    const id = "gen-resealed";
+    const owned = { kind: "connection" as const, id };
+    expect(
+      (await store().create(connection(id), "reseal-key-1111", owner)).outcome,
+    ).toBe("done");
+    // Under `other` the stored value does not open: the slot reads as unset
+    // there, so the same text is a change, and it is sealed under `other` now.
+    const before = await generation();
+    expect(
+      (
+        await createPostgresSettingsDocumentStore(db, other).setValue(
+          owned,
+          "reseal-key-1111",
+          owner,
+        )
+      ).outcome,
+    ).toBe("done");
+    expect(await generation()).toBe(before + 1);
+    // KEY no longer opens it, so the same text is a change again, by the
+    // other write path.
+    await createPostgresInstallationSettingsStore(db, KEY).putStoredValue(
+      owned,
+      "reseal-key-1111",
+      null,
+    );
+    expect(await generation()).toBe(before + 2);
+    // Sealed under KEY and opened by it: the text again is no change.
+    await createPostgresInstallationSettingsStore(db, KEY).putStoredValue(
+      owned,
+      "reseal-key-1111",
+      null,
+    );
+    expect(await generation()).toBe(before + 2);
+  });
+
   test("a connection's models set again as they are leave the generation; other models raise it by one", async () => {
     const id = "gen-same-models";
     expect(

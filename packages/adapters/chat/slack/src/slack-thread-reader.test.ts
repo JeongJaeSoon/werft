@@ -154,6 +154,19 @@ describe("createSlackThreadReader", () => {
     ]);
   });
 
+  test("a post is read from Slack's escapes, a person's and a bot's", async () => {
+    const { reader } = readerWith({
+      posts: [
+        { ts: "1.0", user: "U0ASKER", text: "a &amp;&amp; b &amp;lt;" },
+        { ts: "2.0", botId: "B0BOT", text: "x &lt; y" },
+      ],
+    });
+    const read = await reader.read(asked);
+    expect(read).toMatchObject({
+      messages: [{ text: "a && b &lt;" }, { text: "x < y" }],
+    });
+  });
+
   test("a channel another organization shares, or whose sharing Slack would not tell, is not read", async () => {
     for (const [sharing, outcome] of [
       ["external", "external_shared"],

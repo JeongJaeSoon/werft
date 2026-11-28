@@ -119,7 +119,7 @@ export const workspaceMcpKo = {
   "workspaceMcp.error.name_reserved":
     "github, browser, memory, werft는 쓸 수 없는 이름입니다.",
   "workspaceMcp.error.url_invalid":
-    "URL이 올바르지 않습니다. IP 주소 대신 호스트 이름을 쓰세요.",
+    "URL이 올바르지 않습니다. URL 형식이어야 하고, 계정 정보(user@)나 #이 없어야 하며, https 주소는 IP 주소가 아닌 호스트 이름이어야 합니다.",
   "workspaceMcp.error.address_not_allowed":
     "이 주소로는 연결할 수 없습니다. 공개 호스트는 풀린 주소가 모두 공개여야 하고(사설·loopback·link-local·metadata는 거절), 운영자가 사설 목록에 둔 호스트는 사설 주소로만 풀려야 합니다.",
   "workspaceMcp.error.endpoint_not_allowed":
@@ -130,7 +130,7 @@ export const workspaceMcpKo = {
   "workspaceMcp.error.host_not_allowed":
     "이 서버의 host:port가 자격을 보낼 수 있는 목록에 없습니다. 운영자에게 API와 egress proxy의 EGRESS_CREDENTIAL_ALLOWLIST에 넣어 달라고 요청하세요.",
   "workspaceMcp.error.url_insecure":
-    "https 주소만 등록할 수 있습니다. http는 운영자가 사설 허용 목록에 넣은 호스트만 됩니다.",
+    "https 주소만 등록할 수 있습니다. http는 운영자가 사설 목록에 둔 호스트만 됩니다.",
   "workspaceMcp.error.discovery_failed":
     "서버가 요구하는 인증을 읽지 못했습니다. URL을 확인하세요.",
   "workspaceMcp.error.not_oauth":
@@ -323,7 +323,7 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
   "workspaceMcp.error.name_reserved":
     "github, browser, memory and werft cannot be used as names.",
   "workspaceMcp.error.url_invalid":
-    "That is not a valid URL. Use a host name instead of an IP address.",
+    "That is not a valid URL. It must be a URL with no credentials (user@) and no #, and an https address must use a host name, not an IP address.",
   "workspaceMcp.error.address_not_allowed":
     "That address cannot be reached: a public host must resolve only to public addresses (private, loopback, link-local and metadata are refused), and a host the operator put on the private allowlist must resolve only to private addresses.",
   "workspaceMcp.error.endpoint_not_allowed":
@@ -532,7 +532,7 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
   "workspaceMcp.error.name_reserved":
     "github、browser、memory、werft は名前に使えません。",
   "workspaceMcp.error.url_invalid":
-    "URL が正しくありません。IP アドレスではなくホスト名を使ってください。",
+    "URL が正しくありません。URL の形式で、認証情報（user@）や # を含まず、https のアドレスは IP アドレスではなくホスト名である必要があります。",
   "workspaceMcp.error.address_not_allowed":
     "このアドレスには接続できません。公開ホストは解決されたアドレスがすべて公開である必要があり（プライベート・loopback・link-local・metadata は拒否）、運用者がプライベート許可リストに入れたホストはプライベートアドレスにだけ解決される必要があります。",
   "workspaceMcp.error.endpoint_not_allowed":
