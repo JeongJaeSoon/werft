@@ -45,7 +45,7 @@ ruleset의 필수 이름은 아래 여섯 개다. 이름은 그 job이 PR에서 
 
 | job | 지키는 것 | 도는 때 | 실행 시간 예산 (p90) / 한도 |
 | --- | --- | --- | --- |
-| `changes` | 바뀐 경로로 이 run의 계획을 낸다. 읽을 수 없는 base는 PR을 실패시킨다 | 항상 | 1분 / 3분 |
+| `changes` | 바뀐 경로로 이 run의 계획을 낸다. PR은 checkout한 merge의 두 번째 부모가 PR head이면 첫 부모(그때의 main)와 diff하고, 아니면 전체 검증을 한다. 읽을 수 없는 base는 PR을 실패시킨다 | 항상 | 1분 / 3분 |
 | `check (static)` | `bun run typecheck`, `bun run lint`, 제3자 고지 파일이 lockfile과 맞는다, 가져온 UI의 이름이 제 폴더 밖에 없다 | 모든 PR. 재사용하지 않은 main push | 6분 / 9분 |
 | `docs-checks` | `tests/`의 저장소 정책·문서 시험 | 문서만 바꾼 PR과 push | 6분 / 12분 |
 | `check (<묶음>)` | `surface` domain이 맡지 않는 시험을 네 묶음으로(`unit: packages`, `unit: db`, `unit: worker, web`, `unit: other apps, tests`) | web console만 바꾼 PR과 push | 11분 / 12분 |
