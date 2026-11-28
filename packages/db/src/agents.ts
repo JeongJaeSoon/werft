@@ -5,10 +5,13 @@ import {
   type AgentRelease,
   type AgentStatus,
   type AgentVersion,
+  agentIdSchema,
+  agentReleaseIdSchema,
   agentReleaseSchema,
   behaviorKey,
   type ReceiptOperation,
   storedAgentCardSchema,
+  type UnreadableRelease,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import type {
@@ -228,10 +231,17 @@ async function activationSpans(
   return spans;
 }
 
+type ReadRelease =
+  | AgentRelease
+  | { unreadable: UnreadableRelease; agent_id: string };
+
+const readable = (read: ReadRelease): read is AgentRelease =>
+  !("unreadable" in read);
+
 async function readReleases(
   db: Database,
   where: SQL | undefined,
-): Promise<AgentRelease[]> {
+): Promise<ReadRelease[]> {
   const rows = await db
     .select({
       release: agentReleases,
@@ -249,12 +259,18 @@ async function readReleases(
   );
 }
 
+/**
+ * A row as this build reads it. A row a newer build wrote (a pin key or switch
+ * value this build does not know) is `unreadable`: named by id and the
+ * column at fault, never with its values, so one such row cannot fail every
+ * read of the agent. Rows are insert-only, so it cannot be fixed in place.
+ */
 function releaseOf(
   row: ReleaseRow,
   earlier: number,
   span: ActivationSpan | undefined,
-): AgentRelease {
-  return agentReleaseSchema.parse({
+): ReadRelease {
+  const read = agentReleaseSchema.safeParse({
     id: row.id,
     agent_id: row.agentId,
     version_id: row.versionId,
@@ -273,6 +289,20 @@ function releaseOf(
     activated_at: span?.activated_at ?? null,
     deactivated_at: span?.deactivated_at ?? null,
   });
+  if (read.success) return read.data;
+  return {
+    unreadable: {
+      // The primary key every build writes; one that fails is not a row to name.
+      id: agentReleaseIdSchema.parse(row.id),
+      reason_code: read.error.issues.every(
+        (issue) => issue.path[0] === "policy_pins",
+      )
+        ? "policy_pins_unreadable"
+        : "row_unreadable",
+    },
+    // Kept off every response: a caller checks whose row it is first.
+    agent_id: agentIdSchema.parse(row.agentId),
+  };
 }
 
 async function detailOf(
@@ -302,13 +332,17 @@ async function detailOf(
     .from(agentVersions)
     .where(eq(agentVersions.agentId, agent.id))
     .orderBy(asc(agentVersions.versionNo));
-  const releases = await readReleases(db, eq(agentReleases.agentId, agent.id));
+  const read = await readReleases(db, eq(agentReleases.agentId, agent.id));
+  const releases = read.filter(readable);
   return {
     agent: agentOf(agent, row.teamName, row.ownerless),
     versions: versions.map(versionOf),
     releases,
     active_release:
       releases.find((release) => release.id === agent.activeReleaseId) ?? null,
+    unreadable_releases: read.flatMap((release) =>
+      "unreadable" in release ? [release.unreadable] : [],
+    ),
     behavior_revision: agent.behaviorRevision,
     draft:
       agent.draftVersionId === null || agent.draftConnectionId === null
@@ -1168,6 +1202,10 @@ export function createPostgresAgentStore(db: Database): AgentStore {
           eq(agentReleases.id, release.id),
         );
         if (!stored) throw new Error(`release ${release.id} vanished`);
+        // Only a same-id row a newer build wrote reads otherwise.
+        if (!readable(stored)) {
+          throw new Error(`release ${release.id} is not readable here`);
+        }
         if (!inserted) return { outcome: "exists", release: stored };
         const receiptId = await writeReceipt(tx, input.principal, {
           operation: "create_agent_release",

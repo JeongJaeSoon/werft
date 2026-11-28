@@ -408,6 +408,12 @@ export function memoryWorkspaceMcpStore(
       if (inactive.has(input.actorUserId)) return { outcome: "actor_inactive" };
       const stored = held(input.workspaceId, input.serverId);
       if (!stored) return { outcome: "not_found" };
+      if (
+        stored.record.authKind !== "bearer" &&
+        stored.record.authKind !== "oauth"
+      ) {
+        return { outcome: "unsupported_kind" };
+      }
       const revocation = revocationOf(stored);
       dropConnection(stored, true);
       return { outcome: "disconnected", record: copy(stored), revocation };

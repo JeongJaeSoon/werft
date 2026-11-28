@@ -201,6 +201,7 @@ function app(
         ceilingRevision: 0,
       }),
       findDispatch: async () => null,
+      ownPullRequest: async () => null,
       recordReceipt: async (receipt) => {
         gateReceipts.push(receipt);
         return "66666666-6666-4666-8666-666666666666";

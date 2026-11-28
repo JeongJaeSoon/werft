@@ -540,6 +540,38 @@ describe("워크스페이스 MCP 서버", () => {
     expect(screen.queryByText("설치 카탈로그") === null).toBe(true);
   });
 
+  test("a server of an auth kind this version does not know stays listed with delete only", async () => {
+    const later = {
+      ...bearerServer(),
+      auth_kind: "none",
+      bearer: null,
+    } satisfies WorkspaceMcpServer;
+    renderAt(PAGE, routes([oauthServer(), later]));
+    const tracker = await rowOf("tracker");
+    expect(tracker.textContent).toContain("지원하지 않는 인증");
+    expect(tracker.textContent).toContain(
+      "인증 방식(none)을 지원하지 않습니다",
+    );
+    expect(
+      within(tracker).queryByRole("region", { name: "이 계정으로 동작함" }) ===
+        null,
+    ).toBe(true);
+    expect(
+      within(tracker)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["tracker 삭제"]);
+    // The known row beside it keeps its actions.
+    const wiki = await rowOf("wiki");
+    expect(wiki.textContent).toContain("OAuth");
+    expect(
+      within(wiki).getByRole("button", { name: "wiki 다시 연결" }),
+    ).toBeDefined();
+    expect(
+      within(wiki).getByRole("button", { name: "wiki 도구 다시 읽기" }),
+    ).toBeDefined();
+  });
+
   test("the owner sees the workspace servers and no installation catalog", async () => {
     renderAt(PAGE, routes([oauthServer()]));
     await list();

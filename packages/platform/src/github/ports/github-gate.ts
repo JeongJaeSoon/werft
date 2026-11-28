@@ -37,6 +37,13 @@ export type GitHubWork = {
   workflow?: { file: string; ref: string };
   /** rerun only: the gate finds its workflow and ref in github_workflow_dispatches. */
   runId?: number;
+  /**
+   * merge only: the session's push request, and the URL of the pull request
+   * of it that is merged. In a repository besides the session's own the gate
+   * merges only a pull request the platform opened for it (`ownPullRequest`).
+   */
+  pushRequestId?: string;
+  pullRequestUrl?: string;
   /** review only: what a refusal's receipt names. */
   review?: { number: number; commitId: string; event: GitHubReviewEvent };
   /**
@@ -236,6 +243,18 @@ export interface GitHubGateStore {
     runId: number,
   ): Promise<GitHubDispatchRecord | null>;
   recordReceipt(receipt: GitHubGateReceipt): Promise<string>;
+  /**
+   * The pull request at `url` recorded for this session's push request (its
+   * own, or one on its branch): its repository, and whether the platform
+   * opened it on GitHub rather than adopting one it found there. Null when
+   * the push request is another session's or no such pull request is
+   * recorded for it.
+   */
+  ownPullRequest(
+    sessionId: string,
+    pushRequestId: string,
+    url: string,
+  ): Promise<{ repositoryId: string; opened: boolean } | null>;
 }
 
 /** A GitHub connection: one App and its own token cache. */

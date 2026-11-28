@@ -1,4 +1,8 @@
-import type { SkillCheckFinding, WorkspaceRole } from "@werft-ai/contracts";
+import type {
+  SkillAvailability,
+  SkillCheckFinding,
+  WorkspaceRole,
+} from "@werft-ai/contracts";
 import type { Principal } from "../../musterrolle/index.ts";
 import type { BundleManifest } from "../bundle-validator.ts";
 import type { ExtensionMode } from "../resolve.ts";
@@ -137,7 +141,14 @@ export type AttachmentReceiptResult =
   /** Only an approved version is offered, and never an archived one. */
   | { outcome: "not_approved" | "archived" }
   /** A detach with nothing of that version attached there: no receipt. */
-  | { outcome: "not_attached" };
+  | { outcome: "not_attached" }
+  /**
+   * A skill of a registered repository whose switch is off or whose
+   * repository is removed; only forbidding it is recorded.
+   */
+  | { outcome: "unavailable"; availability: Exclude<SkillAvailability, "ok"> }
+  /** A skill of a registered repository is attached to an agent only. */
+  | { outcome: "repository_skill_workspace" };
 
 export type ArchiveExtensionBundleResult =
   | { outcome: "archived"; bundle: ExtensionBundle; receiptId: string }
@@ -261,6 +272,13 @@ export interface ExtensionBundleStore {
     workspaceId: string;
     agentId?: string;
   }): Promise<ExtensionAttachment[]>;
+  /**
+   * The skills of the workspace's registered repositories that a new session
+   * does not take, by name. A name absent is `ok`.
+   */
+  unavailableSkills(
+    workspaceId: string,
+  ): Promise<Map<string, Exclude<SkillAvailability, "ok">>>;
 }
 
 export type ExtensionAttachment = {
@@ -269,4 +287,5 @@ export type ExtensionAttachment = {
   name: string;
   follows: boolean;
   bundle: ExtensionBundle | null;
+  availability: SkillAvailability;
 };

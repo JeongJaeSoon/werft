@@ -1391,6 +1391,7 @@ integration("extension bundles on PostgreSQL", () => {
           name: "research",
           follows: true,
           bundle: null,
+          availability: "ok",
         },
       ]);
       await service.review({

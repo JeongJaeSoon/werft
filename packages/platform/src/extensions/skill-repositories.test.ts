@@ -469,6 +469,17 @@ describe("registering a skill repository", () => {
     expect(rows.size).toBe(1);
   });
 
+  test("left out, the ref is the default branch by the name GitHub gives it, not main", async () => {
+    const { service, state } = setup();
+    state.repository = { ...REPOSITORY, defaultBranch: "trunk" };
+    state.byId = [state.repository, state.repository];
+    state.refs = { trunk: COMMIT_A };
+    const registered = await service.register(caller(), { url: URL });
+    expect(registered.repository.ref).toBe("trunk");
+    expect(state.calls).toContain("resolve trunk");
+    expect(state.calls).not.toContain("resolve main");
+  });
+
   test("a ref given is the one followed, and an address may end in .git", async () => {
     const { service, state } = setup();
     state.refs.v1 = COMMIT_A;

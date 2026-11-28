@@ -298,6 +298,13 @@ services:
       # the proxy is what refuses.
       EGRESS_CREDENTIAL_ALLOWLIST: ${EGRESS_CREDENTIAL_ALLOWLIST:-api.anthropic.com:443,api.openai.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443}
       EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-fake-git:3000,fake-messages:4010,fake-mcp:4020,localstack:4566}
+      # Hosts a model connection registered as on the internal network is
+      # never sent to, beside the ones the API finds by itself (its own
+      # addresses, postgres, its gateway and object store): names or IPs, no
+      # port. The proxy shares a network with postgres here, so this list and
+      # the database's own login are what keep such a connection off it.
+      # `api` is this service's own name: it answers with every replica.
+      EGRESS_PRIVATE_DENY_HOSTS: api,${EGRESS_PRIVATE_DENY_HOSTS:-}
       # Read by the API alone: every lease it grants carries its deadline
       # into the database, and the reconciler refuses to start with its own.
       HEARTBEAT_TTL_SEC: ${HEARTBEAT_TTL_SEC:-30}

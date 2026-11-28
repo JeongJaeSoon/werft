@@ -33,6 +33,7 @@ import {
   describeBucketProtection,
   type GitCommandRunner,
   type ObjectRouteSigner,
+  objectRouteHost,
   S3_METADATA_REQUEST_TIMEOUT_MS,
   S3_REQUEST_BOUNDS,
   type S3ClientLike,
@@ -449,6 +450,20 @@ export function checkpointObjectRouteSigner(
   return createObjectRouteSigner({
     bucket: config.bucket,
     credentials: storageS3Credentials(config),
+    ...(config.endpoint === undefined ? {} : { endpoint: config.endpoint }),
+    region: config.region,
+  });
+}
+
+/**
+ * The host the object store is reached at, as the signer above addresses
+ * it: the endpoint's, or with none the bucket's own name at AWS.
+ */
+export function checkpointObjectStoreHost(
+  config: CheckpointStorageConfig,
+): string {
+  return objectRouteHost({
+    bucket: config.bucket,
     ...(config.endpoint === undefined ? {} : { endpoint: config.endpoint }),
     region: config.region,
   });

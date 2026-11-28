@@ -180,6 +180,8 @@ export const agentsKo = {
   "agent.save.reason.retries_exhausted":
     "여러 번 시도했지만 적용하지 못했습니다",
   "agent.save.reason.revision_conflict": "다른 저장과 겹쳐 적용하지 못했습니다",
+  "agent.save.reason.release_unreadable":
+    "활성 릴리스를 이 판이 읽을 수 없습니다 — 이 판보다 새 판으로 올리거나 다른 릴리스를 활성으로 바꾸세요",
   "agent.save.reason.other": "이유를 알 수 없습니다",
   "agent.effective.title": "새 세션에 적용되는 값",
   "agent.effective.hint":
@@ -248,6 +250,12 @@ export const agentsKo = {
   "agent.rolledBack.unchecked":
     "{release}(으)로 되돌렸습니다. 되돌린 뒤 설정을 다시 읽지 못해 결과는 확인하지 못했습니다.",
   "agent.releases.empty": "아직 릴리스가 없습니다.",
+  "agent.releases.unreadable":
+    "이 판이 읽을 수 없는 릴리스 {release}가 있습니다. 더 새 판이 만든 릴리스라 목록에 보이지 않고, 활성으로 바꾸거나 세션을 시작할 수 없습니다.",
+  "agent.releases.unreadableActive":
+    "활성 릴리스 {release}를 이 판이 읽을 수 없어 세션을 시작할 수 없습니다. 이 판보다 새 판으로 올리거나 다른 릴리스를 활성으로 바꾸세요.",
+  "newSession.releaseUnreadable":
+    "릴리스 {release}를 이 판이 읽을 수 없어 세션을 시작하지 못했습니다. 이 판보다 새 판으로 올리거나 다른 릴리스를 활성으로 바꾸세요.",
   "agent.releases.active": "활성",
   "agent.releases.byUnknown": "작성자 정보 없음",
   "agent.releases.changesFirst": "첫 릴리스",
@@ -688,6 +696,8 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.save.reason.retries_exhausted":
     "it was tried several times and could not be applied",
   "agent.save.reason.revision_conflict": "it overlapped with another save",
+  "agent.save.reason.release_unreadable":
+    "this version can't read the active release — upgrade to a newer version than this one, or activate another release",
   "agent.save.reason.other": "the reason is unknown",
   "agent.effective.title": "Values for new sessions",
   "agent.effective.hint":
@@ -757,6 +767,12 @@ export const agentsEn: Record<keyof typeof agentsKo, string> = {
   "agent.rolledBack.unchecked":
     "Rolled back to {release}. The settings could not be read again, so the result is not checked.",
   "agent.releases.empty": "No releases yet.",
+  "agent.releases.unreadable":
+    "Release {release} can't be read by this version. A newer version made it, so it isn't listed and can't be activated or start sessions.",
+  "agent.releases.unreadableActive":
+    "The active release {release} can't be read by this version, so sessions can't start. Upgrade to a newer version than this one, or activate another release.",
+  "newSession.releaseUnreadable":
+    "The session couldn't start because this version can't read release {release}. Upgrade to a newer version than this one, or activate another release.",
   "agent.releases.active": "Active",
   "agent.releases.byUnknown": "Author not recorded",
   "agent.releases.changesFirst": "First release",
@@ -1187,6 +1203,8 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
     "何度か試しましたが適用できませんでした",
   "agent.save.reason.revision_conflict":
     "ほかの保存と重なって適用できませんでした",
+  "agent.save.reason.release_unreadable":
+    "有効なリリースをこのバージョンでは読み取れません — このバージョンより新しいバージョンに上げるか、別のリリースを有効にしてください",
   "agent.save.reason.other": "理由は不明です",
   "agent.effective.title": "新しいセッションに適用される値",
   "agent.effective.hint":
@@ -1255,6 +1273,12 @@ export const agentsJa: Record<keyof typeof agentsKo, string> = {
   "agent.rolledBack.unchecked":
     "{release}に戻しました。設定を読み直せなかったため、結果は確認できていません。",
   "agent.releases.empty": "リリースはまだありません。",
+  "agent.releases.unreadable":
+    "このバージョンでは読み取れないリリース {release} があります。より新しいバージョンが作ったリリースのため一覧に表示されず、有効化やセッションの開始もできません。",
+  "agent.releases.unreadableActive":
+    "有効なリリース {release} をこのバージョンでは読み取れないため、セッションを開始できません。このバージョンより新しいバージョンに上げるか、別のリリースを有効にしてください。",
+  "newSession.releaseUnreadable":
+    "このバージョンではリリース {release} を読み取れないため、セッションを開始できませんでした。このバージョンより新しいバージョンに上げるか、別のリリースを有効にしてください。",
   "agent.releases.active": "有効",
   "agent.releases.byUnknown": "作成者の記録なし",
   "agent.releases.changesFirst": "最初のリリース",

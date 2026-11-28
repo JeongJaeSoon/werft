@@ -8548,6 +8548,13 @@ export const providerConnections = pgTable(
      * no decision model starts the window over.
      */
     judgingSince: timestamp("judging_since", { withTimezone: true }),
+    /**
+     * What the endpoint resolved to when the row was registered, or
+     * `private` carried over from the operator's private allowlist. Null on
+     * a row from before and on an imported one: the egress proxy's own lists
+     * then decide, as they did. Set once, like the definition.
+     */
+    network: text().$type<"public" | "private">(),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -8557,6 +8564,10 @@ export const providerConnections = pgTable(
     check(
       "provider_connections_auto_mode_check",
       sql`${table.autoMode} IN ('supported', 'unsupported', 'unknown')`,
+    ),
+    check(
+      "provider_connections_network_check",
+      sql`${table.network} IN ('public', 'private')`,
     ),
     // The credential is a stored value, never a reference to one held
     // elsewhere; a console row also has it from its first commit (0288's

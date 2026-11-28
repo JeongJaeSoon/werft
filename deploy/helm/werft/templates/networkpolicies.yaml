@@ -36,8 +36,11 @@ spec:
         - {protocol: TCP, port: 3200}
     {{- end }}
 ---
-# The proxy takes connections from workers only; its own egress is open, and
-# its allowlists decide what a worker reaches through it.
+# The proxy takes connections from workers only. Its allowlists and the
+# authorizer's grants decide what is reached through it; its own egress is
+# every TCP port but the database's and the metrics listeners', and DNS. A
+# model endpoint registered as on the internal network is dialled from here,
+# and neither of those is one it may be (networkPolicy.egressProxy).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -48,7 +51,7 @@ spec:
   podSelector:
     matchLabels:
       {{- include "ap.selectorLabels" (dict "root" . "component" "egress-proxy") | nindent 6 }}
-  policyTypes: [Ingress]
+  policyTypes: [Ingress{{ if .Values.networkPolicy.egressProxy.restrict }}, Egress{{ end }}]
   ingress:
     - from:
         - podSelector:
@@ -64,6 +67,21 @@ spec:
       ports:
         - {protocol: TCP, port: 3128}
         - {protocol: TCP, port: 3129}
+  {{- if .Values.networkPolicy.egressProxy.restrict }}
+  egress:
+    # DNS is held off exceptCidrs as every other port is.
+    - ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+      {{- with include "ap.proxyEgressPeers" . }}
+      {{- . | nindent 6 }}
+      {{- end }}
+    - ports:
+        {{- include "ap.proxyEgressPorts" . | nindent 8 }}
+      {{- with include "ap.proxyEgressPeers" . }}
+      {{- . | nindent 6 }}
+      {{- end }}
+  {{- end }}
 ---
 # 3000 is public (through the Ingress) and has no /internal route; 3100, the
 # authorizer that hands out catalog credentials, and 3200, /internal, answer

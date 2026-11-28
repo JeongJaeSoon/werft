@@ -38,6 +38,15 @@ export const WORKSPACE_MCP_RESERVED_NAMES = [
 
 export const workspaceMcpServerIdSchema = z.uuid();
 export const workspaceMcpAuthKindSchema = z.enum(["oauth", "bearer"]);
+/**
+ * A server's kind as a response reports it. A later release may store a kind
+ * this one does not know: the server still lists, its kind as stored, and
+ * this release offers no credential change for it.
+ */
+export const workspaceMcpServerAuthKindSchema = z.union([
+  workspaceMcpAuthKindSchema,
+  z.string().min(1),
+]);
 export const workspaceMcpConnectionStateSchema = z.enum([
   "none",
   "active",
@@ -82,7 +91,7 @@ export const workspaceMcpServerSchema = z
     id: workspaceMcpServerIdSchema,
     name: mcpServerIdSchema,
     url: z.string(),
-    auth_kind: workspaceMcpAuthKindSchema,
+    auth_kind: workspaceMcpServerAuthKindSchema,
     /** Where the authorization server sends the browser back; oauth only. */
     redirect_uri: z.string().nullable(),
     oauth: z

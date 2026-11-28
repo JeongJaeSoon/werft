@@ -20,7 +20,7 @@ import type {
   GitHubWorkStore,
 } from "@werft-ai/platform";
 import { MANAGEMENT_ROLES } from "@werft-ai/platform";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, or, sql } from "drizzle-orm";
 import { lockedRole } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -31,6 +31,7 @@ import {
   githubWorkflowDispatches,
   githubWorkspaceSettings,
   pullRequests,
+  pushRequests,
   receipts,
   sessionOutcomes,
   sessions,
@@ -418,6 +419,48 @@ export function createPostgresGitHubGateStore(
         repositoryCeiling: settings?.repositoryCeiling ?? null,
         ceilingRevision: settings?.revision ?? 0,
       };
+    },
+
+    // (session_id, url) is unique, so this is the one row `merge` took. The
+    // receipt that recorded it says whether GitHub made it then (`created`)
+    // or the platform adopted one someone had opened.
+    async ownPullRequest(rawSessionId, rawPushRequestId, url) {
+      const sessionId = rawSessionId.toLowerCase();
+      const pushRequestId = rawPushRequestId.toLowerCase();
+      const [row] = await db
+        .select({
+          repositoryId: pushRequests.repositoryId,
+          opened: sql<boolean>`coalesce((${receipts.result} ->> 'created') = 'true', false)`,
+        })
+        .from(pushRequests)
+        .innerJoin(
+          pullRequests,
+          and(
+            eq(pullRequests.sessionId, pushRequests.sessionId),
+            eq(pullRequests.repositoryId, pushRequests.repositoryId),
+            eq(pullRequests.url, url),
+            isNotNull(pullRequests.pushRequestId),
+            or(
+              eq(pullRequests.pushRequestId, pushRequests.id),
+              eq(pullRequests.head, pushRequests.targetBranch),
+            ),
+          ),
+        )
+        .leftJoin(
+          receipts,
+          and(
+            eq(receipts.id, pullRequests.receiptId),
+            eq(receipts.operation, "open_pull_request"),
+          ),
+        )
+        .where(
+          and(
+            eq(pushRequests.id, pushRequestId),
+            eq(pushRequests.sessionId, sessionId),
+          ),
+        )
+        .limit(1);
+      return row ?? null;
     },
 
     async findDispatch(repositoryId, runId) {

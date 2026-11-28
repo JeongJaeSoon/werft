@@ -1,4 +1,8 @@
-import { type EgressUpstream, judgeUpstreamOf } from "../../catalog/index.ts";
+import {
+  type ConnectionNetwork,
+  type EgressUpstream,
+  judgeUpstreamOf,
+} from "../../catalog/index.ts";
 import { SessionServiceError } from "../../musterrolle/index.ts";
 import type { SettingsSnapshot } from "../installation-settings.ts";
 
@@ -10,6 +14,8 @@ import type { SettingsSnapshot } from "../installation-settings.ts";
  */
 export interface JudgeConnections {
   upstream(connectionId: string): Promise<EgressUpstream | null>;
+  /** What the connection's endpoint was registered as, when it says. */
+  network?(connectionId: string): ConnectionNetwork | undefined;
   /** The connections a judge setting may name now, by id. */
   ids(): Promise<readonly string[]>;
 }
@@ -45,6 +51,12 @@ export function settingsJudgeConnections(registry: {
         ? connections[connectionId]
         : undefined;
       return connection === undefined ? null : judgeUpstreamOf(connection);
+    },
+    network(connectionId) {
+      const connections = registry.settings?.judge_connections ?? {};
+      return Object.hasOwn(connections, connectionId)
+        ? connections[connectionId]?.network
+        : undefined;
     },
     async ids() {
       await registry.refresh(0);

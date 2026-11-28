@@ -33,10 +33,11 @@ type ImageDefault = { repository: string; digest: string };
 
 // The fields of rendered objects the checks read.
 type RoleRule = { apiGroups?: string[]; resources: string[]; verbs: string[] };
-type Port = { port?: number | string; protocol?: string };
+type Port = { port?: number | string; endPort?: number; protocol?: string };
 type Peer = {
   podSelector?: { matchLabels?: Record<string, string> };
   namespaceSelector?: unknown;
+  ipBlock?: { cidr: string; except?: string[] };
 };
 type PolicyRule = { ports?: Port[]; to?: Peer[] };
 type EnvVar = {
@@ -1740,6 +1741,128 @@ const awsRender = (...args: string[]) =>
   render(["-f", ciDigests, "-f", awsExample, ...args]);
 const consoleRender = () => awsRender("--set", "ingress.console.enabled=true");
 const slackOff = render(["-f", ciDigests, "--set", "slack.enabled=false"]);
+/**
+ * The egress proxy's own egress. A model endpoint registered as on the
+ * internal network is dialled from the proxy, so by default it reaches DNS
+ * and every TCP port but the database's and the metrics listeners' (and
+ * networkPolicy.egressProxy.denyPorts), on every address but
+ * exceptCidrs. With restrict off its egress is open, as it was.
+ */
+function checkProxyEgress(
+  label: string,
+  manifests: Manifest[],
+  expected: { restricted: boolean; denied: number[]; except?: string[] },
+): string[] {
+  const found: string[] = [];
+  const policy = manifests.find(
+    (m) =>
+      m.kind === "NetworkPolicy" &&
+      m.spec.podSelector?.matchLabels?.["app.kubernetes.io/component"] ===
+        "egress-proxy",
+  );
+  if (policy === undefined) return [`${label}: no egress proxy NetworkPolicy`];
+  const fail = (message: string) =>
+    found.push(`${label}: NetworkPolicy/${policy.metadata.name}: ${message}`);
+  const types = JSON.stringify([...policy.spec.policyTypes].sort());
+  const rules: PolicyRule[] = policy.spec.egress ?? [];
+  if (!expected.restricted) {
+    if (types !== '["Ingress"]' || rules.length !== 0) {
+      fail("restrict off must leave the proxy's egress open");
+    }
+    return found;
+  }
+  if (types !== '["Egress","Ingress"]') {
+    fail(`policyTypes ${types} do not hold the proxy's egress`);
+  }
+  const admits = (protocol: string, port: number) =>
+    rules.some((rule) =>
+      // No port is every port.
+      (rule.ports ?? [{}]).some(
+        (p) =>
+          p.port === undefined ||
+          ((p.protocol ?? "TCP") === protocol &&
+            Number(p.port) <= port &&
+            port <= (p.endPort ?? Number(p.port))),
+      ),
+    );
+  for (const port of expected.denied) {
+    if (admits("TCP", port)) fail(`egress reaches TCP ${port}`);
+  }
+  // DNS, the authorizer and the gateway, the object store, a model server.
+  for (const port of [53, 80, 443, 3100, 3200, 4000, 4566, 11434, 65535]) {
+    if (!admits("TCP", port)) fail(`egress does not reach TCP ${port}`);
+  }
+  if (!admits("UDP", 53)) fail("egress does not reach DNS over UDP");
+  if (admits("UDP", 5432)) fail("egress reaches UDP beyond DNS");
+  // Every rule, the DNS one too: a rule without the exception would reach
+  // an excepted address on its ports.
+  for (const rule of rules) {
+    const held = (rule.to ?? []).flatMap((peer) => peer.ipBlock?.except ?? []);
+    if (
+      JSON.stringify([...held].sort()) !==
+      JSON.stringify([...(expected.except ?? [])].sort())
+    ) {
+      fail(`an egress rule excepts ${JSON.stringify(held)}`);
+    }
+    // Each family's whole range, or the other family would be shut by naming one.
+    const cidrs = (rule.to ?? []).map((peer) => peer.ipBlock?.cidr);
+    if (
+      (expected.except ?? []).length > 0 &&
+      JSON.stringify(cidrs) !== '["0.0.0.0/0","::/0"]'
+    ) {
+      fail(`egress names ${JSON.stringify(cidrs)}, not both address families`);
+    }
+  }
+  return found;
+}
+
+/**
+ * What the API holds a private upstream off by name: each Service of its
+ * own the chart renders, among them a headless one that answers with every
+ * api Pod, then the operator's. A name with no Service behind it would not
+ * resolve, and the API then refuses every such connection's call.
+ */
+function checkPrivateDenyHosts(
+  label: string,
+  manifests: Manifest[],
+  given: string[],
+): string[] {
+  const found: string[] = [];
+  const api = manifests.find(
+    (m) => m.kind === "Deployment" && m.metadata.name === "ap-werft-api",
+  );
+  const value: string | undefined = api?.spec.template.spec.containers[0].env
+    // biome-ignore lint/suspicious/noExplicitAny: rendered Kubernetes objects
+    .find((e: any) => e.name === "EGRESS_PRIVATE_DENY_HOSTS")?.value;
+  const services = manifests.filter(
+    (m) =>
+      m.kind === "Service" &&
+      m.spec.selector?.["app.kubernetes.io/component"] === "api",
+  );
+  const own = services.map((m) => m.metadata.name).sort();
+  const listed = (value ?? "").split(",");
+  if (
+    JSON.stringify(listed.slice(0, own.length).sort()) !==
+      JSON.stringify(own) ||
+    JSON.stringify(listed.slice(own.length)) !== JSON.stringify(given)
+  ) {
+    found.push(
+      `${label}: EGRESS_PRIVATE_DENY_HOSTS is ${value}, not the api Services ${own.join(",")} then ${given.join(",")}`,
+    );
+  }
+  const pods = services.filter((m) => m.spec.clusterIP === "None");
+  if (
+    pods.length !== 1 ||
+    pods[0]?.spec.publishNotReadyAddresses !== true ||
+    !listed.includes(pods[0]?.metadata.name ?? "")
+  ) {
+    found.push(
+      `${label}: no one headless api Service, unready Pods included, among the denied hosts`,
+    );
+  }
+  return found;
+}
+
 const errors = [
   ...check("default", render(["-f", ciDigests]), true),
   ...check("slack off", slackOff, true),
@@ -2316,6 +2439,76 @@ errors.push(
     false,
   ),
 );
+errors.push(
+  ...checkProxyEgress("default", render(["-f", ciDigests]), {
+    restricted: true,
+    denied: [5432, 9464],
+  }),
+  ...checkProxyEgress(
+    "aws example",
+    render(["-f", ciDigests, "-f", awsExample]),
+    {
+      restricted: true,
+      denied: [5432, 9464],
+    },
+  ),
+  ...checkProxyEgress(
+    "proxy egress, ports and addresses of the operator's",
+    render([
+      "-f",
+      ciDigests,
+      "--set",
+      "networkPolicy.slack.databasePort=6432",
+      "--set",
+      "api.metrics.port=9465",
+      "--set",
+      "metrics.port=9100",
+      "--set",
+      "networkPolicy.egressProxy.denyPorts={6379,1,65534}",
+      "--set",
+      "networkPolicy.egressProxy.exceptCidrs={10.20.0.0/16,fd00:20::/64}",
+    ]),
+    {
+      restricted: true,
+      denied: [6432, 9465, 9100, 6379, 1, 65534],
+      except: ["10.20.0.0/16", "fd00:20::/64"],
+    },
+  ),
+  ...checkProxyEgress(
+    "proxy egress, restrict off",
+    render([
+      "-f",
+      ciDigests,
+      "--set",
+      "networkPolicy.egressProxy.restrict=false",
+    ]),
+    { restricted: false, denied: [] },
+  ),
+  ...checkPrivateDenyHosts("default", render(["-f", ciDigests]), []),
+  ...checkPrivateDenyHosts(
+    "private deny hosts, api metrics and the operator's",
+    render([
+      "-f",
+      ciDigests,
+      "--set",
+      "api.metrics.enabled=true",
+      "--set",
+      "config.egress.privateDenyHosts=vip.internal\\,172.30.64.1",
+    ]),
+    ["vip.internal", "172.30.64.1"],
+  ),
+);
+// DNS is how the proxy finds every upstream: it is not a port to deny, by
+// any of the values the denied ports come from.
+for (const value of [
+  "networkPolicy.egressProxy.denyPorts={53}",
+  "networkPolicy.slack.databasePort=53",
+]) {
+  const { ok, out } = helmTemplate(["-f", ciDigests, "--set", value]);
+  if (ok || !out.includes("53 is DNS")) {
+    errors.push(`proxy egress: ${value} is taken, and the DNS rule opens it`);
+  }
+}
 const CURRENT_RUNTIME = {
   engine: "claude",
   sdkVersion: "0.3.280",

@@ -412,3 +412,70 @@ describe("POST /v1/installation/settings/connections takes only an API key", () 
     expect(asked).toHaveLength(1);
   });
 });
+
+describe("POST /v1/installation/settings/connections and the internal network", () => {
+  const body = {
+    id: "console",
+    kind: "litellm",
+    endpoint: "http://llm.corp:4000",
+    auth_kind: "bearer",
+    value: "example-key",
+  };
+  const CONNECTIONS = BASE + "/connections";
+
+  test("the acknowledgement reaches the service as a boolean, and nothing else passes for one", async () => {
+    const asked: unknown[] = [];
+    const settings = {
+      createConnection: async (_caller: unknown, request: unknown) => {
+        asked.push(request);
+        return CHANGED;
+      },
+    } as Partial<SettingsConsoleService>;
+    for (const acknowledge_private of [true, false]) {
+      expect(
+        (
+          await request(settings, "POST", CONNECTIONS, {
+            ...body,
+            acknowledge_private,
+          })
+        ).status,
+      ).toBe(201);
+    }
+    expect(asked).toEqual([
+      { ...body, acknowledge_private: true },
+      { ...body, acknowledge_private: false },
+    ]);
+    for (const acknowledge_private of ["true", 1, null]) {
+      const response = await request(settings, "POST", CONNECTIONS, {
+        ...body,
+        acknowledge_private,
+      });
+      expect(response.status).toBe(400);
+    }
+    expect(asked).toHaveLength(2);
+  });
+
+  test("an unacknowledged private endpoint is a 400 that names its reason, and a name that did not resolve a 503", async () => {
+    for (const [code, reason, status] of [
+      ["BAD_REQUEST", "private_address_unacknowledged", 400],
+      ["BAD_REQUEST", "address_not_allowed", 400],
+      ["BACKEND_UNAVAILABLE", "endpoint_unreachable", 503],
+    ] as const) {
+      const response = await request(
+        {
+          createConnection: async () => {
+            throw new SessionServiceError(code, "no", undefined, {
+              reason_code: reason,
+            });
+          },
+        },
+        "POST",
+        CONNECTIONS,
+        body,
+      );
+      expect(response.status).toBe(status);
+      const problem = apiErrorResponseSchema.parse(await response.json());
+      expect(problem.error.details).toMatchObject({ reason_code: reason });
+    }
+  });
+});

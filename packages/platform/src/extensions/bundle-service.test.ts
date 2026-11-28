@@ -92,6 +92,9 @@ function fakeStore() {
     async listAttachments() {
       return [];
     },
+    async unavailableSkills() {
+      return new Map();
+    },
   };
   return { store, rows };
 }
