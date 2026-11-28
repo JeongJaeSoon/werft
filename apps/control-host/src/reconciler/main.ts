@@ -2,6 +2,7 @@ import type * as schema from "@werft-ai/db";
 import {
   announceLapsedInputWaits,
   createPostgresConversationCalls,
+  createPostgresTaskCloses,
   deleteExpiredWebSessions,
   expireAuthzDecisions,
   expireOverdueInterrupts,
@@ -180,6 +181,8 @@ export function reconcileOnce(
         ...options,
         budgetMs: AUTH_ATTEMPT_PURGE_BUDGET_MS,
       }),
+    closeIdleTasks: (limit) =>
+      createPostgresTaskCloses(db).closeOnTimeRules(limit),
     reconcileOwnership: (options) => reconcileAgentOwnership(db, options),
     projectToolCalls: () =>
       projectToolCalls(db, {

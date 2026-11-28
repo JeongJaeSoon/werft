@@ -230,6 +230,7 @@ function app(
         dispatches.find(
           (row) => row.repositoryId === repositoryId && row.runId === runId,
         ) ?? null,
+      ownPullRequest: async () => null,
       recordReceipt: async (receipt) => {
         receipts.push(receipt);
         return nextReceipt();
@@ -1242,7 +1243,7 @@ describe("reviewing a pull request", () => {
           },
         }),
         403,
-        "feature_off",
+        "review_off",
       ],
       [
         app({ ceiling: { ...ACTIONS_ON, review: false } }),

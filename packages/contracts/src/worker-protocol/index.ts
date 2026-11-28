@@ -1411,6 +1411,13 @@ export const TURN_BUDGET_EXCEEDED_REASON = "budget_exceeded";
 export const TURN_WORKSPACE_QUOTA_EXCEEDED_REASON = "workspace_quota_exceeded";
 
 /**
+ * The terminal reason of a turn its worker cut at the call one past
+ * `WORKER_MAX_TURN_TOOL_CALLS`. Only the turn ends: the session takes its
+ * next input as after any failed turn.
+ */
+export const TURN_TOOL_CALL_LIMIT_REASON = "tool_call_limit";
+
+/**
  * The terminal reason of a turn failed because its worker lost the lease
  * mid-turn: the session stays and goes on from its last checkpoint.
  */

@@ -2,7 +2,9 @@ import {
   DEFAULT_USER_LOCALE,
   type PendingQuestion,
   type PushDecision,
+  pushRequestIdSchema,
   type QuestionAnswer,
+  requestIdSchema,
   SLACK_INTERACTION_ACTIONS,
   SLACK_NOTE_VIEW_CALLBACK,
   SLACK_NOTICE_MESSAGES,
@@ -13,6 +15,8 @@ import {
   type SlackNoticeMessage,
   type SlackQuestionViewMetadata,
   type SlackViewSubmissionPayload,
+  sessionIdSchema,
+  sessionLinkIdSchema,
   slackBlockActionsPayloadSchema,
   slackInteractionPayloadSchema,
   slackInteractionValueSchema,
@@ -27,9 +31,13 @@ import type {
   PushActor,
   PushFollowUpStore,
   PushRequestService,
+  RequesterCloseReason,
   SurfaceBindingStore,
   SurfaceConversationScope,
   SurfaceOutboxStore,
+  SurfacePostedCardKey,
+  SurfaceProgressLink,
+  TaskClose,
 } from "@werft-ai/platform";
 import {
   type AuthorizationPolicy,
@@ -99,7 +107,9 @@ export type SlackInteractionOutcome =
 
 export type SlackInteractionDeps = {
   signingSecrets: Pick<SlackSigningSecrets, "forAgent">;
-  authorization: AuthorizationPolicy;
+  /** refuse keeps a press refused as surface_mismatch in the decision log. */
+  authorization: AuthorizationPolicy &
+    Required<Pick<AuthorizationPolicy, "refuse">>;
   agents: Pick<AgentIdentityStore, "resolveSlackEvent">;
   links: Pick<LinkedAccountStore, "resolveLinkedSubject">;
   bindings: Pick<
@@ -116,13 +126,20 @@ export type SlackInteractionDeps = {
     "queuePushFollowUp" | "continueTurn" | "startFreshTurn"
   >;
   followUps: PushFollowUpStore;
+  /** Closes a task from its progress message's buttons (v1-b/C1). */
+  tasks?: Pick<TaskClose, "close">;
   slack: Pick<SlackBotApi, "userInfo"> &
     Required<Pick<SlackBotApi, "updateMessage" | "openView" | "updateView">> &
     Pick<SlackBotSender, "postEphemeral">;
   botToken(workspaceId: string, slackAppId: string): Promise<string | null>;
   outbox: Pick<
     SurfaceOutboxStore,
-    "readerLocale" | "promptCard" | "cards" | "aiLabelFor"
+    | "readerLocale"
+    | "promptCard"
+    | "postedCard"
+    | "progressLink"
+    | "cards"
+    | "aiLabelFor"
   >;
   /** The web page where a person links their Slack account. */
   connectUrl: string;
@@ -143,6 +160,15 @@ export type SlackInteractionDeps = {
 const OK: SlackInteractionResponse = { ok: true };
 const FOLLOW_UP_ATTEMPTS = 3;
 const CLEAR: SlackInteractionResponse = { response_action: "clear" };
+// The buttons of a request's card, each judged against the card pressed.
+const CARD_ACTIONS: ReadonlySet<string> = new Set([
+  SLACK_INTERACTION_ACTIONS.permissionAllow,
+  SLACK_INTERACTION_ACTIONS.permissionAllowSession,
+  SLACK_INTERACTION_ACTIONS.permissionDeny,
+  SLACK_INTERACTION_ACTIONS.questionOption,
+  SLACK_INTERACTION_ACTIONS.pushApprove,
+  SLACK_INTERACTION_ACTIONS.pushReject,
+]);
 
 const REQUEST_GONE_CODES = new Set([
   "REQUEST_EXPIRED",
@@ -368,9 +394,15 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     sessionId: string,
     request: { pushRequestId?: string; pendingRequestId?: string },
     action: "session.approve" | "session.submit" = "session.approve",
+    judged: {
+      channelId?: string;
+      refuse?: "surface_mismatch";
+      notice?: SlackNoticeMessage;
+    } = {},
   ): Promise<Allowed | { refused: string }> {
     const user = await deps.slack.userInfo(pressed.botToken, pressed.userId);
     const requestId = newRequestId();
+    const channelId = judged.channelId ?? pressed.channelId;
     const decision: SlackDecision = await authorizeSlackInput(deps, {
       event: {
         appId: pressed.appId,
@@ -379,10 +411,11 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       },
       user,
       action,
-      channel: { id: pressed.channelId, dm: pressed.channelId.startsWith("D") },
+      channel: { id: channelId, dm: channelId.startsWith("D") },
       resource: { kind: "session", id: sessionId, ...request },
       requestId,
       connectUrl: deps.connectUrl,
+      ...(judged.refuse === undefined ? {} : { refuse: judged.refuse }),
     });
     if (decision.status === "dropped") return { refused: decision.reason };
     if (decision.decision.outcome !== "allow") {
@@ -391,7 +424,9 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
         defer(() =>
           tell(
             pressed,
-            SLACK_NOTICE_MESSAGES[pressed.locale][told.message],
+            SLACK_NOTICE_MESSAGES[pressed.locale][
+              judged.notice ?? told.message
+            ],
             told.link_url,
           ),
         );
@@ -399,6 +434,84 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       return { refused: decision.decision.reason_code };
     }
     return { caller: slackCallerOf(decision, requestId), pressed };
+  }
+
+  /**
+   * A press on a message of the session's own thread, `link`, judged at
+   * that thread's channel whatever channel it came from. Refused as
+   * surface_mismatch, kept and told, when the message pressed is not in
+   * that thread or the value's link id is not that link's.
+   */
+  async function admitOnThread(
+    pressed: Pressed,
+    sessionId: string,
+    linkId: string,
+    link: SurfaceProgressLink | null,
+    action: "session.approve" | "session.submit",
+    request: { pushRequestId?: string; pendingRequestId?: string } = {},
+  ): Promise<Allowed | { refused: string }> {
+    const parsed = sessionLinkIdSchema.safeParse(linkId);
+    const onIt =
+      parsed.success &&
+      link !== null &&
+      link.id.toLowerCase() === parsed.data.toLowerCase() &&
+      link.agentId.toLowerCase() === pressed.agentId.toLowerCase() &&
+      link.channelId === pressed.channelId &&
+      link.threadId === pressed.threadTs;
+    if (!onIt || link === null) {
+      return admit(pressed, sessionId, request, action, {
+        refuse: "surface_mismatch",
+      });
+    }
+    return admit(pressed, sessionId, request, action, {
+      channelId: link.channelId,
+    });
+  }
+
+  /**
+   * A press on a posted card, the message `ts` of the pressed channel,
+   * judged at the channel of the link the card went out on (a mirror's own
+   * when it was one) whatever the value says. Refused as surface_mismatch,
+   * kept and told, when no row of the value's session posted that message
+   * for the value's request or turn.
+   */
+  async function admitOnCard(
+    pressed: Pressed,
+    ts: string,
+    value: SlackInteractionValue,
+    card: SurfacePostedCardKey | null,
+    action: "session.approve" | "session.submit",
+    request: { pushRequestId?: string; pendingRequestId?: string } = {},
+  ): Promise<Allowed | { refused: string }> {
+    const session = sessionIdSchema.safeParse(value.s);
+    const link =
+      session.success && card !== null
+        ? await deps.outbox.postedCard({
+            sessionId: session.data,
+            agentId: pressed.agentId,
+            channelId: pressed.channelId,
+            slackTs: ts,
+            card,
+          })
+        : null;
+    if (link === "earlier") {
+      return admit(pressed, value.s, request, action, {
+        refuse: "surface_mismatch",
+        notice: "pressEarlierCard",
+      });
+    }
+    const onIt =
+      link !== null &&
+      link.agentId.toLowerCase() === pressed.agentId.toLowerCase() &&
+      link.channelId === pressed.channelId;
+    if (!onIt || link === null) {
+      return admit(pressed, value.s, request, action, {
+        refuse: "surface_mismatch",
+      });
+    }
+    return admit(pressed, value.s, request, action, {
+      channelId: link.channelId,
+    });
   }
 
   async function pendingQuestions(
@@ -687,6 +800,17 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     });
   }
 
+  // The card a button's request names; null for a value no card could hold.
+  function promptKey(r: string): SurfacePostedCardKey | null {
+    const parsed = requestIdSchema.safeParse(r);
+    return parsed.success ? { kind: "prompt", requestId: parsed.data } : null;
+  }
+
+  function pushKey(r: string): SurfacePostedCardKey | null {
+    const parsed = pushRequestIdSchema.safeParse(r);
+    return parsed.success ? { kind: "push", pushRequestId: parsed.data } : null;
+  }
+
   function buttonValue(raw: string | undefined): SlackInteractionValue | null {
     try {
       return slackInteractionValueSchema.parse(JSON.parse(raw ?? ""));
@@ -810,9 +934,14 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
           return tell(pressed, text);
         });
     try {
-      const admitted = await admit(pressed, value.s, {
-        pendingRequestId: value.r,
-      });
+      const admitted = await admitOnCard(
+        pressed,
+        payload.message.ts,
+        value,
+        promptKey(value.r),
+        "session.approve",
+        { pendingRequestId: value.r },
+      );
       if ("refused" in admitted) {
         await show(copy.unavailable);
         return ok(`refused:${admitted.refused}`);
@@ -877,24 +1006,34 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       if (actionId === SLACK_INTERACTION_ACTIONS.turnStartFresh) {
         return ok(await startFreshTurn(pressed, payload.message.ts, value));
       }
-      // A press names its request, which the policy reads for a requester
-      // who left a private channel.
-      const push =
-        actionId === SLACK_INTERACTION_ACTIONS.pushApprove ||
-        actionId === SLACK_INTERACTION_ACTIONS.pushReject;
-      const admitted = await admit(
-        pressed,
-        value.s,
-        push ? { pushRequestId: value.r } : { pendingRequestId: value.r },
-      );
-      if ("refused" in admitted) return ok(`refused:${admitted.refused}`);
-      const card = cardOf(pressed, payload)(value);
+      if (actionId === SLACK_INTERACTION_ACTIONS.taskComplete) {
+        return ok(await closeTask(pressed, value, "completed"));
+      }
+      if (actionId === SLACK_INTERACTION_ACTIONS.taskCancel) {
+        return ok(await closeTask(pressed, value, "cancelled"));
+      }
       // Option buttons share a block, where Slack wants each id once.
       const kind = actionId.startsWith(
         `${SLACK_INTERACTION_ACTIONS.questionOption}:`,
       )
         ? SLACK_INTERACTION_ACTIONS.questionOption
         : actionId;
+      if (!CARD_ACTIONS.has(kind)) return ok("ignored");
+      // A press names its request, which the policy reads for a requester
+      // who left a private channel.
+      const push =
+        kind === SLACK_INTERACTION_ACTIONS.pushApprove ||
+        kind === SLACK_INTERACTION_ACTIONS.pushReject;
+      const admitted = await admitOnCard(
+        pressed,
+        payload.message.ts,
+        value,
+        push ? pushKey(value.r) : promptKey(value.r),
+        "session.approve",
+        push ? { pushRequestId: value.r } : { pendingRequestId: value.r },
+      );
+      if ("refused" in admitted) return ok(`refused:${admitted.refused}`);
+      const card = cardOf(pressed, payload)(value);
       switch (kind) {
         case SLACK_INTERACTION_ACTIONS.permissionAllow:
         case SLACK_INTERACTION_ACTIONS.permissionAllowSession:
@@ -968,7 +1107,13 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
   ): Promise<string> {
     const turnId = Number(value.r);
     if (!Number.isSafeInteger(turnId) || turnId < 1) return "ignored";
-    const admitted = await admit(pressed, value.s, {}, "session.submit");
+    const admitted = await admitOnCard(
+      pressed,
+      ts,
+      value,
+      { kind: "turn", turnId },
+      "session.submit",
+    );
     if ("refused" in admitted) return `refused:${admitted.refused}`;
     // A later turn already went on from it: no turn, and the button goes.
     const superseded = await deps.sessions
@@ -1030,7 +1175,13 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
   ): Promise<string> {
     const turnId = Number(value.r);
     if (!Number.isSafeInteger(turnId) || turnId < 1) return "ignored";
-    const admitted = await admit(pressed, value.s, {}, "session.submit");
+    const admitted = await admitOnCard(
+      pressed,
+      ts,
+      value,
+      { kind: "turn", turnId },
+      "session.submit",
+    );
     if ("refused" in admitted) return `refused:${admitted.refused}`;
     // The session moved on another way (a decision elsewhere, a close): the
     // decision no longer applies and nothing is run.
@@ -1079,6 +1230,34 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     return "started_fresh";
   }
 
+  /**
+   * [Done] or [Cancel] on a task's progress message: the task closes with
+   * that reason for whoever pressed, if they may control its session; anyone
+   * else is told so alone. The message says so on the outbox's next pass.
+   */
+  const closeTask = async (
+    pressed: Pressed,
+    value: SlackInteractionValue,
+    reason: RequesterCloseReason,
+  ): Promise<string> => {
+    if (deps.tasks === undefined) return "ignored";
+    const admitted = await admitOnThread(
+      pressed,
+      value.s,
+      value.r,
+      await deps.outbox.progressLink(value.s),
+      "session.submit",
+    );
+    if ("refused" in admitted) return `refused:${admitted.refused}`;
+    const outcome = await deps.tasks.close(admitted.caller, value.s, reason);
+    if (outcome === "not_permitted") {
+      await notice(pressed, "taskCloseNotPermitted");
+      return "refused:not_permitted";
+    }
+    if (outcome === "refused") await notice(pressed, "failed");
+    return `task_${outcome}`;
+  };
+
   async function onSubmit(
     agentId: string,
     app: { workspaceId: string; slackAppId: string; appId: string },
@@ -1115,9 +1294,16 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       });
       if (pressed === null) return ok("refused:no_bot_token", CLEAR);
       locale = pressed.locale;
-      const admitted = await admit(pressed, metadata.s, {
-        pendingRequestId: metadata.r,
-      });
+      // The card the form was opened from, as the form names it: checked
+      // again now, whatever was checked when it opened.
+      const admitted = await admitOnCard(
+        pressed,
+        metadata.m,
+        value,
+        promptKey(metadata.r),
+        "session.approve",
+        { pendingRequestId: metadata.r },
+      );
       if ("refused" in admitted) {
         return ok(`refused:${admitted.refused}`, CLEAR);
       }

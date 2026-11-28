@@ -152,6 +152,7 @@ import {
 } from "./musterrolle/model-cut-notices.ts";
 import {
   lockProviderExchange,
+  reservedCallOf,
   settleProviderExchange,
 } from "./provider-exchanges.ts";
 import type { Database } from "./queries.ts";
@@ -196,7 +197,10 @@ import {
 } from "./schema.ts";
 import { movedSessionPin } from "./session-spec-pin.ts";
 import { queueAchievementJudgment } from "./sessions/achievement-judgments.ts";
-import { finishClose } from "./sessions/close-control.ts";
+import {
+  finishClose,
+  recordDrainedTaskClose,
+} from "./sessions/close-control.ts";
 import {
   contextCoverage,
   contextGap,
@@ -2876,7 +2880,13 @@ export function createPostgresWorkerUnitOfWork(
           .limit(1)
           .for("update");
         if (!pair) return { outcome: "unknown_attempt" };
-        const priced = input.priceFor(pair);
+        // What the call's open reserved for, while its row is still there:
+        // the settlement below deletes it.
+        const reserved = await reservedCallOf(tx, input);
+        const priced = input.priceFor({
+          unmetered: pair.unmetered,
+          requestModel: reserved?.requestModel ?? null,
+        });
         // What makes two reports the same call. The price is left out: it
         // may have moved between them.
         const call = {
@@ -2905,6 +2915,9 @@ export function createPostgresWorkerUnitOfWork(
             ...call,
             costUsd: sql`LEAST(ceil(${priced.costUsd}::numeric * 1000000) / 1000000, ${MAX_SESSION_COST_USD})`,
             pricedBy: priced.pricedBy,
+            requestModel: reserved?.requestModel ?? null,
+            priceVersion: input.priceVersion ?? null,
+            priceUnknown: priced.pricedBy === "unknown",
           })
           .onConflictDoNothing({ target: providerUsage.exchangeId })
           .returning({
@@ -2964,11 +2977,17 @@ export function createPostgresWorkerUnitOfWork(
             tokens: reservationTokens(input.usage),
           },
         });
+        const reservedWith = reserved?.priceVersion ?? null;
         return {
           outcome: "recorded",
           costUsd: inserted.costUsd,
           pricedBy: inserted.pricedBy,
           ...(ledger.foreignRow ? { ledgerForeignRow: true as const } : {}),
+          ...(reservedWith !== null &&
+          input.priceVersion !== undefined &&
+          reservedWith !== input.priceVersion
+            ? { reservedWithPriceVersion: reservedWith }
+            : {}),
         };
       });
     },
@@ -4806,6 +4825,7 @@ export function createPostgresWorkerUnitOfWork(
                 updatedAt: observedAt,
               })
               .where(eq(receipts.id, open.id));
+            await recordDrainedTaskClose(tx, session, open.id);
             controlResults.push({
               acceptedAt: open.acceptedAt,
               controlId: open.id,

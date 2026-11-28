@@ -46,6 +46,7 @@ import type {
   SettingsConsoleService,
   SettingsDocumentService,
   SkillGitSync,
+  SkillRepositoryService,
   SkillService,
   SurfaceBindingService,
   TeamService,
@@ -69,6 +70,7 @@ import { registerPullRequestRoutes } from "./routes/action/pull-requests.ts";
 import { registerPushRequestRoutes } from "./routes/action/push-requests.ts";
 import { registerAgentWorkspaceMcpRoutes } from "./routes/agents/agent-mcp.ts";
 import { registerAgentRoutes } from "./routes/agents/agents.ts";
+import { registerSkillRepositoryRoutes } from "./routes/extensions/skill-repositories.ts";
 import { registerSkillRoutes } from "./routes/extensions/skills.ts";
 import { registerAgentGitHubRoutes } from "./routes/github/agent-github.ts";
 import { registerGitHubAppRoutes } from "./routes/github/github-app.ts";
@@ -227,6 +229,7 @@ function apiApp() {
       registerEnvVariableRoutes(router, {} as EnvVariableService);
       registerWorkspaceMcpServerRoutes(router, {} as WorkspaceMcpService);
       registerSkillRoutes(router, {} as SkillService, {} as SkillGitSync);
+      registerSkillRepositoryRoutes(router, {} as SkillRepositoryService);
       registerPauseRoutes(router, {} as SessionService);
       registerCloseRoutes(router, {} as SessionService);
       registerUsageRoutes(router, {} as UsageService);

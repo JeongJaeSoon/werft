@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 
+import { githubCeilingSchema } from "../musterrolle/github-settings.ts";
 import {
   type AgentGitHub,
   type AgentGitHubSettingsRow,
+  agentGitHubInputSchema,
+  agentGitHubSchema,
+  agentGitHubSettingsInputSchema,
   agentGitHubSettingsSchema,
   type EffectiveGitHubPolicy,
   effectiveGitHubPolicy,
@@ -12,6 +17,7 @@ import {
   meetGitHubSettings,
   meetPushAttached,
   newSessionGitHubPolicy,
+  policyPinsSchema,
   pushAttachedOf,
   pushDecisionOf,
 } from "./agents.ts";
@@ -832,5 +838,229 @@ describe("pushDecisionOf: one rule for every repository", () => {
       start,
     });
     expect(pushDecisionOf(denied)).toBe("deny");
+  });
+});
+
+describe("stored keys this build does not know (94S-2491)", () => {
+  const KNOWN = { ...ALL_OFF, review: true };
+  const later = { ...KNOWN, later_switch: true };
+  const person: AgentGitHubSettingsRow = {
+    ...ROW,
+    features: later,
+    updatedBy: PERSON,
+  };
+  const pinWith = (features: object) => ({ ...PIN, features });
+  const featuresOf = (read: EffectiveGitHubPolicy): unknown =>
+    read.settings === null || read.settings === "invalid"
+      ? read.settings
+      : read.settings.features;
+
+  test("a row, a pin and a start snapshot read without a feature key they do not know", () => {
+    expect(
+      featuresOf(
+        effectiveGitHubPolicy({
+          source: "agent",
+          releasePin: null,
+          agentRow: person,
+        }),
+      ),
+    ).toEqual(KNOWN);
+    expect(
+      featuresOf(
+        effectiveGitHubPolicy({
+          source: "release",
+          releasePin: pinWith(later),
+          agentRow: null,
+        }),
+      ),
+    ).toEqual(KNOWN);
+    expect(
+      featuresOf(
+        effectiveGitHubPolicy({
+          source: "agent",
+          releasePin: null,
+          agentRow: { ...person, features: KNOWN },
+          start: {
+            enabled: true,
+            revision: 1,
+            settings: { ...SETTINGS, features: later },
+          },
+        }),
+      ),
+    ).toEqual(KNOWN);
+  });
+
+  test("a known key with a bad value, or an unknown key outside the switches, still closes the session", () => {
+    for (const [releasePin, agentRow] of [
+      [null, { ...person, features: { ...KNOWN, merge: "yes" } }],
+      [null, { ...person, features: { ...KNOWN, review: "yes" } }],
+      [{ ...PIN, later_list: [] }, null],
+      [
+        { ...PIN, actions_allow: [{ workflow: "ci.yml", only_on: "tag" }] },
+        null,
+      ],
+    ] as const) {
+      const read = effectiveGitHubPolicy({
+        source: agentRow === null ? "release" : "agent",
+        releasePin,
+        agentRow,
+      });
+      expect(read.settings).toBe("invalid");
+    }
+  });
+
+  test("a pin never holds `merge`: one stored there is left out like any key a pin does not know", () => {
+    const pinned = effectiveGitHubPolicy({
+      source: "release",
+      releasePin: pinWith({ ...KNOWN, merge: true }),
+      agentRow: null,
+    });
+    expect(featuresOf(pinned)).toEqual(KNOWN);
+    // What a pin reads as still parses as a pin, which refuses the key.
+    expect(agentGitHubSchema.safeParse(pinned.settings).success).toBe(true);
+  });
+
+  test("a release keeps reading with one in its pin, as stored, since its id hashes the pin", () => {
+    const parsed = policyPinsSchema.safeParse({ github: pinWith(later) });
+    expect(parsed.success && parsed.data.github?.features).toEqual(later);
+    expect(
+      policyPinsSchema.safeParse({
+        github: pinWith({ ...KNOWN, later_switch: "on" }),
+      }).success,
+    ).toBe(false);
+  });
+
+  test("a save still refuses one: settings, a release pin and the ceiling stay strict", () => {
+    expect(
+      agentGitHubSettingsInputSchema.safeParse({ ...SETTINGS, features: later })
+        .success,
+    ).toBe(false);
+    for (const features of [later, { ...KNOWN, merge: false }]) {
+      expect(agentGitHubInputSchema.safeParse(pinWith(features)).success).toBe(
+        false,
+      );
+    }
+    expect(
+      githubCeilingSchema.safeParse({
+        ...ALL_OFF,
+        merge: false,
+        later_switch: true,
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("an agent's merge switch (94S-2492)", () => {
+  const KNOWN = { ...ALL_OFF, review: true };
+  const ON = { ...KNOWN, merge: true };
+  const person: AgentGitHubSettingsRow = {
+    ...ROW,
+    features: ON,
+    updatedBy: PERSON,
+  };
+  const startWith = (features: object) => ({
+    enabled: true,
+    revision: 1,
+    settings: { ...SETTINGS, features },
+  });
+  const mergeOf = (read: EffectiveGitHubPolicy) =>
+    read.settings === null || read.settings === "invalid"
+      ? read.settings
+      : (read.settings.features.merge ?? false);
+
+  test("a save takes it on, off or left out, and nothing but a boolean", () => {
+    for (const features of [ON, { ...KNOWN, merge: false }, KNOWN]) {
+      expect(
+        agentGitHubSettingsInputSchema.safeParse({ ...SETTINGS, features })
+          .success,
+      ).toBe(true);
+    }
+    expect(
+      agentGitHubSettingsInputSchema.safeParse({
+        ...SETTINGS,
+        features: { ...KNOWN, merge: "yes" },
+      }).success,
+    ).toBe(false);
+  });
+
+  test("it is on for a session only when the row has it on now and the session started with it on", () => {
+    const agent = (features: object, start?: object) =>
+      effectiveGitHubPolicy({
+        source: "agent",
+        releasePin: null,
+        agentRow: { ...person, features },
+        ...(start === undefined ? {} : { start }),
+      });
+    // No snapshot: the row as it is now.
+    expect(mergeOf(agent(ON))).toBe(true);
+    expect(mergeOf(agent(KNOWN))).toBe(false);
+    expect(mergeOf(agent({ ...KNOWN, merge: false }))).toBe(false);
+    expect(mergeOf(agent(ON, startWith(ON)))).toBe(true);
+    // Started with it off, or before the key: turning it on later is for the
+    // next session.
+    expect(mergeOf(agent(ON, startWith(KNOWN)))).toBe(false);
+    expect(mergeOf(agent(ON, startWith({ ...KNOWN, merge: false })))).toBe(
+      false,
+    );
+    // Turned off after the start: off from the next call.
+    expect(mergeOf(agent(KNOWN, startWith(ON)))).toBe(false);
+  });
+
+  test("a session on a release's pin never has it on, whatever the row says", () => {
+    for (const agentRow of [null, person]) {
+      expect(
+        mergeOf(
+          effectiveGitHubPolicy({
+            source: "release",
+            releasePin: PIN,
+            agentRow,
+          }),
+        ),
+      ).toBe(false);
+    }
+    // No pin and no row: no settings at all, so no optional permission.
+    expect(
+      effectiveGitHubPolicy({
+        source: "release",
+        releasePin: null,
+        agentRow: null,
+      }).settings,
+    ).toBeNull();
+  });
+
+  // Rollback (94S-2491 read first): #2373 reads `features` without the keys
+  // it does not know and checks `merge` as an optional boolean; the build
+  // before it reads the five known keys strictly.
+  test("the switches this build stores pass the #2373 switch schema, and the strict one before it only without the key (both shapes copied here)", () => {
+    const five = {
+      workflows: z.boolean(),
+      actions: z.boolean(),
+      checks: z.boolean(),
+      issues: z.boolean(),
+      review: z.boolean(),
+    };
+    const at2373 = z.object({ ...five, merge: z.boolean().optional() });
+    const before2373 = z.object(five).strict();
+    const written = (features: object) => {
+      // A start snapshot, a first save and a GET response all carry this.
+      const read = newSessionGitHubPolicy({ ...person, features }, null);
+      if (read.settings === null || read.settings === "invalid") {
+        throw new Error("unread");
+      }
+      return read.settings.features;
+    };
+    expect(written(ON)).toEqual(ON);
+    // This build's own response schema takes it.
+    expect(
+      agentGitHubSettingsSchema.safeParse({
+        ...SETTINGS,
+        features: written(ON),
+      }).success,
+    ).toBe(true);
+    expect(at2373.safeParse(written(ON)).success).toBe(true);
+    expect(before2373.safeParse(written(ON)).success).toBe(false);
+    // A row nobody gave the key is written back without it.
+    expect(Object.keys(written(KNOWN))).not.toContain("merge");
+    expect(before2373.safeParse(written(KNOWN)).success).toBe(true);
   });
 });

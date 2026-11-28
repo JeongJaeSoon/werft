@@ -403,6 +403,7 @@ export function createPullRequestService(deps: {
         ...(code === "GITHUB_REFUSED"
           ? { reason_code: fields.reason_code ?? refusal }
           : {}),
+        ...(fields.off_in == null ? {} : { off_in: fields.off_in }),
       });
     };
     const session = {
@@ -507,6 +508,8 @@ export function createPullRequestService(deps: {
       fields?: Partial<PullRequestReceiptResult>,
     ) => Promise<never>,
     purpose: "pull_request" | "pull_request_read" | "merge" = "pull_request",
+    // merge only: the pull request merged, which the gate checks.
+    merging?: { url: string },
   ) {
     const fields = { repository_id: source.repositoryId };
     const entry = Object.hasOwn(catalog.repositories, source.repositoryId)
@@ -525,6 +528,9 @@ export function createPullRequestService(deps: {
         sessionId: source.sessionId,
         purpose,
         repositoryId: source.repositoryId,
+        ...(merging === undefined
+          ? {}
+          : { pushRequestId: source.id, pullRequestUrl: merging.url }),
         actor: pushReceiptActor(actor),
       });
     } catch (error) {
@@ -532,6 +538,7 @@ export function createPullRequestService(deps: {
         return await refuse("github_refused", {
           ...fields,
           reason_code: error.reasonCode,
+          ...(error.offIn === undefined ? {} : { off_in: error.offIn }),
         });
       }
       if (error instanceof GitHubUnavailableError) {
@@ -1353,7 +1360,9 @@ export function createPullRequestService(deps: {
     /**
      * Squash-merges the pull request of this session's push request, on the
      * commit that push request pushed. The gate refuses before GitHub is
-     * called when the workspace has not allowed merging.
+     * called unless the agent's settings and the workspace ceiling both have
+     * merging on. GitHub's rules decide the rest: nothing here reads a check,
+     * bypasses a rule or sends the merge a second time.
      */
     async merge(
       actor: PushActor,
@@ -1386,6 +1395,7 @@ export function createPullRequestService(deps: {
         source,
         (refusal, extra) => refuse(refusal, { ...fields, ...extra }),
         "merge",
+        pullRequest,
       );
       let before: ForgePullRequestDetail;
       try {

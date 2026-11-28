@@ -89,6 +89,7 @@ const detail: AgentRecord = {
   ],
   releases: [],
   active_release: null,
+  unreadable_releases: [],
 };
 
 function storedRelease(): AgentRelease {

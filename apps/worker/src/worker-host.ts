@@ -25,8 +25,10 @@ import {
   REPOSITORY_PINS_MAX,
   TURN_BUDGET_EXCEEDED_REASON,
   TURN_INPUT_WAIT_PARKED_REASON,
+  TURN_TOOL_CALL_LIMIT_REASON,
   TURN_WORKSPACE_QUOTA_EXCEEDED_REASON,
 } from "@werft-ai/contracts";
+import { WORKER_MAX_TURN_TOOL_CALLS } from "@werft-ai/contracts/execution";
 import {
   type AdmissionHold,
   type AgentRun,
@@ -204,6 +206,12 @@ export type WorkerHostOptions = {
    * none; for tests.
    */
   secrets?: readonly string[];
+  /**
+   * The tool calls one turn may make, its subagents' included
+   * (`WORKER_MAX_TURN_TOOL_CALLS`); the call past it ends the turn
+   * `failed(tool_call_limit)`. Absent, the default.
+   */
+  maxTurnToolCalls?: number;
   /** Overrides APPROVAL_CHECKPOINT_MS; for tests. */
   approvalCheckpointMs?: number;
   telemetry?: TelemetryFactory;
@@ -319,11 +327,37 @@ type Turn = {
   settle: (settlement: Settlement | Promise<Settlement>) => void;
   /** The deadline fired: whatever terminal comes now is the timeout's. */
   timedOut: boolean;
-  quotaExceeded?: boolean;
+  /** A limit the worker keeps ended the turn: its terminal fails with this. */
+  limit?: TurnLimit;
+  /** The tool calls the turn made, its subagents' included. */
+  toolCalls: Set<string>;
   timers: ReturnType<typeof setTimeout>[];
   turnId: string;
   uuid: string;
   spans: TurnSpans;
+};
+
+type TurnLimit =
+  | typeof TURN_WORKSPACE_QUOTA_EXCEEDED_REASON
+  | typeof TURN_TOOL_CALL_LIMIT_REASON;
+
+/** What a limit's cut says to the requests it voids, and when it goes unanswered. */
+const LIMIT_CUTS: Record<
+  TurnLimit,
+  { pending: string; unanswered: string; unknown: string }
+> = {
+  [TURN_WORKSPACE_QUOTA_EXCEEDED_REASON]: {
+    pending: "The workspace exceeded its quota",
+    unanswered:
+      "The engine did not settle after the workspace exceeded its quota",
+    unknown: "workspace_quota_interrupt_unanswered",
+  },
+  [TURN_TOOL_CALL_LIMIT_REASON]: {
+    pending: "The turn reached its tool call limit",
+    unanswered:
+      "The engine did not settle after the turn reached its tool call limit",
+    unknown: "tool_call_limit_interrupt_unanswered",
+  },
 };
 
 /** A run without `parkable` cannot be cut where it waits on a person. */
@@ -478,6 +512,9 @@ export class WorkerHost {
   private mirrorError: string | undefined;
   private engineBudgeted = false;
   private workspaceEnforce: "warn" | "fail" | "off" = DEFAULT_WORKSPACE_ENFORCE;
+  private get maxTurnToolCalls(): number {
+    return this.options.maxTurnToolCalls ?? WORKER_MAX_TURN_TOOL_CALLS.default;
+  }
   private pending: PendingRequestRegistry | undefined;
   /**
    * Approval-wait checkpoints of the current turn that may be committed and
@@ -2069,7 +2106,7 @@ export class WorkerHost {
     const check = run.holdsInput(turn.uuid).catch((error: unknown) => {
       // Past the deadline the timeout owns the terminal; a check failing
       // now must not unwind the turn before it is finalized.
-      if (turn.timedOut || turn.quotaExceeded) return undefined;
+      if (turn.timedOut || turn.limit !== undefined) return undefined;
       throw error;
     });
     // Raced with the turn too: the deadline has to end a check that hangs.
@@ -2084,7 +2121,7 @@ export class WorkerHost {
       held === undefined ||
       turn.closed ||
       turn.timedOut ||
-      turn.quotaExceeded
+      turn.limit !== undefined
     )
       return;
     if (this.stopKind === "failed" || this.stopKind === "lost") return;
@@ -2168,7 +2205,7 @@ export class WorkerHost {
         turn.closed ||
         turn.interrupting ||
         turn.timedOut ||
-        turn.quotaExceeded ||
+        turn.limit !== undefined ||
         this.ownerLost
       )
         return;
@@ -2189,29 +2226,58 @@ export class WorkerHost {
         value: 1,
       });
       if (this.workspaceEnforce !== "fail") return;
-      turn.quotaExceeded = true;
-      turn.interruptDeadline = performance.now() + this.interruptGraceMs();
-      this.pending?.cancelAll("interrupt", "The workspace exceeded its quota");
-      this.sendInterrupt(run, turn);
-      turn.timers.push(
-        setTimeout(() => {
-          if (
-            this.turn !== turn ||
-            turn.closed ||
-            turn.interrupting ||
-            turn.timedOut ||
-            this.ownerLost
-          )
-            return;
-          this.fail(
-            "The engine did not settle after the workspace exceeded its quota",
-          );
-          this.settleTurn(
-            unknownOutcome("workspace_quota_interrupt_unanswered"),
-          );
-        }, this.interruptGraceMs()),
-      );
+      this.cutAtLimit(run, turn, TURN_WORKSPACE_QUOTA_EXCEEDED_REASON);
     });
+  }
+
+  /**
+   * Counts the turn's tool calls by id, so a call the engine names twice is
+   * one; the call past the limit cuts the turn.
+   */
+  private countToolCall(run: AgentRun, turn: Turn, toolCallId: string): void {
+    if (
+      turn.limit !== undefined ||
+      turn.interrupting ||
+      turn.timedOut ||
+      this.ownerLost
+    )
+      return;
+    turn.toolCalls.add(toolCallId);
+    if (turn.toolCalls.size <= this.maxTurnToolCalls) return;
+    this.logger.warn("worker.turn.tool_call_limit", {
+      turn_id: turn.turnId,
+      max_turn_tool_calls: this.maxTurnToolCalls,
+      metric: "turn_tool_call_limit_total",
+      value: 1,
+    });
+    this.cutAtLimit(run, turn, TURN_TOOL_CALL_LIMIT_REASON);
+  }
+
+  /**
+   * Interrupts the turn at a limit the worker keeps; its terminal then fails
+   * with the limit's reason (limitTerminal). The session stays: only this
+   * turn ends. An engine that does not settle within the grace leaves the
+   * turn unknown, as after any interrupt it never answered.
+   */
+  private cutAtLimit(run: AgentRun, turn: Turn, limit: TurnLimit): void {
+    turn.limit = limit;
+    turn.interruptDeadline = performance.now() + this.interruptGraceMs();
+    this.pending?.cancelAll("interrupt", LIMIT_CUTS[limit].pending);
+    this.sendInterrupt(run, turn);
+    turn.timers.push(
+      setTimeout(() => {
+        if (
+          this.turn !== turn ||
+          turn.closed ||
+          turn.interrupting ||
+          turn.timedOut ||
+          this.ownerLost
+        )
+          return;
+        this.fail(LIMIT_CUTS[limit].unanswered);
+        this.settleTurn(unknownOutcome(LIMIT_CUTS[limit].unknown));
+      }, this.interruptGraceMs()),
+    );
   }
 
   /** A timed-out turn the engine gave no terminal for: unknown, and the engine is not trusted again. */
@@ -2526,6 +2592,7 @@ export class WorkerHost {
       settled,
       settle,
       timedOut: false,
+      toolCalls: new Set(),
       timers: [],
       turnId,
       uuid,
@@ -2625,10 +2692,12 @@ export class WorkerHost {
       return;
     }
     // A timed-out turn is already being interrupted, on its own terms.
+    // So is one cut at a limit: a second interrupt would take its outcome.
     if (
       turn.closed ||
       turn.interrupting ||
       turn.timedOut ||
+      turn.limit !== undefined ||
       turn.turnId !== control.target_turn_id
     ) {
       return;
@@ -3085,6 +3154,9 @@ export class WorkerHost {
           } else if (event.type === "tool.called") {
             this.options.workspaceQuota?.observer.nudge();
             this.publisher?.toolCalled(event.toolCallId);
+            if (turn?.closed === false && ours) {
+              this.countToolCall(run, turn, event.toolCallId);
+            }
           } else if (event.type === "runtime.warning") {
             this.onWarning(event);
           } else if (event.type === "turn.ended") {
@@ -3205,7 +3277,7 @@ export class WorkerHost {
       // after the terminal, with engine_stopped ahead of it if it applies.
       this.closeTurn(turn);
       return this.onceAnswered(turn, (acknowledged) => ({
-        ...this.quotaTerminal(turn, terminalOf(ended, acknowledged)),
+        ...this.limitTerminal(turn, terminalOf(ended, acknowledged)),
         ...cost,
       })).then((settlement) => this.cutTurn(turn, settlement));
     }
@@ -3218,7 +3290,7 @@ export class WorkerHost {
               status: "failed",
               reason: "turn_timeout",
             }
-          : this.quotaTerminal(
+          : this.limitTerminal(
               turn,
               terminalOf(ended, turn.interruptReceipt === "acknowledged"),
             )
@@ -3234,9 +3306,9 @@ export class WorkerHost {
     });
   }
 
-  private quotaTerminal(turn: Turn, terminal: Settlement): Settlement {
+  private limitTerminal(turn: Turn, terminal: Settlement): Settlement {
     if (
-      !turn.quotaExceeded ||
+      turn.limit === undefined ||
       turn.interrupting ||
       turn.timedOut ||
       this.ownerLost ||
@@ -3246,7 +3318,7 @@ export class WorkerHost {
     return {
       ...terminal,
       status: "failed",
-      reason: TURN_WORKSPACE_QUOTA_EXCEEDED_REASON,
+      reason: turn.limit,
     };
   }
 
@@ -3360,12 +3432,21 @@ export class WorkerHost {
       return undefined;
     }
     // The interrupt voided the turn's callbacks; one raised after it is no
-    // different, and asking would only hold the turn open again.
-    if (this.turn?.interrupting === true || this.turn?.closed === true) {
+    // different, and asking would only hold the turn open again. A cut at a
+    // limit interrupts too.
+    const limit = this.turn?.limit;
+    if (
+      this.turn?.interrupting === true ||
+      this.turn?.closed === true ||
+      limit !== undefined
+    ) {
       void answer({
         kind: "cancelled",
         reason: "interrupt",
-        message: "The turn was interrupted",
+        message:
+          limit === undefined
+            ? "The turn was interrupted"
+            : LIMIT_CUTS[limit].pending,
       });
       return undefined;
     }

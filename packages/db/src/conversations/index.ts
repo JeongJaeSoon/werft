@@ -56,11 +56,17 @@ export {
   createPostgresMentionTurnStatuses,
   leaveMentionThreadResets,
 } from "./mention-turn-statuses.ts";
+export { adoptSessionParent } from "./session-parents.ts";
+export {
+  CLOSED_WORK_ADMISSION_STATES,
+  sessionWorkClosed,
+} from "./session-work.ts";
 export { takeSlackTurnInput } from "./slack-turn-inputs.ts";
 export {
   lockSlackChannelMarks,
   lockSlackSourceMark,
 } from "./source-mark-lock.ts";
+export { standaloneTaskOf } from "./standalone-tasks.ts";
 export {
   lockSessionForSources,
   newTurnSources,

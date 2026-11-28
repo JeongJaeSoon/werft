@@ -318,7 +318,10 @@ export const startGitHubAppManifestRequestSchema = z
     ]),
     /** A private App installs only on its owner's account. */
     public: z.boolean().default(false),
-    /** Also ask for `actions` and `workflows` write. */
+    /**
+     * Ask for `actions` write instead of read, to run workflows directly.
+     * `workflows` write and `actions` and `checks` read are always asked.
+     */
     actions: z.boolean().default(false),
     /**
      * Ignored: a manifest always adds another author connection, and

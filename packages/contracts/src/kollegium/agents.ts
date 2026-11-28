@@ -1,9 +1,12 @@
 import { z } from "zod";
 
 import {
+  agentGitHubFeaturesSchema,
   GITHUB_AGENT_REF_PREFIX,
   githubFeaturesSchema,
   githubRefNamesAgentBranch,
+  storedAgentGitHubFeaturesSchema,
+  storedGitHubFeaturesSchema,
 } from "../musterrolle/github-settings.ts";
 import {
   AGENT_DESCRIPTION_MAX_LENGTH,
@@ -520,7 +523,7 @@ function keyWords(key: string): string[] {
     .filter((word) => word.length > 0);
 }
 
-// `env:ANTHROPIC_API_KEY`, `secret:slack/bot`, `vault:kv/data/x#field`. A
+// `env:ANTHROPIC_API_KEY`, `secret:[REDACTED]`, `vault:kv/data/x#field`. A
 // reference names where the value lives; it is not the value.
 const REFERENCE_VALUE = /^[a-z][a-z0-9+.-]*:.+$/;
 
@@ -603,36 +606,68 @@ export const AGENT_GITHUB_ACTIONS_ALLOW_MAX = 32;
  * without it runs as before: every repository the workspace ceiling allows, no
  * push approval, no optional permission.
  */
-export const agentGitHubSchema = z
-  .object({
-    /** Catalog repository ids. */
-    repositories: z
-      .array(z.string().min(1).max(128))
-      .min(1)
-      .max(AGENT_GITHUB_REPOSITORIES_MAX),
-    push_approval: z.boolean(),
-    features: githubFeaturesSchema,
-    actions_allow: z
-      .array(
-        z
-          .object({
-            /** A file under `.github/workflows/`, never a path. */
-            workflow: z.string().regex(/^[A-Za-z0-9._-]+\.ya?ml$/),
-            /** A branch, or a glob with `*` that stops at `/`; absent: the default branch. */
-            ref: z.string().min(1).max(255).optional(),
-          })
-          .strict(),
-      )
-      .max(AGENT_GITHUB_ACTIONS_ALLOW_MAX),
-  })
+const agentGitHubFields = {
+  /** Catalog repository ids. */
+  repositories: z
+    .array(z.string().min(1).max(128))
+    .min(1)
+    .max(AGENT_GITHUB_REPOSITORIES_MAX),
+  push_approval: z.boolean(),
+  features: githubFeaturesSchema,
+  actions_allow: z
+    .array(
+      z
+        .object({
+          /** A file under `.github/workflows/`, never a path. */
+          workflow: z.string().regex(/^[A-Za-z0-9._-]+\.ya?ml$/),
+          /** A branch, or a glob with `*` that stops at `/`; absent: the default branch. */
+          ref: z.string().min(1).max(255).optional(),
+        })
+        .strict(),
+    )
+    .max(AGENT_GITHUB_ACTIONS_ALLOW_MAX),
+};
+
+export const agentGitHubSchema = z.object(agentGitHubFields).strict();
+
+/**
+ * A stored pin as it is read: `features` leaves out what this build does not
+ * know (`storedGitHubFeaturesSchema`). Anything else unknown still fails the
+ * read, since a key there may narrow (an allow-list entry's condition) and
+ * dropping it would widen.
+ */
+export const storedAgentGitHubSchema = z
+  .object({ ...agentGitHubFields, features: storedGitHubFeaturesSchema })
   .strict();
 
 /**
+ * A release's pin as its row holds it. The release id hashes the pin as
+ * stored, so a boolean switch this build does not know is kept here; every
+ * policy reader drops it (`storedAgentGitHubSchema`).
+ */
+export const releasePinGitHubSchema = z
+  .object({
+    ...agentGitHubFields,
+    features: storedGitHubFeaturesSchema.catchall(z.boolean()),
+  })
+  .strict();
+
+const settingsRepositories = z.array(z.string().min(1).max(128));
+
+/**
  * The agent's own GitHub settings, not pinned on any release. Unlike a pin
- * the list may be empty: switched on, with no repository yet.
+ * the list may be empty (switched on, with no repository yet), and its
+ * `features` may turn `merge` on.
  */
 export const agentGitHubSettingsSchema = agentGitHubSchema.extend({
-  repositories: z.array(z.string().min(1).max(128)),
+  repositories: settingsRepositories,
+  features: agentGitHubFeaturesSchema,
+});
+
+/** A stored settings row or start snapshot as it is read, as for a pin. */
+export const storedAgentGitHubSettingsSchema = storedAgentGitHubSchema.extend({
+  repositories: settingsRepositories,
+  features: storedAgentGitHubFeaturesSchema,
 });
 
 /**
@@ -729,7 +764,8 @@ export function pushDecisionOf(policy: {
 /**
  * The agent's settings as a session read them when it started
  * (`sessions.github_policy_start`). The envelope is not strict so a later
- * image may add a field; `settings` is, so a list this image cannot read
+ * image may add a field; `settings` is but for its `features`
+ * (`storedAgentGitHubSettingsSchema`), so a list this image cannot read
  * closes the session instead of being guessed at.
  */
 export const githubPolicyStartSchema = z.object({
@@ -737,7 +773,7 @@ export const githubPolicyStartSchema = z.object({
   enabled: z.boolean(),
   /** `agent_github_settings.revision` the snapshot was taken from. */
   revision: z.number().int(),
-  settings: agentGitHubSettingsSchema,
+  settings: storedAgentGitHubSettingsSchema,
   /**
    * `push_attached` at start. On the envelope, not in `settings`, so an image
    * from before it still reads the snapshot. Absent: `allow`, as a null
@@ -750,14 +786,15 @@ export type GitHubPolicyStart = z.infer<typeof githubPolicyStartSchema>;
 /**
  * What a session may do when it started under `start` and the settings are
  * `current` now. Only narrows, per field: the repository lists intersect, a
- * push needs approval if either asks for it, a feature needs both.
+ * push needs approval if either asks for it, a feature needs both (`merge`
+ * too, which a pin never has: a session on a release's pin does not merge).
  * `actions_allow` holds globs and branch meanings, so it is not intersected:
  * the result keeps the current list and the caller also checks the start's.
  */
 export function meetGitHubSettings(
-  start: AgentGitHub,
-  current: AgentGitHub,
-): AgentGitHub {
+  start: AgentGitHubSettings,
+  current: AgentGitHubSettings,
+): AgentGitHubSettings {
   const kept = new Set(current.repositories);
   return {
     repositories: start.repositories.filter((id) => kept.has(id)),
@@ -768,6 +805,9 @@ export function meetGitHubSettings(
       checks: start.features.checks && current.features.checks,
       issues: start.features.issues && current.features.issues,
       review: start.features.review && current.features.review,
+      ...(start.features.merge && current.features.merge
+        ? { merge: true }
+        : {}),
     },
     actions_allow: current.actions_allow,
   };
@@ -824,7 +864,7 @@ export type EffectiveGitHubPolicy = {
    * Once a session has a start to compare with (its pin, or its snapshot)
    * this is the meet of that start and the agent's settings now.
    */
-  settings: AgentGitHub | "invalid" | null;
+  settings: AgentGitHubSettings | "invalid" | null;
   /** Kept for compatibility, not read to start a session; a release's is `repository_id`. */
   startRepositoryId: string | null;
   agentSettingsRevision: number | null;
@@ -921,7 +961,7 @@ export function effectiveGitHubPolicy(input: {
   const current =
     agentRow === null
       ? null
-      : agentGitHubSettingsSchema.safeParse({
+      : storedAgentGitHubSettingsSchema.safeParse({
           repositories: agentRow.repositories,
           push_approval: agentRow.pushApproval,
           features: agentRow.features,
@@ -937,7 +977,9 @@ export function effectiveGitHubPolicy(input: {
   });
   if (input.source === "release") {
     const hasPin = input.releasePin !== null && input.releasePin !== undefined;
-    const pin = hasPin ? agentGitHubSchema.safeParse(input.releasePin) : null;
+    const pin = hasPin
+      ? storedAgentGitHubSchema.safeParse(input.releasePin)
+      : null;
     if (agentRow === null || current === null) {
       if (pin === null) return { ...UNSET, source: "release", settings: null };
       if (!pin.success) return invalid("release");
@@ -1081,8 +1123,11 @@ export const policyPinsSchema = z
       })
       .strict()
       .optional(),
-    /** Absent on every release made before it, and on one with no repository. */
-    github: agentGitHubSchema.optional(),
+    /**
+     * Absent on every release made before it, and on one with no repository.
+     * Read as stored: a switch a newer build pinned is kept, for the id.
+     */
+    github: releasePinGitHubSchema.optional(),
   })
   .strict();
 
@@ -1204,6 +1249,29 @@ export const agentReleaseSchema = z
   })
   .strict();
 
+/**
+ * Why a stored release row does not read in this build: its `policy_pins`
+ * (a key or a switch value a newer build wrote), or another column.
+ */
+export const UNREADABLE_RELEASE_REASON_VALUES = [
+  "policy_pins_unreadable",
+  "row_unreadable",
+] as const;
+export const unreadableReleaseReasonSchema = z.enum(
+  UNREADABLE_RELEASE_REASON_VALUES,
+);
+
+/**
+ * A release row of the agent this build cannot read. It carries no stored
+ * value, only which row and why, so nothing a newer build pinned is echoed.
+ */
+export const unreadableReleaseSchema = z
+  .object({
+    id: agentReleaseIdSchema,
+    reason_code: unreadableReleaseReasonSchema,
+  })
+  .strict();
+
 export const agentIdParamsSchema = z.object({ id: agentIdSchema });
 
 /**
@@ -1265,8 +1333,11 @@ export const agentDetailSchema = z
   .object({
     agent: agentSchema,
     versions: z.array(agentVersionSchema),
+    /** The rows this build reads; the rest are in `unreadable_releases`. */
     releases: z.array(agentReleaseSchema),
+    /** Null also while the active release is one of `unreadable_releases`. */
     active_release: agentReleaseSchema.nullable(),
+    unreadable_releases: z.array(unreadableReleaseSchema),
     /** Bumped by every intent to change what the agent does. */
     behavior_revision: z.number().int().min(0).max(INT4_MAX),
     draft: agentDraftSchema.nullable(),
@@ -1627,6 +1698,10 @@ export function releaseJudgmentModel(
 export type CreateAgentRequest = z.infer<typeof createAgentRequestSchema>;
 export type UpdateAgentRequest = z.infer<typeof updateAgentRequestSchema>;
 export type AgentDetail = z.infer<typeof agentDetailSchema>;
+export type UnreadableRelease = z.infer<typeof unreadableReleaseSchema>;
+export type UnreadableReleaseReason = z.infer<
+  typeof unreadableReleaseReasonSchema
+>;
 export type BehaviorValues = z.infer<typeof behaviorValuesSchema>;
 export type SaveRelease = z.infer<typeof saveReleaseSchema>;
 export type SaveAgentResponse = z.infer<typeof saveAgentResponseSchema>;

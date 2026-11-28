@@ -11,10 +11,12 @@ import {
   type RuntimeKind,
   rememberRuleSchema,
   type SessionEventPayload,
+  SLACK_DM_THREAD_REQUIRED_CODE,
   SLACK_NOTICE_VERSIONS,
   SLACK_USER_CHANNEL_CODE,
   type SlackNoticeVersionEntry,
   slackOutboxChannelRefused,
+  slackOutboxDmThreadRefused,
   TURN_EMERGENCY_STOPPED_REASON,
   type UserLocale,
   withStoredNeutralFields,
@@ -72,6 +74,7 @@ import {
   servedTitle,
 } from "../conversations/index.ts";
 import {
+  closingReportMode,
   mirrorsInstructions,
   postsPrompts,
   reportsProgress,
@@ -147,6 +150,16 @@ export class SlackOutboxUserChannelError extends Error {
   constructor(readonly kind: string) {
     super(`A ${kind} outbox row may not name a Slack user as its channel`);
     this.name = "SlackOutboxUserChannelError";
+  }
+}
+
+/** An outbox row bound for the top of a DM (slackOutboxDmThreadRefused). */
+export class SlackOutboxDmThreadError extends Error {
+  readonly code = SLACK_DM_THREAD_REQUIRED_CODE;
+
+  constructor(readonly kind: string) {
+    super(`A ${kind} outbox row in a direct message must name its thread`);
+    this.name = "SlackOutboxDmThreadError";
   }
 }
 
@@ -556,6 +569,21 @@ const keepsProgressMessage = (link: SQL) => sql`(
   ${link}.role = 'primary' AND ${link}.thread_id <> '' AND ${reportsProgress(link)}
 )`;
 
+// Whether link `link` has a progress message up (Slack took it, or may be
+// taking it) that it no longer keeps: its mode moved off progress mid-work
+// (a channel's pick, an agent's rollout). The message takes no more
+// updates, but still the work's end (idle, then closed), so it never stays
+// at running. The end is only ever an edit (beginSend): one never up gets
+// none.
+const endsProgressMessage = (link: SQL) => sql`(
+  ${link}.role = 'primary' AND ${link}.thread_id <> '' AND ${reportsTurns(link)}
+  AND EXISTS (
+    SELECT 1 FROM slack_outbox pm
+    WHERE pm.installation_id = ${link}.installation_id
+      AND pm.progress_key = 'progress:' || ${link}.id
+      AND pm.status IN ('sent', 'sending'))
+)`;
+
 // How long a closed link still takes the follow-ups of answers stored before
 // it closed (afterTurnReplies). A follow-up waits for its turn's reply,
 // which retries and rate limits hold for minutes, hours at worst; a day
@@ -572,7 +600,9 @@ const linkTakes = (row: SQL) => sql`(
     WHEN 'input_notice' THEN ${postsPrompts(sql.raw("l"))}
     -- A link's own progress message (slackProgressKey) only while it keeps one.
     WHEN 'progress' THEN ${reportsTurns(sql.raw("l"))}
-      AND (${row}.progress_key IS DISTINCT FROM 'progress:' || l.id OR ${keepsProgressMessage(sql.raw("l"))})
+      AND (${row}.progress_key IS DISTINCT FROM 'progress:' || l.id OR ${keepsProgressMessage(sql.raw("l"))}
+        OR ((${row}.dedupe_key LIKE 'progress:%:idle:%' OR ${row}.dedupe_key LIKE 'progress:%:closed:%')
+          AND ${endsProgressMessage(sql.raw("l"))}))
     ELSE ${reportsTurns(sql.raw("l"))}
   END
 )`;
@@ -1107,6 +1137,10 @@ export function createPostgresSlackOutboxStore(
       if (slackOutboxChannelRefused(input.channelId)) {
         throw new SlackOutboxUserChannelError(input.kind);
       }
+      // A row held for a web input's post takes that post's thread later.
+      if (input.heldForInputId == null && slackOutboxDmThreadRefused(input)) {
+        throw new SlackOutboxDmThreadError(input.kind);
+      }
       return db.transaction(async (tx) => {
         if (whileHome) {
           const [home] = await tx
@@ -1284,10 +1318,12 @@ export function createPostgresSlackOutboxStore(
       // turn past its mark lacks its report row (its last report is in);
       // else no turn still owes its instruction. Under the row locks, so an enqueue that
       // holds one is waited for.
-      const rows = rowsOf<unknown>(
-        await db.execute(sql`
-        UPDATE session_links l SET closed_at = now(), closed_reason = c.reason
-        FROM (
+      // The links are locked first, a statement of their own: a send
+      // (beginSend) or an enqueue that holds one is not raced (the link is
+      // left for a later pass), and one that comes after reads the link
+      // closed. The close then reads, in a statement of its own, all that
+      // came in before the lock.
+      const closable = (only: SQL) => sql`
           -- A task's own close reason first: the same four a link takes.
           SELECT l2.id, CASE WHEN s.task_closed_reason IS NOT NULL
             THEN s.task_closed_reason
@@ -1324,9 +1360,11 @@ export function createPostgresSlackOutboxStore(
                   AND NOT ${completedPassed(sql.raw("t"), sql.raw("l2"))}
               )
               -- A progress message that went up says the work closed
-              -- first: the link takes no update once closed. A revoked
-              -- install takes none, so it is not waited for.
-              AND (NOT ${keepsProgressMessage(sql.raw("l2"))} OR EXISTS (
+              -- first, even one its link stopped keeping: the link takes no
+              -- update once closed. A revoked install takes none, so it is
+              -- not waited for.
+              AND (NOT (${keepsProgressMessage(sql.raw("l2"))}
+                OR ${endsProgressMessage(sql.raw("l2"))}) OR EXISTS (
                 SELECT 1 FROM slack_installations ri
                 WHERE ri.id = l2.installation_id AND ri.status = 'revoked'
               ) OR NOT EXISTS (
@@ -1346,14 +1384,29 @@ export function createPostgresSlackOutboxStore(
                   AND ot.status NOT IN (${STOPPED_TURNS})
                   AND ${owesInstruction(sql.raw("ot"), sql.raw("l2"))}
               ) END)
+            ${only}
           ORDER BY l2.created_at
           LIMIT ${limit}
-          FOR UPDATE OF l2 SKIP LOCKED
-        ) c
+          FOR UPDATE OF l2 SKIP LOCKED`;
+      const rows = await db.transaction(async (tx) => {
+        const locked = rowsOf<{ id: string }>(
+          await tx.execute(sql`SELECT c.id FROM (${closable(sql``)}) c`),
+        );
+        if (locked.length === 0) return [];
+        const ids = sql.join(
+          locked.map(({ id }) => sql`${id}::uuid`),
+          sql`, `,
+        );
+        return rowsOf<unknown>(
+          await tx.execute(sql`
+        UPDATE session_links l SET closed_at = now(), closed_reason = c.reason,
+          report_mode = ${closingReportMode(sql.raw("l"))}
+        FROM (${closable(sql`AND l2.id IN (${ids})`)}) c
         WHERE l.id = c.id
         RETURNING l.id
       `),
-      );
+        );
+      });
       return rows.length;
     },
 
@@ -2022,6 +2075,7 @@ export function createPostgresSlackOutboxStore(
         state: string;
         updates: number | string;
         started_at: number | string | null;
+        task: boolean;
       }>(
         await db.execute(sql`
           SELECT * FROM (
@@ -2037,6 +2091,7 @@ export function createPostgresSlackOutboxStore(
               ${workLocale} AS locale,
               (SELECT extract(epoch FROM st.created_at)::float8 FROM turns st
                WHERE st.session_id = session_links.session_id AND st.sequence = 1) AS started_at,
+              sessions.task_closing IS NOT NULL AS task,
               coalesce(
                 -- Closed: the message's last word, once it is up or on its
                 -- way. The link closes only after this row is in
@@ -2045,7 +2100,9 @@ export function createPostgresSlackOutboxStore(
                   AND last.dedupe_key IS NOT NULL THEN 'closed:' || (
                   SELECT coalesce(max(ct.sequence), 0) FROM turns ct
                   WHERE ct.session_id = session_links.session_id
-                ) END,
+                ) || CASE sessions.task_closed_reason
+                  WHEN 'cancelled' THEN ':cancelled'
+                  WHEN 'abandoned' THEN ':abandoned' ELSE '' END END,
                 -- A worker waiting for room, as the session's wait_reason reads it.
                 (SELECT 'capacity_wait:' || wl.execution_id || ':' || wl.generation
                  FROM worker_launches wl
@@ -2086,7 +2143,8 @@ export function createPostgresSlackOutboxStore(
                 ) END
               ) AS state,
               last.dedupe_key AS last_key,
-              coalesce(last.updates, 0) AS updates
+              coalesce(last.updates, 0) AS updates,
+              ${keepsProgressMessage(sql.raw('"session_links"'))} AS keeps
             FROM session_links
             JOIN sessions ON sessions.id = session_links.session_id
             JOIN slack_installations i ON i.id = session_links.installation_id
@@ -2109,11 +2167,14 @@ export function createPostgresSlackOutboxStore(
               AND session_links.closed_at IS NULL
               AND i.status <> 'revoked'
               -- Never a top-level post: the message lives in the thread.
-              AND ${keepsProgressMessage(sql.raw('"session_links"'))}
+              AND (${keepsProgressMessage(sql.raw('"session_links"'))}
+                OR ${endsProgressMessage(sql.raw('"session_links"'))})
           ) due
           -- What the newest update shows, whatever its number: two passes
           -- that numbered theirs alike both go in, and the newer state wins.
           WHERE due.state IS NOT NULL
+            -- One its link stopped keeping takes only the work's end.
+            AND (due.keeps OR due.state LIKE 'idle:%' OR due.state LIKE 'closed:%')
             AND regexp_replace(due.last_key, '^progress:[^:]+:[0-9]+:', '') IS DISTINCT FROM due.state
             -- After the last word, even one a stale update came in behind.
             AND NOT EXISTS (
@@ -2138,6 +2199,7 @@ export function createPostgresSlackOutboxStore(
         state: row.state,
         updates: Number(row.updates),
         startedAt: row.started_at === null ? null : Number(row.started_at),
+        task: row.task,
       }));
     },
 
@@ -2505,6 +2567,94 @@ export function createPostgresSlackOutboxStore(
       return drawn === null ? null : { ...drawn, conversationScope };
     },
 
+    async progressLink(sessionId) {
+      if (!UUID.test(sessionId)) return null;
+      const l = sessionLinks;
+      const [row] = await db
+        .select({
+          id: l.id,
+          agentId: l.agentId,
+          channelId: l.channelId,
+          threadId: l.threadId,
+        })
+        .from(l)
+        // As keepsProgressMessage reads a link; the newest when there were
+        // several. A revoked link takes no more input (as a message there).
+        .where(
+          and(
+            eq(l.sessionId, sessionId.toLowerCase()),
+            eq(l.role, "primary"),
+            ne(l.threadId, ""),
+            isNull(l.revokedAt),
+          ),
+        )
+        .orderBy(sql`${l.createdAt} DESC`, sql`${l.id} DESC`)
+        .limit(1);
+      return row ?? null;
+    },
+
+    async postedCard({ sessionId, agentId, channelId, slackTs, card }) {
+      if (!UUID.test(sessionId)) return null;
+      const l = sessionLinks;
+      // slackPromptDedupeKey and slackTurnDedupeKey, under the row's own link.
+      const [kind, prefix, suffix] =
+        card.kind === "turn"
+          ? (["failure_notice", "failure:", `:${card.turnId}`] as const)
+          : card.kind === "push"
+            ? (["input_notice", "push:", `:${card.pushRequestId}`] as const)
+            : (["input_notice", "prompt:", `:${card.requestId}`] as const);
+      const [row] = await db
+        .select({
+          id: l.id,
+          agentId: l.agentId,
+          channelId: l.channelId,
+          threadId: l.threadId,
+        })
+        .from(t)
+        .innerJoin(
+          l,
+          and(eq(l.id, t.sessionLinkId), eq(l.sessionId, t.sessionId)),
+        )
+        .where(
+          and(
+            eq(t.sessionId, sessionId.toLowerCase()),
+            eq(t.kind, kind),
+            eq(t.channelId, channelId),
+            eq(t.slackTs, slackTs),
+            sql`${t.dedupeKey} = ${prefix}::text || ${t.sessionLinkId}::text || ${suffix}::text`,
+            // A revoked link takes no more input (as a message there).
+            isNull(l.revokedAt),
+          ),
+        )
+        .limit(1);
+      if (row !== undefined) return row;
+      // A card of the key in that channel that cannot be matched to the
+      // message: one an earlier version posted without its link, or one
+      // whose post never came back with a ts (sending, uncertain, or sent
+      // with no ts in Slack's answer). Only
+      // the pressing agent's, and not under a revoked link.
+      if (!UUID.test(agentId)) return null;
+      const [earlier] = await db
+        .select({ id: t.id })
+        .from(t)
+        .leftJoin(l, eq(l.id, t.sessionLinkId))
+        .where(
+          and(
+            eq(t.sessionId, sessionId.toLowerCase()),
+            eq(t.agentId, agentId.toLowerCase()),
+            isNull(l.revokedAt),
+            eq(t.kind, kind),
+            eq(t.channelId, channelId),
+            sql`starts_with(${t.dedupeKey}, ${prefix}::text)`,
+            sql`right(${t.dedupeKey}, length(${suffix}::text)) = ${suffix}::text`,
+            sql`length(${t.dedupeKey}) = length(${prefix}::text) + 36 + length(${suffix}::text)`,
+            sql`((${t.sessionLinkId} IS NULL AND ${t.slackTs} = ${slackTs}) OR (${t.slackTs} IS NULL AND (${t.status} IN ('sending', 'uncertain') OR (${t.status} = 'failed' AND ${t.errorCode} = 'missing_ts'))))`,
+          ),
+        )
+        .limit(1);
+      return earlier === undefined ? null : "earlier";
+    },
+
     cards: createPostgresSlackCardSettleStore(db),
 
     async expireSending() {
@@ -2601,6 +2751,9 @@ export function createPostgresSlackOutboxStore(
             eq(t.kind, "reply"),
             eq(t.status, "uncertain"),
             sql`${t.sessionId} IS NOT NULL`,
+            // A reply at a DM's top from before the guard: its notice could
+            // stand nowhere a DM takes, so none is owed.
+            sql`NOT (${t.channelId} LIKE 'D%' AND ${t.threadTs} = '')`,
             sql`NOT EXISTS (
               SELECT 1 FROM ${t} n WHERE n.dedupe_key = 'uncertain:' || ${t.id}
             )`,
@@ -2819,6 +2972,25 @@ export function createPostgresSlackOutboxStore(
         // stops, and after an edit it may have been the one post again.
         let progress: { ts: string | null; reposted: boolean } | undefined;
         if (row.progressKey !== null) {
+          // The message's own link (a key 'progress:<link id>'), as an
+          // enqueue takes it (linkTakesNew): a close under way is waited
+          // for, and one after skips the link.
+          const keyOf = row.progressKey.slice("progress:".length);
+          // Only as Postgres prints a link id (lower case), as the key is
+          // compared everywhere else.
+          const ownLink =
+            row.progressKey.startsWith("progress:") &&
+            UUID.test(keyOf) &&
+            keyOf === keyOf.toLowerCase()
+              ? keyOf
+              : null;
+          if (ownLink !== null) {
+            await tx.execute(sql`
+              SELECT 1 FROM session_links
+              WHERE id = ${ownLink}::uuid
+                AND installation_id = ${row.installationId}::uuid
+              FOR SHARE`);
+          }
           const [state] = rowsOf<{
             busy: boolean;
             superseded: boolean;
@@ -2826,6 +2998,8 @@ export function createPostgresSlackOutboxStore(
             stopped: boolean;
             ts: string | null;
             reposted: boolean;
+            left_progress: boolean;
+            ending: boolean;
           }>(
             await tx.execute(sql`
               WITH me AS (
@@ -2860,7 +3034,19 @@ export function createPostgresSlackOutboxStore(
                   SELECT 1 FROM k WHERE progress_ts IS NOT NULL AND (
                     status = 'uncertain' OR error_code = 'missing_ts'
                     OR (status = 'sent' AND slack_ts <> progress_ts))
-                ) AS reposted`),
+                ) AS reposted,
+                EXISTS (
+                  SELECT 1 FROM session_links pl
+                  WHERE pl.id = ${ownLink}::uuid
+                    AND pl.installation_id = ${row.installationId}::uuid
+                    AND NOT ${keepsProgressMessage(sql.raw("pl"))}
+                ) AS left_progress,
+                EXISTS (
+                  SELECT 1 FROM slack_outbox
+                  WHERE id = ${fence.id}::uuid
+                    AND (dedupe_key LIKE 'progress:%:idle:%'
+                      OR dedupe_key LIKE 'progress:%:closed:%')
+                ) AS ending`),
           );
           if (state === undefined) return false;
           if (state.stopped || state.superseded) {
@@ -2887,7 +3073,25 @@ export function createPostgresSlackOutboxStore(
               .where(eq(t.id, fence.id));
             return false;
           }
-          progress = { ts: state.ts, reposted: state.reposted };
+          // A message its thread no longer keeps takes only its end, as an
+          // edit of the post Slack took: read here, as the mode may have
+          // moved since the claim. Nothing goes up as a first post, and one
+          // gone from Slack is not put up again.
+          if (state.left_progress && (!state.ending || state.ts === null)) {
+            await tx
+              .update(t)
+              .set({
+                status: "failed",
+                errorCode: "not_addressed",
+                ...released,
+              })
+              .where(eq(t.id, fence.id));
+            return false;
+          }
+          progress = {
+            ts: state.ts,
+            reposted: state.reposted || state.left_progress,
+          };
         }
         // A title cut or made from the session's first message: that
         // message's direct sources. Their marks are taken with the row's, in

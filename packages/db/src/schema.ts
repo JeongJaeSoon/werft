@@ -189,6 +189,7 @@ import {
 import type {
   ConversationTaskDraft,
   ConversationTurnSurfaceSubject,
+  PricedBy,
   ProviderUsage,
   SecretOwnerRef,
   StoredSourceSet,
@@ -1399,6 +1400,14 @@ export const slackInboundEvents = pgTable(
      * instead, one event of a channel at a time.
      */
     conversationKey: text("conversation_key"),
+    /**
+     * The event is a bot's (its payload names a bot_id), kept after the
+     * payload is cleared. Null on rows intake dropped and on edits or deletes
+     * marked where they arrived (none keeps a thread key; a worker's drop keeps
+     * the flag and clears the key), and on rows an image before it wrote,
+     * which the task clock reads as a person's.
+     */
+    fromBot: boolean("from_bot"),
     claimToken: uuid("claim_token"),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     /** Claims so far, lease expiries included. */
@@ -1448,6 +1457,12 @@ export const slackInboundEvents = pgTable(
     index("slack_inbound_events_conversation_idx")
       .on(table.conversationKey, table.eventTime, table.receivedAt)
       .where(sql`${table.status} = 'received'`),
+    // A thread's posts by people, newest last: a task's clock (v1-b/C2).
+    index("slack_inbound_events_thread_received_idx")
+      .on(table.conversationKey, table.receivedAt)
+      .where(
+        sql`${table.conversationKey} IS NOT NULL AND ${table.fromBot} IS NOT TRUE`,
+      ),
     index("slack_inbound_events_failed_payload_idx")
       .on(table.receivedAt)
       .where(sql`${table.status} = 'failed' AND ${table.payload} IS NOT NULL`),
@@ -3697,27 +3712,44 @@ export const providerUsage = pgTable(
     // it used: a stream cut short, or a body it could not read.
     estimated: boolean().notNull(),
     // What was charged: the priced amount rounded up to the micro-dollar,
-    // clamped to what the column holds. Exactly what the session got.
+    // clamped to what the column holds. Exactly what the session got. 0
+    // beside `unknown` is no amount, not a price of nothing.
     costUsd: numeric("cost_usd", {
       precision: 14,
       scale: 6,
       mode: "number",
     }).notNull(),
-    // `fallback`: the model was not in the price table and every part was
-    // charged at the highest known rate. `unmetered`: the session's connection
-    // declared `billing: none`, so the call cost nothing.
-    pricedBy: text("priced_by")
-      .$type<"table" | "fallback" | "unmetered">()
-      .notNull(),
+    // Whose rates won: the platform's tables or the LiteLLM snapshot
+    // (`litellm`). `unknown`: neither prices the model, and the call has
+    // no amount. `fallback`: rows from before the snapshot, which charged
+    // such a model the highest rates the tables had. `unmetered`: the
+    // session's connection declared `billing: none`, so the call cost
+    // nothing.
+    pricedBy: text("priced_by").$type<PricedBy>().notNull(),
+    // The model the request asked for, from the call's exchange row; null
+    // when the report found none, and in rows from before. The call is
+    // charged the dearer of it and `model`, the one that answered, or
+    // nothing when either has no price.
+    requestModel: text("request_model"),
+    // The price data that settled the call (PRICE_VERSION); null before.
+    priceVersion: text("price_version"),
+    // Nothing prices the model asked for or the one that answered (the row
+    // says `unknown`): the call's tokens count toward the session's limit
+    // on tokens of unknown price. False in every row from before.
+    priceUnknown: boolean("price_unknown").notNull().default(false),
     recordedAt: timestamp("recorded_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
   (table) => [
     index("provider_usage_session_idx").on(table.sessionId),
+    // What an open sums to judge that limit: these rows alone.
+    index("provider_usage_session_price_unknown_idx")
+      .on(table.sessionId)
+      .where(sql`${table.priceUnknown}`),
     check(
       "provider_usage_priced_by_check",
-      sql`${table.pricedBy} IN ('table', 'fallback', 'unmetered')`,
+      sql`${table.pricedBy} IN ('table', 'litellm', 'unknown', 'fallback', 'unmetered')`,
     ),
     check("provider_usage_cost_usd_nonneg", sql`${table.costUsd} >= 0`),
   ],
@@ -3762,6 +3794,12 @@ export const providerExchanges = pgTable(
     // holds the account row.
     budgetRootKind: text("budget_root_kind").$type<BudgetRootKind>(),
     budgetAccountId: uuid("budget_account_id").$type<BudgetAccountId>(),
+    // What priced the reserve when the call opened, and with which price
+    // data (PRICE_VERSION): `unknown` is a request for a model nothing
+    // prices. Null in a row an older API opened and in a release's mark; an
+    // open judges every held reserve again from `reserve`, never from these.
+    pricedBy: text("priced_by").$type<PricedBy>(),
+    priceVersion: text("price_version"),
   },
   (table) => [
     index("provider_exchanges_lease_idx").on(table.leaseExpiresAt),
@@ -5479,11 +5517,11 @@ export const surfaceBindings = pgTable(
       .$type<"full" | "summary">()
       .notNull(),
     home: boolean().notNull().default(false),
-    /** How the channel's threads hear of their turns, unless a link says. */
-    reportMode: text("report_mode")
-      .$type<ReportModeChoice>()
-      .notNull()
-      .default("per_step"),
+    /**
+     * How the channel's threads hear of their turns, unless a link says.
+     * Null: none picked, so its agent's rollout says (`reportModeOf`).
+     */
+    reportMode: text("report_mode").$type<ReportModeChoice>(),
     memoryWritePolicy: text("memory_write_policy")
       .$type<"deny" | "allow_explicit">()
       .notNull()
@@ -7618,6 +7656,11 @@ export const skillGitSources = pgTable(
     // checks alone. A host from before writes the grant and not this, so
     // what it turned on, or paused and resumed, reads as off.
     autoApproveChecksGrantId: uuid("auto_approve_checks_grant_id"),
+    // The skill repository this skill was switched on in; null for a skill
+    // registered on its own.
+    repositorySourceId: uuid("repository_source_id").references(
+      () => skillRepositories.id,
+    ),
     createdBy: uuid("created_by")
       .notNull()
       .references(() => users.id),
@@ -7650,6 +7693,134 @@ export const skillGitSources = pgTable(
     check(
       "skill_git_sources_auto_approve_check",
       sql`${table.autoApprove} IN ('off', 'requested', 'on') AND (${table.autoApprove} = 'off') = (${table.autoApproveRequestedBy} IS NULL) AND (${table.autoApprove} = 'on') = (${table.autoApproveConsentedBy} IS NOT NULL) AND (${table.autoApprove} = 'on') = (${table.autoApproveGrantId} IS NOT NULL)`,
+    ),
+  ],
+);
+
+// A public GitHub repository a workspace registered for its skills.
+// Registering is the approval: every SKILL.md directory in it is listed in
+// `skill_repository_skills`, each switched off. A removed row stays, so
+// registering the same repository again brings it back.
+export const skillRepositories = pgTable(
+  "skill_repositories",
+  {
+    id: uuid().primaryKey(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id),
+    repositoryId: bigint("repository_id", { mode: "number" }).notNull(),
+    // `owner/name` when it was registered; the id is what is matched.
+    repository: text().notNull(),
+    ref: text().notNull(),
+    access: text().notNull().default("public"),
+    // The author App connection and the installation whose access reads it;
+    // the installation need not cover the repository.
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => githubApps.id),
+    installationId: bigint("installation_id", { mode: "number" }).notNull(),
+    // The owning account when it was registered: a transfer changes it.
+    ownerId: bigint("owner_id", { mode: "number" }).notNull(),
+    // The license as GitHub named it at the last listing, an SPDX id.
+    license: text(),
+    // Raised by a removal, a restore and a ref change: a listing or a check
+    // that read GitHub under another generation writes nothing.
+    generation: bigint({ mode: "number" }).notNull().default(1),
+    lastCommit: text("last_commit"),
+    lastSync: jsonb("last_sync"),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    // The listing's lease, as a skill's check holds its source row.
+    checkingUntil: timestamp("checking_until", { withTimezone: true }),
+    checkingToken: uuid("checking_token"),
+    checkAgain: jsonb("check_again"),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    removedBy: uuid("removed_by").references(() => users.id),
+  },
+  (table) => [
+    uniqueIndex("skill_repositories_workspace_repository_uniq").on(
+      table.workspaceId,
+      table.repositoryId,
+    ),
+    check(
+      "skill_repositories_access_check",
+      sql`${table.access} IN ('public')`,
+    ),
+    check(
+      "skill_repositories_ids_check",
+      sql`${table.installationId} > 0 AND ${table.repositoryId} > 0 AND ${table.ownerId} > 0 AND ${table.generation} > 0`,
+    ),
+    check(
+      "skill_repositories_removed_check",
+      sql`(${table.removedAt} IS NULL) = (${table.removedBy} IS NULL)`,
+    ),
+  ],
+);
+
+// One SKILL.md directory of a skill repository, as its last listing read it.
+// The switch is off until an admin turns it on; nothing turns it on yet.
+export const skillRepositorySkills = pgTable(
+  "skill_repository_skills",
+  {
+    id: uuid().primaryKey(),
+    skillRepositoryId: uuid("skill_repository_id")
+      .notNull()
+      .references(() => skillRepositories.id),
+    // The directory; empty for the repository root.
+    path: text().notNull(),
+    // The SKILL.md frontmatter name; null when it could not be read. A
+    // name is unique per workspace through the skill's source row, not here.
+    name: text(),
+    description: text(),
+    license: text(),
+    // The directory's git tree as the listing saw it, and as it was when its
+    // content last passed the gate: a failed check is run again.
+    treeSha: text("tree_sha").notNull(),
+    passedTreeSha: text("passed_tree_sha"),
+    fileCount: integer("file_count").notNull(),
+    totalBytes: bigint("total_bytes", { mode: "number" }).notNull(),
+    hasScripts: boolean("has_scripts").notNull(),
+    // Why the listing check refuses it; empty when it does not.
+    listingIssues: jsonb("listing_issues").notNull().default([]),
+    // False once the directory is gone from the repository.
+    present: boolean().notNull().default(true),
+    enabled: boolean().notNull().default(false),
+    enabledBy: uuid("enabled_by").references(() => users.id),
+    enabledAt: timestamp("enabled_at", { withTimezone: true }),
+    // New each time the switch is turned on: a check that read the switch
+    // under another grant writes nothing.
+    enableGrantId: uuid("enable_grant_id"),
+    lastGate: jsonb("last_gate"),
+    notice: jsonb(),
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+    acknowledgedBy: uuid("acknowledged_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("skill_repository_skills_path_uniq").on(
+      table.skillRepositoryId,
+      table.path,
+    ),
+    check(
+      "skill_repository_skills_name_check",
+      sql`${table.name} IS NULL OR ${table.name} ~ '^[a-z0-9][a-z0-9-]{0,63}$'`,
+    ),
+    check(
+      "skill_repository_skills_enabled_check",
+      sql`NOT ${table.enabled} OR ${table.enableGrantId} IS NOT NULL`,
     ),
   ],
 );
@@ -8377,6 +8548,13 @@ export const providerConnections = pgTable(
      * no decision model starts the window over.
      */
     judgingSince: timestamp("judging_since", { withTimezone: true }),
+    /**
+     * What the endpoint resolved to when the row was registered, or
+     * `private` carried over from the operator's private allowlist. Null on
+     * a row from before and on an imported one: the egress proxy's own lists
+     * then decide, as they did. Set once, like the definition.
+     */
+    network: text().$type<"public" | "private">(),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -8386,6 +8564,10 @@ export const providerConnections = pgTable(
     check(
       "provider_connections_auto_mode_check",
       sql`${table.autoMode} IN ('supported', 'unsupported', 'unknown')`,
+    ),
+    check(
+      "provider_connections_network_check",
+      sql`${table.network} IN ('public', 'private')`,
     ),
     // The credential is a stored value, never a reference to one held
     // elsewhere; a console row also has it from its first commit (0288's

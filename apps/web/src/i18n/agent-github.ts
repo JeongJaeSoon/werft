@@ -74,7 +74,7 @@ export const agentGitHubKo = {
   "agentGitHub.repositoriesFoot":
     "목록에 없는 저장소는 GitHub에서 App 설치에 더하면 나타납니다.",
   "agentGitHub.permissionsHint":
-    "이 에이전트가 쓰는 기능입니다. 기본은 PR 작성·수정까지입니다. 브랜치 보호·필수 리뷰·CODEOWNERS처럼 GitHub가 막는 것은 저장소 설정을 따릅니다. 머지는 이 에이전트 설정에 없고, 워크스페이스의 연동 > GitHub에서 머지를 허용했을 때만 에이전트가 PR을 머지합니다.",
+    "이 에이전트가 쓰는 기능입니다. 기본은 PR 작성·수정까지입니다. 브랜치 보호·필수 리뷰·CODEOWNERS처럼 GitHub가 막는 것은 저장소 설정을 따릅니다. 머지, 리뷰 승인, workflow 직접 실행은 꺼진 채로 시작하고, 워크스페이스의 연동 > GitHub에서 허용한 것만 여기서 켭니다.",
   "agentGitHub.base": "PR 작성·수정",
   "agentGitHub.baseHint":
     "agent/<세션> 브랜치로 push하고, PR을 열고 고치고, 코멘트를 남깁니다. 필요한 권한: contents·pull requests 쓰기",
@@ -82,6 +82,13 @@ export const agentGitHubKo = {
   "agentGitHub.feature.review": "리뷰 승인",
   "agentGitHub.feature.reviewHint":
     "리뷰용 App으로 PR에 승인 리뷰를 남깁니다. 권장 권한이면 GitHub는 이 승인을 필수 리뷰로 세지 않으므로, 브랜치 규칙이 리뷰를 요구하면 쓰기 권한이 있는 사람의 승인처럼 GitHub가 인정하는 승인이 따로 필요합니다. 필요한 권한: 리뷰용 App의 pull requests 쓰기",
+  "agentGitHub.feature.reviewHelp":
+    "켜면 에이전트가 스스로 리뷰를 남기고 승인합니다.",
+  "agentGitHub.feature.merge": "자기 PR 머지",
+  "agentGitHub.feature.mergeHint":
+    "사용자가 머지하라고 지시하면 자기 세션이 연 PR을 squash로 머지합니다. 필요한 권한: contents 쓰기, pull requests 읽기",
+  "agentGitHub.feature.mergeHelp":
+    "켜면 에이전트가 스스로 자기 PR을 머지합니다. 필수 check와 리뷰 조건은 저장소 규칙이 정합니다. 규칙이 없는 저장소에서는 check나 리뷰를 기다리지 않습니다. 충돌이 있거나 draft인 PR은 병합하지 않습니다.",
   "agentGitHub.feature.actions": "workflow 직접 실행 (실행·재실행·취소)",
   "agentGitHub.feature.actionsHint":
     "허용 목록의 workflow만 실행(workflow_dispatch)하거나 다시 실행합니다. 필요한 권한: actions 쓰기",
@@ -189,7 +196,11 @@ export const agentGitHubKo = {
     "세션에 저장소가 없어 워크플로·리뷰 불가",
   "agentGitHub.refusal.ambiguous_app": "App 선택 필요",
   "agentGitHub.refusal.pinned_app_removed": "고정된 App 삭제됨",
-  "agentGitHub.refusal.merge_off": "워크스페이스가 머지를 허용하지 않음",
+  "agentGitHub.refusal.merge_off":
+    "머지가 꺼져 있음 (에이전트 GitHub 설정 또는 워크스페이스 상한)",
+  "agentGitHub.refusal.review_off":
+    "이 에이전트는 리뷰 승인이 꺼져 있습니다. 관리자가 에이전트 GitHub 설정에서 켤 수 있습니다.",
+  "agentGitHub.refusal.not_own_pull_request": "이 세션이 열지 않은 PR",
   "agentGitHub.refusalNext.ambiguous_app":
     "설정 > 워크스페이스 > 연동 > GitHub > 저장소 관리에서 이 저장소를 맡을 App을 고르세요",
   "agentGitHub.refusalNext.pinned_app_removed":
@@ -294,7 +305,7 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.repositoriesFoot":
     "A repository missing here appears once you add it to the App's installation on GitHub.",
   "agentGitHub.permissionsHint":
-    "The features this agent uses. By default an agent writes pull requests and nothing more. What GitHub enforces, such as branch protection, required reviews and CODEOWNERS, follows the repository's settings. Merging is not set on the agent: an agent merges its pull requests only when the workspace allows it in Integrations > GitHub.",
+    "The features this agent uses. By default an agent writes pull requests and nothing more. What GitHub enforces, such as branch protection, required reviews and CODEOWNERS, follows the repository's settings. Merging, approving reviews and running workflows directly start off, and are turned on here only where the workspace allows them in Integrations > GitHub.",
   "agentGitHub.base": "Write pull requests",
   "agentGitHub.baseHint":
     "Pushes to agent/<session> branches, opens and updates pull requests, comments. Needs: contents and pull requests write",
@@ -302,6 +313,13 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.feature.review": "Approve reviews",
   "agentGitHub.feature.reviewHint":
     "Leaves approving reviews with the reviewer App. With the recommended permissions GitHub does not count them toward required reviews, so where a branch rule requires a review, another approval GitHub counts is still needed, such as one from a person with write access. Needs: the reviewer App's pull requests write",
+  "agentGitHub.feature.reviewHelp":
+    "When on, the agent leaves and approves reviews on its own.",
+  "agentGitHub.feature.merge": "Merge its own pull requests",
+  "agentGitHub.feature.mergeHint":
+    "When a person tells it to, squash-merges a pull request its own session opened. Needs: contents write, pull requests read",
+  "agentGitHub.feature.mergeHelp":
+    "When on, the agent merges its own pull requests on its own. The repository's rules decide on required checks and reviews. A repository with no such rules waits for no check or review. A pull request with a conflict, or a draft, is not merged.",
   "agentGitHub.feature.actions": "Run workflows directly (run, rerun, cancel)",
   "agentGitHub.feature.actionsHint":
     "Runs (workflow_dispatch) or reruns only workflows on the allow list. Needs: actions write",
@@ -412,7 +430,12 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
     "No session repository for workflows or reviews",
   "agentGitHub.refusal.ambiguous_app": "App choice needed",
   "agentGitHub.refusal.pinned_app_removed": "Pinned App removed",
-  "agentGitHub.refusal.merge_off": "The workspace does not allow merging",
+  "agentGitHub.refusal.merge_off":
+    "Merging is off (the agent's GitHub settings or the workspace ceiling)",
+  "agentGitHub.refusal.review_off":
+    "Approving reviews is off for this agent. An admin can turn it on in the agent's GitHub settings.",
+  "agentGitHub.refusal.not_own_pull_request":
+    "A pull request this session did not open",
   "agentGitHub.refusalNext.ambiguous_app":
     "Choose the App that handles this repository under Settings > Workspace > Integrations > GitHub > Manage repositories",
   "agentGitHub.refusalNext.pinned_app_removed":
@@ -517,7 +540,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.repositoriesFoot":
     "一覧にないリポジトリは、GitHub で App のインストールに加えると表示されます。",
   "agentGitHub.permissionsHint":
-    "このエージェントが使う機能です。既定は PR の作成・修正までです。ブランチ保護・必須レビュー・CODEOWNERS のように GitHub が止めるものはリポジトリの設定に従います。マージはエージェントの設定にはなく、ワークスペースの 連携 > GitHub でマージを許可したときだけ、エージェントが PR をマージします。",
+    "このエージェントが使う機能です。既定は PR の作成・修正までです。ブランチ保護・必須レビュー・CODEOWNERS のように GitHub が止めるものはリポジトリの設定に従います。マージ、レビュー承認、ワークフローの直接実行はオフで始まり、ワークスペースの 連携 > GitHub で許可したものだけをここでオンにします。",
   "agentGitHub.base": "PR の作成・修正",
   "agentGitHub.baseHint":
     "agent/<セッション> ブランチに push し、PR を開いて直し、コメントを残します。必要な権限: contents・pull requests の書き込み",
@@ -525,6 +548,13 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
   "agentGitHub.feature.review": "レビュー承認",
   "agentGitHub.feature.reviewHint":
     "レビュー用 App で PR に承認レビューを残します。推奨する権限では GitHub はこの承認を必須レビューに数えないため、ブランチのルールがレビューを求める場合は、書き込み権限を持つ人の承認など、GitHub が数える承認が別に必要です。必要な権限:レビュー用 App の pull requests の書き込み",
+  "agentGitHub.feature.reviewHelp":
+    "オンにすると、エージェントが自分でレビューを残して承認します。",
+  "agentGitHub.feature.merge": "自分の PR のマージ",
+  "agentGitHub.feature.mergeHint":
+    "人が指示したとき、自分のセッションが開いた PR を squash でマージします。必要な権限: contents の書き込み、pull requests の読み取り",
+  "agentGitHub.feature.mergeHelp":
+    "オンにすると、エージェントが自分で自分の PR をマージします。必須チェックとレビューの条件はリポジトリのルールが決めます。ルールのないリポジトリではチェックやレビューを待ちません。競合がある PR や draft の PR はマージしません。",
   "agentGitHub.feature.actions":
     "ワークフローの直接実行 (実行・再実行・キャンセル)",
   "agentGitHub.feature.actionsHint":
@@ -635,7 +665,11 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
     "セッションにリポジトリがないためワークフロー・レビュー不可",
   "agentGitHub.refusal.ambiguous_app": "App の選択が必要",
   "agentGitHub.refusal.pinned_app_removed": "固定した App は削除済み",
-  "agentGitHub.refusal.merge_off": "ワークスペースがマージを許可していない",
+  "agentGitHub.refusal.merge_off":
+    "マージがオフ (エージェントの GitHub 設定またはワークスペースの上限)",
+  "agentGitHub.refusal.review_off":
+    "このエージェントはレビュー承認がオフです。管理者がエージェントの GitHub 設定でオンにできます。",
+  "agentGitHub.refusal.not_own_pull_request": "このセッションが開いていない PR",
   "agentGitHub.refusalNext.ambiguous_app":
     "設定 > ワークスペース > 連携 > GitHub > リポジトリを管理 で、このリポジトリを担当する App を選んでください",
   "agentGitHub.refusalNext.pinned_app_removed":

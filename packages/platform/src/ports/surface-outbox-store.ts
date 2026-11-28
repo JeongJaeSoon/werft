@@ -374,6 +374,8 @@ export type SurfaceProgressDue = SurfaceLinkedTurnTarget & {
   updates: number;
   /** When the session's first turn was asked, in epoch seconds. */
   startedAt: number | null;
+  /** The session is a task: its message carries the buttons that close it. */
+  task: boolean;
 };
 
 /**
@@ -472,6 +474,24 @@ export type SurfacePendingPrompt = SurfaceLinkedTurnTarget & {
         targetBranch: string;
         gitCommit: string;
       };
+};
+
+/**
+ * Which card a pressed message is said to be: a permission or question
+ * card by its request, a push card by its push request, a turn's notice by
+ * the turn's public id.
+ */
+export type SurfacePostedCardKey =
+  | { kind: "prompt"; requestId: string }
+  | { kind: "push"; pushRequestId: string }
+  | { kind: "turn"; turnId: number };
+
+/** Where a session's progress message is: its link, the agent and the thread. */
+export type SurfaceProgressLink = {
+  id: string;
+  agentId: string;
+  channelId: string;
+  threadId: string;
 };
 
 /**
@@ -908,6 +928,27 @@ export interface SurfaceOutboxStore {
     channelId: string;
     slackTs: string;
   }): Promise<SurfacePromptCard | null>;
+  /**
+   * The link whose thread keeps the session's progress message (a primary
+   * link with a thread), open or closed but not revoked; null when it has
+   * none.
+   */
+  progressLink(sessionId: string): Promise<SurfaceProgressLink | null>;
+  /**
+   * The link of the card a row of the session sent as that message (its
+   * channel and ts) for that key, a mirror link's when the card went out on
+   * one; "earlier" when a row of that key in that channel cannot be tied
+   * to the message (posted by an earlier version without its link, or with
+   * no ts recorded); null when no row did, or its link is revoked.
+   */
+  postedCard(input: {
+    sessionId: string;
+    /** The pressing app's agent: an "earlier" row is only ever its own. */
+    agentId: string;
+    channelId: string;
+    slackTs: string;
+    card: SurfacePostedCardKey;
+  }): Promise<SurfaceProgressLink | "earlier" | null>;
   /** Requests of live linked sessions without their `input_notice` row. */
   unpromptedRequests(limit: number): Promise<SurfacePendingPrompt[]>;
   /** Moves `sending` rows whose lease ran out to `uncertain`. */

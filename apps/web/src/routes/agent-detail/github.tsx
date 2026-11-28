@@ -63,6 +63,7 @@ import { PrivateChannelsPending } from "../../components/private-channels-pendin
 import { type Notify, useToast } from "../../components/toast.tsx";
 import {
   errorKey,
+  gitHubRefusalLabel,
   type MessageKey,
   type Translate,
   useI18n,
@@ -163,13 +164,22 @@ const ALLOW_NARROW = "minmax(0,1fr) max-content";
 const ALLOW_NARROW_READ = "minmax(0,1fr)";
 const WIDE_ONLY_480 = "[@container(min-width:480px)]:hidden";
 const FOCUS_TARGET = "scroll-mt-4 outline-none";
-// Workflow edits first, then running them, as the workspace lists them.
-// `checks` is saved with `workflows`; issues has no work behind it yet.
+// Workflow edits first, then the three that start off: running workflows,
+// approving reviews, merging. `checks` is saved with `workflows`; issues has
+// no work behind it yet.
 const FEATURES = [
   "workflows",
   "actions",
   "review",
+  "merge",
 ] as const satisfies readonly Feature[];
+// What the switch lets the agent do, shown however the row reads.
+const FEATURE_HELP = {
+  workflows: "agentGitHub.feature.workflowsHelp",
+  actions: "agentGitHub.feature.actionsHelp",
+  review: "agentGitHub.feature.reviewHelp",
+  merge: "agentGitHub.feature.mergeHelp",
+} as const satisfies Record<(typeof FEATURES)[number], MessageKey>;
 const WORKFLOW_FILE = /^[A-Za-z0-9._-]+\.ya?ml$/;
 const ALLOW_MAX = 32;
 const REF_MAX = 255;
@@ -197,7 +207,10 @@ export function pendingCount(
   return (
     Number(basePushAttached !== draftPushAttached) +
     Number(base.push_approval !== draft.push_approval) +
-    FEATURES.filter((f) => base.features[f] !== draft.features[f]).length +
+    // `merge` is absent on a row saved before it, which reads as off.
+    FEATURES.filter(
+      (f) => (base.features[f] ?? false) !== (draft.features[f] ?? false),
+    ).length +
     draft.actions_allow.filter(
       (entry) => !base.actions_allow.some((held) => sameEntry(held, entry)),
     ).length +
@@ -241,9 +254,7 @@ function ReceiptRow({
     result.purpose && receipt.operation === "mint_github_token"
       ? t(`agentGitHub.purpose.${result.purpose}` as MessageKey)
       : null,
-    result.reason_code
-      ? t(`agentGitHub.refusal.${result.reason_code}` as MessageKey)
-      : null,
+    result.reason_code ? gitHubRefusalLabel(t, result.reason_code) : null,
     result.reason_code === "ambiguous_app" ||
     result.reason_code === "pinned_app_removed"
       ? t(`agentGitHub.refusalNext.${result.reason_code}`)
@@ -848,8 +859,12 @@ function GitHubSettings({
                 }
               />
               {FEATURES.map((feature) => {
-                const option = data.options.features[feature];
-                const on = settings.features[feature];
+                // A server from before a switch answers no option for it.
+                const option = data.options.features[feature] ?? {
+                  available: false,
+                  reason: null,
+                };
+                const on = settings.features[feature] ?? false;
                 // GitHub refuses a review where the reviewer App is not installed.
                 const uninstalled =
                   feature === "review" && option.available
@@ -896,16 +911,9 @@ function GitHubSettings({
                         ) : (
                           t(`agentGitHub.feature.${feature}Hint`)
                         )}
-                        {/* Shown however the row reads: what the switch lets the agent do. */}
-                        {feature === "actions" || feature === "workflows" ? (
-                          <Text as="span" variant="meta" className="block">
-                            {t(
-                              feature === "actions"
-                                ? "agentGitHub.feature.actionsHelp"
-                                : "agentGitHub.feature.workflowsHelp",
-                            )}
-                          </Text>
-                        ) : null}
+                        <Text as="span" variant="meta" className="block">
+                          {t(FEATURE_HELP[feature])}
+                        </Text>
                       </>
                     }
                     status={onOff(on)}

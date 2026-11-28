@@ -17,7 +17,7 @@ import {
   testConnection,
   testToolCatalogs,
 } from "../testing/catalog-fakes.ts";
-import { createAgentService } from "./agent-service.ts";
+import { createAgentService, resolveAgentRelease } from "./agent-service.ts";
 import type {
   AgentReader,
   AgentRecord,
@@ -106,6 +106,7 @@ const detail: AgentRecord = {
   versions: [],
   releases: [],
   active_release: null,
+  unreadable_releases: [],
 };
 
 /** A store keeping inserted releases, as PostgreSQL returns them. */
@@ -783,18 +784,19 @@ describe("a release's GitHub settings", () => {
       },
     },
   });
-  const OFF = {
+  // A pin's switches; a ceiling also has `merge`.
+  const FEATURES_OFF = {
     workflows: false,
     actions: false,
     checks: false,
     issues: false,
     review: false,
-    merge: false,
   };
+  const OFF = { ...FEATURES_OFF, merge: false };
   const github: AgentGitHub = {
     repositories: ["sample-app"],
     push_approval: true,
-    features: OFF,
+    features: FEATURES_OFF,
     actions_allow: [],
   };
 
@@ -864,7 +866,7 @@ describe("a release's GitHub settings", () => {
     const withActions: AgentGitHub = {
       ...github,
       repositories: ["sample-app", "docs-app"],
-      features: { ...OFF, actions: true },
+      features: { ...FEATURES_OFF, actions: true },
       actions_allow: [{ workflow: "ci.yml" }],
     };
     const made = await service(memoryStore().store, {
@@ -945,6 +947,29 @@ describe("a release's GitHub settings", () => {
       );
       expect(made.release.policy_pins.github).toBeUndefined();
     });
+
+    test("without a row, a card-edit release carries the old pin without a switch this build does not know (94S-2491)", async () => {
+      const held = memoryStore();
+      const old = {
+        ...github,
+        features: { ...github.features, later_switch: true },
+      };
+      const withPins = {
+        ...held.store,
+        get: async () => ({
+          ...detail,
+          active_release: {
+            policy_pins: { github: old },
+          } as unknown as AgentRelease,
+        }),
+      };
+      const made = await serviceOver(withPins).createRelease(
+        owner,
+        AGENT,
+        release,
+      );
+      expect(made.release.policy_pins.github).toEqual(github);
+    });
   });
 
   test("a release with no repository keeps settings for the repositories it attaches", async () => {
@@ -1004,7 +1029,7 @@ describe("a release's GitHub settings", () => {
   test("a feature over the workspace's ceiling is over_workspace_ceiling", async () => {
     expect(
       await refusal({
-        github: { ...github, features: { ...OFF, review: true } },
+        github: { ...github, features: { ...FEATURES_OFF, review: true } },
       }),
     ).toEqual({
       code: "BAD_REQUEST",
@@ -1039,7 +1064,7 @@ describe("a release's GitHub settings", () => {
   test("a kept pin's actions runs nothing, so a ceiling with direct runs off does not refuse the release that keeps it (94S-2406)", async () => {
     const old: AgentGitHub = {
       ...github,
-      features: { ...OFF, actions: true },
+      features: { ...FEATURES_OFF, actions: true },
       actions_allow: [{ workflow: "ci.yml" }],
     };
     const { store } = memoryStore();
@@ -1149,6 +1174,7 @@ describe("activation and the agent's extension bundles", () => {
       archivedAt: null,
       current: false,
     },
+    availability: "ok",
   };
   const extensions = {
     store: {
@@ -1408,5 +1434,64 @@ describe("a card's declared variable names", () => {
     await service.updateAgent(owner, AGENT, {
       card: withEnv("REGION", "TEAM"),
     });
+  });
+});
+
+describe("a release row this build cannot read", () => {
+  const ID =
+    "sha256:3333333333333333333333333333333333333333333333333333333333333333";
+  const resolve = () =>
+    resolveAgentRelease(
+      {
+        store: {
+          findRelease: async () => ({
+            unreadable: { id: ID, reason_code: "policy_pins_unreadable" },
+            agent_id: AGENT,
+          }),
+          autoModelMigration: async () => false,
+        },
+        catalog: { connections: {} },
+      },
+      WORKSPACE,
+      ID,
+    );
+
+  test("a session or activation on it is a lasting 409 naming the release, not a 500", async () => {
+    const error = await resolve().then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+    expect(error).toBeInstanceOf(SessionServiceError);
+    const refused = error as SessionServiceError;
+    expect(refused.code).toBe("RELEASE_SPEC_UNAVAILABLE");
+    expect(refused.details).toEqual({
+      reason_code: "release_unreadable",
+      release_id: ID,
+      unreadable: "policy_pins_unreadable",
+    });
+    expect(refused.message).toContain(ID);
+    expect(refused.message).toContain("upgrade to a newer build");
+  });
+
+  test("named for another agent it answers as a release that is not there", async () => {
+    const error = await resolveAgentRelease(
+      {
+        store: {
+          findRelease: async () => ({
+            unreadable: { id: ID, reason_code: "policy_pins_unreadable" },
+            agent_id: AGENT,
+          }),
+          autoModelMigration: async () => false,
+        },
+        catalog: { connections: {} },
+      },
+      WORKSPACE,
+      ID,
+      "019a0000-0000-7000-8000-0000000000ff",
+    ).then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+    expect((error as SessionServiceError).code).toBe("NOT_FOUND");
   });
 });

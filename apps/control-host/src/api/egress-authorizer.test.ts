@@ -11,10 +11,10 @@ import { createLogger, type LogRecord } from "@werft-ai/observability";
 import {
   admitsReservations,
   createWorkerGateway,
+  type ExchangeBudget,
   hashJudgmentToken,
   type ProviderExchangeInput,
   type ProviderExchangeLedger,
-  type SessionBudget,
   WorkerGatewayError,
 } from "@werft-ai/platform";
 import { acceptAllCheckpoints } from "@werft-ai/platform/testing/checkpoints";
@@ -418,7 +418,7 @@ describe("usage reports", () => {
       { path: EGRESS_USAGE_PATH },
     );
     expect(retry.status).toBe(200);
-    // Priced today it would be the fallback; the answer is what was charged.
+    // A replay prices nothing: the answer is what was charged.
     expect(await retry.json()).toEqual({ cost_usd: 0.025, priced_by: "table" });
   });
 });
@@ -437,10 +437,10 @@ describe("the provider exchange ledger route", () => {
   let records: LogRecord[];
   let withLedger: (request: Request) => Promise<Response>;
   // Room for a few of these reserves; a test narrows it to none.
-  let budget: SessionBudget;
+  let budget: ExchangeBudget;
 
   beforeEach(() => {
-    budget = { costUsd: 25, tokens: null };
+    budget = { costUsd: 25, tokens: null, unknownPriceTokens: 5_000_000 };
     records = [];
     withLedger = createEgressAuthorizer({
       gateway,
@@ -471,6 +471,17 @@ describe("the provider exchange ledger route", () => {
 
   async function ledgerRows() {
     return db.select().from(schema.providerExchanges);
+  }
+
+  async function spendOf(sessionId: string) {
+    const [session] = await db
+      .select({
+        costUsd: schema.sessions.costUsd,
+        providerTokens: schema.sessions.providerTokens,
+      })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, sessionId));
+    return session;
   }
 
   test("an API without the ledger answers the route 404, as an older one does", async () => {
@@ -649,6 +660,164 @@ describe("the provider exchange ledger route", () => {
     expect(refused.status).toBe(403);
     expect(await refused.json()).toMatchObject({ code: "BUDGET_EXCEEDED" });
     expect(await ledgerRows()).toEqual([]);
+  });
+
+  test("an open for a model nothing prices answers 403 BUDGET_EXCEEDED at the session's limit on such tokens; a priced model's does not", async () => {
+    const claim = await claimed(db, gateway);
+    const open = (model: string) =>
+      send({
+        op: "open",
+        exchange_id: crypto.randomUUID(),
+        session_id: claim.session_id,
+        attempt_id: claim.attempt_id,
+        reserve: { ...reserve, model },
+      });
+    // A reserve is 900 + 4,096 tokens.
+    budget.unknownPriceTokens = 4_996;
+    const refused = await open("no-table-and-no-snapshot-names-this");
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({
+      code: "BUDGET_EXCEEDED",
+      message:
+        "The session's spend with this call's reserve reaches its cost or token limit, or its limit on tokens of unknown price",
+    });
+    expect(await ledgerRows()).toEqual([]);
+    expect((await open("claude-opus-5")).status).toBe(201);
+    budget.unknownPriceTokens = 4_997;
+    expect((await open("no-table-and-no-snapshot-names-this")).status).toBe(
+      201,
+    );
+  });
+
+  test("a report has no amount when nothing prices the model its open reserved for, whatever model the answer names", async () => {
+    const claim = await claimed(db, gateway);
+    const call = {
+      exchange_id: crypto.randomUUID(),
+      session_id: claim.session_id,
+      attempt_id: claim.attempt_id,
+    };
+    await send({
+      op: "open",
+      ...call,
+      reserve: { ...reserve, model: "no-table-and-no-snapshot-names-this" },
+    });
+    // The proxy's report carries the answer's model alone, as before.
+    const reported = await withLedger(
+      new Request(`http://authorizer.invalid${EGRESS_USAGE_PATH}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${AUTHORIZER_TOKEN}`,
+        },
+        body: JSON.stringify({ ...call, usage: used }),
+      }),
+    );
+    expect(reported.status).toBe(200);
+    // The wire keeps its number: 0 beside `unknown` is no amount.
+    expect(await reported.json()).toEqual({
+      cost_usd: 0,
+      priced_by: "unknown",
+    });
+    const [row] = await db
+      .select({
+        model: schema.providerUsage.model,
+        requestModel: schema.providerUsage.requestModel,
+        costUsd: schema.providerUsage.costUsd,
+        pricedBy: schema.providerUsage.pricedBy,
+        priceUnknown: schema.providerUsage.priceUnknown,
+      })
+      .from(schema.providerUsage)
+      .where(eq(schema.providerUsage.exchangeId, call.exchange_id));
+    expect(row).toEqual({
+      model: "claude-opus-5",
+      requestModel: "no-table-and-no-snapshot-names-this",
+      costUsd: 0,
+      pricedBy: "unknown",
+      priceUnknown: true,
+    });
+    expect(await spendOf(claim.session_id)).toEqual({
+      costUsd: 0,
+      providerTokens: 940,
+    });
+    expect(
+      records.filter(
+        (record) => record.message === "Provider usage has no known price",
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("a call opened for a priced model and answered by one nothing prices settles with no amount and holds nothing after", async () => {
+    const claim = await claimed(db, gateway);
+    const call = {
+      exchange_id: crypto.randomUUID(),
+      session_id: claim.session_id,
+      attempt_id: claim.attempt_id,
+    };
+    // The reserve holds claude-opus-5's amount while the call is open.
+    expect((await send({ op: "open", ...call, reserve })).status).toBe(201);
+    const reported = await withLedger(
+      new Request(`http://authorizer.invalid${EGRESS_USAGE_PATH}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${AUTHORIZER_TOKEN}`,
+        },
+        body: JSON.stringify({
+          ...call,
+          usage: { ...used, model: "no-table-and-no-snapshot-names-this" },
+        }),
+      }),
+    );
+    expect(reported.status).toBe(200);
+    expect(await reported.json()).toEqual({
+      cost_usd: 0,
+      priced_by: "unknown",
+    });
+    // The reserve is gone and nothing took its place in the session's cost.
+    expect(await ledgerRows()).toEqual([]);
+    expect(await spendOf(claim.session_id)).toEqual({
+      costUsd: 0,
+      providerTokens: 940,
+    });
+    const [row] = await db
+      .select({
+        requestModel: schema.providerUsage.requestModel,
+        costUsd: schema.providerUsage.costUsd,
+        priceUnknown: schema.providerUsage.priceUnknown,
+      })
+      .from(schema.providerUsage)
+      .where(eq(schema.providerUsage.exchangeId, call.exchange_id));
+    expect(row).toEqual({
+      requestModel: "claude-opus-5",
+      costUsd: 0,
+      priceUnknown: true,
+    });
+  });
+
+  test("a session its priced calls took to the cost limit opens no call for a model nothing prices, which would add no amount", async () => {
+    const claim = await claimed(db, gateway);
+    const open = () =>
+      send({
+        op: "open",
+        exchange_id: crypto.randomUUID(),
+        session_id: claim.session_id,
+        attempt_id: claim.attempt_id,
+        reserve: { ...reserve, model: "no-table-and-no-snapshot-names-this" },
+      });
+    budget.costUsd = 5;
+    const spent = (costUsd: number) =>
+      db
+        .update(schema.sessions)
+        .set({ costUsd })
+        .where(eq(schema.sessions.id, claim.session_id));
+    await spent(5);
+    const refused = await open();
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({ code: "BUDGET_EXCEEDED" });
+    expect(await ledgerRows()).toEqual([]);
+    // Under the limit the same open is held, whatever its tokens would cost.
+    await spent(4.99);
+    expect((await open()).status).toBe(201);
   });
 
   test("a release marks the call and its late open answers released; one for no such attempt is 404", async () => {
@@ -1398,7 +1567,7 @@ describe("the budget account an open holds its call on", () => {
     );
     const refused = await send({ op: "open", ...call });
     expect(((await refused.json()) as { message: string }).message).toBe(
-      "The session's spend with this call's reserve reaches its cost or token limit",
+      "The session's spend with this call's reserve reaches its cost or token limit, or its limit on tokens of unknown price",
     );
     expect(kept).toEqual([]);
   });
@@ -1488,6 +1657,49 @@ describe("a decision the store could not give", () => {
     });
   });
 
+  test("a retryable refusal that names its reason is undecided too, and one that is not stays a refusal", async () => {
+    const unknown = asking(async () => {
+      throw new WorkerGatewayError(
+        503,
+        "BACKEND_UNAVAILABLE",
+        "The installation's own addresses could not be told",
+        true,
+        undefined,
+        "private_deny_unavailable",
+      );
+    });
+    const held = await unknown.ask();
+    expect(held.status).toBe(503);
+    expect(held.headers.get("retry-after")).toBe("1");
+    expect(await held.json()).toEqual({
+      code: "BACKEND_UNAVAILABLE",
+      message: "The installation's own addresses could not be told",
+      retryable: true,
+      details: { reason_code: "private_deny_unavailable" },
+    });
+    expect(unknown.records.map((record) => record.message)).toEqual([
+      "Egress authorization refused",
+    ]);
+    const outdated = asking(async () => {
+      throw new WorkerGatewayError(
+        403,
+        "FORBIDDEN",
+        "The egress proxy is older than this connection needs",
+        false,
+        undefined,
+        "egress_proxy_outdated",
+      );
+    });
+    const refused = await outdated.ask();
+    expect(refused.status).toBe(403);
+    expect(refused.headers.get("retry-after")).toBeNull();
+    expect(await refused.json()).toEqual({
+      code: "FORBIDDEN",
+      message: "The egress proxy is older than this connection needs",
+      details: { reason_code: "egress_proxy_outdated" },
+    });
+  });
+
   test("any other failure is a 503 that is not marked retryable", async () => {
     const { ask, records } = asking(async () => {
       throw new Error("a bug, not an outage");
@@ -1508,5 +1720,85 @@ describe("a decision the store could not give", () => {
     const response = await ask({ token: "weg_unknown", purpose: "provider" });
     expect(response.status).toBe(401);
     expect(await response.json()).not.toHaveProperty("retryable");
+  });
+});
+
+describe("egress authorizer: the private mark's feature", () => {
+  const shared = "p".repeat(40);
+  function recording() {
+    const asked: Array<{ route: string; reads: unknown }> = [];
+    const refuse = async () => {
+      throw new Error("not this route");
+    };
+    const handle = createEgressAuthorizer({
+      gateway: {
+        authorizeEgress: (async (request: {
+          registeredPrivateUpstream?: boolean;
+        }) => {
+          asked.push({
+            route: "provider",
+            reads: request.registeredPrivateUpstream,
+          });
+          return {
+            session_id: "s",
+            attempt_id: "a",
+            upstream: { url: "u", headers: [] },
+          };
+        }) as never,
+        authorizeObjectAccess: refuse,
+        authorizeConversationCallEgress: async () => null,
+        recordConversationCallUsage: refuse,
+        authorizePackagesEgress: refuse,
+        recordProviderUsage: refuse,
+        authorizeJudgmentEgress: (async (request: {
+          registeredPrivateUpstream?: boolean;
+        }) => {
+          asked.push({
+            route: "judgment",
+            reads: request.registeredPrivateUpstream,
+          });
+          return { judgment_id: "j", upstream: { url: "u", headers: [] } };
+        }) as never,
+        recordJudgmentUsage: refuse,
+        authorizeMcpEgress: refuse as never,
+      },
+      logger: createLogger({ sinks: [] }),
+      token: shared,
+    });
+    const send = (purpose: "provider" | "judgment", features?: string) =>
+      handle(
+        new Request(`http://authorizer.invalid${EGRESS_AUTHORIZER_PATH}`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${shared}`,
+            ...(features === undefined
+              ? {}
+              : { [EGRESS_FEATURES_HEADER]: features }),
+          },
+          body: JSON.stringify({ token: "t".repeat(20), purpose }),
+        }),
+      );
+    return { asked, send };
+  }
+
+  test("a provider or judgment authorize says whether the proxy reads the private mark", async () => {
+    const { asked, send } = recording();
+    const said: Array<[string | undefined, boolean]> = [
+      ["registered-upstream,registered-private-upstream", true],
+      [" later-feature ,  registered-private-upstream ", true],
+      // A proxy with the public mark alone, one from before any mark, and
+      // a feature that only starts the same way.
+      ["registered-upstream", false],
+      [undefined, false],
+      ["registered-private-upstream-v2", false],
+    ];
+    for (const purpose of ["provider", "judgment"] as const) {
+      for (const [features, reads] of said) {
+        asked.length = 0;
+        expect((await send(purpose, features)).status).toBe(200);
+        expect(asked).toEqual([{ route: purpose, reads }]);
+      }
+    }
   });
 });

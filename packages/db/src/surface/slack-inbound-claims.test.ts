@@ -868,3 +868,41 @@ describe("the payload of a settled row", () => {
     expect((await row(dropped)).status).toBe("received");
   });
 });
+
+describe("deferring a Slack inbox row", () => {
+  test("a deferred row is released to wait its time; waits spend no attempt, and a late owner defers nothing", async () => {
+    await settle();
+    const app = await agentApp();
+    const id = await mention(app, {
+      ts: "1792800000.000910",
+      thread: "1792800000.000900",
+    });
+    const other = await mention(app, {
+      ts: "1792800000.000920",
+      at: 1_792_800_001,
+    });
+    for (let wait = 0; wait <= SLACK_INBOUND_MAX_ATTEMPTS; wait += 1) {
+      const [claim, ...rest] = await inbox.claim({ limit: 1, ...LEASE });
+      expect(claim?.eventId).toBe(id);
+      expect(claim?.attempts).toBe(1);
+      expect(rest).toEqual([]);
+      if (!claim) throw new Error("not claimed");
+      expect(await inbox.defer(claim, { retryInMs: 2_000 })).toBe(true);
+      expect(await row(id)).toMatchObject({
+        status: "received",
+        attempts: 0,
+        claimToken: null,
+        leaseExpiresAt: null,
+      });
+      const waited = await db.execute<{ secs: number }>(
+        sql`SELECT round(extract(epoch FROM next_attempt_at - now()))::int AS secs FROM slack_inbound_events WHERE event_id = ${id}`,
+      );
+      expect(waited.rows[0]?.secs).toBe(2);
+      // Released already: its claim defers nothing again.
+      expect(await inbox.defer(claim, { retryInMs: 2_000 })).toBe(false);
+      await backoffOver(id);
+    }
+    // Its thread waited aside; the channel's other thread was there all along.
+    await expectTurns([id, other]);
+  });
+});

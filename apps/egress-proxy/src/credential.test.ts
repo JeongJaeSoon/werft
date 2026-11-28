@@ -8,18 +8,24 @@ import {
 } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { connect, createServer, type Socket } from "node:net";
-import { tmpdir } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { egressProxyConfigFromEnv } from "./config.ts";
 import {
   type Authorized,
+  addressKeys,
+  addressMemory,
   bodyReservation,
   type CredentialProxyServer,
   decidedWithin,
   type EgressGrant,
+  hostKey,
+  installationHosts,
   isPushAdvertisement,
   mcpCallOf,
   parseGrant,
+  privateRefusal,
+  registeredPrivate,
   responseHeaders,
   routeOf,
   secretGuard,
@@ -30,7 +36,7 @@ import {
   upstreamRequestHeaders,
 } from "./credential.ts";
 import { createProxyLogger } from "./logger.ts";
-import type { EgressPolicy } from "./policy.ts";
+import { classifyAddress, type EgressPolicy } from "./policy.ts";
 
 const AUTHORIZER_TOKEN = "authorizer-token-for-tests-0123456789";
 const WORKER_TOKEN = "wep_worker-egress-token";
@@ -546,6 +552,313 @@ describe("upstreamRequestHeaders", () => {
       host: "api.test",
       "x-api-key": PROVIDER_KEY,
     });
+  });
+});
+
+describe("the registered-private mark", () => {
+  const authorizerUrl = new URL("http://api:3100/authorize");
+  const grant = (upstream: Record<string, unknown>) =>
+    parseGrant(
+      {
+        session_id: "s",
+        attempt_id: "a",
+        upstream: { headers: [], ...upstream },
+      },
+      authorizerUrl,
+    );
+  const marked = (url: string, deny: unknown = []) =>
+    grant({ url, allow: "private", deny }) as EgressGrant;
+  const operator: EgressPolicy = {
+    allow: [{ host: "listed.test", port: 443 }],
+    allowPrivate: [{ host: "inside.test", port: 4000 }],
+  };
+  const ROUTES = ["mcp", "provider", "judgment"] as const;
+
+  test("hostKey reads a host as an upstream URL naming it is read", () => {
+    const keys: Array<[string, string | null]> = [
+      ["DB.", "db"],
+      ["db..", "db"],
+      ["Model.Internal...", "model.internal"],
+      ["10.0.0.5.", "10.0.0.5"],
+      ["127.1..", "127.0.0.1"],
+      ["api_internal", "api_internal"],
+      ["10.0.0.5", "10.0.0.5"],
+      ["2130706433", "127.0.0.1"],
+      ["0x7f.1", "127.0.0.1"],
+      ["010.0.0.5", "8.0.0.5"],
+      ["[FD00::1]", "fd00::1"],
+      ["fd00:0:0:0:0:0:0:1", "fd00::1"],
+      // IPv4-mapped is the IPv4 address a socket takes it to.
+      ["::ffff:10.0.0.5", "10.0.0.5"],
+      ["[::FFFF:A00:5]", "10.0.0.5"],
+      // Not a host alone.
+      ["", null],
+      [".", null],
+      ["..", null],
+      ["db:5432", null],
+      ["[fd00::1]:80", null],
+      ["db/path", null],
+      ["user@db", null],
+      ["a b", null],
+      ["fe80::1%eth0", null],
+      ["1.2.3.4.5", null],
+    ];
+    for (const [host, key] of keys) {
+      expect([host, hostKey(host)]).toEqual([host, key]);
+      // A kept key is read again as itself.
+      if (key !== null) expect([host, hostKey(key)]).toEqual([host, key]);
+    }
+  });
+
+  test("parseGrant keeps the mark with its deny list, each host in one spelling", () => {
+    const parsed = marked("http://model.internal:4000/v1", [
+      "DB.",
+      "[FD00:0:0:0:0:0:0:1]",
+      "10.0.0.7",
+      "2130706433",
+    ]);
+    expect(parsed.allow).toBe("private");
+    expect(parsed.deny).toEqual(["db", "fd00::1", "10.0.0.7", "127.0.0.1"]);
+    // Kept as the key the upstream's own name has, however many dots end it.
+    expect(
+      marked("http://model.internal:4000/v1", ["model.internal.."]).deny,
+    ).toEqual([hostKey("model.internal") ?? ""]);
+    expect(marked("http://model.internal:4000/v1").deny).toEqual([]);
+    const most = Array.from({ length: 256 }, (_, index) => `h${index}`);
+    expect(marked("http://model.internal:4000/v1", most).deny).toHaveLength(
+      256,
+    );
+  });
+
+  test("a private mark without a deny list the proxy can read is no grant", () => {
+    const unreadable: unknown[] = [
+      null,
+      "db",
+      {},
+      [1],
+      [""],
+      [["db"]],
+      ["db:5432"],
+      ["db/path"],
+      ["fe80::1%eth0"],
+      ["db", "a b"],
+      Array.from({ length: 257 }, (_, index) => `h${index}`),
+    ];
+    for (const deny of unreadable) {
+      expect(
+        grant({ url: "http://model.internal:4000/v1", allow: "private", deny }),
+      ).toBeNull();
+    }
+    expect(
+      grant({ url: "http://model.internal:4000/v1", allow: "private" }),
+    ).toBeNull();
+    // On every route, the built-in server and the routes that do not read
+    // the mark included: a grant is read before its route is known.
+    expect(grant({ url: "/mcp/github", allow: "private" })).toBeNull();
+  });
+
+  test("without the private mark a deny list is not read", () => {
+    // An API from before the mark sends neither; one that sent only the
+    // list would get what it gets today.
+    for (const allow of [
+      undefined,
+      "public_https",
+      "PRIVATE",
+      "private_http",
+      true,
+    ]) {
+      const parsed = grant({
+        url: "http://inside.test:4000/v1",
+        deny: ["db:5432"],
+        ...(allow === undefined ? {} : { allow }),
+      }) as EgressGrant;
+      expect(parsed).not.toBeNull();
+      expect("deny" in parsed).toBe(false);
+      for (const purpose of ROUTES) {
+        expect(registeredPrivate(purpose, parsed)).toBe(false);
+        expect(upstreamPolicy(purpose, parsed, operator)).toBe(operator);
+      }
+    }
+  });
+
+  test("a marked model endpoint or MCP server gets a policy of its own host:port, private only", () => {
+    for (const purpose of ROUTES) {
+      const named = marked("http://Model.Internal.:4000/v1");
+      expect(registeredPrivate(purpose, named)).toBe(true);
+      expect(upstreamPolicy(purpose, named, operator)).toEqual({
+        allow: [],
+        allowPrivate: [{ host: "model.internal", port: 4000 }],
+      });
+    }
+    // The scheme's port when the grant names none; plain http and https alike.
+    expect(
+      upstreamPolicy("provider", marked("http://10.0.0.5/v1"), operator),
+    ).toEqual({ allow: [], allowPrivate: [{ host: "10.0.0.5", port: 80 }] });
+    expect(
+      upstreamPolicy("mcp", marked("https://mcp.internal/mcp"), operator),
+    ).toEqual({
+      allow: [],
+      allowPrivate: [{ host: "mcp.internal", port: 443 }],
+    });
+    // An operator-listed host is taken off the operator's list all the same.
+    expect(
+      upstreamPolicy("provider", marked("http://inside.test:4000"), operator),
+    ).toEqual({
+      allow: [],
+      allowPrivate: [{ host: "inside.test", port: 4000 }],
+    });
+  });
+
+  test("the private mark is read on no other route, nor on the built-in server", () => {
+    for (const purpose of ["repository", "packages", "object_store"] as const) {
+      const other = marked("http://git.internal:3000/repo");
+      expect(registeredPrivate(purpose, other)).toBe(false);
+      expect(upstreamPolicy(purpose, other, operator)).toBe(operator);
+    }
+    const builtin = marked("/mcp/github");
+    expect(builtin.builtin).toBe(true);
+    expect(registeredPrivate("mcp", builtin)).toBe(false);
+    expect(upstreamPolicy("mcp", builtin, operator)).toBe(operator);
+  });
+
+  test("privateRefusal passes an address that is private as written, and no other", () => {
+    const none = new Set<string>();
+    for (const address of [
+      "10.0.0.5",
+      "172.16.0.1",
+      "192.168.1.20",
+      "100.64.0.1",
+      "fd12:3456::1",
+      "fd12:3456::1%eth0",
+    ]) {
+      expect([address, privateRefusal(address, none)]).toEqual([address, null]);
+    }
+    const kinds: Array<[string, string]> = [
+      ["127.0.0.1", "loopback"],
+      ["127.255.255.254", "loopback"],
+      ["::1", "loopback"],
+      ["::ffff:127.0.0.1", "loopback"],
+      ["93.184.216.34", "public"],
+      ["2606:4700:4700::1111", "public"],
+      ["169.254.169.254", "metadata"],
+      ["100.100.100.200", "metadata"],
+      ["fd00:ec2::254", "metadata"],
+      ["fd12:3456::a9fe:a9fe", "metadata"],
+      ["::ffff:169.254.169.254", "metadata"],
+      ["169.254.10.10", "link_local"],
+      ["fe80::1", "link_local"],
+      ["0.0.0.0", "unspecified"],
+      ["224.0.0.251", "multicast"],
+      ["240.0.0.1", "reserved"],
+      ["model.internal", "null"],
+    ];
+    for (const [address, kind] of kinds) {
+      expect(privateRefusal(address, none)).toBe(
+        `${address} is ${kind}, not private`,
+      );
+    }
+    // A private IPv4 address inside IPv6 is not the address the admin saw.
+    for (const address of [
+      "::ffff:10.0.0.5",
+      "::ffff:a00:5",
+      "64:ff9b::a00:5",
+    ]) {
+      expect(privateRefusal(address, none)).toBe(
+        `${address} carries an IPv4 address, and is not private as written`,
+      );
+    }
+  });
+
+  test("privateRefusal refuses the installation's own address in any spelling", () => {
+    const own = new Set(["10.0.0.7", "fd00::7"]);
+    for (const address of [
+      "10.0.0.7",
+      "fd00::7",
+      "fd00:0:0:0:0:0:0:7",
+      "FD00::7",
+      "fd00::7%eth0",
+    ]) {
+      expect(privateRefusal(address, own)).toBe(
+        `${address} is the installation's own`,
+      );
+    }
+    expect(privateRefusal("10.0.0.8", own)).toBeNull();
+  });
+
+  test("installationHosts holds the grant's hosts, the authorizer and the addresses given, each in one spelling", () => {
+    const hosts = installationHosts(["db", "10.0.0.7"], "api", [
+      "172.20.0.4",
+      "fd00:0:0:0:0:0:0:4",
+      "fe80::1%eth0",
+      "::ffff:172.20.0.3",
+      "not-an-address",
+    ]);
+    expect([...hosts].sort()).toEqual(
+      [
+        "db",
+        "10.0.0.7",
+        "api",
+        "172.20.0.4",
+        "fd00::4",
+        "fe80::1",
+        "172.20.0.3",
+      ].sort(),
+    );
+    // An authorizer that answers on an IPv4-mapped address is the IPv4
+    // address an upstream would be dialled at, and the other way round.
+    expect(privateRefusal("172.20.0.3", hosts)).toBe(
+      "172.20.0.3 is the installation's own",
+    );
+    expect(privateRefusal("::ffff:172.20.0.4", hosts)).toBe(
+      "::ffff:172.20.0.4 is the installation's own",
+    );
+    expect([...installationHosts([], "172.20.0.3", [])]).toEqual([
+      "172.20.0.3",
+    ]);
+  });
+
+  test("addressKeys keeps the addresses among a resolver's answers, in one spelling", () => {
+    expect(
+      addressKeys([
+        "10.0.0.7",
+        "::ffff:10.0.0.8",
+        "FD00:0:0:0:0:0:0:9",
+        "fe80::1%eth0",
+        "not-an-address",
+        "",
+      ]),
+    ).toEqual(["10.0.0.7", "10.0.0.8", "fd00::9", "fe80::1"]);
+    expect(addressKeys(["not-an-address"])).toEqual([]);
+  });
+
+  test("addressMemory keeps what a name resolved to until it is that old, and no more than it may hold", () => {
+    let now = 1_000;
+    const seen = addressMemory(300, 2, () => now);
+    expect(seen(["10.0.0.7"])).toEqual(["10.0.0.7"]);
+    now += 200;
+    // The name moved: the address it had is still remembered for a while.
+    expect(seen(["10.0.0.8"])?.sort()).toEqual(["10.0.0.7", "10.0.0.8"]);
+    // More than it may hold is not kept, and is no answer for as long as
+    // the address left out would have been remembered: no set with a hole.
+    expect(seen(["10.0.0.9"])).toBeNull();
+    now += 299;
+    expect(seen(["10.0.0.9"])).toBeNull();
+    // Gone at exactly its age, not after it: .8 and the one left out.
+    now += 1;
+    expect(seen(["10.0.0.9"])).toEqual(["10.0.0.9"]);
+  });
+
+  test("addressMemory keeps an address it holds while it is full", () => {
+    let now = 0;
+    const seen = addressMemory(300, 2, () => now);
+    expect(seen(["10.0.0.7", "10.0.0.8"])).toEqual(["10.0.0.7", "10.0.0.8"]);
+    now = 200;
+    expect(seen(["10.0.0.7"])).toEqual(["10.0.0.7", "10.0.0.8"]);
+    // .8 is as old as it gets, .7 was seen again since: room for one more.
+    now = 300;
+    expect(seen(["10.0.0.9"])).toEqual(["10.0.0.7", "10.0.0.9"]);
+    // Asked for nothing new, it answers what it holds.
+    expect(seen([])).toEqual(["10.0.0.7", "10.0.0.9"]);
   });
 });
 
@@ -1078,6 +1391,39 @@ describe("startCredentialProxy", () => {
     expect(report?.exchange_id).toBe(exchanges[0] as string);
     expect(report?.session_id).toBeUndefined();
     expect(report?.usage).toMatchObject({ input_tokens: 9, output_tokens: 3 });
+  });
+
+  test("a conversation call to a model endpoint off the operator's lists is refused before its name is looked up: its grant carries no private mark", async () => {
+    const looked: string[] = [];
+    const auth = authorizer(() =>
+      Response.json({
+        conversation_call_id: "call-1",
+        // As the API grants a conversation call on a connection registered
+        // as private: unmarked, so the operator's lists hold it.
+        upstream: {
+          url: "http://model.internal:4000",
+          headers: [["x-api-key", PROVIDER_KEY]],
+        },
+        request_limits: {
+          path: "/v1/messages",
+          model: "m-call",
+          max_tokens: 64,
+          max_request_bytes: 80,
+        },
+      }),
+    );
+    const server = proxy(auth.url, 1, {
+      resolve: async (host) => {
+        looked.push(host);
+        return ["10.0.0.5"];
+      },
+    });
+    const response = await messages(server.port, {
+      path: "/provider/v1/messages",
+      body: '{"model":"m-call","max_tokens":64,"messages":[]}',
+    });
+    expect(response.status).toBe(403);
+    expect(looked).toEqual([]);
   });
 
   test("a conversation call the provider answered with an error is reported unbilled before its caller hears", async () => {
@@ -3964,6 +4310,26 @@ describe("startCredentialProxy", () => {
     expect(up.seen).toEqual([]);
   });
 
+  test("of several judged addresses the first alone is dialled, and none after it", async () => {
+    const up = upstream(() => Response.json({ id: "msg_1" }));
+    const auth = authorizer(
+      granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    // The upstream listens on 127.0.0.1 alone: nothing answers on ::1.
+    let addresses = ["127.0.0.1", "::1"];
+    const server = proxy(auth.url, up.port, {
+      resolve: async () => addresses,
+    });
+    expect((await messages(server.port)).status).toBe(200);
+    expect(up.seen).toHaveLength(1);
+    // The first fails to connect: the POST is not sent to the second.
+    addresses = ["::1", "127.0.0.1"];
+    expect((await messages(server.port)).status).toBe(502);
+    expect(up.seen).toHaveLength(1);
+  });
+
   test("a grant URL spelling a metadata address as one number is judged as that address", async () => {
     const up = upstream(() => Response.json({ id: "msg_1" }));
     for (const spelled of ["1684301000", "0x646464c8", "0144.0144.0144.0310"]) {
@@ -4464,9 +4830,820 @@ describe("startCredentialProxy", () => {
         expect(response.status).toBe(200);
         expect((await messages(server.port)).status).toBe(403);
         expect(features).toEqual([
-          "registered-upstream",
-          "registered-upstream",
+          "registered-upstream,registered-private-upstream",
+          "registered-upstream,registered-private-upstream",
         ]);
+      });
+    });
+
+    describe("a registered private upstream's mark", () => {
+      const INSIDE = "model.internal";
+      // A private address of this machine for a test's upstream to listen
+      // on: the rules under test refuse loopback, where the others listen.
+      const lan = Object.values(networkInterfaces())
+        .flat()
+        .find(
+          (entry) =>
+            entry?.family === "IPv4" &&
+            classifyAddress(entry.address) === "private",
+        )?.address;
+      const PRIVATE = { allow: "private", deny: [] as string[] };
+      const grantOf = (
+        url: string,
+        mark: Record<string, unknown> = PRIVATE,
+      ) => ({
+        session_id: "sess-1",
+        attempt_id: "att-1",
+        upstream: {
+          url,
+          headers: [["authorization", `Bearer ${SERVICE_ACCOUNT}`]],
+          ...mark,
+        },
+      });
+      function marked(
+        answer: (body: { purpose: string }) => Record<string, unknown>,
+        resolveTo: (host: string) => Promise<string[]>,
+        // No address of the machine the test runs on, unless a test says so.
+        options: Partial<Parameters<typeof startCredentialProxy>[0]> = {
+          selfAddresses: () => [],
+        },
+        listedPort = 1,
+      ) {
+        const looked: string[] = [];
+        const lines: string[] = [];
+        const auth = authorizer((body) => Response.json(answer(body)));
+        const server = proxy(auth.url, listedPort, {
+          logger: createProxyLogger("warn", (line) => lines.push(line)),
+          resolve: async (host) => {
+            looked.push(host);
+            return resolveTo(host);
+          },
+          ...options,
+        });
+        return { auth, server, looked, lines };
+      }
+      function inside(
+        answer: () => Response = () =>
+          Response.json({ jsonrpc: "2.0", id: 1, result: {} }),
+        tls?: { cert: string; key: string },
+      ) {
+        const seen: Array<{ path: string; authorization: string | null }> = [];
+        const server = Bun.serve({
+          hostname: "0.0.0.0",
+          port: 0,
+          ...(tls === undefined ? {} : { tls }),
+          fetch(request) {
+            seen.push({
+              path: new URL(request.url).pathname,
+              authorization: request.headers.get("authorization"),
+            });
+            return answer();
+          },
+        });
+        servers.push(server);
+        return { port: server.port ?? 0, seen };
+      }
+      /**
+       * The authorizer's URL by name. The control requests reach it through
+       * the system's lookup of localhost, which may be ::1 alone, so it is
+       * answered there too; the judgment asks the test's resolver.
+       */
+      async function byName(url: string): Promise<string> {
+        try {
+          servers.push(
+            Bun.serve({
+              hostname: "::1",
+              port: Number(new URL(url).port),
+              fetch: async (request) =>
+                fetch(url + new URL(request.url).pathname, {
+                  method: request.method,
+                  headers: request.headers,
+                  body: await request.text(),
+                }),
+            }),
+          );
+        } catch {}
+        const named = url.replace("127.0.0.1", "localhost");
+        // Said here rather than as a 503 further down: the name reaches it.
+        expect(await fetch(named).then((response) => response.status)).toBe(
+          401,
+        );
+        return named;
+      }
+
+      test("with an API that sends no mark, nothing changes: the operator's list decides", async () => {
+        const up = upstream(() =>
+          Response.json({ jsonrpc: "2.0", id: 1, result: {} }),
+        );
+        let grant = grantOf(`http://upstream.test:${up.port}/mcp`, {});
+        let addresses = ["127.0.0.1"];
+        const { server, looked, lines } = marked(
+          () => grant,
+          async () => addresses,
+          {},
+          up.port,
+        );
+        // A privately listed host still reaches loopback, as it does today.
+        expect((await call(server.port, TOOLS_CALL)).status).toBe(200);
+        expect((await messages(server.port)).status).toBe(200);
+        expect(up.seen).toHaveLength(2);
+        expect(looked).toEqual(["upstream.test", "upstream.test"]);
+        // A private host off the list is refused before its name is looked up.
+        grant = grantOf(`http://${INSIDE}:4000/mcp`, {});
+        expect((await call(server.port, TOOLS_CALL)).status).toBe(403);
+        expect((await messages(server.port)).status).toBe(403);
+        expect(looked).toEqual(["upstream.test", "upstream.test"]);
+        expect(lines.join("\n")).toContain("destination is not allowlisted");
+        // A deny list alone is no mark: it does not close the listed host.
+        const listed = `http://upstream.test:${up.port}/mcp`;
+        grant = grantOf(listed, { deny: ["upstream.test", "127.0.0.1"] });
+        expect((await call(server.port, TOOLS_CALL)).status).toBe(200);
+        expect(up.seen).toHaveLength(3);
+        expect(lines.join("\n")).not.toContain("installation's own");
+        // With the mark the same listed host is held to the private rules,
+        // which loopback does not pass. Not 127.0.0.1: the test's authorizer
+        // listens there, and that is refused for being the authorizer.
+        grant = grantOf(listed);
+        addresses = ["127.0.0.2"];
+        expect((await call(server.port, TOOLS_CALL)).status).toBe(403);
+        expect(lines.join("\n")).toContain(
+          "127.0.0.2 is loopback, not private",
+        );
+        // A private mark without its deny list is no grant at all.
+        grant = grantOf(listed, { allow: "private" });
+        expect((await call(server.port, TOOLS_CALL)).status).toBe(503);
+        expect(up.seen).toHaveLength(3);
+      });
+
+      test.skipIf(lan === undefined)(
+        "the mark opens a name that resolves privately, for an MCP server and a model alike",
+        async () => {
+          const up = inside();
+          let addresses = [lan ?? ""];
+          const { server, looked } = marked(
+            () => grantOf(`http://${INSIDE}.:${up.port}/base`),
+            async () => addresses,
+            { selfAddresses: () => [] },
+          );
+          expect((await call(server.port, TOOLS_CALL)).status).toBe(200);
+          expect((await messages(server.port)).status).toBe(200);
+          expect(up.seen).toEqual([
+            { path: "/base", authorization: `Bearer ${SERVICE_ACCOUNT}` },
+            {
+              path: "/base/v1/messages",
+              authorization: `Bearer ${SERVICE_ACCOUNT}`,
+            },
+          ]);
+          // Looked up afresh for each exchange.
+          expect(looked).toEqual([INSIDE, INSIDE]);
+          // And judged afresh: the answer that passed a moment ago is not kept.
+          addresses = ["93.184.216.34"];
+          expect((await call(server.port, TOOLS_CALL)).status).toBe(403);
+          expect(up.seen).toHaveLength(2);
+        },
+      );
+
+      test.skipIf(lan === undefined)(
+        "the mark opens a named https upstream, and no https address",
+        async () => {
+          const up = inside(undefined, certificate);
+          let url = `https://upstream.test:${up.port}/mcp`;
+          const { server } = marked(
+            () => grantOf(url),
+            async (host) => (host === "upstream.test" ? [lan ?? ""] : [host]),
+            { selfAddresses: () => [], upstreamCa: certificate.cert },
+          );
+          expect((await call(server.port, TOOLS_CALL)).status).toBe(200);
+          expect(up.seen).toHaveLength(1);
+          url = "https://10.0.0.5/mcp";
+          const unnamed = await call(server.port, TOOLS_CALL);
+          expect(unnamed.status).toBe(502);
+          expect(await unnamed.text()).toContain("must be named");
+        },
+      );
+
+      test.skipIf(lan === undefined)(
+        "this proxy's own address and a denied address are refused where the same upstream would answer",
+        async () => {
+          const up = inside();
+          let deny: string[] = [];
+          const answer = () =>
+            grantOf(`http://${INSIDE}:${up.port}/mcp`, {
+              allow: "private",
+              deny,
+            });
+          // No selfAddresses: the host's interfaces, which hold this address.
+          const own = marked(answer, async () => [lan ?? ""], {});
+          expect((await call(own.server.port, TOOLS_CALL)).status).toBe(403);
+          expect(own.lines.join("\n")).toContain(
+            `${lan} is the installation's own`,
+          );
+          // The grant's deny list comes before the private rules pass it.
+          const denied = marked(answer, async () => [lan ?? ""], {
+            selfAddresses: () => [],
+          });
+          expect((await call(denied.server.port, TOOLS_CALL)).status).toBe(200);
+          deny = [lan ?? ""];
+          expect((await call(denied.server.port, TOOLS_CALL)).status).toBe(403);
+          expect(denied.lines.join("\n")).toContain(
+            `${lan} is the installation's own`,
+          );
+          expect(up.seen).toHaveLength(1);
+        },
+      );
+
+      test.skipIf(lan === undefined)(
+        "an address a regrant holds off while the body is still arriving is not dialled",
+        async () => {
+          const up = inside(() => Response.json({ id: "msg_1" }));
+          let deny: string[] = [];
+          // The slow call's asks alone: the call that prepares has its own
+          // exchange id, and a regrant of it may still be on its way.
+          let prep: string | null | undefined;
+          let asks = 0;
+          const made = marked(
+            () => {
+              if (prep !== undefined && made.auth.exchanges.at(-1) !== prep) {
+                asks += 1;
+              }
+              return grantOf(`http://${INSIDE}:${up.port}`, {
+                allow: "private",
+                deny,
+              });
+            },
+            async () => [lan ?? ""],
+            { selfAddresses: () => [], regrantIntervalMs: 20 },
+          );
+          const { server, lines } = made;
+          const asked = async (count: number) => {
+            while (asks < count) await Bun.sleep(5);
+          };
+          expect((await messages(server.port)).status).toBe(200);
+          expect(up.seen).toHaveLength(1);
+          prep = made.auth.exchanges[0] ?? null;
+          let body: ReadableStreamDefaultController<Uint8Array> | undefined;
+          const slow = fetch(
+            `http://127.0.0.1:${server.port}/provider/v1/messages`,
+            {
+              method: "POST",
+              headers: { "x-api-key": WORKER_TOKEN },
+              body: new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(new TextEncoder().encode('{"model":'));
+                  body = controller;
+                },
+              }),
+            },
+          );
+          // Granted and judged with nothing held off; then the address is,
+          // and two more grants say so before the body ends.
+          await asked(1);
+          deny = [lan ?? ""];
+          await asked(3);
+          // A later grant that no longer names it (another replica's) does
+          // not let it back in.
+          deny = [];
+          await asked(asks + 2);
+          body?.enqueue(new TextEncoder().encode('"m"}'));
+          body?.close();
+          expect((await slow).status).toBe(403);
+          expect(lines.join("\n")).toContain(
+            `${lan} is the installation's own`,
+          );
+          expect(up.seen).toHaveLength(1);
+        },
+      );
+
+      test.skipIf(lan === undefined)(
+        "a regrant left unanswered while the body is still arriving holds the call rather than dial on an old list",
+        async () => {
+          const up = inside(() => Response.json({ id: "msg_1" }));
+          let answers = true;
+          let prep: string | null | undefined;
+          let asks = 0;
+          const auth = authorizer(() => {
+            const slow = prep !== undefined && auth.exchanges.at(-1) !== prep;
+            if (slow) asks += 1;
+            return answers || !slow
+              ? Response.json(grantOf(`http://${INSIDE}:${up.port}`))
+              : Response.json(
+                  {
+                    code: "BACKEND_UNAVAILABLE",
+                    message:
+                      "The installation's own addresses could not be told",
+                    retryable: true,
+                  },
+                  { status: 503 },
+                );
+          });
+          const server = proxy(auth.url, 1, {
+            resolve: async () => [lan ?? ""],
+            selfAddresses: () => [],
+            regrantIntervalMs: 20,
+            regrantGraceMs: 60_000,
+          });
+          const asked = async (count: number) => {
+            while (asks < count) await Bun.sleep(5);
+          };
+          expect((await messages(server.port)).status).toBe(200);
+          expect(up.seen).toHaveLength(1);
+          prep = auth.exchanges[0] ?? null;
+          let body: ReadableStreamDefaultController<Uint8Array> | undefined;
+          const slow = fetch(
+            `http://127.0.0.1:${server.port}/provider/v1/messages`,
+            {
+              method: "POST",
+              headers: { "x-api-key": WORKER_TOKEN },
+              body: new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(new TextEncoder().encode('{"model":'));
+                  body = controller;
+                },
+              }),
+            },
+          );
+          await asked(1);
+          answers = false;
+          await asked(3);
+          body?.enqueue(new TextEncoder().encode('"m"}'));
+          body?.close();
+          expect((await slow).status).toBe(503);
+          expect(up.seen).toHaveLength(1);
+        },
+      );
+
+      test.skipIf(lan === undefined)(
+        "a regrant still under way when the body ends holds the call too",
+        async () => {
+          const up = inside(() => Response.json({ id: "msg_1" }));
+          let prep: string | null | undefined;
+          let asks = 0;
+          let hold = false;
+          let held = 0;
+          let answer: (() => void) | undefined;
+          const auth = authorizer((async () => {
+            const slow = prep !== undefined && auth.exchanges.at(-1) !== prep;
+            if (slow) asks += 1;
+            if (hold && slow) {
+              held += 1;
+              await new Promise<void>((go) => {
+                answer = go;
+              });
+            }
+            return Response.json(grantOf(`http://${INSIDE}:${up.port}`));
+          }) as unknown as () => Response);
+          const server = proxy(auth.url, 1, {
+            resolve: async () => [lan ?? ""],
+            selfAddresses: () => [],
+            regrantIntervalMs: 20,
+            regrantGraceMs: 60_000,
+          });
+          expect((await messages(server.port)).status).toBe(200);
+          expect(up.seen).toHaveLength(1);
+          prep = auth.exchanges[0] ?? null;
+          let body: ReadableStreamDefaultController<Uint8Array> | undefined;
+          const slow = fetch(
+            `http://127.0.0.1:${server.port}/provider/v1/messages`,
+            {
+              method: "POST",
+              headers: { "x-api-key": WORKER_TOKEN },
+              body: new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(new TextEncoder().encode('{"model":'));
+                  body = controller;
+                },
+              }),
+            },
+          );
+          // The slow call is granted; from then on its regrants are asked
+          // and not answered, and one is under way when the body ends.
+          while (asks < 1) await Bun.sleep(5);
+          hold = true;
+          while (held < 1) await Bun.sleep(5);
+          body?.enqueue(new TextEncoder().encode('"m"}'));
+          body?.close();
+          const response = await slow;
+          expect(response.status).toBe(503);
+          expect(response.headers.get("retry-after")).not.toBeNull();
+          expect(up.seen).toHaveLength(1);
+          answer?.();
+        },
+      );
+
+      test("the mark holds the name to private addresses: a public answer, a mixed one and none are refused", async () => {
+        let addresses: () => Promise<string[]> = async () => ["93.184.216.34"];
+        const { server, looked, lines } = marked(
+          () => grantOf(`http://${INSIDE}:4000/mcp`),
+          () => addresses(),
+        );
+        expect((await call(server.port, TOOLS_CALL)).status).toBe(403);
+        expect((await messages(server.port)).status).toBe(403);
+        expect(lines.join("\n")).toContain(
+          `93.184.216.34 is public, and ${INSIDE} is listed as private`,
+        );
+        // A rebinding: one private answer beside a public one is no pass.
+        addresses = async () => ["10.0.0.5", "2606:4700:4700::1111"];
+        expect((await call(server.port, TOOLS_CALL)).status).toBe(403);
+        expect(lines.join("\n")).toContain("2606:4700:4700::1111 is public");
+        addresses = async () => {
+          throw new Error(`getaddrinfo ENOTFOUND ${INSIDE}`);
+        };
+        expect((await call(server.port, TOOLS_CALL)).status).toBe(502);
+        addresses = async () => [];
+        expect((await call(server.port, TOOLS_CALL)).status).toBe(502);
+        expect(looked).toEqual([INSIDE, INSIDE, INSIDE, INSIDE, INSIDE]);
+      });
+
+      test("the addresses that are never dialled stay refused under the mark", async () => {
+        const never: Array<[string, string]> = [
+          // Cloud metadata, fc00::/7 carrying a9fe:a9fe among it.
+          ["169.254.169.254", "is metadata"],
+          ["169.254.170.2", "is metadata"],
+          ["100.100.100.200", "is metadata"],
+          ["fd00:ec2::254", "is metadata"],
+          ["fd12:3456::a9fe:a9fe", "is metadata"],
+          ["fd00:a9fe:a9fe::1", "is metadata"],
+          ["::ffff:169.254.169.254", "is metadata"],
+          ["64:ff9b::a9fe:a9fe", "is metadata"],
+          // Loopback: this proxy's own container.
+          ["127.0.0.2", "is loopback, not private"],
+          ["127.255.255.254", "is loopback, not private"],
+          ["::1", "is loopback, not private"],
+          ["::ffff:127.0.0.2", "is loopback, not private"],
+          ["169.254.10.10", "is link_local"],
+          ["fe80::1", "is link_local"],
+          ["0.0.0.0", "is unspecified"],
+          ["::", "is unspecified"],
+          ["224.0.0.251", "is multicast"],
+          ["ff02::1", "is multicast"],
+          ["240.0.0.1", "is reserved"],
+          ["192.0.2.1", "is reserved"],
+          // A private IPv4 address in IPv6 clothes.
+          ["::ffff:10.0.0.5", "carries an IPv4 address"],
+          ["64:ff9b::a00:5", "carries an IPv4 address"],
+        ];
+        let addresses: string[] = [];
+        const { server, lines } = marked(
+          (body) =>
+            body.purpose === "mcp"
+              ? grantOf(`http://${INSIDE}:4000/mcp`)
+              : grantOf(`http://${INSIDE}:4000`),
+          async () => addresses,
+        );
+        for (const [address, reason] of never) {
+          // Alone, and beside an address that would pass.
+          for (const answer of [[address], ["10.0.0.5", address]]) {
+            addresses = answer;
+            lines.length = 0;
+            expect([
+              address,
+              (await call(server.port, TOOLS_CALL)).status,
+            ]).toEqual([address, 403]);
+            expect(lines.join("\n")).toContain(`${address} ${reason}`);
+          }
+        }
+        // The model routes are held to the same rules.
+        addresses = ["127.0.0.1"];
+        expect((await messages(server.port)).status).toBe(403);
+      });
+
+      test("a metadata name is refused under the mark before it is looked up", async () => {
+        let host = "metadata.google.internal";
+        const { server, looked, lines } = marked(
+          () => grantOf(`http://${host}/computeMetadata/v1`),
+          async () => ["10.0.0.5"],
+        );
+        for (host of [
+          "metadata.google.internal",
+          "Metadata.",
+          "instance-data.ec2.internal",
+        ]) {
+          expect((await call(server.port, TOOLS_CALL)).status).toBe(403);
+        }
+        expect(looked).toEqual([]);
+        expect(lines.join("\n")).toContain("is a metadata service");
+      });
+
+      test("an address written another way is judged as the address it is", async () => {
+        const spellings: Array<[string, string, string]> = [
+          // A decimal integer, hex, octal and zero-padded octets.
+          ["http://2130706434:8080/mcp", "127.0.0.2", "is loopback"],
+          ["http://0x7f000002/mcp", "127.0.0.2", "is loopback"],
+          ["http://0x7f.2/mcp", "127.0.0.2", "is loopback"],
+          ["http://0177.0.0.2/mcp", "127.0.0.2", "is loopback"],
+          ["http://127.000.000.002/mcp", "127.0.0.2", "is loopback"],
+          ["http://127.2/mcp", "127.0.0.2", "is loopback"],
+          ["http://2852039166/mcp", "169.254.169.254", "is metadata"],
+          ["http://0xa9fea9fe/mcp", "169.254.169.254", "is metadata"],
+          // IPv4-mapped IPv6 and NAT64.
+          ["http://[::ffff:127.0.0.2]/mcp", "::ffff:7f00:2", "is loopback"],
+          ["http://[0:0:0:0:0:0:0:1]/mcp", "::1", "is loopback"],
+          [
+            "http://[::ffff:169.254.169.254]/mcp",
+            "::ffff:a9fe:a9fe",
+            "is metadata",
+          ],
+          [
+            "http://[64:ff9b::a9fe:a9fe]/mcp",
+            "64:ff9b::a9fe:a9fe",
+            "is metadata",
+          ],
+          [
+            "http://[::FFFF:10.0.0.5]/mcp",
+            "::ffff:a00:5",
+            "carries an IPv4 address",
+          ],
+          // A leading zero is octal to the URL parser: not 10.0.0.5 at all.
+          ["http://010.0.0.5/mcp", "8.0.0.5", "is public"],
+        ];
+        let url = "";
+        const { server, looked, lines } = marked(
+          () => grantOf(url),
+          // As the system resolver answers for an address.
+          async (host) => [host],
+        );
+        for (const [spelled, host, reason] of spellings) {
+          url = spelled;
+          looked.length = 0;
+          lines.length = 0;
+          expect([
+            spelled,
+            (await call(server.port, TOOLS_CALL)).status,
+          ]).toEqual([spelled, 403]);
+          expect(looked).toEqual([host]);
+          expect(lines.join("\n")).toContain(`${host} ${reason}`);
+        }
+      });
+
+      test("the grant's deny list is held by name and by address, before the private rules", async () => {
+        const deny = ["Postgres.", "db..", "10.0.0.7", "FD00:0:0:0:0:0:0:7"];
+        let url = "";
+        let addresses: string[] = [];
+        const { server, looked, lines } = marked(
+          () => grantOf(url, { allow: "private", deny }),
+          async () => addresses,
+        );
+        // By name, and an address named outright: refused without a lookup.
+        for (const named of [
+          "http://postgres:5432/mcp",
+          "http://POSTGRES.:5432/mcp",
+          "http://db:5432/mcp",
+          "http://db..:5432/mcp",
+          "http://10.0.0.7:8080/mcp",
+          "http://167772167:8080/mcp",
+          "http://[fd00::7]:8080/mcp",
+        ]) {
+          url = named;
+          expect([named, (await call(server.port, TOOLS_CALL)).status]).toEqual(
+            [named, 403],
+          );
+        }
+        expect(looked).toEqual([]);
+        expect(lines.join("\n")).toContain(
+          "postgres is the installation's own",
+        );
+        // By what another name resolves to, in any spelling, alone or not.
+        url = `http://${INSIDE}:4000/mcp`;
+        for (const answer of [
+          ["10.0.0.7"],
+          ["fd00::7"],
+          ["fd00:0:0:0:0:0:0:7"],
+          ["10.0.0.5", "10.0.0.7"],
+        ]) {
+          addresses = answer;
+          lines.length = 0;
+          expect([
+            answer,
+            (await call(server.port, TOOLS_CALL)).status,
+          ]).toEqual([answer, 403]);
+          expect(lines.join("\n")).toContain("is the installation's own");
+        }
+      });
+
+      test("the authorizer is never a registered private upstream", async () => {
+        let url = "";
+        const { auth, server, looked, lines } = marked(
+          () => grantOf(url),
+          async (host) => [host],
+        );
+        url = `${auth.url}/mcp`;
+        expect((await call(server.port, TOOLS_CALL)).status).toBe(403);
+        // By its host, before any lookup, and whatever the port.
+        url = "http://127.0.0.1:9/mcp";
+        expect((await call(server.port, TOOLS_CALL)).status).toBe(403);
+        // And in the IPv4-mapped spelling of the same address.
+        url = "http://[::ffff:127.0.0.1]:9/mcp";
+        expect((await call(server.port, TOOLS_CALL)).status).toBe(403);
+        expect(looked).toEqual([]);
+        expect(lines.join("\n")).toContain(
+          "127.0.0.1 is the installation's own",
+        );
+      });
+
+      test("an authorizer reached by name is refused by that name and by every address the name has had", async () => {
+        let upstreamAnswer = ["10.0.0.7"];
+        let authorizerAnswer: () => Promise<string[]> = async () => [
+          "10.0.0.7",
+        ];
+        let url = `http://${INSIDE}:4000/mcp`;
+        const looked: string[] = [];
+        const lines: string[] = [];
+        const auth = authorizer(() => Response.json(grantOf(url)));
+        const server = proxy(await byName(auth.url), 1, {
+          logger: createProxyLogger("warn", (line) => lines.push(line)),
+          resolve: async (host) => {
+            looked.push(host);
+            return host === "localhost" ? authorizerAnswer() : upstreamAnswer;
+          },
+          selfAddresses: () => [],
+        });
+        const ask = async () => {
+          looked.length = 0;
+          lines.length = 0;
+          return (await call(server.port, TOOLS_CALL)).status;
+        };
+        const OWN = "is the installation's own";
+        // The address its name resolves to now, under another name.
+        expect(await ask()).toBe(403);
+        expect(lines.join("\n")).toContain(`10.0.0.7 ${OWN}`);
+        // The name moved: the address it had is still refused, the new one too.
+        authorizerAnswer = async () => ["10.0.0.8"];
+        expect(await ask()).toBe(403);
+        expect(lines.join("\n")).toContain(`10.0.0.7 ${OWN}`);
+        upstreamAnswer = ["10.0.0.8"];
+        expect(await ask()).toBe(403);
+        expect(lines.join("\n")).toContain(`10.0.0.8 ${OWN}`);
+        // An IPv4-mapped answer is the IPv4 address an upstream is dialled at.
+        authorizerAnswer = async () => ["::ffff:10.0.0.9"];
+        upstreamAnswer = ["10.0.0.9"];
+        expect(await ask()).toBe(403);
+        expect(lines.join("\n")).toContain(`10.0.0.9 ${OWN}`);
+        // No address to tell it by is no judgment, whatever is remembered:
+        // the upstream is not looked up, let alone dialled.
+        upstreamAnswer = ["10.0.0.5"];
+        const none: Array<() => Promise<string[]>> = [
+          async () => [],
+          async () => ["not-an-address"],
+          async () => {
+            throw new Error("getaddrinfo ENOTFOUND localhost");
+          },
+        ];
+        for (const answer of none) {
+          authorizerAnswer = answer;
+          expect(await ask()).toBe(502);
+          expect(looked).toEqual(["localhost"]);
+          expect(lines.join("\n")).toContain(
+            "the authorizer's addresses are unknown",
+          );
+        }
+        // Its name is refused before the upstream is looked up.
+        authorizerAnswer = async () => ["10.0.0.7"];
+        url = "http://LOCALHOST.:4000/mcp";
+        expect(await ask()).toBe(403);
+        expect(looked).toEqual(["localhost"]);
+        expect(lines.join("\n")).toContain(`localhost ${OWN}`);
+      });
+
+      test("what another exchange learns of the authorizer counts for one already under way", async () => {
+        let authorizerAnswer = ["10.0.0.7"];
+        const upstreamAnswers: Array<Promise<string[]>> = [];
+        const lines: string[] = [];
+        let whileLedgering: (() => Promise<void>) | null = null;
+        const auth = authorizer(
+          () => Response.json(grantOf(`http://${INSIDE}:4000`)),
+          undefined,
+          async () => {
+            const during = whileLedgering;
+            whileLedgering = null;
+            await during?.();
+            return Response.json({ state: "open" }, { status: 201 });
+          },
+        );
+        const server = proxy(await byName(auth.url), 1, {
+          logger: createProxyLogger("warn", (line) => lines.push(line)),
+          resolve: async (host) =>
+            host === "localhost"
+              ? authorizerAnswer
+              : ((await upstreamAnswers.shift()) ?? []),
+          selfAddresses: () => [],
+        });
+        // An MCP exchange, which opens no ledger entry of its own.
+        const taught = async (address: string) => {
+          authorizerAnswer = [address];
+          upstreamAnswers.push(Promise.resolve(["93.184.216.34"]));
+          return (await call(server.port, TOOLS_CALL)).status;
+        };
+        // While one exchange waits for its upstream's lookup, another finds
+        // the authorizer at a new address: the one that lookup then answers.
+        let answer: (addresses: string[]) => void = () => {};
+        upstreamAnswers.push(
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+        );
+        const waiting = messages(server.port);
+        await until(() => upstreamAnswers.length === 0);
+        expect(await taught("10.0.0.8")).toBe(403);
+        answer(["10.0.0.8"]);
+        expect((await waiting).status).toBe(403);
+        expect(lines.join("\n")).toContain(
+          "10.0.0.8 is the installation's own",
+        );
+        // Refused where it was judged: no ledger entry was opened for it.
+        expect(auth.ledgered).toEqual([]);
+        // And while a judged exchange waits for its ledger entry, the
+        // address it was judged at becomes the authorizer's: not dialled,
+        // and the entry is given back.
+        lines.length = 0;
+        let other = 0;
+        upstreamAnswers.push(Promise.resolve(["10.0.0.9"]));
+        whileLedgering = async () => {
+          other = await taught("10.0.0.9");
+        };
+        expect((await messages(server.port)).status).toBe(403);
+        expect(other).toBe(403);
+        expect(lines.join("\n")).toContain(
+          "10.0.0.9 is the installation's own",
+        );
+        await until(() => auth.ledgered.length === 2);
+        expect(auth.ledgered.map(({ op }) => op)).toEqual(["open", "release"]);
+        expect(auth.ledgered[1]?.exchange_id).toBe(
+          auth.ledgered[0]?.exchange_id ?? "",
+        );
+      }, 15_000);
+
+      test("the authorizer's address an exchange looked up stays its own however long its upstream's lookup takes", async () => {
+        let answer: (addresses: string[]) => void = () => {};
+        const pending = new Promise<string[]>((resolve) => {
+          answer = resolve;
+        });
+        let asked = false;
+        const lines: string[] = [];
+        const auth = authorizer(() =>
+          Response.json(grantOf(`http://${INSIDE}:4000/mcp`)),
+        );
+        const server = proxy(await byName(auth.url), 1, {
+          logger: createProxyLogger("warn", (line) => lines.push(line)),
+          resolve: async (host) => {
+            if (host === "localhost") return ["10.0.0.7"];
+            asked = true;
+            return pending;
+          },
+          selfAddresses: () => [],
+          authorizerAddressMemoryMs: 20,
+        });
+        const waiting = call(server.port, TOOLS_CALL);
+        await until(() => asked);
+        // Longer than the shared memory keeps an address.
+        await Bun.sleep(80);
+        answer(["10.0.0.7"]);
+        expect((await waiting).status).toBe(403);
+        expect(lines.join("\n")).toContain(
+          "10.0.0.7 is the installation's own",
+        );
+      }, 15_000);
+
+      test("a judge's private endpoint is held to the same rules", async () => {
+        const lines: string[] = [];
+        // Not 127.0.0.1: the test's authorizer listens there.
+        let addresses = ["127.0.0.2"];
+        const up = inside(() =>
+          Response.json({
+            model: "gpt-6-luna",
+            choice: "yes",
+            usage: { input_tokens: 1, output_tokens: 0 },
+          }),
+        );
+        const auth = authorizer(() =>
+          Response.json({
+            judgment_id: "judg-1",
+            upstream: {
+              url: `http://${INSIDE}:${up.port}`,
+              headers: [],
+              ...PRIVATE,
+            },
+          }),
+        );
+        const server = proxy(auth.url, 1, {
+          logger: createProxyLogger("warn", (line) => lines.push(line)),
+          resolve: async () => addresses,
+          selfAddresses: () => [],
+        });
+        const decide = () =>
+          fetch(`http://127.0.0.1:${server.port}/decisions/v1/decisions`, {
+            method: "POST",
+            headers: { authorization: "Bearer judge-token-of-this-test" },
+            body: '{"model":"gpt-6-luna"}',
+          });
+        expect((await decide()).status).toBe(403);
+        expect(lines.join("\n")).toContain(
+          "127.0.0.2 is loopback, not private",
+        );
+        expect(up.seen).toEqual([]);
+        if (lan === undefined) return;
+        addresses = [lan];
+        expect((await decide()).status).toBe(200);
+        expect(up.seen.map(({ path }) => path)).toEqual(["/v1/decisions"]);
       });
     });
 
@@ -4797,8 +5974,8 @@ describe("startCredentialProxy", () => {
       });
       // A regrant says what the first ask said: the API may judge it alike.
       expect(auth.features.slice(0, 2)).toEqual([
-        "registered-upstream",
-        "registered-upstream",
+        "registered-upstream,registered-private-upstream",
+        "registered-upstream,registered-private-upstream",
       ]);
       await response.body?.cancel().catch(() => {});
     });

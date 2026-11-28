@@ -79,6 +79,7 @@ import type {
 } from "../action/ports/session-attribution.ts";
 import {
   type ClaimedMcpServer,
+  type ConnectionNetwork,
   claimCatalogOf,
   connectionModels,
   connectionOf,
@@ -137,10 +138,11 @@ import {
   type ConversationTurnCallAuthorization,
   conversationCallReserve,
   hashConversationCallToken,
+  PRICE_VERSION,
   type PricedBy,
   type ProviderUsage,
   priceJudgmentUsage,
-  priceProviderUsage,
+  priceSettledUsage,
   readSetting,
   type SessionBudget,
   type Setting,
@@ -204,6 +206,11 @@ import {
 } from "./package-registries.ts";
 import type { McpEgressStore } from "./ports/mcp-egress.ts";
 import type { WorkspaceMcpEgressStore } from "./ports/workspace-mcp-egress.ts";
+import {
+  PRIVATE_UPSTREAM_REFUSALS,
+  type PrivateUpstreamGate,
+  registeredUpstream,
+} from "./private-upstream.ts";
 import { runtimeConfigOfSpec } from "./runtime-config-of-spec.ts";
 import { createWerftMcpEgress } from "./werft-mcp-egress.ts";
 import {
@@ -810,7 +817,11 @@ export function createWorkerGateway(deps: {
   judgments?: {
     store: JudgmentEgressStore;
     upstream?: JudgeConnections["upstream"];
+    network?: JudgeConnections["network"];
   };
+  // Absent, a connection registered as private is granted without the mark,
+  // and the proxy's own lists decide as they did before it.
+  privateUpstream?: PrivateUpstreamGate;
   // Resolves once `catalog` holds the installation settings at least at the
   // generation stored when it was called; rejects with the store's own error
   // when it cannot. The provider and judgment routes wait on it before they
@@ -1628,6 +1639,30 @@ export function createWorkerGateway(deps: {
       `The ${what} changed in the catalog since this attempt was claimed`,
     );
   }
+  // A connection registered as private goes out marked, with the
+  // installation's own hosts to deny, or is not granted at all.
+  async function marked(
+    upstream: EgressUpstream,
+    network: ConnectionNetwork | undefined,
+    proxyReadsMark: boolean | undefined,
+  ): Promise<EgressUpstream> {
+    const out = await registeredUpstream(
+      upstream,
+      network,
+      proxyReadsMark === true,
+      deps.privateUpstream,
+    );
+    if (typeof out !== "string") return out;
+    const outdated = out === "egress_proxy_outdated";
+    throw new WorkerGatewayError(
+      outdated ? 403 : 503,
+      outdated ? "FORBIDDEN" : "BACKEND_UNAVAILABLE",
+      PRIVATE_UPSTREAM_REFUSALS[out],
+      !outdated,
+      undefined,
+      out,
+    );
+  }
   function forgeUnavailable(): never {
     throw new WorkerGatewayError(
       503,
@@ -1679,6 +1714,7 @@ export function createWorkerGateway(deps: {
   async function authorizedTitleEgress(
     token: string,
     path: string | undefined,
+    proxyReadsMark: boolean | undefined,
   ): Promise<EgressGrant | null> {
     if (deps.titles === undefined || !token.startsWith(TITLE_TOKEN_PREFIX)) {
       return null;
@@ -1700,7 +1736,11 @@ export function createWorkerGateway(deps: {
     return {
       session_id: result.sessionId,
       attempt_id: result.attemptId,
-      upstream: providerUpstreamOf(run.connection.provider),
+      upstream: await marked(
+        providerUpstreamOf(run.connection.provider),
+        run.connection.network,
+        proxyReadsMark,
+      ),
       request_limits: {
         path: TITLE_PROVIDER_PATH,
         model: run.model,
@@ -1745,6 +1785,8 @@ export function createWorkerGateway(deps: {
     requireProviderPath(connection.provider.kind, path);
     return {
       conversation_call_id: result.callId,
+      // Never the private mark: a call the proxy refuses before it connects
+      // is not settled yet, so the proxy's own lists hold this upstream.
       upstream: providerUpstreamOf(connection.provider),
       request_limits: {
         path: result.path,
@@ -2453,11 +2495,17 @@ export function createWorkerGateway(deps: {
       repository_id?: string | undefined;
       /** provider only: `/v1/responses`; absent is a Messages call. */
       path?: string | undefined;
+      /** provider only: the proxy said it reads the `private` mark. */
+      registeredPrivateUpstream?: boolean | undefined;
     }): Promise<EgressGrant> {
       if (request.purpose === "provider") {
         // Before the fence, whose first call closes the claim's replay.
         await settingsCaughtUp();
-        const titled = await authorizedTitleEgress(request.token, request.path);
+        const titled = await authorizedTitleEgress(
+          request.token,
+          request.path,
+          request.registeredPrivateUpstream,
+        );
         if (titled !== null) return titled;
       }
       const result = await authorizedEgress(request);
@@ -2517,7 +2565,13 @@ export function createWorkerGateway(deps: {
           moved("session's connection");
         }
         requireProviderPath(connection.provider.kind, request.path);
-        return grant(providerUpstreamOf(connection.provider));
+        return grant(
+          await marked(
+            providerUpstreamOf(connection.provider),
+            connection.network,
+            request.registeredPrivateUpstream,
+          ),
+        );
       }
       const other = request.repository_id;
       // A session started without a repository reaches only the ones it
@@ -2576,6 +2630,8 @@ export function createWorkerGateway(deps: {
     // workspace's judgment budget, never a session's.
     async authorizeJudgmentEgress(request: {
       token: string;
+      /** The proxy said it reads the `private` mark. */
+      registeredPrivateUpstream?: boolean | undefined;
     }): Promise<JudgmentEgressGrant> {
       const invalid = () =>
         new WorkerGatewayError(
@@ -2601,6 +2657,13 @@ export function createWorkerGateway(deps: {
           "The workspace has spent its judgment budget for the day",
         );
       }
+      // Read before the upstream is waited for, so both are of one
+      // snapshot: a connection disabled in between is not handed out
+      // without its mark.
+      const network =
+        result.connectionId === null
+          ? undefined
+          : deps.judgments.network?.(result.connectionId);
       const upstream =
         result.connectionId === null
           ? null
@@ -2613,7 +2676,14 @@ export function createWorkerGateway(deps: {
           true,
         );
       }
-      return { judgment_id: result.judgmentId, upstream };
+      return {
+        judgment_id: result.judgmentId,
+        upstream: await marked(
+          upstream,
+          network,
+          request.registeredPrivateUpstream,
+        ),
+      };
     },
 
     // What one judgment call used, as the proxy read it off the answer: the
@@ -2658,6 +2728,7 @@ export function createWorkerGateway(deps: {
       costUsd: number;
       pricedBy: PricedBy;
       ledgerForeignRow?: true;
+      reservedWithPriceVersion?: string;
     }> {
       // Decided by the session row, never by the model the answer names
       // (the upstream's to pick) or by this API's catalog (another replica's
@@ -2667,7 +2738,8 @@ export function createWorkerGateway(deps: {
         priceFor: (session) =>
           session.unmetered
             ? { costUsd: 0, pricedBy: "unmetered" }
-            : priceProviderUsage(report.usage),
+            : priceSettledUsage(report.usage, session.requestModel),
+        priceVersion: PRICE_VERSION,
       });
       if (result.outcome === "unknown_attempt") {
         throw new WorkerGatewayError(
@@ -2687,6 +2759,9 @@ export function createWorkerGateway(deps: {
         costUsd: result.costUsd,
         pricedBy: result.pricedBy,
         ...(result.ledgerForeignRow ? { ledgerForeignRow: true } : {}),
+        ...(result.reservedWithPriceVersion === undefined
+          ? {}
+          : { reservedWithPriceVersion: result.reservedWithPriceVersion }),
       };
     },
 
@@ -2718,12 +2793,18 @@ export function createWorkerGateway(deps: {
       if (deps.conversationCalls === undefined || !callId.success) {
         throw new WorkerGatewayError(404, "NOT_FOUND", "No such call");
       }
-      const priced = priceProviderUsage(report.usage);
+      // Priced from the model the call was issued for and the one that
+      // answered, as a session's call settles. A replayed report prices
+      // nothing: what its first settlement charged stands, and the answer
+      // names what settled it from the same two models.
       const result = await deps.conversationCalls.store.settleAtomic({
         callId: callId.data,
         exchangeId: report.exchangeId,
         usage: report.usage,
-        priceFor: (call) => (call.unmetered ? { costUsd: 0 } : priced),
+        priceFor: (call) =>
+          call.unmetered
+            ? { costUsd: 0 }
+            : priceSettledUsage(report.usage, call.model),
       });
       switch (result.outcome) {
         case "unknown_call":
@@ -2737,7 +2818,9 @@ export function createWorkerGateway(deps: {
         default:
           return {
             costUsd: result.costUsd,
-            pricedBy: result.unmetered ? "unmetered" : priced.pricedBy,
+            pricedBy: result.unmetered
+              ? "unmetered"
+              : priceSettledUsage(report.usage, result.model).pricedBy,
           };
       }
     },

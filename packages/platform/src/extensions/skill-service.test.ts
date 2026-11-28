@@ -53,6 +53,7 @@ const upload = (name: string, body?: string) => ({
 function setup(options: { ownIds?: boolean } = {}) {
   const rows: ExtensionBundle[] = [];
   const attachments: ExtensionAttachment[] = [];
+  const unavailable = new Map<string, "hidden" | "withdrawn">();
   const calls: Parameters<ExtensionBundleStore["recordAttachment"]>[0][] = [];
   const archives: Parameters<ExtensionBundleStore["archive"]>[0][] = [];
   const registers: Parameters<ExtensionBundleStore["register"]>[0][] = [];
@@ -118,6 +119,7 @@ function setup(options: { ownIds?: boolean } = {}) {
       return { outcome: "recorded", receiptId: input.receiptId };
     },
     listAttachments: async () => [...attachments],
+    unavailableSkills: async () => new Map(unavailable),
     async archive(input) {
       archives.push(input);
       return outcomes.archive ?? { outcome: "not_found" };
@@ -141,6 +143,7 @@ function setup(options: { ownIds?: boolean } = {}) {
     registers,
     rows,
     attachments,
+    unavailable,
     calls,
     outcomes,
     archives,
@@ -477,6 +480,7 @@ describe("the skill service", () => {
       name: "research",
       follows: true,
       bundle: null,
+      availability: "ok",
     });
     await service.deleteWorkspaceAttachment(web, "research");
     expect(calls.at(-1)).toMatchObject({
@@ -541,6 +545,7 @@ describe("the skill service", () => {
       name: "research",
       follows: false,
       bundle: rows[0] as ExtensionBundle,
+      availability: "ok",
     });
     const taken = await service.deleteAgentAttachment(web, AGENT, "research");
     expect(taken.receipt_id).not.toBeNull();
@@ -572,6 +577,7 @@ describe("the skill service", () => {
       name: "research",
       follows: false,
       bundle: rows[0] as ExtensionBundle,
+      availability: "ok",
     });
     expect(
       await service.deleteWorkspaceAttachment(web, "research"),
@@ -581,5 +587,69 @@ describe("the skill service", () => {
       "BAD_REQUEST:version_in_use",
     );
     expect(archives[0]?.receiptId).toEqual(uuid);
+  });
+});
+
+describe("skills of a registered repository that are off or withdrawn", () => {
+  test("the skill list leaves them out; an upload and a switched-on one stay", async () => {
+    const { service, unavailable } = setup();
+    const web = caller("web");
+    for (const name of ["research", "hidden-one", "withdrawn-one"]) {
+      await service.register(web, upload(name));
+    }
+    unavailable.set("hidden-one", "hidden");
+    unavailable.set("withdrawn-one", "withdrawn");
+    const listed = await service.list(caller("web", "member"));
+    expect(listed.items.map((item) => item.name)).toEqual(["research"]);
+  });
+
+  test("an agent's skill list keeps the row and says why a new session leaves it out", async () => {
+    const { service, rows, attachments } = setup();
+    const web = caller("web");
+    await service.register(web, upload("research"));
+    for (const availability of ["ok", "hidden", "withdrawn"] as const) {
+      attachments.length = 0;
+      attachments.push({
+        scope: "agent",
+        mode: "required",
+        name: "research",
+        follows: false,
+        bundle: rows[0] as ExtensionBundle,
+        availability,
+      });
+      const listed = await service.listAgent(web, AGENT);
+      expect(listed.items).toMatchObject([{ name: "research", availability }]);
+    }
+  });
+
+  test("a new attachment of one is refused with the reason; so is a workspace attachment of any", async () => {
+    const { service, outcomes } = setup();
+    const web = caller("web");
+    const { version } = await service.register(web, upload("research"));
+    for (const availability of ["hidden", "withdrawn"] as const) {
+      outcomes.attach = { outcome: "unavailable", availability };
+      const error = (await service
+        .putAgentAttachment(web, AGENT, "research", {
+          version_id: version.id,
+          mode: "optional",
+        })
+        .catch((caught: unknown) => caught)) as {
+        code?: string;
+        details?: { reason_code?: string; availability?: string };
+      };
+      expect([error.code, error.details]).toEqual([
+        "BAD_REQUEST",
+        { reason_code: "skill_unavailable", availability },
+      ]);
+    }
+    outcomes.attach = { outcome: "repository_skill_workspace" };
+    expect(
+      await refusal(
+        service.putWorkspaceAttachment(web, "research", {
+          follow: true,
+          mode: "optional",
+        }),
+      ),
+    ).toBe("BAD_REQUEST:repository_skill_workspace");
   });
 });

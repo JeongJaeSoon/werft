@@ -1,4 +1,4 @@
-import type { components } from "@werft-ai/client";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import type { AgentDetail } from "@werft-ai/contracts";
 import {
   Badge,
@@ -8,13 +8,22 @@ import {
   GridTableHeader,
   GridTableRow,
   Link,
+  NativeSelect,
+  NativeSelectOption,
   RelativeTime,
   SettingsSection,
   Skeleton,
   Text,
 } from "@werft-ai/ui";
+import { useId } from "react";
 import { LoadFailure } from "../../../components/load-failure.tsx";
-import { type MessageKey, useI18n } from "../../../i18n/i18n.tsx";
+import { useI18n } from "../../../i18n/i18n.tsx";
+import {
+  ANSWER_LABEL,
+  judgmentAnswerOf,
+  judgmentReasonOf,
+  REASON_LABEL,
+} from "./judgment-reasons.ts";
 import {
   useSlackChannelNames,
   useSlackInstructionsHead,
@@ -22,35 +31,12 @@ import {
 } from "./queries.ts";
 import { SECTION, SECTION_TARGET, slackReason } from "./shared.ts";
 
-type Judgments = components["schemas"]["GetSlackJudgmentsResponse"];
-type Reason = Judgments["recent"][number]["reason"];
-
-const REASON_LABEL = {
-  not_for_agent: "slack.judgments.reason.not_for_agent",
-  human_conversation: "slack.judgments.reason.human_conversation",
-  already_handled: "slack.judgments.reason.already_handled",
-  out_of_scope: "slack.judgments.reason.out_of_scope",
-  needs_agent: "slack.judgments.reason.needs_agent",
-  unclear: "slack.judgments.reason.unclear",
-  invalid_target: "slack.judgments.reason.invalid_target",
-  budget_refused: "slack.judgments.reason.budget_refused",
-  concurrency_limited: "slack.judgments.reason.concurrency_limited",
-  rate_limited: "slack.judgments.reason.rate_limited",
-  input_too_large: "slack.judgments.reason.input_too_large",
-  no_active_release: "slack.judgments.reason.no_active_release",
-  model_unavailable: "slack.judgments.reason.model_unavailable",
-  timed_out: "slack.judgments.reason.timed_out",
-  unreachable: "slack.judgments.reason.unreachable",
-  provider_error: "slack.judgments.reason.provider_error",
-  malformed: "slack.judgments.reason.malformed",
-} as const satisfies Record<Reason, MessageKey>;
-
 // Channel, then the counts (numbers end-aligned), then the reasons.
 const CHANNEL_COLUMNS =
   "minmax(8rem,1fr) max-content max-content minmax(0,2fr)";
 // When, channel, decision and reason, then the link.
 const RECENT_COLUMNS =
-  "max-content minmax(6rem,1fr) max-content minmax(0,1fr) max-content";
+  "max-content minmax(6rem,1fr) max-content minmax(0,1fr) minmax(0,1fr) max-content";
 
 /**
  * The instruction file M1 judges with: the active release's snapshot, and
@@ -119,7 +105,17 @@ export function SlackJudgments({
   readonly manages: boolean;
 }) {
   const { t, locale } = useI18n();
-  const judgments = useSlackJudgments(agentId, manages);
+  // The reason is in the URL, so a reload or a shared link keeps the list.
+  const reason = judgmentReasonOf(
+    useSearch({ from: "/authed/agents/$id" }).judgment_reason,
+  );
+  const navigate = useNavigate({ from: "/agents/$id" });
+  const answer = judgmentAnswerOf(
+    useSearch({ from: "/authed/agents/$id" }).judgment_answer,
+  );
+  const reasonId = useId();
+  const answerId = useId();
+  const judgments = useSlackJudgments(agentId, manages, { reason, answer });
   const snapshot = activeRelease?.instructions_snapshot;
   const head = useSlackInstructionsHead(
     agentId,
@@ -244,73 +240,147 @@ export function SlackJudgments({
                 </GridTableRow>
               ))}
             </GridTable>
-            <GridTable
-              aria-label={t("slack.judgments.recent")}
-              columns={RECENT_COLUMNS}
-              align={["start", "start", "start", "start", "end"]}
-              narrowAt={640}
-              narrowCards={true}
-              framed
-            >
-              <GridTableHeader>
-                <GridTableColumnHeader>
-                  {t("slack.judgments.when")}
-                </GridTableColumnHeader>
-                <GridTableColumnHeader>
-                  {t("slack.channelColumn")}
-                </GridTableColumnHeader>
-                <GridTableColumnHeader>
-                  {t("slack.judgments.decision")}
-                </GridTableColumnHeader>
-                <GridTableColumnHeader>
-                  {t("slack.judgments.reason")}
-                </GridTableColumnHeader>
-                <GridTableColumnHeader>
-                  <span className="sr-only">
-                    {t("slack.judgments.message")}
-                  </span>
-                </GridTableColumnHeader>
-              </GridTableHeader>
-              {data.recent.map((item) => (
-                <GridTableRow key={item.id}>
-                  <GridTableCell className="py-3">
-                    <RelativeTime value={item.judged_at} locale={locale} />
-                  </GridTableCell>
-                  <GridTableCell cardLabel={t("slack.channelColumn")}>
-                    <span className="wrap-anywhere">
-                      {nameOf(item.channel_id)}
+            <div className="flex flex-wrap items-center gap-2">
+              <label htmlFor={reasonId}>
+                <Text as="span" variant="sub">
+                  {t("slack.judgments.reasonFilter")}
+                </Text>
+              </label>
+              <NativeSelect
+                id={reasonId}
+                className="w-auto max-w-full"
+                value={reason ?? ""}
+                onChange={(event) => {
+                  const next = judgmentReasonOf(event.target.value);
+                  void navigate({
+                    search: ({ judgment_reason: _, ...rest }) =>
+                      next ? { ...rest, judgment_reason: next } : rest,
+                    replace: true,
+                  });
+                }}
+              >
+                <NativeSelectOption value="">
+                  {t("slack.judgments.reasonAll")}
+                </NativeSelectOption>
+                {(
+                  Object.keys(REASON_LABEL) as (keyof typeof REASON_LABEL)[]
+                ).map((value) => (
+                  <NativeSelectOption key={value} value={value}>
+                    {t(REASON_LABEL[value])}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+              <label htmlFor={answerId}>
+                <Text as="span" variant="sub">
+                  {t("slack.judgments.answerFilter")}
+                </Text>
+              </label>
+              <NativeSelect
+                id={answerId}
+                className="w-auto max-w-full"
+                value={answer ?? ""}
+                onChange={(event) => {
+                  const next = judgmentAnswerOf(event.target.value);
+                  void navigate({
+                    search: ({ judgment_answer: _, ...rest }) =>
+                      next ? { ...rest, judgment_answer: next } : rest,
+                    replace: true,
+                  });
+                }}
+              >
+                <NativeSelectOption value="">
+                  {t("slack.judgments.answerAll")}
+                </NativeSelectOption>
+                {(
+                  Object.keys(ANSWER_LABEL) as (keyof typeof ANSWER_LABEL)[]
+                ).map((value) => (
+                  <NativeSelectOption key={value} value={value}>
+                    {t(ANSWER_LABEL[value])}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </div>
+            {judgments.isPlaceholderData ? (
+              <Skeleton lines={3} label={t("slack.judgments.loading")} />
+            ) : (reason || answer) && data.recent.length === 0 ? (
+              <Text variant="sub">{t("slack.judgments.recentNone")}</Text>
+            ) : (
+              <GridTable
+                aria-label={t("slack.judgments.recent")}
+                columns={RECENT_COLUMNS}
+                align={["start", "start", "start", "start", "start", "end"]}
+                narrowAt={640}
+                narrowCards={true}
+                framed
+              >
+                <GridTableHeader>
+                  <GridTableColumnHeader>
+                    {t("slack.judgments.when")}
+                  </GridTableColumnHeader>
+                  <GridTableColumnHeader>
+                    {t("slack.channelColumn")}
+                  </GridTableColumnHeader>
+                  <GridTableColumnHeader>
+                    {t("slack.judgments.decision")}
+                  </GridTableColumnHeader>
+                  <GridTableColumnHeader>
+                    {t("slack.judgments.reason")}
+                  </GridTableColumnHeader>
+                  <GridTableColumnHeader>
+                    {t("slack.judgments.answer")}
+                  </GridTableColumnHeader>
+                  <GridTableColumnHeader>
+                    <span className="sr-only">
+                      {t("slack.judgments.message")}
                     </span>
-                  </GridTableCell>
-                  <GridTableCell cardLabel={t("slack.judgments.decision")}>
-                    <Badge
-                      variant={item.decision === "speak" ? "green" : "gray"}
-                    >
-                      {t(
-                        item.decision === "speak"
-                          ? "slack.judgments.speak"
-                          : "slack.judgments.quiet",
-                      )}
-                    </Badge>
-                  </GridTableCell>
-                  <GridTableCell cardLabel={t("slack.judgments.reason")}>
-                    {t(REASON_LABEL[item.reason])}
-                  </GridTableCell>
-                  <GridTableCell cardLabel={t("slack.judgments.message")}>
-                    <Link
-                      href={item.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      variant="table"
-                      aria-label={t("slack.judgments.openOf", {
-                        channel: nameOf(item.channel_id),
-                      })}
-                    >
-                      {t("slack.judgments.open")}
-                    </Link>
-                  </GridTableCell>
-                </GridTableRow>
-              ))}
-            </GridTable>
+                  </GridTableColumnHeader>
+                </GridTableHeader>
+                {data.recent.map((item) => (
+                  <GridTableRow key={item.id}>
+                    <GridTableCell className="py-3">
+                      <RelativeTime value={item.judged_at} locale={locale} />
+                    </GridTableCell>
+                    <GridTableCell cardLabel={t("slack.channelColumn")}>
+                      <span className="wrap-anywhere">
+                        {nameOf(item.channel_id)}
+                      </span>
+                    </GridTableCell>
+                    <GridTableCell cardLabel={t("slack.judgments.decision")}>
+                      <Badge
+                        variant={item.decision === "speak" ? "green" : "gray"}
+                      >
+                        {t(
+                          item.decision === "speak"
+                            ? "slack.judgments.speak"
+                            : "slack.judgments.quiet",
+                        )}
+                      </Badge>
+                    </GridTableCell>
+                    <GridTableCell cardLabel={t("slack.judgments.reason")}>
+                      {t(REASON_LABEL[item.reason])}
+                    </GridTableCell>
+                    <GridTableCell cardLabel={t("slack.judgments.answer")}>
+                      {item.answer
+                        ? t(ANSWER_LABEL[item.answer])
+                        : t("slack.judgments.answerNone")}
+                    </GridTableCell>
+                    <GridTableCell cardLabel={t("slack.judgments.message")}>
+                      <Link
+                        href={item.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        variant="table"
+                        aria-label={t("slack.judgments.openOf", {
+                          channel: nameOf(item.channel_id),
+                        })}
+                      >
+                        {t("slack.judgments.open")}
+                      </Link>
+                    </GridTableCell>
+                  </GridTableRow>
+                ))}
+              </GridTable>
+            )}
           </>
         )}
       </div>

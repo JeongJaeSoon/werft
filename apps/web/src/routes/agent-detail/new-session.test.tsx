@@ -188,6 +188,7 @@ describe("이 에이전트로 새 세션", () => {
               scope: "workspace",
               mode: "optional",
               follows: false,
+              availability: "ok",
               version: skillVersion("notes", 1),
             },
             {
@@ -195,6 +196,7 @@ describe("이 에이전트로 새 세션", () => {
               scope: "workspace",
               mode: "required",
               follows: false,
+              availability: "ok",
               version: skillVersion("lint", 2),
             },
             // The agent narrows a workspace optional to forbidden.
@@ -203,6 +205,7 @@ describe("이 에이전트로 새 세션", () => {
               scope: "workspace",
               mode: "optional",
               follows: false,
+              availability: "ok",
               version: skillVersion("deploy", 3),
             },
             {
@@ -210,6 +213,7 @@ describe("이 에이전트로 새 세션", () => {
               scope: "agent",
               mode: "forbidden",
               follows: false,
+              availability: "ok",
               version: skillVersion("deploy", 3),
             },
           ],
@@ -262,6 +266,7 @@ describe("이 에이전트로 새 세션", () => {
                   scope: "workspace",
                   mode: "optional",
                   follows: false,
+                  availability: "ok",
                   version: {
                     id: "9a8b7c6d-0000-4000-8000-000000000001",
                     name: "notes",
@@ -320,6 +325,7 @@ describe("이 에이전트로 새 세션", () => {
       scope: "workspace",
       mode: "optional",
       follows: false,
+      availability: "ok",
       version: {
         id: `9a8b7c6d-0000-4000-8000-00000000000${n}`,
         name: "notes",
@@ -844,6 +850,7 @@ describe("optionalSkills", () => {
       archived_at: null,
       current: true,
     },
+    availability: "ok" as "ok" | "hidden" | "withdrawn",
   });
 
   test("워크스페이스의 required·forbidden은 목록 순서와 상관없이 에이전트의 optional보다 앞선다", () => {
@@ -875,6 +882,121 @@ describe("optionalSkills", () => {
     for (const agent of [rejected, missing]) {
       expect(optionalSkills([agent, workspace])).toEqual([workspace]);
       expect(optionalSkills([workspace, agent])).toEqual([workspace]);
+    }
+  });
+
+  test("관리자가 끄거나 회수한 저장소 skill은 고를 수 없고, 그 skill의 금지는 남는다", () => {
+    for (const availability of ["hidden", "withdrawn"] as const) {
+      const agent = { ...entry("agent", "optional"), availability };
+      expect(optionalSkills([agent])).toEqual([]);
+      // A required row it can no longer hold leaves the agent's choice.
+      const workspace = { ...entry("workspace", "required"), availability };
+      const offered = entry("agent", "optional");
+      expect(optionalSkills([workspace, offered])).toEqual([offered]);
+      const forbidden = { ...entry("workspace", "forbidden"), availability };
+      expect(optionalSkills([forbidden, offered])).toEqual([]);
+    }
+  });
+
+  test("가용성을 모르는 옛 서버의 답은 지금처럼 고른다", () => {
+    const { availability: _, ...old } = entry("agent", "optional");
+    const fromBefore = old as ReturnType<typeof entry>;
+    expect(optionalSkills([fromBefore])).toEqual([fromBefore]);
+  });
+});
+
+describe("이 판이 읽을 수 없는 릴리스", () => {
+  const OLDER =
+    "sha256:2222222222222222222222222222222222222222222222222222222222222222";
+
+  test("릴리스 탭은 읽지 못한 행을 한 줄로 보이고 나머지 릴리스는 그대로 보인다", async () => {
+    const server = await released();
+    const detail = server.detail();
+    const active = detail.active_release;
+    if (!active) throw new Error("no active release");
+    renderAt(`${DETAIL}?tab=release`, {
+      ...meAs(me()),
+      ...server.routes,
+      [`GET ${PATH}`]: () =>
+        json(200, {
+          ...detail,
+          unreadable_releases: [
+            { id: OLDER, reason_code: "policy_pins_unreadable" },
+          ],
+        }),
+    });
+    const line = await screen.findByText(
+      agentsKo["agent.releases.unreadable"].replace("{release}", OLDER),
+    );
+    expect(line.getAttribute("data-unreadable-release")).toBe(OLDER);
+    expect(
+      await screen.findByRole("table", {
+        name: agentsKo["agent.releases.title"],
+      }),
+    ).toBeTruthy();
+    // Nothing of the row but its id and why: no stored value reaches the page.
+    expect(document.body.textContent).not.toContain("future");
+  });
+
+  test("활성 릴리스를 읽지 못하면 그 줄이 고치는 법을 말한다", async () => {
+    const server = await released();
+    const detail = server.detail();
+    const activeId = detail.agent.active_release_id;
+    if (activeId === null) throw new Error("no active release");
+    renderAt(`${DETAIL}?tab=release`, {
+      ...meAs(me()),
+      ...server.routes,
+      [`GET ${PATH}`]: () =>
+        json(200, {
+          ...detail,
+          releases: detail.releases.filter(
+            (release) => release.id !== activeId,
+          ),
+          active_release: null,
+          unreadable_releases: [
+            { id: activeId, reason_code: "policy_pins_unreadable" },
+          ],
+        }),
+    });
+    expect(
+      await screen.findByText(
+        agentsKo["agent.releases.unreadableActive"].replace(
+          "{release}",
+          activeId,
+        ),
+      ),
+    ).toBeTruthy();
+  });
+
+  test("세션 생성이 읽지 못하는 릴리스로 거절되면 그 릴리스와 고치는 법을 보인다", async () => {
+    const server = await released();
+    renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      "POST /v1/sessions": () =>
+        apiError(409, "RELEASE_SPEC_UNAVAILABLE", "unreadable", false, {
+          reason_code: "release_unreadable",
+          release_id: OLDER,
+          unreadable: "policy_pins_unreadable",
+        }),
+    });
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    expect((await within(dialog).findByRole("alert")).textContent).toBe(
+      agentsKo["newSession.releaseUnreadable"].replace("{release}", OLDER),
+    );
+  });
+
+  test("안내는 세 언어 모두 고치는 법을 담는다", () => {
+    for (const table of [agentsKo, agentsEn, agentsJa]) {
+      for (const key of [
+        "agent.releases.unreadable",
+        "agent.releases.unreadableActive",
+        "newSession.releaseUnreadable",
+      ] as const) {
+        expect(table[key]).toContain("{release}");
+      }
     }
   });
 });

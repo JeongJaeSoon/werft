@@ -49,6 +49,7 @@ import {
   BOT_SCOPES,
   bootstrapRequestSchema,
   bootstrapResponseSchema,
+  checkSkillRepositoryResponseSchema,
   checkSkillResponseSchema,
   closeLostCheckpointNoticesRequestSchema,
   closeSessionRequestSchema,
@@ -117,6 +118,7 @@ import {
   getSlackAppManifestResponseSchema,
   getSlackAppResponseSchema,
   getSlackInstructionsHeadResponseSchema,
+  getSlackJudgmentsQuerySchema,
   getSlackJudgmentsResponseSchema,
   getSlackNoticeResponseSchema,
   getTurnResponseSchema,
@@ -266,6 +268,8 @@ import {
   putGitHubUserLinkAppResponseSchema,
   putSkillAttachmentRequestSchema,
   putSkillAutoApproveRequestSchema,
+  putSkillRepositoryRefRequestSchema,
+  putSkillRepositoryRefResponseSchema,
   putSkillSyncRequestSchema,
   putSlackAppBotsRequestSchema,
   putSlackBindingRequestSchema,
@@ -280,12 +284,16 @@ import {
   readyResponseSchema,
   receiptAcceptedResponseSchema,
   receiptIdParamsSchema,
+  receiptSchema,
   recheckSlackAppEventsResponseSchema,
   recoveryDecisionRequestSchema,
   registerGitHubSkillRequestSchema,
+  registerSkillRepositoryRequestSchema,
+  registerSkillRepositoryResponseSchema,
   registerSkillRequestSchema,
   registerSkillResponseSchema,
   rejudgeSessionResponseSchema,
+  removeSkillRepositoryResponseSchema,
   requestBodyInvalidDetailsSchema,
   rerunWorkflowRequestSchema,
   rerunWorkflowResponseSchema,
@@ -338,6 +346,9 @@ import {
   skillAttachmentResponseSchema,
   skillListSchema,
   skillNameParamsSchema,
+  skillRepositoryDetailSchema,
+  skillRepositoryListSchema,
+  skillRepositoryParamsSchema,
   skillSyncResponseSchema,
   skillVersionChangeResponseSchema,
   skillVersionFilesSchema,
@@ -541,6 +552,7 @@ const requestComponents = {
   CompleteGitHubAppManifestRequest: completeGitHubAppManifestRequestSchema,
   CompleteGitHubInstallationRequest: completeGitHubInstallationRequestSchema,
   GitHubRepositoryPageQuery: githubRepositoryPageQuerySchema,
+  GetSlackJudgmentsQuery: getSlackJudgmentsQuerySchema,
   PatchGitHubRepositoryRequest: patchGitHubRepositoryRequestSchema,
   PickAgentGitHubRepositoryRequest: pickAgentGitHubRepositoryRequestSchema,
   CreateSlackAppRequest: createSlackAppRequestSchema,
@@ -632,7 +644,8 @@ const responseComponents = {
   AgentGitHubActivityResponse: agentGitHubActivityResponseSchema,
   ReceiptAcceptedResponse: receiptAcceptedResponseSchema,
   TerminateSessionResponse: terminateSessionResponseSchema,
-  Receipt: getReceiptResponseSchema,
+  Receipt: receiptSchema,
+  ReceiptRead: getReceiptResponseSchema,
   BootstrapResponse: bootstrapResponseSchema,
   LoginResponse: loginResponseSchema,
   LoginMethodsResponse: loginMethodsResponseSchema,
@@ -799,6 +812,14 @@ const responseComponents = {
   RegisterSkillRequest: registerSkillRequestSchema,
   RegisterSkillResponse: registerSkillResponseSchema,
   RegisterGitHubSkillRequest: registerGitHubSkillRequestSchema,
+  RegisterSkillRepositoryRequest: registerSkillRepositoryRequestSchema,
+  RegisterSkillRepositoryResponse: registerSkillRepositoryResponseSchema,
+  SkillRepositoryList: skillRepositoryListSchema,
+  SkillRepositoryDetail: skillRepositoryDetailSchema,
+  RemoveSkillRepositoryResponse: removeSkillRepositoryResponseSchema,
+  CheckSkillRepositoryResponse: checkSkillRepositoryResponseSchema,
+  PutSkillRepositoryRefRequest: putSkillRepositoryRefRequestSchema,
+  PutSkillRepositoryRefResponse: putSkillRepositoryRefResponseSchema,
   CheckSkillResponse: checkSkillResponseSchema,
   PutSkillSyncRequest: putSkillSyncRequestSchema,
   SkillSyncResponse: skillSyncResponseSchema,
@@ -1228,6 +1249,56 @@ const EXAMPLE_AGENT_WORKSPACE_MCP_SERVER = {
 };
 const WORKSPACE_MCP_MANAGERS =
   "Owners and admins signed in to the console as a person; never an API key.";
+const EXAMPLE_SKILL_REPOSITORY_ID = "5b8d2f60-9c1e-4a37-b2d4-6e0f1a3c5d79";
+const EXAMPLE_SKILL_REPOSITORY = {
+  id: EXAMPLE_SKILL_REPOSITORY_ID,
+  repository_id: 123456789,
+  repository: "acme/skills",
+  ref: "main",
+  access: "public",
+  connection_id: "019a0000-0000-7000-8000-0000000000b1",
+  installation_id: 4242,
+  owner_id: 9919,
+  license: "Apache-2.0",
+  state: "active",
+  last_commit: "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+  last_sync: {
+    at: "2026-11-28T09:00:00.000Z",
+    trigger: { kind: "register", user_id: EXAMPLE_USER_ID },
+    commit: "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+    result: "listed",
+    issues: [],
+  },
+  skill_count: 1,
+  created_by: EXAMPLE_USER_ID,
+  created_at: "2026-11-28T09:00:00.000Z",
+  removed_by: null,
+  removed_at: null,
+};
+const EXAMPLE_SKILL_REPOSITORY_DETAIL = {
+  repository: EXAMPLE_SKILL_REPOSITORY,
+  skills: [
+    {
+      id: "0e4a7c19-3b5d-4f82-9a6c-1d2e3f4a5b6c",
+      path: "skills/release-notes",
+      name: "release-notes",
+      description: "Drafts release notes from merged pull requests.",
+      license: "Apache-2.0",
+      status: "off",
+      issues: [],
+      name_owner: null,
+      name_shared: false,
+      present: true,
+      enabled: false,
+      tree_sha: "9d1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+      file_count: 3,
+      size_bytes: 4096,
+      has_scripts: false,
+    },
+  ],
+};
+const SKILL_REPOSITORY_LISTING =
+  "The listing reads the tree of the ref's commit once and, of its contents, only the `SKILL.md` files, with the parser an upload meets: every directory holding a `SKILL.md` is one entry with its `name`, `description` and `license`. What the tree alone refuses is judged before anything is fetched and listed in the entry's `issues` (`status` `unavailable`): a symlink or a submodule (by the entry's mode), a path the checker never accepts, another `SKILL.md` below it, more than 255 files, a file over 1 MiB, more than 8 MiB together, or a `SKILL.md` over 64 KiB, which is not fetched. A name another skill of the workspace holds is `conflict`. A tree GitHub cut short, more than 200 skill directories, a skill directory whose path is over 1024 bytes (`path_too_long`), or more than 4 MiB of `SKILL.md` files to fetch (by the tree's sizes; one over 64 KiB is not fetched and not counted) refuse the whole listing.";
 const SKILL_MANAGERS =
   "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`.";
 const EXAMPLE_SKILL_VERSION_ID = "7c3e9a1f-2d4b-4e6a-8f0c-5b1d3e7a9c20";
@@ -2457,7 +2528,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary:
       "Start making the author GitHub App from a manifest (owner or admin)",
-    description: `Returns the manifest for a new author App and the GitHub URL the browser form-POSTs it to (field \`manifest\`), with a new single-use \`state\` in that URL, valid ${GITHUB_APP_MANIFEST_STATE_TTL_SECONDS / 60} minutes and bound to the caller and the workspace. \`owner\` picks an organization (its owners can create the App) or the caller's own account; a private App (\`public: false\`, the default) installs only on that account. The manifest asks for \`contents\` and \`pull_requests\` write and \`metadata\` read, plus \`actions\` and \`workflows\` write with \`actions: true\`; its webhook is off, its redirect is the console's \`/settings/workspace/integrations/github/new-app\` and its callback the account-link page. The App it makes is always another author connection, beside any registered: \`replace\` is ignored, and moving to the new App is removing the old connection afterwards. API keys are refused.`,
+    description: `Returns the manifest for a new author App and the GitHub URL the browser form-POSTs it to (field \`manifest\`), with a new single-use \`state\` in that URL, valid ${GITHUB_APP_MANIFEST_STATE_TTL_SECONDS / 60} minutes and bound to the caller and the workspace. \`owner\` picks an organization (its owners can create the App) or the caller's own account; a private App (\`public: false\`, the default) installs only on that account. The manifest asks for \`contents\`, \`pull_requests\` and \`workflows\` write and \`metadata\`, \`checks\` and \`actions\` read (editing workflow files and reading CI); \`actions: true\` asks for \`actions\` write instead, to run workflows directly; its webhook is off, its redirect is the console's \`/settings/workspace/integrations/github/new-app\` and its callback the account-link page. The App it makes is always another author connection, beside any registered: \`replace\` is ignored, and moving to the new App is removing the old connection afterwards. API keys are refused.`,
     auth: "session",
     body: "StartGitHubAppManifestRequest",
     requestExample: {
@@ -2908,7 +2979,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Workspace settings",
     summary: "Change the workspace's GitHub ceiling (owner or admin)",
     description:
-      "Replaces the ceiling. `revision` is the one last read; a stale one is 409 `REVISION_CONFLICT` and nothing changes. Lowering a feature refuses it from the next GitHub token on (409 `GITHUB_REFUSED` `over_workspace_ceiling`), for sessions of every release that turns it on; raising it lets the same releases use it again. `merge` is read on every merge call, so turning it on needs no new release and applies from the next call, and turning it off refuses the next call with `GITHUB_REFUSED` `merge_off` before GitHub is called; a body without `merge` saves it as false. Writes a `set_github_ceiling` receipt with the ceiling before and after. API keys are refused.",
+      "Replaces the ceiling. `revision` is the one last read; a stale one is 409 `REVISION_CONFLICT` and nothing changes. Lowering a feature refuses it from the next GitHub token on (409 `GITHUB_REFUSED` `over_workspace_ceiling`), for sessions of every release that turns it on; raising it lets the same releases use it again. `merge` is read on every merge call, so turning it on needs no new release and applies from the next call, and turning it off refuses the next call before GitHub is called (the `merge_pull_request` tool answers `github_refused` with `details.reason_code` `merge_off`); a body without `merge` saves it as false. An agent merges only with its own `features.merge` on as well (`PUT /v1/agents/{id}/github/settings`); the refusal's `details.off_in` (`agent`, `ceiling` or `both`) names the side that is off. Writes a `set_github_ceiling` receipt with the ceiling before and after. API keys are refused.",
     auth: "session",
     body: "PutGitHubSettingsRequest",
     requestExample: {
@@ -3824,7 +3895,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "getInstallationConfig",
     tag: "Installation settings",
     summary: "Execution limits for the whole installation",
-    description: `${SETTINGS_OWNER} Each key gives \`value\`, what applies now; \`default\`, what applies while nothing is saved; \`saved\`, false until an owner saves the key or an upgrade carries its old environment variable in; and \`blocked\`, true while that variable held a value the key does not accept and nothing is saved: only what the key sets is refused (503, retryable) until a value is saved, and no default stands in. \`pending_request_ttl_sec\` is how long a permission or question a session raised takes answers once registered (1 to 604800 seconds); while blocked, a permission or question is not registered. \`queued_input_limit_per_session\` is how many queued turns one session holds before the next input answers 429 (1 to 100000), and \`storage_limit_bytes\` the input bytes the installation retains before the next answers 413; while either is blocked, a new session or input is refused. \`session_cost_limit_usd\` (above 0, up to 1000000) and \`session_token_limit\` (0 sets none) stop a session that reached either: it is launched, claimed and given nothing more, and a new provider call is refused. A raised limit reaches a running worker at its next claim; a lowered one stops the next provider call. While either is blocked, no session is launched and no provider call is opened. \`workspace_enforce\` (\`warn\`, \`fail\`, \`off\`) is what a worker does once its workspace outgrows its quota, read at each claim. \`session_archive_after_days\` (0 archives nothing, otherwise 30 to 3650) and \`session_archive_dry_run\` (true only counts) are read by the session event archive job at each run; while either is blocked, the job moves nothing and exits 1. \`session_archive\` is not a setting: whether this API's object store settings could hold archived events (\`reason\`: \`object_store_disabled\` or \`unversioned\` when not); it does not know whether the job itself is turned off. \`workspace_stopped_ttl_sec\` and \`workspace_paused_ttl_sec\` (0 to 315360000 seconds) are how long a stopped session, and a paused one with a checkpoint to resume from, keep their workspace before a scheduler pass reclaims it; 0 reclaims it at the next pass, and a later resume restores from the checkpoint. While either is blocked, no stopped or paused session's workspace is reclaimed. The values apply to every workspace of the installation.`,
+    description: `${SETTINGS_OWNER} Each key gives \`value\`, what applies now; \`default\`, what applies while nothing is saved; \`saved\`, false until an owner saves the key or an upgrade carries its old environment variable in; and \`blocked\`, true while that variable held a value the key does not accept and nothing is saved: only what the key sets is refused (503, retryable) until a value is saved, and no default stands in. \`pending_request_ttl_sec\` is how long a permission or question a session raised takes answers once registered (1 to 604800 seconds); while blocked, a permission or question is not registered. \`queued_input_limit_per_session\` is how many queued turns one session holds before the next input answers 429 (1 to 100000), and \`storage_limit_bytes\` the input bytes the installation retains before the next answers 413; while either is blocked, a new session or input is refused. \`session_cost_limit_usd\` (above 0, up to 1000000) and \`session_token_limit\` (0 sets none) stop a session that reached either: it is launched, claimed and given nothing more, and a new provider call is refused. A raised limit reaches a running worker at its next claim; a lowered one stops the next provider call. While either is blocked, no session is launched and no provider call is opened. \`unknown_price_session_token_limit\` (1 or more; it cannot be switched off) is how many provider tokens a session may use on models nothing prices, whose calls have no amount for the cost limit to count: a provider call is refused once the tokens of the session's calls marked as of unknown price, with the reserves of its calls still in flight, reach it. It is judged when a provider call opens and by no other gate; while it is blocked, no provider call is opened. \`workspace_enforce\` (\`warn\`, \`fail\`, \`off\`) is what a worker does once its workspace outgrows its quota, read at each claim. \`session_archive_after_days\` (0 archives nothing, otherwise 30 to 3650) and \`session_archive_dry_run\` (true only counts) are read by the session event archive job at each run; while either is blocked, the job moves nothing and exits 1. \`session_archive\` is not a setting: whether this API's object store settings could hold archived events (\`reason\`: \`object_store_disabled\` or \`unversioned\` when not); it does not know whether the job itself is turned off. \`workspace_stopped_ttl_sec\` and \`workspace_paused_ttl_sec\` (0 to 315360000 seconds) are how long a stopped session, and a paused one with a checkpoint to resume from, keep their workspace before a scheduler pass reclaims it; 0 reclaims it at the next pass, and a later resume restores from the checkpoint. While either is blocked, no stopped or paused session's workspace is reclaimed. The values apply to every workspace of the installation.`,
     auth: "session",
     success: {
       status: 200,
@@ -4130,7 +4201,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "Durably accept a session and its first input",
     description:
-      "Creates a session of an agent release (`agent_release_id`, required) and queues `message` as turn `1`. A private agent (`GET /v1/agents/{id}/usage`) is used only by the members of its teams, the workspace's owners and admins, its admins and the members of its managing team; for anyone else its release answers 404, the very answer of a release that does not exist, before the integrity and state refusals below and whatever else the caller lacks (a key without the scope, or bound to another agent, or a Slack channel past its ceiling, included). Only those inside the agent start it: the workspace's owners and admins, its admins and its managing team's live members, or a personal key's creator who is one of them; anyone else is refused with 403 `FORBIDDEN`, `details.reason_code` `role`. The session runs the release's spec: its connection, runtime and the card's model. `repository_id` is optional; a repository named here is checked against the agent's GitHub settings list where those apply and against the workspace ceiling, else 403 GITHUB_REFUSED. A session created without one starts in an empty workspace, has no default push target (`POST /v1/sessions/{id}/push-requests` must name an attached repository, else it answers 409 PUSH_SOURCE_MISSING) and its detail's `repository_id` is null. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the release's connection offers; omitted, the model of the release's card runs. The session's detail reports it as `model`. A session waits in `queued` while no execution slot is free; it is never refused for that. A key bound to the agent may create it (it reads the agent's `active_release_id` from `GET /v1/agents`). Omitted, an agent with GitHub settings starts without a repository and attaches what it needs, and an agent with none uses the release's `repository_id`. A release whose connection is disabled or gone, or whose model left the connection's list, answers 409 RELEASE_SPEC_UNAVAILABLE. An agent that is paused or archived answers 409 AGENT_NOT_RUNNABLE with `details.reason_code` `agent_inactive`, and a release no activation ever approved answers it with `release_unapproved`. An agent that has had no one to administer it (`ownerless`) for `AGENT_OWNERLESS_GRACE_DAYS` (14) days since `ownerless_since` answers it with `agent_ownerless`; ownership is judged when the session is written, so adding an admin lets the next start through at once, and sessions already running are not stopped; an older release that was approved still starts while the agent is active and not refused as `agent_ownerless`, and a retry of a session made earlier gets its first answer. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The caller limits of the agent (`GET /v1/agents/{id}/caller-limits`) that reach the caller are merged (the workspace's, those of the teams the caller is in, and the Slack channel's) and fixed on the session as `caller_limit`; the first turn runs under the creator's limit, so a start is checked on all four dimensions the way an input is: a repository outside the merged `repositories`, a credential the merged `credentials_deny` names, an MCP server outside `mcp_servers`, or a tool the release loads that `tools_deny` names answers 403 `FORBIDDEN` with `details` `{reason_code: caller_limited, dimension: repository | credential | mcp_server | tool}` and no session. The write merges the limits again under lock, and its result wins over a rule changed since. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.",
+      "Creates a session of an agent release (`agent_release_id`, required) and queues `message` as turn `1`. A private agent (`GET /v1/agents/{id}/usage`) is used only by the members of its teams, the workspace's owners and admins, its admins and the members of its managing team; for anyone else its release answers 404, the very answer of a release that does not exist, before the integrity and state refusals below and whatever else the caller lacks (a key without the scope, or bound to another agent, or a Slack channel past its ceiling, included). Only those inside the agent start it: the workspace's owners and admins, its admins and its managing team's live members, or a personal key's creator who is one of them; anyone else is refused with 403 `FORBIDDEN`, `details.reason_code` `role`. The session runs the release's spec: its connection, runtime and the card's model. `repository_id` is optional; a repository named here is checked against the agent's GitHub settings list where those apply and against the workspace ceiling, else 403 GITHUB_REFUSED. A session created without one starts in an empty workspace, has no default push target (`POST /v1/sessions/{id}/push-requests` must name an attached repository, else it answers 409 PUSH_SOURCE_MISSING) and its detail's `repository_id` is null. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the release's connection offers; omitted, the model of the release's card runs. The session's detail reports it as `model`. A session waits in `queued` while no execution slot is free; it is never refused for that. A key bound to the agent may create it (it reads the agent's `active_release_id` from `GET /v1/agents`). Omitted, an agent with GitHub settings starts without a repository and attaches what it needs, and an agent with none uses the release's `repository_id`. A release whose connection is disabled or gone, or whose model left the connection's list, answers 409 RELEASE_SPEC_UNAVAILABLE; so does a release row this build cannot read (one a newer build stored), with `details.reason_code` `release_unreadable` and its `release_id`, and only the release named is read. An agent that is paused or archived answers 409 AGENT_NOT_RUNNABLE with `details.reason_code` `agent_inactive`, and a release no activation ever approved answers it with `release_unapproved`. An agent that has had no one to administer it (`ownerless`) for `AGENT_OWNERLESS_GRACE_DAYS` (14) days since `ownerless_since` answers it with `agent_ownerless`; ownership is judged when the session is written, so adding an admin lets the next start through at once, and sessions already running are not stopped; an older release that was approved still starts while the agent is active and not refused as `agent_ownerless`, and a retry of a session made earlier gets its first answer. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The caller limits of the agent (`GET /v1/agents/{id}/caller-limits`) that reach the caller are merged (the workspace's, those of the teams the caller is in, and the Slack channel's) and fixed on the session as `caller_limit`; the first turn runs under the creator's limit, so a start is checked on all four dimensions the way an input is: a repository outside the merged `repositories`, a credential the merged `credentials_deny` names, an MCP server outside `mcp_servers`, or a tool the release loads that `tools_deny` names answers 403 `FORBIDDEN` with `details` `{reason_code: caller_limited, dimension: repository | credential | mcp_server | tool}` and no session. The write merges the limits again under lock, and its result wins over a rule changed since. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.",
     scope: "write",
     body: "CreateSessionRequest",
     requestExample: {
@@ -4375,7 +4446,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Sessions",
     summary: "Estimated cost of a session and whether every turn reported it",
     description:
-      "Reads the session's estimated provider cost and token count over its lifetime, its cost and token limits, and its queued input against the per-session limit. The cost is the platform's estimate from the model calls it saw, not a bill. `cost.complete: false` means a turn is still open or ended without reporting, so the true total is unknown; do not read it as zero. `budget_exceeded: true` means either limit is reached: no new turn is dispatched, but input is still accepted and queued. It changes nothing.",
+      "Reads the session's estimated provider cost and token count over its lifetime, its cost and token limits, and its queued input against the per-session limit. The cost is the platform's estimate from the model calls it saw, not a bill, and it is the cost of the calls whose price is known. A call whose requested or answering model neither the platform's price tables nor its LiteLLM snapshot names, or that falls outside the entry of a model a table names (a prompt longer than its rates cover), has no amount: it adds nothing to the cost, and the cost limit does not count it. `unknown_price` gives those calls' count, their tokens and the session's limit on such tokens (`token_limit`, judged when a call opens, apart from `budget_exceeded`); while its `call_count` is above 0 the cost is that of the other calls alone, and what the session cost in all is unknown. `cost.complete: false` means a turn is still open or ended without reporting, so the true total is unknown; do not read it as zero. `budget_exceeded: true` means either limit is reached: no new turn is dispatched, but input is still accepted and queued. It changes nothing.",
     scope: "read",
     success: {
       status: 200,
@@ -4398,6 +4469,11 @@ export const API_ROUTE_DECLARATIONS = [
         cost_limit_usd: "20",
         token_count: 182450,
         token_limit: null,
+        unknown_price: {
+          call_count: 0,
+          token_count: 0,
+          token_limit: 5000000,
+        },
         budget_exceeded: false,
         queued_input_count: 1,
         queued_input_limit: 20,
@@ -5336,7 +5412,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "GitHub work",
     summary: "Review a pull request in the session's repository",
     description:
-      "Submits a review (`APPROVE`, `REQUEST_CHANGES` or `COMMENT`) on pull request `number` of the session's repository with the workspace's reviewer App, a second App apart from the one that opens pull requests, since GitHub refuses an approval from a pull request's own author. Any open pull request in the repository can be reviewed, whoever opened it. The agent's release must turn on `review` under the workspace ceiling; without a reviewer App the call is refused (409 `GITHUB_REFUSED` `no_reviewer_app`). The token is the reviewer App's, scoped to this repository with `contents: read` and `pull_requests: write`.\n\n`commit_id` is the head the caller read and is required: GitHub files the review on that commit, so nothing pushed after the read is approved. The platform also reads the pull request first, and when its head is not `commit_id` it submits nothing and refuses with 409 `GITHUB_REFUSED` `stale_commit` (`error.details.head_sha` is the head it read). `body` (required unless `APPROVE`) goes to GitHub only, with mentions and cross-references neutralized and secret-shaped lines replaced by `[REDACTED]`. Whether an approval satisfies the repository's required reviews is GitHub's rule, as are branch protection and CODEOWNERS. Leaves a `review_pull_request` receipt either way, naming the commit, the event and, when the platform opened the pull request, the session and agent that opened it; never the body.",
+      "Submits a review (`APPROVE`, `REQUEST_CHANGES` or `COMMENT`) on pull request `number` of the session's repository with the workspace's reviewer App, a second App apart from the one that opens pull requests, since GitHub refuses an approval from a pull request's own author. Any open pull request in the repository can be reviewed, whoever opened it. The agent's GitHub settings must have `review` on under the workspace ceiling: with it off the call is refused (403 `GITHUB_REFUSED` `review_off`) and no token is asked for; without a reviewer App the call is refused (409 `GITHUB_REFUSED` `no_reviewer_app`). The token is the reviewer App's, scoped to this repository with `contents: read` and `pull_requests: write`.\n\n`commit_id` is the head the caller read and is required: GitHub files the review on that commit, so nothing pushed after the read is approved. The platform also reads the pull request first, and when its head is not `commit_id` it submits nothing and refuses with 409 `GITHUB_REFUSED` `stale_commit` (`error.details.head_sha` is the head it read). `body` (required unless `APPROVE`) goes to GitHub only, with mentions and cross-references neutralized and secret-shaped lines replaced by `[REDACTED]`. Whether an approval satisfies the repository's required reviews is GitHub's rule, as are branch protection and CODEOWNERS. Leaves a `review_pull_request` receipt either way, naming the commit, the event and, when the platform opened the pull request, the session and agent that opened it; never the body.",
     scope: "write",
     body: "SubmitPullRequestReviewRequest",
     requestExample: {
@@ -6067,7 +6143,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "An agent with its versions, releases and active release",
     description:
-      "The agent's settings: its card versions, releases and active release. Read by the workspace's owners and admins and by those inside the agent: its admins and the live members of its managing team. A member outside it gets 404, the answer of an id of no agent in the workspace: the agent is hidden from them. A private agent the caller may not use is 404 too, with the body of an id of no agent, whatever the caller's other rights outside it. It changes nothing.",
+      "The agent's settings: its card versions, releases and active release. Read by the workspace's owners and admins and by those inside the agent: its admins and the live members of its managing team. A member outside it gets 404, the answer of an id of no agent in the workspace: the agent is hidden from them. A private agent the caller may not use is 404 too, with the body of an id of no agent, whatever the caller's other rights outside it. A release row this build cannot read (one a newer build stored, which the insert-only table keeps) is left out of `releases` and named in `unreadable_releases` by its id and `reason_code` alone (`policy_pins_unreadable` or `row_unreadable`), never its values; while it is the active release, `active_release` is null and `agent.active_release_id` still names it. It changes nothing.",
     auth: "session",
     success: { status: 200, schema: "AgentDetail" },
     errors: [401, 403, 404, 503],
@@ -6112,12 +6188,12 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Release a version on a provider connection",
     description:
-      "The release id is a hash of the card, the connection and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. A model the connection does not offer, or a connection that is not enabled, answers 422. `repository_id` names the catalog repository the release pins, optional: 422 when the catalog has no such repository. Slack sessions and API sessions that send no `repository_id` start on it only while the agent has no GitHub settings; an agent with settings starts them without a repository. A request carrying `github` for an agent that already has GitHub settings answers 409 ALREADY_EXISTS with `reason_code: github_settings_exist`: those are saved with `PUT /v1/agents/{id}/github/settings`. Releasing approves and activates nothing.",
+      "The release id is a hash of the card, the connection and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. A model the connection does not offer, or a connection that is not enabled, answers 422. `repository_id` names the catalog repository the release pins, optional: 422 when the catalog has no such repository. Slack sessions and API sessions that send no `repository_id` start on it only while the agent has no GitHub settings; an agent with settings starts them without a repository. A request carrying `github` for an agent that already has GitHub settings answers 409 ALREADY_EXISTS with `reason_code: github_settings_exist`: those are saved with `PUT /v1/agents/{id}/github/settings`. A request without `github` for an agent without GitHub settings carries the active release's pin; while the active release is a row this build cannot read, it answers 409 RELEASE_SPEC_UNAVAILABLE with `details.reason_code` `release_unreadable` and the active `release_id`. Releasing approves and activates nothing.",
     auth: "session",
     body: "CreateAgentReleaseRequest",
     success: { status: 200, schema: "CreateAgentReleaseResponse" },
     errors: [400, 401, 403, 404, 409, 413, 422, 503],
-    errorCodes: { 409: ["ALREADY_EXISTS"] },
+    errorCodes: { 409: ["ALREADY_EXISTS", "RELEASE_SPEC_UNAVAILABLE"] },
     idempotent: false,
   },
   {
@@ -6127,7 +6203,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Point the agent at a release (compare-and-swap)",
     description:
-      "`expected_revision` is the agent's current `activation_revision` (-1 before the first activation); a stale one answers 409 REVISION_CONFLICT. Sending the same activation again is a no-op with a null `receipt_id`. A release whose connection is disabled or whose model left the connection's list answers 409 RELEASE_SPEC_UNAVAILABLE and has to be released again. A release whose card names a credential not bound to the agent answers 409 CREDENTIAL_UNBOUND with the missing names in `details.missing` (`ActivationCredentialUnboundDetails`). Sessions already pinned keep their release.",
+      "`expected_revision` is the agent's current `activation_revision` (-1 before the first activation); a stale one answers 409 REVISION_CONFLICT. Sending the same activation again is a no-op with a null `receipt_id`. A release whose connection is disabled or whose model left the connection's list answers 409 RELEASE_SPEC_UNAVAILABLE and has to be released again; a release row of this agent that this build cannot read answers it with `details.reason_code` `release_unreadable` (such a row of another agent answers 404). A release whose card names a credential not bound to the agent answers 409 CREDENTIAL_UNBOUND with the missing names in `details.missing` (`ActivationCredentialUnboundDetails`). Sessions already pinned keep their release.",
     auth: "session",
     body: "ActivateAgentRequest",
     success: { status: 200, schema: "ActivateAgentResponse" },
@@ -6697,6 +6773,139 @@ export const API_ROUTE_DECLARATIONS = [
     errorCodes: { 502: ["GITHUB_UNAVAILABLE"] },
   },
   {
+    method: "get",
+    path: "/v1/workspace/skill-repositories",
+    operationId: "listSkillRepositories",
+    tag: "Workspace settings",
+    summary: "List the workspace's skill repositories",
+    description:
+      "Every GitHub repository the workspace registered for its skills, oldest first, removed ones too (`state` `removed`). Each carries the ref it follows, the commit and result of its last listing (`last_sync`) and how many skill directories that listing found. Owners and admins read it.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "SkillRepositoryList",
+      description: "The repositories.",
+      example: { items: [EXAMPLE_SKILL_REPOSITORY] },
+    },
+    errors: [401, 403, 503],
+  },
+  {
+    method: "post",
+    path: "/v1/workspace/skill-repositories",
+    operationId: "registerSkillRepository",
+    tag: "Workspace settings",
+    summary: "Register a public GitHub repository for its skills",
+    description: `${SKILL_MANAGERS} Registering is the approval: no review follows. \`url\` is \`https://github.com/<owner>/<name>\`; \`ref\` is a branch, a tag or a commit SHA, and left out it is the repository's default branch as it is named now, kept by that name. The repository must be public (GitHub's \`visibility\` \`public\`; private and internal are refused) and is read with an installation of the workspace's oldest author App that has one, whether or not that installation covers it. ${SKILL_REPOSITORY_LISTING} Every skill is listed switched off, and nothing here switches one on, so no skill version is made. Registering a repository that was removed brings the same row back (\`outcome\` \`restored\`), at the ref given, with every switch off. Refused with 400 \`reason_code\` \`no_installation\`, \`repository_not_found\`, \`repository_not_public\`, \`ref_not_found\` or \`listing_refused\` (with \`details.issues\`); a repository the workspace already follows is 409 \`ALREADY_EXISTS\` \`repository_already_registered\`; GitHub unreachable or refusing the App is 502 \`GITHUB_UNAVAILABLE\`. Writes a \`register_skill_repository\` receipt with the address, the repository's and its owner's GitHub ids, the ref, the commit and the license GitHub names.`,
+    auth: "session",
+    body: "RegisterSkillRepositoryRequest",
+    requestExample: { url: "https://github.com/acme/skills" },
+    success: {
+      status: 201,
+      schema: "RegisterSkillRepositoryResponse",
+      description: "The repository and its listing.",
+      example: {
+        outcome: "registered",
+        ...EXAMPLE_SKILL_REPOSITORY_DETAIL,
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [400, 401, 403, 409, 502, 503],
+    errorCodes: { 409: ["ALREADY_EXISTS"], 502: ["GITHUB_UNAVAILABLE"] },
+    idempotent: false,
+  },
+  {
+    method: "get",
+    path: "/v1/workspace/skill-repositories/{id}",
+    operationId: "getSkillRepository",
+    tag: "Workspace settings",
+    summary: "One skill repository and the skills it lists",
+    description:
+      "The repository and every skill directory its listings found, by path. A directory gone from the repository stays with `present: false`. `status` is `off`, `unavailable` (with `issues`) or `conflict` (`name_owner` is the source of the workspace skill that holds the name); `name_shared` says another listed directory, here or in another registered repository, reads the same name. Owners and admins read it.",
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "SkillRepositoryDetail",
+      description: "The repository and its skills.",
+      example: EXAMPLE_SKILL_REPOSITORY_DETAIL,
+    },
+    errors: [401, 403, 404, 503],
+  },
+  {
+    method: "delete",
+    path: "/v1/workspace/skill-repositories/{id}",
+    operationId: "removeSkillRepository",
+    tag: "Workspace settings",
+    summary: "Remove a skill repository",
+    description: `${SKILL_MANAGERS} The repository becomes \`removed\` and a listing that was running writes nothing. No row is deleted: registering the same repository again brings it back. Writes a \`remove_skill_repository\` receipt; one already removed answers \`receipt_id: null\`.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "RemoveSkillRepositoryResponse",
+      description: "The repository, removed.",
+      example: {
+        repository: {
+          ...EXAMPLE_SKILL_REPOSITORY,
+          state: "removed",
+          removed_by: EXAMPLE_USER_ID,
+          removed_at: "2026-11-29T09:00:00.000Z",
+        },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+      },
+    },
+    errors: [401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "post",
+    path: "/v1/workspace/skill-repositories/{id}/check",
+    operationId: "checkSkillRepository",
+    tag: "Workspace settings",
+    summary: "Read a skill repository's listing again now",
+    description: `${SKILL_MANAGERS} Resolves the ref to a commit again and reads the listing there. ${SKILL_REPOSITORY_LISTING} One listing holds a repository at a time; while it does this answers \`queued\` and the process that runs it reads once more when it ends. A read that outlasts its hold may overlap the next and writes nothing. Should the process that holds the repository stop first, or fail to start the queued read, that request may be lost; checks answer \`queued\` until its hold (5 minutes) has passed, and one made after that reads the listing. A listing that reads GitHub for longer than the request's 30 seconds answers 503 and goes on: what it read is recorded unless the repository was removed, restored or pointed elsewhere meanwhile or another check took it over, and a check queued behind it is then read. GitHub is asked whether the repository is public before any file is read and again after. \`last_sync\` records the time, who asked, the commit and the result: \`listed\`, \`source_missing\` (the ref or the repository is gone, or it is no longer public), \`rejected\` with \`issues\`, or \`github_unavailable\`. Only \`listed\` changes the skills shown. A removed repository is 400 \`repository_removed\`.`,
+    auth: "session",
+    success: {
+      status: 200,
+      schema: "CheckSkillRepositoryResponse",
+      description: "The listing ran, or was queued behind one that runs.",
+      example: { outcome: "checked", ...EXAMPLE_SKILL_REPOSITORY_DETAIL },
+    },
+    errors: [400, 401, 403, 404, 503],
+    idempotent: false,
+  },
+  {
+    method: "put",
+    path: "/v1/workspace/skill-repositories/{id}/ref",
+    operationId: "putSkillRepositoryRef",
+    tag: "Workspace settings",
+    summary: "Point a skill repository at another ref",
+    description: `${SKILL_MANAGERS} The repository must still be public (400 \`repository_not_public\`) and GitHub must resolve \`ref\` to a commit first (400 \`ref_not_found\`; GitHub not answering is 502 \`GITHUB_UNAVAILABLE\`). The repository then follows it, a listing that was running at the old ref writes nothing, and the listing is read at the new one: \`check\` says whether it ended (\`checked\`) or waits behind a running one (\`queued\`). Writes an \`update_skill_repository_ref\` receipt with the ref before and after; the ref it already follows answers \`receipt_id: null\` and reads nothing. The listing starts even when the request's 30 seconds end just after the change commits; should the process stop between the two, or the deadline cut off the answer of the commit itself, \`last_sync\` is left as it was, and sending the same ref again reads nothing, so run a check. The repository may change while this call checks its ref: removed since, it answers 404; already at \`ref\`, 200 with \`receipt_id: null\`; restored or pointed elsewhere, 409 \`REVISION_CONFLICT\` (\`repository_changed\`) and nothing is written. An \`Idempotency-Key\` is not read: sending the call again is a new change. A removed repository is 400 \`repository_removed\`.`,
+    auth: "session",
+    body: "PutSkillRepositoryRefRequest",
+    requestExample: { ref: "v2" },
+    success: {
+      status: 200,
+      schema: "PutSkillRepositoryRefResponse",
+      description: "The repository at the new ref.",
+      example: {
+        ...EXAMPLE_SKILL_REPOSITORY_DETAIL,
+        repository: { ...EXAMPLE_SKILL_REPOSITORY, ref: "v2" },
+        receipt_id: EXAMPLE_RECEIPT_ID,
+        check: "checked",
+      },
+    },
+    errors: [400, 401, 403, 404, 409, 502, 503],
+    errorCodes: { 409: ["REVISION_CONFLICT"], 502: ["GITHUB_UNAVAILABLE"] },
+    errorNotes: {
+      REVISION_CONFLICT:
+        "Here no revision is sent: the repository was restored or pointed at another ref while this call checked its ref (`reason_code` `repository_changed`). Read it again and send the change again.",
+      REQUEST_TIMEOUT:
+        "Here no key is read; nothing was changed, so send the request again.",
+      BACKEND_UNAVAILABLE:
+        "Here no key is read, and a change this call committed before the deadline stands: read the repository again, and send the change again only if its ref is still not the one wanted.",
+    },
+    idempotent: false,
+  },
+  {
     method: "post",
     path: "/v1/workspace/skills/{name}/revert",
     operationId: "revertSkill",
@@ -6809,7 +7018,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "putWorkspaceSkillAttachment",
     tag: "Workspace settings",
     summary: "Name the skill version every agent of the workspace gets",
-    description: `${SKILL_MANAGERS} \`version_id\` must be a version of \`name\` (400 \`version_name_mismatch\`), approved (\`version_not_approved\`) and not archived (\`version_archived\`); \`mode: forbidden\` takes any version that is not archived, approved or not, since it only keeps the name out. \`follow: true\` (with \`required\` or \`optional\`) instead follows the skill's current version: each new session takes the version current when it starts, so approving a higher version or reverting moves what the next session gets and never a running one. Replaces what the scope named before. A session takes it when it starts. Writes an \`attach_extension\` receipt.`,
+    description: `${SKILL_MANAGERS} \`version_id\` must be a version of \`name\` (400 \`version_name_mismatch\`), approved (\`version_not_approved\`) and not archived (\`version_archived\`); \`mode: forbidden\` takes any version that is not archived, approved or not, since it only keeps the name out. \`follow: true\` (with \`required\` or \`optional\`) instead follows the skill's current version: each new session takes the version current when it starts, so approving a higher version or reverting moves what the next session gets and never a running one. Replaces what the scope named before. A session takes it when it starts. A skill of a registered skill repository is refused in every mode (400 \`repository_skill_workspace\`): it is attached to an agent only. Writes an \`attach_extension\` receipt.`,
     auth: "session",
     body: "PutSkillAttachmentRequest",
     requestExample: { version_id: EXAMPLE_SKILL_VERSION_ID, mode: "required" },
@@ -6860,6 +7069,7 @@ export const API_ROUTE_DECLARATIONS = [
             mode: "required",
             follows: true,
             version: EXAMPLE_SKILL_VERSION,
+            availability: "ok",
           },
         ],
       },
@@ -6872,7 +7082,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "putAgentSkillAttachment",
     tag: "Agents",
     summary: "Name the skill version the agent gets",
-    description: `The agent's managers (owners, admins, the agent's own admins, members of its admin teams and its managing team's lead) signed in to the console; an API key is refused with 403 \`reason_code\` \`web_session_required\`. The version rules are the workspace scope's. Writes an \`attach_extension\` receipt on the agent.`,
+    description: `The agent's managers (owners, admins, the agent's own admins, members of its admin teams and its managing team's lead) signed in to the console; an API key is refused with 403 \`reason_code\` \`web_session_required\`. The version rules are the workspace scope's. A skill of a registered skill repository whose switch is off or whose repository was removed is refused (400 \`skill_unavailable\`, with its \`availability\`) unless the mode is \`forbidden\`. Writes an \`attach_extension\` receipt on the agent.`,
     auth: "session",
     body: "PutSkillAttachmentRequest",
     requestExample: { version_id: EXAMPLE_SKILL_VERSION_ID, mode: "optional" },
@@ -7053,10 +7263,11 @@ export const API_ROUTE_DECLARATIONS = [
     method: "get",
     path: "/v1/agents/{id}/slack/judgments",
     operationId: "getSlackJudgments",
+    query: "GetSlackJudgmentsQuery",
     tag: "Agents",
     summary: "M1's judgments in the agent's Slack channels",
     description:
-      "What the conversation layer's first judge (M1) decided in the agent's Slack channels in the last 7 days (`since`), judged records only. Per channel (`channels`, most judgments first): how many judgments had a result (`judgments`), how many of them were `speak`, how many had each reason code (`reasons`, most first; `rate_limited` and `budget_refused` among them), the kind the channel's live binding records and that binding's `m1_judgments_per_hour` (null without one). Then the newest 50 judgments (`recent`) with their reason code and `url`, the link to the newest message the judgment read, made from its channel and `ts`: the message's text is read in Slack, never here. Private channels are in both like the rest, whether or not the caller is a member of them. Owners, admins and the agent's admins; API keys are refused. It changes nothing.",
+      "What the conversation layer's first judge (M1) decided in the agent's Slack channels in the last 7 days (`since`), judged records only. Per channel (`channels`, most judgments first): how many judgments had a result (`judgments`), how many of them were `speak`, how many had each reason code (`reasons`, most first; `rate_limited` and `budget_refused` among them), the kind the channel's live binding records and that binding's `m1_judgments_per_hour` (null without one). Then the newest 50 judgments (`recent`); when `reason` names a reason code, `answer` names an answer, or both, the newest 50 of the judgments that have them (an unknown, empty or repeated `reason` or `answer` is 400; the counts above stay whole). Each carries its reason code, its `answer` (what became of a judgment that spoke once the agent's rollout is on, as recorded when its unasked turn ended or when none was made: `replied` and `no_reply` are the turn's decision, not proof that a Slack message was delivered; `no_decision`, `budget_refused`, `source_deleted`, `channel_stopped` or `not_started` say why there was none; null while no result is recorded, including a turn still running) and `url`, the link to the newest message the judgment read, made from its channel and `ts`: the message's text is read in Slack, never here. Private channels are in both like the rest, whether or not the caller is a member of them. Owners, admins and the agent's admins; API keys are refused. It changes nothing.",
     auth: "session",
     success: {
       status: 200,
@@ -7091,12 +7302,13 @@ export const API_ROUTE_DECLARATIONS = [
             outcome: "judged",
             decision: "speak",
             reason: "needs_agent",
+            answer: "replied",
             judged_at: "2026-11-24T00:00:05.000Z",
           },
         ],
       },
     },
-    errors: [401, 403, 404, 503],
+    errors: [400, 401, 403, 404, 503],
   },
   {
     method: "get",
@@ -7174,7 +7386,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Set how the agent answers in one Slack channel or its DMs",
     description:
-      "Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `on` (in use; the agent's `mention_only` setting says whether it also answers a top-level message without a mention). `m1_judgments_per_hour` (1 to 60) is how many M1 judgments the channel may have in an hour; a missing one keeps the channel's, and a new channel starts at 12. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. A binding that is `left` stays `left` when saved for its private channel (its `mode` and `ceiling` are edited, `home: true` answers 400); saved for a channel Slack now calls public, it is `ready` again. A channel under an emergency stop (`emergency_stop` set) stays `off` until a save sets `mode` `on` with a `reason` (400 without one); that save ends the stop on every binding of the channel it covered (each of the agent's installs in the Slack team), and its receipt keeps the reason and the stop it ended with those bindings. A binding saved while the stop holds starts stopped. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.",
+      "Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `on` (in use; the agent's `mention_only` setting says whether it also answers a top-level message without a mention). `m1_judgments_per_hour` (1 to 60) is how many M1 judgments the channel may have in an hour; a missing one keeps the channel's, and a new channel starts at 12. `report_mode` is how the channel's threads hear of their work: `notify_only` (one line when it starts, then only its end), `progress` (one progress message kept up to date, then its end) or `per_step` (a reply for every turn); a thread's own mode wins. `null` picks none, and the threads then hear by the agent's default: `progress` while the agent answers in conversations (`conversation_rollout` `on`), `per_step` otherwise. A missing one keeps the channel's; a new channel picks none. A DM's is kept but never read: a DM hears by the agent's default. A change applies at once to the open threads that pick none; a closed thread keeps the mode it closed under. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. A binding that is `left` stays `left` when saved for its private channel (its `mode` and `ceiling` are edited, `home: true` answers 400); saved for a channel Slack now calls public, it is `ready` again. A channel under an emergency stop (`emergency_stop` set) stays `off` until a save sets `mode` `on` with a `reason` (400 without one); that save ends the stop on every binding of the channel it covered (each of the agent's installs in the Slack team), and its receipt keeps the reason and the stop it ended with those bindings. A binding saved while the stop holds starts stopped. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.",
     auth: "session",
     body: "PutSlackBindingRequest",
     success: { status: 200, schema: "PutSlackBindingResponse" },
@@ -7241,6 +7453,7 @@ export const API_ROUTE_DECLARATIONS = [
           mode: "off",
           listen: "free",
           m1_judgments_per_hour: 12,
+          report_mode: null,
           ceiling: {
             actions: ["session.read", "session.submit"],
             disclosure: "summary",
@@ -7559,6 +7772,7 @@ export const API_ROUTE_DECLARATIONS = [
             checks: { available: false, reason: "over_workspace_ceiling" },
             issues: { available: false, reason: "over_workspace_ceiling" },
             review: { available: false, reason: "no_reviewer_app" },
+            merge: { available: true, reason: null },
           },
         },
       },
@@ -7632,7 +7846,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Agents",
     summary: "Save the agent's GitHub settings",
     description:
-      "Replaces the agent's whole settings row in one transaction and makes no release: a new session reads it at once, and a change that narrows reaches running sessions too. `expected_revision` is `settings_revision` as read (null when there was no row); another value answers 409 `REVISION_CONFLICT`. `push_attached` is optional: left out, a first save writes `allow` and a later save keeps the row's value. `updated_by` is always the caller, so the first save of an agent also fixes the rollback floor at the snapshot-reading image. Only repositories the save adds are checked against the catalog and the workspace's repository ceiling, and features it turns on against the feature ceiling (400 with `reason_code`). Writes a `set_agent_github` receipt with `result.change = \"settings\"` and the values before and after; `receipt_id` is null when a person's row already held them. Agent managers with a web session only; API keys are refused.",
+      "Replaces the agent's whole settings row in one transaction and makes no release: a new session reads it at once, and a change that narrows reaches running sessions too. `expected_revision` is `settings_revision` as read (null when there was no row); another value answers 409 `REVISION_CONFLICT`. `push_attached` is optional: left out, a first save writes `allow` and a later save keeps the row's value. `updated_by` is always the caller, so the first save of an agent also fixes the rollback floor at the snapshot-reading image. Only repositories the save adds are checked against the catalog and the workspace's repository ceiling, and features it turns on against the feature ceiling (400 with `reason_code`). `settings.features.merge` (optional; left out it is off) lets the agent squash-merge the pull request its own session opened, under the ceiling's `merge`; a release pin never carries it. Writes a `set_agent_github` receipt with `result.change = \"settings\"` and the values before and after; `receipt_id` is null when a person's row already held them. Agent managers with a web session only; API keys are refused.",
     auth: "session",
     body: "PutAgentGitHubSettingsRequest",
     requestExample: {
@@ -9381,7 +9595,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Cost, tokens and run time of the sessions created in a period",
     description:
-      "Adds up the sessions created in `[since, until)`: how many, their estimated provider cost, their tokens, and how long their turns ran. `since` and `until` take a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, which is moved to UTC; without `until` the period ends when the figures are read, so `since` must then be in the past.\n\n- `scope=me`: the sessions the caller started. A personal API key counts as the person who created it; a key nobody created counts the sessions it started itself. Sessions shared with the caller are not added. A key bound to an agent gets 403, as it does from `GET /v1/sessions`.\n- `scope=installation`: every session of every owner. Only the workspace's owner and admins, signed in, read it: any other member and every API key get 403.\n- `scope=agent` with `agent_id`: the sessions started from any release of that agent, whoever started them. The workspace's owner and admins and the agent's admins read it; anyone else, and every API key, gets 403, and an agent of another workspace, or none, is 404 for everyone. `agent_id` is required with it and refused with any other scope, and `group_by` is refused with it.\n\n`cost_usd` is the sum of `cost.amount_usd` from `GET /v1/sessions/{id}/usage` over the same sessions: an estimate, not a bill. `cost_complete: false` means one of them has a turn still open or one that ended without reporting its cost, so the true total is unknown. `run_seconds` is wall-clock turn time, waiting for an answer included; an open turn counts up to `refreshed_at`. Sessions from before tokens were metered count 0 tokens.\n\n`group_by=agent` or `group_by=user` adds `groups`: the same sessions, each once, under its agent or the user holding it, largest cost first, read in the same statement as the totals. The groups' `session_count`, `cost_usd` and `run_seconds` add up to the totals (`run_seconds` is the floor of the running total minus the floor of the one before it, so two groups of 1.5 seconds read 1 and 2), and `cost_complete` is false when any group's is. `id` is the agent id or user id; it is null for sessions without an agent, or started by a key no person created. `name` is the agent's name or the user's display name (never an email); under `scope=me` a user other than the caller is null. Without `group_by` there is no `groups`. It changes nothing.",
+      "Adds up the sessions created in `[since, until)`: how many, their estimated provider cost, their tokens, and how long their turns ran. `since` and `until` take a date (`2026-10-01`, that day's 00:00 UTC) or a timestamp with an offset, which is moved to UTC; without `until` the period ends when the figures are read, so `since` must then be in the past.\n\n- `scope=me`: the sessions the caller started. A personal API key counts as the person who created it; a key nobody created counts the sessions it started itself. Sessions shared with the caller are not added. A key bound to an agent gets 403, as it does from `GET /v1/sessions`.\n- `scope=installation`: every session of every owner. Only the workspace's owner and admins, signed in, read it: any other member and every API key get 403.\n- `scope=agent` with `agent_id`: the sessions started from any release of that agent, whoever started them. The workspace's owner and admins and the agent's admins read it; anyone else, and every API key, gets 403, and an agent of another workspace, or none, is 404 for everyone. `agent_id` is required with it and refused with any other scope, and `group_by` is refused with it.\n\n`cost_usd` is the sum of `cost.amount_usd` from `GET /v1/sessions/{id}/usage` over the same sessions: an estimate, not a bill, of the calls whose price is known. `unknown_price` counts the sessions' calls no price is known for (a model neither the price tables nor the LiteLLM snapshot names, or a call outside the entry of one a table names) and their tokens: those calls have no amount and are not in `cost_usd`. `cost_complete: false` means one of them has a turn still open or one that ended without reporting its cost, so the true total is unknown. `run_seconds` is wall-clock turn time, waiting for an answer included; an open turn counts up to `refreshed_at`. Sessions from before tokens were metered count 0 tokens.\n\n`group_by=agent` or `group_by=user` adds `groups`: the same sessions, each once, under its agent or the user holding it, largest cost first, read in the same statement as the totals. The groups' `session_count`, `cost_usd` and `run_seconds` add up to the totals (`run_seconds` is the floor of the running total minus the floor of the one before it, so two groups of 1.5 seconds read 1 and 2), and `cost_complete` is false when any group's is. `id` is the agent id or user id; it is null for sessions without an agent, or started by a key no person created. `name` is the agent's name or the user's display name (never an email); under `scope=me` a user other than the caller is null. Without `group_by` there is no `groups`. It changes nothing.",
     scope: "read",
     query: "UsageSummaryQuery",
     success: {
@@ -9399,6 +9613,7 @@ export const API_ROUTE_DECLARATIONS = [
         cost_usd: "3.218400",
         cost_complete: false,
         token_count: 1824500,
+        unknown_price: { call_count: 3, token_count: 41200 },
         run_seconds: 5410,
         basis: {
           sessions: "created_in_period",
@@ -9546,7 +9761,7 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "The usage summary of a period, one bucket per UTC day",
     description:
-      "Splits `GET /v1/usage/summary` by the UTC day each session was created on: one bucket per day the period `[since, until)` touches, oldest first, days without sessions included. `scope`, `since`, `until` and who may read which scope are exactly the summary's; the period spans at most 366 days. `bucket` is `day`, the only size.\n\nThe buckets of one response add up to the summary of the same period: `session_count`, `cost_usd` and `token_count` sum, and `cost_complete` is false on a day whose sessions include one the summary would mark incomplete. `run_seconds` is the floor of the running total of turn time minus the floor of the one before it, so two days of 0.6 seconds read 0 and 1, as the summary reads 1. A long session's cost and time count on the day it started.\n\n`conversation_cost_usd` is the conversation calls (a Slack mention or DM an agent answers, not a session) created that day, apart from `cost_usd`: the day's whole spend is the two together. It counts a call as it settled, as `GET /v1/usage/breakdown?by=agent` `conversation` does, under the same `scope` (`me`: the calls asked for by the caller as a person; a key no person created has none). `conversation_cost_complete` is false on a day with a call reserved, in flight or resolved without a report. It changes nothing.",
+      "Splits `GET /v1/usage/summary` by the UTC day each session was created on: one bucket per day the period `[since, until)` touches, oldest first, days without sessions included. `scope`, `since`, `until` and who may read which scope are exactly the summary's; the period spans at most 366 days. `bucket` is `day`, the only size.\n\nThe buckets of one response add up to the summary of the same period: `session_count`, `cost_usd` and `token_count` sum, and `cost_complete` is false on a day whose sessions include one the summary would mark incomplete. `run_seconds` is the floor of the running total of turn time minus the floor of the one before it, so two days of 0.6 seconds read 0 and 1, as the summary reads 1. A long session's cost and time count on the day it started.\n\n`conversation_cost_usd` is the conversation calls (a Slack mention or DM an agent answers, not a session) created that day, apart from `cost_usd`: the day's whole spend is the two together. It counts a call as it settled, as `GET /v1/usage/breakdown?by=agent` `conversation` does, under the same `scope` (`me`: the calls asked for by the caller as a person; a key no person created has none). `conversation_cost_complete` is false on a day with a call reserved, in flight or resolved without a report.\n\n`unknown_price` is of the whole period, as the summary gives it: the sessions' calls on a model nothing prices, which have no amount and are in no bucket's `cost_usd`. It changes nothing.",
     scope: "read",
     query: "UsageSeriesQuery",
     success: {
@@ -9559,6 +9774,7 @@ export const API_ROUTE_DECLARATIONS = [
           until: "2026-10-11T08:15:43.000Z",
         },
         refreshed_at: "2026-10-11T08:15:43.000Z",
+        unknown_price: { call_count: 3, token_count: 41200 },
         buckets: [
           {
             date: "2026-10-09",
@@ -9783,11 +9999,11 @@ export const API_ROUTE_DECLARATIONS = [
     tag: "Limits & receipts",
     summary: "Current outcome of an accepted command",
     description:
-      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `resolve_push`, `push`: `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it. Receipts written before the rename say `decide_push`, `decision`, `already_decided` and `PUSH_REQUEST_DECIDED` instead.\n- `open_pull_request`, `update_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`, and for an open or update whose body came from structured fields also `template` (`{commit, path?, blob_sha?, skipped?}`: the default branch's commit read, the template used or the reason one was passed over; never its text); `created` is false when the call answered an open pull request, edited the marked comment, or (always, for `update_pull_request`) changed the title or body of the pull request with the built-in `github` MCP server's `update_pull_request`.\n- `close_pull_request`, `reopen_pull_request`: the same fields plus `{state, changed}`, written when the session's agent closes or reopens the pull request of its push request with the built-in `github` MCP server's tools of those names; `state` is the pull request's state after the call and `changed` is false when it was already in that state. A merged pull request is refused with `pull_request_merged` (`PULL_REQUEST_MERGED`).\n- `merge_pull_request`: the same fields as `close_pull_request` plus `{merged, changed, head_sha, merge_commit_sha, method}`, written when the session's agent squash-merges the pull request of its push request with the built-in `github` MCP server's `merge_pull_request`; `method` is `squash`, or null when the pull request was already merged on the pushed commit (`changed` false). A refusal is `failed` with `reason_code` `merge_off` (the workspace has not allowed merging; `GITHUB_REFUSED`) before GitHub is called, or `merge_blocked` (`PULL_REQUEST_MERGE_BLOCKED`), `head_moved` or `pull_request_closed` (`PULL_REQUEST_CLOSED`). A receipt refused with `merge_off` names no connection, App or role.\n- `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, outside the workspace ceiling, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`), `allowed_in_newer_release` (off the session's release but allowed by the agent's active release: the session keeps the release it started with, and a new session can attach it; `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n- `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.\n- `set_slack_allowed_bots`: `{agent_id, added, removed, count_before, count_after, by}`; `by` is `web` for a save in the console (the user is the receipt's `actor`) and `operator_cli` for a change made with the `slack-app.ts` bot commands; both write it only when the list changed.\n- `approve_slack_notice`, `revoke_slack_notice`: no longer written, since the Slack notice approval is retired; ones written before still read, with `{agent_id, approval_id, slack_team_id, notice_version, notice_locale}` and `{agent_id, approval_ids, slack_team_ids, notice_versions}`.\n- `set_conversation_rollout`: `{agent_id, before, after, by, reason, buffered_dropped}`; `by` is `web` (a workspace owner or admin, the receipt's `actor`) or `operator_cli` (`slack-notice.ts set-rollout`), and `reason` is null. Receipts written while the approval stood may also say `reason` `notice_revoked` (`by` `web`: a revoke lowered the switch) or `not_approved`, `not_installed` or `no_notice` (`by` `reconciler`: the switch lowered to `off` by itself); no new receipt does. `buffered_dropped` counts the held messages a change to `off` removed.\n- `delete_slack_app`: `{slack_app_id, app_id, kind, agent_id, closed, slack_cleanup}`: a Slack app deleted through the API, by the receipt's `actor`. `closed` counts what the delete closed in Werft (`installations`, `identities`, `bindings`, `outbox` messages cancelled as `app_deleted`, `buffered` messages dropped); `slack_cleanup` is null until Slack's side was tried, then `{outcome, failed_steps, message}` as the delete answered. No token is in it.\n- `resolve_unknown_budget`: `{call_id, call_kind, session_id, agent_id, conversation_turn_id, account_id, owner_kind, owner_id, period_start, resolution, reason, held_cost_usd, held_tokens, charged_cost_usd, charged_tokens, unknown_at, run_id, by}`, written by the `budget-unknown.ts` operator command for each budget reservation of unknown end it resolves, or by the reconciler (`by` `reconciler`, no `actor`) for one whose turn ended and whose call can no longer run; `resolution` is `spent` (charged at what it held), `refunded` (charged nothing, with its `reason`) or `estimated` (the reconciler's: charged at what it held), and `target_ref` is the account's owner (a person, or a team) or, with no account, the workspace.\n\nAny credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. A receipt that names an agent or a release of one (`agent_id`, `agent_ids`, `release_id`, `agent_release_id`, or the agent as `target_ref` or `actor.agent_id`) is shown only with those ids to a reader who may use that agent (`GET /v1/usable-agents`); for anyone else a private agent's ids are left out (a list loses them, a single field is `null`) and a receipt whose target is that agent or one of its releases answers 404, as a receipt that does not exist does. It changes nothing.",
+      "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `resolve_push`, `push`: `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it. Receipts written before the rename say `decide_push`, `decision`, `already_decided` and `PUSH_REQUEST_DECIDED` instead.\n- `open_pull_request`, `update_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`, and for an open or update whose body came from structured fields also `template` (`{commit, path?, blob_sha?, skipped?}`: the default branch's commit read, the template used or the reason one was passed over; never its text); `created` is false when the call answered an open pull request, edited the marked comment, or (always, for `update_pull_request`) changed the title or body of the pull request with the built-in `github` MCP server's `update_pull_request`.\n- `close_pull_request`, `reopen_pull_request`: the same fields plus `{state, changed}`, written when the session's agent closes or reopens the pull request of its push request with the built-in `github` MCP server's tools of those names; `state` is the pull request's state after the call and `changed` is false when it was already in that state. A merged pull request is refused with `pull_request_merged` (`PULL_REQUEST_MERGED`).\n- `merge_pull_request`: the same fields as `close_pull_request` plus `{merged, changed, head_sha, merge_commit_sha, method}`, written when the session's agent squash-merges the pull request of its push request with the built-in `github` MCP server's `merge_pull_request`; `method` is `squash`, or null when the pull request was already merged on the pushed commit (`changed` false). A refusal is `failed` with `reason_code` `merge_off` (merging is off in the agent's GitHub settings, the workspace ceiling or both, as `off_in` says; `GITHUB_REFUSED`) before GitHub is called, `not_own_pull_request` (in a repository the session attached, a pull request the platform did not open on GitHub for this session's push request, such as one it found on the branch and adopted; `GITHUB_REFUSED`) or `repository_not_allowed`, or `merge_blocked` (`PULL_REQUEST_MERGE_BLOCKED`), `head_moved` or `pull_request_closed` (`PULL_REQUEST_CLOSED`). A receipt refused with `merge_off` names no connection, App or role.\n- `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, outside the workspace ceiling, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`), `allowed_in_newer_release` (off the session's release but allowed by the agent's active release: the session keeps the release it started with, and a new session can attach it; `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n- `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.\n- `set_slack_allowed_bots`: `{agent_id, added, removed, count_before, count_after, by}`; `by` is `web` for a save in the console (the user is the receipt's `actor`) and `operator_cli` for a change made with the `slack-app.ts` bot commands; both write it only when the list changed.\n- `approve_slack_notice`, `revoke_slack_notice`: no longer written, since the Slack notice approval is retired; ones written before still read, with `{agent_id, approval_id, slack_team_id, notice_version, notice_locale}` and `{agent_id, approval_ids, slack_team_ids, notice_versions}`.\n- `set_conversation_rollout`: `{agent_id, before, after, by, reason, buffered_dropped}`; `by` is `web` (a workspace owner or admin, the receipt's `actor`) or `operator_cli` (`slack-notice.ts set-rollout`), and `reason` is null. Receipts written while the approval stood may also say `reason` `notice_revoked` (`by` `web`: a revoke lowered the switch) or `not_approved`, `not_installed` or `no_notice` (`by` `reconciler`: the switch lowered to `off` by itself); no new receipt does. `buffered_dropped` counts the held messages a change to `off` removed.\n- `delete_slack_app`: `{slack_app_id, app_id, kind, agent_id, closed, slack_cleanup}`: a Slack app deleted through the API, by the receipt's `actor`. `closed` counts what the delete closed in Werft (`installations`, `identities`, `bindings`, `outbox` messages cancelled as `app_deleted`, `buffered` messages dropped); `slack_cleanup` is null until Slack's side was tried, then `{outcome, failed_steps, message}` as the delete answered. No token is in it.\n- `resolve_unknown_budget`: `{call_id, call_kind, session_id, agent_id, conversation_turn_id, account_id, owner_kind, owner_id, period_start, resolution, reason, held_cost_usd, held_tokens, charged_cost_usd, charged_tokens, unknown_at, run_id, by}`, written by the `budget-unknown.ts` operator command for each budget reservation of unknown end it resolves, or by the reconciler (`by` `reconciler`, no `actor`) for one whose turn ended and whose call can no longer run; `resolution` is `spent` (charged at what it held), `refunded` (charged nothing, with its `reason`) or `estimated` (the reconciler's: charged at what it held), and `target_ref` is the account's owner (a person, or a team) or, with no account, the workspace.\n\nAny credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. A receipt that names an agent or a release of one (`agent_id`, `agent_ids`, `release_id`, `agent_release_id`, or the agent as `target_ref` or `actor.agent_id`) is shown only with those ids to a reader who may use that agent (`GET /v1/usable-agents`); for anyone else a private agent's ids are left out (a list loses them, a single field is `null`) and a receipt whose target is that agent or one of its releases answers 404, as a receipt that does not exist does. It changes nothing.",
     scope: "read",
     success: {
       status: 200,
-      schema: "Receipt",
+      schema: "ReceiptRead",
       description: "The receipt as it stands now.",
       example: {
         id: EXAMPLE_RECEIPT_ID,
@@ -10007,6 +10223,7 @@ const PATH_PARAMETER_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "receipts/{id}": "The receipt's id.",
   "secrets/{purpose}": "Which of the Slack app's secrets.",
   "sessions/{id}": "The session's id.",
+  "skill-repositories/{id}": "The skill repository's id.",
   "skills/{name}": "The skill's name.",
   "slack-bindings/{binding_id}": "The Slack binding's id.",
   "teams/{team_id}": "The team's id.",
@@ -10099,6 +10316,8 @@ function paramsSchemaFor(path: string): z.ZodObject {
     return workspaceVariableParamsSchema;
   if (path.startsWith("/v1/workspace/mcp-servers/{id}"))
     return workspaceMcpServerParamsSchema;
+  if (path.startsWith("/v1/workspace/skill-repositories/{id}"))
+    return skillRepositoryParamsSchema;
   if (path.startsWith("/v1/workspace/skills/versions/{id}"))
     return skillVersionParamsSchema;
   if (path.startsWith("/v1/workspace/skills/{name}"))

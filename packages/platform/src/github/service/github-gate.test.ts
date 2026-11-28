@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   type AgentGitHub,
+  type AgentGitHubFeatures,
+  type AgentGitHubSettings,
   type EffectiveGitHubPolicy,
   GITHUB_CEILING_NONE,
   GITHUB_FEATURES_NONE,
   GITHUB_POLICY_CLOSED,
   type GitHubAppRole,
   type GitHubCeiling,
-  type GitHubFeatures,
   type GitHubRefusal,
   newSessionGitHubPolicy,
   type RepositoryCeiling,
@@ -46,6 +47,7 @@ import { createGitHubGate } from "./github-gate.ts";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const OTHER_SESSION = "22222222-2222-4222-8222-222222222222";
+const PR_URL = "https://github.com/acme/docs/pull/7";
 const STARTER = "019a0000-0000-7000-8000-0000000000b1";
 const ALL_ON: GitHubCeiling = {
   workflows: true,
@@ -79,11 +81,13 @@ const CATALOG = {
   },
 } satisfies SessionCatalog;
 
-function features(on: Partial<GitHubFeatures> = {}): GitHubFeatures {
+function features(on: Partial<AgentGitHubFeatures> = {}): AgentGitHubFeatures {
   return { ...GITHUB_FEATURES_NONE, ...on };
 }
 
-function settings(overrides: Partial<AgentGitHub> = {}): AgentGitHub {
+function settings(
+  overrides: Partial<AgentGitHubSettings> = {},
+): AgentGitHubSettings {
   return {
     repositories: ["app", "ghes"],
     push_approval: true,
@@ -195,7 +199,7 @@ function harness(
     /** Default: the catalog entry's URL and branch. */
     repository?: { url: string; branch: string } | null;
     attached?: string[] | null;
-    github?: AgentGitHub | "invalid" | null;
+    github?: AgentGitHubSettings | "invalid" | null;
     /** Beats `github`: a session under the agent's settings. */
     policy?: EffectiveGitHubPolicy;
     repositoryCeiling?: RepositoryCeiling | null;
@@ -209,6 +213,17 @@ function harness(
       Record<GitHubAppRole, readonly RegisteredGitHubConnection[]>
     >;
     pins?: Pick<GitHubPinStore, "get" | "pinFirst">;
+    /** The pull requests recorded per push request: session and repository. */
+    pullRequests?: Record<
+      string,
+      {
+        sessionId: string;
+        repositoryId: string;
+        opened?: boolean;
+        /** Absent: PR_URL. */
+        url?: string;
+      }
+    >;
   } = {},
 ) {
   const catalog = options.catalog ?? CATALOG;
@@ -252,6 +267,7 @@ function harness(
         : { url: pinned.url, branch: pinned.branch };
   const receipts: GitHubGateReceipt[] = [];
   const asked: Array<{ repositoryId: string; role: GitHubAppRole }> = [];
+  const ownPullRequestReads: string[] = [];
   const store: GitHubGateStore = {
     context: async (sessionId): Promise<GitHubSessionContext | null> =>
       sessionId !== SESSION
@@ -283,6 +299,17 @@ function harness(
       receipts.push(receipt);
       return `receipt-${receipts.length}`;
     },
+    ownPullRequest: async (sessionId, pushRequestId, url) => {
+      ownPullRequestReads.push(pushRequestId);
+      const recorded = options.pullRequests?.[pushRequestId];
+      return recorded?.sessionId === sessionId &&
+        (recorded.url ?? PR_URL) === url
+        ? {
+            repositoryId: recorded.repositoryId,
+            opened: recorded.opened ?? true,
+          }
+        : null;
+    },
   };
   const connections: GitHubConnections = (repositoryId, role) => {
     asked.push({ repositoryId, role });
@@ -312,7 +339,17 @@ function harness(
   });
   const grant = (work: Omit<GitHubWork, "sessionId">) =>
     gate.grant({ sessionId: SESSION, ...work });
-  return { gate, grant, state, receipts, asked, author, reviewer, ghes };
+  return {
+    gate,
+    grant,
+    state,
+    receipts,
+    asked,
+    author,
+    reviewer,
+    ghes,
+    ownPullRequestReads,
+  };
 }
 
 async function refused(
@@ -549,6 +586,44 @@ describe("permission table", () => {
     expect(author.issued).toHaveLength(1);
   });
 
+  test("an App from before CI reads were asked for (contents and pull requests only) is refused a CI read as app_permission_missing, with a receipt (94S-2492)", async () => {
+    const author = fakeConnection("author", {
+      granted: { contents: "write", pull_requests: "write", metadata: "read" },
+    });
+    const { grant, receipts } = harness({
+      author,
+      github: settings({
+        features: features({ workflows: true, checks: true }),
+      }),
+      ceiling: ALL_ON,
+    });
+    expect(await refused(grant({ purpose: "actions_read" }))).toEqual({
+      reason: "app_permission_missing",
+      receiptId: "receipt-1",
+    });
+    // Asked once for exactly the read, and not again for less.
+    expect(author.issued.map(({ permissions }) => permissions)).toEqual([
+      { actions: "read", checks: "read" },
+    ]);
+    expect(receipts).toMatchObject([
+      {
+        operation: "mint_github_token",
+        status: "failed",
+        result: {
+          purpose: "actions_read",
+          reason_code: "app_permission_missing",
+          role: "author",
+        },
+        error: { code: "GITHUB_REFUSED" },
+      },
+    ]);
+    // What the App already held still works.
+    expect((await grant({ purpose: "pull_request" }))?.permissions).toEqual({
+      contents: "read",
+      pull_requests: "write",
+    });
+  });
+
   test("dispatch and rerun ask actions:write", async () => {
     const { grant } = harness({
       github: settings({
@@ -705,6 +780,14 @@ describe("refusals", () => {
       },
       work,
     })),
+    {
+      reason: "review_off",
+      setup: { ceiling: ALL_ON },
+      work: {
+        purpose: "review",
+        review: { number: 1, commitId: "a".repeat(40), event: "APPROVE" },
+      },
+    },
     {
       reason: "no_reviewer_app",
       setup: {
@@ -994,64 +1077,113 @@ describe("credentials and receipts", () => {
 });
 
 describe("merge", () => {
-  test("with the ceiling off it is merge_off before any credential is issued, and the receipt names no App", async () => {
-    const { grant, receipts, author } = harness();
-    expect((await refused(grant({ purpose: "merge" }))).reason).toBe(
-      "merge_off",
+  const MERGE_ON = settings({ features: features({ merge: true }) });
+  const mergeRefused = (promise: Promise<unknown>) =>
+    promise.then(
+      () => {
+        throw new Error("expected a refusal");
+      },
+      (caught: unknown) => {
+        expect(caught).toBeInstanceOf(GitHubGateError);
+        const { reasonCode, offIn } = caught as GitHubGateError;
+        return { reason: reasonCode, offIn };
+      },
     );
+
+  test("off by default on both sides: merge_off before any credential is issued, and the receipt names no App", async () => {
+    const { grant, receipts, author } = harness();
+    expect(await mergeRefused(grant({ purpose: "merge" }))).toEqual({
+      reason: "merge_off",
+      offIn: "both",
+    });
     expect(author?.issued).toEqual([]);
     expect(receipts).toHaveLength(1);
     expect(receipts[0]).toMatchObject({
       operation: "merge_pull_request",
       status: "failed",
-      result: { purpose: "merge", reason_code: "merge_off" },
+      result: { purpose: "merge", reason_code: "merge_off", off_in: "both" },
     });
     for (const key of ["connection_id", "app_id", "role"]) {
       expect(receipts[0]?.result).not.toHaveProperty(key);
     }
   });
 
-  test("merge_off holds whatever the agent's own features say", async () => {
-    const { grant, author } = harness({
-      github: settings({
-        features: features({
-          workflows: true,
-          actions: true,
-          checks: true,
-          issues: true,
-          review: true,
-        }),
-      }),
-      ceiling: { ...ALL_ON, merge: false },
+  test("merge_off names the side that is off: the agent's settings, the workspace ceiling, or both (94S-2492)", async () => {
+    const everythingElse = features({
+      workflows: true,
+      actions: true,
+      checks: true,
+      issues: true,
+      review: true,
     });
-    expect((await refused(grant({ purpose: "merge" }))).reason).toBe(
-      "merge_off",
-    );
-    expect(author?.issued).toEqual([]);
+    for (const [github, ceiling, offIn] of [
+      // The agent's other switches and the ceiling's do not stand in for it.
+      [settings({ features: everythingElse }), ALL_ON, "agent"],
+      [
+        settings({ features: { ...everythingElse, merge: false } }),
+        ALL_ON,
+        "agent",
+      ],
+      // No settings at all (a release from before them) has no switch on.
+      [null, ALL_ON, "agent"],
+      [MERGE_ON, { ...ALL_ON, merge: false }, "ceiling"],
+      [
+        settings({ features: everythingElse }),
+        { ...ALL_ON, merge: false },
+        "both",
+      ],
+    ] as const) {
+      const { grant, author, receipts } = harness({ github, ceiling });
+      expect(await mergeRefused(grant({ purpose: "merge" }))).toEqual({
+        reason: "merge_off",
+        offIn,
+      });
+      expect(author?.issued).toEqual([]);
+      expect(receipts.at(-1)?.result).toMatchObject({ off_in: offIn });
+    }
   });
 
-  test("turning the ceiling on lets the next grant through with contents write and pull_requests read, and off refuses the one after", async () => {
-    const { grant, state, author, receipts } = harness();
-    expect((await refused(grant({ purpose: "merge" }))).reason).toBe(
-      "merge_off",
-    );
-    state.ceiling = { ...GITHUB_CEILING_NONE, merge: true };
+  test("with both on the grant asks contents write and pull_requests read and nothing else; either side turned off refuses the next one", async () => {
+    const { grant, state, author, receipts } = harness({
+      github: MERGE_ON,
+      ceiling: { ...GITHUB_CEILING_NONE, merge: true },
+    });
     const granted = await grant({ purpose: "merge" });
-    expect(granted).toMatchObject({
-      role: "author",
-      permissions: { contents: "write", pull_requests: "read" },
+    expect(granted).toMatchObject({ role: "author" });
+    expect(granted?.permissions).toEqual({
+      contents: "write",
+      pull_requests: "read",
     });
     expect(author?.issued).toHaveLength(1);
     state.ceiling = GITHUB_CEILING_NONE;
-    expect((await refused(grant({ purpose: "merge" }))).reason).toBe(
-      "merge_off",
+    expect((await mergeRefused(grant({ purpose: "merge" }))).offIn).toBe(
+      "ceiling",
+    );
+    state.ceiling = { ...GITHUB_CEILING_NONE, merge: true };
+    state.github = settings();
+    expect((await mergeRefused(grant({ purpose: "merge" }))).offIn).toBe(
+      "agent",
     );
     expect(author?.issued).toHaveLength(1);
     expect(receipts.map((receipt) => receipt.operation)).toEqual([
-      "merge_pull_request",
       "mint_github_token",
       "merge_pull_request",
+      "merge_pull_request",
     ]);
+  });
+
+  test("the agent's merge switch gives no other work a wider token", async () => {
+    const { grant } = harness({ github: MERGE_ON, ceiling: ALL_ON });
+    expect((await grant({ purpose: "push" }))?.permissions).toEqual({
+      contents: "write",
+    });
+    expect((await grant({ purpose: "pull_request" }))?.permissions).toEqual({
+      contents: "read",
+      pull_requests: "write",
+    });
+    expect((await refused(grant({ purpose: "review" }))).reason).toBe(
+      "review_off",
+    );
   });
 
   test("with the ceiling off the resolver is never asked: no pin read or written, no installation probed", async () => {
@@ -1091,9 +1223,16 @@ describe("merge", () => {
   });
 
   test("another repository's pull request cannot be merged", async () => {
-    const { grant, state, author } = harness();
-    state.ceiling = { ...GITHUB_CEILING_NONE, merge: true };
-    await refused(grant({ purpose: "merge", repositoryId: "docs" }));
+    const { grant, author } = harness({
+      github: settings({
+        repositories: ["app", "docs"],
+        features: features({ merge: true }),
+      }),
+      ceiling: { ...GITHUB_CEILING_NONE, merge: true },
+    });
+    expect(
+      (await refused(grant({ purpose: "merge", repositoryId: "docs" }))).reason,
+    ).toBe("repository_not_allowed");
     expect(author?.issued).toEqual([]);
   });
 });
@@ -1534,6 +1673,245 @@ describe("another repository than the session's", () => {
       expect(
         await grant({ purpose: "actions_read", repositoryId: "docs" }),
       ).toMatchObject({ context: { repositoryId: "docs" } });
+    });
+
+    // 94S-2556 (PM): in a repository besides its own, a session merges only
+    // the pull request it opened, with both switches on.
+    describe("merging a pull request in an attached repository", () => {
+      const PUSH = "33333333-3333-4333-8333-333333333333";
+      const OTHER_PUSH = "44444444-4444-4444-8444-444444444444";
+      const mergeOn = settings({
+        repositories: ["app", "docs", "tools"],
+        features: features({ merge: true }),
+      });
+      const both = { ...GITHUB_CEILING_NONE, merge: true };
+      const recorded = {
+        [PUSH]: { sessionId: SESSION, repositoryId: "docs" },
+        [OTHER_PUSH]: { sessionId: OTHER_SESSION, repositoryId: "docs" },
+      };
+      const merge = (
+        pushRequestId?: string,
+        repositoryId = "docs",
+        pullRequestUrl = PR_URL,
+      ) =>
+        ({
+          purpose: "merge",
+          repositoryId,
+          ...(pushRequestId === undefined
+            ? {}
+            : { pushRequestId, pullRequestUrl }),
+        }) as const;
+      const offIn = (promise: Promise<unknown>) =>
+        promise.then(
+          () => {
+            throw new Error("expected a refusal");
+          },
+          (caught: unknown) => {
+            expect(caught).toBeInstanceOf(GitHubGateError);
+            const error = caught as GitHubGateError;
+            return { reason: error.reasonCode, offIn: error.offIn };
+          },
+        );
+
+      test("the pull request this session opened is granted, for that repository alone", async () => {
+        const { grant, author, receipts, ownPullRequestReads } = harness({
+          catalog: ATTACHED,
+          repositoryId: null,
+          github: mergeOn,
+          ceiling: both,
+          attached: ["docs"],
+          pullRequests: recorded,
+        });
+        const granted = await grant(merge(PUSH));
+        expect(granted).toMatchObject({
+          repo: { owner: "acme", name: "docs" },
+          context: { repositoryId: "docs" },
+        });
+        expect(granted?.permissions).toEqual({
+          contents: "write",
+          pull_requests: "read",
+        });
+        expect(author?.issued).toHaveLength(1);
+        expect(ownPullRequestReads).toEqual([PUSH]);
+        expect(receipts.at(-1)).toMatchObject({
+          operation: "mint_github_token",
+          result: { purpose: "merge", push_request_id: PUSH },
+        });
+      });
+
+      test("another session's pull request, or none named, is not_own_pull_request and no token is asked for", async () => {
+        const { grant, author, receipts } = harness({
+          catalog: ATTACHED,
+          repositoryId: null,
+          github: mergeOn,
+          ceiling: both,
+          attached: ["docs", "tools"],
+          pullRequests: {
+            ...recorded,
+            // This session's, but opened in another repository.
+            "55555555-5555-4555-8555-555555555555": {
+              sessionId: SESSION,
+              repositoryId: "tools",
+            },
+            // This session's branch, but a pull request someone else opened
+            // and the platform adopted.
+            "77777777-7777-4777-8777-777777777777": {
+              sessionId: SESSION,
+              repositoryId: "docs",
+              opened: false,
+            },
+          },
+        });
+        for (const work of [
+          merge(OTHER_PUSH),
+          merge(),
+          merge("66666666-6666-4666-8666-666666666666"),
+          merge("55555555-5555-4555-8555-555555555555"),
+          merge("77777777-7777-4777-8777-777777777777"),
+          // Another pull request than the one recorded for the push request,
+          // and none named.
+          merge(PUSH, "docs", "https://github.com/acme/docs/pull/8"),
+          {
+            purpose: "merge",
+            repositoryId: "docs",
+            pushRequestId: PUSH,
+          } as const,
+        ]) {
+          expect((await refused(grant(work))).reason).toBe(
+            "not_own_pull_request",
+          );
+          expect(receipts.at(-1)).toMatchObject({
+            operation: "merge_pull_request",
+            status: "failed",
+            result: {
+              repository_id: "docs",
+              reason_code: "not_own_pull_request",
+            },
+          });
+        }
+        expect(author?.issued).toEqual([]);
+      });
+
+      test("a switch off is merge_off naming the side before the lists or the record are read", async () => {
+        for (const [github, ceiling, side] of [
+          [settings({ repositories: ["app", "docs"] }), both, "agent"],
+          [mergeOn, GITHUB_CEILING_NONE, "ceiling"],
+          [
+            settings({ repositories: ["app", "docs"] }),
+            GITHUB_CEILING_NONE,
+            "both",
+          ],
+        ] as const) {
+          const { grant, author, ownPullRequestReads } = harness({
+            catalog: ATTACHED,
+            repositoryId: null,
+            github,
+            ceiling,
+            attached: ["docs"],
+            pullRequests: recorded,
+          });
+          // Off wins over another session's pull request and over a
+          // repository the session may not work on.
+          for (const work of [
+            merge(PUSH),
+            merge(OTHER_PUSH),
+            merge(PUSH, "tools"),
+          ]) {
+            expect(await offIn(grant(work))).toEqual({
+              reason: "merge_off",
+              offIn: side,
+            });
+          }
+          expect(ownPullRequestReads).toEqual([]);
+          expect(author?.issued).toEqual([]);
+        }
+      });
+
+      test("with the agent's GitHub off it is github_disabled, before the switches and the lists", async () => {
+        for (const ceiling of [both, GITHUB_CEILING_NONE]) {
+          const { grant, author, ownPullRequestReads } = harness({
+            catalog: ATTACHED,
+            repositoryId: null,
+            github: mergeOn,
+            ceiling,
+            attached: ["docs"],
+            githubEnabled: false,
+            pullRequests: recorded,
+          });
+          expect((await refused(grant(merge(PUSH)))).reason).toBe(
+            "github_disabled",
+          );
+          expect(ownPullRequestReads).toEqual([]);
+          expect(author?.issued).toEqual([]);
+        }
+      });
+
+      test("a repository the session may not work on is repository_not_allowed with both switches on", async () => {
+        const { grant, author, ownPullRequestReads } = harness({
+          catalog: ATTACHED,
+          repositoryId: null,
+          github: settings({
+            repositories: ["app", "docs"],
+            features: features({ merge: true }),
+          }),
+          ceiling: both,
+          attached: ["docs", "tools"],
+          pullRequests: {
+            [PUSH]: { sessionId: SESSION, repositoryId: "tools" },
+          },
+        });
+        expect((await refused(grant(merge(PUSH, "tools")))).reason).toBe(
+          "repository_not_allowed",
+        );
+        expect(ownPullRequestReads).toEqual([]);
+        expect(author?.issued).toEqual([]);
+      });
+
+      test("the session's own repository merges as before, without reading the record", async () => {
+        const { grant, ownPullRequestReads } = harness({
+          catalog: ATTACHED,
+          github: mergeOn,
+          ceiling: both,
+          attached: ["docs"],
+        });
+        expect(await grant({ purpose: "merge" })).toMatchObject({
+          context: { repositoryId: "app" },
+        });
+        expect(ownPullRequestReads).toEqual([]);
+      });
+
+      test("merging there opens no other purpose: workflows and reviews stay refused", async () => {
+        const { grant } = harness({
+          catalog: ATTACHED,
+          repositoryId: null,
+          github: settings({
+            repositories: ["app", "docs"],
+            features: features({ merge: true, review: true, actions: true }),
+            actions_allow: [{ workflow: "ci.yml", ref: "main" }],
+          }),
+          ceiling: ALL_ON,
+          attached: ["docs"],
+          pullRequests: recorded,
+        });
+        for (const work of [
+          {
+            purpose: "dispatch",
+            repositoryId: "docs",
+            workflow: { file: "ci.yml", ref: "main" },
+            pushRequestId: PUSH,
+          },
+          {
+            purpose: "review",
+            repositoryId: "docs",
+            review: { number: 1, commitId: "a".repeat(40), event: "APPROVE" },
+            pushRequestId: PUSH,
+          },
+        ] as const) {
+          expect((await refused(grant(work))).reason).toBe(
+            "repository_not_allowed",
+          );
+        }
+      });
     });
 
     // 94S-2465, PM decision B: a CI read names any repository the agent may

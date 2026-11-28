@@ -183,7 +183,7 @@ export const GIT_LFS_X_NET = "0.62.0";
 /** The github.com/klauspost/compress that build moves Git LFS to. */
 export const GIT_LFS_COMPRESS = "1.20.2";
 /** The Go toolchain that build uses. */
-export const GIT_LFS_GO = "1.27.3";
+export const GIT_LFS_GO = "1.27.4";
 /** The upstream GitHub CLI release binary the worker Dockerfile installs. */
 export const GH_VERSION = "2.103.3";
 /** The upstream gitleaks release the control-host Dockerfile builds from source. */
@@ -192,8 +192,9 @@ export const GITLEAKS_VERSION = "8.30.1";
 export const GITLEAKS_BROTLI = "1.2.7";
 export const GITLEAKS_COMPRESS = "1.20.2";
 export const GITLEAKS_X_TEXT = "0.39.0";
+export const GITLEAKS_XZ = "0.5.15";
 /** The Go that builds gitleaks: the git-lfs one, same pins. */
-export const GITLEAKS_GO = "1.27.3";
+export const GITLEAKS_GO = "1.27.4";
 
 /** The `oven/bun:<version>@<digest>` every app Dockerfile builds on. */
 export function baseImageOf(dockerfile: string): BaseImage {
@@ -657,7 +658,7 @@ function baseSection(rows: readonly Row[], base: BaseImage): string {
     "",
     `### Gitleaks ${GITLEAKS_VERSION} (control-host, \`/usr/local/bin/gitleaks\`)`,
     "",
-    `- **라이선스.** Gitleaks는 MIT다. 저작권 표시와 허가문 전문은 이미지 안 \`/usr/local/share/doc/gitleaks/LICENSE\`(https://github.com/gitleaks/gitleaks/blob/v${GITLEAKS_VERSION}/LICENSE)에 있다. 이미지의 실행 파일은 control-host Dockerfile이 gitleaks 프로젝트의 v${GITLEAKS_VERSION} 태그 소스(sha256 고정)에서 Go ${GITLEAKS_GO}로 직접 빌드한 것이다. gitleaks 소스는 고치지 않았다. 바꾼 것은 의존 모듈 버전뿐이다: \`github.com/andybalholm/brotli\`를 v${GITLEAKS_BROTLI}로, \`github.com/klauspost/compress\`를 v${GITLEAKS_COMPRESS}로, \`golang.org/x/text\`를 v${GITLEAKS_X_TEXT}로 올렸고, 그에 따라 \`golang.org/x/sync\`와 go.mod의 \`go\` 지시문(1.25.0)도 올라갔다(빌드가 go.mod·go.sum을 sha256으로 확인한다).`,
+    `- **라이선스.** Gitleaks는 MIT다. 저작권 표시와 허가문 전문은 이미지 안 \`/usr/local/share/doc/gitleaks/LICENSE\`(https://github.com/gitleaks/gitleaks/blob/v${GITLEAKS_VERSION}/LICENSE)에 있다. 이미지의 실행 파일은 control-host Dockerfile이 gitleaks 프로젝트의 v${GITLEAKS_VERSION} 태그 소스(sha256 고정)에서 Go ${GITLEAKS_GO}로 직접 빌드한 것이다. gitleaks 소스는 고치지 않았다. 바꾼 것은 의존 모듈 버전뿐이다: \`github.com/andybalholm/brotli\`를 v${GITLEAKS_BROTLI}로, \`github.com/klauspost/compress\`를 v${GITLEAKS_COMPRESS}로, \`golang.org/x/text\`를 v${GITLEAKS_X_TEXT}로, \`github.com/ulikunitz/xz\`를 v${GITLEAKS_XZ}로 올렸고, 그에 따라 \`golang.org/x/sync\`와 go.mod의 \`go\` 지시문(1.25.0)도 올라갔다(빌드가 go.mod·go.sum을 sha256으로 확인한다).`,
     `- **정적으로 링크된 Go 코드.** 이 실행 파일은 Go 표준 라이브러리를 링크한다. 그 BSD-3-Clause 문구는 빌드한 Go의 것을 이미지 안 \`/usr/local/share/doc/gitleaks/GO-LICENSE\`에 두었다. https://github.com/gitleaks/gitleaks/blob/v${GITLEAKS_VERSION}/go.mod 에 적힌 모듈(위에서 올린 버전 포함)도 링크한다. 빌드가 실행 파일에 기록된 모듈(\`go version -m\`)마다 그 모듈 소스 최상위의 LICENSE·COPYING·NOTICE 파일을 이미지 안 \`/usr/local/share/doc/gitleaks/modules/<모듈>@<버전>/\`에 두며, 그런 파일이 없는 모듈이 있으면 빌드가 실패한다.`,
     `- **대응 소스.** https://github.com/gitleaks/gitleaks/tree/v${GITLEAKS_VERSION} (커밋 83d9cd684c87d95d656c1458ef04895a7f1cbd8e) 와 apps/control-host/Dockerfile의 \`gitleaks\` stage(모듈 버전 변경)`,
   ];
@@ -746,7 +747,6 @@ export function render(rows: readonly Row[], base: BaseImage): string {
           "",
         ]),
     ...DERIVED_DATA,
-    ...EXTERNAL_DATA,
     "## NOTICE 전문",
     "",
     ...(withNotices.length === 0
@@ -784,20 +784,11 @@ const DERIVED_DATA = [
   "- **라이선스.** MIT. 첫 조각을 들일 때 upstream LICENSE 원문을 저작권 줄까지 그대로 `apps/web/src/vendor/affectui/free/LICENSE`에 복사한다.",
   "- **쓰임.** 그대로 옮긴 파일은 위 폴더에 두며, 웹 콘솔이 import하면 control-host 이미지의 웹 bundle에 들어간다. Radix와 werft 토큰으로 다시 짠 파일은 packages/ui에 둘 수 있고, 파일 머리에 이 LICENSE를 가리키는 고지 한 줄을 둔다.",
   "",
-];
-
-// Data a repository tool reads at run time; none of it is in an image or
-// copied into the repository, but its license is stated here all the same.
-const EXTERNAL_DATA = [
-  "## 이미지 밖에서 읽는 외부 데이터",
-  "",
-  "배포 이미지에 들어가지 않고 저장소에도 옮겨 오지 않지만, 저장소의 도구가 실행할 때 받아 읽는 외부 데이터다.",
-  "",
   "### LiteLLM 단가 데이터 (`model_prices_and_context_window.json`)",
   "",
-  "- **출처.** BerriAI/litellm 저장소의 `model_prices_and_context_window.json`(https://github.com/BerriAI/litellm).",
-  "- **라이선스.** MIT, Copyright (c) 2023 Berri AI. LiteLLM은 `enterprise/` 디렉터리 밖이 MIT이고, 이 파일도 그 밖에 있다. 허락 조건 전문은 https://github.com/BerriAI/litellm/blob/main/LICENSE 에 있다.",
-  "- **쓰임.** CI의 `litellm-price-drift.yml`이 매주(그리고 단가표를 고치는 PR에서) 정한 commit의 이 파일을 받아 werft의 OpenAI 단가표와 Claude 단가표에 대조하기만 한다. 그 commit SHA를 보고서와 issue에 적는다. 파일의 내용은 werft의 이미지·패키지·저장소에 넣거나 옮기지 않고, 과금에 쓰지 않는다.",
+  "- **출처.** BerriAI/litellm 저장소의 `model_prices_and_context_window.json`(https://github.com/BerriAI/litellm). 옮겨 온 commit과 그 파일 전체의 sha256은 `packages/platform/src/limits/model-prices-litellm.gen.ts` 머리에 있다.",
+  "- **라이선스.** MIT, Copyright (c) 2023 Berri AI. LiteLLM은 `enterprise/` 디렉터리 밖이 MIT이고, 이 파일도 그 밖에 있다. 저작권 고지와 허락 조건 전문은 위 생성 파일 머리에 싣는다. 원문은 https://github.com/BerriAI/litellm/blob/main/LICENSE 에 있다.",
+  "- **쓰임.** `scripts/update-litellm-prices.ts`가 정한 commit의 이 파일에서 mode가 chat·responses·completion·decisions인 항목의 token 단가만 뽑아 위 생성 파일을 만든다. 생성 파일은 control-host 이미지와 worker 이미지에 소스로 들어가고, werft의 OpenAI·Claude 단가표에 없는 모델의 비용을 세는 데 쓴다. 실행 중에는 이 데이터를 받아 오지 않는다. CI의 `litellm-prices.yml`이 매주 최신 commit으로 옮기는 PR을 열고, 생성 파일을 고치는 PR마다 정한 commit에서 다시 만든 것과 같은지 확인한다. CI의 `litellm-price-drift.yml`은 따로, 매주(그리고 단가표를 고치는 PR에서) 이 파일을 받아 werft의 OpenAI 단가표와 Claude 단가표에 대조하고 그 commit SHA를 보고서와 issue에 적는다.",
   "",
 ];
 

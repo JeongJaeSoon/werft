@@ -398,6 +398,11 @@ describe("the session's GitHub pull requests", () => {
     cost_limit_usd: "25",
     token_count: 12345,
     token_limit: null,
+    unknown_price: {
+      call_count: 0,
+      token_count: 0,
+      token_limit: 5_000_000,
+    },
     budget_exceeded: false,
     queued_input_count: 0,
     queued_input_limit: 10,
@@ -919,7 +924,9 @@ describe("the session's GitHub pull requests", () => {
     });
     const rows = within(refusals).getAllByRole("listitem");
     expect(rows.map((row) => row.textContent)).toEqual([
-      expect.stringMatching(/^워크스페이스가 머지를 허용하지 않음PR 머지 · /),
+      expect.stringMatching(
+        /^머지가 꺼져 있음 \(에이전트 GitHub 설정 또는 워크스페이스 상한\)PR 머지 · /,
+      ),
     ]);
     expect(refusals.textContent).not.toMatch(/merge_off|agentGitHub/);
   });

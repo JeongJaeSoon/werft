@@ -139,12 +139,17 @@ export function optionalSkills(items: readonly AgentSkill[]): AgentSkill[] {
   const holds = (item: AgentSkill | undefined) =>
     item?.scope === "workspace" &&
     (item.mode === "required" || item.mode === "forbidden");
-  // As the server does, an optional row no session could use (no version,
-  // or one not approved) drops out before the scopes are weighed.
+  // As the server does, a row a new session leaves out drops before the
+  // scopes are weighed: a repository skill switched off or withdrawn (a
+  // server from before says nothing), and an optional row no session could
+  // use (no version, or one not approved).
   const usable = items.filter(
     (item) =>
-      item.mode !== "optional" ||
-      (item.version !== null && item.version.review === "approved"),
+      (item.mode === "forbidden" ||
+        (item.availability !== "hidden" &&
+          item.availability !== "withdrawn")) &&
+      (item.mode !== "optional" ||
+        (item.version !== null && item.version.review === "approved")),
   );
   // The list's order is not a precedence: decide per name over both scopes.
   const deciding = new Map<string, AgentSkill>();
@@ -197,6 +202,19 @@ function skillRefusalOf(
     reason,
     bundle: typeof details?.bundle === "string" ? details.bundle : "",
   };
+}
+
+/** The release id a start was refused for as one this build cannot read. */
+function unreadableReleaseOf(error: ApiError): string | null {
+  if (error.code !== "RELEASE_SPEC_UNAVAILABLE") return null;
+  const details = error.details as {
+    reason_code?: unknown;
+    release_id?: unknown;
+  } | null;
+  return details?.reason_code === "release_unreadable" &&
+    typeof details.release_id === "string"
+    ? details.release_id
+    : null;
 }
 
 export function NewSessionButton({
@@ -280,6 +298,9 @@ export function NewSessionButton({
         : skill.reason === "skill_tool_not_allowed"
           ? t("newSession.skillToolMissing", { name: skill.bundle })
           : t("newSession.skillRefused", { name: skill.bundle });
+    const unreadable = unreadableReleaseOf(error);
+    if (unreadable !== null)
+      return t("newSession.releaseUnreadable", { release: unreadable });
     const key = errorKey(error.code);
     return key === "error.UNKNOWN"
       ? (guidanceFor(error.code, locale) ?? t(key))

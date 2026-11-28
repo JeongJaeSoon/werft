@@ -187,6 +187,26 @@ describe("worker Pod", () => {
     expect(envOf()).toBeUndefined();
   });
 
+  test("the operator's turn tool call limit reaches the worker, and none is set without one", () => {
+    const envOf = (maxTurnToolCalls?: number) =>
+      (
+        podFor(
+          maxTurnToolCalls === undefined
+            ? config
+            : { ...config, maxTurnToolCalls },
+          intent,
+          "secret-name",
+          "fingerprint",
+          PROXY_ADDRESS,
+        ) as PodShape
+      ).spec.containers[0]?.env.find((e) => e.name === ENV.maxTurnToolCalls);
+    expect(envOf(5)).toEqual({
+      name: "WORKER_MAX_TURN_TOOL_CALLS",
+      value: "5",
+    });
+    expect(envOf()).toBeUndefined();
+  });
+
   test("a Pod given the sandbox's profile is placed only on a node labelled as holding it", () => {
     const sandboxed = podFor(
       { ...config, codexSandbox: { mode: "enabled", images: [intent.image] } },

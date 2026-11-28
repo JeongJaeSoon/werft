@@ -298,6 +298,13 @@ services:
       # the proxy is what refuses.
       EGRESS_CREDENTIAL_ALLOWLIST: ${EGRESS_CREDENTIAL_ALLOWLIST:-api.anthropic.com:443,api.openai.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443}
       EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST: ${EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST:-fake-git:3000,fake-messages:4010,fake-mcp:4020,localstack:4566}
+      # Hosts a model connection registered as on the internal network is
+      # never sent to, beside the ones the API finds by itself (its own
+      # addresses, postgres, its gateway and object store): names or IPs, no
+      # port. The proxy shares a network with postgres here, so this list and
+      # the database's own login are what keep such a connection off it.
+      # `api` is this service's own name: it answers with every replica.
+      EGRESS_PRIVATE_DENY_HOSTS: api,${EGRESS_PRIVATE_DENY_HOSTS:-}
       # Read by the API alone: every lease it grants carries its deadline
       # into the database, and the reconciler refuses to start with its own.
       HEARTBEAT_TTL_SEC: ${HEARTBEAT_TTL_SEC:-30}
@@ -536,6 +543,9 @@ services:
       WORKER_CPUS: ${WORKER_CPUS:-1}
       WORKER_MEMORY_MB: ${WORKER_MEMORY_MB:-4608}
       WORKER_IDLE_TIMEOUT_SEC: ${WORKER_IDLE_TIMEOUT_SEC:-1800}
+      # Tool calls one session turn may make (1-100000); the call past it ends
+      # that turn tool_call_limit. The scheduler hands it to every worker.
+      WORKER_MAX_TURN_TOOL_CALLS: ${WORKER_MAX_TURN_TOOL_CALLS:-500}
       # The bucket and region the scheduler names to each worker. No key and
       # no endpoint: workers reach the object store through the proxy's
       # object store route, signed by the API.
@@ -678,6 +688,7 @@ services:
       SLACK_ROLE_LEASE_SEC: ${SLACK_ROLE_LEASE_SEC:-60}
       SLACK_ROLE_INPUT_HOLD_SEC: ${SLACK_ROLE_INPUT_HOLD_SEC:-3600}
       SLACK_ROLE_CLOSE_LINKS: ${SLACK_ROLE_CLOSE_LINKS:-true}
+      SLACK_ROLE_TASK_REPLY_WAIT_SEC: ${SLACK_ROLE_TASK_REPLY_WAIT_SEC:-30}
       WORKER_IMAGE_RUNTIME: *worker-image-runtime
       WORKER_IMAGE_PREVIOUS_RUNTIME: *worker-image-previous-runtime
       WORKER_IMAGES: *worker-images

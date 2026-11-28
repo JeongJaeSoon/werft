@@ -44,6 +44,7 @@ export {
 } from "./conversations/judgment-buffer.ts";
 export { createPostgresMentionTurnStatuses } from "./conversations/mention-turn-statuses.ts";
 export * from "./conversations/session-parents.ts";
+export * from "./conversations/session-work.ts";
 export { decodeEventCursor, encodeEventCursor } from "./cursors.ts";
 export {
   budgetChoiceOfCall,
@@ -51,6 +52,7 @@ export {
 } from "./exchange-budget.ts";
 export * from "./extensions/extension-bundles.ts";
 export { createPostgresSkillGitSourceStore } from "./extensions/skill-git-sources.ts";
+export { createPostgresSkillRepositoryStore } from "./extensions/skill-repositories.ts";
 export * from "./github/agent-github.ts";
 export * from "./github/catalog-repositories.ts";
 export * from "./github/github-app-manifest-states.ts";
@@ -140,6 +142,7 @@ export {
 } from "./sessions/session-event-archives.ts";
 export * from "./sessions/session-events.ts";
 export * from "./sessions/session-outcomes.ts";
+export * from "./sessions/task-close.ts";
 export * from "./sessions/task-fields.ts";
 export { expireToolCallAudits } from "./sessions/tool-call-audit.ts";
 export * from "./sessions/tool-calls.ts";
@@ -149,6 +152,7 @@ export * from "./settings-document.ts";
 export { notDeleted } from "./soft-delete.ts";
 export * from "./stop-control.ts";
 export * from "./storage-counter-check.ts";
+export * from "./surface/bound-replies.ts";
 export * from "./surface/conversation-reactions.ts";
 export * from "./surface/conversation-records.ts";
 export * from "./surface/conversation-replies.ts";

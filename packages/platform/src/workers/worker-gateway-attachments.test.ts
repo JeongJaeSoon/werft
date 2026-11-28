@@ -123,6 +123,7 @@ function wired() {
     store: {
       context,
       findDispatch: async () => null,
+      ownPullRequest: async () => null,
       recordReceipt: async (receipt) => {
         receipts.push(receipt);
         return `receipt-${receipts.length}`;

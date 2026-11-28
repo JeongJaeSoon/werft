@@ -6,6 +6,7 @@ import {
   DEFAULT_WORKSPACE_QUOTA_MB,
   MIN_WORKSPACE_QUOTA_MB,
   workerIdleTimeoutSecondsOf,
+  workerMaxTurnToolCallsOf,
 } from "@werft-ai/contracts/execution";
 import { integerSetting } from "@werft-ai/contracts/settings";
 import { checkGatewayUrl, parseEgressProxyUrl } from "@werft-ai/platform";
@@ -65,6 +66,11 @@ export type KubernetesBackendConfig = {
    * for input before it ends. Absent, the worker keeps its own default.
    */
   idleTimeoutSeconds?: number;
+  /**
+   * Handed to the worker as `WORKER_MAX_TURN_TOOL_CALLS`: the tool calls one
+   * turn may make. Absent, the worker keeps its own default.
+   */
+  maxTurnToolCalls?: number;
   /** Deadline for each API server call. */
   requestTimeoutMs: number;
   /** `uid:gid`, numeric and not root. */
@@ -192,6 +198,7 @@ export function kubernetesConfigFromEnv(
       region: required(environment, "AWS_REGION"),
     },
     idleTimeoutSeconds: workerIdleTimeoutSecondsOf(environment),
+    maxTurnToolCalls: workerMaxTurnToolCallsOf(environment),
     requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
     stopTimeoutSeconds: DEFAULT_STOP_TIMEOUT_SECONDS,
     storageClass: nonEmpty(environment.EXECUTION_K8S_STORAGE_CLASS),

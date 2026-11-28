@@ -2133,8 +2133,43 @@
     {
       "idx": 395,
       "version": "7",
-      "when": 1795841906099,
-      "tag": "0395_workspace_mcp_auth_none",
+      "when": 1795821808867,
+      "tag": "0395_binding_report_mode_default",
+      "breakpoints": true
+    },
+    {
+      "idx": 396,
+      "version": "7",
+      "when": 1795837090310,
+      "tag": "0396_skill_repositories",
+      "breakpoints": true
+    },
+    {
+      "idx": 397,
+      "version": "7",
+      "when": 1795838895120,
+      "tag": "0397_price_unknown",
+      "breakpoints": true
+    },
+    {
+      "idx": 398,
+      "version": "7",
+      "when": 1795851446391,
+      "tag": "0398_connection_network",
+      "breakpoints": true
+    },
+    {
+      "idx": 399,
+      "version": "7",
+      "when": 1795854524262,
+      "tag": "0399_task_clock_thread_posts",
+      "breakpoints": true
+    },
+    {
+      "idx": 400,
+      "version": "7",
+      "when": 1795856845637,
+      "tag": "0400_workspace_mcp_auth_none",
       "breakpoints": true
     }
   ]

@@ -2099,6 +2099,9 @@ export function workerEnvironmentFor(
     ...(config.idleTimeoutSeconds === undefined
       ? []
       : [`${ENV.idleTimeout}=${config.idleTimeoutSeconds}`]),
+    ...(config.maxTurnToolCalls === undefined
+      ? []
+      : [`${ENV.maxTurnToolCalls}=${config.maxTurnToolCalls}`]),
     ...(workerLimits === undefined
       ? []
       : [

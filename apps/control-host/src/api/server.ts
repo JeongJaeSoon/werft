@@ -75,6 +75,7 @@ import {
   createPostgresSessionUnitOfWork,
   createPostgresSettingsDocumentStore,
   createPostgresSkillGitSourceStore,
+  createPostgresSkillRepositoryStore,
   createPostgresSlackAppStore,
   createPostgresSlackConfigTokenStore,
   createPostgresSlackGuestSetting,
@@ -84,6 +85,7 @@ import {
   createPostgresSlackSettingsStore,
   createPostgresSlackSourceMarkStore,
   createPostgresSurfaceBindingStore,
+  createPostgresTaskCloses,
   createPostgresTeamStore,
   createPostgresTopicTurnContexts,
   createPostgresTurnInterrupts,
@@ -179,8 +181,10 @@ import {
   createSettingsConsoleService,
   createSettingsDocumentService,
   createSkillGitSync,
+  createSkillRepositoryService,
   createSkillService,
   createSurfaceBindingService,
+  createTaskClose,
   createTeamService,
   createTopicSessionChecks,
   createUnsolicitedTurnSpeaker,
@@ -265,12 +269,18 @@ import {
   assertCheckpointBucketProtection,
   checkpointGitMemoryBytesFromEnv,
   checkpointObjectRouteSigner,
+  checkpointObjectStoreHost,
   checkpointObjectsAtStart,
   checkpointStorageConfigFromEnv,
   createApiCheckpoints,
   extensionBundleObjects,
   extensionBundleSource,
 } from "./checkpoints.ts";
+import {
+  carryOperatorPrivateConnections,
+  connectionNetworkCheck,
+  privateConnectionOutbound,
+} from "./connection-network.ts";
 import {
   assertConversationTurnDispatch,
   conversationRuntimeBearer,
@@ -306,6 +316,10 @@ import {
   createInstallationConfigAdmin,
   sessionArchiveStatusOf,
 } from "./installation-config.ts";
+import {
+  createInstallationHosts,
+  installationHostNames,
+} from "./installation-hosts.ts";
 import { leftOutReporter, settingsSource } from "./installation-settings.ts";
 import {
   createInstallationStatusReader,
@@ -334,6 +348,10 @@ import {
   refuseDeletedAgents,
   registerAgentRoutes,
 } from "./routes/agents/agents.ts";
+import {
+  listingBeyondRequest,
+  registerSkillRepositoryRoutes,
+} from "./routes/extensions/skill-repositories.ts";
 import { registerSkillRoutes } from "./routes/extensions/skills.ts";
 import { registerAgentGitHubRoutes } from "./routes/github/agent-github.ts";
 import { registerGitHubAppRoutes } from "./routes/github/github-app.ts";
@@ -881,6 +899,8 @@ const usage = createUsageService({
     ...(await installationConfig.sessionLimits()),
     ...(await installationConfig.workerLimits()),
   }),
+  unknownPriceTokenLimit: () =>
+    installationConfig.get("unknown_price_session_token_limit"),
 });
 const pendingRequests = createPendingRequestService({
   authorization,
@@ -1061,6 +1081,26 @@ const envVariableService = createEnvVariableService({
   store: createPostgresEnvVariableStore(db),
 });
 const workspaceMcpHosts = workspaceMcpHostsFromEnv(process.env);
+// Kept off every upstream registered as private, at registration and in
+// each grant's deny list. A value that names no host stops the start.
+const installationHosts = createInstallationHosts({
+  names: [
+    ...new Set([
+      ...installationHostNames(process.env),
+      // The object store as its signer addresses it: with no endpoint set
+      // that is the bucket's own name at AWS, which a private zone may
+      // answer with an address inside.
+      ...(checkpointStorage === "disabled"
+        ? []
+        : [checkpointObjectStoreHost(checkpointStorage)]),
+    ]),
+  ],
+});
+// Asked on a timer too, not only when a private grant is: a replica that
+// has given none for a while still learns the addresses its hosts hold, and
+// so keeps one denied for the five minutes after the name leaves it.
+setInterval(() => void installationHosts().catch(() => {}), 30_000).unref();
+const connectionNetwork = connectionNetworkCheck(installationHosts);
 const workspaceMcp = createWorkspaceMcpService({
   authorization,
   store: createPostgresWorkspaceMcpStore(db, secretKey),
@@ -1121,14 +1161,43 @@ const settingsConsole = createSettingsConsoleService({
   secretStoreOn: true,
   credentialHosts: workspaceMcpHosts?.credential ?? null,
   reread: rereadSettings,
+  endpointNetwork: connectionNetwork,
   discovery: {
     connection: (id) => catalogRegistry.settings?.connections[id],
     urlProblem: (url) => connectionEndpointProblem(workspaceMcpHosts, url),
     http: connectionModelsOutbound(workspaceMcpHosts),
+    privateHttp: privateConnectionOutbound(installationHosts),
     log: (fields) => logger.info("Connection model list read", fields),
     caughtUp: () => catalogRegistry.caughtUp(),
   },
 });
+// Not awaited: each name is resolved, and until a row is carried the proxy's
+// own lists hold it as they did.
+void carryOperatorPrivateConnections({
+  rows: () => settingsDocumentStore.listRows("connection"),
+  carry: (id) => settingsDocumentStore.carryOperatorPrivate(id),
+  privateHosts: workspaceMcpHosts?.private ?? [],
+  network: connectionNetwork,
+})
+  .then(async ({ carried, left }) => {
+    if (carried.length > 0) {
+      logger.info("Connections on the private allowlist kept as private", {
+        connection_ids: carried,
+      });
+      await rereadSettings();
+    }
+    if (left.length > 0) {
+      logger.warn(
+        "Connections on the private allowlist may not be registered as private and stay on the proxy's lists; give each an address that is not loopback or the installation's own",
+        { connection_ids: left },
+      );
+    }
+  })
+  .catch((error: unknown) => {
+    logger.warn("Connections on the private allowlist were not carried", {
+      error_name: error instanceof Error ? error.name : typeof error,
+    });
+  });
 const agentAdmins = createAgentAdminService({
   authorization,
   store: createPostgresAgentAdminStore(db),
@@ -1386,8 +1455,10 @@ const pullRequestDrain = createPullRequestDrain({
 // Each replica reads the state of the pull requests sessions opened; the
 // rate-limit budget is shared through the database (§10).
 const sessionOutcomes = createPostgresSessionOutcomes(db);
+const taskCloses = createPostgresTaskCloses(db);
 const outcomeRefresher = createOutcomeRefresher({
   store: sessionOutcomes,
+  tasks: taskCloses,
   gate: github,
   catalog,
   connections: githubConnections,
@@ -1494,6 +1565,7 @@ const extensionBundles = extensionBundleSource(checkpointStorage, db);
 const skillObjects = extensionBundleObjects(checkpointStorage);
 // One host reader for auto-approve and the review screen, so they agree.
 const skillHosts = renderedHostExtractor;
+const skillReader = wireGitHubSkillReader({ logger });
 const skillGitSync =
   skillObjects === undefined
     ? undefined
@@ -1505,7 +1577,7 @@ const skillGitSync =
           objects: skillObjects,
           hosts: skillHosts,
         }),
-        reader: wireGitHubSkillReader({ logger }),
+        reader: skillReader,
         apps: (workspaceId) =>
           githubAppStore.credentials("author", workspaceId),
         installationFor: (app, repo) =>
@@ -1528,6 +1600,22 @@ if (skillGitSync !== undefined) {
   };
   setInterval(daily, SKILL_DAILY_CHECK_PASS_MS).unref();
 }
+// Registered repositories list their skills switched off; without the bucket
+// a skill could never be switched on, so the routes are absent with the rest.
+const skillRepositoryListing = listingBeyondRequest(
+  createPostgresSkillRepositoryStore(db),
+  (workspaceId: string) => githubAppStore.credentials("author", workspaceId),
+);
+const skillRepositories =
+  skillObjects === undefined
+    ? undefined
+    : createSkillRepositoryService({
+        authorization,
+        store: skillRepositoryListing.store,
+        reader: skillReader,
+        apps: skillRepositoryListing.apps,
+        installations: (app) => githubAppDirectory.installations(app),
+      });
 const skills =
   skillObjects === undefined
     ? undefined
@@ -1635,6 +1723,11 @@ const workers = createWorkerGateway({
     credentialFor: workspaceMcp.credentialFor,
     operatorListed: (url) => workspaceMcpListed(workspaceMcpHosts, url),
   },
+  privateUpstream: {
+    deny: installationHosts,
+    operatorListed: (url) =>
+      workspaceMcpListed(workspaceMcpHosts, url) === "private",
+  },
   onMcpReceiptError: (error) =>
     logger.error("MCP refusal receipt not recorded", {
       error: error instanceof Error ? error.name : "error",
@@ -1680,6 +1773,7 @@ const workers = createWorkerGateway({
   judgments: {
     store: judgmentEgress,
     upstream: judgeConnections.upstream,
+    network: judgeConnections.network,
   },
   settingsCaughtUp: () => catalogRegistry.caughtUp(),
   conversationCalls: { store: conversationCallStore },
@@ -1736,7 +1830,7 @@ const authorizerListener =
               logger,
               exchanges: createProviderExchangeLedger(db, {
                 admits: async () =>
-                  admitsReservations(await installationConfig.sessionBudget()),
+                  admitsReservations(await installationConfig.exchangeBudget()),
               }),
               budgetOf: (call) => budgetChoiceOfCall(db, call),
               recordAccountRefusal: (refusal) =>
@@ -1838,6 +1932,7 @@ const slackInteractions = wireSlackInteractions({
   pushes: pushRequests,
   sessions,
   followUps: createPostgresPushFollowUpStore(db),
+  tasks: createTaskClose({ authorization, closes: taskCloses }),
   outbox: createPostgresSlackOutboxStore(db),
   // The card's label asks what the policy asks a press (answer 15).
   requesterLeft: (card) =>
@@ -1999,6 +2094,9 @@ const app = createApiApp({
     registerEnvVariableRoutes(router, envVariableService);
     registerWorkspaceMcpServerRoutes(router, workspaceMcp);
     if (skills !== undefined) registerSkillRoutes(router, skills, skillGitSync);
+    if (skillRepositories !== undefined) {
+      registerSkillRepositoryRoutes(router, skillRepositories);
+    }
     registerEventRoutes(router, sessions, {
       wakeup: notifier,
       logger,

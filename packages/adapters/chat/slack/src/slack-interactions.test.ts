@@ -4,16 +4,21 @@ import {
   type PendingQuestion,
   SLACK_INTERACTION_ACTIONS,
   SLACK_NOTE_VIEW_CALLBACK,
+  SLACK_NOTICE_MESSAGES,
   SLACK_QUESTION_VIEW_CALLBACK,
   scopesForRole,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import {
   createAuthorizationPolicy,
+  createTaskClose,
+  type DecisionEntry,
   type IdentityReader,
   type LinkedSubject,
   SessionServiceError,
   type SurfaceAiLabel,
+  type SurfacePostedCardKey,
+  type SurfaceProgressLink,
   type SurfacePromptCard,
 } from "@werft-ai/platform";
 import { slackAiLabelBlock } from "./slack-ai-label.ts";
@@ -39,6 +44,17 @@ const LINKED = "U0LINKED";
 const STRANGER = "U0STRANGER";
 const USER = "019a0000-0000-7000-8000-000000000101";
 const NOW = new Date("2026-11-03T00:00:00Z");
+// SESSION's thread link, and a second channel whose ceiling leaves
+// session.control out, with a task of its own.
+const LINK = "019a0000-0000-7000-8000-0000000000b1";
+const LOCKED_CHANNEL = "C0LOCKED";
+const LOCKED_THREAD = "1761300000.000300";
+const LOCKED_SESSION = "019a0000-0000-7000-8000-0000000000a6";
+const LOCKED_LINK = "019a0000-0000-7000-8000-0000000000b2";
+const PUSH = "019a0000-0000-7000-8000-0000000000c1";
+// A channel whose ceiling lets a person read and nothing more.
+const NARROW_CHANNEL = "C0NARROW";
+const NARROW_THREAD = "1761300000.000400";
 
 const question: PendingQuestion = {
   question_id: "q-1",
@@ -58,6 +74,21 @@ let role: WorkspaceRole;
 let answerError: Error | null;
 let continueError: Error | null;
 let startFreshError: Error | null;
+// What closing a task answers a press of its progress message's buttons.
+let taskClose: "closed" | "not_permitted" | "already_closed" | "refused" =
+  "closed";
+// Set: the press reaches the platform's own close, judged by the policy.
+let realTaskClose: boolean;
+let progressLinks: Record<string, SurfaceProgressLink>;
+// The cards the outbox posted: a row with no `card` stands for any request.
+let postedCards: {
+  sessionId: string;
+  channelId: string;
+  slackTs: string;
+  card?: SurfacePostedCardKey;
+  link: SurfaceProgressLink | "earlier";
+}[];
+let recorded: DecisionEntry[];
 let outcome: Awaited<ReturnType<SlackInteractionDeps["pending"]["outcome"]>>;
 let listed: unknown[];
 let pushState: "requested" | "approved" | "rejected" | null;
@@ -98,6 +129,46 @@ beforeEach(() => {
   flow = "legacy";
   posted = null;
   postedScope = undefined;
+  realTaskClose = false;
+  recorded = [];
+  postedCards = [
+    {
+      sessionId: SESSION,
+      channelId: CHANNEL,
+      slackTs: CARD_TS,
+      link: {
+        id: LINK,
+        agentId: AGENT,
+        channelId: CHANNEL,
+        threadId: THREAD_TS,
+      },
+    },
+    {
+      sessionId: LOCKED_SESSION,
+      channelId: LOCKED_CHANNEL,
+      slackTs: CARD_TS,
+      link: {
+        id: LOCKED_LINK,
+        agentId: AGENT,
+        channelId: LOCKED_CHANNEL,
+        threadId: LOCKED_THREAD,
+      },
+    },
+  ];
+  progressLinks = {
+    [SESSION]: {
+      id: LINK,
+      agentId: AGENT,
+      channelId: CHANNEL,
+      threadId: THREAD_TS,
+    },
+    [LOCKED_SESSION]: {
+      id: LOCKED_LINK,
+      agentId: AGENT,
+      channelId: LOCKED_CHANNEL,
+      threadId: LOCKED_THREAD,
+    },
+  };
 });
 
 const OTHER_USER = "019a0000-0000-7000-8000-000000000102";
@@ -119,7 +190,7 @@ function displayFor(requestId: string): SurfacePromptCard["display"] {
     createdAt: NOW.toISOString(),
     expiresAt: NOW.toISOString(),
   };
-  if (requestId.startsWith("push")) {
+  if (requestId === PUSH) {
     return {
       kind: "push",
       repositoryId: "repo-1",
@@ -179,6 +250,26 @@ const identity: IdentityReader = {
 };
 
 function deps(): SlackInteractionDeps {
+  const authorization = createAuthorizationPolicy({
+    identity,
+    slackGuests: { enabled: async () => false },
+    credentials: { unboundRefs: async () => [] },
+    sessions: {
+      visibleTo: async () => true,
+      originOf: async () => ({ creatorUserId: USER, creatorApiKeyId: null }),
+    },
+    agents: {
+      agentOf: async () => AGENT,
+      agentOfRelease: async () => null,
+      isAdmin: async () => false,
+      isInside: async () => true,
+    },
+    decisions: {
+      record: async (entry) => {
+        recorded.push(entry);
+      },
+    },
+  });
   return {
     signingSecrets: {
       async forAgent(agentId) {
@@ -192,22 +283,7 @@ function deps(): SlackInteractionDeps {
           : null;
       },
     } as SlackInteractionDeps["signingSecrets"],
-    authorization: createAuthorizationPolicy({
-      identity,
-      slackGuests: { enabled: async () => false },
-      credentials: { unboundRefs: async () => [] },
-      sessions: {
-        visibleTo: async () => true,
-        originOf: async () => ({ creatorUserId: USER, creatorApiKeyId: null }),
-      },
-      agents: {
-        agentOf: async () => AGENT,
-        agentOfRelease: async () => null,
-        isAdmin: async () => false,
-        isInside: async () => true,
-      },
-      decisions: { record: async () => {} },
-    }),
+    authorization,
     agents: {
       async resolveSlackEvent(key) {
         return key.appId === APP && key.teamId === TEAM
@@ -233,11 +309,20 @@ function deps(): SlackInteractionDeps {
         return channelLeft ? ({ status: "left" } as never) : null;
       },
       async resolveSlackChannel(installationId, channelId) {
-        if (installationId !== INSTALLATION || channelId !== CHANNEL) {
+        const locked = channelId === LOCKED_CHANNEL;
+        const narrow = channelId === NARROW_CHANNEL;
+        if (
+          installationId !== INSTALLATION ||
+          (channelId !== CHANNEL && !locked && !narrow)
+        ) {
           return null;
         }
         return {
-          id: "019a0000-0000-7000-8000-0000000000a4",
+          id: narrow
+            ? "019a0000-0000-7000-8000-0000000000aa"
+            : locked
+              ? "019a0000-0000-7000-8000-0000000000a7"
+              : "019a0000-0000-7000-8000-0000000000a4",
           workspaceId: WORKSPACE,
           agentId: AGENT,
           installationId: INSTALLATION,
@@ -246,13 +331,18 @@ function deps(): SlackInteractionDeps {
           mode: "on",
           listen: "free",
           m1JudgmentsPerHour: 12,
+          reportMode: null,
           ceiling: {
-            actions: [
-              "session.read",
-              "session.submit",
-              "session.control",
-              "session.approve",
-            ],
+            actions: narrow
+              ? ["session.read"]
+              : locked
+                ? ["session.read", "session.submit", "session.approve"]
+                : [
+                    "session.read",
+                    "session.submit",
+                    "session.control",
+                    "session.approve",
+                  ],
             disclosure: "full",
           },
           home: false,
@@ -303,7 +393,7 @@ function deps(): SlackInteractionDeps {
         if (pushState === null)
           throw new SessionServiceError("NOT_FOUND", "gone");
         return {
-          id: "push-1",
+          id: PUSH,
           state: pushState,
           git_commit: "a".repeat(40),
           repository_id: "repo-1",
@@ -330,6 +420,22 @@ function deps(): SlackInteractionDeps {
       }) as never,
       queuePushFollowUp: record("append") as never,
     },
+    tasks: realTaskClose
+      ? createTaskClose({
+          authorization,
+          closes: {
+            close: async (input) => {
+              calls.push({ method: "store_close", args: [input] });
+              return "closing";
+            },
+          },
+        })
+      : {
+          close: (async (...args: unknown[]) => {
+            calls.push({ method: "task_close", args });
+            return taskClose;
+          }) as never,
+        },
     followUps: {
       async hold(input) {
         calls.push({ method: "hold", args: [input] });
@@ -357,6 +463,17 @@ function deps(): SlackInteractionDeps {
     },
     botToken: async () => "xoxb-fixture",
     outbox: {
+      progressLink: async (sessionId) => progressLinks[sessionId] ?? null,
+      postedCard: async (input) =>
+        postedCards.find(
+          (row) =>
+            row.sessionId === input.sessionId &&
+            row.channelId === input.channelId &&
+            row.slackTs === input.slackTs &&
+            (row.card === undefined || Bun.deepEquals(row.card, input.card)) &&
+            // The store keeps "earlier" to the pressing agent's rows.
+            (row.link !== "earlier" || input.agentId === AGENT),
+        )?.link ?? null,
       aiLabelFor: async (input) => {
         calls.push({ method: "aiLabel", args: [input] });
         return aiLabel;
@@ -422,14 +539,19 @@ const asked = slackPromptMessage(
   { locale: "en", requesterSlackUserId: null },
 ).blocks;
 
-function press(actionId: string, value: Record<string, string>, user = LINKED) {
+function press(
+  actionId: string,
+  value: Record<string, string>,
+  user = LINKED,
+  at = { channel: CHANNEL, thread: THREAD_TS },
+) {
   return form({
     type: "block_actions",
     api_app_id: APP,
     team: { id: TEAM },
     user: { id: user },
-    channel: { id: CHANNEL },
-    message: { ts: CARD_TS, thread_ts: THREAD_TS, blocks: asked },
+    channel: { id: at.channel },
+    message: { ts: CARD_TS, thread_ts: at.thread, blocks: asked },
     trigger_id: "trigger-1",
     actions: [{ action_id: actionId, value: JSON.stringify(value) }],
   });
@@ -758,7 +880,7 @@ describe("Slack interactions", () => {
     });
     const body = press(SLACK_INTERACTION_ACTIONS.pushApprove, {
       s: SESSION,
-      r: "push-1",
+      r: PUSH,
     });
     await service.receive({
       agentId: AGENT,
@@ -774,7 +896,7 @@ describe("Slack interactions", () => {
           (c) => (c.args[2] as { idempotencyKey: string }).idempotencyKey,
         ),
       ),
-    ).toEqual(new Set(["slack-push:push-1"]));
+    ).toEqual(new Set([`slack-push:${PUSH}`]));
     expect(calls.findIndex((c) => c.method === "update")).toBeGreaterThan(
       calls.lastIndexOf(appends[2] as Call),
     );
@@ -1362,16 +1484,16 @@ describe("Slack interactions", () => {
 
   test("approving a push decides it with the stored commit and queues a turn telling the session", async () => {
     const result = await send(
-      press(SLACK_INTERACTION_ACTIONS.pushApprove, { s: SESSION, r: "push-1" }),
+      press(SLACK_INTERACTION_ACTIONS.pushApprove, { s: SESSION, r: PUSH }),
     );
     expect(result).toMatchObject({ result: "approved" });
     const [decide] = called("decide");
-    expect(decide?.args.slice(1, 3)).toEqual([SESSION, "push-1"]);
+    expect(decide?.args.slice(1, 3)).toEqual([SESSION, PUSH]);
     const input = decide?.args[3] as {
       idempotencyKey: string;
       readBody(): Promise<unknown>;
     };
-    expect(input.idempotencyKey).toBe(`slack:push-1:${LINKED}`);
+    expect(input.idempotencyKey).toBe(`slack:${PUSH}:${LINKED}`);
     expect(await input.readBody()).toEqual({
       decision: "approve",
       git_commit: "a".repeat(40),
@@ -1379,8 +1501,8 @@ describe("Slack interactions", () => {
     const [append] = called("append");
     expect(append?.args[1]).toBe(SESSION);
     expect(append?.args[2]).toMatchObject({
-      idempotencyKey: "slack-push:push-1",
-      pushRequestId: "push-1",
+      idempotencyKey: `slack-push:${PUSH}`,
+      pushRequestId: PUSH,
       decision: "approve",
     });
     expect(settledText()).toContain(`<@${LINKED}>`);
@@ -1393,9 +1515,9 @@ describe("Slack interactions", () => {
       [SLACK_INTERACTION_ACTIONS.pushReject, "rejected"],
     ] as const) {
       calls = [];
-      expect(
-        await send(press(action, { s: SESSION, r: "push-1" })),
-      ).toMatchObject({ result });
+      expect(await send(press(action, { s: SESSION, r: PUSH }))).toMatchObject({
+        result,
+      });
       expect(called("decide")).toHaveLength(1);
       expect(called("append")).toEqual([]);
       expect(called("hold")).toEqual([]);
@@ -1410,14 +1532,14 @@ describe("Slack interactions", () => {
       const result = await send(
         press(SLACK_INTERACTION_ACTIONS.pushApprove, {
           s: SESSION,
-          r: "push-1",
+          r: PUSH,
         }),
       );
       expect(result).toMatchObject({ result: "approved" });
       expect(called("hold")[0]?.args[0]).toMatchObject({
         sessionId: SESSION,
-        pushRequestId: "push-1",
-        message: expect.stringContaining("approved push request push-1"),
+        pushRequestId: PUSH,
+        message: expect.stringContaining(`approved push request ${PUSH}`),
       });
       expect(called("append")).toEqual([]);
       expect(settledText()).toContain(`<@${LINKED}>`);
@@ -1429,7 +1551,7 @@ describe("Slack interactions", () => {
     await send(
       press(SLACK_INTERACTION_ACTIONS.pushApprove, {
         s: SESSION,
-        r: "push-1",
+        r: PUSH,
       }),
     );
     expect(called("decide")).toHaveLength(1);
@@ -1444,7 +1566,7 @@ describe("Slack interactions", () => {
       SLACK_INTERACTION_ACTIONS.pushReject,
     ]) {
       calls = [];
-      const result = await send(press(action, { s: SESSION, r: "push-1" }));
+      const result = await send(press(action, { s: SESSION, r: PUSH }));
       expect(result).toMatchObject({
         result:
           action === SLACK_INTERACTION_ACTIONS.pushApprove
@@ -1464,7 +1586,7 @@ describe("Slack interactions", () => {
     await send(
       press(SLACK_INTERACTION_ACTIONS.pushApprove, {
         s: SESSION,
-        r: "push-1",
+        r: PUSH,
       }),
     );
     expect(called("append")).toHaveLength(1);
@@ -1476,7 +1598,7 @@ describe("Slack interactions", () => {
     await send(
       press(SLACK_INTERACTION_ACTIONS.pushApprove, {
         s: SESSION,
-        r: "push-1",
+        r: PUSH,
       }),
     );
     expect(called("decide")).toEqual([]);
@@ -1487,13 +1609,13 @@ describe("Slack interactions", () => {
   test("a hold that fails queues the turn now, and a rejection is never held", async () => {
     hold = new Error("db down");
     await send(
-      press(SLACK_INTERACTION_ACTIONS.pushApprove, { s: SESSION, r: "push-1" }),
+      press(SLACK_INTERACTION_ACTIONS.pushApprove, { s: SESSION, r: PUSH }),
     );
     expect(called("append")).toHaveLength(1);
     calls = [];
     hold = "held";
     await send(
-      press(SLACK_INTERACTION_ACTIONS.pushReject, { s: SESSION, r: "push-1" }),
+      press(SLACK_INTERACTION_ACTIONS.pushReject, { s: SESSION, r: PUSH }),
     );
     expect(called("hold")).toEqual([]);
     expect(called("append")).toHaveLength(1);
@@ -1503,7 +1625,7 @@ describe("Slack interactions", () => {
   test("a push already decided is not decided again and queues no turn", async () => {
     pushState = "rejected";
     const result = await send(
-      press(SLACK_INTERACTION_ACTIONS.pushApprove, { s: SESSION, r: "push-1" }),
+      press(SLACK_INTERACTION_ACTIONS.pushApprove, { s: SESSION, r: PUSH }),
     );
     expect(result).toMatchObject({ result: "already" });
     expect(called("decide")).toEqual([]);
@@ -1514,7 +1636,7 @@ describe("Slack interactions", () => {
   test("a failed push lookup leaves the card's buttons, decides nothing and tells the presser", async () => {
     getError = new Error("canceling statement due to statement timeout");
     const result = await send(
-      press(SLACK_INTERACTION_ACTIONS.pushApprove, { s: SESSION, r: "push-1" }),
+      press(SLACK_INTERACTION_ACTIONS.pushApprove, { s: SESSION, r: PUSH }),
     );
     expect(result).toMatchObject({ result: "failed" });
     expect(called("update")).toEqual([]);
@@ -1563,7 +1685,7 @@ describe("Slack interactions", () => {
     });
     const body = press(SLACK_INTERACTION_ACTIONS.pushApprove, {
       s: SESSION,
-      r: "push-1",
+      r: PUSH,
     });
     await service.receive({
       agentId: AGENT,
@@ -1581,7 +1703,7 @@ describe("Slack interactions", () => {
   test("a member the policy refuses a push for decides nothing", async () => {
     decideError = new SessionServiceError("FORBIDDEN", "no");
     const result = await send(
-      press(SLACK_INTERACTION_ACTIONS.pushReject, { s: SESSION, r: "push-1" }),
+      press(SLACK_INTERACTION_ACTIONS.pushReject, { s: SESSION, r: PUSH }),
     );
     expect(result).toMatchObject({ result: "failed" });
     expect(called("append")).toEqual([]);
@@ -1821,5 +1943,798 @@ describe("the start-fresh button on the notice of a turn of unknown outcome with
     expect((outcome as { result: string }).result).toBe("failed");
     expect(called("update")).toEqual([]);
     expect(called("ephemeral")).toHaveLength(1);
+  });
+});
+
+describe("the close buttons on a task's progress message", () => {
+  const pressClose = (actionId: string, user = LINKED) =>
+    press(actionId, { s: SESSION, r: LINK }, user);
+
+  test.each([
+    [SLACK_INTERACTION_ACTIONS.taskComplete, "completed"],
+    [SLACK_INTERACTION_ACTIONS.taskCancel, "cancelled"],
+  ] as const)(
+    "%s closes the task as %s for the presser, who is told nothing",
+    async (actionId, reason) => {
+      taskClose = "closed";
+      const outcome = await send(pressClose(actionId));
+      expect((outcome as { result: string }).result).toBe("task_closed");
+      const [closed] = called("task_close");
+      expect(closed?.args.slice(1)).toEqual([SESSION, reason]);
+      expect(
+        (closed?.args[0] as { actor: { userId: string } }).actor.userId,
+      ).toBe(USER);
+      expect(called("ephemeral")).toEqual([]);
+    },
+  );
+
+  test("someone who may not control the session closes nothing and alone is told so", async () => {
+    taskClose = "not_permitted";
+    const outcome = await send(
+      pressClose(SLACK_INTERACTION_ACTIONS.taskCancel),
+    );
+    expect((outcome as { result: string }).result).toBe(
+      "refused:not_permitted",
+    );
+    const [told] = called("ephemeral");
+    expect(JSON.stringify(told?.args)).toContain(
+      SLACK_NOTICE_MESSAGES.en.taskCloseNotPermitted,
+    );
+    expect(JSON.stringify(told?.args)).toContain(LINKED);
+  });
+
+  test("a person who may not send to the agent reaches no close", async () => {
+    const outcome = await send(
+      pressClose(SLACK_INTERACTION_ACTIONS.taskComplete, STRANGER),
+    );
+    expect((outcome as { result: string }).result).toStartWith("refused:");
+    expect(called("task_close")).toEqual([]);
+  });
+
+  test("a task already closed takes the press as nothing new", async () => {
+    taskClose = "already_closed";
+    const outcome = await send(
+      pressClose(SLACK_INTERACTION_ACTIONS.taskComplete),
+    );
+    expect((outcome as { result: string }).result).toBe("task_already_closed");
+    expect(called("ephemeral")).toEqual([]);
+  });
+});
+
+// 94S-2538: a close button's value names its session and its thread's link;
+// a press whose value is not of the message pressed closes nothing, and the
+// session is judged at its own channel's ceiling.
+describe("a close button's value against the message pressed", () => {
+  const onA = { channel: CHANNEL, thread: THREAD_TS };
+  const onLocked = { channel: LOCKED_CHANNEL, thread: LOCKED_THREAD };
+  const refusedAs = (reason: string) =>
+    recorded
+      .filter((entry) => entry.decision.reason_code === reason)
+      .map((entry) => ({
+        action: entry.request.action,
+        session: entry.request.resource.id,
+        outcome: entry.decision.outcome,
+      }));
+
+  beforeEach(() => {
+    realTaskClose = true;
+  });
+
+  test.each([
+    [
+      "another channel's session with this message's link",
+      LOCKED_SESSION,
+      LINK,
+    ],
+    ["another channel's session and link", LOCKED_SESSION, LOCKED_LINK],
+    ["this session with another session's link", SESSION, LOCKED_LINK],
+    ["a link that is no id", SESSION, "link-1"],
+  ] as const)(
+    "%s closes nothing, is kept as a surface_mismatch deny and told to the presser alone",
+    async (_, s, r) => {
+      const outcome = await send(
+        press(SLACK_INTERACTION_ACTIONS.taskComplete, { s, r }, LINKED, onA),
+      );
+      expect((outcome as { result: string }).result).toBe(
+        "refused:surface_mismatch",
+      );
+      expect(called("store_close")).toEqual([]);
+      expect(refusedAs("surface_mismatch")).toEqual([
+        { action: "session.submit", session: s, outcome: "deny" },
+      ]);
+      const told = called("ephemeral");
+      expect(told).toHaveLength(1);
+      expect(JSON.stringify(told[0]?.args)).toContain(
+        SLACK_NOTICE_MESSAGES.en.pressMismatch,
+      );
+      expect(JSON.stringify(told[0]?.args)).toContain(LINKED);
+    },
+  );
+
+  test("its own value pressed in another thread of the channel, or for a session with no thread, closes nothing", async () => {
+    const elsewhere = { channel: CHANNEL, thread: "1761300000.000900" };
+    expect(
+      (
+        (await send(
+          press(
+            SLACK_INTERACTION_ACTIONS.taskCancel,
+            { s: SESSION, r: LINK },
+            LINKED,
+            elsewhere,
+          ),
+        )) as { result: string }
+      ).result,
+    ).toBe("refused:surface_mismatch");
+    delete progressLinks[SESSION];
+    expect(
+      (
+        (await send(
+          press(
+            SLACK_INTERACTION_ACTIONS.taskCancel,
+            { s: SESSION, r: LINK },
+            LINKED,
+            onA,
+          ),
+        )) as { result: string }
+      ).result,
+    ).toBe("refused:surface_mismatch");
+    expect(called("store_close")).toEqual([]);
+  });
+
+  test.each([
+    ["another channel, the same thread", { channelId: "C0ELSEWHERE" }],
+    ["another agent", { agentId: crypto.randomUUID() }],
+  ] as const)(
+    "its own value pressed where its link is of %s closes nothing",
+    async (_, apart) => {
+      progressLinks[SESSION] = {
+        ...(progressLinks[SESSION] as SurfaceProgressLink),
+        ...apart,
+      };
+      const outcome = await send(
+        press(
+          SLACK_INTERACTION_ACTIONS.taskComplete,
+          { s: SESSION, r: LINK },
+          LINKED,
+          onA,
+        ),
+      );
+      expect((outcome as { result: string }).result).toBe(
+        "refused:surface_mismatch",
+      );
+      expect(called("store_close")).toEqual([]);
+    },
+  );
+
+  test("on its own message, a task whose channel may submit but not control is not closed", async () => {
+    const outcome = await send(
+      press(
+        SLACK_INTERACTION_ACTIONS.taskComplete,
+        { s: LOCKED_SESSION, r: LOCKED_LINK },
+        LINKED,
+        onLocked,
+      ),
+    );
+    expect((outcome as { result: string }).result).toBe(
+      "refused:not_permitted",
+    );
+    expect(called("store_close")).toEqual([]);
+    // Let in as a message typed there would be, then refused the close.
+    expect(
+      recorded.map((entry) => [
+        entry.request.action,
+        entry.decision.reason_code,
+      ]),
+    ).toEqual([
+      ["session.submit", "ok"],
+      ["session.control", "surface_ceiling"],
+    ]);
+    expect(JSON.stringify(called("ephemeral")[0]?.args)).toContain(
+      SLACK_NOTICE_MESSAGES.en.taskCloseNotPermitted,
+    );
+  });
+
+  test("on its own message, a task whose channel may control it closes as before", async () => {
+    const outcome = await send(
+      press(
+        SLACK_INTERACTION_ACTIONS.taskComplete,
+        { s: SESSION, r: LINK },
+        LINKED,
+        onA,
+      ),
+    );
+    expect((outcome as { result: string }).result).toBe("task_closing");
+    const [closed] = called("store_close");
+    expect(closed?.args[0]).toMatchObject({
+      sessionId: SESSION,
+      reason: "completed",
+    });
+    expect(refusedAs("surface_mismatch")).toEqual([]);
+    expect(called("ephemeral")).toEqual([]);
+  });
+});
+
+// 94S-2543: a card's buttons and forms name their session and request; a
+// press whose value is not of the card pressed decides nothing, and the
+// request is judged at the channel of the link the card went out on, a
+// mirror link's own when it went out there.
+describe("a card's value against the message pressed", () => {
+  const NARROW_SESSION = "019a0000-0000-7000-8000-0000000000ab";
+  const NARROW_LINK = "019a0000-0000-7000-8000-0000000000b3";
+  const MIRROR_LINK = "019a0000-0000-7000-8000-0000000000b4";
+  const OTHER_PUSH = "019a0000-0000-7000-8000-0000000000c2";
+  const onA = { channel: CHANNEL, thread: THREAD_TS };
+  const onNarrow = { channel: NARROW_CHANNEL, thread: NARROW_THREAD };
+  const linkOf = (
+    id: string,
+    channelId: string,
+    threadId: string,
+  ): SurfaceProgressLink => ({ id, agentId: AGENT, channelId, threadId });
+  // SESSION's card also went out on a mirror link in `channelId`.
+  const mirrorInto = (channelId: string) =>
+    postedCards.push({
+      sessionId: SESSION,
+      channelId,
+      slackTs: CARD_TS,
+      link: linkOf(MIRROR_LINK, channelId, ""),
+    });
+
+  beforeEach(() => {
+    postedCards.push({
+      sessionId: NARROW_SESSION,
+      channelId: NARROW_CHANNEL,
+      slackTs: CARD_TS,
+      link: linkOf(NARROW_LINK, NARROW_CHANNEL, NARROW_THREAD),
+    });
+    // Every request is open: a press let through decides.
+    listed = [
+      { request_id: "toolu_1", kind: "permission" },
+      { request_id: "q_1", kind: "question", questions: [question] },
+    ];
+  });
+
+  const kept = () =>
+    recorded.map((entry) => ({
+      action: entry.request.action,
+      session: entry.request.resource.id,
+      channel: (entry.request.subject as { surface?: { channel_id?: string } })
+        .surface?.channel_id,
+      outcome: entry.decision.outcome,
+      reason: entry.decision.reason_code,
+    }));
+  // Whatever a press would change: an answer, a push decision, a turn, a card.
+  const changed = () =>
+    calls.filter((call) =>
+      [
+        "answer",
+        "decide",
+        "hold",
+        "append",
+        "continue",
+        "start_fresh",
+        "update",
+      ].includes(call.method),
+    );
+  const toldEarlier = () => {
+    const told = JSON.stringify(called("ephemeral")[0]?.args);
+    expect(called("ephemeral")).toHaveLength(1);
+    expect(told).toContain(SLACK_NOTICE_MESSAGES.en.pressEarlierCard);
+    expect(told).not.toContain(SLACK_NOTICE_MESSAGES.en.pressMismatch);
+  };
+  // The outbox holds SESSION's card but cannot tie it to the message.
+  const earlierCard = () => {
+    (postedCards[0] as (typeof postedCards)[number]).link = "earlier";
+  };
+  const toldMismatch = () => {
+    const told = called("ephemeral");
+    expect(told).toHaveLength(1);
+    expect(JSON.stringify(told[0]?.args)).toContain(
+      SLACK_NOTICE_MESSAGES.en.pressMismatch,
+    );
+    expect(JSON.stringify(told[0]?.args)).toContain(LINKED);
+  };
+
+  // [name, action id, request, action judged, result when let through]
+  const BUTTONS = [
+    [
+      "permission.allow",
+      SLACK_INTERACTION_ACTIONS.permissionAllow,
+      "toolu_1",
+      "session.approve",
+      "answered",
+    ],
+    [
+      "permission.allow_session",
+      SLACK_INTERACTION_ACTIONS.permissionAllowSession,
+      "toolu_1",
+      "session.approve",
+      "answered",
+    ],
+    [
+      "permission.deny",
+      SLACK_INTERACTION_ACTIONS.permissionDeny,
+      "toolu_1",
+      "session.approve",
+      "answered",
+    ],
+    [
+      "question.option",
+      `${SLACK_INTERACTION_ACTIONS.questionOption}:1`,
+      "q_1",
+      "session.approve",
+      "answered",
+    ],
+    [
+      "push.approve",
+      SLACK_INTERACTION_ACTIONS.pushApprove,
+      PUSH,
+      "session.approve",
+      "approved",
+    ],
+    [
+      "push.reject",
+      SLACK_INTERACTION_ACTIONS.pushReject,
+      PUSH,
+      "session.approve",
+      "rejected",
+    ],
+    [
+      "turn.continue",
+      SLACK_INTERACTION_ACTIONS.turnContinue,
+      "3",
+      "session.submit",
+      "continued",
+    ],
+    [
+      "turn.start_fresh",
+      SLACK_INTERACTION_ACTIONS.turnStartFresh,
+      "3",
+      "session.submit",
+      "started_fresh",
+    ],
+  ] as const;
+  const pressValue = (actionId: string, s: string, r: string) =>
+    actionId.startsWith(SLACK_INTERACTION_ACTIONS.questionOption)
+      ? { s, r, o: "1" }
+      : { s, r };
+
+  describe.each(BUTTONS)("%s", (_, actionId, r, action, result) => {
+    test("its own card an earlier version posted, or whose post never came back, decides nothing and says so apart from a mismatch", async () => {
+      earlierCard();
+      const outcome = await send(
+        press(actionId, pressValue(actionId, SESSION, r), LINKED, onA),
+      );
+      expect((outcome as { result: string }).result).toBe(
+        "refused:surface_mismatch",
+      );
+      expect(changed()).toEqual([]);
+      expect(kept()).toEqual([
+        {
+          action,
+          session: SESSION,
+          channel: CHANNEL,
+          outcome: "deny",
+          reason: "surface_mismatch",
+        },
+      ]);
+      toldEarlier();
+    });
+
+    test("another channel's session and its request, on this card, decide nothing, kept as a surface_mismatch deny and told to the presser alone", async () => {
+      const outcome = await send(
+        press(actionId, pressValue(actionId, NARROW_SESSION, r), LINKED, onA),
+      );
+      expect((outcome as { result: string }).result).toBe(
+        "refused:surface_mismatch",
+      );
+      expect(changed()).toEqual([]);
+      expect(kept()).toEqual([
+        {
+          action,
+          session: NARROW_SESSION,
+          channel: CHANNEL,
+          outcome: "deny",
+          reason: "surface_mismatch",
+        },
+      ]);
+      toldMismatch();
+    });
+
+    test("its own value on its own card decides as before, judged at the card's channel", async () => {
+      const outcome = await send(
+        press(actionId, pressValue(actionId, SESSION, r), LINKED, onA),
+      );
+      expect((outcome as { result: string }).result).toBe(result);
+      expect(kept()[0]).toMatchObject({
+        action,
+        session: SESSION,
+        channel: CHANNEL,
+        outcome: "allow",
+      });
+      expect(kept().map((entry) => entry.reason)).not.toContain(
+        "surface_mismatch",
+      );
+    });
+
+    test("its own card in a channel whose ceiling leaves the action out decides nothing", async () => {
+      const outcome = await send(
+        press(
+          actionId,
+          pressValue(actionId, NARROW_SESSION, r),
+          LINKED,
+          onNarrow,
+        ),
+      );
+      expect((outcome as { result: string }).result).toBe(
+        "refused:surface_ceiling",
+      );
+      expect(changed()).toEqual([]);
+      expect(kept()).toEqual([
+        {
+          action,
+          session: NARROW_SESSION,
+          channel: NARROW_CHANNEL,
+          outcome: "deny",
+          reason: "surface_ceiling",
+        },
+      ]);
+    });
+
+    test("a card mirrored into a narrower channel is judged there, not at the session's own channel", async () => {
+      mirrorInto(NARROW_CHANNEL);
+      const outcome = await send(
+        press(actionId, pressValue(actionId, SESSION, r), LINKED, {
+          channel: NARROW_CHANNEL,
+          thread: CARD_TS,
+        }),
+      );
+      expect((outcome as { result: string }).result).toBe(
+        "refused:surface_ceiling",
+      );
+      expect(changed()).toEqual([]);
+      expect(kept()[0]).toMatchObject({
+        session: SESSION,
+        channel: NARROW_CHANNEL,
+        reason: "surface_ceiling",
+      });
+    });
+
+    test("a card mirrored into a channel that allows the action decides there", async () => {
+      mirrorInto(LOCKED_CHANNEL);
+      const outcome = await send(
+        press(actionId, pressValue(actionId, SESSION, r), LINKED, {
+          channel: LOCKED_CHANNEL,
+          thread: CARD_TS,
+        }),
+      );
+      expect((outcome as { result: string }).result).toBe(result);
+      expect(kept()[0]).toMatchObject({
+        session: SESSION,
+        channel: LOCKED_CHANNEL,
+        outcome: "allow",
+      });
+    });
+
+    test.each([
+      ["of another channel", { channelId: "C0ELSEWHERE" }],
+      ["of another agent", { agentId: crypto.randomUUID() }],
+    ] as const)(
+      "its own value on a card whose link is %s decides nothing",
+      async (_, apart) => {
+        const own = postedCards[0] as (typeof postedCards)[number];
+        own.link = { ...(own.link as SurfaceProgressLink), ...apart };
+        const outcome = await send(
+          press(actionId, pressValue(actionId, SESSION, r), LINKED, onA),
+        );
+        expect((outcome as { result: string }).result).toBe(
+          "refused:surface_mismatch",
+        );
+        expect(changed()).toEqual([]);
+      },
+    );
+  });
+
+  test.each([
+    [
+      "another permission request",
+      { kind: "prompt", requestId: "toolu_1" },
+      SLACK_INTERACTION_ACTIONS.permissionAllow,
+      "toolu_2",
+    ],
+    [
+      "a push request, as a permission card",
+      { kind: "prompt", requestId: PUSH },
+      SLACK_INTERACTION_ACTIONS.pushApprove,
+      PUSH,
+    ],
+    [
+      "another push request",
+      { kind: "push", pushRequestId: PUSH },
+      SLACK_INTERACTION_ACTIONS.pushApprove,
+      OTHER_PUSH,
+    ],
+    [
+      "a push request that is no id",
+      { kind: "push", pushRequestId: PUSH },
+      SLACK_INTERACTION_ACTIONS.pushReject,
+      "push-1",
+    ],
+    [
+      "another turn",
+      { kind: "turn", turnId: 3 },
+      SLACK_INTERACTION_ACTIONS.turnContinue,
+      "4",
+    ],
+    [
+      "a turn, as a permission card",
+      { kind: "prompt", requestId: "3" },
+      SLACK_INTERACTION_ACTIONS.turnStartFresh,
+      "3",
+    ],
+  ] as const)(
+    "this session's card pressed for %s decides nothing",
+    async (_, card, actionId, r) => {
+      (postedCards[0] as (typeof postedCards)[number]).card = card;
+      const outcome = await send(
+        press(actionId, { s: SESSION, r }, LINKED, onA),
+      );
+      expect((outcome as { result: string }).result).toBe(
+        "refused:surface_mismatch",
+      );
+      expect(changed()).toEqual([]);
+    },
+  );
+
+  test("a button no card has is ignored before any card is read", async () => {
+    const outcome = await send(
+      press("permission.unknown", { s: NARROW_SESSION, r: "toolu_1" }),
+    );
+    expect((outcome as { result: string }).result).toBe("ignored");
+    expect(recorded).toEqual([]);
+  });
+
+  describe.each([
+    ["question.open", SLACK_INTERACTION_ACTIONS.questionOpen, "q_1"],
+    [
+      "permission.allow_note",
+      SLACK_INTERACTION_ACTIONS.permissionAllowNote,
+      "toolu_1",
+    ],
+  ] as const)("the %s form", (_, actionId, r) => {
+    test("opened with another channel's session and its request shows nothing of it", async () => {
+      await send(press(actionId, { s: NARROW_SESSION, r }, LINKED, onA));
+      expect(results.at(-1)).toBe("refused:surface_mismatch");
+      const shown = JSON.stringify(called("viewUpdate")[0]?.args[1]);
+      expect(shown).not.toContain("private_metadata");
+      expect(shown).not.toContain("Which database?");
+      expect(kept()).toEqual([
+        {
+          action: "session.approve",
+          session: NARROW_SESSION,
+          channel: CHANNEL,
+          outcome: "deny",
+          reason: "surface_mismatch",
+        },
+      ]);
+      toldMismatch();
+    });
+
+    test("opened from a card mirrored into a narrower channel is judged there", async () => {
+      mirrorInto(NARROW_CHANNEL);
+      await send(
+        press(actionId, { s: SESSION, r }, LINKED, {
+          channel: NARROW_CHANNEL,
+          thread: CARD_TS,
+        }),
+      );
+      expect(results.at(-1)).toBe("refused:surface_ceiling");
+      expect(kept()[0]).toMatchObject({ channel: NARROW_CHANNEL });
+    });
+
+    test("opened from its own card an earlier version posted shows nothing and says so", async () => {
+      earlierCard();
+      await send(press(actionId, { s: SESSION, r }, LINKED, onA));
+      expect(results.at(-1)).toBe("refused:surface_mismatch");
+      expect(JSON.stringify(called("viewUpdate")[0]?.args[1])).not.toContain(
+        "private_metadata",
+      );
+      toldEarlier();
+    });
+
+    test("opened from its own card fills the form as before", async () => {
+      await send(press(actionId, { s: SESSION, r }, LINKED, onA));
+      expect(results.at(-1)).toBe("view_filled");
+      expect(kept()[0]).toMatchObject({ channel: CHANNEL, outcome: "allow" });
+    });
+  });
+
+  const submitted = (
+    callbackId: string,
+    metadata: { s: string; r: string; c: string; m: string; t: string },
+    values: Record<string, Record<string, unknown>> = {
+      "q0.text": { v: { value: "MySQL" } },
+    },
+  ) =>
+    form({
+      type: "view_submission",
+      api_app_id: APP,
+      team: { id: TEAM },
+      user: { id: LINKED },
+      view: {
+        callback_id: callbackId,
+        private_metadata: JSON.stringify(metadata),
+        state: { values },
+      },
+    });
+  const own = { s: SESSION, r: "q_1", c: CHANNEL, m: CARD_TS, t: THREAD_TS };
+
+  test.each([
+    ["another channel's session and its request", { s: NARROW_SESSION }],
+    ["another message of the channel", { m: "1761300000.000999" }],
+    [
+      "another channel's card",
+      { c: NARROW_CHANNEL, m: CARD_TS, t: NARROW_THREAD },
+    ],
+    ["another request of the session", { r: "q_2" }],
+  ] as const)(
+    "a submitted form whose metadata names %s answers nothing and closes",
+    async (_, apart) => {
+      for (const callbackId of [
+        SLACK_QUESTION_VIEW_CALLBACK,
+        SLACK_NOTE_VIEW_CALLBACK,
+      ]) {
+        (postedCards[0] as (typeof postedCards)[number]).card = {
+          kind: "prompt",
+          requestId: "q_1",
+        };
+        recorded = [];
+        const outcome = await send(submitted(callbackId, { ...own, ...apart }));
+        expect(outcome).toEqual({
+          kind: "ok",
+          body: { response_action: "clear" },
+          result: "refused:surface_mismatch",
+        });
+        expect(kept()).toEqual([
+          expect.objectContaining({ reason: "surface_mismatch" }),
+        ]);
+      }
+      expect(changed()).toEqual([]);
+    },
+  );
+
+  test("a form opened from its own card and then submitted naming another card answers nothing", async () => {
+    await send(
+      press(SLACK_INTERACTION_ACTIONS.questionOpen, { s: SESSION, r: "q_1" }),
+    );
+    expect(results.at(-1)).toBe("view_filled");
+    const filled = called("viewUpdate")[0]?.args[1] as {
+      view: { private_metadata: string };
+    };
+    const opened = JSON.parse(filled.view.private_metadata);
+    // The same form's metadata naming another channel's session on this
+    // card: no card of that session.
+    const swapped = await send(
+      submitted(SLACK_QUESTION_VIEW_CALLBACK, { ...opened, s: NARROW_SESSION }),
+    );
+    expect((swapped as { result: string }).result).toBe(
+      "refused:surface_mismatch",
+    );
+    // Naming that session's own card instead: judged as a press there.
+    const moved = await send(
+      submitted(SLACK_QUESTION_VIEW_CALLBACK, {
+        ...opened,
+        s: NARROW_SESSION,
+        c: NARROW_CHANNEL,
+        t: NARROW_THREAD,
+      }),
+    );
+    expect((moved as { result: string }).result).toBe(
+      "refused:surface_ceiling",
+    );
+    expect(called("answer")).toEqual([]);
+  });
+
+  // A form whose metadata names another real card is judged as a press of
+  // that card would be: its row, its link's channel, the submitter's rights.
+  test.each([
+    ["in a channel whose ceiling leaves approve out", "narrow"],
+    ["whose request is already answered", "answered"],
+    ["in a channel that allows approve", "allowed"],
+  ] as const)(
+    "a form opened from its own card and submitted naming another card %s ends as a press of that card",
+    async (_, target) => {
+      const card =
+        target === "narrow"
+          ? { s: NARROW_SESSION, c: NARROW_CHANNEL, t: NARROW_THREAD }
+          : { s: SESSION, c: LOCKED_CHANNEL, t: CARD_TS };
+      if (target !== "narrow") mirrorInto(LOCKED_CHANNEL);
+      const settle = () => {
+        if (target !== "answered") return;
+        listed = [];
+        outcome = { state: "answered", kind: "question" } as never;
+      };
+      const reset = () => {
+        calls = [];
+        recorded = [];
+        results = [];
+        deferred = [];
+      };
+      await send(
+        press(SLACK_INTERACTION_ACTIONS.questionOpen, { s: SESSION, r: "q_1" }),
+      );
+      const opened = JSON.parse(
+        (
+          called("viewUpdate")[0]?.args[1] as {
+            view: { private_metadata: string };
+          }
+        ).view.private_metadata,
+      );
+      settle();
+      reset();
+      const swapped = (await send(
+        submitted(SLACK_QUESTION_VIEW_CALLBACK, { ...opened, ...card }),
+      )) as { result: string };
+      const swappedKept = kept();
+      reset();
+      const direct = (await send(
+        press(
+          `${SLACK_INTERACTION_ACTIONS.questionOption}:0`,
+          { s: card.s, r: "q_1", o: "0" },
+          LINKED,
+          { channel: card.c, thread: card.t },
+        ),
+      )) as { result: string };
+      expect(swapped.result).toBe(
+        {
+          narrow: "refused:surface_ceiling",
+          answered: "already",
+          allowed: "answered",
+        }[target],
+      );
+      expect(swapped.result).toBe(direct.result);
+      expect(swappedKept[0]).toEqual(kept()[0]);
+    },
+  );
+
+  test("a submitted form of its own card an earlier version posted answers nothing and says so", async () => {
+    earlierCard();
+    const outcome = await send(submitted(SLACK_QUESTION_VIEW_CALLBACK, own));
+    expect((outcome as { result: string }).result).toBe(
+      "refused:surface_mismatch",
+    );
+    expect(called("answer")).toEqual([]);
+    toldEarlier();
+  });
+
+  test("a submitted form of its own card in a channel whose ceiling leaves approve out answers nothing", async () => {
+    const outcome = await send(
+      submitted(SLACK_QUESTION_VIEW_CALLBACK, {
+        s: NARROW_SESSION,
+        r: "q_1",
+        c: NARROW_CHANNEL,
+        m: CARD_TS,
+        t: NARROW_THREAD,
+      }),
+    );
+    expect((outcome as { result: string }).result).toBe(
+      "refused:surface_ceiling",
+    );
+    expect(called("answer")).toEqual([]);
+  });
+
+  test("a submitted form of a card mirrored into a channel that allows approve answers there", async () => {
+    mirrorInto(LOCKED_CHANNEL);
+    const outcome = await send(
+      submitted(SLACK_QUESTION_VIEW_CALLBACK, {
+        ...own,
+        c: LOCKED_CHANNEL,
+        t: CARD_TS,
+      }),
+    );
+    expect((outcome as { result: string }).result).toBe("answered");
+    expect(kept()[0]).toMatchObject({
+      channel: LOCKED_CHANNEL,
+      outcome: "allow",
+    });
   });
 });

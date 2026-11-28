@@ -153,6 +153,79 @@ describe("slackProgressMessage", () => {
     }
   });
 
+  test("a closed task's message says how it closed, with no buttons left", () => {
+    for (const locale of ["ko", "ja", "en"] as UserLocale[]) {
+      const closes = { sessionId: "s1", sessionLinkId: "l1" };
+      expect(
+        slackProgressMessage({
+          locale,
+          state: "closed:3",
+          startedAt: null,
+          closes,
+        }).text,
+      ).toBe(SLACK_NOTICE_MESSAGES[locale].progressClosed);
+      const cancelled = slackProgressMessage({
+        locale,
+        state: "closed:3:cancelled",
+        startedAt: null,
+        closes,
+      });
+      expect(cancelled.text).toBe(
+        SLACK_NOTICE_MESSAGES[locale].progressCancelled,
+      );
+      expect(cancelled.blocks).toEqual([
+        { type: "section", text: { type: "mrkdwn", text: cancelled.text } },
+      ]);
+      const abandoned = slackProgressMessage({
+        locale,
+        state: "closed:3:abandoned",
+        startedAt: null,
+        closes,
+      });
+      expect(abandoned.text).toBe(
+        SLACK_NOTICE_MESSAGES[locale].progressAbandoned,
+      );
+      expect(abandoned.blocks).toEqual([
+        { type: "section", text: { type: "mrkdwn", text: abandoned.text } },
+      ]);
+    }
+  });
+
+  test("an open task's message ends in its done and cancel buttons, naming its session and link", () => {
+    for (const locale of ["ko", "ja", "en"] as UserLocale[]) {
+      const shown = slackProgressMessage({
+        locale,
+        state: "running:1",
+        startedAt: null,
+        closes: { sessionId: "s1", sessionLinkId: "l1" },
+      });
+      const value = JSON.stringify({ s: "s1", r: "l1" });
+      expect(shown.blocks.at(-1)).toEqual({
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            action_id: "task.complete",
+            text: {
+              type: "plain_text",
+              text: SLACK_NOTICE_MESSAGES[locale].taskCloseComplete,
+            },
+            value,
+          },
+          {
+            type: "button",
+            action_id: "task.cancel",
+            text: {
+              type: "plain_text",
+              text: SLACK_NOTICE_MESSAGES[locale].taskCloseCancel,
+            },
+            value,
+          },
+        ],
+      });
+    }
+  });
+
   test("refuses a state it does not know", () => {
     expect(() =>
       slackProgressMessage({ locale: "en", state: "done:1", startedAt: null }),

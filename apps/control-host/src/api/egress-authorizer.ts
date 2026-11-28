@@ -55,8 +55,9 @@ export const EGRESS_EXCHANGE_CALL_HEADER = "x-werft-exchange-call";
 // conversation call's token is bound to. A header for the reason above.
 export const EGRESS_EXCHANGE_ID_HEADER = "x-werft-exchange-id";
 // On an authorize, what the proxy keeps to, comma separated:
-// `registered-upstream`, a grant's `upstream.allow` mark. A header for the
-// reason above; a proxy from before sends none.
+// `registered-upstream`, a grant's `upstream.allow` mark, and
+// `registered-private-upstream`, its `private` value with `upstream.deny`.
+// A header for the reason above; a proxy from before sends none.
 export const EGRESS_FEATURES_HEADER = "x-werft-egress-features";
 // A token, a purpose and, for the object store, one S3 request line and its
 // headers; anything bigger is not a request from the proxy.
@@ -319,6 +320,13 @@ async function readAtMost(
   return Buffer.concat(chunks, total);
 }
 
+/** Whether the proxy that asks said it keeps to `feature`. */
+function proxyKeepsTo(request: Request, feature: string): boolean {
+  return (request.headers.get(EGRESS_FEATURES_HEADER) ?? "")
+    .split(",")
+    .some((said) => said.trim() === feature);
+}
+
 function problem(status: number, code: string, message: string): Response {
   return Response.json({ code, message }, { status });
 }
@@ -328,9 +336,16 @@ function problem(status: number, code: string, message: string): Response {
  * so no grant; marked apart from every other 503 because this one alone may
  * be answered differently a moment later, and the proxy asks again on it.
  */
-function undecided(message: string): Response {
+function undecided(message: string, reasonCode?: string): Response {
   return Response.json(
-    { code: "BACKEND_UNAVAILABLE", message, retryable: true },
+    {
+      code: "BACKEND_UNAVAILABLE",
+      message,
+      retryable: true,
+      ...(reasonCode === undefined
+        ? {}
+        : { details: { reason_code: reasonCode } }),
+    },
     { status: 503, headers: { "retry-after": "1" } },
   );
 }
@@ -520,16 +535,18 @@ export function createEgressAuthorizer(deps: {
           case "mcp":
             return deps.gateway.authorizeMcpEgress({
               ...body,
-              registeredUpstream: (
-                request.headers.get(EGRESS_FEATURES_HEADER) ?? ""
-              )
-                .split(",")
-                .some((feature) => feature.trim() === "registered-upstream"),
+              registeredUpstream: proxyKeepsTo(request, "registered-upstream"),
             });
           case "packages":
             return deps.gateway.authorizePackagesEgress(body);
           case "judgment":
-            return deps.gateway.authorizeJudgmentEgress(body);
+            return deps.gateway.authorizeJudgmentEgress({
+              ...body,
+              registeredPrivateUpstream: proxyKeepsTo(
+                request,
+                "registered-private-upstream",
+              ),
+            });
           default:
             return body.purpose === "provider"
               ? authorizeProvider(body, request)
@@ -620,7 +637,16 @@ export function createEgressAuthorizer(deps: {
             `conversation_call_limit_${called.limit}`,
           );
     }
-    return called ?? deps.gateway.authorizeEgress(body);
+    return (
+      called ??
+      deps.gateway.authorizeEgress({
+        ...body,
+        registeredPrivateUpstream: proxyKeepsTo(
+          request,
+          "registered-private-upstream",
+        ),
+      })
+    );
   }
 
   // Streamable HTTP without sessions or streams: one message in, one JSON
@@ -688,15 +714,11 @@ export function createEgressAuthorizer(deps: {
         callId: report.conversation_call_id,
         usage: counted,
       });
-      if (priced.pricedBy === "fallback") {
-        deps.logger.warn(
-          "Conversation call usage priced at the fallback rate",
-          {
-            conversation_call_id: report.conversation_call_id,
-            model: usage.model,
-            cost_usd: priced.costUsd,
-          },
-        );
+      if (priced.pricedBy === "unknown") {
+        deps.logger.warn("Conversation call usage has no known price", {
+          conversation_call_id: report.conversation_call_id,
+          model: usage.model,
+        });
       }
       return { cost_usd: priced.costUsd, priced_by: priced.pricedBy };
     }
@@ -706,11 +728,10 @@ export function createEgressAuthorizer(deps: {
         judgmentId: report.judgment_id,
         usage: counted,
       });
-      if (priced.pricedBy === "fallback") {
-        deps.logger.warn("Judgment usage priced at the fallback rate", {
+      if (priced.pricedBy === "unknown") {
+        deps.logger.warn("Judgment usage has no known price", {
           judgment_id: report.judgment_id,
           model: usage.model,
-          cost_usd: priced.costUsd,
         });
       }
       return { cost_usd: priced.costUsd, priced_by: priced.pricedBy };
@@ -721,13 +742,12 @@ export function createEgressAuthorizer(deps: {
       attemptId: report.attempt_id,
       usage: counted,
     });
-    if (priced.pricedBy === "fallback") {
-      deps.logger.warn("Provider usage priced at the fallback rate", {
+    if (priced.pricedBy === "unknown") {
+      deps.logger.warn("Provider usage has no known price", {
         session_id: report.session_id,
         model: usage.model,
         speed: usage.speed,
         inference_geo: usage.inference_geo,
-        cost_usd: priced.costUsd,
       });
     }
     if (priced.ledgerForeignRow) {
@@ -735,6 +755,15 @@ export function createEgressAuthorizer(deps: {
         exchange_id: report.exchange_id,
         session_id: report.session_id,
         attempt_id: report.attempt_id,
+      });
+    }
+    if (priced.reservedWithPriceVersion !== undefined) {
+      // Two releases' replicas shared the call: its reserve and its
+      // settlement read different price data.
+      deps.logger.info("Provider usage settled with other price data", {
+        exchange_id: report.exchange_id,
+        session_id: report.session_id,
+        reserved_with: priced.reservedWithPriceVersion,
       });
     }
     return { cost_usd: priced.costUsd, priced_by: priced.pricedBy };
@@ -804,7 +833,7 @@ export function createEgressAuthorizer(deps: {
           throw new WorkerGatewayError(
             403,
             "BUDGET_EXCEEDED",
-            "The session's spend with this call's reserve reaches its cost or token limit",
+            "The session's spend with this call's reserve reaches its cost or token limit, or its limit on tokens of unknown price",
           );
         }
         // The refusal stands whether or not its record lands.
@@ -879,6 +908,16 @@ export function createEgressAuthorizer(deps: {
             ? {}
             : { reason_code: error.reasonCode }),
         });
+        // Retryable and named: what the gateway could not tell this once
+        // (the installation's own addresses, for a private upstream's deny
+        // list). No decision, as when the store cannot be read.
+        if (
+          error.status === 503 &&
+          error.retryable &&
+          error.reasonCode !== undefined
+        ) {
+          return undecided(error.message, error.reasonCode);
+        }
         if (error.receiptId !== undefined || error.reasonCode !== undefined) {
           return Response.json(
             {

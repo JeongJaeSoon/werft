@@ -27,6 +27,9 @@ export const SLACK_INTERACTION_ACTIONS = {
    * session with no committed checkpoint (start_fresh); `r` is the turn id.
    */
   turnStartFresh: "turn.start_fresh",
+  /** Closes the task of a progress message (v1-b/C1); `r` is its session link. */
+  taskComplete: "task.complete",
+  taskCancel: "task.cancel",
 } as const;
 export const SLACK_QUESTION_VIEW_CALLBACK = "question.answer";
 export const SLACK_NOTE_VIEW_CALLBACK = "permission.allow_note";

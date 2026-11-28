@@ -14,6 +14,7 @@ import {
 import type { StructuredLogger } from "@werft-ai/observability";
 import {
   CATALOG_REFRESH_MS,
+  type ExchangeBudget,
   InstallationConfigUnavailableError,
   type SessionBudget,
   type SessionLimits,
@@ -273,6 +274,16 @@ export function createInstallationConfigSource(options: {
       return {
         costUsd: read.get("session_cost_limit_usd"),
         tokens: tokenLimitOf(read.get("session_token_limit")),
+      };
+    },
+
+    /** What a provider call's open is judged against, all from one read. */
+    async exchangeBudget(): Promise<ExchangeBudget> {
+      const read = readOf(await saved());
+      return {
+        costUsd: read.get("session_cost_limit_usd"),
+        tokens: tokenLimitOf(read.get("session_token_limit")),
+        unknownPriceTokens: read.get("unknown_price_session_token_limit"),
       };
     },
 

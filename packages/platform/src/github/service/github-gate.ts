@@ -123,6 +123,9 @@ export function createGitHubGate(deps: {
           ? {}
           : { workflow: work.workflow.file, ref: work.workflow.ref }),
         ...(work.runId === undefined ? {} : { run_id: work.runId }),
+        ...(work.pushRequestId === undefined
+          ? {}
+          : { push_request_id: work.pushRequestId }),
         ...(work.repositoryName === undefined
           ? {}
           : { repository: work.repositoryName }),
@@ -174,7 +177,14 @@ export function createGitHubGate(deps: {
           reason,
           operation,
         );
-        throw new GitHubGateError(reason, receiptId);
+        const { off_in: offIn } = extra;
+        throw new GitHubGateError(
+          reason,
+          receiptId,
+          offIn === "agent" || offIn === "ceiling" || offIn === "both"
+            ? offIn
+            : undefined,
+        );
       };
 
       if (named === null) return await refuse("repository_not_allowed");
@@ -193,8 +203,28 @@ export function createGitHubGate(deps: {
         : undefined;
       // Another repository is fetched, pushed to, given pull requests and has
       // its CI read; running its workflows and reviews stay with the
-      // session's own.
-      if (!own && !ANOTHER_REPOSITORY_PURPOSES.has(work.purpose)) {
+      // session's own. A pull request the session opened there is merged
+      // with both switches on (PM, 94S-2556), judged switches first, then
+      // the repository lists, then the record of who opened it.
+      const attachedMerge = !own && work.purpose === "merge";
+      if (attachedMerge) {
+        // Before the switches, as for the session's own repository and the
+        // MCP server; and the lists below drop every repository of an agent
+        // with GitHub off, which is not a repository outside them.
+        if (context.agent !== null && !context.agent.githubEnabled) {
+          return await refuse("github_disabled");
+        }
+        if (context.policy.settings === "invalid") {
+          return await refuse("github_settings_unsupported");
+        }
+        const offIn = mergeOffIn(context);
+        if (offIn !== null) return await refuse("merge_off", { off_in: offIn });
+      }
+      if (
+        !own &&
+        !attachedMerge &&
+        !ANOTHER_REPOSITORY_PURPOSES.has(work.purpose)
+      ) {
         return await refuse("repository_not_allowed");
       }
       if (
@@ -280,19 +310,21 @@ export function createGitHubGate(deps: {
         context.ceiling,
       );
       const needs = githubPermissionsFor(work.purpose, features);
-      if (
-        !platformRead &&
-        needs.ceilingFeature !== undefined &&
-        !context.ceiling[needs.ceilingFeature]
-      ) {
-        return await refuse("merge_off");
+      if (!platformRead && needs.ceilingFeature !== undefined) {
+        const offIn = mergeOffIn(context);
+        if (offIn !== null) return await refuse("merge_off", { off_in: offIn });
       }
       if (!platformRead && needs.feature !== null) {
         if (settings === null || !settings.features[needs.feature]) {
-          // Running a workflow directly has its own switch and its own code,
-          // never a person's approval: the token cannot hold actions: write.
+          // Running a workflow directly and approving a review each have
+          // their own switch and code, never a person's approval: the token
+          // is not asked for.
           return await refuse(
-            needs.feature === "actions" ? "actions_off" : "feature_off",
+            needs.feature === "actions"
+              ? "actions_off"
+              : needs.feature === "review"
+                ? "review_off"
+                : "feature_off",
           );
         }
         if (!features[needs.feature]) {
@@ -300,6 +332,22 @@ export function createGitHubGate(deps: {
         }
         if (author !== null && !author.githubCom) {
           return await refuse("github_host_unsupported");
+        }
+      }
+      if (attachedMerge) {
+        const recorded =
+          work.pushRequestId === undefined || work.pullRequestUrl === undefined
+            ? null
+            : await store.ownPullRequest(
+                context.sessionId,
+                work.pushRequestId,
+                work.pullRequestUrl,
+              );
+        if (
+          recorded?.opened !== true ||
+          recorded.repositoryId !== repositoryId
+        ) {
+          return await refuse("not_own_pull_request");
         }
       }
 
@@ -564,6 +612,21 @@ export function createGitHubGate(deps: {
         .map(({ id }) => id);
     },
   };
+}
+
+/**
+ * Where merging is off, or null when it is on. Off by default on both sides,
+ * and no pin holds it: a session on a release's pin, or one that started
+ * with it off, does not merge.
+ */
+function mergeOffIn(
+  context: GitHubSessionContext,
+): "agent" | "ceiling" | "both" | null {
+  const { settings } = context.policy;
+  const agentOn = settings !== "invalid" && settings?.features.merge === true;
+  const ceilingOn = context.ceiling.merge;
+  if (agentOn && ceilingOn) return null;
+  return agentOn ? "ceiling" : ceilingOn ? "agent" : "both";
 }
 
 const isGitHubCom = (url: string): boolean => {

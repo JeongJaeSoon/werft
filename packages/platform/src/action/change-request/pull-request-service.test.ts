@@ -241,6 +241,7 @@ function harness(
   /** Open pull requests of other sessions, by their head branch. */
   const parents = new Map<string, ForgePullRequest>();
   let gateRefusal = options.gateRefusal ?? null;
+  let gateOffIn: GitHubGateError["offIn"];
   const works: GitHubWork[] = [];
   const fail = () => {
     if (failing) throw new ForgeCredentialError("GitHub call failed (502)");
@@ -399,7 +400,7 @@ function harness(
     grant: async (work) => {
       works.push(work);
       if (gateRefusal !== null) {
-        throw new GitHubGateError(gateRefusal, "gate-receipt");
+        throw new GitHubGateError(gateRefusal, "gate-receipt", gateOffIn);
       }
       return {
         role: "author",
@@ -530,8 +531,9 @@ function harness(
     failForge: () => {
       failing = true;
     },
-    refuseGitHub: (reason: GitHubRefusal) => {
+    refuseGitHub: (reason: GitHubRefusal, offIn?: GitHubGateError["offIn"]) => {
       gateRefusal = reason;
+      gateOffIn = offIn;
     },
   };
 }
@@ -2826,6 +2828,43 @@ describe("merging the pull request", () => {
     expect(h.receipts.at(-1)).toMatchObject({
       operation: "merge_pull_request",
       result: { verdict: "refuse", refusal: "github_refused" },
+    });
+  });
+
+  test("merge_off says which side has merging off, in the refusal and on the receipt (94S-2492)", async () => {
+    for (const offIn of ["agent", "ceiling", "both"] as const) {
+      const h = withPullRequest();
+      h.refuseGitHub("merge_off", offIn);
+      expect((await refusal(merge(h))).details).toMatchObject({
+        refusal: "github_refused",
+        reason_code: "merge_off",
+        off_in: offIn,
+      });
+      expect(h.calls).toEqual([]);
+      expect(h.receipts.at(-1)?.result).toMatchObject({
+        reason_code: "merge_off",
+        off_in: offIn,
+      });
+    }
+  });
+
+  // GitHub's rules decide a merge (PM, 94S-2406): the platform reads no check
+  // to decide for them, passes on what GitHub answered, and asks once.
+  test("a merge GitHub refuses is passed on as merge_blocked after one request, and is not sent again (94S-2492)", async () => {
+    const h = withPullRequest();
+    h.failMerge(405);
+    expect(await refusal(merge(h))).toMatchObject({
+      code: "PULL_REQUEST_MERGE_BLOCKED",
+      details: { refusal: "merge_blocked" },
+    });
+    expect(h.calls.filter((call) => call.startsWith("merge"))).toEqual([
+      "merge 7 a",
+    ]);
+    // One grant, for the merge: no token was asked for to read a check.
+    expect(h.works.map((work) => work.purpose)).toEqual(["merge"]);
+    expect(h.receipts.at(-1)).toMatchObject({
+      operation: "merge_pull_request",
+      result: { verdict: "refuse", refusal: "merge_blocked" },
     });
   });
 

@@ -734,8 +734,8 @@ export function createPostgresConversationCalls(
           }
           // The channel's live binding, held as an admin's change of it waits.
           // It still listens to what was judged: a batch's posts only while
-          // it hears every post, an engaged reply also while it hears
-          // mentions and their threads.
+          // it hears every post, a reply held for its own judgment (engaged,
+          // or of work done) also while it hears mentions and their threads.
           const [binding] = rowsOf<{ installation_id: string }>(
             await tx.execute(sql`
               SELECT b.installation_id
@@ -749,7 +749,7 @@ export function createPostgresConversationCalls(
                 AND (b.listen = 'free' OR (b.listen = 'mention' AND EXISTS (
                   SELECT 1 FROM conversation_judgments j
                   WHERE j.id = ${input.judgmentId}::uuid
-                    AND j.grade = 'm1_engaged')))
+                    AND j.grade IN ('m1_engaged', 'm1'))))
                 AND NOT b.external_shared AND b.emergency_stopped_at IS NULL
               ORDER BY b.id
               LIMIT 1
@@ -778,10 +778,33 @@ export function createPostgresConversationCalls(
               UPDATE conversation_judgments SET turn_id = ${input.turnId}::uuid
               WHERE id = ${input.judgmentId}::uuid
                 AND agent_id = ${input.agentId}::uuid
-                -- A bound session's reply is the session's to answer.
-                AND grade IN ('buffer_m1', 'm1_engaged')
+                -- A post a session's turn took already is the session's to
+                -- answer: of a bound thread, only a reply of work done that
+                -- none took (v1-b/U1 B), never one of work going on. A
+                -- session that takes the post after this turn is not barred
+                -- here: work done (closing, closed) takes no turn.
+                AND (grade IN ('buffer_m1', 'm1_engaged') OR (
+                  grade = 'm1' AND NOT EXISTS (
+                    SELECT 1 FROM conversation_inputs i
+                    WHERE i.agent_id = ${input.agentId}::uuid
+                      AND i.slack_team_id = ${input.teamId}
+                      AND i.slack_channel_id = ${input.channelId}
+                      AND i.slack_ts = conversation_judgments.target_ts
+                      AND i.turn_id IS NOT NULL)))
                 AND decision = 'speak' AND target_ts IS NOT NULL
                 AND turn_id IS NULL AND answer IS NULL
+                -- One unasked turn a reply: the same post held again (a
+                -- second event of it) is not answered twice. The post's
+                -- mark, locked above, orders two such issues.
+                AND NOT (grade IN ('m1', 'm1_engaged') AND EXISTS (
+                  SELECT 1 FROM conversation_judgments o
+                  WHERE o.agent_id = ${input.agentId}::uuid
+                    AND o.slack_team_id = ${input.teamId}
+                    AND o.slack_channel_id = ${input.channelId}
+                    AND o.target_ts = conversation_judgments.target_ts
+                    AND o.grade IN ('m1', 'm1_engaged')
+                    AND o.turn_id IS NOT NULL
+                    AND o.id <> conversation_judgments.id))
               RETURNING id`),
           );
           if (taken.length === 0) throw new JudgmentTaken();
@@ -1083,6 +1106,7 @@ export function createPostgresConversationCalls(
                 outcome: "already_settled",
                 costUsd: call.costUsd ?? 0,
                 unmetered,
+                model: call.model,
               }
             : { outcome: "conflict" };
         }
@@ -1091,13 +1115,20 @@ export function createPostgresConversationCalls(
           // and the report adds the call's one adjustment to its account.
           const costUsd = unmetered
             ? 0
-            : toStoredCost(input.priceFor({ unmetered }).costUsd);
+            : toStoredCost(
+                input.priceFor({ unmetered, model: call.model }).costUsd,
+              );
           const adjusted = await settleBudgetIn(tx, {
             callId: input.callId,
             actual: { costUsd, tokens: reservationTokens(input.usage) },
           });
           if (adjusted === "adjusted") {
-            return { outcome: "settled", costUsd, unmetered };
+            return {
+              outcome: "settled",
+              costUsd,
+              unmetered,
+              model: call.model,
+            };
           }
           if (adjusted !== "already_adjusted") {
             throw new Error(
@@ -1112,6 +1143,7 @@ export function createPostgresConversationCalls(
             outcome: "already_settled",
             costUsd: first?.costUsd ?? 0,
             unmetered,
+            model: call.model,
           };
         }
         // Bound and not settled is in flight, its end unknown or not, held
@@ -1119,7 +1151,9 @@ export function createPostgresConversationCalls(
         // settles an unknown one at what it says.
         const costUsd = unmetered
           ? 0
-          : toStoredCost(input.priceFor({ unmetered }).costUsd);
+          : toStoredCost(
+              input.priceFor({ unmetered, model: call.model }).costUsd,
+            );
         const tokens = reservationTokens(input.usage);
         const settled = await settleBudgetIn(tx, {
           callId: input.callId,
@@ -1141,7 +1175,7 @@ export function createPostgresConversationCalls(
             unknownAt: null,
           })
           .where(eq(conversationCalls.id, input.callId));
-        return { outcome: "settled", costUsd, unmetered };
+        return { outcome: "settled", costUsd, unmetered, model: call.model };
       });
     },
 

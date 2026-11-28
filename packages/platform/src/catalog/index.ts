@@ -15,6 +15,7 @@ export {
   type CatalogRepositoryView,
   type ClaimedMcpServer,
   CONNECTION_ENDPOINT_DEFAULTS,
+  type ConnectionNetwork,
   type CredentialRef,
   catalogConnectionsSchema,
   connectionModels,

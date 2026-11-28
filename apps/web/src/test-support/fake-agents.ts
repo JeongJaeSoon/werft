@@ -209,6 +209,7 @@ export function agentServer({
       versions: [...versions],
       releases: [...releases],
       active_release: releases.find((r) => r.id === active) ?? null,
+      unreadable_releases: [],
       behavior_revision: 0,
       draft: draftId
         ? {
