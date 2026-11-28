@@ -139,6 +139,7 @@ async function insertRow(
   add: SettingsImportAdd,
   createdBy: string | null,
   origin: "import" | "console" = "import",
+  network: "public" | "private" | null = null,
 ): Promise<void> {
   const source = credentialSourceOf(add.entry);
   switch (add.kind) {
@@ -149,6 +150,7 @@ async function insertRow(
         credentialSource: "stored",
         origin,
         createdBy,
+        network,
         ...(add.models === undefined
           ? {}
           : {
@@ -651,7 +653,7 @@ function consoleWrites(
     });
 
   return {
-    create(add, value, actor) {
+    create(add, value, actor, registered) {
       return asWriter(add.kind, actor, async (tx) => {
         const plan = planSettingsImport(
           {
@@ -670,11 +672,30 @@ function consoleWrites(
         if (credentialSourceOf(add.entry) !== "stored") {
           throw new Error("a console entry stores its own value");
         }
-        await insertRow(tx, add, actor.userId, "console");
+        await insertRow(
+          tx,
+          add,
+          actor.userId,
+          "console",
+          registered?.network ?? null,
+        );
         await sealIn(tx, add, value, actor);
         const receiptId = await consoleReceipt(tx, actor, CREATED[add.kind], {
           ...auditOf(add),
           source: "console",
+          // What the row is held to from now on, and that the actor said a
+          // private endpoint is theirs; an unbilled one is said as well.
+          ...(registered === undefined
+            ? {}
+            : {
+                network: registered.network,
+                ...(registered.acknowledgedPrivate
+                  ? { acknowledged_private: true }
+                  : {}),
+              }),
+          ...(add.kind === "connection" && add.entry.billing === "none"
+            ? { billing: "none" }
+            : {}),
         });
         if (
           add.kind === "connection" &&
@@ -853,8 +874,55 @@ function consoleWrites(
   };
 }
 
-function listRowsIn(db: Database): Pick<SettingsDocumentStore, "listRows"> {
+function listRowsIn(
+  db: Database,
+): Pick<SettingsDocumentStore, "carryOperatorPrivate" | "listRows"> {
   return {
+    carryOperatorPrivate(id) {
+      return db.transaction(async (tx) => {
+        await lockCatalogWrites(tx);
+        // Only a row with no network yet: one a person registered, or one
+        // another replica carried a moment ago, stays as it is.
+        const [row] = await tx
+          .update(providerConnections)
+          .set({ network: "private" })
+          .where(
+            and(
+              eq(providerConnections.id, id),
+              isNull(providerConnections.network),
+            ),
+          )
+          .returning({ definition: providerConnections.definition });
+        if (row === undefined) return { outcome: "unchanged" as const };
+        const workspaceId = await firstWorkspace(tx);
+        // Before bootstrap there is no workspace to keep a receipt for.
+        if (workspaceId === null) {
+          return { outcome: "carried" as const, receiptId: null };
+        }
+        const receiptId = randomUUID();
+        await tx.insert(receipts).values({
+          id: receiptId,
+          ownerId: workspaceId,
+          actor: null,
+          operation: OPERATIONS.connection,
+          targetRef: {
+            resource: { kind: "workspace", id: workspaceId },
+            workspace_id: workspaceId,
+          },
+          result: {
+            connection_id: id,
+            kind: (row.definition as { kind?: unknown }).kind ?? null,
+            ...endpointOf(row.definition),
+            network: "private",
+            by: "env_import",
+          },
+          status: "succeeded",
+          requestId: null,
+        });
+        return { outcome: "carried" as const, receiptId };
+      });
+    },
+
     listRows(kind) {
       return db.transaction(
         async (tx) => {
@@ -874,6 +942,7 @@ function listRowsIn(db: Database): Pick<SettingsDocumentStore, "listRows"> {
                 last4: value(row.id),
                 createdAt: row.createdAt,
                 disabledAt: row.disabledAt,
+                network: row.network,
                 models: row.models,
                 modelFamilies: (() => {
                   const parsed = modelFamiliesSchema.safeParse(

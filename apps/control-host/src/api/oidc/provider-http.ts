@@ -5,6 +5,7 @@ import {
   classifyAddress,
   isMetadataName,
 } from "@werft-ai/system";
+import { registeredNetwork } from "../registered-network.ts";
 import { OidcUnavailableError } from "./errors.ts";
 
 const TIMEOUT_MS = 10_000;
@@ -29,6 +30,13 @@ export type NetworkPolicy = {
    * host: one whose name now answers a public address is not sent a token.
    */
   privateHostsStayPrivate?: boolean;
+  /**
+   * Set: the URL is an upstream registered as private. It may be plain
+   * http, every address must be private as `registeredNetwork` judges it,
+   * and none may be one of the installation's `own` hosts (keys). Nothing
+   * else of the policy is read then.
+   */
+  registeredPrivate?: { own: ReadonlySet<string> };
 };
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -58,6 +66,7 @@ export function endpointProblem(
   }
   if (url.protocol === "https:") return null;
   if (url.protocol !== "http:") return "invalid_url";
+  if (policy.registeredPrivate !== undefined) return null;
   if (policy.privateHosts !== undefined) {
     return insidePrivate(url, policy) ? null : "insecure_endpoint";
   }
@@ -165,6 +174,20 @@ export async function judgedAddresses(
       "unreachable",
       "Provider name did not resolve",
     );
+  }
+  if (policy.registeredPrivate !== undefined) {
+    const network = registeredNetwork(
+      host,
+      answers.map(({ address }) => address),
+      policy.registeredPrivate.own,
+    );
+    if (network !== "private") {
+      throw new OidcUnavailableError(
+        "address_not_allowed",
+        "A registered private endpoint resolves to an address it may not be",
+      );
+    }
+    return [first, ...rest];
   }
   const narrow = policy.privateHosts !== undefined;
   const inside = insidePrivate(url, policy);

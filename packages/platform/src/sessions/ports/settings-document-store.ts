@@ -1,4 +1,4 @@
-import type { ModelFamilies } from "../../catalog/index.ts";
+import type { ConnectionNetwork, ModelFamilies } from "../../catalog/index.ts";
 import type { TeamActor } from "../../musterrolle/ports/team-store.ts";
 import type {
   SettingsEntries,
@@ -101,7 +101,23 @@ export interface SettingsDocumentStore {
     add: SettingsImportAdd,
     value: string,
     actor: TeamActor,
+    /**
+     * A connection's: what its endpoint resolved to, kept on the row and in
+     * the receipt, with the actor's acknowledgement when that is private.
+     */
+    registered?: { network: ConnectionNetwork; acknowledgedPrivate: boolean },
   ): Promise<SettingsConsoleResult>;
+  /**
+   * Keeps a connection the operator's private allowlist names as `private`,
+   * with a system receipt (`by: env_import`): the operator allowed it, so
+   * no one is asked again. Only a row that holds no network yet; any other
+   * is `unchanged`.
+   */
+  carryOperatorPrivate(
+    id: string,
+  ): Promise<
+    { outcome: "carried"; receiptId: string | null } | { outcome: "unchanged" }
+  >;
   setValue(
     owner: { kind: SettingsKind; id: string },
     value: string,
@@ -147,6 +163,8 @@ export type SettingsRow = {
   createdAt: Date;
   /** Disabled, or for a repository removed. */
   disabledAt: Date | null;
+  /** A connection's: what it was registered as; null on a row from before. */
+  network?: ConnectionNetwork | null;
   /** A connection's models and their series; absent on the other kinds. */
   models?: readonly string[];
   modelFamilies?: ModelFamilies | null;

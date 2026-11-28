@@ -66,17 +66,27 @@ export function settingsSnapshot(
   const unavailableConnections = invalidIds(settings, "connection");
   const connections: Record<string, CatalogConnection> = {};
   const judge_connections: Record<string, JudgeProvider> = {};
-  for (const { id, provider, models, model_families } of settings.connections) {
+  for (const {
+    id,
+    provider,
+    models,
+    model_families,
+    network,
+  } of settings.connections) {
     try {
       const resolved = resolveProvider(id, provider, lookup);
       if (resolved.kind === "openai_decisions") {
-        judge_connections[id] = resolved;
+        judge_connections[id] = {
+          ...resolved,
+          ...(network === undefined ? {} : { network }),
+        };
         continue;
       }
       connections[id] = {
         provider: resolved,
         models: models ?? [],
         ...(model_families === undefined ? {} : { model_families }),
+        ...(network === undefined ? {} : { network }),
       };
     } catch (error) {
       unavailableConnections.add(id);

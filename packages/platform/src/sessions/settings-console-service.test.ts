@@ -125,6 +125,9 @@ function service(
     seedEntries: async () => {
       throw new Error("not used");
     },
+    carryOperatorPrivate: async () => {
+      throw new Error("not used");
+    },
     connectionUse: async (input) => {
       uses.push(input);
       return options.use ?? { agents: 0, sessions: 0, judgeNamed: false };
