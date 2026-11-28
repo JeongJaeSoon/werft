@@ -9119,6 +9119,12 @@ describe.each(ENGINES)("a task's time rules on %s", (engine) => {
           AND tp.slack_thread_ts = l.thread_id
         WHERE l.session_id = ${sessionId}::uuid AND i.topic_id = tp.id
         RETURNING 1)
+      , events AS (
+        UPDATE slack_inbound_events e
+        SET received_at = received_at - make_interval(days => ${days})
+        FROM session_links l
+        WHERE l.session_id = ${sessionId}::uuid AND e.agent_id = l.agent_id
+        RETURNING 1)
       UPDATE sessions SET created_at = created_at - make_interval(days => ${days}),
         last_turn_at = last_turn_at - make_interval(days => ${days})
       WHERE id = ${sessionId}::uuid`);
@@ -9213,16 +9219,19 @@ describe.each(ENGINES)("a task's time rules on %s", (engine) => {
     });
   });
 
-  test("a reply of its thread waiting in the inbox keeps it open until it is older than the idle days", async () => {
-    const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
-    await daysPass(sessionId, 15);
+  /** A post of the task's thread the inbox records, not yet handed on. */
+  const postInThread = async (
+    eventId: string,
+    extra: Record<string, unknown> = {},
+  ) => {
     const event = {
       type: "message",
       channel: CHANNEL,
       user: PERSON,
-      ts: "1792900000.000002",
+      ts: `1792900000.${String(eventCounter++).padStart(6, "0")}`,
       thread_ts: THREAD,
       text: "one more thing",
+      ...extra,
     };
     await createPostgresSlackInboundEventStore(db).record({
       workspaceId: fixture.workspaceId,
@@ -9230,25 +9239,100 @@ describe.each(ENGINES)("a task's time rules on %s", (engine) => {
       slackAppId: fixture.slackAppId,
       teamId: TEAM,
       appId: APP_ID,
-      eventId: "EvOutWaiting",
+      eventId,
       eventType: event.type,
       eventSubtype: null,
       eventTime: new Date(),
       status: "received",
-      payload: { type: "event_callback", event_id: "EvOutWaiting", event },
+      payload: { type: "event_callback", event_id: eventId, event },
       conversationKey: slackConversationKey(fixture.slackAppId, event),
     });
+  };
+
+  const eventsAge = (days: number) =>
+    db.execute(sql`
+      UPDATE slack_inbound_events
+      SET received_at = received_at - make_interval(days => ${days})
+      WHERE agent_id = ${fixture.agentId}::uuid`);
+
+  test("a person's post the inbox has yet to hand on keeps it open until it is older than the idle days", async () => {
+    const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
+    await daysPass(sessionId, 15);
+    await postInThread("EvOutWaiting");
     expect(await closeIdle()).toBe(0);
     expect(await stateOf(sessionId)).toEqual({
       admission: "active",
       reason: null,
     });
-    // Waiting past the idle days, it counts no more.
-    await db.execute(sql`
-      UPDATE slack_inbound_events
-      SET received_at = received_at - interval '15 days'
-      WHERE event_id = 'EvOutWaiting'`);
+    await eventsAge(15);
     expect(await closeIdle()).toBe(1);
+  });
+
+  test("a person's post M1 kept quiet starts its clock again once the inbox settled it, its payload and held input gone", async () => {
+    const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
+    await daysPass(sessionId, 15);
+    await postInThread("EvOutQuiet");
+    // What the inbox leaves of a reply kept quiet (bound-replies.ts,
+    // slack-inbound-events.ts complete): no held input, no payload.
+    await db.execute(sql`
+      UPDATE slack_inbound_events SET status = 'processed', payload = NULL
+      WHERE event_id = 'EvOutQuiet'`);
+    expect(await closeIdle()).toBe(0);
+    expect(await stateOf(sessionId)).toEqual({
+      admission: "active",
+      reason: null,
+    });
+    // The clock starts from the post: 13 days on it is still open, 14 closes it.
+    await eventsAge(13);
+    expect(await closeIdle()).toBe(0);
+    await eventsAge(1);
+    expect(await closeIdle()).toBe(1);
+  });
+
+  test("an allowed bot's mention, handed on or not, does not start its clock again", async () => {
+    const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
+    await daysPass(sessionId, 15);
+    await postInThread("EvOutBot", { user: "UOTHERBOT", bot_id: "BOTHER" });
+    const [row] = await db
+      .select({ fromBot: schema.slackInboundEvents.fromBot })
+      .from(schema.slackInboundEvents)
+      .where(eq(schema.slackInboundEvents.eventId, "EvOutBot"));
+    expect(row).toEqual({ fromBot: true });
+    await db.execute(sql`
+      UPDATE slack_inbound_events SET status = 'processed', payload = NULL
+      WHERE event_id = 'EvOutBot'`);
+    expect(await closeIdle()).toBe(1);
+  });
+
+  test("a bot's post the inbox dropped keeps no thread and does not start its clock again", async () => {
+    const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
+    await daysPass(sessionId, 15);
+    await createPostgresSlackInboundEventStore(db).record({
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      slackAppId: fixture.slackAppId,
+      teamId: TEAM,
+      appId: APP_ID,
+      eventId: "EvOutDropped",
+      eventType: "message",
+      eventSubtype: null,
+      eventTime: new Date(),
+      status: "dropped",
+      dropReason: "own_bot_user",
+      dropFields: {},
+    });
+    expect(await closeIdle()).toBe(1);
+  });
+
+  test("a post an image before from_bot recorded is read as a person's", async () => {
+    const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
+    await daysPass(sessionId, 15);
+    await postInThread("EvOutOld", { user: "UOTHERBOT", bot_id: "BOTHER" });
+    await db.execute(sql`
+      UPDATE slack_inbound_events SET from_bot = NULL, status = 'processed',
+        payload = NULL
+      WHERE event_id = 'EvOutOld'`);
+    expect(await closeIdle()).toBe(0);
   });
 
   test("a session from before tasks stays open however long it sits", async () => {

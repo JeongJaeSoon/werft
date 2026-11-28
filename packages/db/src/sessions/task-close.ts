@@ -79,10 +79,10 @@ const TIME_RULE_DUE = sql`
  * A session's last activity, its turns, and the time they ran. Activity is
  * its creation, a turn queued, started or ended, a request of it answered,
  * an input taken into its thread's topic (a reply held for M1's judgment is
- * one before it is a turn, bound-replies.ts), and a Slack event of its
- * thread the inbox has not processed yet (a reply the buffer let go of
- * waits there for its retry to hand it to the task). A reply M1 keeps quiet
- * counts only until its judgment settles it: then it is gone from both. Through
+ * one before it is a turn, bound-replies.ts), and a post of its thread the
+ * inbox took in, not a bot's: whatever M1 judges it, and whether or not the
+ * inbox handed it on yet (a reply the buffer let go of waits there for its
+ * retry). Dropped events and edits or deletes keep no thread. Through
  * its open link only: one closes after its session does. Turns and answers
  * are written under the session's lock; posts and events are not, so one
  * committed and still there, and still recent enough, when the close reads
@@ -106,8 +106,8 @@ const TURN_CLOCK = sql`
         (SELECT max(e.received_at) FROM session_links l
           JOIN slack_installations si ON si.id = l.installation_id
           JOIN slack_apps sa ON sa.app_id = si.app_id
-          JOIN slack_inbound_events e ON e.status = 'received'
-            AND e.team_id = si.team_id
+          JOIN slack_inbound_events e ON e.team_id = si.team_id
+            AND e.from_bot IS NOT TRUE
             AND e.conversation_key =
               sa.id::text || ':' || l.channel_id || ':' || l.thread_id
           WHERE l.session_id = s.id AND l.closed_at IS NULL)) AS at,

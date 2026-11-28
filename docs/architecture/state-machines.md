@@ -119,7 +119,7 @@
 
 작업 세션(`task_closing` 있음)을 시간으로 닫는 길이다(v1-b/C2). reconciler pass마다 한 번, 한 번에 50개까지(`TASK_TIME_CLOSES_PER_PASS`) 고르고, 넘치는 것은 다음 pass로 넘긴다. 닫기는 C1과 같은 `closeAtomic`이다. 사유는 `abandoned`이고, status 이벤트의 actor는 `{kind: system, by: idle_rule}`이다(`packages/db/src/sessions/task-close.ts`의 `closeOnTimeRules`).
 
-시계는 데이터베이스 시계다. 마지막 활동은 다음 가운데 가장 늦은 것이다: 세션이 만들어진 때, `last_turn_at`, turn이 queued·시작·끝난 때, 세션의 질문·승인에 답한 때(`pending_requests.answered_at`), 작업 스레드의 topic에 입력이 들어온 때(`conversation_inputs.received_at`, M1 판단을 기다리며 버퍼에 잡힌 답글과 웹에서 그 topic에 쓴 글 포함), 그 스레드의 Slack 이벤트가 inbox에서 아직 처리를 기다리는 동안 그 이벤트를 받은 때(`slack_inbound_events.received_at`, status `received`. 버퍼 상한이나 만료로 버퍼에서 빠진 답글은 재시도로 작업에 넘어가기 전까지 여기 남는다). 스레드는 세션의 열린 link로 찾는다(link는 세션이 닫힌 뒤에 닫힌다). 사람의 새 입력, 답, 스레드 답글은 시계를 다시 시작한다. M1이 조용히 두기로 한 답글은 판정을 기다리는 동안만 센다. 판정이 나면 버퍼 행이 지워지고 inbox 이벤트도 처리되어 시계에 남지 않는다(작업에 줄 글이 아니라고 본 답글이므로 버려진 답글과 같다). 작업에 가지 않을 이벤트(턴 예산이 다한 외부 봇 멘션, 승인을 기다리는 채널의 이벤트, 지워진 답글의 원래 이벤트)도 inbox에서 처리되기 전까지는 센다. 받은 때로 세므로 idle 일수가 지나면 더는 세지 않는다. 입력 없는 resume·pause는 시계를 바꾸지 않는다. 걸리는 조건은 둘이다.
+시계는 데이터베이스 시계다. 마지막 활동은 다음 가운데 가장 늦은 것이다: 세션이 만들어진 때, `last_turn_at`, turn이 queued·시작·끝난 때, 세션의 질문·승인에 답한 때(`pending_requests.answered_at`), 작업 스레드의 topic에 입력이 들어온 때(`conversation_inputs.received_at`, M1 판단을 기다리며 버퍼에 잡힌 답글과 웹에서 그 topic에 쓴 글 포함), inbox가 받은 그 스레드의 글 가운데 봇의 것이 아닌 글을 받은 때(`slack_inbound_events.received_at`. 처리 전이든 후든 센다. 처리되면 payload는 비워지지만 `conversation_key`와 받은 때는 남는다). 스레드는 세션의 열린 link로 찾는다(link는 세션이 닫힌 뒤에 닫힌다). 사람의 새 입력, 답, 스레드 답글은 시계를 다시 시작한다. M1 판정과는 상관없다: 조용히 두기로 한 답글, 버퍼 상한이나 만료로 버퍼에서 빠진 답글, 승인을 기다리는 채널의 글도 사람이 쓴 글이면 센다. 봇과 에이전트 자신의 글은 세지 않는다. 자신의 봇, 다른 Werft 에이전트, Slackbot의 글은 들어올 때 dropped가 되어 스레드 키가 없다. 허용 목록의 외부 봇이 쓴 글은 기록할 때 `from_bot`이 참이 된다(payload의 `bot_id`). edit·delete 이벤트도 스레드 키가 없다. `from_bot`이 NULL인 행(0400 전의 image가 쓴 행)은 사람 글로 센다. 입력 없는 resume·pause는 시계를 바꾸지 않는다. 걸리는 조건은 둘이다.
 
 - 방치: 마지막 활동 뒤 `task_closing.idleDays`(14)일이 지났다.
 - 상한 뒤 답 없음: 작업이 상한에 닿았고(turn 수 ≥ `task_interpretation.limits.turns`(40), 또는 끝난 turn들의 실행 시간 합 ≥ `limits.hours`(2)시간), 마지막 활동 뒤 `task_closing.quietAfterLimitDays`(7)일이 지났다.
@@ -146,7 +146,7 @@
 - 닫힘 갱신의 문구는 '오래 답이 없어 작업을 닫았어요.'(`progressAbandoned`)이고, 스레드 링크는 `abandoned`로 닫힌다.
 - dry run에서는 닫지 않는다.
 
-시험: `packages/db/src/sessions/task-close.test.ts`의 `a task's time rules` 묶음(답한 질문은 `a request answered on a paused task starts the clock again …`)과 `a close of a session no longer there is not_found, not closed work`, `apps/control-host/src/slack/outbox.integration.test.ts`의 `a task's time rules on …` 묶음(버퍼에 잡힌 답글은 `a reply held for M1's judgment in its thread keeps it open …`, 버퍼에서 빠져 inbox에서 기다리는 답글은 `a reply of its thread waiting in the inbox keeps it open …`), `apps/control-host/src/reconciler/reconcile.test.ts`.
+시험: `packages/db/src/sessions/task-close.test.ts`의 `a task's time rules` 묶음(답한 질문은 `a request answered on a paused task starts the clock again …`)과 `a close of a session no longer there is not_found, not closed work`, `apps/control-host/src/slack/outbox.integration.test.ts`의 `a task's time rules on …` 묶음(버퍼에 잡힌 답글은 `a reply held for M1's judgment in its thread keeps it open …`, inbox의 글은 `a person's post the inbox has yet to hand on …`, `a person's post M1 kept quiet …`, 봇 글은 `an allowed bot's mention …`, `a bot's post the inbox dropped …`, 옛 행은 `a post an image before from_bot recorded …`), `apps/control-host/src/reconciler/reconcile.test.ts`.
 
 ### terminate가 일으키는 전이
 
