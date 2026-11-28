@@ -12,7 +12,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresConversationStore } from "../conversations/conversation-store.ts";
@@ -144,6 +144,7 @@ integration("surface bindings on PostgreSQL", () => {
       channelKind?: SurfaceChannelKind;
       mode?: "off" | "on";
       listen?: "free" | "mention" | "off";
+      reportMode?: "notify_only" | "progress" | "per_step" | null;
       home?: boolean;
     },
   ) =>
@@ -157,6 +158,9 @@ integration("surface bindings on PostgreSQL", () => {
         (channel.channelId === null ? "dm" : "public_channel"),
       mode: channel.mode ?? "on",
       ...(channel.listen === undefined ? {} : { listen: channel.listen }),
+      ...(channel.reportMode === undefined
+        ? {}
+        : { reportMode: channel.reportMode }),
       home: channel.home ?? false,
       ceiling: DEFAULT_SURFACE_CEILING,
       managerRoles: MANAGERS,
@@ -225,6 +229,57 @@ integration("surface bindings on PostgreSQL", () => {
         eq(receipts.id, changed.outcome === "set" ? changed.receiptId : ""),
       );
     expect(receipt?.result).toMatchObject({ mode: "on", listen: "off" });
+  });
+
+  test("a new channel picks no report mode; a save without one keeps the channel's, null picks none again, and the receipt says which", async () => {
+    const owner = await person(await workspace(), "owner");
+    const { agentId } = await slackAgent(owner);
+    const first = await setAs(owner, agentId, { channelId: "C0REPORT" });
+    expect(first).toMatchObject({
+      outcome: "set",
+      binding: { reportMode: null },
+    });
+    const picked = await setAs(owner, agentId, {
+      channelId: "C0REPORT",
+      reportMode: "notify_only",
+    });
+    expect(picked).toMatchObject({
+      outcome: "set",
+      binding: { reportMode: "notify_only" },
+    });
+    // Every other save of the web console sends no report mode.
+    const kept = await setAs(owner, agentId, {
+      channelId: "C0REPORT",
+      mode: "off",
+    });
+    expect(kept).toMatchObject({
+      outcome: "set",
+      binding: { mode: "off", reportMode: "notify_only" },
+    });
+    const unset = await setAs(owner, agentId, {
+      channelId: "C0REPORT",
+      reportMode: null,
+    });
+    expect(unset).toMatchObject({
+      outcome: "set",
+      binding: { reportMode: null },
+    });
+    const results = await db
+      .select({ result: receipts.result })
+      .from(receipts)
+      .where(
+        inArray(
+          receipts.id,
+          [picked, unset].map((set) =>
+            set.outcome === "set" ? set.receiptId : "",
+          ),
+        ),
+      );
+    expect(
+      results.map(
+        ({ result }) => (result as { report_mode: unknown }).report_mode,
+      ),
+    ).toEqual(expect.arrayContaining(["notify_only", null]));
   });
 
   test("a save that listens to less says how many held messages it dropped", async () => {

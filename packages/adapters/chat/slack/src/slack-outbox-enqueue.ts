@@ -277,6 +277,14 @@ function enqueueProgress(
     state: row.state,
     startedAt: row.startedAt,
     ...(link_url === undefined ? {} : { linkUrl: link_url }),
+    ...(row.task
+      ? {
+          closes: {
+            sessionId: row.sessionId,
+            sessionLinkId: row.sessionLinkId,
+          },
+        }
+      : {}),
   });
   return deps.outbox.enqueue({
     workspaceId: row.workspaceId,

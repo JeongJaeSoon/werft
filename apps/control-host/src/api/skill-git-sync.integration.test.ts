@@ -621,6 +621,36 @@ integration("Git skill sync against fake GitHub", () => {
         access: "installation",
         installationId: 77,
       });
+      // Read as public while the installation covers the repository: once it
+      // turns internal its files still read, so only what GitHub says of its
+      // visibility stops the check.
+      await db
+        .update(skillGitSources)
+        .set({ access: "public" })
+        .where(
+          and(
+            eq(skillGitSources.workspaceId, workspaceId),
+            eq(skillGitSources.name, "installed-pdf"),
+          ),
+        );
+      other.setInternal("acme", "elsewhere");
+      await other.writeFiles("acme", "elsewhere", "main", {
+        "skills/pdf/SKILL.md": skillMd("installed-pdf", "Internal now."),
+      });
+      expect(
+        (await reading.checkNow(caller, "installed-pdf")).last_check,
+      ).toMatchObject({ result: "source_missing" });
+      expect(
+        await db
+          .select()
+          .from(extensionBundles)
+          .where(
+            and(
+              eq(extensionBundles.workspaceId, workspaceId),
+              eq(extensionBundles.name, "installed-pdf"),
+            ),
+          ),
+      ).toHaveLength(1);
       expect(
         new Set(other.tokenRequests.map((one) => one.installationId)),
       ).toEqual(new Set([77]));

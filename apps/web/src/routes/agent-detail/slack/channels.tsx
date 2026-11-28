@@ -144,6 +144,26 @@ const LISTEN_LABEL = {
   off: "slack.listen.off",
 } as const satisfies Record<Binding["listen"], MessageKey>;
 
+type ReportMode = NonNullable<Binding["report_mode"]>;
+const REPORT_LABEL = {
+  notify_only: "slack.report.notify_only",
+  progress: "slack.report.progress",
+  per_step: "slack.report.per_step",
+} as const satisfies Record<ReportMode, MessageKey>;
+const REPORT_MODES = Object.keys(REPORT_LABEL) as ReportMode[];
+// The select's value for a channel that picks none (stored null).
+const REPORT_DEFAULT = "default";
+
+/**
+ * A channel that picks none reports as its agent's default, which is the
+ * server's `defaultReportMode` (a value import of contracts is not allowed
+ * here): progress once the agent answers in conversations, per step before.
+ */
+function defaultReportOf(rollout: string | undefined): ReportMode | null {
+  if (rollout === undefined) return null;
+  return rollout === "on" ? "progress" : "per_step";
+}
+
 function VisibilityBadge({ isPrivate }: { readonly isPrivate: boolean }) {
   const { t } = useI18n();
   return (
@@ -228,8 +248,13 @@ export function SlackChannels({
   const pickerOpener = useRef<HTMLButtonElement | null>(null);
   const lockAction = useRef<HTMLDivElement>(null);
   const locked = lockedApp !== null;
+  const rollout = useSlackNotice(agentId).data?.rollout;
   // Said only once the switch is known to be off, so it never flashes on load.
-  const switchOff = useSlackNotice(agentId).data?.rollout === "off";
+  const switchOff = rollout === "off";
+  const defaultReport = defaultReportOf(rollout);
+  const defaultReportLabel = defaultReport
+    ? t("slack.report.default", { mode: t(REPORT_LABEL[defaultReport]) })
+    : t("slack.report.defaultPlain");
   // A lock that arrives with the picker open closes it.
   useEffect(() => {
     if (locked) setPicking(false);
@@ -264,11 +289,13 @@ export function SlackChannels({
               ? "slack.homeSaved"
               : change.kind === "cap"
                 ? "slack.capSaved"
-                : change.kind !== "listen"
-                  ? "slack.saved"
-                  : (result.dropped_buffered ?? 0) > 0
-                    ? "slack.listenSavedDropped"
-                    : "slack.listenSaved",
+                : change.kind === "report"
+                  ? "slack.reportSaved"
+                  : change.kind !== "listen"
+                    ? "slack.saved"
+                    : (result.dropped_buffered ?? 0) > 0
+                      ? "slack.listenSavedDropped"
+                      : "slack.listenSaved",
           ),
         );
       setPicking(false);
@@ -298,6 +325,9 @@ export function SlackChannels({
   });
   const refusalId = useId();
   const refusedRow = update.isError ? update.variables?.row : undefined;
+  // A refusal belongs to the one control whose save it refused.
+  const refused = (row: Binding, kind: BindingChange["kind"]) =>
+    refusedRow?.id === row.id && update.variables?.kind === kind;
   const rows =
     bindings.data?.items.filter((row) => row.surface_kind !== "dm") ?? [];
   const listed = [
@@ -368,6 +398,25 @@ export function SlackChannels({
         channel_id: row.external_surface_id,
         mode: row.mode,
         listen,
+        home: row.home,
+        ceiling: row.ceiling,
+      },
+    });
+  };
+  // Null picks none: the channel then reports as its agent's default.
+  const changeReport = (
+    row: Binding,
+    name: string,
+    reportMode: ReportMode | null,
+  ) => {
+    if (update.isPending || locked || reportMode === row.report_mode) return;
+    update.mutate({
+      kind: "report",
+      row: { id: row.id, name },
+      body: {
+        channel_id: row.external_surface_id,
+        mode: row.mode,
+        report_mode: reportMode,
         home: row.home,
         ceiling: row.ceiling,
       },
@@ -483,18 +532,23 @@ export function SlackChannels({
                         channel: refusedRow.name,
                         reason: slackFailure(update.error, t),
                       })
-                    : refusedRow
-                      ? t(
-                          reasonCodeOf(update.error) ===
-                            "external_shared_channel"
-                            ? "slack.listenExternalShared"
-                            : "slack.listenFailed",
-                          {
-                            channel: refusedRow.name,
-                            reason: slackFailure(update.error, t),
-                          },
-                        )
-                      : slackFailure(update.error, t)}
+                    : refusedRow && update.variables?.kind === "report"
+                      ? t("slack.reportFailed", {
+                          channel: refusedRow.name,
+                          reason: slackFailure(update.error, t),
+                        })
+                      : refusedRow
+                        ? t(
+                            reasonCodeOf(update.error) ===
+                              "external_shared_channel"
+                              ? "slack.listenExternalShared"
+                              : "slack.listenFailed",
+                            {
+                              channel: refusedRow.name,
+                              reason: slackFailure(update.error, t),
+                            },
+                          )
+                        : slackFailure(update.error, t)}
                 </FieldError>
               </div>
             ) : null}
@@ -515,7 +569,10 @@ export function SlackChannels({
               <GridTable
                 aria-label={t("slack.connectedChannels")}
                 columns={COLUMNS}
-                align={["start", "start", "end", "end"]}
+                align={["start", "start", "start", "end", "end"]}
+                // On a phone each channel is a card: five columns do not fit.
+                narrowAt={640}
+                narrowCards
                 framed
               >
                 <GridTableHeader>
@@ -524,6 +581,9 @@ export function SlackChannels({
                   </GridTableColumnHeader>
                   <GridTableColumnHeader>
                     {t("slack.listenColumn")}
+                  </GridTableColumnHeader>
+                  <GridTableColumnHeader>
+                    {t("slack.reportColumn")}
                   </GridTableColumnHeader>
                   <GridTableColumnHeader>
                     {t("slack.capColumn")}
@@ -604,7 +664,7 @@ export function SlackChannels({
                           {meta}
                         </div>
                       </GridTableCell>
-                      <GridTableCell>
+                      <GridTableCell cardLabel={t("slack.listenColumn")}>
                         {manages &&
                         row.status !== "left" &&
                         row.status !== "gone" ? (
@@ -618,11 +678,9 @@ export function SlackChannels({
                               })}
                               value={row.listen}
                               aria-disabled={update.isPending}
-                              aria-invalid={refusedRow?.id === row.id}
+                              aria-invalid={refused(row, "listen")}
                               aria-describedby={
-                                refusedRow?.id === row.id
-                                  ? refusalId
-                                  : undefined
+                                refused(row, "listen") ? refusalId : undefined
                               }
                               onChange={(event) =>
                                 changeListen(
@@ -638,7 +696,7 @@ export function SlackChannels({
                                 </NativeSelectOption>
                               ))}
                             </NativeSelect>
-                            {refusedRow?.id === row.id ? (
+                            {refused(row, "listen") ? (
                               <Badge variant="red">
                                 {t("slack.listenRefused")}
                               </Badge>
@@ -650,7 +708,57 @@ export function SlackChannels({
                           </Text>
                         )}
                       </GridTableCell>
-                      <GridTableCell>
+                      <GridTableCell cardLabel={t("slack.reportColumn")}>
+                        {manages &&
+                        row.status !== "left" &&
+                        row.status !== "gone" ? (
+                          <span className="flex items-center gap-2">
+                            <NativeSelect
+                              size="sm"
+                              className="w-auto"
+                              aria-label={t("slack.reportOf", {
+                                channel: name,
+                              })}
+                              value={row.report_mode ?? REPORT_DEFAULT}
+                              aria-disabled={update.isPending}
+                              aria-invalid={refused(row, "report")}
+                              aria-describedby={
+                                refused(row, "report") ? refusalId : undefined
+                              }
+                              onChange={(event) =>
+                                changeReport(
+                                  row,
+                                  name,
+                                  event.target.value === REPORT_DEFAULT
+                                    ? null
+                                    : (event.target.value as ReportMode),
+                                )
+                              }
+                            >
+                              <NativeSelectOption value={REPORT_DEFAULT}>
+                                {defaultReportLabel}
+                              </NativeSelectOption>
+                              {REPORT_MODES.map((value) => (
+                                <NativeSelectOption key={value} value={value}>
+                                  {t(REPORT_LABEL[value])}
+                                </NativeSelectOption>
+                              ))}
+                            </NativeSelect>
+                            {refused(row, "report") ? (
+                              <Badge variant="red">
+                                {t("slack.listenRefused")}
+                              </Badge>
+                            ) : null}
+                          </span>
+                        ) : (
+                          <Text as="span" variant="sub">
+                            {row.report_mode
+                              ? t(REPORT_LABEL[row.report_mode])
+                              : defaultReportLabel}
+                          </Text>
+                        )}
+                      </GridTableCell>
+                      <GridTableCell cardLabel={t("slack.capColumn")}>
                         {manages &&
                         row.status !== "left" &&
                         row.status !== "gone" ? (
@@ -659,12 +767,9 @@ export function SlackChannels({
                             value={row.m1_judgments_per_hour}
                             label={t("slack.capOf", { channel: name })}
                             busy={update.isPending}
-                            refused={
-                              refusedRow?.id === row.id &&
-                              update.variables?.kind === "cap"
-                            }
+                            refused={refused(row, "cap")}
                             describedBy={
-                              refusedRow?.id === row.id ? refusalId : undefined
+                              refused(row, "cap") ? refusalId : undefined
                             }
                             onSave={(cap) => changeCap(row, name, cap)}
                           />
@@ -678,7 +783,7 @@ export function SlackChannels({
                           </Text>
                         )}
                       </GridTableCell>
-                      <GridTableCell>
+                      <GridTableCell cardLabel={t("slack.useColumn")}>
                         {
                           // A left or gone binding takes no input and sends
                           // nothing, so a switch that reads "on" would be a lie.
@@ -882,10 +987,10 @@ export function SlackChannels({
   );
 }
 
-// The channel, its state and what to do about it; what it listens to; then
-// the in-use switch and any approve button beside it, as wide as the widest
-// row's.
-const COLUMNS = "minmax(0,1fr) max-content max-content max-content";
+// The channel, its state and what to do about it; what it listens to; how it
+// reports; its judgments per hour; then the in-use switch and any approve
+// button beside it, as wide as the widest row's.
+const COLUMNS = "minmax(0,1fr) max-content max-content max-content max-content";
 const CAP_MAX = 60;
 
 /**

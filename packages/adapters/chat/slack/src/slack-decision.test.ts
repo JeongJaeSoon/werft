@@ -232,6 +232,7 @@ function bind(channelId: string | null, binding: Binding) {
     mode: "on",
     listen: "free",
     m1JudgmentsPerHour: 12,
+    reportMode: null,
     ceiling: everything,
     home: false,
     memoryWritePolicy: "deny",

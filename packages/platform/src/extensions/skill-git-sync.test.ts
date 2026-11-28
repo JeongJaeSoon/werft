@@ -198,6 +198,8 @@ function fakeReader() {
       fullName: "acme/skills",
       ownerId: 70,
       public: false,
+      defaultBranch: "main",
+      license: null,
     } as GitHubSkillRepository | null,
     /** The installation each resolve and read was asked with. */
     asked: [] as number[],
@@ -236,6 +238,13 @@ function fakeReader() {
       state.asked.push(installation);
       state.read.push(commit);
       return state.tree;
+    },
+    // The sync reads one skill directory, never a repository's listing.
+    async tree() {
+      return null;
+    },
+    async blobs() {
+      return new Map();
     },
   };
   return { reader, state };
@@ -540,7 +549,14 @@ describe("the daily check", () => {
 
   test("a public source that is no longer public when its files are read writes nothing and is source_missing", async () => {
     for (const byId of [
-      { id: 7, fullName: "acme/skills", ownerId: 70, public: false },
+      {
+        id: 7,
+        fullName: "acme/skills",
+        ownerId: 70,
+        public: false,
+        defaultBranch: "main",
+        license: null,
+      },
       null,
     ]) {
       const { sync, state, sources, registered } = setup({

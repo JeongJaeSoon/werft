@@ -129,6 +129,26 @@ describe("설정 › 감사 기록", () => {
     expect(screen.getByText(/보존 기간 안의 기록만 보입니다/)).toBeTruthy();
   });
 
+  test("이 화면이 모르는 operation 이름도 원문 그대로 보인다", async () => {
+    renderAt(
+      PAGE,
+      routes(() =>
+        page([
+          row({
+            kind: "receipt",
+            action: "operation_from_a_newer_replica",
+            outcome: "succeeded",
+            surface: null,
+          }),
+        ]),
+      ),
+    );
+    const grid = await table();
+    expect(
+      within(grid).getByText("operation_from_a_newer_replica"),
+    ).toBeTruthy();
+  });
+
   test("같은 요청의 행은 이어 붙고 요청 id는 첫 행에만 있다", async () => {
     renderAt(
       PAGE,

@@ -16,6 +16,7 @@ import type {
   AgentIdentityStore,
   AgentStore,
   BotTurnStore,
+  BoundReplyStore,
   BufferedInputReceipt,
   Conversation,
   ConversationStore,
@@ -54,6 +55,7 @@ import {
 import { unescapeSlackText } from "./slack-entities.ts";
 import {
   SLACK_PERSON_RESET_SUBTYPES,
+  SlackInboundDeferred,
   SlackInboundDropped,
   type SlackInboundHandler,
   type SlackInboxLogger,
@@ -161,6 +163,11 @@ export function withoutBotMention(text: string, botUserId: string): string {
     .trim();
 }
 
+/** How long a reply of work going on waits for its judgment (PM Q2). */
+export const SLACK_TASK_REPLY_WAIT_MS = 30_000;
+/** How soon a reply waiting for its judgment is looked at again. */
+export const SLACK_TASK_REPLY_RECHECK_MS = 2_000;
+
 export type SlackSessionHandlerDeps = {
   inbox: Pick<SurfaceInboundEventStore, "renew">;
   /** The lease each effect is held under, renewed just before it. */
@@ -185,6 +192,13 @@ export type SlackSessionHandlerDeps = {
   conversations: ConversationStore;
   /** The agent's switch and the channel's state, for the judgment buffer. */
   buffer: JudgmentBufferStore;
+  /** A bound thread's unmentioned replies once the rollout is on (v1-b/U1). */
+  boundReplies: BoundReplyStore;
+  /**
+   * How long a reply of work going on waits for M1's judgment before the
+   * work takes it anyway; SLACK_TASK_REPLY_WAIT_MS when unset.
+   */
+  taskReplyWaitMs?: number;
   /**
    * Where a mention goes once the agent's rollout is on and the handling
    * table answers `m2`: a conversation turn, queued (v1-b/D1).
@@ -409,6 +423,170 @@ export function createSlackSessionHandler(
         },
         ...(judged === "m1" ? { judgment: "m1_engaged" as const } : {}),
       };
+    };
+
+    // The held text a work's turn takes in place of the event's, an edit
+    // having changed it while M1 judged it.
+    let editedText: string | undefined;
+
+    /**
+     * What becomes of a person's unmentioned reply in a thread bound to work
+     * once the agent's rollout is on (v1-b/U1): `current_path` before then,
+     * or where the handling table leaves it to the work; for work done, the
+     * post held for an `m1` judgment whose speak alone answers it (B); for
+     * work going on, `session` once M1 spoke or could not judge it in time
+     * (PM Q2); null: nothing more. A reply still waiting for its judgment
+     * defers the event.
+     */
+    const boundReplyRoute = async (
+      sessionId: string,
+    ): Promise<BufferedInputReceipt | null | "current_path" | "session"> => {
+      const place = await deps.buffer.place({
+        kind: "channel",
+        workspaceId: agent.workspaceId,
+        agentId: agent.agentId,
+        teamId: claim.teamId,
+        channelId: event.channel,
+      });
+      if (place.rollout !== "on") return "current_path";
+      // A reply held for its work's judgment keeps that grade, the work
+      // closed since or not, and its hold answers it: the checks below were
+      // made when it was held, and Slack unable to say its audience now does
+      // not undo its quiet.
+      const held = await deps.boundReplies.heldForWork({
+        agentId: agent.agentId,
+        teamId: claim.teamId,
+        channelId: event.channel,
+        ts: event.ts,
+      });
+      const work =
+        held || (await deps.boundReplies.work(sessionId)) === "open"
+          ? "open"
+          : "closed";
+      const waitMs = deps.taskReplyWaitMs ?? SLACK_TASK_REPLY_WAIT_MS;
+      // A wait of none: work going on takes its replies as before.
+      if (work === "open" && waitMs === 0 && !held) return "current_path";
+      // Work done takes no unmentioned reply: one M1 does not answer is left.
+      const unjudged = work === "closed" ? null : "current_path";
+      if (!held) {
+        const live = await deps.bindings.findLiveSlackChannel(
+          agent.installationId,
+          event.channel,
+        );
+        if (live === null) return unjudged;
+        // Before M1 reads it: an event that does not say its channel's kind,
+        // in a channel bound as public, asks Slack as the current path does,
+        // which sends a channel turned private to approval first.
+        if (
+          event.channel_type === undefined &&
+          live.channelKind === "public_channel"
+        ) {
+          const token = await deps.botToken(
+            claim.workspaceId,
+            claim.slackAppId,
+          );
+          if (
+            token === null ||
+            (await deps.slack.channelKind(token, event.channel)) ===
+              "private_channel"
+          ) {
+            return "current_path";
+          }
+        }
+        const handling = inboundHandling({
+          place: "channel",
+          work,
+          engaged: true,
+          input: isStopRequest(withoutBotMention(event.text, agent.botUserId))
+            ? "stop_request"
+            : "reply",
+          rollout: place.rollout,
+          mode: live.mode,
+          listen: live.listen,
+          lifecycleStop: lifecycleStopOf(place, live),
+        });
+        const judged = handling.kind === "table" ? handling.handling : null;
+        if (judged !== (work === "closed" ? "m1" : "m1_to_task")) {
+          deps.logger.info("Slack bound reply not judged", {
+            ...ids,
+            handling: judged,
+            work,
+          });
+          return unjudged;
+        }
+        if (
+          (live.approvedAt !== null &&
+            Number(event.ts) * 1000 < live.approvedAt.getTime()) ||
+          !messageTextSchema.safeParse(unescapeSlackText(event.text)).success
+        ) {
+          return unjudged;
+        }
+        const unheard = await deps.audience.unheardReason({
+          agentId: agent.agentId,
+          teamId: claim.teamId,
+          channelId: event.channel,
+          slackUserId: event.user,
+          botToken: await deps.botToken(claim.workspaceId, claim.slackAppId),
+        });
+        if (unheard !== null) {
+          deps.logger.info("Slack bound reply not judged", {
+            ...ids,
+            reason: unheard,
+            work,
+          });
+          return unjudged;
+        }
+      }
+      const conversation = await conversationOf(
+        { dm: false, personUserId: null, channelId: event.channel },
+        claim.teamId,
+        agent,
+      );
+      if (conversation === null) {
+        throw new Error("A Slack channel has no conversation");
+      }
+      const topic = await deps.conversations.findOrCreateThreadTopic(
+        conversation.id,
+        { teamId: claim.teamId, channelId: event.channel, threadTs },
+      );
+      const rule = judgeThreadReply(event.text, agent.botUserId);
+      // Held as the buffer holds a post: Slack's entities decoded.
+      const buffered = {
+        body: unescapeSlackText(event.text),
+        slackUserId: event.user,
+      };
+      if (work === "closed") {
+        deps.logger.info("Slack reply of work done held for the judgment", ids);
+        return {
+          topicId: topic.id,
+          channelId: event.channel,
+          ts: event.ts,
+          buffered,
+          judgment: { grade: "m1", rule },
+        };
+      }
+      const route = await deps.boundReplies.taskReply({
+        kind: "channel",
+        workspaceId: agent.workspaceId,
+        agentId: agent.agentId,
+        teamId: claim.teamId,
+        channelId: event.channel,
+        fence: { id: claim.id, claimToken: claim.claimToken },
+        topicId: topic.id,
+        ts: event.ts,
+        ...buffered,
+        rule,
+        waitMs,
+      });
+      if (route === "waiting") {
+        throw new SlackInboundDeferred(SLACK_TASK_REPLY_RECHECK_MS);
+      }
+      deps.logger.info("Slack reply of work going on judged", {
+        ...ids,
+        route: typeof route === "object" ? "edited" : route,
+      });
+      if (typeof route === "object") editedText = route.edited;
+      return route === "quiet" ? null : "session";
     };
 
     /**
@@ -731,9 +909,10 @@ export function createSlackSessionHandler(
     // retry or the post's other event judges the same.
     const openedAs: EngagementKind = dm || mentioned ? "mention" : "reply";
     /**
-     * A person's unmentioned reply in a bound thread, when the switch is up
-     * and the poster may be heard: its rule's call, for M1 to judge beside
-     * it (a1/J5). The turn goes on whatever either says.
+     * A person's unmentioned reply in a bound thread, in `shadow` and when
+     * the poster may be heard: its rule's call, for M1 to judge beside it
+     * (a1/J5). The turn goes on whatever either says. Once the rollout is
+     * on, the judgment comes before any turn (v1-b/U1), so none comes here.
      */
     const replyJudgment = async (): Promise<
       { judgment: { rule: ThreadReplyRule } } | Record<string, never>
@@ -749,7 +928,7 @@ export function createSlackSessionHandler(
         teamId: claim.teamId,
         channelId: event.channel,
       });
-      if (place.rollout === "off") return {};
+      if (place.rollout !== "shadow") return {};
       const unheard = await deps.audience.unheardReason({
         agentId: agent.agentId,
         teamId: claim.teamId,
@@ -853,6 +1032,23 @@ export function createSlackSessionHandler(
       (dm || !mentioned || !agent.allowedBotUserIds.includes(event.user))
     ) {
       return;
+    }
+    // A person's unmentioned reply in a thread bound to work: once the
+    // rollout is on, M1 judges it before any session hears it.
+    if (
+      found !== null &&
+      sessionId !== null &&
+      found.openedByTs !== event.ts &&
+      !mentioned &&
+      !dm &&
+      !fromBot &&
+      event.thread_ts !== undefined &&
+      event.thread_ts !== event.ts
+    ) {
+      const routed = await boundReplyRoute(sessionId);
+      if (routed !== "current_path" && routed !== "session") {
+        return routed ?? undefined;
+      }
     }
     // A person's unmentioned post outside a bound thread: the handling
     // table says whether the judgment buffer holds it.
@@ -1241,9 +1437,13 @@ export function createSlackSessionHandler(
       return;
     }
 
-    const message = unescapeSlackText(
-      withoutBotMention(event.text, agent.botUserId),
-    );
+    // A held text an edit changed is decoded already, so it is not decoded
+    // again; the agent's mention is still taken out of it, as an edit may add
+    // one (a stop, say).
+    const message =
+      editedText === undefined
+        ? unescapeSlackText(withoutBotMention(event.text, agent.botUserId))
+        : withoutBotMention(editedText, agent.botUserId);
     if (!messageTextSchema.safeParse(message).success) {
       deps.logger.info("Slack message has no text to send; ignored", ids);
       return;
