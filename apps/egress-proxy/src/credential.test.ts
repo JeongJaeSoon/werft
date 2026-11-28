@@ -5074,6 +5074,8 @@ describe("startCredentialProxy", () => {
           };
           expect((await messages(server.port)).status).toBe(200);
           expect(up.seen).toHaveLength(1);
+          // That call's last regrant, if one was on its way, has landed.
+          await Bun.sleep(50);
           const first = asks;
           let body: ReadableStreamDefaultController<Uint8Array> | undefined;
           const slow = fetch(
@@ -5139,6 +5141,8 @@ describe("startCredentialProxy", () => {
           };
           expect((await messages(server.port)).status).toBe(200);
           expect(up.seen).toHaveLength(1);
+          // That call's last regrant, if one was on its way, has landed.
+          await Bun.sleep(50);
           const first = asks;
           let body: ReadableStreamDefaultController<Uint8Array> | undefined;
           const slow = fetch(
@@ -5190,6 +5194,9 @@ describe("startCredentialProxy", () => {
           });
           expect((await messages(server.port)).status).toBe(200);
           expect(up.seen).toHaveLength(1);
+          // That call's last regrant, if one was on its way, has landed.
+          await Bun.sleep(50);
+          const first = asks;
           let body: ReadableStreamDefaultController<Uint8Array> | undefined;
           const slow = fetch(
             `http://127.0.0.1:${server.port}/provider/v1/messages`,
@@ -5206,7 +5213,6 @@ describe("startCredentialProxy", () => {
           );
           // The slow call is granted; from then on its regrants are asked
           // and not answered, and one is under way when the body ends.
-          const first = asks;
           while (asks < first + 1) await Bun.sleep(5);
           hold = true;
           while (held < 1) await Bun.sleep(5);

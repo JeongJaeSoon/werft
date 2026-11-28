@@ -155,72 +155,93 @@ describe("createInstallationHosts", () => {
     expect(asked).toHaveLength(3);
   });
 
-  test("calls that overlap share one question, so a late answer never replaces a newer one", async () => {
-    const answers: Array<(addresses: string[]) => void> = [];
+  test("each call asks every name itself, and its list holds what any call has learnt", async () => {
+    const answers: Array<(addresses: string[] | Error) => void> = [];
     const hosts = createInstallationHosts({
       names: ["api"],
       interfaces: () => [],
       lookup: () =>
-        new Promise((resolve) => {
+        new Promise((resolve, reject) => {
           answers.push((addresses) =>
-            resolve(addresses.map((address) => ({ address, family: 4 }))),
+            addresses instanceof Error
+              ? reject(addresses)
+              : resolve(addresses.map((address) => ({ address, family: 4 }))),
           );
         }),
     });
     const first = hosts();
     const second = hosts();
-    await Promise.resolve();
-    expect(answers).toHaveLength(1);
-    answers[0]?.(["172.20.0.8"]);
-    expect(await first).toEqual(["api", "172.20.0.8"]);
-    expect(await second).toEqual(["api", "172.20.0.8"]);
-    // The question is over: the next call asks again.
-    const third = hosts();
-    await Promise.resolve();
+    await Bun.sleep(1);
+    // Not one question shared: the second call's is asked after it was made.
     expect(answers).toHaveLength(2);
+    // The later question answers first, with the address the name moved to.
     answers[1]?.(["172.20.0.9"]);
-    expect(await third).toEqual(["api", "172.20.0.8", "172.20.0.9"]);
+    expect(await second).toEqual(["api", "172.20.0.9"]);
+    // The earlier one answers late with the older address: it is added, and
+    // nothing the later one learnt is lost.
+    answers[0]?.(["172.20.0.8"]);
+    expect(await first).toEqual(["api", "172.20.0.9", "172.20.0.8"]);
   });
 
-  test("calls that overlap share one collection of every name: no name is asked again while another is waited for", async () => {
-    let fast: string[] | Error = ["172.20.0.3"];
-    let slow: ((addresses: string[]) => void) | undefined;
-    const asked: string[] = [];
+  test("a call waiting on a slow name is closed when a later question of another name fails", async () => {
+    let store: string[] | Error = ["172.20.0.5"];
+    const slow: Array<(addresses: string[]) => void> = [];
     const hosts = createInstallationHosts({
-      names: ["api", "db"],
+      names: ["store", "db"],
       interfaces: () => [],
       lookup: (host) => {
-        asked.push(host);
         if (host === "db") {
           return new Promise((resolve) => {
-            slow = (addresses) =>
-              resolve(addresses.map((address) => ({ address, family: 4 })));
+            slow.push((addresses) =>
+              resolve(addresses.map((address) => ({ address, family: 4 }))),
+            );
           });
         }
-        return fast instanceof Error
-          ? Promise.reject(fast)
-          : Promise.resolve(fast.map((address) => ({ address, family: 4 })));
+        return store instanceof Error
+          ? Promise.reject(store)
+          : Promise.resolve(store.map((address) => ({ address, family: 4 })));
       },
     });
     const first = hosts();
     await Bun.sleep(1);
-    // What a second question of the fast name would get meanwhile: a
-    // failure. It is not asked, so the first call does not go out on an
-    // answer a newer question could not confirm.
-    fast = new Error("EAI_AGAIN");
+    // The store moves and its name cannot be asked for a moment: the call
+    // that asked before does not go out on the address it left.
+    store = new Error("EAI_AGAIN");
     const second = hosts();
     await Bun.sleep(1);
-    slow?.(["172.20.0.2"]);
-    const one = ["api", "db", "172.20.0.3", "172.20.0.2"];
-    expect(await first).toEqual(one);
-    expect(await second).toEqual(one);
-    expect(asked).toEqual(["api", "db"]);
-    // The next collection asks every name again, and fails as a whole.
+    for (const answer of slow) answer(["172.20.0.2"]);
+    expect(await second).toBeNull();
+    expect(await first).toBeNull();
+    // Asked again and answered, the list is whole, with both addresses.
+    store = ["172.20.0.6"];
     const third = hosts();
     await Bun.sleep(1);
-    slow?.(["172.20.0.2"]);
-    expect(await third).toBeNull();
-    expect(asked).toEqual(["api", "db", "api", "db"]);
+    slow.at(-1)?.(["172.20.0.2"]);
+    expect(await third).toEqual([
+      "store",
+      "db",
+      "172.20.0.5",
+      "172.20.0.6",
+      "172.20.0.2",
+    ]);
+  });
+
+  test("an address this process took while the names were asked is in the list", async () => {
+    let addresses = ["172.20.0.3"];
+    let answer: (() => void) | undefined;
+    const hosts = createInstallationHosts({
+      names: ["db"],
+      interfaces: () => addresses,
+      lookup: () =>
+        new Promise((resolve) => {
+          answer = () => resolve([{ address: "172.20.0.2", family: 4 }]);
+        }),
+    });
+    const list = hosts();
+    await Bun.sleep(1);
+    addresses = ["172.20.0.3", "10.9.0.3"];
+    answer?.();
+    expect(await list).toEqual(["db", "172.20.0.3", "10.9.0.3", "172.20.0.2"]);
   });
 
   test("a name configured relative and absolute is asked both ways, and both answers are held off", async () => {

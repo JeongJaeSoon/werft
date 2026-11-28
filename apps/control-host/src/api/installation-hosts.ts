@@ -80,11 +80,13 @@ export function installationHostNames(
 /**
  * The installation's own hosts as keys, for a private grant's deny list
  * and for refusing one at registration: every address of this process's
- * interfaces and each of `names` with the addresses it resolves to, all
- * read on each call, and the addresses a name answered with in the last
- * five minutes. Null when a name cannot be resolved or the list would pass
- * what the proxy reads: the caller then gives no private grant, never a
- * shorter list.
+ * interfaces and each of `names` with the addresses it resolves to, and
+ * the addresses a name answered with in the last five minutes. Every call
+ * asks every name itself, after it was made, so its list is never older
+ * than the call; it adds what any other call learnt meanwhile. Null when a
+ * name cannot be resolved, when a later question of a name failed while
+ * this call waited, or when the list would pass what the proxy reads: the
+ * caller then gives no private grant, never a shorter list.
  */
 export function createInstallationHosts(deps: {
   names: readonly string[];
@@ -108,18 +110,29 @@ export function createInstallationHosts(deps: {
     if (key === null) throw new Error("A wired host names no host");
     return { key, name: name.replace(/^\[|\]$/g, "") };
   });
-  // Per name, each address it answered with and when that lapses. One map
-  // per name for the life of the process, only ever added to and aged.
-  const answered = new Map<string, Map<string, number>>();
-  // One collection of every name at a time: calls that overlap share it and
-  // its outcome, so none builds a list on an older answer than another, or
-  // on a name whose newer question failed.
-  let collecting: Promise<readonly string[] | null> | undefined;
+  // Per name: each address it answered with and when that lapses, and when
+  // the newest question of it that failed was asked. One per name for the
+  // life of the process; the addresses are only ever added to and aged.
+  const known = new Map<
+    string,
+    { until: Map<string, number>; failedAt: number }
+  >();
 
-  /** Whether `name` answered; what it answered with is in `answered`. */
-  async function ask(name: string): Promise<boolean> {
+  /** When `name` was asked, once it has answered; null when it did not. */
+  async function ask(name: string): Promise<number | null> {
+    const askedAt = now();
     // An address names itself; its key is already in the list.
-    if (isIP(name) !== 0) return true;
+    if (isIP(name) !== 0) return askedAt;
+    let state = known.get(name);
+    if (state === undefined) {
+      state = { until: new Map(), failedAt: Number.NEGATIVE_INFINITY };
+      known.set(name, state);
+    }
+    const { until } = state;
+    const failed = () => {
+      state.failedAt = Math.max(state.failedAt, askedAt);
+      return null;
+    };
     let answers: readonly { address: string }[];
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -134,47 +147,43 @@ export function createInstallationHosts(deps: {
         }),
       ]);
     } catch {
-      return false;
+      return failed();
     } finally {
       clearTimeout(timer);
     }
     const keys = answers.map(({ address }) => answerKey(address));
-    if (keys.length === 0 || keys.includes(null)) return false;
+    if (keys.length === 0 || keys.includes(null)) return failed();
     const at = now();
-    let until = answered.get(name);
-    if (until === undefined) {
-      until = new Map();
-      answered.set(name, until);
-    }
     for (const key of keys) until.set(key as string, at + MEMORY_MS);
     for (const [address, end] of until) {
       if (end <= at) until.delete(address);
     }
-    return true;
+    return askedAt;
   }
 
-  async function collect(): Promise<readonly string[] | null> {
+  return async () => {
+    const before = interfaces();
+    const asked = await Promise.all(wired.map(({ name }) => ask(name)));
     const hosts = new Set<string>(wired.map(({ key }) => key));
-    for (const address of interfaces()) {
+    // Read again: an address this process took while the names were asked.
+    for (const address of [...before, ...interfaces()]) {
       const key = answerKey(address);
       if (key === null) return null;
       hosts.add(key);
     }
-    const all = await Promise.all(wired.map(({ name }) => ask(name)));
-    if (all.includes(false)) return null;
     const at = now();
-    for (const { name } of wired) {
-      for (const [address, end] of answered.get(name) ?? []) {
+    for (const [index, { name }] of wired.entries()) {
+      const mine = asked[index];
+      if (mine === null || mine === undefined) return null;
+      const state = known.get(name);
+      if (state === undefined) continue;
+      // A question of this name asked after this call's failed: what this
+      // call holds of it may be behind, and nothing says it is not.
+      if (state.failedAt > mine) return null;
+      for (const [address, end] of state.until) {
         if (end > at) hosts.add(address);
       }
     }
     return hosts.size > MAX_DENIED_HOSTS ? null : [...hosts];
-  }
-
-  return () => {
-    collecting ??= collect().finally(() => {
-      collecting = undefined;
-    });
-    return collecting;
   };
 }
