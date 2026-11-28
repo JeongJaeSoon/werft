@@ -1,6 +1,6 @@
 {
-  "id": "402a02f2-a50e-4e9c-a085-ed3b86fe50dd",
-  "prevId": "f572a5b6-d4cd-4fb6-9553-ea27336ffbe2",
+  "id": "55e1333d-e978-4b21-bda2-be5388eba309",
+  "prevId": "fc43ae25-cd2e-4968-9a3f-7cd1c9418801",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -18397,6 +18397,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "repository_source_id": {
+          "name": "repository_source_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_by": {
           "name": "created_by",
           "type": "uuid",
@@ -18493,6 +18499,15 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
+        "skill_git_sources_repository_source_id_skill_repositories_id_fk": {
+          "name": "skill_git_sources_repository_source_id_skill_repositories_id_fk",
+          "tableFrom": "skill_git_sources",
+          "tableTo": "skill_repositories",
+          "columnsFrom": ["repository_source_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "skill_git_sources_created_by_users_id_fk": {
           "name": "skill_git_sources_created_by_users_id_fk",
           "tableFrom": "skill_git_sources",
@@ -18527,6 +18542,442 @@
         "skill_git_sources_auto_approve_check": {
           "name": "skill_git_sources_auto_approve_check",
           "value": "\"skill_git_sources\".\"auto_approve\" IN ('off', 'requested', 'on') AND (\"skill_git_sources\".\"auto_approve\" = 'off') = (\"skill_git_sources\".\"auto_approve_requested_by\" IS NULL) AND (\"skill_git_sources\".\"auto_approve\" = 'on') = (\"skill_git_sources\".\"auto_approve_consented_by\" IS NOT NULL) AND (\"skill_git_sources\".\"auto_approve\" = 'on') = (\"skill_git_sources\".\"auto_approve_grant_id\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.skill_repositories": {
+      "name": "skill_repositories",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "repository_id": {
+          "name": "repository_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "repository": {
+          "name": "repository",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ref": {
+          "name": "ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "access": {
+          "name": "access",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'public'"
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "installation_id": {
+          "name": "installation_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "license": {
+          "name": "license",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "generation": {
+          "name": "generation",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "last_commit": {
+          "name": "last_commit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_sync": {
+          "name": "last_sync",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_checked_at": {
+          "name": "last_checked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "checking_until": {
+          "name": "checking_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "checking_token": {
+          "name": "checking_token",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "check_again": {
+          "name": "check_again",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "removed_at": {
+          "name": "removed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "removed_by": {
+          "name": "removed_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "skill_repositories_workspace_repository_uniq": {
+          "name": "skill_repositories_workspace_repository_uniq",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "repository_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "skill_repositories_workspace_id_workspaces_id_fk": {
+          "name": "skill_repositories_workspace_id_workspaces_id_fk",
+          "tableFrom": "skill_repositories",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "skill_repositories_connection_id_github_apps_id_fk": {
+          "name": "skill_repositories_connection_id_github_apps_id_fk",
+          "tableFrom": "skill_repositories",
+          "tableTo": "github_apps",
+          "columnsFrom": ["connection_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "skill_repositories_created_by_users_id_fk": {
+          "name": "skill_repositories_created_by_users_id_fk",
+          "tableFrom": "skill_repositories",
+          "tableTo": "users",
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "skill_repositories_removed_by_users_id_fk": {
+          "name": "skill_repositories_removed_by_users_id_fk",
+          "tableFrom": "skill_repositories",
+          "tableTo": "users",
+          "columnsFrom": ["removed_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "skill_repositories_access_check": {
+          "name": "skill_repositories_access_check",
+          "value": "\"skill_repositories\".\"access\" IN ('public')"
+        },
+        "skill_repositories_ids_check": {
+          "name": "skill_repositories_ids_check",
+          "value": "\"skill_repositories\".\"installation_id\" > 0 AND \"skill_repositories\".\"repository_id\" > 0 AND \"skill_repositories\".\"owner_id\" > 0 AND \"skill_repositories\".\"generation\" > 0"
+        },
+        "skill_repositories_removed_check": {
+          "name": "skill_repositories_removed_check",
+          "value": "(\"skill_repositories\".\"removed_at\" IS NULL) = (\"skill_repositories\".\"removed_by\" IS NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.skill_repository_skills": {
+      "name": "skill_repository_skills",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "skill_repository_id": {
+          "name": "skill_repository_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "license": {
+          "name": "license",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tree_sha": {
+          "name": "tree_sha",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "passed_tree_sha": {
+          "name": "passed_tree_sha",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "file_count": {
+          "name": "file_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "total_bytes": {
+          "name": "total_bytes",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "has_scripts": {
+          "name": "has_scripts",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "listing_issues": {
+          "name": "listing_issues",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "present": {
+          "name": "present",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "enabled": {
+          "name": "enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "enabled_by": {
+          "name": "enabled_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "enabled_at": {
+          "name": "enabled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "enable_grant_id": {
+          "name": "enable_grant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_gate": {
+          "name": "last_gate",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notice": {
+          "name": "notice",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "acknowledged_at": {
+          "name": "acknowledged_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "acknowledged_by": {
+          "name": "acknowledged_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "skill_repository_skills_path_uniq": {
+          "name": "skill_repository_skills_path_uniq",
+          "columns": [
+            {
+              "expression": "skill_repository_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "path",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "skill_repository_skills_skill_repository_id_skill_repositories_id_fk": {
+          "name": "skill_repository_skills_skill_repository_id_skill_repositories_id_fk",
+          "tableFrom": "skill_repository_skills",
+          "tableTo": "skill_repositories",
+          "columnsFrom": ["skill_repository_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "skill_repository_skills_enabled_by_users_id_fk": {
+          "name": "skill_repository_skills_enabled_by_users_id_fk",
+          "tableFrom": "skill_repository_skills",
+          "tableTo": "users",
+          "columnsFrom": ["enabled_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "skill_repository_skills_acknowledged_by_users_id_fk": {
+          "name": "skill_repository_skills_acknowledged_by_users_id_fk",
+          "tableFrom": "skill_repository_skills",
+          "tableTo": "users",
+          "columnsFrom": ["acknowledged_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "skill_repository_skills_name_check": {
+          "name": "skill_repository_skills_name_check",
+          "value": "\"skill_repository_skills\".\"name\" IS NULL OR \"skill_repository_skills\".\"name\" ~ '^[a-z0-9][a-z0-9-]{0,63}$'"
+        },
+        "skill_repository_skills_enabled_check": {
+          "name": "skill_repository_skills_enabled_check",
+          "value": "NOT \"skill_repository_skills\".\"enabled\" OR \"skill_repository_skills\".\"enable_grant_id\" IS NOT NULL"
         }
       },
       "isRLSEnabled": false
