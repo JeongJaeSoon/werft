@@ -317,30 +317,45 @@ describe("i18n", () => {
     }
   });
 
-  test("MCP refusals keep the private-list exception and all three url_invalid causes in every locale", () => {
-    const sets = {
+  test("MCP refusals keep the http exception and every url_invalid cause in every locale", () => {
+    const expected = {
       ko: {
         all: workspaceMcpKo,
-        list: "사설 목록",
-        cause: [/user@/, /#/, /IP 주소/],
+        http: "(http는 운영자가 사설 목록에 둔 호스트만 됩니다)",
+        insecure: "사설 목록",
+        invalid: [
+          "URL 형식이어야",
+          "계정 정보(user@)나 #이 없어야",
+          "https 주소는 IP 주소가 아닌 호스트 이름",
+        ],
       },
       en: {
         all: workspaceMcpEn,
-        list: "private allowlist",
-        cause: [/user@/, /#/, /IP address/],
+        http: "(http works only for a host the operator put on the private allowlist)",
+        insecure: "private allowlist",
+        invalid: [
+          "must be a URL",
+          "no credentials (user@) and no #",
+          "an https address must use a host name, not an IP address",
+        ],
       },
       ja: {
         all: workspaceMcpJa,
-        list: "プライベート許可リスト",
-        cause: [/user@/, /#/, /IP アドレス/],
+        http: "（http は運用者がプライベート許可リストに入れたホストに限られます）",
+        insecure: "プライベート許可リスト",
+        invalid: [
+          "URL の形式で",
+          "認証情報（user@）や # を含まず",
+          "https のアドレスは IP アドレスではなくホスト名",
+        ],
       },
     };
-    for (const { all, list, cause } of Object.values(sets)) {
+    for (const { all, http, insecure, invalid } of Object.values(expected)) {
       const text = (reason: string) =>
         all[`workspaceMcp.error.${reason}` as keyof typeof all];
-      expect(text("endpoint_not_allowed")).toContain(list);
-      expect(text("url_insecure")).toContain(list);
-      for (const part of cause) expect(text("url_invalid")).toMatch(part);
+      expect(text("endpoint_not_allowed")).toContain(http);
+      expect(text("url_insecure")).toContain(insecure);
+      for (const part of invalid) expect(text("url_invalid")).toContain(part);
     }
   });
 
