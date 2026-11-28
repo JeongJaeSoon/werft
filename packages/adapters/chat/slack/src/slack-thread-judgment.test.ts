@@ -31,6 +31,8 @@ async function receive(options: {
   taken?: boolean;
   /** The post was held for its work's judgment before. */
   held?: boolean;
+  /** The work began closing after the route read it open. */
+  closing?: boolean;
   /** null: an event that does not say its channel's kind. */
   channelType?: string | null;
   /** The kind Slack says the channel is, asked. */
@@ -121,9 +123,11 @@ async function receive(options: {
           ? { sessionId: "sess", spokeUnanswered: false }
           : null,
       closedWork: async () =>
-        (options.work ?? "closed") === "open"
-          ? null
-          : { admission: "closed" as const },
+        options.closing === true
+          ? { admission: "closing" as const }
+          : (options.work ?? "closed") === "open"
+            ? null
+            : { admission: "closed" as const },
       work: async (sessionId: string) => {
         workAsked.push(sessionId);
         return options.work ?? "closed";
@@ -398,6 +402,20 @@ describe("once the rollout is on, a bound thread's unmentioned reply is routed b
         taskRoute: "session",
       }),
     ).rejects.toThrow(WENT_ON);
+    expect(lastTaskReplies).toHaveLength(1);
+  });
+
+  test("sent to the work unheld (the gate closed), its work closing since: the event waits", async () => {
+    await expect(
+      receive({
+        rollout: "on",
+        linked: true,
+        taken: false,
+        work: "open",
+        taskRoute: "session",
+        closing: true,
+      }),
+    ).rejects.toBeInstanceOf(SlackInboundDeferred);
     expect(lastTaskReplies).toHaveLength(1);
   });
 

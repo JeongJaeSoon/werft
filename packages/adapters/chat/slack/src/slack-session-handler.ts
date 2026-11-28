@@ -621,16 +621,10 @@ export function createSlackSessionHandler(
         channelId: event.channel,
         ts: event.ts,
       });
-      // Never held (the gate closed, the rollout lowered under the hold's
-      // lock): the current path's, as a closed work's reply goes nowhere.
-      if (heldFor === null) {
-        if ((await deps.boundReplies.closedWork(sessionId)) !== null) {
-          deps.logger.info("Slack reply of work closed while it waited", ids);
-          return null;
-        }
-        return "session";
-      }
-      const heldWork = heldFor.sessionId;
+      // Never held (the gate closed under the hold's lock): the thread's
+      // work now, waited out as a held reply's is. A rollout lowered there
+      // is read again at the next look, and the reply takes the current path.
+      const heldWork = heldFor === null ? sessionId : heldFor.sessionId;
       if (heldWork === null) {
         deps.logger.info("Slack reply held for work it cannot name", ids);
         return null;
@@ -640,14 +634,23 @@ export function createSlackSessionHandler(
         throw new SlackInboundDeferred(SLACK_CLOSED_WORK_MENTION_RECHECK_MS);
       }
       if (closed !== null) {
-        if (heldFor.spokeUnanswered) {
-          // M1 spoke, but its unasked turn was not made (the work open
-          // again as it was written, or its write lost to a deadlock), and
-          // the work closed again: nothing answers the reply (94S-2558).
+        if (
+          heldFor?.spokeUnanswered === true &&
+          !(await deps.boundReplies.answeredUnasked({
+            agentId: agent.agentId,
+            teamId: claim.teamId,
+            channelId: event.channel,
+            ts: event.ts,
+          }))
+        ) {
+          // M1 spoke, but its unasked turn was not made (the work open as
+          // it was written, or its write lost to a deadlock), and the work
+          // closed before taking the reply: nothing answers it (94S-2558).
+          // Said per look; the metric counts the post once.
           deps.logger.warn("Slack reply M1 spoke to is left unanswered", {
             ...ids,
             session_id: heldWork,
-            reason_code: "work_closed_again",
+            reason_code: "work_closed_after_speak",
           });
         } else {
           deps.logger.info("Slack reply of work closed while it waited", ids);

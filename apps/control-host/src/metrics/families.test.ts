@@ -129,7 +129,7 @@ const ALLOWED_LABELS: Record<string, string[]> = {
   launch_queue_oldest_wait_seconds: [],
   sessions_waiting_for_capacity: [],
   session_no_capacity_failures_total: [],
-  held_replies_unanswered_total: [],
+  held_replies_unanswered: [],
   input_queue_oldest_age_seconds: [],
   input_storage_used_bytes: [],
   input_storage_limit_bytes: [],

@@ -43,7 +43,7 @@ scrape ごとに DB を読んで集計します。scrape 間隔を短くする�
 | `werft_launch_queue_oldest_wait_seconds` | gauge | なし | launch キューで最も長く待つセッションの待ち時間。空なら 0 |
 | `werft_sessions_waiting_for_capacity` | gauge | なし | worker Pod は起動したが入れる node がなく、開始を待っているセッション数。Kubernetes が Pod を `Unschedulable` とした場合です |
 | `werft_session_no_capacity_failures_total` | counter | なし | 15 分待っても空きが出ず、待っていた入力を `NO_CAPACITY` で失敗させた回数 |
-| `werft_held_replies_unanswered_total` | counter | なし | 作業の判断を待っていた Slack の返信のうち、M1 が割り込むと判断したのに、10 分たっても依頼されていないターンもセッションのターンも答えなかった数。上がったら slack ロールのログの `Slack reply M1 spoke to is left unanswered` を見ます |
+| `werft_held_replies_unanswered` | gauge | なし | 作業の判断を待っていた Slack の返信のうち、M1 が割り込むと判断したのに、10 分たっても依頼されていないターンもセッションのターンも答えていない投稿の数。0 でなければ slack ロールのログの `Slack reply M1 spoke to is left unanswered` を見ます |
 | `werft_input_queue_oldest_age_seconds` | gauge | なし | worker が未取得の入力のうち最も古いものの経過時間。空なら 0 |
 | `werft_input_storage_used_bytes` | gauge | なし | 保存容量の上限が数える入力 message の bytes。環境のカウンターの値 |
 | `werft_input_storage_limit_bytes` | gauge | なし | 保存容量の上限（`STORAGE_LIMIT_BYTES`）。環境の設定を読めない間はない |

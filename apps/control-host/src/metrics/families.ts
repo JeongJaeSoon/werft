@@ -268,9 +268,9 @@ export function metricFamilies(snapshot: PlatformMetricsSnapshot): Family[] {
       samples: [{ labels: {}, value: snapshot.noCapacityFailures }],
     },
     {
-      name: "held_replies_unanswered_total",
-      type: "counter",
-      help: "Slack replies held for their work's judgment that M1 spoke to and nothing answered ten minutes on: no unasked turn, no session turn.",
+      name: "held_replies_unanswered",
+      type: "gauge",
+      help: "Slack replies held for their work's judgment that M1 spoke to and nothing answers ten minutes on, by post: no unasked turn, no session turn.",
       samples: [{ labels: {}, value: snapshot.heldRepliesUnanswered }],
     },
     {

@@ -10152,7 +10152,7 @@ describe.each(ENGINES)(
         expect(warned).toEqual([
           expect.objectContaining({
             session_id: sessionId,
-            reason_code: "work_closed_again",
+            reason_code: "work_closed_after_speak",
           }),
         ]);
         expect(await messagesOf(sessionId)).toEqual(["summarize the thread"]);
@@ -10166,6 +10166,18 @@ describe.each(ENGINES)(
           storageLimitBytes: null,
         });
         expect(metrics.heldRepliesUnanswered).toBe(1);
+        // Held twice, the post is one reply left unanswered.
+        await db.execute(sql`
+          INSERT INTO conversation_judgments SELECT (jsonb_populate_record(
+            NULL::conversation_judgments, to_jsonb(j) || jsonb_build_object(
+              'id', gen_random_uuid()::text, 'input_id', NULL))).*
+          FROM conversation_judgments j WHERE j.grade = 'm1_to_task'`);
+        const twice = await schema.readPlatformMetrics(db, {
+          budget: null,
+          buckets: [],
+          storageLimitBytes: null,
+        });
+        expect(twice.heldRepliesUnanswered).toBe(1);
       });
 
       test("work closed while its reply waited: the reply keeps its grade and is judged once", async () => {

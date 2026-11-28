@@ -304,20 +304,25 @@ async function readNoCapacityFailures(db: Database) {
   return row?.count ?? 0;
 }
 
-// A judgment record stays when its held text goes, so the count only grows.
+// By post: a post held twice is one reply, answered by any of its
+// judgments' unasked turns or by a session turn of its input.
 async function readHeldRepliesUnanswered(db: Database) {
   const [row] = rowsOf<{ count: string }>(
     await db.execute(sql`
-      SELECT count(*) AS count FROM conversation_judgments j
-      WHERE j.grade = 'm1_to_task' AND j.decision = 'speak'
-        AND j.target_ts IS NOT NULL AND j.turn_id IS NULL
-        AND j.judged_at < now() - interval '10 minutes'
-        AND NOT EXISTS (
-          SELECT 1 FROM conversation_inputs i
-          WHERE i.agent_id = j.agent_id
-            AND i.slack_team_id = j.slack_team_id
-            AND i.slack_channel_id = j.slack_channel_id
-            AND i.slack_ts = j.target_ts AND i.turn_id IS NOT NULL)`),
+      SELECT count(*) AS count FROM (
+        SELECT j.agent_id, j.slack_team_id, j.slack_channel_id, j.target_ts
+        FROM conversation_judgments j
+        WHERE j.grade = 'm1_to_task' AND j.target_ts IS NOT NULL
+        GROUP BY j.agent_id, j.slack_team_id, j.slack_channel_id, j.target_ts
+        HAVING bool_or(j.decision = 'speak'
+            AND j.judged_at < now() - interval '10 minutes')
+          AND bool_and(j.turn_id IS NULL)) p
+      WHERE NOT EXISTS (
+        SELECT 1 FROM conversation_inputs i
+        WHERE i.agent_id = p.agent_id
+          AND i.slack_team_id = p.slack_team_id
+          AND i.slack_channel_id = p.slack_channel_id
+          AND i.slack_ts = p.target_ts AND i.turn_id IS NOT NULL)`),
   );
   return Number(row?.count ?? 0);
 }
