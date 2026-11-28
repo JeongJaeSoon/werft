@@ -59,8 +59,8 @@ export type ReconcilerLogger = {
   warn(message: string, fields?: Readonly<Record<string, unknown>>): void;
 };
 
-// The most tasks one pass closes on their time rules (v1-b/C2); the rest
-// are left to the next pass.
+// The most tasks one pass starts closing on their time rules (v1-b/C2); the
+// rest stay due for a later pass (each pass draws its own at random).
 export const TASK_TIME_CLOSES_PER_PASS = 50;
 
 // The fill (packages/db sessions/neutral-fields.ts) passes rows once 60 seconds old

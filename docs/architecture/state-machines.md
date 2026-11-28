@@ -118,7 +118,7 @@
 
 ### 작업 닫기(시간 규칙: 14일 방치, 상한 뒤 7일 답 없음)가 일으키는 전이
 
-작업 세션(`task_closing` 있음)을 시간으로 닫는 길이다(v1-b/C2). reconciler pass마다 한 번, 한 번에 50개까지(`TASK_TIME_CLOSES_PER_PASS`) 고르고, 넘치는 것은 다음 pass로 넘긴다. 닫기는 C1과 같은 `closeAtomic`이다. 사유는 `abandoned`이고, 닫기를 받아들인 status 이벤트의 actor는 `{kind: system, by: idle_rule}`이다(`packages/db/src/sessions/task-close.ts`의 `closeOnTimeRules`).
+작업 세션(`task_closing` 있음)을 시간으로 닫는 길이다(v1-b/C2). reconciler pass마다 한 번, 한 번에 50개까지(`TASK_TIME_CLOSES_PER_PASS`) 고르고, 넘치는 것은 뒤의 pass로 넘긴다(pass마다 무작위로 다시 뽑는다). 닫기는 C1과 같은 `closeAtomic`이다. 사유는 `abandoned`이고, 닫기를 받아들인 status 이벤트의 actor는 `{kind: system, by: idle_rule}`이다(`packages/db/src/sessions/task-close.ts`의 `closeOnTimeRules`).
 
 시계는 데이터베이스 시계다. 마지막 활동은 다음 가운데 가장 늦은 것이다: 세션이 만들어진 때, `last_turn_at`, turn이 queued·시작·끝난 때, 세션의 질문·승인에 답한 때(`pending_requests.answered_at`), 작업 스레드의 topic에 입력이 들어온 때(`conversation_inputs.received_at`, M1 판단을 기다리며 버퍼에 잡힌 답글과 웹에서 그 topic에 쓴 글 포함), inbox가 받은 그 스레드의 글 가운데 봇의 것이 아닌 글을 받은 때(`slack_inbound_events.received_at`. 처리 전이든 후든 센다. 처리되면 payload는 비워지지만 `conversation_key`와 받은 때는 남는다). 스레드는 세션의 열린 link로 찾는다(link는 세션이 닫힌 뒤에 닫힌다). 사람의 새 입력, 답, 스레드 답글은 시계를 다시 시작한다. M1 판정과는 상관없다: 조용히 두기로 한 답글, 버퍼 상한이나 만료로 버퍼에서 빠진 답글, 승인을 기다리는 채널에서 멘션한 글도 사람이 쓴 글이면 센다. 봇과 에이전트 자신의 글은 세지 않는다. 자신의 봇, 다른 Werft 에이전트, Slackbot의 글은 들어올 때 dropped가 되어 스레드 키가 없다. 허용 목록의 외부 봇이 쓴 글은 기록할 때 `from_bot`이 참이 된다(payload의 `bot_id`. intake와 session handler가 봇을 가르는 기준과 같고, 승인 전 채널의 redaction도 `bot_id`는 남긴다). edit·delete 이벤트도 스레드 키가 없다. 허용된 봇의 멘션이 turn이 되면 그 turn은 센다. 에이전트가 실제로 일한 것이고, 스레드의 봇 turn 예산(`SLACK_BOT_TURN_LIMIT`)이 상한이라 사람이 쓰지 않으면 예산이 다한다. 그 뒤의 봇 멘션은 turn이 되지 않고 세지도 않으므로, 봇이 작업을 끝없이 붙잡지 못한다.
 
@@ -127,7 +127,7 @@
 - `from_bot`이 NULL인 행(0400 전의 image가 쓴 행, 섞인 버전 동안 옛 image가 쓴 행 포함)은 사람 글로 센다. 그동안 들어온 봇 글은 사람 글로 세어 작업을 덜 닫는 쪽이다.
 - 승인을 기다리는(`pending_approval`) 채널에서 사람이 멘션 없이 쓴 답글은 들어올 때 dropped가 되어 스레드 키를 남기지 않는다. Werft는 승인 전 채널의 글을 받지 않으므로 세지 않는다. 멘션한 답글은 센다.
 - 중간에 worker의 `drop()`으로 버려진 이벤트는 스레드 키가 지워져 더는 세지 않는다(`from_bot`은 남는다).
-- `bot_id` 없이 `bot_profile`만 있는 글은 intake, handler, 시계 모두에서 사람 글로 다룬다. Slack이 이런 모양을 보내는지는 확인되지 않았다.
+- `bot_id`가 없는 글(`bot_profile`만 있거나 subtype만 `bot_message`인 멘션 등)은 intake, handler, 시계 모두에서 사람 글로 다룬다. Slack이 이런 모양을 보내는지는 확인되지 않았다.
 - 봇 turn 예산은 마지막 사람 글 뒤에 올라온 봇 멘션을 센다. 사람 글보다 앞선 ts로 늦게 도착한 봇 멘션은 예산 밖에서 turn이 될 수 있다(기존 예산 규칙). 입력 없는 resume·pause는 시계를 바꾸지 않는다. 걸리는 조건은 둘이다.
 
 - 방치: 마지막 활동 뒤 `task_closing.idleDays`(14)일이 지났다.
@@ -155,7 +155,7 @@
 - 닫힘 갱신의 문구는 '오래 답이 없어 작업을 닫았어요.'(`progressAbandoned`)이고, 스레드 링크는 `abandoned`로 닫힌다. 갱신은 그 스레드에 앞선 진행 메시지 행이 있을 때만 나가고, 철회된(revoked) link는 닫는 대상이 아니다.
 - dry run에서는 닫지 않는다.
 
-시험: `packages/db/src/sessions/task-close.test.ts`의 `a task's time rules` 묶음(답한 질문은 `a request answered on a paused task starts the clock again …`)과 `a close of a session no longer there is not_found, not closed work`, `apps/control-host/src/slack/outbox.integration.test.ts`의 `a task's time rules on …` 묶음(버퍼에 잡힌 답글은 `a reply held for M1's judgment in its thread keeps it open …`, inbox의 글은 `a person's post the inbox has yet to hand on …`, `a person's post M1 kept quiet …`, 봇 글은 `an allowed bot's mention, handed on or not …`, `an allowed bot's mention that runs a turn …`, `a bot's post the inbox dropped …`, 승인 전 채널은 `a person's mention in a channel waiting for approval counts, its receipt keeping no text …`, 옛 행은 `a post an image before from_bot recorded …`), `packages/db/src/task-clock-thread-posts-migration.test.ts`, `apps/control-host/src/reconciler/reconcile.test.ts`.
+시험: `packages/db/src/sessions/task-close.test.ts`의 `a task's time rules` 묶음(답한 질문은 `a request answered on a paused task starts the clock again …`)과 `a close of a session no longer there is not_found, not closed work`, `apps/control-host/src/slack/outbox.integration.test.ts`의 `a task's time rules on …` 묶음(버퍼에 잡힌 답글은 `a reply held for M1's judgment in its thread keeps it open …`, inbox의 글은 `a person's post the inbox has yet to hand on …`, `a person's post M1 kept quiet …`, 봇 글은 `an allowed bot's post the inbox has yet to hand on …`, `an allowed bot's mention that runs a turn …`, `a bot's post the inbox dropped …`, 승인 전 채널은 `a person's mention in a channel waiting for approval counts, its receipt keeping no text …`, 옛 행은 `a post an image before from_bot recorded …`), `packages/db/src/task-clock-thread-posts-migration.test.ts`, `apps/control-host/src/reconciler/reconcile.test.ts`.
 
 ### terminate가 일으키는 전이
 

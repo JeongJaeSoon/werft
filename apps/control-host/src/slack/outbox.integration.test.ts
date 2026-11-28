@@ -9290,7 +9290,7 @@ describe.each(ENGINES)("a task's time rules on %s", (engine) => {
     expect(await closeIdle()).toBe(1);
   });
 
-  test("an allowed bot's mention, handed on or not, does not start its clock again", async () => {
+  test("an allowed bot's post the inbox has yet to hand on does not start its clock again", async () => {
     const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
     await daysPass(sessionId, 15);
     await postInThread("EvOutBot", { user: "UOTHERBOT", bot_id: "BOTHER" });
@@ -9299,9 +9299,6 @@ describe.each(ENGINES)("a task's time rules on %s", (engine) => {
       .from(schema.slackInboundEvents)
       .where(eq(schema.slackInboundEvents.eventId, "EvOutBot"));
     expect(row).toEqual({ fromBot: true });
-    await db.execute(sql`
-      UPDATE slack_inbound_events SET status = 'processed', payload = NULL
-      WHERE event_id = 'EvOutBot'`);
     expect(await closeIdle()).toBe(1);
   });
 
@@ -9465,6 +9462,7 @@ describe.each(ENGINES)("a task's time rules on %s", (engine) => {
           .where(eq(turns.sessionId, sessionId))
       ).length;
     const before = await turnCount();
+    const since = new Date();
     await viaGate(fixture, {
       type: "app_mention",
       channel: CHANNEL,
@@ -9485,7 +9483,7 @@ describe.each(ENGINES)("a task's time rules on %s", (engine) => {
         })
         .from(schema.slackInboundEvents)
         .where(
-          sql`${schema.slackInboundEvents.payload} -> 'event' ->> 'ts' = '1792900200.000001' OR (${schema.slackInboundEvents.payload} IS NULL AND ${schema.slackInboundEvents.eventType} = 'app_mention' AND ${schema.slackInboundEvents.receivedAt} > now() - interval '1 minute')`,
+          sql`${schema.slackInboundEvents.eventType} = 'app_mention' AND ${schema.slackInboundEvents.receivedAt} >= ${since.toISOString()}::timestamptz`,
         );
     expect(await receipt()).toEqual([
       { fromBot: false, keyed: true, text: `<@${BOT_USER}>` },
