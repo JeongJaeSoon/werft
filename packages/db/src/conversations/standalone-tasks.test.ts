@@ -696,6 +696,8 @@ describe("a DM person's standalone sessions (v1-b/DM3)", () => {
           ${state === "merged" ? at : null}::timestamptz,
           ${state === "open" ? null : at}::timestamptz)`);
     const before = new Date(Date.now() - 60_000).toISOString();
+    // Past the link by a second: the clock it is read on is the database's.
+    const later = () => new Date(Date.now() + 1000).toISOString();
     const handed = await session();
     await pr(handed, "10", "merged", before);
     // An open one from before holds a later close back as a cancel.
@@ -709,9 +711,9 @@ describe("a DM person's standalone sessions (v1-b/DM3)", () => {
       WHERE id IN (${handed}::uuid, ${held}::uuid)`);
     const closes = createPostgresTaskCloses(db);
     expect(await closes.closeOnPullRequests(100)).toBe(0);
-    await pr(held, "21", "closed", new Date().toISOString());
+    await pr(held, "21", "closed", later());
     expect(await closes.closeOnPullRequests(100)).toBe(0);
-    await pr(handed, "11", "merged", new Date().toISOString());
+    await pr(handed, "11", "merged", later());
     expect(await closes.closeOnPullRequests(100)).toBe(1);
     const reasonOf = async (id: string) =>
       (

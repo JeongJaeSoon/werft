@@ -79,8 +79,7 @@ const SETTLED_AS_TASK = sql`(
       -- No close time on a closed one: a reopen not refreshed yet.
       WHEN 'closed' THEN o.closed_at
       ELSE o.state_changed_at
-    -- GitHub's times are whole seconds; the link's is not.
-    END >= (SELECT date_trunc('second', min(fl.created_at)) FROM session_links fl
+    END >= (SELECT min(fl.created_at) FROM session_links fl
       WHERE fl.session_id = s.id AND fl.role = 'primary'))`;
 
 /**
