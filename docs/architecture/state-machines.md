@@ -658,7 +658,7 @@ M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는�
 | 발급 전 | 예약됨(`reserved`) | 금액·토큰 한도와 호출 수 제한이 받아들이고, 합에 (미상 모델이면) 이 예약의 토큰을 더한 값이 상한보다 작다 | M1 판정·요약 접기의 issue |
 | 발급 전 | 거절(`refused`, `by: unknown_price_tokens`), 아무것도 잡지 않음 | 위 값이 상한 이상(`>=`). 합이 이미 상한에 닿았으면 단가를 아는 모델의 호출도 거절한다 | 같음 |
 | permit의 새 exchange | 진행 중(`in_flight`) | 발급과 같은 조건 | proxy의 grant |
-| permit의 새 exchange | 거절(403 `BUDGET_EXCEEDED`), permit의 `refusal`은 `budget`. 아직 판단을 내지 않은 턴은 `no_decision`으로 끝나고, 이미 판단한 턴의 추가 호출이면 판단은 그대로다 | 발급과 같은 거절 조건. 안내 문구는 "이번 달 단가 미상 토큰이 상한에 닿았거나 이 호출로 넘는다. 닿으면 다음 달 1일(UTC)까지, 또는 잡혀 있는 호출이 풀릴 때까지 열리지 않는다"이다. proxy는 엔진에 이 문구 대신 자기 일반 거절을 보낸다 | 같음 |
+| permit의 새 exchange | 거절(403 `BUDGET_EXCEEDED`), permit의 `refusal`은 `budget`. 아직 판단을 내지 않은 턴은 `no_decision`으로 끝나고, 이미 판단한 턴의 추가 호출이면 판단은 그대로다 | 발급과 같은 거절 조건. 안내 문구는 "이번 달 단가 미상 토큰이 상한에 닿았거나 이 호출로 넘는다. 닿으면 다음 달 1일(UTC)까지, 또는 잡혀 있는 호출이 풀리거나 잡은 것보다 적게 정산되어 합이 상한 밑으로 내려갈 때까지 열리지 않는다"이다. proxy는 엔진에 이 문구 대신 자기 일반 거절을 보낸다 | 같음 |
 | 예약됨·진행 중 | 정산됨 | usage 보고. 요청 모델과 답 모델이 둘 다 단가를 알면 비싼 쪽, 하나라도 미상이면 금액 없이 `unknown`으로 표시하고 정산 토큰이 합에 든다 | proxy의 usage 보고 |
 | 예약됨 | 풀림 | 토큰이 쓰이지 않고 끝났다. 합에서 빠진다 | reconciler |
 | 진행 중(끝 모름) | 닫힘(`resolved`) | 운영자가 닫았다. 늦은 보고가 오면 그 보고로 표시와 토큰을 고친다 | 운영자, 늦은 보고 |
@@ -682,7 +682,7 @@ M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는�
 | --- | --- | --- |
 | CP1 | 풀린 호출은 자리를 돌려준다 | `a released call gives its room back` |
 | CP2 | 다음 UTC 월에는 0부터 센다. 계정은 만든 시각과 상관없이 자기 호출을 모두 센다 | `a new month (UTC) starts from nothing: last month's calls count no more`, `an account counts all its calls, however long ago in its month they were made: one judged after midnight on last month's account sums last month`, CR5의 시험 |
-| CP3 | 같은 보고가 다시 오면 처음 정산이 저장한 표시로 답한다. 표시가 없는 옛 행은 두 모델로 다시 읽는다 | `a report again answers with what its first settlement stored` |
+| CP3 | 같은 보고가 다시 오면 처음 정산이 저장한 표시로 답한다. 표시가 없는 옛 행은 두 모델로 다시 읽는다 | `a report again answers with what its first settlement stored`, `packages/platform/src/workers/worker-gateway.test.ts`의 `a replay answers with what the first settlement stored, not with what the report would price now` |
 
 알려진 한계:
 

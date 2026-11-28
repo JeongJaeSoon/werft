@@ -615,7 +615,7 @@ export function createEgressAuthorizer(deps: {
             403,
             "BUDGET_EXCEEDED",
             called.by === "unknown_price_tokens"
-              ? "This month's tokens on models with no known price have reached, or with this call would pass, their limit for the turn's budget account (its agent's, with no account): once reached, no conversation call opens, priced or not, until the 1st of next month (UTC) or until held calls are released"
+              ? "This month's tokens on models with no known price have reached, or with this call would pass, their limit for the turn's budget account (its agent's, with no account): once reached, no conversation call opens, priced or not, until the 1st of next month (UTC) or until held calls are released or settle for fewer tokens than they held"
               : "The turn's budget account cannot hold this call's reserve",
           )
         : new WorkerGatewayError(
