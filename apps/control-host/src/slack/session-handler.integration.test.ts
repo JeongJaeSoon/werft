@@ -9384,6 +9384,25 @@ describe.each(ENGINES)(
         ]);
       });
 
+      test("a held text no edit marked: the work's turn takes the post's own text", async () => {
+        const { fixture, handle, sessionId } = await workThread("queued");
+        await deliver(fixture, reply());
+        expect(await drain(handle)).toMatchObject({ deferred: 1 });
+        // As a row held before its text was decoded: no edit time, so not
+        // an edit.
+        await db
+          .update(schema.conversationInputs)
+          .set({ body: "and the next step &amp; on" })
+          .where(eq(schema.conversationInputs.slackTs, REPLY));
+        expect((await judgeReplies("speak")).judged).toBe(1);
+        await due();
+        expect(await drain(handle)).toMatchObject({ processed: 1 });
+        expect(await messagesOf(sessionId)).toEqual([
+          "summarize the thread",
+          "and the next step",
+        ]);
+      });
+
       test("work closed while its reply waited: the reply keeps its grade and is judged once", async () => {
         const { fixture, handle, sessionId } = await workThread("queued");
         await deliver(fixture, reply());
