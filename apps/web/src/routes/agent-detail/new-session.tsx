@@ -199,6 +199,19 @@ function skillRefusalOf(
   };
 }
 
+/** The release id a start was refused for as one this build cannot read. */
+function unreadableReleaseOf(error: ApiError): string | null {
+  if (error.code !== "RELEASE_SPEC_UNAVAILABLE") return null;
+  const details = error.details as {
+    reason_code?: unknown;
+    release_id?: unknown;
+  } | null;
+  return details?.reason_code === "release_unreadable" &&
+    typeof details.release_id === "string"
+    ? details.release_id
+    : null;
+}
+
 export function NewSessionButton({
   agentId,
   releaseId,
@@ -280,6 +293,9 @@ export function NewSessionButton({
         : skill.reason === "skill_tool_not_allowed"
           ? t("newSession.skillToolMissing", { name: skill.bundle })
           : t("newSession.skillRefused", { name: skill.bundle });
+    const unreadable = unreadableReleaseOf(error);
+    if (unreadable !== null)
+      return t("newSession.releaseUnreadable", { release: unreadable });
     const key = errorKey(error.code);
     return key === "error.UNKNOWN"
       ? (guidanceFor(error.code, locale) ?? t(key))

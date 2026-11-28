@@ -34,6 +34,7 @@ import {
   type SaveRelease,
   storedAgentGitHubSchema,
   TEAM_LIST_LIMIT,
+  type UnreadableRelease,
   type UsableAgent,
   WORKSPACE_MANAGER_ROLES,
   type WorkspaceRole,
@@ -106,8 +107,10 @@ export async function resolveAgentRelease(
   workspaceId: string,
   releaseId: string,
 ): Promise<AgentRelease> {
-  const release = await deps.store.findRelease(workspaceId, releaseId);
-  if (!release) throw NOT_FOUND();
+  const found = await deps.store.findRelease(workspaceId, releaseId);
+  if (!found) throw NOT_FOUND();
+  if ("unreadable" in found) throw releaseUnreadable(found.unreadable);
+  const release = found;
   assertReleaseIdentity(release);
   const connectionId = release.connection_id;
   const connection = connectionOf(deps.catalog, connectionId);
@@ -134,6 +137,26 @@ export async function resolveAgentRelease(
     );
   }
   return release;
+}
+
+/**
+ * A release row this build cannot read: no session starts on it and it is
+ * not activated, since what it pinned is unknown here. Lasting until the
+ * build changes or another release is used, so it is a 409, not a retry.
+ */
+export function releaseUnreadable(
+  unreadable: UnreadableRelease,
+): SessionServiceError {
+  return new SessionServiceError(
+    "RELEASE_SPEC_UNAVAILABLE",
+    `Release ${unreadable.id} was stored by a newer build and this build cannot read it; upgrade to a newer build, or activate another release`,
+    undefined,
+    {
+      reason_code: "release_unreadable",
+      release_id: unreadable.id,
+      unreadable: unreadable.reason_code,
+    },
+  );
 }
 
 export type NotRunnableReason = "agent_inactive" | "release_unapproved";
@@ -197,13 +220,24 @@ export async function agentEnvNames(
   releaseId: string,
 ): Promise<string[]> {
   const release = await store.findRelease(workspaceId, releaseId);
-  if (!release) return [];
+  if (!release || "unreadable" in release) return [];
   const version = await store.findVersion(
     workspaceId,
     release.agent_id,
     release.version_id,
   );
   return version ? declaredEnvNames(version.card) : [];
+}
+
+/** The agent's active release when it is a row this build cannot read. */
+function unreadableActiveOf(
+  record: Pick<AgentRecord, "agent" | "unreadable_releases">,
+): UnreadableRelease | null {
+  return (
+    record.unreadable_releases.find(
+      (release) => release.id === record.agent.active_release_id,
+    ) ?? null
+  );
 }
 
 /** The release readers a session service takes, over one agent store. */
@@ -574,6 +608,15 @@ export function createAgentService(deps: {
     // (design 3.5).
     const hasRow = await store.hasGitHubSettings(input.agentId);
     const carry = !hasRow;
+    // Carrying nothing from an active release this build cannot read would
+    // drop its pin and repository unseen.
+    if (
+      carry &&
+      active === null &&
+      (await activeUnreadable(caller.ownerId, input.agentId)) !== null
+    ) {
+      return failed("release_unreadable");
+    }
     const repositoryId = carry ? (active?.repository_id ?? null) : null;
     const github = carry ? carriedPin(active?.policy_pins.github) : undefined;
     if (releaseRepositoryRefusal(repositoryId) !== null) {
@@ -695,6 +738,11 @@ export function createAgentService(deps: {
 
   function behaviorValues(connectionId: string, model: string): BehaviorValues {
     return { connection_id: connectionId, model };
+  }
+
+  async function activeUnreadable(workspaceId: string, agentId: string) {
+    const record = await store.get(workspaceId, agentId);
+    return record ? unreadableActiveOf(record) : null;
   }
 
   function withBehavior(record: AgentRecord): AgentDetail {
@@ -1326,14 +1374,16 @@ export function createAgentService(deps: {
       // settings row has no release pins to keep: the row decides. Kept
       // settings are checked as sent ones are: the edit may move the release
       // to another repository.
+      const carried =
+        request.github === undefined &&
+        !(await store.hasGitHubSettings(agentId))
+          ? await store.get(caller.ownerId, agentId)
+          : null;
+      const unreadableActive = carried ? unreadableActiveOf(carried) : null;
+      if (unreadableActive) throw releaseUnreadable(unreadableActive);
       const github =
         request.github ??
-        ((await store.hasGitHubSettings(agentId))
-          ? undefined
-          : carriedPin(
-              (await store.get(caller.ownerId, agentId))?.active_release
-                ?.policy_pins.github,
-            ));
+        carriedPin(carried?.active_release?.policy_pins.github);
       if (github !== undefined) {
         await checkGitHub(
           caller.ownerId,
