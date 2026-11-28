@@ -12,8 +12,10 @@ const unmovedSummary = (link: SQL) =>
 /**
  * The report mode a link's thread hears of its work by: the link's own, else
  * its channel's, else the default of its agent's conversation rollout
- * (`defaultReportMode`). Read on every pass, never stored: a channel picking
- * a mode, or an agent's rollout moving, changes the threads that pick none.
+ * (`defaultReportMode`). Read on every pass while the link is open: a channel
+ * picking a mode, or an agent's rollout moving, changes the open threads that
+ * pick none. A closing link keeps the mode it closed under
+ * (`closingReportMode`).
  */
 export const reportModeOf = (link: SQL) => sql`coalesce(
   ${link}.report_mode,
@@ -23,6 +25,14 @@ export const reportModeOf = (link: SQL) => sql`coalesce(
    FROM agents pa WHERE pa.id = ${link}.agent_id),
   ${defaultReportMode("off")}
 )`;
+
+/**
+ * The mode a link stores as it closes: the one it closed under, so a channel
+ * or a rollout changed later never moves what a closed thread still takes
+ * (its follow-ups, a day on). An unmoved `summary` link keeps its NULL.
+ */
+export const closingReportMode = (link: SQL) => sql`(CASE WHEN ${unmovedSummary(link)}
+  THEN ${link}.report_mode ELSE ${reportModeOf(link)} END)`;
 
 /**
  * Whether a link's thread hears of its turns: replies, failures and notices.

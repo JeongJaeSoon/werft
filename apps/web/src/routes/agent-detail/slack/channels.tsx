@@ -325,6 +325,9 @@ export function SlackChannels({
   });
   const refusalId = useId();
   const refusedRow = update.isError ? update.variables?.row : undefined;
+  // A refusal belongs to the one control whose save it refused.
+  const refused = (row: Binding, kind: BindingChange["kind"]) =>
+    refusedRow?.id === row.id && update.variables?.kind === kind;
   const rows =
     bindings.data?.items.filter((row) => row.surface_kind !== "dm") ?? [];
   const listed = [
@@ -672,14 +675,9 @@ export function SlackChannels({
                               })}
                               value={row.listen}
                               aria-disabled={update.isPending}
-                              aria-invalid={
-                                refusedRow?.id === row.id &&
-                                update.variables?.kind !== "report"
-                              }
+                              aria-invalid={refused(row, "listen")}
                               aria-describedby={
-                                refusedRow?.id === row.id
-                                  ? refusalId
-                                  : undefined
+                                refused(row, "listen") ? refusalId : undefined
                               }
                               onChange={(event) =>
                                 changeListen(
@@ -695,8 +693,7 @@ export function SlackChannels({
                                 </NativeSelectOption>
                               ))}
                             </NativeSelect>
-                            {refusedRow?.id === row.id &&
-                            update.variables?.kind !== "report" ? (
+                            {refused(row, "listen") ? (
                               <Badge variant="red">
                                 {t("slack.listenRefused")}
                               </Badge>
@@ -721,14 +718,9 @@ export function SlackChannels({
                               })}
                               value={row.report_mode ?? REPORT_DEFAULT}
                               aria-disabled={update.isPending}
-                              aria-invalid={
-                                refusedRow?.id === row.id &&
-                                update.variables?.kind === "report"
-                              }
+                              aria-invalid={refused(row, "report")}
                               aria-describedby={
-                                refusedRow?.id === row.id
-                                  ? refusalId
-                                  : undefined
+                                refused(row, "report") ? refusalId : undefined
                               }
                               onChange={(event) =>
                                 changeReport(
@@ -749,8 +741,7 @@ export function SlackChannels({
                                 </NativeSelectOption>
                               ))}
                             </NativeSelect>
-                            {refusedRow?.id === row.id &&
-                            update.variables?.kind === "report" ? (
+                            {refused(row, "report") ? (
                               <Badge variant="red">
                                 {t("slack.listenRefused")}
                               </Badge>
@@ -773,12 +764,9 @@ export function SlackChannels({
                             value={row.m1_judgments_per_hour}
                             label={t("slack.capOf", { channel: name })}
                             busy={update.isPending}
-                            refused={
-                              refusedRow?.id === row.id &&
-                              update.variables?.kind === "cap"
-                            }
+                            refused={refused(row, "cap")}
                             describedBy={
-                              refusedRow?.id === row.id ? refusalId : undefined
+                              refused(row, "cap") ? refusalId : undefined
                             }
                             onSave={(cap) => changeCap(row, name, cap)}
                           />

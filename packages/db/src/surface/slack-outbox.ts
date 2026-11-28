@@ -72,6 +72,7 @@ import {
   servedTitle,
 } from "../conversations/index.ts";
 import {
+  closingReportMode,
   mirrorsInstructions,
   postsPrompts,
   reportsProgress,
@@ -556,6 +557,18 @@ const keepsProgressMessage = (link: SQL) => sql`(
   ${link}.role = 'primary' AND ${link}.thread_id <> '' AND ${reportsProgress(link)}
 )`;
 
+// Whether link `link` has a progress message up that it no longer keeps: its
+// mode moved off progress mid-work (a channel's pick, an agent's rollout).
+// The message takes no more updates, but still its last word once the work
+// closes, so it never stays at running.
+const endsProgressMessage = (link: SQL) => sql`(
+  ${link}.role = 'primary' AND ${link}.thread_id <> '' AND ${reportsTurns(link)}
+  AND EXISTS (
+    SELECT 1 FROM slack_outbox pm
+    WHERE pm.installation_id = ${link}.installation_id
+      AND pm.progress_key = 'progress:' || ${link}.id)
+)`;
+
 // How long a closed link still takes the follow-ups of answers stored before
 // it closed (afterTurnReplies). A follow-up waits for its turn's reply,
 // which retries and rate limits hold for minutes, hours at worst; a day
@@ -572,7 +585,8 @@ const linkTakes = (row: SQL) => sql`(
     WHEN 'input_notice' THEN ${postsPrompts(sql.raw("l"))}
     -- A link's own progress message (slackProgressKey) only while it keeps one.
     WHEN 'progress' THEN ${reportsTurns(sql.raw("l"))}
-      AND (${row}.progress_key IS DISTINCT FROM 'progress:' || l.id OR ${keepsProgressMessage(sql.raw("l"))})
+      AND (${row}.progress_key IS DISTINCT FROM 'progress:' || l.id OR ${keepsProgressMessage(sql.raw("l"))}
+        OR (${row}.dedupe_key LIKE 'progress:%:closed:%' AND ${endsProgressMessage(sql.raw("l"))}))
     ELSE ${reportsTurns(sql.raw("l"))}
   END
 )`;
@@ -1286,7 +1300,8 @@ export function createPostgresSlackOutboxStore(
       // holds one is waited for.
       const rows = rowsOf<unknown>(
         await db.execute(sql`
-        UPDATE session_links l SET closed_at = now(), closed_reason = c.reason
+        UPDATE session_links l SET closed_at = now(), closed_reason = c.reason,
+          report_mode = ${closingReportMode(sql.raw("l"))}
         FROM (
           -- A task's own close reason first: the same four a link takes.
           SELECT l2.id, CASE WHEN s.task_closed_reason IS NOT NULL
@@ -1324,9 +1339,11 @@ export function createPostgresSlackOutboxStore(
                   AND NOT ${completedPassed(sql.raw("t"), sql.raw("l2"))}
               )
               -- A progress message that went up says the work closed
-              -- first: the link takes no update once closed. A revoked
-              -- install takes none, so it is not waited for.
-              AND (NOT ${keepsProgressMessage(sql.raw("l2"))} OR EXISTS (
+              -- first, even one its link stopped keeping: the link takes no
+              -- update once closed. A revoked install takes none, so it is
+              -- not waited for.
+              AND (NOT (${keepsProgressMessage(sql.raw("l2"))}
+                OR ${endsProgressMessage(sql.raw("l2"))}) OR EXISTS (
                 SELECT 1 FROM slack_installations ri
                 WHERE ri.id = l2.installation_id AND ri.status = 'revoked'
               ) OR NOT EXISTS (
@@ -2109,7 +2126,10 @@ export function createPostgresSlackOutboxStore(
               AND session_links.closed_at IS NULL
               AND i.status <> 'revoked'
               -- Never a top-level post: the message lives in the thread.
-              AND ${keepsProgressMessage(sql.raw('"session_links"'))}
+              -- One its link stopped keeping takes only its last word.
+              AND (${keepsProgressMessage(sql.raw('"session_links"'))}
+                OR (sessions.admission_state = 'closed'
+                  AND ${endsProgressMessage(sql.raw('"session_links"'))}))
           ) due
           -- What the newest update shows, whatever its number: two passes
           -- that numbered theirs alike both go in, and the newer state wins.
