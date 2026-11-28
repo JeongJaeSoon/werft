@@ -1249,6 +1249,29 @@ export const agentReleaseSchema = z
   })
   .strict();
 
+/**
+ * Why a stored release row does not read in this build: its `policy_pins`
+ * (a key or a switch value a newer build wrote), or another column.
+ */
+export const UNREADABLE_RELEASE_REASON_VALUES = [
+  "policy_pins_unreadable",
+  "row_unreadable",
+] as const;
+export const unreadableReleaseReasonSchema = z.enum(
+  UNREADABLE_RELEASE_REASON_VALUES,
+);
+
+/**
+ * A release row of the agent this build cannot read. It carries no stored
+ * value, only which row and why, so nothing a newer build pinned is echoed.
+ */
+export const unreadableReleaseSchema = z
+  .object({
+    id: agentReleaseIdSchema,
+    reason_code: unreadableReleaseReasonSchema,
+  })
+  .strict();
+
 export const agentIdParamsSchema = z.object({ id: agentIdSchema });
 
 /**
@@ -1310,8 +1333,11 @@ export const agentDetailSchema = z
   .object({
     agent: agentSchema,
     versions: z.array(agentVersionSchema),
+    /** The rows this build reads; the rest are in `unreadable_releases`. */
     releases: z.array(agentReleaseSchema),
+    /** Null also while the active release is one of `unreadable_releases`. */
     active_release: agentReleaseSchema.nullable(),
+    unreadable_releases: z.array(unreadableReleaseSchema),
     /** Bumped by every intent to change what the agent does. */
     behavior_revision: z.number().int().min(0).max(INT4_MAX),
     draft: agentDraftSchema.nullable(),
@@ -1672,6 +1698,10 @@ export function releaseJudgmentModel(
 export type CreateAgentRequest = z.infer<typeof createAgentRequestSchema>;
 export type UpdateAgentRequest = z.infer<typeof updateAgentRequestSchema>;
 export type AgentDetail = z.infer<typeof agentDetailSchema>;
+export type UnreadableRelease = z.infer<typeof unreadableReleaseSchema>;
+export type UnreadableReleaseReason = z.infer<
+  typeof unreadableReleaseReasonSchema
+>;
 export type BehaviorValues = z.infer<typeof behaviorValuesSchema>;
 export type SaveRelease = z.infer<typeof saveReleaseSchema>;
 export type SaveAgentResponse = z.infer<typeof saveAgentResponseSchema>;

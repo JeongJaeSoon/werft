@@ -54,6 +54,8 @@ export function saveFailureText(t: Translate, reason: string | null): string {
       return t("agent.save.reason.retries_exhausted");
     case "revision_conflict":
       return t("agent.save.reason.revision_conflict");
+    case "release_unreadable":
+      return t("agent.save.reason.release_unreadable");
     default:
       return reason ?? t("agent.save.reason.other");
   }

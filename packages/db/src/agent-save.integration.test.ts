@@ -10,7 +10,9 @@ import {
   createAuthorizationPolicy,
   deriveReleaseId,
   type ReleaseInstructionsSource,
+  resolveAgentRelease,
   type SessionCatalog,
+  SessionServiceError,
 } from "@werft-ai/platform";
 import {
   createTempDatabase,
@@ -255,9 +257,10 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
     } as const;
     expect(release.instructions_snapshot).toEqual(expected);
     const read = await store().findRelease(caller.ownerId, release.id);
-    expect(read?.instructions_snapshot).toEqual(expected);
+    if (!read || "unreadable" in read) throw new Error("release not read");
+    expect(read.instructions_snapshot).toEqual(expected);
     // jsonb gives the snapshot back in its own key order: the id still holds.
-    expect(read && deriveReleaseId(read)).toBe(release.id);
+    expect(deriveReleaseId(read)).toBe(release.id);
     const [row] = await db
       .select({ snapshot: agentReleases.instructionsSnapshot })
       .from(agentReleases)
@@ -570,6 +573,166 @@ integration("a card save releases (Z1) on PostgreSQL", () => {
     expect(withRow.release.status).toBe("applied");
     expect(withRow.active_release?.policy_pins.github).toBeUndefined();
     expect(withRow.active_release?.repository_id).toBeNull();
+  });
+
+  // A copy of `from` whose GitHub pin carries what a newer build may write,
+  // as the insert-only table keeps it (2373 stack-d5-pin).
+  async function newerBuildRelease(from: string, github: unknown) {
+    const id = `sha256:${randomUUID().replaceAll("-", "").padEnd(64, "0")}`;
+    await db.execute(sql`
+      INSERT INTO agent_releases
+      SELECT (jsonb_populate_record(r, jsonb_build_object(
+        'id', ${id}::text,
+        'policy_pins', r.policy_pins || jsonb_build_object('github', ${JSON.stringify(github)}::jsonb),
+        'created_at', clock_timestamp()))).*
+      FROM agent_releases r WHERE r.id = ${from}`);
+    return id;
+  }
+
+  const refusalOf = async (work: Promise<unknown>) => {
+    const error = await work.then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+    if (!(error instanceof SessionServiceError)) throw error;
+    return { code: error.code, details: error.details };
+  };
+
+  test("a release row this build cannot read is named apart; the agent, its other releases and their sessions still read", async () => {
+    const caller = await owner();
+    const agentsService = service();
+    const made = await newAgent(caller, { connection_id: TEST_CONNECTION_ID });
+    const active = made.release.release_id ?? "";
+    const pin = {
+      repositories: ["app"],
+      push_approval: true,
+      features: {
+        workflows: true,
+        actions: false,
+        checks: true,
+        issues: false,
+        review: false,
+      },
+      actions_allow: [],
+    };
+    const topKey = await newerBuildRelease(active, {
+      ...pin,
+      future_top: true,
+    });
+    const nonBoolean = await newerBuildRelease(active, {
+      ...pin,
+      features: { ...pin.features, future_switch: "yes" },
+    });
+
+    const detail = await agentsService.getAgent(caller, made.agent.id);
+    expect(detail.releases.map((release) => release.id)).toEqual([active]);
+    expect(detail.active_release?.id).toBe(active);
+    expect(detail.unreadable_releases).toEqual([
+      { id: topKey, reason_code: "policy_pins_unreadable" },
+      { id: nonBoolean, reason_code: "policy_pins_unreadable" },
+    ]);
+    // Only the release a session names is judged: the active one still starts.
+    const resolve = (releaseId: string) =>
+      resolveAgentRelease(
+        { store: store(), catalog: CATALOG },
+        caller.ownerId,
+        releaseId,
+      );
+    expect((await resolve(active)).id).toBe(active);
+    const refused = {
+      code: "RELEASE_SPEC_UNAVAILABLE" as const,
+      details: {
+        reason_code: "release_unreadable",
+        release_id: topKey,
+        unreadable: "policy_pins_unreadable",
+      },
+    };
+    expect(await refusalOf(resolve(topKey))).toEqual(refused);
+    expect(
+      await refusalOf(
+        agentsService.activateAgent(caller, made.agent.id, {
+          release_id: topKey,
+          expected_revision: detail.agent.activation_revision,
+        }),
+      ),
+    ).toEqual(refused);
+    const after = await agentsService.getAgent(caller, made.agent.id);
+    expect(after.agent.active_release_id).toBe(active);
+    expect(after.agent.activation_revision).toBe(
+      detail.agent.activation_revision,
+    );
+    // Another agent's row answers as missing, so nothing tells it is there.
+    const other = await newAgent(caller, { connection_id: TEST_CONNECTION_ID });
+    expect(
+      await refusalOf(
+        agentsService.activateAgent(caller, other.agent.id, {
+          release_id: topKey,
+          expected_revision: other.agent.activation_revision,
+        }),
+      ),
+    ).toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  test("an active release this build cannot read leaves the detail readable and refuses a release that would carry its pin", async () => {
+    const caller = await owner();
+    const agentsService = service();
+    const made = await newAgent(caller, { connection_id: TEST_CONNECTION_ID });
+    const unreadable = await newerBuildRelease(made.release.release_id ?? "", {
+      repositories: ["app"],
+      push_approval: true,
+      features: {
+        workflows: false,
+        actions: false,
+        checks: false,
+        issues: false,
+        review: false,
+      },
+      actions_allow: [],
+      future_top: true,
+    });
+    await db
+      .update(agents)
+      .set({ activeReleaseId: unreadable })
+      .where(eq(agents.id, made.agent.id));
+
+    const detail = await agentsService.getAgent(caller, made.agent.id);
+    expect(detail.agent.active_release_id).toBe(unreadable);
+    expect(detail.active_release).toBeNull();
+    expect(detail.unreadable_releases).toEqual([
+      { id: unreadable, reason_code: "policy_pins_unreadable" },
+    ]);
+    const before = await releaseCount(made.agent.id);
+    expect(
+      await refusalOf(
+        agentsService.createRelease(caller, made.agent.id, {
+          version_id: made.versions[0]?.id ?? "",
+          connection_id: TEST_CONNECTION_ID,
+        }),
+      ),
+    ).toEqual({
+      code: "RELEASE_SPEC_UNAVAILABLE",
+      details: {
+        reason_code: "release_unreadable",
+        release_id: unreadable,
+        unreadable: "policy_pins_unreadable",
+      },
+    });
+    // Without an active release to read, a card alone has no connection to
+    // release on: the version is kept and nothing is released.
+    const cardOnly = await agentsService.updateAgent(caller, made.agent.id, {
+      card: card("v2"),
+    });
+    expect(cardOnly.release.status).toBe("unchanged");
+    const withConnection = await agentsService.updateAgent(
+      caller,
+      made.agent.id,
+      { card: card("v3"), connection_id: TEST_CONNECTION_ID },
+    );
+    expect(withConnection.release).toMatchObject({
+      status: "failed",
+      reason: "release_unreadable",
+    });
+    expect(await releaseCount(made.agent.id)).toBe(before);
   });
 
   test("a direct activation (a rollback) takes a revision and runs the release it names", async () => {

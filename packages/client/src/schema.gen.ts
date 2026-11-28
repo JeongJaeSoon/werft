@@ -1505,7 +1505,7 @@ export interface paths {
         put?: never;
         /**
          * Durably accept a session and its first input
-         * @description Creates a session of an agent release (`agent_release_id`, required) and queues `message` as turn `1`. A private agent (`GET /v1/agents/{id}/usage`) is used only by the members of its teams, the workspace's owners and admins, its admins and the members of its managing team; for anyone else its release answers 404, the very answer of a release that does not exist, before the integrity and state refusals below and whatever else the caller lacks (a key without the scope, or bound to another agent, or a Slack channel past its ceiling, included). Only those inside the agent start it: the workspace's owners and admins, its admins and its managing team's live members, or a personal key's creator who is one of them; anyone else is refused with 403 `FORBIDDEN`, `details.reason_code` `role`. The session runs the release's spec: its connection, runtime and the card's model. `repository_id` is optional; a repository named here is checked against the agent's GitHub settings list where those apply and against the workspace ceiling, else 403 GITHUB_REFUSED. A session created without one starts in an empty workspace, has no default push target (`POST /v1/sessions/{id}/push-requests` must name an attached repository, else it answers 409 PUSH_SOURCE_MISSING) and its detail's `repository_id` is null. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the release's connection offers; omitted, the model of the release's card runs. The session's detail reports it as `model`. A session waits in `queued` while no execution slot is free; it is never refused for that. A key bound to the agent may create it (it reads the agent's `active_release_id` from `GET /v1/agents`). Omitted, an agent with GitHub settings starts without a repository and attaches what it needs, and an agent with none uses the release's `repository_id`. A release whose connection is disabled or gone, or whose model left the connection's list, answers 409 RELEASE_SPEC_UNAVAILABLE. An agent that is paused or archived answers 409 AGENT_NOT_RUNNABLE with `details.reason_code` `agent_inactive`, and a release no activation ever approved answers it with `release_unapproved`. An agent that has had no one to administer it (`ownerless`) for `AGENT_OWNERLESS_GRACE_DAYS` (14) days since `ownerless_since` answers it with `agent_ownerless`; ownership is judged when the session is written, so adding an admin lets the next start through at once, and sessions already running are not stopped; an older release that was approved still starts while the agent is active and not refused as `agent_ownerless`, and a retry of a session made earlier gets its first answer. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The caller limits of the agent (`GET /v1/agents/{id}/caller-limits`) that reach the caller are merged (the workspace's, those of the teams the caller is in, and the Slack channel's) and fixed on the session as `caller_limit`; the first turn runs under the creator's limit, so a start is checked on all four dimensions the way an input is: a repository outside the merged `repositories`, a credential the merged `credentials_deny` names, an MCP server outside `mcp_servers`, or a tool the release loads that `tools_deny` names answers 403 `FORBIDDEN` with `details` `{reason_code: caller_limited, dimension: repository | credential | mcp_server | tool}` and no session. The write merges the limits again under lock, and its result wins over a rule changed since. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.
+         * @description Creates a session of an agent release (`agent_release_id`, required) and queues `message` as turn `1`. A private agent (`GET /v1/agents/{id}/usage`) is used only by the members of its teams, the workspace's owners and admins, its admins and the members of its managing team; for anyone else its release answers 404, the very answer of a release that does not exist, before the integrity and state refusals below and whatever else the caller lacks (a key without the scope, or bound to another agent, or a Slack channel past its ceiling, included). Only those inside the agent start it: the workspace's owners and admins, its admins and its managing team's live members, or a personal key's creator who is one of them; anyone else is refused with 403 `FORBIDDEN`, `details.reason_code` `role`. The session runs the release's spec: its connection, runtime and the card's model. `repository_id` is optional; a repository named here is checked against the agent's GitHub settings list where those apply and against the workspace ceiling, else 403 GITHUB_REFUSED. A session created without one starts in an empty workspace, has no default push target (`POST /v1/sessions/{id}/push-requests` must name an attached repository, else it answers 409 PUSH_SOURCE_MISSING) and its detail's `repository_id` is null. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the release's connection offers; omitted, the model of the release's card runs. The session's detail reports it as `model`. A session waits in `queued` while no execution slot is free; it is never refused for that. A key bound to the agent may create it (it reads the agent's `active_release_id` from `GET /v1/agents`). Omitted, an agent with GitHub settings starts without a repository and attaches what it needs, and an agent with none uses the release's `repository_id`. A release whose connection is disabled or gone, or whose model left the connection's list, answers 409 RELEASE_SPEC_UNAVAILABLE; so does a release row this build cannot read (one a newer build stored), with `details.reason_code` `release_unreadable` and its `release_id`, and only the release named is read. An agent that is paused or archived answers 409 AGENT_NOT_RUNNABLE with `details.reason_code` `agent_inactive`, and a release no activation ever approved answers it with `release_unapproved`. An agent that has had no one to administer it (`ownerless`) for `AGENT_OWNERLESS_GRACE_DAYS` (14) days since `ownerless_since` answers it with `agent_ownerless`; ownership is judged when the session is written, so adding an admin lets the next start through at once, and sessions already running are not stopped; an older release that was approved still starts while the agent is active and not refused as `agent_ownerless`, and a retry of a session made earlier gets its first answer. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The caller limits of the agent (`GET /v1/agents/{id}/caller-limits`) that reach the caller are merged (the workspace's, those of the teams the caller is in, and the Slack channel's) and fixed on the session as `caller_limit`; the first turn runs under the creator's limit, so a start is checked on all four dimensions the way an input is: a repository outside the merged `repositories`, a credential the merged `credentials_deny` names, an MCP server outside `mcp_servers`, or a tool the release loads that `tools_deny` names answers 403 `FORBIDDEN` with `details` `{reason_code: caller_limited, dimension: repository | credential | mcp_server | tool}` and no session. The write merges the limits again under lock, and its result wins over a rule changed since. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.
          *
          *     **Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.
          */
@@ -2888,7 +2888,7 @@ export interface paths {
         };
         /**
          * An agent with its versions, releases and active release
-         * @description The agent's settings: its card versions, releases and active release. Read by the workspace's owners and admins and by those inside the agent: its admins and the live members of its managing team. A member outside it gets 404, the answer of an id of no agent in the workspace: the agent is hidden from them. A private agent the caller may not use is 404 too, with the body of an id of no agent, whatever the caller's other rights outside it. It changes nothing.
+         * @description The agent's settings: its card versions, releases and active release. Read by the workspace's owners and admins and by those inside the agent: its admins and the live members of its managing team. A member outside it gets 404, the answer of an id of no agent in the workspace: the agent is hidden from them. A private agent the caller may not use is 404 too, with the body of an id of no agent, whatever the caller's other rights outside it. A release row this build cannot read (one a newer build stored, which the insert-only table keeps) is left out of `releases` and named in `unreadable_releases` by its id and `reason_code` alone (`policy_pins_unreadable` or `row_unreadable`), never its values; while it is the active release, `active_release` is null and `agent.active_release_id` still names it. It changes nothing.
          *
          *     **Auth:** cookie session only; no scope.
          */
@@ -2924,7 +2924,7 @@ export interface paths {
         put?: never;
         /**
          * Release a version on a provider connection
-         * @description The release id is a hash of the card, the connection and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. A model the connection does not offer, or a connection that is not enabled, answers 422. `repository_id` names the catalog repository the release pins, optional: 422 when the catalog has no such repository. Slack sessions and API sessions that send no `repository_id` start on it only while the agent has no GitHub settings; an agent with settings starts them without a repository. A request carrying `github` for an agent that already has GitHub settings answers 409 ALREADY_EXISTS with `reason_code: github_settings_exist`: those are saved with `PUT /v1/agents/{id}/github/settings`. Releasing approves and activates nothing.
+         * @description The release id is a hash of the card, the connection and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. A model the connection does not offer, or a connection that is not enabled, answers 422. `repository_id` names the catalog repository the release pins, optional: 422 when the catalog has no such repository. Slack sessions and API sessions that send no `repository_id` start on it only while the agent has no GitHub settings; an agent with settings starts them without a repository. A request carrying `github` for an agent that already has GitHub settings answers 409 ALREADY_EXISTS with `reason_code: github_settings_exist`: those are saved with `PUT /v1/agents/{id}/github/settings`. A request without `github` for an agent without GitHub settings carries the active release's pin; while the active release is a row this build cannot read, it answers 409 RELEASE_SPEC_UNAVAILABLE with `details.reason_code` `release_unreadable` and the active `release_id`. Releasing approves and activates nothing.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -2946,7 +2946,7 @@ export interface paths {
         put?: never;
         /**
          * Point the agent at a release (compare-and-swap)
-         * @description `expected_revision` is the agent's current `activation_revision` (-1 before the first activation); a stale one answers 409 REVISION_CONFLICT. Sending the same activation again is a no-op with a null `receipt_id`. A release whose connection is disabled or whose model left the connection's list answers 409 RELEASE_SPEC_UNAVAILABLE and has to be released again. A release whose card names a credential not bound to the agent answers 409 CREDENTIAL_UNBOUND with the missing names in `details.missing` (`ActivationCredentialUnboundDetails`). Sessions already pinned keep their release.
+         * @description `expected_revision` is the agent's current `activation_revision` (-1 before the first activation); a stale one answers 409 REVISION_CONFLICT. Sending the same activation again is a no-op with a null `receipt_id`. A release whose connection is disabled or whose model left the connection's list answers 409 RELEASE_SPEC_UNAVAILABLE and has to be released again; a release row of this agent that this build cannot read answers it with `details.reason_code` `release_unreadable` (such a row of another agent answers 404). A release whose card names a credential not bound to the agent answers 409 CREDENTIAL_UNBOUND with the missing names in `details.missing` (`ActivationCredentialUnboundDetails`). Sessions already pinned keep their release.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -11656,6 +11656,11 @@ export interface components {
                 activated_at: string | null;
                 deactivated_at: string | null;
             } | null;
+            unreadable_releases: {
+                id: string;
+                /** @enum {string} */
+                reason_code: "policy_pins_unreadable" | "row_unreadable";
+            }[];
             behavior_revision: number;
             draft: {
                 /** Format: uuid */
@@ -11919,6 +11924,11 @@ export interface components {
                 activated_at: string | null;
                 deactivated_at: string | null;
             } | null;
+            unreadable_releases: {
+                id: string;
+                /** @enum {string} */
+                reason_code: "policy_pins_unreadable" | "row_unreadable";
+            }[];
             behavior_revision: number;
             draft: {
                 /** Format: uuid */
@@ -25097,7 +25107,7 @@ export interface operations {
             };
             /**
              * @description - `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.
-             *     - `RELEASE_SPEC_UNAVAILABLE`: The release's connection is disabled or gone, or its model left the connection's list; release the agent again. `error.details.reason_code` is `connection_missing` or `model_removed`.
+             *     - `RELEASE_SPEC_UNAVAILABLE`: The release's connection is disabled or gone, or its model left the connection's list; release the agent again. `error.details.reason_code` is `connection_missing` or `model_removed`. `release_unreadable`: the release row was stored by a newer build and this build cannot read it (`details.release_id`, and `details.unreadable` `policy_pins_unreadable` or `row_unreadable`); upgrade to a newer build, or activate another release.
              *     - `AGENT_NOT_RUNNABLE`: A new session cannot start: `error.details.reason_code` is `agent_inactive` (the agent is paused or archived), `agent_ownerless` (no one has administered the agent for 14 days since its `ownerless_since`) or `release_unapproved` (the release named was never approved by an activation). A session pinned to an older release that was approved still starts while the agent is active and not refused as `agent_ownerless`.
              *     - `CREDENTIAL_UNBOUND`: The release names a credential its agent has no live binding for; an agent admin must bind it first.
              */
@@ -34776,7 +34786,10 @@ export interface operations {
                     };
                 };
             };
-            /** @description - `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique. */
+            /**
+             * @description - `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique.
+             *     - `RELEASE_SPEC_UNAVAILABLE`: The release's connection is disabled or gone, or its model left the connection's list; release the agent again. `error.details.reason_code` is `connection_missing` or `model_removed`. `release_unreadable`: the release row was stored by a newer build and this build cannot read it (`details.release_id`, and `details.unreadable` `policy_pins_unreadable` or `row_unreadable`); upgrade to a newer build, or activate another release.
+             */
             409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -34786,7 +34799,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"] & {
                         error?: {
                             /** @enum {string} */
-                            code?: "ALREADY_EXISTS";
+                            code?: "ALREADY_EXISTS" | "RELEASE_SPEC_UNAVAILABLE";
                         };
                     };
                 };
@@ -34946,7 +34959,7 @@ export interface operations {
             };
             /**
              * @description - `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.
-             *     - `RELEASE_SPEC_UNAVAILABLE`: The release's connection is disabled or gone, or its model left the connection's list; release the agent again. `error.details.reason_code` is `connection_missing` or `model_removed`.
+             *     - `RELEASE_SPEC_UNAVAILABLE`: The release's connection is disabled or gone, or its model left the connection's list; release the agent again. `error.details.reason_code` is `connection_missing` or `model_removed`. `release_unreadable`: the release row was stored by a newer build and this build cannot read it (`details.release_id`, and `details.unreadable` `policy_pins_unreadable` or `row_unreadable`); upgrade to a newer build, or activate another release.
              *     - `CREDENTIAL_UNBOUND`: The release names a credential its agent has no live binding for; an agent admin must bind it first.
              */
             409: {

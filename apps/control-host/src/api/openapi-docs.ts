@@ -250,7 +250,7 @@ export const ERROR_CODE_WHEN: Partial<Record<ApiErrorCode, When>> = {
   AGENT_NOT_RUNNABLE:
     "A new session cannot start: `error.details.reason_code` is `agent_inactive` (the agent is paused or archived), `agent_ownerless` (no one has administered the agent for 14 days since its `ownerless_since`) or `release_unapproved` (the release named was never approved by an activation). A session pinned to an older release that was approved still starts while the agent is active and not refused as `agent_ownerless`.",
   RELEASE_SPEC_UNAVAILABLE:
-    "The release's connection is disabled or gone, or its model left the connection's list; release the agent again. `error.details.reason_code` is `connection_missing` or `model_removed`.",
+    "The release's connection is disabled or gone, or its model left the connection's list; release the agent again. `error.details.reason_code` is `connection_missing` or `model_removed`. `release_unreadable`: the release row was stored by a newer build and this build cannot read it (`details.release_id`, and `details.unreadable` `policy_pins_unreadable` or `row_unreadable`); upgrade to a newer build, or activate another release.",
   LOGIN_LINK_REQUIRED:
     "The verified address has an account this external login cannot be joined to: it already has another account of this issuer, or, for an invite, the provider vouches for another address. Nothing is joined; sign in with the existing account, or ask an owner.",
   PUSH_SOURCE_MISSING:
