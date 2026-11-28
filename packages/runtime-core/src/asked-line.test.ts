@@ -784,6 +784,26 @@ const WIDE: [string, string, string | null][] = [
     'for x in a; do grep -r "$x"; done',
     "a search of a tree",
   ],
+  [
+    "a body start in a comment after an if case pattern",
+    "gh pr create --title docs --body \"$(\n  if case docs in\n    docs)\n      # Example: $(cat <<'true'\n      grep -r needle .\n      ;;\n  esac; then true; fi\ntrue\n)\"",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a search after a redirect",
+    "if 2>/dev/null grep -r needle .; then echo found; fi",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a search after a spaced redirect",
+    "2> /dev/null grep -r needle . | head",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a search after a redirect and a setting",
+    "LC_ALL=C &>/dev/null grep -r needle . | head",
+    "a search of the workspace or a kept path",
+  ],
   ["a message after clustered flags", "git commit -aq -m .claude", null],
   ["a gh body after a flag", "gh pr create --draft --body .claude", null],
   [

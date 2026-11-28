@@ -1395,6 +1395,8 @@ const QUIET_ENV =
 const PROGRAM_ENV =
   /^(GIT_PAGER|GH_PAGER|PAGER|GIT_EDITOR|GH_EDITOR|EDITOR|VISUAL|GIT_SEQUENCE_EDITOR)$/;
 const QUIET_PROGRAMS = ["", "cat", "true", ":"];
+/** A redirect before a command: `2>/dev/null`, `&>`, `<in`, not `<<` or `<(`. */
+const REDIRECT = /^(?:\d+|&)?(?:>>?\|?|>&|<&|<(?![<(]))/;
 const SHELL_KEYWORDS = [
   "if",
   "then",
@@ -1418,11 +1420,31 @@ function wideKept(
   place: Place,
   written?: readonly string[],
 ): string | null {
-  // A keyword that starts a compound command runs what follows it
-  // (`if grep -r x .; then`).
-  const lead = words.findIndex((word) => !SHELL_KEYWORDS.includes(word));
-  if (lead === -1) return null;
-  if (lead > 0) return wideKept(words.slice(lead), place, written?.slice(lead));
+  // The command is read without what the shell takes away before it runs:
+  // a keyword that starts a compound command (`if grep -r x .; then`) and
+  // a redirect (`2>/dev/null grep`, `2> /dev/null grep`).
+  const read: number[] = [];
+  for (let i = 0; i < words.length; i += 1) {
+    const word = words[i] as string;
+    if (read.length === 0 && SHELL_KEYWORDS.includes(word)) continue;
+    const redirect = REDIRECT.exec(word);
+    if (redirect !== null) {
+      if (redirect[0] === word) i += 1;
+      continue;
+    }
+    read.push(i);
+    if (!ASSIGNMENT.test(word) && TOOLS.includes(nameOf(word))) {
+      for (let next = i + 1; next < words.length; next += 1) read.push(next);
+      break;
+    }
+  }
+  if (read.length < words.length) {
+    return wideKept(
+      read.map((i) => words[i] as string),
+      place,
+      written === undefined ? undefined : read.map((i) => written[i] as string),
+    );
+  }
   const wraps = (word: string) => WRAPPERS.includes(nameOf(word));
   const at = words.findIndex(
     (word) => !ASSIGNMENT.test(word) && TOOLS.includes(nameOf(word)),
@@ -1950,7 +1972,9 @@ function withoutCatBodies(text: string): string {
   // `case` and `esac` as a command's first word, not an argument.
   const word = (name: string) =>
     text.startsWith(name, read) &&
-    /(^|[\n;&|(])[ \t]*$/.test(text.slice(Math.max(0, read - 80), read)) &&
+    /(^|[\n;&|(])[ \t]*(?:(?:if|then|elif|else|while|until|do|!|\{)[ \t]+)*$/.test(
+      text.slice(Math.max(0, read - 80), read),
+    ) &&
     /^$|[\s;&|)]/.test(text[read + name.length] ?? "");
   let comment = false;
   let escaped = false;
