@@ -5057,10 +5057,15 @@ describe("startCredentialProxy", () => {
         async () => {
           const up = inside(() => Response.json({ id: "msg_1" }));
           let deny: string[] = [];
+          // The slow call's asks alone: the call that prepares has its own
+          // exchange id, and a regrant of it may still be on its way.
+          let prep: string | null | undefined;
           let asks = 0;
-          const { server, lines } = marked(
+          const made = marked(
             () => {
-              asks += 1;
+              if (prep !== undefined && made.auth.exchanges.at(-1) !== prep) {
+                asks += 1;
+              }
               return grantOf(`http://${INSIDE}:${up.port}`, {
                 allow: "private",
                 deny,
@@ -5069,14 +5074,13 @@ describe("startCredentialProxy", () => {
             async () => [lan ?? ""],
             { selfAddresses: () => [], regrantIntervalMs: 20 },
           );
+          const { server, lines } = made;
           const asked = async (count: number) => {
             while (asks < count) await Bun.sleep(5);
           };
           expect((await messages(server.port)).status).toBe(200);
           expect(up.seen).toHaveLength(1);
-          // That call's last regrant, if one was on its way, has landed.
-          await Bun.sleep(50);
-          const first = asks;
+          prep = made.auth.exchanges[0] ?? null;
           let body: ReadableStreamDefaultController<Uint8Array> | undefined;
           const slow = fetch(
             `http://127.0.0.1:${server.port}/provider/v1/messages`,
@@ -5093,9 +5097,9 @@ describe("startCredentialProxy", () => {
           );
           // Granted and judged with nothing held off; then the address is,
           // and two more grants say so before the body ends.
-          await asked(first + 1);
+          await asked(1);
           deny = [lan ?? ""];
-          await asked(first + 3);
+          await asked(3);
           // A later grant that no longer names it (another replica's) does
           // not let it back in.
           deny = [];
@@ -5115,10 +5119,12 @@ describe("startCredentialProxy", () => {
         async () => {
           const up = inside(() => Response.json({ id: "msg_1" }));
           let answers = true;
+          let prep: string | null | undefined;
           let asks = 0;
           const auth = authorizer(() => {
-            asks += 1;
-            return answers
+            const slow = prep !== undefined && auth.exchanges.at(-1) !== prep;
+            if (slow) asks += 1;
+            return answers || !slow
               ? Response.json(grantOf(`http://${INSIDE}:${up.port}`))
               : Response.json(
                   {
@@ -5141,9 +5147,7 @@ describe("startCredentialProxy", () => {
           };
           expect((await messages(server.port)).status).toBe(200);
           expect(up.seen).toHaveLength(1);
-          // That call's last regrant, if one was on its way, has landed.
-          await Bun.sleep(50);
-          const first = asks;
+          prep = auth.exchanges[0] ?? null;
           let body: ReadableStreamDefaultController<Uint8Array> | undefined;
           const slow = fetch(
             `http://127.0.0.1:${server.port}/provider/v1/messages`,
@@ -5158,9 +5162,9 @@ describe("startCredentialProxy", () => {
               }),
             },
           );
-          await asked(first + 1);
+          await asked(1);
           answers = false;
-          await asked(first + 3);
+          await asked(3);
           body?.enqueue(new TextEncoder().encode('"m"}'));
           body?.close();
           expect((await slow).status).toBe(503);
@@ -5172,13 +5176,15 @@ describe("startCredentialProxy", () => {
         "a regrant still under way when the body ends holds the call too",
         async () => {
           const up = inside(() => Response.json({ id: "msg_1" }));
+          let prep: string | null | undefined;
           let asks = 0;
           let hold = false;
           let held = 0;
           let answer: (() => void) | undefined;
           const auth = authorizer((async () => {
-            asks += 1;
-            if (hold) {
+            const slow = prep !== undefined && auth.exchanges.at(-1) !== prep;
+            if (slow) asks += 1;
+            if (hold && slow) {
               held += 1;
               await new Promise<void>((go) => {
                 answer = go;
@@ -5194,9 +5200,7 @@ describe("startCredentialProxy", () => {
           });
           expect((await messages(server.port)).status).toBe(200);
           expect(up.seen).toHaveLength(1);
-          // That call's last regrant, if one was on its way, has landed.
-          await Bun.sleep(50);
-          const first = asks;
+          prep = auth.exchanges[0] ?? null;
           let body: ReadableStreamDefaultController<Uint8Array> | undefined;
           const slow = fetch(
             `http://127.0.0.1:${server.port}/provider/v1/messages`,
@@ -5213,7 +5217,7 @@ describe("startCredentialProxy", () => {
           );
           // The slow call is granted; from then on its regrants are asked
           // and not answered, and one is under way when the body ends.
-          while (asks < first + 1) await Bun.sleep(5);
+          while (asks < 1) await Bun.sleep(5);
           hold = true;
           while (held < 1) await Bun.sleep(5);
           body?.enqueue(new TextEncoder().encode('"m"}'));

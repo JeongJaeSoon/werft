@@ -110,27 +110,31 @@ export function createInstallationHosts(deps: {
     if (key === null) throw new Error("A wired host names no host");
     return { key, name: name.replace(/^\[|\]$/g, "") };
   });
-  // Per name: each address it answered with and when that lapses, and when
-  // the newest question of it that failed was asked. One per name for the
-  // life of the process; the addresses are only ever added to and aged.
+  // Per name: each address it answered with and when that lapses, and the
+  // newest question of it that failed. One per name for the life of the
+  // process; the addresses are only ever added to and aged.
   const known = new Map<
     string,
-    { until: Map<string, number>; failedAt: number }
+    { until: Map<string, number>; failed: number }
   >();
+  // Questions are told apart by the order they were asked in, not by the
+  // clock, which may read the same for two of them.
+  let questions = 0;
 
-  /** When `name` was asked, once it has answered; null when it did not. */
+  /** Which question `name` answered, or null when it did not. */
   async function ask(name: string): Promise<number | null> {
-    const askedAt = now();
+    questions += 1;
+    const question = questions;
     // An address names itself; its key is already in the list.
-    if (isIP(name) !== 0) return askedAt;
+    if (isIP(name) !== 0) return question;
     let state = known.get(name);
     if (state === undefined) {
-      state = { until: new Map(), failedAt: Number.NEGATIVE_INFINITY };
+      state = { until: new Map(), failed: 0 };
       known.set(name, state);
     }
     const { until } = state;
     const failed = () => {
-      state.failedAt = Math.max(state.failedAt, askedAt);
+      state.failed = Math.max(state.failed, question);
       return null;
     };
     let answers: readonly { address: string }[];
@@ -158,7 +162,7 @@ export function createInstallationHosts(deps: {
     for (const [address, end] of until) {
       if (end <= at) until.delete(address);
     }
-    return askedAt;
+    return question;
   }
 
   return async () => {
@@ -179,7 +183,7 @@ export function createInstallationHosts(deps: {
       if (state === undefined) continue;
       // A question of this name asked after this call's failed: what this
       // call holds of it may be behind, and nothing says it is not.
-      if (state.failedAt > mine) return null;
+      if (state.failed > mine) return null;
       for (const [address, end] of state.until) {
         if (end > at) hosts.add(address);
       }

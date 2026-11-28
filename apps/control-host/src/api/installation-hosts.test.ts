@@ -189,6 +189,9 @@ describe("createInstallationHosts", () => {
     const hosts = createInstallationHosts({
       names: ["store", "db"],
       interfaces: () => [],
+      // A clock that reads the same all along: the order of the questions
+      // does not come from it.
+      now: () => 7,
       lookup: (host) => {
         if (host === "db") {
           return new Promise((resolve) => {
