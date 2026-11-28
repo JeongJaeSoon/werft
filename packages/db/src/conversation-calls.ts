@@ -1106,6 +1106,7 @@ export function createPostgresConversationCalls(
                 outcome: "already_settled",
                 costUsd: call.costUsd ?? 0,
                 unmetered,
+                model: call.model,
               }
             : { outcome: "conflict" };
         }
@@ -1122,7 +1123,12 @@ export function createPostgresConversationCalls(
             actual: { costUsd, tokens: reservationTokens(input.usage) },
           });
           if (adjusted === "adjusted") {
-            return { outcome: "settled", costUsd, unmetered };
+            return {
+              outcome: "settled",
+              costUsd,
+              unmetered,
+              model: call.model,
+            };
           }
           if (adjusted !== "already_adjusted") {
             throw new Error(
@@ -1137,6 +1143,7 @@ export function createPostgresConversationCalls(
             outcome: "already_settled",
             costUsd: first?.costUsd ?? 0,
             unmetered,
+            model: call.model,
           };
         }
         // Bound and not settled is in flight, its end unknown or not, held
@@ -1168,7 +1175,7 @@ export function createPostgresConversationCalls(
             unknownAt: null,
           })
           .where(eq(conversationCalls.id, input.callId));
-        return { outcome: "settled", costUsd, unmetered };
+        return { outcome: "settled", costUsd, unmetered, model: call.model };
       });
     },
 

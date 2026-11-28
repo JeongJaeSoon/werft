@@ -3284,6 +3284,7 @@ describe("a conversation call's usage report", () => {
           ? 0
           : input.priceFor({ unmetered, model: issuedFor }).costUsd,
         unmetered,
+        model: issuedFor,
       }),
     };
     const instance = createWorkerGateway({
@@ -3320,6 +3321,11 @@ describe("a conversation call's usage report", () => {
     expect((await reported(false)).costUsd).toBeGreaterThan(0);
     // Issued for a model nothing prices; the answer names a table model.
     expect(await reported(false, false, "gemma4-local")).toEqual({
+      costUsd: 0,
+      pricedBy: "unknown",
+    });
+    // A replay prices nothing and still says what settled the call.
+    expect(await reported(false, true, "gemma4-local")).toEqual({
       costUsd: 0,
       pricedBy: "unknown",
     });

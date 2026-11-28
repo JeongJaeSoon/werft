@@ -328,6 +328,9 @@ export type ConversationCallSettle =
       costUsd: number;
       // The reservation was on an unmetered connection, so nothing was priced.
       unmetered: boolean;
+      // The model the call was issued for: with the answer's, what says
+      // which rates settled it, on a replay as on the first report.
+      model: string;
     }
   | { outcome: "unknown_call" }
   // Another exchange's call, or the same exchange reported other usage.

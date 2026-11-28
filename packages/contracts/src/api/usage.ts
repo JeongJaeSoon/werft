@@ -18,8 +18,9 @@ import {
 const countSchema = z.number().int().nonnegative();
 
 /**
- * Calls on a model nothing prices: neither price table nor the LiteLLM
- * snapshot names the model the request asked for, or the one that answered.
+ * Calls nothing prices: neither price table nor the LiteLLM snapshot names
+ * the model the request asked for or the one that answered, or a table
+ * names it and the call is outside its entry (a prompt past its rates).
  * Such a call has no amount: no cost beside these figures holds any part of
  * it, and no cost limit counts it. `token_count` is their tokens.
  */

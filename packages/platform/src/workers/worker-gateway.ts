@@ -141,7 +141,6 @@ import {
   type PricedBy,
   type ProviderUsage,
   priceJudgmentUsage,
-  priceProviderUsage,
   priceSettledUsage,
   readSetting,
   type SessionBudget,
@@ -2725,19 +2724,18 @@ export function createWorkerGateway(deps: {
       if (deps.conversationCalls === undefined || !callId.success) {
         throw new WorkerGatewayError(404, "NOT_FOUND", "No such call");
       }
-      // The dearer of the model the call was issued for and the one that
+      // Priced from the model the call was issued for and the one that
       // answered, as a session's call settles. A replayed report prices
-      // nothing: what its first settlement charged stands.
-      let pricedBy = priceProviderUsage(report.usage).pricedBy;
+      // nothing: what its first settlement charged stands, and the answer
+      // names what settled it from the same two models.
       const result = await deps.conversationCalls.store.settleAtomic({
         callId: callId.data,
         exchangeId: report.exchangeId,
         usage: report.usage,
-        priceFor: (call) => {
-          const priced = priceSettledUsage(report.usage, call.model);
-          pricedBy = priced.pricedBy;
-          return call.unmetered ? { costUsd: 0 } : priced;
-        },
+        priceFor: (call) =>
+          call.unmetered
+            ? { costUsd: 0 }
+            : priceSettledUsage(report.usage, call.model),
       });
       switch (result.outcome) {
         case "unknown_call":
@@ -2751,7 +2749,9 @@ export function createWorkerGateway(deps: {
         default:
           return {
             costUsd: result.costUsd,
-            pricedBy: result.unmetered ? "unmetered" : pricedBy,
+            pricedBy: result.unmetered
+              ? "unmetered"
+              : priceSettledUsage(report.usage, result.model).pricedBy,
           };
       }
     },

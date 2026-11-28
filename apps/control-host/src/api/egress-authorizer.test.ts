@@ -418,7 +418,7 @@ describe("usage reports", () => {
       { path: EGRESS_USAGE_PATH },
     );
     expect(retry.status).toBe(200);
-    // Priced today it would be the fallback; the answer is what was charged.
+    // A replay prices nothing: the answer is what was charged.
     expect(await retry.json()).toEqual({ cost_usd: 0.025, priced_by: "table" });
   });
 });
