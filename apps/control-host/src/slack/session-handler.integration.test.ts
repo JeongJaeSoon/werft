@@ -6494,7 +6494,9 @@ describe.each(ENGINES)(
             maxRequestBytes: 4_096,
           }),
           unmetered: false,
+          pricedBy: "table",
         }),
+        unknownPriceTokenLimit: 5_000_000,
       });
       return {
         outcome: granted.outcome,
@@ -6518,7 +6520,7 @@ describe.each(ENGINES)(
               codeExecutionRequests: 0,
               estimated: false,
             },
-            priceFor: () => ({ costUsd: 0.001 }),
+            priceFor: () => ({ costUsd: 0.001, pricedBy: "table" }),
           }),
       };
     };
@@ -8839,7 +8841,9 @@ describe.each(ENGINES)(
             maxRequestBytes: 4_096,
           }),
           unmetered: false,
+          pricedBy: "table",
         }),
+        unknownPriceTokenLimit: 5_000_000,
       });
       expect(granted.outcome).toBe("ok");
       const calls = await db

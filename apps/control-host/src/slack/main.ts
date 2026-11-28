@@ -293,6 +293,10 @@ export function slackSessionHandler(deps: {
       calls: createConversationCalls({
         store: createPostgresConversationCalls(db),
         catalog,
+        unknownPriceTokenLimit: () =>
+          installationConfigOf(db, logger).get(
+            "unknown_price_session_token_limit",
+          ),
       }),
       queue: createPostgresConversationTurnQueue(db, secretKey),
       statuses: createPostgresMentionTurnStatuses(db),

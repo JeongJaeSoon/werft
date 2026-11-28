@@ -574,7 +574,21 @@ describe("createM1Judge", () => {
     const cases: [ConversationCallResult<unknown>, JudgmentNotCalledReason][] =
       [
         [
-          { outcome: "refused", rootKind: "none", accountId: null },
+          {
+            outcome: "refused",
+            rootKind: "none",
+            accountId: null,
+            by: "budget",
+          },
+          "budget_refused",
+        ],
+        [
+          {
+            outcome: "refused",
+            rootKind: "user",
+            accountId: null,
+            by: "unknown_price_tokens",
+          },
           "budget_refused",
         ],
         [

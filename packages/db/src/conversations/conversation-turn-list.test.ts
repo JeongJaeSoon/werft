@@ -222,7 +222,8 @@ describe("an agent's conversation turns, for its admins", () => {
         tokenHash: hashConversationCallToken(token),
         exchangeId,
         callId,
-        reserveFor: () => ({ reserve, unmetered: false }),
+        reserveFor: () => ({ reserve, unmetered: false, pricedBy: "table" }),
+        unknownPriceTokenLimit: 5_000_000,
       });
       expect(granted.outcome).toBe("ok");
       asked.push({ callId, exchangeId });
@@ -232,7 +233,7 @@ describe("an agent's conversation turns, for its admins", () => {
     const settled = await calls.settleAtomic({
       ...first,
       usage: USED,
-      priceFor: () => ({ costUsd: 0.0021 }),
+      priceFor: () => ({ costUsd: 0.0021, pricedBy: "table" }),
     });
     expect(settled.outcome).toBe("settled");
     expect(
@@ -356,7 +357,8 @@ describe("an agent's conversation turns, for its admins", () => {
       tokenHash: hashConversationCallToken(token),
       exchangeId,
       callId,
-      reserveFor: () => ({ reserve, unmetered: false }),
+      reserveFor: () => ({ reserve, unmetered: false, pricedBy: "table" }),
+      unknownPriceTokenLimit: 5_000_000,
     });
     expect(granted.outcome).toBe("ok");
     expect(
@@ -365,7 +367,7 @@ describe("an agent's conversation turns, for its admins", () => {
           callId,
           exchangeId,
           usage: USED,
-          priceFor: () => ({ costUsd: 0.0021 }),
+          priceFor: () => ({ costUsd: 0.0021, pricedBy: "table" }),
         })
       ).outcome,
     ).toBe("settled");

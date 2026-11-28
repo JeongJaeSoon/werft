@@ -307,7 +307,7 @@ integration("channel summary folds (a1/J10)", () => {
         callId: granted.callId,
         exchangeId,
         usage: USED,
-        priceFor: () => ({ costUsd: 0.001 }),
+        priceFor: () => ({ costUsd: 0.001, pricedBy: "table" }),
       });
       if (settled.outcome !== "settled") throw new Error(settled.outcome);
       return {

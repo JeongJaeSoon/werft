@@ -218,10 +218,15 @@ async function replayOf(
  * The reserve in a transaction the caller holds. Takes the call's lock, then
  * the account row: a caller may hold advisory locks of its own before it,
  * but no row lock an account's holder could be waiting on.
+ *
+ * `admitsUnknownPrice` is asked once the limit admits the reserve, with the
+ * account's row (null: none) locked, so two reserves of one account are
+ * judged by it one after the other too; false refuses it with nothing held.
  */
 export async function reserveBudgetIn(
   tx: Database,
   input: BudgetReserveInput,
+  admitsUnknownPrice?: (accountId: BudgetAccountId | null) => Promise<boolean>,
 ): Promise<BudgetReserveResult> {
   const costUsd = input.unmetered ? 0 : toStoredCost(input.reserve.costUsd);
   const tokens = input.reserve.tokens;
@@ -253,6 +258,12 @@ export async function reserveBudgetIn(
   });
   const accountId = account?.id ?? null;
   if (!admitted) return { outcome: "refused", accountId };
+  if (
+    admitsUnknownPrice !== undefined &&
+    !(await admitsUnknownPrice(accountId))
+  ) {
+    return { outcome: "refused", accountId, by: "unknown_price_tokens" };
+  }
   const inserted = await tx
     .insert(budgetReservations)
     .values({

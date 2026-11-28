@@ -305,7 +305,12 @@ describe("a summary fold", () => {
 
   test("a refused or failed call leaves the summary as it is", async () => {
     const refused = folderOf({
-      answer: () => ({ outcome: "refused", rootKind: "none", accountId: null }),
+      answer: () => ({
+        outcome: "refused",
+        rootKind: "none",
+        accountId: null,
+        by: "budget",
+      }),
     });
     expect(await refused.folder.fold(subject)).toBe("not_called");
     expect(refused.written).toEqual([]);
