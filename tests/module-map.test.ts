@@ -34,6 +34,7 @@ const modules = [
   "Kiel",
   "Musterrolle",
   "Kollegium",
+  "Wache",
   "Takelage",
   "Lotse",
   "걸침",

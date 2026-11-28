@@ -11,7 +11,8 @@
 | Werft | 제품 전체. 바깥에 내놓는 유일한 이름 |
 | Kiel | 세션을 격리해 돌리고, 제어하고, 한도·권한을 집행하고, 끊겨도 되살리는 실행 기반 |
 | Musterrolle | 누구인지 확인하고, 해도 되는지 판정하고, 그 판정을 기록 |
-| Kollegium | 에이전트가 무엇이고(정의), 어디서 불리고(채널), 언제 말하는지(대화) |
+| Kollegium | 에이전트 명부: 에이전트의 정의, release, 관리 팀, 채널 연결 설정 |
+| Wache | 상시 층: 듣기(Slack intake), 판단(attention loop, 대화 runtime), 말하기(outbox), 세션 띄우기(spawn_task) |
 | Takelage | 에이전트에 달 것(스킬, 원격 MCP 서버)을 들이고, 검사하고, 내주는 곳 |
 | Lotse | 세션과 세션 사이의 협업. 예정이고 아직 폴더가 없음 |
 
@@ -40,8 +41,8 @@
 | `packages/adapters/runtimes/registry` | Kiel |
 | `packages/runtime-core` | Kiel |
 | `packages/storage` | Kiel |
-| `packages/adapters/chat/slack` | Kollegium |
 | `apps/control-host` | 걸침 |
+| `packages/adapters/chat/slack` | 걸침 |
 | `packages/contracts` | 걸침 |
 | `packages/db` | 걸침 |
 | `packages/platform` | 걸침 |
@@ -79,8 +80,8 @@
 | `workers` | Kiel | platform · route | `workers/mcp-egress`는 실행 중 MCP 호출 중계 |
 | `access-control` | Musterrolle | contracts · platform · db · route | 안에 다른 모듈과 걸친 파일이 있음(Slack·GitHub 계약, 변수 부여, 알림) |
 | `agents` | Kollegium | contracts · platform · db · route |  |
-| `conversations` | Kollegium | platform · db | 결정·문맥은 대화 기능, 턴 큐·permit·호출 정산은 실행 책임(Kiel) |
-| `surface` | Kollegium | contracts · platform · db · route |  |
+| `conversations` | Wache | platform · db | 결정·문맥은 대화 기능, 턴 큐·permit·호출 정산은 실행 책임(Kiel) |
+| `surface` | Wache | contracts · platform · db · route | 채널 연결 설정(binding, Slack 앱)은 Kollegium과 맞닿음 |
 | `extensions` | Takelage | platform · db · route | `skills` `bundles` `mcp` `builtin`. `builtin`(내장 werft MCP 서버와 그 안내)은 걸침: 제품 표면이고 호출 허가에 Kiel·Musterrolle이 관여 |
 | `github` | 걸침 | platform · db · route | 토큰 발급·작업 실행은 Kiel, App·workspace·에이전트 설정은 관리 권한 |
 | `usage` | 걸침 | platform · db · route | 집계는 Kiel, 사람별 열람 권한과 보고서는 Musterrolle·Kollegium |
