@@ -202,9 +202,13 @@ describe(`budget account on ${engine.runtimeKind}`, () => {
         expect(second.status).toBe(201);
         const secondId = second.body.session_id;
         expect((await api.settleAllowing(secondId, "1")).status).toBe("failed");
-        // An account's refusal fails the turn as the provider's error and
-        // asks the session for no attention, in this release.
-        expect((await api.session(secondId)).attention).toBeNull();
+        // An account's refusal fails the turn as the provider's error, and
+        // the session's attention says whose account refused.
+        expect((await api.session(secondId)).attention).toEqual({
+          code: "BUDGET_EXCEEDED",
+          reason: "The requester's monthly budget account refused a model call",
+          budget_owner: "user",
+        });
         expect(await engine.modelCalls(late)).toEqual([]);
         expect(await accountRefusals(secondId)).toBeGreaterThan(0);
         // The first call was still held when the second was refused: the
