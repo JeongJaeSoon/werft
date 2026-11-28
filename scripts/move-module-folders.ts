@@ -16,7 +16,10 @@
  *      root, a "musterrolle/" or "kollegium/" path segment (no other folder
  *      or name in the repository is spelled so, so the segment alone says
  *      what is meant), a "routes/..." key route errors are filed under, and
- *      the links of the verify docs. Nothing inside a URL is rewritten.
+ *      the links of the verify docs. Nothing inside a URL is rewritten. A
+ *      rewritten segment that names no file or folder of the moved tree is
+ *      listed at the end, to be read: right for a path of a test fixture,
+ *      wrong for anything that was never a path of this repository.
  *   4. Run biome on what it rewrote (import order and line width follow the path).
  *      The contracts index keeps its order: see keptOrder.
  *   5. Regenerate the tables of docs/architecture/modules.md.
@@ -427,12 +430,6 @@ function unwrapped(node: ts.Node): ts.Node {
   return outer;
 }
 
-const isObjectFreeze = (callee: ts.Expression) =>
-  ts.isPropertyAccessExpression(callee) &&
-  ts.isIdentifier(callee.expression) &&
-  callee.expression.text === "Object" &&
-  callee.name.text === "freeze";
-
 function isRouteErrorKey(file: string, node: ts.Node): boolean {
   if (!file.startsWith(apiRoot)) return false;
   const value = unwrapped(node);
@@ -449,7 +446,7 @@ function isRouteErrorKey(file: string, node: ts.Node): boolean {
     while (
       ts.isCallExpression(table.parent) &&
       table.parent.arguments[0] === table &&
-      isObjectFreeze(table.parent.expression)
+      isMember(table.parent.expression, "Object", "freeze")
     )
       table = unwrapped(table.parent);
     return (
@@ -557,28 +554,56 @@ function mapToken(token: string): string {
  * Addresses are not paths of this repository: a URL with a scheme
  * ("https://[::1]/musterrolle/x", its slashes escaped or not), one without ("//host/musterrolle/x") and
  * an scp-style remote ("git@host:org/musterrolle"). Each runs to the next
- * space, quote or angle bracket, brackets and parentheses included.
+ * space, quote or angle bracket, brackets and parentheses included. A scheme
+ * and a user name are looked for at the start of a run of their characters
+ * only, so a long run without one is read once.
  */
 const address =
-  /(?:[a-z][a-z0-9+.-]*:(?:\\?\/|\\u002f){2}|(?<![:\w/])\/\/(?=[\w[])|[\w.-]+@[\w.-]+:)[^\s"'`<>]*/gi;
+  /(?:(?<![a-z0-9+.-])[0-9+.-]*[a-z][a-z0-9+.-]*:(?:\\?\/|\\u002f){2}|(?<![:\w/])\/\/(?=[\w[])|(?<![\w.-])[\w.-]+@[\w.-]+:)[^\s"'`<>]*/gi;
 
 /** One character of a literal's source: an escape sequence or a single unit. */
 const sourceUnit =
-  /\\(?:x[0-9a-f]{2}|u\{[0-9a-f]+\}|u[0-9a-f]{4}|[0-3][0-7]{0,2}|[4-7][0-7]?|\r\n|[\s\S])|\r\n|[\s\S]/gi;
+  /\\(?:x[0-9a-fA-F]{2}|u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|[0-3][0-7]{0,2}|[4-7][0-7]?|\r\n|[\s\S])|\r\n|[\s\S]/g;
+
+const isMember = (node: ts.Node, object: string, name: string) =>
+  ts.isPropertyAccessExpression(node) &&
+  ts.isIdentifier(node.expression) &&
+  node.expression.text === object &&
+  node.name.text === name;
 
 /**
- * Where each character of a literal's value sits in the source: its start
- * and its end. A literal this cannot follow is given whole to every
- * character.
+ * The value of a piece of literal text and where each of its characters sits
+ * in the source: its start and its end. String.raw text is its own value. A
+ * piece this cannot follow is given whole to every character.
  */
-function valueSpans(piece: ts.LiteralLikeNode, source: ts.SourceFile) {
+function readPiece(piece: ts.LiteralLikeNode, source: ts.SourceFile) {
   const start = piece.getStart(source) + 1;
   const end =
     piece.getEnd() -
     (ts.isTemplateHead(piece) || ts.isTemplateMiddle(piece) ? 2 : 1);
+  const written = source.text.slice(start, end);
+  const template = ts.isNoSubstitutionTemplateLiteral(piece)
+    ? piece
+    : ts.isTemplateHead(piece)
+      ? piece.parent
+      : ts.isTemplateMiddleOrTemplateTail(piece)
+        ? piece.parent.parent
+        : undefined;
+  if (
+    template &&
+    ts.isTaggedTemplateExpression(template.parent) &&
+    isMember(template.parent.tag, "String", "raw")
+  )
+    return {
+      text: written,
+      spans: Array.from(
+        written,
+        (_, index) => [start + index, start + index + 1] as const,
+      ),
+    };
   const spans: (readonly [number, number])[] = [];
   let at = start;
-  for (const [unit] of source.text.slice(start, end).matchAll(sourceUnit)) {
+  for (const [unit] of written.matchAll(sourceUnit)) {
     const sequence = unit.length > 1 && unit.startsWith("\\");
     const length = !sequence
       ? 1
@@ -591,17 +616,21 @@ function valueSpans(piece: ts.LiteralLikeNode, source: ts.SourceFile) {
     for (let n = 0; n < length; n += 1) spans.push([at, at + unit.length]);
     at += unit.length;
   }
-  return spans.length === piece.text.length
-    ? spans
-    : Array.from(piece.text, () => [start, end] as const);
+  const { text } = piece;
+  return spans.length === text.length
+    ? { text, spans }
+    : {
+        text,
+        spans: Array.from({ length: text.length }, () => [start, end] as const),
+      };
 }
 
 /**
  * Addresses read in the VALUE of a script's literals, which the source may
  * spell in a way the pattern above does not read: a slash written as an
- * escape, "//" straight after a newline escape, a host that is an expression
- * of a template. An expression is read as "x" and is not part of what this
- * returns, so a path written inside one is still looked at.
+ * escape, "//" straight after a newline escape, a scheme or a host that is
+ * an expression of a template. An expression is read as "x" and is not part
+ * of what this returns, so a path written inside one is still looked at.
  */
 function literalAddresses(file: string, text: string) {
   const found: (readonly [number, number])[] = [];
@@ -620,15 +649,23 @@ function literalAddresses(file: string, text: string) {
         value += "x";
         spans.push(undefined);
       }
-      value += piece.text;
-      spans.push(...valueSpans(piece, source));
+      const read = readPiece(piece, source);
+      value += read.text;
+      for (const span of read.spans) spans.push(span);
     }
-    for (const match of value.matchAll(address))
-      for (const span of spans.slice(
-        match.index,
-        match.index + match[0].length,
-      ))
-        if (span) found.push(span);
+    const runs = [...value.matchAll(address)].map(
+      (match) => [match.index, match.index + match[0].length] as const,
+    );
+    spans.forEach((span, index) => {
+      // An expression can be the scheme: "//" and a host straight after one.
+      const rest =
+        span === undefined
+          ? /^\/\/[\w[][^\s"'`<>]*/.exec(value.slice(index + 1))
+          : null;
+      if (rest) runs.push([index + 1, index + 1 + rest[0].length]);
+    });
+    for (const [from, to] of runs)
+      for (const span of spans.slice(from, to)) if (span) found.push(span);
     ts.forEachChild(node, visit);
   };
   visit(source);
@@ -660,17 +697,30 @@ function replacePaths(
   });
 }
 
+/**
+ * Code-named segments this run rewrote that name no file or folder of the
+ * moved tree. Right for a path of a test fixture, wrong for anything that
+ * was never a path of this repository, so they are printed to be read.
+ */
+const unnamed = new Set<string>();
+
 function rewriteText(file: string, text: string): string {
   let result = replacePaths(file, text, rootedPath, mapToken);
   result = replacePaths(
     file,
     result,
     codeNamedSegment,
-    (_all, folder, rest = "") => {
+    (all, folder, rest = "") => {
       // db and the routes keep the remote MCP files in extensions/mcp.
-      if (folder === "musterrolle" && /^workspace-mcp[^/]*$/.test(rest))
-        return `extensions/mcp/${rest}`;
-      return `${folder === "kollegium" ? "agents" : "access-control"}/${rest}`;
+      const next =
+        folder === "musterrolle" && /^workspace-mcp[^/]*$/.test(rest)
+          ? `extensions/mcp/${rest}`
+          : `${folder === "kollegium" ? "agents" : "access-control"}/${rest}`;
+      const named = (root: string) =>
+        existsAfter(mapPath(`${root}${all}`.replace(/\/$/, "")));
+      if (rest === "" || !layerRoots.some(named))
+        unnamed.add(`${file}: ${all} -> ${next}`);
+      return next;
     },
   );
   if (file.startsWith(verifyDocs))
@@ -1086,6 +1136,10 @@ console.log(
 );
 // A warning, not a failure: a branch may mean the file the path names from
 // here ("../index.ts" written after the move), and the typecheck says which.
+if (unnamed.size > 0)
+  console.error(
+    `${unnamed.size} code-named path segment(s) were rewritten that name no file or folder of the moved tree; read each (right for a path of a test fixture, wrong for anything that is not a path of this repository):\n${[...unnamed].join("\n")}`,
+  );
 if (twoReadings.length > 0)
   console.error(
     `${twoReadings.length} import(s) read two ways and were left as written; run the typecheck and check each:\n${twoReadings.join("\n")}`,
