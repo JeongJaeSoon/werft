@@ -2883,8 +2883,12 @@ export function createPostgresSlackOutboxStore(
           // enqueue takes it (linkTakesNew): a close under way is waited
           // for, and one after skips the link.
           const keyOf = row.progressKey.slice("progress:".length);
+          // Only as Postgres prints a link id (lower case), as the key is
+          // compared everywhere else.
           const ownLink =
-            row.progressKey.startsWith("progress:") && UUID.test(keyOf)
+            row.progressKey.startsWith("progress:") &&
+            UUID.test(keyOf) &&
+            keyOf === keyOf.toLowerCase()
               ? keyOf
               : null;
           if (ownLink !== null) {
