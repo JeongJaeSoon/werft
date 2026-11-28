@@ -151,7 +151,9 @@ export const conversationRouteInputKey = (turnId: ConversationTurnId) =>
  * From a DM, the named task may be the person's standalone session
  * (v1-b/DM3): it is bound to the DM thread before its input is written, so
  * the input's turn reports there, and the thread is told once it is a task
- * now. A hand-off that does not go through takes the binding back.
+ * now. A hand-off that does not go through takes the binding back, unless
+ * an input or a Slack row went in by it, or a writer holds it then: kept, the
+ * thread stays the session's.
  */
 export async function routeConversationTurn(
   deps: {
