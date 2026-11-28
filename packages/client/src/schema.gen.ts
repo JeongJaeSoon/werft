@@ -13650,7 +13650,7 @@ export interface components {
                     current: boolean;
                 } | null;
                 /**
-                 * @description Anything but `ok` and a new session leaves the attachment out, even a `required` one; it can still be taken back.
+                 * @description Anything but `ok` and a new session leaves the attachment out, even a `required` one, while a `forbidden` one still keeps the name out; it can still be taken back.
                  * @enum {string}
                  */
                 availability: "ok" | "hidden" | "withdrawn";

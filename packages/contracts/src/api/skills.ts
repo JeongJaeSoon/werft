@@ -42,8 +42,10 @@ export const skillAttachmentModeSchema = z.enum([
 /**
  * Whether a new session may take the skill an attachment names. Only a skill
  * of a registered repository is ever anything but `ok`: `hidden` while its
- * switch is off, `withdrawn` once its repository is removed. A session that
- * already runs keeps the version it started with either way.
+ * switch is off, `withdrawn` once its repository is removed. A new session
+ * leaves such an attachment out, but a `forbidden` one still keeps the name
+ * out. A session that already runs keeps the version it started with either
+ * way.
  */
 export const SKILL_AVAILABILITY_VALUES = ["ok", "hidden", "withdrawn"] as const;
 export type SkillAvailability = (typeof SKILL_AVAILABILITY_VALUES)[number];
@@ -514,7 +516,7 @@ export const agentSkillListSchema = z
           }),
           availability: skillAvailabilitySchema.meta({
             description:
-              "Anything but `ok` and a new session leaves the attachment out, even a `required` one; it can still be taken back.",
+              "Anything but `ok` and a new session leaves the attachment out, even a `required` one, while a `forbidden` one still keeps the name out; it can still be taken back.",
           }),
         })
         .strict(),

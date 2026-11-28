@@ -308,6 +308,12 @@ describe("attaching a repository skill", () => {
         availability: "hidden",
       });
     }
+    const modes = () =>
+      db
+        .select({ mode: extensionAttachments.mode })
+        .from(extensionAttachments)
+        .where(eq(extensionAttachments.workspaceId, ws.workspaceId));
+    expect(await modes()).toEqual([{ mode: "optional" }]);
     expect((await ws.attach(pdf, { mode: "forbidden" })).outcome).toBe(
       "recorded",
     );
@@ -320,11 +326,11 @@ describe("attaching a repository skill", () => {
       outcome: "unavailable",
       availability: "withdrawn",
     });
-    const rows = await db
-      .select({ mode: extensionAttachments.mode })
-      .from(extensionAttachments)
-      .where(eq(extensionAttachments.workspaceId, ws.workspaceId));
-    expect(rows).toEqual([]);
+    expect(await modes()).toEqual([]);
+    expect((await ws.attach(pdf, { mode: "forbidden" })).outcome).toBe(
+      "recorded",
+    );
+    expect(await modes()).toEqual([{ mode: "forbidden" }]);
   });
 
   test("the workspace scope is refused in every mode, switched on or not; an upload is attached there", async () => {
@@ -382,7 +388,8 @@ describe("a session that pinned a repository skill", () => {
     await ws.setEnabled("pdf", false);
     await ws.removeRepository();
 
-    // A resumed session is claimed again by a new launch.
+    // Resuming a paused session launches it again and the new worker claims
+    // it as here; the pause and resume themselves are walked on a stack.
     const gateway = testWorkerGateway(
       db,
       testSessionCatalog({
