@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
+import { UNKNOWN_PRICE_SESSION_TOKEN_LIMIT } from "@werft-ai/contracts";
 import * as schema from "@werft-ai/db";
 import {
   attempts,
@@ -264,7 +265,11 @@ integration(
           // As server.ts wires it: a billed call waits for its open.
           exchanges: createProviderExchangeLedger(db, {
             admits: async () =>
-              admitsReservations({ costUsd: 25, tokens: null }),
+              admitsReservations({
+                costUsd: 25,
+                tokens: null,
+                unknownPriceTokens: UNKNOWN_PRICE_SESSION_TOKEN_LIMIT,
+              }),
           }),
           logger: createLogger({ sinks: [] }),
           token: AUTHORIZER_BEARER,

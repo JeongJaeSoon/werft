@@ -98,6 +98,8 @@ const SLACK_NOTICE_MESSAGES_KO = {
   nothingToStop: "지금 멈출 작업이 없어요.",
   stopNotPermitted: "작업을 맡긴 사람만 멈출 수 있어요",
   taskCloseNotPermitted: "이 작업을 닫을 권한이 없어요",
+  // A press whose value is not of the message pressed (surface_mismatch).
+  pressMismatch: "이 메시지에서는 그 요청을 처리할 수 없어요",
   // A budget account's refusal, never the session's own limit: whose
   // monthly limit it is, as the ledger charged the call.
   budgetAccountUser:
@@ -125,6 +127,8 @@ const SLACK_NOTICE_MESSAGES_KO = {
   routeNoRight: "이 작업에 이어서 맡길 권한이 없어요",
   routeFailed: "작업에 넘기지 못했어요.",
   routeMirror: "원래 스레드에서 이어서 할게요 ↗",
+  // A DM's message handed to its person's standalone session (v1-b/DM3).
+  routeStandalone: "작업으로 시작했어요",
   // A mention's turn that ended with no decision (v1-b/F1): said once as it
   // is tried again, and once when its last try ends with none either.
   mentionRetrying: "지금 답하지 못했어요. 다시 해 볼게요",
@@ -222,6 +226,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     nothingToStop: "今止める作業はありません。",
     stopNotPermitted: "作業を依頼した人だけが止められます",
     taskCloseNotPermitted: "この作業を閉じる権限がありません",
+    pressMismatch: "このメッセージからはその操作はできません",
     budgetAccountUser:
       "依頼した人の今月の予算上限に達したため、モデルを呼び出せませんでした。来月1日（UTC）に解除されます。それより前に使うには、ワークスペースの管理者に上限を上げてもらってください",
     budgetAccountTeam:
@@ -242,6 +247,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     routeNoRight: "この作業に続けて任せる権限がありません",
     routeFailed: "作業に引き継げませんでした。",
     routeMirror: "元のスレッドで続けます ↗",
+    routeStandalone: "作業として始めました",
     mentionRetrying: "今はお答えできませんでした。もう一度やってみます",
     mentionFailed:
       "3回試しましたが、お答えできませんでした。しばらくしてからもう一度呼んでください",
@@ -328,6 +334,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     nothingToStop: "There's nothing to stop right now.",
     stopNotPermitted: "Only the person who asked for this task can stop it",
     taskCloseNotPermitted: "You don't have permission to close this task",
+    pressMismatch: "That request can't be made from this message",
     budgetAccountUser:
       "The requester's monthly budget limit was reached, so the model could not be called. It lifts on the 1st of next month (UTC), or sooner when a workspace admin raises the limit",
     budgetAccountTeam:
@@ -347,6 +354,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     routeNoRight: "This request doesn't have permission to add to that task",
     routeFailed: "This couldn't be handed to the task.",
     routeMirror: "Continuing in the original thread ↗",
+    routeStandalone: "Started this as a task",
     mentionRetrying: "I couldn't answer just now. I'll try again.",
     mentionFailed:
       "I tried three times but couldn't answer. Please mention me again in a moment.",
@@ -366,6 +374,7 @@ const NOTICE_FOR: Record<
   stale_link: "connect",
   role: "noRight",
   surface_ceiling: "noRight",
+  surface_mismatch: "pressMismatch",
   agent_ceiling: "noRight",
   agent_private: "noRight",
   caller_limited: "noRight",

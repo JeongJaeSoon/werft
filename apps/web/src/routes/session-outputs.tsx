@@ -45,7 +45,7 @@ import { useKeptFailure } from "../components/kept-failure.ts";
 import { LoadFailure } from "../components/load-failure.tsx";
 import { RowMenu, RowMenuLink } from "../components/row-menu.tsx";
 import { SECTION_BODY } from "../components/section-body.ts";
-import { useI18n } from "../i18n/i18n.tsx";
+import { gitHubRefusalLabel, useI18n } from "../i18n/i18n.tsx";
 import {
   OUT_FILES_ID,
   SessionAchievements,
@@ -404,7 +404,7 @@ function SessionGitHubRefusals({
             {items.map((refusal) => (
               <CompactRow key={refusal.receipt_id}>
                 <Text as="span">
-                  {t(`agentGitHub.refusal.${refusal.reason_code}`)}
+                  {gitHubRefusalLabel(t, refusal.reason_code)}
                 </Text>
                 <Text as="span" variant="meta">
                   {t(`agentGitHub.purpose.${refusal.purpose}`)}

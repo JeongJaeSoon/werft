@@ -318,6 +318,11 @@ const usage: SessionUsageResponse = {
   cost_limit_usd: "25",
   token_count: 1234,
   token_limit: null,
+  unknown_price: {
+    call_count: 0,
+    token_count: 0,
+    token_limit: 5_000_000,
+  },
   budget_exceeded: true,
   queued_input_count: 0,
   queued_input_limit: 10,
@@ -2748,6 +2753,38 @@ describe("session detail", () => {
     });
     const progress = await sessionProgress();
     await waitFor(() => expect(progress.textContent).toContain("$1.50"));
+  });
+
+  // The amount is the priced calls' alone: calls of unknown price have none.
+  const withUnknownPrice = (amount_usd: string) => ({
+    ...detailRoutes,
+    [`GET /v1/sessions/${SESSION_ID}/usage`]: () =>
+      json(200, {
+        ...usage,
+        cost: { ...usage.cost, amount_usd },
+        unknown_price: { ...usage.unknown_price, call_count: 3 },
+      }),
+  });
+  const UNKNOWN_PRICE_NOTE =
+    "단가 미상 호출은 금액을 알 수 없어 비용과 비용 한도에 들어가지 않습니다";
+
+  test("calls of unknown price are named beside the amount of the priced ones, with why they are not in it", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, withUnknownPrice("1.5"));
+    const progress = await sessionProgress();
+    await waitFor(() =>
+      expect(progress.textContent).toContain("$1.50 + 단가 미상 3건"),
+    );
+    expect(progress.textContent).toContain(UNKNOWN_PRICE_NOTE);
+  });
+
+  test("a session with only calls of unknown price shows its cost as unknown, never as $0.00", async () => {
+    renderAt(`/sessions/${SESSION_ID}`, withUnknownPrice("0"));
+    const progress = await sessionProgress();
+    await waitFor(() =>
+      expect(progress.textContent).toContain("금액 미상 (단가 미상 3건)"),
+    );
+    expect(progress.textContent).not.toContain("$0.00");
+    expect(progress.textContent).toContain(UNKNOWN_PRICE_NOTE);
   });
 
   test("a turn that ended without a cost report is not called running", async () => {

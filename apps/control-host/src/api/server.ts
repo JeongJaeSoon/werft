@@ -899,6 +899,8 @@ const usage = createUsageService({
     ...(await installationConfig.sessionLimits()),
     ...(await installationConfig.workerLimits()),
   }),
+  unknownPriceTokenLimit: () =>
+    installationConfig.get("unknown_price_session_token_limit"),
 });
 const pendingRequests = createPendingRequestService({
   authorization,
@@ -1828,7 +1830,7 @@ const authorizerListener =
               logger,
               exchanges: createProviderExchangeLedger(db, {
                 admits: async () =>
-                  admitsReservations(await installationConfig.sessionBudget()),
+                  admitsReservations(await installationConfig.exchangeBudget()),
               }),
               budgetOf: (call) => budgetChoiceOfCall(db, call),
               recordAccountRefusal: (refusal) =>

@@ -87,7 +87,8 @@
 작업 세션(`task_closing` 있음)을 닫는 두 길이다. 둘 다 사람의 close와 같은 `closeAtomic`으로 닫고, 같은 트랜잭션에서 세션의 `task_closed_reason`을 쓴다(`packages/db/src/sessions/task-close.ts`).
 
 - PR 사건: outcome refresher가 pass를 끝낼 때 한 번에 100개까지 고른다. `task_closing.eventRules`가 켜진 작업이어야 한다. 세션의 `github_pull_request` 성과 가운데 하나라도 `merged`면 `completed`로 닫는다. `merged`가 없고 `closed`가 있으면서 `open`이 없을 때만 `cancelled`로 닫는다. status 이벤트의 actor는 `{kind: system, by: pull_request_event}`이다.
-- 요청자의 완료·취소: 작업 진행 메시지의 [완료]·[취소] 버튼이다. 누른 사람이 그 세션의 `session.control` 권한을 가져야 한다. 권한이 없으면 누른 사람에게만 ephemeral 안내가 간다.
+- 요청자의 완료·취소: 작업 진행 메시지의 [완료]·[취소] 버튼이다. 누른 사람이 그 세션의 `session.control` 권한을 가져야 한다. 권한은 세션의 진행 메시지가 있는 스레드(revoke되지 않은 primary link)의 채널 ceiling으로 보며, 누른 채널의 ceiling을 쓰지 않는다. 권한이 없으면 누른 사람에게만 ephemeral 안내가 간다.
+  - 버튼 값의 세션·link가 누른 메시지의 스레드와 맞지 않으면(다른 세션, 다른 link, 다른 채널·스레드, link가 없는 세션) 아무것도 닫지 않는다. 권한 판단 기록에 `surface_mismatch` 거절을 남기고, 누른 사람에게만 ephemeral 안내가 간다.
 
 | 지금 상태 | 다음 상태 | 조건 | 누가 일으키나 |
 | --- | --- | --- | --- |
@@ -182,6 +183,49 @@ terminate는 사람이 세션을 강제로 끝내는 제어다(`POST /v1/session
 - 바인딩 없는 채널과 승인 대기 채널의 안내는 멘션한 사람에게만 보이는 ephemeral이다(outbox kind `notice`). 인가 판정을 만들지 않는다. 다른 조직 사람에게는 쓰지 않는다. 문구는 채널이나 에이전트 이름을 넣지 않는다. 바인딩 없는 채널의 안내에는 그 사람이 이 워크스페이스의 활성 사용자에 연결돼 있을 때만 콘솔의 에이전트 목록 링크를 단다. rollout `on`에서 Slack이 공개 채널을 이제 비공개라고 알려 승인 대기로 바뀔 때의 `pendingApproval`도 같은 하루 한 번 키를 쓰고, 다른 조직 사람에게는 쓰지 않는다. rollout `off`·`shadow`의 승인 대기 채널과 묶인 스레드의 안내는 지금처럼 인가 판정이 스레드 키로 단다(하루 한 번이 아니라 스레드마다 한 번). rollout `on`에서 처리표가 에이전트 정지를 본 채널이 비공개로 바뀌면 승인 대기로만 바꾸고 아무것도 달지 않는다. 그래서 같은 사람이 같은 날 그 채널에서 다시 멘션해도 승인 대기 안내는 한 번이다. 앞의 다른 성질(승인 시각, 다시 읽은 바인딩, 채널 종류 확인, 공유 채널에서 함께 봄)은 스레드 공개 줄의 것이다.
 - 웹에서 `mode` `off`로 끈 바인딩은 이 안내를 받지 않는다. rollout `on`에서는 조용하고, `off`·`shadow`에서는 지금처럼 인가 판정의 거절 안내가 나간다.
 - 소유자 없음이 되기 전에 버퍼에 담긴 글은 지우지 않는다. 버퍼의 수명(10분)이 지나면 사라진다. 비활성은 버퍼의 정리 길이 따로 지운다.
+
+### 모델 호출의 예약이 일으키는 전이: 단가 미상 토큰 상한
+
+세션의 모델 호출은 나가기 전에 예약을 연다(`packages/db/src/provider-exchanges.ts`의 open). 예약은 세션의 금액·토큰 한도와 예산 계정에 더해, **단가 미상 토큰 상한**(`INSTALLATION_CONFIG`의 `unknown_price_session_token_limit`)으로도 판정한다. 단가 미상은 자체 단가표와 LiteLLM snapshot 어느 쪽도 이름을 모르는 모델이다. 표가 이름을 아는 모델이 자기 항목의 범위를 벗어난 호출도 단가 미상으로 센다. 이런 호출에는 금액을 붙이지 않는다. 다른 모델의 단가나 최고 단가를 대신 쓰지 않으므로 금액 한도와 예산 계정이 그 호출을 세지 못하고, 가격과 무관한 토큰 수로 막는다.
+
+세는 값(미상 토큰 합)은 그 세션에서 다음 셋을 더한 것이다. 정산된 호출 가운데 미상으로 표시된 것(`provider_usage.price_unknown`)의 토큰, 미상 모델로 열려 있는 예약의 토큰, 그리고 지금 여는 호출이 미상이면 그 예약의 토큰이다.
+
+| 지금 상태 | 다음 상태 | 조건 | 누가 일으키나 |
+| --- | --- | --- | --- |
+| 예약 없음 | 예약 열림 | 금액·토큰 한도와 예산 계정이 받아들이고, 미상 토큰 합이 상한보다 작다. 미상 모델의 예약은 금액을 잡지 않고 토큰만 센다 | proxy의 exchange open |
+| 예약 없음 | 거절(403 `BUDGET_EXCEEDED`, 세션 축), 아무것도 잡지 않음 | 미상 토큰 합이 상한 이상이다(`>=`). 첫 호출도 예약의 추정 토큰만으로 걸린다. 정산된 미상 토큰만으로 상한에 닿은 세션은 단가를 아는 모델의 호출도 거절한다 | 같음 |
+| 예약 열림 | 정산됨 | usage 보고가 왔다. 예약이 말한 모델과 답이 말한 모델이 둘 다 단가를 알면 비싼 쪽으로 금액을 센다. 둘 중 하나라도 미상이면 금액 없이 정산하고(예약이 잡은 금액은 돌려준다) 그 호출의 토큰이 미상 토큰 합에 든다 | proxy의 usage 보고 |
+| 예약 열림 | 풀림 | 호출이 나가지 않아 proxy가 release했다. 그 예약의 토큰이 미상 토큰 합에서 빠진다 | proxy의 release |
+| 예약 열림 | 그대로(끝을 모름) | 보고도 release도 없이 lease가 끝났다. 예약은 풀리지 않고 금액·토큰 한도와 미상 토큰 합에 잡힌 채 남는다. 이 변경 전과 같다 | 없음(시간) |
+
+막을 전이:
+
+| # | 막을 전이 | 거절하는 시험 |
+| --- | --- | --- |
+| UR1 | 미상 토큰 합이 상한 이상인데 예약이 열리는 것 | `packages/platform/src/limits/reservations.test.ts`의 `refuses the first call when its reserve alone reaches the limit`, `counts settled tokens marked unknown with every held reserve for an unpriced model`, `packages/db/src/provider-exchanges.test.ts`의 `the first call is refused when its reserve alone reaches the limit, and nothing is held`, `apps/control-host/src/api/egress-authorizer.test.ts`의 `an open for a model nothing prices answers 403 BUDGET_EXCEEDED at the session's limit on such tokens; a priced model's does not` |
+| UR2 | 미상 토큰이 하나도 없는 세션이 이 상한으로 거절되는 것 | `never refuses a session with no tokens of unknown price, however low it is set`(두 파일에 같은 이름) |
+| UR3 | 요청은 단가를 아는 모델로 하고 답은 미상 모델로 받아 상한을 비켜 가는 것 | `once its settled tokens reach the limit, the session opens no further call, priced or not`, `a report is priced with the model its open reserved for, and the call is marked when either model is unpriced`, `calls opened for a priced model whose answers name an unpriced one are marked, and the open after them is refused` |
+| UR4 | 과금 없음(`billing: none`) 세션의 호출이 미상으로 세어지는 것 | `an unmetered session's reserves are not of unknown price` |
+| UR5 | 상한이 0이나 빈 값으로 저장돼 판정이 꺼지는 것 | `packages/contracts/src/api/installation-config.test.ts`의 거절 값 표, `apps/control-host/src/wiring/installation-config.test.ts`의 `an open is judged against the session's budget and its limit on tokens of unknown price, from one read` |
+| UR6 | 미상 호출이 금액을 얻는 것(다른 모델의 단가나 최고 단가가 대신 들어가는 것) | `packages/platform/src/limits/model-prices.test.ts`의 `a model nothing prices has no amount, whatever the call used`, `a settlement has no amount when nothing prices either model, whatever the other one costs`, `apps/control-host/src/api/egress-authorizer.test.ts`의 `a call opened for a priced model and answered by one nothing prices settles with no amount and holds nothing after` |
+| UR7 | 단가를 아는 호출만으로 금액 한도에 닿은 세션이 미상 모델의 호출을 여는 것 | `packages/platform/src/limits/reservations.test.ts`의 `a session its priced calls took to the cost limit opens no call for an unpriced model either`, `apps/control-host/src/api/egress-authorizer.test.ts`의 `a session its priced calls took to the cost limit opens no call for a model nothing prices, which would add no amount` |
+
+지킬 성질:
+
+| # | 성질 | 시험 |
+| --- | --- | --- |
+| UP1 | 허용 전이마다 성공이 있다. 상한 아래의 미상 호출은 열리고, 풀린 예약은 자리를 돌려준다 | `its call opens while the reserve stays under the session's limit on such tokens`, `the limit counts the session's settled calls marked unknown with its held reserves, and a release gives room back` |
+| UP2 | 거절된 open은 exchange 행을 남기지 않는다 | `the first call is refused when its reserve alone reaches the limit, and nothing is held` |
+| UP3 | 정산은 예약이 말한 모델과 답이 말한 모델이 둘 다 단가를 알면 비싼 쪽이고, 하나라도 미상이면 금액이 없다. 자기 exchange 행을 찾지 못한 보고는 답 모델만으로 센다 | `packages/platform/src/workers/worker-gateway.test.ts`의 `a billed call settles at the dearer of two priced models, and with no amount when nothing prices either`, `packages/db/src/provider-exchanges.test.ts`의 `a report that finds no exchange row of its own is priced by the model that answered alone` |
+| UP4 | 단가 출처를 적지 않은 옛 API가 연 예약도 예약 내용으로 다시 판정한다 | `a reserve an older API opened, with no price source on its row, is judged from the reserve itself` |
+| UP5 | 미상 모델의 예약은 금액을 잡지 않는다. 금액 한도는 단가를 아는 호출의 몫으로 남는다 | `packages/platform/src/limits/reservations.test.ts`의 `a reserve for an unpriced model holds no amount: the cost limit is left to the priced calls` |
+
+알려진 한계:
+
+- dispatch 판정은 이 상한을 읽지 않는다. 상한에 닿은 세션의 새 턴은 worker까지 가고, 첫 모델 호출이 거절된다. 그 턴은 `api_error`(403)로 끝나고, 세션의 `attention`과 사용량의 `budget_exceeded`에는 이 상한이 드러나지 않는다.
+- 판정은 호출을 열 때 한다. 단가를 아는 모델로 열린 호출이 미상 모델의 답으로 정산되면, 그때 이미 열려 있던 호출들의 토큰만큼 합이 상한을 넘을 수 있다. 정산은 세션의 open 잠금을 잡지 않는다. 그다음 open부터 거절된다.
+- 세션 없는 호출(대화 호출, 대화 턴의 호출, 판정 호출)에는 세션 축인 이 상한이 닿지 않는다. 대화 호출과 대화 턴의 호출이 단가 미상이면 금액이 없어 계정 예산의 금액 축이 세지 못한다. 그 호출을 막는 것은 호출별 상한(출력 토큰과 요청 크기), 턴당 모델 호출 수, 그리고 토큰 한도를 정해 둔 계정의 토큰 축이다. 판정 호출은 플랫폼이 정한 모델만 부르고 proxy가 요청한 모델로 보고하므로 단가 미상이 되지 않고, 워크스페이스의 하루 판정 금액 한도가 막는다.
+- 이 변경 전의 API가 정산한 호출은 미상으로 표시되지 않아 합에 들지 않는다.
 
 ## 2. turn·attempt
 

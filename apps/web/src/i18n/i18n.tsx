@@ -43,6 +43,18 @@ export function isMessageKey(key: string): key is MessageKey {
   return Object.hasOwn(ko, key);
 }
 
+/**
+ * A GitHub refusal's label. A reason code this console does not know (a newer
+ * server's) is shown as it is.
+ */
+export function gitHubRefusalLabel(
+  t: (key: MessageKey) => string,
+  code: string,
+): string {
+  const key = `agentGitHub.refusal.${code}`;
+  return isMessageKey(key) ? t(key) : code;
+}
+
 export function errorKey(code: string): MessageKey {
   const key = `error.${code}`;
   return isMessageKey(key) ? key : "error.UNKNOWN";

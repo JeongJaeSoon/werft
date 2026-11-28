@@ -41,6 +41,7 @@ const CONFIG: InstallationConfig = {
     blocked: true,
   },
   session_token_limit: unsaved(0),
+  unknown_price_session_token_limit: unsaved(5_000_000),
   workspace_enforce: unsaved("warn" as const),
   max_turn_seconds: unsaved(3600),
   provider_max_retries: unsaved(2),

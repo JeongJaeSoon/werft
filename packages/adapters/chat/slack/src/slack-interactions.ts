@@ -13,6 +13,7 @@ import {
   type SlackNoticeMessage,
   type SlackQuestionViewMetadata,
   type SlackViewSubmissionPayload,
+  sessionLinkIdSchema,
   slackBlockActionsPayloadSchema,
   slackInteractionPayloadSchema,
   slackInteractionValueSchema,
@@ -31,6 +32,7 @@ import type {
   SurfaceBindingStore,
   SurfaceConversationScope,
   SurfaceOutboxStore,
+  SurfaceProgressLink,
   TaskClose,
 } from "@werft-ai/platform";
 import {
@@ -101,7 +103,9 @@ export type SlackInteractionOutcome =
 
 export type SlackInteractionDeps = {
   signingSecrets: Pick<SlackSigningSecrets, "forAgent">;
-  authorization: AuthorizationPolicy;
+  /** refuse keeps a press refused as surface_mismatch in the decision log. */
+  authorization: AuthorizationPolicy &
+    Required<Pick<AuthorizationPolicy, "refuse">>;
   agents: Pick<AgentIdentityStore, "resolveSlackEvent">;
   links: Pick<LinkedAccountStore, "resolveLinkedSubject">;
   bindings: Pick<
@@ -126,7 +130,7 @@ export type SlackInteractionDeps = {
   botToken(workspaceId: string, slackAppId: string): Promise<string | null>;
   outbox: Pick<
     SurfaceOutboxStore,
-    "readerLocale" | "promptCard" | "cards" | "aiLabelFor"
+    "readerLocale" | "promptCard" | "progressLink" | "cards" | "aiLabelFor"
   >;
   /** The web page where a person links their Slack account. */
   connectUrl: string;
@@ -372,9 +376,11 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     sessionId: string,
     request: { pushRequestId?: string; pendingRequestId?: string },
     action: "session.approve" | "session.submit" = "session.approve",
+    judged: { channelId?: string; refuse?: "surface_mismatch" } = {},
   ): Promise<Allowed | { refused: string }> {
     const user = await deps.slack.userInfo(pressed.botToken, pressed.userId);
     const requestId = newRequestId();
+    const channelId = judged.channelId ?? pressed.channelId;
     const decision: SlackDecision = await authorizeSlackInput(deps, {
       event: {
         appId: pressed.appId,
@@ -383,10 +389,11 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       },
       user,
       action,
-      channel: { id: pressed.channelId, dm: pressed.channelId.startsWith("D") },
+      channel: { id: channelId, dm: channelId.startsWith("D") },
       resource: { kind: "session", id: sessionId, ...request },
       requestId,
       connectUrl: deps.connectUrl,
+      ...(judged.refuse === undefined ? {} : { refuse: judged.refuse }),
     });
     if (decision.status === "dropped") return { refused: decision.reason };
     if (decision.decision.outcome !== "allow") {
@@ -403,6 +410,38 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       return { refused: decision.decision.reason_code };
     }
     return { caller: slackCallerOf(decision, requestId), pressed };
+  }
+
+  /**
+   * A press on a message of the session's own thread, `link`, judged at
+   * that thread's channel whatever channel it came from. Refused as
+   * surface_mismatch, kept and told, when the message pressed is not in
+   * that thread or the value's link id is not that link's.
+   */
+  async function admitOnThread(
+    pressed: Pressed,
+    sessionId: string,
+    linkId: string,
+    link: SurfaceProgressLink | null,
+    action: "session.approve" | "session.submit",
+    request: { pushRequestId?: string; pendingRequestId?: string } = {},
+  ): Promise<Allowed | { refused: string }> {
+    const parsed = sessionLinkIdSchema.safeParse(linkId);
+    const onIt =
+      parsed.success &&
+      link !== null &&
+      link.id.toLowerCase() === parsed.data.toLowerCase() &&
+      link.agentId.toLowerCase() === pressed.agentId.toLowerCase() &&
+      link.channelId === pressed.channelId &&
+      link.threadId === pressed.threadTs;
+    if (!onIt || link === null) {
+      return admit(pressed, sessionId, request, action, {
+        refuse: "surface_mismatch",
+      });
+    }
+    return admit(pressed, sessionId, request, action, {
+      channelId: link.channelId,
+    });
   }
 
   async function pendingQuestions(
@@ -1100,7 +1139,13 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     reason: RequesterCloseReason,
   ): Promise<string> => {
     if (deps.tasks === undefined) return "ignored";
-    const admitted = await admit(pressed, value.s, {}, "session.submit");
+    const admitted = await admitOnThread(
+      pressed,
+      value.s,
+      value.r,
+      await deps.outbox.progressLink(value.s),
+      "session.submit",
+    );
     if ("refused" in admitted) return `refused:${admitted.refused}`;
     const outcome = await deps.tasks.close(admitted.caller, value.s, reason);
     if (outcome === "not_permitted") {

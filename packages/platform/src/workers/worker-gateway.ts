@@ -138,10 +138,11 @@ import {
   type ConversationTurnCallAuthorization,
   conversationCallReserve,
   hashConversationCallToken,
+  PRICE_VERSION,
   type PricedBy,
   type ProviderUsage,
   priceJudgmentUsage,
-  priceProviderUsage,
+  priceSettledUsage,
   readSetting,
   type SessionBudget,
   type Setting,
@@ -2727,6 +2728,7 @@ export function createWorkerGateway(deps: {
       costUsd: number;
       pricedBy: PricedBy;
       ledgerForeignRow?: true;
+      reservedWithPriceVersion?: string;
     }> {
       // Decided by the session row, never by the model the answer names
       // (the upstream's to pick) or by this API's catalog (another replica's
@@ -2736,7 +2738,8 @@ export function createWorkerGateway(deps: {
         priceFor: (session) =>
           session.unmetered
             ? { costUsd: 0, pricedBy: "unmetered" }
-            : priceProviderUsage(report.usage),
+            : priceSettledUsage(report.usage, session.requestModel),
+        priceVersion: PRICE_VERSION,
       });
       if (result.outcome === "unknown_attempt") {
         throw new WorkerGatewayError(
@@ -2756,6 +2759,9 @@ export function createWorkerGateway(deps: {
         costUsd: result.costUsd,
         pricedBy: result.pricedBy,
         ...(result.ledgerForeignRow ? { ledgerForeignRow: true } : {}),
+        ...(result.reservedWithPriceVersion === undefined
+          ? {}
+          : { reservedWithPriceVersion: result.reservedWithPriceVersion }),
       };
     },
 
@@ -2787,12 +2793,18 @@ export function createWorkerGateway(deps: {
       if (deps.conversationCalls === undefined || !callId.success) {
         throw new WorkerGatewayError(404, "NOT_FOUND", "No such call");
       }
-      const priced = priceProviderUsage(report.usage);
+      // Priced from the model the call was issued for and the one that
+      // answered, as a session's call settles. A replayed report prices
+      // nothing: what its first settlement charged stands, and the answer
+      // names what settled it from the same two models.
       const result = await deps.conversationCalls.store.settleAtomic({
         callId: callId.data,
         exchangeId: report.exchangeId,
         usage: report.usage,
-        priceFor: (call) => (call.unmetered ? { costUsd: 0 } : priced),
+        priceFor: (call) =>
+          call.unmetered
+            ? { costUsd: 0 }
+            : priceSettledUsage(report.usage, call.model),
       });
       switch (result.outcome) {
         case "unknown_call":
@@ -2806,7 +2818,9 @@ export function createWorkerGateway(deps: {
         default:
           return {
             costUsd: result.costUsd,
-            pricedBy: result.unmetered ? "unmetered" : priced.pricedBy,
+            pricedBy: result.unmetered
+              ? "unmetered"
+              : priceSettledUsage(report.usage, result.model).pricedBy,
           };
       }
     },

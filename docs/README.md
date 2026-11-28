@@ -21,7 +21,7 @@ API로 세션을 만들고 쓰는 사람.
 | 문서 | 내용 |
 | --- | --- |
 | [상태 기계](architecture/state-machines.md) | 네 상태 기계의 전이 표, 막을 전이, 지킬 성질과 그것을 고정하는 시험 |
-| [CI check 목록](ci/checks.md) | 필수 check 일곱 개와 집계 job의 구성원, 필수가 아닌 gate의 경로와 야간 일정, 재시도·timeout·흔들리는 시험의 규칙 |
+| [CI check 목록](ci/checks.md) | 필수 check 여섯 개와 집계 job의 구성원, 필수가 아닌 gate의 경로와 야간 일정, 재시도·timeout·흔들리는 시험의 규칙 |
 
 ## 운영자
 

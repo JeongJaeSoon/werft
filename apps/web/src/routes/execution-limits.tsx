@@ -60,12 +60,13 @@ export type NumberLimit = {
     | "retries"
     | "cost"
     | "tokens"
+    | "unknownTokens"
     | "queue"
     | "storage"
     | "stopped"
     | "paused";
-  /** What migrate carried the value in from. */
-  readonly env: string;
+  /** What migrate carried the value in from; none for a key born here. */
+  readonly env: string | undefined;
   readonly min: number;
   /** True when min itself is refused. */
   readonly aboveMin: boolean;
@@ -117,6 +118,15 @@ export const NUMBER_LIMITS: readonly NumberLimit[] = [
     name: "tokens",
     env: "SESSION_TOKEN_LIMIT",
     min: 0,
+    aboveMin: false,
+    max: Number.MAX_SAFE_INTEGER,
+    whole: true,
+  },
+  {
+    key: "unknown_price_session_token_limit",
+    name: "unknownTokens",
+    env: undefined,
+    min: 1,
     aboveMin: false,
     max: Number.MAX_SAFE_INTEGER,
     whole: true,
@@ -245,6 +255,14 @@ const fieldsOf = (keys: readonly string[]): Field[] =>
  * that is blocked (it takes any valid value, the default shown included);
  * and the rows whose text cannot be sent.
  */
+/**
+ * The number limits this answer carries. During an upgrade the API that
+ * answers may be the release before the one that served this page, and it
+ * knows fewer keys: the rest of the screen still saves.
+ */
+const answeredOf = (config: InstallationConfig) =>
+  NUMBER_LIMITS.filter((limit) => config[limit.key] !== undefined);
+
 function pendingOf(
   config: InstallationConfig,
   drafts: Drafts,
@@ -253,7 +271,7 @@ function pendingOf(
   const invalid: Row[] = [];
   const differs = (key: InstallationConfigKey, value: unknown) =>
     value !== config[key].value || config[key].blocked;
-  for (const limit of NUMBER_LIMITS) {
+  for (const limit of answeredOf(config)) {
     const value = limitValueOf(
       limit,
       drafts[limit.key] ?? `${config[limit.key].value}`,
@@ -439,7 +457,7 @@ function Limits({
     >
       {/* One block: the form's gap-4 would otherwise add to each row's rule. */}
       <div>
-        {NUMBER_LIMITS.map((limit) => (
+        {answeredOf(config).map((limit) => (
           <NumberRow
             key={limit.key}
             limit={limit}
@@ -488,14 +506,16 @@ function Blocked({
   refused,
 }: {
   readonly id: string;
-  readonly env: string;
+  readonly env: string | undefined;
   readonly refused: string;
 }) {
   const { t } = useI18n();
   return (
     <Alert variant="amber" role="status">
       <AlertDescription id={id}>
-        {t("limits.blocked", { env, refused })}
+        {env === undefined
+          ? t("limits.blockedSaved", { refused })
+          : t("limits.blocked", { env, refused })}
       </AlertDescription>
     </Alert>
   );

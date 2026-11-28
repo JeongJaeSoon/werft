@@ -162,6 +162,14 @@ describe("the shadow record in the session handler", () => {
     expect(reachedBotToken).toBe(1);
   });
 
+  test("an escaped mention of another user is not read as one", async () => {
+    const { records } = await run({ text: "&lt;@U2&gt; please look" }, link());
+    expect(records[0]).toMatchObject({
+      decision: "reply",
+      reason: "default_reply",
+    });
+  });
+
   test("a thread_broadcast reply is recorded like any reply", async () => {
     const { records } = await run({ subtype: "thread_broadcast" }, link());
     expect(records).toHaveLength(1);

@@ -138,7 +138,9 @@ export interface ConversationReadToolStore {
   /**
    * The conversation's tasks that have not ended, newest first, that
    * `viewer` sees; with no viewer, only those shared with the workspace or
-   * behind the conversation's own private channel.
+   * behind the conversation's own private channel. A DM turn of the DM's own
+   * person also lists their standalone sessions of the agent (v1-b/DM3); a
+   * channel turn never does.
    */
   openTasks(input: {
     turn: ConversationToolTurn;

@@ -121,7 +121,8 @@ export interface ConversationCallStore {
     callId: ConversationCallId;
     exchangeId: string;
     usage: ProviderUsage;
-    priceFor(call: { unmetered: boolean }): { costUsd: number };
+    /** `model` is the one the call was issued for, which its request names. */
+    priceFor(call: { unmetered: boolean; model: string }): { costUsd: number };
   }): Promise<ConversationCallSettle>;
   /**
    * Releases up to `limit` reservations whose token expired unused. A call
@@ -327,6 +328,9 @@ export type ConversationCallSettle =
       costUsd: number;
       // The reservation was on an unmetered connection, so nothing was priced.
       unmetered: boolean;
+      // The model the call was issued for: with the answer's, what says
+      // which rates settled it, on a replay as on the first report.
+      model: string;
     }
   | { outcome: "unknown_call" }
   // Another exchange's call, or the same exchange reported other usage.

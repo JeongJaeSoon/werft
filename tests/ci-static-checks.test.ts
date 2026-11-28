@@ -167,9 +167,9 @@ test("a job that skips the bun cache restore installs nothing and saves nothing"
       ).toEqual([]);
     }
   }
-  // changes, forbidden-terms, forbidden-terms-threads, helm-chart,
-  // supply-chain, package-retention preview and dry-run, pages target
-  expect(skipping).toBe(8);
+  // changes, helm-chart, supply-chain, package-retention preview and
+  // dry-run, pages target
+  expect(skipping).toBe(6);
 });
 
 test("unit parts isolate slow Slack fixtures and reject every empty part", async () => {
@@ -909,7 +909,6 @@ test("docs/ci/checks.md names each required check by the one job that reports it
   expect(rows.map((row) => row.name).sort()).toEqual([
     "check",
     "e2e",
-    "forbidden-terms",
     "gitleaks",
     "integration",
     "quickstart",
@@ -935,7 +934,7 @@ test("a documentation-only pull request still gets a result from every required 
   const rows = [
     ...section.matchAll(/^\| `([^`]+)` \| `([^`]+)` · `([^`]+)` \|/gm),
   ].map(([, name, file, id]) => ({ name, file: file ?? "", id: id ?? "" }));
-  expect(rows).toHaveLength(7);
+  expect(rows).toHaveLength(6);
   for (const row of rows) {
     const { on, jobs } = Bun.YAML.parse(
       readFileSync(join(root, ".github/workflows", row.file), "utf8"),

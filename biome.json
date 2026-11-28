@@ -16,6 +16,7 @@
       "!packages/adapters/execution/local-docker/src/codex-sandbox-seccomp.json",
       "!deploy/helm/werft/files/codex-sandbox-seccomp.json",
       "!packages/client/src/schema.gen.ts",
+      "!packages/platform/src/limits/model-prices-litellm.gen.ts",
       "!docs/api/index.html",
       "!docs/api/scalar.js"
     ]

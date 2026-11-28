@@ -609,6 +609,7 @@ describe("홈 요약", () => {
     cost_usd: scope === "me" ? "1.250000" : "69.461386",
     cost_complete: complete,
     token_count: sessions * 1200,
+    unknown_price: { call_count: 0, token_count: 0 },
     run_seconds: sessions * 600,
     basis: {
       sessions: "created_in_period",
