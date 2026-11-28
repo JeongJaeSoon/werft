@@ -1208,7 +1208,8 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     // image builds) is written by runs that build on a trusted ref: by
     // publish-main on a main push, which builds nowhere else, and by build on
     // a tag, scheduled or manual run, each only when the cache-to step says so
-    // (the first build of a UTC day). Never by a pull request.
+    // (the first build of a UTC day, or the first after a pin change). Never by
+    // a pull request.
     test("one job writes the layer cache per run, and never for a pull request", () => {
       const cacheTo = (name: string) =>
         jobs[name]?.steps.find((step) =>
@@ -1235,6 +1236,12 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(gate("publish-main")?.if).toBe(
         "github.event_name == 'push' && github.ref == 'refs/heads/main'",
       );
+      // The step dates the build inputs, which takes the history.
+      expect(
+        jobs["publish-main"]?.steps.find((s) =>
+          s.uses?.startsWith("actions/checkout@"),
+        )?.with?.["fetch-depth"],
+      ).toBe(0);
       for (const name of ["build", "publish-main"]) {
         expect(gate(name)?.["continue-on-error"]).toBe(true);
         expect(gate(name)?.run).toBe(

@@ -10,8 +10,16 @@
 # reuse (apt upgrade, git-lfs, gh, git hooks) change with the Dockerfiles'
 # APT_UPGRADE_KEY, the UTC date, so one write a day keeps them warm.
 #
+# The day's entry is also written again after the image's Dockerfile or
+# fetch-pinned.ts changed: mode=min reuses the Go build stages only through the
+# release layers copied from them, so after a pin change every build compiles
+# them until the cache is written again.
+#
 # An entry written before 00:30Z may come from a build that started the day
 # before, with that day's APT_UPGRADE_KEY, so it does not count as today's.
+# For the same reason an entry written less than 30 minutes after an input
+# change may come from a build of the commit before it, and does not count.
+# A shallow checkout cannot date that change and skips the input rule.
 #
 # Never fails the job and never holds it: a listing that fails or takes longer
 # than LIST_TIMEOUT seconds writes as before, and ignore-error=true keeps a
@@ -38,10 +46,27 @@ kill "$killer" >/dev/null 2>&1
 latest="$(cat "$out")"
 rm -f "$out"
 
+# Prints the time from which an entry holds the current inputs, nothing in a
+# shallow checkout; fails when git cannot tell.
+fresh_from() {
+  local shallow changed
+  shallow="$(git rev-parse --is-shallow-repository)" || return 1
+  [ "$shallow" = false ] || return 0
+  changed="$(git log -1 --first-parent --format=%ct -- "apps/${APP%-codex}/Dockerfile" scripts/fetch-pinned.ts)" || return 1
+  [ -n "$changed" ] || return 1
+  jq -nr "($changed + 1800) | todateiso8601"
+}
+
 if [ "$status" -eq 0 ]; then
   if [ "${latest:0:10}" = "$today" ] && [[ "${latest:11:5}" > "00:29" ]]; then
-    echo "::notice::layer cache ${scope} was written today (${latest}); this build only reads it" >&2
-    to=""
+    if ! fresh="$(fresh_from)"; then
+      echo "::warning::could not date the build inputs of ${scope}; writing it" >&2
+    elif [[ "$latest" < "$fresh" ]]; then
+      echo "::notice::layer cache ${scope} (${latest}) is older than its build inputs allow (${fresh}); writing it" >&2
+    else
+      echo "::notice::layer cache ${scope} was written today (${latest}); this build only reads it" >&2
+      to=""
+    fi
   fi
 else
   echo "::warning::could not list the layer cache of ${scope} (exit ${status}); writing it: ${latest}" >&2
