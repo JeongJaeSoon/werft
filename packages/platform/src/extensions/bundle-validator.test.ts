@@ -4,6 +4,8 @@ import {
   type BundleIssueCode,
   bundleDigest,
   DEFAULT_BUNDLE_LIMITS,
+  readSkillFile,
+  skillPathIssues,
   validateExtensionBundle,
 } from "./bundle-validator.ts";
 
@@ -1048,5 +1050,69 @@ describe("what passed before passes alike", () => {
         : { issues: result.issues };
     };
     expect(judge("upload")).toEqual(judge("stored"));
+  });
+});
+
+describe("what a listing reads agrees with an upload", () => {
+  const uploaded = (name: string, files: BundleInputFile[]) =>
+    validateExtensionBundle(
+      { slug: name, files },
+      DEFAULT_BUNDLE_LIMITS,
+      "upload",
+    );
+
+  test("a SKILL.md gives its name, description and license", () => {
+    expect(readSkillFile(text(skillMd("research", "license: MIT\n")))).toEqual({
+      name: "research",
+      description: "Use for research",
+      license: "MIT",
+      issues: [],
+    });
+  });
+
+  test.each([
+    skillMd("research"),
+    "---\nname: research\ndescription: |\n  Two\n  lines.\n---\nBody.\n",
+    skillMd("research", "allowed-tools: Bash\n"),
+    skillMd("research", "", "Run !`id` first.\n"),
+    "---\nname: research\n---\nBody.\n",
+    "---\nname: Not A Name\ndescription: d\n---\nBody.\n",
+    "---\ndescription: d\n---\nBody.\n",
+    "No frontmatter.\n",
+  ])(
+    "SKILL.md %j has no issues exactly when its upload under that name passes",
+    (md) => {
+      const read = readSkillFile(text(md));
+      const name = read.name ?? "research";
+      expect(read.issues.length === 0).toBe(
+        uploaded(name, [file(`skills/${name}/SKILL.md`, md)]).ok,
+      );
+    },
+  );
+
+  test.each([
+    [["notes.md"], []],
+    [["hooks/run.sh"], ["denied_path"]],
+    [["settings.local.json"], ["denied_path"]],
+    [[".claude-plugin/plugin.json"], ["engine_manifest"]],
+    [["plugin.json"], ["engine_manifest"]],
+    [["inner/SKILL.md"], ["multiple_skills"]],
+    [["a\\b.md"], ["unsafe_path"]],
+    [["Notes.md", "notes.md"], ["path_collision"]],
+  ] as const)("paths %j are refused as their upload is: %j", (paths, codes) => {
+    const all = ["SKILL.md", ...paths];
+    expect(skillPathIssues(all).map((issue) => issue.code)).toEqual([...codes]);
+    const result = uploaded(
+      "research",
+      all.map((path) =>
+        file(
+          `skills/research/${path}`,
+          path === "SKILL.md" ? skillMd("research") : "x\n",
+        ),
+      ),
+    );
+    expect(result.ok ? [] : result.issues.map((issue) => issue.code)).toEqual([
+      ...codes,
+    ]);
   });
 });

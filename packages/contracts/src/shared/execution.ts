@@ -44,6 +44,7 @@ export const ENV = {
   stopGrace: "WORKER_STOP_GRACE_SEC",
   idleTimeout: "WORKER_IDLE_TIMEOUT_SEC",
   maxTurnSeconds: "WORKER_MAX_TURN_SEC",
+  maxTurnToolCalls: "WORKER_MAX_TURN_TOOL_CALLS",
   providerMaxRetries: "WORKER_PROVIDER_MAX_RETRIES",
   logLevel: "LOG_LEVEL",
   // Set only to `disabled`, where an operator turned Codex auto's sandbox off.
@@ -66,6 +67,28 @@ export function workerIdleTimeoutSecondsOf(
   environment: SettingsEnvironment,
 ): number {
   return integerSetting(environment, ENV.idleTimeout, WORKER_IDLE_TIMEOUT_SEC);
+}
+
+/**
+ * Tool calls one turn of a session may make, its subagents' included: the
+ * operator's setting, read by the scheduler and handed to every worker it
+ * launches. The call past it ends the turn `failed(tool_call_limit)`.
+ */
+export const WORKER_MAX_TURN_TOOL_CALLS = {
+  default: 500,
+  min: 1,
+  max: 100_000,
+} as const;
+
+/** `WORKER_MAX_TURN_TOOL_CALLS`, refused outside its range. */
+export function workerMaxTurnToolCallsOf(
+  environment: SettingsEnvironment,
+): number {
+  return integerSetting(
+    environment,
+    ENV.maxTurnToolCalls,
+    WORKER_MAX_TURN_TOOL_CALLS,
+  );
 }
 
 export const NO_PROXY_VALUE = "localhost,127.0.0.1,::1";

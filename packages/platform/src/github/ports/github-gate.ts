@@ -109,6 +109,8 @@ export class GitHubGateError extends Error {
   constructor(
     readonly reasonCode: GitHubRefusal,
     readonly receiptId: string | null,
+    /** `merge_off` only: which side has merging off. */
+    readonly offIn?: "agent" | "ceiling" | "both",
   ) {
     super(`GitHub work refused: ${reasonCode}`);
   }

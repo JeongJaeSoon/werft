@@ -343,6 +343,8 @@ export const pullRequestReceiptResultSchema = z.object({
   comment_url: z.string().nullable().optional(),
   marker: z.string().nullable().optional(),
   reason_code: pushReasonCodeSchema.nullable().optional(),
+  // A merge refused with `merge_off` only: which side has merging off.
+  off_in: z.enum(["agent", "ceiling", "both"]).nullable().optional(),
   // A close or reopen receipt only: the state after the call, and whether
   // this call changed it.
   state: pullRequestStateSchema.nullable().optional(),

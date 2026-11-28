@@ -1297,21 +1297,46 @@ integration("the readers of an agent's GitHub settings", () => {
       expect(rows[0]?.features).toEqual(stored);
     });
 
-    test("`merge` on a row is checked and left out, also of the snapshot taken from it; a bad value still closes the session", async () => {
+    test("`merge` on a row is read and goes into the snapshot a session starts with; a session that started before it was on keeps it off; a bad value still closes the session (94S-2492)", async () => {
       const { workspaceId, agentId, releaseId, sessionId } = await fixture({
         source: "agent",
       });
       const gate = createPostgresGitHubGateStore(db);
+      const featuresOf = async (id: string) => {
+        const read = (await gate.context(id))?.policy.settings;
+        return read === "invalid" ? read : read?.features;
+      };
+      const ON = { ...KNOWN, merge: true };
       await settingsRow(workspaceId, agentId, {
-        features: { ...KNOWN, merge: true },
+        features: ON,
         updatedBy: PERSON,
       });
-      const read = (await gate.context(sessionId))?.policy.settings;
-      expect(read === "invalid" ? read : read?.features).toEqual(KNOWN);
+      expect(await featuresOf(sessionId)).toEqual(ON);
       const taken = await db.transaction((tx) =>
         captureGitHubPolicyStart(tx, releaseId),
       );
-      expect(taken.settings.features).toEqual(KNOWN);
+      expect(taken.settings.features).toEqual(ON);
+
+      const earlier = await fixture({ source: "agent" });
+      await settingsRow(earlier.workspaceId, earlier.agentId, {
+        features: KNOWN,
+        updatedBy: PERSON,
+      });
+      const before = await db.transaction((tx) =>
+        captureGitHubPolicyStart(tx, earlier.releaseId),
+      );
+      expect(Object.keys(before.settings.features)).not.toContain("merge");
+      await pool.query(
+        "UPDATE sessions SET github_policy_start = $2 WHERE id = $1",
+        [earlier.sessionId, JSON.stringify(before)],
+      );
+      await settingsRow(earlier.workspaceId, earlier.agentId, {
+        features: ON,
+        revision: 2,
+        updatedBy: PERSON,
+      });
+      expect(await featuresOf(earlier.sessionId)).toEqual(KNOWN);
+
       await settingsRow(workspaceId, agentId, {
         features: { ...KNOWN, merge: "yes" },
         revision: 2,

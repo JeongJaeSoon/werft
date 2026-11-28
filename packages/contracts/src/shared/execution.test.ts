@@ -10,6 +10,7 @@ import {
   NO_PROXY_VALUE,
   noProxyValueFor,
   workerIdleTimeoutSecondsOf,
+  workerMaxTurnToolCallsOf,
 } from "@werft-ai/contracts/execution";
 
 test("worker defaults retain their documented values", () => {
@@ -55,6 +56,7 @@ test("worker environment names retain both proxy spellings", () => {
     stopGrace: "WORKER_STOP_GRACE_SEC",
     idleTimeout: "WORKER_IDLE_TIMEOUT_SEC",
     maxTurnSeconds: "WORKER_MAX_TURN_SEC",
+    maxTurnToolCalls: "WORKER_MAX_TURN_TOOL_CALLS",
     providerMaxRetries: "WORKER_PROVIDER_MAX_RETRIES",
     logLevel: "LOG_LEVEL",
     codexSandbox: "CODEX_SANDBOX",
@@ -128,6 +130,29 @@ describe("workerIdleTimeoutSecondsOf", () => {
       expect(() =>
         workerIdleTimeoutSecondsOf({ WORKER_IDLE_TIMEOUT_SEC: value }),
       ).toThrow("WORKER_IDLE_TIMEOUT_SEC must be an integer from 60 to 7200");
+    },
+  );
+});
+
+describe("workerMaxTurnToolCallsOf", () => {
+  test("is 500 unset and takes 1 to 100000", () => {
+    expect(workerMaxTurnToolCallsOf({})).toBe(500);
+    expect(workerMaxTurnToolCallsOf({ WORKER_MAX_TURN_TOOL_CALLS: "1" })).toBe(
+      1,
+    );
+    expect(
+      workerMaxTurnToolCallsOf({ WORKER_MAX_TURN_TOOL_CALLS: "100000" }),
+    ).toBe(100_000);
+  });
+
+  test.each(["0", "100001", "", "5.5", "many"])(
+    "refuses %j, naming the setting and its range",
+    (value) => {
+      expect(() =>
+        workerMaxTurnToolCallsOf({ WORKER_MAX_TURN_TOOL_CALLS: value }),
+      ).toThrow(
+        "WORKER_MAX_TURN_TOOL_CALLS must be an integer from 1 to 100000",
+      );
     },
   );
 });
