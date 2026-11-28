@@ -317,21 +317,24 @@ describe("a listing past its request's deadline", () => {
       record: noting("record", true),
       finish: noting("finish", null),
       begin: noting("begin", { outcome: "not_found" as const }),
+      setRef: noting("setRef", { outcome: "not_found" as const }),
     };
     const wired = listingBeyondRequest(store, noting("apps", []));
     // As the pool sees a request that already answered 503.
     await runWithDeadline(
       new RequestDeadline(performance.now() - 1),
       async () => {
-        await wired.store.begin();
+        await wired.store.setRef();
+        await wired.store.begin(WORKSPACE, ID, { kind: "daily" } as never, 1);
         await wired.store.find(WORKSPACE, ID);
         await wired.apps();
         await wired.store.record({} as never);
         await wired.store.finish(WORKSPACE, ID, 1, "t");
       },
     );
-    expect(left["begin"]).toBeLessThanOrEqual(0);
-    for (const name of ["find", "apps", "record", "finish"]) {
+    // A change itself is still bound by the request that asked for it.
+    expect(left["setRef"]).toBeLessThanOrEqual(0);
+    for (const name of ["begin", "find", "apps", "record", "finish"]) {
       expect(left[name]).toBeGreaterThan(0);
     }
   });

@@ -24,18 +24,19 @@ import { mapped, requireParams } from "../errors.ts";
 
 /**
  * The store and the App lookup as a listing uses them, each call under a
- * deadline of its own: a listing that reads GitHub past its request's
- * deadline still records what it read, runs the check queued behind it and
- * lets the repository go.
+ * deadline of its own: a listing whose request timed out, while it read
+ * GitHub or just after a ref change committed, still starts, records what it
+ * read, runs the check queued behind it and lets the repository go.
  */
 export function listingBeyondRequest<
-  S extends Pick<SkillRepositoryStore, "find" | "record" | "finish">,
+  S extends Pick<SkillRepositoryStore, "begin" | "find" | "record" | "finish">,
   A extends unknown[],
   T,
 >(store: S, apps: (...args: A) => Promise<T>) {
   return {
     store: {
       ...store,
+      begin: beyondRequest(store.begin),
       find: beyondRequest(store.find),
       record: beyondRequest(store.record),
       finish: beyondRequest(store.finish),
