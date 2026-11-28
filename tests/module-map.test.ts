@@ -200,14 +200,16 @@ export function codeNamedPaths(
 }
 
 /**
- * Whether a name carries a code name. Names are split at separators and at
- * camelCase humps first, so workerKielStatus.ts is found and kielbasa.ts is not.
+ * Whether a name carries a code name. Names are split at separators, digits
+ * and camelCase humps first, so workerKielStatus.ts, MCPKielStatus.ts and
+ * Kiel2.ts are found and kielbasa.ts is not.
  */
 function namesCode(name: string): boolean {
   const words = name
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
     .toLowerCase()
-    .split(/[^a-z0-9]+/);
+    .split(/[^a-z]+/);
   return (
     longNames.some((long) => name.toLowerCase().includes(long)) ||
     words.some((word) => shortNames.includes(word))
@@ -346,9 +348,17 @@ export function layerDrift(
       const [domain = "", child = ""] = parts;
       const name = parts.at(-1) ?? "";
       if (parts.length < 2 || sharedFolders.includes(domain)) continue;
-      const part = relayFile.test(name)
-        ? undefined
-        : extensionsFiles.find(([pattern]) => pattern.test(name))?.[1];
+      if (relayFile.test(name)) {
+        // platform keeps the relays together; db has one beside what it relays for.
+        const home =
+          domain === "workers" && ["mcp-egress", "ports"].includes(child);
+        if (domain === "extensions" || (layer === "platform" && !home))
+          drift.push(
+            `${file}: an MCP relay belongs to workers/mcp-egress/, its port to workers/ports/`,
+          );
+        continue;
+      }
+      const part = extensionsFiles.find(([pattern]) => pattern.test(name))?.[1];
       if (domain === "extensions") {
         if (!extensionsChildren.includes(child))
           drift.push(
@@ -356,15 +366,6 @@ export function layerDrift(
           );
         else if (part && child !== part && child !== "ports")
           drift.push(`${file}: named like an extensions/${part}/ file`);
-        continue;
-      }
-      if (relayFile.test(name)) {
-        if (
-          layer === "platform" &&
-          domain === "workers" &&
-          !["mcp-egress", "ports"].includes(child)
-        )
-          drift.push(`${file}: an MCP relay belongs to workers/mcp-egress/`);
         continue;
       }
       if (part)
@@ -539,6 +540,8 @@ describe("module map", () => {
           "docs/kollegium-notes.md",
           "packages/platform/src/agents/lotseTeams.ts",
           "packages/platform/src/workers/workerKielStatus.ts",
+          "packages/platform/src/workers/MCPKielStatus.ts",
+          "packages/platform/src/workers/Kiel2.ts",
           "packages/speicher/src/index.ts",
           "apps/web/src/takelageList.tsx",
           "packages/platform/src/sessions/kielbasa.ts",
@@ -555,6 +558,8 @@ describe("module map", () => {
       "packages/db/src/musterrolle",
       "packages/platform/src/agents/lotseTeams.ts",
       "packages/platform/src/kiel",
+      "packages/platform/src/workers/Kiel2.ts",
+      "packages/platform/src/workers/MCPKielStatus.ts",
       "packages/platform/src/workers/workerKielStatus.ts",
       "packages/speicher",
       "packages/x/package.json: package name @werft-ai/kiel-runtime",
@@ -605,6 +610,7 @@ describe("module map", () => {
         "packages/db/src/sessions/extension-bundles.ts",
         "packages/db/src/extensions/builtin/skill-store.ts",
         "packages/platform/src/workers/github-mcp-egress.ts",
+        "packages/platform/src/extensions/builtin/werft-mcp-egress.ts",
         // Shared folders and files directly under a layer are nobody's.
         "packages/platform/src/testing/workspace-mcp-fakes.ts",
         "packages/db/src/workspace-mcp-egress.integration.test.ts",
@@ -615,8 +621,9 @@ describe("module map", () => {
       "packages/db/src/extensions/skill-store.ts: only skills, bundles, mcp, builtin, ports, index.ts sit directly under extensions/",
       "packages/db/src/sessions/extension-bundles.ts: named like an extensions/ file, in sessions/",
       "packages/db/src/sessions/workspace-mcp.ts: named like an extensions/ file, in sessions/",
+      "packages/platform/src/extensions/builtin/werft-mcp-egress.ts: an MCP relay belongs to workers/mcp-egress/, its port to workers/ports/",
       "packages/platform/src/sessions/agent-mcp-service.ts: named like an extensions/ file, in sessions/",
-      "packages/platform/src/workers/github-mcp-egress.ts: an MCP relay belongs to workers/mcp-egress/",
+      "packages/platform/src/workers/github-mcp-egress.ts: an MCP relay belongs to workers/mcp-egress/, its port to workers/ports/",
       "sessions: the map says platform · db, the tree has platform · db · route",
     ]);
   });
