@@ -875,6 +875,11 @@ const WIDE: [string, string, string | null][] = [
     "env '>TAG=demo' git log",
     "a setting that may make git or gh run a program",
   ],
+  [
+    "a setting behind env that ends in a tool's name",
+    "env '>TAG=notes/grep' grep -r needle",
+    "a search of a tree",
+  ],
   ["a message after clustered flags", "git commit -aq -m .claude", null],
   ["a gh body after a flag", "gh pr create --draft --body .claude", null],
   [
