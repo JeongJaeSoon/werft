@@ -43,6 +43,7 @@ The prefix is `werft_`, defined in one place in the code.
 | `werft_launch_queue_oldest_wait_seconds` | gauge | None | Longest session wait in the launch queue; 0 when empty |
 | `werft_sessions_waiting_for_capacity` | gauge | None | Sessions whose worker Pod is up but has no node with room, so it waits to start. Kubernetes has marked the Pod `Unschedulable` |
 | `werft_session_no_capacity_failures_total` | counter | None | Times a session's waiting input failed with `NO_CAPACITY` because no room freed up within 15 minutes |
+| `werft_held_replies_unanswered` | gauge | None | Slack replies held for their work's judgment that M1 chose to speak to, which neither an unasked turn nor a session turn answers 10 minutes on, counted by post. When it is above 0, look for `Slack reply M1 spoke to is left unanswered` in the slack role's log. A post whose link closed first took the closed thread's path and is in this value only, not in the log |
 | `werft_input_queue_oldest_age_seconds` | gauge | None | Age of the oldest input not yet taken by a worker; 0 when empty |
 | `werft_input_storage_used_bytes` | gauge | None | Bytes of input messages the storage limit counts, as the installation's counter holds them |
 | `werft_input_storage_limit_bytes` | gauge | None | The storage limit (`STORAGE_LIMIT_BYTES`); absent while the installation config cannot be read |

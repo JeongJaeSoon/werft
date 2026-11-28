@@ -73,6 +73,25 @@ export async function takeSlackTurnInput(
         SELECT 1 FROM conversation_judgments j
         WHERE j.input_id = conversation_inputs.id
           AND j.grade = 'm1_to_task')`);
+  // A reply its work's closing let an unasked turn answer (94S-2506) is not
+  // the session's too, by the post, its held row gone since or not. An issue
+  // still writing its turn holds the post's mark, which this append's
+  // deleted-source check took before, so it is seen committed or not at all.
+  // The throw undoes this turn and the event is seen again, answered.
+  const answered = rowsOf<{ turn_id: string | null }>(
+    await tx.execute(sql`
+      SELECT j.turn_id FROM conversation_judgments j
+      WHERE j.agent_id = ${place.agentId}::uuid
+        AND j.slack_team_id = ${place.teamId}
+        AND j.slack_channel_id = ${input.channelId}
+        AND j.target_ts = ${input.ts}
+        AND j.grade = 'm1_to_task' AND j.turn_id IS NOT NULL`),
+  );
+  if (answered.some((row) => row.turn_id !== null)) {
+    throw new Error(
+      `Slack post ${input.ts} was answered by an unasked turn; the session does not take it`,
+    );
+  }
   await tx.execute(sql`
     INSERT INTO conversation_inputs (
       id, workspace_id, agent_id, topic_id, seq,

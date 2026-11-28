@@ -102,6 +102,8 @@ async function run(
           channelState: "active",
         }),
     },
+    // No unasked turn answered the reply.
+    boundReplies: { answeredUnasked: () => Promise.resolve(false) },
     sessionLinks: {
       slackTurn: () => Promise.resolve(null),
       find: async () => found,

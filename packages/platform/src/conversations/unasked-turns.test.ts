@@ -266,12 +266,16 @@ describe("a reply that spoke (v1-b/U1)", () => {
       },
     };
   }
-  const run = async (claims: ClaimedReplyJudgment[]) => {
+  const run = async (
+    claims: ClaimedReplyJudgment[],
+    closed: ReadonlySet<string> = new Set(),
+  ) => {
     const { spoken, speaker } = speakerOf();
     await runReplyJudgments({
       store: {
         claimReply: async () => claims.shift() ?? null,
         finishReply: async () => "written",
+        heldWorkClosed: async (id) => closed.has(id),
       },
       judge: judgeWith(SPEAK, "1.5"),
       speaker,
@@ -308,6 +312,16 @@ describe("a reply that spoke (v1-b/U1)", () => {
     expect((await run([claim])).map((each) => each.judgmentId)).toEqual([
       claim.id,
     ]);
+  });
+
+  test("a reply held for its work whose work closed since (94S-2506) is answered in its thread; one whose work is open is not", async () => {
+    const closedSince = claimOf("m1_to_task", true, true);
+    const open = claimOf("m1_to_task", true, true);
+    expect(
+      (await run([closedSince, open], new Set([closedSince.id]))).map(
+        (each) => each.judgmentId,
+      ),
+    ).toEqual([closedSince.id]);
   });
 
   test("a bound thread's reply its session took, a task's, or one with no topic makes no turn here", async () => {

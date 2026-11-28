@@ -60,6 +60,8 @@ export { adoptSessionParent } from "./session-parents.ts";
 export {
   CLOSED_WORK_ADMISSION_STATES,
   sessionWorkClosed,
+  threadWorkAdmission,
+  threadWorkSession,
 } from "./session-work.ts";
 export { takeSlackTurnInput } from "./slack-turn-inputs.ts";
 export {
