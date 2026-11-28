@@ -466,6 +466,74 @@ describe("the unasked turn of a judgment that spoke (v1-b/U1)", () => {
       [randomUUID(), WORKSPACE, AGENT, randomUUID(), TEAM, CHANNEL, ts],
     );
 
+  test("a reply held for its work (m1_to_task) is judged by the session it was held for, though the thread opened another before its hold", async () => {
+    const at = await place();
+    const held = await threadWork(at, "closing", "2026-01-01T00:00:00Z");
+    // Its link closed and the thread's next work opened before the hold.
+    await client.query(
+      "UPDATE session_links SET closed_at = now(), closed_reason = 'completed' WHERE session_id = $1",
+      [held],
+    );
+    await threadWork(at, "active", "2026-01-02T00:00:00Z");
+    await heldReply("100.000002");
+    const judgmentId = await spoke(
+      at,
+      "100.000002",
+      ["100.000002"],
+      "m1_to_task",
+    );
+    await client.query(
+      "UPDATE conversation_judgments SET work_session_id = $2 WHERE id = $1",
+      [judgmentId, held],
+    );
+    expect((await issue(at, judgmentId).issued).outcome).toBe("issued");
+  });
+
+  test("a reply an unasked turn answered (m1_to_task) is no session's turn, its held row gone since", async () => {
+    const at = await place();
+    await threadWork(at, "closing");
+    await heldReply("100.000002");
+    const judgmentId = await spoke(
+      at,
+      "100.000002",
+      ["100.000002"],
+      "m1_to_task",
+    );
+    expect((await issue(at, judgmentId).issued).outcome).toBe("issued");
+    // The buffer's limit took its row.
+    await client.query(
+      "UPDATE conversation_judgments SET input_id = NULL WHERE id = $1",
+      [judgmentId],
+    );
+    await client.query(
+      "DELETE FROM conversation_inputs WHERE slack_ts = '100.000002' AND buffer_expires_at IS NOT NULL",
+    );
+    const session = await newPartitionedSession(db, "answered-take");
+    await client.query(
+      "UPDATE sessions SET status = 'idle', workspace_id = $2 WHERE id = $1",
+      [session.sessionId, WORKSPACE],
+    );
+    await client.query(
+      "UPDATE turns SET requester_kind = 'user', requester_id = $2 WHERE session_id = $1",
+      [session.sessionId, randomUUID()],
+    );
+    await expect(
+      db.transaction((tx) =>
+        takeSlackTurnInput(
+          tx,
+          { workspaceId: WORKSPACE, agentId: AGENT, teamId: TEAM },
+          {
+            topicId: at.topicId,
+            channelId: CHANNEL,
+            ts: "100.000002",
+            turn: { sessionId: session.sessionId, sequence: 1 },
+            engagement: "bound",
+          },
+        ),
+      ),
+    ).rejects.toThrow("answered by an unasked turn");
+  });
+
   test("a closed work's held reply that spoke (m1) makes its one unasked turn", async () => {
     const at = await place();
     await heldReply("100.000002");

@@ -2136,6 +2136,13 @@
       "when": 1795821808867,
       "tag": "0395_binding_report_mode_default",
       "breakpoints": true
+    },
+    {
+      "idx": 401,
+      "version": "7",
+      "when": 1795842579464,
+      "tag": "0401_held_work_session",
+      "breakpoints": true
     }
   ]
 }

@@ -28,6 +28,8 @@ export type TaskReply = ChannelConversationKey & {
   rule: ThreadReplyRule;
   /** How long its judgment may wait from its hold before the work takes it. */
   waitMs: number;
+  /** The session whose work the receive path read the thread bound to. */
+  sessionId: string;
 };
 
 /** A Slack post of an agent's channel. */
@@ -62,6 +64,11 @@ export interface BoundReplyStore {
    * keeps that grade though the work closed while it waited.
    */
   heldForWork(post: BoundReplyPost): Promise<boolean>;
+  /**
+   * Whether an unasked turn answered the post as a reply held for its work
+   * (94S-2506), its held row gone since or not: no session takes it then.
+   */
+  answeredUnasked(post: BoundReplyPost): Promise<boolean>;
   /**
    * Holds the reply for its `m1_to_task` judgment the first time it is
    * asked, under the gate a judgment is written under, and answers what

@@ -35,6 +35,13 @@ const atPost = (post: Post, alias: string) => {
 };
 
 /** The post's `m1_to_task` records still in the buffer's time (alias `j`). */
+/** The unasked turn of the post held for its work, by the post: its held row may be gone. */
+const answeredOf = (post: Post): SQL => sql`
+  SELECT 1 FROM conversation_judgments j
+  WHERE ${atPost(post, "j")} AND j.grade = 'm1_to_task'
+    AND j.target_ts = ${post.ts} AND j.turn_id IS NOT NULL
+  LIMIT 1`;
+
 const taskJudgmentsOf = (post: Post): SQL => sql`${atPost(post, "j")}
   AND j.grade = 'm1_to_task' AND j.refs = ARRAY[${post.ts}]::text[]
   AND j.created_at > now() - ${secs(JUDGMENT_BUFFER_TTL_MS)}`;
@@ -144,6 +151,10 @@ export function createPostgresBoundReplyStore(
       return rows.length > 0;
     },
 
+    async answeredUnasked(post) {
+      return rowsOf(await db.execute(answeredOf(post))).length > 0;
+    },
+
     async taskReply(reply) {
       const limit = await bufferLimit();
       return db.transaction(async (tx): Promise<TaskReplyRoute> => {
@@ -152,6 +163,11 @@ export function createPostgresBoundReplyStore(
         // one event never hold or give up its post at once; the work's
         // append after this is outside it.
         if (!(await claimHeld(tx, reply.fence))) return "waiting";
+        // An unasked turn answered it, the work closed when M1 spoke
+        // (94S-2506): one post, one answer, whatever the rollout is now.
+        if (rowsOf(await tx.execute(answeredOf(reply))).length > 0) {
+          return "quiet";
+        }
         // The rollout as of now, held against a switch until this ends: one
         // lowered since the event's read takes the current path (the work).
         const [agent] = rowsOf<{ on: boolean }>(
@@ -174,7 +190,6 @@ export function createPostgresBoundReplyStore(
             edited: boolean;
             judgment_id: ConversationJudgmentId | null;
             grade: string | null;
-            answered: boolean | null;
             lapsed: boolean | null;
           } & Ended
         >(
@@ -182,7 +197,6 @@ export function createPostgresBoundReplyStore(
             SELECT i.id, i.buffer_expires_at IS NOT NULL AS held, i.body,
               i.body_edited_at IS NOT NULL AS edited,
               j.id AS judgment_id, j.grade, j.outcome, j.decision,
-              j.turn_id IS NOT NULL AS answered,
               j.created_at <= now() - ${secs(reply.waitMs)} AS lapsed,
               j.judged_at <= j.created_at + ${secs(reply.waitMs)} AS in_time
             FROM conversation_inputs i
@@ -199,9 +213,6 @@ export function createPostgresBoundReplyStore(
           ) {
             return "session";
           }
-          // An unasked turn answered it, the work closed when M1 spoke
-          // (94S-2506): one post, one answer, should the work be open again.
-          if (held.answered === true) return "quiet";
           let ended: Ended | undefined = held;
           if (held.outcome === null) {
             if (held.lapsed !== true) return "waiting";
@@ -291,7 +302,11 @@ export function createPostgresBoundReplyStore(
             channelId: reply.channelId,
             ts: reply.ts,
             buffered: { body: reply.body, slackUserId: reply.slackUserId },
-            judgment: { grade: "m1_to_task", rule: reply.rule },
+            judgment: {
+              grade: "m1_to_task",
+              rule: reply.rule,
+              workSessionId: reply.sessionId,
+            },
           },
           limit,
         );

@@ -593,13 +593,18 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
     },
 
     async heldWorkClosed(id) {
+      // The work it was held for; a record from before that was kept, by
+      // the thread's links as of its hold.
       const [row] = rowsOf<{ admission: string | null }>(
         await db.execute(sql`
-          SELECT ${threadWorkAdmission(
-            sql`j.agent_id`,
-            sql`i.topic_id`,
-            sql`i.received_at`,
-          )} AS admission
+          SELECT CASE WHEN j.work_session_id IS NOT NULL THEN (
+              SELECT s.admission_state FROM sessions s
+              WHERE s.id = j.work_session_id)
+            ELSE ${threadWorkAdmission(
+              sql`j.agent_id`,
+              sql`i.topic_id`,
+              sql`i.received_at`,
+            )} END AS admission
           FROM conversation_judgments j
           JOIN conversation_inputs i ON i.id = j.input_id
           WHERE j.id = ${id}::uuid AND j.grade = 'm1_to_task'

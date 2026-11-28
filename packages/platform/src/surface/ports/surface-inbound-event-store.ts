@@ -109,6 +109,8 @@ export type BufferedInputReceipt = {
 export type BoundReplyJudgment = {
   grade: "m1" | "m1_to_task";
   rule: ThreadReplyRule;
+  /** Of `m1_to_task`: the session whose work it was held for. */
+  workSessionId?: string;
 };
 
 /** What a write after a claim is fenced on. */

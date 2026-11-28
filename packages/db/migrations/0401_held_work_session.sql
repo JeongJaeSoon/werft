@@ -1,0 +1,1 @@
+ALTER TABLE "conversation_judgments" ADD COLUMN "work_session_id" uuid;

@@ -767,24 +767,31 @@ export function createPostgresConversationCalls(
               AND i.slack_channel_id = ${input.channelId}
               AND i.slack_ts = conversation_judgments.target_ts
               AND i.turn_id IS NOT NULL)`;
-          // The admission of the work the reply was held for (the thread's
-          // latest link by the time it was held), read unlocked: a close that
-          // fails back to open work after this is 94S-2519's, and a session
-          // taking the reply then is refused by its hold's answered judgment
-          // (takeSlackTurnInput). No session there is closed work, as
-          // sessionWorkClosed reads it.
-          const workClosed = sql`COALESCE(${threadWorkAdmission(
-            sql`${input.agentId}::uuid`,
-            sql`${input.topicId}::uuid`,
-            sql`(SELECT i.received_at FROM conversation_inputs i
-              WHERE i.agent_id = ${input.agentId}::uuid
-                AND i.slack_team_id = ${input.teamId}
-                AND i.slack_channel_id = ${input.channelId}
-                AND i.slack_ts = conversation_judgments.target_ts)`,
-          )}, 'closed') IN (${sql.join(
-            CLOSED_WORK_ADMISSION_STATES.map((state) => sql`${state}`),
-            sql`, `,
-          )})`;
+          // The admission of the work the reply was held for (its session as
+          // the receive path read it; on a record from before that was kept,
+          // the thread's latest link by the time it was held), read unlocked:
+          // a close that fails back to open work after this is 94S-2519's,
+          // and a session taking the reply then is refused by its answered
+          // judgment (takeSlackTurnInput). The receive path waits out a
+          // closing, so a close failing back before this leaves the reply to
+          // the work. No session there is closed work, as sessionWorkClosed
+          // reads it.
+          const workClosed = sql`COALESCE(CASE
+            WHEN conversation_judgments.work_session_id IS NOT NULL THEN (
+              SELECT s.admission_state FROM sessions s
+              WHERE s.id = conversation_judgments.work_session_id)
+            ELSE ${threadWorkAdmission(
+              sql`${input.agentId}::uuid`,
+              sql`${input.topicId}::uuid`,
+              sql`(SELECT i.received_at FROM conversation_inputs i
+                WHERE i.agent_id = ${input.agentId}::uuid
+                  AND i.slack_team_id = ${input.teamId}
+                  AND i.slack_channel_id = ${input.channelId}
+                  AND i.slack_ts = conversation_judgments.target_ts)`,
+            )} END, 'closed') IN (${sql.join(
+              CLOSED_WORK_ADMISSION_STATES.map((state) => sql`${state}`),
+              sql`, `,
+            )})`;
           await tx.insert(conversationTurns).values({
             id: input.turnId,
             workspaceId: input.workspaceId,

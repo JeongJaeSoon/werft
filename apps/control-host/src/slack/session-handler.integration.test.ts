@@ -9884,6 +9884,97 @@ describe.each(ENGINES)(
         expect(await unaskedTurns()).toEqual([]);
       });
 
+      test("work closing when M1 spoke, its close failing back before the unasked turn: the reply waits the drain out, then the work takes it", async () => {
+        const { fixture, handle, sessionId } = await workThread("queued");
+        await deliver(fixture, reply());
+        expect(await drain(handle)).toMatchObject({ deferred: 1 });
+        // Held for this work, by its session.
+        expect(
+          await db
+            .select({
+              workSessionId: schema.conversationJudgments.workSessionId,
+            })
+            .from(schema.conversationJudgments),
+        ).toEqual([{ workSessionId: sessionId }]);
+        await db
+          .update(sessions)
+          .set({ admissionState: "closing" })
+          .where(eq(sessions.id, sessionId));
+        const { speaker: issue, outcomes } = issuing();
+        const drained: unknown[] = [];
+        const speaker: M1Speaker = {
+          async speak(spoken) {
+            // The inbox looks while the work drains: it does not let go.
+            await due();
+            drained.push(await drain(handle));
+            await db
+              .update(sessions)
+              .set({ admissionState: "active" })
+              .where(eq(sessions.id, sessionId));
+            await issue.speak(spoken);
+          },
+        };
+        await judgeReplies("speak", speaker);
+        expect(drained).toEqual([
+          expect.objectContaining({ processed: 0, deferred: 1 }),
+        ]);
+        expect(outcomes).toHaveLength(1);
+        expect(outcomes).not.toContain("issued");
+        await due();
+        expect(await drain(handle)).toMatchObject({ processed: 1 });
+        expect(await messagesOf(sessionId)).toEqual([
+          "summarize the thread",
+          "and the next step",
+        ]);
+        expect(await unaskedTurns()).toEqual([]);
+      });
+
+      for (const [name, after] of [
+        [
+          "its held row gone from the buffer since",
+          async () => {
+            await db
+              .delete(schema.conversationInputs)
+              .where(eq(schema.conversationInputs.slackTs, REPLY));
+          },
+        ],
+        [
+          "the rollout lowered to shadow since",
+          async (agentId: string) => {
+            await db
+              .update(schema.agents)
+              .set({ conversationRollout: "shadow" })
+              .where(eq(schema.agents.id, agentId));
+          },
+        ],
+      ] as const) {
+        test(`a reply an unasked turn answered, its work open again and ${name}: the work takes nothing`, async () => {
+          const { fixture, handle, sessionId } = await workThread("queued");
+          await deliver(fixture, reply());
+          expect(await drain(handle)).toMatchObject({ deferred: 1 });
+          await db
+            .update(sessions)
+            .set({ admissionState: "closing" })
+            .where(eq(sessions.id, sessionId));
+          const { speaker, outcomes } = issuing();
+          await judgeReplies("speak", speaker);
+          expect(outcomes).toEqual(["issued"]);
+          await db
+            .update(sessions)
+            .set({ admissionState: "active" })
+            .where(eq(sessions.id, sessionId));
+          await after(fixture.agentId);
+          await due();
+          expect(await drain(handle)).toMatchObject({
+            processed: 1,
+            deferred: 0,
+            failed: 0,
+          });
+          expect(await messagesOf(sessionId)).toEqual(["summarize the thread"]);
+          expect(await unaskedTurns()).toHaveLength(1);
+        });
+      }
+
       test("work closed while its reply waited: the reply keeps its grade and is judged once", async () => {
         const { fixture, handle, sessionId } = await workThread("queued");
         await deliver(fixture, reply());
@@ -10030,6 +10121,7 @@ describe.each(ENGINES)(
             slackUserId: PERSON,
             rule: { decision: "reply", reason: "default_reply" },
             waitMs: 30_000,
+            sessionId: randomUUID(),
           });
         expect(await look()).toBe("session");
         // As a retry after the work's append failed looks again.
@@ -10074,6 +10166,7 @@ describe.each(ENGINES)(
             slackUserId: PERSON,
             rule: { decision: "reply", reason: "default_reply" },
             waitMs: 30_000,
+            sessionId: randomUUID(),
           }),
         ).toBe("session");
         expect(await replyInput()).toEqual([

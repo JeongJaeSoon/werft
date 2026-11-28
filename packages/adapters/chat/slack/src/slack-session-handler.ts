@@ -447,6 +447,19 @@ export function createSlackSessionHandler(
     const boundReplyRoute = async (
       sessionId: string,
     ): Promise<BufferedInputReceipt | null | "current_path" | "session"> => {
+      // An unasked turn answered it as a reply held for its work (94S-2506):
+      // no session takes it, whatever the rollout has become since.
+      if (
+        await deps.boundReplies.answeredUnasked({
+          agentId: agent.agentId,
+          teamId: claim.teamId,
+          channelId: event.channel,
+          ts: event.ts,
+        })
+      ) {
+        deps.logger.info("Slack reply answered by an unasked turn", ids);
+        return null;
+      }
       const place = await deps.buffer.place({
         kind: "channel",
         workspaceId: agent.workspaceId,
@@ -583,6 +596,7 @@ export function createSlackSessionHandler(
         ...buffered,
         rule,
         waitMs,
+        sessionId,
       });
       if (route === "waiting") {
         throw new SlackInboundDeferred(SLACK_TASK_REPLY_RECHECK_MS);
@@ -596,7 +610,13 @@ export function createSlackSessionHandler(
       // Closed since it was held (94S-2506): as a closed work's reply, it
       // goes to no session. M1's speak answered it with an unasked turn as
       // it was written, and a reply M1 could not judge is left.
-      if ((await deps.boundReplies.work(sessionId)) === "closed") {
+      // Closing, the close may fail back to open work, which takes the reply
+      // then: it waits the drain out, as a mention does.
+      const closed = await deps.boundReplies.closedWork(sessionId);
+      if (closed?.admission === "closing") {
+        throw new SlackInboundDeferred(SLACK_CLOSED_WORK_MENTION_RECHECK_MS);
+      }
+      if (closed !== null) {
         deps.logger.info("Slack reply of work closed while it waited", ids);
         return null;
       }
@@ -653,8 +673,9 @@ export function createSlackSessionHandler(
           sessionId,
           sessionLinkId: link.id,
           notice: { message: "taskClosingWait" },
-          // A close found by its receipt; one asked by another principal
-          // is keyed by the session, so a later closing of it says nothing.
+          // A close found by its receipt; a closing with none found (a row
+          // from before close receipts) is keyed by the session, so a later
+          // closing of it says nothing.
           onceKey: `${agent.installationId}:${surfaceRef}:closing_wait:${
             closed.closeReceiptId ?? sessionId
           }`,

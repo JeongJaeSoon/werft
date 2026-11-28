@@ -74,19 +74,18 @@ export async function takeSlackTurnInput(
         WHERE j.input_id = conversation_inputs.id
           AND j.grade = 'm1_to_task')`);
   // A reply its work's closing let an unasked turn answer (94S-2506) is not
-  // the session's too. The judgment's row lock waits out an issue still
-  // writing its turn; input then judgment, as M1's finish takes them. The
-  // throw undoes this turn and the event is seen again, answered.
+  // the session's too, by the post, its held row gone since or not. An issue
+  // still writing its turn holds the post's mark, which this append's
+  // deleted-source check took before, so it is seen committed or not at all.
+  // The throw undoes this turn and the event is seen again, answered.
   const answered = rowsOf<{ turn_id: string | null }>(
     await tx.execute(sql`
       SELECT j.turn_id FROM conversation_judgments j
-      JOIN conversation_inputs i ON i.id = j.input_id
-      WHERE i.agent_id = ${place.agentId}::uuid
-        AND i.slack_team_id = ${place.teamId}
-        AND i.slack_channel_id = ${input.channelId}
-        AND i.slack_ts = ${input.ts}
-        AND j.grade = 'm1_to_task'
-      FOR SHARE OF j`),
+      WHERE j.agent_id = ${place.agentId}::uuid
+        AND j.slack_team_id = ${place.teamId}
+        AND j.slack_channel_id = ${input.channelId}
+        AND j.target_ts = ${input.ts}
+        AND j.grade = 'm1_to_task' AND j.turn_id IS NOT NULL`),
   );
   if (answered.some((row) => row.turn_id !== null)) {
     throw new Error(

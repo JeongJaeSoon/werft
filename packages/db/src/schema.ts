@@ -6529,6 +6529,10 @@ export const conversationJudgments = pgTable(
     turnId: uuid("turn_id").$type<ConversationTurnId>(),
     // What became of it then: the turn's end, or why no turn was made.
     answer: text().$type<JudgmentAnswer>(),
+    // The session whose work an `m1_to_task` reply was held for, as the
+    // receive path read its thread; null on other grades and on records
+    // written before it, read by the thread's links then.
+    workSessionId: uuid("work_session_id"),
     // A reply's judge took it; one taken too long ago is given up.
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
