@@ -667,6 +667,22 @@ const WIDE: [string, string, string | null][] = [
     "git commit -m \"$(cat <<'EOF'\nx\nEOF\ngit config core.editor vi\n)\"",
     "a git setting",
   ],
+  [
+    "a body start in a comment",
+    "(\n# $(cat <<'true'\ngrep -r needle .\ntrue\n)",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a message flag given as a file",
+    "git commit -F -m .mcp.json",
+    "a path that goes to a person",
+  ],
+  ["a message after a flag that takes none", "git commit -a -m .claude", null],
+  [
+    "a git -m that is no message",
+    "git log -m .claude/settings.json",
+    "a path that goes to a person",
+  ],
   // The work-tree checks are the narrow reading's alone.
   ["a checkout of the top", "git checkout HEAD -- .", null],
   ["a checkout of a branch", "git checkout main", null],
@@ -1496,11 +1512,7 @@ const NARROW: [string, string, string | null][] = [
     "git restore .mcp.json~other",
     "a path that goes to a person",
   ],
-  [
-    "a kept folder before a ^",
-    "git restore .claude/^x",
-    "a path that goes to a person",
-  ],
+  ["a ^ that starts a name", "git restore .claude/^x", "a ^ outside a quote"],
   [
     "a ~ in a redirect target",
     "echo x > notes/out~other",
@@ -1511,6 +1523,40 @@ const NARROW: [string, string, string | null][] = [
     "git status > notes/out^x",
     "a ^ outside a quote",
   ],
+  // An option's value is not an option, and a --no- form turns off only its own.
+  [
+    "an exclude given -n as its pattern",
+    "git clean -f --exclude -n",
+    "a write of the whole work tree",
+  ],
+  [
+    "a stash message given --",
+    "git stash push -m -- -u",
+    "a write of the whole work tree",
+  ],
+  ["a stash message given -u", "git stash push -m -u", null],
+  [
+    "an orphan switch with force turned off",
+    "git switch --orphan new --no-force",
+    "a write of the whole work tree",
+  ],
+  [
+    "a forced checkout that makes a branch",
+    "git checkout -f -b topic HEAD~1",
+    "a write of the whole work tree",
+  ],
+  ["a forced new branch", "git switch -C topic origin/main", null],
+  [
+    "the top first among paths",
+    "git checkout . notes/sample.txt",
+    "a write of the whole work tree",
+  ],
+  [
+    "a ^ that starts a name in a folder",
+    "git restore notes/^sample.txt",
+    "a ^ outside a quote",
+  ],
+  ["a quoted name with a ~", "git diff -- '.mcp.json~backup'", null],
 ];
 
 describe("the wide reading", () => {

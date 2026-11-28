@@ -175,7 +175,8 @@ function tokensOf(
         revisions &&
         (next === "~" || next === "^") &&
         i > start &&
-        (/[\w./@+,%-]/.test(before) || before === "~" || before === "^")
+        // After a `/` it starts a name: a pattern to a shell with extended globs.
+        (/[\w.@+,%-]/.test(before) || before === "~" || before === "^")
       ) {
         text += next;
         revision ??= next;
@@ -764,7 +765,7 @@ function grepOperands(words: readonly string[]): {
 }
 
 /** What in a git or gh word may be a path: an option's value, a glued cluster's tail, `@file`, a `file#label`. What follows a `:` is {@link rootRelative}'s. */
-function refPathsIn(word: string): string[] {
+function refPathsIn(word: string, globbed = false): string[] {
   const found = new Set([word, ...pathsIn(word)]);
   // A cluster of short options ends in the last one's value (`-nF.env`):
   // a value may start after any option letter.
@@ -782,8 +783,8 @@ function refPathsIn(word: string): string[] {
   for (const path of [...found]) {
     if (path.startsWith("@")) found.add(path.slice(1));
     if (path.includes("#")) found.add(path.slice(0, path.indexOf("#")));
-    // A shell with extended globs reads `a~b` as a less b and `^a` as not a.
-    for (const piece of path.split(/[~^]/)) found.add(piece);
+    // A shell with extended globs reads `a~b` as a less b.
+    if (globbed) for (const piece of path.split(/[~^]/)) found.add(piece);
   }
   return [...found];
 }
@@ -842,33 +843,50 @@ function gitOperands(
 }
 
 /**
- * Whether the options before any `--` leave one of these set: a short
- * cluster's letter or a long option by a start of its name, the last of it
- * and its `--no-` form winning.
+ * Which of these options the words before any `--` leave set, by their long
+ * name: a short cluster's letter or a long option by its name or a start of
+ * it, the last of it and its `--no-` form winning. An option that takes a
+ * value takes the next word when none is glued to it.
  */
-function setsOption(
+function optionsSet(
   words: readonly string[],
-  letters: string,
-  longs: readonly string[],
+  options: readonly (readonly [letter: string, long: string])[],
   shortValues = "",
-): boolean {
+  longValues: readonly string[] = [],
+): Set<string> {
+  const longs = options.map(([, long]) => long);
   const named = (option: string) =>
-    option.length > 2 && longs.some((full) => full.startsWith(option));
-  let set = false;
-  for (const word of words) {
+    option.length > 2 ? longs.filter((full) => full.startsWith(option)) : [];
+  const set = new Set<string>();
+  for (let i = 0; i < words.length; i += 1) {
+    const word = words[i] as string;
     if (word === "--") break;
     if (word.startsWith("--")) {
       const option = word.split("=")[0] as string;
-      if (named(option)) set = true;
-      else if (option.startsWith("--no-") && named(`--${option.slice(5)}`)) {
-        set = false;
+      const on = named(option);
+      for (const long of on) set.add(long);
+      if (on.length === 0 && option.startsWith("--no-")) {
+        for (const long of named(`--${option.slice(5)}`)) set.delete(long);
+      }
+      if (
+        !word.includes("=") &&
+        option.length > 2 &&
+        longValues.some((full) => full.startsWith(option))
+      ) {
+        i += 1;
       }
       continue;
     }
     if (!/^-[^-]/.test(word)) continue;
-    for (const letter of word.slice(1)) {
-      if (letters.includes(letter)) set = true;
-      if (shortValues.includes(letter)) break;
+    for (let at = 1; at < word.length; at += 1) {
+      const letter = word[at] as string;
+      for (const [short, long] of options) {
+        if (short === letter) set.add(long || `-${short}`);
+      }
+      if (shortValues.includes(letter)) {
+        if (at + 1 === word.length) i += 1;
+        break;
+      }
     }
   }
   return set;
@@ -929,81 +947,113 @@ function workTreeKept(
       "--orphan",
       "--conflict",
     ]);
+    const set = optionsSet(
+      rest,
+      [
+        ["f", "--force"],
+        ["", "--detach"],
+        ["", "--orphan"],
+        ["b", ""],
+        ["B", ""],
+      ],
+      "bB",
+      ["--orphan", "--conflict"],
+    );
     if (pathspecs !== undefined && pathspecs.length > 0) {
       return coversAll(pathspecs) ? whole : null;
     }
-    if (operands.length === 0) {
-      // `git checkout -f` throws every change away.
-      return pathspecs === undefined && setsOption(rest, "f", ["--force"], "bB")
-        ? whole
-        : null;
-    }
-    // One operand is a branch unless it is a path (both is ambiguous to git);
-    // more are a tree and its paths.
+    // `git checkout -f` throws every change away.
+    if (set.has("--force")) return whole;
+    if (operands.length === 0) return null;
     // A new branch from a start point is how work begins (`git checkout -b x
     // origin/main`); the tree it brings is not read here.
-    if (pathspecs === undefined && setsOption(rest, "", ["--orphan"], "")) {
-      return null;
-    }
-    if (
-      pathspecs === undefined &&
-      rest.some((word) => /^-[^-]*[bB]/.test(word))
-    ) {
-      return null;
-    }
-    if (operands.length === 1 && pathspecs === undefined) {
-      const [only] = operands as [string];
-      if (!onDisk(only) || setsOption(rest, "", ["--detach"])) {
-        return "a switch to another tree";
-      }
-      return coversAll(operands) ? whole : null;
-    }
+    if (set.has("-b") || set.has("-B") || set.has("--orphan")) return null;
+    // One operand is a branch unless it is a path (both is ambiguous to git);
+    // more are a tree and its paths, or paths alone when the first is one.
     if (pathspecs !== undefined) return "a switch to another tree";
-    return coversAll(operands.slice(1)) ? whole : null;
+    const [first] = operands as [string];
+    if (operands.length === 1) {
+      return !onDisk(first) || set.has("--detach")
+        ? "a switch to another tree"
+        : coversAll(operands)
+          ? whole
+          : null;
+    }
+    return coversAll(onDisk(first) ? operands : operands.slice(1))
+      ? whole
+      : null;
   }
   if (verb === "switch") {
-    const { operands, pathspecs } = gitOperands(rest, "cC", [
-      "--create",
-      "--force-create",
-      "--orphan",
-      "--conflict",
-    ]);
+    const values = ["--create", "--force-create", "--orphan", "--conflict"];
+    const { operands, pathspecs } = gitOperands(rest, "cC", values);
+    const set = optionsSet(
+      rest,
+      [
+        ["f", "--force"],
+        ["", "--discard-changes"],
+        ["", "--orphan"],
+        ["c", "--create"],
+        ["C", "--force-create"],
+      ],
+      "cC",
+      values,
+    );
     // An orphan starts from no tree: every tracked file leaves the work tree.
     if (
-      setsOption(rest, "f", ["--force", "--discard-changes", "--orphan"], "cC")
+      set.has("--force") ||
+      set.has("--discard-changes") ||
+      set.has("--orphan")
     ) {
       return whole;
     }
-    if (setsOption(rest, "cC", ["--create", "--force-create"])) {
-      return null;
-    }
+    if (set.has("--create") || set.has("--force-create")) return null;
     return operands.length > 0 || (pathspecs?.length ?? 0) > 0
       ? "a switch to another tree"
       : null;
   }
   if (verb === "restore") {
-    const { operands, pathspecs } = gitOperands(rest, "s", [
-      "--source",
-      "--conflict",
-    ]);
-    const staged = setsOption(rest, "S", ["--staged"], "s");
-    const worktree = setsOption(rest, "W", ["--worktree"], "s");
-    if (staged && !worktree) return null;
+    const values = ["--source", "--conflict", "--pathspec-from-file"];
+    const { operands, pathspecs } = gitOperands(rest, "s", values);
+    const set = optionsSet(
+      rest,
+      [
+        ["S", "--staged"],
+        ["W", "--worktree"],
+      ],
+      "s",
+      values,
+    );
+    if (set.has("--staged") && !set.has("--worktree")) return null;
     return coversAll(pathspecs ?? operands) ? whole : null;
   }
   if (verb === "rm") {
-    const { operands, pathspecs } = gitOperands(rest, "", []);
-    if (setsOption(rest, "", ["--cached"])) return null;
+    const values = ["--pathspec-from-file"];
+    const { operands, pathspecs } = gitOperands(rest, "", values);
+    if (optionsSet(rest, [["", "--cached"]], "", values).size > 0) return null;
     return coversAll(pathspecs ?? operands) ? whole : null;
   }
   if (verb === "reset") {
-    return setsOption(rest, "", ["--hard", "--merge", "--keep"]) ? whole : null;
+    const modes = optionsSet(
+      rest,
+      [
+        ["", "--hard"],
+        ["", "--merge"],
+        ["", "--keep"],
+      ],
+      "",
+      ["--pathspec-from-file"],
+    );
+    return modes.size > 0 ? whole : null;
   }
   if (verb === "read-tree") {
-    return setsOption(rest, "u", []) ? "a switch to another tree" : null;
+    return optionsSet(rest, [["u", ""]]).size > 0
+      ? "a switch to another tree"
+      : null;
   }
   if (verb === "clean") {
-    if (setsOption(rest, "n", ["--dry-run"], "e")) return null;
+    if (optionsSet(rest, [["n", "--dry-run"]], "e", ["--exclude"]).size > 0) {
+      return null;
+    }
     const { operands, pathspecs } = gitOperands(rest, "e", ["--exclude"]);
     const given = pathspecs ?? operands;
     return given.length === 0 || coversAll(given) ? whole : null;
@@ -1015,10 +1065,16 @@ function workTreeKept(
       action.startsWith("-") ||
       action === "push" ||
       action === "save";
-    return pushes &&
-      setsOption(rest, "ua", ["--all", "--include-untracked"], "m")
-      ? whole
-      : null;
+    const untracked = optionsSet(
+      rest,
+      [
+        ["u", "--include-untracked"],
+        ["a", "--all"],
+      ],
+      "m",
+      ["--message", "--pathspec-from-file"],
+    );
+    return pushes && untracked.size > 0 ? whole : null;
   }
   return null;
 }
@@ -1032,6 +1088,7 @@ function narrowKept(
   words: readonly string[],
   place: Place,
   wide = false,
+  written?: readonly string[],
 ): string | null {
   const [name] = words;
   // A path is judged where it lands, `..` taken as spelled, and by its name
@@ -1110,12 +1167,20 @@ function narrowKept(
           words.find((word, index) => index > 0 && !word.startsWith("-")) ?? "",
         ));
     let message = false;
-    for (const word of words.slice(1)) {
+    for (const [index, word] of words.slice(1).entries()) {
       if (word === "--") options = false;
       if (options) {
         const text =
           message || MESSAGE_FLAGS.some((flag) => word.startsWith(`${flag}=`));
-        message = !message && MESSAGE_FLAGS.includes(word);
+        // `-F -m` gives `-m` as a file: a flag after an option that may
+        // take a value is not read as one.
+        const previous = words[index] ?? "";
+        message =
+          !message &&
+          MESSAGE_FLAGS.includes(word) &&
+          (!previous.startsWith("-") ||
+            COMMIT_FLAGS.includes(previous) ||
+            MESSAGE_FLAGS.includes(previous));
         if (text) continue;
       }
       // git takes a long option by any unique start of its name.
@@ -1145,7 +1210,11 @@ function narrowKept(
       if (new RegExp(`^-\\w{${CLUSTER_LETTERS + 1}}`).test(word)) {
         return "a cluster of short options too long to read";
       }
-      const paths = refPathsIn(word);
+      // Only a letter the shell sees: `'.mcp.json~old'` is a name.
+      const globbed = /[~^]/.test(
+        (written?.[index + 1] ?? "").replace(/'[^']*'|"[^"]*"/g, ""),
+      );
+      const paths = refPathsIn(word, globbed);
       if (
         paths.some((path) => keptPath(path)) ||
         rootRelative(word).some(
@@ -1540,7 +1609,7 @@ function partKept(
     }
   }
   const tools = narrow
-    ? narrowKept(part.words, place)
+    ? narrowKept(part.words, place, false, part.written)
     : wideKept(part.words, place);
   if (tools !== null) return tools;
   if (name === undefined) return null;
@@ -1720,7 +1789,13 @@ function withoutHeredocBodies(command: string): string {
 const withoutCatBodies = (text: string) =>
   text.replace(
     /\$\(cat <<(['"])([A-Za-z_]\w*)\1\n(?:(?!\2\n)[^\n]*\n)*\2\n\)/g,
-    "$()",
+    (body, _quote, _delimiter, at: number) => {
+      // Only where the shell reads it: not in a comment or a single quote.
+      const before = text.slice(text.lastIndexOf("\n", at) + 1, at);
+      return /(^|\s)#/.test(before) || (before.match(/'/g) ?? []).length % 2
+        ? body
+        : "$()";
+    },
   );
 
 const spelledOut = (words: readonly string[]) =>
