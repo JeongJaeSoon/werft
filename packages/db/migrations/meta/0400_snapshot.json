@@ -1,6 +1,6 @@
 {
-  "id": "1f8095ae-cf28-434e-9736-6f69dfc9ccc3",
-  "prevId": "c302eeaf-651e-422d-a503-8f0a44016b18",
+  "id": "06b51521-4555-4bac-84c8-76278d5e0b9e",
+  "prevId": "72edec81-f099-47d0-8f0d-916f6db60bb0",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -13781,6 +13781,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "network": {
+          "name": "network",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_by": {
           "name": "created_by",
           "type": "uuid",
@@ -13823,6 +13829,10 @@
         "provider_connections_auto_mode_check": {
           "name": "provider_connections_auto_mode_check",
           "value": "\"provider_connections\".\"auto_mode\" IN ('supported', 'unsupported', 'unknown')"
+        },
+        "provider_connections_network_check": {
+          "name": "provider_connections_network_check",
+          "value": "\"provider_connections\".\"network\" IN ('public', 'private')"
         },
         "provider_connections_credential_source_check": {
           "name": "provider_connections_credential_source_check",
@@ -19638,6 +19648,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "from_bot": {
+          "name": "from_bot",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
         "claim_token": {
           "name": "claim_token",
           "type": "uuid",
@@ -19705,6 +19721,28 @@
           ],
           "isUnique": false,
           "where": "\"slack_inbound_events\".\"status\" = 'received'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "slack_inbound_events_thread_received_idx": {
+          "name": "slack_inbound_events_thread_received_idx",
+          "columns": [
+            {
+              "expression": "conversation_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "received_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"slack_inbound_events\".\"conversation_key\" IS NOT NULL AND \"slack_inbound_events\".\"from_bot\" IS NOT TRUE",
           "concurrently": false,
           "method": "btree",
           "with": {}
