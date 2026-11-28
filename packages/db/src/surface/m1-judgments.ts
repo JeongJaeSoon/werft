@@ -5,6 +5,8 @@ import {
   type ConversationJudgmentId,
   type ConversationTopicId,
   conversationJudgmentIdSchema,
+  type JudgmentFailedReason,
+  type JudgmentNotCalledReason,
   type JudgmentVoidedReason,
   M1_PROMPT_VERSION,
 } from "@werft-ai/contracts";
@@ -199,11 +201,32 @@ const ownsHeldText = (row: Pick<WaitingRow, "grade" | "held">) =>
 // Lock order, as the switch's lowering and an admin's delete take theirs:
 // the agent (the gate), then buffered inputs, then judgment rows.
 
-/** Drops a waiting reply's row, its held text first when it has one. */
+/** A held reply of work going on (`m1_to_task`), its text the receive path's. */
+const heldForWork = (row: Pick<WaitingRow, "grade" | "held">) =>
+  row.held && row.grade === "m1_to_task";
+
+/** Why a waiting reply's judgment ended unjudged, for one that keeps its row. */
+type Unjudged =
+  | { outcome: "failed"; reason: JudgmentFailedReason }
+  | { outcome: "not_called"; reason: JudgmentNotCalledReason };
+
+/**
+ * Drops a waiting reply's row, its held text first when it has one. A held
+ * reply of work going on keeps its row, ended `unjudged`: the record keeps
+ * the held row from M1's batches until the work's turn takes it (PM Q2).
+ */
 async function dropReply(
   tx: Database,
   row: Pick<WaitingRow, "id" | "grade" | "input_id" | "held">,
+  unjudged: Unjudged,
 ) {
+  if (heldForWork(row)) {
+    await tx.execute(sql`
+      UPDATE conversation_judgments SET outcome = ${unjudged.outcome},
+        decision = 'quiet', reason = ${unjudged.reason}, judged_at = now()
+      WHERE id = ${row.id}::uuid AND outcome IS NULL`);
+    return;
+  }
   if (ownsHeldText(row) && row.input_id !== null) {
     await dropBufferedInputs(tx, [row.input_id]);
   }
@@ -443,7 +466,9 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
           LIMIT 100`),
       );
       for (const row of lapsed) {
-        await db.transaction((tx) => dropReply(tx, row));
+        await db.transaction((tx) =>
+          dropReply(tx, row, { outcome: "failed", reason: "timed_out" }),
+        );
       }
       for (;;) {
         // Taken and, for `m1_engaged`, held to the cap in one transaction:
@@ -504,7 +529,9 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
           post.body === null
         ) {
           // Its input went (a delete, an admin's): nothing left to judge.
-          await db.transaction((tx) => dropReply(tx, row));
+          await db.transaction((tx) =>
+            dropReply(tx, row, { outcome: "failed", reason: "provider_error" }),
+          );
           continue;
         }
         const claimed: ClaimedReplyJudgment = {
@@ -592,14 +619,26 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
                   ? sql`(SELECT claimed_at FROM conversation_judgments WHERE id = ${id}::uuid)`
                   : sql`${options.readAt}::timestamptz`,
               );
-        if (record === null || !(await gateOpenIn(tx, place, true))) {
-          await dropReply(tx, row);
+        if (record === null) {
+          await dropReply(tx, row, {
+            outcome: "failed",
+            reason: "provider_error",
+          });
+          return "dropped";
+        }
+        if (!(await gateOpenIn(tx, place, true))) {
+          await dropReply(tx, row, {
+            outcome: "not_called",
+            reason: "model_unavailable",
+          });
           return "dropped";
         }
         if (voided !== null) {
           // A held reply still there is judged once more: on the buffer's
           // new text when it was edited, else on the text read when only
-          // its context went. A bound reply's is not (Architect, J6).
+          // its context went. A bound reply's is not (Architect, J6), but a
+          // held reply of work going on waits for its judgment again on the
+          // text it has now, its wait still counted from its hold.
           const [edit] = voided.changes.edited;
           const replyLeft =
             voided.changes.deleted.length > 0 || voided.changes.gone.length > 0;
@@ -615,7 +654,8 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
                   readAt: voided.at,
                 }
               : null;
-          if (rejudge !== null) {
+          const again = rejudge !== null || (heldForWork(row) && !replyLeft);
+          if (again) {
             // The voided call's row beside the reply's, which waits for its
             // judgment again.
             await tx.execute(sql`
@@ -632,6 +672,12 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
                 ${voided.reason}, rule_decision, rule_reason, claimed_at,
                 created_at, now()
               FROM conversation_judgments WHERE id = ${id}::uuid`);
+            if (rejudge === null) {
+              // Its next claim judges it; until then no judge holds it.
+              await tx.execute(sql`
+                UPDATE conversation_judgments SET claimed_at = NULL
+                WHERE id = ${id}::uuid AND outcome IS NULL`);
+            }
             return { voided: voided.reason, rejudge };
           }
           if (ownsHeldText(row) && row.input_id !== null) {

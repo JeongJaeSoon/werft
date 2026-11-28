@@ -50,7 +50,8 @@ export type SlackInboundHandler = (
  * Thrown by a handler to take the event up again `retryInMs` later, the
  * claim not counted as an attempt: it waits for something else, as a reply
  * of work going on waits for its judgment (v1-b/U1). Its thread steps aside
- * meanwhile; the rest of its channel goes on.
+ * meanwhile, and the channel's events of no thread (a member, a rename, an
+ * archive) wait behind it; the channel's other threads go on.
  */
 export class SlackInboundDeferred extends Error {
   constructor(readonly retryInMs: number) {

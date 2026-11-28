@@ -778,9 +778,11 @@ export function createPostgresConversationCalls(
               UPDATE conversation_judgments SET turn_id = ${input.turnId}::uuid
               WHERE id = ${input.judgmentId}::uuid
                 AND agent_id = ${input.agentId}::uuid
-                -- A post a session's turn took is the session's to answer:
-                -- of a bound thread, only a reply of work done that none
-                -- took (v1-b/U1 B), never one of work going on.
+                -- A post a session's turn took already is the session's to
+                -- answer: of a bound thread, only a reply of work done that
+                -- none took (v1-b/U1 B), never one of work going on. A
+                -- session that takes the post after this turn is not barred
+                -- here: work done (closing, closed) takes no turn.
                 AND (grade IN ('buffer_m1', 'm1_engaged') OR (
                   grade = 'm1' AND NOT EXISTS (
                     SELECT 1 FROM conversation_inputs i

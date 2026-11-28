@@ -9143,6 +9143,16 @@ describe.each(ENGINES)(
           await deliver(fixture, reply());
           expect(await drain(handle)).toMatchObject({ deferred: 1 });
           await judgeReplies(said);
+          // Ended, its record still holds the row out of M1's batches.
+          const [held] = await replyInput();
+          expect(held).toMatchObject({ held: true });
+          expect(await judgments()).toEqual([
+            expect.objectContaining({
+              grade: "m1_to_task",
+              outcome: said === "budget_refused" ? "not_called" : "failed",
+              inputId: held?.id,
+            }),
+          ]);
           await due();
           expect(await drain(handle)).toMatchObject({ processed: 1 });
           expect(await messagesOf(sessionId)).toEqual([
@@ -9169,9 +9179,115 @@ describe.each(ENGINES)(
           "summarize the thread",
           "and the next step",
         ]);
-        expect(await judgments()).toEqual([]);
-        // A judge that comes late finds nothing to judge.
+        // Its record ends failed and stays with the row the work took, so
+        // M1's batches never take it and a judge that comes late writes
+        // nothing.
+        const [input] = await replyInput();
+        expect(await judgments()).toEqual([
+          expect.objectContaining({
+            grade: "m1_to_task",
+            outcome: "failed",
+            decision: "quiet",
+            inputId: input?.id,
+          }),
+        ]);
         expect((await judgeReplies("speak")).judged).toBe(0);
+      });
+
+      test("a quiet M1 gave past the wait does not keep the reply from the work", async () => {
+        const { fixture, handle, sessionId } = await workThread("queued");
+        await deliver(fixture, reply());
+        expect(await drain(handle)).toMatchObject({ deferred: 1 });
+        expect((await judgeReplies("quiet")).judged).toBe(1);
+        // Judged 31 seconds after its hold.
+        await db.update(schema.conversationJudgments).set({
+          createdAt: sql`judged_at - interval '31 seconds'`,
+        });
+        await due();
+        expect(await drain(handle)).toMatchObject({ processed: 1 });
+        expect(await messagesOf(sessionId)).toEqual([
+          "summarize the thread",
+          "and the next step",
+        ]);
+      });
+
+      test("an edit while it waits: the work's turn takes the held text", async () => {
+        const { fixture, handle, sessionId } = await workThread("queued");
+        await deliver(fixture, reply());
+        expect(await drain(handle)).toMatchObject({ deferred: 1 });
+        // As the edit's ingress changes a held row's text.
+        await db
+          .update(schema.conversationInputs)
+          .set({ body: "and the step after" })
+          .where(eq(schema.conversationInputs.slackTs, REPLY));
+        expect((await judgeReplies("speak")).judged).toBe(1);
+        await due();
+        expect(await drain(handle)).toMatchObject({ processed: 1 });
+        expect(await messagesOf(sessionId)).toEqual([
+          "summarize the thread",
+          "and the step after",
+        ]);
+      });
+
+      test("work closed while its reply waited: the reply keeps its grade and is judged once", async () => {
+        const { fixture, handle, sessionId } = await workThread("queued");
+        await deliver(fixture, reply());
+        expect(await drain(handle)).toMatchObject({ deferred: 1 });
+        await db
+          .update(sessions)
+          .set({ admissionState: "closed" })
+          .where(eq(sessions.id, sessionId));
+        expect((await judgeReplies("quiet")).judged).toBe(1);
+        await due();
+        expect(await drain(handle)).toMatchObject({ processed: 1 });
+        // No closed (m1) hold beside it: its quiet stands.
+        expect(await judgments()).toEqual([
+          expect.objectContaining({
+            grade: "m1_to_task",
+            outcome: "judged",
+            decision: "quiet",
+          }),
+        ]);
+        expect(await replyInput()).toEqual([]);
+        expect(await unaskedTurns()).toEqual([]);
+      });
+
+      test("a reply the buffer's limit takes at once goes to the work, with no wait left behind", async () => {
+        const fixture = await agentInSlack("main", { rollout: "shadow" });
+        const { handle } = handler();
+        const OTHER = "100.000700";
+        await deliver(fixture, mention(THREAD));
+        await deliver(fixture, mention(OTHER));
+        expect(await drain(handle)).toMatchObject({ processed: 2 });
+        const opened = await sessionsOf(fixture);
+        expect(opened).toHaveLength(2);
+        for (const session of opened) {
+          await db
+            .update(sessions)
+            .set({ status: "queued" })
+            .where(eq(sessions.id, session.id));
+        }
+        expect(
+          await schema
+            .createPostgresInstallationConfigStore(db)
+            .importValue("judgment_buffer_limit_per_channel", 1),
+        ).toBe(true);
+        await rollout(fixture, "on");
+        // A newer reply of the other work takes the channel's one place.
+        await deliver(
+          fixture,
+          message("100.000900", { thread_ts: OTHER, text: "a later one" }),
+        );
+        expect(await drain(handle)).toMatchObject({ deferred: 1 });
+        await deliver(fixture, reply());
+        expect(await drain(handle)).toMatchObject({ processed: 1 });
+        const [input] = await replyInput();
+        expect(input).toMatchObject({ held: false, body: null });
+        expect(input?.turnId).not.toBeNull();
+        // Only the newer reply's judgment waits.
+        expect(await judgments()).toEqual([
+          expect.objectContaining({ grade: "m1_to_task", outcome: null }),
+        ]);
       });
 
       for (const [status, admission] of [

@@ -804,18 +804,23 @@ integration("M1 judgment records", () => {
     expect(await rowsOf(place.channelId)).toEqual([]);
   });
 
-  test("a bound reply is graded by its session's status", async () => {
+  test("a bound reply is graded by its session's admission (decision 35)", async () => {
     const place = await channel();
     const session = await newPartitionedSession(db, "m1-grade");
+    await pool.query("UPDATE sessions SET status = 'idle' WHERE id = $1", [
+      session.sessionId,
+    ]);
     const grades: string[] = [];
-    for (const [status, ts] of [
-      ["running", "700.000001"],
-      ["idle", "700.000002"],
+    for (const [admission, ts] of [
+      ["active", "700.000001"],
+      ["stopped", "700.000002"],
+      ["closing", "700.000003"],
+      ["closed", "700.000004"],
     ] as const) {
-      await pool.query("UPDATE sessions SET status = $2 WHERE id = $1", [
-        session.sessionId,
-        status,
-      ]);
+      await pool.query(
+        "UPDATE sessions SET admission_state = $2 WHERE id = $1",
+        [session.sessionId, admission],
+      );
       const inputId = await hold(place, ts, "reply");
       await db.transaction((tx) =>
         requestReplyJudgment(tx, {
@@ -836,7 +841,7 @@ integration("M1 judgment records", () => {
       );
       grades.push(rows[0]?.grade ?? "none");
     }
-    expect(grades).toEqual(["m1_to_task", "m1"]);
+    expect(grades).toEqual(["m1_to_task", "m1_to_task", "m1", "m1"]);
   });
   test("a bound reply writes no waiting row with the switch off or in a shared channel", async () => {
     const request = async (
@@ -1235,15 +1240,61 @@ integration("M1 judgment records", () => {
       });
     });
 
+    test("a held reply of work going on edited while judged waits for its judgment again, its row kept", async () => {
+      await pool.query(
+        "DELETE FROM conversation_judgments WHERE outcome IS NULL",
+      );
+      const place = await channel();
+      const inputId = await hold(place, "1950.000001", "before");
+      await db.transaction((tx) =>
+        requestReplyJudgment(tx, {
+          workspaceId,
+          agentId,
+          teamId: TEAM,
+          channelId: place.channelId,
+          ts: "1950.000001",
+          topicId: place.topicId,
+          inputId,
+          sessionId: null,
+          heldAs: "m1_to_task",
+          rule: { decision: "reply", reason: "default_reply" },
+        }),
+      );
+      const claimed = await store().claimReply();
+      if (claimed === null) throw new Error("none");
+      expect(claimed.subject.grade).toBe("m1_to_task");
+      await marks().markEdited(mark(place, "1950.000001"), "after");
+      expect(
+        await store().finishReply(
+          claimed.id,
+          judgedRecord(inputId, ["1950.000001"]),
+          { read: { body: "before", editMark: null } },
+        ),
+      ).toEqual({ voided: "voided_by_edit", rejudge: null });
+      // The reply's record keeps its held row (out of M1's batches) and
+      // waits for a judge again; the voided call has a row of its own.
+      const rows = await rowsOf(place.channelId);
+      expect(
+        rows.map((row) => [row.outcome, row.input_id, row.claimed_at === null]),
+      ).toEqual([
+        [null, inputId, true],
+        ["voided", null, false],
+      ]);
+      const again = await store().claimReply();
+      expect(again?.id).toBe(claimed.id);
+      expect(again?.subject.posts.map((post) => post.body)).toEqual(["after"]);
+    });
+
     test("a bound reply edited while judged is voided and not judged again", async () => {
       await pool.query(
         "DELETE FROM conversation_judgments WHERE outcome IS NULL",
       );
       const place = await channel();
       const session = await newPartitionedSession(db, "m1-j6");
-      await pool.query("UPDATE sessions SET status = 'idle' WHERE id = $1", [
-        session.sessionId,
-      ]);
+      await pool.query(
+        "UPDATE sessions SET status = 'idle', admission_state = 'closed' WHERE id = $1",
+        [session.sessionId],
+      );
       const inputId = await hold(place, "1900.000001", "reply");
       await db.transaction((tx) =>
         requestReplyJudgment(tx, {

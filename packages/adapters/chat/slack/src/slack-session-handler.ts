@@ -420,6 +420,10 @@ export function createSlackSessionHandler(
       };
     };
 
+    // The held text a work's turn takes in place of the event's, an edit
+    // having changed it while M1 judged it.
+    let editedText: string | undefined;
+
     /**
      * What becomes of a person's unmentioned reply in a thread bound to work
      * once the agent's rollout is on (v1-b/U1): `current_path` before then,
@@ -440,7 +444,18 @@ export function createSlackSessionHandler(
         channelId: event.channel,
       });
       if (place.rollout !== "on") return "current_path";
-      const work = await deps.boundReplies.work(sessionId);
+      // A reply held for its work's judgment keeps that grade, the work
+      // closed since or not.
+      const work =
+        (await deps.boundReplies.work(sessionId)) === "open" ||
+        (await deps.boundReplies.heldForWork({
+          agentId: agent.agentId,
+          teamId: claim.teamId,
+          channelId: event.channel,
+          ts: event.ts,
+        }))
+          ? "open"
+          : "closed";
       const waitMs = deps.taskReplyWaitMs ?? SLACK_TASK_REPLY_WAIT_MS;
       // A wait of none: work going on takes its replies as before.
       if (work === "open" && waitMs === 0) return "current_path";
@@ -524,6 +539,7 @@ export function createSlackSessionHandler(
         agentId: agent.agentId,
         teamId: claim.teamId,
         channelId: event.channel,
+        fence: { id: claim.id, claimToken: claim.claimToken },
         topicId: topic.id,
         ts: event.ts,
         ...buffered,
@@ -535,8 +551,9 @@ export function createSlackSessionHandler(
       }
       deps.logger.info("Slack reply of work going on judged", {
         ...ids,
-        route,
+        route: typeof route === "object" ? "edited" : route,
       });
+      if (typeof route === "object") editedText = route.edited;
       return route === "quiet" ? null : "session";
     };
 
@@ -1388,7 +1405,10 @@ export function createSlackSessionHandler(
       return;
     }
 
-    const message = withoutBotMention(event.text, agent.botUserId);
+    const message = withoutBotMention(
+      editedText ?? event.text,
+      agent.botUserId,
+    );
     if (!messageTextSchema.safeParse(message).success) {
       deps.logger.info("Slack message has no text to send; ignored", ids);
       return;

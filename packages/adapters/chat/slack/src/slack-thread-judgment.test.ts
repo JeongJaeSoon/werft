@@ -103,6 +103,7 @@ async function receive(options: {
       },
     },
     boundReplies: {
+      heldForWork: async () => false,
       work: async (sessionId: string) => {
         workAsked.push(sessionId);
         return options.work ?? "closed";
