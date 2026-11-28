@@ -14,7 +14,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ## v0.6.0
 
-`v0.5.0` 뒤 `main`에 들어간 변경이다. Slack 카드와 작업 진행 메시지의 버튼이 누른 메시지와 맞지 않는 값을 거절하고, Slack 채널 듣기의 고지 승인이 없어져 API 계약이 바뀐다. 이미 설치한 에이전트 Slack 앱은 bot scope `reactions:write` 때문에 Slack 관리자가 다시 승인해야 하고, `SLACK_ROLE_CLOSE_LINKS`의 기본이 `true`로 바뀌며, 워크스페이스에서 자기 PR 머지를 켜 둔 설치는 머지할 에이전트마다 켜고 저장해야 한다. migration `0355`–`0399` 가운데 `0357`은 쓰지 않는 표 `agent_engine_settings`·`workspace_engine_settings`를 행째 지운다. 올리기 전에 DB를 백업하고 아래 "운영자가 할 일"을 모두 읽는다.
+`v0.5.0` 뒤 `main`에 들어간 변경이다. Slack 카드와 작업 진행 메시지의 버튼이 누른 메시지와 맞지 않는 값을 거절하고, Slack 채널 듣기의 고지 승인이 없어져 API 계약이 바뀐다. 이미 설치한 에이전트 Slack 앱은 bot scope `reactions:write` 때문에 Slack 관리자가 다시 승인해야 하고, `SLACK_ROLE_CLOSE_LINKS`의 기본이 `true`로 바뀌며, 워크스페이스에서 자기 PR 머지를 켜 둔 설치는 머지할 에이전트마다 켜고 저장해야 한다. migration `0357_drop_engine_settings`는 쓰지 않는 표 `agent_engine_settings`·`workspace_engine_settings`를 행째 지운다. 올리기 전에 DB를 백업하고 아래 "운영자가 할 일"을 모두 읽는다.
 
 ### 보안
 
