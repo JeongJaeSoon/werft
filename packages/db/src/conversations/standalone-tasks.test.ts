@@ -30,6 +30,7 @@ import {
   sessions,
   slackInstallations,
   surfaceBindings,
+  turns,
   users,
 } from "../schema.ts";
 import { rowsOf } from "../statement-rows.ts";
@@ -239,28 +240,39 @@ describe("a DM person's standalone sessions (v1-b/DM3)", () => {
       .update(sessions)
       .set({ status: "stopped" })
       .where(eq(sessions.id, ended));
-    // A session with a revoked link is not standalone, parent or not.
-    const revoked = await session();
-    await db.insert(sessionLinks).values({
-      id: randomUUID(),
-      workspaceId: ws,
-      ownerId: ws,
-      sessionId: revoked,
-      installationId,
-      surfaceBindingId: dmBinding,
-      surfaceRef: "D0DM3:9.0",
-      channelId: "D0DM3",
-      threadId: "9.0",
-      openedByTs: "9.0",
-      agentId,
-      releaseId: release,
-      revokedAt: new Date(),
+    // A session ever linked is not standalone, parent or not: a revoked
+    // link, or a closed one.
+    const linked = async (
+      link: { revokedAt: Date } | { closedAt: Date; closedReason: "completed" },
+    ) => {
+      const id = await session();
+      await db.insert(sessionLinks).values({
+        id: randomUUID(),
+        workspaceId: ws,
+        ownerId: ws,
+        sessionId: id,
+        installationId,
+        surfaceBindingId: dmBinding,
+        surfaceRef: `D0DM3:${id}`,
+        channelId: "D0DM3",
+        threadId: "9.0",
+        openedByTs: "9.0",
+        agentId,
+        releaseId: release,
+        ...link,
+      });
+      return id;
+    };
+    const revoked = await linked({ revokedAt: new Date() });
+    const closed = await linked({
+      closedAt: new Date(),
+      closedReason: "completed",
     });
     const inDm = await listed(
       toolTurn(dm, { kind: "dm", personUserId: person }),
     );
     expect(inDm).toContain(mine);
-    for (const id of [theirs, otherAgent, preview, ended, revoked]) {
+    for (const id of [theirs, otherAgent, preview, ended, revoked, closed]) {
       expect(inDm).not.toContain(id);
     }
     // The other person's DM: their own, never this person's.
@@ -320,8 +332,11 @@ describe("a DM person's standalone sessions (v1-b/DM3)", () => {
       threadTs: r.thread.threadTs,
       openedByTs: r.thread.messageTs,
     });
-    // No longer standalone: not bound twice.
-    expect(await routes().bindStandalone(r)).toBe("gone");
+    // The same turn again (a run beside this one, or after a crash): its
+    // own bind, not a second one. Another turn finds it no longer standalone.
+    expect(await routes().bindStandalone(r)).toBe("bound");
+    expect(await openLinks(mine)).toHaveLength(1);
+    expect(await routes().bindStandalone(route(mine))).toBe("gone");
   });
 
   test("a thread another session holds is not taken, and nothing of the bind stays", async () => {
@@ -336,13 +351,27 @@ describe("a DM person's standalone sessions (v1-b/DM3)", () => {
     expect(await openLinks(second)).toEqual([]);
   });
 
-  test("unbinding takes the link and the parent back, unless the input is in", async () => {
+  test("an unhanded end takes the link and the parent back, unless an input went in by it", async () => {
     const mine = await session();
     const r = route(mine);
     expect(await routes().bindStandalone(r)).toBe("bound");
-    await routes().unbindStandalone(r);
+    // No turn row here: recorded by no run, the bind is still taken back.
+    await routes().settle(r, "failed", null, null);
     expect(await openLinks(mine)).toEqual([]);
     expect(await parentOf(mine)).toBe(null);
+
+    // Another message's input went in by the link meanwhile: it stays.
+    const used = await session();
+    const u = route(used);
+    expect(await routes().bindStandalone(u)).toBe("bound");
+    await db.insert(turns).values({
+      sessionId: used,
+      sequence: 1,
+      message: "a reply in the DM thread",
+      status: "queued",
+    });
+    await routes().settle(u, "failed", null, null);
+    expect(await openLinks(used)).toHaveLength(1);
 
     const handed = await session();
     const h = route(handed);
@@ -356,8 +385,14 @@ describe("a DM person's standalone sessions (v1-b/DM3)", () => {
         payload_hash, receipt_id)
       VALUES (${ws}, ${APPEND_MESSAGE}, ${conversationTurnInputScope(handed)},
         ${h.turnId}, 'x', ${receipt}::uuid)`);
-    await routes().unbindStandalone(h);
+    await routes().settle(h, "refused", null, null);
     expect(await openLinks(handed)).toHaveLength(1);
+    // A channel route never takes a link back.
+    const channelLinked = await session();
+    const c = route(channelLinked);
+    expect(await routes().bindStandalone(c)).toBe("bound");
+    await routes().settle({ ...c, dm: null }, "failed", null, null);
+    expect(await openLinks(channelLinked)).toHaveLength(1);
     expect(await parentOf(handed)).toBe(dm);
   });
 

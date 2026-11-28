@@ -5335,6 +5335,31 @@ describe.each(ENGINES)(
       ).toHaveLength(1);
     });
 
+    test("runs of one turn: a second bind is the first's, an unhanded end takes it back, and nothing binds after the end", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await standaloneOf(fixture);
+      const turn = await dmToStandalone(fixture, task);
+      const store = schema.createPostgresConversationRoutes(db, key);
+      const route = await store.pending(turn.turn_id);
+      if (route === null) throw new Error("no pending route");
+      // Two runs read the session as standalone; both bind: one link.
+      expect(await store.bindStandalone(route)).toBe("bound");
+      expect(await store.bindStandalone(route)).toBe("bound");
+      expect(await boundTo(task)).toEqual([["D0OWNER", "100.000100", null]]);
+      // One ends the turn unhanded before the other's input.
+      expect(await store.settle(route, "voided", null, null)).toBe(true);
+      expect(await boundTo(task)).toEqual([]);
+      expect(
+        (await sessionsOf(fixture)).find((row) => row.id === task)
+          ?.parentConversationId,
+      ).toBe(null);
+      // A bind after the end binds nothing, and the input is refused.
+      expect(await store.bindStandalone(route)).toBe("gone");
+      expect(await boundTo(task)).toEqual([]);
+      expect(await routeTasks().route(turn.turn_id)).toBe("none");
+      expect(await taskTurns(task)).toHaveLength(1);
+    });
+
     test("another person's standalone session is not handed to from a DM, and nothing is bound", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       const stranger = randomUUID();

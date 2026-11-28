@@ -103,17 +103,13 @@ export interface ConversationRouteStore {
     route: PendingConversationRoute,
   ): Promise<"bound" | StandaloneBindRefusal>;
   /**
-   * Takes back what `bindStandalone` wrote for this turn, unless the turn's
-   * input is in the session by now.
-   */
-  unbindStandalone(route: PendingConversationRoute): Promise<void>;
-  /**
    * Records the effect. `line` is a server line for the turn's thread;
    * `mirror`, for a hand-off from another thread, points that thread at the
    * task and, when the thread pointed elsewhere or nowhere before, posts
    * the pointer line once. True for the run that recorded it; an effect
    * other than `routed` is not recorded once the turn's input is in its
-   * task.
+   * task. An effect other than `routed` also takes back what
+   * `bindStandalone` wrote for the turn, unless an input went in by it.
    */
   settle(
     route: PendingConversationRoute,
@@ -192,9 +188,6 @@ export async function routeConversationTurn(
     found.threadTs === route.thread.threadTs &&
     found.openedByTs === route.thread.messageTs;
   let bound = false;
-  const unbind = async () => {
-    if (bound) await deps.store.unbindStandalone(route);
-  };
   const told = async (
     effect: ConversationRouteEffect,
     line: SlackNoticeMessage | null,
@@ -204,7 +197,6 @@ export async function routeConversationTurn(
       ...ids,
       reason,
     });
-    await unbind();
     if (await deps.store.settle(route, effect, line, null)) return effect;
     return settledElsewhere();
   };
@@ -262,7 +254,6 @@ export async function routeConversationTurn(
       reason,
     });
     if (await deps.store.handed(route)) return routed(task);
-    await unbind();
     const heard = await deps.tellRequester(
       route,
       routeRefusalNotice(reason, deps.connectUrl),

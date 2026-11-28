@@ -54,9 +54,6 @@ function harness(lands: "settle" | "authorize") {
     bindStandalone: async () => {
       throw new Error("not called");
     },
-    unbindStandalone: async () => {
-      throw new Error("not called");
-    },
     settle: async (_route, effect, _line, mirror) => {
       if (lands === "settle") handed = true;
       if (effect !== "routed" && handed) return false;
@@ -140,9 +137,6 @@ function standalone(options: {
       steps.push("bind");
       return options.bind ?? "bound";
     },
-    unbindStandalone: async () => {
-      steps.push("unbind");
-    },
     settle: async (_route, effect, line, mirror) => {
       steps.push(`settle:${effect}`);
       settled.push([effect, line, mirror]);
@@ -190,7 +184,7 @@ describe("routeConversationTurn to a DM person's standalone session", () => {
     expect(h.settled).toEqual([["failed", "routeFailed", null]]);
   });
 
-  test("an input the session refuses takes the binding back", async () => {
+  test("an input the session refuses is settled refused, which takes the binding back", async () => {
     const h = standalone({
       found: { kind: "standalone" },
       append: async () => {
@@ -200,7 +194,7 @@ describe("routeConversationTurn to a DM person's standalone session", () => {
       },
     });
     expect(await h.run()).toBe("refused");
-    expect(h.steps).toEqual(["bind", "append", "unbind", "settle:refused"]);
+    expect(h.steps).toEqual(["bind", "append", "settle:refused"]);
   });
 
   test("a run after a crash finds its own binding: not bound again, still told", async () => {

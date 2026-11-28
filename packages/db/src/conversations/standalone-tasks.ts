@@ -5,7 +5,7 @@ import { type SQL, sql } from "drizzle-orm";
  * Whether `session` (a sessions row) is a standalone session of `person`
  * that their DM with the agent sees as an open task (v1-b/DM3): of the
  * agent's releases, made by the person themselves (never by a key), with no
- * parent conversation and no link, open or revoked, not a preview and not
+ * parent conversation and no link ever, not a preview and not
  * ended. Read for the DM's own person alone; a channel turn never reads it.
  */
 export const standaloneTaskOf = (
@@ -25,6 +25,5 @@ export const standaloneTaskOf = (
     WHERE sar.id = ${session}.agent_release_id
       AND sar.agent_id = ${input.agentId}::uuid)
   AND NOT EXISTS (SELECT 1 FROM session_links ssl
-    WHERE ssl.session_id = ${session}.id
-      AND (ssl.closed_at IS NULL OR ssl.revoked_at IS NOT NULL))
+    WHERE ssl.session_id = ${session}.id)
 )`;

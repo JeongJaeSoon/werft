@@ -137,6 +137,38 @@ const standaloneOf = (route: PendingConversationRoute, person: string) =>
 const threadRefOf = (route: PendingConversationRoute) =>
   `${route.thread.channelId}:${route.thread.threadTs}`;
 
+// The link this turn's hand-off bound: opened by the DM message itself.
+const ownBindOf = (route: PendingConversationRoute) => sql`
+  sl.session_id = ${route.sessionId}::uuid
+  AND sl.installation_id = ${route.thread.installationId.toLowerCase()}::uuid
+  AND sl.surface_ref = ${threadRefOf(route)}
+  AND sl.opened_by_ts = ${route.thread.messageTs}
+  AND sl.closed_at IS NULL`;
+
+/**
+ * Takes back what a DM hand-off bound for a turn that ends unhanded: the
+ * link and, with no link left, the parent. Kept once any input went in by
+ * that link, this turn's or another message's.
+ */
+async function dropOwnBind(tx: Database, route: PendingConversationRoute) {
+  const dropped = rowsOf(
+    await tx.execute(sql`
+      DELETE FROM session_links sl
+      WHERE ${ownBindOf(route)}
+        AND NOT ${handedInput(route)}
+        AND NOT EXISTS (SELECT 1 FROM turns t
+          WHERE t.session_id = sl.session_id AND t.created_at >= sl.created_at)
+      RETURNING sl.id`),
+  );
+  if (dropped.length === 0) return;
+  await tx.execute(sql`
+    UPDATE sessions SET parent_conversation_id = NULL
+    WHERE id = ${route.sessionId}::uuid
+      AND parent_conversation_id = ${route.conversationId}::uuid
+      AND NOT EXISTS (SELECT 1 FROM session_links
+        WHERE session_id = ${route.sessionId}::uuid)`);
+}
+
 class BindRefused extends Error {
   constructor(readonly reason: "gone" | "thread_taken" | "other_parent") {
     super(reason);
@@ -182,7 +214,7 @@ export function createPostgresConversationRoutes(
             (SELECT sb.id FROM surface_bindings sb
               WHERE sb.installation_id = t.slack_installation_id
                 AND sb.agent_id = t.agent_id
-                -- A DM binding names no channel: the agent has one a workspace.
+                -- A DM binding names no channel: one per installation.
                 AND sb.surface_kind = 'dm' AND sb.status = 'ready'
                 AND sb.revoked_at IS NULL
               ORDER BY sb.created_at DESC LIMIT 1) AS dm_binding_id,
@@ -291,6 +323,25 @@ export function createPostgresConversationRoutes(
           await tx.execute(
             sql`SELECT pg_advisory_xact_lock(hashtextextended(${`session_links:${installationId}:${surfaceRef}`}, 0))`,
           );
+          // Then settle's: a bind and the turn's end never cross.
+          await lockConversationTurnInput(tx, {
+            workspaceId: route.workspaceId,
+            sessionId: route.sessionId,
+            turnId: route.turnId,
+          });
+          const [state] = rowsOf<{ ended: boolean; mine: boolean }>(
+            await tx.execute(sql`
+              SELECT
+                EXISTS (SELECT 1 FROM conversation_turns
+                  WHERE id = ${route.turnId}::uuid
+                    AND task_effect IS NOT NULL) AS ended,
+                EXISTS (SELECT 1 FROM session_links sl
+                  WHERE ${ownBindOf(route)}) AS mine`),
+          );
+          // Ended by a run beside this one: nothing is bound for it.
+          if (state?.ended === true) throw new BindRefused("gone");
+          // Bound by a run beside this one, or before a crash.
+          if (state?.mine === true) return "bound" as const;
           const [session] = rowsOf<{ agent_release_id: string }>(
             await tx.execute(sql`
               SELECT s.agent_release_id FROM sessions s
@@ -318,13 +369,16 @@ export function createPostgresConversationRoutes(
             await tx.execute(sql`
               INSERT INTO session_links (id, workspace_id, owner_id, session_id,
                 installation_id, surface_binding_id, surface_ref, channel_id,
-                thread_id, opened_by_ts, agent_id, release_id, created_by)
+                thread_id, opened_by_ts, agent_id, release_id, created_by,
+                created_at)
               VALUES (gen_random_uuid(), ${route.workspaceId}::uuid,
                 ${route.workspaceId}, ${route.sessionId}::uuid,
                 ${installationId}::uuid, ${bindingId}::uuid, ${surfaceRef},
                 ${route.thread.channelId}, ${route.thread.threadTs},
                 ${route.thread.messageTs}, ${route.agentId}::uuid,
-                ${session.agent_release_id}, ${route.requesterUserId}::uuid)
+                ${session.agent_release_id}, ${route.requesterUserId}::uuid,
+                -- After any input that went in while this waited for the row.
+                clock_timestamp())
               ON CONFLICT DO NOTHING
               RETURNING id`),
           );
@@ -335,36 +389,6 @@ export function createPostgresConversationRoutes(
         if (error instanceof BindRefused) return error.reason;
         throw error;
       }
-    },
-
-    async unbindStandalone(route) {
-      await db.transaction(async (tx) => {
-        // As settle: the receipt read here is the last word on the input.
-        await lockConversationTurnInput(tx, {
-          workspaceId: route.workspaceId,
-          sessionId: route.sessionId,
-          turnId: route.turnId,
-        });
-        const dropped = rowsOf(
-          await tx.execute(sql`
-            DELETE FROM session_links
-            WHERE session_id = ${route.sessionId}::uuid
-              AND installation_id = ${route.thread.installationId.toLowerCase()}::uuid
-              AND surface_ref = ${threadRefOf(route)}
-              AND opened_by_ts = ${route.thread.messageTs}
-              AND closed_at IS NULL
-              AND NOT ${handedInput(route)}
-            RETURNING id`),
-        );
-        if (dropped.length === 0) return;
-        // With no link left, it is a standalone session again.
-        await tx.execute(sql`
-          UPDATE sessions SET parent_conversation_id = NULL
-          WHERE id = ${route.sessionId}::uuid
-            AND parent_conversation_id = ${route.conversationId}::uuid
-            AND NOT EXISTS (SELECT 1 FROM session_links
-              WHERE session_id = ${route.sessionId}::uuid)`);
-      });
     },
 
     async settle(
@@ -381,6 +405,11 @@ export function createPostgresConversationRoutes(
           sessionId: route.sessionId,
           turnId: route.turnId,
         });
+        // An unhanded end takes back its DM hand-off's bind, whichever run
+        // records it.
+        if (effect !== "routed" && dmPersonOf(route) !== null) {
+          await dropOwnBind(tx, route);
+        }
         const written = rowsOf(
           await tx.execute(sql`
             UPDATE conversation_turns SET task_effect = ${effect}
