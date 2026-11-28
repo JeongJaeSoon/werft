@@ -86,6 +86,20 @@ export const executionLimitsKo = {
   "limits.tokens.invalid":
     "0부터 {max}까지의 정수를 적으세요. 0이면 토큰 한도가 없습니다.",
   "limits.tokens.saved": "세션 토큰 한도를 저장했습니다.",
+  "limits.unknownTokens.title": "단가 미상 토큰",
+  "limits.unknownTokens.hint":
+    "단가를 모르는 모델로 세션 하나가 쓸 수 있는 토큰 수입니다. 무제한 지출을 막는 장치입니다.",
+  "limits.unknownTokens.detail":
+    "단가표에 없는 모델의 호출은 비용을 가장 높은 단가로 세지만 실제 단가는 더 높을 수 있습니다. 그래서 비용과 따로 토큰 수로 막습니다. 끌 수 없습니다.",
+  "limits.unknownTokens.label": "단가 미상 토큰 한도",
+  "limits.unknownTokens.unit": "토큰",
+  "limits.unknownTokens.value": "{value} 토큰",
+  "limits.unknownTokens.refused": "단가를 모르는 모델의 다음 호출을 막습니다.",
+  "limits.unknownTokens.applies":
+    "저장하면 10초 안에 적용됩니다. 한도에 닿은 세션은 다음 모델 호출이 거절됩니다. 단가를 모르는 모델을 부르지 않는 세션에는 닿지 않습니다.",
+  "limits.unknownTokens.invalid":
+    "1부터 {max}까지의 정수를 적으세요. 0으로 끌 수 없습니다.",
+  "limits.unknownTokens.saved": "단가 미상 토큰 한도를 저장했습니다.",
   "limits.queue.title": "대기 메시지",
   "limits.queue.hint":
     "세션 하나에 차례를 기다리며 쌓일 수 있는 메시지 수입니다.",
@@ -263,6 +277,21 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
     "limits.tokens.invalid":
       "Enter a whole number from 0 to {max}. With 0 there is no token limit.",
     "limits.tokens.saved": "Saved the session token limit.",
+    "limits.unknownTokens.title": "Tokens of unknown price",
+    "limits.unknownTokens.hint":
+      "The tokens one session may use on models whose price is unknown. It keeps spend from running without a limit.",
+    "limits.unknownTokens.detail":
+      "A call to a model the price tables do not list is counted at the highest known rate, and its real price may be higher. So tokens are limited apart from cost. It cannot be turned off.",
+    "limits.unknownTokens.label": "Limit on tokens of unknown price",
+    "limits.unknownTokens.unit": "tokens",
+    "limits.unknownTokens.value": "{value} tokens",
+    "limits.unknownTokens.refused":
+      "the next call to a model of unknown price is stopped.",
+    "limits.unknownTokens.applies":
+      "A save applies within 10 seconds. A session at the limit has its next model call refused. A session that calls no model of unknown price is not affected.",
+    "limits.unknownTokens.invalid":
+      "Enter a whole number from 1 to {max}. It cannot be 0.",
+    "limits.unknownTokens.saved": "Saved the limit on tokens of unknown price.",
     "limits.queue.title": "Waiting messages",
     "limits.queue.hint":
       "How many messages may wait their turn in one session.",
@@ -442,6 +471,21 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
     "limits.tokens.invalid":
       "0 から {max} までの整数を入力してください。0 ならトークンの上限はありません。",
     "limits.tokens.saved": "セッションのトークン上限を保存しました。",
+    "limits.unknownTokens.title": "単価不明のトークン",
+    "limits.unknownTokens.hint":
+      "単価が分からないモデルで 1 つのセッションが使えるトークン数です。無制限の支出を防ぐための仕組みです。",
+    "limits.unknownTokens.detail":
+      "単価表にないモデルの呼び出しは費用を最高単価で数えますが、実際の単価はそれより高い場合があります。そのため費用とは別にトークン数で止めます。無効にはできません。",
+    "limits.unknownTokens.label": "単価不明トークンの上限",
+    "limits.unknownTokens.unit": "トークン",
+    "limits.unknownTokens.value": "{value} トークン",
+    "limits.unknownTokens.refused":
+      "単価が分からないモデルの次の呼び出しを止めます。",
+    "limits.unknownTokens.applies":
+      "保存すると 10 秒以内に適用されます。上限に達したセッションは次のモデル呼び出しが拒否されます。単価が分からないモデルを呼ばないセッションには影響しません。",
+    "limits.unknownTokens.invalid":
+      "1 から {max} までの整数を入力してください。0 にはできません。",
+    "limits.unknownTokens.saved": "単価不明トークンの上限を保存しました。",
     "limits.queue.title": "待機メッセージ",
     "limits.queue.hint": "1 つのセッションで順番を待てるメッセージの数です。",
     "limits.queue.detail":

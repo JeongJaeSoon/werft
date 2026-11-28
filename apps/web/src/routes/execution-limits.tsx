@@ -60,12 +60,13 @@ export type NumberLimit = {
     | "retries"
     | "cost"
     | "tokens"
+    | "unknownTokens"
     | "queue"
     | "storage"
     | "stopped"
     | "paused";
-  /** What migrate carried the value in from. */
-  readonly env: string;
+  /** What migrate carried the value in from; none for a key born here. */
+  readonly env: string | undefined;
   readonly min: number;
   /** True when min itself is refused. */
   readonly aboveMin: boolean;
@@ -117,6 +118,15 @@ export const NUMBER_LIMITS: readonly NumberLimit[] = [
     name: "tokens",
     env: "SESSION_TOKEN_LIMIT",
     min: 0,
+    aboveMin: false,
+    max: Number.MAX_SAFE_INTEGER,
+    whole: true,
+  },
+  {
+    key: "unknown_price_session_token_limit",
+    name: "unknownTokens",
+    env: undefined,
+    min: 1,
     aboveMin: false,
     max: Number.MAX_SAFE_INTEGER,
     whole: true,
@@ -530,7 +540,8 @@ function NumberRow({
 
   return (
     <FormRow label={t(`limits.${name}.title`)} hint={t(`limits.${name}.hint`)}>
-      {entry.blocked ? (
+      {/* Blocked is a value an old variable held: a key without one never is. */}
+      {entry.blocked && limit.env !== undefined ? (
         <Blocked
           id={`${id}-blocked`}
           env={limit.env}

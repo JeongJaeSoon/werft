@@ -245,6 +245,46 @@ describe("설정 › 실행 한도의 세션 한도", () => {
     );
   });
 
+  test("단가 미상 토큰 한도는 무엇을 막는 장치인지 말하고, 0은 보내지 않고, 바꾼 값은 그 키만 보낸다", async () => {
+    let current = DEFAULTS;
+    const { api } = renderAt(PAGE, {
+      ...routes(() => current),
+      [`PATCH ${API}`]: () => {
+        current = {
+          ...DEFAULTS,
+          unknown_price_session_token_limit: {
+            ...entry(200_000, true),
+            default: 5_000_000,
+          },
+        };
+        return json(200, { ...current, receipt_id: RECEIPT });
+      },
+    });
+    const user = await setupUser();
+    const area = await sectionOf("단가 미상 토큰");
+    const limit = () => field(area, "단가 미상 토큰 한도");
+    await waitFor(() => expect(limit().value).toBe("5000000"));
+    expect(area.textContent).toContain("무제한 지출을 막는 장치입니다.");
+    expect(area.textContent).toContain(
+      "저장한 값이 없어 기본값(5,000,000 토큰)을 씁니다.",
+    );
+    await user.clear(limit());
+    await user.type(limit(), "0");
+    await user.click(saveButton());
+    await waitFor(() =>
+      expect(area.textContent).toContain("0으로 끌 수 없습니다."),
+    );
+    expect(api.calls.filter((call) => call.method === "PATCH")).toHaveLength(0);
+    await user.clear(limit());
+    await user.type(limit(), "200000");
+    await user.click(saveButton());
+    await screen.findByText("단가 미상 토큰 한도를 저장했습니다.");
+    expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
+      unknown_price_session_token_limit: 200_000,
+    });
+    expect(area.textContent).toContain("기본값은 5,000,000 토큰입니다.");
+  });
+
   test("입력 보관은 세는 것, 곧 입력 메시지만 말한다", async () => {
     renderAt(
       PAGE,
@@ -777,7 +817,6 @@ describe("limitValueOf", () => {
         "session_archive_dry_run",
         // Not on this screen yet: saved through the API.
         "judgment_buffer_limit_per_channel",
-        "unknown_price_session_token_limit",
       ].sort(),
     ).toEqual([...INSTALLATION_CONFIG_KEYS].sort());
     const archive = INSTALLATION_CONFIG.session_archive_after_days;
