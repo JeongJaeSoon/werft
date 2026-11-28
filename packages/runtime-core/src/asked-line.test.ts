@@ -764,6 +764,26 @@ const WIDE: [string, string, string | null][] = [
     "echo \"$(case x in x) true ;; esac) it's $(cat <<'EOF'\ngrep -r needle .\nEOF\n)\"",
     null,
   ],
+  [
+    "an esac given as an argument inside a case",
+    "gh pr create --title docs --body \"$(\n  case docs in\n    other) printf '%s' esac ;;\n    docs)\n      # Example: $(cat <<'true'\n      grep -r needle .\n      ;;\n  esac\ntrue\n)\"",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a case given as an argument",
+    "gh pr create --title 'Handle case statements' --body \"$(git log -1 --grep case --format=%s)\nIt's covered by this example:\n$(cat <<'EOF'\ngrep -r needle .\nEOF\n)\"",
+    null,
+  ],
+  [
+    "a search in an if",
+    "if grep -rq needle .; then echo found; fi",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a search after do",
+    'for x in a; do grep -r "$x"; done',
+    "a search of a tree",
+  ],
   ["a message after clustered flags", "git commit -aq -m .claude", null],
   ["a gh body after a flag", "gh pr create --draft --body .claude", null],
   [

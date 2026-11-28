@@ -1395,6 +1395,17 @@ const QUIET_ENV =
 const PROGRAM_ENV =
   /^(GIT_PAGER|GH_PAGER|PAGER|GIT_EDITOR|GH_EDITOR|EDITOR|VISUAL|GIT_SEQUENCE_EDITOR)$/;
 const QUIET_PROGRAMS = ["", "cat", "true", ":"];
+const SHELL_KEYWORDS = [
+  "if",
+  "then",
+  "elif",
+  "else",
+  "while",
+  "until",
+  "do",
+  "!",
+  "{",
+];
 
 /**
  * The wide reading of git, gh and grep: {@link narrowKept} but the work-tree
@@ -1407,6 +1418,11 @@ function wideKept(
   place: Place,
   written?: readonly string[],
 ): string | null {
+  // A keyword that starts a compound command runs what follows it
+  // (`if grep -r x .; then`).
+  const lead = words.findIndex((word) => !SHELL_KEYWORDS.includes(word));
+  if (lead === -1) return null;
+  if (lead > 0) return wideKept(words.slice(lead), place, written?.slice(lead));
   const wraps = (word: string) => WRAPPERS.includes(nameOf(word));
   const at = words.findIndex(
     (word) => !ASSIGNMENT.test(word) && TOOLS.includes(nameOf(word)),
@@ -1931,9 +1947,10 @@ function withoutCatBodies(text: string): string {
   const frames: { quote: "" | "'" | '"'; parens: number; cases: number }[] = [
     { quote: "", parens: 0, cases: 0 },
   ];
+  // `case` and `esac` as a command's first word, not an argument.
   const word = (name: string) =>
     text.startsWith(name, read) &&
-    /^$|[\s;&|()]/.test(text[read - 1] ?? "") &&
+    /(^|[\n;&|(])[ \t]*$/.test(text.slice(Math.max(0, read - 80), read)) &&
     /^$|[\s;&|)]/.test(text[read + name.length] ?? "");
   let comment = false;
   let escaped = false;
