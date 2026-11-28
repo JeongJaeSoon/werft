@@ -768,8 +768,10 @@ describe("the address check before a server is stored", () => {
     });
     const stored = context.memory.stored(created.id);
     if (!stored) throw new Error("the server is not stored");
-    stored.record.authKind = "none";
+    stored.record.authKind = "mtls";
     stored.bearer = null;
+    // A value in the OAuth slot is not sent for a kind this release does not know.
+    stored.access = "x".repeat(12);
 
     const listed = workspaceMcpServerListSchema.parse(
       await context.service.list(member),
@@ -777,7 +779,7 @@ describe("the address check before a server is stored", () => {
     expect(listed.items).toMatchObject([
       {
         id: created.id,
-        auth_kind: "none",
+        auth_kind: "mtls",
         redirect_uri: null,
         oauth: null,
         bearer: null,
@@ -813,6 +815,110 @@ describe("the address check before a server is stored", () => {
     expect(
       await refusal(context.service.refreshTools(admin, created.id)),
     ).toEqual({ code: "BAD_REQUEST", reason: "not_connected" });
+  });
+
+  test("a server that takes no credential stores nothing, reads its tools with no Authorization and takes no credential change", async () => {
+    const context = setup({ remote: { oauth: false, anonymous: true } });
+    const created = await context.service.create(admin, {
+      name: "deepwiki",
+      url: FAKE_MCP_URL,
+      auth_kind: "none",
+    });
+    expect(context.addressAsked).toEqual([FAKE_MCP_URL]);
+    expect(created).toMatchObject({
+      auth_kind: "none",
+      redirect_uri: null,
+      oauth: null,
+      bearer: null,
+      connection: { state: "active", connected_by: null },
+    });
+    expect(created.tools.length).toBeGreaterThan(0);
+    const sent = context.remote.requests.filter((r) => r.url === FAKE_MCP_URL);
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.map((r) => r.headers?.Authorization ?? null)).toEqual(
+      sent.map(() => null),
+    );
+    expect(context.memory.stored(created.id)?.bearer).toBeNull();
+    expect(await context.service.credentialFor(WORKSPACE, created.id)).toEqual({
+      kind: "none",
+    });
+    const asks = [
+      () =>
+        context.service.putBearerToken(admin, created.id, {
+          token: FAKE_TOKEN,
+        }),
+      () =>
+        context.service.putOAuthClient(admin, created.id, { client_id: "c1" }),
+      () => context.service.startOAuth(admin, created.id),
+      () => context.service.disconnect(admin, created.id),
+    ];
+    for (const ask of asks) {
+      expect(await refusal(ask())).toEqual({
+        code: "BAD_REQUEST",
+        reason: "no_credential",
+      });
+    }
+    // Still nothing stored, still connected.
+    expect(context.memory.stored(created.id)?.bearer).toBeNull();
+    const refreshed = await context.service.refreshTools(admin, created.id);
+    expect(refreshed.tools).toEqual(created.tools);
+    expect(refreshed.connection.state).toBe("active");
+    await context.service.delete(admin, created.id);
+    expect(context.memory.stored(created.id)).toBeUndefined();
+  });
+
+  test("a credential left on a server that takes none, or of a kind this release does not know, is never sent", async () => {
+    // A row a migration did not clean: the kind says none, the slots still hold values.
+    const context = setup({ remote: { oauth: false, anonymous: true } });
+    const leftover = async (name: string, kind: string) => {
+      const created = await context.service.create(admin, {
+        ...bearerBody,
+        name,
+      });
+      const stored = context.memory.stored(created.id);
+      if (!stored) throw new Error("the server is not stored");
+      stored.record.authKind = kind as "none";
+      stored.access = "y".repeat(12);
+      expect(stored.bearer).not.toBeNull();
+      return created.id;
+    };
+    const none = await leftover("deepwiki", "none");
+    const unknown = await leftover("later", "mtls");
+    expect(await context.service.credentialFor(WORKSPACE, none)).toEqual({
+      kind: "none",
+    });
+    expect(await context.service.credentialFor(WORKSPACE, unknown)).toBeNull();
+    const before = context.remote.requests.length;
+    const refreshed = await context.service.refreshTools(admin, none);
+    expect(refreshed.tools.length).toBeGreaterThan(0);
+    const sent = context.remote.requests.slice(before);
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.map((r) => r.headers?.Authorization ?? null)).toEqual(
+      sent.map(() => null),
+    );
+  });
+
+  test("a bearer server still stores its token and sends it", async () => {
+    const context = setup({ remote: { oauth: false, accepted: [FAKE_TOKEN] } });
+    const created = await context.service.create(admin, bearerBody);
+    expect(created.connection).toMatchObject({
+      state: "active",
+      connected_by: { user_id: ADMIN },
+    });
+    expect(await context.service.credentialFor(WORKSPACE, created.id)).toEqual({
+      kind: "bearer",
+      token: FAKE_TOKEN,
+    });
+    const sent = context.remote.requests.filter((r) => r.url === FAKE_MCP_URL);
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.map((r) => r.headers?.Authorization)).toEqual(
+      sent.map(() => `Bearer ${FAKE_TOKEN}`),
+    );
+    expect(
+      await refusal(
+        context.service.putOAuthClient(admin, created.id, { client_id: "c1" }),
+      ),
+    ).toEqual({ code: "BAD_REQUEST", reason: "not_oauth" });
   });
 
   test("a bearer server that passes is stored and its tools read", async () => {

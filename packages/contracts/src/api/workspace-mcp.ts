@@ -37,7 +37,7 @@ export const WORKSPACE_MCP_RESERVED_NAMES = [
 ] as const;
 
 export const workspaceMcpServerIdSchema = z.uuid();
-export const workspaceMcpAuthKindSchema = z.enum(["oauth", "bearer"]);
+export const workspaceMcpAuthKindSchema = z.enum(["oauth", "bearer", "none"]);
 /**
  * A server's kind as a response reports it. A later release may store a kind
  * this one does not know: the server still lists, its kind as stored, and
@@ -190,6 +190,14 @@ export const createWorkspaceMcpServerRequestSchema = z.discriminatedUnion(
         auth_kind: z.literal("oauth"),
         /** Narrower than discovery offered, or left out for its default. */
         scope: scopeSchema.optional(),
+      })
+      .strict(),
+    /** A public server: nothing is stored, its calls go without a credential. */
+    z
+      .object({
+        name: mcpServerIdSchema,
+        url: workspaceMcpUrlSchema,
+        auth_kind: z.literal("none"),
       })
       .strict(),
   ],

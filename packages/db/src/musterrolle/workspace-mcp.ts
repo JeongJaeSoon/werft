@@ -438,17 +438,20 @@ export function createPostgresWorkspaceMcpStore(
           createdByUserId: input.actorUserId,
         });
         const bearer = input.authKind === "bearer" ? input.bearerToken : null;
+        // A server that takes no credential is connected from the start, by
+        // no one: nothing of a person goes with its calls.
+        const connected = bearer !== null || input.authKind === "none";
         await tx.insert(workspaceMcpConnections).values({
           serverId: id,
           subject: SUBJECT,
-          ...(bearer === null
-            ? {}
-            : {
+          ...(connected
+            ? {
                 state: "active" as const,
                 generation: 1,
-                connectedByUserId: input.actorUserId,
+                connectedByUserId: bearer === null ? null : input.actorUserId,
                 connectedAt: DB_NOW,
-              }),
+              }
+            : {}),
         });
         if (bearer !== null) {
           await writeSecretInTx(
@@ -530,6 +533,9 @@ export function createPostgresWorkspaceMcpStore(
         }
         const server = await heldServer(tx, workspaceId, input.serverId);
         if (server === null) return { outcome: "not_found" as const };
+        if (server.authKind === "none") {
+          return { outcome: "no_credential" as const };
+        }
         if (server.authKind !== "bearer")
           return { outcome: "not_bearer" as const };
         await heldConnection(tx, server.id);
@@ -828,6 +834,10 @@ export function createPostgresWorkspaceMcpStore(
         }
         const server = await heldServer(tx, workspaceId, input.serverId);
         if (server === null) return { outcome: "not_found" as const };
+        // Nothing to take out, and nothing would connect it again.
+        if (server.authKind === "none") {
+          return { outcome: "no_credential" as const };
+        }
         // A kind this release does not know is a later release's to change:
         // disconnected here, it could be left in a state that release cannot
         // connect again.
@@ -877,6 +887,11 @@ export function createPostgresWorkspaceMcpStore(
       const secretKey = sealed();
       const record = await readRecord(db, workspaceId, serverId);
       if (record === null || record.connection.state !== "active") return null;
+      if (record.authKind === "none") return { kind: "none" };
+      // A kind this release does not know sends nothing.
+      if (record.authKind !== "bearer" && record.authKind !== "oauth") {
+        return null;
+      }
       const ws = record.workspaceId;
       return db.transaction(async (tx) => {
         if (record.authKind === "bearer") {

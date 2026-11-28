@@ -1,6 +1,6 @@
 import type { Principal } from "../../musterrolle/index.ts";
 
-export type WorkspaceMcpAuthKind = "oauth" | "bearer";
+export type WorkspaceMcpAuthKind = "oauth" | "bearer" | "none";
 export type WorkspaceMcpConnectionState = "none" | "active" | "needs_reauth";
 export type WorkspaceMcpReauthReason =
   | "invalid_grant"
@@ -89,6 +89,8 @@ export type WorkspaceMcpRevocation = {
 
 /** What control-host sends a server's calls with, read under no lock. */
 export type WorkspaceMcpCredential =
+  /** Its calls go with no credential at all. */
+  | { kind: "none" }
   | { kind: "bearer"; token: string }
   | {
       kind: "oauth";
@@ -163,7 +165,13 @@ export interface WorkspaceMcpStore {
     },
   ): Promise<
     | { outcome: "saved"; record: WorkspaceMcpServerRecord }
-    | { outcome: "not_found" | "actor_inactive" | "not_bearer" }
+    | {
+        outcome:
+          | "not_found"
+          | "actor_inactive"
+          | "not_bearer"
+          | "no_credential";
+      }
   >;
   /**
    * Replaces the server's client. The person's tokens were issued to the
@@ -233,7 +241,13 @@ export interface WorkspaceMcpStore {
         record: WorkspaceMcpServerRecord;
         revocation: WorkspaceMcpRevocation | null;
       }
-    | { outcome: "not_found" | "actor_inactive" | "unsupported_kind" }
+    | {
+        outcome:
+          | "not_found"
+          | "actor_inactive"
+          | "no_credential"
+          | "unsupported_kind";
+      }
   >;
   credentialOf(
     workspaceId: string,

@@ -108,6 +108,21 @@ function remoteRefusal(error: WorkspaceMcpRemoteError): SessionServiceError {
   });
 }
 
+/** Asked of a server that takes no credential: a token, OAuth, a disconnect. */
+const NO_CREDENTIAL = () =>
+  refused(
+    "no_credential",
+    "This server takes no credential: there is nothing to set or take out",
+  );
+
+/** What a call goes with; null for a server that takes no credential. */
+const tokenOf = (credential: WorkspaceMcpCredential): string | null =>
+  credential.kind === "none"
+    ? null
+    : credential.kind === "bearer"
+      ? credential.token
+      : credential.accessToken;
+
 const notDone = (outcome: "not_found" | "actor_inactive") =>
   outcome === "not_found" ? NOT_FOUND() : ACTOR_INACTIVE();
 
@@ -251,6 +266,7 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
   }
 
   function oauthOf(record: WorkspaceMcpServerRecord): WorkspaceMcpOAuthPin {
+    if (record.authKind === "none") throw NO_CREDENTIAL();
     if (record.oauth === null) {
       throw refused("not_oauth", "This server takes a static token, not OAuth");
     }
@@ -388,8 +404,7 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
   ): Promise<WorkspaceMcpServerRecord> {
     const credential = await credentialFor(record.workspaceId, record.id);
     if (credential === null) return record;
-    const token =
-      credential.kind === "bearer" ? credential.token : credential.accessToken;
+    const token = tokenOf(credential);
     try {
       const { tools, skipped } = await listTools(remote, {
         url: record.url,
@@ -459,9 +474,10 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
         );
       }
       checkUrl(body.url);
-      // Nothing calls a bearer server before it is stored; an OAuth one's
-      // discovery below resolves and judges it on its own.
-      if (body.auth_kind === "bearer") await checkAddress(body.url);
+      // Nothing calls a bearer or credential-free server before it is
+      // stored; an OAuth one's discovery below resolves and judges it on its
+      // own.
+      if (body.auth_kind !== "oauth") await checkAddress(body.url);
       let oauth: WorkspaceMcpOAuthPin | null = null;
       if (body.auth_kind === "oauth") {
         const found = await remoteCall(() => discover(remote, body.url));
@@ -494,7 +510,7 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
       switch (result.outcome) {
         case "created":
           return view(
-            body.auth_kind === "bearer"
+            body.auth_kind !== "oauth"
               ? await readTools(result.record, check)
               : result.record,
           );
@@ -542,6 +558,7 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
         serverId,
         token: body.token,
       });
+      if (result.outcome === "no_credential") throw NO_CREDENTIAL();
       if (result.outcome === "not_bearer") {
         throw refused(
           "not_bearer",
@@ -736,6 +753,7 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
         workspaceId: caller.ownerId,
         serverId,
       });
+      if (result.outcome === "no_credential") throw NO_CREDENTIAL();
       if (result.outcome === "unsupported_kind") {
         throw refused(
           "auth_kind_unsupported",
@@ -764,10 +782,7 @@ export function createWorkspaceMcpService(deps: WorkspaceMcpServiceDeps) {
           { reason_code: "not_connected" },
         );
       }
-      const token =
-        credential.kind === "bearer"
-          ? credential.token
-          : credential.accessToken;
+      const token = tokenOf(credential);
       const { tools, skipped } = await remoteCall(() =>
         listTools(remote, { url: record.url, serverName: record.name, token }),
       );

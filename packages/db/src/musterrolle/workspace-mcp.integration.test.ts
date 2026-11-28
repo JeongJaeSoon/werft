@@ -256,17 +256,60 @@ integration("workspace MCP servers on PostgreSQL", () => {
     await expectNoPlainCredential(ws);
   });
 
+  test("a server that takes no credential connects as no one and stores nothing", async () => {
+    const { ws, admin } = await team();
+    const record = await created(ws, admin, {
+      authKind: "none",
+      bearerToken: null,
+    });
+    expect(record.authKind).toBe("none");
+    expect(record.connection).toMatchObject({
+      state: "active",
+      generation: 1,
+      connectedBy: null,
+    });
+    expect(record.connection.connectedAt).not.toBeNull();
+    expect(record.bearerLast4).toBeNull();
+    expect(await purposesOf(ws)).toEqual([]);
+    expect(await store.credentialOf(ws, record.id)).toEqual({ kind: "none" });
+    const asked = {
+      ...asUser(ws, admin),
+      workspaceId: ws,
+      serverId: record.id,
+    };
+    expect(
+      (await store.setBearerToken({ ...asked, token: "x".repeat(16) })).outcome,
+    ).toBe("no_credential");
+    expect((await store.disconnect(asked)).outcome).toBe("no_credential");
+    expect(
+      (
+        await store.setOAuthClient({
+          ...asked,
+          client: {
+            registration: "manual",
+            clientId: "c1",
+            authMethod: "none",
+          },
+          clientSecret: null,
+        })
+      ).outcome,
+    ).toBe("not_oauth");
+    expect(await purposesOf(ws)).toEqual([]);
+    expect((await store.get(ws, record.id))?.connection.state).toBe("active");
+    expect((await store.delete(asked)).outcome).toBe("deleted");
+    expect(await store.get(ws, record.id)).toBeNull();
+  });
+
   test("a server of a kind this release does not know is not disconnected", async () => {
     const { ws, admin } = await team();
     const record = await created(ws, admin);
-    // What a later release's migration allows and writes: a server with no
-    // credential stored.
+    // What a later release's migration could allow and write.
     await db.execute(
-      sql`ALTER TABLE workspace_mcp_servers DROP CONSTRAINT workspace_mcp_servers_auth_kind_check, ADD CONSTRAINT workspace_mcp_servers_auth_kind_check CHECK (auth_kind IN ('oauth', 'bearer', 'none')) NOT VALID`,
+      sql`ALTER TABLE workspace_mcp_servers DROP CONSTRAINT workspace_mcp_servers_auth_kind_check, ADD CONSTRAINT workspace_mcp_servers_auth_kind_check CHECK (auth_kind IN ('oauth', 'bearer', 'none', 'mtls')) NOT VALID`,
     );
     await db
       .update(workspaceMcpServers)
-      .set({ authKind: "none" as never })
+      .set({ authKind: "mtls" as never })
       .where(eq(workspaceMcpServers.id, record.id));
     await db.delete(secretValues).where(eq(secretValues.workspaceId, ws));
     const before = (await store.get(ws, record.id))?.connection;
@@ -282,6 +325,31 @@ integration("workspace MCP servers on PostgreSQL", () => {
     expect((await receiptsOf(ws)).map((row) => row.operation)).toEqual([
       "create_workspace_mcp_server",
     ]);
+  });
+
+  test("a credential left on a server that takes none, or of a kind this release does not know, is never read out", async () => {
+    const { ws, admin } = await team();
+    // One row holds a static token, the other an OAuth access and refresh token.
+    const bearer = await created(ws, admin);
+    const oauth = await connectedOAuth(ws, admin);
+    await db.execute(
+      sql`ALTER TABLE workspace_mcp_servers DROP CONSTRAINT workspace_mcp_servers_auth_kind_check, ADD CONSTRAINT workspace_mcp_servers_auth_kind_check CHECK (auth_kind IN ('oauth', 'bearer', 'none', 'mtls')) NOT VALID`,
+    );
+    const left = await purposesOf(ws);
+    expect(left).toContain("mcp_bearer_token");
+    expect(left).toContain("mcp_access_token");
+    for (const record of [bearer, oauth]) {
+      for (const kind of ["none", "mtls"] as const) {
+        await db
+          .update(workspaceMcpServers)
+          .set({ authKind: kind as never, oauth: null })
+          .where(eq(workspaceMcpServers.id, record.id));
+        expect(await purposesOf(ws)).toEqual(left);
+        expect(await store.credentialOf(ws, record.id)).toEqual(
+          kind === "none" ? { kind: "none" } : null,
+        );
+      }
+    }
   });
 
   test("a member, or an admin no longer one, writes nothing", async () => {
@@ -682,6 +750,10 @@ integration("workspace MCP servers on PostgreSQL", () => {
     const { ws, admin, owner } = await team();
     const oauth = await connectedOAuth(ws, admin);
     const bearer = await created(ws, admin);
+    const open = await created(ws, admin, {
+      authKind: "none",
+      bearerToken: null,
+    });
     const ownerServer = await connectedOAuth(ws, owner);
     // A sign-in the admin only started, on a server the owner connected.
     await startedFlow(ws, admin, ownerServer.id, new Date(Date.now() + HOUR));
@@ -710,6 +782,9 @@ integration("workspace MCP servers on PostgreSQL", () => {
       state: "active",
       connectedBy: { userId: owner },
     });
+    // No one connected it: it stays as it was.
+    expect((await store.get(ws, open.id))?.connection.state).toBe("active");
+    expect(await store.credentialOf(ws, open.id)).toEqual({ kind: "none" });
     expect(await store.readFlow(ws, ownerServer.id)).toBeNull();
     expect(await store.credentialOf(ws, ownerServer.id)).toMatchObject({
       kind: "oauth",

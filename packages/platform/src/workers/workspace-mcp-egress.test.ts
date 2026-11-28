@@ -177,6 +177,20 @@ describe("createWorkspaceMcpEgress", () => {
     ]);
   });
 
+  test("a server that takes no credential is granted with no Authorization, its call still recorded", async () => {
+    const { decide, calls } = egress({}, { credential: { kind: "none" } });
+    for (const request of [call(null, "initialize"), call("search")]) {
+      const decision = await decide(fenced, request);
+      expect(decision?.kind === "granted" && decision.upstream).toEqual({
+        url: "https://docs.example.test/mcp",
+        target: "/mcp",
+        headers: [],
+        allow: "public_https",
+      });
+    }
+    expect(calls.map((record) => record.result.tool)).toEqual(["search"]);
+  });
+
   test("a tool outside the current list, or a method outside the allowlist, is refused without a receipt", async () => {
     const { decide, recorded, credentialCalls } = egress();
     for (const request of [
