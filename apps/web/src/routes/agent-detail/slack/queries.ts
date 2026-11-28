@@ -6,6 +6,7 @@ import {
 import { type ApiClient, type components, unwrap } from "@werft-ai/client";
 import { queryKeysOf } from "@werft-ai/core";
 import { useWerft } from "@werft-ai/react";
+import type { JudgmentAnswer, JudgmentReason } from "./judgment-reasons.ts";
 import { UNVERIFIED_POLL_MS } from "./shared.ts";
 
 /**
@@ -73,15 +74,40 @@ export function useSlackBindings(agentId: string) {
 }
 
 /** Asked only of a viewer who may read it: anyone else gets 403. */
-export function useSlackJudgments(agentId: string, enabled: boolean) {
+export function useSlackJudgments(
+  agentId: string,
+  enabled: boolean,
+  filter: {
+    readonly reason?: JudgmentReason | undefined;
+    readonly answer?: JudgmentAnswer | undefined;
+  } = {},
+) {
+  const { reason, answer } = filter;
   const { client } = useWerft();
   return useQuery({
     enabled,
-    queryKey: [...slackKey(client, agentId), "judgments"],
+    queryKey: [
+      ...slackKey(client, agentId),
+      "judgments",
+      reason ?? null,
+      answer ?? null,
+    ],
+    // Picking a filter keeps the tables on screen until its list arrives.
+    placeholderData: keepPreviousData,
     queryFn: () =>
       unwrap(
         client.GET("/v1/agents/{id}/slack/judgments", {
-          params: { path: { id: agentId } },
+          params: {
+            path: { id: agentId },
+            ...(reason || answer
+              ? {
+                  query: {
+                    ...(reason ? { reason } : {}),
+                    ...(answer ? { answer } : {}),
+                  },
+                }
+              : {}),
+          },
         }),
       ),
     staleTime: 30_000,

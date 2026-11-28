@@ -130,12 +130,19 @@ export function createPostgresJudgmentReviewStore(
           outcome: conversationJudgments.outcome,
           decision: conversationJudgments.decision,
           reason: conversationJudgments.reason,
+          answer: conversationJudgments.answer,
           judgedAt: conversationJudgments.judgedAt,
         })
         .from(conversationJudgments)
         .where(
           and(
             judged(input),
+            input.reason === undefined
+              ? undefined
+              : eq(conversationJudgments.reason, input.reason),
+            input.answer === undefined
+              ? undefined
+              : eq(conversationJudgments.answer, input.answer),
             or(
               ...input.channels.map((channel) =>
                 and(
@@ -171,6 +178,7 @@ export function createPostgresJudgmentReviewStore(
           outcome: row.outcome,
           decision: row.decision,
           reason: row.reason,
+          answer: row.answer,
           judgedAt: row.judgedAt,
         });
       }
