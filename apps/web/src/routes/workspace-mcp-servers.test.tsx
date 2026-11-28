@@ -583,9 +583,13 @@ describe("워크스페이스 MCP 서버", () => {
     expect(row.textContent).toContain("인증 없음");
     expect(row.textContent).not.toContain("지원하지 않는 인증");
     const acting = within(row).getByRole("region", {
-      name: "이 계정으로 동작함",
+      name: "자격 없이 호출함",
     });
     expect(acting.textContent).toContain("인증 없이 부르는 서버입니다.");
+    expect(
+      within(row).queryByRole("region", { name: "이 계정으로 동작함" }) ===
+        null,
+    ).toBe(true);
     expect(acting.textContent).not.toContain("알 수 없는 사용자");
     expect(
       within(row)

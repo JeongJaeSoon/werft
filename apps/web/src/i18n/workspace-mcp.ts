@@ -32,6 +32,7 @@ export const workspaceMcpKo = {
   "workspaceMcp.toolsReadAt": "{at}에 읽음",
   "workspaceMcp.namespace": "도구 이름 {namespace}",
   "workspaceMcp.actingAs.title": "이 계정으로 동작함",
+  "workspaceMcp.actingAs.noneTitle": "자격 없이 호출함",
   "workspaceMcp.actingAs.oauth":
     "에이전트의 호출은 {name}이(가) 동의 화면에서 로그인한 외부 계정으로 실행되고, 외부 서비스에 그 계정으로 기록됩니다.",
   "workspaceMcp.actingAs.bearer":
@@ -100,7 +101,7 @@ export const workspaceMcpKo = {
   "workspaceMcp.register.foundManual":
     "동적 client 등록을 받지 않습니다. 등록한 뒤 client를 손으로 넣어야 연결할 수 있습니다.",
   "workspaceMcp.register.foundNone":
-    "OAuth를 요구하지 않습니다. 정적 token으로 등록하세요.",
+    "OAuth를 요구하지 않습니다. 정적 token으로 등록하거나, 인증 없이 부르는 공개 서버면 인증 없음을 고르세요.",
   "workspaceMcp.register.name": "이름",
   "workspaceMcp.register.nameHint":
     "도구 이름 앞에 mcp__이름__으로 붙습니다. 소문자, 숫자, -, _로 32자까지 씁니다. github, browser, memory, werft는 쓸 수 없습니다.",
@@ -249,6 +250,7 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
   "workspaceMcp.toolsReadAt": "read {at}",
   "workspaceMcp.namespace": "Tool names {namespace}",
   "workspaceMcp.actingAs.title": "Runs as this account",
+  "workspaceMcp.actingAs.noneTitle": "Called without a credential",
   "workspaceMcp.actingAs.oauth":
     "Agents' calls run as the external account {name} signed in with on the consent screen, and the remote service records them under it.",
   "workspaceMcp.actingAs.bearer":
@@ -316,7 +318,7 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
   "workspaceMcp.register.foundManual":
     "It takes no dynamic client registration: enter a client by hand after registering, then connect.",
   "workspaceMcp.register.foundNone":
-    "It asks for no OAuth. Register it with a static token.",
+    "It asks for no OAuth. Register it with a static token, or choose no authentication for a public server that takes none.",
   "workspaceMcp.register.name": "Name",
   "workspaceMcp.register.nameHint":
     "Tool names get mcp__name__ in front. Up to 32 lowercase letters, digits, - and _; github, browser, memory and werft are taken.",
@@ -467,6 +469,7 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
   "workspaceMcp.toolsReadAt": "{at} に読み込み",
   "workspaceMcp.namespace": "ツール名 {namespace}",
   "workspaceMcp.actingAs.title": "このアカウントで動作",
+  "workspaceMcp.actingAs.noneTitle": "資格情報なしで呼び出し",
   "workspaceMcp.actingAs.oauth":
     "エージェントの呼び出しは {name} が同意画面でログインした外部アカウントで実行され、外部サービスにそのアカウントで記録されます。",
   "workspaceMcp.actingAs.bearer":
@@ -537,7 +540,7 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
   "workspaceMcp.register.foundManual":
     "動的 client 登録を受け付けません。登録後に client を手入力してから接続します。",
   "workspaceMcp.register.foundNone":
-    "OAuth を求めません。静的 token で登録してください。",
+    "OAuth を求めません。静的 token で登録するか、認証なしで呼び出す公開サーバーなら認証なしを選んでください。",
   "workspaceMcp.register.name": "名前",
   "workspaceMcp.register.nameHint":
     "ツール名の前に mcp__名前__ が付きます。小文字・数字・-・_ で 32 文字まで。github、browser、memory、werft は使えません。",

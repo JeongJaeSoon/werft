@@ -410,10 +410,20 @@ function ServerRow({
         {supported && connection.state !== "none" ? (
           <Alert
             role="region"
-            aria-label={t("workspaceMcp.actingAs.title")}
+            aria-label={t(
+              noCredential
+                ? "workspaceMcp.actingAs.noneTitle"
+                : "workspaceMcp.actingAs.title",
+            )}
             className="max-w-3xl"
           >
-            <AlertTitle>{t("workspaceMcp.actingAs.title")}</AlertTitle>
+            <AlertTitle>
+              {t(
+                noCredential
+                  ? "workspaceMcp.actingAs.noneTitle"
+                  : "workspaceMcp.actingAs.title",
+              )}
+            </AlertTitle>
             <AlertDescription>
               <div className="flex flex-col gap-2">
                 <Text as="span" variant="sub">
