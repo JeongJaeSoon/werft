@@ -48,6 +48,12 @@ const alive = (pid: number) => {
 };
 
 describe("gitleaksScanner", () => {
+  // h2non/filetype reads up to byte 32773 (the ISO 9660 mark). Only the image
+  // smoke runs the real executable, so the unit tests pin the length.
+  test("the text prefix reaches past the deepest byte filetype reads", () => {
+    expect(SHIFT).toBeGreaterThan(32_773);
+  });
+
   test("scans our copy with our config, our ignore path and no environment", async () => {
     const seen = join(dir, "seen");
     const executable = fake(

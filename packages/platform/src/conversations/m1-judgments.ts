@@ -43,6 +43,8 @@ export type ClaimedReplyJudgment = {
   subject: M1Subject;
   /** Past the channel's M1 cap (counted for `m1_engaged` alone): no call. */
   rateLimited: boolean;
+  /** Held in the buffer with its text: no session's turn took the reply. */
+  held?: boolean;
   /** As JudgmentBatch's: when the claim's channel marks were done. */
   readAt?: string;
 };
@@ -441,8 +443,10 @@ export async function runReplyJudgments(deps: {
   store: Pick<M1JudgmentStore, "claimReply" | "finishReply">;
   judge: M1Judge;
   /**
-   * Makes a turn of a reply in a thread the agent took part in that spoke
-   * (`m1_engaged`). A bound thread's reply goes to its work as before.
+   * Makes a turn of a reply that spoke and no session took: one in a thread
+   * the agent took part in (`m1_engaged`), or one held in a thread of work
+   * done (`m1`, v1-b/U1 B). A reply a session took is the session's to
+   * answer, and a reply of work going on (`m1_to_task`) goes to its work.
    */
   speaker?: M1Speaker;
   logger: {
@@ -507,7 +511,8 @@ export async function runReplyJudgments(deps: {
       if (
         deps.speaker !== undefined &&
         target !== null &&
-        subject.grade === "m1_engaged" &&
+        (subject.grade === "m1_engaged" ||
+          (subject.grade === "m1" && claimed.held === true)) &&
         subject.topicId !== null
       ) {
         await speakSafely(deps.speaker, deps.logger, {

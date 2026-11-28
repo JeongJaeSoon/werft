@@ -210,6 +210,16 @@ export const slackJa = {
     "{channel} の聞き取りの設定を保存できませんでした。{reason}",
   "slack.listenExternalShared":
     "{channel} は外部の組織と共有しているチャンネルのため、メンションのみ聞き取れます。「メンションのみ」か「聞かない」を選んでください。",
+  "slack.reportColumn": "報告方式",
+  "slack.report.notify_only": "通知のみ",
+  "slack.report.progress": "進行メッセージ1件",
+  "slack.report.per_step": "ステップごとに新しい投稿",
+  "slack.report.default": "既定 (現在: {mode})",
+  "slack.report.defaultPlain": "既定",
+  "slack.reportOf": "{channel} の報告方式",
+  "slack.reportSaved":
+    "報告方式を保存しました。個別に設定していない進行中の作業にもすぐ反映されます。",
+  "slack.reportFailed": "{channel} の報告方式を保存できませんでした。{reason}",
   "slack.capColumn": "1時間の判断数",
   "slack.capOf": "{channel}の1時間の判断上限",
   "slack.capRange": "1から{max}までの整数で指定してください。",

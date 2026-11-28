@@ -4,6 +4,7 @@ import {
   firstJsonObject,
   type GateSpec,
   SPEC_MARKER,
+  unusedId,
 } from "./scripted-messages.ts";
 
 /**
@@ -72,6 +73,15 @@ export function planOf(
     }
   }
   return null;
+}
+
+/** The call ids the input already holds, on calls and their outputs alike. */
+function callIdsIn(items: readonly Item[]): Set<string> {
+  return new Set(
+    items.flatMap((item) =>
+      typeof item.call_id === "string" ? [item.call_id] : [],
+    ),
+  );
 }
 
 const isToolAnswer = (item: Item) =>
@@ -204,7 +214,10 @@ export function replyFor(
       : {
           toolCalls: [
             {
-              callId: `call_gate_${spec.id}_${step}`,
+              callId: unusedId(
+                `call_gate_${spec.id}_${step}`,
+                callIdsIn(items),
+              ),
               // Only a request that offers the search can be answered by one;
               // otherwise the call is a plain name the engine refuses.
               ...(next.tool === "tool_search" && searchOffered(body)

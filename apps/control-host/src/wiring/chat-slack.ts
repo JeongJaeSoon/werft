@@ -41,6 +41,7 @@ export {
   SLACK_API_URL,
   SLACK_INPUT_HOLD_MS,
   SLACK_REACTION_SCOPE,
+  SLACK_TASK_REPLY_WAIT_MS,
   type SlackAppService,
   type SlackAudienceCache,
   type SlackChannelMembers,

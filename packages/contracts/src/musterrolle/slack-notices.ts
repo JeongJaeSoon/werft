@@ -26,6 +26,11 @@ const SLACK_NOTICE_MESSAGES_KO = {
   progressStarted: "시작",
   // Its session closed: the message's last word.
   progressClosed: "작업을 마쳤어요",
+  // Its task closed as cancelled, by its requester or its pull request.
+  progressCancelled: "작업을 취소했어요",
+  // The progress message's buttons that close its task (v1-b/C1).
+  taskCloseComplete: "완료",
+  taskCloseCancel: "취소",
   // A notify_only thread's one start line, never edited.
   workStarted: "작업을 시작했어요",
   // A person needed where no card asks (v1-b/P2): a request the thread
@@ -38,6 +43,9 @@ const SLACK_NOTICE_MESSAGES_KO = {
     "자리가 없어 다시 시작하지 못했어요. 세션은 일시 정지 상태로 두었으니 잠시 뒤 다시 시작해 주세요",
   codexSandboxNotInstalled:
     "이 에이전트의 실행 환경(Codex sandbox)이 이 설치에 없어요. 관리자에게 알려 주세요",
+  // A turn its tool call limit ended; the session takes the next reply.
+  toolCallLimit:
+    "도구를 너무 많이 불러 이번 턴을 멈췄어요. 이어서 하려면 답글을 주세요",
   ownershipLost:
     "작업이 중간에 끊겼어요. 서버 연결이 잠시 끊겼어요. 마지막 저장 지점 뒤에 한 일은 확인이 필요해요.",
   ownershipLostContinue: "이어서 하기",
@@ -89,6 +97,7 @@ const SLACK_NOTICE_MESSAGES_KO = {
     "요청하신 대로 작업을 시작하기 전에 멈추고 닫았어요. 기다리던 글 {count}개도 처리하지 않았어요. 다시 하려면 새로 맡겨 주세요.",
   nothingToStop: "지금 멈출 작업이 없어요.",
   stopNotPermitted: "작업을 맡긴 사람만 멈출 수 있어요",
+  taskCloseNotPermitted: "이 작업을 닫을 권한이 없어요",
   // A budget account's refusal, never the session's own limit: whose
   // monthly limit it is, as the ledger charged the call.
   budgetAccountUser:
@@ -152,6 +161,9 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     progressIdle: "次の依頼を待っています",
     progressStarted: "開始",
     progressClosed: "作業を終えました",
+    progressCancelled: "作業を取り消しました",
+    taskCloseComplete: "完了",
+    taskCloseCancel: "取り消す",
     workStarted: "作業を始めました",
     needsPersonInput:
       "回答が必要なリクエストがあります。セッションで回答してください",
@@ -163,6 +175,8 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "空きがなく再開できませんでした。セッションは一時停止のままにしてあるので、しばらくしてからもう一度再開してください",
     codexSandboxNotInstalled:
       "このエージェントの実行環境（Codex サンドボックス）がこの環境にありません。管理者に知らせてください",
+    toolCallLimit:
+      "ツールを呼び出しすぎたため、このターンを止めました。続けるには返信してください",
     ownershipLost:
       "作業が途中で途切れました。サーバーとの接続が一時的に切れました。最後の保存地点より後に行ったことは確認が必要です。",
     ownershipLostContinue: "続きから進める",
@@ -207,6 +221,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "ご依頼どおり、作業を始める前に止めて閉じました。待っていた{count}件のメッセージも処理していません。もう一度行うには、新しく依頼してください。",
     nothingToStop: "今止める作業はありません。",
     stopNotPermitted: "作業を依頼した人だけが止められます",
+    taskCloseNotPermitted: "この作業を閉じる権限がありません",
     budgetAccountUser:
       "依頼した人の今月の予算上限に達したため、モデルを呼び出せませんでした。来月1日（UTC）に解除されます。それより前に使うには、ワークスペースの管理者に上限を上げてもらってください",
     budgetAccountTeam:
@@ -253,6 +268,9 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     progressIdle: "Waiting for the next request",
     progressStarted: "Started",
     progressClosed: "This task is done",
+    progressCancelled: "This task was cancelled",
+    taskCloseComplete: "Done",
+    taskCloseCancel: "Cancel",
     workStarted: "Started working on this",
     needsPersonInput:
       "A request is waiting for your answer. Answer it in the session",
@@ -264,6 +282,8 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "There was no room to resume this. The session stays paused; please resume it again in a little while",
     codexSandboxNotInstalled:
       "This agent's runtime (the Codex sandbox) is not installed here. Tell an administrator",
+    toolCallLimit:
+      "This turn called tools too many times, so it was stopped. Reply to continue",
     ownershipLost:
       "The work was cut off partway. The connection to the server dropped for a moment. What it did after the last save point needs checking.",
     ownershipLostContinue: "Continue",
@@ -307,6 +327,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
       "Stopped and closed the task before it started, as you asked. {count} waiting messages were not processed either. To do it again, ask for it as a new task.",
     nothingToStop: "There's nothing to stop right now.",
     stopNotPermitted: "Only the person who asked for this task can stop it",
+    taskCloseNotPermitted: "You don't have permission to close this task",
     budgetAccountUser:
       "The requester's monthly budget limit was reached, so the model could not be called. It lifts on the 1st of next month (UTC), or sooner when a workspace admin raises the limit",
     budgetAccountTeam:

@@ -106,6 +106,9 @@ export const RECEIPT_OPERATION_LABEL: Record<ReceiptOperation, string> = {
   archive_extension: "스킬 버전 보관",
   revert_extension: "스킬 현재 버전 되돌리기",
   update_extension_sync: "스킬 Git 동기화 설정 변경",
+  register_skill_repository: "스킬 저장소 등록",
+  remove_skill_repository: "스킬 저장소 제거",
+  update_skill_repository_ref: "스킬 저장소 ref 변경",
   create_login_provider: "로그인 공급자 추가",
   update_login_provider: "로그인 공급자 설정 변경",
   refresh_login_provider_discovery: "로그인 공급자 discovery 다시 확인",
@@ -176,7 +179,8 @@ export type ReceiptTimestamps = Pick<Receipt, "created_at" | "updated_at">;
 export type ReceiptError = Receipt["error"];
 
 export interface ReceiptSummaryProps {
-  readonly operation: ReceiptOperation;
+  /** A name this build does not know is shown as stored. */
+  readonly operation: string;
   readonly status: ReceiptStatus;
   readonly target: ReceiptTarget;
   readonly timestamps: ReceiptTimestamps;
@@ -209,7 +213,7 @@ export function ReceiptSummary({
       <div className="werft-receipt__head">
         <span className="werft-receipt__operation">
           {Object.hasOwn(RECEIPT_OPERATION_LABEL, operation)
-            ? RECEIPT_OPERATION_LABEL[operation]
+            ? RECEIPT_OPERATION_LABEL[operation as ReceiptOperation]
             : operation}
         </span>
         <StatusLabel axis="receipt" state={status} />

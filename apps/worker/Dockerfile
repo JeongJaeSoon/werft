@@ -75,7 +75,7 @@ ARG GIT_LFS_VERSION=3.8.1
 ARG GIT_LFS_COMMIT=a662a6dbfedf706cfa9fc7a5b7bcc7ba2e2c8a65
 ARG GIT_LFS_X_NET=0.62.0
 ARG GIT_LFS_COMPRESS=1.20.2
-ARG GIT_LFS_GO=1.27.3
+ARG GIT_LFS_GO=1.27.4
 ARG BUILDARCH
 ARG TARGETARCH
 RUN --mount=type=bind,source=scripts/fetch-pinned.ts,target=/tmp/fetch-pinned.ts \
@@ -84,10 +84,10 @@ RUN --mount=type=bind,source=scripts/fetch-pinned.ts,target=/tmp/fetch-pinned.ts
   1939307bef808580f7c8954ede7072889d7e76721f5d6fdc4ab110bf907330ab \
   /tmp/git-lfs-src.tar.gz \
   https://api.github.com/repos/git-lfs/git-lfs/releases/assets/666389036
-ADD --checksum=sha256:65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40 \
+ADD --checksum=sha256:7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840 \
   https://dl.google.com/go/go${GIT_LFS_GO}.linux-amd64.tar.gz \
   /tmp/go-amd64.tar.gz
-ADD --checksum=sha256:a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49 \
+ADD --checksum=sha256:3392582988a273a87ab5043ee1b2c9c17a2c3c00580bf9326c47a2e0aaaeac92 \
   https://dl.google.com/go/go${GIT_LFS_GO}.linux-arm64.tar.gz \
   /tmp/go-arm64.tar.gz
 # The base has no CA roots; Go needs them to reach the module proxy. Trixie's

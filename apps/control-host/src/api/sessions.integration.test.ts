@@ -387,6 +387,28 @@ integration("sessions API on PostgreSQL", () => {
     expect(unknown.status).toBe(404);
   }, 60_000);
 
+  test("serves a receipt whose operation this build does not know, as stored", async () => {
+    const id = crypto.randomUUID();
+    await db.insert(receipts).values({
+      id,
+      ownerId: owner,
+      operation: "operation_from_a_newer_replica",
+      targetRef: {
+        session_id: crypto.randomUUID(),
+        turn_id: null,
+        request_id: null,
+      },
+      status: "succeeded",
+    });
+    const response = await app.request(`/v1/receipts/${id}`, {
+      headers: { "X-Owner-Id": owner },
+    });
+    expect(response.status).toBe(200);
+    expect(getReceiptResponseSchema.parse(await response.json())).toMatchObject(
+      { id, operation: "operation_from_a_newer_replica" },
+    );
+  }, 60_000);
+
   test("readiness passes against the migrated database without touching any backend", async () => {
     const response = await app.request("/readyz");
     expect(response.status).toBe(200);

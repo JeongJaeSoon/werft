@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { ReceiptActor, SseEvent } from "@werft-ai/contracts";
+import {
+  type ReceiptActor,
+  type SseEvent,
+  TASK_CLOSING_DEFAULT,
+} from "@werft-ai/contracts";
 import {
   type SessionCatalog,
   type WorkerGateway,
@@ -30,8 +34,10 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
+import { closeAtomic, taskClosePayloadHash } from "./sessions/close-control.ts";
 import { createPostgresWorkerPendingStore } from "./sessions/pending-control.ts";
 import { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
+import { createPostgresTaskCloses } from "./sessions/task-close.ts";
 import {
   testWorkerGateway,
   type TestWorker as Worker,
@@ -612,6 +618,149 @@ integration("close on PostgreSQL", () => {
     expect(await receiptRow(r2.receipt_id)).toMatchObject({
       status: "failed",
       error: { code: "RECOVERY_REQUIRED" },
+    });
+  });
+
+  test("a task close that drains names its reason only once the session is closed; one lost to recovery leaves none", async () => {
+    const taskClose = async (session: Session) => {
+      const result = await closeAtomic(db, {
+        principal: { ownerId: session.ownerId },
+        sessionId: session.sessionId,
+        idempotencyKey: crypto.randomUUID(),
+        payloadHash: taskClosePayloadHash("cancelled"),
+        expectedRevision: (await sessionRow(session.sessionId)).revision,
+        reason: null,
+        now: new Date(),
+        taskClosedReason: "cancelled",
+      });
+      if (result.outcome !== "accepted") throw new Error(result.outcome);
+      return result.response;
+    };
+
+    const drained = await newSession("task-drained");
+    const worker = await claim(drained);
+    const turn = await deliver(worker);
+    const response = await taskClose(drained);
+    // closing may still fail back to open work, which keeps no reason.
+    expect(await sessionRow(drained.sessionId)).toMatchObject({
+      admissionState: "closing",
+      taskClosedReason: null,
+    });
+    await finalize(worker, turn, 0);
+    expect(
+      (await gateway.nextInput(worker.principal, worker.scope)).input,
+    ).toBeNull();
+    expect(await releaseForDrain(worker, response.receipt_id)).toEqual({
+      released: true,
+    });
+    await confirmExecutionGone(db, worker.executionId);
+    expect(await sessionRow(drained.sessionId)).toMatchObject({
+      admissionState: "closed",
+      taskClosedReason: "cancelled",
+    });
+
+    const lost = await newSession("task-lost");
+    const w2 = await claim(lost);
+    const t2 = await deliver(w2);
+    await taskClose(lost);
+    await finalize(w2, t2, null, "outcome_unknown");
+    expect(await sessionRow(lost.sessionId)).toMatchObject({
+      admissionState: "recovery_required",
+      taskClosedReason: null,
+    });
+  });
+
+  test("a pull request close that drains stores the reason judged under its lock and names it once closed", async () => {
+    const session = await newSession("task-pull-request");
+    const worker = await claim(session);
+    const turn = await deliver(worker);
+    await db
+      .update(sessions)
+      .set({ taskClosing: TASK_CLOSING_DEFAULT })
+      .where(eq(sessions.id, session.sessionId));
+    await db.insert(schema.sessionOutcomes).values({
+      id: crypto.randomUUID(),
+      ownerId: session.ownerId,
+      sessionId: session.sessionId,
+      type: "github_pull_request",
+      url: "https://github.com/acme/app/pull/7",
+      externalId: "7",
+      state: "closed",
+      stateChangedAt: new Date(),
+      closedAt: new Date(),
+    });
+    expect(await createPostgresTaskCloses(db).closeOnPullRequests(10)).toBe(1);
+    const closing = await sessionRow(session.sessionId);
+    expect(closing).toMatchObject({
+      admissionState: "closing",
+      taskClosedReason: null,
+    });
+    const [open] = await db
+      .select({ id: receipts.id })
+      .from(receipts)
+      .where(
+        and(
+          eq(receipts.operation, "close"),
+          sql`${receipts.targetRef}->>'session_id' = ${session.sessionId}`,
+        ),
+      );
+    if (!open) throw new Error("no close receipt");
+    await finalize(worker, turn, 0);
+    await gateway.nextInput(worker.principal, worker.scope);
+    expect(await releaseForDrain(worker, open.id)).toEqual({ released: true });
+    await confirmExecutionGone(db, worker.executionId);
+    expect(await sessionRow(session.sessionId)).toMatchObject({
+      admissionState: "closed",
+      taskClosedReason: "cancelled",
+    });
+  });
+
+  test("a pull request close does not wait on a refresh holding the pull request's row", async () => {
+    const session = await idleCovered("task-refresh-held");
+    await db
+      .update(sessions)
+      .set({ taskClosing: TASK_CLOSING_DEFAULT })
+      .where(eq(sessions.id, session.sessionId));
+    const outcomeId = crypto.randomUUID();
+    await db.insert(schema.sessionOutcomes).values({
+      id: outcomeId,
+      ownerId: session.ownerId,
+      sessionId: session.sessionId,
+      type: "github_pull_request",
+      url: "https://github.com/acme/app/pull/8",
+      externalId: "8",
+      state: "merged",
+      stateChangedAt: new Date(),
+      mergedAt: new Date(),
+    });
+    // A refresh settling the row holds it, then waits on the session.
+    const refresh = await pool.connect();
+    let pass: Promise<number> | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await refresh.query("BEGIN");
+      await refresh.query(
+        "SELECT 1 FROM session_outcomes WHERE id = $1 FOR UPDATE",
+        [outcomeId],
+      );
+      pass = createPostgresTaskCloses(db).closeOnPullRequests(10);
+      const waited = await Promise.race([
+        pass,
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve("waiting"), 3000);
+        }),
+      ]);
+      expect(waited).toBe(1);
+    } finally {
+      clearTimeout(timer);
+      await refresh.query("ROLLBACK");
+      refresh.release();
+      // A pass left waiting finishes here, not in the next test.
+      await pass?.catch(() => undefined);
+    }
+    expect(await sessionRow(session.sessionId)).toMatchObject({
+      admissionState: "closed",
+      taskClosedReason: "completed",
     });
   });
 

@@ -420,6 +420,11 @@ worker:
   # with a turn open is never stopped. A stopped or timed-out session's
   # next message starts a new worker that resumes from its checkpoint.
   idleTimeoutSeconds: 1800
+  # Tool calls one turn of a session may make, its subagents' included: an
+  # integer from 1 to 100000. The scheduler hands it to the worker Pods as
+  # WORKER_MAX_TURN_TOOL_CALLS. The call past it ends that turn
+  # failed(tool_call_limit); the session stays and takes the next message.
+  maxTurnToolCalls: 500
   # Node disk a worker may use outside its PVC (mostly its log), request
   # and limit both; past it the kubelet evicts the Pod.
   ephemeralStorageMb: 1024

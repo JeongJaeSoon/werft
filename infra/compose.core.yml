@@ -536,6 +536,9 @@ services:
       WORKER_CPUS: ${WORKER_CPUS:-1}
       WORKER_MEMORY_MB: ${WORKER_MEMORY_MB:-4608}
       WORKER_IDLE_TIMEOUT_SEC: ${WORKER_IDLE_TIMEOUT_SEC:-1800}
+      # Tool calls one session turn may make (1-100000); the call past it ends
+      # that turn tool_call_limit. The scheduler hands it to every worker.
+      WORKER_MAX_TURN_TOOL_CALLS: ${WORKER_MAX_TURN_TOOL_CALLS:-500}
       # The bucket and region the scheduler names to each worker. No key and
       # no endpoint: workers reach the object store through the proxy's
       # object store route, signed by the API.
@@ -678,6 +681,7 @@ services:
       SLACK_ROLE_LEASE_SEC: ${SLACK_ROLE_LEASE_SEC:-60}
       SLACK_ROLE_INPUT_HOLD_SEC: ${SLACK_ROLE_INPUT_HOLD_SEC:-3600}
       SLACK_ROLE_CLOSE_LINKS: ${SLACK_ROLE_CLOSE_LINKS:-true}
+      SLACK_ROLE_TASK_REPLY_WAIT_SEC: ${SLACK_ROLE_TASK_REPLY_WAIT_SEC:-30}
       WORKER_IMAGE_RUNTIME: *worker-image-runtime
       WORKER_IMAGE_PREVIOUS_RUNTIME: *worker-image-previous-runtime
       WORKER_IMAGES: *worker-images

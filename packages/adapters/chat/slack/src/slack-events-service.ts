@@ -27,6 +27,7 @@ import {
   type SurfaceBindingStore,
   type SurfaceInstallStore,
 } from "@werft-ai/platform";
+import { unescapeSlackText } from "./slack-entities.ts";
 import {
   SLACK_PERSON_RESET_SUBTYPES,
   slackConversationKey,
@@ -367,7 +368,7 @@ function sourceChange(event: SlackEventCallback["event"]): SourceChange | null {
     } else if (typeof inner?.edited === "object" && inner.edited !== null) {
       kind = "edited";
       at = tsOf(inner.edited.ts);
-      if (typeof inner.text === "string") text = inner.text;
+      if (typeof inner.text === "string") text = unescapeSlackText(inner.text);
     } else return null;
     ts = tsOf(inner.ts) ?? tsOf(previous?.ts);
   } else return null;

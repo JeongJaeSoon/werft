@@ -206,6 +206,16 @@ export const slackEn = {
   "slack.listenFailed": "Could not save listening for {channel}. {reason}",
   "slack.listenExternalShared":
     "{channel} is shared with another organization, so it can listen to mentions only. Choose Mentions only or Not listening.",
+  "slack.reportColumn": "Reports",
+  "slack.report.notify_only": "Notifications only",
+  "slack.report.progress": "One progress message",
+  "slack.report.per_step": "A new post per step",
+  "slack.report.default": "Default (now: {mode})",
+  "slack.report.defaultPlain": "Default",
+  "slack.reportOf": "Reports in {channel}",
+  "slack.reportSaved":
+    "Reports saved. Work under way that has no setting of its own uses it at once.",
+  "slack.reportFailed": "Could not save reports for {channel}. {reason}",
   "slack.capColumn": "Judgments per hour",
   "slack.capOf": "Judgments per hour in {channel}",
   "slack.capRange": "Enter a whole number from 1 to {max}.",

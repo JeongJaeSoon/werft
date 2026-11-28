@@ -4545,6 +4545,21 @@
             "minimum": 1,
             "maximum": 60
           },
+          "report_mode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "notify_only",
+                  "progress",
+                  "per_step"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "home": {
             "default": false,
             "type": "boolean"
@@ -14667,6 +14682,9 @@
               "archive_extension",
               "revert_extension",
               "update_extension_sync",
+              "register_skill_repository",
+              "remove_skill_repository",
+              "update_skill_repository_ref",
               "create_login_provider",
               "update_login_provider",
               "refresh_login_provider_discovery",
@@ -14695,6 +14713,363 @@
               "set_conversation_rollout",
               "emergency_stop_surface_binding"
             ]
+          },
+          "target_ref": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "session_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "turn_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "request_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "session_id",
+                  "turn_id",
+                  "request_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "resource": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "workspace",
+                          "session",
+                          "invite",
+                          "agent",
+                          "agent_release",
+                          "surface_binding",
+                          "session_link",
+                          "dispatch",
+                          "memory",
+                          "routine",
+                          "artifact",
+                          "mcp_server",
+                          "api_key",
+                          "team",
+                          "extension_bundle",
+                          "conversation"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "workspace_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "resource",
+                  "workspace_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "user_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "workspace_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": [
+                  "user_id",
+                  "workspace_id"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "actor": {
+            "type": "object",
+            "properties": {
+              "principal": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "api_key",
+                      "user",
+                      "installation"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ],
+                "additionalProperties": false
+              },
+              "actor_user_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "agent_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "principal",
+              "actor_user_id",
+              "agent_id"
+            ],
+            "additionalProperties": false
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "succeeded",
+              "failed",
+              "unknown"
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For create_session and append_message: the acceptance response exactly as first returned, never rewritten; its receipt_status and status are acceptance-time values. The current outcome is this receipt's status and error; the turn's result is read from GET /v1/sessions/{session_id}/turns/{turn_id} using target_ref. For interrupt: `{turn_id, terminal, no_op}` once settled, where `no_op: true` means the turn reached `terminal` on its own and the interrupt did nothing."
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "BAD_REQUEST",
+                      "UNAUTHORIZED",
+                      "FORBIDDEN",
+                      "BOOTSTRAP_DONE",
+                      "NOT_FOUND",
+                      "PAYLOAD_TOO_LARGE",
+                      "REQUEST_TIMEOUT",
+                      "UNSUPPORTED_CAPABILITY",
+                      "RATE_LIMITED",
+                      "STORAGE_LIMIT_EXCEEDED",
+                      "BUDGET_EXCEEDED",
+                      "WORKSPACE_QUOTA_EXCEEDED",
+                      "INTERNAL_ERROR",
+                      "REVISION_CONFLICT",
+                      "IDEMPOTENCY_CONFLICT",
+                      "REQUEST_EXPIRED",
+                      "REQUEST_STALE",
+                      "SESSION_PAUSED",
+                      "SESSION_RESUMING",
+                      "SESSION_CLOSED",
+                      "SESSION_CLOSING",
+                      "SESSION_STOPPED",
+                      "RECOVERY_REQUIRED",
+                      "CHECKPOINT_UNAVAILABLE",
+                      "PAUSE_COMMITTING",
+                      "PAUSE_CANCELLED",
+                      "CONTROL_SUPERSEDED",
+                      "TURN_NOT_STARTED",
+                      "BACKEND_UNAVAILABLE",
+                      "LAUNCH_FAILED",
+                      "NO_CAPACITY",
+                      "CODEX_SANDBOX_NOT_INSTALLED",
+                      "WORKER_OWNERSHIP_LOST",
+                      "CATALOG_MISMATCH",
+                      "TAKEOVER_REQUIRED",
+                      "SOURCE_DELETED",
+                      "SLACK_NOT_INSTALLED",
+                      "LINK_TEAM_MISMATCH",
+                      "LINK_TAKEN",
+                      "LINK_EXISTS",
+                      "AGENT_IDENTITY_TAKEN",
+                      "CONFIG_TOKEN_INVALID",
+                      "SLACK_APP_CREATING",
+                      "SLACK_APP_GONE",
+                      "AGENT_NOT_ACTIVE",
+                      "SLACK_INSTALL_STATE_INVALID",
+                      "SLACK_INSTALL_DENIED",
+                      "SLACK_INSTALL_REJECTED",
+                      "SLACK_INSTALL_CONFLICT",
+                      "SLACK_LINK_NOT_CONFIGURED",
+                      "GITHUB_LINK_NOT_CONFIGURED",
+                      "INVITE_EXPIRED",
+                      "INVITE_USED",
+                      "LAST_OWNER",
+                      "OWNER_PROTECTED",
+                      "SELF_PROTECTED",
+                      "MEMBER_DISABLED",
+                      "ACCOUNT_DISABLED",
+                      "SCOPE_NOT_GRANTABLE",
+                      "CREDENTIAL_UNBOUND",
+                      "AGENT_NOT_RUNNABLE",
+                      "CREDENTIAL_REF_IN_USE",
+                      "LOGIN_LINK_REQUIRED",
+                      "RELEASE_SPEC_UNAVAILABLE",
+                      "ALREADY_EXISTS",
+                      "NOT_READY",
+                      "CURSOR_EXPIRED",
+                      "LEASE_EXPIRED",
+                      "STALE_EPOCH",
+                      "PUSH_SOURCE_MISSING",
+                      "PUSH_REQUEST_OPEN",
+                      "PUSH_REQUEST_RESOLVED",
+                      "PUSH_REQUEST_DECIDED",
+                      "CHECKPOINT_MOVED",
+                      "PUSH_NOT_PUSHED",
+                      "PULL_REQUEST_MISSING",
+                      "PULL_REQUEST_MERGED",
+                      "PULL_REQUEST_MERGE_BLOCKED",
+                      "PULL_REQUEST_CLOSED",
+                      "GITHUB_REFUSED",
+                      "GITHUB_APP_CONFLICT",
+                      "GITHUB_UNAVAILABLE",
+                      "INSTALLATION_SUSPENDED",
+                      "PENDING_REQUESTS_OPEN",
+                      "PERMISSION_WAIT_ABOVE_LIMIT",
+                      "TEAM_MANAGES_AGENTS",
+                      "VARIABLE_NAME_INVALID",
+                      "VARIABLE_NAME_RESERVED",
+                      "VARIABLE_VALUE_INVALID",
+                      "VARIABLE_VALUE_TOO_LARGE",
+                      "VARIABLE_QUOTA_EXCEEDED",
+                      "MCP_SERVER_QUOTA_EXCEEDED",
+                      "VARIABLE_UNRESOLVED",
+                      "SECRET_ACK_REQUIRED",
+                      "SECRET_GRANT_ALL_FORBIDDEN",
+                      "SECRET_ENV_UNSUPPORTED",
+                      "VERSION_MISMATCH",
+                      "PRECONDITION_REQUIRED",
+                      "DECISION_MODEL_REQUIRED",
+                      "ENDPOINT_RETIRED"
+                    ]
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "id",
+          "operation",
+          "target_ref",
+          "status",
+          "result",
+          "error",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": false
+      },
+      "ReceiptRead": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "operation": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What the receipt records. Known values are listed by the write side, but a newer server may return a value this version does not know: show it as is."
           },
           "target_ref": {
             "anyOf": [
@@ -35004,6 +35379,2032 @@
         ],
         "additionalProperties": false
       },
+      "RegisterSkillRepositoryRequest": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "maxLength": 300,
+            "pattern": "^https:\\/\\/github\\.com\\/([A-Za-z0-9][A-Za-z0-9-]{0,38})\\/([A-Za-z0-9._-]{1,100}?)(?:\\.git)?\\/?$",
+            "description": "The repository's address on github.com: `https://github.com/<owner>/<name>`."
+          },
+          "ref": {
+            "description": "A branch, a tag or a 40-character commit. Left out, the repository's default branch as it is named now.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "pattern": "^(?!\\/)(?!.*\\/$)(?!.*\\.\\.)[^\\s~^:?*[\\\\\\0]+$"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false
+      },
+      "RegisterSkillRepositoryResponse": {
+        "type": "object",
+        "properties": {
+          "repository": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "repository_id": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "repository": {
+                "type": "string"
+              },
+              "ref": {
+                "type": "string"
+              },
+              "access": {
+                "type": "string",
+                "enum": [
+                  "public"
+                ]
+              },
+              "connection_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "installation_id": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "owner_id": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "description": "The owning GitHub account's id when it was registered."
+              },
+              "license": {
+                "description": "The repository's license as GitHub names it (an SPDX id) at the last listing; null when GitHub names none.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "removed"
+                ],
+                "description": "`removed`: its skills are withdrawn. Registering the same repository again brings the row back."
+              },
+              "last_commit": {
+                "description": "The commit of the listing shown.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "last_sync": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "trigger": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "register",
+                              "manual",
+                              "ref"
+                            ]
+                          },
+                          "user_id": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "user_id"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "commit": {
+                        "description": "The commit the ref named; null when it was not resolved.",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "result": {
+                        "type": "string",
+                        "enum": [
+                          "listed",
+                          "github_unavailable",
+                          "source_missing",
+                          "rejected"
+                        ]
+                      },
+                      "issues": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "path": {
+                              "type": "string"
+                            },
+                            "code": {
+                              "type": "string"
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "path",
+                            "code",
+                            "message"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "description": "Why the listing was refused; empty otherwise."
+                      }
+                    },
+                    "required": [
+                      "at",
+                      "trigger",
+                      "commit",
+                      "result",
+                      "issues"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "skill_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "Skill directories the last listing found."
+              },
+              "created_by": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "removed_by": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "removed_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "repository_id",
+              "repository",
+              "ref",
+              "access",
+              "connection_id",
+              "installation_id",
+              "owner_id",
+              "license",
+              "state",
+              "last_commit",
+              "last_sync",
+              "skill_count",
+              "created_by",
+              "created_at",
+              "removed_by",
+              "removed_at"
+            ],
+            "additionalProperties": false
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "The directory holding `SKILL.md`; empty for the root."
+                },
+                "name": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The `SKILL.md` frontmatter `name`; null when it could not be read."
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "license": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "off",
+                    "unavailable",
+                    "conflict"
+                  ]
+                },
+                "issues": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "code": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "code",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "What the listing check refused, from the tree's paths, modes and sizes and from `SKILL.md`; empty unless `unavailable`."
+                },
+                "name_owner": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "upload",
+                        "github"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The source of the workspace skill that holds this name; null when none does."
+                },
+                "name_shared": {
+                  "type": "boolean",
+                  "description": "Another listed directory, in this or another registered repository, reads the same name."
+                },
+                "present": {
+                  "type": "boolean",
+                  "description": "False once the directory is gone from the repository."
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "tree_sha": {
+                  "type": "string"
+                },
+                "file_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "size_bytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "has_scripts": {
+                  "type": "boolean",
+                  "description": "A file with an execute bit or without a document extension, as the tree names them."
+                }
+              },
+              "required": [
+                "id",
+                "path",
+                "name",
+                "description",
+                "license",
+                "status",
+                "issues",
+                "name_owner",
+                "name_shared",
+                "present",
+                "enabled",
+                "tree_sha",
+                "file_count",
+                "size_bytes",
+                "has_scripts"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Every skill directory listed, by path."
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "registered",
+              "restored"
+            ],
+            "description": "`restored`: the repository was registered before and removed; the same row is active again, every skill switched off."
+          },
+          "receipt_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "repository",
+          "skills",
+          "outcome",
+          "receipt_id"
+        ],
+        "additionalProperties": false
+      },
+      "SkillRepositoryList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "repository_id": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "repository": {
+                  "type": "string"
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "access": {
+                  "type": "string",
+                  "enum": [
+                    "public"
+                  ]
+                },
+                "connection_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "installation_id": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "owner_id": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "description": "The owning GitHub account's id when it was registered."
+                },
+                "license": {
+                  "description": "The repository's license as GitHub names it (an SPDX id) at the last listing; null when GitHub names none.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "active",
+                    "removed"
+                  ],
+                  "description": "`removed`: its skills are withdrawn. Registering the same repository again brings the row back."
+                },
+                "last_commit": {
+                  "description": "The commit of the listing shown.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "last_sync": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        },
+                        "trigger": {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "register",
+                                "manual",
+                                "ref"
+                              ]
+                            },
+                            "user_id": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "user_id"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "commit": {
+                          "description": "The commit the ref named; null when it was not resolved.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "result": {
+                          "type": "string",
+                          "enum": [
+                            "listed",
+                            "github_unavailable",
+                            "source_missing",
+                            "rejected"
+                          ]
+                        },
+                        "issues": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "path": {
+                                "type": "string"
+                              },
+                              "code": {
+                                "type": "string"
+                              },
+                              "message": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "path",
+                              "code",
+                              "message"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "Why the listing was refused; empty otherwise."
+                        }
+                      },
+                      "required": [
+                        "at",
+                        "trigger",
+                        "commit",
+                        "result",
+                        "issues"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "skill_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991,
+                  "description": "Skill directories the last listing found."
+                },
+                "created_by": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                },
+                "removed_by": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "removed_at": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "repository_id",
+                "repository",
+                "ref",
+                "access",
+                "connection_id",
+                "installation_id",
+                "owner_id",
+                "license",
+                "state",
+                "last_commit",
+                "last_sync",
+                "skill_count",
+                "created_by",
+                "created_at",
+                "removed_by",
+                "removed_at"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "SkillRepositoryDetail": {
+        "type": "object",
+        "properties": {
+          "repository": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "repository_id": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "repository": {
+                "type": "string"
+              },
+              "ref": {
+                "type": "string"
+              },
+              "access": {
+                "type": "string",
+                "enum": [
+                  "public"
+                ]
+              },
+              "connection_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "installation_id": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "owner_id": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "description": "The owning GitHub account's id when it was registered."
+              },
+              "license": {
+                "description": "The repository's license as GitHub names it (an SPDX id) at the last listing; null when GitHub names none.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "removed"
+                ],
+                "description": "`removed`: its skills are withdrawn. Registering the same repository again brings the row back."
+              },
+              "last_commit": {
+                "description": "The commit of the listing shown.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "last_sync": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "trigger": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "register",
+                              "manual",
+                              "ref"
+                            ]
+                          },
+                          "user_id": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "user_id"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "commit": {
+                        "description": "The commit the ref named; null when it was not resolved.",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "result": {
+                        "type": "string",
+                        "enum": [
+                          "listed",
+                          "github_unavailable",
+                          "source_missing",
+                          "rejected"
+                        ]
+                      },
+                      "issues": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "path": {
+                              "type": "string"
+                            },
+                            "code": {
+                              "type": "string"
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "path",
+                            "code",
+                            "message"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "description": "Why the listing was refused; empty otherwise."
+                      }
+                    },
+                    "required": [
+                      "at",
+                      "trigger",
+                      "commit",
+                      "result",
+                      "issues"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "skill_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "Skill directories the last listing found."
+              },
+              "created_by": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "removed_by": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "removed_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "repository_id",
+              "repository",
+              "ref",
+              "access",
+              "connection_id",
+              "installation_id",
+              "owner_id",
+              "license",
+              "state",
+              "last_commit",
+              "last_sync",
+              "skill_count",
+              "created_by",
+              "created_at",
+              "removed_by",
+              "removed_at"
+            ],
+            "additionalProperties": false
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "The directory holding `SKILL.md`; empty for the root."
+                },
+                "name": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The `SKILL.md` frontmatter `name`; null when it could not be read."
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "license": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "off",
+                    "unavailable",
+                    "conflict"
+                  ]
+                },
+                "issues": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "code": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "code",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "What the listing check refused, from the tree's paths, modes and sizes and from `SKILL.md`; empty unless `unavailable`."
+                },
+                "name_owner": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "upload",
+                        "github"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The source of the workspace skill that holds this name; null when none does."
+                },
+                "name_shared": {
+                  "type": "boolean",
+                  "description": "Another listed directory, in this or another registered repository, reads the same name."
+                },
+                "present": {
+                  "type": "boolean",
+                  "description": "False once the directory is gone from the repository."
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "tree_sha": {
+                  "type": "string"
+                },
+                "file_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "size_bytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "has_scripts": {
+                  "type": "boolean",
+                  "description": "A file with an execute bit or without a document extension, as the tree names them."
+                }
+              },
+              "required": [
+                "id",
+                "path",
+                "name",
+                "description",
+                "license",
+                "status",
+                "issues",
+                "name_owner",
+                "name_shared",
+                "present",
+                "enabled",
+                "tree_sha",
+                "file_count",
+                "size_bytes",
+                "has_scripts"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Every skill directory listed, by path."
+          }
+        },
+        "required": [
+          "repository",
+          "skills"
+        ],
+        "additionalProperties": false
+      },
+      "RemoveSkillRepositoryResponse": {
+        "type": "object",
+        "properties": {
+          "repository": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "repository_id": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "repository": {
+                "type": "string"
+              },
+              "ref": {
+                "type": "string"
+              },
+              "access": {
+                "type": "string",
+                "enum": [
+                  "public"
+                ]
+              },
+              "connection_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "installation_id": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "owner_id": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "description": "The owning GitHub account's id when it was registered."
+              },
+              "license": {
+                "description": "The repository's license as GitHub names it (an SPDX id) at the last listing; null when GitHub names none.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "removed"
+                ],
+                "description": "`removed`: its skills are withdrawn. Registering the same repository again brings the row back."
+              },
+              "last_commit": {
+                "description": "The commit of the listing shown.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "last_sync": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "trigger": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "register",
+                              "manual",
+                              "ref"
+                            ]
+                          },
+                          "user_id": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "user_id"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "commit": {
+                        "description": "The commit the ref named; null when it was not resolved.",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "result": {
+                        "type": "string",
+                        "enum": [
+                          "listed",
+                          "github_unavailable",
+                          "source_missing",
+                          "rejected"
+                        ]
+                      },
+                      "issues": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "path": {
+                              "type": "string"
+                            },
+                            "code": {
+                              "type": "string"
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "path",
+                            "code",
+                            "message"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "description": "Why the listing was refused; empty otherwise."
+                      }
+                    },
+                    "required": [
+                      "at",
+                      "trigger",
+                      "commit",
+                      "result",
+                      "issues"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "skill_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "Skill directories the last listing found."
+              },
+              "created_by": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "removed_by": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "removed_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "repository_id",
+              "repository",
+              "ref",
+              "access",
+              "connection_id",
+              "installation_id",
+              "owner_id",
+              "license",
+              "state",
+              "last_commit",
+              "last_sync",
+              "skill_count",
+              "created_by",
+              "created_at",
+              "removed_by",
+              "removed_at"
+            ],
+            "additionalProperties": false
+          },
+          "receipt_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when it already was removed."
+          }
+        },
+        "required": [
+          "repository",
+          "receipt_id"
+        ],
+        "additionalProperties": false
+      },
+      "CheckSkillRepositoryResponse": {
+        "type": "object",
+        "properties": {
+          "repository": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "repository_id": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "repository": {
+                "type": "string"
+              },
+              "ref": {
+                "type": "string"
+              },
+              "access": {
+                "type": "string",
+                "enum": [
+                  "public"
+                ]
+              },
+              "connection_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "installation_id": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "owner_id": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "description": "The owning GitHub account's id when it was registered."
+              },
+              "license": {
+                "description": "The repository's license as GitHub names it (an SPDX id) at the last listing; null when GitHub names none.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "removed"
+                ],
+                "description": "`removed`: its skills are withdrawn. Registering the same repository again brings the row back."
+              },
+              "last_commit": {
+                "description": "The commit of the listing shown.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "last_sync": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "trigger": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "register",
+                              "manual",
+                              "ref"
+                            ]
+                          },
+                          "user_id": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "user_id"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "commit": {
+                        "description": "The commit the ref named; null when it was not resolved.",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "result": {
+                        "type": "string",
+                        "enum": [
+                          "listed",
+                          "github_unavailable",
+                          "source_missing",
+                          "rejected"
+                        ]
+                      },
+                      "issues": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "path": {
+                              "type": "string"
+                            },
+                            "code": {
+                              "type": "string"
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "path",
+                            "code",
+                            "message"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "description": "Why the listing was refused; empty otherwise."
+                      }
+                    },
+                    "required": [
+                      "at",
+                      "trigger",
+                      "commit",
+                      "result",
+                      "issues"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "skill_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "Skill directories the last listing found."
+              },
+              "created_by": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "removed_by": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "removed_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "repository_id",
+              "repository",
+              "ref",
+              "access",
+              "connection_id",
+              "installation_id",
+              "owner_id",
+              "license",
+              "state",
+              "last_commit",
+              "last_sync",
+              "skill_count",
+              "created_by",
+              "created_at",
+              "removed_by",
+              "removed_at"
+            ],
+            "additionalProperties": false
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "The directory holding `SKILL.md`; empty for the root."
+                },
+                "name": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The `SKILL.md` frontmatter `name`; null when it could not be read."
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "license": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "off",
+                    "unavailable",
+                    "conflict"
+                  ]
+                },
+                "issues": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "code": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "code",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "What the listing check refused, from the tree's paths, modes and sizes and from `SKILL.md`; empty unless `unavailable`."
+                },
+                "name_owner": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "upload",
+                        "github"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The source of the workspace skill that holds this name; null when none does."
+                },
+                "name_shared": {
+                  "type": "boolean",
+                  "description": "Another listed directory, in this or another registered repository, reads the same name."
+                },
+                "present": {
+                  "type": "boolean",
+                  "description": "False once the directory is gone from the repository."
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "tree_sha": {
+                  "type": "string"
+                },
+                "file_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "size_bytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "has_scripts": {
+                  "type": "boolean",
+                  "description": "A file with an execute bit or without a document extension, as the tree names them."
+                }
+              },
+              "required": [
+                "id",
+                "path",
+                "name",
+                "description",
+                "license",
+                "status",
+                "issues",
+                "name_owner",
+                "name_shared",
+                "present",
+                "enabled",
+                "tree_sha",
+                "file_count",
+                "size_bytes",
+                "has_scripts"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Every skill directory listed, by path."
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "checked",
+              "queued"
+            ],
+            "description": "`queued`: a listing of the repository was running, and the process that runs it reads once more when it ends. Should that process stop first, or fail to start that read, the queued request may be lost; checks answer `queued` until its hold (5 minutes) has passed, and one made after that reads the listing."
+          }
+        },
+        "required": [
+          "repository",
+          "skills",
+          "outcome"
+        ],
+        "additionalProperties": false
+      },
+      "PutSkillRepositoryRefRequest": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "pattern": "^(?!\\/)(?!.*\\/$)(?!.*\\.\\.)[^\\s~^:?*[\\\\\\0]+$"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "additionalProperties": false
+      },
+      "PutSkillRepositoryRefResponse": {
+        "type": "object",
+        "properties": {
+          "repository": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "repository_id": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "repository": {
+                "type": "string"
+              },
+              "ref": {
+                "type": "string"
+              },
+              "access": {
+                "type": "string",
+                "enum": [
+                  "public"
+                ]
+              },
+              "connection_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "installation_id": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "owner_id": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "description": "The owning GitHub account's id when it was registered."
+              },
+              "license": {
+                "description": "The repository's license as GitHub names it (an SPDX id) at the last listing; null when GitHub names none.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "removed"
+                ],
+                "description": "`removed`: its skills are withdrawn. Registering the same repository again brings the row back."
+              },
+              "last_commit": {
+                "description": "The commit of the listing shown.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "last_sync": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "trigger": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "register",
+                              "manual",
+                              "ref"
+                            ]
+                          },
+                          "user_id": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "user_id"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "commit": {
+                        "description": "The commit the ref named; null when it was not resolved.",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "result": {
+                        "type": "string",
+                        "enum": [
+                          "listed",
+                          "github_unavailable",
+                          "source_missing",
+                          "rejected"
+                        ]
+                      },
+                      "issues": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "path": {
+                              "type": "string"
+                            },
+                            "code": {
+                              "type": "string"
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "path",
+                            "code",
+                            "message"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "description": "Why the listing was refused; empty otherwise."
+                      }
+                    },
+                    "required": [
+                      "at",
+                      "trigger",
+                      "commit",
+                      "result",
+                      "issues"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "skill_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "Skill directories the last listing found."
+              },
+              "created_by": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "removed_by": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "removed_at": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "repository_id",
+              "repository",
+              "ref",
+              "access",
+              "connection_id",
+              "installation_id",
+              "owner_id",
+              "license",
+              "state",
+              "last_commit",
+              "last_sync",
+              "skill_count",
+              "created_by",
+              "created_at",
+              "removed_by",
+              "removed_at"
+            ],
+            "additionalProperties": false
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "The directory holding `SKILL.md`; empty for the root."
+                },
+                "name": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The `SKILL.md` frontmatter `name`; null when it could not be read."
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "license": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "off",
+                    "unavailable",
+                    "conflict"
+                  ]
+                },
+                "issues": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "code": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "code",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "What the listing check refused, from the tree's paths, modes and sizes and from `SKILL.md`; empty unless `unavailable`."
+                },
+                "name_owner": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "upload",
+                        "github"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The source of the workspace skill that holds this name; null when none does."
+                },
+                "name_shared": {
+                  "type": "boolean",
+                  "description": "Another listed directory, in this or another registered repository, reads the same name."
+                },
+                "present": {
+                  "type": "boolean",
+                  "description": "False once the directory is gone from the repository."
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "tree_sha": {
+                  "type": "string"
+                },
+                "file_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "size_bytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "has_scripts": {
+                  "type": "boolean",
+                  "description": "A file with an execute bit or without a document extension, as the tree names them."
+                }
+              },
+              "required": [
+                "id",
+                "path",
+                "name",
+                "description",
+                "license",
+                "status",
+                "issues",
+                "name_owner",
+                "name_shared",
+                "present",
+                "enabled",
+                "tree_sha",
+                "file_count",
+                "size_bytes",
+                "has_scripts"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Every skill directory listed, by path."
+          },
+          "receipt_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the repository already followed that ref."
+          },
+          "check": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "checked",
+                  "queued"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The listing this call ran at the new ref; null when the ref did not change."
+          }
+        },
+        "required": [
+          "repository",
+          "skills",
+          "receipt_id",
+          "check"
+        ],
+        "additionalProperties": false
+      },
       "CheckSkillResponse": {
         "type": "object",
         "properties": {
@@ -37893,6 +40294,21 @@
                   "minimum": 1,
                   "maximum": 60
                 },
+                "report_mode": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "notify_only",
+                        "progress",
+                        "per_step"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "ceiling": {
                   "type": "object",
                   "properties": {
@@ -38075,6 +40491,7 @@
                 "mode",
                 "listen",
                 "m1_judgments_per_hour",
+                "report_mode",
                 "ceiling",
                 "home",
                 "memory_write_policy",
@@ -38743,6 +41160,21 @@
                 "minimum": 1,
                 "maximum": 60
               },
+              "report_mode": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "notify_only",
+                      "progress",
+                      "per_step"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "ceiling": {
                 "type": "object",
                 "properties": {
@@ -38925,6 +41357,7 @@
               "mode",
               "listen",
               "m1_judgments_per_hour",
+              "report_mode",
               "ceiling",
               "home",
               "memory_write_policy",
@@ -39045,6 +41478,21 @@
                 "minimum": 1,
                 "maximum": 60
               },
+              "report_mode": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "notify_only",
+                      "progress",
+                      "per_step"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "ceiling": {
                 "type": "object",
                 "properties": {
@@ -39227,6 +41675,7 @@
               "mode",
               "listen",
               "m1_judgments_per_hour",
+              "report_mode",
               "ceiling",
               "home",
               "memory_write_policy",
@@ -39349,6 +41798,21 @@
                 "minimum": 1,
                 "maximum": 60
               },
+              "report_mode": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "notify_only",
+                      "progress",
+                      "per_step"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "ceiling": {
                 "type": "object",
                 "properties": {
@@ -39531,6 +41995,7 @@
               "mode",
               "listen",
               "m1_judgments_per_hour",
+              "report_mode",
               "ceiling",
               "home",
               "memory_write_policy",
@@ -90438,6 +92903,1778 @@
         }
       }
     },
+    "/v1/workspace/skill-repositories": {
+      "get": {
+        "operationId": "listSkillRepositories",
+        "tags": [
+          "Workspace settings"
+        ],
+        "summary": "List the workspace's skill repositories",
+        "description": "Every GitHub repository the workspace registered for its skills, oldest first, removed ones too (`state` `removed`). Each carries the ref it follows, the commit and result of its last listing (`last_sync`) and how many skill directories that listing found. Owners and admins read it.\n\n**Auth:** cookie session only; no scope.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "The repositories.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "items": [
+                    {
+                      "id": "5b8d2f60-9c1e-4a37-b2d4-6e0f1a3c5d79",
+                      "repository_id": 123456789,
+                      "repository": "acme/skills",
+                      "ref": "main",
+                      "access": "public",
+                      "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                      "installation_id": 4242,
+                      "owner_id": 9919,
+                      "license": "Apache-2.0",
+                      "state": "active",
+                      "last_commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                      "last_sync": {
+                        "at": "2026-11-28T09:00:00.000Z",
+                        "trigger": {
+                          "kind": "register",
+                          "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                        },
+                        "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                        "result": "listed",
+                        "issues": []
+                      },
+                      "skill_count": 1,
+                      "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                      "created_at": "2026-11-28T09:00:00.000Z",
+                      "removed_by": null,
+                      "removed_at": null
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/SkillRepositoryList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "registerSkillRepository",
+        "tags": [
+          "Workspace settings"
+        ],
+        "summary": "Register a public GitHub repository for its skills",
+        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Registering is the approval: no review follows. `url` is `https://github.com/<owner>/<name>`; `ref` is a branch, a tag or a commit SHA, and left out it is the repository's default branch as it is named now, kept by that name. The repository must be public (GitHub's `visibility` `public`; private and internal are refused) and is read with an installation of the workspace's oldest author App that has one, whether or not that installation covers it. The listing reads the tree of the ref's commit once and, of its contents, only the `SKILL.md` files, with the parser an upload meets: every directory holding a `SKILL.md` is one entry with its `name`, `description` and `license`. What the tree alone refuses is judged before anything is fetched and listed in the entry's `issues` (`status` `unavailable`): a symlink or a submodule (by the entry's mode), a path the checker never accepts, another `SKILL.md` below it, more than 255 files, a file over 1 MiB, more than 8 MiB together, or a `SKILL.md` over 64 KiB, which is not fetched. A name another skill of the workspace holds is `conflict`. A tree GitHub cut short, more than 200 skill directories, a skill directory whose path is over 1024 bytes (`path_too_long`), or more than 4 MiB of `SKILL.md` files to fetch (by the tree's sizes; one over 64 KiB is not fetched and not counted) refuse the whole listing. Every skill is listed switched off, and nothing here switches one on, so no skill version is made. Registering a repository that was removed brings the same row back (`outcome` `restored`), at the ref given, with every switch off. Refused with 400 `reason_code` `no_installation`, `repository_not_found`, `repository_not_public`, `ref_not_found` or `listing_refused` (with `details.issues`); a repository the workspace already follows is 409 `ALREADY_EXISTS` `repository_already_registered`; GitHub unreachable or refusing the App is 502 `GITHUB_UNAVAILABLE`. Writes a `register_skill_repository` receipt with the address, the repository's and its owner's GitHub ids, the ref, the commit and the license GitHub names.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `werft-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "werft-web"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "url": "https://github.com/acme/skills"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/RegisterSkillRepositoryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The repository and its listing.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "outcome": "registered",
+                  "repository": {
+                    "id": "5b8d2f60-9c1e-4a37-b2d4-6e0f1a3c5d79",
+                    "repository_id": 123456789,
+                    "repository": "acme/skills",
+                    "ref": "main",
+                    "access": "public",
+                    "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                    "installation_id": 4242,
+                    "owner_id": 9919,
+                    "license": "Apache-2.0",
+                    "state": "active",
+                    "last_commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                    "last_sync": {
+                      "at": "2026-11-28T09:00:00.000Z",
+                      "trigger": {
+                        "kind": "register",
+                        "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                      },
+                      "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                      "result": "listed",
+                      "issues": []
+                    },
+                    "skill_count": 1,
+                    "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                    "created_at": "2026-11-28T09:00:00.000Z",
+                    "removed_by": null,
+                    "removed_at": null
+                  },
+                  "skills": [
+                    {
+                      "id": "0e4a7c19-3b5d-4f82-9a6c-1d2e3f4a5b6c",
+                      "path": "skills/release-notes",
+                      "name": "release-notes",
+                      "description": "Drafts release notes from merged pull requests.",
+                      "license": "Apache-2.0",
+                      "status": "off",
+                      "issues": [],
+                      "name_owner": null,
+                      "name_shared": false,
+                      "present": true,
+                      "enabled": false,
+                      "tree_sha": "9d1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                      "file_count": 3,
+                      "size_bytes": 4096,
+                      "has_scripts": false
+                    }
+                  ],
+                  "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterSkillRepositoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "- `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "ALREADY_EXISTS"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "502": {
+            "description": "- `GITHUB_UNAVAILABLE`: GitHub did not give the App's installations or repositories. `error.details.reason_code` is `github_unavailable` (GitHub did not answer, answered 5xx, or rate-limited the App; try again later) or `github_app_auth_failed` (GitHub refused the App's JWT: the key was revoked or the App deleted; a retry does not help).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "GITHUB_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspace/skill-repositories/{id}": {
+      "get": {
+        "operationId": "getSkillRepository",
+        "tags": [
+          "Workspace settings"
+        ],
+        "summary": "One skill repository and the skills it lists",
+        "description": "The repository and every skill directory its listings found, by path. A directory gone from the repository stays with `present: false`. `status` is `off`, `unavailable` (with `issues`) or `conflict` (`name_owner` is the source of the workspace skill that holds the name); `name_shared` says another listed directory, here or in another registered repository, reads the same name. Owners and admins read it.\n\n**Auth:** cookie session only; no scope.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The skill repository's id.",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The repository and its skills.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "repository": {
+                    "id": "5b8d2f60-9c1e-4a37-b2d4-6e0f1a3c5d79",
+                    "repository_id": 123456789,
+                    "repository": "acme/skills",
+                    "ref": "main",
+                    "access": "public",
+                    "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                    "installation_id": 4242,
+                    "owner_id": 9919,
+                    "license": "Apache-2.0",
+                    "state": "active",
+                    "last_commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                    "last_sync": {
+                      "at": "2026-11-28T09:00:00.000Z",
+                      "trigger": {
+                        "kind": "register",
+                        "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                      },
+                      "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                      "result": "listed",
+                      "issues": []
+                    },
+                    "skill_count": 1,
+                    "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                    "created_at": "2026-11-28T09:00:00.000Z",
+                    "removed_by": null,
+                    "removed_at": null
+                  },
+                  "skills": [
+                    {
+                      "id": "0e4a7c19-3b5d-4f82-9a6c-1d2e3f4a5b6c",
+                      "path": "skills/release-notes",
+                      "name": "release-notes",
+                      "description": "Drafts release notes from merged pull requests.",
+                      "license": "Apache-2.0",
+                      "status": "off",
+                      "issues": [],
+                      "name_owner": null,
+                      "name_shared": false,
+                      "present": true,
+                      "enabled": false,
+                      "tree_sha": "9d1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                      "file_count": 3,
+                      "size_bytes": 4096,
+                      "has_scripts": false
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/SkillRepositoryDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "removeSkillRepository",
+        "tags": [
+          "Workspace settings"
+        ],
+        "summary": "Remove a skill repository",
+        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. The repository becomes `removed` and a listing that was running writes nothing. No row is deleted: registering the same repository again brings it back. Writes a `remove_skill_repository` receipt; one already removed answers `receipt_id: null`.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The skill repository's id.",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `werft-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "werft-web"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The repository, removed.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "repository": {
+                    "id": "5b8d2f60-9c1e-4a37-b2d4-6e0f1a3c5d79",
+                    "repository_id": 123456789,
+                    "repository": "acme/skills",
+                    "ref": "main",
+                    "access": "public",
+                    "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                    "installation_id": 4242,
+                    "owner_id": 9919,
+                    "license": "Apache-2.0",
+                    "state": "removed",
+                    "last_commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                    "last_sync": {
+                      "at": "2026-11-28T09:00:00.000Z",
+                      "trigger": {
+                        "kind": "register",
+                        "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                      },
+                      "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                      "result": "listed",
+                      "issues": []
+                    },
+                    "skill_count": 1,
+                    "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                    "created_at": "2026-11-28T09:00:00.000Z",
+                    "removed_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                    "removed_at": "2026-11-29T09:00:00.000Z"
+                  },
+                  "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveSkillRepositoryResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspace/skill-repositories/{id}/check": {
+      "post": {
+        "operationId": "checkSkillRepository",
+        "tags": [
+          "Workspace settings"
+        ],
+        "summary": "Read a skill repository's listing again now",
+        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Resolves the ref to a commit again and reads the listing there. The listing reads the tree of the ref's commit once and, of its contents, only the `SKILL.md` files, with the parser an upload meets: every directory holding a `SKILL.md` is one entry with its `name`, `description` and `license`. What the tree alone refuses is judged before anything is fetched and listed in the entry's `issues` (`status` `unavailable`): a symlink or a submodule (by the entry's mode), a path the checker never accepts, another `SKILL.md` below it, more than 255 files, a file over 1 MiB, more than 8 MiB together, or a `SKILL.md` over 64 KiB, which is not fetched. A name another skill of the workspace holds is `conflict`. A tree GitHub cut short, more than 200 skill directories, a skill directory whose path is over 1024 bytes (`path_too_long`), or more than 4 MiB of `SKILL.md` files to fetch (by the tree's sizes; one over 64 KiB is not fetched and not counted) refuse the whole listing. One listing holds a repository at a time; while it does this answers `queued` and the process that runs it reads once more when it ends. A read that outlasts its hold may overlap the next and writes nothing. Should the process that holds the repository stop first, or fail to start the queued read, that request may be lost; checks answer `queued` until its hold (5 minutes) has passed, and one made after that reads the listing. A listing that reads GitHub for longer than the request's 30 seconds answers 503 and goes on: what it read is recorded unless the repository was removed, restored or pointed elsewhere meanwhile or another check took it over, and a check queued behind it is then read. GitHub is asked whether the repository is public before any file is read and again after. `last_sync` records the time, who asked, the commit and the result: `listed`, `source_missing` (the ref or the repository is gone, or it is no longer public), `rejected` with `issues`, or `github_unavailable`. Only `listed` changes the skills shown. A removed repository is 400 `repository_removed`.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The skill repository's id.",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `werft-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "werft-web"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The listing ran, or was queued behind one that runs.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "outcome": "checked",
+                  "repository": {
+                    "id": "5b8d2f60-9c1e-4a37-b2d4-6e0f1a3c5d79",
+                    "repository_id": 123456789,
+                    "repository": "acme/skills",
+                    "ref": "main",
+                    "access": "public",
+                    "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                    "installation_id": 4242,
+                    "owner_id": 9919,
+                    "license": "Apache-2.0",
+                    "state": "active",
+                    "last_commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                    "last_sync": {
+                      "at": "2026-11-28T09:00:00.000Z",
+                      "trigger": {
+                        "kind": "register",
+                        "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                      },
+                      "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                      "result": "listed",
+                      "issues": []
+                    },
+                    "skill_count": 1,
+                    "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                    "created_at": "2026-11-28T09:00:00.000Z",
+                    "removed_by": null,
+                    "removed_at": null
+                  },
+                  "skills": [
+                    {
+                      "id": "0e4a7c19-3b5d-4f82-9a6c-1d2e3f4a5b6c",
+                      "path": "skills/release-notes",
+                      "name": "release-notes",
+                      "description": "Drafts release notes from merged pull requests.",
+                      "license": "Apache-2.0",
+                      "status": "off",
+                      "issues": [],
+                      "name_owner": null,
+                      "name_shared": false,
+                      "present": true,
+                      "enabled": false,
+                      "tree_sha": "9d1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                      "file_count": 3,
+                      "size_bytes": 4096,
+                      "has_scripts": false
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/CheckSkillRepositoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: . Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workspace/skill-repositories/{id}/ref": {
+      "put": {
+        "operationId": "putSkillRepositoryRef",
+        "tags": [
+          "Workspace settings"
+        ],
+        "summary": "Point a skill repository at another ref",
+        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. The repository must still be public (400 `repository_not_public`) and GitHub must resolve `ref` to a commit first (400 `ref_not_found`; GitHub not answering is 502 `GITHUB_UNAVAILABLE`). The repository then follows it, a listing that was running at the old ref writes nothing, and the listing is read at the new one: `check` says whether it ended (`checked`) or waits behind a running one (`queued`). Writes an `update_skill_repository_ref` receipt with the ref before and after; the ref it already follows answers `receipt_id: null` and reads nothing. The listing starts even when the request's 30 seconds end just after the change commits; should the process stop between the two, or the deadline cut off the answer of the commit itself, `last_sync` is left as it was, and sending the same ref again reads nothing, so run a check. The repository may change while this call checks its ref: removed since, it answers 404; already at `ref`, 200 with `receipt_id: null`; restored or pointed elsewhere, 409 `REVISION_CONFLICT` (`repository_changed`) and nothing is written. An `Idempotency-Key` is not read: sending the call again is a new change. A removed repository is 400 `repository_removed`.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The skill repository's id.",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "X-Requested-With",
+            "in": "header",
+            "required": false,
+            "description": "Required with a cookie session: the literal `werft-web`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "werft-web"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "ref": "v2"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/PutSkillRepositoryRefRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The repository at the new ref.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "example": {
+                  "repository": {
+                    "id": "5b8d2f60-9c1e-4a37-b2d4-6e0f1a3c5d79",
+                    "repository_id": 123456789,
+                    "repository": "acme/skills",
+                    "ref": "v2",
+                    "access": "public",
+                    "connection_id": "019a0000-0000-7000-8000-0000000000b1",
+                    "installation_id": 4242,
+                    "owner_id": 9919,
+                    "license": "Apache-2.0",
+                    "state": "active",
+                    "last_commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                    "last_sync": {
+                      "at": "2026-11-28T09:00:00.000Z",
+                      "trigger": {
+                        "kind": "register",
+                        "user_id": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35"
+                      },
+                      "commit": "4f1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                      "result": "listed",
+                      "issues": []
+                    },
+                    "skill_count": 1,
+                    "created_by": "3e7f1a90-5c2d-4b8e-8f61-2a9d0c4b7e35",
+                    "created_at": "2026-11-28T09:00:00.000Z",
+                    "removed_by": null,
+                    "removed_at": null
+                  },
+                  "skills": [
+                    {
+                      "id": "0e4a7c19-3b5d-4f82-9a6c-1d2e3f4a5b6c",
+                      "path": "skills/release-notes",
+                      "name": "release-notes",
+                      "description": "Drafts release notes from merged pull requests.",
+                      "license": "Apache-2.0",
+                      "status": "off",
+                      "issues": [],
+                      "name_owner": null,
+                      "name_shared": false,
+                      "present": true,
+                      "enabled": false,
+                      "tree_sha": "9d1c2e3d5b6a7980a1b2c3d4e5f60718293a4b5c",
+                      "file_count": 3,
+                      "size_bytes": 4096,
+                      "has_scripts": false
+                    }
+                  ],
+                  "receipt_id": "c4a1e9d2-7b3f-4e8a-a6c5-1d2e3f4a5b6c",
+                  "check": "checked"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/PutSkillRepositoryRefResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "- `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "UNAUTHORIZED"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "- `FORBIDDEN`: CSRF: a cookie-authenticated request lacks `X-Requested-With: werft-web` or is cross-site (`Sec-Fetch-Site`, `Origin`); API-key requests never need the header. Credential: an API key was sent; this operation takes a cookie session only. Permission: where the description names who may call it, the signed-in member is not one of them.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "FORBIDDEN"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "- `NOT_FOUND`: The resource does not exist, its id is malformed, or it belongs to another owner. All three answer the same, so a response never reveals whether someone else's resource exists.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_FOUND"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "- `REQUEST_TIMEOUT`: The request body did not arrive in full within 15 seconds. The connection is closed; resend the request (with the same `Idempotency-Key`). Here no key is read; nothing was changed, so send the request again.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REQUEST_TIMEOUT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. Here no revision is sent: the repository was restored or pointed at another ref while this call checked its ref (`reason_code` `repository_changed`). Read it again and send the change again.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "REVISION_CONFLICT"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "502": {
+            "description": "- `GITHUB_UNAVAILABLE`: GitHub did not give the App's installations or repositories. `error.details.reason_code` is `github_unavailable` (GitHub did not answer, answered 5xx, or rate-limited the App; try again later) or `github_app_auth_failed` (GitHub refused the App's JWT: the key was revoked or the App deleted; a retry does not help).",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "GITHUB_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "- `BACKEND_UNAVAILABLE`: Storage is unavailable or the request exceeded its 30-second deadline. Retry the same request, with the same `Idempotency-Key`, after `Retry-After`. Here no key is read, and a change this call committed before the deadline stands: read the repository again, and send the change again only if its ref is still not the one wanted.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BACKEND_UNAVAILABLE"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/workspace/skills/{name}/revert": {
       "post": {
         "operationId": "revertSkill",
@@ -95028,7 +99265,7 @@
           "Agents"
         ],
         "summary": "Set how the agent answers in one Slack channel or its DMs",
-        "description": "Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `on` (in use; the agent's `mention_only` setting says whether it also answers a top-level message without a mention). `m1_judgments_per_hour` (1 to 60) is how many M1 judgments the channel may have in an hour; a missing one keeps the channel's, and a new channel starts at 12. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. A binding that is `left` stays `left` when saved for its private channel (its `mode` and `ceiling` are edited, `home: true` answers 400); saved for a channel Slack now calls public, it is `ready` again. A channel under an emergency stop (`emergency_stop` set) stays `off` until a save sets `mode` `on` with a `reason` (400 without one); that save ends the stop on every binding of the channel it covered (each of the agent's installs in the Slack team), and its receipt keeps the reason and the stop it ended with those bindings. A binding saved while the stop holds starts stopped. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Replaces the binding of `channel_id` in the agent's Slack app install, or the install's one DM binding when `channel_id` is null, creating it the first time. The channel's kind is what Slack's `conversations.info` answers with the bot token; `channel_kind`, when sent, only has to agree on whether this is the DM row (400 when Slack names a DM or does not know the channel, 503 when Slack cannot be read). `mode` is `off` (the channel takes nothing; a mention there is refused) or `on` (in use; the agent's `mention_only` setting says whether it also answers a top-level message without a mention). `m1_judgments_per_hour` (1 to 60) is how many M1 judgments the channel may have in an hour; a missing one keeps the channel's, and a new channel starts at 12. `report_mode` is how the channel's threads hear of their work: `notify_only` (one line when it starts, then only its end), `progress` (one progress message kept up to date, then its end) or `per_step` (a reply for every turn); a thread's own mode wins. `null` picks none, and the threads then hear by the agent's default: `progress` while the agent answers in conversations (`conversation_rollout` `on`), `per_step` otherwise. A missing one keeps the channel's; a new channel picks none. A DM's is kept but never read: a DM hears by the agent's default. A change applies at once to the open threads that pick none; a closed thread keeps the mode it closed under. `home: true` makes this channel the agent's home and clears the previous one; a DM is never home. A missing `ceiling` is the default: every Slack action, shown in full. The agent needs a live Slack app identity (409 SLACK_NOT_INSTALLED); a concurrent change to the same channel or home answers 409 REVISION_CONFLICT. The bot does not join the channel here. A binding that is `left` stays `left` when saved for its private channel (its `mode` and `ceiling` are edited, `home: true` answers 400); saved for a channel Slack now calls public, it is `ready` again. A channel under an emergency stop (`emergency_stop` set) stays `off` until a save sets `mode` `on` with a `reason` (400 without one); that save ends the stop on every binding of the channel it covered (each of the agent's installs in the Slack team), and its receipt keeps the reason and the stop it ended with those bindings. A binding saved while the stop holds starts stopped. Owners, admins and the agent's admins; API keys are refused. Writes a `set_surface_binding` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -96984,6 +101221,7 @@
                     "mode": "off",
                     "listen": "free",
                     "m1_judgments_per_hour": 12,
+                    "report_mode": null,
                     "ceiling": {
                       "actions": [
                         "session.read",
@@ -123106,7 +127344,7 @@
                   "updated_at": "2026-10-11T08:20:09Z"
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/Receipt"
+                  "$ref": "#/components/schemas/ReceiptRead"
                 }
               }
             }

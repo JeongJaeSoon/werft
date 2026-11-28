@@ -272,6 +272,8 @@ describe("database schema", () => {
       "settings_generation",
       "setup_links",
       "skill_git_sources",
+      "skill_repositories",
+      "skill_repository_skills",
       "slack_apps",
       "slack_channel_lifecycle",
       "slack_channel_member_cache",
