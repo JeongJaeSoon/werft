@@ -10,7 +10,7 @@
 
 | 단계 | 도는 때 | 무엇 | 실행 시간 예산 (p90) |
 | --- | --- | --- | --- |
-| T0 빠른 필수 | 모든 PR과 main push | `gitleaks`, `forbidden-terms`, `supply-chain`, `changes`(계획) | 2분. `supply-chain`은 이미지를 빌드하면 10분 |
+| T0 빠른 필수 | 모든 PR과 main push | `gitleaks`, `supply-chain`, `changes`(계획) | 2분. `supply-chain`은 이미지를 빌드하면 10분 |
 | T1 PR 필수 | 모든 PR. 네 이름은 늘 판정을 내고, 그 아래의 job은 바뀐 경로가 닿는 것만 돈다 | `check`, `integration`, `e2e`, `quickstart` | 아래 표 |
 | T2 경로 한정 gate | 그 gate의 경로를 바꾼 PR | D2 gate, K8s 검사 셋, Keycloak login, Worker compatibility, Install rehearsal | 각 workflow의 한도 |
 | T3 main | main push | CI(같은 트리를 시험한 PR run이 있으면 재사용), 계획된 이미지와 chart 게시, 제품을 바꾼 push의 `agent-sdk-compat`. 실패한 push run은 `main-failure.yml`이 이슈에 남긴다 | - |
@@ -20,12 +20,11 @@ T2와 T4의 gate는 PR의 merge를 막지 않는다. 실패가 어디에 남는�
 
 ## 필수 check
 
-ruleset의 필수 이름은 아래 일곱 개다. 이름은 그 job이 PR에서 내는 check 이름이다. `tests/ci-static-checks.test.ts`가 이 표의 이름이 표에 적힌 job의 이름과 같은지, PR에서 도는 workflow에 같은 이름의 job이 둘이 아닌지를 확인한다. 그 시험은 job의 `if`와 `paths`, matrix 값에서 오는 이름을 보지 않는다.
+ruleset의 필수 이름은 아래 여섯 개다. 이름은 그 job이 PR에서 내는 check 이름이다. `tests/ci-static-checks.test.ts`가 이 표의 이름이 표에 적힌 job의 이름과 같은지, PR에서 도는 workflow에 같은 이름의 job이 둘이 아닌지를 확인한다. 그 시험은 job의 `if`와 `paths`, matrix 값에서 오는 이름을 보지 않는다.
 
 | 이름 | 내는 job | 지키는 것 | 도는 때 | 실행 시간 예산 (p90) / 한도 |
 | --- | --- | --- | --- | --- |
 | `gitleaks` | `gitleaks.yml` · `gitleaks` | 새 commit 범위에 secret이 없다. 범위 안 merge commit의 diff도 본다. 클라우드 agent의 commit처럼 로컬 hook을 거치지 않은 commit에는 이것이 유일한 secret 검사다 | 모든 PR, main push | 2분 / 10분 |
-| `forbidden-terms` | `forbidden-terms.yml` · `forbidden-terms` | 트리, 그 run의 commit 메시지, PR의 제목·본문·댓글·리뷰 중 소유자·멤버·협력자가 쓴 것에 비공개 금지어가 없다. 금지어 목록이 없으면 실패한다 | 모든 PR(제목·본문을 고칠 때도), main push | 2분 / 5분 |
 | `supply-chain` | `images.yml` · `supply-chain` | 이미지 빌드가 계획됐으면 그 빌드가 끝났다. 빌드한 이미지와 npm 의존성에 고칠 수 있는 high·critical 취약점이 없다. 예외 항목마다 이유와 만료일이 있다. 빌드나 scan이 실패하거나 결과가 없으면 실패다. scan이 돌았지만 advisory 쪽 장애로 답을 얻지 못한 것만 PR과 main push에서 경고로 지나간다 | 모든 PR, main push, 릴리스 tag, 매일 03:17 UTC. 이미지에 닿지 않는 변경은 npm 감사만 한다 | 10분 / 빌드 30분, 판정 10분 |
 | `check` | `ci.yml` · `check` | 집계. 타입, lint, 정책 시험, 제품 산출물, chart ([구성원](#check의-구성원)) | 모든 PR, main push | 구성원 표 / 2분 |
 | `integration` | `ci.yml` · `integration` | 집계. 서비스가 붙는 시험 전체와 `e2e`, `quickstart`, conformance ([구성원](#integration의-구성원)) | 모든 PR, main push | 구성원 표 / 2분 |
@@ -99,7 +98,6 @@ PR의 merge를 막지 않는다. 경로가 닿는 PR에서 돌고, 일부는 밤
 | `install-rehearsal.yml` | 게시된 릴리스를 바깥 운영자처럼(로그인과 token 없이) compose와 kind에 설치하면 `/readyz`가 200을 낸다 | workflow 자신, `rehearsal-release.sh` | 없음. 수동(릴리스 tag를 줄 수 있다) | 빨간 run뿐 |
 | `litellm-price-drift.yml` | 모델 가격표가 LiteLLM의 가격에서 벗어나지 않았다. 적어 둔 의도한 차이는 허용한다 | 가격표와 비교 스크립트 | 월요일 00:17 | 이슈 `litellm-price-drift` |
 | `package-retention.yml` | 패키지 보존 규칙의 시험과 dry run | 스크립트, 그 시험, workflow 자신 | 일요일 20:41 | 빨간 run뿐 |
-| `forbidden-terms-threads.yml` | 댓글·리뷰·이슈는 push 없이 바뀌므로, 소유자·멤버·협력자가 글을 쓰거나 고치면 그 PR이나 이슈의 글을 다시 본다 | 경로가 아니라 댓글·리뷰·이슈 이벤트 | 없음 | 빨간 run뿐. PR의 필수 `forbidden-terms`가 다음 run에서 다시 읽는다 |
 | `images.yml`의 야간 run | checkout의 Dockerfile로 두 아키텍처의 이미지를 빌드해 취약점을 다시 본다(게시하지 않는다). npm 감사도 한다 | - | 매일 03:17 | 이슈 `ci-supply-chain` |
 | `images.yml`의 릴리스 경로(`release-gate`, `worker-compat-release`) | 릴리스할 commit에서 `ci.yml`의 push run이 green이고, 세 엔진의 conformance가 통과했고, main의 게시 chain이 chart 게시까지 갔고, 이전 worker와 호환된다 | - | 릴리스가 필요한 main push | 릴리스가 멈춘다 |
 | `main-failure.yml` | main의 CI나 Images push run이 실패하면 commit, 그 PR, 실패한 job을 댄다. 되돌리지는 않는다 | - | run이 끝날 때마다 | 이슈 `ci-main-failure` |
@@ -136,7 +134,7 @@ PR의 merge를 막지 않는다. 경로가 닿는 PR에서 돌고, 일부는 밤
 
 | 지표 | 목표 | 2026-11-13 ~ 11-27 |
 | --- | --- | --- |
-| PR 한 라운드: push에서 필수 일곱 개 green까지 | p50 10분 이하, p90 20분 이하 | p50 12.6분, p90 29.8분 |
+| PR 한 라운드: push에서 필수 여섯 개 green까지 | p50 10분 이하, p90 20분 이하 | p50 12.6분, p90 29.8분 |
 | main CI의 flaky·infra 실패 (최근 100 run) | 0 | 1 |
 
 실측은 `gh api`로 받은 그 기간의 run과 job 시각에서 나왔다. 한 라운드는 성공한 PR run 208개(첫 시도)의 필수 판정 job이 끝난 시각이다. main 실패는 push run 최근 100개의 실패 job을 오류 문장으로 분류했다.
@@ -145,7 +143,7 @@ PR의 merge를 막지 않는다. 경로가 닿는 PR에서 돌고, 일부는 밤
 - 이 저장소는 job이 약 20개까지 동시에 돈다. 공유 코드를 바꾼 PR run 하나가 job 27개, 약 76 job-분을 쓴다. 그래서 시간당 약 16 run이 한계다. PR run은 시간당 p50 9개, p90 26개, 최대 60개가 생긴다. 바쁜 시간에는 대기가 실행보다 길다.
 - job을 더 잘게 나누면 job 하나는 짧아지지만 총량은 줄지 않는다. shard마다 설치와 서비스 기동이 반복되어 조금 는다(나누기 전 약 71 job-분). 대기를 줄이는 것은 run의 수와 run당 job-분이다. job을 더할 때 이 두 수를 PR 본문에 적는다.
 
-`ci.yml`의 성공한 PR run의 길이는 이렇게 본다. `check`, `integration`, `e2e`, `quickstart`가 이 run에 있다. `gitleaks`, `forbidden-terms`, `supply-chain`은 다른 workflow가 내고 보통 먼저 끝난다. 실패한 라운드는 들어 있지 않다.
+`ci.yml`의 성공한 PR run의 길이는 이렇게 본다. `check`, `integration`, `e2e`, `quickstart`가 이 run에 있다. `gitleaks`, `supply-chain`은 다른 workflow가 내고 보통 먼저 끝난다. 실패한 라운드는 들어 있지 않다.
 
 ```sh
 gh run list --workflow ci.yml --event pull_request --status success --limit 100 \

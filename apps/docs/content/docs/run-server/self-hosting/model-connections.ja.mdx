@@ -80,7 +80,7 @@ API_CONTAINER はこの設置の status と project label で確認します。K
 <a id="과금-없는-연결-billing-none" />
 ### 課金のない接続（`billing: none`）
 
-セルフホストしたモデル（Ollama、プライベートネットワークの LiteLLM など）にはトークンごとの請求がありません。価格表にもないので、そのままにすると fallback の最高単価で計算され、セッションの費用上限と SDK の `maxBudgetUsd` にかかって turn が切れます。このような接続は `billing: none` と宣言します。
+セルフホストしたモデル（Ollama、プライベートネットワークの LiteLLM など）にはトークンごとの請求がありません。そのままにすると、価格表にも LiteLLM の単価 snapshot にもない名前には金額が付きませんが、呼び出しは単価不明として記録され、セッションの単価不明トークンの上限（`unknown_price_session_token_limit`）で止まります。snapshot に同じ名前があればその単価で計算され、セッションの費用上限にかかります。このような接続は `billing: none` と宣言します。
 
 ```yaml
 kind: litellm
@@ -93,7 +93,7 @@ models:
   - qwen3-coder
 ```
 
-- 省略時は `per_token` で、価格表・fallback で計算します。
+- 省略時は `per_token` で、価格表と LiteLLM の単価 snapshot で計算します。どこにもないモデルは金額なしで単価不明と記します。
 - `none` の接続でリリースしたセッションの provider 呼び出しは、応答の model 名によらず費用 0、ledger の `priced_by=unmetered` として記録されます。トークンはそのまま記録されます。セッションの費用が増えないので、費用上限の判定 4 か所（egress 認可、`nextInput`、メッセージ受付、エンジン）にかかりません。
 - claim の `remaining_budget_usd` は `null` で、worker は SDK に `maxBudgetUsd` を渡しません。SDK は知らない model を独自の推定単価で計算し、予算で turn を切るためです。縛る予算がないので、`/clear` などで SDK の費用集計がやり直されても worker は drain しません。
 - `GET /v1/sessions/{id}/usage` は `cost.kind: "unmetered"` で答え、`amount_usd` は `"0.000000"` です。このセッションには費用上限がかからないので `cost_limit_usd` は `null` で、上限到達の案内（`attention.reason`）にもドルの上限は出ません。`budget_exceeded` はトークン上限に達したときだけ `true` になります。

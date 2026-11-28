@@ -1,20 +1,35 @@
 import { budgetExceeded, type SessionBudget } from "./installation-limits.ts";
-import { type ProviderUsage, priceProviderUsage } from "./model-prices.ts";
+import {
+  type PriceSource,
+  type ProviderUsage,
+  priceProviderUsage,
+} from "./model-prices.ts";
 import type { HeldSpend } from "./ports/provider-exchange-ledger.ts";
 
 /**
- * A reserve priced as the dearest call its request could turn out to be:
- * every prompt token written to the longest-lived cache, which the table
- * charges at each model's highest write multiple.
+ * A reserve priced as the dearest way the request's own tokens can be charged
+ * for the model it names: every prompt token written to the longest-lived
+ * cache, which the table charges at each model's highest write multiple. It
+ * is an estimate, not a ceiling on the settlement: a dearer model answering
+ * or a fee the request did not announce (a web search) settles above it.
+ * `pricedBy` is what prices the model the request asked for; one nothing
+ * prices reserves no amount.
  */
-export function reservationCostUsd(reserve: ProviderUsage): number {
+export function priceReservation(reserve: ProviderUsage): {
+  costUsd: number;
+  pricedBy: PriceSource;
+} {
   const prompt = reserve.inputTokens + reserve.cacheCreationInputTokens;
   return priceProviderUsage({
     ...reserve,
     inputTokens: 0,
     cacheCreationInputTokens: prompt,
     cacheCreation1hInputTokens: prompt,
-  }).costUsd;
+  });
+}
+
+export function reservationCostUsd(reserve: ProviderUsage): number {
+  return priceReservation(reserve).costUsd;
 }
 
 /** The same sum the provider_usage trigger adds to `provider_tokens`. */
@@ -28,21 +43,44 @@ export function reservationTokens(reserve: ProviderUsage): number {
 }
 
 /**
+ * What an open is judged against: the session's budget, and how many tokens
+ * of unknown price it may use. The second is judged at an open alone; no
+ * dispatch gate reads it.
+ */
+export type ExchangeBudget = SessionBudget & { unknownPriceTokens: number };
+
+/**
  * Whether a session may open one more provider call: its stored spend with
  * every unreleased reserve added, the new one's included, is still under
  * both limits. An unmetered session's reserves cost nothing but still count
  * their tokens.
+ *
+ * A call on a model nothing prices has no amount, so the cost limit never
+ * counts it and its tokens are held to a limit no price enters: the tokens
+ * of the session's settled calls marked unknown, with every held reserve
+ * for such a model, stay under `unknownPriceTokens`. A session with
+ * none of either is never refused by it. An unmetered session's calls are
+ * not of unknown price: its connection declared them free.
  */
 export function admitsReservations(
-  budget: SessionBudget,
+  budget: ExchangeBudget,
 ): (held: HeldSpend) => boolean {
   return (held) => {
     let costUsd = held.costUsd;
     let providerTokens = held.providerTokens;
+    let unknownPriceTokens = held.unknownPriceTokens;
     for (const reserve of held.reserves) {
-      if (!held.unmetered) costUsd += reservationCostUsd(reserve);
-      providerTokens += reservationTokens(reserve);
+      const tokens = reservationTokens(reserve);
+      if (!held.unmetered) {
+        const priced = priceReservation(reserve);
+        costUsd += priced.costUsd;
+        if (priced.pricedBy === "unknown") unknownPriceTokens += tokens;
+      }
+      providerTokens += tokens;
     }
-    return !budgetExceeded({ costUsd, providerTokens }, budget);
+    return (
+      !budgetExceeded({ costUsd, providerTokens }, budget) &&
+      unknownPriceTokens < budget.unknownPriceTokens
+    );
   };
 }

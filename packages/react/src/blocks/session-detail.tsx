@@ -889,13 +889,30 @@ function UsageFigures({ usage }: { readonly usage: SessionUsageResponse }) {
 function Cost({ usage }: { readonly usage: SessionUsageResponse }) {
   const { t, locale } = useBlockText();
   const { cost } = usage;
+  // Calls nothing prices have no amount, so the amount is the others' alone
+  // and those are named beside it: with nothing else, no figure is shown that
+  // could read as free. An API from before the field answers without it.
+  const unknownCalls = usage.unknown_price?.call_count ?? 0;
+  const { usd } = OPERATIONS_MESSAGES[locale].format;
   return (
     <span className="flex min-w-0 flex-col">
       <span className="tabular-nums">
         {cost.kind === "unmetered"
           ? t("session.usage.unmetered")
-          : OPERATIONS_MESSAGES[locale].format.usd(cost.amount_usd)}
+          : unknownCalls === 0
+            ? usd(cost.amount_usd)
+            : Number(cost.amount_usd) > 0
+              ? t("session.usage.knownAndUnknownPrice", {
+                  amount: usd(cost.amount_usd),
+                  count: unknownCalls,
+                })
+              : t("session.usage.unknownPrice", { count: unknownCalls })}
       </span>
+      {unknownCalls > 0 ? (
+        <span className="text-caption text-muted-foreground">
+          {t("session.usage.unknownPriceNote")}
+        </span>
+      ) : null}
       {cost.complete ? null : (
         <span className="text-caption text-muted-foreground">
           {cost.open_turn_count > 0
