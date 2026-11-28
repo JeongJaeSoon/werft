@@ -10034,6 +10034,7 @@ describe.each(ENGINES)(
         });
         expect(began).toBe(true);
         expect(raced.threadNotices).toEqual([]);
+        expect(raced.notices).toEqual([]);
         // The close failed back to open work.
         await db
           .update(sessions)
@@ -10048,20 +10049,123 @@ describe.each(ENGINES)(
         expect(await unaskedTurns()).toEqual([]);
       });
 
-      test("a reply held for a work other than its thread's now: neither takes it", async () => {
+      /** Another open session, a copy of `sessionId`'s row. */
+      const otherWork = async (sessionId: string) => {
+        const other = randomUUID();
+        await db.execute(sql`
+          INSERT INTO sessions SELECT (jsonb_populate_record(NULL::sessions,
+            to_jsonb(s) || jsonb_build_object('id', ${other}::text))).*
+          FROM sessions s WHERE s.id = ${sessionId}::uuid`);
+        return other;
+      };
+
+      for (const [name, heldFor] of [
+        [
+          "held for it by its session",
+          async (sessionId: string) => {
+            await db
+              .update(schema.conversationJudgments)
+              .set({ workSessionId: await otherWork(sessionId) })
+              .where(eq(schema.conversationJudgments.grade, "m1_to_task"));
+          },
+        ],
+        [
+          "a record from before that kept none, its thread's link then another's",
+          async (sessionId: string) => {
+            await db
+              .update(schema.conversationJudgments)
+              .set({ workSessionId: null })
+              .where(eq(schema.conversationJudgments.grade, "m1_to_task"));
+            const other = await otherWork(sessionId);
+            // The thread's link as of the hold was the other work's; this
+            // work's was made after it.
+            await db.execute(sql`
+              INSERT INTO session_links SELECT (jsonb_populate_record(
+                NULL::session_links, to_jsonb(l) || jsonb_build_object(
+                  'id', gen_random_uuid()::text, 'session_id', ${other}::text,
+                  'created_at', (now() - interval '1 hour')::text,
+                  'closed_at', now()::text, 'closed_reason', 'completed'))).*
+              FROM session_links l WHERE l.session_id = ${sessionId}::uuid`);
+            await db.execute(sql`
+              UPDATE session_links SET created_at = now() + interval '1 minute'
+              WHERE session_id = ${sessionId}::uuid`);
+          },
+        ],
+      ] as const) {
+        test(`a reply held for open work other than its thread's now (${name}): neither takes it`, async () => {
+          const { fixture, handle, sessionId } = await workThread("queued");
+          await deliver(fixture, reply());
+          expect(await drain(handle)).toMatchObject({ deferred: 1 });
+          await heldFor(sessionId);
+          await judgeReplies("failed");
+          await due();
+          expect(await drain(handle)).toMatchObject({ processed: 1 });
+          expect(await messagesOf(sessionId)).toEqual(["summarize the thread"]);
+          expect(await unaskedTurns()).toEqual([]);
+        });
+      }
+
+      test("a reply M1 spoke to whose unasked turn was not made, its work closed again: left unanswered, said in the log and the metric", async () => {
         const { fixture, handle, sessionId } = await workThread("queued");
         await deliver(fixture, reply());
         expect(await drain(handle)).toMatchObject({ deferred: 1 });
-        // The work it was held for is gone; the thread's work is open.
         await db
-          .update(schema.conversationJudgments)
-          .set({ workSessionId: randomUUID() })
-          .where(eq(schema.conversationJudgments.grade, "m1_to_task"));
-        await judgeReplies("failed");
+          .update(sessions)
+          .set({ admissionState: "closing" })
+          .where(eq(sessions.id, sessionId));
+        const { speaker: issue, outcomes } = issuing();
+        const speaker: M1Speaker = {
+          async speak(spoken) {
+            // Open again as the turn is written: none is made.
+            await db
+              .update(sessions)
+              .set({ admissionState: "active" })
+              .where(eq(sessions.id, sessionId));
+            await issue.speak(spoken);
+            await db
+              .update(sessions)
+              .set({ admissionState: "closed" })
+              .where(eq(sessions.id, sessionId));
+          },
+        };
+        await judgeReplies("speak", speaker);
+        expect(outcomes).not.toContain("issued");
+        const warned: unknown[] = [];
+        const watched = handler(
+          undefined,
+          new Proxy(logger, {
+            get(target, property, receiver) {
+              if (property !== "warn") {
+                const value = Reflect.get(target, property, receiver);
+                return typeof value === "function" ? value.bind(target) : value;
+              }
+              return (message: string, fields?: Record<string, unknown>) => {
+                if (message === "Slack reply M1 spoke to is left unanswered") {
+                  warned.push(fields);
+                }
+              };
+            },
+          }),
+        );
         await due();
-        expect(await drain(handle)).toMatchObject({ processed: 1 });
+        expect(await drain(watched.handle)).toMatchObject({ processed: 1 });
+        expect(warned).toEqual([
+          expect.objectContaining({
+            session_id: sessionId,
+            reason_code: "work_closed_again",
+          }),
+        ]);
         expect(await messagesOf(sessionId)).toEqual(["summarize the thread"]);
         expect(await unaskedTurns()).toEqual([]);
+        await db.execute(sql`
+          UPDATE conversation_judgments
+          SET judged_at = judged_at - interval '11 minutes'`);
+        const metrics = await schema.readPlatformMetrics(db, {
+          budget: null,
+          buckets: [],
+          storageLimitBytes: null,
+        });
+        expect(metrics.heldRepliesUnanswered).toBe(1);
       });
 
       test("work closed while its reply waited: the reply keeps its grade and is judged once", async () => {

@@ -71,9 +71,14 @@ export interface BoundReplyStore {
   answeredUnasked(post: BoundReplyPost): Promise<boolean>;
   /**
    * The session whose work the post was held for (`m1_to_task`), as its
-   * hold read it; null for a record from before that was kept.
+   * hold read it (a record from before that kept it: the thread's work as
+   * of its hold); `sessionId` null when none can be named.
+   * `spokeUnanswered`: M1 spoke to it and no unasked turn answered it.
+   * Null: the post was never held for its work.
    */
-  heldWorkSession(post: BoundReplyPost): Promise<string | null>;
+  heldWorkSession(
+    post: BoundReplyPost,
+  ): Promise<{ sessionId: string | null; spokeUnanswered: boolean } | null>;
   /**
    * Holds the reply for its `m1_to_task` judgment the first time it is
    * asked, under the gate a judgment is written under, and answers what

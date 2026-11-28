@@ -16,6 +16,7 @@ import {
   JUDGMENT_BUFFER_TTL_MS,
   lockSlackSourceMark,
   sessionWorkClosed,
+  threadWorkSession,
 } from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
 import { CLOSE } from "../sessions/index.ts";
@@ -152,13 +153,27 @@ export function createPostgresBoundReplyStore(
     },
 
     async heldWorkSession(post) {
-      const [row] = rowsOf<{ work_session_id: string | null }>(
+      // Its newest hold, its held row's at any age as taskReply reads it; a
+      // record from before the column names the thread's work as of its
+      // hold, as M1 reads it.
+      const [row] = rowsOf<{ session_id: string | null; spoke: boolean }>(
         await db.execute(sql`
-          SELECT j.work_session_id FROM conversation_judgments j
-          WHERE ${taskJudgmentsOf(post)}
+          SELECT j.decision IS NOT DISTINCT FROM 'speak' AND j.turn_id IS NULL
+              AS spoke,
+            COALESCE(j.work_session_id, ${threadWorkSession(
+              sql`j.agent_id`,
+              sql`i.topic_id`,
+              sql`i.received_at`,
+            )}) AS session_id
+          FROM conversation_judgments j
+          LEFT JOIN conversation_inputs i ON i.id = j.input_id
+          WHERE ${atPost(post, "j")} AND j.grade = 'm1_to_task'
+            AND j.refs = ARRAY[${post.ts}]::text[]
           ORDER BY j.created_at DESC LIMIT 1`),
       );
-      return row?.work_session_id ?? null;
+      return row === undefined
+        ? null
+        : { sessionId: row.session_id, spokeUnanswered: row.spoke };
     },
 
     async answeredUnasked(post) {

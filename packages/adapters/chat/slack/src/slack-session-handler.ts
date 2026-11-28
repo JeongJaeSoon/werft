@@ -615,19 +615,43 @@ export function createSlackSessionHandler(
       // Closing, the close may fail back to open work, which takes the reply
       // then: it waits the drain out, as a mention does. The work is the one
       // it was held for, whatever the thread is bound to now.
-      const heldWork =
-        (await deps.boundReplies.heldWorkSession({
-          agentId: agent.agentId,
-          teamId: claim.teamId,
-          channelId: event.channel,
-          ts: event.ts,
-        })) ?? sessionId;
+      const heldFor = await deps.boundReplies.heldWorkSession({
+        agentId: agent.agentId,
+        teamId: claim.teamId,
+        channelId: event.channel,
+        ts: event.ts,
+      });
+      // Never held (the gate closed, the rollout lowered under the hold's
+      // lock): the current path's, as a closed work's reply goes nowhere.
+      if (heldFor === null) {
+        if ((await deps.boundReplies.closedWork(sessionId)) !== null) {
+          deps.logger.info("Slack reply of work closed while it waited", ids);
+          return null;
+        }
+        return "session";
+      }
+      const heldWork = heldFor.sessionId;
+      if (heldWork === null) {
+        deps.logger.info("Slack reply held for work it cannot name", ids);
+        return null;
+      }
       const closed = await deps.boundReplies.closedWork(heldWork);
       if (closed?.admission === "closing") {
         throw new SlackInboundDeferred(SLACK_CLOSED_WORK_MENTION_RECHECK_MS);
       }
       if (closed !== null) {
-        deps.logger.info("Slack reply of work closed while it waited", ids);
+        if (heldFor.spokeUnanswered) {
+          // M1 spoke, but its unasked turn was not made (the work open
+          // again as it was written, or its write lost to a deadlock), and
+          // the work closed again: nothing answers the reply (94S-2558).
+          deps.logger.warn("Slack reply M1 spoke to is left unanswered", {
+            ...ids,
+            session_id: heldWork,
+            reason_code: "work_closed_again",
+          });
+        } else {
+          deps.logger.info("Slack reply of work closed while it waited", ids);
+        }
         return null;
       }
       // Another work's thread since: not the work it was written to.
@@ -674,10 +698,11 @@ export function createSlackSessionHandler(
       if (closed === null) {
         if (!refused) return;
         deps.logger.info(
-          "Slack mention refused by work open again; looked at again",
+          "Slack input refused by work open again; looked at again",
           {
             ...ids,
             session_id: sessionId,
+            mentioned: say,
           },
         );
         throw new SlackInboundDeferred(SLACK_CLOSED_WORK_MENTION_RECHECK_MS);
@@ -703,9 +728,10 @@ export function createSlackSessionHandler(
           readerSlackUserId: event.user,
         });
       }
-      deps.logger.info("Slack mention waits for its thread's work to close", {
+      deps.logger.info("Slack input waits for its thread's work to close", {
         ...ids,
         session_id: sessionId,
+        mentioned: say,
         admission: closed.admission,
       });
       throw new SlackInboundDeferred(SLACK_CLOSED_WORK_MENTION_RECHECK_MS);
