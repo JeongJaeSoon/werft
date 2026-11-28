@@ -104,10 +104,16 @@ function toolReferencesIn(messages: readonly Message[]): string[] {
   return [...names];
 }
 
-/** The latest spec in the conversation and how many tool results follow it. */
+/**
+ * The latest spec in the conversation, how many tool results follow it, and
+ * the index of the message carrying it. The engine drops a call whose id its
+ * history already holds, along with its result, so the same spec sent again
+ * on a later turn would never get past its first step on ids made of the spec
+ * and step alone; `prompt` sets that turn's ids apart.
+ */
 export function planOf(
   messages: readonly Message[],
-): { spec: GateSpec; step: number } | null {
+): { spec: GateSpec; step: number; prompt: number } | null {
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index];
     if (message?.role !== "user") continue;
@@ -134,7 +140,7 @@ export function planOf(
           (candidate) => candidate.type === "tool_result",
         ).length;
       }
-      return { spec, step };
+      return { spec, step, prompt: index };
     }
   }
   return null;
@@ -167,12 +173,13 @@ export function specIdsIn(messages: readonly unknown[]): string[] {
 }
 
 /**
- * The call spec in the text of the last user message that has text, and how
- * many tool results came after it; null when that text carries none.
+ * The call spec in the text of the last user message that has text, how many
+ * tool results came after it, and that message's index (see `planOf`); null
+ * when that text carries none.
  */
 export function callPlanOf(
   messages: readonly Message[],
-): { spec: CallSpec; step: number } | null {
+): { spec: CallSpec; step: number; prompt: number } | null {
   let step = 0;
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index];
@@ -193,7 +200,7 @@ export function callPlanOf(
           (block.text ?? "").slice(marker + CALL_SPEC_MARKER.length),
         ),
       ) as CallSpec;
-      return { spec, step };
+      return { spec, step, prompt: index };
     }
     return null;
   }
@@ -266,18 +273,22 @@ export function replyFor(
         : toolReply(
             next.tool,
             next.input,
-            `toolu_call_${call.spec.id}_${call.step}`,
+            `toolu_call_${call.spec.id}_p${call.prompt}_${call.step}`,
           );
     const delayMs = next === undefined ? call.spec.delayMs : next.delayMs;
     return delayMs === undefined ? reply : Bun.sleep(delayMs).then(() => reply);
   }
   if (plan === null) return textReply(fallback);
-  const { spec, step } = plan;
+  const { spec, step, prompt } = plan;
   const next = spec.steps[step];
   const reply =
     next === undefined
       ? textReply(finalOf(spec, [request.body.system, messages]))
-      : toolReply(next.tool, next.input, `toolu_gate_${spec.id}_${step}`);
+      : toolReply(
+          next.tool,
+          next.input,
+          `toolu_gate_${spec.id}_p${prompt}_${step}`,
+        );
   const delayMs = next === undefined ? spec.finalDelayMs : next.delayMs;
   return delayMs === undefined ? reply : Bun.sleep(delayMs).then(() => reply);
 }

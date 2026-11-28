@@ -58,17 +58,21 @@ export function inputItems(body: ResponsesRequest): Item[] {
   return Array.isArray(body.input) ? (body.input as Item[]) : [];
 }
 
-/** The latest spec in the input and how many tool outputs follow it. */
+/**
+ * The latest spec in the input, how many tool outputs follow it, and the
+ * index of the item carrying it, which sets a later turn's call ids apart
+ * from an earlier turn's under the same spec.
+ */
 export function planOf(
   items: readonly Item[],
-): { spec: GateSpec; step: number } | null {
+): { spec: GateSpec; step: number; prompt: number } | null {
   for (let index = items.length - 1; index >= 0; index--) {
     const item = items[index] as Item;
     for (const text of textsOf(item).reverse()) {
       const spec = specIn(text);
       if (spec === null) continue;
       const step = items.slice(index + 1).filter(isToolAnswer).length;
-      return { spec, step };
+      return { spec, step, prompt: index };
     }
   }
   return null;
@@ -193,7 +197,7 @@ export function replyFor(
     tools: toolNames(body),
   });
   if (plan === null) return { text: fallback };
-  const { spec, step } = plan;
+  const { spec, step, prompt } = plan;
   const next = spec.steps[step];
   const reply: FakeResponse =
     next === undefined
@@ -204,7 +208,7 @@ export function replyFor(
       : {
           toolCalls: [
             {
-              callId: `call_gate_${spec.id}_${step}`,
+              callId: `call_gate_${spec.id}_p${prompt}_${step}`,
               // Only a request that offers the search can be answered by one;
               // otherwise the call is a plain name the engine refuses.
               ...(next.tool === "tool_search" && searchOffered(body)

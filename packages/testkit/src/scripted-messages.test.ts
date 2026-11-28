@@ -58,7 +58,7 @@ describe("scripted Messages API", () => {
         { type: "text", text: `${SPEC_MARKER}${JSON.stringify(spec)}` },
       ],
     };
-    expect(planOf([merged])).toEqual({ spec, step: 0 });
+    expect(planOf([merged])).toEqual({ spec, step: 0, prompt: 0 });
     expect(
       planOf([merged, { role: "assistant", content: [] }, toolResult("t0")])
         ?.step,
@@ -89,7 +89,7 @@ describe("scripted Messages API", () => {
     const first = await replyFor(request([prompt]), recorded);
     expect(first.content[0]).toMatchObject({
       type: "tool_use",
-      id: "toolu_gate_s1_0",
+      id: "toolu_gate_s1_p0_0",
       input: { command: "touch a" },
     });
     const last = await replyFor(
@@ -304,5 +304,65 @@ describe("a conversation call's script", () => {
       "fallback",
     );
     expect(plain.content).toEqual([{ type: "text", text: "fallback" }]);
+  });
+});
+
+describe("a spec sent again on a later turn", () => {
+  type Reply = Awaited<ReturnType<typeof replyFor>>;
+  const callIds = (reply: Reply) =>
+    reply.content.flatMap((block) =>
+      block.type === "tool_use" ? [(block as { id: string }).id] : [],
+    );
+
+  // The engine drops a call whose id its history already holds, so a later
+  // turn reusing an earlier turn's ids never gets past its first step.
+  async function playTurn(
+    history: unknown[],
+    prompt: unknown,
+    tools: { name: string }[],
+  ): Promise<string[]> {
+    history.push(prompt);
+    const ids: string[] = [];
+    for (;;) {
+      const reply = await replyFor(request([...history], tools), []);
+      const called = callIds(reply);
+      history.push({ role: "assistant", content: reply.content });
+      if (called.length === 0) return ids;
+      ids.push(...called);
+      for (const id of called) history.push(toolResult(id));
+    }
+  }
+
+  test("a gate spec's second turn calls under ids its first turn did not use", async () => {
+    const prompt = {
+      role: "user",
+      content: SPEC_MARKER + JSON.stringify(spec),
+    };
+    const history: unknown[] = [];
+    const first = await playTurn(history, prompt, [{ name: "Bash" }]);
+    const second = await playTurn(history, prompt, [{ name: "Bash" }]);
+    expect(first).toHaveLength(2);
+    expect(second).toHaveLength(2);
+    expect(second.filter((id) => first.includes(id))).toEqual([]);
+  });
+
+  test("a call spec's second turn calls under ids its first turn did not use", async () => {
+    const prompt = {
+      role: "user",
+      content: `go ${CALL_SPEC_MARKER}${JSON.stringify({
+        id: "again",
+        reply: "done",
+        steps: [
+          { tool: "Bash", input: { command: "a" } },
+          { tool: "Bash", input: { command: "b" } },
+        ],
+      })}`,
+    };
+    const history: unknown[] = [];
+    const first = await playTurn(history, prompt, []);
+    const second = await playTurn(history, prompt, []);
+    expect(first).toHaveLength(2);
+    expect(second).toHaveLength(2);
+    expect(second.filter((id) => first.includes(id))).toEqual([]);
   });
 });
