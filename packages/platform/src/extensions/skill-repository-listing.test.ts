@@ -220,10 +220,10 @@ describe("listing a skill repository", () => {
   test("a SKILL.md past 64 KiB is not fetched and its directory cannot be switched on", async () => {
     const { entries, asked } = await listed({
       "huge/SKILL.md": { size: SKILL_REPOSITORY_LIMITS.maxSkillFileBytes + 1 },
-      "edge/SKILL.md": {
-        size: SKILL_REPOSITORY_LIMITS.maxSkillFileBytes,
-        text: skillFile("edge"),
-      },
+      "edge/SKILL.md": skillFile("edge").padEnd(
+        SKILL_REPOSITORY_LIMITS.maxSkillFileBytes,
+        "x",
+      ),
     });
     expect(entries).toMatchObject([
       { path: "edge", name: "edge", issues: [] },
@@ -270,6 +270,40 @@ describe("listing a skill repository", () => {
       name: null,
       issues: [{ path: "SKILL.md", code: "missing_skill_file" }],
     });
+  });
+
+  test("a blob that is not the size the tree gave is not read", async () => {
+    const { entries } = await listed({
+      "a/SKILL.md": { size: 10, text: skillFile("a") },
+    });
+    expect(entries[0]).toMatchObject({
+      name: null,
+      issues: [{ path: "SKILL.md", code: "missing_skill_file" }],
+    });
+  });
+
+  test("a NUL in a value, or in a line an issue quotes, is not kept", async () => {
+    const { entries } = await listed({
+      "a/SKILL.md": "---\nname: a\ndescription: a\0b\n---\nBody.\n",
+      "b/SKILL.md": skillFile("b", "license: MIT\0\n"),
+      "c/SKILL.md": skillFile("c", "no\0key\n"),
+    });
+    expect(entries).toMatchObject([
+      {
+        name: "a",
+        description: null,
+        issues: [
+          {
+            path: "SKILL.md",
+            code: "bad_frontmatter",
+            message: '"description" holds a NUL character.',
+          },
+        ],
+      },
+      { name: "b", license: null, issues: [{ code: "bad_frontmatter" }] },
+      { name: "c", issues: [{ code: "bad_frontmatter" }] },
+    ]);
+    expect(JSON.stringify(entries)).not.toContain("\\u0000");
   });
 
   test("the same name in two directories is listed twice", async () => {

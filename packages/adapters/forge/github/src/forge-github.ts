@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/core";
 import { retry } from "@octokit/plugin-retry";
@@ -35,6 +36,7 @@ import {
   type GitHubSkillReader,
   type GitHubSkillRepository,
   type GitHubTokenUse,
+  type GitHubTreeEntry,
   type GitHubWorkflowRun,
   type GitTreeEntry,
   type RegisteredGitHubConnection,
@@ -1401,6 +1403,40 @@ export function createGitHubSkillReader(
     size?: number;
   };
 
+  const SHA = /^[0-9a-f]{40}$/;
+  const TREE_MODES = new Map<unknown, readonly unknown[]>([
+    ["blob", ["100644", "100755", "120000"]],
+    ["tree", ["040000"]],
+    ["commit", ["160000"]],
+  ]);
+
+  /** One entry of a tree answer; a shape git cannot hold is not read. */
+  function treeEntryOf(item: {
+    path?: unknown;
+    mode?: unknown;
+    type?: unknown;
+    sha?: unknown;
+    size?: unknown;
+  }): GitHubTreeEntry {
+    const { path, mode, type, sha } = item;
+    const size = type === "blob" ? item.size : 0;
+    if (
+      typeof path !== "string" ||
+      path === "" ||
+      path.includes("\0") ||
+      typeof sha !== "string" ||
+      !SHA.test(sha) ||
+      typeof mode !== "string" ||
+      TREE_MODES.get(type)?.includes(mode) !== true ||
+      typeof size !== "number" ||
+      !Number.isSafeInteger(size) ||
+      size < 0
+    ) {
+      throw new Error("GitHub answered a tree entry git cannot hold");
+    }
+    return { path, mode, type: type as GitHubTreeEntry["type"], sha, size };
+  }
+
   return {
     repository: (app, installationId, owner, name) =>
       asking("skill repository", app, installationId, (request, headers) =>
@@ -1546,33 +1582,24 @@ export function createGitHubSkillReader(
             "GET /repositories/{id}/git/commits/{sha}",
             { id: repositoryId, sha: commit, headers },
           );
-          const sha = (head as { tree: { sha: string } }).tree.sha;
+          const sha = (head as { tree?: { sha?: unknown } }).tree?.sha;
+          if (typeof sha !== "string" || !SHA.test(sha)) {
+            throw new Error("GitHub answered a commit without its tree");
+          }
           const { data } = await request(
             "GET /repositories/{id}/git/trees/{sha}",
             { id: repositoryId, sha, recursive: "1", headers },
           );
-          const listed = data as { tree: TreeItem[]; truncated?: boolean };
-          return {
-            sha,
-            truncated: listed.truncated === true,
-            entries: listed.tree.flatMap((item) =>
-              item.path === undefined ||
-              item.sha === undefined ||
-              (item.type !== "blob" &&
-                item.type !== "tree" &&
-                item.type !== "commit")
-                ? []
-                : [
-                    {
-                      path: item.path,
-                      mode: item.mode ?? "",
-                      type: item.type,
-                      sha: item.sha,
-                      size: item.size ?? 0,
-                    },
-                  ],
-            ),
-          };
+          const listed = data as { tree: unknown[]; truncated?: boolean };
+          const entries = listed.tree.map((item) =>
+            treeEntryOf(item as Parameters<typeof treeEntryOf>[0]),
+          );
+          if (
+            new Set(entries.map((entry) => entry.path)).size !== entries.length
+          ) {
+            throw new Error("GitHub answered a tree that names a path twice");
+          }
+          return { sha, truncated: listed.truncated === true, entries };
         }),
       ),
 
@@ -1594,13 +1621,22 @@ export function createGitHubSkillReader(
                   return data as { content?: string; encoding?: string };
                 });
                 if (blob === null) return;
-                if (blob.encoding !== "base64" || blob.content === undefined) {
+                if (
+                  blob.encoding !== "base64" ||
+                  typeof blob.content !== "string"
+                ) {
                   throw new Error("GitHub answered a blob that is not base64");
                 }
-                read.set(
-                  sha,
-                  Uint8Array.from(Buffer.from(blob.content, "base64")),
-                );
+                const bytes = Buffer.from(blob.content, "base64");
+                // git's own name of a blob: these are the bytes the tree named.
+                const named = createHash("sha1")
+                  .update(`blob ${bytes.byteLength}\0`)
+                  .update(bytes)
+                  .digest("hex");
+                if (named !== sha) {
+                  throw new Error("GitHub answered another blob than asked");
+                }
+                read.set(sha, Uint8Array.from(bytes));
               }),
             );
           }

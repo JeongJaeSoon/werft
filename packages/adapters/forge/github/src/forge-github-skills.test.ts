@@ -413,6 +413,52 @@ describe("reading a public repository the installation does not cover", () => {
     expect(other.tokenRequests.length - before).toBe(1);
   });
 
+  test("a tree entry git cannot hold, or a blob other than the one asked for, is not read", async () => {
+    const reader = createGitHubSkillReader();
+    const id =
+      (await reader.repository(otherApp(), INSTALLATION, "anthropics", "open"))
+        ?.id ?? 0;
+    const head =
+      (await other.refs("anthropics", "open"))["refs/heads/main"] ?? "";
+    const sha = "a".repeat(40);
+    const file = { path: "SKILL.md", mode: "100644", type: "blob", sha };
+    const trees: unknown[][] = [
+      [{ ...file, size: -1 }],
+      [{ ...file, size: "12" }],
+      [file],
+      [{ ...file, mode: undefined, size: 1 }],
+      [{ ...file, mode: "160000", size: 1 }],
+      [{ ...file, type: "commit", size: 1 }],
+      [{ ...file, sha: "short", size: 1 }],
+      [{ ...file, path: "a\0b", size: 1 }],
+      [
+        { ...file, size: 1 },
+        { ...file, size: 1 },
+      ],
+    ];
+    for (const tree of trees) {
+      other.answerNext(/^\/git\/trees\//, { sha, tree, truncated: false });
+      await expect(
+        reader.tree(otherApp(), INSTALLATION, id, head),
+      ).rejects.toBeInstanceOf(GitHubAppCheckError);
+    }
+    const tree = await reader.tree(otherApp(), INSTALLATION, id, head);
+    const skill =
+      tree?.entries.find((entry) => entry.path === "skills/pdf/SKILL.md")
+        ?.sha ?? "";
+    other.answerNext(/^\/git\/blobs\//, {
+      sha: skill,
+      encoding: "base64",
+      content: Buffer.from("another file").toString("base64"),
+    });
+    await expect(
+      reader.blobs(otherApp(), INSTALLATION, id, [skill]),
+    ).rejects.toBeInstanceOf(GitHubAppCheckError);
+    expect(
+      (await reader.blobs(otherApp(), INSTALLATION, id, [skill])).size,
+    ).toBe(1);
+  });
+
   test("a tree GitHub cut short says so", async () => {
     const reader = createGitHubSkillReader();
     const id =

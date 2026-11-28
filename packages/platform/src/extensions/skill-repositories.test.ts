@@ -19,7 +19,7 @@ import type {
 import { createSkillRepositoryService } from "./skill-repositories.ts";
 
 // The store's transactions, locks and receipts are in packages/db's
-// skill-repositories.integration.test.ts; this file holds what the service
+// skill-repositories.test.ts; this file holds what the service
 // decides around them, over a store that keeps the same rules in memory.
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";
@@ -126,8 +126,8 @@ function cutShort(state: State, commit: string): Partial<State> {
 function fakeReader() {
   const state = {
     repository: REPOSITORY as GitHubSkillRepository | null,
-    /** What a lookup by id answers; unset: `repository`. */
-    byId: undefined as GitHubSkillRepository | null | undefined,
+    /** What lookups by id answer, in order; after them, and unset: `repository`. */
+    byId: undefined as Array<GitHubSkillRepository | null> | undefined,
     refs: { main: COMMIT_A } as Record<string, string>,
     trees: {
       [COMMIT_A]: treeOf({ "skills/pdf/SKILL.md": skillFile("pdf") }),
@@ -150,7 +150,8 @@ function fakeReader() {
     },
     async repositoryById(_app, installation) {
       check("repositoryById", installation);
-      return state.byId === undefined ? state.repository : state.byId;
+      const next = state.byId?.shift();
+      return next === undefined ? state.repository : next;
     },
     async resolve(_app, installation, _repository, ref) {
       check(`resolve ${ref}`, installation);
@@ -449,12 +450,13 @@ describe("registering a skill repository", () => {
       },
     ]);
     expect(new Set(state.asked)).toEqual(new Set([40]));
+    // Asked whether it is public before its files are read, and again after.
     expect(state.calls).toEqual([
       "repository anthropics/skills",
+      "repositoryById",
       "resolve main",
       "tree a",
       "blobs",
-      // Read last: what GitHub says of the repository once its files are read.
       "repositoryById",
     ]);
     expect(receipts).toEqual([
@@ -515,8 +517,16 @@ describe("registering a skill repository", () => {
       ["BAD_REQUEST", "ref_not_found", () => ({ trees: {} })],
       ["BAD_REQUEST", "listing_refused", (s) => cutShort(s, COMMIT_A)],
       // Public when found, not public once its files were read.
-      ["BAD_REQUEST", "repository_not_public", () => ({ byId: NOT_PUBLIC })],
-      ["BAD_REQUEST", "repository_not_public", () => ({ byId: null })],
+      [
+        "BAD_REQUEST",
+        "repository_not_public",
+        () => ({ byId: [REPOSITORY, NOT_PUBLIC] }),
+      ],
+      [
+        "BAD_REQUEST",
+        "repository_not_public",
+        () => ({ byId: [REPOSITORY, null] }),
+      ],
       [
         "GITHUB_UNAVAILABLE",
         "github_unavailable",
@@ -680,11 +690,25 @@ describe("지금 확인", () => {
     ]);
     // By the stored installation, never by name.
     expect(state.calls).toEqual([
+      "repositoryById",
       "resolve main",
       "tree b",
       "blobs",
       "repositoryById",
     ]);
+  });
+
+  test("a repository that turned private is asked nothing more: no ref, tree or file", async () => {
+    const { service, state } = setup();
+    const { repository } = await service.register(caller(), { url: URL });
+    state.byId = [NOT_PUBLIC];
+    state.calls.length = 0;
+    const checked = await service.checkNow(caller(), repository.id);
+    expect(checked.repository.last_sync).toMatchObject({
+      result: "source_missing",
+      commit: null,
+    });
+    expect(state.calls).toEqual(["repositoryById"]);
   });
 
   test("a listing that fails records why and leaves the skills as they were", async () => {
@@ -694,8 +718,11 @@ describe("지금 확인", () => {
         () => ({ fail: new GitHubAppCheckError("github_unreachable") }),
       ],
       ["source_missing", () => ({ refs: {} })],
-      ["source_missing", () => ({ byId: NOT_PUBLIC })],
-      ["source_missing", () => ({ byId: null })],
+      ["source_missing", () => ({ byId: [NOT_PUBLIC] })],
+      ["source_missing", () => ({ byId: [null] })],
+      // Public when asked, not public once its files were read.
+      ["source_missing", () => ({ byId: [REPOSITORY, NOT_PUBLIC] })],
+      ["source_missing", () => ({ byId: [REPOSITORY, null] })],
       ["rejected", (s) => cutShort(s, COMMIT_B)],
     ];
     for (const [result, arrange] of cases) {
@@ -798,6 +825,14 @@ describe("pointing a repository at another ref", () => {
     expect(
       await refusal(service.setRef(caller(), repository.id, "gone")),
     ).toEqual(["BAD_REQUEST", "ref_not_found"]);
+    // No longer public: its refs are not asked for.
+    state.refs.v2 = COMMIT_A;
+    state.byId = [NOT_PUBLIC];
+    state.calls.length = 0;
+    expect(
+      await refusal(service.setRef(caller(), repository.id, "v2")),
+    ).toEqual(["BAD_REQUEST", "repository_not_public"]);
+    expect(state.calls).toEqual(["repositoryById"]);
     state.fail = new GitHubAppCheckError("github_rejected");
     expect(
       await refusal(service.setRef(caller(), repository.id, "v2")),
@@ -810,13 +845,14 @@ describe("pointing a repository at another ref", () => {
   });
 
   test("the ref it already follows reads nothing and writes no receipt", async () => {
-    const { service, state, receipts } = setup();
+    const { service, state, rows, receipts } = setup();
     const { repository } = await service.register(caller(), { url: URL });
     state.calls.length = 0;
     const same = await service.setRef(caller(), repository.id, "main");
     expect([same.receipt_id, same.check]).toEqual([null, null]);
     expect(state.calls).toEqual([]);
     expect(receipts).toHaveLength(1);
+    expect(rows.get(repository.id)).toMatchObject({ generation: 1 });
   });
 
   test("a change while a listing runs is queued; the old ref's listing writes nothing and the holder lists the new ref", async () => {

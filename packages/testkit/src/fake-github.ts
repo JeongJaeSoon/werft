@@ -198,6 +198,11 @@ export type FakeGitHub = {
    */
   failNext(count: number, status: number, path?: RegExp): void;
   /**
+   * The next REST call whose path under the repository matches answers
+   * `body` (200) in place of the repository's own answer.
+   */
+  answerNext(path: RegExp, body: unknown): void;
+  /**
    * REST calls whose `/repos/{owner}/{name}/…` path matches wait, unanswered,
    * until `release`; `waiting` counts the ones that arrived.
    */
@@ -547,6 +552,7 @@ export async function startFakeGitHub(
     count: 0,
     status: 500,
   };
+  let answered: { path: RegExp; body: unknown } | null = null;
   const users = new Map<string, number>();
   let failingUser = false;
   const appFailures = new Map<number, number>();
@@ -644,6 +650,11 @@ export async function startFakeGitHub(
         { message: "Server Error" },
         { status: failures.status },
       );
+    }
+    if (answered?.path.test(`${rest}${url.search}`)) {
+      const { body: instead } = answered;
+      answered = null;
+      return Response.json(instead);
     }
     const can = (permission: string, level: "read" | "write") =>
       (outside && level === "read") ||
@@ -1496,6 +1507,9 @@ export async function startFakeGitHub(
     },
     failNext(count, status, path) {
       failures = { count, status, path };
+    },
+    answerNext(path, body) {
+      answered = { path, body };
     },
     holdRest(path) {
       let release = () => {};

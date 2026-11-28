@@ -167,7 +167,12 @@ export function createSkillRepositoryService(deps: SkillRepositoryServiceDeps) {
     return repository;
   }
 
-  /** The ref's commit, its whole tree and its SKILL.md files, read once. */
+  /**
+   * The ref's commit, its whole tree and its SKILL.md files, read once.
+   * GitHub is asked whether the repository is public before the files and
+   * again after them: one that turned private is not read through the public
+   * path, even where the installation covers it.
+   */
   async function listingOf(
     app: AppKey,
     installationId: number,
@@ -175,7 +180,18 @@ export function createSkillRepositoryService(deps: SkillRepositoryServiceDeps) {
     ref: string,
   ): Promise<Listing> {
     let commit: string | null = null;
+    const publicNow = async () => {
+      const github = await reader.repositoryById(
+        app,
+        installationId,
+        repositoryId,
+      );
+      return github?.public === true ? github : null;
+    };
     try {
+      if ((await publicNow()) === null) {
+        return { kind: "missing", commit, what: "repository" };
+      }
       commit = await reader.resolve(app, installationId, repositoryId, ref);
       if (commit === null) return { kind: "missing", commit, what: "ref" };
       const tree = await reader.tree(app, installationId, repositoryId, commit);
@@ -183,14 +199,8 @@ export function createSkillRepositoryService(deps: SkillRepositoryServiceDeps) {
       const listing = await listSkillRepository(tree, (shas) =>
         reader.blobs(app, installationId, repositoryId, shas),
       );
-      // Read after the files: a repository that turned private since is not
-      // listed through the public path, even if the installation covers it.
-      const github = await reader.repositoryById(
-        app,
-        installationId,
-        repositoryId,
-      );
-      if (github === null || !github.public) {
+      const github = await publicNow();
+      if (github === null) {
         return { kind: "missing", commit, what: "repository" };
       }
       if (listing.kind === "refused") {
@@ -492,28 +502,45 @@ export function createSkillRepositoryService(deps: SkillRepositoryServiceDeps) {
     ): Promise<PutSkillRepositoryRefResponse> {
       const userId = await manager(caller);
       const before = await active(caller, id);
-      if (before.ref !== ref) {
-        const app = (await deps.apps(caller.ownerId)).find(
-          (one) => one.id === before.connectionId,
+      // Nothing to follow, and nothing written: every ref the store takes
+      // below is one this call resolved.
+      if (before.ref === ref) {
+        return { ...(await detail(before)), receipt_id: null, check: null };
+      }
+      const app = (await deps.apps(caller.ownerId)).find(
+        (one) => one.id === before.connectionId,
+      );
+      if (app === undefined) {
+        throw unavailable(new GitHubAppCheckError("github_rejected"));
+      }
+      let github: GitHubSkillRepository | null;
+      let commit: string | null = null;
+      try {
+        github = await reader.repositoryById(
+          app,
+          before.installationId,
+          before.repositoryId,
         );
-        if (app === undefined) {
-          throw unavailable(new GitHubAppCheckError("github_rejected"));
-        }
-        let commit: string | null;
-        try {
+        if (github?.public === true) {
           commit = await reader.resolve(
             app,
             before.installationId,
             before.repositoryId,
             ref,
           );
-        } catch (error) {
-          if (!(error instanceof GitHubAppCheckError)) throw error;
-          throw unavailable(error);
         }
-        if (commit === null) {
-          throw refused("ref_not_found", "The ref names no commit");
-        }
+      } catch (error) {
+        if (!(error instanceof GitHubAppCheckError)) throw error;
+        throw unavailable(error);
+      }
+      if (github?.public !== true) {
+        throw refused(
+          "repository_not_public",
+          "The repository is no longer public",
+        );
+      }
+      if (commit === null) {
+        throw refused("ref_not_found", "The ref names no commit");
       }
       const result = await store.setRef({
         workspaceId: caller.ownerId,

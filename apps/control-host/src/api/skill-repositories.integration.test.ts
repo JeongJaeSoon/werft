@@ -373,6 +373,34 @@ integration("skill repositories against fake GitHub", () => {
     ]);
   });
 
+  test("a registered repository the App covers that turned internal is asked for no ref or file, and takes no new ref", async () => {
+    const { caller } = await workspace();
+    github.setPrivate("acme", "home", false);
+    try {
+      const { repository } = await service.register(caller, {
+        url: "https://github.com/acme/home",
+      });
+      github.setInternal("acme", "home");
+      const before = github.apiRequests.length;
+      const checked = await service.checkNow(caller, repository.id);
+      expect(checked.repository.last_sync).toMatchObject({
+        result: "source_missing",
+        commit: null,
+      });
+      expect(
+        await refusal(service.setRef(caller, repository.id, "v2")),
+      ).toEqual(["BAD_REQUEST", "repository_not_public"]);
+      // The installation could read them; only the repository was asked.
+      expect(
+        github.apiRequests
+          .slice(before)
+          .filter((one) => /\/(git|commits)\//.test(one.path)),
+      ).toEqual([]);
+    } finally {
+      github.setPrivate("acme", "home", true);
+    }
+  });
+
   test("a check that arrives while one reads GitHub is queued, and the holder lists once more", async () => {
     const { caller } = await workspace();
     const repo = await publicRepository();

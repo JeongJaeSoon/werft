@@ -6852,7 +6852,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "checkSkillRepository",
     tag: "Workspace settings",
     summary: "Read a skill repository's listing again now",
-    description: `${SKILL_MANAGERS} Resolves the ref to a commit again and reads the listing there. ${SKILL_REPOSITORY_LISTING} One listing runs per repository at a time; while one runs this answers \`queued\` and that listing runs once more when it ends. \`last_sync\` records the time, who asked, the commit and the result: \`listed\`, \`source_missing\` (the ref or the repository is gone, or it is no longer public), \`rejected\` with \`issues\`, or \`github_unavailable\`. Only \`listed\` changes the skills shown. A removed repository is 400 \`repository_removed\`.`,
+    description: `${SKILL_MANAGERS} Resolves the ref to a commit again and reads the listing there. ${SKILL_REPOSITORY_LISTING} One listing runs per repository at a time; while one runs this answers \`queued\` and the process that runs it reads once more when it ends; should that process stop first, nothing reads the listing until the next check. GitHub is asked whether the repository is public before any file is read and again after. \`last_sync\` records the time, who asked, the commit and the result: \`listed\`, \`source_missing\` (the ref or the repository is gone, or it is no longer public), \`rejected\` with \`issues\`, or \`github_unavailable\`. Only \`listed\` changes the skills shown. A removed repository is 400 \`repository_removed\`.`,
     auth: "session",
     success: {
       status: 200,
@@ -6869,7 +6869,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "putSkillRepositoryRef",
     tag: "Workspace settings",
     summary: "Point a skill repository at another ref",
-    description: `${SKILL_MANAGERS} GitHub must resolve \`ref\` to a commit first (400 \`ref_not_found\`; GitHub not answering is 502 \`GITHUB_UNAVAILABLE\`). The repository then follows it, a listing that was running at the old ref writes nothing, and the listing is read at the new one: \`check\` says whether it ended (\`checked\`) or waits behind a running one (\`queued\`). Writes an \`update_skill_repository_ref\` receipt with the ref before and after; the ref it already follows answers \`receipt_id: null\` and reads nothing. A removed repository is 400 \`repository_removed\`.`,
+    description: `${SKILL_MANAGERS} The repository must still be public (400 \`repository_not_public\`) and GitHub must resolve \`ref\` to a commit first (400 \`ref_not_found\`; GitHub not answering is 502 \`GITHUB_UNAVAILABLE\`). The repository then follows it, a listing that was running at the old ref writes nothing, and the listing is read at the new one: \`check\` says whether it ended (\`checked\`) or waits behind a running one (\`queued\`). Writes an \`update_skill_repository_ref\` receipt with the ref before and after; the ref it already follows answers \`receipt_id: null\` and reads nothing. Should the process stop between the change and its listing, \`last_sync\` still shows the old ref's commit until the next check. A removed repository is 400 \`repository_removed\`.`,
     auth: "session",
     body: "PutSkillRepositoryRefRequest",
     requestExample: { ref: "v2" },

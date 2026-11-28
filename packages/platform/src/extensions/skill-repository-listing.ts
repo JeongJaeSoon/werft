@@ -170,10 +170,8 @@ export async function listSkillRepository(
     let read: ReturnType<typeof readSkillFile> | null = null;
     if (readable) {
       const bytes = blobs.get(file.sha);
-      if (
-        bytes === undefined ||
-        bytes.byteLength > SKILL_REPOSITORY_LIMITS.maxSkillFileBytes
-      ) {
+      // The limits above were judged on the tree's size.
+      if (bytes === undefined || bytes.byteLength !== file.size) {
         issues.push({
           path: "SKILL.md",
           code: "missing_skill_file",
@@ -184,12 +182,29 @@ export async function listSkillRepository(
         issues.unshift(...read.issues);
       }
     }
+    // A NUL is nothing PostgreSQL stores in text: the value is not shown.
+    const shown = (field: "description" | "license") => {
+      const value = read?.[field] ?? null;
+      if (value === null || !value.includes("\0")) return value;
+      issues.unshift({
+        path: "SKILL.md",
+        code: "bad_frontmatter",
+        message: `"${field}" holds a NUL character.`,
+      });
+      return null;
+    };
+    const description = shown("description");
+    const license = shown("license");
     return {
       ...entry,
       name: read?.name ?? null,
-      description: read?.description ?? null,
-      license: read?.license ?? null,
-      issues: issues.slice(0, MAX_ISSUES),
+      description,
+      license,
+      issues: issues.slice(0, MAX_ISSUES).map((issue) => ({
+        ...issue,
+        path: issue.path.replaceAll("\0", ""),
+        message: issue.message.replaceAll("\0", ""),
+      })),
     };
   });
   return {
