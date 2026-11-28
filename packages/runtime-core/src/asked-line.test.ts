@@ -824,6 +824,21 @@ const WIDE: [string, string, string | null][] = [
     "if 2>& 1 grep -r needle .; then echo found; fi",
     "a search of the workspace or a kept path",
   ],
+  [
+    "a body start in a comment after a time -p case pattern",
+    "gh pr create --title docs --body \"$(\n  time -p case docs in\n    docs)\n      # Example: $(cat <<'true'\n      grep -r needle .\n      ;;\n  esac\ntrue\n)\"",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a search after a spaced <>",
+    "if 0<> /dev/null grep -r needle .; then echo found; fi",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a search after an escaped > and a pipe",
+    "echo \\>|grep -r needle .",
+    "a search of the workspace or a kept path",
+  ],
   ["a message after clustered flags", "git commit -aq -m .claude", null],
   ["a gh body after a flag", "gh pr create --draft --body .claude", null],
   [

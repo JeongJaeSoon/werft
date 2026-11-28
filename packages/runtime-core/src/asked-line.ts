@@ -1396,7 +1396,7 @@ const PROGRAM_ENV =
   /^(GIT_PAGER|GH_PAGER|PAGER|GIT_EDITOR|GH_EDITOR|EDITOR|VISUAL|GIT_SEQUENCE_EDITOR)$/;
 const QUIET_PROGRAMS = ["", "cat", "true", ":"];
 /** A redirect before a command: `2>/dev/null`, `&>`, `<in`, not `<<` or `<(`. */
-const REDIRECT = /^(?:\d+|&)?(?:>&|<&|>>?\|?|<(?![<(]))/;
+const REDIRECT = /^(?:\d+|&)?(?:>&|<&|<>|>>?\|?|<(?![<(]))/;
 const SHELL_KEYWORDS = [
   "if",
   "then",
@@ -1972,7 +1972,7 @@ function withoutCatBodies(text: string): string {
   // `case` and `esac` as a command's first word, not an argument.
   const word = (name: string) =>
     text.startsWith(name, read) &&
-    /(^|[\n;&|(])[ \t]*(?:(?:if|then|elif|else|while|until|do|time|!|\{)[ \t]+)*$/.test(
+    /(^|[\n;&|(])[ \t]*(?:(?:if|then|elif|else|while|until|do|time|time[ \t]+-p|!|\{)[ \t]+)*$/.test(
       text.slice(Math.max(0, read - 80), read),
     ) &&
     /^$|[\s;&|)]/.test(text[read + name.length] ?? "");
@@ -2102,7 +2102,7 @@ function unsplitKept(
   // gives as text: a pull request's body may show a command it does not run.
   // A redirect's `&` and `|` (`2>&1`, `&>`, `>|`) do not end a command.
   for (const piece of withoutCatBodies(text).split(
-    /&&|\|\||(?<![<>])&(?!>)|(?<!>)\||[;\n()`]/,
+    /&&|\|\||(?<!(?<!\\)[<>])&(?!>)|(?<!(?<!\\)>)\||[;\n()`]/,
   )) {
     const written = piece
       .trim()
