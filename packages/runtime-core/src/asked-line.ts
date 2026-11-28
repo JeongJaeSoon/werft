@@ -1464,16 +1464,22 @@ function wideKept(
   if (wrapper !== -1 && options.length > 0) {
     return "a wrapper the line does not read";
   }
+  // After `env`, any `NAME=VALUE` is a setting, a name the shell would
+  // not take (`env '>X=1' grep`) among them.
+  const setting = (word: string, index: number) =>
+    ASSIGNMENT.test(word) ||
+    (wrapper !== -1 && index > wrapper && word.includes("="));
   if (
     !before.every(
-      (word) => ASSIGNMENT.test(word) || wraps(word) || word.startsWith("-"),
+      (word, index) =>
+        setting(word, index) || wraps(word) || word.startsWith("-"),
     )
   ) {
     return null;
   }
   const tool = nameOf(words[at] as string);
   if (tool !== "grep") {
-    for (const word of before.filter((w) => ASSIGNMENT.test(w))) {
+    for (const word of before.filter(setting)) {
       const cut = word.indexOf("=");
       const key = word.slice(0, cut);
       const value = word.slice(cut + 1);

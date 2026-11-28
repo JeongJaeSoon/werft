@@ -865,6 +865,16 @@ const WIDE: [string, string, string | null][] = [
     "git commit -m '>' --pathspec-from-file=paths.txt",
     "a path list the line does not show",
   ],
+  [
+    "a search behind env and a name the shell would not set",
+    "env '>TAG=demo' grep -r needle .",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "git behind env and a name the shell would not set",
+    "env '>TAG=demo' git log",
+    "a setting that may make git or gh run a program",
+  ],
   ["a message after clustered flags", "git commit -aq -m .claude", null],
   ["a gh body after a flag", "gh pr create --draft --body .claude", null],
   [
