@@ -48,6 +48,17 @@ const MAX_JSON_BYTES = 8 * 1024 * 1024;
 const MAX_EVENT_LINE_BYTES = 256 * 1024;
 /** What a request that names no model is reported as: nothing prices it. */
 const UNKNOWN_MODEL = "unknown";
+/** The longest model name the API's report schema accepts. */
+const MAX_MODEL_LENGTH = 256;
+
+/** An answer's model as a report can carry it; anything else names none. */
+function modelOf(value: unknown): string | undefined {
+  return typeof value === "string" &&
+    value !== "" &&
+    value.length <= MAX_MODEL_LENGTH
+    ? value
+    : undefined;
+}
 /** Longer than any speed's or geo's name; what the API's report schema accepts. */
 const MAX_NAME_LENGTH = 64;
 
@@ -315,7 +326,7 @@ export function usageMeter(
           typeof response === "object" && response !== null
             ? (response as Record<string, unknown>)
             : undefined;
-        if (typeof answer?.model === "string") model = answer.model;
+        model = modelOf(answer?.model) ?? model;
         responses = true;
         // The tier the call runs at is known from its first event on, which
         // matters for a request that left it to `auto`.
@@ -352,7 +363,7 @@ export function usageMeter(
         }
       } else if (type === "message_start" && typeof message === "object") {
         const started = message as Record<string, unknown> | null;
-        if (typeof started?.model === "string") model = started.model;
+        model = modelOf(started?.model) ?? model;
         counts = { ...counts, ...countsOf(started?.usage) };
       } else if (type === "message_delta") {
         counts = { ...counts, ...countsOf(usage) };
@@ -466,9 +477,7 @@ export function usageMeter(
           const body = JSON.parse(decoder.decode(Buffer.concat(chunks)));
           const model = options.requestModel
             ? requested(request).model
-            : typeof body?.model === "string"
-              ? body.model
-              : undefined;
+            : modelOf(body?.model);
           if (model !== undefined) {
             const said = { ...countsOf(body?.usage), ...responseExtras(body) };
             if (namesTokens(said)) return usageOf(model, said, false, request);

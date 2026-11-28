@@ -735,6 +735,19 @@ describe("an answer whose usage names no token count", () => {
     }
   });
 
+  test("a model name no report can carry is not the answer's: the request's is charged", () => {
+    for (const model of ["", "m".repeat(257), 7]) {
+      expect(
+        metered("application/json", [JSON.stringify({ model, usage: {} })]),
+      ).toMatchObject(fromRequest);
+    }
+    const stream = sse([
+      { ...started, message: { ...started.message, model: "", usage: {} } },
+      { type: "message_stop" },
+    ]);
+    expect(metered("text/event-stream", [stream])).toMatchObject(fromRequest);
+  });
+
   test("one count read is a measured answer: the rest are 0, an explicit 0 stands", () => {
     expect(json({ output_tokens: 7 })).toMatchObject({
       model: "claude-sonnet-4-5",
