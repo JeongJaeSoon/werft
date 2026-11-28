@@ -1445,11 +1445,13 @@ function wideKept(
     );
   }
   const wraps = (word: string) => WRAPPERS.includes(nameOf(word));
-  // After `env`, any `NAME=VALUE` is a setting, a name the shell would
-  // not take (`env '>X=1' grep`) among them.
-  const setting = (word: string, index: number) =>
-    ASSIGNMENT.test(word) ||
-    (word.includes("=") && words.slice(0, index).some(wraps));
+  // Right after `env`, any `NAME=VALUE` is a setting, a name the shell would
+  // not take (`env '>X=1' grep`) among them; after `command` it is a path.
+  const setting = (word: string, index: number) => {
+    if (ASSIGNMENT.test(word)) return true;
+    const wrapper = words.slice(0, index).filter(wraps).at(-1) ?? "";
+    return word.includes("=") && nameOf(wrapper) === "env";
+  };
   const at = words.findIndex(
     (word, index) => !setting(word, index) && TOOLS.includes(nameOf(word)),
   );

@@ -880,6 +880,16 @@ const WIDE: [string, string, string | null][] = [
     "env '>TAG=notes/grep' grep -r needle",
     "a search of a tree",
   ],
+  [
+    "a tool by a path holding = behind command",
+    "command ./build=debug/grep -r needle",
+    "a search of a tree",
+  ],
+  [
+    "a tool by a path holding = behind env and command",
+    "env X=1 command ./build=debug/grep -r needle",
+    "a search of a tree",
+  ],
   ["a message after clustered flags", "git commit -aq -m .claude", null],
   ["a gh body after a flag", "gh pr create --draft --body .claude", null],
   [
