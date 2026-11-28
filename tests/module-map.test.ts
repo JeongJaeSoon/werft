@@ -36,6 +36,7 @@ const modules = [
   "Kollegium",
   "Wache",
   "Takelage",
+  "Logbuch",
   "Lotse",
   "걸침",
   "미정",
@@ -50,6 +51,7 @@ const longNames = [
   "musterrolle",
   "kollegium",
   "takelage",
+  "logbuch",
   "bootsmann",
   "speicher",
   "gewissen",
@@ -210,9 +212,14 @@ function namesCode(name: string): boolean {
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
     .toLowerCase()
     .split(/[^a-z]+/);
+  // An all-capitals run (MCPKIELStatus) has no hump to split at.
+  const capitals = name.match(/[A-Z]{4,}/g) ?? [];
   return (
     longNames.some((long) => name.toLowerCase().includes(long)) ||
-    words.some((word) => shortNames.includes(word))
+    words.some((word) => shortNames.includes(word)) ||
+    capitals.some((run) =>
+      shortNames.some((short) => run.includes(short.toUpperCase())),
+    )
   );
 }
 
@@ -542,6 +549,8 @@ describe("module map", () => {
           "packages/platform/src/workers/workerKielStatus.ts",
           "packages/platform/src/workers/MCPKielStatus.ts",
           "packages/platform/src/workers/Kiel2.ts",
+          "packages/platform/src/workers/MCPWACHEStatus.ts",
+          "packages/platform/src/memory/logbuchStore.ts",
           "packages/speicher/src/index.ts",
           "apps/web/src/takelageList.tsx",
           "packages/platform/src/sessions/kielbasa.ts",
@@ -558,8 +567,10 @@ describe("module map", () => {
       "packages/db/src/musterrolle",
       "packages/platform/src/agents/lotseTeams.ts",
       "packages/platform/src/kiel",
+      "packages/platform/src/memory/logbuchStore.ts",
       "packages/platform/src/workers/Kiel2.ts",
       "packages/platform/src/workers/MCPKielStatus.ts",
+      "packages/platform/src/workers/MCPWACHEStatus.ts",
       "packages/platform/src/workers/workerKielStatus.ts",
       "packages/speicher",
       "packages/x/package.json: package name @werft-ai/kiel-runtime",
