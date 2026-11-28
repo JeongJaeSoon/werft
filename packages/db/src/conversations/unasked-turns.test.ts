@@ -360,12 +360,17 @@ describe("the unasked turn of a judgment that spoke (v1-b/U1)", () => {
   });
 
   /** Work bound to the place's thread, its link open, at `admission`. */
-  async function threadWork(at: Place, admission: "active" | "closing") {
+  async function threadWork(
+    at: Place,
+    admission: "active" | "closing",
+    createdAt: string | null = null,
+  ) {
     await client.query(
       `INSERT INTO slack_apps (id, workspace_id, kind, state, redirect_url,
         app_id, client_id, agent_id)
        VALUES ($1, $2, 'agent', 'created', 'https://console.example/slack',
-        $3, 'client', $4)`,
+        $3, 'client', $4)
+       ON CONFLICT DO NOTHING`,
       [randomUUID(), WORKSPACE, APP, AGENT],
     );
     const { sessionId, ownerId } = await newPartitionedSession(db, "work");
@@ -376,9 +381,9 @@ describe("the unasked turn of a judgment that spoke (v1-b/U1)", () => {
     await client.query(
       `INSERT INTO session_links (id, workspace_id, owner_id, session_id,
         installation_id, surface_binding_id, surface_ref, channel_id,
-        thread_id, opened_by_ts, agent_id, release_id)
+        thread_id, opened_by_ts, agent_id, release_id, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '100.000001', '100.000001',
-        $9, 'rel-work')`,
+        $9, 'rel-work', COALESCE($10::timestamptz, now()))`,
       [
         randomUUID(),
         WORKSPACE,
@@ -389,6 +394,7 @@ describe("the unasked turn of a judgment that spoke (v1-b/U1)", () => {
         `${CHANNEL}:100.000001`,
         CHANNEL,
         AGENT,
+        createdAt,
       ],
     );
     return sessionId;
@@ -429,6 +435,25 @@ describe("the unasked turn of a judgment that spoke (v1-b/U1)", () => {
       expect((await issue(at, judgmentId).issued).outcome).toBe("duplicate");
     });
   }
+
+  test("a reply held for its work (m1_to_task) is judged by that work, not one the thread opened after it", async () => {
+    const at = await place();
+    const held = await threadWork(at, "closing", "2026-01-01T00:00:00Z");
+    await heldReply("100.000002");
+    // Its link closed, the thread's next mention opened another work.
+    await client.query(
+      "UPDATE session_links SET closed_at = now(), closed_reason = 'completed' WHERE session_id = $1",
+      [held],
+    );
+    await threadWork(at, "active", "2999-01-01T00:00:00Z");
+    const judgmentId = await spoke(
+      at,
+      "100.000002",
+      ["100.000002"],
+      "m1_to_task",
+    );
+    expect((await issue(at, judgmentId).issued).outcome).toBe("issued");
+  });
 
   /** The reply as the judgment buffer holds it, no turn's yet. */
   const heldReply = (ts: string) =>

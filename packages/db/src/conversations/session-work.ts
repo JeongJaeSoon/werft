@@ -26,15 +26,23 @@ export function sessionWorkClosed(admissionState: string | undefined): boolean {
 /**
  * The admission_state of the session the latest link of a topic's Slack
  * thread names, as a scalar subquery; null when none names one. The link
- * is read by its install and surface ref, as the receive path finds it.
+ * is read by its install and surface ref, as the receive path finds it,
+ * and is one made by `heldAt` when given: the work a reply was held for,
+ * not one a later mention opened in the same thread.
  */
-export const threadWorkAdmission = (agentId: SQL, topicId: SQL): SQL => sql`(
+export const threadWorkAdmission = (
+  agentId: SQL,
+  topicId: SQL,
+  heldAt?: SQL,
+): SQL => sql`(
   SELECT s.admission_state FROM session_links l
   JOIN sessions s ON s.id = l.session_id
   JOIN conversation_topics tp ON tp.id = ${topicId}
-  WHERE l.installation_id IN (
+  WHERE l.agent_id = ${agentId}
+    AND l.installation_id IN (
       SELECT i.id FROM slack_installations i
       JOIN slack_apps sa ON sa.app_id = i.app_id
       WHERE sa.agent_id = ${agentId} AND i.team_id = tp.slack_team_id)
     AND l.surface_ref = tp.slack_channel_id || ':' || tp.slack_thread_ts
-  ORDER BY l.created_at DESC LIMIT 1)`;
+    ${heldAt === undefined ? sql`` : sql`AND (${heldAt} IS NULL OR l.created_at <= ${heldAt})`}
+  ORDER BY l.created_at DESC, l.id DESC LIMIT 1)`;

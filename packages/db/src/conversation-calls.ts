@@ -767,12 +767,20 @@ export function createPostgresConversationCalls(
               AND i.slack_channel_id = ${input.channelId}
               AND i.slack_ts = conversation_judgments.target_ts
               AND i.turn_id IS NOT NULL)`;
-          // The admission of the thread's latest work, read unlocked: a close
-          // that fails back to open work after this is 94S-2519's. No
-          // session there is closed work, as sessionWorkClosed reads it.
+          // The admission of the work the reply was held for (the thread's
+          // latest link by the time it was held), read unlocked: a close that
+          // fails back to open work after this is 94S-2519's, and a session
+          // taking the reply then is refused by its hold's answered judgment
+          // (takeSlackTurnInput). No session there is closed work, as
+          // sessionWorkClosed reads it.
           const workClosed = sql`COALESCE(${threadWorkAdmission(
             sql`${input.agentId}::uuid`,
             sql`${input.topicId}::uuid`,
+            sql`(SELECT i.received_at FROM conversation_inputs i
+              WHERE i.agent_id = ${input.agentId}::uuid
+                AND i.slack_team_id = ${input.teamId}
+                AND i.slack_channel_id = ${input.channelId}
+                AND i.slack_ts = conversation_judgments.target_ts)`,
           )}, 'closed') IN (${sql.join(
             CLOSED_WORK_ADMISSION_STATES.map((state) => sql`${state}`),
             sql`, `,

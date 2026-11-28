@@ -611,9 +611,15 @@ export function createSlackSessionHandler(
      * again should the close fail. Whoever mentioned is told once a
      * closing. Returns when the work is open, or the rollout is not on.
      */
+    /**
+     * `refused`: the session just refused this mention as closing or
+     * closed; work read open again since (a close that failed back) is
+     * waited out too, so the next look appends to it, not a failed line.
+     */
     const waitOutClosedWork = async (
       link: SessionLinkRecord,
       sessionId: string,
+      refused = false,
     ): Promise<void> => {
       const place = await deps.buffer.place({
         kind: "channel",
@@ -624,7 +630,17 @@ export function createSlackSessionHandler(
       });
       if (place.rollout !== "on") return;
       const closed = await deps.boundReplies.closedWork(sessionId);
-      if (closed === null) return;
+      if (closed === null) {
+        if (!refused) return;
+        deps.logger.info(
+          "Slack mention refused by work open again; looked at again",
+          {
+            ...ids,
+            session_id: sessionId,
+          },
+        );
+        throw new SlackInboundDeferred(SLACK_CLOSED_WORK_MENTION_RECHECK_MS);
+      }
       if (closed.admission === "closing" && !fromBot) {
         await deps.notices.recordInThread({
           workspaceId: agent.workspaceId,
@@ -1706,7 +1722,7 @@ export function createSlackSessionHandler(
         link.sessionId !== null &&
         link.openedByTs !== event.ts
       ) {
-        await waitOutClosedWork(link, link.sessionId);
+        await waitOutClosedWork(link, link.sessionId, true);
       }
       deps.logger.warn("Slack input refused by the session", {
         ...ids,

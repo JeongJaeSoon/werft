@@ -595,8 +595,11 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
     async heldWorkClosed(id) {
       const [row] = rowsOf<{ admission: string | null }>(
         await db.execute(sql`
-          SELECT ${threadWorkAdmission(sql`j.agent_id`, sql`i.topic_id`)}
-            AS admission
+          SELECT ${threadWorkAdmission(
+            sql`j.agent_id`,
+            sql`i.topic_id`,
+            sql`i.received_at`,
+          )} AS admission
           FROM conversation_judgments j
           JOIN conversation_inputs i ON i.id = j.input_id
           WHERE j.id = ${id}::uuid AND j.grade = 'm1_to_task'

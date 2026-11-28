@@ -141,7 +141,9 @@ rollout `on`에서 스레드에 묶인 작업이 결정 35대로 닫힌 작업(`
 알려진 한계:
 
 - 링크가 끝내 닫히지 않으면(닫힌 세션의 보고가 끝나지 않음) 멘션은 계속 기다리고, 같은 스레드의 뒤 이벤트도 그 뒤에 선다. 미룸에는 상한이 없다.
-- 소유자가 아닌 principal(PR 사건의 system 등)이 닫은 작업은 receipt를 owner index로 찾지 못하면 세션 키로 한 줄을 단다. 그 세션이 다시 열렸다 닫혀도 두 번째 줄은 없다.
+- 닫기 receipt는 누가 닫든 세션 owner의 칸에 쓰인다(`closeAtomic`은 다른 owner에게 `not_found`). 그래서 owner index로 찾고, 찾지 못할 때(receipt 없이 `closing`인 예전 행)만 세션 키로 한 줄을 단다. 그 세션이 다시 열렸다 닫혀도 두 번째 줄은 없다.
+- append가 `SESSION_CLOSING`·`SESSION_CLOSED`로 거절했는데 다시 읽은 작업이 열려 있으면(그 사이 close가 `active`로 돌아감) `failed`를 달지 않고 같은 간격으로 다시 본다. 다음 봄이 그 세션에 넣는다.
+- 기다린 멘션이 C1 `reply`로 답한 뒤, 같은 스레드에 다른 멘션이 새 작업을 열고 나서야 같은 글의 다른 이벤트(`message`와 `app_mention`)가 처리되면 새 세션이 그 글을 한 번 더 받을 수 있다. 링크가 닫힌 스레드의 C1 멘션에 이 PR 전부터 있던 길이다.
 - DM은 이 길을 타지 않는다.
 - `closedWork`를 읽은 뒤 미루기 전에 close가 `active`로 돌아가면, 다음 봄(5초 뒤)에 세션 턴이 된다. 그 사이 늦어질 뿐 턴을 잃지 않는다. 읽기와 미룸 사이의 close 되돌림 경쟁은 이 PR 밖이다.
 
@@ -490,7 +492,7 @@ M1·M2는 `a model that fails twice and answers the third time: …`와 MR1의 �
 
 ### 청하지 않은 턴
 
-M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는데 에이전트가 대화 턴으로 답한다(v1-b/U1). 대화 rollout이 `on`일 때만 턴을 낸다. 판단 하나(`conversation_judgments`의 한 줄)가 턴 하나를 낳고, 그 줄의 `target_ts`(답할 글), `turn_id`(낸 턴), `answer`(어떻게 끝났나)에 상태가 남는다. 버퍼의 묶음 판단(`buffer_m1`)과 최근 관여한 스레드의 답글 판단(`m1_engaged`)이 턴을 낸다. 닫힌 작업에 묶인 스레드의 답글(`m1`)은 rollout `on`에서 세션에 가지 않고 판단 버퍼에 보류된 채 판단받으므로, `speak`면 턴을 낸다. 같은 답글이 `shadow`·`off`에서 이미 세션의 턴이 된 뒤 판단받았으면 세션이 답하고 판단은 기록만 남는다. 작업 스레드의 답글(`m1_to_task`)은 턴을 낳지 않는다. `speak`면 작업의 다음 턴이 된다(아래 "작업 스레드의 답글").
+M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는데 에이전트가 대화 턴으로 답한다(v1-b/U1). 대화 rollout이 `on`일 때만 턴을 낸다. 판단 하나(`conversation_judgments`의 한 줄)가 턴 하나를 낳고, 그 줄의 `target_ts`(답할 글), `turn_id`(낸 턴), `answer`(어떻게 끝났나)에 상태가 남는다. 버퍼의 묶음 판단(`buffer_m1`)과 최근 관여한 스레드의 답글 판단(`m1_engaged`)이 턴을 낸다. 닫힌 작업에 묶인 스레드의 답글(`m1`)은 rollout `on`에서 세션에 가지 않고 판단 버퍼에 보류된 채 판단받으므로, `speak`면 턴을 낸다. 같은 답글이 `shadow`·`off`에서 이미 세션의 턴이 된 뒤 판단받았으면 세션이 답하고 판단은 기록만 남는다. 작업 스레드의 답글(`m1_to_task`)은 작업이 열려 있으면 턴을 낳지 않고, `speak`면 작업의 다음 턴이 된다. 기다리는 사이 그 작업이 닫혔으면 턴을 낸다(아래 "작업 스레드의 답글").
 
 | 지금 상태 | 다음 상태 | 조건 | 누가 일으키나 |
 | --- | --- | --- | --- |
@@ -556,7 +558,7 @@ M1이 끼어들기(`speak`)로 판단한 글에, 아무도 부르지 않았는�
 
 막을 전이(괄호는 그 거절을 고정하는 시험, 따로 적지 않으면 `apps/control-host/src/slack/session-handler.integration.test.ts`의 "Slack replies in a work's thread once the rollout is on"):
 
-- 한 글이 세션의 턴과 청하지 않은 턴을 둘 다 낳지 않는다. rollout `on`에서 닫힌 작업의 멘션 없는 답글은 세션에 가지 않는다("an unmentioned reply goes to no session; ..."). 세션의 턴이 가져간 글의 `m1` 판단은 `speak`여도 DB가 턴을 `duplicate`로 거절한다("one post, one answer: ...", `packages/db/src/conversations/unasked-turns.test.ts` "a closed work's reply its session took (m1) makes none"). `m1_to_task` 판단은 작업이 열려 있으면 청하지 않은 턴을 내지 않는다("its speak makes it the work's next turn"에서 speaker를 부르지 않음, "work open when M1 spoke: ..."). 기다리는 사이 작업이 닫혔으면 턴 하나를 내고, inbox는 판단의 `turn_id`를 보고 세션에 넣지 않는다("work %s while its reply waited ...: M1's speak answers it with one unasked turn, and the work takes nothing", "work closed when M1 spoke and open again before the reply is looked at: ..."). 작업이 다시 열렸거나 세션이 이미 가져간 글이면 DB가 `duplicate`로 거절한다(`packages/db/src/conversations/unasked-turns.test.ts`의 "a reply of work going on that spoke (m1_to_task) makes none", "a reply held for its work (m1_to_task), that work %s ...: one unasked turn").
+- 한 글이 세션의 턴과 청하지 않은 턴을 둘 다 낳지 않는다. rollout `on`에서 닫힌 작업의 멘션 없는 답글은 세션에 가지 않는다("an unmentioned reply goes to no session; ..."). 세션의 턴이 가져간 글의 `m1` 판단은 `speak`여도 DB가 턴을 `duplicate`로 거절한다("one post, one answer: ...", `packages/db/src/conversations/unasked-turns.test.ts` "a closed work's reply its session took (m1) makes none"). `m1_to_task` 판단은 작업이 열려 있으면 청하지 않은 턴을 내지 않는다("its speak makes it the work's next turn"에서 speaker를 부르지 않음, "work open when M1 spoke: ..."). 기다리는 사이 작업이 닫혔으면 턴 하나를 내고, inbox는 판단의 `turn_id`를 보고 세션에 넣지 않는다("work %s while its reply waited ...: M1's speak answers it with one unasked turn, and the work takes nothing", "work closed when M1 spoke and open again before the reply is looked at: ..."). 판단하는 작업은 그 글을 보류할 때까지 만든 스레드의 마지막 링크의 것이다. 그 뒤 같은 스레드에 다른 멘션이 연 작업이 아니다("... is judged by that work, not one the thread opened after it"). 청하지 않은 턴이 답한 글은 세션이 가져가지 않는다: 보류 행을 가져갈 때 그 글의 `m1_to_task` 판단을 `FOR SHARE`로 잠가 `turn_id`를 보고, 있으면 append를 되돌린다(아직 쓰는 중인 발행은 그 잠금이 기다린다. 입력 → 판단 순서는 M1의 끝내기와 같다). 작업이 다시 열렸거나 세션이 이미 가져간 글이면 DB가 `duplicate`로 거절한다(`packages/db/src/conversations/unasked-turns.test.ts`의 "a reply of work going on that spoke (m1_to_task) makes none", "a reply held for its work (m1_to_task), that work %s ...: one unasked turn").
 - 닫힌 작업의 답글은 판단하지 못하면 세션에도 청하지 않은 턴에도 가지 않는다("M1 could not judge it (failed / budget_refused / throws): left unanswered, the work done").
 - 닫힌 작업의 답글이 `quiet`이면 턴이 없다("kept quiet (no_reply): no turn of any kind").
 - 열린 작업의 답글이 `quiet`이면 세션이 듣지 못한다("kept quiet: the work never hears it, and its held text goes").

@@ -100,8 +100,9 @@ export function createPostgresBoundReplyStore(
 
     async closedWork(sessionId) {
       // The close receipt a closing's drain waits on, by the owner's index:
-      // read only while closing, and newest first, so the scan stops at it.
-      // A close another principal asked for is not found this way.
+      // closeAtomic writes it under the session owner's partition, whoever
+      // asked (another owner is not_found). Read only while closing, newest
+      // first, so the scan stops at it.
       const [session] = rowsOf<{
         admission_state: string;
         receipt_id: string | null;
