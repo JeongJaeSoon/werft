@@ -1,6 +1,6 @@
 {
-  "id": "6eb73243-f897-40e2-9b44-9859ed46aa26",
-  "prevId": "fc43ae25-cd2e-4968-9a3f-7cd1c9418801",
+  "id": "1f8095ae-cf28-434e-9736-6f69dfc9ccc3",
+  "prevId": "c302eeaf-651e-422d-a503-8f0a44016b18",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -13899,6 +13899,18 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
+        },
+        "priced_by": {
+          "name": "priced_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "price_version": {
+          "name": "price_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -14061,6 +14073,25 @@
           "primaryKey": false,
           "notNull": true
         },
+        "request_model": {
+          "name": "request_model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "price_version": {
+          "name": "price_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "price_unknown": {
+          "name": "price_unknown",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "recorded_at": {
           "name": "recorded_at",
           "type": "timestamp with time zone",
@@ -14081,6 +14112,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "provider_usage_session_price_unknown_idx": {
+          "name": "provider_usage_session_price_unknown_idx",
+          "columns": [
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"provider_usage\".\"price_unknown\"",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -14112,7 +14159,7 @@
       "checkConstraints": {
         "provider_usage_priced_by_check": {
           "name": "provider_usage_priced_by_check",
-          "value": "\"provider_usage\".\"priced_by\" IN ('table', 'fallback', 'unmetered')"
+          "value": "\"provider_usage\".\"priced_by\" IN ('table', 'litellm', 'unknown', 'fallback', 'unmetered')"
         },
         "provider_usage_cost_usd_nonneg": {
           "name": "provider_usage_cost_usd_nonneg",
