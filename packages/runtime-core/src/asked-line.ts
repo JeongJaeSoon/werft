@@ -276,6 +276,14 @@ for (const pattern of workspaceAskPatterns()) {
 /** A command by its name, whatever directory it was called from. */
 const nameOf = (word: string) => word.slice(word.lastIndexOf("/") + 1);
 
+/** The other names grep is installed under; each takes grep's options. */
+const GREP_ALIASES = ["egrep", "fgrep", "zgrep", "zegrep", "zfgrep", "ggrep"];
+/** A command by the name it is judged by: an alias of grep is grep. */
+const toolOf = (word: string) => {
+  const name = nameOf(word);
+  return GREP_ALIASES.includes(name) ? "grep" : name;
+};
+
 /** A text longer than this, or more tries than this, is not matched but kept. */
 const ASKED_TEXT_READ = 4_000;
 const ASKED_TRIES = 32;
@@ -286,8 +294,9 @@ const ASKED_TRIES = 32;
  * before it tries them (`env X=1 cmd`, `xargs cmd`, `command cmd`,
  * `X=1 cmd`). Which word starts the command is not known here, so the rules
  * are tried from every word that names one of their commands, by its own
- * name or its base name (`/usr/bin/git` is `git`). A file operand named
- * like such a command starts a try as well; what `echo` prints is text.
+ * name or its base name (`/usr/bin/git` is `git`, `egrep` is `grep`). A file
+ * operand named like such a command starts a try as well; what `echo` prints
+ * is text.
  * The tries and the text of each are bounded: past either limit the words
  * count as asked.
  */
@@ -297,7 +306,7 @@ function namesAsked(words: readonly string[], tail = ""): boolean {
   for (let i = 0; i < Math.max(starts, 1); i += 1) {
     const word = words[i] ?? "";
     if (i > 0 && /\s/.test(word)) continue;
-    for (const name of new Set([word, nameOf(word)])) {
+    for (const name of new Set([word, nameOf(word), toolOf(word)])) {
       const rules = ASK_RULES.get(name) ?? [];
       if (rules.length === 0 && ASK_RULES_ANY_COMMAND.length === 0) continue;
       tries += 1;
@@ -1388,6 +1397,9 @@ const WRAPPERS = ["env", "command", "builtin", "exec", "nohup", "time"];
 const TRACE_ENV = /^GIT_TRACE\w*$/;
 const TRACE_SWITCH = /^(\d?|true|false)$/i;
 const TOOLS = ["git", "gh", "grep"];
+/** Whether a word names one of {@link TOOLS}, or a grep this does not know. */
+const namesTool = (word: string) =>
+  TOOLS.includes(toolOf(word)) || nameOf(word).endsWith("grep");
 /** Settings of a git or gh environment that run nothing. */
 const QUIET_ENV =
   /^(LC_\w+|LANG|LANGUAGE|TZ|TERM|COLUMNS|NO_COLOR|FORCE_COLOR|CLICOLOR(_FORCE)?|CI|GIT_OPTIONAL_LOCKS|GIT_CONFIG_NOSYSTEM|GIT_TERMINAL_PROMPT|GIT_(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)|GH_REPO|GH_HOST|GH_PROMPT_DISABLED|GH_NO_UPDATE_NOTIFIER|GH_FORCE_TTY)$/;
@@ -1412,7 +1424,8 @@ const SHELL_KEYWORDS = [
 /**
  * The wide reading of git, gh and grep: {@link narrowKept} but the work-tree
  * checks, on the command behind any wrapper or setting (`env X=1 git`,
- * `/usr/bin/grep`). A setting of git's or gh's environment may name a program
+ * `/usr/bin/egrep`). A name that ends in `grep` and is not known to be grep
+ * goes to a person. A setting of git's or gh's environment may name a program
  * (`GIT_PAGER=sh`, `GIT_DIR=.claude`), so only those known to run nothing pass.
  */
 function wideKept(
@@ -1445,7 +1458,7 @@ function wideKept(
     );
   }
   // Read left to right as the shell and each wrapper do: settings, then a
-  // wrapper and its options, until git, gh or grep. Right after `env` any
+  // wrapper and its options, until git, gh or a grep. Right after `env` any
   // `NAME=VALUE` is a setting, a name the shell would not take
   // (`env '>X=1' grep`) among them; after `command` it is a path.
   const settings: string[] = [];
@@ -1458,7 +1471,7 @@ function wideKept(
     if (last !== undefined && word.startsWith("-")) {
       // A tool's path that starts with `-` (`env X=1 -tools/grep`) and an
       // option with its value glued on (`env -u/x/grep`) look alike.
-      if (word.includes("/") && TOOLS.includes(name)) {
+      if (word.includes("/") && namesTool(word)) {
         return "a wrapper the line does not read";
       }
       options.push(word);
@@ -1481,15 +1494,14 @@ function wideKept(
     // parks more.
     if (ASSIGNMENT.test(word) || (last === "env" && word.includes("="))) {
       settings.push(word);
-    } else if (TOOLS.includes(name)) {
+    } else if (namesTool(word)) {
       at = index;
       break;
     } else if (WRAPPERS.includes(name)) {
       wrappers.push(name);
     } else {
       // A word after a wrapper's option may be its value (`env -u X git`).
-      return options.length > 0 &&
-        words.slice(index).some((later) => TOOLS.includes(nameOf(later)))
+      return options.length > 0 && words.slice(index).some(namesTool)
         ? "a wrapper the line does not read"
         : null;
     }
@@ -1497,7 +1509,8 @@ function wideKept(
   if (at === -1) return null;
   // A wrapper's option may take a value (`env -u X`, `env -C dir`).
   if (options.length > 0) return "a wrapper the line does not read";
-  const tool = nameOf(words[at] as string);
+  const tool = toolOf(words[at] as string);
+  if (!TOOLS.includes(tool)) return "a grep by a name the line does not read";
   if (tool !== "grep") {
     for (const word of settings) {
       const cut = word.indexOf("=");
