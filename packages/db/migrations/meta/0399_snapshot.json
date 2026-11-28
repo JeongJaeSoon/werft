@@ -1,6 +1,6 @@
 {
-  "id": "362a8e12-1a4a-40d2-a9d1-570044dcb002",
-  "prevId": "c302eeaf-651e-422d-a503-8f0a44016b18",
+  "id": "72edec81-f099-47d0-8f0d-916f6db60bb0",
+  "prevId": "6498a59c-d6b5-40aa-8f30-15075924918a",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -13775,6 +13775,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "network": {
+          "name": "network",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_by": {
           "name": "created_by",
           "type": "uuid",
@@ -13817,6 +13823,10 @@
         "provider_connections_auto_mode_check": {
           "name": "provider_connections_auto_mode_check",
           "value": "\"provider_connections\".\"auto_mode\" IN ('supported', 'unsupported', 'unknown')"
+        },
+        "provider_connections_network_check": {
+          "name": "provider_connections_network_check",
+          "value": "\"provider_connections\".\"network\" IN ('public', 'private')"
         },
         "provider_connections_credential_source_check": {
           "name": "provider_connections_credential_source_check",
