@@ -629,6 +629,44 @@ const WIDE: [string, string, string | null][] = [
     "git commit -m '-Refactor_the_payment_gateway_adapter_layer'",
     null,
   ],
+  [
+    "git behind env called by its path",
+    "/usr/bin/env git apply notes/p.patch",
+    "a patch the line does not show",
+  ],
+  [
+    "git behind a setting whose value names git",
+    "env LC_ALL=notes/git git apply notes/p.patch",
+    "a patch the line does not show",
+  ],
+  [
+    "a git pattern that looks like a message flag",
+    "git grep -e -m .claude/settings.json",
+    "a path that goes to a person",
+  ],
+  [
+    "a git trace written to a file",
+    "GIT_TRACE2_EVENT=/tmp/x.json git status",
+    "a setting that may make git or gh run a program",
+  ],
+  ["a git trace to stderr", "GIT_TRACE=1 git status", null],
+  ["a lock setting", "GIT_OPTIONAL_LOCKS=0 git status", null],
+  ["a look-up of git", "command -v git", null],
+  [
+    "a body that shows git and grep lines",
+    "gh pr create --title x --body \"$(cat <<'EOF'\ngit config core.editor vi\ngrep -r x\nEOF\n)\"",
+    null,
+  ],
+  [
+    "git run by a substitution",
+    'git commit -m "$(git config core.editor vi)"',
+    "a git setting",
+  ],
+  [
+    "git after a body's end",
+    "git commit -m \"$(cat <<'EOF'\nx\nEOF\ngit config core.editor vi\n)\"",
+    "a git setting",
+  ],
   // The work-tree checks are the narrow reading's alone.
   ["a checkout of the top", "git checkout HEAD -- .", null],
   ["a checkout of a branch", "git checkout main", null],
@@ -1408,6 +1446,71 @@ const NARROW: [string, string, string | null][] = [
   ["a tree read into the index", "git read-tree HEAD", null],
   ["every change added", "git add -A", null],
   ["the top added", "git add .", null],
+  // The last of an option and its --no- form decides, and -- ends options.
+  [
+    "a dry clean turned off",
+    "git clean -n --no-dry-run -fd",
+    "a write of the whole work tree",
+  ],
+  [
+    "a dry-run letter given as a pathspec",
+    "git clean -fd -- . -n",
+    "a write of the whole work tree",
+  ],
+  [
+    "an index restore turned off",
+    "git restore -S --no-staged .",
+    "a write of the whole work tree",
+  ],
+  [
+    "an index removal turned off",
+    "git rm --cached --no-cached -r .",
+    "a write of the whole work tree",
+  ],
+  ["a pathspec named like an option", "git stash push -- -u", null],
+  ["a reset of a path named like an option", "git reset HEAD -- --hard", null],
+  // A switch that forces, or starts from no tree.
+  [
+    "a forced switch",
+    "git switch --force main",
+    "a write of the whole work tree",
+  ],
+  [
+    "an orphan switch",
+    "git switch --orphan new",
+    "a write of the whole work tree",
+  ],
+  [
+    "a switch that drops changes",
+    "git switch --discard-changes --detach",
+    "a write of the whole work tree",
+  ],
+  [
+    "a detached checkout of a name on disk",
+    "git checkout --detach notes/sample.txt",
+    "a switch to another tree",
+  ],
+  // A shell with extended globs reads ~ and ^ inside a word as patterns.
+  [
+    "a kept name before a ~",
+    "git restore .mcp.json~other",
+    "a path that goes to a person",
+  ],
+  [
+    "a kept folder before a ^",
+    "git restore .claude/^x",
+    "a path that goes to a person",
+  ],
+  [
+    "a ~ in a redirect target",
+    "echo x > notes/out~other",
+    "a ~ outside a quote",
+  ],
+  [
+    "a ^ in a redirect target",
+    "git status > notes/out^x",
+    "a ^ outside a quote",
+  ],
 ];
 
 describe("the wide reading", () => {
