@@ -359,8 +359,50 @@ describe("the unasked turn of a judgment that spoke (v1-b/U1)", () => {
     expect((await issue(at, judgmentId).issued).outcome).toBe("issued");
   });
 
+  /** Work bound to the place's thread, its link open, at `admission`. */
+  async function threadWork(
+    at: Place,
+    admission: "active" | "closing",
+    createdAt: string | null = null,
+  ) {
+    await client.query(
+      `INSERT INTO slack_apps (id, workspace_id, kind, state, redirect_url,
+        app_id, client_id, agent_id)
+       VALUES ($1, $2, 'agent', 'created', 'https://console.example/slack',
+        $3, 'client', $4)
+       ON CONFLICT DO NOTHING`,
+      [randomUUID(), WORKSPACE, APP, AGENT],
+    );
+    const { sessionId, ownerId } = await newPartitionedSession(db, "work");
+    await client.query(
+      "UPDATE sessions SET admission_state = $2 WHERE id = $1",
+      [sessionId, admission],
+    );
+    await client.query(
+      `INSERT INTO session_links (id, workspace_id, owner_id, session_id,
+        installation_id, surface_binding_id, surface_ref, channel_id,
+        thread_id, opened_by_ts, agent_id, release_id, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '100.000001', '100.000001',
+        $9, 'rel-work', COALESCE($10::timestamptz, now()))`,
+      [
+        randomUUID(),
+        WORKSPACE,
+        ownerId,
+        sessionId,
+        at.installationId,
+        at.bindingId,
+        `${CHANNEL}:100.000001`,
+        CHANNEL,
+        AGENT,
+        createdAt,
+      ],
+    );
+    return sessionId;
+  }
+
   test("a reply of work going on that spoke (m1_to_task) makes none: the work answers it", async () => {
     const at = await place();
+    await threadWork(at, "active");
     const judgmentId = await spoke(
       at,
       "100.000002",
@@ -375,6 +417,44 @@ describe("the unasked turn of a judgment that spoke (v1-b/U1)", () => {
     });
   });
 
+  for (const [name, admission] of [
+    ["closing as it is answered", "closing"],
+    ["gone from its thread", null],
+  ] as const) {
+    test(`a reply held for its work (m1_to_task), that work ${name} (94S-2506): one unasked turn`, async () => {
+      const at = await place();
+      if (admission !== null) await threadWork(at, admission);
+      const judgmentId = await spoke(
+        at,
+        "100.000002",
+        ["100.000002"],
+        "m1_to_task",
+      );
+      expect((await issue(at, judgmentId).issued).outcome).toBe("issued");
+      expect((await turnsOf()).rows).toHaveLength(1);
+      expect((await issue(at, judgmentId).issued).outcome).toBe("duplicate");
+    });
+  }
+
+  test("a reply held for its work (m1_to_task) is judged by that work, not one the thread opened after it", async () => {
+    const at = await place();
+    const held = await threadWork(at, "closing", "2026-01-01T00:00:00Z");
+    await heldReply("100.000002");
+    // Its link closed, the thread's next mention opened another work.
+    await client.query(
+      "UPDATE session_links SET closed_at = now(), closed_reason = 'completed' WHERE session_id = $1",
+      [held],
+    );
+    await threadWork(at, "active", "2999-01-01T00:00:00Z");
+    const judgmentId = await spoke(
+      at,
+      "100.000002",
+      ["100.000002"],
+      "m1_to_task",
+    );
+    expect((await issue(at, judgmentId).issued).outcome).toBe("issued");
+  });
+
   /** The reply as the judgment buffer holds it, no turn's yet. */
   const heldReply = (ts: string) =>
     client.query(
@@ -385,6 +465,74 @@ describe("the unasked turn of a judgment that spoke (v1-b/U1)", () => {
         'and the next step', now() + interval '10 minutes')`,
       [randomUUID(), WORKSPACE, AGENT, randomUUID(), TEAM, CHANNEL, ts],
     );
+
+  test("a reply held for its work (m1_to_task) is judged by the session it was held for, though the thread opened another before its hold", async () => {
+    const at = await place();
+    const held = await threadWork(at, "closing", "2026-01-01T00:00:00Z");
+    // Its link closed and the thread's next work opened before the hold.
+    await client.query(
+      "UPDATE session_links SET closed_at = now(), closed_reason = 'completed' WHERE session_id = $1",
+      [held],
+    );
+    await threadWork(at, "active", "2026-01-02T00:00:00Z");
+    await heldReply("100.000002");
+    const judgmentId = await spoke(
+      at,
+      "100.000002",
+      ["100.000002"],
+      "m1_to_task",
+    );
+    await client.query(
+      "UPDATE conversation_judgments SET work_session_id = $2 WHERE id = $1",
+      [judgmentId, held],
+    );
+    expect((await issue(at, judgmentId).issued).outcome).toBe("issued");
+  });
+
+  test("a reply an unasked turn answered (m1_to_task) is no session's turn, its held row gone since", async () => {
+    const at = await place();
+    await threadWork(at, "closing");
+    await heldReply("100.000002");
+    const judgmentId = await spoke(
+      at,
+      "100.000002",
+      ["100.000002"],
+      "m1_to_task",
+    );
+    expect((await issue(at, judgmentId).issued).outcome).toBe("issued");
+    // The buffer's limit took its row.
+    await client.query(
+      "UPDATE conversation_judgments SET input_id = NULL WHERE id = $1",
+      [judgmentId],
+    );
+    await client.query(
+      "DELETE FROM conversation_inputs WHERE slack_ts = '100.000002' AND buffer_expires_at IS NOT NULL",
+    );
+    const session = await newPartitionedSession(db, "answered-take");
+    await client.query(
+      "UPDATE sessions SET status = 'idle', workspace_id = $2 WHERE id = $1",
+      [session.sessionId, WORKSPACE],
+    );
+    await client.query(
+      "UPDATE turns SET requester_kind = 'user', requester_id = $2 WHERE session_id = $1",
+      [session.sessionId, randomUUID()],
+    );
+    await expect(
+      db.transaction((tx) =>
+        takeSlackTurnInput(
+          tx,
+          { workspaceId: WORKSPACE, agentId: AGENT, teamId: TEAM },
+          {
+            topicId: at.topicId,
+            channelId: CHANNEL,
+            ts: "100.000002",
+            turn: { sessionId: session.sessionId, sequence: 1 },
+            engagement: "bound",
+          },
+        ),
+      ),
+    ).rejects.toThrow("answered by an unasked turn");
+  });
 
   test("a closed work's held reply that spoke (m1) makes its one unasked turn", async () => {
     const at = await place();
@@ -470,7 +618,8 @@ describe("the unasked turn of a judgment that spoke (v1-b/U1)", () => {
         tokenHash: hashConversationCallToken(token),
         exchangeId: randomUUID(),
         callId: conversationCallIdSchema.parse(randomUUID()),
-        reserveFor: () => ({ reserve, unmetered: false }),
+        reserveFor: () => ({ reserve, unmetered: false, pricedBy: "table" }),
+        unknownPriceTokenLimit: 5_000_000,
       });
       expect(granted.outcome).toBe(outcome);
       if (granted.outcome === "refused") {

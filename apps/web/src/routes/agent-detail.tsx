@@ -20,6 +20,7 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  Link as TextLink,
 } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -57,7 +58,7 @@ import {
 import {
   NewSessionButton,
   NewSessionReason,
-  useNewSessionReason,
+  useNewSessionStart,
 } from "./agent-detail/new-session.tsx";
 import { OverviewTab } from "./agent-detail/overview-tab.tsx";
 import {
@@ -159,7 +160,7 @@ function AgentView({
     onOutcome: outcomeAt("releases"),
     openRelease: () => open("release"),
   });
-  const newSessionReason = useNewSessionReason(detail);
+  const newSession = useNewSessionStart(detail);
 
   // Every panel stays mounted, so leaving a tab never drops an unsaved card;
   // Radix leaves a force-mounted panel visible and in the tab order.
@@ -295,8 +296,8 @@ function AgentView({
         <div className="flex flex-1 flex-wrap items-start gap-2">
           <NewSessionButton
             agentId={detail.agent.id}
-            releaseId={detail.active_release?.id ?? null}
-            reason={newSessionReason}
+            releaseId={newSession.releaseId}
+            reason={newSession.reason}
           />
           <Link
             to="/agents"
@@ -311,7 +312,36 @@ function AgentView({
         </div>
       }
     >
-      <NewSessionReason reason={newSessionReason} />
+      <NewSessionReason
+        reason={newSession.reason}
+        action={
+          newSession.fixedOnReleaseTab ? (
+            <TextLink asChild underline="always">
+              <Link
+                to="/agents/$id"
+                params={{ id: agent.id }}
+                search={{ tab: "release" }}
+                replace
+                onClick={(event) => {
+                  // A modified click opens the address elsewhere.
+                  if (
+                    event.button !== 0 ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey ||
+                    event.altKey
+                  )
+                    return;
+                  event.preventDefault();
+                  open("release", releaseTab);
+                }}
+              >
+                {t("agent.tabs.toRelease")}
+              </Link>
+            </TextLink>
+          ) : undefined
+        }
+      />
       <OutcomeLine outcome={placed?.at === "page" ? placed.outcome : null} />
       <OwnerlessAlert agent={agent} onAdmins={() => open("admins")} />
       {manages ? <CodexSandboxAlert detail={detail} /> : null}

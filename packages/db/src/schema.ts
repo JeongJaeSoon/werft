@@ -4087,6 +4087,14 @@ export const conversationCalls = pgTable(
       .defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     endedAt: timestamp("ended_at", { withTimezone: true }),
+    // What priced the model the call was issued for, written when it is held,
+    // and what settled it, written by the report: an older image writes
+    // neither, and one that settles leaves priced_by null. The calls marked
+    // unknown are what the limit on tokens of unknown price counts for their
+    // account (or, with none, their agent) and month.
+    reservePricedBy:
+      text("reserve_priced_by").$type<Exclude<PricedBy, "fallback">>(),
+    pricedBy: text("priced_by").$type<Exclude<PricedBy, "fallback">>(),
     // In flight past the lease with no report: its end is unknown, still
     // held. Older images ignore it and treat the row as in flight.
     unknownAt: timestamp("unknown_at", { withTimezone: true }),
@@ -4165,6 +4173,10 @@ export const conversationCalls = pgTable(
     index("conversation_calls_conversation_turn_idx")
       .on(table.conversationTurnId)
       .where(sql`${table.conversationTurnId} IS NOT NULL`),
+    check(
+      "conversation_calls_priced_by_check",
+      sql`${table.reservePricedBy} IN ('table', 'litellm', 'unknown', 'unmetered') AND ${table.pricedBy} IN ('table', 'litellm', 'unknown', 'unmetered')`,
+    ),
     check(
       "conversation_calls_conversation_turn_check",
       sql`${table.conversationTurnId} IS NULL OR COALESCE(${table.callClass} = 'm2', false)`,
@@ -6567,6 +6579,10 @@ export const conversationJudgments = pgTable(
     turnId: uuid("turn_id").$type<ConversationTurnId>(),
     // What became of it then: the turn's end, or why no turn was made.
     answer: text().$type<JudgmentAnswer>(),
+    // The session whose work an `m1_to_task` reply was held for, as the
+    // receive path read its thread; null on other grades and on records
+    // written before it, read by the thread's links then.
+    workSessionId: uuid("work_session_id"),
     // A reply's judge took it; one taken too long ago is given up.
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })

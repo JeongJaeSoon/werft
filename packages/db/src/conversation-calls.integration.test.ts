@@ -30,7 +30,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import {
@@ -58,6 +58,8 @@ const MODEL = "claude-haiku-4-5";
 const LIMITS = { model: MODEL, maxTokens: 256, maxRequestBytes: 4_096 };
 const RESERVE = conversationCallReserve(LIMITS);
 const CONNECTION = "conn-messages";
+// Neither price table nor the LiteLLM snapshot names it.
+const UNPRICED = "werft-test-model-nothing-prices";
 const catalog = {
   connections: {
     [CONNECTION]: {
@@ -66,7 +68,7 @@ const catalog = {
         endpoint: "https://api.anthropic.invalid",
         auth: { kind: "api_key", value: "k", ref: { stored: "c" } },
       },
-      models: [MODEL],
+      models: [MODEL, UNPRICED],
     },
   },
 } as unknown as Pick<SessionCatalog, "connections">;
@@ -124,12 +126,12 @@ integration("conversation calls on PostgreSQL", () => {
   }, 60_000);
 
   // An agent of its own per test, its calls in progress counted apart.
-  async function newAgent() {
+  async function newAgent(managingTeamId = teamId) {
     const id = crypto.randomUUID();
     await db.insert(agents).values({
       id,
       workspaceId,
-      managingTeamId: teamId,
+      managingTeamId,
       slug: `agent-${id}`,
       name: "agent",
     });
@@ -233,6 +235,71 @@ integration("conversation calls on PostgreSQL", () => {
     expect(rows).toHaveLength(1);
   });
 
+  test("four issues at once for a model nothing prices on an account with only a cost limit: those under its limit on tokens of unknown price are issued, the rest refused with nothing held", async () => {
+    const team = crypto.randomUUID();
+    await db
+      .insert(memberTeams)
+      .values({ id: team, workspaceId, name: `team-${team}` });
+    await saveBudgetLimit(
+      db,
+      workspaceId,
+      { kind: "team", teamId: team },
+      { costUsd: 1, tokens: null },
+    );
+    const unpriced = conversationCallReserve({ ...LIMITS, model: UNPRICED });
+    // An agent each and no person: the team account's row, not an agent's
+    // or a requester's lock, orders them.
+    const callers = await Promise.all([0, 1, 2, 3].map(() => newAgent(team)));
+    const results = await Promise.all(
+      callers.map(({ agentId, conversationId }) =>
+        createConversationCalls({
+          store: store(),
+          catalog,
+          unknownPriceTokenLimit: async () => unpriced.tokens * 2 + 1,
+        }).issue({
+          workspaceId,
+          agentId,
+          conversationId,
+          topicId: null,
+          callClass: "m2",
+          releaseId: null,
+          callKey: keyOf(),
+          attempt: 1,
+          root: { kind: "key", keyKind: "agent", createdByUserId: null },
+          connectionId: CONNECTION,
+          ...LIMITS,
+          model: UNPRICED,
+        }),
+      ),
+    );
+    expect(
+      results.map((result) =>
+        result.outcome === "refused" ? result.by : result.outcome,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        "issued",
+        "issued",
+        "unknown_price_tokens",
+        "unknown_price_tokens",
+      ]),
+    );
+    expect(await accountOf(team)).toMatchObject({
+      reservedTokens: unpriced.tokens * 2,
+      reservedCostUsd: 0,
+    });
+    const rows = await db
+      .select({ id: conversationCalls.id })
+      .from(conversationCalls)
+      .where(
+        inArray(
+          conversationCalls.agentId,
+          callers.map((caller) => caller.agentId),
+        ),
+      );
+    expect(rows).toHaveLength(2);
+  });
+
   test("two reports of one call at once: it is spent once", async () => {
     const userId = crypto.randomUUID();
     const call = await issued(userId);
@@ -244,7 +311,7 @@ integration("conversation calls on PostgreSQL", () => {
           callId: call.callId,
           exchangeId: exchange,
           usage: USED,
-          priceFor: () => ({ costUsd: 0.002 }),
+          priceFor: () => ({ costUsd: 0.002, pricedBy: "table" }),
         }),
       ),
     );
@@ -497,7 +564,7 @@ integration("conversation calls on PostgreSQL", () => {
           callId,
           exchangeId: exchange,
           usage: USED,
-          priceFor: () => ({ costUsd: 0.002 }),
+          priceFor: () => ({ costUsd: 0.002, pricedBy: "table" }),
         })
       ).outcome,
     ).toBe("settled");
@@ -586,7 +653,7 @@ integration("conversation calls on PostgreSQL", () => {
             callId: call.callId,
             exchangeId: exchange,
             usage: USED,
-            priceFor: () => ({ costUsd: 0.002 }),
+            priceFor: () => ({ costUsd: 0.002, pricedBy: "table" }),
           })
         ).outcome,
       ).toBe("settled");
@@ -756,7 +823,7 @@ integration("conversation calls on PostgreSQL", () => {
         callId: first.callId,
         exchangeId: exchange,
         usage: { ...USED, inputTokens: 0, outputTokens: 0 },
-        priceFor: () => ({ costUsd: 0 }),
+        priceFor: () => ({ costUsd: 0, pricedBy: "table" }),
       });
       expect(settled).toMatchObject({ outcome: "settled", costUsd: 0 });
       expect(await teamReserved()).toBe(before);
@@ -810,7 +877,7 @@ integration("conversation calls on PostgreSQL", () => {
             callId: late.callId,
             exchangeId: exchanges[0] as string,
             usage: USED,
-            priceFor: () => ({ costUsd: 0.002 }),
+            priceFor: () => ({ costUsd: 0.002, pricedBy: "table" }),
           })
         ).outcome,
       ).toBe("settled");

@@ -40,6 +40,7 @@ scrape마다 DB를 읽어 값을 집계한다. scrape 간격을 짧게 잡을수
 | `werft_launch_queue_oldest_wait_seconds` | gauge | 없음 | launch 대기열에서 가장 오래 기다린 세션의 대기 시간. 비면 0 |
 | `werft_sessions_waiting_for_capacity` | gauge | 없음 | worker Pod를 띄웠지만 들어갈 node가 없어 시작을 기다리는 세션 수. Kubernetes가 Pod를 `Unschedulable`로 둔 경우다 |
 | `werft_session_no_capacity_failures_total` | counter | 없음 | 15분을 기다려도 자리가 나지 않아 기다리던 입력을 `NO_CAPACITY`로 실패시킨 횟수 |
+| `werft_held_replies_unanswered` | gauge | 없음 | 작업의 판단을 기다리던 Slack 답글 가운데, M1이 끼어들기로 판단했는데 10분이 지나도 청하지 않은 턴도 세션 턴도 답하지 않은 글 수. 0이 아니면 slack 역할 로그의 `Slack reply M1 spoke to is left unanswered`를 본다. 링크가 먼저 닫혀 닫힌 스레드의 길로 간 글은 로그에 없고 이 값에만 있다 |
 | `werft_input_queue_oldest_age_seconds` | gauge | 없음 | worker가 아직 가져가지 않은 입력 중 가장 오래된 것의 나이. 비면 0 |
 | `werft_input_storage_used_bytes` | gauge | 없음 | 저장 한도가 세는 입력 message의 bytes. 설치의 카운터 값이다 |
 | `werft_input_storage_limit_bytes` | gauge | 없음 | 저장 한도(`STORAGE_LIMIT_BYTES`). 설치 설정을 읽지 못하는 동안은 없다 |

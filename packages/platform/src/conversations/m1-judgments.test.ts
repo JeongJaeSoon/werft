@@ -569,8 +569,12 @@ describe("runReplyJudgments", () => {
       record: M1Record | null;
       options?: Parameters<M1JudgmentStore["finishReply"]>[2];
     }[] = [];
-    const store: Pick<M1JudgmentStore, "claimReply" | "finishReply"> = {
+    const store: Pick<
+      M1JudgmentStore,
+      "claimReply" | "finishReply" | "heldWorkClosed"
+    > = {
       claimReply: async () => claims.shift() ?? null,
+      heldWorkClosed: async () => false,
       finishReply: async (id, record, options) => {
         finished.push({ id, record, ...(options ? { options } : {}) });
         return writes.shift() ?? (record === null ? "dropped" : "written");

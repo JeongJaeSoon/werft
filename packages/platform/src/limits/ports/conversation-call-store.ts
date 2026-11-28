@@ -17,7 +17,7 @@ import type {
 import type { ConversationTurnSurfaceSubject } from "../../conversations/index.ts";
 import type { BudgetRoot } from "../budget-accounts.ts";
 import type { ConversationCallLimit } from "../conversation-call-limits.ts";
-import type { ProviderUsage } from "../model-prices.ts";
+import type { PricedBy, ProviderUsage } from "../model-prices.ts";
 import type { BudgetAmount } from "./budget-ledger.ts";
 
 /**
@@ -90,7 +90,13 @@ export interface ConversationCallStore {
       model: string;
       maxTokens: number;
       maxRequestBytes: number;
-    }): { reserve: BudgetAmount; unmetered: boolean } | null;
+    }): {
+      reserve: BudgetAmount;
+      unmetered: boolean;
+      pricedBy: ConversationCallPricedBy;
+    } | null;
+    /** The limit on tokens of unknown price, as for an issue. */
+    unknownPriceTokenLimit: number;
   }): Promise<ConversationTurnCallAuthorization>;
   /**
    * Ends a turn's permit, and a running turn without a decision, and
@@ -122,7 +128,10 @@ export interface ConversationCallStore {
     exchangeId: string;
     usage: ProviderUsage;
     /** `model` is the one the call was issued for, which its request names. */
-    priceFor(call: { unmetered: boolean; model: string }): { costUsd: number };
+    priceFor(call: { unmetered: boolean; model: string }): {
+      costUsd: number;
+      pricedBy: ConversationCallPricedBy;
+    };
   }): Promise<ConversationCallSettle>;
   /**
    * Releases up to `limit` reservations whose token expired unused. A call
@@ -175,16 +184,37 @@ export type ConversationCallIssueInput = {
   /** The most the one call may use, priced as the proxy's open prices it. */
   reserve: BudgetAmount;
   unmetered: boolean;
+  /** What prices the call's model: `unknown` holds its reserve's tokens on the limit below. */
+  pricedBy: ConversationCallPricedBy;
+  /**
+   * The most tokens of unknown price the account the call is held on (with
+   * none, its agent) may use in a month (UTC), this call's included. Once
+   * reached, every call there is refused, a priced one too: a priced model
+   * can be answered by one nothing prices.
+   */
+  unknownPriceTokenLimit: number;
   ttlMs: number;
 };
 
+/** What priced a conversation call; no call is given `fallback`. */
+export type ConversationCallPricedBy = Exclude<PricedBy, "fallback">;
+
+/**
+ * Why a call's reserve was refused: its account cannot hold it, or the
+ * account (with none, the agent) has used its tokens of unknown price this
+ * month.
+ */
+export type ConversationCallRefusedBy = "budget" | "unknown_price_tokens";
+
 export type ConversationCallIssue =
   | { outcome: "issued"; expiresAt: Date }
-  // The account cannot hold it, or the agent's own work has no team limit.
+  // The account cannot hold it, or the agent's own work has no team limit,
+  // or the month's tokens of unknown price are used up.
   | {
       outcome: "refused";
       rootKind: BudgetRootKind;
       accountId: BudgetAccountId | null;
+      by: ConversationCallRefusedBy;
     }
   // One of the call's keys already has its limit of calls in progress
   // (conversation-call-limits.ts); nothing is reserved.
@@ -298,6 +328,7 @@ export type ConversationTurnCallAuthorization =
       turnId: ConversationTurnId;
       rootKind: BudgetRootKind;
       accountId: BudgetAccountId | null;
+      by: ConversationCallRefusedBy;
     }
   | (Extract<ConversationCallIssue, { outcome: "concurrency_limited" }> & {
       turnId: ConversationTurnId;
@@ -331,6 +362,9 @@ export type ConversationCallSettle =
       // The model the call was issued for: with the answer's, what says
       // which rates settled it, on a replay as on the first report.
       model: string;
+      // What settled it as stored, which a replay answers with; null on a
+      // call an older image settled.
+      pricedBy: ConversationCallPricedBy | null;
     }
   | { outcome: "unknown_call" }
   // Another exchange's call, or the same exchange reported other usage.

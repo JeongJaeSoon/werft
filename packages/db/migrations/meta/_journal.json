@@ -2168,8 +2168,15 @@
     {
       "idx": 400,
       "version": "7",
-      "when": 1795856845637,
-      "tag": "0400_workspace_mcp_auth_none",
+      "when": 1795856137820,
+      "tag": "0400_held_work_session",
+      "breakpoints": true
+    },
+    {
+      "idx": 401,
+      "version": "7",
+      "when": 1795857839000,
+      "tag": "0401_conversation_call_price",
       "breakpoints": true
     }
   ]

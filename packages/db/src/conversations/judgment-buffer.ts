@@ -385,7 +385,13 @@ export async function holdBufferedInput(
         sessionId: null,
         ...(bound === null
           ? { rule: { decision: "none", reason: "stray_reply" } }
-          : { heldAs: bound.grade, rule: bound.rule }),
+          : {
+              heldAs: bound.grade,
+              rule: bound.rule,
+              ...(bound.workSessionId === undefined
+                ? {}
+                : { workSessionId: bound.workSessionId }),
+            }),
       });
     }
     const dropped = await keepChannelLimit(

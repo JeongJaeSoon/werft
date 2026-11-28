@@ -1,5 +1,5 @@
 {
-  "id": "aa5964c8-3f08-4a2a-a770-2d80d9eb6008",
+  "id": "06b51521-4555-4bac-84c8-76278d5e0b9e",
   "prevId": "72edec81-f099-47d0-8f0d-916f6db60bb0",
   "version": "7",
   "dialect": "postgresql",
@@ -6774,6 +6774,12 @@
         "answer": {
           "name": "answer",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "work_session_id": {
+          "name": "work_session_id",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
@@ -23692,7 +23698,7 @@
         },
         "workspace_mcp_servers_auth_kind_check": {
           "name": "workspace_mcp_servers_auth_kind_check",
-          "value": "\"workspace_mcp_servers\".\"auth_kind\" IN ('oauth', 'bearer', 'none')"
+          "value": "\"workspace_mcp_servers\".\"auth_kind\" IN ('oauth', 'bearer')"
         },
         "workspace_mcp_servers_oauth_check": {
           "name": "workspace_mcp_servers_oauth_check",

@@ -67,6 +67,7 @@ import {
   MCP_TOOL_PREFIX,
   type RuntimeKind,
   sanitizeToolDecision,
+  UNKNOWN_PRICE_SESSION_TOKEN_LIMIT,
   WERFT_MCP_SERVER,
 } from "@werft-ai/contracts";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
@@ -311,6 +312,12 @@ export type WorkerGatewayOptions = {
    * one; one that cannot read it is a retryable 503.
    */
   sessionBudget: Setting<SessionBudget>;
+  /**
+   * unknown_price_session_token_limit, as a conversation turn's call is held
+   * to it on its account (with none, its agent) for the month. Read at each
+   * new call of a turn; one that cannot read it is a retryable 503.
+   */
+  unknownPriceTokenLimit?: Setting<number>;
   /** Lifetime of the session token handed out by bootstrapClaim. */
   sessionTokenTtlMs?: number;
   /**
@@ -1804,10 +1811,20 @@ export function createWorkerGateway(deps: {
     path: string | undefined,
     exchangeId: string,
   ): Promise<ConversationCallEgressGrant | ConversationTurnCallRefused | null> {
+    let unknownPriceTokenLimit: number;
+    try {
+      unknownPriceTokenLimit = await readSetting(
+        deps.options.unknownPriceTokenLimit ??
+          UNKNOWN_PRICE_SESSION_TOKEN_LIMIT,
+      );
+    } catch (error) {
+      throw unreadable("The limit on tokens of unknown price", error);
+    }
     const result = await store.authorizeTurnCallAtomic({
       tokenHash: hashConversationCallToken(token),
       exchangeId,
       callId: conversationCallIdSchema.parse(randomUUID()),
+      unknownPriceTokenLimit,
       reserveFor(permit) {
         const connection = connectionOf(catalog, permit.connectionId);
         // The permit outlives the turn's start: the model may since be gone.
@@ -1819,9 +1836,12 @@ export function createWorkerGateway(deps: {
         }
         // Before anything is held: a path the connection does not serve.
         requireProviderPath(connection.provider.kind, path);
+        const unmetered = connection.provider.billing === "none";
+        const reserve = conversationCallReserve(permit);
         return {
-          reserve: conversationCallReserve(permit),
-          unmetered: connection.provider.billing === "none",
+          reserve: { costUsd: reserve.costUsd, tokens: reserve.tokens },
+          unmetered,
+          pricedBy: unmetered ? "unmetered" : reserve.pricedBy,
         };
       },
     });
@@ -2795,15 +2815,16 @@ export function createWorkerGateway(deps: {
       }
       // Priced from the model the call was issued for and the one that
       // answered, as a session's call settles. A replayed report prices
-      // nothing: what its first settlement charged stands, and the answer
-      // names what settled it from the same two models.
+      // nothing: what its first settlement charged stands, and so does what
+      // it stored as settling it (from the two models on a call an older
+      // image settled, which stored nothing).
       const result = await deps.conversationCalls.store.settleAtomic({
         callId: callId.data,
         exchangeId: report.exchangeId,
         usage: report.usage,
         priceFor: (call) =>
           call.unmetered
-            ? { costUsd: 0 }
+            ? { costUsd: 0, pricedBy: "unmetered" }
             : priceSettledUsage(report.usage, call.model),
       });
       switch (result.outcome) {
@@ -2818,9 +2839,11 @@ export function createWorkerGateway(deps: {
         default:
           return {
             costUsd: result.costUsd,
-            pricedBy: result.unmetered
-              ? "unmetered"
-              : priceSettledUsage(report.usage, result.model).pricedBy,
+            pricedBy:
+              result.pricedBy ??
+              (result.unmetered
+                ? "unmetered"
+                : priceSettledUsage(report.usage, result.model).pricedBy),
           };
       }
     },

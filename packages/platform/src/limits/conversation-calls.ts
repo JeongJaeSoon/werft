@@ -14,6 +14,7 @@ import {
   conversationCallIdSchema,
   conversationCallKeySchema,
   releaseJudgmentModel,
+  UNKNOWN_PRICE_SESSION_TOKEN_LIMIT,
 } from "@werft-ai/contracts";
 import {
   connectionModels,
@@ -24,7 +25,8 @@ import type { ConversationTurnSurfaceSubject } from "../conversations/index.ts";
 import type { ConversationTurnOutcome } from "../ports/conversation-turn-queue.ts";
 import { hashToken } from "../token-hash.ts";
 import type { BudgetRoot } from "./budget-accounts.ts";
-import type { ProviderUsage } from "./model-prices.ts";
+import { readSetting, type Setting } from "./installation-limits.ts";
+import type { PriceSource, ProviderUsage } from "./model-prices.ts";
 import type {
   ConversationCallIssue,
   ConversationCallStore,
@@ -33,7 +35,7 @@ import type {
   ConversationTurnPermitIssue,
   ConversationUnsolicitedTurnIssue,
 } from "./ports/conversation-call-store.ts";
-import { reservationCostUsd, reservationTokens } from "./reservations.ts";
+import { priceReservation, reservationTokens } from "./reservations.ts";
 
 export const CONVERSATION_CALL_TOKEN_PREFIX = "wec_";
 // A conversation turn's permit, good for each of its calls while it runs.
@@ -88,13 +90,14 @@ export function conversationTurnLimitReached(
 /**
  * What a conversation call may use at most: its request's bytes read as
  * input tokens, as the proxy's open estimates them, and its output cap.
- * Unknown speed and region price as the dearest.
+ * Unknown speed and region price as the dearest. A model nothing prices
+ * reserves no amount, only its tokens (`pricedBy` says so).
  */
 export function conversationCallReserve(call: {
   model: string;
   maxTokens: number;
   maxRequestBytes: number;
-}): { costUsd: number; tokens: number } {
+}): { costUsd: number; tokens: number; pricedBy: PriceSource } {
   const usage: ProviderUsage = {
     model: call.model,
     inputTokens: call.maxRequestBytes,
@@ -109,9 +112,11 @@ export function conversationCallReserve(call: {
     codeExecutionRequests: 0,
     estimated: true,
   };
+  const priced = priceReservation(usage);
   return {
-    costUsd: reservationCostUsd(usage),
+    costUsd: priced.costUsd,
     tokens: reservationTokens(usage),
+    pricedBy: priced.pricedBy,
   };
 }
 
@@ -210,6 +215,11 @@ export function judgmentCallOf(
 export function createConversationCalls(deps: {
   store: ConversationCallStore;
   catalog: Pick<SessionCatalog, "connections">;
+  /**
+   * unknown_price_session_token_limit, which also holds an account's (with
+   * none, an agent's) calls of unknown price in a month. Read at each issue.
+   */
+  unknownPriceTokenLimit?: Setting<number>;
 }) {
   const issueWith = async (
     input: {
@@ -252,13 +262,19 @@ export function createConversationCalls(deps: {
     const { connection } = found;
     const callId = conversationCallIdSchema.parse(crypto.randomUUID());
     const token = `${CONVERSATION_CALL_TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
+    const unmetered = connection.provider.billing === "none";
+    const reserve = conversationCallReserve(input);
     const issued = await deps.store.issueAtomic({
       ...input,
       callId,
       tokenHash: hashConversationCallToken(token),
       path: CONVERSATION_CALL_PATH,
-      reserve: conversationCallReserve(input),
-      unmetered: connection.provider.billing === "none",
+      reserve: { costUsd: reserve.costUsd, tokens: reserve.tokens },
+      unmetered,
+      pricedBy: unmetered ? "unmetered" : reserve.pricedBy,
+      unknownPriceTokenLimit: await readSetting(
+        deps.unknownPriceTokenLimit ?? UNKNOWN_PRICE_SESSION_TOKEN_LIMIT,
+      ),
       ttlMs,
     });
     if (issued.outcome !== "issued") return issued;
