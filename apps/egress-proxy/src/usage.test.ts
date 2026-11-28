@@ -759,6 +759,12 @@ describe("an answer whose usage names no token count", () => {
         speed: "unknown",
         inference_geo: "unknown",
       });
+      // A service tier names the speed too, on an answer with no usage.
+      expect(
+        metered("application/json", [
+          JSON.stringify({ model: "gpt-5.5", service_tier: name }),
+        ]),
+      ).toMatchObject({ speed: "unknown", estimated: true });
     }
   });
 
