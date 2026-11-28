@@ -1359,15 +1359,17 @@ export function createPostgresSlackOutboxStore(
               )
               -- A progress message that went up says the work closed
               -- first, even one its link stopped keeping: the link takes no
-              -- update once closed. One still being sent may yet be up, so
-              -- it is waited for (its lease bounds the wait). A revoked
-              -- install takes none, so it is not waited for.
+              -- update once closed. One a pass holds (claimed, or being
+              -- sent) may yet go up, so it is waited for (its lease bounds
+              -- the wait). A revoked install takes none, so it is not
+              -- waited for.
               AND ((NOT (${keepsProgressMessage(sql.raw("l2"))}
                 OR ${endsProgressMessage(sql.raw("l2"))}) AND NOT EXISTS (
                 SELECT 1 FROM ${t} p
                 WHERE p.installation_id = l2.installation_id
                   AND p.progress_key = 'progress:' || l2.id
-                  AND p.status = 'sending'
+                  AND (p.status = 'sending' OR (p.status = 'pending'
+                    AND p.claim_token IS NOT NULL AND p.lease_expires_at > now()))
               )) OR EXISTS (
                 SELECT 1 FROM slack_installations ri
                 WHERE ri.id = l2.installation_id AND ri.status = 'revoked'
@@ -2875,6 +2877,7 @@ export function createPostgresSlackOutboxStore(
             stopped: boolean;
             ts: string | null;
             reposted: boolean;
+            ends_only: boolean;
           }>(
             await tx.execute(sql`
               WITH me AS (
@@ -2909,7 +2912,13 @@ export function createPostgresSlackOutboxStore(
                   SELECT 1 FROM k WHERE progress_ts IS NOT NULL AND (
                     status = 'uncertain' OR error_code = 'missing_ts'
                     OR (status = 'sent' AND slack_ts <> progress_ts))
-                ) AS reposted`),
+                ) AS reposted,
+                EXISTS (
+                  SELECT 1 FROM session_links pl
+                  WHERE pl.installation_id = ${row.installationId}::uuid
+                    AND 'progress:' || pl.id = ${row.progressKey}
+                    AND NOT ${keepsProgressMessage(sql.raw("pl"))}
+                ) AS ends_only`),
           );
           if (state === undefined) return false;
           if (state.stopped || state.superseded) {
@@ -2936,7 +2945,12 @@ export function createPostgresSlackOutboxStore(
               .where(eq(t.id, fence.id));
             return false;
           }
-          progress = { ts: state.ts, reposted: state.reposted };
+          // A message its thread no longer keeps takes only its end, as an
+          // edit: one gone from Slack is not put up again.
+          progress = {
+            ts: state.ts,
+            reposted: state.reposted || state.ends_only,
+          };
         }
         // A title cut or made from the session's first message: that
         // message's direct sources. Their marks are taken with the row's, in

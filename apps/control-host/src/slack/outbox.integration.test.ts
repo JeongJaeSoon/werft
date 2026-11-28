@@ -8274,6 +8274,80 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
     expect(link?.closedAt).not.toBeNull();
   });
 
+  test("a first progress post a pass has claimed holds its thread's close when the thread moves off progress", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.update(surfaceBindings).set({ reportMode: "progress" });
+    await setTurn(sessionId, "running");
+    await outboxPass({ botToken: null });
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await outboxPass({ botToken: null });
+    const outbox = createPostgresSlackOutboxStore(db);
+    const claim = (await outbox.claim({ limit: 10, leaseMs: 30_000 })).find(
+      ({ dedupeKey }) => dedupeKey.includes(":running:"),
+    );
+    if (!claim) throw new Error("no first progress post claimed");
+    await db.update(surfaceBindings).set({ reportMode: "per_step" });
+    await db
+      .update(sessions)
+      .set({ admissionState: "closed", status: "stopped" })
+      .where(eq(sessions.id, sessionId));
+    // Another pass, past its check of unsendable rows before the switch,
+    // reaches its close.
+    expect(await outbox.closeFinishedLinks(10)).toBe(0);
+    let [link] = await db.select().from(sessionLinks);
+    expect(link?.closedAt).toBeNull();
+
+    // The pass that claimed it sends it, and Slack takes it.
+    expect(await outbox.beginSend(claim)).not.toBe(false);
+    await db
+      .update(slackOutbox)
+      .set({
+        status: "sent",
+        slackTs: "1792800010.000600",
+        claimToken: null,
+        leaseExpiresAt: null,
+      })
+      .where(eq(slackOutbox.id, claim.id));
+    for (let pass = 0; pass < 3; pass += 1) {
+      await intervalOver();
+      await outboxPass({ closeLinks: true });
+    }
+    expect(
+      (await progressRows()).some(({ dedupeKey }) =>
+        dedupeKey.includes(":closed:"),
+      ),
+    ).toBe(true);
+    [link] = await db.select().from(sessionLinks);
+    expect(link?.closedAt).not.toBeNull();
+  });
+
+  test("a progress message gone from Slack is not put up again once its thread moves off progress", async () => {
+    const fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db.execute(sql`UPDATE agents SET conversation_rollout = 'on'`);
+    await setTurn(sessionId, "running");
+    await outboxPass();
+    expect(postedLines()).toEqual([ko.progressRunning]);
+    slack.failures.set("chat.update", "message_not_found");
+    await db.update(surfaceBindings).set({ reportMode: "per_step" });
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await db
+      .update(sessions)
+      .set({ admissionState: "closed", status: "stopped" })
+      .where(eq(sessions.id, sessionId));
+    for (let pass = 0; pass < 4; pass += 1) {
+      await intervalOver();
+      await outboxPass({ closeLinks: true });
+    }
+    slack.failures.delete("chat.update");
+    expect(postedLines()).toEqual([ko.progressRunning, "Done."]);
+    const [link] = await db.select().from(sessionLinks);
+    expect(link?.closedAt).not.toBeNull();
+  });
+
   test("a progress message whose thread moved off progress mid-work still takes the work's end", async () => {
     const fixture = await agentInSlack();
     await mention(fixture, THREAD);
