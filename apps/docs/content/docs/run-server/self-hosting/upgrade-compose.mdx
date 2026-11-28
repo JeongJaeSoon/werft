@@ -79,6 +79,8 @@ pending.json이 남으면 start와 이전 release로의 upgrade가 거부된다.
 
 지금 롤백 하한은 `v0.2.0`이다. 그 릴리스의 migration `0270`이 프로필 데이터를 지우므로 그보다 앞선 이미지로는 돌아가지 않는다([프로필 제거의 롤백 하한](#프로필-제거의-롤백-하한)). 그 뒤에 변경 기록이 되돌릴 수 없다고 적은 릴리스가 있으면 그 릴리스가 하한이다. 하한보다 앞선 버전으로 돌아가야 하면 업그레이드 전 백업으로 DB를 복원한다. rollback을 생각하기 전에 영향 세션을 읽기 SQL로 세고, 데이터 손실 없이 roll-forward할 수 있는지 먼저 판단한다.
 
+**다음 판 예고.** `v0.6.0` 다음 판은 `v0.3.0` 이하에서 바로 올리는 업그레이드와, `v0.4.0` 이전에 만든 세션의 체크포인트 복원을 더 지원하지 않는다.
+
 GitHub skill 출처에 `access` 열이 생긴 버전부터, `access = 'public'`인 출처(App이 설치되지 않은 공개 저장소에서 읽는 skill)가 있으면 그 버전보다 앞선 이미지로 되돌리기 전에 그 출처를 지운다. 앞선 이미지는 저장소가 아직 공개인지 확인하지 않고 읽는다.
 
 **워크스페이스 설정의 모르는 키.** 이 수정이 든 판보다 앞선 판(`v0.5.0` 포함)은 `workspaces.settings`에 자기가 모르는 키가 하나라도 있으면 그 워크스페이스의 `GET /v1/auth/me`가 실패한다. 이 수정이 든 판부터는 모르는 키를 응답에서 빼고 저장된 값은 그대로 둔다. 출시된 판은 모두 `achievement_judge`와 그 안의 필드를 알고(`v0.4.0`·`v0.5.0`은 `dispatch_model`, `kill_switch`, `daily_cost_limit_usd`, `idle_pause_minutes`, `audit_retention_days`, `slack_guest_enabled`, `achievement_judge`로 지금과 키 목록이 같다), 이 수정 이전에 저장할 수 있던 설정은 어느 출시 판으로 돌아가도 읽힌다. 돌아갈 수 있는 판은 설정 키와 따로 위의 롤백 하한을 따른다. 이 수정 뒤에 설정 키를 더한 판을 쓴 설치가 이 수정이 없는 판으로 돌아갈 때는, 돌아가기 전에 그 키를 지운다.
@@ -614,3 +616,19 @@ DELETE FROM provider_connections WHERE definition->>'kind' = 'openai_decisions';
 - 옛 proxy와 새 API가 섞이면(API를 먼저 올렸거나 proxy를 되돌린 경우) `EGRESS_CREDENTIAL_ALLOWLIST`와 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` 어디에도 없는 host의 서버는 등록, 인증, 도구 목록은 되지만 세션의 호출이 403이다. 남는 기록은 `call_mcp` receipt의 사유 `egress_proxy_outdated`와 API 로그 `Egress authorization refused`다. 403의 기준은 API에 설정된 두 목록이다. 그 목록에 있는 host의 서버는 이 분기를 지나, 옛 proxy 자신의 목록으로 전처럼 판정된다. proxy를 올리면 돌아오고 데이터는 바뀌지 않는다.
 - [2. egress proxy → control-host → worker 순서](#2-egress-proxy--control-host--worker-순서)를 따르면 proxy가 먼저 바뀌므로 이 403 구간이 생기지 않는다.
 - 사설 주소나 http의 서버는 전처럼 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`에 둔 host만 된다. 그 host가 공개 주소로 풀리면 등록이 `address_not_allowed`로 거절된다.
+
+### 토큰 수 없는 성공 응답을 추정으로 세는 릴리스
+
+이 릴리스부터 egress proxy는 토큰 수를 하나도 말하지 않은 성공 응답(`usage: {}`, 또는 토큰 칸이 모두 null·음수·문자열)의 usage를 실측 0이 아니라 요청 기반 추정으로 보고한다. 그런 호출을 토큰 한도, 금액 한도, 단가 미상 토큰 상한이 센다. 계량 규칙은 [설정 레퍼런스](/run-server/self-hosting/reference/configuration)에 있다. migration은 없다.
+
+- 바뀌는 것은 egress proxy 이미지뿐이라, [2. egress proxy → control-host → worker 순서](#2-egress-proxy--control-host--worker-순서)의 첫 단계부터 적용된다. 앞선 control-host는 이 보고를 그대로 받는다. 앞선 proxy가 남아 있는 동안 그 proxy를 지나는 호출은 전처럼 0으로 정산된다.
+- 올리기 전에 DB에서 최근 정산(`provider_usage`, `conversation_calls.usage`) 가운데 토큰이 모두 0이고 `estimated`가 `false`인 행을 센다(읽기만 한다). conversation call의 오류 응답과 응답이 명시한 0도 같은 꼴이므로 그 수가 모두 빈 usage는 아니다.
+- 빈 usage를 보내는 과금 연결(일부 자체 호스팅 gateway 등)을 쓰는 설치는 올린 뒤 토큰이 늘고(단가를 아는 호출은 세션 비용도) 한도에 더 일찍 닿는다. proxy 경고 `Provider usage estimated`도 늘므로, 이 경고에 알림을 걸어 두었으면 기준을 다시 본다.
+- 앞선 proxy로 되돌려도 보고는 깨지지 않는다. 되돌리면 빈 usage 응답의 토큰이 다시 0으로 정산되고, 이미 추정으로 적힌 행은 그대로다. 다만 이 판의 API를 둔 채 `v0.5.0` proxy로 되돌리면, 운영자 목록 밖의 내부 네트워크 모델 연결과 두 credential 목록에 없는 MCP 서버를 부르는 세션 호출이 403(`egress_proxy_outdated`)이다([워크스페이스 MCP 서버를 주소로 검사하는 릴리스](#워크스페이스-mcp-서버를-주소로-검사하는-릴리스)).
+
+### 사용량 응답에 단가 미상 칸을 더한 릴리스
+
+이 릴리스부터 `GET /v1/usage/breakdown`의 행과 합계에 `unknown_price`(단가 미상 호출의 건수와 토큰 수)가 더해지고, 단가 미상 호출이 있고 아는 금액이 0인 행은 `cost_usd`가 `null`이다. 합계의 `cost_usd`는 null이 되지 않는다. migration은 없다.
+
+- 이 응답을 읽는 스크립트나 응답을 엄격하게 검증하는 client는 control-host를 올리기 전에 행의 `cost_usd` null과 새 칸을 받도록 고친다.
+- 앞선 API로 되돌리면 새 칸이 없고 그런 행의 `cost_usd`는 전처럼 `"0.000000"`이다.
