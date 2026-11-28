@@ -1123,8 +1123,9 @@ export function addressKeys(answers: readonly string[]): string[] {
 
 /**
  * What a name resolved to, kept for `memoryMs`: a request to it may still
- * ride a connection to an address the name no longer answers with. null
- * while that is more than `max`, which is no name's answer to trust.
+ * ride a connection to an address the name no longer answers with. Holds
+ * `max` at most, and is null for as long as one it could not hold would
+ * have been kept: a set with a hole is no answer.
  */
 export function addressMemory(
   memoryMs: number,
@@ -1132,11 +1133,18 @@ export function addressMemory(
   now: () => number = () => performance.now(),
 ): (resolved: readonly string[]) => string[] | null {
   const until = new Map<string, number>();
+  let holeUntil = Number.NEGATIVE_INFINITY;
   return (resolved) => {
     const at = now();
-    for (const address of resolved) until.set(address, at + memoryMs);
     for (const [address, end] of until) if (end <= at) until.delete(address);
-    return until.size > max ? null : [...until.keys()];
+    for (const address of resolved) {
+      if (until.has(address) || until.size < max) {
+        until.set(address, at + memoryMs);
+      } else {
+        holeUntil = at + memoryMs;
+      }
+    }
+    return at < holeUntil ? null : [...until.keys()];
   };
 }
 
@@ -1941,7 +1949,7 @@ export function startCredentialProxy(
     if (denied !== null && installation === null) {
       logger.warn("Credential route lookup failed", {
         ...fields,
-        reason: "the authorizer's host does not resolve",
+        reason: "the authorizer's addresses are unknown",
       });
       return reply(502, "host does not resolve", purpose);
     }
