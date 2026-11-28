@@ -1427,9 +1427,12 @@ function wideKept(
   for (let i = 0; i < words.length; i += 1) {
     const word = words[i] as string;
     if (read.length === 0 && SHELL_KEYWORDS.includes(word)) continue;
-    const redirect = REDIRECT.exec(word);
+    // Only in a line read as text: a split one has its redirects taken out,
+    // and a quoted `'>'` is an argument.
+    const raw = written?.[i];
+    const redirect = raw === undefined ? null : REDIRECT.exec(raw);
     if (redirect !== null) {
-      if (redirect[0] === word) i += 1;
+      if (redirect[0] === raw) i += 1;
       continue;
     }
     read.push(i);

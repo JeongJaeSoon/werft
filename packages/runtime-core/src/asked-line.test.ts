@@ -854,6 +854,17 @@ const WIDE: [string, string, string | null][] = [
     "grep -r needle 2>&1 | head",
     "a search of a tree",
   ],
+  [
+    "a quoted redirect as a grep pattern",
+    "grep -rq '2>&1' . packages",
+    "a search of the workspace or a kept path",
+  ],
+  ["a quoted > as a grep pattern", "grep -r '>' packages", null],
+  [
+    "a quoted > as a message",
+    "git commit -m '>' --pathspec-from-file=paths.txt",
+    "a path list the line does not show",
+  ],
   ["a message after clustered flags", "git commit -aq -m .claude", null],
   ["a gh body after a flag", "gh pr create --draft --body .claude", null],
   [
