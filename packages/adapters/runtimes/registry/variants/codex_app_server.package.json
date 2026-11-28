@@ -1,6 +1,6 @@
 {
   "name": "@werft-ai/runtime-registry",
-  "description": "Kiel session runtime: the runtime modules this image installs",
+  "description": "The runtime modules this image installs",
   "version": "0.0.0",
   "private": true,
   "license": "PolyForm-Small-Business-1.0.0",

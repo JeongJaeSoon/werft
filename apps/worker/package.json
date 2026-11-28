@@ -1,6 +1,6 @@
 {
   "name": "@werft-ai/worker",
-  "description": "Kiel session runtime: one container per session running the Claude Agent SDK",
+  "description": "Session worker: runs one execution of a session in an isolated container, with the agent engine its image installs",
   "version": "0.0.0",
   "private": true,
   "license": "PolyForm-Small-Business-1.0.0",

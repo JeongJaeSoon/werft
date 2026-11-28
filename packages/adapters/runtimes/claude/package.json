@@ -1,6 +1,6 @@
 {
   "name": "@werft-ai/runtime-claude",
-  "description": "Kiel session runtime: Claude Agent SDK runtime adapter",
+  "description": "Claude Agent SDK runtime adapter",
   "version": "0.0.0",
   "private": true,
   "license": "PolyForm-Small-Business-1.0.0",
