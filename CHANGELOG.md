@@ -24,6 +24,12 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
 
 ### 운영자가 할 일
 
+- **올리는 순서는 egress proxy → control-host(api, migration 포함) → worker 이미지 하나다. 이 릴리스에는 업그레이드 문서의 "API → proxy → worker" 순서 대신 이 순서를 따른다**(JeongJaeSoon/werft#2402, JeongJaeSoon/werft#2332).
+  - 첫 단계에서는 대상 release의 compose 파일(Kubernetes는 chart)을 적용하되 egress proxy 이미지만 대상 것으로 바꾸고, control-host와 worker 이미지는 지금 것을 둔다. 새 proxy와 앞선 control-host의 조합은 표시가 없어 전과 같이 판정한다.
+  - control-host를 proxy보다 먼저 올리면, proxy를 올릴 때까지 `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` 밖의 주소로 내부 네트워크에 등록한 모델 연결과, 두 credential 목록 어디에도 없는 host의 MCP 서버를 부르는 세션 호출이 403(`egress_proxy_outdated`)이다.
+- **대화 rollout이 `on`일 때, 묶인 작업이 `closing`(worker가 drain 중)이거나 `closed`인데 링크가 아직 열린 스레드에 멘션이 오면 일반 실패 문구를 달지 않고, 링크가 닫힐 때까지 기다렸다가 대화 턴으로 작업을 다시 연다**(JeongJaeSoon/werft#2397). `closing`이면 그 닫기마다 스레드에 한 줄을 단다. migration `0400_held_work_session`은 `conversation_judgments`에 nullable 칸 `work_session_id`를 더한다. 기본값과 backfill이 없고 표를 다시 쓰지 않는다. 운영자 설정은 없다.
+  - 판단을 기다리던 작업 스레드 답글의 작업이 그사이 닫혔으면, M1의 `speak`은 청하지 않은 턴 하나로 답한다. `closing` 작업으로 가는 답글은 닫기가 끝날 때까지 inbox에서 기다리고, 그 사이 같은 스레드의 뒤 이벤트도 그 뒤에 선다.
+  - `/metrics`에 `werft_held_replies_unanswered`가 새로 나온다. 0이 아니면 slack 역할 로그에서 warn을 찾는다. rollout이 `off`·`shadow`면 바뀌는 것이 없다.
 - **금칙어 검사(`forbidden-terms`, `forbidden-terms-threads`)를 걷어 냈고, 이 검사가 읽던 secret `FORBIDDEN_TERMS`·`FORBIDDEN_HOST_TERMS`는 더 읽지 않는다**(JeongJaeSoon/werft#2403). 포크에서 이 secret을 쓰던 경우 지워도 된다. 제품 동작은 바뀌지 않고 migration도 없다.
 - **세션에 붙인 저장소에서도, 그 세션이 연 PR은 저장소가 에이전트의 목록과 워크스페이스 저장소 범위 안에 있고 자기 PR 머지가 워크스페이스 상한과 에이전트 둘 다 켜졌을 때 머지한다**(JeongJaeSoon/werft#2404). migration은 없다.
   - 전에는 붙인 저장소의 머지가 스위치와 상관없이 `repository_not_allowed`로 거절됐다. 두 스위치를 켠 에이전트는 올린 뒤 Slack DM처럼 저장소를 붙여 일하는 세션에서도 자기 PR을 머지한다. push 요청·PR·카탈로그 검사를 지나 권한을 따질 때 스위치가 꺼져 있으면, 저장소가 목록 밖이어도 `merge_off`로 거절한다.
@@ -55,7 +61,7 @@ Werft를 설치하거나 올리는 사람이 릴리스마다 꼭 읽어야 하�
   - **`EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`에 있는 기존 모델 연결은 API가 시작할 때 내부 네트워크 연결로 옮긴다.** 다시 확인받지 않고 receipt(`import_connection`, `by: env_import`)를 남긴다. 옮긴 연결은 새 proxy에서 loopback과 설치 자신의 주소에 닿지 못한다. 지금 그런 주소로 풀리는 연결은 옮기지 않고 전처럼 env 목록으로 동작하며, API 로그 `Connections on the private allowlist may not be registered as private`가 그 연결 id를 적는다. 그 연결은 다른 주소로 다시 만든다.
   - 내부 네트워크 연결의 호출은 API가 설치 자신의 주소를 다 모으지 못하면(배선의 이름이 풀리지 않거나 256개를 넘으면) 503으로 거절된다. 로그의 `private_deny_unavailable`로 보인다.
   - 앞선 이미지로 되돌려도 된다. 되돌린 동안 내부 네트워크로 새로 등록한 연결(env 목록 밖)의 호출은 proxy가 403으로 닫고, 데이터는 그대로다.
-- **단가표에 없는 모델의 비용을 릴리스에 담긴 LiteLLM 단가 snapshot으로 세고, 거기에도 없는 모델은 "단가 미상"으로 따로 적으며, 단가 미상 토큰에 세션 상한이 생긴다**(JeongJaeSoon/werft#2387). migration `0397`이 `provider_usage`와 `provider_exchanges`에 칸을 더한다(기존 행은 고치지 않는다). 올릴 때 반드시 할 일은 없고, 아래에서 자기 설치에 해당하는 것만 본다. API(migration 포함)를 egress proxy보다 먼저 올리는 순서는 그대로다.
+- **단가표에 없는 모델의 비용을 릴리스에 담긴 LiteLLM 단가 snapshot으로 세고, 거기에도 없는 모델은 "단가 미상"으로 따로 적으며, 단가 미상 토큰에 세션 상한이 생긴다**(JeongJaeSoon/werft#2387). migration `0397`이 `provider_usage`와 `provider_exchanges`에 칸을 더한다(기존 행은 고치지 않는다). 올릴 때 반드시 할 일은 없고, 아래에서 자기 설치에 해당하는 것만 본다. 올리는 순서는 이 절의 첫 항목을 따른다.
   - 지금까지 최고 단가(`priced_by=fallback`)로 세던 모델 가운데 snapshot에 이름이 있는 것은 그 단가(`priced_by=litellm`)로 센다. snapshot의 단가는 대부분 최고 단가보다 낮아서, 그런 모델의 세션 비용이 내려가고 `SESSION_COST_LIMIT_USD`에 더 늦게 닿는다. snapshot은 실행 중에 받아 오지 않는다.
   - snapshot에도 없는 모델은 `priced_by=unknown`으로 적고 **금액을 붙이지 않는다**. 지금까지는 이런 호출을 두 단가표의 최고 단가로 셌다. `cost_usd`는 0으로 적히지만 0달러가 아니라 금액 미상이라는 표시다. 이 호출은 세션 비용, `SESSION_COST_LIMIT_USD`, 예산 계정에 더해지지 않는다. 그래서 단가표에 없는 모델을 과금 연결로 쓰는 설치는 세션 비용이 내려가고, 비용 상한이 그 호출을 막지 않는다. 그 호출을 막는 것은 아래의 토큰 상한이다. 표가 이름을 아는 모델이 자기 항목의 범위를 벗어난 호출(4.6 이전 Claude 모델의 200K 초과, 긴 문맥 단가가 표에 없는 OpenAI 모델의 272K 초과)도 같다. authorizer의 경고 문구가 `Provider usage priced at the fallback rate`에서 `Provider usage has no known price`로 바뀐다(conversation call과 달성 판정의 경고도 `… has no known price`로 바뀐다). 이 문구로 로그 알림을 걸어 두었으면 고친다.
   - 요청한 모델과 답이 말한 모델이 다르고 둘 다 단가를 알면 둘 가운데 비싼 쪽으로 센다. 둘 중 하나라도 단가 미상이면 그 호출은 금액 없이 단가 미상이다.
