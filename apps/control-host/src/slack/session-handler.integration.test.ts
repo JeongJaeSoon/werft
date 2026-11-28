@@ -5139,6 +5139,308 @@ describe.each(ENGINES)(
       ]);
     });
 
+    // v1-b/DM3: from a DM, the person's standalone session is an open task.
+    const standaloneOf = async (
+      fixture: Fixture,
+      createdBy = fixture.ownerId,
+    ) => {
+      const id = randomUUID();
+      await db.execute(sql`
+        INSERT INTO sessions (id, owner_id, workspace_id, repo_url, branch,
+          created_by_user_id, agent_release_id, model, runtime_spec,
+          spec_source, spec_source_digest, spec_digest, status)
+        SELECT ${id}::uuid, ${fixture.workspaceId}, ${fixture.workspaceId}::uuid,
+          'https://example.invalid/repo.git', 'main', ${createdBy}::uuid, r.id,
+          r.spec_source->>'model', r.runtime_spec, r.spec_source,
+          r.spec_source_digest, r.spec_digest, 'idle'
+        FROM agent_releases r WHERE r.id = ${fixture.releaseId}`);
+      await db.insert(schema.sessionShares).values({
+        sessionId: id,
+        ownerId: fixture.workspaceId,
+        workspaceId: fixture.workspaceId,
+        scope: "private",
+      });
+      // Its earlier work, answered on the web: never posted to the DM.
+      await db.insert(schema.turns).values({
+        sessionId: id,
+        sequence: 1,
+        message: "earlier work",
+        status: "completed",
+        endedAt: new Date(),
+      });
+      return id;
+    };
+    const dmPosts = (threadTs: string) =>
+      slack.messages.filter(
+        (posted) =>
+          posted.method === "chat.postMessage" &&
+          posted.channelId === "D0OWNER" &&
+          posted.threadTs === threadTs,
+      );
+
+    test("a DM handed to the person's standalone session: the DM thread is its link, the message its turn, the thread told once", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await standaloneOf(fixture);
+      await deliver(fixture, {
+        type: "message",
+        channel: "D0OWNER",
+        channel_type: "im",
+        user: PERSON,
+        ts: "100.000100",
+        text: "carry on with that session",
+      });
+      await drain(handler().handle);
+      const leasedTurn = await leased();
+      // G1: listed for the person's DM turn.
+      const admitted = await createPostgresConversationReadToolStore(db).admit({
+        turnId: leasedTurn.turn_id,
+        leaseId: conversationTurnLeaseIdSchema.parse(leasedTurn.lease_id),
+        runtimeId: RUNTIME,
+        tool: "list_open_tasks",
+        now: new Date(),
+      });
+      if (admitted.outcome !== "admitted") throw new Error(admitted.outcome);
+      expect(
+        (
+          await createPostgresConversationReadToolStore(db).openTasks({
+            turn: admitted.turn,
+            viewer: {
+              userId: fixture.ownerId,
+              apiKeyId: null,
+              privateChannels: [],
+            },
+            limit: 20,
+          })
+        ).map((row) => row.sessionId),
+      ).toEqual([task]);
+      const decision: ConversationDecision = {
+        tool: "route_to_task",
+        task_id: task,
+        reason: "that session",
+      };
+      await createPostgresConversationReadToolStore(db).recordDecision({
+        turnId: leasedTurn.turn_id,
+        leaseId: conversationTurnLeaseIdSchema.parse(leasedTurn.lease_id),
+        runtimeId: RUNTIME,
+        decision,
+      });
+      await report(leasedTurn, {
+        outcome: "completed",
+        text: "MODEL-TEXT handing it over.",
+        decision,
+      });
+      slack.messages.length = 0;
+      expect(await endings()).toMatchObject({ routed: 1, spawned: 0 });
+      const dm = (await db.select().from(schema.conversations)).find(
+        (row) => row.kind === "dm" && row.workspaceId === fixture.workspaceId,
+      );
+      const [session] = (await sessionsOf(fixture)).filter(
+        (row) => row.id === task,
+      );
+      // Its parent is the person's DM now (Architect, 2026-11-28).
+      expect(session?.parentConversationId).toBe(dm?.id ?? "missing");
+      expect(
+        (await links()).filter((link) => link.sessionId === task),
+      ).toMatchObject([
+        {
+          channelId: "D0OWNER",
+          threadId: "100.000100",
+          openedByTs: "100.000100",
+          role: "primary",
+          closedAt: null,
+        },
+      ]);
+      expect(await mirrors()).toEqual([]);
+      expect(
+        (await taskTurns(task)).map((row) => [row.sequence, row.message]),
+      ).toEqual([
+        [1, "earlier work"],
+        [2, "carry on with that session"],
+      ]);
+      await sendOutbox();
+      // The line once, and the task's report (its progress message, the
+      // DM's mode) in the DM thread; the session's earlier turn is not posted.
+      expect(dmPosts("100.000100").map((post) => post.text)).toEqual([
+        `${SLACK_NOTICE_MESSAGES.en.routeStandalone}\n\nAI agent · Werft`,
+        `${SLACK_NOTICE_MESSAGES.en.progressQueued}\n\nAI agent · Werft`,
+      ]);
+      expect(
+        slack.messages.filter((posted) => posted.text.includes("earlier work")),
+      ).toEqual([]);
+      expect(
+        slack.messages.filter((posted) => posted.text.includes("MODEL-TEXT")),
+      ).toEqual([]);
+      // Run again: nothing more.
+      expect(await routeTasks().route(leasedTurn.turn_id)).toBe("none");
+      expect(await taskTurns(task)).toHaveLength(2);
+    });
+
+    const dmToStandalone = async (fixture: Fixture, task: string) => {
+      await deliver(fixture, {
+        type: "message",
+        channel: "D0OWNER",
+        channel_type: "im",
+        user: PERSON,
+        ts: "100.000100",
+        text: "carry on with that session",
+      });
+      await drain(handler().handle);
+      return routeDecided(task);
+    };
+    const boundTo = async (task: string) =>
+      (await links())
+        .filter((link) => link.sessionId === task)
+        .map((link) => [link.channelId, link.threadId, link.closedAt]);
+
+    test("a DM deleted after its decision binds no standalone session and says nothing", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await standaloneOf(fixture);
+      const turn = await dmToStandalone(fixture, task);
+      await schema.createPostgresSlackSourceMarkStore(db).markDeleted({
+        workspaceId: fixture.workspaceId,
+        teamId: TEAM,
+        channelId: "D0OWNER",
+        ts: "100.000100",
+        at: new Date(),
+      });
+      expect(await endings()).toMatchObject({ routed: 0 });
+      expect(await taskTurns(task)).toHaveLength(1);
+      expect(await boundTo(task)).toEqual([]);
+      expect(
+        (await sessionsOf(fixture)).find((row) => row.id === task)
+          ?.parentConversationId,
+      ).toBe(null);
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        effect: "voided",
+      });
+      await sendOutbox();
+      expect(dmPosts("100.000100")).toEqual([]);
+    });
+
+    test("a standalone hand-off written before a crash is settled on the next run: one input, one link, one line", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await standaloneOf(fixture);
+      const turn = await dmToStandalone(fixture, task);
+      await db.execute(
+        sql.raw(`CREATE FUNCTION fail_settle() RETURNS trigger LANGUAGE plpgsql
+          AS $$ BEGIN RAISE EXCEPTION 'settle lost'; END $$`),
+      );
+      await db.execute(
+        sql.raw(`CREATE TRIGGER fail_settle BEFORE UPDATE OF task_effect
+          ON conversation_turns FOR EACH ROW EXECUTE FUNCTION fail_settle()`),
+      );
+      try {
+        expect(await endings()).toMatchObject({ routed: 0, failed: 1 });
+      } finally {
+        await db.execute(
+          sql.raw("DROP TRIGGER fail_settle ON conversation_turns"),
+        );
+        await db.execute(sql.raw("DROP FUNCTION fail_settle()"));
+      }
+      expect(await taskTurns(task)).toHaveLength(2);
+      expect(await boundTo(task)).toEqual([["D0OWNER", "100.000100", null]]);
+      expect(await endings()).toMatchObject({ routed: 1 });
+      expect(await routeTasks().route(turn.turn_id)).toBe("none");
+      expect(await taskTurns(task)).toHaveLength(2);
+      expect(await boundTo(task)).toEqual([["D0OWNER", "100.000100", null]]);
+      await sendOutbox();
+      expect(
+        dmPosts("100.000100").filter((post) =>
+          post.text.includes(SLACK_NOTICE_MESSAGES.en.routeStandalone),
+        ),
+      ).toHaveLength(1);
+    });
+
+    test("runs of one turn: a second bind is the first's, an unhanded end takes it back, and nothing binds after the end", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await standaloneOf(fixture);
+      const turn = await dmToStandalone(fixture, task);
+      const store = schema.createPostgresConversationRoutes(db, key);
+      const route = await store.pending(turn.turn_id);
+      if (route === null) throw new Error("no pending route");
+      // Two runs read the session as standalone; both bind: one link.
+      expect(await store.bindStandalone(route)).toBe("bound");
+      expect(await store.bindStandalone(route)).toBe("bound");
+      expect(await boundTo(task)).toEqual([["D0OWNER", "100.000100", null]]);
+      // One ends the turn unhanded before the other's input.
+      expect(await store.settle(route, "voided", null, null)).toBe(true);
+      expect(await boundTo(task)).toEqual([]);
+      expect(
+        (await sessionsOf(fixture)).find((row) => row.id === task)
+          ?.parentConversationId,
+      ).toBe(null);
+      // A bind after the end binds nothing, and the input is refused.
+      expect(await store.bindStandalone(route)).toBe("gone");
+      expect(await boundTo(task)).toEqual([]);
+      expect(await routeTasks().route(turn.turn_id)).toBe("none");
+      expect(await taskTurns(task)).toHaveLength(1);
+    });
+
+    test("an unhanded end keeps a bind a Slack row was already queued for", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const task = await standaloneOf(fixture);
+      const turn = await dmToStandalone(fixture, task);
+      const store = schema.createPostgresConversationRoutes(db, key);
+      const route = await store.pending(turn.turn_id);
+      if (route === null) throw new Error("no pending route");
+      expect(await store.bindStandalone(route)).toBe("bound");
+      // The outbox queued a report of the session's work there before the end.
+      await db.execute(sql`
+        INSERT INTO slack_outbox (id, workspace_id, agent_id, slack_app_id,
+          installation_id, kind, channel_id, thread_ts, session_id,
+          session_link_id, body, dedupe_key, progress_key)
+        SELECT gen_random_uuid(), l.workspace_id, l.agent_id, sa.id,
+          l.installation_id, 'progress', l.channel_id, l.thread_id,
+          l.session_id, l.id, '{"text":"running"}'::jsonb,
+          'dm3-posted:' || l.id, 'dm3-posted:' || l.id
+        FROM session_links l JOIN slack_apps sa ON sa.agent_id = l.agent_id
+        WHERE l.session_id = ${task}::uuid`);
+      expect(await store.settle(route, "failed", null, null)).toBe(true);
+      expect(await boundTo(task)).toEqual([["D0OWNER", "100.000100", null]]);
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        effect: "failed",
+      });
+    });
+
+    test("another person's standalone session is not handed to from a DM, and nothing is bound", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const stranger = randomUUID();
+      await db.insert(users).values({
+        id: stranger,
+        email: `${stranger}@example.invalid`,
+        passwordHash: "argon2id$placeholder",
+        displayName: "stranger",
+      });
+      await db.insert(memberships).values({
+        workspaceId: fixture.workspaceId,
+        userId: stranger,
+        role: "member",
+      });
+      const theirs = await standaloneOf(fixture, stranger);
+      await deliver(fixture, {
+        type: "message",
+        channel: "D0OWNER",
+        channel_type: "im",
+        user: PERSON,
+        ts: "100.000100",
+        text: "carry on with that session",
+      });
+      await drain(handler().handle);
+      const turn = await routeDecided(theirs);
+      expect(await endings()).toMatchObject({ routed: 0 });
+      expect(await taskTurns(theirs)).toHaveLength(1);
+      expect(
+        (await links()).filter((link) => link.sessionId === theirs),
+      ).toEqual([]);
+      expect(
+        (await sessionsOf(fixture)).find((row) => row.id === theirs)
+          ?.parentConversationId,
+      ).toBe(null);
+      expect(await taskOfTurn(turn.turn_id)).toMatchObject({
+        effect: "failed",
+      });
+    });
+
     test("no session.submit on the task (G5): the requester alone is told, nothing handed", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       const task = await openTask(fixture, "100.000100");
