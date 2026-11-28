@@ -33,12 +33,13 @@ async function link(
     role?: "primary" | "mirror";
     createdAt?: string;
     closed?: boolean;
+    revoked?: boolean;
   } = {},
 ) {
   const id = crypto.randomUUID();
   await client.query(
-    `INSERT INTO session_links (id, workspace_id, owner_id, session_id, installation_id, surface_binding_id, surface_ref, channel_id, thread_id, opened_by_ts, agent_id, release_id, role, created_at, closed_at, closed_reason)
-     VALUES ($1, $2, 'owner', $3, $4, $5, $6, $7, $8, '1.0', $9, 'r1', $10, $11, $12, $13)`,
+    `INSERT INTO session_links (id, workspace_id, owner_id, session_id, installation_id, surface_binding_id, surface_ref, channel_id, thread_id, opened_by_ts, agent_id, release_id, role, created_at, closed_at, closed_reason, revoked_at)
+     VALUES ($1, $2, 'owner', $3, $4, $5, $6, $7, $8, '1.0', $9, 'r1', $10, $11, $12, $13, $14)`,
     [
       id,
       WORKSPACE,
@@ -53,6 +54,7 @@ async function link(
       over.createdAt ?? new Date().toISOString(),
       over.closed ? new Date().toISOString() : null,
       over.closed ? "completed" : null,
+      over.revoked ? new Date().toISOString() : null,
     ],
   );
   return id;
@@ -96,5 +98,23 @@ describe("a session's progress link", () => {
     expect((await outbox.progressLink(sessionId))?.id).toBe(newer);
     expect(await outbox.progressLink(crypto.randomUUID())).toBeNull();
     expect(await outbox.progressLink("not-a-session")).toBeNull();
+  });
+
+  test("is not a revoked link, however new", async () => {
+    const sessionId = crypto.randomUUID();
+    const kept = await link(sessionId, {
+      createdAt: "2026-01-01T00:00:00Z",
+      closed: true,
+    });
+    await link(sessionId, {
+      createdAt: "2026-02-01T00:00:00Z",
+      closed: true,
+      revoked: true,
+    });
+    const outbox = createPostgresSlackOutboxStore(db);
+    expect((await outbox.progressLink(sessionId))?.id).toBe(kept);
+    const onlyRevoked = crypto.randomUUID();
+    await link(onlyRevoked, { revoked: true });
+    expect(await outbox.progressLink(onlyRevoked)).toBeNull();
   });
 });

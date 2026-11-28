@@ -2577,12 +2577,14 @@ export function createPostgresSlackOutboxStore(
           threadId: l.threadId,
         })
         .from(l)
-        // As keepsProgressMessage reads a link; the newest when there were several.
+        // As keepsProgressMessage reads a link; the newest when there were
+        // several. A revoked link takes no more input (as a message there).
         .where(
           and(
             eq(l.sessionId, sessionId.toLowerCase()),
             eq(l.role, "primary"),
             ne(l.threadId, ""),
+            isNull(l.revokedAt),
           ),
         )
         .orderBy(sql`${l.createdAt} DESC`, sql`${l.id} DESC`)

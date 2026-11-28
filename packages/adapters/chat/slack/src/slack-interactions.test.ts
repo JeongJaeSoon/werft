@@ -2029,6 +2029,31 @@ describe("a close button's value against the message pressed", () => {
     expect(called("store_close")).toEqual([]);
   });
 
+  test.each([
+    ["another channel, the same thread", { channelId: "C0ELSEWHERE" }],
+    ["another agent", { agentId: crypto.randomUUID() }],
+  ] as const)(
+    "its own value pressed where its link is of %s closes nothing",
+    async (_, apart) => {
+      progressLinks[SESSION] = {
+        ...(progressLinks[SESSION] as SurfaceProgressLink),
+        ...apart,
+      };
+      const outcome = await send(
+        press(
+          SLACK_INTERACTION_ACTIONS.taskComplete,
+          { s: SESSION, r: LINK },
+          LINKED,
+          onA,
+        ),
+      );
+      expect((outcome as { result: string }).result).toBe(
+        "refused:surface_mismatch",
+      );
+      expect(called("store_close")).toEqual([]);
+    },
+  );
+
   test("on its own message, a task whose channel may submit but not control is not closed", async () => {
     const outcome = await send(
       press(
