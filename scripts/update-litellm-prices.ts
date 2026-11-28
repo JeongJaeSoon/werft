@@ -244,16 +244,19 @@ const threshold = (index: number) => index >= 5 && (index - 5) % 6 === 0;
  * Models whose rates fell by half or more since `before`, whose tiers moved,
  * that price a part they left out before, or that left: any part of a row,
  * and the judgment models too. A rate read too low undercounts a budget, so
- * each is for a person to check. A model that is new is not listed.
+ * each is for a person to check. A new model is listed only when its bare
+ * name was priced before, by rows that carry it behind a provider prefix.
  */
 export function drops(before: Snapshot, after: Snapshot): string[] {
   const tick = String.fromCharCode(96);
+  // A name is quoted in Markdown: one that held a backtick would end it.
+  const quoted = (model: string) =>
+    `- ${tick}${model.replaceAll(tick, "'")}${tick}`;
   const lines: string[] = [];
   const compare = (was: readonly Row[], now: readonly Row[], kind: string) => {
     const current = new Map(now.map(([model, ...rates]) => [model, rates]));
     for (const [model, ...rates] of was) {
-      // A name is quoted in Markdown: one that held a backtick would end it.
-      const name = `- ${tick}${model.replaceAll(tick, "'")}${tick}${kind}`;
+      const name = quoted(model) + kind;
       const next = current.get(model);
       if (next === undefined) {
         lines.push(`${name}: no longer priced (was ${rates.join(", ")})`);
@@ -277,6 +280,21 @@ export function drops(before: Snapshot, after: Snapshot): string[] {
   };
   compare(before.tokens, after.tokens, "");
   compare(before.decisions, after.decisions, " (judgment)");
+  // A new row under a bare name takes that name from the prefixed rows that
+  // priced it before, whatever they charged: the reader looks the name
+  // itself up first.
+  const had = new Set(before.tokens.map(([model]) => model));
+  for (const [model, ...rates] of after.tokens) {
+    if (had.has(model) || model.includes("/")) continue;
+    const prefixed = before.tokens
+      .filter(([name]) => name.endsWith(`/${model}`))
+      .map(([name]) => name.replaceAll(tick, "'"));
+    if (prefixed.length > 0) {
+      lines.push(
+        `${quoted(model)}: new, ${rates.join(", ")}; the name was priced by ${prefixed.join(", ")}`,
+      );
+    }
+  }
   return lines;
 }
 
@@ -412,8 +430,8 @@ if (import.meta.main) {
             ").",
           "",
           fell.length === 0
-            ? "No rate fell by half or more, no tier moved, no part left out is newly priced and no model left. New models are not listed."
-            : "Models whose rates fell by half or more, whose tiers moved, that now price a part they left out (it was charged from the input rate), or that left. New models are not listed. Check each before merging: a rate read too low undercounts a budget. A row is USD per million tokens: input, output, cache read, cache write, long-lived cache write, then per long-prompt tier its prompt length and the same five.",
+            ? "No rate fell by half or more, no tier moved, no part left out is newly priced, no new row takes a name priced before and no model left. Other new models are not listed."
+            : "Models whose rates fell by half or more, whose tiers moved, that now price a part they left out (it was charged from the input rate), that left, or that are new under a name rows with a provider prefix priced before. Other new models are not listed. Check each before merging: a rate read too low undercounts a budget. A row is USD per million tokens: input, output, cache read, cache write, long-lived cache write, then per long-prompt tier its prompt length and the same five.",
           ...(fell.length === 0 ? [] : ["", ...fell]),
           "",
         ].join("\n"),

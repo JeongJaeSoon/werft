@@ -254,6 +254,35 @@ describe("what a moved pin reports for the pull request", () => {
     ).toHaveLength(1);
   });
 
+  test("a new row under a bare name that prefixed rows priced before, and no other new model", () => {
+    const tick = String.fromCharCode(96);
+    expect(
+      drops(
+        {
+          tokens: [
+            ["a/m", 4, 16],
+            ["b/eu/m", 5, 20],
+            ["a/other", 1, 1],
+          ],
+          decisions: [],
+        },
+        {
+          tokens: [
+            ["a/m", 4, 16],
+            ["a/other", 1, 1],
+            ["b/eu/m", 5, 20],
+            ["c/brand-new", 1, 1],
+            ["m", 0.1, 0.4],
+            ["unrelated", 1, 1],
+          ],
+          decisions: [],
+        },
+      ),
+    ).toEqual([
+      `- ${tick}m${tick}: new, 0.1, 0.4; the name was priced by a/m, b/eu/m`,
+    ]);
+  });
+
   test("a name's backtick does not end the code span it is quoted in", () => {
     const tick = String.fromCharCode(96);
     const [line] = drops(
