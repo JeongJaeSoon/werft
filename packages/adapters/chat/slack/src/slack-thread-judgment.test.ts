@@ -178,7 +178,7 @@ describe("a bound thread's unmentioned reply asks for M1's judgment", () => {
 
   test("an escaped mention of another user is not addressed to them", async () => {
     const { receipt } = await receive({
-      rollout: "on",
+      rollout: "shadow",
       linked: true,
       text: "&lt;@U2&gt; take a look",
     });
