@@ -175,6 +175,48 @@ describe("scripted Messages API", () => {
     ).toEqual([{ type: "text", text: "done [probe:found]" }]);
   });
 
+  test("a spec's usage rides each of its replies, steps and final", async () => {
+    const quiet = { ...spec, usage: {} };
+    const prompt = {
+      role: "user",
+      content: [
+        { type: "text", text: `${SPEC_MARKER}${JSON.stringify(quiet)}` },
+      ],
+    };
+    const recorded: GateRequest[] = [];
+    const first = await replyFor(request([prompt]), recorded);
+    expect(first.stopReason).toBe("tool_use");
+    expect(first.usage).toEqual({});
+    const last = await replyFor(
+      request([
+        prompt,
+        { role: "assistant", content: [] },
+        toolResult("t0"),
+        { role: "assistant", content: [] },
+        toolResult("t1"),
+      ]),
+      recorded,
+    );
+    expect(last.stopReason).toBe("end_turn");
+    expect(last.usage).toEqual({});
+    // Without one, the fake's default counts stand.
+    expect(
+      (
+        await replyFor(
+          request([
+            {
+              role: "user",
+              content: [
+                { type: "text", text: `${SPEC_MARKER}${JSON.stringify(spec)}` },
+              ],
+            },
+          ]),
+          recorded,
+        )
+      ).usage,
+    ).toBeUndefined();
+  });
+
   test("answers the fallback without a spec, or without tools", async () => {
     const recorded: GateRequest[] = [];
     const plain = await replyFor(

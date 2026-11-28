@@ -24,8 +24,11 @@ export type FakeBlock =
 export type FakeReply = {
   content: FakeBlock[];
   stopReason: "end_turn" | "tool_use";
-  /** Token counts to report, which is how a test makes a reply cost something. */
-  usage?: { input_tokens: number; output_tokens: number };
+  /**
+   * Token counts to report, which is how a test makes a reply cost something;
+   * a count left out is left out of the answer too.
+   */
+  usage?: Partial<{ input_tokens: number; output_tokens: number }>;
   /** The auto mode safety check flags this reply's tool calls. */
   flagged?: boolean;
 };
