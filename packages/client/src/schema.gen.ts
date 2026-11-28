@@ -8769,6 +8769,52 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        ReceiptRead: {
+            /** Format: uuid */
+            id: string;
+            /** @description What the receipt records. Known values are listed by the write side, but a newer server may return a value this version does not know: show it as is. */
+            operation: string;
+            target_ref: {
+                /** Format: uuid */
+                session_id: string;
+                turn_id: string | null;
+                request_id: string | null;
+            } | {
+                resource: {
+                    /** @enum {string} */
+                    kind: "workspace" | "session" | "invite" | "agent" | "agent_release" | "surface_binding" | "session_link" | "dispatch" | "memory" | "routine" | "artifact" | "mcp_server" | "api_key" | "team" | "extension_bundle" | "conversation";
+                    id: string;
+                };
+                workspace_id: string | null;
+            } | {
+                /** Format: uuid */
+                user_id: string;
+                /** Format: uuid */
+                workspace_id: string;
+            };
+            actor?: {
+                principal: {
+                    /** @enum {string} */
+                    kind: "api_key" | "user" | "installation";
+                    id: string;
+                };
+                actor_user_id: string | null;
+                agent_id: string | null;
+            };
+            /** @enum {string} */
+            status: "accepted" | "succeeded" | "failed" | "unknown";
+            /** @description For create_session and append_message: the acceptance response exactly as first returned, never rewritten; its receipt_status and status are acceptance-time values. The current outcome is this receipt's status and error; the turn's result is read from GET /v1/sessions/{session_id}/turns/{turn_id} using target_ref. For interrupt: `{turn_id, terminal, no_op}` once settled, where `no_op: true` means the turn reached `terminal` on its own and the interrupt did nothing. */
+            result: unknown | null;
+            error: {
+                /** @enum {string} */
+                code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "BOOTSTRAP_DONE" | "NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "REQUEST_TIMEOUT" | "UNSUPPORTED_CAPABILITY" | "RATE_LIMITED" | "STORAGE_LIMIT_EXCEEDED" | "BUDGET_EXCEEDED" | "WORKSPACE_QUOTA_EXCEEDED" | "INTERNAL_ERROR" | "REVISION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "REQUEST_EXPIRED" | "REQUEST_STALE" | "SESSION_PAUSED" | "SESSION_RESUMING" | "SESSION_CLOSED" | "SESSION_CLOSING" | "SESSION_STOPPED" | "RECOVERY_REQUIRED" | "CHECKPOINT_UNAVAILABLE" | "PAUSE_COMMITTING" | "PAUSE_CANCELLED" | "CONTROL_SUPERSEDED" | "TURN_NOT_STARTED" | "BACKEND_UNAVAILABLE" | "LAUNCH_FAILED" | "NO_CAPACITY" | "CODEX_SANDBOX_NOT_INSTALLED" | "WORKER_OWNERSHIP_LOST" | "CATALOG_MISMATCH" | "TAKEOVER_REQUIRED" | "SOURCE_DELETED" | "SLACK_NOT_INSTALLED" | "LINK_TEAM_MISMATCH" | "LINK_TAKEN" | "LINK_EXISTS" | "AGENT_IDENTITY_TAKEN" | "CONFIG_TOKEN_INVALID" | "SLACK_APP_CREATING" | "SLACK_APP_GONE" | "AGENT_NOT_ACTIVE" | "SLACK_INSTALL_STATE_INVALID" | "SLACK_INSTALL_DENIED" | "SLACK_INSTALL_REJECTED" | "SLACK_INSTALL_CONFLICT" | "SLACK_LINK_NOT_CONFIGURED" | "GITHUB_LINK_NOT_CONFIGURED" | "INVITE_EXPIRED" | "INVITE_USED" | "LAST_OWNER" | "OWNER_PROTECTED" | "SELF_PROTECTED" | "MEMBER_DISABLED" | "ACCOUNT_DISABLED" | "SCOPE_NOT_GRANTABLE" | "CREDENTIAL_UNBOUND" | "AGENT_NOT_RUNNABLE" | "CREDENTIAL_REF_IN_USE" | "LOGIN_LINK_REQUIRED" | "RELEASE_SPEC_UNAVAILABLE" | "ALREADY_EXISTS" | "NOT_READY" | "CURSOR_EXPIRED" | "LEASE_EXPIRED" | "STALE_EPOCH" | "PUSH_SOURCE_MISSING" | "PUSH_REQUEST_OPEN" | "PUSH_REQUEST_RESOLVED" | "PUSH_REQUEST_DECIDED" | "CHECKPOINT_MOVED" | "PUSH_NOT_PUSHED" | "PULL_REQUEST_MISSING" | "PULL_REQUEST_MERGED" | "PULL_REQUEST_MERGE_BLOCKED" | "PULL_REQUEST_CLOSED" | "GITHUB_REFUSED" | "GITHUB_APP_CONFLICT" | "GITHUB_UNAVAILABLE" | "INSTALLATION_SUSPENDED" | "PENDING_REQUESTS_OPEN" | "PERMISSION_WAIT_ABOVE_LIMIT" | "TEAM_MANAGES_AGENTS" | "VARIABLE_NAME_INVALID" | "VARIABLE_NAME_RESERVED" | "VARIABLE_VALUE_INVALID" | "VARIABLE_VALUE_TOO_LARGE" | "VARIABLE_QUOTA_EXCEEDED" | "MCP_SERVER_QUOTA_EXCEEDED" | "VARIABLE_UNRESOLVED" | "SECRET_ACK_REQUIRED" | "SECRET_GRANT_ALL_FORBIDDEN" | "SECRET_ENV_UNSUPPORTED" | "VERSION_MISMATCH" | "PRECONDITION_REQUIRED" | "DECISION_MODEL_REQUIRED" | "ENDPOINT_RETIRED";
+                message: string;
+            } | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
         BootstrapResponse: {
             /** Format: uuid */
             user_id: string;
@@ -53273,7 +53319,7 @@ export interface operations {
                      *       "updated_at": "2026-10-11T08:20:09Z"
                      *     }
                      */
-                    "application/json": components["schemas"]["Receipt"];
+                    "application/json": components["schemas"]["ReceiptRead"];
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */
