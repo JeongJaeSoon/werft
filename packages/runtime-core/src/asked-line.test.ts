@@ -22,6 +22,20 @@ mkdirSync(join(workspace, "notes"), { recursive: true });
 mkdirSync(join(root, "outside"));
 mkdirSync(join(workspace, ".claude"));
 mkdirSync(join(workspace, ".git"));
+// Branches that are also directories: one loose, one a remote's, packed.
+mkdirSync(join(workspace, ".git", "refs", "heads", "release"), {
+  recursive: true,
+});
+writeFileSync(
+  join(workspace, ".git", "refs", "heads", "release", "v1.2"),
+  "0\n",
+);
+writeFileSync(
+  join(workspace, ".git", "packed-refs"),
+  "0 refs/remotes/origin/feature\n",
+);
+mkdirSync(join(workspace, "release", "v1.2"), { recursive: true });
+mkdirSync(join(workspace, "feature"));
 writeFileSync(join(workspace, "notes", "sample.txt"), "sample\n");
 symlinkSync(join(root, "outside"), join(workspace, "link"));
 symlinkSync(join(root, "missing"), join(workspace, "dangling"));
@@ -708,6 +722,26 @@ const WIDE: [string, string, string | null][] = [
     "an escaped body start",
     "echo \\$(cat <<'EOF'\ngrep -r needle .\nEOF\n)",
     "a search of the workspace or a kept path",
+  ],
+  [
+    "a body start in a comment inside a substitution in double quotes",
+    "gh pr create --title docs --body \"$(\n  # Example: $(cat <<'true'\n  grep -r needle .\ntrue\n)\"",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a body inside nested substitutions after an apostrophe",
+    "gh pr create --title docs --body \"$(\n  printf '%s\\n' \"What's new:\n$(cat <<'EOF'\ngrep -r needle .\nEOF\n)\"\n)\"",
+    null,
+  ],
+  [
+    "a body after a substitution has closed",
+    "echo \"$(date) it's $(cat <<'EOF'\ngrep -r needle .\nEOF\n)\"",
+    null,
+  ],
+  [
+    "a body after a subshell inside a substitution",
+    'echo "$( (true); echo "it\'s" ) $(cat <<\'EOF\'\ngrep -r needle .\nEOF\n)"',
+    null,
   ],
   ["a message after clustered flags", "git commit -aq -m .claude", null],
   ["a gh body after a flag", "gh pr create --draft --body .claude", null],
@@ -1598,8 +1632,23 @@ const NARROW: [string, string, string | null][] = [
   ["a quoted name with a ~", "git diff -- '.mcp.json~backup'", null],
   // git takes one operand as a branch even when a file has its name.
   [
-    "a checkout of a name without / or .",
+    "a checkout of a directory that names no branch",
     "git checkout notes",
+    null,
+  ],
+  [
+    "a checkout of a branch that is also a directory",
+    "git checkout 'release/v1.2'",
+    "a switch to another tree",
+  ],
+  [
+    "a forced checkout of a branch that is also a directory",
+    "git checkout -qf release/v1.2",
+    "a switch to another tree",
+  ],
+  [
+    "a checkout of a remote's packed branch that is also a directory",
+    "git checkout feature",
     "a switch to another tree",
   ],
   ["a forced checkout of a file", "git checkout -f notes/sample.txt", null],

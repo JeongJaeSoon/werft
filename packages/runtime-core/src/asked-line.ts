@@ -1,4 +1,4 @@
-import { lstatSync, readdirSync, realpathSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { workspaceAskPatterns } from "./workspace-ask-patterns.ts";
 import { WORKSPACE_POLICY } from "./workspace-policy.ts";
@@ -893,6 +893,71 @@ function optionsSet(
 }
 
 /**
+ * Whether git would read `word` as a revision when it is also a path: a
+ * branch, tag or remote-tracking branch of that name (git checks out a
+ * remote's branch by its short name), a revision spelling, or an object
+ * name. A repository it cannot find counts as one.
+ */
+function namesRevision(word: string, root: string): boolean {
+  if (/[~^@:]|^-|^[0-9a-f]{4,40}$|^[A-Z_]*HEAD$/.test(word)) return true;
+  let gitDir: string | undefined;
+  for (let dir = root; gitDir === undefined; dir = dirname(dir)) {
+    const dotGit = resolve(dir, ".git");
+    try {
+      gitDir = lstatSync(dotGit).isDirectory()
+        ? dotGit
+        : resolve(
+            dir,
+            (
+              /^gitdir: (.*)$/m.exec(readFileSync(dotGit, "utf8"))?.[1] ?? ""
+            ).trim(),
+          );
+    } catch {
+      if (dirname(dir) === dir) return true;
+    }
+  }
+  let common = gitDir;
+  try {
+    common = resolve(
+      gitDir,
+      readFileSync(resolve(gitDir, "commondir"), "utf8").trim(),
+    );
+  } catch {}
+  const names = [`refs/heads/${word}`, `refs/tags/${word}`];
+  const exists = (path: string) => {
+    try {
+      return lstatSync(path).isFile();
+    } catch {
+      return false;
+    }
+  };
+  if (
+    names.some(
+      (name) => exists(resolve(common, name)) || exists(resolve(gitDir, name)),
+    )
+  ) {
+    return true;
+  }
+  try {
+    for (const remote of readdirSync(resolve(common, "refs/remotes"))) {
+      if (exists(resolve(common, "refs/remotes", remote, word))) return true;
+    }
+  } catch {}
+  try {
+    const packed = readFileSync(resolve(common, "packed-refs"), "utf8");
+    return packed.split("\n").some((line) => {
+      const ref = line.split(" ")[1] ?? "";
+      return (
+        names.includes(ref) ||
+        ref.replace(/^refs\/remotes\/[^/]+\//, "\0") === `\0${word}`
+      );
+    });
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Why a git verb writes the whole work tree, or what in it the line does not
  * name, over a kept path: a pathspec of the workspace's top (`.`, `:/`), one
  * that only leaves paths out (`:!x`), another branch's tree, or ignored and
@@ -976,9 +1041,10 @@ function workTreeKept(
     }
     if (pathspecs !== undefined) return "a switch to another tree";
     // git takes one operand as a branch when it names one, a file of the
-    // same name or not: only a name with a `/` or a `.` on disk is read
+    // same name or not: only a path on disk that names no revision is read
     // as a path. More operands are a tree and its paths, or paths alone.
-    const path = (word: string) => /[/.]/.test(word) && onDisk(word);
+    const path = (word: string) =>
+      onDisk(word) && !namesRevision(word, place.root);
     const [first] = operands as [string];
     if (operands.length === 1) {
       return !path(first) || set.has("--detach")
@@ -1856,27 +1922,41 @@ function withoutCatBodies(text: string): string {
     /\$\(cat <<(['"])([A-Za-z_]\w*)\1\n(?:(?!\2\n)[^\n]*\n)*\2\n\)/g;
   let out = "";
   let read = 0;
-  let quote: "" | "'" | '"' = "";
+  // A `$( )` opens quotes and comments of its own, inside a double quote
+  // too; `parens` counts the `( )` it holds so its own `)` ends it.
+  const frames: { quote: "" | "'" | '"'; parens: number }[] = [
+    { quote: "", parens: 0 },
+  ];
   let comment = false;
   let escaped = false;
   const scan = (to: number) => {
     for (; read < to; read += 1) {
       const char = text[read] as string;
+      const frame = frames[frames.length - 1] as (typeof frames)[number];
       out += char;
       if (comment) {
         if (char === "\n") comment = false;
       } else if (escaped) {
         escaped = false;
-      } else if (quote === "'") {
-        if (char === "'") quote = "";
+      } else if (frame.quote === "'") {
+        if (char === "'") frame.quote = "";
       } else if (char === "\\") {
         escaped = true;
-      } else if (quote === '"') {
-        if (char === '"') quote = "";
+      } else if (char === "$" && text[read + 1] === "(") {
+        out += "(";
+        read += 1;
+        frames.push({ quote: "", parens: 0 });
+      } else if (frame.quote === '"') {
+        if (char === '"') frame.quote = "";
       } else if (char === "'" || char === '"') {
-        quote = char;
+        frame.quote = char;
       } else if (char === "#" && /^$|[\s;&|()]/.test(text[read - 1] ?? "")) {
         comment = true;
+      } else if (char === "(") {
+        frame.parens += 1;
+      } else if (char === ")") {
+        if (frame.parens > 0) frame.parens -= 1;
+        else if (frames.length > 1) frames.pop();
       }
     }
   };
@@ -1884,7 +1964,8 @@ function withoutCatBodies(text: string): string {
     const at = match.index;
     if (at < read) continue;
     scan(at);
-    if (comment || escaped || (quote as string) === "'") continue;
+    const frame = frames[frames.length - 1] as (typeof frames)[number];
+    if (comment || escaped || frame.quote === "'") continue;
     out += "$()";
     read = at + match[0].length;
   }
