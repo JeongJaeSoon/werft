@@ -58,8 +58,10 @@ const BUDGET_BYTES: Record<string, number> = {
   // ./schemas 391 bytes over 156 and ./forms 119 bytes over 154, so they
   // move to 157 and 155. The skill repository schemas and their three
   // receipt operations put ./schemas 804 bytes over 157 and ./forms 382
-  // bytes over 155, so they move to 158 and 156.
-  "./schemas": 158 * 1024,
+  // bytes over 155, so they move to 158 and 156. Merged with main's channel
+  // report mode and judgment answer filter, ./schemas is 38 bytes over 158,
+  // so it moves to 159.
+  "./schemas": 159 * 1024,
   "./forms": 156 * 1024,
 };
 
