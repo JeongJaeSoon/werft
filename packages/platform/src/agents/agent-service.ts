@@ -32,6 +32,7 @@ import {
   releaseModel,
   type SaveAgentResponse,
   type SaveRelease,
+  storedAgentGitHubSchema,
   TEAM_LIST_LIMIT,
   type UsableAgent,
   WORKSPACE_MANAGER_ROLES,
@@ -223,6 +224,17 @@ export function agentReleaseReaders(
       release: Pick<AgentRelease, "agent_id" | "approved_at">,
     ) => releaseNotRunnableReason(store, workspaceId, release),
   };
+}
+
+/**
+ * The active release's pin as a new release carries it: without a switch
+ * this build does not know, which the ceiling check would refuse and an
+ * earlier build could not read. Such a switch only grants, so this narrows.
+ */
+function carriedPin(
+  pin: AgentRelease["policy_pins"]["github"],
+): AgentGitHub | undefined {
+  return pin === undefined ? undefined : storedAgentGitHubSchema.parse(pin);
 }
 
 export function createAgentService(deps: {
@@ -563,7 +575,7 @@ export function createAgentService(deps: {
     const hasRow = await store.hasGitHubSettings(input.agentId);
     const carry = !hasRow;
     const repositoryId = carry ? (active?.repository_id ?? null) : null;
-    const github = carry ? active?.policy_pins.github : undefined;
+    const github = carry ? carriedPin(active?.policy_pins.github) : undefined;
     if (releaseRepositoryRefusal(repositoryId) !== null) {
       return failed("release_refused");
     }
@@ -1318,8 +1330,10 @@ export function createAgentService(deps: {
         request.github ??
         ((await store.hasGitHubSettings(agentId))
           ? undefined
-          : (await store.get(caller.ownerId, agentId))?.active_release
-              ?.policy_pins.github);
+          : carriedPin(
+              (await store.get(caller.ownerId, agentId))?.active_release
+                ?.policy_pins.github,
+            ));
       if (github !== undefined) {
         await checkGitHub(
           caller.ownerId,

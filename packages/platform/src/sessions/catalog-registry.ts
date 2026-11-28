@@ -18,12 +18,13 @@ export const CATALOG_REFRESH_MS = 10_000;
 
 /**
  * The newest read wins and a refresh joins one begun within `maxAgeMs`;
- * a failed read keeps what was read before. `maxAgeMs` 0 always begins a
- * read, the clock stepping back included.
+ * a failed read keeps what was read before, as does one `apply` declines
+ * (returns false). `maxAgeMs` 0 always begins a read, the clock stepping
+ * back included.
  */
 export function latestReads<T>(
   read: () => Promise<T>,
-  apply: (value: T) => void,
+  apply: (value: T) => unknown,
   now: () => number,
 ): (maxAgeMs?: number) => Promise<void> {
   let readAt = Number.NEGATIVE_INFINITY;
@@ -42,7 +43,10 @@ export function latestReads<T>(
     const done = read().then(
       (value) => {
         if (order < applied) return;
-        apply(value);
+        if (apply(value) === false) {
+          if (latest?.done === done) latest = null;
+          return;
+        }
         applied = order;
         readAt = startedAt;
       },
@@ -132,15 +136,33 @@ export function createCatalogRegistry(deps: {
 }): CatalogRegistry {
   let repositoryRows: readonly CatalogRepositoryRow[] | null = null;
   let settings: SettingsSnapshot | null = null;
+  let readsBegun = 0;
+  // Reads begun up to here were under way when `settings` was applied.
+  let underWayAtApply = 0;
   const refresh = latestReads(
     // Settings first: what is read after them is never older than their
     // generation, so a claim that trusts it fails nothing it has not seen.
     async () => {
+      readsBegun += 1;
+      const begun = readsBegun;
       const read = (await deps.settings?.read()) ?? null;
       const rows = (await deps.repositories?.readCatalog()) ?? null;
-      return [read, rows] as const;
+      return [read, rows, begun] as const;
     },
-    ([read, rows]) => {
+    ([read, rows, begun]) => {
+      // Begun later yet opened its database snapshot first: an older
+      // generation than one a request may already have resolved on. A read
+      // begun after the apply is taken as it is, a restored database's
+      // lower generation included.
+      if (
+        read !== null &&
+        settings !== null &&
+        begun <= underWayAtApply &&
+        read.generation < settings.generation
+      ) {
+        return false;
+      }
+      underWayAtApply = readsBegun;
       settings = read === null ? null : keepUnchanged(read, settings);
       if (
         rows === null ||

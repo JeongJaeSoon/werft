@@ -4450,6 +4450,42 @@ describe.each(ENGINES)(
       expect(await conversationRepliesOf(fixture)).toEqual([]);
     });
 
+    test("a stop word mentioned in an idle task's thread makes no turn: only whoever wrote it is told nothing is running (94S-2472)", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, mention("100.000100"));
+      await drain(handler().handle);
+      await spawnDecided();
+      expect(await endings()).toMatchObject({ spawned: 1 });
+      const [session] = await sessionsOf(fixture);
+      if (session === undefined) throw new Error("no task opened");
+      await db
+        .update(turns)
+        .set({
+          status: "completed",
+          startedAt: new Date(),
+          endedAt: new Date(),
+        })
+        .where(eq(turns.sessionId, session.id));
+      const view = handler();
+      const stopWord = {
+        thread_ts: "100.000100",
+        text: `<@${BOT_USER}> 그만`,
+      };
+      await deliver(fixture, message("100.000300", stopWord));
+      await deliver(fixture, mention("100.000300", stopWord));
+      expect(await drain(view.handle)).toMatchObject({ failed: 0 });
+      const taskTurns = await db
+        .select({ sequence: turns.sequence, status: turns.status })
+        .from(turns)
+        .where(eq(turns.sessionId, session.id));
+      expect(taskTurns).toEqual([{ sequence: 1, status: "completed" }]);
+      expect(await mentionTurnsOf(fixture)).toHaveLength(1);
+      expect(view.threadNotices).toEqual([]);
+      expect(view.notices).toMatchObject([
+        { slackUserId: PERSON, notice: { message: "nothingToStop" } },
+      ]);
+    });
+
     test("a repository outside the agent's is refused with a line in the thread, nothing opened (G3)", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       await deliver(fixture, mention("100.000100"));
@@ -5592,6 +5628,115 @@ describe.each(ENGINES)(
         }
       });
     }
+
+    // v1-b/DM2: a DM turn's thread is set back on each of those ends too,
+    // in the DM, on the thread of the person's post.
+    for (const [name, end, , tries] of ends) {
+      test(`a DM turn ended by ${name} sets its DM thread back to active once`, async () => {
+        const fixture = await agentInSlack("main", { rollout: "on" });
+        await deliver(fixture, dmPost("100.000100"));
+        await drain(handler().handle);
+        for (let tried = 1; tried <= tries; tried += 1) {
+          await end(await leased());
+          await endings();
+          await endings(
+            new Date(Date.now() + MENTION_TURN_RETRY_DELAYS_MS[1] + 1),
+          );
+        }
+        expect(slack.statuses).toEqual([
+          {
+            channelId: "D0OWNER",
+            threadTs: "100.000100",
+            status: "processing",
+          },
+          { channelId: "D0OWNER", threadTs: "100.000100", status: "active" },
+        ]);
+      });
+    }
+
+    test("a DM turn an emergency stop ended sets its DM thread back to active", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, dmPost("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      await db.execute(sql`
+        UPDATE conversation_turns SET state = 'no_decision',
+          ended_at = clock_timestamp()
+        WHERE id = ${turn.turn_id}::uuid`);
+      await db.execute(sql`
+        UPDATE conversation_turn_queue SET state = 'ended',
+          outcome = ${JSON.stringify({ outcome: "failed", reason: "emergency_stopped" })}::jsonb,
+          ended_at = clock_timestamp(), turn_nonce = NULL, turn_ciphertext = NULL
+        WHERE turn_id = ${turn.turn_id}::uuid`);
+      await endings();
+      await endingsPastWait();
+      expect(slack.statuses).toEqual([
+        { channelId: "D0OWNER", threadTs: "100.000100", status: "processing" },
+        { channelId: "D0OWNER", threadTs: "100.000100", status: "active" },
+      ]);
+    });
+
+    test("a DM turn's answer, and a DM reply's, go in the thread of the person's DM post", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const { handle } = handler();
+      await deliver(fixture, dmPost("100.000100"));
+      await drain(handle);
+      const answer = async (body: string) => {
+        const turn = await leased();
+        await decide(turn, body);
+        await report(turn, {
+          outcome: "completed",
+          text: body,
+          decision: { tool: "reply", body, reason: "asked" },
+        });
+        await endings();
+      };
+      await answer("first answer");
+      await deliver(fixture, dmPost("100.000300", { thread_ts: "100.000100" }));
+      await drain(handle);
+      await answer("second answer");
+      slack.messages.length = 0;
+      await sendOutbox();
+      const posts = slack.messages.filter(
+        (posted) => posted.method === "chat.postMessage",
+      );
+      expect(
+        posts.map((posted) => [posted.channelId, posted.threadTs]),
+      ).toEqual([
+        ["D0OWNER", "100.000100"],
+        ["D0OWNER", "100.000100"],
+      ]);
+      expect(posts.every((posted) => posted.text.includes("answer"))).toBe(
+        true,
+      );
+    });
+
+    test("a DM turn's answer row with no thread is refused, as a channel's is", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, dmPost("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      const [installation] = await db
+        .select({ id: schema.slackInstallations.id })
+        .from(schema.slackInstallations);
+      await expect(
+        schema.createPostgresSlackOutboxStore(db).enqueue({
+          workspaceId: fixture.workspaceId,
+          agentId: fixture.agentId,
+          slackAppId: fixture.slackAppId,
+          installationId: installation?.id ?? "",
+          kind: "conversation_reply",
+          channelId: "D0OWNER",
+          threadTs: "",
+          slackUserId: null,
+          sessionId: null,
+          sessionLinkId: null,
+          body: { text: "at the top" },
+          dedupeKey: `dm-top:${turn.turn_id}`,
+          conversationTurnId: turn.turn_id,
+        }),
+      ).rejects.toBeInstanceOf(schema.SlackOutboxDmThreadError);
+    });
 
     test("a turn no runtime takes ends when its wait does, is tried again to its third, and sets its thread back once", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
@@ -8671,17 +8816,60 @@ describe.each(ENGINES)("Slack stop requests on %s", (engine) => {
     ]);
   });
 
-  test("with nothing running or waiting, a stop changes nothing and says so", async () => {
-    const { fixture, view, session, post } = await workingThread();
+  test("with nothing running or waiting, a stop makes no turn and tells only whoever wrote it, mentioned or not", async () => {
+    const { fixture, view, session, post, root } = await workingThread();
     await setTurn(session.id, 1, { status: "completed", endedAt: new Date() });
     await setTurn(session.id, 2, { status: "completed", endedAt: new Date() });
     await deliver(fixture, post(at(1), { text: "중지" }));
     await drain(view.handle);
+    // A mentioned stop word: its message event and its app_mention, one post.
+    const mentioned = at(2);
+    await deliver(fixture, post(mentioned, { text: `<@${BOT_USER}> 그만` }));
+    await deliver(
+      fixture,
+      mention(mentioned, { thread_ts: root, text: `<@${BOT_USER}> 그만` }),
+    );
+    expect(await drain(view.handle)).toMatchObject({ failed: 0 });
     expect((await turnStatesOf(session.id)).map((turn) => turn.status)).toEqual(
       ["completed", "completed"],
     );
-    expect(view.threadNotices).toMatchObject([
-      { notice: { message: "nothingToStop" } },
+    expect(await interruptsOf(session.id)).toEqual([]);
+    expect(view.threadNotices).toEqual([]);
+    expect(view.notices.length).toBeGreaterThanOrEqual(2);
+    expect(
+      view.notices.every(
+        (line) =>
+          line.slackUserId === PERSON &&
+          line.threadTs === root &&
+          line.notice.message === "nothingToStop",
+      ),
+    ).toBe(true);
+    // One line per post: the post's two events and its retries share a key.
+    expect(new Set(view.notices.map((line) => line.onceKey)).size).toBe(2);
+  });
+
+  test("a task whose turns have all ended takes a mentioned stop word as no turn either", async () => {
+    const { fixture, view, session, post, root } = await unstartedTask();
+    await setTurn(session.id, 1, {
+      status: "completed",
+      attemptId: "attempt-1",
+      startedAt: new Date(),
+      endedAt: new Date(),
+    });
+    await deliver(fixture, post(at(1), { text: `<@${BOT_USER}> 그만` }));
+    expect(await drain(view.handle)).toMatchObject({ failed: 0 });
+    expect((await turnStatesOf(session.id)).map((turn) => turn.status)).toEqual(
+      ["completed"],
+    );
+    const [after] = await sessionsOf(fixture);
+    expect(after?.admissionState).toBe("active");
+    expect(view.threadNotices).toEqual([]);
+    expect(view.notices).toMatchObject([
+      {
+        slackUserId: PERSON,
+        threadTs: root,
+        notice: { message: "nothingToStop" },
+      },
     ]);
   });
 

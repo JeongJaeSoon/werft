@@ -445,6 +445,23 @@ integration("turning one repository on or off on PostgreSQL", () => {
     expect(await settingsOf(broken)).toBeUndefined();
   });
 
+  test("a pin with a switch this build does not know seeds the row without it (94S-2491)", async () => {
+    const f = await fixture({
+      github: {
+        ...PIN,
+        features: { ...PIN.features, later_switch: true, merge: true },
+      },
+    });
+    expect(await toggle(f)).toMatchObject({ outcome: "saved", revision: 1 });
+    const { rows } = await pool.query(
+      "SELECT features FROM agent_github_settings WHERE agent_id = $1",
+      [f.agentId],
+    );
+    expect(Object.keys(rows[0]?.features ?? {}).sort()).toEqual(
+      Object.keys(GITHUB_FEATURES_NONE).sort(),
+    );
+  });
+
   test("a catalog id with no active row is refused", async () => {
     const f = await fixture();
     await pool.query(

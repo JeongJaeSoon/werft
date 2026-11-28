@@ -7,13 +7,16 @@ import {
   DEFAULT_USER_LOCALE,
   type PushRequestOrigin,
   pendingQuestionSchema,
+  RESPONSE_LANGUAGE_VALUES,
   type RuntimeKind,
   rememberRuleSchema,
   type SessionEventPayload,
+  SLACK_DM_THREAD_REQUIRED_CODE,
   SLACK_NOTICE_VERSIONS,
   SLACK_USER_CHANNEL_CODE,
   type SlackNoticeVersionEntry,
   slackOutboxChannelRefused,
+  slackOutboxDmThreadRefused,
   TURN_EMERGENCY_STOPPED_REASON,
   type UserLocale,
   withStoredNeutralFields,
@@ -36,6 +39,7 @@ import type {
   SurfacePromptCard,
   SurfaceUnansweredTurn,
   SurfaceUnpostedInstruction,
+  SurfaceWorkReportDue,
 } from "@werft-ai/platform";
 import {
   SURFACE_EDIT_RATE_LIMITED_CODE,
@@ -73,7 +77,9 @@ import {
   mirrorsInstructions,
   postsPrompts,
   reportsProgress,
+  reportsStartOnly,
   reportsTurns,
+  reportsWorkOnly,
 } from "../link-posting.ts";
 import {
   catalogName,
@@ -146,12 +152,42 @@ export class SlackOutboxUserChannelError extends Error {
   }
 }
 
+/** An outbox row bound for the top of a DM (slackOutboxDmThreadRefused). */
+export class SlackOutboxDmThreadError extends Error {
+  readonly code = SLACK_DM_THREAD_REQUIRED_CODE;
+
+  constructor(readonly kind: string) {
+    super(`A ${kind} outbox row in a direct message must name its thread`);
+    this.name = "SlackOutboxDmThreadError";
+  }
+}
+
 // A turn stopped before it had anything to post.
 const STOPPED_TURNS = sqlLiterals(["interrupted", "cancelled"]);
 // A turn that ended with something to post: its reply, its failure, or an
 // outcome an operator may yet confirm.
 const ENDED_WITH_POST = ["completed", "failed", "outcome_unknown"];
 const ENDED_WITH_POST_TURNS = sqlLiterals(ENDED_WITH_POST);
+
+// A completed turn of a link that hears only of its work's ends (v1-b/P2)
+// whose reply waits: a later turn not stopped is still to end, or ended.
+// The reply goes once nothing is left to run and it is the last to end.
+// A later outcome_unknown does not hold it: recovery may yet cancel that
+// turn, and this one would then be the last.
+const completedWaits = (turn: SQL, link: SQL) => sql`(
+  ${turn}.status = 'completed' AND ${reportsWorkOnly(link)} AND EXISTS (
+    SELECT 1 FROM turns wt
+    WHERE wt.session_id = ${turn}.session_id
+      AND wt.sequence > ${turn}.sequence
+      AND wt.status NOT IN (${STOPPED_TURNS}, 'outcome_unknown')))`;
+// One the work went on past for good: a later turn completed or failed, so
+// it never owes its reply. Those stay ended, so this holds once true.
+const completedPassed = (turn: SQL, link: SQL) => sql`(
+  ${turn}.status = 'completed' AND ${reportsWorkOnly(link)} AND EXISTS (
+    SELECT 1 FROM turns pt
+    WHERE pt.session_id = ${turn}.session_id
+      AND pt.sequence > ${turn}.sequence
+      AND pt.status IN ('completed', 'failed')))`;
 
 const entry = {
   workspaceId: t.workspaceId,
@@ -247,6 +283,18 @@ const starterLocale = sql<UserLocale | null>`(
      WHERE st.session_id = ${sessionLinks.sessionId} AND st.sequence = 1),
     ${sessionLinks.createdBy}
   )
+)`;
+
+// The language the agent answers in, as its worker is told (94S-2477): its
+// release's fixed response language, else, following the user, the
+// thread's. What the work itself says in its thread reads it.
+const workLocale = sql<UserLocale | null>`coalesce(
+  (SELECT wr.runtime_config_snapshot ->> 'language'
+   FROM sessions ws
+   JOIN agent_releases wr ON wr.id = ws.agent_release_id
+   WHERE ws.id = ${sessionLinks.sessionId}
+     AND wr.runtime_config_snapshot ->> 'language' IN (${sqlLiterals(RESPONSE_LANGUAGE_VALUES)})),
+  ${starterLocale}
 )`;
 
 // The request id of a card's key: whatever follows the link id, which holds
@@ -1071,6 +1119,10 @@ export function createPostgresSlackOutboxStore(
       if (slackOutboxChannelRefused(input.channelId)) {
         throw new SlackOutboxUserChannelError(input.kind);
       }
+      // A row held for a web input's post takes that post's thread later.
+      if (input.heldForInputId == null && slackOutboxDmThreadRefused(input)) {
+        throw new SlackOutboxDmThreadError(input.kind);
+      }
       return db.transaction(async (tx) => {
         if (whileHome) {
           const [home] = await tx
@@ -1224,6 +1276,7 @@ export function createPostgresSlackOutboxStore(
                    WHERE o.dedupe_key = (CASE WHEN t.status = 'completed' THEN 'reply' ELSE 'failure' END)
                      || ':' || l2.id || ':' || t.sequence
                  ))
+                 OR ${completedPassed(sql.raw("t"), sql.raw("l2"))}
                )),
             (SELECT max(t.sequence) FROM ${turns} t WHERE t.session_id = l2.session_id),
             0
@@ -1284,7 +1337,24 @@ export function createPostgresSlackOutboxStore(
                           THEN 'reply' ELSE 'failure' END)
                         || ':' || l2.id || ':' || t.sequence
                     )))
+                  AND NOT ${completedPassed(sql.raw("t"), sql.raw("l2"))}
               )
+              -- A progress message that went up says the work closed
+              -- first: the link takes no update once closed. A revoked
+              -- install takes none, so it is not waited for.
+              AND (NOT ${keepsProgressMessage(sql.raw("l2"))} OR EXISTS (
+                SELECT 1 FROM slack_installations ri
+                WHERE ri.id = l2.installation_id AND ri.status = 'revoked'
+              ) OR NOT EXISTS (
+                SELECT 1 FROM ${t} p
+                WHERE p.installation_id = l2.installation_id
+                  AND p.progress_key = 'progress:' || l2.id
+              ) OR EXISTS (
+                SELECT 1 FROM ${t} p
+                WHERE p.installation_id = l2.installation_id
+                  AND p.progress_key = 'progress:' || l2.id
+                  AND p.dedupe_key LIKE 'progress:%:closed:%'
+              ))
               ELSE NOT EXISTS (
                 SELECT 1 FROM ${turns} ot
                 WHERE ot.session_id = l2.session_id
@@ -1633,6 +1703,7 @@ export function createPostgresSlackOutboxStore(
                       || ':' || ol.id || ':' || ot.sequence
                   )
                   AND NOT ${owesInstruction(sql.raw("ot"), sql.raw("ol"), true)}
+                  AND NOT ${completedWaits(sql.raw("ot"), sql.raw("ol"))}
                 ORDER BY ot.sequence
                 LIMIT ${limit}
               ) open
@@ -1655,6 +1726,7 @@ export function createPostgresSlackOutboxStore(
               WHERE o.dedupe_key = ${prefix} || ':' || ${sessionLinks.id} || ':' || ${turns.sequence}
             )`,
             sql`NOT ${owesInstruction(sql.raw('"turns"'), sql.raw('"session_links"'), true)}`,
+            sql`NOT ${completedWaits(sql.raw('"turns"'), sql.raw('"session_links"'))}`,
           ),
         )
         // Not by turns.id, which walks every turn in the table; within a
@@ -1833,6 +1905,8 @@ export function createPostgresSlackOutboxStore(
           -- A muted thread, or one that hears of no turns, gets nothing.
           AND NOT l.muted
           AND ${reportsTurns(sql.raw("l"))}
+          -- Nor one that hears only of its work's ends (v1-b/P2).
+          AND NOT ${reportsWorkOnly(sql.raw("l"))}
           -- A link closed since still takes what it owed (linkTakesNew).
           AND (l.closed_at IS NULL
             OR l.closed_at > now() - ${AFTER_TURN_CLOSED_LINK_GRACE})
@@ -1976,10 +2050,18 @@ export function createPostgresSlackOutboxStore(
               session_links.installation_id,
               session_links.channel_id,
               session_links.thread_id AS thread_ts,
-              ${starterLocale} AS locale,
+              ${workLocale} AS locale,
               (SELECT extract(epoch FROM st.created_at)::float8 FROM turns st
                WHERE st.session_id = session_links.session_id AND st.sequence = 1) AS started_at,
               coalesce(
+                -- Closed: the message's last word, once it is up or on its
+                -- way. The link closes only after this row is in
+                -- (closeFinishedLinks), and takes no update after.
+                CASE WHEN sessions.admission_state = 'closed'
+                  AND last.dedupe_key IS NOT NULL THEN 'closed:' || (
+                  SELECT coalesce(max(ct.sequence), 0) FROM turns ct
+                  WHERE ct.session_id = session_links.session_id
+                ) END,
                 -- A worker waiting for room, as the session's wait_reason reads it.
                 (SELECT 'capacity_wait:' || wl.execution_id || ':' || wl.generation
                  FROM worker_launches wl
@@ -2049,6 +2131,12 @@ export function createPostgresSlackOutboxStore(
           -- that numbered theirs alike both go in, and the newer state wins.
           WHERE due.state IS NOT NULL
             AND regexp_replace(due.last_key, '^progress:[^:]+:[0-9]+:', '') IS DISTINCT FROM due.state
+            -- After the last word, even one a stale update came in behind.
+            AND NOT EXISTS (
+              SELECT 1 FROM ${t} cl
+              WHERE cl.installation_id = due.installation_id
+                AND cl.progress_key = 'progress:' || due.session_link_id
+                AND cl.dedupe_key LIKE 'progress:%:closed:%')
           ORDER BY due.session_link_id
           LIMIT ${limit}
         `),
@@ -2066,6 +2154,137 @@ export function createPostgresSlackOutboxStore(
         state: row.state,
         updates: Number(row.updates),
         startedAt: row.started_at === null ? null : Number(row.started_at),
+      }));
+    },
+
+    async workReportsDue(limit) {
+      // The keys the adapter's slackWorkReportDedupeKey makes, spelled in
+      // SQL: work_start:<link>, needs_person:<link>:<report>:<turn>, and
+      // for a wait on input :<round>, the requests the turn has asked.
+      const rows = rowsOf<{
+        session_link_id: string;
+        session_id: string;
+        workspace_id: string;
+        agent_id: string;
+        slack_app_id: string;
+        installation_id: string;
+        channel_id: string;
+        thread_ts: string;
+        locale: UserLocale | null;
+        requester_slack_user_id: string | null;
+        report: SurfaceWorkReportDue["report"];
+        turn_id: number | null;
+        round: number | null;
+      }>(
+        await db.execute(sql`
+          SELECT * FROM (
+            SELECT
+              session_links.id AS session_link_id,
+              session_links.session_id,
+              session_links.workspace_id,
+              session_links.agent_id,
+              a.id AS slack_app_id,
+              session_links.installation_id,
+              session_links.channel_id,
+              session_links.thread_id AS thread_ts,
+              ${workLocale} AS locale,
+              (SELECT la.external_user_id FROM linked_accounts la
+               WHERE la.workspace_id = session_links.workspace_id
+                 AND la.user_id = coalesce(
+                   (SELECT st.actor_id FROM turns st
+                    WHERE st.session_id = session_links.session_id AND st.sequence = 1),
+                   session_links.created_by)
+                 AND la.provider = 'slack'
+                 AND la.external_tenant = i.team_id
+                 AND la.status = 'active'
+               LIMIT 1) AS requester_slack_user_id,
+              r.report,
+              r.turn_id,
+              r.round
+            FROM session_links
+            JOIN sessions ON sessions.id = session_links.session_id
+            JOIN slack_installations i ON i.id = session_links.installation_id
+            JOIN slack_apps a ON a.app_id = i.app_id
+            CROSS JOIN LATERAL (
+              -- notify_only: one line once its first turn is asked, never
+              -- edited. Not for a link whose first turn was answered
+              -- before it (one open when the mode was set).
+              SELECT 'started' AS report, NULL::int AS turn_id, NULL::int AS round
+              FROM (
+                SELECT f.sequence FROM turns f
+                WHERE f.session_id = session_links.session_id
+                  AND f.created_at >= session_links.created_at
+                ORDER BY f.sequence
+                LIMIT 1
+              ) f
+              WHERE ${reportsStartOnly(sql.raw('"session_links"'))}
+                AND session_links.role = 'primary'
+                AND session_links.thread_id <> ''
+                AND NOT EXISTS (
+                  SELECT 1 FROM ${t} fo
+                  WHERE fo.dedupe_key IN (
+                    'reply:' || session_links.id || ':' || f.sequence,
+                    'failure:' || session_links.id || ':' || f.sequence))
+              UNION ALL
+              -- A request a person can answer that no card shows: the
+              -- link posts none. Numbered as the progress message's wait,
+              -- so a turn queued behind it says nothing again; and by the
+              -- requests that turn has asked, so its next question does.
+              SELECT 'needs_input', w.sequence, (
+                SELECT count(*)::int FROM pending_requests wq
+                JOIN turns wqt ON wqt.id = wq.turn_id
+                WHERE wqt.session_id = session_links.session_id
+                  AND wqt.sequence = w.sequence)
+              FROM (
+                SELECT min(turns.sequence) AS sequence FROM turns
+                WHERE turns.session_id = session_links.session_id
+                  AND EXISTS (${actionableOfTurn(db)})
+              ) w
+              WHERE ${sessionNeedsInput(db)}
+                AND NOT ${postsPrompts(sql.raw('"session_links"'))}
+              UNION ALL
+              -- Waiting on a person's recovery decision: no card asks it.
+              -- Once per turn: nothing in the schema marks a second hold on
+              -- the same turn apart from the first.
+              SELECT 'recovery', (
+                SELECT coalesce(max(rt.sequence), 0) FROM turns rt
+                WHERE rt.session_id = session_links.session_id), NULL::int
+              WHERE sessions.admission_state = 'recovery_required'
+            ) r
+            WHERE session_links.session_id IS NOT NULL
+              AND session_links.revoked_at IS NULL
+              AND NOT session_links.muted
+              AND session_links.closed_at IS NULL
+              AND sessions.admission_state <> 'closed'
+              AND i.status <> 'revoked'
+              AND ${reportsWorkOnly(sql.raw('"session_links"'))}
+          ) due
+          WHERE NOT EXISTS (
+            SELECT 1 FROM ${t} o
+            WHERE o.dedupe_key = CASE due.report
+              WHEN 'started' THEN 'work_start:' || due.session_link_id
+              ELSE 'needs_person:' || due.session_link_id || ':' || due.report
+                || ':' || due.turn_id
+                || coalesce(':' || due.round, '') END
+          )
+          ORDER BY due.session_link_id, due.report
+          LIMIT ${limit}
+        `),
+      );
+      return rows.map((row) => ({
+        sessionLinkId: row.session_link_id,
+        sessionId: row.session_id,
+        workspaceId: row.workspace_id,
+        agentId: row.agent_id,
+        slackAppId: row.slack_app_id,
+        installationId: row.installation_id,
+        channelId: row.channel_id,
+        threadTs: row.thread_ts,
+        locale: row.locale,
+        requesterSlackUserId: row.requester_slack_user_id,
+        report: row.report,
+        turnId: row.turn_id === null ? null : Number(row.turn_id),
+        round: row.round === null ? null : Number(row.round),
       }));
     },
 
@@ -2398,6 +2617,9 @@ export function createPostgresSlackOutboxStore(
             eq(t.kind, "reply"),
             eq(t.status, "uncertain"),
             sql`${t.sessionId} IS NOT NULL`,
+            // A reply at a DM's top from before the guard: its notice could
+            // stand nowhere a DM takes, so none is owed.
+            sql`NOT (${t.channelId} LIKE 'D%' AND ${t.threadTs} = '')`,
             sql`NOT EXISTS (
               SELECT 1 FROM ${t} n WHERE n.dedupe_key = 'uncertain:' || ${t.id}
             )`,
@@ -2429,7 +2651,11 @@ export function createPostgresSlackOutboxStore(
             AND EXISTS (
               SELECT 1 FROM slack_outbox n
               WHERE n.installation_id = p.installation_id AND n.progress_key = p.progress_key
-                AND (n.seq > p.seq OR n.error_code = ${SURFACE_PROGRESS_STOPPED_CODE}
+                -- The close's update is the last word, as at the send.
+                AND (CASE WHEN p.dedupe_key LIKE 'progress:%:closed:%'
+                    THEN n.seq > p.seq AND n.dedupe_key LIKE 'progress:%:closed:%'
+                    ELSE n.seq > p.seq OR n.dedupe_key LIKE 'progress:%:closed:%' END
+                  OR n.error_code = ${SURFACE_PROGRESS_STOPPED_CODE}
                   OR ((n.status = 'uncertain' OR n.error_code = 'missing_ts') AND n.progress_ts IS NULL))
             )
           FOR UPDATE OF p SKIP LOCKED
@@ -2468,11 +2694,13 @@ export function createPostgresSlackOutboxStore(
                 OR ${channelNoticeListening(sql.raw("c"), noticeVersions)})
               -- A progress message's newest update alone, one send at a
               -- time, and none before the interval after the last send or
-              -- a Retry-After an update it overtook was told.
+              -- a Retry-After an update it overtook was told. The close's
+              -- update counts as the newest.
               AND (c.kind <> 'progress' OR NOT EXISTS (
                 SELECT 1 FROM slack_outbox p
                 WHERE p.installation_id = c.installation_id AND p.progress_key = c.progress_key AND p.id <> c.id
-                  AND (p.seq > c.seq
+                  AND ((p.seq > c.seq AND (c.dedupe_key NOT LIKE 'progress:%:closed:%'
+                      OR p.dedupe_key LIKE 'progress:%:closed:%'))
                     OR p.status = 'sending'
                     OR (p.status = 'pending' AND p.claim_token IS NOT NULL
                       AND p.lease_expires_at > now())
@@ -2619,16 +2847,26 @@ export function createPostgresSlackOutboxStore(
             reposted: boolean;
           }>(
             await tx.execute(sql`
-              WITH me AS (SELECT seq FROM slack_outbox WHERE id = ${fence.id}::uuid),
+              WITH me AS (
+                SELECT seq, dedupe_key LIKE 'progress:%:closed:%' AS closing
+                FROM slack_outbox WHERE id = ${fence.id}::uuid
+              ),
               k AS (
-                SELECT seq, status, error_code, slack_ts, progress_ts, next_attempt_at
+                SELECT seq, status, error_code, slack_ts, progress_ts, next_attempt_at,
+                  dedupe_key LIKE 'progress:%:closed:%' AS closing
                 FROM slack_outbox
                 WHERE installation_id = ${row.installationId}::uuid
                   AND progress_key = ${row.progressKey} AND id <> ${fence.id}::uuid
               )
               SELECT
                 EXISTS (SELECT 1 FROM k WHERE status = 'sending') AS busy,
-                EXISTS (SELECT 1 FROM k, me WHERE k.seq > me.seq) AS superseded,
+                -- The close's update is the last word: an update a pass read
+                -- before the close and stored after it never replaces it.
+                EXISTS (
+                  SELECT 1 FROM k, me
+                  WHERE CASE WHEN me.closing THEN k.closing AND k.seq > me.seq
+                    ELSE k.seq > me.seq OR k.closing END
+                ) AS superseded,
                 (SELECT max(next_attempt_at) FROM k
                  WHERE next_attempt_at > now())::text AS wait_until,
                 EXISTS (

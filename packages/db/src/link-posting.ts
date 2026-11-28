@@ -9,10 +9,15 @@ import { rowsOf } from "./statement-rows.ts";
 const unmovedSummary = (link: SQL) =>
   sql`(${link}.visibility = 'summary' AND ${link}.report_mode IS NULL)`;
 
-// A link's own `report_mode` wins, else its binding's.
-const reportModeOf = (link: SQL) => sql`coalesce(
+// A link's own `report_mode` wins, else its binding's. A DM has no report
+// mode to choose (v1-b/DM2): its binding's is only the column's default, so
+// it reads progress once the agent's rollout is on, per_step before.
+export const reportModeOf = (link: SQL) => sql`coalesce(
   ${link}.report_mode,
-  (SELECT pb.report_mode FROM surface_bindings pb WHERE pb.id = ${link}.surface_binding_id),
+  (SELECT CASE WHEN pb.surface_kind = 'dm' THEN NULL ELSE pb.report_mode END
+   FROM surface_bindings pb WHERE pb.id = ${link}.surface_binding_id),
+  (SELECT CASE WHEN la.conversation_rollout = 'on' THEN 'progress' END
+   FROM agents la WHERE la.id = ${link}.agent_id),
   ${DEFAULT_REPORT_MODE}
 )`;
 
@@ -29,6 +34,21 @@ export const reportsTurns = (link: SQL) => sql`(
 /** Whether a link's thread keeps a progress message (`report_mode` progress). */
 export const reportsProgress = (link: SQL) => sql`(
   NOT ${unmovedSummary(link)} AND ${reportModeOf(link)} = 'progress'
+)`;
+
+/**
+ * Whether a link's thread hears only of its work's ends (`notify_only`,
+ * `progress`): the reply once nothing is left to run, each failure, a
+ * person needed. `per_step` hears of every turn.
+ */
+export const reportsWorkOnly = (link: SQL) => sql`(
+  NOT ${unmovedSummary(link)}
+  AND ${reportModeOf(link)} IN ('notify_only', 'progress')
+)`;
+
+/** Whether a link's thread is told once that its work started (`notify_only`). */
+export const reportsStartOnly = (link: SQL) => sql`(
+  NOT ${unmovedSummary(link)} AND ${reportModeOf(link)} = 'notify_only'
 )`;
 
 /** Whether inputs asked from the web or the API show in the link's thread. */
