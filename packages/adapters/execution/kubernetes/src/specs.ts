@@ -520,6 +520,11 @@ export function workerEnvironmentFor(
       : ([[ENV.idleTimeout, String(config.idleTimeoutSeconds)]] as Array<
           [string, string]
         >)),
+    ...(config.maxTurnToolCalls === undefined
+      ? []
+      : ([[ENV.maxTurnToolCalls, String(config.maxTurnToolCalls)]] as Array<
+          [string, string]
+        >)),
     ...(workerLimits === undefined
       ? []
       : ([

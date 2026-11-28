@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/core";
 import { retry } from "@octokit/plugin-retry";
@@ -35,6 +36,7 @@ import {
   type GitHubSkillReader,
   type GitHubSkillRepository,
   type GitHubTokenUse,
+  type GitHubTreeEntry,
   type GitHubWorkflowRun,
   type GitTreeEntry,
   type RegisteredGitHubConnection,
@@ -107,11 +109,20 @@ function clientOf(
     (limit: string) =>
     (
       retryAfter: number,
-      options: { method?: string; url?: string },
+      options: {
+        method?: string;
+        url?: string;
+        // Octokit's own type for it does not know the retry plugin's key.
+        request?: object;
+      },
       _octokit: unknown,
       retryCount: number,
     ) => {
+      // A request that asked for no retry (a merge, a dispatch) may have
+      // taken effect: the throttling plugin would send it again on its own.
+      const asked = options.request as { retries?: number } | undefined;
       const retrying =
+        asked?.retries !== 0 &&
         retryCount < RATE_LIMIT_RETRIES &&
         retryAfter <= RATE_LIMIT_MAX_WAIT_SECONDS;
       // `url` is the route template: it never carries a token.
@@ -1294,6 +1305,10 @@ function installationRepositoryOf(repository: {
 
 const SKILL_BLOB_READS = 4;
 
+/** A string PostgreSQL text holds as it is: no NUL, no lone surrogate. */
+const plain = (value: unknown): value is string =>
+  typeof value === "string" && !value.includes("\0") && !/\p{Cs}/u.test(value);
+
 /** A repository answer, kept only with the owner's id GitHub always sends. */
 function skillRepositoryOf(data: unknown): GitHubSkillRepository {
   const repo = data as {
@@ -1301,24 +1316,33 @@ function skillRepositoryOf(data: unknown): GitHubSkillRepository {
     full_name?: unknown;
     owner?: { id?: unknown };
     visibility?: unknown;
+    default_branch?: unknown;
+    license?: { spdx_id?: unknown } | null;
   };
   const id = Number(repo.id);
   const ownerId = Number(repo.owner?.id);
   if (
-    typeof repo.full_name !== "string" ||
+    !plain(repo.full_name) ||
     !Number.isSafeInteger(id) ||
     id <= 0 ||
     !Number.isSafeInteger(ownerId) ||
-    ownerId <= 0
+    ownerId <= 0 ||
+    !plain(repo.default_branch)
   ) {
-    throw new Error("GitHub answered a repository without its id or owner");
+    throw new Error(
+      "GitHub answered a repository without its id, owner or default branch",
+    );
   }
+  const spdx = repo.license?.spdx_id;
   // Only GitHub's own word: no `visibility` is not public.
   return {
     id,
     fullName: repo.full_name,
     ownerId,
     public: repo.visibility === "public",
+    defaultBranch: repo.default_branch,
+    // GitHub's NOASSERTION is a license file it could not name.
+    license: plain(spdx) && spdx !== "" && spdx !== "NOASSERTION" ? spdx : null,
   };
 }
 
@@ -1389,6 +1413,39 @@ export function createGitHubSkillReader(
     size?: number;
   };
 
+  const SHA = /^[0-9a-f]{40}$/;
+  const TREE_MODES = new Map<unknown, readonly unknown[]>([
+    ["blob", ["100644", "100755", "120000"]],
+    ["tree", ["040000"]],
+    ["commit", ["160000"]],
+  ]);
+
+  /** One entry of a tree answer; a shape git cannot hold is not read. */
+  function treeEntryOf(item: {
+    path?: unknown;
+    mode?: unknown;
+    type?: unknown;
+    sha?: unknown;
+    size?: unknown;
+  }): GitHubTreeEntry {
+    const { path, mode, type, sha } = item;
+    const size = type === "blob" ? item.size : 0;
+    if (
+      !plain(path) ||
+      path.split("/").includes("") ||
+      typeof sha !== "string" ||
+      !SHA.test(sha) ||
+      typeof mode !== "string" ||
+      TREE_MODES.get(type)?.includes(mode) !== true ||
+      typeof size !== "number" ||
+      !Number.isSafeInteger(size) ||
+      size < 0
+    ) {
+      throw new Error("GitHub answered a tree entry git cannot hold");
+    }
+    return { path, mode, type: type as GitHubTreeEntry["type"], sha, size };
+  }
+
   return {
     repository: (app, installationId, owner, name) =>
       asking("skill repository", app, installationId, (request, headers) =>
@@ -1409,7 +1466,11 @@ export function createGitHubSkillReader(
             id: repositoryId,
             headers,
           });
-          return skillRepositoryOf(data);
+          const found = skillRepositoryOf(data);
+          if (found.id !== repositoryId) {
+            throw new Error("GitHub answered another repository than asked");
+          }
+          return found;
         }),
       ),
 
@@ -1526,6 +1587,87 @@ export function createGitHubSkillReader(
         }
         return { kind: "files", files };
       }),
+
+    tree: (app, installationId, repositoryId, commit) =>
+      asking("skill repository tree", app, installationId, (request, headers) =>
+        orNull(async () => {
+          const { data: head } = await request(
+            "GET /repositories/{id}/git/commits/{sha}",
+            { id: repositoryId, sha: commit, headers },
+          );
+          const answered = head as { sha?: unknown; tree?: { sha?: unknown } };
+          const sha = answered.tree?.sha;
+          if (
+            answered.sha !== commit ||
+            typeof sha !== "string" ||
+            !SHA.test(sha)
+          ) {
+            throw new Error("GitHub answered another commit, or no tree");
+          }
+          const { data } = await request(
+            "GET /repositories/{id}/git/trees/{sha}",
+            { id: repositoryId, sha, recursive: "1", headers },
+          );
+          const listed = data as {
+            sha?: unknown;
+            tree: unknown[];
+            truncated?: boolean;
+          };
+          if (listed.sha !== sha) {
+            throw new Error("GitHub answered another tree than asked");
+          }
+          const entries = listed.tree.map((item) =>
+            treeEntryOf(item as Parameters<typeof treeEntryOf>[0]),
+          );
+          if (
+            new Set(entries.map((entry) => entry.path)).size !== entries.length
+          ) {
+            throw new Error("GitHub answered a tree that names a path twice");
+          }
+          return { sha, truncated: listed.truncated === true, entries };
+        }),
+      ),
+
+    blobs: (app, installationId, repositoryId, shas) =>
+      asking(
+        "skill repository blobs",
+        app,
+        installationId,
+        async (request, headers) => {
+          const read = new Map<string, Uint8Array>();
+          for (let start = 0; start < shas.length; start += SKILL_BLOB_READS) {
+            await Promise.all(
+              shas.slice(start, start + SKILL_BLOB_READS).map(async (sha) => {
+                const blob = await orNull(async () => {
+                  const { data } = await request(
+                    "GET /repositories/{id}/git/blobs/{sha}",
+                    { id: repositoryId, sha, headers },
+                  );
+                  return data as { content?: string; encoding?: string };
+                });
+                if (blob === null) return;
+                if (
+                  blob.encoding !== "base64" ||
+                  typeof blob.content !== "string"
+                ) {
+                  throw new Error("GitHub answered a blob that is not base64");
+                }
+                const bytes = Buffer.from(blob.content, "base64");
+                // git's own name of a blob: these are the bytes the tree named.
+                const named = createHash("sha1")
+                  .update(`blob ${bytes.byteLength}\0`)
+                  .update(bytes)
+                  .digest("hex");
+                if (named !== sha) {
+                  throw new Error("GitHub answered another blob than asked");
+                }
+                read.set(sha, Uint8Array.from(bytes));
+              }),
+            );
+          }
+          return read;
+        },
+      ),
 
     isBranch: (app, installationId, repositoryId, ref) =>
       asking("skill branch", app, installationId, async (request, headers) => {

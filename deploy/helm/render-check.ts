@@ -1347,6 +1347,11 @@ const MUST_FAIL: [string, string[], RegExp][] = [
     ["-f", ciDigests, "--set-string", `worker.idleTimeoutSeconds=${value}`],
     /worker.idleTimeoutSeconds must be an integer from 60 to 7200/,
   ]),
+  ...["0", "100001", "5.5", "many"].map((value): [string, string[], RegExp] => [
+    `worker.maxTurnToolCalls=${value}`,
+    ["-f", ciDigests, "--set-string", `worker.maxTurnToolCalls=${value}`],
+    /worker.maxTurnToolCalls must be an integer from 1 to 100000/,
+  ]),
   [
     "the conversation runtime on a Codex image",
     [
@@ -2863,6 +2868,24 @@ for (const [args, want] of [
   ).find((e: { name: string }) => e.name === "WORKER_IDLE_TIMEOUT_SEC")?.value;
   if (got !== want) {
     errors.push(`scheduler WORKER_IDLE_TIMEOUT_SEC is ${got}, not ${want}`);
+  }
+}
+
+// The turn tool call limit reaches the scheduler, which hands it to the workers.
+for (const [args, want] of [
+  [[], "500"],
+  [["--set", "worker.maxTurnToolCalls=5"], "5"],
+] as const) {
+  const scheduler = render(["-f", ciDigests, ...args]).find(
+    (m) => m.kind === "Deployment" && componentOf(m) === "scheduler",
+  );
+  const got = (
+    scheduler === undefined ? [] : podSpecOf(scheduler).containers[0].env
+  ).find(
+    (e: { name: string }) => e.name === "WORKER_MAX_TURN_TOOL_CALLS",
+  )?.value;
+  if (got !== want) {
+    errors.push(`scheduler WORKER_MAX_TURN_TOOL_CALLS is ${got}, not ${want}`);
   }
 }
 

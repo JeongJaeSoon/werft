@@ -13,6 +13,7 @@ import {
   type SlackNoticeMessage,
   type SlackQuestionViewMetadata,
   type SlackViewSubmissionPayload,
+  sessionLinkIdSchema,
   slackBlockActionsPayloadSchema,
   slackInteractionPayloadSchema,
   slackInteractionValueSchema,
@@ -27,9 +28,12 @@ import type {
   PushActor,
   PushFollowUpStore,
   PushRequestService,
+  RequesterCloseReason,
   SurfaceBindingStore,
   SurfaceConversationScope,
   SurfaceOutboxStore,
+  SurfaceProgressLink,
+  TaskClose,
 } from "@werft-ai/platform";
 import {
   type AuthorizationPolicy,
@@ -99,7 +103,9 @@ export type SlackInteractionOutcome =
 
 export type SlackInteractionDeps = {
   signingSecrets: Pick<SlackSigningSecrets, "forAgent">;
-  authorization: AuthorizationPolicy;
+  /** refuse keeps a press refused as surface_mismatch in the decision log. */
+  authorization: AuthorizationPolicy &
+    Required<Pick<AuthorizationPolicy, "refuse">>;
   agents: Pick<AgentIdentityStore, "resolveSlackEvent">;
   links: Pick<LinkedAccountStore, "resolveLinkedSubject">;
   bindings: Pick<
@@ -116,13 +122,15 @@ export type SlackInteractionDeps = {
     "queuePushFollowUp" | "continueTurn" | "startFreshTurn"
   >;
   followUps: PushFollowUpStore;
+  /** Closes a task from its progress message's buttons (v1-b/C1). */
+  tasks?: Pick<TaskClose, "close">;
   slack: Pick<SlackBotApi, "userInfo"> &
     Required<Pick<SlackBotApi, "updateMessage" | "openView" | "updateView">> &
     Pick<SlackBotSender, "postEphemeral">;
   botToken(workspaceId: string, slackAppId: string): Promise<string | null>;
   outbox: Pick<
     SurfaceOutboxStore,
-    "readerLocale" | "promptCard" | "cards" | "aiLabelFor"
+    "readerLocale" | "promptCard" | "progressLink" | "cards" | "aiLabelFor"
   >;
   /** The web page where a person links their Slack account. */
   connectUrl: string;
@@ -368,9 +376,11 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     sessionId: string,
     request: { pushRequestId?: string; pendingRequestId?: string },
     action: "session.approve" | "session.submit" = "session.approve",
+    judged: { channelId?: string; refuse?: "surface_mismatch" } = {},
   ): Promise<Allowed | { refused: string }> {
     const user = await deps.slack.userInfo(pressed.botToken, pressed.userId);
     const requestId = newRequestId();
+    const channelId = judged.channelId ?? pressed.channelId;
     const decision: SlackDecision = await authorizeSlackInput(deps, {
       event: {
         appId: pressed.appId,
@@ -379,10 +389,11 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       },
       user,
       action,
-      channel: { id: pressed.channelId, dm: pressed.channelId.startsWith("D") },
+      channel: { id: channelId, dm: channelId.startsWith("D") },
       resource: { kind: "session", id: sessionId, ...request },
       requestId,
       connectUrl: deps.connectUrl,
+      ...(judged.refuse === undefined ? {} : { refuse: judged.refuse }),
     });
     if (decision.status === "dropped") return { refused: decision.reason };
     if (decision.decision.outcome !== "allow") {
@@ -399,6 +410,38 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       return { refused: decision.decision.reason_code };
     }
     return { caller: slackCallerOf(decision, requestId), pressed };
+  }
+
+  /**
+   * A press on a message of the session's own thread, `link`, judged at
+   * that thread's channel whatever channel it came from. Refused as
+   * surface_mismatch, kept and told, when the message pressed is not in
+   * that thread or the value's link id is not that link's.
+   */
+  async function admitOnThread(
+    pressed: Pressed,
+    sessionId: string,
+    linkId: string,
+    link: SurfaceProgressLink | null,
+    action: "session.approve" | "session.submit",
+    request: { pushRequestId?: string; pendingRequestId?: string } = {},
+  ): Promise<Allowed | { refused: string }> {
+    const parsed = sessionLinkIdSchema.safeParse(linkId);
+    const onIt =
+      parsed.success &&
+      link !== null &&
+      link.id.toLowerCase() === parsed.data.toLowerCase() &&
+      link.agentId.toLowerCase() === pressed.agentId.toLowerCase() &&
+      link.channelId === pressed.channelId &&
+      link.threadId === pressed.threadTs;
+    if (!onIt || link === null) {
+      return admit(pressed, sessionId, request, action, {
+        refuse: "surface_mismatch",
+      });
+    }
+    return admit(pressed, sessionId, request, action, {
+      channelId: link.channelId,
+    });
   }
 
   async function pendingQuestions(
@@ -877,6 +920,12 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
       if (actionId === SLACK_INTERACTION_ACTIONS.turnStartFresh) {
         return ok(await startFreshTurn(pressed, payload.message.ts, value));
       }
+      if (actionId === SLACK_INTERACTION_ACTIONS.taskComplete) {
+        return ok(await closeTask(pressed, value, "completed"));
+      }
+      if (actionId === SLACK_INTERACTION_ACTIONS.taskCancel) {
+        return ok(await closeTask(pressed, value, "cancelled"));
+      }
       // A press names its request, which the policy reads for a requester
       // who left a private channel.
       const push =
@@ -1078,6 +1127,34 @@ export function createSlackInteractionService(deps: SlackInteractionDeps) {
     }
     return "started_fresh";
   }
+
+  /**
+   * [Done] or [Cancel] on a task's progress message: the task closes with
+   * that reason for whoever pressed, if they may control its session; anyone
+   * else is told so alone. The message says so on the outbox's next pass.
+   */
+  const closeTask = async (
+    pressed: Pressed,
+    value: SlackInteractionValue,
+    reason: RequesterCloseReason,
+  ): Promise<string> => {
+    if (deps.tasks === undefined) return "ignored";
+    const admitted = await admitOnThread(
+      pressed,
+      value.s,
+      value.r,
+      await deps.outbox.progressLink(value.s),
+      "session.submit",
+    );
+    if ("refused" in admitted) return `refused:${admitted.refused}`;
+    const outcome = await deps.tasks.close(admitted.caller, value.s, reason);
+    if (outcome === "not_permitted") {
+      await notice(pressed, "taskCloseNotPermitted");
+      return "refused:not_permitted";
+    }
+    if (outcome === "refused") await notice(pressed, "failed");
+    return `task_${outcome}`;
+  };
 
   async function onSubmit(
     agentId: string,

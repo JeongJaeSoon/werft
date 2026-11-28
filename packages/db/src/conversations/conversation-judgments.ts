@@ -12,11 +12,7 @@ import {
 import { type SQL, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
-
-// What a session's status says of its work: one of these is working, so a
-// reply to its thread is `m1_to_task`; any other (idle, failed, stopped) is
-// done, and the reply is `m1`.
-const WORKING_STATUSES = ["queued", "running", "needs_input"];
+import { sessionWorkClosed } from "./session-work.ts";
 
 /**
  * Whether a buffered row (alias `i`) is held for a reply's judgment, not
@@ -58,9 +54,10 @@ export function m1ChannelCap(channel: { agentId: SQL; channelId: SQL }): SQL {
 
 /**
  * Writes the waiting judgment of an unmentioned reply, in the transaction
- * that takes it: `m1_to_task` when its session is working, `m1` when not,
- * `m1_engaged` for one held with no session. A reply already waiting or
- * judged adds none.
+ * that takes it: `m1_to_task` while its session's work is open, `m1` once it
+ * is closed (decision 35, `sessionWorkClosed`),
+ * `m1_engaged` for one held with no session, or the bound thread's grade
+ * a held one names (`heldAs`). A reply already waiting or judged adds none.
  */
 export async function requestReplyJudgment(
   tx: Database,
@@ -72,20 +69,20 @@ export async function requestReplyJudgment(
     ts: string;
     topicId: ConversationTopicId;
     inputId: ConversationInputId;
-    /** The session the reply became a turn of; none for `m1_engaged`. */
+    /** The session the reply became a turn of; none for one held. */
     sessionId: string | null;
+    /** A held reply of a thread bound to work (v1-b/U1). */
+    heldAs?: "m1" | "m1_to_task";
     rule: JudgmentRule;
   },
 ): Promise<void> {
-  let grade = "m1_engaged";
+  let grade: string = input.heldAs ?? "m1_engaged";
   if (input.sessionId !== null) {
-    const [session] = rowsOf<{ status: string }>(
+    const [session] = rowsOf<{ admission_state: string }>(
       await tx.execute(sql`
-        SELECT status FROM sessions WHERE id = ${input.sessionId}::uuid`),
+        SELECT admission_state FROM sessions WHERE id = ${input.sessionId}::uuid`),
     );
-    grade = WORKING_STATUSES.includes(session?.status ?? "")
-      ? "m1_to_task"
-      : "m1";
+    grade = sessionWorkClosed(session?.admission_state) ? "m1" : "m1_to_task";
   }
   await tx.execute(sql`
     INSERT INTO conversation_judgments (

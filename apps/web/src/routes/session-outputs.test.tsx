@@ -919,7 +919,9 @@ describe("the session's GitHub pull requests", () => {
     });
     const rows = within(refusals).getAllByRole("listitem");
     expect(rows.map((row) => row.textContent)).toEqual([
-      expect.stringMatching(/^워크스페이스가 머지를 허용하지 않음PR 머지 · /),
+      expect.stringMatching(
+        /^머지가 꺼져 있음 \(에이전트 GitHub 설정 또는 워크스페이스 상한\)PR 머지 · /,
+      ),
     ]);
     expect(refusals.textContent).not.toMatch(/merge_off|agentGitHub/);
   });

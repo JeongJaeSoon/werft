@@ -6,6 +6,7 @@ import {
   GITHUB_MCP_TOOL_CLASSES,
   GITHUB_MCP_TOOL_OUTPUTS,
   type GitHubMcpTool,
+  type GitHubRefusal,
   LISTED_REPOSITORY_MEANING,
   type PushRequestState,
   type ReceiptActor,
@@ -129,8 +130,14 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
     stateDelayMs: number;
     /** A read of a workflow run that never answers. */
     hangRun: boolean;
+    /** The gate refuses every grant with this reason. */
+    gateRefusal: GitHubRefusal | null;
+    /** The merge service refuses with merge_off, off on this side. */
+    mergeOffIn: "agent" | "ceiling" | "both" | null;
   } = {
     hangRun: false,
+    gateRefusal: null,
+    mergeOffIn: null,
     stateDelayMs: 0,
     runStatus: "completed",
     pushRefusal: null,
@@ -223,6 +230,9 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
   const gate: GitHubGate = {
     grant: async (work) => {
       works.push(work);
+      if (control.gateRefusal !== null) {
+        throw new GitHubGateError(control.gateRefusal, "receipt-gate");
+      }
       return {
         role: "author",
         repo: { owner: "acme", name: "app" },
@@ -377,7 +387,16 @@ function harness(state: Partial<GitHubMcpSessionState> = {}) {
           return { body_source: null } as never;
         },
         comment: unused,
-        merge: unused,
+        merge: async () => {
+          if (control.mergeOffIn === null) return unused();
+          const { code, message } = PULL_REQUEST_REFUSAL_ERRORS.github_refused;
+          throw new SessionServiceError(code, message, undefined, {
+            refusal: "github_refused",
+            receipt_id: "receipt-merge",
+            reason_code: "merge_off",
+            off_in: control.mergeOffIn,
+          });
+        },
         setState: async (_actor, sessionId, pushRequestId, state) => {
           states.push({ sessionId, pushRequestId, state });
           return { state, changed: true } as never;
@@ -711,8 +730,103 @@ describe("a session under the agent's settings", () => {
       code: "feature_off",
       by: "policy",
       retryable: false,
+      details: switchOffDetails("review", "agent"),
     });
     expect(h.works).toEqual([]);
+  });
+
+  test("approving a review with its switch off is review_off, naming where it is off; no service is called (94S-2492)", async () => {
+    const review = { number: 1, event: "APPROVE", commit_id: "a".repeat(40) };
+    const refusalOf = async (h: ReturnType<typeof under>) =>
+      payload(await h.call("submit_review", review)).body.refusal as {
+        details: Record<string, unknown>;
+      };
+    const agentOff = under({
+      ceiling: { ...GITHUB_CEILING_NONE, review: true },
+    });
+    expect(await refusalOf(agentOff)).toMatchObject({
+      code: "feature_off",
+      details: {
+        reason_code: "review_off",
+        off_in: "agent",
+        switch_labels: {
+          en: "Approve reviews",
+          ko: "리뷰 승인",
+          ja: "レビュー承認",
+        },
+      },
+    });
+    expect(
+      (await refusalOf(under({ ceiling: GITHUB_CEILING_NONE }))).details,
+    ).toMatchObject({ reason_code: "review_off", off_in: "both" });
+    const ceilingOff = under({
+      github: github({ review: true }),
+      ceiling: GITHUB_CEILING_NONE,
+    });
+    expect((await refusalOf(ceilingOff)).details).toMatchObject({
+      reason_code: "review_off",
+      off_in: "ceiling",
+    });
+    // A release's pin with review off refuses the same way.
+    expect(
+      (await refusalOf(harness({ github: github() }))).details,
+    ).toMatchObject({ reason_code: "review_off" });
+    for (const h of [agentOff, ceilingOff]) expect(h.works).toEqual([]);
+  });
+
+  test("a merge refused as merge_off says where merging is off and who turns it on (94S-2492)", async () => {
+    for (const offIn of ["agent", "ceiling", "both"] as const) {
+      const h = under();
+      h.control.mergeOffIn = offIn;
+      const answer = await h.call("merge_pull_request", {
+        push_request_id: "11111111-1111-4111-8111-111111111111",
+      });
+      expect(payload(answer).isError).toBeUndefined();
+      expect(payload(answer).body.refusal).toEqual({
+        code: "github_refused",
+        by: "github",
+        retryable: false,
+        details: {
+          receipt_id: "receipt-merge",
+          ...switchOffDetails("merge", offIn),
+        },
+      });
+    }
+    expect(switchOffDetails("merge", "agent")).toMatchObject({
+      reason_code: "merge_off",
+      off_in: "agent",
+      switch_labels: {
+        en: "Merge its own pull requests",
+        ko: "자기 PR 머지",
+        ja: "自分の PR のマージ",
+      },
+    });
+  });
+
+  test("a CI read the App cannot be given a token for is refused with its reason code, not as a fault (94S-2492)", async () => {
+    // An App from before CI reads were asked for: the gate answers
+    // app_permission_missing, and the tool passes it on.
+    const h = under({ github: github({ workflows: true, checks: true }) });
+    h.control.gateRefusal = "app_permission_missing";
+    for (const [tool, args] of [
+      ["get_ci_status", { pull_request_number: 3 }],
+      ["get_workflow_run", { run_id: 7 }],
+    ] as const) {
+      const answer = await h.call(tool, args);
+      expect(payload(answer).isError).toBeUndefined();
+      expect(payload(answer).body).toEqual({
+        ok: false,
+        refusal: {
+          code: "github_refused",
+          by: "github",
+          retryable: false,
+          details: {
+            reason_code: "app_permission_missing",
+            receipt_id: "receipt-gate",
+          },
+        },
+      });
+    }
   });
 
   test("with CI reads off, both CI read tools are refused workflows_off, on the agent's settings and on a release alike; the run tools keep actions_off (94S-2398)", async () => {

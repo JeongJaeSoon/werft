@@ -374,6 +374,8 @@ export type SurfaceProgressDue = SurfaceLinkedTurnTarget & {
   updates: number;
   /** When the session's first turn was asked, in epoch seconds. */
   startedAt: number | null;
+  /** The session is a task: its message carries the buttons that close it. */
+  task: boolean;
 };
 
 /**
@@ -472,6 +474,14 @@ export type SurfacePendingPrompt = SurfaceLinkedTurnTarget & {
         targetBranch: string;
         gitCommit: string;
       };
+};
+
+/** Where a session's progress message is: its link, the agent and the thread. */
+export type SurfaceProgressLink = {
+  id: string;
+  agentId: string;
+  channelId: string;
+  threadId: string;
 };
 
 /**
@@ -908,6 +918,12 @@ export interface SurfaceOutboxStore {
     channelId: string;
     slackTs: string;
   }): Promise<SurfacePromptCard | null>;
+  /**
+   * The link whose thread keeps the session's progress message (a primary
+   * link with a thread), open or closed but not revoked; null when it has
+   * none.
+   */
+  progressLink(sessionId: string): Promise<SurfaceProgressLink | null>;
   /** Requests of live linked sessions without their `input_notice` row. */
   unpromptedRequests(limit: number): Promise<SurfacePendingPrompt[]>;
   /** Moves `sending` rows whose lease ran out to `uncertain`. */

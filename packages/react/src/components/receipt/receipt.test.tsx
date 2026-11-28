@@ -65,7 +65,7 @@ describe("ReceiptSummary", () => {
     const unknown = render(
       <ReceiptSummary
         // A value a newer server may send: the old label table lacks it.
-        operation={"from_the_future" as never}
+        operation="from_the_future"
         status="succeeded"
         target={TARGET}
         timestamps={TIMES}

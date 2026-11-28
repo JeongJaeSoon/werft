@@ -119,6 +119,8 @@ export const agentGitHubResponseSchema = z.object({
       checks: featureOptionSchema,
       issues: featureOptionSchema,
       review: featureOptionSchema,
+      /** Absent from a server before the switch: the console locks it. */
+      merge: featureOptionSchema.optional(),
     }),
   }),
 });

@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   bindingListenSchema,
   m1JudgmentsPerHourSchema,
+  reportModeChoiceSchema,
   surfaceBindingSchema,
   surfaceCeilingSchema,
   surfaceChannelKindSchema,
@@ -34,9 +35,10 @@ const slackChannelIdSchema = z
 
 /**
  * Replaces the binding for one channel, or the install's DM binding, whole:
- * a missing `ceiling` is the default one. A missing `listen` or
- * `m1_judgments_per_hour` keeps the channel's, or is `free` or 12 for a new
- * one. `home: true` moves the agent's
+ * a missing `ceiling` is the default one. A missing `listen`,
+ * `m1_judgments_per_hour` or `report_mode` keeps the channel's, or is
+ * `free`, 12 or none picked for a new one; a null `report_mode` picks none
+ * (`defaultReportMode`). `home: true` moves the agent's
  * home here. The server asks Slack what kind of channel it is;
  * `channel_kind`, when sent, only has to agree on whether it is the DM row.
  */
@@ -47,6 +49,7 @@ export const putSlackBindingRequestSchema = z
     mode: slackBindingModeSchema,
     listen: bindingListenSchema.optional(),
     m1_judgments_per_hour: m1JudgmentsPerHourSchema.optional(),
+    report_mode: reportModeChoiceSchema.nullable().optional(),
     home: z.boolean().default(false),
     ceiling: surfaceCeilingSchema.optional(),
     /**

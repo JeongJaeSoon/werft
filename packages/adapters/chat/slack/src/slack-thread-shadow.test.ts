@@ -93,6 +93,15 @@ async function run(
       release: () => Promise.resolve(),
       claim: () => Promise.resolve({ outcome: "counted" as const }),
     },
+    // Before the rollout is on, a bound thread's reply goes on as before.
+    buffer: {
+      place: () =>
+        Promise.resolve({
+          rollout: "shadow",
+          agentActive: true,
+          channelState: "active",
+        }),
+    },
     sessionLinks: {
       slackTurn: () => Promise.resolve(null),
       find: async () => found,
@@ -151,6 +160,14 @@ describe("the shadow record in the session handler", () => {
     });
     expect(JSON.stringify(records[0])).not.toContain("hello");
     expect(reachedBotToken).toBe(1);
+  });
+
+  test("an escaped mention of another user is not read as one", async () => {
+    const { records } = await run({ text: "&lt;@U2&gt; please look" }, link());
+    expect(records[0]).toMatchObject({
+      decision: "reply",
+      reason: "default_reply",
+    });
   });
 
   test("a thread_broadcast reply is recorded like any reply", async () => {

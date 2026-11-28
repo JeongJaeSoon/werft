@@ -677,6 +677,49 @@ describe("turns", () => {
     });
   });
 
+  test("each tool item is one tool.called, parallel ones too, and an interrupt ends the turn interrupted", async () => {
+    // The worker counts a turn's tool calls on tool.called (its tool call
+    // limit), so every item the engine starts must name one.
+    const t = setup("none");
+    await started(t);
+    for (const id of ["c1", "c2"]) {
+      t.server.emit("item/started", {
+        threadId: "thread-1",
+        item: { ...COMMAND, id },
+      });
+    }
+    t.server.emit("item/started", {
+      threadId: "thread-1",
+      item: {
+        type: "mcpToolCall",
+        id: "m1",
+        server: "werft",
+        tool: "list",
+        arguments: {},
+        status: "inProgress",
+      },
+    });
+    await t.until(() =>
+      t.seen.filter((e) => e.type === "tool.called").length === 3
+        ? ({ type: "x" } as never)
+        : undefined,
+    );
+    expect(
+      t.seen.flatMap((e) => (e.type === "tool.called" ? [e.toolCallId] : [])),
+    ).toEqual(["c1", "c2", "m1"]);
+    await t.run.interrupt();
+    t.server.emit("turn/completed", {
+      threadId: "thread-1",
+      turn: { id: "turn-1", status: "interrupted" },
+    });
+    const ended = await t.until(t.ofType("turn.ended"));
+    if (ended.type !== "turn.ended") throw new Error("unreachable");
+    expect(ended.turn).toMatchObject({
+      abortedByStop: true,
+      inputs: ["in-1"],
+    });
+  });
+
   test("an engine that exits fails the turn and ends the stream", async () => {
     const t = setup();
     await started(t);

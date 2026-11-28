@@ -390,10 +390,34 @@ describe("워크스페이스 MCP 서버", () => {
       "https://mcp.example.com/mcp",
     );
     await user.click(within(dialog).getByRole("button", { name: "탐색" }));
-    expect(
-      await within(dialog).findByText(/계정 정보나 #이 들어 있거나/),
-    ).toBeDefined();
+    const refusal =
+      await within(dialog).findByText(/계정 정보나 #이 들어 있거나/);
+    expect(refusal.textContent).toContain(
+      "(http는 운영자가 사설 목록에 둔 호스트만 됩니다)",
+    );
     expect(within(dialog).queryByLabelText("이름") === null).toBe(true);
+  });
+
+  test("a url_invalid refusal names all three causes, not only the IP address", async () => {
+    renderAt(PAGE, {
+      ...routes([]),
+      [`POST ${LIST}/discover`]: () =>
+        apiError(400, "BAD_REQUEST", "refused", false, {
+          reason_code: "url_invalid",
+        }),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "서버 등록" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(
+      within(dialog).getByLabelText("서버 URL"),
+      "https://user@mcp.example.com/mcp",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "탐색" }));
+    const refusal = await within(dialog).findByText(/URL이 올바르지 않습니다/);
+    expect(refusal.textContent).toContain("URL 형식이어야 하고");
+    expect(refusal.textContent).toContain("계정 정보(user@)나 #이 없어야");
+    expect(refusal.textContent).toContain("IP 주소가 아닌 호스트 이름");
   });
 
   test("an old API's host_not_allowed answer still says who can add the host", async () => {

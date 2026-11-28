@@ -74,6 +74,7 @@ const TAB: Tab = {
       checks: open,
       issues: open,
       review: open,
+      merge: open,
     },
   },
 };
@@ -519,6 +520,7 @@ describe("에이전트 GitHub 탭", () => {
             checks: reason("app_permission_missing" as const),
             issues: open,
             review: reason("no_reviewer_app" as const),
+            merge: reason("over_workspace_ceiling" as const),
           },
         },
       }),
@@ -768,6 +770,38 @@ describe("에이전트 GitHub 탭", () => {
     expect(
       api.calls.filter((c) => c.path === `${PATH}/github/activity`),
     ).toHaveLength(1);
+  });
+
+  test("이 콘솔이 모르는 거절 이유 code는 code 그대로 보인다 (94S-2492)", async () => {
+    const { server } = await activeAgent();
+    renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [`GET ${PATH}/github/activity`]: () =>
+          json(200, {
+            items: [
+              {
+                id: RECEIPT_ID,
+                operation: "review_pull_request",
+                target_ref: {
+                  resource: { kind: "agent", id: AGENT_ID },
+                  workspace_id: null,
+                },
+                status: "failed",
+                // A reason a later server added.
+                result: { purpose: "review", reason_code: "later_reason" },
+                error: null,
+                created_at: "2026-10-30T00:00:00.000Z",
+                updated_at: "2026-10-30T00:00:00.000Z",
+              },
+            ],
+          }),
+      }),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "에이전트가 쓰는 저장소" });
+    await openSection(user, "최근 기록");
+    expect(await screen.findByText("later_reason")).toBeTruthy();
   });
 
   test("바꾼 것은 저장 전 상자에 세고, 되돌리면 상자가 사라진다", async () => {
@@ -2338,6 +2372,63 @@ describe("에이전트 GitHub 탭", () => {
     });
   });
 
+  test("머지·리뷰 승인은 꺼진 채로 보이고, 켜는 것이 무엇인지와 저장소 규칙 안내가 늘 보이며, 머지를 켜면 merge를 실어 저장한다 (94S-2492)", async () => {
+    const { server } = await activeAgent();
+    const sent: { settings: Settings }[] = [];
+    renderAt(
+      DETAIL,
+      routesFor(server, TAB, {
+        [`PUT ${PATH}/github/settings`]: async (request) => {
+          sent.push((await request.json()) as { settings: Settings });
+          return json(200, { settings_revision: 4, receipt_id: RECEIPT_ID });
+        },
+      }),
+    );
+    const user = await setupUser();
+    await screen.findByRole("heading", { name: "Actions 허용 목록" });
+    const review = switchNamed("리뷰 승인");
+    const merge = switchNamed("자기 PR 머지");
+    // A row saved before the key has no `merge`: it reads as off.
+    expect(SETTINGS.features.merge).toBeUndefined();
+    expect(merge.getAttribute("aria-checked")).toBe("false");
+    expect(review.getAttribute("aria-checked")).toBe("false");
+    expect(
+      review.compareDocumentPosition(merge) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      screen.getByText("켜면 에이전트가 스스로 리뷰를 남기고 승인합니다."),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "켜면 에이전트가 스스로 자기 PR을 머지합니다. 필수 check와 리뷰 조건은 저장소 규칙이 정합니다. 규칙이 없는 저장소에서는 check나 리뷰를 기다리지 않습니다. 충돌이 있거나 draft인 PR은 병합하지 않습니다.",
+      ),
+    ).toBeTruthy();
+    await user.click(merge);
+    expect(screen.getByText("저장하지 않은 변경 1건")).toBeTruthy();
+    await user.click(await screen.findByRole("button", { name: "저장" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]?.settings.features.merge).toBe(true);
+    // The other switches go as they were.
+    expect(sent[0]?.settings.features).toMatchObject(SETTINGS.features);
+  });
+
+  test("머지 option이 없는 응답(이 스위치가 없던 서버)에서도 탭이 그려지고 머지 스위치는 잠긴다 (94S-2492)", async () => {
+    const { server } = await activeAgent();
+    const { merge: _merge, ...before } = TAB.options.features;
+    renderAt(
+      DETAIL,
+      routesFor(server, {
+        ...TAB,
+        options: { ...TAB.options, features: before },
+      }),
+    );
+    await screen.findByRole("heading", { name: "Actions 허용 목록" });
+    const merge = switchNamed("자기 PR 머지");
+    expect(merge.getAttribute("aria-checked")).toBe("false");
+    expect(merge.hasAttribute("disabled")).toBe(true);
+    expect(switchNamed("리뷰 승인").hasAttribute("disabled")).toBe(false);
+  });
+
   test("Actions를 끄면 허용 목록도 비워서 저장한다", async () => {
     const { server } = await activeAgent();
     const sent: { settings: Settings }[] = [];
@@ -2607,5 +2698,10 @@ describe("GitHub 탭 계산", () => {
       pendingCount(SETTINGS, { ...SETTINGS, repositories: ["docs-site"] }),
     ).toBe(0);
     expect(pendingCount(SETTINGS, SETTINGS, "ask", "deny")).toBe(1);
+    // `merge` left out and `merge: false` are the same saved state.
+    const off = { ...SETTINGS.features, merge: false };
+    const on = { ...SETTINGS.features, merge: true };
+    expect(pendingCount(SETTINGS, { ...SETTINGS, features: off })).toBe(0);
+    expect(pendingCount(SETTINGS, { ...SETTINGS, features: on })).toBe(1);
   });
 });

@@ -591,6 +591,9 @@ export const AUTHORIZATION_REASON_VALUES = [
   "no_requester",
   "role",
   "surface_ceiling",
+  // A Slack press whose value names a session or a link other than the
+  // ones of the message pressed: judged before the policy, kept as its deny.
+  "surface_mismatch",
   "agent_ceiling",
   // A private agent used by someone outside its teams, admins and managers.
   // A start is answered as a missing release instead.
