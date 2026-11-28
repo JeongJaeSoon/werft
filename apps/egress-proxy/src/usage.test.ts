@@ -701,6 +701,14 @@ describe("an answer whose usage names no token count", () => {
     ).toMatchObject(fromRequest);
   });
 
+  test("a negative too small to read is no count, though it parses as -0", () => {
+    expect(
+      metered("application/json", [
+        '{"model":"claude-sonnet-4-5","usage":{"input_tokens":-1e-400}}',
+      ]),
+    ).toMatchObject(fromRequest);
+  });
+
   test("counts that are null, negative, fractional or strings name no token", () => {
     expect(
       json({

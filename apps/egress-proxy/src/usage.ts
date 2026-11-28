@@ -167,8 +167,12 @@ function responseExtras(answer: unknown): Counts {
   return extras;
 }
 
+/** A count is a safe integer of 0 or more; -0 is a negative that rounded. */
 function count(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+  return typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0 &&
+    !Object.is(value, -0)
     ? value
     : undefined;
 }
