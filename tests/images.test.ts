@@ -1203,19 +1203,52 @@ describe("compose and workflow agree with the Dockerfiles", () => {
     });
 
     // The cache pull requests read (e2e, quickstart, k8s-smoke and their own
-    // image builds) is written once per image on every run that builds on a
-    // trusted ref: by publish-main on a main push, which builds nowhere else,
-    // and by build on a tag, scheduled or manual run. Never by a pull request.
+    // image builds) is written by runs that build on a trusted ref: by
+    // publish-main on a main push, which builds nowhere else, and by build on
+    // a tag, scheduled or manual run, each only when the cache-to step says so
+    // (the first build of a UTC day). Never by a pull request.
     test("one job writes the layer cache per run, and never for a pull request", () => {
       const cacheTo = (name: string) =>
         jobs[name]?.steps.find((step) =>
           step.uses?.startsWith("docker/build-push-action@"),
         )?.with?.["cache-to"];
-      const scope =
-        "format('type=gha,scope=images-{0}-{1},mode=min', matrix.app, matrix.arch)";
+      const scope = "steps.cache-to.outputs.to";
       expect(cacheTo("build")).toBe(
         expression(`github.event_name != 'pull_request' && ${scope} || ''`),
       );
+      const gate = (name: string) =>
+        jobs[name]?.steps.find(
+          (s) => (s as { id?: string }).id === "cache-to",
+        ) as
+          | {
+              if?: string;
+              run?: string;
+              "continue-on-error"?: boolean;
+              env?: Record<string, string>;
+            }
+          | undefined;
+      expect(gate("build")?.if).toBe(
+        "matrix.app != 'none' && github.event_name != 'pull_request'",
+      );
+      expect(gate("publish-main")?.if).toBe(
+        "github.event_name == 'push' && github.ref == 'refs/heads/main'",
+      );
+      for (const name of ["build", "publish-main"]) {
+        expect(gate(name)?.["continue-on-error"]).toBe(true);
+        expect(gate(name)?.run).toBe(
+          '.github/scripts/image-cache-to.sh >>"$GITHUB_OUTPUT"',
+        );
+        expect(gate(name)?.env).toEqual({
+          APP: expression("matrix.app"),
+          ARCH: expression("matrix.arch"),
+          GH_TOKEN: expression("github.token"),
+        });
+        // The step lists caches; nothing else in the job gets more than read.
+        expect(
+          (jobs[name] as { permissions?: Record<string, string> })?.permissions
+            ?.actions,
+        ).toBe("read");
+      }
       const mainPush =
         "github.event_name == 'push' && github.ref == 'refs/heads/main'";
       // publish and publish-main share their steps; only a main push writes.

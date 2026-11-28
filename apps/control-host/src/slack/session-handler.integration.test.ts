@@ -5629,6 +5629,115 @@ describe.each(ENGINES)(
       });
     }
 
+    // v1-b/DM2: a DM turn's thread is set back on each of those ends too,
+    // in the DM, on the thread of the person's post.
+    for (const [name, end, , tries] of ends) {
+      test(`a DM turn ended by ${name} sets its DM thread back to active once`, async () => {
+        const fixture = await agentInSlack("main", { rollout: "on" });
+        await deliver(fixture, dmPost("100.000100"));
+        await drain(handler().handle);
+        for (let tried = 1; tried <= tries; tried += 1) {
+          await end(await leased());
+          await endings();
+          await endings(
+            new Date(Date.now() + MENTION_TURN_RETRY_DELAYS_MS[1] + 1),
+          );
+        }
+        expect(slack.statuses).toEqual([
+          {
+            channelId: "D0OWNER",
+            threadTs: "100.000100",
+            status: "processing",
+          },
+          { channelId: "D0OWNER", threadTs: "100.000100", status: "active" },
+        ]);
+      });
+    }
+
+    test("a DM turn an emergency stop ended sets its DM thread back to active", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, dmPost("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      await db.execute(sql`
+        UPDATE conversation_turns SET state = 'no_decision',
+          ended_at = clock_timestamp()
+        WHERE id = ${turn.turn_id}::uuid`);
+      await db.execute(sql`
+        UPDATE conversation_turn_queue SET state = 'ended',
+          outcome = ${JSON.stringify({ outcome: "failed", reason: "emergency_stopped" })}::jsonb,
+          ended_at = clock_timestamp(), turn_nonce = NULL, turn_ciphertext = NULL
+        WHERE turn_id = ${turn.turn_id}::uuid`);
+      await endings();
+      await endingsPastWait();
+      expect(slack.statuses).toEqual([
+        { channelId: "D0OWNER", threadTs: "100.000100", status: "processing" },
+        { channelId: "D0OWNER", threadTs: "100.000100", status: "active" },
+      ]);
+    });
+
+    test("a DM turn's answer, and a DM reply's, go in the thread of the person's DM post", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      const { handle } = handler();
+      await deliver(fixture, dmPost("100.000100"));
+      await drain(handle);
+      const answer = async (body: string) => {
+        const turn = await leased();
+        await decide(turn, body);
+        await report(turn, {
+          outcome: "completed",
+          text: body,
+          decision: { tool: "reply", body, reason: "asked" },
+        });
+        await endings();
+      };
+      await answer("first answer");
+      await deliver(fixture, dmPost("100.000300", { thread_ts: "100.000100" }));
+      await drain(handle);
+      await answer("second answer");
+      slack.messages.length = 0;
+      await sendOutbox();
+      const posts = slack.messages.filter(
+        (posted) => posted.method === "chat.postMessage",
+      );
+      expect(
+        posts.map((posted) => [posted.channelId, posted.threadTs]),
+      ).toEqual([
+        ["D0OWNER", "100.000100"],
+        ["D0OWNER", "100.000100"],
+      ]);
+      expect(posts.every((posted) => posted.text.includes("answer"))).toBe(
+        true,
+      );
+    });
+
+    test("a DM turn's answer row with no thread is refused, as a channel's is", async () => {
+      const fixture = await agentInSlack("main", { rollout: "on" });
+      await deliver(fixture, dmPost("100.000100"));
+      await drain(handler().handle);
+      const turn = await leased();
+      const [installation] = await db
+        .select({ id: schema.slackInstallations.id })
+        .from(schema.slackInstallations);
+      await expect(
+        schema.createPostgresSlackOutboxStore(db).enqueue({
+          workspaceId: fixture.workspaceId,
+          agentId: fixture.agentId,
+          slackAppId: fixture.slackAppId,
+          installationId: installation?.id ?? "",
+          kind: "conversation_reply",
+          channelId: "D0OWNER",
+          threadTs: "",
+          slackUserId: null,
+          sessionId: null,
+          sessionLinkId: null,
+          body: { text: "at the top" },
+          dedupeKey: `dm-top:${turn.turn_id}`,
+          conversationTurnId: turn.turn_id,
+        }),
+      ).rejects.toBeInstanceOf(schema.SlackOutboxDmThreadError);
+    });
+
     test("a turn no runtime takes ends when its wait does, is tried again to its third, and sets its thread back once", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       await deliver(fixture, mention("100.000100"));
