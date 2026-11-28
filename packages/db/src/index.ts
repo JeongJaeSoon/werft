@@ -141,6 +141,7 @@ export {
 } from "./sessions/session-event-archives.ts";
 export * from "./sessions/session-events.ts";
 export * from "./sessions/session-outcomes.ts";
+export * from "./sessions/task-close.ts";
 export * from "./sessions/task-fields.ts";
 export { expireToolCallAudits } from "./sessions/tool-call-audit.ts";
 export * from "./sessions/tool-calls.ts";

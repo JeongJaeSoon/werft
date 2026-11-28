@@ -2038,6 +2038,7 @@ export function createPostgresSlackOutboxStore(
         state: string;
         updates: number | string;
         started_at: number | string | null;
+        task: boolean;
       }>(
         await db.execute(sql`
           SELECT * FROM (
@@ -2053,6 +2054,7 @@ export function createPostgresSlackOutboxStore(
               ${workLocale} AS locale,
               (SELECT extract(epoch FROM st.created_at)::float8 FROM turns st
                WHERE st.session_id = session_links.session_id AND st.sequence = 1) AS started_at,
+              sessions.task_closing IS NOT NULL AS task,
               coalesce(
                 -- Closed: the message's last word, once it is up or on its
                 -- way. The link closes only after this row is in
@@ -2061,7 +2063,8 @@ export function createPostgresSlackOutboxStore(
                   AND last.dedupe_key IS NOT NULL THEN 'closed:' || (
                   SELECT coalesce(max(ct.sequence), 0) FROM turns ct
                   WHERE ct.session_id = session_links.session_id
-                ) END,
+                ) || CASE WHEN sessions.task_closed_reason = 'cancelled'
+                  THEN ':cancelled' ELSE '' END END,
                 -- A worker waiting for room, as the session's wait_reason reads it.
                 (SELECT 'capacity_wait:' || wl.execution_id || ':' || wl.generation
                  FROM worker_launches wl
@@ -2154,6 +2157,7 @@ export function createPostgresSlackOutboxStore(
         state: row.state,
         updates: Number(row.updates),
         startedAt: row.started_at === null ? null : Number(row.started_at),
+        task: row.task,
       }));
     },
 
