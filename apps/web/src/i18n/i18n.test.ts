@@ -317,6 +317,33 @@ describe("i18n", () => {
     }
   });
 
+  test("MCP refusals keep the private-list exception and all three url_invalid causes in every locale", () => {
+    const sets = {
+      ko: {
+        all: workspaceMcpKo,
+        list: "사설 목록",
+        cause: [/user@/, /#/, /IP 주소/],
+      },
+      en: {
+        all: workspaceMcpEn,
+        list: "private allowlist",
+        cause: [/user@/, /#/, /IP address/],
+      },
+      ja: {
+        all: workspaceMcpJa,
+        list: "プライベート許可リスト",
+        cause: [/user@/, /#/, /IP アドレス/],
+      },
+    };
+    for (const { all, list, cause } of Object.values(sets)) {
+      const text = (reason: string) =>
+        all[`workspaceMcp.error.${reason}` as keyof typeof all];
+      expect(text("endpoint_not_allowed")).toContain(list);
+      expect(text("url_insecure")).toContain(list);
+      for (const part of cause) expect(text("url_invalid")).toMatch(part);
+    }
+  });
+
   test("each language is named in its own words", () => {
     expect(LOCALE_NAMES).toEqual({ ko: "한국어", ja: "日本語", en: "English" });
   });

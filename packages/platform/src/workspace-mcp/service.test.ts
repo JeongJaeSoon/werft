@@ -729,6 +729,22 @@ describe("the address check before a server is stored", () => {
     expect(context.addressAsked).toEqual([]);
   });
 
+  test("a malformed URL, account information, a fragment and an IP address all answer url_invalid", async () => {
+    const causes: [string, string | null][] = [
+      ["mcp.example.com/mcp", null],
+      ["https://user@mcp.example.com/mcp", null],
+      ["https://mcp.example.com/mcp#section", null],
+      ["https://10.0.0.5/mcp", "url_invalid"],
+    ];
+    for (const [url, urlProblem] of causes) {
+      const context = setup({ urlProblem });
+      expect(
+        await refusal(context.service.create(admin, { ...bearerBody, url })),
+      ).toEqual({ code: "BAD_REQUEST", reason: "url_invalid" });
+      expect(context.addressAsked).toEqual([]);
+    }
+  });
+
   test("a URL refused before the lookup is never looked up", async () => {
     const context = setup({ urlProblem: "url_invalid" });
     expect(await refusal(context.service.create(admin, bearerBody))).toEqual({
