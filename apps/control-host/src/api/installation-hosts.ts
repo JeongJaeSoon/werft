@@ -32,8 +32,7 @@ export const freshLookup: Lookup = (host) => resolveEveryTime(host);
 /**
  * The hosts this installation is wired to, read from the API's own
  * environment and spelled as configured: its database, its worker gateway,
- * its object store (by either variable the SDK reads), its authorizer
- * listener, the Kubernetes API, and what
+ * its object store, its authorizer listener, the Kubernetes API, and what
  * the deployment and the operator add in `EGRESS_PRIVATE_DENY_HOSTS` (the
  * API's own Service names, a front VIP or NAT address no interface of this
  * process shows). Throws on a value that names no host: a deny list with a
@@ -57,8 +56,6 @@ export function installationHostNames(
     "DATABASE_URL",
     "WORKER_GATEWAY_URL",
     "AWS_ENDPOINT_URL",
-    // What the AWS SDK reads for S3 when it is set, ahead of the one above.
-    "AWS_ENDPOINT_URL_S3",
   ]) {
     const value = env[variable]?.trim();
     if (!value) continue;
@@ -66,6 +63,17 @@ export function installationHostNames(
     // A database reached by a socket path names no host to hold off.
     if (host === "" && variable === "DATABASE_URL") continue;
     add(variable, host);
+  }
+  // With no endpoint of its own the storage client is the AWS SDK's, which
+  // then reads this one for S3. Not otherwise: a value nothing uses may name
+  // a host that no longer resolves, and every private grant would wait on it.
+  const s3 = env.AWS_ENDPOINT_URL_S3?.trim();
+  if (
+    s3 &&
+    !env.AWS_ENDPOINT_URL?.trim() &&
+    env.CHECKPOINT_OBJECT_STORE?.trim() !== "disabled"
+  ) {
+    add("AWS_ENDPOINT_URL_S3", URL.parse(s3)?.hostname ?? "");
   }
   for (const variable of [
     "EGRESS_AUTHORIZER_HOST",
