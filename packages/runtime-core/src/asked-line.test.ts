@@ -897,6 +897,18 @@ const WIDE: [string, string, string | null][] = [
   ],
   ["a timed build", "time -p make build | tail -1", null],
   [
+    "git behind time and a setting",
+    "time REVIEW_MARKER=demo git status",
+    "a setting that may make git or gh run a program",
+  ],
+  [
+    "grep behind an env option holding =",
+    "env --unset=LANG grep needle README.md",
+    "a wrapper the line does not read",
+  ],
+  ["a look-up of several names", "command -v bash git", null],
+  ["a look-up of several names, long", "command -V bash git", null],
+  [
     "git right after a wrapper's option",
     "env -i git log",
     "a wrapper the line does not read",

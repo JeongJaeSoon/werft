@@ -1451,22 +1451,38 @@ function wideKept(
   const settings: string[] = [];
   const wrappers: string[] = [];
   const options: string[] = [];
+  // The options of the last wrapper.
+  let own: string[] = [];
   let at = -1;
   for (const [index, word] of words.entries()) {
     const last = wrappers.at(-1);
     const name = nameOf(word);
+    if (last !== undefined && word.startsWith("-")) {
+      options.push(word);
+      own.push(word);
+      continue;
+    }
+    // `command -v git` only looks names up.
     if (
-      (last === undefined && ASSIGNMENT.test(word)) ||
+      last === "command" &&
+      own.length > 0 &&
+      own.every((option) => /^-[vV]+$/.test(option))
+    ) {
+      return null;
+    }
+    // The `time` keyword starts a simple command, settings and all.
+    if (
+      (wrappers.every((wrapper) => wrapper === "time") &&
+        ASSIGNMENT.test(word)) ||
       (last === "env" && word.includes("="))
     ) {
       settings.push(word);
-    } else if (last !== undefined && word.startsWith("-")) {
-      options.push(word);
     } else if (TOOLS.includes(name)) {
       at = index;
       break;
     } else if (WRAPPERS.includes(name)) {
       wrappers.push(name);
+      own = [];
     } else {
       // A word after a wrapper's option may be its value (`env -u X git`).
       return options.length > 0 &&
@@ -1476,17 +1492,8 @@ function wideKept(
     }
   }
   if (at === -1) return null;
-  if (options.length > 0) {
-    // `command -v git` only looks the name up.
-    if (
-      wrappers[0] === "command" &&
-      options.every((option) => /^-[vV]+$/.test(option))
-    ) {
-      return null;
-    }
-    // A wrapper's option may take a value (`env -u X`, `env -C dir`).
-    return "a wrapper the line does not read";
-  }
+  // A wrapper's option may take a value (`env -u X`, `env -C dir`).
+  if (options.length > 0) return "a wrapper the line does not read";
   const tool = nameOf(words[at] as string);
   if (tool !== "grep") {
     for (const word of settings) {
