@@ -3250,7 +3250,7 @@ export interface paths {
         put?: never;
         /**
          * Disconnect a workspace MCP server
-         * @description Owners and admins signed in to the console as a person; never an API key. Deletes the stored tokens (a static token too) and asks the authorization server to revoke them (best effort; `revoked` null when there was nothing to revoke or no endpoint). Agents' next calls to the server are refused. Disabling the member who connected a server disconnects it too, without the revocation request. Writes a `disconnect_workspace_mcp_server` receipt.
+         * @description Owners and admins signed in to the console as a person; never an API key. Deletes the stored tokens (a static token too) and asks the authorization server to revoke them (best effort; `revoked` null when there was nothing to revoke or no endpoint). Agents' next calls to the server are refused. Disabling the member who connected a server disconnects it too, without the revocation request. A server of an `auth_kind` this release does not know is left as it is and answers 400 `auth_kind_unsupported`. Writes a `disconnect_workspace_mcp_server` receipt.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -36561,6 +36561,21 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["DisconnectWorkspaceMcpServerResponse"];
+                };
+            };
+            /** @description - `BAD_REQUEST`: The request is malformed: . Fix the request before retrying. */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"] & {
+                        error?: {
+                            /** @enum {string} */
+                            code?: "BAD_REQUEST";
+                        };
+                    };
                 };
             };
             /** @description - `UNAUTHORIZED`: No credential, a malformed bearer token, an unknown or revoked API key, or a missing or expired session cookie. */

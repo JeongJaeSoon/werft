@@ -460,6 +460,8 @@ describe("POST /v1/workspace/mcp-servers/{id}/disconnect", () => {
     await expectCodes(
       (failing) => send({ disconnect: failing }, "POST", `${one}/disconnect`),
       [
+        // A server of a kind this release does not know: auth_kind_unsupported.
+        ["BAD_REQUEST", 400],
         ["FORBIDDEN", 403],
         ["NOT_FOUND", 404],
       ],

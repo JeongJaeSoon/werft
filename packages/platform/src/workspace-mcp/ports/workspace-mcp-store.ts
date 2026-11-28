@@ -233,7 +233,7 @@ export interface WorkspaceMcpStore {
         record: WorkspaceMcpServerRecord;
         revocation: WorkspaceMcpRevocation | null;
       }
-    | { outcome: "not_found" | "actor_inactive" }
+    | { outcome: "not_found" | "actor_inactive" | "unsupported_kind" }
   >;
   credentialOf(
     workspaceId: string,

@@ -140,6 +140,8 @@ export const workspaceMcpKo = {
     "이 서버는 OAuth가 아니라 정적 token으로 연결합니다.",
   "workspaceMcp.error.not_bearer":
     "이 서버는 정적 token이 아니라 OAuth로 연결합니다.",
+  "workspaceMcp.error.auth_kind_unsupported":
+    "이 판은 이 서버의 인증 방식을 지원하지 않아 연결을 끊을 수 없습니다. API를 새 판으로 올리거나 서버를 삭제하세요.",
   "workspaceMcp.error.client_registration_required":
     "인가 서버가 동적 client 등록을 받지 않습니다. client 설정에서 client를 넣은 뒤 연결하세요.",
   "workspaceMcp.error.registration_failed":
@@ -347,6 +349,8 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
     "This server connects with a static token, not OAuth.",
   "workspaceMcp.error.not_bearer":
     "This server connects with OAuth, not a static token.",
+  "workspaceMcp.error.auth_kind_unsupported":
+    "This version does not support this server's authentication, so it cannot disconnect it. Upgrade the API, or delete the server.",
   "workspaceMcp.error.client_registration_required":
     "The authorization server takes no dynamic client registration. Set a client, then connect.",
   "workspaceMcp.error.registration_failed":
@@ -559,6 +563,8 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
     "このサーバーは OAuth ではなく静的 token で接続します。",
   "workspaceMcp.error.not_bearer":
     "このサーバーは静的 token ではなく OAuth で接続します。",
+  "workspaceMcp.error.auth_kind_unsupported":
+    "この版はこのサーバーの認証方式に対応していないため、接続を切れません。API を新しい版に上げるか、サーバーを削除してください。",
   "workspaceMcp.error.client_registration_required":
     "認可サーバーが動的 client 登録を受け付けません。client を設定してから接続してください。",
   "workspaceMcp.error.registration_failed":

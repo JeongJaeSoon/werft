@@ -786,6 +786,14 @@ describe("the address check before a server is stored", () => {
     expect(
       await context.service.credentialFor(WORKSPACE, created.id),
     ).toBeNull();
+    // Left as it is: a later release connects it, not this one.
+    const before = structuredClone(stored.record.connection);
+    expect(
+      await refusal(context.service.disconnect(admin, created.id)),
+    ).toEqual({ code: "BAD_REQUEST", reason: "auth_kind_unsupported" });
+    expect(context.memory.stored(created.id)?.record.connection).toEqual(
+      before,
+    );
     expect(
       await refusal(context.service.refreshTools(admin, created.id)),
     ).toEqual({ code: "BAD_REQUEST", reason: "not_connected" });

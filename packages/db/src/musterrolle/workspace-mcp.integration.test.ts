@@ -11,7 +11,7 @@ import {
   type TempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, eq, like } from "drizzle-orm";
+import { and, eq, like, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "../schema.ts";
@@ -254,6 +254,34 @@ integration("workspace MCP servers on PostgreSQL", () => {
       "create_workspace_mcp_server",
     ]);
     await expectNoPlainCredential(ws);
+  });
+
+  test("a server of a kind this release does not know is not disconnected", async () => {
+    const { ws, admin } = await team();
+    const record = await created(ws, admin);
+    // What a later release's migration allows and writes: a server with no
+    // credential stored.
+    await db.execute(
+      sql`ALTER TABLE workspace_mcp_servers DROP CONSTRAINT workspace_mcp_servers_auth_kind_check, ADD CONSTRAINT workspace_mcp_servers_auth_kind_check CHECK (auth_kind IN ('oauth', 'bearer', 'none')) NOT VALID`,
+    );
+    await db
+      .update(workspaceMcpServers)
+      .set({ authKind: "none" as never })
+      .where(eq(workspaceMcpServers.id, record.id));
+    await db.delete(secretValues).where(eq(secretValues.workspaceId, ws));
+    const before = (await store.get(ws, record.id))?.connection;
+    expect(before?.state).toBe("active");
+    const result = await store.disconnect({
+      ...asUser(ws, admin),
+      workspaceId: ws,
+      serverId: record.id,
+    });
+    expect(result.outcome).toBe("unsupported_kind");
+    expect((await store.get(ws, record.id))?.connection).toEqual(before);
+    expect(await store.credentialOf(ws, record.id)).toBeNull();
+    expect((await receiptsOf(ws)).map((row) => row.operation)).toEqual([
+      "create_workspace_mcp_server",
+    ]);
   });
 
   test("a member, or an admin no longer one, writes nothing", async () => {
