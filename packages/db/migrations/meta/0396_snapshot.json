@@ -1,6 +1,6 @@
 {
-  "id": "dc8b4e4c-aa5e-4362-9012-cea491650991",
-  "prevId": "65d61a62-bea9-4932-991d-baff469f3daf",
+  "id": "de03d9bb-4d00-4561-adeb-01d133c53f8d",
+  "prevId": "f572a5b6-d4cd-4fb6-9553-ea27336ffbe2",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -20628,8 +20628,7 @@
           "name": "report_mode",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "default": "'per_step'"
+          "notNull": false
         },
         "memory_write_policy": {
           "name": "memory_write_policy",
