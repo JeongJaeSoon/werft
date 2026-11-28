@@ -159,11 +159,11 @@ describe("scripted Responses API", () => {
     );
     expect(first.toolCalls?.[0]).toMatchObject({
       kind: "tool_search",
-      callId: "call_gate_q_p0_0",
+      callId: "call_gate_q_0",
     });
     const found = {
       type: "tool_search_output",
-      call_id: "call_gate_q_p0_0",
+      call_id: "call_gate_q_0",
       execution: "client",
       status: "completed",
       tools: [

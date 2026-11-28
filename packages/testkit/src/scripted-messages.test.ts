@@ -58,7 +58,7 @@ describe("scripted Messages API", () => {
         { type: "text", text: `${SPEC_MARKER}${JSON.stringify(spec)}` },
       ],
     };
-    expect(planOf([merged])).toEqual({ spec, step: 0, prompt: 0 });
+    expect(planOf([merged])).toEqual({ spec, step: 0 });
     expect(
       planOf([merged, { role: "assistant", content: [] }, toolResult("t0")])
         ?.step,
@@ -89,7 +89,7 @@ describe("scripted Messages API", () => {
     const first = await replyFor(request([prompt]), recorded);
     expect(first.content[0]).toMatchObject({
       type: "tool_use",
-      id: "toolu_gate_s1_p0_0",
+      id: "toolu_gate_s1_0",
       input: { command: "touch a" },
     });
     const last = await replyFor(
@@ -344,6 +344,28 @@ describe("a spec sent again on a later turn", () => {
     expect(first).toHaveLength(2);
     expect(second).toHaveLength(2);
     expect(second.filter((id) => first.includes(id))).toEqual([]);
+  });
+
+  test("a history cut short ahead of the new prompt still keeps the earlier turn's ids out", async () => {
+    // As after compaction: the earlier turn's prompt is gone, its calls stay.
+    const prompt = {
+      role: "user",
+      content: SPEC_MARKER + JSON.stringify(spec),
+    };
+    const earlier = ["toolu_gate_s1_0", "toolu_gate_s1_1"];
+    const history: unknown[] = earlier.flatMap((id) => [
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id, name: "Bash", input: {} }],
+      },
+      toolResult(id),
+    ]);
+    const asked = request([...history, prompt]);
+    const once = callIds(await replyFor(asked, []));
+    expect(callIds(await replyFor(asked, []))).toEqual(once);
+    const ids = await playTurn(history, prompt, [{ name: "Bash" }]);
+    expect(ids).toHaveLength(2);
+    expect(ids.filter((id) => earlier.includes(id))).toEqual([]);
   });
 
   test("a call spec's second turn calls under ids its first turn did not use", async () => {

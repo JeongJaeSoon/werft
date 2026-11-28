@@ -105,15 +105,36 @@ function toolReferencesIn(messages: readonly Message[]): string[] {
 }
 
 /**
- * The latest spec in the conversation, how many tool results follow it, and
- * the index of the message carrying it. The engine drops a call whose id its
- * history already holds, along with its result, so the same spec sent again
- * on a later turn would never get past its first step on ids made of the spec
- * and step alone; `prompt` sets that turn's ids apart.
+ * `base`, or the first `base_<n>` from 2 up that is not in `used`. The
+ * engine drops a call whose id its history already holds, with its result,
+ * so a spec sent again on a later turn would never get past its first step
+ * under the ids the earlier turn used. Deterministic, so a retried request
+ * gets the same id.
  */
+export function unusedId(base: string, used: ReadonlySet<string>): string {
+  if (!used.has(base)) return base;
+  let n = 2;
+  while (used.has(`${base}_${n}`)) n++;
+  return `${base}_${n}`;
+}
+
+/** The ids of the tool calls the conversation already holds. */
+function toolUseIdsIn(messages: readonly Message[]): Set<string> {
+  const ids = new Set<string>();
+  for (const message of messages) {
+    if (message?.role !== "assistant") continue;
+    for (const block of blocksOf(message)) {
+      const { id } = block as { id?: unknown };
+      if (block.type === "tool_use" && typeof id === "string") ids.add(id);
+    }
+  }
+  return ids;
+}
+
+/** The latest spec in the conversation and how many tool results follow it. */
 export function planOf(
   messages: readonly Message[],
-): { spec: GateSpec; step: number; prompt: number } | null {
+): { spec: GateSpec; step: number } | null {
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index];
     if (message?.role !== "user") continue;
@@ -140,7 +161,7 @@ export function planOf(
           (candidate) => candidate.type === "tool_result",
         ).length;
       }
-      return { spec, step, prompt: index };
+      return { spec, step };
     }
   }
   return null;
@@ -173,13 +194,12 @@ export function specIdsIn(messages: readonly unknown[]): string[] {
 }
 
 /**
- * The call spec in the text of the last user message that has text, how many
- * tool results came after it, and that message's index (see `planOf`); null
- * when that text carries none.
+ * The call spec in the text of the last user message that has text, and how
+ * many tool results came after it; null when that text carries none.
  */
 export function callPlanOf(
   messages: readonly Message[],
-): { spec: CallSpec; step: number; prompt: number } | null {
+): { spec: CallSpec; step: number } | null {
   let step = 0;
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index];
@@ -200,7 +220,7 @@ export function callPlanOf(
           (block.text ?? "").slice(marker + CALL_SPEC_MARKER.length),
         ),
       ) as CallSpec;
-      return { spec, step, prompt: index };
+      return { spec, step };
     }
     return null;
   }
@@ -273,13 +293,16 @@ export function replyFor(
         : toolReply(
             next.tool,
             next.input,
-            `toolu_call_${call.spec.id}_p${call.prompt}_${call.step}`,
+            unusedId(
+              `toolu_call_${call.spec.id}_${call.step}`,
+              toolUseIdsIn(messages),
+            ),
           );
     const delayMs = next === undefined ? call.spec.delayMs : next.delayMs;
     return delayMs === undefined ? reply : Bun.sleep(delayMs).then(() => reply);
   }
   if (plan === null) return textReply(fallback);
-  const { spec, step, prompt } = plan;
+  const { spec, step } = plan;
   const next = spec.steps[step];
   const reply =
     next === undefined
@@ -287,7 +310,7 @@ export function replyFor(
       : toolReply(
           next.tool,
           next.input,
-          `toolu_gate_${spec.id}_p${prompt}_${step}`,
+          unusedId(`toolu_gate_${spec.id}_${step}`, toolUseIdsIn(messages)),
         );
   const delayMs = next === undefined ? spec.finalDelayMs : next.delayMs;
   return delayMs === undefined ? reply : Bun.sleep(delayMs).then(() => reply);
