@@ -5,24 +5,26 @@ name: D2 gate
 # (.github/integration-domains.yml) declare its tests skipped and
 # only scripts/d2-gate/run.sh runs them. Run by hand alone, the harness went
 # stale without anyone noticing (: gate A broke on
-# incremental bundles). This workflow runs it every night on main, and on the
-# pull requests that change the gate itself or the paths that decide who ends
-# a worker and what its turn becomes (its D, R and H tests). The list is a
-# cut, not a proof: the gate drives the whole stack, so a change to shared
+# incremental bundles). This workflow runs it on pushes to main, and once on a
+# pull request marked ready for review that changes the gate itself or the
+# paths that decide who ends a worker and what its turn becomes (its D, R and H
+# tests). Opening a pull request or pushing to it runs nothing, also after it
+# is ready: a quarter of those runs were cancelled by the next push. The list
+# is a cut, not a proof: the gate drives the whole stack, so a change to shared
 # code (the API server, contracts, the schema, the pool), or to what only the
-# checkpoint, transcript and interrupt tests (A–C, E) read, still waits for
-# the night.
+# checkpoint, transcript and interrupt tests (A–C, E) read, waits for main, as
+# does a push after the ready run.
 #
 # Deliberately NOT a required status check: it does not run on most pull
 # requests, so a required context would leave them waiting forever. A failure
 # on main lands in an issue instead. scripts/soak/rc.sh runs the same gate
 # before a release candidate's campaigns.
 on:
-  schedule:
-    # 03:17 KST, off the hour and apart from main-push-run.yml's checks.
-    - cron: '17 18 * * *'
+  push:
+    branches: [main]
   workflow_dispatch:
   pull_request:
+    types: [ready_for_review]
     # Gate runtime inputs. CI's declared skips are already checked by the
     # required policy tests and worker JUnit verification.
     paths:
@@ -39,7 +41,7 @@ on:
       - tests/d2-gate/**
       # What gate D, R1–R2 and H1–H5 settle: who ends a worker, and what its
       # turn becomes. A change here that moved gate D's outcome was first seen
-      # by the nightly run, a day after it merged.
+      # only after it merged.
       # The scheduler, the reconciler's sweep and the loops both run in:
       - apps/control-host/src/main.ts
       - apps/control-host/src/pass-loop/**
@@ -63,9 +65,11 @@ permissions:
   contents: read
 
 concurrency:
-  # A new push supersedes a pull request's run. A nightly or manual run is
-  # never cancelled by the next one: a cancellation would read as a failure.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Pushes to main take turns: one runs and only the newest waits, so a burst
+  # of merges holds one runner and the tip is still gated. A running one is
+  # never cancelled: that would read as a failure. A manual run has a group of
+  # its own, so no later push replaces it while it waits.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref) || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -147,4 +151,4 @@ jobs:
             echo "The run's summary page has each test's result and the criteria table; the \`d2-gate-record\` artifact has the build, compose and suite logs. Reproduce with \`scripts/d2-gate/run.sh\`. Close this issue once the failure is understood; the next failure opens a new one."
           } >body.md
           .github/scripts/upsert-ci-issue.sh ci-d2-gate-failure \
-            "CI: D2 gate failed (nightly)" body.md
+            "CI: D2 gate failed" body.md

@@ -13,7 +13,7 @@ name: Keycloak login
 # them waiting forever. A failure on main lands in an issue instead.
 on:
   schedule:
-    # 03:47 KST, apart from the D2 gate (03:17) and main-push-run.yml.
+    # 03:47 KST, apart from main-push-run.yml.
     - cron: '47 18 * * *'
   workflow_dispatch:
   pull_request:

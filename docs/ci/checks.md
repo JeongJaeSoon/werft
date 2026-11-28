@@ -12,8 +12,8 @@
 | --- | --- | --- | --- |
 | T0 빠른 필수 | 모든 PR과 main push | `gitleaks`, `supply-chain`, `changes`(계획) | 2분. `supply-chain`은 이미지를 빌드하면 10분 |
 | T1 PR 필수 | 모든 PR. 네 이름은 늘 판정을 내고, 그 아래의 job은 바뀐 경로가 닿는 것만 돈다 | `check`, `integration`, `e2e`, `quickstart` | 아래 표 |
-| T2 경로 한정 gate | 그 gate의 경로를 바꾼 PR | D2 gate, K8s 검사 셋, Keycloak login, Worker compatibility, Install rehearsal | 각 workflow의 한도 |
-| T3 main | main push | CI(같은 트리를 시험한 PR run이 있으면 재사용), 계획된 이미지와 chart 게시, 제품을 바꾼 push의 `agent-sdk-compat`. 실패한 push run은 `main-failure.yml`이 이슈에 남긴다 | - |
+| T2 경로 한정 gate | 그 gate의 경로를 바꾼 PR. D2 gate는 그런 PR을 ready for review로 바꿀 때만 | D2 gate, K8s 검사 셋, Keycloak login, Worker compatibility, Install rehearsal | 각 workflow의 한도 |
+| T3 main | main push | CI(같은 트리를 시험한 PR run이 있으면 재사용), 계획된 이미지와 chart 게시, 제품을 바꾼 push의 `agent-sdk-compat`. D2 gate. 실패한 CI·Images push run은 `main-failure.yml`이, 실패한 D2 gate는 그 workflow가 이슈에 남긴다 | - |
 | T4 릴리스와 야간 | 릴리스가 필요한 commit, schedule | conformance, 릴리스 gate, 야간 gate, 취약점 재검사 | - |
 
 T2와 T4의 gate는 PR의 merge를 막지 않는다. 실패가 어디에 남는지는 [필수가 아닌 gate](#필수가-아닌-gate)의 표에 있다.
@@ -85,11 +85,11 @@ domain과 그 서비스는 `.github/integration-domains.yml`에 한 번 적는�
 
 ## 필수가 아닌 gate
 
-PR의 merge를 막지 않는다. 경로가 닿는 PR에서 돌고, 일부는 밤마다 main에서 돈다. 실패가 남는 곳은 gate마다 다르다. 이슈를 여는 gate는 label로 같은 신호를 열린 이슈 하나에 모은다. 빠진 push run만 commit마다 이슈를 하나씩 연다.
+PR의 merge를 막지 않는다. 경로가 닿는 PR에서 돌고, 일부는 밤마다 main에서 돈다. D2 gate만 다르다. PR을 열거나 push해서는 돌지 않고(ready가 된 PR의 새 push도 같다), 경로가 닿는 PR을 draft에서 ready for review로 바꿀 때 한 번, main push마다, 수동으로 돈다. main에서는 한 번에 하나만 돌고 대기는 가장 새 commit 하나다. 그래서 병합이 몰리면 사이의 commit은 따로 돌지 않는다. 실패가 남는 곳은 gate마다 다르다. 이슈를 여는 gate는 label로 같은 신호를 열린 이슈 하나에 모은다. 빠진 push run만 commit마다 이슈를 하나씩 연다.
 
-| workflow | 지키는 것 | PR에서 도는 경로 | 야간 (UTC) | 야간·수동 run이 실패하면 |
+| workflow | 지키는 것 | PR에서 도는 경로 | 야간 (UTC) | main·야간·수동 run이 실패하면 |
 | --- | --- | --- | --- | --- |
-| `d2-gate.yml` | 이 checkout으로 빌드한 이미지의 compose 스택 전체에서 D2 완료 gate 항목(A–E, R1–R2, H1–H5) | gate 자신의 파일과, worker를 끝내고 turn을 닫는 코드(scheduler, reconciler, pass-loop, sessions, workers, worker 앱, 로컬 Docker backend) | 매일 18:17 | 이슈 `ci-d2-gate-failure` |
+| `d2-gate.yml` | 이 checkout으로 빌드한 이미지의 compose 스택 전체에서 D2 완료 gate 항목(A–E, R1–R2, H1–H5) | gate 자신의 파일과, worker를 끝내고 turn을 닫는 코드(scheduler, reconciler, pass-loop, sessions, workers, worker 앱, 로컬 Docker backend). ready for review로 바꿀 때만 | 없음. main push마다 | 이슈 `ci-d2-gate-failure` |
 | `keycloak-login.yml` | 실제 Keycloak을 상대로 provider 로그인이 끝까지 된다: 추가, 시험 로그인, 켜기, 연결, 첫 가입, 미확인 계정 거절, 끄면 세션 종료, 틀린 PKCE 거절, 로그에 secret 없음 | 로그인 API, web의 로그인 화면, Keycloak compose, verify 스크립트 | 매일 18:47 | 이슈 `ci-keycloak-login-failure` |
 | `k8s-replicas.yml` | api replica 둘 중 어디에 닿아도 세션 흐름이 맞고 turn이 두 번 돌지 않는다 | chart, kind 스크립트 | 없음 | 빨간 run뿐 |
 | `k8s-upgrade.yml` | 기다리는 세션과 멈춘 세션이 helm upgrade와 rollback을 지나도 그대로다 | chart, `upgrade-check.ts`, kind 스크립트 | 없음 | 빨간 run뿐 |
@@ -103,13 +103,13 @@ PR의 merge를 막지 않는다. 경로가 닿는 PR에서 돌고, 일부는 밤
 | `main-failure.yml` | main의 CI나 Images push run이 실패하면 commit, 그 PR, 실패한 job을 댄다. 되돌리지는 않는다 | - | run이 끝날 때마다 | 이슈 `ci-main-failure` |
 | `main-push-run.yml` | 최근 36시간의 main commit마다 CI push run이 있다(15분이 안 된 commit과, 다른 push에 실려 들어온 commit은 뺀다). 그 run의 `agent-sdk-compat`이 마지막 시도에서 실패했으면 이슈가 있다 | - | 매일 03:23, 15:23 | 이슈 `ci-missing-push-run`, `ci-agent-sdk-compat-failure` |
 
-### filter 밖 경로는 야간만 본다
+### filter 밖 경로는 PR에서 보지 않는다
 
-경로 filter는 선을 그은 것이지 증명이 아니다. gate가 지키는 동작은 filter 밖의 코드도 바꿀 수 있다. filter 밖 경로만 바꾼 PR에서는 그 gate가 돌지 않는다. 야간 run이 있는 gate는 그날 밤 run이 처음 본다. 야간이 없는 gate는 다음에 경로가 닿는 PR이나 수동 run까지 아무도 보지 않는다. 야간 이슈가 열리면, 마지막으로 성공한 야간 run 뒤에 merge된 PR 중 아래 경로를 바꾼 것부터 본다.
+경로 filter는 선을 그은 것이지 증명이 아니다. gate가 지키는 동작은 filter 밖의 코드도 바꿀 수 있다. filter 밖 경로만 바꾼 PR에서는 그 gate가 돌지 않는다. D2 gate는 병합 뒤의 main run이, 야간 run이 있는 gate는 그날 밤 run이 처음 본다. 야간이 없는 gate는 다음에 경로가 닿는 PR이나 수동 run까지 아무도 보지 않는다. main run이나 야간 run의 이슈가 열리면, 마지막으로 성공한 그 run 뒤에 merge된 PR 중 아래 경로를 바꾼 것부터 본다.
 
 | gate | PR에서 보지 않는 경로 | 뒤를 받치는 것 |
 | --- | --- | --- |
-| D2 gate | API server·app·readiness, `packages/contracts`, `packages/db/src/schema.ts`, `pool.ts`, `control-*.ts`. checkpoint·transcript·storage·runtime(`packages/platform/src/checkpoints`, `packages/db/src/checkpoints`, `packages/storage`, `packages/adapters/runtimes`)과 egress proxy | 야간 run |
+| D2 gate | API server·app·readiness, `packages/contracts`, `packages/db/src/schema.ts`, `pool.ts`, `control-*.ts`. checkpoint·transcript·storage·runtime(`packages/platform/src/checkpoints`, `packages/db/src/checkpoints`, `packages/storage`, `packages/adapters/runtimes`)과 egress proxy | main push의 run |
 | K8s replicas | API의 세션·이벤트 경로, 세션 store | 다음에 경로가 닿는 PR이나 수동 run. 야간 없음 |
 | K8s upgrade | migration, upgrade hook이 부르는 코드 중 `upgrade-check.ts` 밖의 것, 세션 정지와 복원 | 다음에 경로가 닿는 PR이나 수동 run. 야간 없음 |
 | Keycloak login | 로그인 경로 밖의 API 공통 코드(app, 미들웨어, 설정) | 야간 run |
@@ -229,4 +229,4 @@ ruleset은 저장소 설정이라 시험이 읽지 못한다. 필수 이름을 �
 
 ## 할 일
 
-- 야간 D2 gate의 실패 이슈에, 마지막으로 성공한 야간 run 뒤에 merge된 PR 중 [filter 밖 경로](#filter-밖-경로는-야간만-본다)를 바꾼 것의 목록을 붙인다.
+- D2 gate의 실패 이슈에, 마지막으로 성공한 main run 뒤에 merge된 PR의 목록을 붙인다.

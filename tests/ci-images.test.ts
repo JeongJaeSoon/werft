@@ -509,7 +509,28 @@ describe("the D2 gate workflow", () => {
     }
   });
 
-  test("runs on pull requests that change the scheduler and turn paths, and names no path that is gone", () => {
+  test("runs on ready for review, pushes to main and by hand, never on a pull request's push", () => {
+    const { on, concurrency } = Bun.YAML.parse(text) as {
+      on: Record<string, Record<string, unknown> | null>;
+      concurrency: Record<string, string>;
+    };
+    expect(Object.keys(on).sort()).toEqual([
+      "pull_request",
+      "push",
+      "workflow_dispatch",
+    ]);
+    expect(on.pull_request?.types).toEqual(["ready_for_review"]);
+    // No path filter on main: it is what covers the paths a pull request skips.
+    expect(on.push).toEqual({ branches: ["main"] });
+    // A manual run shares no group, so a later push cannot replace it.
+    expect(concurrency).toEqual({
+      group:
+        "${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref) || github.run_id }}",
+      "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
+    });
+  });
+
+  test("on ready for review, runs for the scheduler and turn paths, and names no path that is gone", () => {
     const { paths } = (
       Bun.YAML.parse(text) as { on: { pull_request: { paths: string[] } } }
     ).on.pull_request;
