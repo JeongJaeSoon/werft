@@ -5360,7 +5360,7 @@ describe.each(ENGINES)(
       expect(await taskTurns(task)).toHaveLength(1);
     });
 
-    test("an unhanded end keeps a bind its thread was already posted to", async () => {
+    test("an unhanded end keeps a bind a Slack row was already queued for", async () => {
       const fixture = await agentInSlack("main", { rollout: "on" });
       const task = await standaloneOf(fixture);
       const turn = await dmToStandalone(fixture, task);
@@ -5368,7 +5368,7 @@ describe.each(ENGINES)(
       const route = await store.pending(turn.turn_id);
       if (route === null) throw new Error("no pending route");
       expect(await store.bindStandalone(route)).toBe("bound");
-      // The outbox reported the session's work there before the end.
+      // The outbox queued a report of the session's work there before the end.
       await db.execute(sql`
         INSERT INTO slack_outbox (id, workspace_id, agent_id, slack_app_id,
           installation_id, kind, channel_id, thread_ts, session_id,
