@@ -130,6 +130,8 @@ const SLACK_NOTICE_MESSAGES_KO = {
   routeNoRight: "이 작업에 이어서 맡길 권한이 없어요",
   routeFailed: "작업에 넘기지 못했어요.",
   routeMirror: "원래 스레드에서 이어서 할게요 ↗",
+  // A DM's message handed to its person's standalone session (v1-b/DM3).
+  routeStandalone: "작업으로 시작했어요",
   // A mention's turn that ended with no decision (v1-b/F1): said once as it
   // is tried again, and once when its last try ends with none either.
   mentionRetrying: "지금 답하지 못했어요. 다시 해 볼게요",
@@ -250,6 +252,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     routeNoRight: "この作業に続けて任せる権限がありません",
     routeFailed: "作業に引き継げませんでした。",
     routeMirror: "元のスレッドで続けます ↗",
+    routeStandalone: "作業として始めました",
     mentionRetrying: "今はお答えできませんでした。もう一度やってみます",
     mentionFailed:
       "3回試しましたが、お答えできませんでした。しばらくしてからもう一度呼んでください",
@@ -358,6 +361,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     routeNoRight: "This request doesn't have permission to add to that task",
     routeFailed: "This couldn't be handed to the task.",
     routeMirror: "Continuing in the original thread ↗",
+    routeStandalone: "Started this as a task",
     mentionRetrying: "I couldn't answer just now. I'll try again.",
     mentionFailed:
       "I tried three times but couldn't answer. Please mention me again in a moment.",

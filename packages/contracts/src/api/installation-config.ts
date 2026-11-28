@@ -13,6 +13,12 @@ export const PENDING_REQUEST_TTL_SEC_MAX = MAX_TURN_SECONDS_MAX;
 /** Well inside what `sessions.cost_usd` can hold, so the limit is reachable. */
 export const SESSION_COST_LIMIT_USD_MAX = 1_000_000;
 
+/**
+ * Tokens of unknown price a session may use while nothing is saved. A first
+ * value with no usage record behind it; an owner sets the installation's own.
+ */
+export const UNKNOWN_PRICE_SESSION_TOKEN_LIMIT = 5_000_000;
+
 export const SESSION_ARCHIVE_AFTER_DAYS_MIN = 30;
 export const SESSION_ARCHIVE_AFTER_DAYS_MAX = 3650;
 
@@ -65,6 +71,15 @@ export const INSTALLATION_CONFIG = {
     env: "SESSION_TOKEN_LIMIT",
     schema: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
     default: 0,
+  },
+  /**
+   * Provider tokens a session may use on models nothing prices. Their calls
+   * have no amount for the cost limit to count, so this limit is all that
+   * holds them; it cannot be switched off.
+   */
+  unknown_price_session_token_limit: {
+    schema: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
+    default: UNKNOWN_PRICE_SESSION_TOKEN_LIMIT,
   },
   /** What a worker does when its workspace outgrows its quota. */
   workspace_enforce: {
@@ -199,6 +214,9 @@ export const installationConfigEntriesSchema = z
     storage_limit_bytes: entrySchema(rule("storage_limit_bytes")),
     session_cost_limit_usd: entrySchema(rule("session_cost_limit_usd")),
     session_token_limit: entrySchema(rule("session_token_limit")),
+    unknown_price_session_token_limit: entrySchema(
+      rule("unknown_price_session_token_limit"),
+    ),
     workspace_enforce: entrySchema(rule("workspace_enforce")),
     max_turn_seconds: entrySchema(rule("max_turn_seconds")),
     provider_max_retries: entrySchema(rule("provider_max_retries")),
@@ -226,6 +244,9 @@ export const updateInstallationConfigRequestSchema = z
     storage_limit_bytes: rule("storage_limit_bytes").optional(),
     session_cost_limit_usd: rule("session_cost_limit_usd").optional(),
     session_token_limit: rule("session_token_limit").optional(),
+    unknown_price_session_token_limit: rule(
+      "unknown_price_session_token_limit",
+    ).optional(),
     workspace_enforce: rule("workspace_enforce").optional(),
     max_turn_seconds: rule("max_turn_seconds").optional(),
     provider_max_retries: rule("provider_max_retries").optional(),

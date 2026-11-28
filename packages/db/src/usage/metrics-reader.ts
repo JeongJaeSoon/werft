@@ -1,5 +1,5 @@
 import { ENDED_ADMISSION_STATES } from "@werft-ai/contracts";
-import type { SessionBudget } from "@werft-ai/platform";
+import type { PricedBy, SessionBudget } from "@werft-ai/platform";
 import {
   type AnyColumn,
   and,
@@ -78,7 +78,7 @@ export type PlatformMetricsSnapshot = {
   }[];
   providerUsage: {
     model: string;
-    pricedBy: "table" | "fallback" | "unmetered";
+    pricedBy: PricedBy;
     inputTokens: number;
     outputTokens: number;
     cacheReadInputTokens: number;
@@ -378,9 +378,7 @@ async function readProviderUsage(db: Database) {
   const rows = await db
     .select({
       model: providerUsageTotals.model,
-      pricedBy: sql<
-        "table" | "fallback" | "unmetered"
-      >`${providerUsageTotals.pricedBy}`,
+      pricedBy: sql<PricedBy>`${providerUsageTotals.pricedBy}`,
       inputTokens: total(providerUsageTotals.inputTokens),
       outputTokens: total(providerUsageTotals.outputTokens),
       cacheReadInputTokens: total(providerUsageTotals.cacheReadInputTokens),

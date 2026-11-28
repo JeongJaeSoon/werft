@@ -46,7 +46,7 @@ const TOOL_COUNTS = [
 const MAX_JSON_BYTES = 8 * 1024 * 1024;
 /** An SSE line longer than this is a content delta, never a usage event. */
 const MAX_EVENT_LINE_BYTES = 256 * 1024;
-/** What a request that names no model is priced as: the fallback rate. */
+/** What a request that names no model is reported as: nothing prices it. */
 const UNKNOWN_MODEL = "unknown";
 /** Longer than any speed's or geo's name; what the API's report schema accepts. */
 const MAX_NAME_LENGTH = 64;
@@ -271,7 +271,7 @@ export type UsageMeter = {
 /**
  * `requestModel` is for the Decisions API, whose answer carries `usage` but
  * no `model`: the request's model is the one charged, whatever the answer
- * says, so a dated name never falls to the fallback rate.
+ * says, so a dated name is never left without a price.
  */
 export function usageMeter(
   contentType: string | null,

@@ -5,8 +5,8 @@
  * it was last checked against that page. The page gives no date of its own.
  *
  * Not priced: the cyber, Rosalind, Law and search models (a model missing
- * here falls to the fallback rate, which is the highest the platform knows
- * outside the Pro cards) and the data-residency uplift (the connection's
+ * here is priced from the LiteLLM snapshot, or has no amount when that does
+ * not name it either) and the data-residency uplift (the connection's
  * default endpoint is not a regional one). `gpt-5.6-sol` is listed at its
  * promotional rate until 2026-11-30; the page does not say which of its
  * figures that is, so the table keeps what the page shows and the entry needs
@@ -121,9 +121,7 @@ const CARDS: Readonly<Record<string, Card>> = cardsSchema.parse({
 
 /**
  * The Pro models give no cached-input rate, so a cache read pays the input
- * rate. They stay out of the fallback's highest rates: a model no table
- * names is charged the highest non-Pro rate, and only a Pro model past its
- * card is charged the highest Pro one.
+ * rate.
  */
 const PRO_CARDS: Readonly<Record<string, Card>> = cardsSchema.parse({
   "gpt-5.5-pro": card(rates(30, 30, 180), rates(60, 60, 270), STANDARD_ONLY),
@@ -138,25 +136,6 @@ export const OPENAI_CARDS: Readonly<Record<string, Card>> = {
   ...CARDS,
   ...PRO_CARDS,
 };
-
-function allRates(cards: Readonly<Record<string, Card>>): OpenAiRates[] {
-  return Object.values(cards).flatMap((entry) =>
-    entry.long === undefined ? [entry.short] : [entry.short, entry.long],
-  );
-}
-
-function highest(all: readonly OpenAiRates[]): OpenAiRates {
-  return rates(
-    Math.max(...all.map((known) => known.inputUsdPerMtok)),
-    Math.max(...all.map((known) => known.cacheReadUsdPerMtok)),
-    Math.max(...all.map((known) => known.outputUsdPerMtok)),
-  );
-}
-
-/** Short and long rates both: the fallback must not undercut a long card. */
-export const OPENAI_ALL_RATES: readonly OpenAiRates[] = allRates(CARDS);
-
-const PRO_HIGHEST = highest(allRates(PRO_CARDS));
 
 /**
  * GPT-5.6 and later bill a cache write above the input rate: 1.25x for the
@@ -195,9 +174,14 @@ export function openAiRatesFor(
 ): OpenAiRates | undefined {
   const entry = cardFor(model);
   if (entry === undefined) return undefined;
-  // A model whose long rates the page does not give is priced by the
-  // fallback (undefined) past the threshold, not at its short rates.
+  // A model whose long rates the page does not give has none (undefined)
+  // past the threshold: it is not priced at its short rates.
   return promptTokens > OPENAI_LONG_CONTEXT_TOKENS ? entry.long : entry.short;
+}
+
+/** Whether the table names the model, whatever the prompt's length. */
+export function openAiNames(model: string): boolean {
+  return cardFor(model) !== undefined;
 }
 
 /** What a model the table names multiplies its rates by at `speed`. */
@@ -210,31 +194,14 @@ export function openAiSpeedMultiplier(model: string, speed: string): number {
 }
 
 /**
- * What the fallback multiplies its rates by at `speed` for a model that may
- * be an OpenAI one: the highest multiple any card has for that tier, or the
- * highest of any tier for one no card lists. A model the table names but
- * prices past its card keeps its own multiple if that is higher, so a longer
- * prompt never costs less.
+ * What a model no card names, which may still be an OpenAI one, multiplies
+ * its rates by at `speed`: the highest multiple any card has for that tier,
+ * or the highest of any tier for one no card lists.
  */
-export function openAiFallbackSpeedMultiplier(
-  model: string,
-  speed: string,
-): number {
+export function openAiTierMultiplier(speed: string): number {
   if (speed === "standard") return 1;
   const listed = Object.values(OPENAI_CARDS).flatMap((entry) =>
     Object.hasOwn(entry.speeds, speed) ? [entry.speeds[speed] ?? 0] : [],
   );
-  const tier = listed.length === 0 ? TOP_SPEED_MULTIPLIER : Math.max(...listed);
-  return cardFor(model) === undefined
-    ? tier
-    : Math.max(tier, openAiSpeedMultiplier(model, speed));
-}
-
-/**
- * The rates the fallback must not undercut for `model`: the highest Pro
- * rates for a Pro model past its card, none otherwise.
- */
-export function openAiFallbackFloor(model: string): OpenAiRates | undefined {
-  const base = model.replace(DATED_SNAPSHOT, "");
-  return Object.hasOwn(PRO_CARDS, base) ? PRO_HIGHEST : undefined;
+  return listed.length === 0 ? TOP_SPEED_MULTIPLIER : Math.max(...listed);
 }

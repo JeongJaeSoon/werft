@@ -188,7 +188,6 @@ domains:
       - tests/e2e/real-model.
       - tests/execution-backend-env.
       - tests/fetch-pinned.
-      - tests/forbidden-terms.
       - tests/soak/
       - tests/ci-issue-scripts.
       - tests/integration-jobs.
@@ -209,6 +208,7 @@ domains:
       - tests/third-party-notices.
       - tests/ui-release.
       - tests/unit-part.
+      - tests/update-litellm-prices.
       - tests/verify-stack.
       - tests/worker-protocol-compat.
     skips:

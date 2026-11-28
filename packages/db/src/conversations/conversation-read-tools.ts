@@ -24,6 +24,7 @@ import { rowsOf } from "../statement-rows.ts";
 import { lockedTurnReadDeleted } from "./conversation-turns.ts";
 import { directSourceDeletedAt, servedTitle } from "./deleted-sources.ts";
 import { turnAnswerTexts } from "./input-texts.ts";
+import { standaloneTaskOf } from "./standalone-tasks.ts";
 
 // What the turn keeps of a spawn_task decision: the model's reading alone.
 const taskDraftOf = (
@@ -358,6 +359,22 @@ export function createPostgresConversationReadToolStore(
         viewer === null
           ? sql`coalesce((SELECT ss.scope FROM session_shares ss WHERE ss.session_id = sessions.id), 'workspace') IN ('workspace', 'private_channel')`
           : sessionVisibleTo(db, viewer);
+      // A DM's person also sees their standalone sessions there (v1-b/DM3).
+      const person =
+        turn.place.kind === "dm" &&
+        turn.requester.kind === "user" &&
+        turn.requester.id === turn.place.personUserId
+          ? turn.place.personUserId
+          : null;
+      const ofConversation = sql`sessions.parent_conversation_id = ${turn.conversationId}::uuid`;
+      const mine =
+        person === null
+          ? ofConversation
+          : sql`(${ofConversation} OR ${standaloneTaskOf(sql.raw("sessions"), {
+              workspaceId: turn.workspaceId,
+              agentId: turn.agentId,
+              personUserId: person,
+            })})`;
       const rows = rowsOf<{
         id: string;
         title: string | null;
@@ -374,7 +391,7 @@ export function createPostgresConversationReadToolStore(
             sessions.status, sessions.created_at
           FROM sessions
           WHERE sessions.workspace_id = ${turn.workspaceId}::uuid
-            AND sessions.parent_conversation_id = ${turn.conversationId}::uuid
+            AND ${mine}
             AND sessions.status::text NOT IN (${sql.join(
               ENDED_SESSION_STATUSES.map((status) => sql`${status}`),
               sql`, `,

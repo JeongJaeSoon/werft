@@ -26,6 +26,35 @@ const isMember = (workspaceId: unknown, userId: unknown) =>
   sql<boolean>`exists (select 1 from ${memberships} where ${memberships.workspaceId} = ${workspaceId} and ${memberships.userId} = ${userId})`;
 
 /**
+ * Makes `key`'s conversation, found or made, the session's parent while it
+ * has none: `set` then, `kept` when it already was, `other` when another
+ * conversation is its parent, which is never overwritten. The one rule a
+ * linked session's parent is written by, at host start and as a DM hands
+ * its message to the person's standalone session (v1-b/DM3).
+ */
+export async function adoptSessionParent(
+  db: Database,
+  sessionId: string,
+  key: ConversationKey,
+): Promise<"set" | "kept" | "other"> {
+  const conversation =
+    await createPostgresConversationStore(db).findOrCreateConversation(key);
+  const filled = await db
+    .update(sessions)
+    .set({ parentConversationId: conversation.id })
+    .where(
+      and(eq(sessions.id, sessionId), isNull(sessions.parentConversationId)),
+    )
+    .returning({ id: sessions.id });
+  if (filled.length > 0) return "set";
+  const [row] = await db
+    .select({ parent: sessions.parentConversationId })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId));
+  return row?.parent === conversation.id ? "kept" : "other";
+}
+
+/**
  * Fills the parent conversation of every linked session that has none: a
  * channel thread's session gets its channel's main conversation, a DM's
  * session its person's, a revoked or closed link's session too. The person
@@ -42,7 +71,6 @@ export async function fillSessionParents(
   options: { batchSize?: number } = {},
 ): Promise<SessionParentsFilled> {
   const batchSize = options.batchSize ?? 500;
-  const conversations = createPostgresConversationStore(db);
   const result: SessionParentsFilled = {
     filled: 0,
     skipped: { no_person: 0, no_membership: 0 },
@@ -116,18 +144,9 @@ export async function fillSessionParents(
         };
       }
       try {
-        const conversation = await conversations.findOrCreateConversation(key);
-        const filled = await db
-          .update(sessions)
-          .set({ parentConversationId: conversation.id })
-          .where(
-            and(
-              eq(sessions.id, row.sessionId),
-              isNull(sessions.parentConversationId),
-            ),
-          )
-          .returning({ id: sessions.id });
-        result.filled += filled.length;
+        if ((await adoptSessionParent(db, row.sessionId, key)) === "set") {
+          result.filled += 1;
+        }
       } catch (error) {
         result.failed.push({ sessionId: row.sessionId, error });
       }

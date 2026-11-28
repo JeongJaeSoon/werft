@@ -44,16 +44,28 @@ function totalsOf(buckets: readonly Bucket[]): Totals {
 export interface UsageKpisProps {
   /** GET /v1/usage/series `buckets` of the period; undefined while read. */
   readonly buckets: readonly Bucket[] | undefined;
+  /** GET /v1/usage/series `unknown_price` of the same answer. */
+  readonly unknownPrice?: UsageSeriesResponse["unknown_price"] | undefined;
   readonly messages?: Partial<UsageKpisMessages> | undefined;
 }
 
 /** Sessions, run time, cost and tokens of a period, each over its daily line. */
 export function UsageKpis({
   buckets,
+  unknownPrice,
   messages: override,
 }: UsageKpisProps): JSX.Element {
   const { messages, format } = useOperationsMessages("usageKpis", override);
   const totals = buckets === undefined ? undefined : totalsOf(buckets);
+  const unknown =
+    unknownPrice === undefined || unknownPrice.call_count === 0 ? null : (
+      <span className="block">
+        {messages.costUnknown(
+          format.count(unknownPrice.call_count),
+          format.tokens(unknownPrice.token_count),
+        )}
+      </span>
+    );
   const loading = totals === undefined;
   const spark = (pick: (bucket: Bucket) => number, label: string) =>
     buckets === undefined ? (
@@ -92,18 +104,21 @@ export function UsageKpis({
             <span aria-hidden="true" className="invisible">
               {messages.costIncomplete}
             </span>
-          ) : totals.conversation_cost_usd === 0 ? (
+          ) : totals.conversation_cost_usd === 0 && unknown === null ? (
             totals.cost_complete ? undefined : (
               messages.costIncomplete
             )
           ) : (
             <>
-              <span className="block">
-                {messages.costSplit(
-                  format.usd(totals.session_cost_usd),
-                  format.usd(totals.conversation_cost_usd),
-                )}
-              </span>
+              {totals.conversation_cost_usd === 0 ? null : (
+                <span className="block">
+                  {messages.costSplit(
+                    format.usd(totals.session_cost_usd),
+                    format.usd(totals.conversation_cost_usd),
+                  )}
+                </span>
+              )}
+              {unknown}
               {totals.cost_complete ? null : (
                 <span className="block">{messages.costIncomplete}</span>
               )}

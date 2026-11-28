@@ -59,7 +59,7 @@ instances:
         query: |
           SELECT
             COALESCE(SUM(cost_usd), 0)::double precision AS cost_usd_1h,
-            COUNT(*) FILTER (WHERE priced_by = 'fallback')::double precision
+            COUNT(*) FILTER (WHERE priced_by IN ('fallback', 'unknown'))::double precision
               AS fallback_pricing_count_1h,
             COALESCE(SUM(input_tokens + output_tokens
                 + cache_creation_input_tokens + cache_read_input_tokens)

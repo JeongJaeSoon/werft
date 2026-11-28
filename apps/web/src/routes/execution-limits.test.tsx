@@ -39,6 +39,7 @@ const DEFAULTS: InstallationConfig = {
   storage_limit_bytes: entry(1_073_741_824),
   session_cost_limit_usd: entry(25),
   session_token_limit: entry(0),
+  unknown_price_session_token_limit: entry(5_000_000),
   workspace_enforce: entry("warn" as const),
   max_turn_seconds: entry(3600),
   provider_max_retries: entry(2),
@@ -242,6 +243,106 @@ describe("설정 › 실행 한도의 세션 한도", () => {
     expect(area.textContent).toContain(
       "저장한 값이 없어 기본값(한도 없음(0))을 씁니다.",
     );
+  });
+
+  test("단가 미상 토큰 한도는 무엇을 막는 장치인지 말하고, 0은 보내지 않고, 바꾼 값은 그 키만 보낸다", async () => {
+    let current = DEFAULTS;
+    const { api } = renderAt(PAGE, {
+      ...routes(() => current),
+      [`PATCH ${API}`]: () => {
+        current = {
+          ...DEFAULTS,
+          unknown_price_session_token_limit: {
+            ...entry(200_000, true),
+            default: 5_000_000,
+          },
+        };
+        return json(200, { ...current, receipt_id: RECEIPT });
+      },
+    });
+    const user = await setupUser();
+    const area = await sectionOf("단가 미상 토큰");
+    const limit = () => field(area, "단가 미상 토큰 한도");
+    await waitFor(() => expect(limit().value).toBe("5000000"));
+    expect(area.textContent).toContain("무제한 지출을 막는 장치입니다.");
+    expect(area.textContent).toContain(
+      "저장한 값이 없어 기본값(5,000,000 토큰)을 씁니다.",
+    );
+    await user.clear(limit());
+    await user.type(limit(), "0");
+    await user.click(saveButton());
+    await waitFor(() =>
+      expect(area.textContent).toContain("0으로 끌 수 없습니다."),
+    );
+    expect(api.calls.filter((call) => call.method === "PATCH")).toHaveLength(0);
+    await user.clear(limit());
+    await user.type(limit(), "200000");
+    await user.click(saveButton());
+    await screen.findByText("단가 미상 토큰 한도를 저장했습니다.");
+    expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
+      unknown_price_session_token_limit: 200_000,
+    });
+    expect(limit().value).toBe("200000");
+    expect(area.textContent).toContain("기본값은 5,000,000 토큰입니다.");
+  });
+
+  test("옛 변수가 없는 키가 막히면 변수 이름 없이 멈추는 일을 알린다", async () => {
+    const { api } = renderAt(PAGE, {
+      ...routes(() => ({
+        ...DEFAULTS,
+        unknown_price_session_token_limit: entry(5_000_000, false, true),
+      })),
+      [`PATCH ${API}`]: () => json(200, { ...DEFAULTS, receipt_id: RECEIPT }),
+    });
+    const user = await setupUser();
+    const area = await sectionOf("단가 미상 토큰");
+    const status = within(area).getByRole("status");
+    expect(status.textContent).toBe(
+      "쓸 수 있는 값이 없습니다. 저장된 값이 이 버전의 범위를 벗어났습니다. 값을 저장할 때까지 모든 세션에서 새 모델 호출을 막습니다. 이미 나간 호출은 그대로 끝납니다.",
+    );
+    const described =
+      field(area, "단가 미상 토큰 한도").getAttribute("aria-describedby") ?? "";
+    expect(described.split(" ")).toContain(
+      status.querySelector("[id]")?.id ?? status.id,
+    );
+    screen.getByText("저장하지 않은 한도 1개");
+    // The default shown is what a save sends to unblock the key.
+    await user.click(saveButton());
+    await waitFor(() =>
+      expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
+        unknown_price_session_token_limit: 5_000_000,
+      }),
+    );
+  });
+
+  test("이 키를 모르는 API의 답에서는 그 칸만 빼고, 다른 한도는 저장한다", async () => {
+    const { unknown_price_session_token_limit: _, ...older } = DEFAULTS;
+    // As production reads an answer outside the contract: logged, kept.
+    const { api } = renderAt(
+      PAGE,
+      {
+        ...routes(() => older as typeof DEFAULTS),
+        [`PATCH ${API}`]: () =>
+          json(200, {
+            ...older,
+            session_token_limit: entry(1000, true),
+            receipt_id: RECEIPT,
+          }),
+      },
+      "ko",
+      "warn",
+    );
+    const user = await setupUser();
+    const area = await sectionOf("세션 토큰");
+    expect(screen.queryByText("단가 미상 토큰") === null).toBe(true);
+    const tokens = field(area, "세션 토큰 한도");
+    await user.clear(tokens);
+    await user.type(tokens, "1000");
+    await user.click(saveButton());
+    await screen.findByText("세션 토큰 한도를 저장했습니다.");
+    expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
+      session_token_limit: 1000,
+    });
   });
 
   test("입력 보관은 세는 것, 곧 입력 메시지만 말한다", async () => {
