@@ -736,7 +736,7 @@ describe("an answer whose usage names no token count", () => {
   });
 
   test("a model name no report can carry is not the answer's: the request's is charged", () => {
-    for (const model of ["", "m".repeat(257), 7]) {
+    for (const model of ["", "m".repeat(257), 7, "\x00", "a\nb"]) {
       expect(
         metered("application/json", [JSON.stringify({ model, usage: {} })]),
       ).toMatchObject(fromRequest);

@@ -51,11 +51,16 @@ const UNKNOWN_MODEL = "unknown";
 /** The longest model name the API's report schema accepts. */
 const MAX_MODEL_LENGTH = 256;
 
-/** An answer's model as a report can carry it; anything else names none. */
+/**
+ * An answer's model as a report can carry it and Postgres can store it (no
+ * NUL, so no control character); anything else names none.
+ */
 function modelOf(value: unknown): string | undefined {
   return typeof value === "string" &&
     value !== "" &&
-    value.length <= MAX_MODEL_LENGTH
+    value.length <= MAX_MODEL_LENGTH &&
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: what it refuses
+    !/[\x00-\x1f\x7f]/.test(value)
     ? value
     : undefined;
 }
