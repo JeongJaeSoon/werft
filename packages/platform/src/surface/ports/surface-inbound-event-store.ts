@@ -96,10 +96,19 @@ export type BufferedInputReceipt = {
   ts: string;
   buffered: { body: string; slackUserId: string };
   /**
-   * Held for its own judgment, not a batch's: a reply in a thread the agent
-   * took part in that has no session, which makes no turn.
+   * Held for its own judgment, not a batch's: `m1_engaged`, a reply in a
+   * thread the agent took part in that has no session; or a reply in a
+   * thread bound to work, once the rollout is on (v1-b/U1), with what the
+   * current path's rule said: `m1` for work done, which no session takes,
+   * `m1_to_task` for work going on, which waits for the judgment first.
    */
-  judgment?: "m1_engaged";
+  judgment?: "m1_engaged" | BoundReplyJudgment;
+};
+
+/** A bound thread's reply held for its judgment, never a session's turn yet. */
+export type BoundReplyJudgment = {
+  grade: "m1" | "m1_to_task";
+  rule: ThreadReplyRule;
 };
 
 /** What a write after a claim is fenced on. */
@@ -167,4 +176,13 @@ export interface SurfaceInboundEventStore {
     fence: SurfaceInboundFence,
     options: { retryInMs: number; maxAttempts: number },
   ): Promise<"retry" | "failed" | "lost">;
+  /**
+   * Gives the row back, due again `retryInMs` later, its claim not counted:
+   * a wait for something else is no failed attempt. False when the lease
+   * is gone.
+   */
+  defer(
+    fence: SurfaceInboundFence,
+    options: { retryInMs: number },
+  ): Promise<boolean>;
 }

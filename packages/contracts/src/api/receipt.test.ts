@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { receiptSchema } from "./receipt.ts";
+import {
+  getReceiptResponseSchema,
+  receiptOperationSchema,
+  receiptSchema,
+} from "./receipt.ts";
 
 const RECEIPT_ID = "019a0000-0000-7000-8000-000000000101";
 const SESSION_ID = "019a0000-0000-7000-8000-000000000102";
@@ -17,6 +21,30 @@ const base = {
   created_at: AT,
   updated_at: AT,
 };
+
+describe("receipt operation", () => {
+  const unknown = {
+    ...base,
+    operation: "operation_from_a_newer_replica",
+    target_ref: { session_id: SESSION_ID, turn_id: null, request_id: null },
+  };
+
+  test("the read response keeps a name this build does not know", () => {
+    expect(getReceiptResponseSchema.parse(unknown).operation).toBe(
+      unknown.operation,
+    );
+    expect(
+      getReceiptResponseSchema.safeParse({ ...unknown, operation: "" }).success,
+    ).toBe(false);
+  });
+
+  test("the write side still refuses it", () => {
+    expect(receiptSchema.safeParse(unknown).success).toBe(false);
+    expect(receiptOperationSchema.safeParse(unknown.operation).success).toBe(
+      false,
+    );
+  });
+});
 
 describe("receipt target union", () => {
   test("the alpha session target is unchanged and still required in full", () => {

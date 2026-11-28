@@ -18,6 +18,7 @@ const BINDING = {
   mode: "on",
   listen: "free",
   m1_judgments_per_hour: 12,
+  report_mode: null,
   ceiling: { actions: ["session.read", "session.submit"], disclosure: "full" },
   home: false,
   memory_write_policy: "deny",

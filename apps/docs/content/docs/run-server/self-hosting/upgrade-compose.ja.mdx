@@ -88,6 +88,8 @@ GitHub skill の出所に `access` 列が加わったリリース以降、`acces
 
 **ワークスペース設定の未知のキー。** この修正を含むリリースより前のリリース(`v0.5.0` を含む)は、`workspaces.settings` に自分の知らないキーが 1 つでもあると、そのワークスペースの `GET /v1/auth/me` が失敗します。この修正を含むリリースからは、未知のキーを応答から除き、保存された値は残します。これまでに出たリリースはすべて `achievement_judge` とその中のフィールドを知っており(`v0.4.0` と `v0.5.0` はキー一覧が現在と同じ: `dispatch_model`、`kill_switch`、`daily_cost_limit_usd`、`idle_pause_minutes`、`audit_retention_days`、`slack_guest_enabled`、`achievement_judge`)、この修正より前に保存できた設定はどの出荷済みビルドでも読めます。どのリリースへ戻せるかは、設定キーではなく上のロールバック下限で決まります。この修正の後に設定キーを加えたリリースを使った設置が、この修正のないリリースに戻すときは、戻す前にそのキーを削除します。
 
+**エージェントの GitHub 権限スイッチの未知のキー。** この修正を含むリリースより前のリリースは、エージェントの GitHub 設定(`agent_github_settings.features`)、release pin(`policy_pins.github.features`)、セッション開始時の snapshot(`sessions.github_policy_start`)の権限スイッチに自分の知らないキーが 1 つでもあると、その設定を読めません。そのエージェントとセッションの GitHub 作業は止まり(gate は `github_settings_unsupported` で拒否します)、そのような pin を持つ release の取得も失敗します。この修正を含むリリースからは、権限を判定するときに権限スイッチの未知のキーを除いて読み、保存された値は残します。release の ID は保存された pin をそのままハッシュするため、release を読むときはそのキーを残し、権限の判定でだけ除きます。既知のスイッチの値が不正な場合や、スイッチの外(GitHub 設定のほかの最上位キー、workflow 許可リストの項目のキー)に未知のキーがある場合は、これまでどおり読めません。スイッチの外のキーは範囲を狭める条件である可能性があり、除いて読むと広がるためです。このリリースが書き直す値(セッション開始時の snapshot、最初の保存で作る設定、前の release の pin を引き継いで作る release、エージェントの GitHub 設定の取得の応答)には未知のキーを入れないので、以前のリリースに戻しても、このリリースが作った値は読めます。release を含む応答(エージェントの詳細、保存、release の作成)は、保存された pin をそのまま返します。この修正の後に権限スイッチを加えたリリースを使った設置は、そのリリースが書いた値が残るため、この修正を含むリリースより前には戻せません。
+
 新 control-host・直前 worker の組み合わせはデプロイ前に試験環境で確認します。セッションの turn 1 完了 → worker 削除 → checkpoint から turn 2 完了を確認し、API の worker 要求に 400 BAD_REQUEST がない必要があります。空環境の ready 200 で代替しません。まず turn 1 の完了を見ます。直前の worker が新しい control-host の応答を読めない場合、API は 200 を返し、worker は起動直後に終了するため、400 がないことだけではこの失敗を捕まえられません。プロファイル削除リリースはこの組み合わせをサポートしません。そのリリースへ更新するときは、新しい control-host と新しい worker で turn 1 の完了を確認します（[プロファイル削除リリースのアップグレード順序](#프로필-제거-릴리스의-업그레이드-순서)）。
 
 <a id="compose-전용-checkpoint-검사" />
@@ -655,3 +657,13 @@ DELETE FROM provider_connections WHERE definition->>'kind' = 'openai_decisions';
   - launch 失敗の上限（デフォルト 5 回）に達すると、その入力は `LAUNCH_FAILED` で失敗し、失敗理由に同じ文が残ります。
 - allowlist を直して proxy を再起動すると、backoff の後の次の launch が gateway に届きます。`LAUNCH_FAILED` で終わった入力は送り直します。
 - 更新時に動いていた worker は以前のアドレス（3000）で gateway を呼ぶため、呼び出しが失敗します。セッションが動いていないときに更新します。
+
+<a id="워크스페이스-mcp-서버를-주소로-검사하는-릴리스" />
+### ワークスペース MCP サーバーをアドレスで検査するリリース
+
+このリリースから、ワークスペース MCP サーバーの登録は `EGRESS_CREDENTIAL_ALLOWLIST` を見ず、アドレスで検査します。https の名前が公開アドレスに解決されれば、env を変えずに登録され、セッションから呼び出せます。migration はなく、env の既定値も変わりません。
+
+- egress proxy を API より先に更新します。新しい API は grant に登録済みサーバーの印（`allow: public_https`）を載せ、新しい proxy だけがその印に従います。新しい proxy と以前の API の組み合わせは印がないため、従来どおりです。
+- 以前の proxy と新しい API が混在すると（API を先に更新した場合や proxy を戻した場合）、`EGRESS_CREDENTIAL_ALLOWLIST` と `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` のどちらにもない host のサーバーは登録・認証・ツール一覧は動きますが、セッションからの呼び出しは 403 です。記録は `call_mcp` receipt の理由 `egress_proxy_outdated` と API ログ `Egress authorization refused` に残ります。403 の基準は API に設定された二つの一覧です。そのどちらかにある host のサーバーはこの判定を通り、以前の proxy 自身の一覧で従来どおり判定されます。proxy を更新すれば戻り、データは変わりません。
+- [2. API → proxy → worker の順序](#2-api--proxy--worker-순서)の中間 release は API を先に変えます。中間 release と最終 release の間は、どちらの一覧にもないサーバーを呼ぶセッションの呼び出しが 403 になります。
+- プライベートアドレスや http のサーバーは従来どおり `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` にある host だけです。その host が公開アドレスに解決される場合、登録は `address_not_allowed` で拒否されます。

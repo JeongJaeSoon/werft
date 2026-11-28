@@ -5479,11 +5479,11 @@ export const surfaceBindings = pgTable(
       .$type<"full" | "summary">()
       .notNull(),
     home: boolean().notNull().default(false),
-    /** How the channel's threads hear of their turns, unless a link says. */
-    reportMode: text("report_mode")
-      .$type<ReportModeChoice>()
-      .notNull()
-      .default("per_step"),
+    /**
+     * How the channel's threads hear of their turns, unless a link says.
+     * Null: none picked, so its agent's rollout says (`reportModeOf`).
+     */
+    reportMode: text("report_mode").$type<ReportModeChoice>(),
     memoryWritePolicy: text("memory_write_policy")
       .$type<"deny" | "allow_explicit">()
       .notNull()

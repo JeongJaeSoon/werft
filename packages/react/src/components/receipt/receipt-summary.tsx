@@ -176,7 +176,8 @@ export type ReceiptTimestamps = Pick<Receipt, "created_at" | "updated_at">;
 export type ReceiptError = Receipt["error"];
 
 export interface ReceiptSummaryProps {
-  readonly operation: ReceiptOperation;
+  /** A name this build does not know is shown as stored. */
+  readonly operation: string;
   readonly status: ReceiptStatus;
   readonly target: ReceiptTarget;
   readonly timestamps: ReceiptTimestamps;
@@ -209,7 +210,7 @@ export function ReceiptSummary({
       <div className="werft-receipt__head">
         <span className="werft-receipt__operation">
           {Object.hasOwn(RECEIPT_OPERATION_LABEL, operation)
-            ? RECEIPT_OPERATION_LABEL[operation]
+            ? RECEIPT_OPERATION_LABEL[operation as ReceiptOperation]
             : operation}
         </span>
         <StatusLabel axis="receipt" state={status} />
