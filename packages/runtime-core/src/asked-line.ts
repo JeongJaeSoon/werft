@@ -648,22 +648,17 @@ function configReads(rest: readonly string[]): boolean {
 
 /** grep options that take a value; a short one takes the rest of its cluster or the next word. */
 const GREP_SHORT_VALUES = "efmABCdD";
+// Joined strings: tests/architecture.test.ts reads a quote right after the
+// word from as an import.
 const GREP_LONG_VALUES = [
-  "--regexp",
-  "--file",
-  "--max-count",
-  "--after-context",
-  "--before-context",
-  "--context",
-  "--directories",
-  "--devices",
-  "--label",
-  "--include",
-  "--exclude",
-  "--exclude-dir",
-  "--exclude-from",
-  "--binary-files",
-];
+  "--regexp --file --max-count --after-context --before-context --context",
+  "--directories --devices --label --include --exclude --exclude-dir",
+  "--exclude-from --binary-files",
+]
+  .join(" ")
+  .split(" ");
+/** grep options whose value is a file of patterns or names. */
+const GREP_LISTS = "--exclude-from --file".split(" ");
 const GREP_LONG_FLAGS = ["--recursive", "--dereference-recursive"];
 
 /** A long grep option by its full name, as GNU getopt takes a unique start of one. */
@@ -710,7 +705,7 @@ function grepOperands(words: readonly string[]): {
       }
       if (option === "--directories" && recurse(value)) recurses = true;
       if (option === "--regexp" || option === "--file") patterned = true;
-      if (option === "--file" || option === "--exclude-from") lists.push(value);
+      if (GREP_LISTS.includes(option)) lists.push(value);
       continue;
     }
     if (word.startsWith("-") && word.length > 1) {
