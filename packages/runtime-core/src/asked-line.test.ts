@@ -1174,6 +1174,20 @@ describe("the narrow reading", () => {
     ).toBeNull();
   });
 
+  test("a pattern of many stars is read in time", () => {
+    const started = performance.now();
+    expect(
+      askedLineRefusal(`git commit -m '${"*".repeat(30)}Z'`, at()),
+    ).toBeNull();
+    expect(
+      askedLineRefusal(
+        `gh pr create --title x --body '${"*?".repeat(1000)}'`,
+        at(),
+      ),
+    ).toContain("goes to a person");
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
   test("only the narrow reading splits at a single pipe", () => {
     expect(partsOf("git log | head -3")).toBe("a | outside a quote");
     expect(partsOf("git log | head -3", true)).toEqual([

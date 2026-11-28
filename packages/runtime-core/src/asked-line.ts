@@ -790,40 +790,40 @@ function narrowKept(words: readonly string[], place: Place): string | null {
     // and `*` crosses `/`: it is kept when it matches a kept name. git never
     // takes what is in `.git` as a path of the work tree.
     if (!/[*?[\\]/.test(name)) return false;
-    const pattern = globPattern(name);
-    const names = [...KEPT_SAMPLES, ...keptNames(place.root)];
-    if (names.some((kept) => pattern.test(kept))) return true;
-    // A rule of any folder (`**/.env`) keeps that name wherever it is, and
-    // `*` and `?` may stand for the `/` before it (`apps/web*.env`): any
-    // end of the pattern that matches `/<name>` reaches one.
     const pieces = globPieces(name);
-    // An end with more letters than `/<name>` has cannot match it.
+    const names = [...KEPT_SAMPLES, ...keptNames(place.root)];
+    if (names.some((kept) => globMatches(pieces, kept))) return true;
+    // A rule of any folder (`**/.env`) keeps that name wherever it is, and
+    // `*` and `?` may stand for the `/` before it (`apps/web*.env`): an
+    // end of the pattern that matches `/<name>` reaches one. An end of `*`
+    // alone (`git add 'foo*'`) names no kept name; a secret inside a folder
+    // the line names is not read here.
     let letters = 0;
-    const fits = pieces.map((piece) => piece === ".*");
+    const fits = pieces.map(() => false);
     for (let at = pieces.length - 1; at >= 0; at -= 1) {
-      if (!fits[at]) letters += 1;
-      fits[at] = letters <= KEPT_ANYWHERE_LONGEST + 1;
+      if (pieces[at] !== "*") letters += 1;
+      fits[at] = letters > 0 && letters <= KEPT_ANYWHERE_LONGEST + 1;
     }
     if (
-      pieces.some((_, from) => {
-        if (!fits[from]) return false;
-        const end = piecesPattern(pieces.slice(from));
-        return KEPT_ANYWHERE.some(
-          (kept) => end.test(`/${kept}`) || (from === 0 && end.test(kept)),
-        );
-      })
+      pieces.some(
+        (_, from) =>
+          fits[from] &&
+          KEPT_ANYWHERE.some((kept) =>
+            globMatches(pieces.slice(from), `/${kept}`),
+          ),
+      )
     ) {
       return true;
     }
     // A file under a kept folder may be gone from the work tree and come
     // back from the index (`git restore '.claud?/settings.json'`).
     const slash = name.indexOf("/");
-    const head = name.slice(0, slash);
+    const head = globPieces(name.slice(0, slash));
     return (
       slash !== -1 &&
       !head.includes("*") &&
       [...KEPT_FOLDERS, ...names.filter((kept) => !kept.includes("/"))].some(
-        (folder) => globPattern(head).test(folder),
+        (folder) => globMatches(head, folder),
       )
     );
   };
@@ -954,41 +954,45 @@ function ghBodyFiles(words: readonly string[]): string[] {
   return files.filter((file) => file !== "");
 }
 
-/** POSIX classes git takes inside brackets, as ranges. */
-const POSIX_CLASSES: Readonly<Record<string, string>> = {
-  alpha: "a-zA-Z",
-  digit: "0-9",
-  alnum: "a-zA-Z0-9",
-  lower: "a-z",
-  upper: "A-Z",
-  xdigit: "0-9a-fA-F",
-  space: "\\s",
-  blank: " \\t",
+/** One letter of a pathspec pattern, or `*`, which stands for any run of letters, `/` among them. */
+type GlobPiece = "*" | ((letter: string) => boolean);
+
+/** POSIX classes git takes inside brackets. */
+const POSIX_CLASSES: Readonly<Record<string, RegExp>> = {
+  alpha: /[a-z]/i,
+  digit: /[0-9]/,
+  alnum: /[a-z0-9]/i,
+  lower: /[a-z]/,
+  upper: /[A-Z]/,
+  xdigit: /[0-9a-f]/i,
+  space: /\s/,
+  blank: /[ \t]/,
+  punct: /[!-/:-@[-`{-~]/,
 };
 
 /**
- * A git pathspec pattern as pieces of a regular expression, one for each
- * letter or wildcard: `*` and `?` cross `/`, a backslash keeps the letter
- * after it as it is, `[!a]` and `[[:alpha:]]` are classes, and a range
- * backwards (`[z-a]`) is left out of its class as git leaves it. A class git
- * knows and this does not is any one letter.
+ * A git pathspec pattern as letters: `*` and `?` cross `/`, a backslash
+ * keeps the letter after it as it is, `[!a]` and `[[:alpha:]]` are classes,
+ * and a range backwards (`[z-a]`) is left out of its class as git leaves it.
+ * A class git knows and this does not is any one letter. Case is aside.
  */
-function globPieces(glob: string): string[] {
-  const literal = (char: string) =>
-    char.replace(/[.*+?^${}()|[\]\\/-]/g, "\\$&");
-  const pieces: string[] = [];
+function globPieces(glob: string): GlobPiece[] {
+  const same = (letter: string) => (other: string) =>
+    other.toLowerCase() === letter.toLowerCase();
+  const pieces: GlobPiece[] = [];
   for (let at = 0; at < glob.length; at += 1) {
     const char = glob[at] as string;
-    if (char === "*") pieces.push(".*");
-    else if (char === "?") pieces.push(".");
+    if (char === "*") {
+      if (pieces.at(-1) !== "*") pieces.push("*");
+    } else if (char === "?") pieces.push(() => true);
     else if (char === "\\" && at + 1 < glob.length) {
       at += 1;
-      pieces.push(literal(glob[at] as string));
+      pieces.push(same(glob[at] as string));
     } else if (char === "[") {
       let end = at + 1;
       const negated = glob[end] === "!" || glob[end] === "^";
       if (negated) end += 1;
-      let inner = "";
+      const tests: ((letter: string) => boolean)[] = [];
       let known = true;
       // One letter of the class, a backslash keeping the next as it is.
       const letter = () => {
@@ -1006,7 +1010,7 @@ function globPieces(glob: string): string[] {
         if (posix !== null) {
           const range = POSIX_CLASSES[posix[1] as string];
           if (range === undefined) known = false;
-          else inner += range;
+          else tests.push((other) => range.test(other));
           end += posix[0].length;
           continue;
         }
@@ -1018,35 +1022,51 @@ function globPieces(glob: string): string[] {
         ) {
           end += 1;
           const to = letter();
-          if (from <= to) inner += `${literal(from)}-${literal(to)}`;
-        } else inner += literal(from);
+          tests.push((other) =>
+            [other.toLowerCase(), other.toUpperCase()].some(
+              (cased) => from <= cased && cased <= to,
+            ),
+          );
+        } else tests.push(same(from));
       }
-      if (end >= glob.length) pieces.push(literal(char));
+      if (end >= glob.length) pieces.push(same(char));
       else {
         pieces.push(
-          !known
-            ? "."
-            : inner === ""
-              ? "[^\\s\\S]"
-              : `[${negated ? "^" : ""}${inner}]`,
+          known
+            ? (other) => tests.some((test) => test(other)) !== negated
+            : () => true,
         );
         at = end;
       }
-    } else pieces.push(literal(char));
+    } else pieces.push(same(char));
   }
   return pieces;
 }
 
-/** Pieces of a pattern as one regular expression; one that does not build matches anything. */
-function piecesPattern(pieces: readonly string[]): RegExp {
-  try {
-    return new RegExp(`^${pieces.join("")}$`, "i");
-  } catch {
-    return /^/;
+/** Whether pattern letters match a name, going back only to the last `*`. */
+function globMatches(pieces: readonly GlobPiece[], name: string): boolean {
+  let piece = 0;
+  let at = 0;
+  let star = -1;
+  let mark = 0;
+  while (at < name.length) {
+    const next = pieces[piece];
+    if (next === "*") {
+      star = piece;
+      mark = at;
+      piece += 1;
+    } else if (next?.(name[at] as string)) {
+      piece += 1;
+      at += 1;
+    } else if (star !== -1) {
+      piece = star + 1;
+      mark += 1;
+      at = mark;
+    } else return false;
   }
+  while (pieces[piece] === "*") piece += 1;
+  return piece === pieces.length;
 }
-
-const globPattern = (glob: string) => piecesPattern(globPieces(glob));
 
 /** Kept names a pattern may reach: the kept entries at the top and what is below them, but not `.git`. */
 function keptNames(root: string): string[] {
