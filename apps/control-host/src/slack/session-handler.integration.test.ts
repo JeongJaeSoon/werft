@@ -9325,17 +9325,18 @@ describe.each(ENGINES)(
         const { fixture, handle, sessionId } = await workThread("queued");
         await deliver(fixture, reply());
         expect(await drain(handle)).toMatchObject({ deferred: 1 });
-        // As the edit's ingress changes a held row's text.
+        // As the edit's ingress changes a held row's text, Slack's entities
+        // decoded there: taken as it is, not decoded again.
         await db
           .update(schema.conversationInputs)
-          .set({ body: "and the step after" })
+          .set({ body: "and the step &lt; after" })
           .where(eq(schema.conversationInputs.slackTs, REPLY));
         expect((await judgeReplies("speak")).judged).toBe(1);
         await due();
         expect(await drain(handle)).toMatchObject({ processed: 1 });
         expect(await messagesOf(sessionId)).toEqual([
           "summarize the thread",
-          "and the step after",
+          "and the step &lt; after",
         ]);
       });
 

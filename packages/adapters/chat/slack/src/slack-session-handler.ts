@@ -550,7 +550,11 @@ export function createSlackSessionHandler(
         { teamId: claim.teamId, channelId: event.channel, threadTs },
       );
       const rule = judgeThreadReply(event.text, agent.botUserId);
-      const buffered = { body: event.text, slackUserId: event.user };
+      // Held as the buffer holds a post: Slack's entities decoded.
+      const buffered = {
+        body: unescapeSlackText(event.text),
+        slackUserId: event.user,
+      };
       if (work === "closed") {
         deps.logger.info("Slack reply of work done held for the judgment", ids);
         return {
@@ -1433,9 +1437,11 @@ export function createSlackSessionHandler(
       return;
     }
 
-    const message = unescapeSlackText(
-      withoutBotMention(editedText ?? event.text, agent.botUserId),
-    );
+    // A held text an edit changed is decoded already: no mention is read
+    // out of it again.
+    const message =
+      editedText ??
+      unescapeSlackText(withoutBotMention(event.text, agent.botUserId));
     if (!messageTextSchema.safeParse(message).success) {
       deps.logger.info("Slack message has no text to send; ignored", ids);
       return;

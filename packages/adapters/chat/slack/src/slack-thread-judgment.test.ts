@@ -403,6 +403,25 @@ describe("once the rollout is on, a bound thread's unmentioned reply is routed b
     expect(lastTaskReplies).toEqual([]);
   });
 
+  test("a held reply's text is decoded as the buffer holds a post", async () => {
+    const { receipt } = await receive({
+      rollout: "on",
+      linked: true,
+      taken: false,
+      text: "A &amp;&amp; B",
+    });
+    expect(receipt).toMatchObject({ buffered: { body: "A && B" } });
+    const { taskReplies } = await receive({
+      rollout: "on",
+      linked: true,
+      taken: false,
+      work: "open",
+      taskRoute: "quiet",
+      text: "A &amp;&amp; B",
+    });
+    expect(taskReplies).toEqual([expect.objectContaining({ body: "A && B" })]);
+  });
+
   test("a mention of the agent is not routed: its session takes it", async () => {
     await expect(
       receive({
