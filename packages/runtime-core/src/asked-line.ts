@@ -1451,21 +1451,27 @@ function wideKept(
   const settings: string[] = [];
   const wrappers: string[] = [];
   const options: string[] = [];
-  // The options of the last wrapper.
+  // The options of the last wrapper, and whether a `--` ended them.
   let own: string[] = [];
+  let ended = false;
+  let lastWord = "";
   let at = -1;
   for (const [index, word] of words.entries()) {
     const last = wrappers.at(-1);
     const name = nameOf(word);
-    if (last !== undefined && word.startsWith("-")) {
+    if (last !== undefined && !ended && word.startsWith("-")) {
       options.push(word);
       own.push(word);
+      ended = word === "--";
       continue;
     }
     // `command -v git` only looks names up.
+    // Only the builtin, and only on options of its own (`env -u command -v`
+    // gives `-v` to env).
     if (
-      last === "command" &&
+      lastWord === "command" &&
       own.length > 0 &&
+      own.length === options.length &&
       own.every((option) => /^-[vV]+$/.test(option))
     ) {
       return null;
@@ -1483,6 +1489,8 @@ function wideKept(
     } else if (WRAPPERS.includes(name)) {
       wrappers.push(name);
       own = [];
+      ended = false;
+      lastWord = word;
     } else {
       // A word after a wrapper's option may be its value (`env -u X git`).
       return options.length > 0 &&
