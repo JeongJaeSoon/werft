@@ -36,6 +36,17 @@ writeFileSync(
 );
 mkdirSync(join(workspace, "release", "v1.2"), { recursive: true });
 mkdirSync(join(workspace, "feature"));
+// A submodule with a branch that is also one of its directories.
+mkdirSync(join(workspace, "sub", ".git", "refs", "heads", "hotfix"), {
+  recursive: true,
+});
+writeFileSync(
+  join(workspace, "sub", ".git", "refs", "heads", "hotfix", "v2"),
+  "0\n",
+);
+mkdirSync(join(workspace, "sub", "hotfix", "v2"), { recursive: true });
+mkdirSync(join(workspace, "app", "@modal"), { recursive: true });
+writeFileSync(join(workspace, "app", "@modal", "page.tsx"), "x\n");
 writeFileSync(join(workspace, "notes", "sample.txt"), "sample\n");
 symlinkSync(join(root, "outside"), join(workspace, "link"));
 symlinkSync(join(root, "missing"), join(workspace, "dangling"));
@@ -741,6 +752,16 @@ const WIDE: [string, string, string | null][] = [
   [
     "a body after a subshell inside a substitution",
     'echo "$( (true); echo "it\'s" ) $(cat <<\'EOF\'\ngrep -r needle .\nEOF\n)"',
+    null,
+  ],
+  [
+    "a body start in a comment after a case pattern",
+    "gh pr create --title docs --body \"$(\n  case docs in\n    docs)\n      # Example: $(cat <<'true'\n      grep -r needle .\n      ;;\n  esac\ntrue\n)\"",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "a body after a case inside a substitution",
+    "echo \"$(case x in x) true ;; esac) it's $(cat <<'EOF'\ngrep -r needle .\nEOF\n)\"",
     null,
   ],
   ["a message after clustered flags", "git commit -aq -m .claude", null],
@@ -1653,6 +1674,16 @@ const NARROW: [string, string, string | null][] = [
   ],
   ["a forced checkout of a file", "git checkout -f notes/sample.txt", null],
   [
+    "a checkout of a file with an @ in its path",
+    "git checkout 'app/@modal/page.tsx'",
+    null,
+  ],
+  [
+    "a checkout of a reflog entry",
+    "git checkout 'main@{1}'",
+    "a switch to another tree",
+  ],
+  [
     "a forced checkout of a file after --",
     "git checkout -f -- notes/sample.txt",
     null,
@@ -1836,5 +1867,14 @@ describe("the narrow reading", () => {
     expect(
       partsOf("cat > notes/a.txt <<'EOF'\nEOFX\n EOF\nEOF\ngit status"),
     ).toHaveLength(2);
+  });
+});
+
+describe("the repository a checkout runs in", () => {
+  test("a submodule's branch that is also its directory", () => {
+    const sub = join(workspace, "sub");
+    expect(askedLineRefusal("git checkout -qf 'hotfix/v2'", at(sub))).toContain(
+      "a switch to another tree",
+    );
   });
 });

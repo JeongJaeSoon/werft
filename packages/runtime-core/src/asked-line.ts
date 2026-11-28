@@ -896,12 +896,15 @@ function optionsSet(
  * Whether git would read `word` as a revision when it is also a path: a
  * branch, tag or remote-tracking branch of that name (git checks out a
  * remote's branch by its short name), a revision spelling, or an object
- * name. A repository it cannot find counts as one.
+ * name, in the repository git runs in from `dir`. A repository it cannot
+ * find counts as one.
  */
-function namesRevision(word: string, root: string): boolean {
-  if (/[~^@:]|^-|^[0-9a-f]{4,40}$|^[A-Z_]*HEAD$/.test(word)) return true;
+function namesRevision(word: string, from: string): boolean {
+  if (/[~^:]|@\{|^@$|^-|^[0-9a-f]{4,40}$|^[A-Z_]*HEAD$/.test(word)) {
+    return true;
+  }
   let gitDir: string | undefined;
-  for (let dir = root; gitDir === undefined; dir = dirname(dir)) {
+  for (let dir = from; gitDir === undefined; dir = dirname(dir)) {
     const dotGit = resolve(dir, ".git");
     try {
       gitDir = lstatSync(dotGit).isDirectory()
@@ -1044,7 +1047,7 @@ function workTreeKept(
     // same name or not: only a path on disk that names no revision is read
     // as a path. More operands are a tree and its paths, or paths alone.
     const path = (word: string) =>
-      onDisk(word) && !namesRevision(word, place.root);
+      onDisk(word) && !namesRevision(word, place.base);
     const [first] = operands as [string];
     if (operands.length === 1) {
       return !path(first) || set.has("--detach")
@@ -1923,10 +1926,15 @@ function withoutCatBodies(text: string): string {
   let out = "";
   let read = 0;
   // A `$( )` opens quotes and comments of its own, inside a double quote
-  // too; `parens` counts the `( )` it holds so its own `)` ends it.
-  const frames: { quote: "" | "'" | '"'; parens: number }[] = [
-    { quote: "", parens: 0 },
+  // too; `parens` counts the `( )` it holds and `cases` the `case` whose
+  // patterns end in `)`, so only its own `)` ends it.
+  const frames: { quote: "" | "'" | '"'; parens: number; cases: number }[] = [
+    { quote: "", parens: 0, cases: 0 },
   ];
+  const word = (name: string) =>
+    text.startsWith(name, read) &&
+    /^$|[\s;&|()]/.test(text[read - 1] ?? "") &&
+    /^$|[\s;&|)]/.test(text[read + name.length] ?? "");
   let comment = false;
   let escaped = false;
   const scan = (to: number) => {
@@ -1945,7 +1953,7 @@ function withoutCatBodies(text: string): string {
       } else if (char === "$" && text[read + 1] === "(") {
         out += "(";
         read += 1;
-        frames.push({ quote: "", parens: 0 });
+        frames.push({ quote: "", parens: 0, cases: 0 });
       } else if (frame.quote === '"') {
         if (char === '"') frame.quote = "";
       } else if (char === "'" || char === '"') {
@@ -1956,7 +1964,11 @@ function withoutCatBodies(text: string): string {
         frame.parens += 1;
       } else if (char === ")") {
         if (frame.parens > 0) frame.parens -= 1;
-        else if (frames.length > 1) frames.pop();
+        else if (frame.cases === 0 && frames.length > 1) frames.pop();
+      } else if (word("case")) {
+        frame.cases += 1;
+      } else if (word("esac") && frame.cases > 0) {
+        frame.cases -= 1;
       }
     }
   };
