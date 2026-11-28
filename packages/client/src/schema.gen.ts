@@ -5538,6 +5538,8 @@ export interface paths {
          *
          *     `token_count` is the four token columns' sum; the 1-hour cache writes are inside `cache_creation_input_tokens`. `totals` is the summary of the same period: its `session_count`, `token_count` and `cost_usd` equal it.
          *
+         *     `unknown_price` on each row and on `totals` counts the calls of unknown price (no price could be applied to the call) and their tokens, which `token_count` holds and `cost_usd` does not. A row with such calls and a known amount of 0 has `cost_usd` null: no amount is known, and 0 would read as free. Summing the rows, a null adds 0. `totals.cost_usd` is never null.
+         *
          *     - `by=agent`: each session counts once under its agent (`key` is the agent id, `label` its name), so the rows add up to `totals` in every column. Sessions without an agent are the row whose `key` and `label` are null.
          *     - `by=model`: a session counts under every model it called, so the rows' `session_count` may add up to more than the totals'. A session's cost its metered calls do not explain, such as an engine's turn totals from before proxy metering, is the row whose `key` and `label` are null, with no tokens.
          *
@@ -10903,7 +10905,11 @@ export interface components {
                 cache_read_input_tokens: number;
                 cache_creation_input_tokens: number;
                 token_count: number;
-                cost_usd: string;
+                cost_usd: string | null;
+                unknown_price?: {
+                    call_count: number;
+                    token_count: number;
+                };
                 key: string | null;
                 label: string | null;
                 conversation?: {
@@ -10930,6 +10936,10 @@ export interface components {
                 cache_creation_input_tokens: number;
                 token_count: number;
                 cost_usd: string;
+                unknown_price?: {
+                    call_count: number;
+                    token_count: number;
+                };
                 conversation?: {
                     call_count: number;
                     cost_usd: string;

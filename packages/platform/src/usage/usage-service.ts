@@ -97,6 +97,7 @@ function conversationOf(
 function breakdownFigures(
   figures: UsageBreakdownFiguresRecord,
 ): UsageBreakdownResponse["totals"] {
+  const { unknownPrice } = figures;
   return {
     session_count: figures.sessionCount,
     input_tokens: saturated(figures.inputTokens),
@@ -110,7 +111,19 @@ function breakdownFigures(
         figures.cacheCreationInputTokens,
     ),
     cost_usd: figures.costUsd,
+    unknown_price: {
+      call_count: unknownPrice.callCount,
+      token_count: saturated(unknownPrice.tokens),
+    },
   };
+}
+
+// A row of calls of unknown price whose known amount is 0 has no amount,
+// as the session detail reads it.
+function breakdownRowCost(figures: UsageBreakdownFiguresRecord): string | null {
+  return figures.unknownPrice.callCount > 0 && Number(figures.costUsd) === 0
+    ? null
+    : figures.costUsd;
 }
 
 type UsageToolRow = UsageToolsResponse["tools"][number];
@@ -550,6 +563,7 @@ export function createUsageService(deps: {
             key,
             label,
             ...breakdownFigures(figures),
+            cost_usd: breakdownRowCost(figures),
             ...conversationOf(conversation),
           }),
         ),

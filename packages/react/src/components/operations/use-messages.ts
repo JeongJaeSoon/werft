@@ -3,6 +3,7 @@ import {
   OPERATIONS_MESSAGES,
   type OperationsFormat,
   type OperationsMessages,
+  type UnknownPriceMessages,
 } from "./messages.ts";
 
 type Part = Exclude<keyof OperationsMessages, "format">;
@@ -14,11 +15,13 @@ export function useOperationsMessages<P extends Part>(
 ): {
   readonly messages: OperationsMessages[P];
   readonly format: OperationsFormat;
+  readonly unknownPrice: UnknownPriceMessages;
 } {
   const { locale } = useWerft();
   const defaults = OPERATIONS_MESSAGES[locale];
   return {
     messages: { ...defaults[part], ...override },
     format: defaults.format,
+    unknownPrice: defaults.unknownPrice,
   };
 }

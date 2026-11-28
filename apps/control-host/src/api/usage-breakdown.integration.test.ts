@@ -73,7 +73,7 @@ type Call = {
   costUsd: number;
 };
 
-const micro = (usd: string) => Math.round(Number(usd) * 1e6);
+const micro = (usd: string | null) => Math.round(Number(usd) * 1e6);
 
 integration("usage breakdown on PostgreSQL", () => {
   let database: TempDatabase;
@@ -485,6 +485,7 @@ integration("usage breakdown on PostgreSQL", () => {
         cache_creation_input_tokens: 0,
         token_count: 0,
         cost_usd: "0",
+        unknown_price: { call_count: 0, token_count: 0 },
         ...(by === "agent"
           ? {
               conversation: {

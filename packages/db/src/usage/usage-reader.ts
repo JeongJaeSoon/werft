@@ -363,6 +363,34 @@ function breakdownByModel(inPeriod: SQL, pairs: SQL, preMetered: SQL) {
     ORDER BY grouped.cost_usd DESC, key NULLS LAST`;
 }
 
+type UnknownPriceGroupRow = {
+  key: string | null;
+  total: boolean;
+  call_count: number;
+  tokens: number | string;
+};
+
+// The same sessions' calls of unknown price under the breakdown's key, the
+// model the proxy recorded or the session's agent; the total row is the
+// GROUPING SETS () one. The rows are few
+// (provider_usage_session_price_unknown_idx holds them alone).
+function unknownPriceByKey(inPeriod: SQL, by: "model" | "agent") {
+  const key =
+    by === "model"
+      ? sql`${providerUsage.model}`
+      : sql`${agentReleases.agentId}`;
+  return sql`
+    SELECT ${key}::text AS key, grouping(${key}) = 1 AS total,
+           count(*)::int AS call_count,
+           coalesce(sum(${providerUsage.inputTokens} + ${providerUsage.outputTokens}
+             + ${providerUsage.cacheCreationInputTokens} + ${providerUsage.cacheReadInputTokens}), 0) AS tokens
+    FROM ${providerUsage}
+    JOIN ${sessions} ON ${sessions.id} = ${providerUsage.sessionId}
+    LEFT JOIN ${agentReleases} ON ${agentReleases.id} = ${sessions.agentReleaseId}
+    WHERE ${providerUsage.priceUnknown} AND ${inPeriod}
+    GROUP BY GROUPING SETS ((${key}), ())`;
+}
+
 // The summary's figures per agent or holding user, with
 // the totals summed over the groups by window in the same statement. Run
 // time is floored on the running total as the series does, so the groups
@@ -764,8 +792,15 @@ function conversationOfRow(row: BreakdownRow) {
     : { conversation: talkOf(row as TalkColumns) };
 }
 
-function figuresOf(row: BreakdownRow) {
+function figuresOf(row: BreakdownRow, unknown: UnknownPriceGroupRow[]) {
+  const hit = unknown.find(
+    (group) => group.total === row.total && group.key === row.key,
+  );
   return {
+    unknownPrice: {
+      callCount: hit?.call_count ?? 0,
+      tokens: Number(hit?.tokens ?? 0),
+    },
     sessionCount: row.session_count,
     inputTokens: Number(row.input_tokens),
     outputTokens: Number(row.output_tokens),
@@ -1213,22 +1248,36 @@ export function createPostgresUsageReader(db: Database): UsageReader {
         sessionModelUsage.sessionCreatedAt,
         sessionModelUsage.sessionId,
       );
-      const rows = await executeWithoutJit<BreakdownRow>(
-        db,
-        by === "agent"
-          ? breakdownByAgent(
-              inPeriod,
-              pairs,
-              talkInPeriod(filter, since, until),
-            )
-          : breakdownByModel(
-              inPeriod,
-              pairs,
-              ofPeriod(
-                sessionPreMeteringCost.sessionCreatedAt,
-                sessionPreMeteringCost.sessionId,
-              ),
+      // One snapshot, so both statements read the same rows and now().
+      const { rows, unknown } = await db.transaction(
+        async (tx) => {
+          await tx.execute(sql`SET LOCAL jit = off`);
+          const grouped = rowsOf<BreakdownRow>(
+            await tx.execute(
+              by === "agent"
+                ? breakdownByAgent(
+                    inPeriod,
+                    pairs,
+                    talkInPeriod(filter, since, until),
+                  )
+                : breakdownByModel(
+                    inPeriod,
+                    pairs,
+                    ofPeriod(
+                      sessionPreMeteringCost.sessionCreatedAt,
+                      sessionPreMeteringCost.sessionId,
+                    ),
+                  ),
             ),
+          );
+          return {
+            rows: grouped,
+            unknown: rowsOf<UnknownPriceGroupRow>(
+              await tx.execute(unknownPriceByKey(inPeriod, by)),
+            ),
+          };
+        },
+        { isolationLevel: "repeatable read", accessMode: "read only" },
       );
       const total = rows.find((row) => row.total);
       if (!total) throw new Error("usage breakdown read returned no total");
@@ -1238,10 +1287,13 @@ export function createPostgresUsageReader(db: Database): UsageReader {
           .map((row) => ({
             key: row.key,
             label: row.label,
-            ...figuresOf(row),
+            ...figuresOf(row, unknown),
             ...conversationOfRow(row),
           })),
-        totals: { ...figuresOf(total), ...conversationOfRow(total) },
+        totals: {
+          ...figuresOf(total, unknown),
+          ...conversationOfRow(total),
+        },
       };
     },
 

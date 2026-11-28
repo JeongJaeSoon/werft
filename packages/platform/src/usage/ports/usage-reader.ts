@@ -276,6 +276,8 @@ export type UsageBreakdownFiguresRecord = {
   cacheCreationInputTokens: number;
   /** As the database prints the numeric. */
   costUsd: string;
+  /** The same sessions' calls of unknown price under the same key. */
+  unknownPrice: UnknownPriceUsageRecord;
 };
 
 /**

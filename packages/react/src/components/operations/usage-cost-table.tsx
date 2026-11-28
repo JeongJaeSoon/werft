@@ -82,6 +82,27 @@ function classLines(
 }
 
 /**
+ * The row's calls of unknown price under its cost, which holds none of them.
+ * An API from before the field answers without it.
+ */
+function UnknownCalls({ row }: { readonly row: Row }) {
+  const { format, unknownPrice } = useOperationsMessages(
+    "usageCostTable",
+    undefined,
+  );
+  const calls = row.unknown_price?.call_count ?? 0;
+  if (calls === 0) return null;
+  const text = unknownPrice.calls(format.count(calls));
+  const line = row.cost_usd === null ? text : `+ ${text}`;
+  return (
+    // An end cell does not wrap; this line may, so a narrow column keeps it.
+    <Text as="span" variant="meta" title={line} className="whitespace-normal">
+      {line}
+    </Text>
+  );
+}
+
+/**
  * A name over its share of the cost, then sessions, tokens, the agent's
  * conversation calls when asked, and the sessions' cost.
  */
@@ -96,7 +117,7 @@ export function UsageCostTable({
   placeholderRows = 3,
   messages: override,
 }: UsageCostTableProps): JSX.Element {
-  const { messages, format } = useOperationsMessages(
+  const { messages, format, unknownPrice } = useOperationsMessages(
     "usageCostTable",
     override,
   );
@@ -109,7 +130,7 @@ export function UsageCostTable({
   }
   const loading = rows === undefined;
   const spent = (r: Row) =>
-    Number(r.cost_usd) +
+    Number(r.cost_usd ?? 0) +
     (conversation ? Number(r.conversation?.cost_usd ?? 0) : 0);
   const max = Math.max(0, ...(rows ?? []).map(spent));
   const columns = [
@@ -259,10 +280,15 @@ export function UsageCostTable({
                     : null}
                 </GridTableCell>
               ) : null}
-              <GridTableCell className="tabular-nums">
+              <GridTableCell lines className="items-end tabular-nums">
                 <Value loading={loading}>
-                  {row ? format.usd(row.cost_usd) : null}
+                  {row
+                    ? row.cost_usd === null
+                      ? unknownPrice.noAmount
+                      : format.usd(row.cost_usd)
+                    : null}
                 </Value>
+                {row ? <UnknownCalls row={row} /> : null}
               </GridTableCell>
             </GridTableRow>
           );

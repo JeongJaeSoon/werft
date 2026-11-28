@@ -818,6 +818,10 @@ const usageBreakdownFiguresSchema = z
     // The four columns' sum, the summary's `token_count` for the totals.
     token_count: countSchema,
     cost_usd: costUsdSchema,
+    // The calls among these no price is known for; their tokens are in the
+    // columns above, their cost in no `cost_usd`. Optional for readers of an
+    // API from before it.
+    unknown_price: unknownPriceFiguresSchema.optional(),
   })
   .strict();
 
@@ -834,7 +838,9 @@ const usageBreakdownFiguresSchema = z
  * agent's conversation calls apart from its sessions (`cost_usd` stays the
  * sessions'); an agent with calls and no session is a row with
  * `session_count` 0, and the rows go largest session plus conversation
- * cost first.
+ * cost first. A row's `cost_usd` is null when it has calls of unknown price
+ * and its known amount is 0, as the session detail reads it: 0 would read
+ * as free. The totals' `cost_usd` stays the summary's and is never null.
  */
 export const usageBreakdownResponseSchema = z
   .object({
@@ -845,6 +851,7 @@ export const usageBreakdownResponseSchema = z
           key: z.string().nullable(),
           // The agent's name; for a model, the model again.
           label: z.string().nullable(),
+          cost_usd: costUsdSchema.nullable(),
           conversation: usageConversationCostSchema.optional(),
         })
         .strict(),
