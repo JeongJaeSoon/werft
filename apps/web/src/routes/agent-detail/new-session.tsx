@@ -347,30 +347,37 @@ export function NewSessionButton({
       ? (guidanceFor(error.code, locale) ?? t(key))
       : t(key);
   };
+  const chosen = enable.length > 0 ? { enable } : undefined;
+  // The release is left out of the match on purpose: see `unanswered`.
+  const sameAsUnanswered = () => {
+    const sent = unanswered.current;
+    return sent?.body.message === message &&
+      (!choiceMoved.current ||
+        JSON.stringify(sent.body.extensions) === JSON.stringify(chosen))
+      ? sent
+      : null;
+  };
   // The detail may be read again while the dialog is open and carry no release
-  // to start on: say why in place of a button that would do nothing.
+  // for a new request: say why. An unanswered one still sends as it was.
+  const nothingToSend = releaseId === null && sameAsUnanswered() === null;
   const error =
-    releaseId === null && !create.isPending
+    nothingToSend && !create.isPending
       ? reason
       : create.error
         ? refusal(create.error)
         : undefined;
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (releaseId === null || create.isPending) return;
+    if (create.isPending) return;
     if (message.trim() === "") {
       setBlank(true);
       return;
     }
     if (tooLong) return;
-    const chosen = enable.length > 0 ? { enable } : undefined;
-    const resend = unanswered.current;
-    // The release is left out of the match on purpose: see `unanswered`.
     const next =
-      resend?.body.message === message &&
-      (!choiceMoved.current ||
-        JSON.stringify(resend.body.extensions) === JSON.stringify(chosen))
-        ? resend
+      sameAsUnanswered() ??
+      (releaseId === null
+        ? null
         : {
             key: crypto.randomUUID(),
             body: {
@@ -378,7 +385,8 @@ export function NewSessionButton({
               message,
               ...(chosen ? { extensions: chosen } : {}),
             },
-          };
+          });
+    if (next === null) return;
     unanswered.current = next;
     choiceMoved.current = false;
     create.mutate(next);

@@ -997,9 +997,11 @@ describe("이 판이 읽을 수 없는 릴리스", () => {
       detail: {
         ...detail,
         active_release: carried ? detail.active_release : null,
-        unreadable_releases: [
-          { id, reason_code: "policy_pins_unreadable" as const },
-        ],
+        // Each shape alone: the list names the id only when a release is
+        // carried too.
+        unreadable_releases: carried
+          ? [{ id, reason_code: "policy_pins_unreadable" as const }]
+          : [],
       },
     };
   };
@@ -1020,18 +1022,17 @@ describe("이 판이 읽을 수 없는 릴리스", () => {
         [`GET ${PATH}`]: () => json(200, detail),
       });
       await expectBlocked(reasonFor(id));
-      // The overview may point at the tab too; this is the one in the line.
-      const link = screen
-        .getAllByRole("button", { name: TO_RELEASE })
-        .find(
-          (found) =>
-            found.parentElement?.textContent ===
-            `${reasonFor(id)} ${TO_RELEASE}`,
-        );
-      if (!link) throw new Error("no link beside the reason");
+      const link = screen.getByRole("link", { name: TO_RELEASE });
+      expect(link.parentElement?.textContent).toBe(
+        `${reasonFor(id)} ${TO_RELEASE}`,
+      );
+      expect(link.getAttribute("href")).toBe(`${DETAIL}?tab=release`);
       await (await setupUser()).click(link);
       await waitFor(() =>
         expect(history.location.search).toContain("tab=release"),
+      );
+      expect(document.activeElement).toBe(
+        screen.getByRole("tab", { name: agentsKo["agent.tabs.release"] }),
       );
     });
   }
@@ -1082,6 +1083,49 @@ describe("이 판이 읽을 수 없는 릴리스", () => {
         (call) => call.method === "POST" && call.path === "/v1/sessions",
       ),
     ).toHaveLength(0);
+  });
+
+  test("응답을 받지 못한 요청은 그 뒤 활성 릴리스를 읽지 못해도 같은 key와 본문으로 다시 보낸다", async () => {
+    const server = await released();
+    let detail: AgentDetail = server.detail();
+    let posts = 0;
+    const { api, services, history } = renderAt(DETAIL, {
+      ...meAs(me()),
+      ...server.routes,
+      [`GET ${PATH}`]: () => json(200, detail),
+      "POST /v1/sessions": () =>
+        ++posts === 1
+          ? apiError(503, "BACKEND_UNAVAILABLE", "lost", true)
+          : created(),
+    });
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(MESSAGE), "요약해 줘");
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    const lost = (await within(dialog).findByRole("alert")).textContent;
+    const next = unreadableActive(detail, false);
+    detail = next.detail;
+    await services.queryClient.invalidateQueries();
+    await screen.findAllByText(reasonFor(next.id));
+    // The request is still unanswered, not refused for the new release.
+    expect(within(dialog).getByRole("alert").textContent).toBe(lost);
+    // A different message would be a new request, which has no release.
+    await user.type(within(dialog).getByLabelText(MESSAGE), "!");
+    expect(within(dialog).getByRole("alert").textContent).toBe(
+      reasonFor(next.id),
+    );
+    await user.type(within(dialog).getByLabelText(MESSAGE), "{backspace}");
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    await waitFor(() =>
+      expect(history.location.pathname).toBe(`/sessions/${SESSION_ID}`),
+    );
+    const sent = api.calls.filter(
+      (call) => call.method === "POST" && call.path === "/v1/sessions",
+    );
+    expect(sent).toHaveLength(2);
+    expect(sent[1]?.body).toEqual(sent[0]?.body);
+    expect(sent[1]?.headers.get("Idempotency-Key")).toBe(
+      sent[0]?.headers.get("Idempotency-Key") ?? "",
+    );
   });
 
   test("안내는 세 언어 모두 고치는 법을 담는다", () => {

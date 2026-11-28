@@ -20,6 +20,7 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  Link as TextLink,
 } from "@werft-ai/ui";
 import { ArrowLeft } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -315,14 +316,29 @@ function AgentView({
         reason={newSession.reason}
         action={
           newSession.fixedOnReleaseTab ? (
-            <Button
-              type="button"
-              variant="link"
-              size="sm"
-              onClick={() => open("release", releaseTab)}
-            >
-              {t("agent.tabs.toRelease")}
-            </Button>
+            <TextLink asChild underline="always">
+              <Link
+                to="/agents/$id"
+                params={{ id: agent.id }}
+                search={{ tab: "release" }}
+                replace
+                onClick={(event) => {
+                  // A modified click opens the address elsewhere.
+                  if (
+                    event.button !== 0 ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey ||
+                    event.altKey
+                  )
+                    return;
+                  event.preventDefault();
+                  open("release", releaseTab);
+                }}
+              >
+                {t("agent.tabs.toRelease")}
+              </Link>
+            </TextLink>
           ) : undefined
         }
       />
