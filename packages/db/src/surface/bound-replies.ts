@@ -44,6 +44,16 @@ type Ended = {
 };
 
 /**
+ * Ends a waiting record unjudged and keeps it (alias `j`), so its post is
+ * not held again: a retry after the work failed to take it finds it held
+ * once, and a judge finds nothing left to judge.
+ */
+const endUnjudged = (where: SQL) => sql`
+  UPDATE conversation_judgments j SET outcome = 'failed', decision = 'quiet',
+    reason = 'provider_error', judged_at = clock_timestamp()
+  WHERE ${where} AND j.outcome IS NULL`;
+
+/**
  * Only a judgment that kept quiet within the wait keeps the reply from its
  * work (PM Q2): a verdict past it, or any other, is the work's.
  */
@@ -106,7 +116,8 @@ export function createPostgresBoundReplyStore(
       return db.transaction(async (tx): Promise<TaskReplyRoute> => {
         // The inbox row first, as its completion takes it: a claim lost
         // writes nothing, and its defer then finds it lost. Two owners of
-        // one event never hold, give up or append its post at once.
+        // one event never hold or give up its post at once; the work's
+        // append after this is outside it.
         if (!(await claimHeld(tx, reply.fence))) return "waiting";
         // The rollout as of now, held against a switch until this ends: one
         // lowered since the event's read takes the current path (the work).
@@ -186,10 +197,8 @@ export function createPostgresBoundReplyStore(
         );
         if (before !== undefined) {
           if (kept(before)) return "quiet";
-          // The work takes it; a judge would judge it for no one.
-          await tx.execute(sql`
-            DELETE FROM conversation_judgments
-            WHERE id = ${before.id}::uuid AND outcome IS NULL`);
+          // The work takes it; a record still waiting ends kept.
+          await tx.execute(endUnjudged(sql`j.id = ${before.id}::uuid`));
           return "session";
         }
         // The gate under the agent's lock, then the post's mark before its
@@ -239,10 +248,9 @@ export function createPostgresBoundReplyStore(
         // The channel's limit took it at once, newer posts filling the
         // buffer: no wait would end, so the work takes it now.
         if (hold.outcome === "held") {
-          await tx.execute(sql`
-            DELETE FROM conversation_judgments j
-            WHERE ${taskJudgmentsOf(reply)} AND j.outcome IS NULL
-              AND j.input_id IS NULL`);
+          await tx.execute(
+            endUnjudged(sql`${taskJudgmentsOf(reply)} AND j.input_id IS NULL`),
+          );
         }
         return "session";
       });

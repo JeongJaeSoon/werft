@@ -12,6 +12,7 @@ import type {
 import { and, eq, gt, sql } from "drizzle-orm";
 import {
   holdBufferedInput,
+  lockSlackSourceMark,
   takeSlackTurnInput,
 } from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
@@ -269,8 +270,17 @@ export function createPostgresSlackInboundEventStore(
         }
         if ("buffered" in received) {
           const input = received;
-          // One taker per topic at a time, so the topic's highest number plus
-          // one is free.
+          // The post's mark before its topic, the order a session's append
+          // of the post takes them in. One taker per topic at a time, so the
+          // topic's highest number plus one is free.
+          await tx.execute(
+            lockSlackSourceMark({
+              workspaceId: row.workspaceId,
+              teamId: row.teamId,
+              channelId: input.channelId,
+              ts: input.ts,
+            }),
+          );
           const topic = await tx.execute(sql`
             SELECT id FROM conversation_topics
             WHERE id = ${input.topicId}::uuid

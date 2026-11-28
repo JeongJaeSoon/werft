@@ -445,69 +445,92 @@ export function createSlackSessionHandler(
       });
       if (place.rollout !== "on") return "current_path";
       // A reply held for its work's judgment keeps that grade, the work
-      // closed since or not.
+      // closed since or not, and its hold answers it: the checks below were
+      // made when it was held, and Slack unable to say its audience now does
+      // not undo its quiet.
+      const held = await deps.boundReplies.heldForWork({
+        agentId: agent.agentId,
+        teamId: claim.teamId,
+        channelId: event.channel,
+        ts: event.ts,
+      });
       const work =
-        (await deps.boundReplies.work(sessionId)) === "open" ||
-        (await deps.boundReplies.heldForWork({
-          agentId: agent.agentId,
-          teamId: claim.teamId,
-          channelId: event.channel,
-          ts: event.ts,
-        }))
+        held || (await deps.boundReplies.work(sessionId)) === "open"
           ? "open"
           : "closed";
       const waitMs = deps.taskReplyWaitMs ?? SLACK_TASK_REPLY_WAIT_MS;
       // A wait of none: work going on takes its replies as before.
-      if (work === "open" && waitMs === 0) return "current_path";
+      if (work === "open" && waitMs === 0 && !held) return "current_path";
       // Work done takes no unmentioned reply: one M1 does not answer is left.
       const unjudged = work === "closed" ? null : "current_path";
-      const live = await deps.bindings.findLiveSlackChannel(
-        agent.installationId,
-        event.channel,
-      );
-      if (live === null) return unjudged;
-      const handling = inboundHandling({
-        place: "channel",
-        work,
-        engaged: true,
-        input: isStopRequest(withoutBotMention(event.text, agent.botUserId))
-          ? "stop_request"
-          : "reply",
-        rollout: place.rollout,
-        mode: live.mode,
-        listen: live.listen,
-        lifecycleStop: lifecycleStopOf(place, live),
-      });
-      const judged = handling.kind === "table" ? handling.handling : null;
-      if (judged !== (work === "closed" ? "m1" : "m1_to_task")) {
-        deps.logger.info("Slack bound reply not judged", {
-          ...ids,
-          handling: judged,
+      if (!held) {
+        const live = await deps.bindings.findLiveSlackChannel(
+          agent.installationId,
+          event.channel,
+        );
+        if (live === null) return unjudged;
+        // Before M1 reads it: an event that does not say its channel's kind,
+        // in a channel bound as public, asks Slack as the current path does,
+        // which sends a channel turned private to approval first.
+        if (
+          event.channel_type === undefined &&
+          live.channelKind === "public_channel"
+        ) {
+          const token = await deps.botToken(
+            claim.workspaceId,
+            claim.slackAppId,
+          );
+          if (
+            token === null ||
+            (await deps.slack.channelKind(token, event.channel)) ===
+              "private_channel"
+          ) {
+            return "current_path";
+          }
+        }
+        const handling = inboundHandling({
+          place: "channel",
           work,
+          engaged: true,
+          input: isStopRequest(withoutBotMention(event.text, agent.botUserId))
+            ? "stop_request"
+            : "reply",
+          rollout: place.rollout,
+          mode: live.mode,
+          listen: live.listen,
+          lifecycleStop: lifecycleStopOf(place, live),
         });
-        return unjudged;
-      }
-      if (
-        (live.approvedAt !== null &&
-          Number(event.ts) * 1000 < live.approvedAt.getTime()) ||
-        !messageTextSchema.safeParse(event.text).success
-      ) {
-        return unjudged;
-      }
-      const unheard = await deps.audience.unheardReason({
-        agentId: agent.agentId,
-        teamId: claim.teamId,
-        channelId: event.channel,
-        slackUserId: event.user,
-        botToken: await deps.botToken(claim.workspaceId, claim.slackAppId),
-      });
-      if (unheard !== null) {
-        deps.logger.info("Slack bound reply not judged", {
-          ...ids,
-          reason: unheard,
-          work,
+        const judged = handling.kind === "table" ? handling.handling : null;
+        if (judged !== (work === "closed" ? "m1" : "m1_to_task")) {
+          deps.logger.info("Slack bound reply not judged", {
+            ...ids,
+            handling: judged,
+            work,
+          });
+          return unjudged;
+        }
+        if (
+          (live.approvedAt !== null &&
+            Number(event.ts) * 1000 < live.approvedAt.getTime()) ||
+          !messageTextSchema.safeParse(event.text).success
+        ) {
+          return unjudged;
+        }
+        const unheard = await deps.audience.unheardReason({
+          agentId: agent.agentId,
+          teamId: claim.teamId,
+          channelId: event.channel,
+          slackUserId: event.user,
+          botToken: await deps.botToken(claim.workspaceId, claim.slackAppId),
         });
-        return unjudged;
+        if (unheard !== null) {
+          deps.logger.info("Slack bound reply not judged", {
+            ...ids,
+            reason: unheard,
+            work,
+          });
+          return unjudged;
+        }
       }
       const conversation = await conversationOf(
         { dm: false, personUserId: null, channelId: event.channel },

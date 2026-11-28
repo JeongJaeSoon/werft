@@ -9285,10 +9285,16 @@ describe.each(ENGINES)(
         const [input] = await replyInput();
         expect(input).toMatchObject({ held: false, body: null });
         expect(input?.turnId).not.toBeNull();
-        // Only the newer reply's judgment waits.
-        expect(await judgments()).toEqual([
-          expect.objectContaining({ grade: "m1_to_task", outcome: null }),
-        ]);
+        // Only the newer reply's judgment waits; the older one's is ended
+        // and kept, so the post is not held again.
+        const left = await judgments();
+        expect(left).toHaveLength(2);
+        expect(left).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ grade: "m1_to_task", outcome: null }),
+            expect.objectContaining({ grade: "m1_to_task", outcome: "failed" }),
+          ]),
+        );
       });
 
       test("a reply the buffer's limit took while it waited, its record ended by the judge, is not held again", async () => {
@@ -9334,6 +9340,50 @@ describe.each(ENGINES)(
           expect.objectContaining({ grade: "m1_to_task", outcome: "failed" }),
           expect.objectContaining({ grade: "m1_to_task", outcome: "judged" }),
         ]);
+      });
+
+      test("a reply evicted while it waits is sent to the work once: a look again, its turn failed, holds nothing", async () => {
+        const { fixture, handle } = await workThread("queued");
+        await deliver(fixture, reply());
+        expect(await drain(handle)).toMatchObject({ deferred: 1 });
+        const [held] = await db
+          .select({ topicId: schema.conversationInputs.topicId })
+          .from(schema.conversationInputs)
+          .where(eq(schema.conversationInputs.slackTs, REPLY));
+        if (held === undefined) throw new Error("not held");
+        // The buffer's limit takes its row before the judge looks at it.
+        await db
+          .delete(schema.conversationInputs)
+          .where(eq(schema.conversationInputs.slackTs, REPLY));
+        await due();
+        const [claimed] = await createPostgresSlackInboundEventStore(db).claim({
+          limit: 10,
+          leaseMs: 30_000,
+          maxAttempts: 5,
+        });
+        if (claimed === undefined) throw new Error("nothing claimed");
+        const look = () =>
+          schema.createPostgresBoundReplyStore(db).taskReply({
+            kind: "channel",
+            workspaceId: fixture.workspaceId,
+            agentId: fixture.agentId,
+            teamId: TEAM,
+            channelId: CHANNEL,
+            fence: { id: claimed.id, claimToken: claimed.claimToken },
+            topicId: conversationTopicIdSchema.parse(held.topicId),
+            ts: REPLY,
+            body: "and the next step",
+            slackUserId: PERSON,
+            rule: { decision: "reply", reason: "default_reply" },
+            waitMs: 30_000,
+          });
+        expect(await look()).toBe("session");
+        // As a retry after the work's append failed looks again.
+        expect(await look()).toBe("session");
+        expect(await judgments()).toEqual([
+          expect.objectContaining({ grade: "m1_to_task", outcome: "failed" }),
+        ]);
+        expect(await replyInput()).toEqual([]);
       });
 
       test("a rollout lowered while a claim looks at its reply: a quiet under on does not stand, the work takes it", async () => {

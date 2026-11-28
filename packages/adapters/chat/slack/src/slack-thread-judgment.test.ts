@@ -26,6 +26,12 @@ async function receive(options: {
   taskRoute?: TaskReplyRoute;
   /** False: no turn took the post yet, so this is its first reading. */
   taken?: boolean;
+  /** The post was held for its work's judgment before. */
+  held?: boolean;
+  /** null: an event that does not say its channel's kind. */
+  channelType?: string | null;
+  /** The kind Slack says the channel is, asked. */
+  slackKind?: string;
 }) {
   const engagedAsked: unknown[] = [];
   const workAsked: string[] = [];
@@ -86,6 +92,7 @@ async function receive(options: {
         mode: "on",
         listen: options.listen ?? "mention",
         approvedAt: null,
+        channelKind: "public_channel",
       }),
       resolveSlackChannel: async () => null,
     },
@@ -98,12 +105,13 @@ async function receive(options: {
     },
     stops: { stoppedBefore: async () => false },
     slack: {
+      channelKind: async () => options.slackKind,
       userInfo: async () => {
         throw new Error(WENT_ON);
       },
     },
     boundReplies: {
-      heldForWork: async () => false,
+      heldForWork: async () => options.held ?? false,
       work: async (sessionId: string) => {
         workAsked.push(sessionId);
         return options.work ?? "closed";
@@ -131,7 +139,9 @@ async function receive(options: {
         thread_ts: "1.0",
         user: "U1",
         text: options.text ?? "sounds good",
-        channel_type: "channel",
+        ...(options.channelType === null
+          ? {}
+          : { channel_type: options.channelType ?? "channel" }),
       },
     },
   } as unknown as SurfaceInboundClaim;
@@ -350,6 +360,32 @@ describe("once the rollout is on, a bound thread's unmentioned reply is routed b
         work: "open",
         taskRoute: "waiting",
         text: "stop",
+      }),
+    ).rejects.toThrow(WENT_ON);
+    expect(lastTaskReplies).toEqual([]);
+  });
+
+  test("a reply held before answers by its hold, though Slack cannot say its audience now", async () => {
+    const { receipt, taskReplies } = await receive({
+      rollout: "on",
+      linked: true,
+      taken: false,
+      held: true,
+      unheard: "audience_unconfirmed",
+      taskRoute: "quiet",
+    });
+    expect(receipt).toBeUndefined();
+    expect(taskReplies).toHaveLength(1);
+  });
+
+  test("an event that does not say its channel turned private is not judged before the channel's kind is", async () => {
+    await expect(
+      receive({
+        rollout: "on",
+        linked: true,
+        taken: false,
+        channelType: null,
+        slackKind: "private_channel",
       }),
     ).rejects.toThrow(WENT_ON);
     expect(lastTaskReplies).toEqual([]);

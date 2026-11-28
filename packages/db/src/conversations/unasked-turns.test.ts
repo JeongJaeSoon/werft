@@ -788,6 +788,53 @@ describe("conversation_judgments' unasked columns (migration)", () => {
 });
 
 describe("a closed work's thread reply that spoke (v1-b/U1)", () => {
+  test("a post a batch holds stays the batch's when a session's turn takes it", async () => {
+    const at = await place();
+    const session = await newPartitionedSession(db, "unasked-batched");
+    await client.query(
+      "UPDATE sessions SET status = 'idle', workspace_id = $2 WHERE id = $1",
+      [session.sessionId, WORKSPACE],
+    );
+    await client.query(
+      "UPDATE turns SET requester_kind = 'user', requester_id = $2 WHERE session_id = $1",
+      [session.sessionId, randomUUID()],
+    );
+    await db.transaction((tx) =>
+      holdBufferedInput(
+        tx,
+        { workspaceId: WORKSPACE, agentId: AGENT, teamId: TEAM },
+        {
+          topicId: at.topicId,
+          channelId: CHANNEL,
+          ts: "100.000006",
+          buffered: { body: "where is the deploy doc?", slackUserId: "U0P" },
+        },
+        JUDGMENT_BUFFER_LIMIT_PER_CHANNEL,
+      ),
+    );
+    await client.query(
+      "UPDATE conversation_inputs SET judgment_batch_id = $1 WHERE slack_ts = '100.000006'",
+      [randomUUID()],
+    );
+    await db.transaction((tx) =>
+      takeSlackTurnInput(
+        tx,
+        { workspaceId: WORKSPACE, agentId: AGENT, teamId: TEAM },
+        {
+          topicId: at.topicId,
+          channelId: CHANNEL,
+          ts: "100.000006",
+          turn: { sessionId: session.sessionId, sequence: 1 },
+          engagement: "bound",
+        },
+      ),
+    );
+    const { rows } = await client.query(
+      "SELECT turn_id, judgment_batch_id IS NOT NULL AS batched, buffer_expires_at IS NOT NULL AS held FROM conversation_inputs WHERE slack_ts = '100.000006'",
+    );
+    expect(rows).toEqual([{ turn_id: null, batched: true, held: true }]);
+  });
+
   test("the session takes it as its one turn; M1's speak makes no unasked turn", async () => {
     const at = await place();
     const session = await newPartitionedSession(db, "unasked-closed");

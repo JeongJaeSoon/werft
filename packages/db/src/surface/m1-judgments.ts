@@ -313,7 +313,8 @@ async function channelThere(
 
 /**
  * M1's judgment records over PostgreSQL. A record holds Slack ts, codes and
- * ids; a held reply's text goes once it is judged or given up.
+ * ids; a held reply's text goes once it is judged or given up, but a reply
+ * of work going on keeps its row for the turn that takes it.
  */
 export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
   return {
@@ -666,7 +667,12 @@ export function createPostgresM1JudgmentStore(db: Database): M1JudgmentStore {
                   readAt: voided.at,
                 }
               : null;
-          if (rejudge !== null || (heldForWork(row) && !replyLeft)) {
+          // A reply of work going on keeps its record unless deleted, its
+          // row evicted while judged or not: dropped, it would be held again.
+          if (
+            rejudge !== null ||
+            (keepsWorkRecord(row) && voided.changes.deleted.length === 0)
+          ) {
             // The voided call's row beside the reply's, which waits for its
             // judgment again.
             await tx.execute(sql`

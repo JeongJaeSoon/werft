@@ -1519,6 +1519,58 @@ integration("M1 judgment records", () => {
       });
     });
 
+    test("a held reply of work going on evicted while judged keeps its record, ended, when its result is voided", async () => {
+      await pool.query(
+        "DELETE FROM conversation_judgments WHERE outcome IS NULL",
+      );
+      const place = await channel();
+      const session = await newPartitionedSession(db, "m1-j6-evicted");
+      const inputId = await hold(place, "2500.000003", "reply");
+      await db.transaction((tx) =>
+        requestReplyJudgment(tx, {
+          workspaceId,
+          agentId,
+          teamId: TEAM,
+          channelId: place.channelId,
+          ts: "2500.000003",
+          topicId: place.topicId,
+          inputId,
+          sessionId: session.sessionId,
+          rule: { decision: "reply", reason: "default_reply" },
+        }),
+      );
+      const claimed = await store().claimReply();
+      if (claimed === null) throw new Error("none");
+      // The buffer's limit takes its row while the model reads it, and a
+      // context message it read is deleted.
+      await pool.query("DELETE FROM conversation_inputs WHERE id = $1", [
+        inputId,
+      ]);
+      await marks().markDeleted(mark(place, "2500.000001"));
+      expect(
+        await store().finishReply(
+          claimed.id,
+          withContext(judgedRecord(inputId, ["2500.000003"]), [
+            place,
+            "2500.000001",
+          ]),
+          { read: { body: "reply", editMark: null } },
+        ),
+      ).toMatchObject({ voided: "voided_by_delete", rejudge: null });
+      const { rows } = await pool.query(
+        "SELECT grade, outcome, reason, refs FROM conversation_judgments WHERE id = $1",
+        [claimed.id],
+      );
+      expect(rows).toEqual([
+        {
+          grade: "m1_to_task",
+          outcome: "failed",
+          reason: "provider_error",
+          refs: ["2500.000003"],
+        },
+      ]);
+    });
+
     test("a context message edited while judged voids the result, and every post is judged again", async () => {
       const place = await channel();
       const { batch, held } = await batchOver(place, [["2600.000002", "now"]]);
