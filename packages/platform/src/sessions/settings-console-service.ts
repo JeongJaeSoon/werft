@@ -17,6 +17,7 @@ import {
   CatalogCredentialError,
   type CatalogProviderConfig,
   CONNECTION_ENDPOINT_DEFAULTS,
+  type ConnectionNetwork,
   isRegisteredGitHubApp,
   MIN_CREDENTIAL_BYTES,
   type ModelFamilies,
@@ -57,6 +58,23 @@ const ACTION: Record<DocumentSettingsKind, AuthorizationAction> = {
   connection: "installation.settings.manage",
   repository: "workspace.manage",
 };
+
+/**
+ * What a new connection's endpoint resolves to, every address judged: the
+ * network the row is kept as, or why it may not be registered.
+ * `address_not_allowed`: an address that is never reached (metadata,
+ * loopback, link-local, the installation's own), or public and private
+ * answers mixed. `unreachable`: the name did not resolve.
+ */
+export type EndpointNetwork =
+  | { network: ConnectionNetwork }
+  | {
+      problem:
+        | "address_not_allowed"
+        | "unreachable"
+        /** A private endpoint, and the installation's own hosts are not known. */
+        | "installation_hosts_unavailable";
+    };
 
 const OUTRANKED = () =>
   new SessionServiceError(
@@ -123,6 +141,11 @@ export function createSettingsConsoleService(deps: {
   credentialHosts: readonly string[] | null;
   /** Reads the settings again after a write committed; never throws. */
   reread: () => Promise<void>;
+  /**
+   * Resolves a new connection's endpoint and judges it. Absent, nothing is
+   * resolved and the row keeps no network: the proxy's lists then decide.
+   */
+  endpointNetwork?: (endpoint: string) => Promise<EndpointNetwork>;
   /** Asking a connection's provider which models it serves. */
   discovery: {
     /** The connection with its credential resolved on this replica. */
@@ -135,6 +158,12 @@ export function createSettingsConsoleService(deps: {
     /** Why the API may not send a key to this endpoint; null when it may. */
     urlProblem: (url: string) => string | null;
     http: OutboundHttp;
+    /**
+     * For a connection registered as private, in place of `urlProblem` and
+     * `http`: held to private addresses and off the installation's own,
+     * as the egress proxy holds its calls.
+     */
+    privateHttp?: OutboundHttp;
     /** Ids, outcomes and counts only. */
     log?: (fields: Record<string, unknown>) => void;
   };
@@ -281,12 +310,90 @@ export function createSettingsConsoleService(deps: {
     kind: SettingsKind,
     add: () => SettingsImportAdd,
     value: string,
+    // After the role and the entry are checked: nothing is resolved for a
+    // caller who may not write, or for an entry that would be refused.
+    registered?: (
+      entry: SettingsImportAdd,
+    ) => Promise<
+      { network: ConnectionNetwork; acknowledgedPrivate: boolean } | undefined
+    >,
   ): Promise<SettingsChangeResponse> {
     const actor = await writer(caller, kind);
     const entry = add();
     const checked = headerValue(kind, entry.id, value);
     if (!deps.secretStoreOn) throw SECRET_STORE_OFF();
-    return settled(await store.create(entry, checked, actor), entry.id);
+    const as = await registered?.(entry);
+    return settled(
+      as === undefined
+        ? await store.create(entry, checked, actor)
+        : await store.create(entry, checked, actor, as),
+      entry.id,
+    );
+  }
+
+  const refused = (
+    reason: string,
+    message: string,
+    code: "BAD_REQUEST" | "BACKEND_UNAVAILABLE" = "BAD_REQUEST",
+  ) =>
+    new SessionServiceError(code, message, undefined, { reason_code: reason });
+
+  /**
+   * The network a new connection is kept as, by what its endpoint resolves
+   * to now. Private needs the caller's acknowledgement and is the only kind
+   * that may be plain http or unbilled; the proxy holds the row to it on
+   * every call after.
+   */
+  async function networkOf(
+    id: string,
+    provider: Provider,
+    acknowledged: boolean,
+  ): Promise<
+    { network: ConnectionNetwork; acknowledgedPrivate: boolean } | undefined
+  > {
+    if (deps.endpointNetwork === undefined) return undefined;
+    const judged = await deps.endpointNetwork(provider.endpoint);
+    if ("problem" in judged) {
+      if (judged.problem === "installation_hosts_unavailable") {
+        throw refused(
+          judged.problem,
+          `connections.${id}.endpoint: this installation's own addresses could not be told just now; nothing was saved, try again`,
+          "BACKEND_UNAVAILABLE",
+        );
+      }
+      throw judged.problem === "unreachable"
+        ? refused(
+            "endpoint_unreachable",
+            `connections.${id}.endpoint: the name did not resolve; nothing was saved`,
+            "BACKEND_UNAVAILABLE",
+          )
+        : refused(
+            "address_not_allowed",
+            `connections.${id}.endpoint: resolves to an address a connection may never reach`,
+          );
+    }
+    if (judged.network === "private") {
+      if (!acknowledged) {
+        throw refused(
+          "private_address_unacknowledged",
+          `connections.${id}.endpoint: is on the internal network. Werft sends this server each session's whole conversation and this connection's key; send acknowledge_private: true once you have checked it is a model server you run`,
+        );
+      }
+      return { network: "private", acknowledgedPrivate: true };
+    }
+    if (new URL(provider.endpoint).protocol !== "https:") {
+      throw refused(
+        "url_insecure",
+        `connections.${id}.endpoint: plain http is only for an endpoint on the internal network`,
+      );
+    }
+    if (provider.billing === "none") {
+      throw refused(
+        "invalid_entry",
+        `connections.${id}.billing: billing none needs an endpoint on the internal network`,
+      );
+    }
+    return { network: "public", acknowledgedPrivate: false };
   }
 
   async function onRow(
@@ -402,7 +509,14 @@ export function createSettingsConsoleService(deps: {
           { reason_code: "credential_unresolved" },
         );
       }
-      const problem = deps.discovery.urlProblem(connection.provider.endpoint);
+      const privateHttp =
+        connection.network === "private"
+          ? deps.discovery.privateHttp
+          : undefined;
+      const problem =
+        privateHttp === undefined
+          ? deps.discovery.urlProblem(connection.provider.endpoint)
+          : null;
       if (problem !== null) {
         throw new SessionServiceError(
           "BAD_REQUEST",
@@ -415,7 +529,7 @@ export function createSettingsConsoleService(deps: {
       try {
         listed = await listProviderModels(
           connection.provider,
-          deps.discovery.http,
+          privateHttp ?? deps.discovery.http,
         );
       } catch (error) {
         if (!(error instanceof ModelDiscoveryError)) throw error;
@@ -491,6 +605,12 @@ export function createSettingsConsoleService(deps: {
           return add;
         },
         request.value,
+        (add) =>
+          networkOf(
+            request.id,
+            add.entry as Provider,
+            request.acknowledge_private === true,
+          ),
       );
     },
 

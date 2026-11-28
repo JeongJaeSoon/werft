@@ -577,6 +577,10 @@ describe("the registered-private mark", () => {
   test("hostKey reads a host as an upstream URL naming it is read", () => {
     const keys: Array<[string, string | null]> = [
       ["DB.", "db"],
+      ["db..", "db"],
+      ["Model.Internal...", "model.internal"],
+      ["10.0.0.5.", "10.0.0.5"],
+      ["127.1..", "127.0.0.1"],
       ["api_internal", "api_internal"],
       ["10.0.0.5", "10.0.0.5"],
       ["2130706433", "127.0.0.1"],
@@ -590,6 +594,7 @@ describe("the registered-private mark", () => {
       // Not a host alone.
       ["", null],
       [".", null],
+      ["..", null],
       ["db:5432", null],
       ["[fd00::1]:80", null],
       ["db/path", null],
@@ -598,8 +603,11 @@ describe("the registered-private mark", () => {
       ["fe80::1%eth0", null],
       ["1.2.3.4.5", null],
     ];
-    for (const [host, key] of keys)
+    for (const [host, key] of keys) {
       expect([host, hostKey(host)]).toEqual([host, key]);
+      // A kept key is read again as itself.
+      if (key !== null) expect([host, hostKey(key)]).toEqual([host, key]);
+    }
   });
 
   test("parseGrant keeps the mark with its deny list, each host in one spelling", () => {
@@ -611,6 +619,10 @@ describe("the registered-private mark", () => {
     ]);
     expect(parsed.allow).toBe("private");
     expect(parsed.deny).toEqual(["db", "fd00::1", "10.0.0.7", "127.0.0.1"]);
+    // Kept as the key the upstream's own name has, however many dots end it.
+    expect(
+      marked("http://model.internal:4000/v1", ["model.internal.."]).deny,
+    ).toEqual([hostKey("model.internal") ?? ""]);
     expect(marked("http://model.internal:4000/v1").deny).toEqual([]);
     const most = Array.from({ length: 256 }, (_, index) => `h${index}`);
     expect(marked("http://model.internal:4000/v1", most).deny).toHaveLength(
@@ -1379,6 +1391,39 @@ describe("startCredentialProxy", () => {
     expect(report?.exchange_id).toBe(exchanges[0] as string);
     expect(report?.session_id).toBeUndefined();
     expect(report?.usage).toMatchObject({ input_tokens: 9, output_tokens: 3 });
+  });
+
+  test("a conversation call to a model endpoint off the operator's lists is refused before its name is looked up: its grant carries no private mark", async () => {
+    const looked: string[] = [];
+    const auth = authorizer(() =>
+      Response.json({
+        conversation_call_id: "call-1",
+        // As the API grants a conversation call on a connection registered
+        // as private: unmarked, so the operator's lists hold it.
+        upstream: {
+          url: "http://model.internal:4000",
+          headers: [["x-api-key", PROVIDER_KEY]],
+        },
+        request_limits: {
+          path: "/v1/messages",
+          model: "m-call",
+          max_tokens: 64,
+          max_request_bytes: 80,
+        },
+      }),
+    );
+    const server = proxy(auth.url, 1, {
+      resolve: async (host) => {
+        looked.push(host);
+        return ["10.0.0.5"];
+      },
+    });
+    const response = await messages(server.port, {
+      path: "/provider/v1/messages",
+      body: '{"model":"m-call","max_tokens":64,"messages":[]}',
+    });
+    expect(response.status).toBe(403);
+    expect(looked).toEqual([]);
   });
 
   test("a conversation call the provider answered with an error is reported unbilled before its caller hears", async () => {
@@ -4265,6 +4310,26 @@ describe("startCredentialProxy", () => {
     expect(up.seen).toEqual([]);
   });
 
+  test("of several judged addresses the first alone is dialled, and none after it", async () => {
+    const up = upstream(() => Response.json({ id: "msg_1" }));
+    const auth = authorizer(
+      granting(`http://upstream.test:${up.port}`, [
+        ["x-api-key", PROVIDER_KEY],
+      ]),
+    );
+    // The upstream listens on 127.0.0.1 alone: nothing answers on ::1.
+    let addresses = ["127.0.0.1", "::1"];
+    const server = proxy(auth.url, up.port, {
+      resolve: async () => addresses,
+    });
+    expect((await messages(server.port)).status).toBe(200);
+    expect(up.seen).toHaveLength(1);
+    // The first fails to connect: the POST is not sent to the second.
+    addresses = ["::1", "127.0.0.1"];
+    expect((await messages(server.port)).status).toBe(502);
+    expect(up.seen).toHaveLength(1);
+  });
+
   test("a grant URL spelling a metadata address as one number is judged as that address", async () => {
     const up = upstream(() => Response.json({ id: "msg_1" }));
     for (const spelled of ["1684301000", "0x646464c8", "0144.0144.0144.0310"]) {
@@ -4987,6 +5052,184 @@ describe("startCredentialProxy", () => {
         },
       );
 
+      test.skipIf(lan === undefined)(
+        "an address a regrant holds off while the body is still arriving is not dialled",
+        async () => {
+          const up = inside(() => Response.json({ id: "msg_1" }));
+          let deny: string[] = [];
+          // The slow call's asks alone: the call that prepares has its own
+          // exchange id, and a regrant of it may still be on its way.
+          let prep: string | null | undefined;
+          let asks = 0;
+          const made = marked(
+            () => {
+              if (prep !== undefined && made.auth.exchanges.at(-1) !== prep) {
+                asks += 1;
+              }
+              return grantOf(`http://${INSIDE}:${up.port}`, {
+                allow: "private",
+                deny,
+              });
+            },
+            async () => [lan ?? ""],
+            { selfAddresses: () => [], regrantIntervalMs: 20 },
+          );
+          const { server, lines } = made;
+          const asked = async (count: number) => {
+            while (asks < count) await Bun.sleep(5);
+          };
+          expect((await messages(server.port)).status).toBe(200);
+          expect(up.seen).toHaveLength(1);
+          prep = made.auth.exchanges[0] ?? null;
+          let body: ReadableStreamDefaultController<Uint8Array> | undefined;
+          const slow = fetch(
+            `http://127.0.0.1:${server.port}/provider/v1/messages`,
+            {
+              method: "POST",
+              headers: { "x-api-key": WORKER_TOKEN },
+              body: new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(new TextEncoder().encode('{"model":'));
+                  body = controller;
+                },
+              }),
+            },
+          );
+          // Granted and judged with nothing held off; then the address is,
+          // and two more grants say so before the body ends.
+          await asked(1);
+          deny = [lan ?? ""];
+          await asked(3);
+          // A later grant that no longer names it (another replica's) does
+          // not let it back in.
+          deny = [];
+          await asked(asks + 2);
+          body?.enqueue(new TextEncoder().encode('"m"}'));
+          body?.close();
+          expect((await slow).status).toBe(403);
+          expect(lines.join("\n")).toContain(
+            `${lan} is the installation's own`,
+          );
+          expect(up.seen).toHaveLength(1);
+        },
+      );
+
+      test.skipIf(lan === undefined)(
+        "a regrant left unanswered while the body is still arriving holds the call rather than dial on an old list",
+        async () => {
+          const up = inside(() => Response.json({ id: "msg_1" }));
+          let answers = true;
+          let prep: string | null | undefined;
+          let asks = 0;
+          const auth = authorizer(() => {
+            const slow = prep !== undefined && auth.exchanges.at(-1) !== prep;
+            if (slow) asks += 1;
+            return answers || !slow
+              ? Response.json(grantOf(`http://${INSIDE}:${up.port}`))
+              : Response.json(
+                  {
+                    code: "BACKEND_UNAVAILABLE",
+                    message:
+                      "The installation's own addresses could not be told",
+                    retryable: true,
+                  },
+                  { status: 503 },
+                );
+          });
+          const server = proxy(auth.url, 1, {
+            resolve: async () => [lan ?? ""],
+            selfAddresses: () => [],
+            regrantIntervalMs: 20,
+            regrantGraceMs: 60_000,
+          });
+          const asked = async (count: number) => {
+            while (asks < count) await Bun.sleep(5);
+          };
+          expect((await messages(server.port)).status).toBe(200);
+          expect(up.seen).toHaveLength(1);
+          prep = auth.exchanges[0] ?? null;
+          let body: ReadableStreamDefaultController<Uint8Array> | undefined;
+          const slow = fetch(
+            `http://127.0.0.1:${server.port}/provider/v1/messages`,
+            {
+              method: "POST",
+              headers: { "x-api-key": WORKER_TOKEN },
+              body: new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(new TextEncoder().encode('{"model":'));
+                  body = controller;
+                },
+              }),
+            },
+          );
+          await asked(1);
+          answers = false;
+          await asked(3);
+          body?.enqueue(new TextEncoder().encode('"m"}'));
+          body?.close();
+          expect((await slow).status).toBe(503);
+          expect(up.seen).toHaveLength(1);
+        },
+      );
+
+      test.skipIf(lan === undefined)(
+        "a regrant still under way when the body ends holds the call too",
+        async () => {
+          const up = inside(() => Response.json({ id: "msg_1" }));
+          let prep: string | null | undefined;
+          let asks = 0;
+          let hold = false;
+          let held = 0;
+          let answer: (() => void) | undefined;
+          const auth = authorizer((async () => {
+            const slow = prep !== undefined && auth.exchanges.at(-1) !== prep;
+            if (slow) asks += 1;
+            if (hold && slow) {
+              held += 1;
+              await new Promise<void>((go) => {
+                answer = go;
+              });
+            }
+            return Response.json(grantOf(`http://${INSIDE}:${up.port}`));
+          }) as unknown as () => Response);
+          const server = proxy(auth.url, 1, {
+            resolve: async () => [lan ?? ""],
+            selfAddresses: () => [],
+            regrantIntervalMs: 20,
+            regrantGraceMs: 60_000,
+          });
+          expect((await messages(server.port)).status).toBe(200);
+          expect(up.seen).toHaveLength(1);
+          prep = auth.exchanges[0] ?? null;
+          let body: ReadableStreamDefaultController<Uint8Array> | undefined;
+          const slow = fetch(
+            `http://127.0.0.1:${server.port}/provider/v1/messages`,
+            {
+              method: "POST",
+              headers: { "x-api-key": WORKER_TOKEN },
+              body: new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(new TextEncoder().encode('{"model":'));
+                  body = controller;
+                },
+              }),
+            },
+          );
+          // The slow call is granted; from then on its regrants are asked
+          // and not answered, and one is under way when the body ends.
+          while (asks < 1) await Bun.sleep(5);
+          hold = true;
+          while (held < 1) await Bun.sleep(5);
+          body?.enqueue(new TextEncoder().encode('"m"}'));
+          body?.close();
+          const response = await slow;
+          expect(response.status).toBe(503);
+          expect(response.headers.get("retry-after")).not.toBeNull();
+          expect(up.seen).toHaveLength(1);
+          answer?.();
+        },
+      );
+
       test("the mark holds the name to private addresses: a public answer, a mixed one and none are refused", async () => {
         let addresses: () => Promise<string[]> = async () => ["93.184.216.34"];
         const { server, looked, lines } = marked(
@@ -5133,7 +5376,7 @@ describe("startCredentialProxy", () => {
       });
 
       test("the grant's deny list is held by name and by address, before the private rules", async () => {
-        const deny = ["Postgres.", "10.0.0.7", "FD00:0:0:0:0:0:0:7"];
+        const deny = ["Postgres.", "db..", "10.0.0.7", "FD00:0:0:0:0:0:0:7"];
         let url = "";
         let addresses: string[] = [];
         const { server, looked, lines } = marked(
@@ -5144,6 +5387,8 @@ describe("startCredentialProxy", () => {
         for (const named of [
           "http://postgres:5432/mcp",
           "http://POSTGRES.:5432/mcp",
+          "http://db:5432/mcp",
+          "http://db..:5432/mcp",
           "http://10.0.0.7:8080/mcp",
           "http://167772167:8080/mcp",
           "http://[fd00::7]:8080/mcp",

@@ -418,6 +418,7 @@ export type JudgeProvider = {
   kind: "openai_decisions";
   endpoint: string;
   auth: { kind: "api_key"; value: string; ref: CredentialRef };
+  network?: ConnectionNetwork | undefined;
 };
 
 /**
@@ -428,7 +429,15 @@ export type CatalogConnection = {
   provider: CatalogProvider;
   models: readonly string[];
   model_families?: ModelFamilies | undefined;
+  network?: ConnectionNetwork | undefined;
 };
+
+/**
+ * What a connection's endpoint resolved to when it was registered, or when
+ * the operator's private allowlist was carried over. Absent on a row from
+ * before: the egress proxy's own lists then decide, as they always did.
+ */
+export type ConnectionNetwork = "public" | "private";
 
 export type CatalogMcpServerConfig = z.infer<typeof catalogMcpServerSchema>;
 export type CatalogMcpServer = Omit<CatalogMcpServerConfig, "auth"> & {
@@ -749,8 +758,17 @@ export type EgressUpstream = {
    * `public_https`: a server registered in the session's workspace. The proxy
    * holds the upstream to https and public addresses by itself, not to its
    * allowlists. A proxy from before ignores it.
+   *
+   * `private`: a model endpoint registered as on the internal network. The
+   * proxy holds it to private addresses, never loopback, metadata or a host
+   * in `deny`. Only a proxy that said it reads the mark is sent one.
    */
-  allow?: "public_https";
+  allow?: "public_https" | "private";
+  /**
+   * With `private`, always: the installation's own hosts (names and
+   * addresses), which the proxy never dials for this upstream.
+   */
+  deny?: readonly string[];
 };
 
 function ceilingHolds(

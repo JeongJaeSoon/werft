@@ -152,6 +152,12 @@ export const createSettingsConnectionRequestSchema = z
     /** `bearer` only for litellm. */
     auth_kind: z.enum(["api_key", "bearer"]),
     value: credentialValue,
+    /**
+     * The caller's word that an endpoint on the internal network is a model
+     * server they run. Without it an endpoint whose name resolves to private
+     * addresses is refused (`private_address_unacknowledged`).
+     */
+    acknowledge_private: z.boolean().optional(),
   })
   .strict();
 

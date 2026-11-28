@@ -11377,6 +11377,7 @@ export interface components {
             /** @enum {string} */
             auth_kind: "api_key" | "bearer";
             value: string;
+            acknowledge_private?: boolean;
         };
         SetConnectionModelsRequest: {
             models: string[];
