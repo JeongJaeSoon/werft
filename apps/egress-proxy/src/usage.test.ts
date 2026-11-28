@@ -749,6 +749,19 @@ describe("an answer whose usage names no token count", () => {
     expect(metered("text/event-stream", [stream])).toMatchObject(fromRequest);
   });
 
+  test("a speed or geo Postgres cannot store is unknown, so priced high", () => {
+    const lone = String.fromCharCode(0xd800);
+    for (const name of ["\x00", lone]) {
+      expect(
+        json({ input_tokens: 5, speed: name, inference_geo: `us${name}` }),
+      ).toMatchObject({
+        input_tokens: 5,
+        speed: "unknown",
+        inference_geo: "unknown",
+      });
+    }
+  });
+
   test("one count read is a measured answer: the rest are 0, an explicit 0 stands", () => {
     expect(json({ output_tokens: 7 })).toMatchObject({
       model: "claude-sonnet-4-5",

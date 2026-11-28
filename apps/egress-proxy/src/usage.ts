@@ -52,17 +52,24 @@ const UNKNOWN_MODEL = "unknown";
 const MAX_MODEL_LENGTH = 256;
 
 /**
- * An answer's model as a report can carry it and Postgres can store it (no
- * NUL, so no control character, and no lone surrogate, which jsonb refuses);
- * anything else names none.
+ * A name Postgres can store: no NUL (so, here, no control character) and no
+ * lone surrogate, which jsonb refuses. An answer's name that is not one
+ * would fail the settlement and leave its reservation held.
  */
+function storable(value: string): boolean {
+  return (
+    Buffer.from(value, "utf8").toString("utf8") === value &&
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: what it refuses
+    !/[\x00-\x1f\x7f]/.test(value)
+  );
+}
+
+/** An answer's model as a report can carry it; anything else names none. */
 function modelOf(value: unknown): string | undefined {
   return typeof value === "string" &&
     value !== "" &&
     value.length <= MAX_MODEL_LENGTH &&
-    Buffer.from(value, "utf8").toString("utf8") === value &&
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: what it refuses
-    !/[\x00-\x1f\x7f]/.test(value)
+    storable(value)
     ? value
     : undefined;
 }
@@ -82,7 +89,8 @@ function nameOf(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   return typeof value === "string" &&
     value !== "" &&
-    value.length <= MAX_NAME_LENGTH
+    value.length <= MAX_NAME_LENGTH &&
+    storable(value)
     ? value
     : "unknown";
 }
