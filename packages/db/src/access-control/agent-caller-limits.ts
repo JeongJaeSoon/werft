@@ -29,9 +29,9 @@ import {
   withLiveRepositories,
 } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
-import { captureWorkspaceMcpStart } from "../agents/index.ts";
 import { UUID } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
+import { captureWorkspaceMcpStart } from "../extensions/index.ts";
 import { agentGitHubSettingsOf, sessionGitHubMcpOf } from "../github/index.ts";
 import type { Database } from "../queries.ts";
 import {
