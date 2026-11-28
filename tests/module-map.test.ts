@@ -148,6 +148,12 @@ export function mapGaps(
 ): string[] {
   const { packages, domains } = readMap(markdown);
   const gaps: string[] = [];
+  for (const table of ["packages", "domains"]) {
+    const names = tableRows(markdown, table).map(([name = ""]) => name);
+    for (const name of new Set(names))
+      if (names.indexOf(name) !== names.lastIndexOf(name))
+        gaps.push(`${name} is on the map twice`);
+  }
   const present = workspacePackages(files, workspaceGlobs);
   for (const directory of present)
     if (!packages.has(directory))
@@ -184,12 +190,27 @@ export function codeNamedPaths(
   const found = new Set<string>();
   for (const file of files) {
     const parts = file.split("/");
-    const at = parts.findIndex((part) => codeName.test(part));
+    const at = parts.findIndex(namesCode);
     if (at >= 0) found.add(parts.slice(0, at + 1).join("/"));
   }
   for (const [manifest, name] of Object.entries(packageNames))
-    if (codeName.test(name)) found.add(`${manifest}: package name ${name}`);
+    if (namesCode(name)) found.add(`${manifest}: package name ${name}`);
   return [...found].sort();
+}
+
+/**
+ * Whether a name carries a code name. Names are split at separators and at
+ * camelCase humps first, so workerKielStatus.ts is found and kielbasa.ts is not.
+ */
+function namesCode(name: string): boolean {
+  const words = name
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/);
+  return (
+    longNames.some((long) => name.toLowerCase().includes(long)) ||
+    words.some((word) => shortNames.includes(word))
+  );
 }
 
 /** Never grows. A path with a code name is renamed, not listed. */
@@ -206,17 +227,21 @@ export function isOutwardText(file: string): boolean {
     /^packages\/react\/src\/components\/.*\/messages\.ts$/,
     // The docs site, the API reference and the READMEs of published packages.
     /^apps\/docs\/content\//,
+    /^apps\/docs\/src\/lib\/i18n\.ts$/,
     /^docs\/openapi\.json$/,
     /^packages\/[^/]+\/README\.md$/,
     // What Slack shows.
     /^packages\/adapters\/chat\/slack\/src\//,
     /^packages\/contracts\/src\/access-control\/slack-[^/]+\.ts$/,
     /^packages\/contracts\/src\/domain\/slack-notice\.ts$/,
+    // What an account link answers a person with.
+    /^packages\/contracts\/src\/access-control\/linked-accounts\.ts$/,
     // What a model reads: the built-in server's guide and instructions, and
     // the descriptions of the tools it is given.
     /^packages\/platform\/src\/extensions\/builtin\//,
     /^packages\/contracts\/src\/action\//,
     /^apps\/worker\/src\/conversation\/conversation-tools\.ts$/,
+    /^apps\/worker\/src\/legacy-platform-prompt\.ts$/,
   ].some((pattern) => pattern.test(file));
 }
 
@@ -285,9 +310,16 @@ const extensionsChildren = [
   "ports",
   "index.ts",
 ];
-/** A file named like this belongs to extensions/ on every layer that splits by module. */
-const extensionsFile =
-  /^(skill-|workspace-mcp|agent-workspace-mcp|agent-mcp|werft-mcp)/;
+/**
+ * A file named like this belongs to extensions/ on every layer that splits by
+ * module, in the part named. (bundle-* is left out: checkpoints has git bundles.)
+ */
+const extensionsFiles: readonly [RegExp, string][] = [
+  [/^(skill-|skills\.)/, "skills"],
+  [/^extension-bundle/, "bundles"],
+  [/^(workspace-mcp|agent-workspace-mcp|agent-mcp)/, "mcp"],
+  [/^werft-mcp/, "builtin"],
+];
 /** Relaying an MCP call at run time is the workers' job, whatever server it reaches. */
 const relayFile = /(^|-)mcp-egress\.[^/]+$/;
 const sharedFolders = ["ports", "testing"];
@@ -313,11 +345,16 @@ export function layerDrift(
       const [domain = "", child = ""] = parts;
       const name = parts.at(-1) ?? "";
       if (parts.length < 2 || sharedFolders.includes(domain)) continue;
+      const part = relayFile.test(name)
+        ? undefined
+        : extensionsFiles.find(([pattern]) => pattern.test(name))?.[1];
       if (domain === "extensions") {
         if (!extensionsChildren.includes(child))
           drift.push(
             `${file}: only ${extensionsChildren.join(", ")} sit directly under extensions/`,
           );
+        else if (part && child !== part && child !== "ports")
+          drift.push(`${file}: named like an extensions/${part}/ file`);
         continue;
       }
       if (relayFile.test(name)) {
@@ -329,7 +366,7 @@ export function layerDrift(
           drift.push(`${file}: an MCP relay belongs to workers/mcp-egress/`);
         continue;
       }
-      if (extensionsFile.test(name))
+      if (part)
         drift.push(`${file}: named like an extensions/ file, in ${domain}/`);
     }
   return drift.sort();
@@ -441,7 +478,7 @@ describe("module map", () => {
     expect(codeNamedPaths(tree)).toEqual([]);
   });
 
-  test("M1 catches a folder or package the map lacks, a row with nothing behind it and a module nobody defined", () => {
+  test("M1 catches a folder or package the map lacks, a row with nothing behind it, a row written twice and a module nobody defined", () => {
     expect(
       mapGaps(
         map,
@@ -475,13 +512,23 @@ describe("module map", () => {
     expect(
       mapGaps(map.replace("| Takelage |", "| Rigging |"), tree, globs),
     ).toEqual(['extensions: "Rigging" is not a module the map defines']);
+    expect(
+      mapGaps(
+        map.replace(
+          /^(\| `ports`.*\n)/m,
+          "$1| `ports` | Kiel | platform | |\n",
+        ),
+        tree,
+        globs,
+      ),
+    ).toEqual(["ports is on the map twice"]);
     // A file directly under a layer is shared and needs no row.
     expect(mapGaps(map, [...tree, "packages/db/src/schema.ts"], globs)).toEqual(
       [],
     );
   });
 
-  test("M2 catches a code name as a folder, in a file name and in a package name, old names included, and not inside another word", () => {
+  test("M2 catches a code name as a folder, in a file name (camelCase too) and in a package name, old names included, and not inside another word", () => {
     expect(
       codeNamedPaths(
         [
@@ -490,6 +537,7 @@ describe("module map", () => {
           "packages/db/src/musterrolle/members.ts",
           "docs/kollegium-notes.md",
           "packages/platform/src/agents/lotseTeams.ts",
+          "packages/platform/src/workers/workerKielStatus.ts",
           "packages/speicher/src/index.ts",
           "apps/web/src/takelageList.tsx",
           "packages/platform/src/sessions/kielbasa.ts",
@@ -504,7 +552,9 @@ describe("module map", () => {
       "apps/web/src/takelageList.tsx",
       "docs/kollegium-notes.md",
       "packages/db/src/musterrolle",
+      "packages/platform/src/agents/lotseTeams.ts",
       "packages/platform/src/kiel",
+      "packages/platform/src/workers/workerKielStatus.ts",
       "packages/speicher",
       "packages/x/package.json: package name @werft-ai/kiel-runtime",
     ]);
@@ -523,18 +573,26 @@ describe("module map", () => {
         "apps/docs/content/docs/index.mdx": "Kollegium keeps the agents.",
         "docs/openapi.json": '{"description":"The Lotse team"}',
         "packages/sdk/README.md": "Werft SDK",
+        "apps/worker/src/legacy-platform-prompt.ts":
+          'export const text = "Use Kiel";',
+        "packages/contracts/src/access-control/linked-accounts.ts":
+          'export const notice = "Linked by Kollegium";',
+        "apps/docs/src/lib/i18n.ts": 'export const title = "Lotse docs";',
         "apps/web/src/i18n/i18n.test.ts": 'expect("Kiel")',
         "packages/platform/src/sessions/service.ts": 'log("Kiel")',
       }),
     ).toEqual([
       "apps/docs/content/docs/index.mdx: Kollegium",
+      "apps/docs/src/lib/i18n.ts: Lotse",
       "apps/web/src/i18n/en.ts: Kiel",
       "apps/web/src/i18n/en.ts: Musterrolle",
+      "apps/worker/src/legacy-platform-prompt.ts: Kiel",
       "docs/openapi.json: Lotse",
+      "packages/contracts/src/access-control/linked-accounts.ts: Kollegium",
     ]);
   });
 
-  test("M4 catches a layer the map does not list, a loose file under extensions/, an extensions file in another domain and a relay outside workers/mcp-egress", () => {
+  test("M4 catches a layer the map does not list, a loose file under extensions/, an extensions file in another domain or in the wrong part, and a relay outside workers/mcp-egress", () => {
     expect(
       layerDrift(map, [
         ...tree,
@@ -543,6 +601,8 @@ describe("module map", () => {
         "packages/db/src/sessions/workspace-mcp.ts",
         "apps/control-host/src/api/routes/extensions/skills.ts",
         "packages/platform/src/sessions/agent-mcp-service.ts",
+        "packages/db/src/sessions/extension-bundles.ts",
+        "packages/db/src/extensions/builtin/skill-store.ts",
         "packages/platform/src/workers/github-mcp-egress.ts",
         // Shared folders and files directly under a layer are nobody's.
         "packages/platform/src/testing/workspace-mcp-fakes.ts",
@@ -550,7 +610,9 @@ describe("module map", () => {
       ]),
     ).toEqual([
       "apps/control-host/src/api/routes/extensions/skills.ts: only skills, bundles, mcp, builtin, ports, index.ts sit directly under extensions/",
+      "packages/db/src/extensions/builtin/skill-store.ts: named like an extensions/skills/ file",
       "packages/db/src/extensions/skill-store.ts: only skills, bundles, mcp, builtin, ports, index.ts sit directly under extensions/",
+      "packages/db/src/sessions/extension-bundles.ts: named like an extensions/ file, in sessions/",
       "packages/db/src/sessions/workspace-mcp.ts: named like an extensions/ file, in sessions/",
       "packages/platform/src/sessions/agent-mcp-service.ts: named like an extensions/ file, in sessions/",
       "packages/platform/src/workers/github-mcp-egress.ts: an MCP relay belongs to workers/mcp-egress/",
