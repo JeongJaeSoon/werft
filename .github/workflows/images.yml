@@ -463,7 +463,7 @@ jobs:
           NAME: ${{ steps.meta.outputs.name }}
           DIGEST: ${{ steps.push.outputs.digest }}
         run: |
-          docker pull "${NAME}@${DIGEST}"
+          .github/scripts/image-pull.sh "${NAME}@${DIGEST}"
           .github/scripts/image-smoke.sh "$APP" "${NAME}@${DIGEST}"
       # The digest that gets promoted, not the build job's image: this job
       # builds again, and the apt layer is not pinned (a build job that ran
