@@ -99,7 +99,7 @@ export const executionLimitsKo = {
   "limits.unknownTokens.refused":
     "모든 세션에서 새 모델 호출을 막습니다. 이미 나간 호출은 그대로 끝납니다.",
   "limits.unknownTokens.applies":
-    "저장하면 10초 안에 적용됩니다. 한도에 닿은 세션은 다음 모델 호출이 거절됩니다. 여는 호출의 예상 토큰도 함께 세므로 첫 호출이 거절될 수도 있습니다. 끝난 호출에도 지금 여는 호출에도 단가 미상이 없는 세션에는 닿지 않습니다.",
+    "저장하면 10초 안에 적용됩니다. 한도에 닿은 세션은 다음 모델 호출이 거절됩니다. 여는 호출의 예상 토큰도 함께 세므로 첫 호출이 거절될 수도 있습니다. 끝난 것, 진행 중인 것, 지금 여는 것 가운데 단가 미상 호출이 하나도 없는 세션에는 닿지 않습니다.",
   "limits.unknownTokens.invalid":
     "1부터 {max}까지의 정수를 적으세요. 0으로 끌 수 없습니다.",
   "limits.unknownTokens.saved": "단가 미상 토큰 한도를 저장했습니다.",
@@ -293,7 +293,7 @@ export const executionLimitsEn: Record<keyof typeof executionLimitsKo, string> =
     "limits.unknownTokens.refused":
       "no session can start a new model call; a call already under way finishes.",
     "limits.unknownTokens.applies":
-      "A save applies within 10 seconds. A session at the limit has its next model call refused. The estimated tokens of the call being opened count too, so a first call can be refused. A session with no call of unknown price, finished or being opened, is not affected.",
+      "A save applies within 10 seconds. A session at the limit has its next model call refused. The estimated tokens of the call being opened count too, so a first call can be refused. A session with no call of unknown price, finished, under way or being opened, is not affected.",
     "limits.unknownTokens.invalid":
       "Enter a whole number from 1 to {max}. It cannot be 0.",
     "limits.unknownTokens.saved": "Saved the limit on tokens of unknown price.",
@@ -489,7 +489,7 @@ export const executionLimitsJa: Record<keyof typeof executionLimitsKo, string> =
     "limits.unknownTokens.refused":
       "すべてのセッションで新しいモデル呼び出しを止めます。すでに始まった呼び出しは最後まで進みます。",
     "limits.unknownTokens.applies":
-      "保存すると 10 秒以内に適用されます。上限に達したセッションは次のモデル呼び出しが拒否されます。開こうとする呼び出しの見積もりトークンも数えるため、最初の呼び出しが拒否されることもあります。終わった呼び出しにも今開く呼び出しにも単価不明がないセッションには影響しません。",
+      "保存すると 10 秒以内に適用されます。上限に達したセッションは次のモデル呼び出しが拒否されます。開こうとする呼び出しの見積もりトークンも数えるため、最初の呼び出しが拒否されることもあります。終わったもの、進行中のもの、今開くもののどれにも単価不明の呼び出しがないセッションには影響しません。",
     "limits.unknownTokens.invalid":
       "1 から {max} までの整数を入力してください。0 にはできません。",
     "limits.unknownTokens.saved": "単価不明トークンの上限を保存しました。",
