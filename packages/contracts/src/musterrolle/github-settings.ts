@@ -183,6 +183,9 @@ export const GITHUB_REFUSAL_VALUES = [
   "merge_off",
   // The agent's switch for approving reviews is off.
   "review_off",
+  // A merge in a repository besides the session's own of a pull request the
+  // platform has no record of this session opening.
+  "not_own_pull_request",
 ] as const;
 export const githubRefusalSchema = z.enum(GITHUB_REFUSAL_VALUES);
 
@@ -197,6 +200,7 @@ const GITHUB_POLICY_REFUSALS: ReadonlySet<GitHubRefusal> = new Set([
   "workflow_not_allowed",
   "agent_ref_refused",
   "run_ref_unprovable",
+  "not_own_pull_request",
 ]);
 
 export function githubRefusalStatus(reason: unknown): 403 | 409 {

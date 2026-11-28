@@ -13,6 +13,7 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresPullRequests } from "./action/pull-requests.ts";
 import {
   createPostgresGitHubGateStore,
   createPostgresGitHubSettingsStore,
@@ -559,5 +560,106 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
     expect(
       await store.pullRequestOpener(workspaceId, "other-app", 7),
     ).toBeNull();
+  });
+
+  test("ownPullRequest finds the pull request a push request of the session opened, or the one on its branch, and none of another session", async () => {
+    const { workspaceId, userId } = await workspace();
+    const { releaseId } = await agent(workspaceId, { github: GITHUB });
+    const pushes = createPostgresPushRequests(db);
+    const pushed = async (sessionId: string) => {
+      await pool.query(
+        "UPDATE sessions SET checkpoint_revision = 1 WHERE id = $1",
+        [sessionId],
+      );
+      const found = await pushes.findSession(workspaceId, sessionId);
+      const created = await pushes.create({
+        ownerId: workspaceId,
+        sessionId,
+        actor: ownerActor(userId),
+        idempotencyKey: `k-${randomUUID()}`,
+        payloadHash: "h",
+        repositoryId: "sample-app",
+        repositoryBinding: "sha256:binding",
+        checkpointRevision: 1,
+        gitCommit: "a".repeat(40),
+        policyApproval: found?.policyApproval ?? null,
+        policyFields: found?.policyFields ?? {},
+      });
+      if (created.outcome !== "written") throw new Error("not written");
+      // Settled, so the session's next push request is not request_open.
+      await pool.query(
+        "UPDATE push_requests SET state = 'pushed' WHERE id = $1",
+        [created.request.id],
+      );
+      return created.request;
+    };
+    const pullRequests = createPostgresPullRequests(db);
+    // created false: a pull request found on the branch and adopted.
+    const opened = (
+      sessionId: string,
+      push: { id: string; target_branch: string },
+      number: number,
+      created = true,
+    ) =>
+      pullRequests.savePullRequest({
+        ownerId: workspaceId,
+        sessionId,
+        pushRequestId: push.id,
+        actor: ownerActor(userId),
+        repositoryId: "sample-app",
+        number,
+        url: `https://github.com/acme/app/pull/${number}`,
+        title: created ? "t" : null,
+        head: push.target_branch,
+        base: "main",
+        created,
+      });
+    const mine = await session(workspaceId, releaseId, userId);
+    const theirs = await session(workspaceId, releaseId, userId);
+    const quiet = await session(workspaceId, releaseId, userId);
+    const adopter = await session(workspaceId, releaseId, userId);
+    const first = await pushed(mine);
+    const later = await pushed(mine);
+    const other = await pushed(theirs);
+    const unopened = await pushed(quiet);
+    const adopted = await pushed(adopter);
+    await opened(mine, first, 7);
+    await opened(theirs, other, 8);
+    await opened(adopter, adopted, 9, false);
+    // A pull request someone else opened on the session's branch, adopted
+    // for its last push: the branch now has one the platform opened and one
+    // it did not, and each is judged on its own.
+    const last = await pushed(mine);
+    await opened(mine, last, 10, false);
+    const store = createPostgresGitHubGateStore(db);
+    const url = (number: number) =>
+      `https://github.com/acme/app/pull/${number}`;
+    const own = { repositoryId: "sample-app", opened: true };
+    const notOpened = { repositoryId: "sample-app", opened: false };
+
+    expect(await store.ownPullRequest(mine, first.id, url(7))).toEqual(own);
+    // A later push of the session reuses its branch's pull request.
+    expect(
+      await store.ownPullRequest(mine, later.id.toUpperCase(), url(7)),
+    ).toEqual(own);
+    expect(await store.ownPullRequest(mine, later.id, url(10))).toEqual(
+      notOpened,
+    );
+    expect(await store.ownPullRequest(mine, last.id, url(10))).toEqual(
+      notOpened,
+    );
+    expect(await store.ownPullRequest(mine, last.id, url(7))).toEqual(own);
+    // Recorded for the push request, but someone else opened it on GitHub.
+    expect(await store.ownPullRequest(adopter, adopted.id, url(9))).toEqual(
+      notOpened,
+    );
+    // Another session's push request or pull request, though in the same
+    // repository, a push request that opened none, and a URL never recorded.
+    expect(await store.ownPullRequest(mine, other.id, url(8))).toBeNull();
+    expect(await store.ownPullRequest(mine, first.id, url(8))).toBeNull();
+    expect(await store.ownPullRequest(theirs, first.id, url(7))).toBeNull();
+    expect(await store.ownPullRequest(quiet, unopened.id, url(7))).toBeNull();
+    expect(await store.ownPullRequest(mine, first.id, url(11))).toBeNull();
+    expect(await store.ownPullRequest(mine, randomUUID(), url(7))).toBeNull();
   });
 });
