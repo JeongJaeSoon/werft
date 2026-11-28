@@ -683,6 +683,45 @@ const WIDE: [string, string, string | null][] = [
     "git log -m .claude/settings.json",
     "a path that goes to a person",
   ],
+  [
+    "a git glob that reaches a kept name",
+    "git diff -- .mcp.json~backup; echo $X",
+    "a path that goes to a person",
+  ],
+  ["a quoted name with a ~", "git diff -- '.mcp.json~backup'; echo $X", null],
+  [
+    "a body after an apostrophe in double quotes",
+    "git commit -m \"don't run this: $(cat <<'EOF'\ngrep -r needle .\nEOF\n)\"",
+    null,
+  ],
+  [
+    "a body after a # inside a word and in double quotes",
+    "gh pr create --title v1#2 --body \"See #42: $(cat <<'EOF'\ngrep -r needle .\nEOF\n)\"",
+    null,
+  ],
+  [
+    "a body start after ; #",
+    "git status;# $(cat <<'EOF'\ngrep -r needle .\nEOF\n)",
+    "a search of the workspace or a kept path",
+  ],
+  [
+    "an escaped body start",
+    "echo \\$(cat <<'EOF'\ngrep -r needle .\nEOF\n)",
+    "a search of the workspace or a kept path",
+  ],
+  ["a message after clustered flags", "git commit -aq -m .claude", null],
+  ["a gh body after a flag", "gh pr create --draft --body .claude", null],
+  [
+    "a message flag given as a long option's value",
+    "git commit -C -m .mcp.json",
+    "a path that goes to a person",
+  ],
+  [
+    "a message flag given as an author",
+    "git commit --author -m .mcp.json",
+    "a path that goes to a person",
+  ],
+  ["an author given to git", "git log --author=x --oneline", null],
   // The work-tree checks are the narrow reading's alone.
   ["a checkout of the top", "git checkout HEAD -- .", null],
   ["a checkout of a branch", "git checkout main", null],
@@ -1557,6 +1596,28 @@ const NARROW: [string, string, string | null][] = [
     "a ^ outside a quote",
   ],
   ["a quoted name with a ~", "git diff -- '.mcp.json~backup'", null],
+  // git takes one operand as a branch even when a file has its name.
+  [
+    "a checkout of a name without / or .",
+    "git checkout notes",
+    "a switch to another tree",
+  ],
+  ["a forced checkout of a file", "git checkout -f notes/sample.txt", null],
+  [
+    "a forced checkout of a file after --",
+    "git checkout -f -- notes/sample.txt",
+    null,
+  ],
+  [
+    "an author given to git",
+    "git commit --author='A <a@example.test>' -m x",
+    null,
+  ],
+  [
+    "a program for authors",
+    "git svn fetch --authors-prog=sh",
+    "a git option that runs a program",
+  ],
 ];
 
 describe("the wide reading", () => {

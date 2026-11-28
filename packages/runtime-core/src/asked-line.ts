@@ -959,29 +959,35 @@ function workTreeKept(
       "bB",
       ["--orphan", "--conflict"],
     );
+    const force = set.has("--force");
     if (pathspecs !== undefined && pathspecs.length > 0) {
       return coversAll(pathspecs) ? whole : null;
     }
-    // `git checkout -f` throws every change away.
-    if (set.has("--force")) return whole;
-    if (operands.length === 0) return null;
     // A new branch from a start point is how work begins (`git checkout -b x
-    // origin/main`); the tree it brings is not read here.
-    if (set.has("-b") || set.has("-B") || set.has("--orphan")) return null;
-    // One operand is a branch unless it is a path (both is ambiguous to git);
-    // more are a tree and its paths, or paths alone when the first is one.
+    // origin/main`); the tree it brings is not read here. `-f` throws every
+    // change away.
+    if (
+      set.has("-b") ||
+      set.has("-B") ||
+      set.has("--orphan") ||
+      operands.length === 0
+    ) {
+      return force ? whole : null;
+    }
     if (pathspecs !== undefined) return "a switch to another tree";
+    // git takes one operand as a branch when it names one, a file of the
+    // same name or not: only a name with a `/` or a `.` on disk is read
+    // as a path. More operands are a tree and its paths, or paths alone.
+    const path = (word: string) => /[/.]/.test(word) && onDisk(word);
     const [first] = operands as [string];
     if (operands.length === 1) {
-      return !onDisk(first) || set.has("--detach")
+      return !path(first) || set.has("--detach")
         ? "a switch to another tree"
         : coversAll(operands)
           ? whole
           : null;
     }
-    return coversAll(onDisk(first) ? operands : operands.slice(1))
-      ? whole
-      : null;
+    return coversAll(path(first) ? operands : operands.slice(1)) ? whole : null;
   }
   if (verb === "switch") {
     const values = ["--create", "--force-create", "--orphan", "--conflict"];
@@ -1046,7 +1052,8 @@ function workTreeKept(
     return modes.size > 0 ? whole : null;
   }
   if (verb === "read-tree") {
-    return optionsSet(rest, [["u", ""]]).size > 0
+    return optionsSet(rest, [["u", ""]], "", ["--index-output", "--prefix"])
+      .size > 0
       ? "a switch to another tree"
       : null;
   }
@@ -1160,27 +1167,25 @@ function narrowKept(
     // The wide reading takes what follows a message flag as text, up to a
     // `--`, as its own reading of gh and of git's message verbs does
     // (`git grep -e -m` gives `-m` as a pattern).
+    const gitVerb = words.find(
+      (word, index) => index > 0 && !word.startsWith("-"),
+    );
     let options =
-      wide &&
-      (name === "gh" ||
-        GIT_MESSAGE_VERBS.includes(
-          words.find((word, index) => index > 0 && !word.startsWith("-")) ?? "",
-        ));
+      wide && (name === "gh" || GIT_MESSAGE_VERBS.includes(gitVerb ?? ""));
     let message = false;
+    const valued =
+      name === "git" ? GIT_MESSAGE_VALUES[gitVerb ?? ""] : undefined;
     for (const [index, word] of words.slice(1).entries()) {
       if (word === "--") options = false;
       if (options) {
         const text =
           message || MESSAGE_FLAGS.some((flag) => word.startsWith(`${flag}=`));
-        // `-F -m` gives `-m` as a file: a flag after an option that may
-        // take a value is not read as one.
-        const previous = words[index] ?? "";
+        // `-F -m` gives `-m` as a file: a flag right after an option
+        // that takes a value is not read as one.
         message =
           !message &&
           MESSAGE_FLAGS.includes(word) &&
-          (!previous.startsWith("-") ||
-            COMMIT_FLAGS.includes(previous) ||
-            MESSAGE_FLAGS.includes(previous));
+          !takesValue(words[index] ?? "", valued);
         if (text) continue;
       }
       // git takes a long option by any unique start of its name.
@@ -1198,7 +1203,13 @@ function narrowKept(
       ) {
         return "a path list the line does not show";
       }
-      if (name === "git" && GIT_RUNNING_OPTIONS.some(longStart)) {
+      // `--author` is an option of its own (`git log --author=x`), not a
+      // start of `--authors-prog`.
+      if (
+        name === "git" &&
+        option !== "--author" &&
+        GIT_RUNNING_OPTIONS.some(longStart)
+      ) {
         return "a git option that runs a program";
       }
       // A secret or engine-settings path given to git or gh: `git checkout
@@ -1322,7 +1333,11 @@ const QUIET_PROGRAMS = ["", "cat", "true", ":"];
  * `/usr/bin/grep`). A setting of git's or gh's environment may name a program
  * (`GIT_PAGER=sh`, `GIT_DIR=.claude`), so only those known to run nothing pass.
  */
-function wideKept(words: readonly string[], place: Place): string | null {
+function wideKept(
+  words: readonly string[],
+  place: Place,
+  written?: readonly string[],
+): string | null {
   const wraps = (word: string) => WRAPPERS.includes(nameOf(word));
   const at = words.findIndex(
     (word) => !ASSIGNMENT.test(word) && TOOLS.includes(nameOf(word)),
@@ -1365,7 +1380,12 @@ function wideKept(words: readonly string[], place: Place): string | null {
       }
     }
   }
-  return narrowKept([tool, ...words.slice(at + 1)], place, true);
+  return narrowKept(
+    [tool, ...words.slice(at + 1)],
+    place,
+    true,
+    written?.slice(at),
+  );
 }
 
 /** The files gh reads as a body: `--body-file x`, `--body-file=x`, `-F x`, `-Fx`, `-dF x`. */
@@ -1669,8 +1689,51 @@ function partKept(
 }
 
 const MESSAGE_FLAGS = ["-m", "--message", "--title", "--body"];
-/** git verbs whose `-m` is a message. */
-const GIT_MESSAGE_VERBS = ["commit", "tag", "notes", "stash", "merge"];
+/** git verbs whose `-m` is a message, with the options of each that take a value. */
+const GIT_MESSAGE_VALUES: Readonly<
+  Record<string, readonly [string, readonly string[]]>
+> = {
+  commit: [
+    "FCct",
+    [
+      "--file",
+      "--author",
+      "--date",
+      "--template",
+      "--reuse-message",
+      "--reedit-message",
+      "--fixup",
+      "--squash",
+      "--trailer",
+      "--cleanup",
+      "--pathspec-from-file",
+    ],
+  ],
+  tag: ["Fu", ["--file", "--local-user", "--cleanup", "--format"]],
+  notes: ["FCc", ["--file", "--reuse-message", "--reedit-message", "--ref"]],
+  stash: ["", ["--pathspec-from-file"]],
+  merge: [
+    "FsX",
+    ["--file", "--strategy", "--strategy-option", "--into-name", "--cleanup"],
+  ],
+};
+const GIT_MESSAGE_VERBS = Object.keys(GIT_MESSAGE_VALUES);
+
+/** Whether an option takes the next word as its value, by the options that take one. */
+function takesValue(
+  word: string,
+  valued: readonly [string, readonly string[]] | undefined,
+): boolean {
+  if (valued === undefined || !word.startsWith("-") || word.includes("=")) {
+    return false;
+  }
+  const [letters, longs] = valued;
+  if (word.startsWith("--")) {
+    return word.length > 2 && longs.some((full) => full.startsWith(word));
+  }
+  const at = [...word.slice(1)].findIndex((letter) => letters.includes(letter));
+  return at !== -1 && at + 2 === word.length;
+}
 /** More places than this for one line's shell is not a line to answer for. */
 const PLACES_FOLLOWED = 8;
 
@@ -1782,21 +1845,52 @@ function withoutHeredocBodies(command: string): string {
 }
 
 /**
- * The text without the bodies of `$(cat <<'EOF'` … `EOF` `)`: under a quoted
- * delimiter the body is printed as written, and it ends at the first line
- * that is the delimiter alone.
+ * The text without the bodies of `$(cat <<'EOF'` … `EOF` `)` the shell runs:
+ * under a quoted delimiter the body is printed as written, and it ends at
+ * the first line that is the delimiter alone. The text before each is read
+ * as the shell does (quotes, a backslash, a comment), so a start inside a
+ * comment or a single quote is left in place.
  */
-const withoutCatBodies = (text: string) =>
-  text.replace(
-    /\$\(cat <<(['"])([A-Za-z_]\w*)\1\n(?:(?!\2\n)[^\n]*\n)*\2\n\)/g,
-    (body, _quote, _delimiter, at: number) => {
-      // Only where the shell reads it: not in a comment or a single quote.
-      const before = text.slice(text.lastIndexOf("\n", at) + 1, at);
-      return /(^|\s)#/.test(before) || (before.match(/'/g) ?? []).length % 2
-        ? body
-        : "$()";
-    },
-  );
+function withoutCatBodies(text: string): string {
+  const start =
+    /\$\(cat <<(['"])([A-Za-z_]\w*)\1\n(?:(?!\2\n)[^\n]*\n)*\2\n\)/g;
+  let out = "";
+  let read = 0;
+  let quote: "" | "'" | '"' = "";
+  let comment = false;
+  let escaped = false;
+  const scan = (to: number) => {
+    for (; read < to; read += 1) {
+      const char = text[read] as string;
+      out += char;
+      if (comment) {
+        if (char === "\n") comment = false;
+      } else if (escaped) {
+        escaped = false;
+      } else if (quote === "'") {
+        if (char === "'") quote = "";
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (quote === '"') {
+        if (char === '"') quote = "";
+      } else if (char === "'" || char === '"') {
+        quote = char;
+      } else if (char === "#" && /^$|[\s;&|()]/.test(text[read - 1] ?? "")) {
+        comment = true;
+      }
+    }
+  };
+  for (const match of text.matchAll(start)) {
+    const at = match.index;
+    if (at < read) continue;
+    scan(at);
+    if (comment || escaped || (quote as string) === "'") continue;
+    out += "$()";
+    read = at + match[0].length;
+  }
+  scan(text.length);
+  return out;
+}
 
 const spelledOut = (words: readonly string[]) =>
   words
@@ -1873,13 +1967,13 @@ function unsplitKept(
   // git, gh and grep are looked for outside the bodies `$(cat <<'EOF' …)`
   // gives as text: a pull request's body may show a command it does not run.
   for (const piece of withoutCatBodies(text).split(/&&|\|\||[;|&\n()`]/)) {
-    const words = piece
+    const written = piece
       .trim()
       .split(/\s+/)
-      .map((word) => word.replace(/['"\\]/g, ""))
-      .filter((word) => word !== "");
+      .filter((word) => word.replace(/['"\\]/g, "") !== "");
+    const words = written.map((word) => word.replace(/['"\\]/g, ""));
     for (const base of bases) {
-      const kept = wideKept(words, { root, base });
+      const kept = wideKept(words, { root, base }, written);
       if (kept !== null) return kept;
     }
   }
