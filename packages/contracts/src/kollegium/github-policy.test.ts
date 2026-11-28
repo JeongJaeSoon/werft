@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
+import { githubCeilingSchema } from "../musterrolle/github-settings.ts";
 import {
   type AgentGitHub,
   type AgentGitHubSettingsRow,
+  agentGitHubInputSchema,
+  agentGitHubSchema,
+  agentGitHubSettingsInputSchema,
   agentGitHubSettingsSchema,
   type EffectiveGitHubPolicy,
   effectiveGitHubPolicy,
@@ -12,6 +16,7 @@ import {
   meetGitHubSettings,
   meetPushAttached,
   newSessionGitHubPolicy,
+  policyPinsSchema,
   pushAttachedOf,
   pushDecisionOf,
 } from "./agents.ts";
@@ -832,5 +837,158 @@ describe("pushDecisionOf: one rule for every repository", () => {
       start,
     });
     expect(pushDecisionOf(denied)).toBe("deny");
+  });
+});
+
+describe("stored keys this build does not know (94S-2491)", () => {
+  const KNOWN = { ...ALL_OFF, review: true };
+  const later = { ...KNOWN, later_switch: true };
+  const person: AgentGitHubSettingsRow = {
+    ...ROW,
+    features: later,
+    updatedBy: PERSON,
+  };
+  const pinWith = (features: object) => ({ ...PIN, features });
+  const featuresOf = (read: EffectiveGitHubPolicy): unknown =>
+    read.settings === null || read.settings === "invalid"
+      ? read.settings
+      : read.settings.features;
+
+  test("a row, a pin and a start snapshot read without a feature key they do not know", () => {
+    expect(
+      featuresOf(
+        effectiveGitHubPolicy({
+          source: "agent",
+          releasePin: null,
+          agentRow: person,
+        }),
+      ),
+    ).toEqual(KNOWN);
+    expect(
+      featuresOf(
+        effectiveGitHubPolicy({
+          source: "release",
+          releasePin: pinWith(later),
+          agentRow: null,
+        }),
+      ),
+    ).toEqual(KNOWN);
+    expect(
+      featuresOf(
+        effectiveGitHubPolicy({
+          source: "agent",
+          releasePin: null,
+          agentRow: { ...person, features: KNOWN },
+          start: {
+            enabled: true,
+            revision: 1,
+            settings: { ...SETTINGS, features: later },
+          },
+        }),
+      ),
+    ).toEqual(KNOWN);
+  });
+
+  test("a known key with a bad value, or an unknown key outside the switches, still closes the session", () => {
+    for (const [releasePin, agentRow] of [
+      [null, { ...person, features: { ...KNOWN, merge: "yes" } }],
+      [null, { ...person, features: { ...KNOWN, review: "yes" } }],
+      [{ ...PIN, later_list: [] }, null],
+      [
+        { ...PIN, actions_allow: [{ workflow: "ci.yml", only_on: "tag" }] },
+        null,
+      ],
+    ] as const) {
+      const read = effectiveGitHubPolicy({
+        source: agentRow === null ? "release" : "agent",
+        releasePin,
+        agentRow,
+      });
+      expect(read.settings).toBe("invalid");
+    }
+  });
+
+  test("`merge` on a row is checked and then left out, like any key a pin does not know", () => {
+    expect(
+      featuresOf(
+        effectiveGitHubPolicy({
+          source: "agent",
+          releasePin: null,
+          agentRow: { ...person, features: { ...KNOWN, merge: true } },
+        }),
+      ),
+    ).toEqual(KNOWN);
+    expect(
+      featuresOf(
+        effectiveGitHubPolicy({
+          source: "agent",
+          releasePin: null,
+          agentRow: { ...person, features: KNOWN },
+          start: {
+            enabled: true,
+            revision: 1,
+            settings: { ...SETTINGS, features: { ...KNOWN, merge: true } },
+          },
+        }),
+      ),
+    ).toEqual(KNOWN);
+    expect(
+      featuresOf(
+        effectiveGitHubPolicy({
+          source: "release",
+          releasePin: pinWith({ ...KNOWN, merge: true }),
+          agentRow: null,
+        }),
+      ),
+    ).toEqual(KNOWN);
+  });
+
+  test("no read hands `merge` on: what goes to a snapshot, a seed or a response reads on the build before", () => {
+    for (const features of [KNOWN, later, { ...KNOWN, merge: true }]) {
+      const read = newSessionGitHubPolicy({ ...person, features }, null);
+      if (read.settings === null || read.settings === "invalid") {
+        throw new Error("unread");
+      }
+      expect(Object.keys(read.settings.features)).not.toContain("merge");
+      // The build before reads every one of these with the strict schemas.
+      expect(agentGitHubSettingsSchema.safeParse(read.settings).success).toBe(
+        true,
+      );
+      const pinned = effectiveGitHubPolicy({
+        source: "release",
+        releasePin: pinWith(features),
+        agentRow: null,
+      }).settings;
+      expect(agentGitHubSchema.safeParse(pinned).success).toBe(true);
+    }
+  });
+
+  test("a release keeps reading with one in its pin, as stored, since its id hashes the pin", () => {
+    const parsed = policyPinsSchema.safeParse({ github: pinWith(later) });
+    expect(parsed.success && parsed.data.github?.features).toEqual(later);
+    expect(
+      policyPinsSchema.safeParse({
+        github: pinWith({ ...KNOWN, later_switch: "on" }),
+      }).success,
+    ).toBe(false);
+  });
+
+  test("a save still refuses one: settings, a release pin and the ceiling stay strict", () => {
+    for (const features of [later, { ...KNOWN, merge: false }]) {
+      expect(
+        agentGitHubSettingsInputSchema.safeParse({ ...SETTINGS, features })
+          .success,
+      ).toBe(false);
+      expect(agentGitHubInputSchema.safeParse(pinWith(features)).success).toBe(
+        false,
+      );
+    }
+    expect(
+      githubCeilingSchema.safeParse({
+        ...ALL_OFF,
+        merge: false,
+        later_switch: true,
+      }).success,
+    ).toBe(false);
   });
 });

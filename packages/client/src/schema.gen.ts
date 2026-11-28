@@ -11335,6 +11335,8 @@ export interface components {
                             checks: boolean;
                             issues: boolean;
                             review: boolean;
+                        } & {
+                            [key: string]: boolean;
                         };
                         actions_allow: {
                             workflow: string;
@@ -11418,6 +11420,8 @@ export interface components {
                             checks: boolean;
                             issues: boolean;
                             review: boolean;
+                        } & {
+                            [key: string]: boolean;
                         };
                         actions_allow: {
                             workflow: string;
@@ -11594,6 +11598,8 @@ export interface components {
                             checks: boolean;
                             issues: boolean;
                             review: boolean;
+                        } & {
+                            [key: string]: boolean;
                         };
                         actions_allow: {
                             workflow: string;
@@ -11677,6 +11683,8 @@ export interface components {
                             checks: boolean;
                             issues: boolean;
                             review: boolean;
+                        } & {
+                            [key: string]: boolean;
                         };
                         actions_allow: {
                             workflow: string;
@@ -11790,6 +11798,8 @@ export interface components {
                             checks: boolean;
                             issues: boolean;
                             review: boolean;
+                        } & {
+                            [key: string]: boolean;
                         };
                         actions_allow: {
                             workflow: string;
