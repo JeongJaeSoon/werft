@@ -1000,6 +1000,7 @@ function portOf(upstream: URL): number {
 
 const MAX_DENIED_HOSTS = 256;
 const AUTHORIZER_ADDRESS_MEMORY_MS = 5 * 60_000;
+const MAX_AUTHORIZER_ADDRESSES = 64;
 
 /**
  * A host in the one spelling an upstream URL naming it is read in: lower
@@ -1109,28 +1110,33 @@ export function installationHosts(
   authorizerHost: string,
   addresses: readonly string[],
 ): ReadonlySet<string> {
-  const hosts = new Set([...denied, authorizerHost]);
-  for (const address of addresses) {
-    const key = classifyAddress(address) === null ? null : addressKey(address);
-    if (key !== null) hosts.add(key);
-  }
-  return hosts;
+  return new Set([...denied, authorizerHost, ...addressKeys(addresses)]);
+}
+
+/** The keys of the addresses among `answers`; what is no address is dropped. */
+export function addressKeys(answers: readonly string[]): string[] {
+  return answers.flatMap((answer) => {
+    const key = classifyAddress(answer) === null ? null : addressKey(answer);
+    return key === null ? [] : [key];
+  });
 }
 
 /**
  * What a name resolved to, kept for `memoryMs`: a request to it may still
- * ride a connection to an address the name no longer answers with.
+ * ride a connection to an address the name no longer answers with. null
+ * while that is more than `max`, which is no name's answer to trust.
  */
 export function addressMemory(
   memoryMs: number,
-  now: () => number = Date.now,
-): (resolved: readonly string[]) => string[] {
+  max: number,
+  now: () => number = () => performance.now(),
+): (resolved: readonly string[]) => string[] | null {
   const until = new Map<string, number>();
   return (resolved) => {
     const at = now();
     for (const address of resolved) until.set(address, at + memoryMs);
     for (const [address, end] of until) if (end <= at) until.delete(address);
-    return [...until.keys()];
+    return until.size > max ? null : [...until.keys()];
   };
 }
 
@@ -1552,7 +1558,10 @@ export function startCredentialProxy(
   const authorizeUrl = new URL("/authorize", options.authorizer.url);
   const authorizerHost =
     hostKey(authorizeUrl.hostname) ?? normalizeHost(authorizeUrl.hostname);
-  const authorizerSeen = addressMemory(AUTHORIZER_ADDRESS_MEMORY_MS);
+  const authorizerSeen = addressMemory(
+    AUTHORIZER_ADDRESS_MEMORY_MS,
+    MAX_AUTHORIZER_ADDRESSES,
+  );
   const selfAddresses = options.selfAddresses ?? interfaceAddresses;
   const usageUrl = new URL("/usage", options.authorizer.url);
   const exchangesUrl = new URL("/exchanges", options.authorizer.url);
@@ -1888,21 +1897,24 @@ export function startCredentialProxy(
 
   /**
    * What a registered private upstream may never be. null while the
-   * authorizer's name does not resolve: nothing tells its address then.
+   * authorizer's name resolves to no address: nothing tells its own then.
    */
   async function installationOf(
     denied: readonly string[],
   ): Promise<ReadonlySet<string> | null> {
     let authorizer: string[] = [];
     if (isIP(authorizerHost) === 0) {
+      let answers: string[];
       try {
         // The name as the control requests look it up, trailing dot and all.
-        authorizer = await resolve(authorizeUrl.hostname);
+        answers = await resolve(authorizeUrl.hostname);
       } catch {
         return null;
       }
-      if (authorizer.length === 0) return null;
-      authorizer = authorizerSeen(authorizer);
+      const now = addressKeys(answers);
+      const seen = now.length === 0 ? null : authorizerSeen(now);
+      if (seen === null) return null;
+      authorizer = seen;
     }
     return installationHosts(denied, authorizerHost, [
       ...selfAddresses(),

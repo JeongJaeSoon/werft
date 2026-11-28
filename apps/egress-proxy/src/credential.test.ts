@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { egressProxyConfigFromEnv } from "./config.ts";
 import {
   type Authorized,
+  addressKeys,
   addressMemory,
   bodyReservation,
   type CredentialProxyServer,
@@ -804,15 +805,32 @@ describe("the registered-private mark", () => {
     ]);
   });
 
-  test("addressMemory keeps what a name resolved to until it is that old", () => {
+  test("addressKeys keeps the addresses among a resolver's answers, in one spelling", () => {
+    expect(
+      addressKeys([
+        "10.0.0.7",
+        "::ffff:10.0.0.8",
+        "FD00:0:0:0:0:0:0:9",
+        "fe80::1%eth0",
+        "not-an-address",
+        "",
+      ]),
+    ).toEqual(["10.0.0.7", "10.0.0.8", "fd00::9", "fe80::1"]);
+    expect(addressKeys(["not-an-address"])).toEqual([]);
+  });
+
+  test("addressMemory keeps what a name resolved to until it is that old, and no more than it may hold", () => {
     let now = 1_000;
-    const seen = addressMemory(300, () => now);
+    const seen = addressMemory(300, 2, () => now);
     expect(seen(["10.0.0.7"])).toEqual(["10.0.0.7"]);
     now += 200;
     // The name moved: the address it had is still remembered for a while.
-    expect(seen(["10.0.0.8"]).sort()).toEqual(["10.0.0.7", "10.0.0.8"]);
-    now += 200;
-    expect(seen(["10.0.0.8"])).toEqual(["10.0.0.8"]);
+    expect(seen(["10.0.0.8"])?.sort()).toEqual(["10.0.0.7", "10.0.0.8"]);
+    // More than it may hold is no answer, rather than a set with a hole.
+    expect(seen(["10.0.0.9"])).toBeNull();
+    // Gone at exactly its age, not after it.
+    now += 100;
+    expect(seen(["10.0.0.9"])?.sort()).toEqual(["10.0.0.8", "10.0.0.9"]);
   });
 });
 
@@ -4810,9 +4828,10 @@ describe("startCredentialProxy", () => {
           Response.json({ jsonrpc: "2.0", id: 1, result: {} }),
         );
         let grant = grantOf(`http://upstream.test:${up.port}/mcp`, {});
+        let addresses = ["127.0.0.1"];
         const { server, looked, lines } = marked(
           () => grant,
-          async () => ["127.0.0.1"],
+          async () => addresses,
           {},
           up.port,
         );
@@ -4834,9 +4853,14 @@ describe("startCredentialProxy", () => {
         expect(up.seen).toHaveLength(3);
         expect(lines.join("\n")).not.toContain("installation's own");
         // With the mark the same listed host is held to the private rules,
-        // which loopback does not pass.
+        // which loopback does not pass. Not 127.0.0.1: the test's authorizer
+        // listens there, and that is refused for being the authorizer.
         grant = grantOf(listed);
+        addresses = ["127.0.0.2"];
         expect((await call(server.port, TOOLS_CALL)).status).toBe(403);
+        expect(lines.join("\n")).toContain(
+          "127.0.0.2 is loopback, not private",
+        );
         // A private mark without its deny list is no grant at all.
         grant = grantOf(listed, { allow: "private" });
         expect((await call(server.port, TOOLS_CALL)).status).toBe(503);
@@ -5125,6 +5149,67 @@ describe("startCredentialProxy", () => {
         expect(looked).toEqual([]);
         expect(lines.join("\n")).toContain(
           "127.0.0.1 is the installation's own",
+        );
+      });
+
+      test("an authorizer reached by name is refused by that name and by every address the name has had", async () => {
+        let upstreamAnswer = ["10.0.0.7"];
+        let authorizerAnswer: () => Promise<string[]> = async () => [
+          "10.0.0.7",
+        ];
+        let url = `http://${INSIDE}:4000/mcp`;
+        const looked: string[] = [];
+        const lines: string[] = [];
+        const auth = authorizer(() => Response.json(grantOf(url)));
+        // The control requests reach it through the system's lookup of
+        // localhost; the judgment asks the resolver below for the same name.
+        const server = proxy(auth.url.replace("127.0.0.1", "localhost"), 1, {
+          logger: createProxyLogger("warn", (line) => lines.push(line)),
+          resolve: async (host) => {
+            looked.push(host);
+            return host === "localhost" ? authorizerAnswer() : upstreamAnswer;
+          },
+          selfAddresses: () => [],
+        });
+        const status = async () => (await call(server.port, TOOLS_CALL)).status;
+        // The address its name resolves to now, under another name.
+        expect(await status()).toBe(403);
+        expect(lines.join("\n")).toContain(
+          "10.0.0.7 is the installation's own",
+        );
+        // The name moved: the address it had is still refused, the new one too.
+        authorizerAnswer = async () => ["10.0.0.8"];
+        expect(await status()).toBe(403);
+        upstreamAnswer = ["10.0.0.8"];
+        expect(await status()).toBe(403);
+        // An IPv4-mapped answer is the IPv4 address an upstream is dialled at.
+        authorizerAnswer = async () => ["::ffff:10.0.0.9"];
+        upstreamAnswer = ["10.0.0.9"];
+        expect(await status()).toBe(403);
+        expect(lines.join("\n")).toContain(
+          "10.0.0.9 is the installation's own",
+        );
+        // No address to tell it by is no judgment, whatever is remembered.
+        upstreamAnswer = ["10.0.0.5"];
+        const none: Array<() => Promise<string[]>> = [
+          async () => [],
+          async () => ["not-an-address"],
+          async () => {
+            throw new Error("getaddrinfo ENOTFOUND localhost");
+          },
+        ];
+        for (const answer of none) {
+          authorizerAnswer = answer;
+          expect(await status()).toBe(502);
+        }
+        // Its name is refused before the upstream is looked up.
+        authorizerAnswer = async () => ["10.0.0.7"];
+        looked.length = 0;
+        url = "http://LOCALHOST.:4000/mcp";
+        expect(await status()).toBe(403);
+        expect(looked).toEqual(["localhost"]);
+        expect(lines.join("\n")).toContain(
+          "localhost is the installation's own",
         );
       });
 
