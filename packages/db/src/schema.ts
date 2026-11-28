@@ -1400,6 +1400,14 @@ export const slackInboundEvents = pgTable(
      * instead, one event of a channel at a time.
      */
     conversationKey: text("conversation_key"),
+    /**
+     * The event is a bot's (its payload names a bot_id), kept after the
+     * payload is cleared. Null on rows intake dropped and on edits or deletes
+     * marked where they arrived (none keeps a thread key; a worker's drop keeps
+     * the flag and clears the key), and on rows an image before it wrote,
+     * which the task clock reads as a person's.
+     */
+    fromBot: boolean("from_bot"),
     claimToken: uuid("claim_token"),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     /** Claims so far, lease expiries included. */
@@ -1449,6 +1457,12 @@ export const slackInboundEvents = pgTable(
     index("slack_inbound_events_conversation_idx")
       .on(table.conversationKey, table.eventTime, table.receivedAt)
       .where(sql`${table.status} = 'received'`),
+    // A thread's posts by people, newest last: a task's clock (v1-b/C2).
+    index("slack_inbound_events_thread_received_idx")
+      .on(table.conversationKey, table.receivedAt)
+      .where(
+        sql`${table.conversationKey} IS NOT NULL AND ${table.fromBot} IS NOT TRUE`,
+      ),
     index("slack_inbound_events_failed_payload_idx")
       .on(table.receivedAt)
       .where(sql`${table.status} = 'failed' AND ${table.payload} IS NOT NULL`),

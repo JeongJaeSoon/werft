@@ -176,6 +176,18 @@ describe("slackProgressMessage", () => {
       expect(cancelled.blocks).toEqual([
         { type: "section", text: { type: "mrkdwn", text: cancelled.text } },
       ]);
+      const abandoned = slackProgressMessage({
+        locale,
+        state: "closed:3:abandoned",
+        startedAt: null,
+        closes,
+      });
+      expect(abandoned.text).toBe(
+        SLACK_NOTICE_MESSAGES[locale].progressAbandoned,
+      );
+      expect(abandoned.blocks).toEqual([
+        { type: "section", text: { type: "mrkdwn", text: abandoned.text } },
+      ]);
     }
   });
 

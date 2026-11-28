@@ -2100,8 +2100,9 @@ export function createPostgresSlackOutboxStore(
                   AND last.dedupe_key IS NOT NULL THEN 'closed:' || (
                   SELECT coalesce(max(ct.sequence), 0) FROM turns ct
                   WHERE ct.session_id = session_links.session_id
-                ) || CASE WHEN sessions.task_closed_reason = 'cancelled'
-                  THEN ':cancelled' ELSE '' END END,
+                ) || CASE sessions.task_closed_reason
+                  WHEN 'cancelled' THEN ':cancelled'
+                  WHEN 'abandoned' THEN ':abandoned' ELSE '' END END,
                 -- A worker waiting for room, as the session's wait_reason reads it.
                 (SELECT 'capacity_wait:' || wl.execution_id || ':' || wl.generation
                  FROM worker_launches wl

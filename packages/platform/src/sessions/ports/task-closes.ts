@@ -33,4 +33,11 @@ export interface TaskCloses {
    * one closed and none is open or merged. Returns how many it closed.
    */
   closeOnPullRequests(limit: number): Promise<number>;
+  /**
+   * Closes as abandoned, at most `limit` of them, the open tasks their time
+   * rules close: idle for the idle days of their closing rules, or quiet for
+   * the quiet days once they reached their limits. Returns how many closes
+   * it started: closed, or a drain accepted that settles later.
+   */
+  closeOnTimeRules(limit: number): Promise<number>;
 }
