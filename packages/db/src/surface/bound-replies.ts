@@ -127,13 +127,20 @@ export function createPostgresBoundReplyStore(
             WHERE id = ${reply.agentId}::uuid FOR SHARE`),
         );
         if (agent?.on !== true) return "session";
-        const session = (body: string | null): TaskReplyRoute =>
-          body !== null && body !== reply.body ? { edited: body } : "session";
+        // An edit marks its row: its decoded text can read as the post's.
+        const session = (row: {
+          body: string | null;
+          edited: boolean;
+        }): TaskReplyRoute =>
+          row.body !== null && (row.edited || row.body !== reply.body)
+            ? { edited: row.body }
+            : "session";
         const [held] = rowsOf<
           {
             id: ConversationInputId;
             held: boolean;
             body: string | null;
+            edited: boolean;
             judgment_id: ConversationJudgmentId | null;
             grade: string | null;
             lapsed: boolean | null;
@@ -141,6 +148,7 @@ export function createPostgresBoundReplyStore(
         >(
           await tx.execute(sql`
             SELECT i.id, i.buffer_expires_at IS NOT NULL AS held, i.body,
+              i.body_edited_at IS NOT NULL AS edited,
               j.id AS judgment_id, j.grade, j.outcome, j.decision,
               j.created_at <= now() - ${secs(reply.waitMs)} AS lapsed,
               j.judged_at <= j.created_at + ${secs(reply.waitMs)} AS in_time
@@ -170,7 +178,7 @@ export function createPostgresBoundReplyStore(
                 WHERE id = ${held.judgment_id}::uuid AND outcome IS NULL
                 RETURNING id`),
             );
-            if (given.length > 0) return session(held.body);
+            if (given.length > 0) return session(held);
             // Its judge wrote it first.
             [ended] = rowsOf<Ended>(
               await tx.execute(sql`
@@ -179,9 +187,9 @@ export function createPostgresBoundReplyStore(
                 FROM conversation_judgments
                 WHERE id = ${held.judgment_id}::uuid`),
             );
-            if (ended === undefined) return session(held.body);
+            if (ended === undefined) return session(held);
           }
-          if (!kept(ended)) return session(held.body);
+          if (!kept(ended)) return session(held);
           await dropBufferedInputs(tx, [held.id]);
           return "quiet";
         }

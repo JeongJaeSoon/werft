@@ -9357,6 +9357,30 @@ describe.each(ENGINES)(
         ]);
       });
 
+      test("an edit to a mention of a reply that wrote one out: the work's turn takes it without the mention", async () => {
+        const { fixture, handle, sessionId } = await workThread("queued");
+        // Written out, not a mention: its held text decodes to the edit's.
+        await deliver(
+          fixture,
+          reply(`&lt;@${BOT_USER}&gt; and the step after`),
+        );
+        expect(await drain(handle)).toMatchObject({ deferred: 1 });
+        await db
+          .update(schema.conversationInputs)
+          .set({
+            body: `<@${BOT_USER}> and the step after`,
+            bodyEditedAt: new Date(),
+          })
+          .where(eq(schema.conversationInputs.slackTs, REPLY));
+        expect((await judgeReplies("speak")).judged).toBe(1);
+        await due();
+        expect(await drain(handle)).toMatchObject({ processed: 1 });
+        expect(await messagesOf(sessionId)).toEqual([
+          "summarize the thread",
+          "and the step after",
+        ]);
+      });
+
       test("work closed while its reply waited: the reply keeps its grade and is judged once", async () => {
         const { fixture, handle, sessionId } = await workThread("queued");
         await deliver(fixture, reply());
