@@ -1,5 +1,7 @@
 import { isIP } from "node:net";
+import { networkInterfaces } from "node:os";
 import type { Server } from "bun";
+import { isPrivateAddress } from "./ip-address.ts";
 import { createProxyLogger, type ProxyLogger } from "./logger.ts";
 import { messageOf } from "./message-of.ts";
 import {
@@ -767,11 +769,18 @@ export type EgressGrant = {
   /** The upstream was a `/mcp/<name>` path on the authorizer's listener. */
   builtin: boolean;
   /**
-   * The authorizer's mark on a server the session's workspace registered:
-   * judge its one host:port by the public address rules, not by the
-   * operator's list. Absent when not sent or not understood.
+   * The authorizer's mark on what a workspace registered: judge its one
+   * host:port by the address rules of its kind, not by the operator's list.
+   * `public_https` is a remote MCP server on public addresses; `private`
+   * is a model endpoint or MCP server an admin opened inside the private
+   * plane. Absent when not sent or not understood.
    */
-  allow?: "public_https";
+  allow?: "public_https" | "private";
+  /**
+   * With `private`: the installation's own hosts as the authorizer names
+   * them, each in the spelling `hostKey` gives. Never dialled.
+   */
+  deny?: readonly string[];
   /**
    * The one request the grant covers (a session title call or a
    * conversation call), when it says.
@@ -865,6 +874,12 @@ function outsideLimits(
   return null;
 }
 
+/**
+ * The grant marks this proxy keeps to, one token each, comma separated:
+ * `upstream.allow: "public_https"` and `upstream.allow: "private"`.
+ */
+const EGRESS_FEATURES = "registered-upstream,registered-private-upstream";
+
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const HEADER_VALUE = /^[\t\x20-\x7e\x80-\xff]*$/;
 const REQUEST_TARGET = /^\/[!-~]*$/;
@@ -914,8 +929,15 @@ export function parseGrant(
     requestLimits?.maxRequestBytes !== undefined;
   if (!session && !judgment && !conversationCall) return null;
   if (typeof upstream !== "object" || upstream === null) return null;
-  const { url, headers, target, allow } = upstream as Record<string, unknown>;
+  const { url, headers, target, allow, deny } = upstream as Record<
+    string,
+    unknown
+  >;
   if (typeof url !== "string" || !Array.isArray(headers)) return null;
+  // A private mark without a deny list it can read is a grant it cannot
+  // keep to. Without the mark the list is not read: nothing is opened.
+  const denied = allow === "private" ? denyOf(deny) : undefined;
+  if (denied === null) return null;
   if (
     target !== undefined &&
     (typeof target !== "string" || !REQUEST_TARGET.test(target))
@@ -964,6 +986,9 @@ export function parseGrant(
     target: target ?? null,
     builtin,
     ...(allow === "public_https" ? { allow } : {}),
+    ...(allow === "private" && denied !== undefined
+      ? { allow, deny: denied }
+      : {}),
     ...(requestLimits === undefined ? {} : { requestLimits }),
   };
 }
@@ -973,18 +998,88 @@ function portOf(upstream: URL): number {
   return upstream.protocol === "https:" ? 443 : 80;
 }
 
+const MAX_DENIED_HOSTS = 256;
+
 /**
- * The policy a grant's upstream is dialled under. A remote MCP server the
- * authorizer marked as registered gets a policy of its own host:port alone,
- * held to the public address rules; a mark on anything else (another route,
- * the built-in server, plain http) changes nothing, and the operator's list
- * decides as it did before the mark existed.
+ * A host in the one spelling an upstream URL naming it is read in: lower
+ * case, no trailing dot, an address as the URL parser writes it (which reads
+ * `2130706433` and `0x7f.1` as 127.0.0.1). null when the text is not a
+ * host alone: a port, a path, a zone.
+ */
+export function hostKey(host: string): string | null {
+  const bare =
+    host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+  if (!/^[0-9A-Za-z._:-]+$/.test(bare)) return null;
+  const v6 = bare.includes(":");
+  if (v6 && isIP(bare) !== 6) return null;
+  try {
+    const key = normalizeHost(
+      new URL(`http://${v6 ? `[${bare}]` : bare}/`).hostname,
+    );
+    return key === "" ? null : key;
+  } catch {
+    return null;
+  }
+}
+
+function addressKey(address: string): string | null {
+  const zone = address.indexOf("%");
+  return hostKey(zone < 0 ? address : address.slice(0, zone));
+}
+
+function denyOf(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length > MAX_DENIED_HOSTS) return null;
+  const hosts: string[] = [];
+  for (const entry of value) {
+    const key = typeof entry === "string" ? hostKey(entry) : null;
+    if (key === null) return null;
+    hosts.push(key);
+  }
+  return hosts;
+}
+
+/** The routes whose upstream a workspace's admin registers: models and MCP. */
+const PRIVATE_MARK_ROUTES: ReadonlySet<EgressPurpose> = new Set<EgressPurpose>([
+  "mcp",
+  "provider",
+  "judgment",
+]);
+
+/** Whether the grant's upstream is dialled under the registered private rules. */
+export function registeredPrivate(
+  purpose: EgressPurpose,
+  grant: EgressGrant,
+): boolean {
+  return (
+    grant.allow === "private" &&
+    !grant.builtin &&
+    PRIVATE_MARK_ROUTES.has(purpose)
+  );
+}
+
+/**
+ * The policy a grant's upstream is dialled under. An upstream the authorizer
+ * marked as registered gets a policy of its own host:port alone: a remote
+ * MCP server marked `public_https` is held to the public address rules, a
+ * model endpoint or MCP server marked `private` to the private ones, with
+ * `privateRefusal` on top. A mark on anything else (another route, the
+ * built-in server, `public_https` on plain http) changes nothing, and the
+ * operator's list decides as it did before the marks existed.
  */
 export function upstreamPolicy(
   purpose: EgressPurpose,
   grant: EgressGrant,
   policy: EgressPolicy,
 ): EgressPolicy {
+  const only = [
+    {
+      host: normalizeHost(grant.upstream.hostname),
+      port: portOf(grant.upstream),
+    },
+  ];
+  if (registeredPrivate(purpose, grant)) {
+    return { allow: [], allowPrivate: only };
+  }
   if (
     purpose !== "mcp" ||
     grant.builtin ||
@@ -993,15 +1088,64 @@ export function upstreamPolicy(
   ) {
     return policy;
   }
-  return {
-    allow: [
-      {
-        host: normalizeHost(grant.upstream.hostname),
-        port: portOf(grant.upstream),
-      },
-    ],
-    allowPrivate: [],
-  };
+  return { allow: only, allowPrivate: [] };
+}
+
+/**
+ * What a registered private upstream may never be, as host keys: the hosts
+ * its grant denies, this proxy's own addresses, and the authorizer by name
+ * and by what that name resolves to now. null when the authorizer's name
+ * does not resolve, which leaves nothing to tell its address by.
+ */
+export async function installationHosts(
+  denied: readonly string[],
+  authorizerHost: string,
+  selfAddresses: readonly string[],
+  resolve: EgressResolver,
+): Promise<ReadonlySet<string> | null> {
+  const hosts = new Set([...denied, authorizerHost]);
+  let addresses = [...selfAddresses];
+  if (isIP(authorizerHost) === 0) {
+    const resolved = await resolve(authorizerHost).catch(() => []);
+    if (resolved.length === 0) return null;
+    addresses = [...addresses, ...resolved];
+  }
+  for (const address of addresses) {
+    const key = addressKey(address);
+    if (key !== null) hosts.add(key);
+  }
+  return hosts;
+}
+
+/**
+ * Why a registered private upstream is not dialled at `address`; null when
+ * it may be. On top of what `decideEgress` refuses under every list
+ * (metadata, link-local, multicast, reserved, unspecified): the address is
+ * private as written, so neither loopback nor IPv4 carried inside IPv6, and
+ * it is nothing of the installation's own.
+ */
+export function privateRefusal(
+  address: string,
+  installation: ReadonlySet<string>,
+): string | null {
+  const key = addressKey(address);
+  if (key !== null && installation.has(key)) {
+    return `${address} is the installation's own`;
+  }
+  const kind = classifyAddress(address);
+  if (kind !== "private") return `${address} is ${kind}, not private`;
+  if (key === null) return `${address} has no spelling to compare`;
+  if (!isPrivateAddress(address)) {
+    return `${address} carries an IPv4 address, and is not private as written`;
+  }
+  return null;
+}
+
+/** Every address this host answers on: the listeners bind them all. */
+function interfaceAddresses(): string[] {
+  return Object.values(networkInterfaces()).flatMap((entries) =>
+    (entries ?? []).map((entry) => entry.address),
+  );
 }
 
 /**
@@ -1273,6 +1417,11 @@ export type CredentialProxyOptions = {
   regrantGraceMs?: number;
   regrantIntervalMs?: number;
   resolve?: EgressResolver;
+  /**
+   * This proxy's own addresses, which no registered private upstream may
+   * be; the host's interfaces when absent.
+   */
+  selfAddresses?: () => readonly string[];
   /** Waits between tries of a usage report the authorizer could not take. */
   usageReportBackoffMs?: readonly number[];
   /**
@@ -1384,6 +1533,8 @@ export function startCredentialProxy(
   const maxHeld = options.undecidedHold?.max ?? DEFAULT_MAX_UNDECIDED_HELD;
   let held = 0;
   const authorizeUrl = new URL("/authorize", options.authorizer.url);
+  const authorizerHost = normalizeHost(authorizeUrl.hostname);
+  const selfAddresses = options.selfAddresses ?? interfaceAddresses;
   const usageUrl = new URL("/usage", options.authorizer.url);
   const exchangesUrl = new URL("/exchanges", options.authorizer.url);
   const usageBackoffMs =
@@ -1514,9 +1665,9 @@ export function startCredentialProxy(
         headers: {
           authorization: `Bearer ${options.authorizer.token}`,
           "content-type": "application/json",
-          // That this proxy reads the registered-server mark, so the API
-          // can tell it from one that would hold the server to the list.
-          "x-werft-egress-features": "registered-upstream",
+          // The marks this proxy reads, so the API can tell it from one that
+          // would hold a registered upstream to the operator's list.
+          "x-werft-egress-features": EGRESS_FEATURES,
           ...(purpose === "provider"
             ? { "x-werft-exchange-id": exchangeId }
             : {}),
@@ -1724,10 +1875,34 @@ export function startCredentialProxy(
     purpose: EgressPurpose,
     who: Readonly<Record<string, unknown>>,
     signal: AbortSignal,
+    // A registered private upstream's deny list; null for anything else.
+    denied: readonly string[] | null = null,
   ): Promise<Dialable | Response> {
     const host = normalizeHost(upstream.hostname);
     const port = portOf(upstream);
     const fields = { ...who, host, port };
+    const installation =
+      denied === null
+        ? null
+        : await untilEnded(
+            installationHosts(denied, authorizerHost, selfAddresses(), resolve),
+            signal,
+          );
+    if (denied !== null && installation === null) {
+      logger.warn("Credential route lookup failed", {
+        ...fields,
+        reason: "the authorizer's host does not resolve",
+      });
+      return reply(502, "host does not resolve", purpose);
+    }
+    // Before the name is looked up, and before the private rules pass it.
+    if (installation?.has(host)) {
+      logger.warn("Credential route denied", {
+        ...fields,
+        reason: `${host} is the installation's own`,
+      });
+      return reply(403, PRIVATE_UPSTREAM_REFUSED, purpose);
+    }
     const decision = await untilEnded(
       policy === null
         ? authorizerDestination(host)
@@ -1764,6 +1939,14 @@ export function startCredentialProxy(
         "egress denied: a private upstream resolved publicly",
         purpose,
       );
+    }
+    if (installation != null) {
+      for (const address of decision.addresses) {
+        const reason = privateRefusal(address, installation);
+        if (reason === null) continue;
+        logger.warn("Credential route denied", { ...fields, reason });
+        return reply(403, PRIVATE_UPSTREAM_REFUSED, purpose);
+      }
     }
     // A certificate is checked for a name; an address would have to be
     // checked for itself, which the upstream client does not do. Nothing in
@@ -2026,6 +2209,7 @@ export function startCredentialProxy(
         route.purpose,
         who,
         signal,
+        registeredPrivate(route.purpose, grant) ? (grant.deny ?? []) : null,
       );
     let first = await dialUpstream();
     // The built-in server's name stops resolving while its container is
@@ -2832,6 +3016,10 @@ type LedgerCall = {
 };
 
 type Dialable = { address: string; host: string; port: number };
+
+/** To the worker; which rule and which address stay in the proxy's log. */
+const PRIVATE_UPSTREAM_REFUSED =
+  "egress denied: a registered private upstream may not be this address";
 
 /** `work`, or the signal's reason if it fires first: a hung lookup too. */
 function untilEnded<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
