@@ -101,13 +101,14 @@
 
 - 작업이 아닌 세션(`task_closing` 없음)은 어느 길로도 작업으로 닫히지 않는다(요청자에게 `not_task`).
 - `eventRules`가 꺼진 작업은 PR 사건으로 닫히지 않는다.
-- `closed` PR과 `open` PR이 함께 있는 작업은 닫히지 않는다. 열린 PR이 `merged`가 되면 `completed`로 닫힌다.
+- `merged` PR 없이 `closed` PR과 `open` PR이 함께 있는 작업은 닫히지 않는다. 열린 PR이 `merged`가 되면 `completed`로 닫힌다.
 - 권한이 없는 사람이 누른 버튼은 세션을 바꾸지 않는다.
 
 지켜야 할 성질:
 
 - 작업의 스레드 링크는 다음 outbox pass의 `closeFinishedLinks`가 `task_closed_reason`으로 닫는다. 진행 메시지가 있는 링크는 닫힘 갱신 행(취소면 '작업을 취소했어요')이 생긴 뒤에 닫힌다. 같은 pass에서 진행 갱신을 넣은 뒤 링크를 닫기 전에 세션이 닫혀도 같다.
 - 닫힌 작업의 진행 메시지에는 버튼이 없다.
+- PR 사건의 사유는 닫기 트랜잭션이 세션을 잠근 뒤 그 세션의 PR 성과를 다시 읽어 정한다. PR 저장도 같은 세션을 잠그고 refresh는 성과 행을 잠그므로, pass가 후보를 고른 뒤 저장된 PR(새로 열린 PR, merge)이 그 닫기에 보인다.
 - PR 사건 pass는 replica마다 지난 pass가 멈춘 세션 id 뒤에서 이어 고른다. `closeAtomic`이 계속 거절하는 작업이 한 번에 고르는 수(100)보다 많아도 그 뒤 작업이 밀리지 않는다.
 - 요청자가 닫은 작업의 스레드에 온 멘션은 대화 turn이 된다(`spawn_task`면 새 작업과 새 링크, `reply`면 답만).
 

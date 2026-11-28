@@ -23,22 +23,39 @@ afterEach(async () => {
   await client.close();
 });
 
-async function taskWithMergedPullRequest(name: string): Promise<string> {
-  const { sessionId, ownerId } = await newPartitionedSession(db, name);
+type PullState = "open" | "merged" | "closed";
+
+async function pullRequest(
+  sessionId: string,
+  number: string,
+  state: PullState,
+) {
+  const [session] = await db
+    .select({ ownerId: sessions.ownerId })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId));
+  await db.insert(sessionOutcomes).values({
+    id: randomUUID(),
+    ownerId: session?.ownerId ?? "",
+    sessionId,
+    type: "github_pull_request",
+    url: `https://github.com/acme/app/pull/${number}`,
+    externalId: number,
+    state,
+    stateChangedAt: new Date(),
+  });
+}
+
+async function taskWithPullRequest(
+  name: string,
+  state: PullState = "merged",
+): Promise<string> {
+  const { sessionId } = await newPartitionedSession(db, name);
   await db
     .update(sessions)
     .set({ taskClosing: TASK_CLOSING_DEFAULT })
     .where(eq(sessions.id, sessionId));
-  await db.insert(sessionOutcomes).values({
-    id: randomUUID(),
-    ownerId,
-    sessionId,
-    type: "github_pull_request",
-    url: `https://github.com/acme/app/pull/${name}`,
-    externalId: name,
-    state: "merged",
-    stateChangedAt: new Date(),
-  });
+  await pullRequest(sessionId, name, state);
   return sessionId;
 }
 
@@ -55,8 +72,8 @@ const taskOf = async (sessionId: string) =>
 
 test("a task the close keeps refusing does not hold the ones after it out of every pass", async () => {
   const [stuck, next] = [
-    await taskWithMergedPullRequest("1"),
-    await taskWithMergedPullRequest("2"),
+    await taskWithPullRequest("1"),
+    await taskWithPullRequest("2"),
   ].sort();
   if (stuck === undefined || next === undefined) throw new Error("no tasks");
   // A legacy pod binding: closeAtomic answers unsupported every time.
@@ -72,7 +89,45 @@ test("a task the close keeps refusing does not hold the ones after it out of eve
     admission: "closed",
     reason: "completed",
   });
-  // Round again: the refused one is tried, the closed one is not.
+  // Past the last one the pass finds none and starts over: the one refused
+  // before is tried again and, no longer refused, closes.
+  await db.update(sessions).set({ podId: null }).where(eq(sessions.id, stuck));
   expect(await sweep.closeOnPullRequests(1)).toBe(0);
-  expect(await taskOf(stuck)).toEqual({ admission: "active", reason: null });
+  expect(await sweep.closeOnPullRequests(1)).toBe(1);
+  expect(await taskOf(stuck)).toEqual({
+    admission: "closed",
+    reason: "completed",
+  });
 });
+
+/** The database, with `then` run right after the pass reads its candidates. */
+function afterCandidates(then: () => Promise<void>): Database {
+  return new Proxy(db, {
+    get(target, key) {
+      const value = Reflect.get(target, key, target);
+      if (key !== "execute") {
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+      return async (...args: Parameters<Database["execute"]>) => {
+        const rows = await target.execute(...args);
+        await then();
+        return rows;
+      };
+    },
+  });
+}
+
+test.each([
+  ["open", { admission: "active", reason: null }],
+  ["merged", { admission: "closed", reason: "completed" }],
+] as const)(
+  "a pull request saved %s after the pass chose a task to cancel is what its close judges",
+  async (state, after) => {
+    const sessionId = await taskWithPullRequest("1", "closed");
+    const sweep = createPostgresTaskCloses(
+      afterCandidates(() => pullRequest(sessionId, "2", state)),
+    );
+    expect(await sweep.closeOnPullRequests(10)).toBe(state === "open" ? 0 : 1);
+    expect(await taskOf(sessionId)).toEqual(after);
+  },
+);

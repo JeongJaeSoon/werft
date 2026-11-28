@@ -6,9 +6,9 @@ import type {
   TaskCloseOutcome,
   TaskCloses,
 } from "@werft-ai/platform";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
-import { sessions } from "../schema.ts";
+import { sessionOutcomes, sessions } from "../schema.ts";
 import { rowsOf } from "../statement-rows.ts";
 import {
   closeAtomic,
@@ -18,6 +18,36 @@ import {
 
 // A session that moves between the read and the close is read again.
 const REVISION_ATTEMPTS = 3;
+
+/** A task its pull requests, read under its lock, no longer close. */
+class NotDue extends Error {}
+
+/**
+ * The reason a task's pull requests close it with: any merged, completed;
+ * else closed with none open, cancelled. Read under the session's lock,
+ * which saving a pull request takes too, with the rows shared against a
+ * refresh settling one, so the close judges what is there now.
+ */
+async function pullRequestReason(
+  tx: Database,
+  sessionId: string,
+): Promise<TaskClosedReason> {
+  const states = (
+    await tx
+      .select({ state: sessionOutcomes.state })
+      .from(sessionOutcomes)
+      .where(
+        and(
+          eq(sessionOutcomes.sessionId, sessionId),
+          eq(sessionOutcomes.type, "github_pull_request"),
+        ),
+      )
+      .for("share")
+  ).map(({ state }) => state);
+  if (states.includes("merged")) return "completed";
+  if (states.includes("closed") && !states.includes("open")) return "cancelled";
+  throw new NotDue();
+}
 
 /**
  * The owner's close (closeAtomic) of a task with its closed reason in the
@@ -29,7 +59,7 @@ async function closeTask(
   input: {
     principal: Principal | null;
     sessionId: string;
-    reason: TaskClosedReason;
+    reason: TaskClosedReason | typeof pullRequestReason;
     by?: typeof PULL_REQUEST_EVENT;
   },
 ): Promise<TaskCloseOutcome> {
@@ -46,17 +76,27 @@ async function closeTask(
       .limit(1);
     if (!row) return "not_found";
     if (row.taskClosing === null) return "not_task";
-    const result = await closeAtomic(db, {
-      principal: input.principal ?? { ownerId: row.ownerId },
-      sessionId,
-      idempotencyKey: randomUUID(),
-      payloadHash: taskClosePayloadHash(input.reason),
-      expectedRevision: row.revision,
-      reason: null,
-      now: new Date(),
-      ...(input.by === undefined ? {} : { by: input.by }),
-      taskClosedReason: input.reason,
-    });
+    let result: Awaited<ReturnType<typeof closeAtomic>>;
+    try {
+      result = await closeAtomic(db, {
+        principal: input.principal ?? { ownerId: row.ownerId },
+        sessionId,
+        idempotencyKey: randomUUID(),
+        // closeAtomic stores the reason's own hash once it is judged.
+        payloadHash:
+          typeof input.reason === "function"
+            ? "task_close"
+            : taskClosePayloadHash(input.reason),
+        expectedRevision: row.revision,
+        reason: null,
+        now: new Date(),
+        ...(input.by === undefined ? {} : { by: input.by }),
+        taskClosedReason: input.reason,
+      });
+    } catch (error) {
+      if (error instanceof NotDue) return "refused";
+      throw error;
+    }
     switch (result.outcome) {
       case "accepted":
         if (result.into === undefined) {
@@ -99,10 +139,10 @@ export function createPostgresTaskCloses(db: Database): TaskCloses {
     async closeOnPullRequests(limit) {
       // Driven by the pull requests that settled: few next to the sessions.
       // The states listed are the ones closeAtomic closes from.
-      const due = rowsOf<{ id: string; reason: TaskClosedReason }>(
+      // Candidates only: each close judges its reason again under its lock.
+      const due = rowsOf<{ id: string }>(
         await db.execute(sql`
-          SELECT s.id, CASE WHEN bool_or(o.state = 'merged')
-            THEN 'completed' ELSE 'cancelled' END AS reason
+          SELECT s.id
           FROM ${sessions} s
           JOIN session_outcomes o ON o.session_id = s.id
             AND o.type = 'github_pull_request'
@@ -125,7 +165,7 @@ export function createPostgresTaskCloses(db: Database): TaskCloses {
           const outcome = await closeTask(db, {
             principal: null,
             sessionId: row.id,
-            reason: row.reason,
+            reason: pullRequestReason,
             by: PULL_REQUEST_EVENT,
           });
           if (outcome === "closing" || outcome === "closed") closed += 1;

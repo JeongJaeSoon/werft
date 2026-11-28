@@ -171,10 +171,12 @@ export function closeAtomic(
     by?: typeof OPERATOR_CLI | typeof PULL_REQUEST_EVENT;
     /**
      * A task's closed reason (v1-b/C1), written when the close makes the
-     * session `closed`; a drained one, when it is seen gone. The payload
-     * hash must be taskClosePayloadHash of it.
+     * session `closed`; a drained one, when it is seen gone. A function is
+     * judged once the session is locked, and throws when the task is not due.
      */
-    taskClosedReason?: TaskClosedReason;
+    taskClosedReason?:
+      | TaskClosedReason
+      | ((tx: Database, sessionId: string) => Promise<TaskClosedReason>);
   },
 ): Promise<CloseSessionResult & { into?: "closing" | "closed" }> {
   const sessionId = input.sessionId.toLowerCase();
@@ -214,6 +216,10 @@ export function closeAtomic(
     if (session.executionId === null && session.podId !== null) {
       return { outcome: "unsupported" };
     }
+    const taskClosedReason =
+      typeof input.taskClosedReason === "function"
+        ? await input.taskClosedReason(tx, sessionId)
+        : input.taskClosedReason;
 
     // A transcript past the limits ended its last turn without a checkpoint,
     // and no drain by this attempt can commit one: refuse as for a session
@@ -267,8 +273,8 @@ export function closeAtomic(
         updatedAt: now,
       })
       .where(eq(sessions.id, sessionId));
-    if (input.taskClosedReason !== undefined && into === "closed") {
-      await recordTaskClosedReason(tx, sessionId, input.taskClosedReason);
+    if (taskClosedReason !== undefined && into === "closed") {
+      await recordTaskClosedReason(tx, sessionId, taskClosedReason);
     }
 
     const receiptId = randomUUID();
@@ -328,7 +334,10 @@ export function closeAtomic(
       operation: scope.operation,
       resource: scope.resource,
       key: scope.key,
-      payloadHash: input.payloadHash,
+      payloadHash:
+        taskClosedReason === undefined
+          ? input.payloadHash
+          : taskClosePayloadHash(taskClosedReason),
       receiptId,
     });
     return { outcome: "accepted", response, into };
