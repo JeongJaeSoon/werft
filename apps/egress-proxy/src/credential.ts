@@ -1904,30 +1904,74 @@ export function startCredentialProxy(
   }
 
   /**
-   * What a registered private upstream may never be. null while the
-   * authorizer's name resolves to no address: nothing tells its own then.
+   * Looks the authorizer's name up into the memory of its addresses. False
+   * when the answer has none to tell it by.
    */
-  async function installationOf(
-    denied: readonly string[],
-  ): Promise<ReadonlySet<string> | null> {
-    let authorizer: string[] = [];
-    if (isIP(authorizerHost) === 0) {
-      let answers: string[];
-      try {
-        // The name as the control requests look it up, trailing dot and all.
-        answers = await resolve(authorizeUrl.hostname);
-      } catch {
-        return null;
-      }
-      const now = addressKeys(answers);
-      const seen = now.length === 0 ? null : authorizerSeen(now);
-      if (seen === null) return null;
-      authorizer = seen;
+  async function authorizerLookedUp(): Promise<boolean> {
+    if (isIP(authorizerHost) !== 0) return true;
+    let answers: string[];
+    try {
+      // The name as the control requests look it up, trailing dot and all.
+      answers = await resolve(authorizeUrl.hostname);
+    } catch {
+      return false;
     }
-    return installationHosts(denied, authorizerHost, [
+    const now = addressKeys(answers);
+    if (now.length > 0) authorizerSeen(now);
+    return now.length > 0;
+  }
+
+  /** The authorizer's addresses as remembered this instant; null with a hole. */
+  function authorizerNow(): string[] | null {
+    return isIP(authorizerHost) === 0 ? authorizerSeen([]) : [];
+  }
+
+  /**
+   * Why a registered private upstream is not dialled at `addresses`, by
+   * what is known this instant: nothing is awaited, so what another
+   * exchange has just learnt of the authorizer counts. `known` is what an
+   * earlier judgment of the same upstream went by. null if it may be.
+   */
+  function privateVerdict(
+    denied: readonly string[],
+    host: string,
+    addresses: readonly string[],
+    known: readonly string[] = [],
+  ): PrivateVerdict | null {
+    const authorizer = authorizerNow();
+    if (authorizer === null) return UNKNOWN_AUTHORIZER;
+    const installation = installationHosts(denied, authorizerHost, [
       ...selfAddresses(),
       ...authorizer,
+      ...known,
     ]);
+    if (installation.has(hostKey(host) ?? host)) {
+      return { status: 403, reason: `${host} is the installation's own` };
+    }
+    for (const address of addresses) {
+      const reason = privateRefusal(address, installation);
+      if (reason !== null) return { status: 403, reason };
+    }
+    return null;
+  }
+
+  function refusedPrivate(
+    verdict: PrivateVerdict,
+    fields: Readonly<Record<string, unknown>>,
+    purpose: EgressPurpose,
+  ): Response {
+    if (verdict.status === 502) {
+      logger.warn("Credential route lookup failed", {
+        ...fields,
+        reason: verdict.reason,
+      });
+      return reply(502, "host does not resolve", purpose);
+    }
+    logger.warn("Credential route denied", {
+      ...fields,
+      reason: verdict.reason,
+    });
+    return reply(403, PRIVATE_UPSTREAM_REFUSED, purpose);
   }
 
   /** Where `upstream` may be dialled under `policy`, or the refusal to send. */
@@ -1944,22 +1988,12 @@ export function startCredentialProxy(
     const host = normalizeHost(upstream.hostname);
     const port = portOf(upstream);
     const fields = { ...who, host, port };
-    const installation =
-      denied === null ? null : await untilEnded(installationOf(denied), signal);
-    if (denied !== null && installation === null) {
-      logger.warn("Credential route lookup failed", {
-        ...fields,
-        reason: "the authorizer's addresses are unknown",
-      });
-      return reply(502, "host does not resolve", purpose);
-    }
-    // Before the name is looked up, and before the private rules pass it.
-    if (installation?.has(hostKey(host) ?? host)) {
-      logger.warn("Credential route denied", {
-        ...fields,
-        reason: `${host} is the installation's own`,
-      });
-      return reply(403, PRIVATE_UPSTREAM_REFUSED, purpose);
+    if (denied !== null) {
+      // Before the name is looked up, and before the private rules pass it.
+      const early = (await untilEnded(authorizerLookedUp(), signal))
+        ? privateVerdict(denied, host, [])
+        : UNKNOWN_AUTHORIZER;
+      if (early !== null) return refusedPrivate(early, fields, purpose);
     }
     const decision = await untilEnded(
       policy === null
@@ -1998,14 +2032,11 @@ export function startCredentialProxy(
         purpose,
       );
     }
-    if (installation != null) {
-      for (const address of decision.addresses) {
-        const reason = privateRefusal(address, installation);
-        if (reason === null) continue;
-        logger.warn("Credential route denied", { ...fields, reason });
-        return reply(403, PRIVATE_UPSTREAM_REFUSED, purpose);
-      }
-    }
+    // Read afresh now that the lookup has been waited for: another exchange
+    // may have learnt a new address of the authorizer meanwhile.
+    const late =
+      denied === null ? null : privateVerdict(denied, host, decision.addresses);
+    if (late !== null) return refusedPrivate(late, fields, purpose);
     // A certificate is checked for a name; an address would have to be
     // checked for itself, which the upstream client does not do. Nothing in
     // the catalog needs it: trigger to add, an https upstream only
@@ -2019,7 +2050,16 @@ export function startCredentialProxy(
     }
     // The address that was judged, and only it. A POST is never retried
     // against a second address: its body may already have reached the first.
-    return { address: decision.addresses[0] ?? "", host, port };
+    const address = decision.addresses[0] ?? "";
+    if (denied === null) return { address, host, port };
+    // And read once more where the connection starts, on top of this.
+    const known = authorizerNow() ?? [];
+    return {
+      address,
+      host,
+      port,
+      refusal: () => privateVerdict(denied, host, decision.addresses, known),
+    };
   }
 
   function send(
@@ -2340,6 +2380,13 @@ export function startCredentialProxy(
       };
       let at = first;
       for (let tried = 0; ; tried++) {
+        // Nothing is awaited between this and the connection starting: the
+        // body and the ledger were waited for since the upstream was judged.
+        const late = at.refusal?.();
+        if (late != null) {
+          ledger?.release();
+          return refusedPrivate(late, fields, route.purpose);
+        }
         try {
           response = await send(
             upstream,
@@ -3073,7 +3120,20 @@ type LedgerCall = {
   release(): void;
 };
 
-type Dialable = { address: string; host: string; port: number };
+type PrivateVerdict = { status: 403 | 502; reason: string };
+
+const UNKNOWN_AUTHORIZER: PrivateVerdict = {
+  status: 502,
+  reason: "the authorizer's addresses are unknown",
+};
+
+type Dialable = {
+  address: string;
+  host: string;
+  port: number;
+  /** A registered private upstream's: why it is not dialled after all. */
+  refusal?: () => PrivateVerdict | null;
+};
 
 /** To the worker; which rule and which address stay in the proxy's log. */
 const PRIVATE_UPSTREAM_REFUSED =

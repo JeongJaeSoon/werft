@@ -835,6 +835,19 @@ describe("the registered-private mark", () => {
     now += 1;
     expect(seen(["10.0.0.9"])).toEqual(["10.0.0.9"]);
   });
+
+  test("addressMemory keeps an address it holds while it is full", () => {
+    let now = 0;
+    const seen = addressMemory(300, 2, () => now);
+    expect(seen(["10.0.0.7", "10.0.0.8"])).toEqual(["10.0.0.7", "10.0.0.8"]);
+    now = 200;
+    expect(seen(["10.0.0.7"])).toEqual(["10.0.0.7", "10.0.0.8"]);
+    // .8 is as old as it gets, .7 was seen again since: room for one more.
+    now = 300;
+    expect(seen(["10.0.0.9"])).toEqual(["10.0.0.7", "10.0.0.9"]);
+    // Asked for nothing new, it answers what it holds.
+    expect(seen([])).toEqual(["10.0.0.7", "10.0.0.9"]);
+  });
 });
 
 describe("secretGuard", () => {
@@ -4825,6 +4838,28 @@ describe("startCredentialProxy", () => {
         servers.push(server);
         return { port: server.port ?? 0, seen };
       }
+      /**
+       * The authorizer's URL by name. The control requests reach it through
+       * the system's lookup of localhost, which may be ::1 alone, so it is
+       * answered there too; the judgment asks the test's resolver.
+       */
+      function byName(url: string): string {
+        try {
+          servers.push(
+            Bun.serve({
+              hostname: "::1",
+              port: Number(new URL(url).port),
+              fetch: async (request) =>
+                fetch(url + new URL(request.url).pathname, {
+                  method: request.method,
+                  headers: request.headers,
+                  body: await request.text(),
+                }),
+            }),
+          );
+        } catch {}
+        return url.replace("127.0.0.1", "localhost");
+      }
 
       test("with an API that sends no mark, nothing changes: the operator's list decides", async () => {
         const up = upstream(() =>
@@ -5164,24 +5199,7 @@ describe("startCredentialProxy", () => {
         const looked: string[] = [];
         const lines: string[] = [];
         const auth = authorizer(() => Response.json(grantOf(url)));
-        // The control requests reach it through the system's lookup of
-        // localhost, which may be ::1 alone: it answers there too.
-        try {
-          servers.push(
-            Bun.serve({
-              hostname: "::1",
-              port: Number(new URL(auth.url).port),
-              fetch: async (request) =>
-                fetch(auth.url + new URL(request.url).pathname, {
-                  method: request.method,
-                  headers: request.headers,
-                  body: await request.text(),
-                }),
-            }),
-          );
-        } catch {}
-        // The judgment asks the resolver below for the same name.
-        const server = proxy(auth.url.replace("127.0.0.1", "localhost"), 1, {
+        const server = proxy(byName(auth.url), 1, {
           logger: createProxyLogger("warn", (line) => lines.push(line)),
           resolve: async (host) => {
             looked.push(host);
@@ -5234,6 +5252,68 @@ describe("startCredentialProxy", () => {
         expect(await ask()).toBe(403);
         expect(looked).toEqual(["localhost"]);
         expect(lines.join("\n")).toContain(`localhost ${OWN}`);
+      });
+
+      test("what another exchange learns of the authorizer counts for one already under way", async () => {
+        let authorizerAnswer = ["10.0.0.7"];
+        const upstreamAnswers: Array<Promise<string[]>> = [];
+        const lines: string[] = [];
+        let whileLedgering: (() => Promise<void>) | null = null;
+        const auth = authorizer(
+          () => Response.json(grantOf(`http://${INSIDE}:4000`)),
+          undefined,
+          async () => {
+            const during = whileLedgering;
+            whileLedgering = null;
+            await during?.();
+            return Response.json({ state: "open" }, { status: 201 });
+          },
+        );
+        const server = proxy(byName(auth.url), 1, {
+          logger: createProxyLogger("warn", (line) => lines.push(line)),
+          resolve: async (host) =>
+            host === "localhost"
+              ? authorizerAnswer
+              : ((await upstreamAnswers.shift()) ?? []),
+          selfAddresses: () => [],
+        });
+        const taught = async (address: string) => {
+          authorizerAnswer = [address];
+          upstreamAnswers.push(Promise.resolve(["93.184.216.34"]));
+          return (await call(server.port, TOOLS_CALL)).status;
+        };
+        // While one exchange waits for its upstream's lookup, another finds
+        // the authorizer at a new address: the one that lookup then answers.
+        let answer: (addresses: string[]) => void = () => {};
+        upstreamAnswers.push(
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+        );
+        const waiting = call(server.port, TOOLS_CALL);
+        await until(() => upstreamAnswers.length === 0);
+        expect(await taught("10.0.0.8")).toBe(403);
+        answer(["10.0.0.8"]);
+        expect((await waiting).status).toBe(403);
+        expect(lines.join("\n")).toContain(
+          "10.0.0.8 is the installation's own",
+        );
+        // And while a judged exchange waits for its ledger entry, the
+        // address it was judged at becomes the authorizer's: not dialled,
+        // and the entry is given back.
+        lines.length = 0;
+        let other = 0;
+        upstreamAnswers.push(Promise.resolve(["10.0.0.9"]));
+        whileLedgering = async () => {
+          other = await taught("10.0.0.9");
+        };
+        expect((await messages(server.port)).status).toBe(403);
+        expect(other).toBe(403);
+        expect(lines.join("\n")).toContain(
+          "10.0.0.9 is the installation's own",
+        );
+        await until(() => auth.ledgered.length === 2);
+        expect(auth.ledgered.map(({ op }) => op)).toEqual(["open", "release"]);
       });
 
       test("a judge's private endpoint is held to the same rules", async () => {
