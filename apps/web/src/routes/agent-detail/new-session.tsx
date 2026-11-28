@@ -124,8 +124,9 @@ export function useNewSessionStart(detail: AgentDetail): NewSessionStart {
     reason,
     fixedOnReleaseTab: false,
   });
-  if (stopped !== null) return blocked(t(AGENT_REASONS[stopped]));
+  // One reason at a time, in this order: the next shows once it is lifted.
   if (scopeReason !== undefined) return blocked(scopeReason);
+  if (stopped !== null) return blocked(t(AGENT_REASONS[stopped]));
   if (unreadable !== null)
     return {
       releaseId,

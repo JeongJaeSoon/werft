@@ -1037,6 +1037,38 @@ describe("이 판이 읽을 수 없는 릴리스", () => {
     });
   }
 
+  test("이유가 여럿이면 권한, 에이전트 상태, 읽지 못하는 릴리스 순으로 한 줄씩 보인다", async () => {
+    const server = await released();
+    const { id, detail } = unreadableActive(server.detail(), false);
+    let who = me(["sessions:read"], "member");
+    let status: AgentDetail["agent"]["status"] = "paused";
+    const { services } = renderAt(DETAIL, {
+      ...server.routes,
+      "GET /v1/auth/me": () => json(200, who),
+      [`GET ${PATH}`]: () =>
+        json(200, { ...detail, agent: { ...detail.agent, status } }),
+    });
+    // Not expectBlocked: its tap leaves the tooltip open for the next step.
+    const onlyReason = async (reason: string, linked: boolean) => {
+      await screen.findAllByText(reason);
+      expect((await button()).getAttribute("aria-disabled")).toBe("true");
+      expect(screen.queryByRole("link", { name: TO_RELEASE }) !== null).toBe(
+        linked,
+      );
+      expect(document.body.textContent?.includes(reasonFor(id))).toBe(linked);
+    };
+    await onlyReason("sessions:write 권한이 있어야 할 수 있습니다.", false);
+    who = me();
+    await services.queryClient.invalidateQueries();
+    await onlyReason(
+      "일시 정지된 에이전트라 세션을 시작할 수 없습니다.",
+      false,
+    );
+    status = "active";
+    await services.queryClient.invalidateQueries();
+    await onlyReason(reasonFor(id), true);
+  });
+
   test("읽지 못한 행이 활성 릴리스가 아니면 아무것도 막지 않는다", async () => {
     const server = await released();
     renderAt(DETAIL, {
@@ -1113,6 +1145,8 @@ describe("이 판이 읽을 수 없는 릴리스", () => {
     expect(within(dialog).getByRole("alert").textContent).toBe(
       reasonFor(next.id),
     );
+    await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
+    expect(posts).toBe(1);
     await user.type(within(dialog).getByLabelText(MESSAGE), "{backspace}");
     await user.click(within(dialog).getByRole("button", { name: SUBMIT }));
     await waitFor(() =>
