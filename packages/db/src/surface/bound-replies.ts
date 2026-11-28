@@ -127,14 +127,12 @@ export function createPostgresBoundReplyStore(
             WHERE id = ${reply.agentId}::uuid FOR SHARE`),
         );
         if (agent?.on !== true) return "session";
-        // An edit marks its row: its decoded text can read as the post's.
+        // An edit marks its row; its decoded text can read as the post's.
         const session = (row: {
           body: string | null;
           edited: boolean;
         }): TaskReplyRoute =>
-          row.body !== null && (row.edited || row.body !== reply.body)
-            ? { edited: row.body }
-            : "session";
+          row.edited && row.body !== null ? { edited: row.body } : "session";
         const [held] = rowsOf<
           {
             id: ConversationInputId;

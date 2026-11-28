@@ -9329,7 +9329,7 @@ describe.each(ENGINES)(
         // decoded there: taken as it is, not decoded again.
         await db
           .update(schema.conversationInputs)
-          .set({ body: "and the step &lt; after" })
+          .set({ body: "and the step &lt; after", bodyEditedAt: new Date() })
           .where(eq(schema.conversationInputs.slackTs, REPLY));
         expect((await judgeReplies("speak")).judged).toBe(1);
         await due();
@@ -9346,7 +9346,10 @@ describe.each(ENGINES)(
         expect(await drain(handle)).toMatchObject({ deferred: 1 });
         await db
           .update(schema.conversationInputs)
-          .set({ body: `<@${BOT_USER}> and the step after` })
+          .set({
+            body: `<@${BOT_USER}> and the step after`,
+            bodyEditedAt: new Date(),
+          })
           .where(eq(schema.conversationInputs.slackTs, REPLY));
         expect((await judgeReplies("speak")).judged).toBe(1);
         await due();
