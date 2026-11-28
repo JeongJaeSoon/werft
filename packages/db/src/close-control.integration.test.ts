@@ -735,21 +735,28 @@ integration("close on PostgreSQL", () => {
     });
     // A refresh settling the row holds it, then waits on the session.
     const refresh = await pool.connect();
+    let pass: Promise<number> | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await refresh.query("BEGIN");
       await refresh.query(
         "SELECT 1 FROM session_outcomes WHERE id = $1 FOR UPDATE",
         [outcomeId],
       );
-      const pass = createPostgresTaskCloses(db).closeOnPullRequests(10);
+      pass = createPostgresTaskCloses(db).closeOnPullRequests(10);
       const waited = await Promise.race([
         pass,
-        new Promise((resolve) => setTimeout(() => resolve("waiting"), 3000)),
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve("waiting"), 3000);
+        }),
       ]);
       expect(waited).toBe(1);
     } finally {
+      clearTimeout(timer);
       await refresh.query("ROLLBACK");
       refresh.release();
+      // A pass left waiting finishes here, not in the next test.
+      await pass?.catch(() => undefined);
     }
     expect(await sessionRow(session.sessionId)).toMatchObject({
       admissionState: "closed",
