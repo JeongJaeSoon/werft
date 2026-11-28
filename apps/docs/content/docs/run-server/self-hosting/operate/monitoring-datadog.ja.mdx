@@ -14,7 +14,7 @@ Agentは、選択式の[`infra/compose.datadog.yml`](https://github.com/JeongJae
 `DD_API_KEY`とDatadog用のPostgreSQL passwordは、リポジトリやshell historyに入れません。サーバーで運用者が`/etc/werft/datadog.env`を作り、mode 600を確認します。別の絶対パスを使う必要があるときだけ`DATADOG_ENV_FILE`で変えます。値は例のプレースホルダーなので、実際の値をドキュメント・チケット・ログにコピーしません。
 
 ```dotenv
-DD_API_KEY=[REDACTED]
+DD_API_KEY=<operator-supplied>
 DD_SITE=datadoghq.com
 DD_ENV=alpha
 DD_VERSION=<release-sha>
@@ -32,7 +32,7 @@ Agent serviceは、この絶対パスを`env_file`としてだけ読みます。
 PostgreSQL roleは、`queue_messages`、`sessions`、`turns`、`attempts`、`provider_usage`に`SELECT`だけを許可し、既定のtransactionをread-onlyに固定します。次のコマンドは、サーバーの運用者がadmin connectionで1回実行します。
 
 ```sql
-CREATE ROLE datadog LOGIN PASSWORD :'[REDACTED]';
+CREATE ROLE datadog LOGIN PASSWORD :'datadog_password';
 ALTER ROLE datadog SET default_transaction_read_only = on;
 GRANT CONNECT ON DATABASE sessions TO datadog;
 GRANT USAGE ON SCHEMA public TO datadog;

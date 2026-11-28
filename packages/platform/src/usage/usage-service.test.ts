@@ -747,7 +747,8 @@ describe("usage service", () => {
       expect(session.unknown_price).toEqual({
         call_count: 2,
         token_count: 1_500,
-        cost_usd: "0.030000",
+        // This session's cost is 0: the part is cut to its whole.
+        cost_usd: "0.000000",
         // The contract's default where no setting is wired.
         token_limit: 5_000_000,
       });
@@ -758,14 +759,24 @@ describe("usage service", () => {
         unknownPriceTokenLimit: async () => 2_000,
         reader: {
           ...({} as UsageReader),
-          sessionUsage: async () => record,
+          sessionUsage: async () => ({ ...record, costUsd: "0.500000" }),
           unknownPriceUsage: async () => unknownPrice,
         },
       });
       expect(
         (await limited.getSessionUsage(testCaller("owner-a"), record.sessionId))
-          .unknown_price.token_limit,
-      ).toBe(2_000);
+          .unknown_price,
+      ).toEqual({
+        call_count: 2,
+        token_count: 1_500,
+        cost_usd: "0.030000",
+        token_limit: 2_000,
+      });
+      // Read after the total, and past it: the part is cut to its whole.
+      unknownPrice = { callCount: 2, tokens: 1_500, costUsd: "9.000000" };
+      const late = await service().getUsageSummary(user("member"), query("me"));
+      expect(Number(late.cost_usd)).toBeLessThan(9);
+      expect(Number(late.unknown_price.cost_usd)).toBe(Number(late.cost_usd));
     } finally {
       unknownPrice = { callCount: 0, tokens: 0, costUsd: "0" };
     }

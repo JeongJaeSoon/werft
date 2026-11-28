@@ -1378,6 +1378,40 @@ describe("a model nothing prices", () => {
     ).toBe("budget_exceeded");
   });
 
+  test("calls opened for a priced model whose answers name an unpriced one are marked, and the open after them is refused", async () => {
+    const who = await owner();
+    const ledger = limited(TOKENS);
+    const first = crypto.randomUUID();
+    const second = crypto.randomUUID();
+    // Both open: a priced model's reserve adds nothing to the sum, so calls
+    // already open can carry the session past the limit by their own tokens.
+    for (const exchangeId of [first, second]) {
+      expect(
+        await ledger.open({ exchangeId, ...who, reserve: RESERVE }),
+      ).toEqual({ outcome: "created" });
+    }
+    await settle(who, first, used());
+    await settle(who, second, used());
+    expect(await settled(second)).toEqual([
+      {
+        model: UNPRICED.model,
+        requestModel: RESERVE.model,
+        pricedBy: "unknown",
+        priceVersion: PRICE_VERSION,
+        priceUnknown: true,
+      },
+    ]);
+    expect(
+      (
+        await ledger.open({
+          exchangeId: crypto.randomUUID(),
+          ...who,
+          reserve: RESERVE,
+        })
+      ).outcome,
+    ).toBe("budget_exceeded");
+  });
+
   test("a reserve an older API opened, with no price source on its row, is judged from the reserve itself", async () => {
     const who = await owner();
     const ledger = limited(2 * TOKENS);

@@ -20,8 +20,8 @@ const countSchema = z.number().int().nonnegative();
 /**
  * Calls on a model nothing prices: neither price table nor the LiteLLM
  * snapshot names the model the request asked for, or the one that answered.
- * The limits count such a call at the highest known rate, which is not what
- * it cost: `cost_usd` is that counted amount, their part of the cost beside
+ * The limits count such a call at the highest known rate, or at its other
+ * model's when that is dearer, which is not what it cost: `cost_usd` is that counted amount, their part of the cost beside
  * it, never a price. `token_count` is their tokens, whatever they cost.
  */
 const unknownPriceFiguresSchema = z

@@ -14,7 +14,7 @@ Agent는 선택형 [`infra/compose.datadog.yml`](https://github.com/JeongJaeSoon
 `DD_API_KEY`와 Datadog용 PostgreSQL password는 저장소나 shell history에 넣지 않는다. 서버에서 운영자가 `/etc/werft/datadog.env`를 만들고 mode 600을 확인한다. 다른 절대 경로를 써야 할 때만 `DATADOG_ENV_FILE`로 바꾸며, 값은 예시 자리표시자이므로 실제 값을 문서·티켓·로그에 복사하지 않는다.
 
 ```dotenv
-DD_API_KEY=[REDACTED]
+DD_API_KEY=<operator-supplied>
 DD_SITE=datadoghq.com
 DD_ENV=alpha
 DD_VERSION=<release-sha>
@@ -32,7 +32,7 @@ Agent service는 이 절대 경로를 `env_file`로만 읽는다. compose YAML�
 PostgreSQL role은 `queue_messages`, `sessions`, `turns`, `attempts`, `provider_usage`에 `SELECT`만 허용하고 기본 transaction을 read-only로 고정한다. 아래 명령은 서버 운영자가 admin connection에서 한 번 실행한다.
 
 ```sql
-CREATE ROLE datadog LOGIN PASSWORD :'[REDACTED]';
+CREATE ROLE datadog LOGIN PASSWORD :'datadog_password';
 ALTER ROLE datadog SET default_transaction_read_only = on;
 GRANT CONNECT ON DATABASE sessions TO datadog;
 GRANT USAGE ON SCHEMA public TO datadog;

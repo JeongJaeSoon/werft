@@ -817,6 +817,18 @@ describe("priceProviderUsage for an OpenAI model", () => {
   });
 });
 
+test("a table model's cache write is multiplied in the order it always was, to the last bit of the charge", () => {
+  // 24 short writes at $0.10 input and 1.25x: (24 x 0.1) x 1.25, which a
+  // numeric column rounds up to 4 micro-dollars, not 24 x (0.1 x 1.25) = 3.
+  const { costUsd } = priceProviderUsage({
+    ...nothing,
+    model: "claude-haiku-5-5",
+    cacheCreationInputTokens: 24,
+  });
+  expect(costUsd).toBe((24 * 0.1 * 1.25) / 1_000_000);
+  expect(costUsd).toBeGreaterThan(0.000003);
+});
+
 describe("a model neither table names", () => {
   // A snapshot entry the tables do not name, with no long-prompt tier: its
   // row is input, output and at most the three cache rates.

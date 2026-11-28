@@ -258,14 +258,13 @@ export function priceProviderUsage(usage: ProviderUsage): {
             ),
           )
       : price(lite.input, lite.output, lite.cacheRead));
-  const shortWrite =
-    lite?.cacheWrite ??
-    rates.inputUsdPerMtok *
-      (nonClaude ? NON_CLAUDE_SHORT_WRITE : CACHE_WRITE_5M);
-  const longWrite =
-    lite?.cacheWriteLong ??
-    rates.inputUsdPerMtok *
-      (nonClaude ? NON_CLAUDE_LONG_WRITE : CACHE_WRITE_1H);
+  // Tokens times a rate, in the order the tables' own multiples have always
+  // been applied: another order moves a product's last bit, and with it a
+  // charge by a micro-dollar.
+  const written = (tokens: number, snapshot: number | undefined, of: number) =>
+    snapshot === undefined
+      ? tokens * rates.inputUsdPerMtok * of
+      : tokens * snapshot;
   // Past its window a Claude model keeps its own multiple on the unknown rate.
   const speedMultiplier =
     card === undefined
@@ -277,8 +276,16 @@ export function priceProviderUsage(usage: ProviderUsage): {
   );
   const perMtok =
     usage.inputTokens * rates.inputUsdPerMtok +
-    (usage.cacheCreationInputTokens - oneHour) * shortWrite +
-    oneHour * longWrite +
+    written(
+      usage.cacheCreationInputTokens - oneHour,
+      lite?.cacheWrite,
+      nonClaude ? NON_CLAUDE_SHORT_WRITE : CACHE_WRITE_5M,
+    ) +
+    written(
+      oneHour,
+      lite?.cacheWriteLong,
+      nonClaude ? NON_CLAUDE_LONG_WRITE : CACHE_WRITE_1H,
+    ) +
     usage.cacheReadInputTokens * rates.cacheReadUsdPerMtok +
     usage.outputTokens * rates.outputUsdPerMtok;
   return {

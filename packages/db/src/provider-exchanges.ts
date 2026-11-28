@@ -152,7 +152,11 @@ export async function settleProviderExchange(
 /**
  * One session's opens wait here, after their exchange's lock, so two never
  * judge the same sum. A key space of its own; the report and the release
- * never take it, and only lower a sum an open reads in one statement. The id
+ * never take it. They only lower the cost and token sums an open reads in
+ * one statement. The sum of tokens of unknown price is the exception: a
+ * report whose answer names an unpriced model raises it for a call opened as
+ * a priced one, so calls already open can carry a session past that limit
+ * by their own tokens before the next open is refused. The id
  * is hashed as PostgreSQL spells a uuid, so every spelling of one session
  * takes one lock.
  */

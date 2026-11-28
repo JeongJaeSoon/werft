@@ -152,7 +152,7 @@ terminate는 사람이 세션을 강제로 끝내는 제어다(`POST /v1/session
 
 ### 모델 호출의 예약이 일으키는 전이: 단가 미상 토큰 상한
 
-세션의 모델 호출은 나가기 전에 예약을 연다(`packages/db/src/provider-exchanges.ts`의 open). 예약은 세션의 금액·토큰 한도와 예산 계정에 더해, **단가 미상 토큰 상한**(`INSTALLATION_CONFIG`의 `unknown_price_session_token_limit`)으로도 판정한다. 단가 미상은 자체 단가표와 LiteLLM snapshot 어느 쪽도 이름을 모르는 모델이다. 이런 호출은 금액을 상한 단가로 세는데, 그 값이 실제 단가보다 낮을 수 있어서 가격과 무관한 토큰 수로 한 번 더 막는다.
+세션의 모델 호출은 나가기 전에 예약을 연다(`packages/db/src/provider-exchanges.ts`의 open). 예약은 세션의 금액·토큰 한도와 예산 계정에 더해, **단가 미상 토큰 상한**(`INSTALLATION_CONFIG`의 `unknown_price_session_token_limit`)으로도 판정한다. 단가 미상은 자체 단가표와 LiteLLM snapshot 어느 쪽도 이름을 모르는 모델이다. 표가 이름을 아는 모델이 자기 항목의 범위를 벗어난 호출도 단가 미상으로 센다. 이런 호출은 금액을 상한 단가로 세는데, 그 값이 실제 단가보다 낮을 수 있어서 가격과 무관한 토큰 수로 한 번 더 막는다.
 
 세는 값(미상 토큰 합)은 그 세션에서 다음 셋을 더한 것이다. 정산된 호출 가운데 미상으로 표시된 것(`provider_usage.price_unknown`)의 토큰, 미상 모델로 열려 있는 예약의 토큰, 그리고 지금 여는 호출이 미상이면 그 예약의 토큰이다.
 
@@ -170,7 +170,7 @@ terminate는 사람이 세션을 강제로 끝내는 제어다(`POST /v1/session
 | --- | --- | --- |
 | UR1 | 미상 토큰 합이 상한 이상인데 예약이 열리는 것 | `packages/platform/src/limits/reservations.test.ts`의 `refuses the first call when its reserve alone reaches the limit`, `counts settled tokens marked unknown with every held reserve for an unpriced model`, `packages/db/src/provider-exchanges.test.ts`의 `the first call is refused when its reserve alone reaches the limit, and nothing is held`, `apps/control-host/src/api/egress-authorizer.test.ts`의 `an open for a model nothing prices answers 403 BUDGET_EXCEEDED at the session's limit on such tokens; a priced model's does not` |
 | UR2 | 미상 토큰이 하나도 없는 세션이 이 상한으로 거절되는 것 | `never refuses a session with no tokens of unknown price, however low it is set`(두 파일에 같은 이름) |
-| UR3 | 요청은 단가를 아는 모델로 하고 답은 미상 모델로 받아 상한을 비켜 가는 것 | `once its settled tokens reach the limit, the session opens no further call, priced or not`, `a report is priced with the model its open reserved for, and the call is marked when either model is unpriced` |
+| UR3 | 요청은 단가를 아는 모델로 하고 답은 미상 모델로 받아 상한을 비켜 가는 것 | `once its settled tokens reach the limit, the session opens no further call, priced or not`, `a report is priced with the model its open reserved for, and the call is marked when either model is unpriced`, `calls opened for a priced model whose answers name an unpriced one are marked, and the open after them is refused` |
 | UR4 | 과금 없음(`billing: none`) 세션의 호출이 미상으로 세어지는 것 | `an unmetered session's reserves are not of unknown price` |
 | UR5 | 상한이 0이나 빈 값으로 저장돼 판정이 꺼지는 것 | `packages/contracts/src/api/installation-config.test.ts`의 거절 값 표, `apps/control-host/src/wiring/installation-config.test.ts`의 `an open is judged against the session's budget and its limit on tokens of unknown price, from one read` |
 
@@ -179,13 +179,14 @@ terminate는 사람이 세션을 강제로 끝내는 제어다(`POST /v1/session
 | # | 성질 | 시험 |
 | --- | --- | --- |
 | UP1 | 허용 전이마다 성공이 있다. 상한 아래의 미상 호출은 열리고, 풀린 예약은 자리를 돌려준다 | `its call opens while the reserve stays under the session's limit on such tokens`, `the limit counts the session's settled calls marked unknown with its held reserves, and a release gives room back` |
-| UP2 | 거절된 open은 세션에도 예산 계정에도 아무것도 잡지 않는다 | `the first call is refused when its reserve alone reaches the limit, and nothing is held` |
+| UP2 | 거절된 open은 exchange 행을 남기지 않는다 | `the first call is refused when its reserve alone reaches the limit, and nothing is held` |
 | UP3 | 정산은 예약이 말한 모델과 답이 말한 모델 가운데 비싼 쪽이다. 자기 exchange 행을 찾지 못한 보고는 답 모델만으로 센다 | `packages/platform/src/workers/worker-gateway.test.ts`의 `a billed call settles at the dearer of the model its open reserved for and the one that answered`, `packages/db/src/provider-exchanges.test.ts`의 `a report that finds no exchange row of its own is priced by the model that answered alone` |
 | UP4 | 단가 출처를 적지 않은 옛 API가 연 예약도 예약 내용으로 다시 판정한다 | `a reserve an older API opened, with no price source on its row, is judged from the reserve itself` |
 
 알려진 한계:
 
-- dispatch 판정은 이 상한을 읽지 않는다. 상한에 닿은 세션의 새 턴은 worker까지 가고, 첫 모델 호출이 거절된다.
+- dispatch 판정은 이 상한을 읽지 않는다. 상한에 닿은 세션의 새 턴은 worker까지 가고, 첫 모델 호출이 거절된다. 그 턴은 `api_error`(403)로 끝나고, 세션의 `attention`과 사용량의 `budget_exceeded`에는 이 상한이 드러나지 않는다.
+- 판정은 호출을 열 때 한다. 단가를 아는 모델로 열린 호출이 미상 모델의 답으로 정산되면, 그때 이미 열려 있던 호출들의 토큰만큼 합이 상한을 넘을 수 있다. 정산은 세션의 open 잠금을 잡지 않는다. 그다음 open부터 거절된다.
 - 세션 없는 호출(대화 호출, 대화 턴의 호출, 판정 호출)에는 세션 축인 이 상한이 닿지 않는다. 계정 예산의 금액·토큰 축과 호출별 상한이 막는다.
 - 이 변경 전의 API가 정산한 호출은 미상으로 표시되지 않아 합에 들지 않는다.
 

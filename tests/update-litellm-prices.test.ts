@@ -101,6 +101,18 @@ describe("what the snapshot keeps of the upstream file", () => {
     ]);
   });
 
+  test("a tier that prices no input is kept by the parts it does price", () => {
+    const { tokens } = extract({
+      tiered: chat({
+        input_cost_per_token: 1e-6,
+        output_cost_per_token: 4e-6,
+        output_cost_per_token_above_200k_tokens: 6e-6,
+        cache_creation_input_token_cost_above_1hr_above_200k_tokens: 3e-6,
+      }),
+    });
+    expect(tokens).toEqual([["tiered", 1, 4, 0, 0, 0, 200_000, 0, 6, 0, 0, 3]]);
+  });
+
   test("a judgment model with an input rate, even when its answer is free", () => {
     const { tokens, decisions } = extract({
       judge: { mode: "decisions", input_cost_per_token: 1e-7 },
@@ -114,6 +126,9 @@ describe("what the snapshot keeps of the upstream file", () => {
     ["a negative rate", { input_cost_per_token: -1e-6 }],
     ["text for a rate", { input_cost_per_token: "0.000001" }],
     ["a rate that is not finite", { output_cost_per_token: 1 / 0 }],
+    // Finite upstream, and null once printed as USD per million tokens.
+    ["a rate too large to be one", { output_cost_per_token: 1e303 }],
+    ["more than any model costs", { cache_read_input_token_cost: 1.1 }],
   ])("refuses %s instead of reading it as a price", (_name, rates) => {
     expect(() =>
       extract({
@@ -193,12 +208,45 @@ describe("what a moved pin reports for the pull request", () => {
       ],
       decisions: [],
     });
-    expect(lines).toHaveLength(3);
-    expect(lines[0]).toContain("halved");
-    expect(lines[0]).toContain("input $2 -> $1");
-    expect(lines[1]).toContain("output $8 -> $3");
-    expect(lines[2]).toContain("gone");
-    expect(lines[2]).toContain("no longer priced");
+    const tick = String.fromCharCode(96);
+    expect(lines).toEqual([
+      `- ${tick}halved${tick}: 2, 8 -> 1, 8`,
+      `- ${tick}output-halved${tick}: 2, 8 -> 2, 3`,
+      `- ${tick}gone${tick}: no longer priced (was 1, 4)`,
+    ]);
+  });
+
+  test("a cache or tier rate that fell, a tier that moved or left, and a judgment model", () => {
+    const row = (...rates: number[]): [string, ...number[]] => ["m", ...rates];
+    const fell = (was: number[], now: number[]) =>
+      drops(
+        { tokens: [row(...was)], decisions: [] },
+        { tokens: [row(...now)], decisions: [] },
+      ).length;
+    const base = [2, 8, 0.2, 2.5, 4, 200_000, 4, 12, 0.4, 5, 8];
+    expect(fell(base, base)).toBe(0);
+    // A cache read at half, with input and output as they were.
+    expect(fell(base, [2, 8, 0.1, 2.5, 4, 200_000, 4, 12, 0.4, 5, 8])).toBe(1);
+    // The tier's output at half.
+    expect(fell(base, [2, 8, 0.2, 2.5, 4, 200_000, 4, 6, 0.4, 5, 8])).toBe(1);
+    // The tier starts later, and the tier is gone.
+    expect(fell(base, [2, 8, 0.2, 2.5, 4, 272_000, 4, 12, 0.4, 5, 8])).toBe(1);
+    expect(fell(base, [2, 8, 0.2, 2.5, 4])).toBe(1);
+    expect(
+      drops(
+        { tokens: [], decisions: [["judge", 0.2, 0]] },
+        { tokens: [], decisions: [["judge", 0.1, 0]] },
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("a name's backtick does not end the code span it is quoted in", () => {
+    const tick = String.fromCharCode(96);
+    const [line] = drops(
+      { tokens: [[`a${tick}b`, 1, 1]], decisions: [] },
+      { tokens: [], decisions: [] },
+    );
+    expect(line).toBe(`- ${tick}a'b${tick}: no longer priced (was 1, 1)`);
   });
 
   test("nothing when no rate fell that far", () => {

@@ -71,6 +71,34 @@ describe("the LiteLLM snapshot's lookups", () => {
     expect(mixed.ratesFor("m", 0, writes)?.cacheRead).toBe(2);
   });
 
+  test("a longer prompt never pays less for a part, through a base that leaves it out or a tier below the one before", () => {
+    const { ratesFor } = liteLlmPrices(
+      // No cache read at the base (so the input rate), 1 past 100K; the
+      // second tier's output is below the first's.
+      [["m", 10, 20, 0, 0, 0, 100_000, 10, 40, 1, 0, 0, 200_000, 12, 30]],
+      [],
+    );
+    expect(ratesFor("m", 100_000, writes)?.cacheRead).toBe(10);
+    expect(ratesFor("m", 100_001, writes)?.cacheRead).toBe(10);
+    expect(ratesFor("m", 100_001, writes)?.output).toBe(40);
+    expect(ratesFor("m", 200_001, writes)).toMatchObject({
+      input: 12,
+      output: 40,
+      cacheRead: 12,
+    });
+  });
+
+  test("a cache write is never charged below plain input, so a reserve of all long-lived writes is the dearest prompt", () => {
+    const { ratesFor } = liteLlmPrices([["m", 10, 20, 1, 1, 2]], []);
+    expect(ratesFor("m", 0, writes)).toEqual({
+      input: 10,
+      output: 20,
+      cacheRead: 1,
+      cacheWrite: 10,
+      cacheWriteLong: 10,
+    });
+  });
+
   test("past a tier's prompt length its rates apply, never below the base's", () => {
     const { ratesFor } = liteLlmPrices(
       [["m", 1, 4, 0.1, 0, 0, 200_000, 2, 3, 0, 0, 0, 500_000, 5, 9, 0.5]],
@@ -87,10 +115,11 @@ describe("the LiteLLM snapshot's lookups", () => {
       output: 4,
       cacheRead: 2,
     });
+    // The last tier's cache read is below what the tier before it charged.
     expect(ratesFor("m", 500_001, writes)).toMatchObject({
       input: 5,
       output: 9,
-      cacheRead: 0.5,
+      cacheRead: 2,
     });
   });
 

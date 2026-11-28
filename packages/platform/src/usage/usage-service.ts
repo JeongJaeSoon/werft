@@ -164,10 +164,19 @@ export function createUsageService(deps: {
 }) {
   const { authorization, reader } = deps;
   const limitsNow = () => readSetting(deps.limits);
-  const unknownPriceFigures = (record: UnknownPriceUsageRecord) => ({
+  // The figures are read after the total they are a part of, and a session's
+  // cost stops at what its column holds: the part is never given as more
+  // than the whole it is shown beside.
+  const unknownPriceFigures = (
+    record: UnknownPriceUsageRecord,
+    wholeCostUsd: number,
+  ) => ({
     call_count: record.callCount,
     token_count: saturated(record.tokens),
-    cost_usd: record.costUsd,
+    cost_usd:
+      Number(record.costUsd) > wholeCostUsd
+        ? wholeCostUsd.toFixed(6)
+        : record.costUsd,
   });
 
   function requireInstallationReader(actor: Caller) {
@@ -318,6 +327,7 @@ export function createUsageService(deps: {
             filter,
             period: { since: query.since, until: summary.until },
           }),
+          Number(summary.costUsd),
         ),
         run_seconds: summary.runSeconds,
         basis: {
@@ -517,6 +527,10 @@ export function createUsageService(deps: {
             filter,
             period: { since: query.since, until: series.until },
           }),
+          series.buckets.reduce(
+            (sum, bucket) => sum + Number(bucket.costUsd),
+            0,
+          ),
         ),
         buckets: series.buckets.map((bucket) => ({
           date: bucket.date,
@@ -717,7 +731,7 @@ export function createUsageService(deps: {
         token_count: usage.providerTokens,
         token_limit: limits.sessionTokenLimit,
         unknown_price: {
-          ...unknownPriceFigures(unknownPrice),
+          ...unknownPriceFigures(unknownPrice, Number(usage.costUsd)),
           token_limit: await readSetting(
             deps.unknownPriceTokenLimit ?? UNKNOWN_PRICE_SESSION_TOKEN_LIMIT,
           ),

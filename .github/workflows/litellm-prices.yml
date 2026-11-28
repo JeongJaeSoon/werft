@@ -82,15 +82,16 @@ jobs:
           commit=$(sed -n 's/^  commit: "\([0-9a-f]\{40\}\)",$/\1/p' "$FILE")
           [ -n "$commit" ]
           branch="ci/litellm-prices-${commit:0:12}"
-          # A branch for this commit is a pull request already opened, or one a
-          # person closed: either way this run has nothing to add.
+          # A branch for this commit is from an earlier run. It is not pushed
+          # again; whether it still needs its pull request is asked below.
+          pushed=false
           if git ls-remote --exit-code origin "refs/heads/$branch" >/dev/null; then
-            echo "\`$branch\` already exists." >>"$GITHUB_STEP_SUMMARY"
-            exit 0
+            pushed=true
           fi
           {
             echo "commit=$commit"
             echo "branch=$branch"
+            echo "pushed=$pushed"
           } >>"$GITHUB_OUTPUT"
           cat report.md >>"$GITHUB_STEP_SUMMARY"
       # Before the branch exists: a snapshot the reader refuses, or one that
@@ -99,7 +100,7 @@ jobs:
         if: steps.move.outputs.branch != ''
         run: bun test ./tests/update-litellm-prices.test.ts ./packages/platform/src/limits/
       - name: Push the branch
-        if: steps.move.outputs.branch != ''
+        if: steps.move.outputs.branch != '' && steps.move.outputs.pushed != 'true'
         env:
           BRANCH: ${{ steps.move.outputs.branch }}
           COMMIT: ${{ steps.move.outputs.commit }}
@@ -116,11 +117,18 @@ jobs:
           BRANCH: ${{ steps.move.outputs.branch }}
           COMMIT: ${{ steps.move.outputs.commit }}
         run: |
+          # Open, merged or closed: a pull request this branch already had is
+          # the answer a person gave, and is not opened again. A branch
+          # without one is from a run that could not open it.
+          if [ "$(gh pr list --head "$BRANCH" --state all --json number --jq length)" != "0" ]; then
+            echo "\`$BRANCH\` already has its pull request." >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           {
             cat report.md
             echo "Written by \`scripts/update-litellm-prices.ts\` in [run ${GITHUB_RUN_ID}](${RUN_URL}). The rates of werft's own tables are not touched: this changes what a model outside them is charged."
             echo
-            echo "The checks do not start on a pull request this workflow opens. Close and reopen it to run them. An older pull request of this workflow that is still open is replaced by this one."
+            echo "The checks do not start on a pull request this workflow opens. Close and reopen it to run them. Close an older pull request of this workflow that is still open: this one holds everything it does."
           } >body.md
           gh pr create --base "$GITHUB_REF_NAME" --head "$BRANCH" \
             --title "[확인] chore(platform): LiteLLM 단가 snapshot을 ${COMMIT:0:12}로 옮긴다" \

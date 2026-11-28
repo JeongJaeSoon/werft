@@ -72,35 +72,61 @@ function entryOf([model, ...numbers]: readonly [string, ...number[]]): Entry {
   return { ...base, tiers };
 }
 
+/** Each part at the dearer of the two. */
+function dearest(a: LiteLlmRates, b: LiteLlmRates): LiteLlmRates {
+  return {
+    input: Math.max(a.input, b.input),
+    output: Math.max(a.output, b.output),
+    cacheRead: Math.max(a.cacheRead, b.cacheRead),
+    cacheWrite: Math.max(a.cacheWrite, b.cacheWrite),
+    cacheWriteLong: Math.max(a.cacheWriteLong, b.cacheWriteLong),
+  };
+}
+
 /**
- * An entry's rates for a prompt, every part filled. A tier's part is never
- * below the base's. A part the snapshot does not price is charged from the
- * input rate, with no discount: a cache read at the input rate, a cache
- * write at the caller's multiple of it.
+ * One rate card with every part filled. A part the snapshot does not price
+ * is charged from the input rate, with no discount: a cache read at the
+ * input rate, a cache write at the caller's multiple of it. A cache write is
+ * never charged below plain input, nor a long-lived one below a short one:
+ * a reserve counts every prompt token as the longest-lived write, and that
+ * must be the dearest the prompt can cost.
+ */
+function filled(
+  given: LiteLlmRates,
+  base: LiteLlmRates,
+  writes: WriteMultiples,
+): LiteLlmRates {
+  const input = given.input > 0 ? given.input : base.input;
+  const cacheWrite = Math.max(
+    input,
+    given.cacheWrite > 0 ? given.cacheWrite : input * writes.short,
+  );
+  return {
+    input,
+    output: given.output > 0 ? given.output : base.output,
+    cacheRead: given.cacheRead > 0 ? given.cacheRead : input,
+    cacheWrite,
+    cacheWriteLong: Math.max(
+      cacheWrite,
+      given.cacheWriteLong > 0 ? given.cacheWriteLong : input * writes.long,
+    ),
+  };
+}
+
+/**
+ * An entry's rates for a prompt: each part at the dearest of the base and
+ * every tier the prompt is past, so a longer prompt never pays less for a
+ * part than a shorter one.
  */
 function at(
   entry: Entry,
   promptTokens: number,
   writes: WriteMultiples,
 ): LiteLlmRates {
-  let given: LiteLlmRates = entry;
-  for (const tier of entry.tiers) {
-    if (promptTokens > tier.aboveTokens) given = tier;
-  }
-  const filled = (part: keyof LiteLlmRates, otherwise: number) =>
-    given[part] > 0 ? Math.max(given[part], entry[part]) : otherwise;
-  const input = Math.max(given.input, entry.input);
-  const cacheWrite = filled("cacheWrite", input * writes.short);
-  return {
-    input,
-    output: Math.max(given.output, entry.output),
-    cacheRead: filled("cacheRead", input),
-    cacheWrite,
-    cacheWriteLong: Math.max(
-      cacheWrite,
-      filled("cacheWriteLong", input * writes.long),
-    ),
-  };
+  return entry.tiers
+    .filter((tier) => promptTokens > tier.aboveTokens)
+    .map((tier) => filled(tier, entry, writes))
+    .reduce(dearest, filled(entry, entry, writes));
 }
 
 /** The lookups over one snapshot's rows; the module's own are over the file's. */
@@ -147,13 +173,7 @@ export function liteLlmPrices(
       const entries = named === undefined ? byBareName.get(model) : [named];
       return entries
         ?.map((entry) => at(entry, promptTokens, writes))
-        .reduce((most, rates) => ({
-          input: Math.max(most.input, rates.input),
-          output: Math.max(most.output, rates.output),
-          cacheRead: Math.max(most.cacheRead, rates.cacheRead),
-          cacheWrite: Math.max(most.cacheWrite, rates.cacheWrite),
-          cacheWriteLong: Math.max(most.cacheWriteLong, rates.cacheWriteLong),
-        }));
+        .reduce(dearest);
     },
     /** A judgment model's rates, by its exact name only. */
     decisionRatesFor(

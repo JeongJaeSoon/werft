@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ProviderUsage } from "./model-prices.ts";
 import {
   admitsReservations,
+  priceReservation,
   reservationCostUsd,
   reservationTokens,
 } from "./reservations.ts";
@@ -156,6 +157,11 @@ describe("the limit on tokens of unknown price", () => {
   test("a priced model's reserve adds nothing to it, and one priced from the snapshot is priced", () => {
     const held = { ...session, unknownPriceTokens: 999 };
     expect(admitsUnder(1_000)({ ...held, reserves: [known] })).toBe(true);
+    const fromSnapshot = { ...unknown, model: "deepseek-chat" };
+    expect(priceReservation(fromSnapshot).pricedBy).toBe("litellm");
+    expect(admitsUnder(1_000)({ ...held, reserves: [fromSnapshot] })).toBe(
+      true,
+    );
   });
 
   test("once its settled tokens reach the limit, the session opens no further call, priced or not", () => {

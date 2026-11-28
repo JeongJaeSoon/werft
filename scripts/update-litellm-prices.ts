@@ -55,9 +55,12 @@ const PARTS = [
   "cache_read_input_token_cost",
   "cache_creation_input_token_cost",
 ] as const;
+const MAX_USD_PER_MTOK = 1_000_000;
 /** A cache write kept longer than the default costs more; either name. */
 const LONG_WRITES = ["_above_1hr", "_above_12hr"] as const;
-const TIER = /^input_cost_per_token_above_(\d+)k_tokens$/;
+/** A long-prompt tier, by any part it prices: some give no input rate. */
+const TIER =
+  /^(?:input_cost_per_token|output_cost_per_token|cache_read_input_token_cost|cache_creation_input_token_cost)(?:_above_1hr|_above_12hr)?_above_(\d+)k_tokens$/;
 /** A name is printed into source, so it must be plain text. */
 function printable(name: string): boolean {
   return [...name].every((char) => {
@@ -89,7 +92,13 @@ function rate(model: string, entry: Record<string, unknown>, key: string) {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
     throw new ShapeError(`${model}: ${key} is not a rate`);
   }
-  return perMtok(value);
+  const usdPerMtok = perMtok(value);
+  // Past this a million tokens would cost more than any model does, and a
+  // number near the largest float prints as null.
+  if (usdPerMtok > MAX_USD_PER_MTOK) {
+    throw new ShapeError(`${model}: ${key} is not a rate`);
+  }
+  return usdPerMtok;
 }
 
 /** The five rates at one prompt length; "" is the base. */
@@ -137,9 +146,13 @@ export function extract(raw: unknown): Snapshot {
       continue;
     }
     if (!(input > 0 && output > 0)) continue;
-    const tiers = Object.keys(entry)
-      .flatMap((key) => TIER.exec(key)?.[1] ?? [])
-      .map(Number)
+    const tiers = [
+      ...new Set(
+        Object.keys(entry)
+          .flatMap((key) => TIER.exec(key)?.[1] ?? [])
+          .map(Number),
+      ),
+    ]
       .sort((a, b) => a - b)
       .flatMap((k) => [
         k * 1000,
@@ -216,43 +229,39 @@ export function render(
   ].join("\n");
 }
 
-/** Rates that fell by half or more, and models that left, since `before`. */
+/** Whether a row's position holds a tier's prompt length, not a rate. */
+const threshold = (index: number) => index >= 5 && (index - 5) % 6 === 0;
+
+/**
+ * Models whose rates fell by half or more since `before`, whose tiers moved,
+ * or that left: any part of a row, and the judgment models too. A rate read
+ * too low undercounts a budget, so each is for a person to check.
+ */
 export function drops(before: Snapshot, after: Snapshot): string[] {
-  const now = new Map(after.tokens.map(([model, ...rates]) => [model, rates]));
   const tick = String.fromCharCode(96);
   const lines: string[] = [];
-  for (const [model, input = 0, output = 0] of before.tokens) {
-    const name = tick + model + tick;
-    const rates = now.get(model);
-    if (rates === undefined) {
-      lines.push(
-        "- " +
-          name +
-          ": no longer priced (was $" +
-          input +
-          " / $" +
-          output +
-          " per Mtok)",
+  const compare = (was: readonly Row[], now: readonly Row[], kind: string) => {
+    const current = new Map(now.map(([model, ...rates]) => [model, rates]));
+    for (const [model, ...rates] of was) {
+      // A name is quoted in Markdown: one that held a backtick would end it.
+      const name = `- ${tick}${model.replaceAll(tick, "'")}${tick}${kind}`;
+      const next = current.get(model);
+      if (next === undefined) {
+        lines.push(`${name}: no longer priced (was ${rates.join(", ")})`);
+        continue;
+      }
+      const fell = rates.some((rate, index) =>
+        threshold(index)
+          ? next[index] !== rate
+          : rate > 0 && (next[index] ?? 0) * 2 <= rate,
       );
-      continue;
+      if (fell) {
+        lines.push(`${name}: ${rates.join(", ")} -> ${next.join(", ")}`);
+      }
     }
-    const [nextInput = 0, nextOutput = 0] = rates;
-    if (nextInput * 2 <= input || nextOutput * 2 <= output) {
-      lines.push(
-        "- " +
-          name +
-          ": input $" +
-          input +
-          " -> $" +
-          nextInput +
-          ", output $" +
-          output +
-          " -> $" +
-          nextOutput +
-          " per Mtok",
-      );
-    }
-  }
+  };
+  compare(before.tokens, after.tokens, "");
+  compare(before.decisions, after.decisions, " (judgment)");
   return lines;
 }
 
@@ -389,7 +398,7 @@ if (import.meta.main) {
           "",
           fell.length === 0
             ? "No rate fell by half or more and no model left."
-            : "Rates that fell by half or more, or models that left. Check each before merging: a rate read too low undercounts a budget.",
+            : "Models whose rates fell by half or more, whose tiers moved, or that left. Check each before merging: a rate read too low undercounts a budget. A row is USD per million tokens: input, output, cache read, cache write, long-lived cache write, then per long-prompt tier its prompt length and the same five.",
           ...(fell.length === 0 ? [] : ["", ...fell]),
           "",
         ].join("\n"),
