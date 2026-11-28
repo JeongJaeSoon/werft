@@ -895,6 +895,8 @@ const NARROW: [string, string, string | null][] = [
       ["git checkout HEAD -- 'apps/web*.env'", "goes to a person"],
       ["git checkout HEAD -- 'apps?web?.en[v]'", "goes to a person"],
       ["git checkout HEAD -- 'apps/web[/].en[v]'", "goes to a person"],
+      ["git checkout HEAD -- 'apps/web/.e[!N]v'", "goes to a person"],
+      ["git checkout HEAD -- '.cl[!A]ude/settings.json'", "goes to a person"],
       ["git checkout HEAD -- '.c[z-al]aude/settings.json'", "goes to a person"],
     ] as const
   ).map(([command, why]): [string, string, string] => [
@@ -1185,6 +1187,17 @@ describe("the narrow reading", () => {
         at(),
       ),
     ).toContain("goes to a person");
+    // A markdown list as a body: each word starts with `-` and holds `[`.
+    const list = Array.from(
+      { length: 120 },
+      (_, index) => `- fix ${index}: arr[i] uses a* glob`,
+    ).join("\n");
+    expect(
+      askedLineRefusal(`gh pr create --title x --body '${list}'`, at()),
+    ).toBeNull();
+    expect(
+      askedLineRefusal(`git commit -m '-${"[".repeat(1000)}'`, at()),
+    ).toBeNull();
     expect(performance.now() - started).toBeLessThan(500);
   });
 

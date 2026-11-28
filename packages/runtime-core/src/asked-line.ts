@@ -739,8 +739,18 @@ function grepOperands(words: readonly string[]): {
 /** What in a git or gh word may be a path: an option's value, a glued cluster's tail, `@file`, a `file#label`. What follows a `:` is {@link rootRelative}'s. */
 function refPathsIn(word: string): string[] {
   const found = new Set([word, ...pathsIn(word)]);
+  // A cluster of short options ends in the last one's value (`-nF.env`):
+  // a value may start after any option letter.
   if (/^-[^-]/.test(word)) {
-    for (let at = 2; at < word.length; at += 1) found.add(word.slice(at));
+    for (
+      let at = 2;
+      at < word.length &&
+      at <= CLUSTER_LETTERS + 1 &&
+      /\w/.test(word[at - 1] ?? "");
+      at += 1
+    ) {
+      found.add(word.slice(at));
+    }
   }
   for (const path of [...found]) {
     if (path.startsWith("@")) found.add(path.slice(1));
@@ -752,7 +762,16 @@ function refPathsIn(word: string): string[] {
 /** The paths in a word that git may read from the repository's top: what follows any `:`, with a pathspec's magic taken off. */
 function rootRelative(word: string): string[] {
   const found: string[] = [];
-  for (let at = word.indexOf(":"); at !== -1; at = word.indexOf(":", at + 1)) {
+  // git splits `<rev>:<path>` at the first `:` outside `@{…}`, and
+  // `:<n>:<path>` at the second.
+  const colons: number[] = [];
+  let depth = 0;
+  for (let at = 0; at < word.length && colons.length < 3; at += 1) {
+    if (word[at] === "{") depth += 1;
+    else if (word[at] === "}" && depth > 0) depth -= 1;
+    else if (word[at] === ":" && depth === 0) colons.push(at);
+  }
+  for (const at of colons) {
     const rest = word.slice(at + 1);
     // `:/x` is `:(top)x` in short, as `:!x` and `:^x` leave x out.
     const magic = /^(\([^)]*\)|[^\w.(]*)/.exec(rest);
@@ -771,6 +790,7 @@ function narrowKept(words: readonly string[], place: Place): string | null {
   // alone as well: git may read it from a tree, not the work tree
   // (`HEAD:.claude/settings.json` with `.claude` a broken link), and
   // `:(icase)` matches any case.
+  let keptHere: string[] | undefined;
   const keptPath = (path: string, base = place.base): boolean => {
     if (path === "" || path.startsWith("~")) return false;
     const full = resolve(base, path);
@@ -791,7 +811,8 @@ function narrowKept(words: readonly string[], place: Place): string | null {
     // takes what is in `.git` as a path of the work tree.
     if (!/[*?[\\]/.test(name)) return false;
     const pieces = globPieces(name);
-    const names = [...KEPT_SAMPLES, ...keptNames(place.root)];
+    keptHere ??= keptNames(place.root);
+    const names = [...KEPT_SAMPLES, ...keptHere];
     if (names.some((kept) => globMatches(pieces, kept))) return true;
     // A rule of any folder (`**/.env`) keeps that name wherever it is, and
     // `*` and `?` may stand for the `/` before it (`apps/web*.env`): an
@@ -980,6 +1001,7 @@ function globPieces(glob: string): GlobPiece[] {
   const same = (letter: string) => (other: string) =>
     other.toLowerCase() === letter.toLowerCase();
   const pieces: GlobPiece[] = [];
+  const closing = glob.lastIndexOf("]");
   for (let at = 0; at < glob.length; at += 1) {
     const char = glob[at] as string;
     if (char === "*") {
@@ -988,7 +1010,7 @@ function globPieces(glob: string): GlobPiece[] {
     else if (char === "\\" && at + 1 < glob.length) {
       at += 1;
       pieces.push(same(glob[at] as string));
-    } else if (char === "[") {
+    } else if (char === "[" && closing > at + 1) {
       let end = at + 1;
       const negated = glob[end] === "!" || glob[end] === "^";
       if (negated) end += 1;
@@ -1022,18 +1044,19 @@ function globPieces(glob: string): GlobPiece[] {
         ) {
           end += 1;
           const to = letter();
-          tests.push((other) =>
-            [other.toLowerCase(), other.toUpperCase()].some(
-              (cased) => from <= cased && cased <= to,
-            ),
-          );
-        } else tests.push(same(from));
+          tests.push((other) => from <= other && other <= to);
+        } else tests.push((other) => other === from);
       }
       if (end >= glob.length) pieces.push(same(char));
       else {
         pieces.push(
+          // Either case in or out of the class, so the pattern is read as
+          // matching whenever git might match it.
           known
-            ? (other) => tests.some((test) => test(other)) !== negated
+            ? (other) =>
+                [other.toLowerCase(), other.toUpperCase()].some(
+                  (cased) => tests.some((test) => test(cased)) !== negated,
+                )
             : () => true,
         );
         at = end;
@@ -1117,6 +1140,9 @@ const KEPT_FOLDERS = policy.sensitiveEditPaths
   .filter((folder) => folder !== ".git");
 /** More kept names than this are not read for a pattern. */
 const KEPT_NAMES_READ = 500;
+
+/** More letters than this in one cluster of short options is not a cluster. */
+const CLUSTER_LETTERS = 32;
 
 /** A word quoted this deep is not read further. */
 const NESTED_SCRIPTS = 3;
