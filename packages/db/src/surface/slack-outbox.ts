@@ -11,10 +11,12 @@ import {
   type RuntimeKind,
   rememberRuleSchema,
   type SessionEventPayload,
+  SLACK_DM_THREAD_REQUIRED_CODE,
   SLACK_NOTICE_VERSIONS,
   SLACK_USER_CHANNEL_CODE,
   type SlackNoticeVersionEntry,
   slackOutboxChannelRefused,
+  slackOutboxDmThreadRefused,
   TURN_EMERGENCY_STOPPED_REASON,
   type UserLocale,
   withStoredNeutralFields,
@@ -147,6 +149,16 @@ export class SlackOutboxUserChannelError extends Error {
   constructor(readonly kind: string) {
     super(`A ${kind} outbox row may not name a Slack user as its channel`);
     this.name = "SlackOutboxUserChannelError";
+  }
+}
+
+/** An outbox row bound for the top of a DM (slackOutboxDmThreadRefused). */
+export class SlackOutboxDmThreadError extends Error {
+  readonly code = SLACK_DM_THREAD_REQUIRED_CODE;
+
+  constructor(readonly kind: string) {
+    super(`A ${kind} outbox row in a direct message must name its thread`);
+    this.name = "SlackOutboxDmThreadError";
   }
 }
 
@@ -1106,6 +1118,10 @@ export function createPostgresSlackOutboxStore(
     async enqueue(input, whileHome) {
       if (slackOutboxChannelRefused(input.channelId)) {
         throw new SlackOutboxUserChannelError(input.kind);
+      }
+      // A row held for a web input's post takes that post's thread later.
+      if (input.heldForInputId == null && slackOutboxDmThreadRefused(input)) {
+        throw new SlackOutboxDmThreadError(input.kind);
       }
       return db.transaction(async (tx) => {
         if (whileHome) {
@@ -2601,6 +2617,9 @@ export function createPostgresSlackOutboxStore(
             eq(t.kind, "reply"),
             eq(t.status, "uncertain"),
             sql`${t.sessionId} IS NOT NULL`,
+            // A reply at a DM's top from before the guard: its notice could
+            // stand nowhere a DM takes, so none is owed.
+            sql`NOT (${t.channelId} LIKE 'D%' AND ${t.threadTs} = '')`,
             sql`NOT EXISTS (
               SELECT 1 FROM ${t} n WHERE n.dedupe_key = 'uncertain:' || ${t.id}
             )`,

@@ -197,8 +197,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/bun-setup
-        with:
-          save-cache: "true"
       - id: install
         run: bun install --frozen-lockfile
       - run: bun run typecheck
@@ -591,12 +589,6 @@ jobs:
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
-      - id: docs-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: apps/docs/.next/cache
-          key: next-docs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}-${{ hashFiles('apps/docs/src/**', 'apps/docs/content/**', 'apps/docs/*.ts', 'apps/docs/*.json', 'apps/docs/*.mjs', 'docs/openapi.json') }}
-          restore-keys: next-docs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}-
       - name: Static build
         run: bun run --cwd apps/docs build
       - name: Self-hosting public URL and fallback contract
@@ -1097,6 +1089,7 @@ jobs:
       - uses: ./.github/actions/bun-setup
         with:
           cache-scope: agent-sdk-compat
+          restore-cache: "true"
           save-cache: "true"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:

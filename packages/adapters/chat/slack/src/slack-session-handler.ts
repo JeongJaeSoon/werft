@@ -52,6 +52,7 @@ import {
   type SlackInput,
   slackCallerOf,
 } from "./slack-decision.ts";
+import { unescapeSlackText } from "./slack-entities.ts";
 import {
   SLACK_PERSON_RESET_SUBTYPES,
   SlackInboundDeferred,
@@ -379,7 +380,8 @@ export function createSlackSessionHandler(
       ) {
         return null;
       }
-      if (!messageTextSchema.safeParse(event.text).success) return null;
+      const bufferedBody = unescapeSlackText(event.text);
+      if (!messageTextSchema.safeParse(bufferedBody).success) return null;
       const unheard = await deps.audience.unheardReason({
         agentId: agent.agentId,
         teamId: claim.teamId,
@@ -415,7 +417,10 @@ export function createSlackSessionHandler(
         topicId: topic.id,
         channelId: event.channel,
         ts: event.ts,
-        buffered: { body: event.text, slackUserId: event.user },
+        buffered: {
+          body: bufferedBody,
+          slackUserId: event.user,
+        },
         ...(judged === "m1" ? { judgment: "m1_engaged" as const } : {}),
       };
     };
@@ -1428,9 +1433,8 @@ export function createSlackSessionHandler(
       return;
     }
 
-    const message = withoutBotMention(
-      editedText ?? event.text,
-      agent.botUserId,
+    const message = unescapeSlackText(
+      withoutBotMention(editedText ?? event.text, agent.botUserId),
     );
     if (!messageTextSchema.safeParse(message).success) {
       deps.logger.info("Slack message has no text to send; ignored", ids);

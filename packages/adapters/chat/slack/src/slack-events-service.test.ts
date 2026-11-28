@@ -1757,6 +1757,21 @@ describe("Slack edits and deletes", () => {
     }
   });
 
+  test("an edit's new text is read from Slack's escapes once", async () => {
+    const w = world();
+    await w.install();
+    w.readyChannels.set("C0CHAN", "public_channel");
+    await w.service.receive(
+      w.signed(
+        w.event({
+          ...EDITED,
+          message: { ...EDITED.message, text: "a &amp;&amp; b &amp;lt;" },
+        }),
+      ),
+    );
+    expect(w.marks.editedBodies).toEqual(["a && b &lt;"]);
+  });
+
   test("an edit without its own time takes the envelope's", async () => {
     const w = world();
     await w.install();
