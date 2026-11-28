@@ -721,7 +721,33 @@ describe("a DM person's standalone sessions (v1-b/DM3)", () => {
     expect(await reasonOf(handed)).toBe("completed");
     expect(await reasonOf(held)).toBe(null);
 
-    // A DM's task: its link before the session, its pull request after.
+    // Seen late: merged on GitHub before the hand-off, saved after it.
+    const late = await session();
+    expect(await routes().bindStandalone(route(late))).toBe("bound");
+    await db.execute(sql`
+      INSERT INTO session_outcomes (id, owner_id, session_id, type, url,
+        external_id, state, state_changed_at, merged_at)
+      VALUES (gen_random_uuid(), ${ws}, ${late}::uuid, 'github_pull_request',
+        'https://github.com/acme/app/pull/40', '40', 'merged', now(),
+        ${before}::timestamptz)`);
+    // Closed on GitHub after the hand-off, its state saved before it.
+    const reclosed = await session();
+    expect(await routes().bindStandalone(route(reclosed))).toBe("bound");
+    await db.execute(sql`
+      INSERT INTO session_outcomes (id, owner_id, session_id, type, url,
+        external_id, state, state_changed_at, closed_at)
+      VALUES (gen_random_uuid(), ${ws}, ${reclosed}::uuid,
+        'github_pull_request', 'https://github.com/acme/app/pull/41', '41',
+        'closed', ${before}::timestamptz, now())`);
+    await db.execute(sql`
+      UPDATE sessions SET admission_state = 'paused',
+        task_closing = ${JSON.stringify(TASK_CLOSING_DEFAULT)}::jsonb
+      WHERE id IN (${late}::uuid, ${reclosed}::uuid)`);
+    expect(await closes.closeOnPullRequests(100)).toBe(1);
+    expect(await reasonOf(late)).toBe(null);
+    expect(await reasonOf(reclosed)).toBe("cancelled");
+
+    // A DM's task counts every one of its pull requests, its link or not.
     const dmTask = await session({ parent: dm });
     await db.insert(sessionLinks).values({
       id: randomUUID(),
@@ -736,7 +762,7 @@ describe("a DM person's standalone sessions (v1-b/DM3)", () => {
       openedByTs: "8.0",
       agentId,
       releaseId: release,
-      createdAt: new Date(Date.now() - 120_000),
+      createdAt: new Date(),
     });
     await db
       .update(sessions)

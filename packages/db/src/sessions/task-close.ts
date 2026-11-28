@@ -64,18 +64,22 @@ async function pullRequestReason(
 }
 
 /**
- * Whether pull request `o` of session `s` settled since the session became
- * a task: at or after its first primary link, the thread it works in. A
- * task its DM opened has that link before it exists, so every one counts;
- * a standalone session handed to from a DM (v1-b/DM3) has it from the
- * hand-off, so one merged or closed before is not its task's. An open one
- * still holds a cancel back, whenever it was opened.
+ * Whether pull request `o` of session `s` settled as its task's: any of a
+ * task opened as one (it has an interpretation); of a standalone session
+ * handed to from a DM (v1-b/DM3), one merged or closed on GitHub at or
+ * after its first primary link, the hand-off; with no link, any. An open
+ * one still holds a cancel back, whenever it was opened.
  */
-const SETTLED_AS_TASK = sql`
-  o.state_changed_at >= coalesce(
-    (SELECT min(fl.created_at) FROM session_links fl
-      WHERE fl.session_id = s.id AND fl.role = 'primary'),
-    '-infinity'::timestamptz)`;
+const SETTLED_AS_TASK = sql`(
+  s.task_interpretation IS NOT NULL
+  OR CASE o.state
+      WHEN 'merged' THEN coalesce(o.merged_at, o.state_changed_at)
+      WHEN 'closed' THEN coalesce(o.closed_at, o.state_changed_at)
+      ELSE o.state_changed_at
+    END >= coalesce(
+      (SELECT min(fl.created_at) FROM session_links fl
+        WHERE fl.session_id = s.id AND fl.role = 'primary'),
+      '-infinity'::timestamptz))`;
 
 /**
  * A task's time rules (v1-b/C2), on the database clock, over sessions `s`
