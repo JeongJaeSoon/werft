@@ -2692,10 +2692,12 @@ export class WorkerHost {
       return;
     }
     // A timed-out turn is already being interrupted, on its own terms.
+    // So is one cut at a limit: a second interrupt would take its outcome.
     if (
       turn.closed ||
       turn.interrupting ||
       turn.timedOut ||
+      turn.limit !== undefined ||
       turn.turnId !== control.target_turn_id
     ) {
       return;
@@ -3430,12 +3432,21 @@ export class WorkerHost {
       return undefined;
     }
     // The interrupt voided the turn's callbacks; one raised after it is no
-    // different, and asking would only hold the turn open again.
-    if (this.turn?.interrupting === true || this.turn?.closed === true) {
+    // different, and asking would only hold the turn open again. A cut at a
+    // limit interrupts too.
+    const limit = this.turn?.limit;
+    if (
+      this.turn?.interrupting === true ||
+      this.turn?.closed === true ||
+      limit !== undefined
+    ) {
       void answer({
         kind: "cancelled",
         reason: "interrupt",
-        message: "The turn was interrupted",
+        message:
+          limit === undefined
+            ? "The turn was interrupted"
+            : LIMIT_CUTS[limit].pending,
       });
       return undefined;
     }

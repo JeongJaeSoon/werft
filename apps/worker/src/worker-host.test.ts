@@ -415,6 +415,96 @@ describe("WorkerHost turn tool call limit", () => {
     ]);
     expect(summary.outcome).toBe("idle");
   });
+  test("a user's interrupt after the cut leaves the turn to the limit", async () => {
+    const held: Array<() => void> = [];
+    let free = false;
+    let interrupts = 0;
+    const { gateway, host } = harness([{ type: "await-input" }], {
+      maxTurnToolCalls: 3,
+      wrap: (run) => {
+        const codex = codexShaped(run, [10, 1]);
+        return {
+          ...codex,
+          interrupt: async () => {
+            interrupts += 1;
+            if (!free) await new Promise<void>((resolve) => held.push(resolve));
+            return codex.interrupt();
+          },
+        };
+      },
+    });
+    gateway.enqueue("loop on a command");
+    gateway.enqueue("go on");
+    const running = host.runLoop();
+    await waitFor(() => interrupts === 1, "the limit's interrupt");
+    const polls = () =>
+      gateway.calls.filter((call) => call === "pendingControl").length;
+    const before = polls();
+    gateway.control = {
+      kind: "interrupt",
+      control_id: "interrupt-after-cut",
+      target_turn_id: "1",
+      issued_at: new Date().toISOString(),
+    };
+    await waitFor(() => polls() > before + 1, "the control");
+    gateway.control = null;
+    free = true;
+    for (const release of held) release();
+
+    const summary = await running;
+
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "failed", reason: TURN_TOOL_CALL_LIMIT_REASON },
+      { turnId: "2", status: "completed", reason: null },
+    ]);
+    expect(interrupts).toBe(1);
+  });
+
+  test("an approval asked after the cut is refused, not registered", async () => {
+    const gateway = new FakeWorkerGateway();
+    const register = gateway.registerPending.bind(gateway);
+    gateway.registerPending = async (request) => ({
+      ...(await register(request)),
+      expires_in_ms: 20,
+    });
+    const { host, runtime } = harness(
+      [
+        { type: "await-input" },
+        { type: "emit", message: toolUseMessage(["t1", "t2", "t3"]) },
+        {
+          type: "permissions",
+          requests: [
+            {
+              input: { command: "ls" },
+              requestId: "req-late",
+              tool: "Bash",
+              toolUseId: "t3",
+            },
+          ],
+        },
+        { type: "emit", message: resultMessage(uuidForTurn(1)) },
+        { type: "await-input" },
+      ],
+      {
+        gateway,
+        maxTurnToolCalls: 2,
+        // An engine slow to take the interrupt asks first.
+        wrap: (run) =>
+          Object.assign(Object.create(run) as AgentRun, {
+            interrupt: async () => {},
+          }),
+      },
+    );
+    gateway.enqueue("loop on a tool");
+
+    const summary = await host.runLoop();
+
+    expect(summary.turns).toEqual([
+      { turnId: "1", status: "failed", reason: TURN_TOOL_CALL_LIMIT_REASON },
+    ]);
+    expect(gateway.questions()).toHaveLength(0);
+    expect(runtime.permissionDecisions[0]?.behavior).toBe("deny");
+  });
 });
 
 describe("WorkerHost workspace quota", () => {
