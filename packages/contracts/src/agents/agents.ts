@@ -79,7 +79,7 @@ export const CREDENTIAL_BINDING_TARGET_VALUES = [
   "agent_identity",
 ] as const;
 
-/** What happens when the agent calls a tool. Kiel evaluates it per call. */
+/** What happens when the agent calls a tool. The session runtime evaluates it per call. */
 export const TOOL_POLICY_VALUES = ["allow", "ask", "deny"] as const;
 export const toolPolicySchema = z.enum(TOOL_POLICY_VALUES);
 

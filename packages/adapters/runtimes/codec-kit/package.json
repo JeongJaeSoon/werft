@@ -1,6 +1,6 @@
 {
   "name": "@werft-ai/runtime-codec-kit",
-  "description": "Kiel session runtime: the checkpoint manifest and v1 event codecs every engine adapter builds on",
+  "description": "The checkpoint manifest and v1 event codecs every engine adapter builds on",
   "version": "0.0.0",
   "private": true,
   "license": "PolyForm-Small-Business-1.0.0",

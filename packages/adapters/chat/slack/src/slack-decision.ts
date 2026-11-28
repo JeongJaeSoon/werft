@@ -118,7 +118,7 @@ export function slackCallerOf(
 }
 
 /**
- * The whole Musterrolle half of a Slack mention or button (design 3.2):
+ * The whole access-control half of a Slack mention or button (design 3.2):
  * the agent the app belongs to, the person the Slack account links to now,
  * then the decision and the notice for a refusal. The Slack channel calls
  * this once per input it processes and for every button press, with the

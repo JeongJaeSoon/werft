@@ -1,6 +1,6 @@
 {
   "name": "@werft-ai/contracts",
-  "description": "Shared Zod contracts: Kiel session API and worker protocol, Musterrolle and Kollegium contracts under their directories, unassigned domain contracts and shared primitives",
+  "description": "Shared Zod contracts: the session API and worker protocol, access-control and agent contracts under their directories, unassigned domain contracts and shared primitives",
   "version": "0.0.0",
   "private": true,
   "license": "PolyForm-Small-Business-1.0.0",

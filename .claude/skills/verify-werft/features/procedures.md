@@ -193,7 +193,7 @@ ap_web GET "/v1/agents/$AID/admins"
 ap_web GET "/v1/agents/$AID/credential-bindings"
 ```
 
-기대: connections 200 `items`(연결마다 모델 목록). agent create 201 `agent`·`versions`. release 200 `release.id`. activate 200. 관리 목록에 에이전트가 있고 관리자 목록에 만든 owner와 추가 팀이 있다. credential-bindings는 200 빈 목록. 소스: `apps/control-host/src/api/routes/agents/agents.ts`, `agent-identities.ts`, `credential-bindings.ts`, `teams.ts`와 contracts의 musterrolle 스키마.
+기대: connections 200 `items`(연결마다 모델 목록). agent create 201 `agent`·`versions`. release 200 `release.id`. activate 200. 관리 목록에 에이전트가 있고 관리자 목록에 만든 owner와 추가 팀이 있다. credential-bindings는 200 빈 목록. 소스: `apps/control-host/src/api/routes/agents/agents.ts`, `agent-identities.ts`, `credential-bindings.ts`, `teams.ts`와 contracts의 access-control 스키마.
 
 ## P-WEB-AGENTS — 목록·마법사·상세
 
