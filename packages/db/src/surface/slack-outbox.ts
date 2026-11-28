@@ -569,18 +569,19 @@ const keepsProgressMessage = (link: SQL) => sql`(
   ${link}.role = 'primary' AND ${link}.thread_id <> '' AND ${reportsProgress(link)}
 )`;
 
-// Whether link `link` has a progress message up (Slack took it) that it no
-// longer keeps: its mode moved off progress mid-work (a channel's pick, an
-// agent's rollout). One never up gets no end: it would go as a first post.
-// The message takes no more updates, but still the work's end (idle, then
-// closed), so it never stays at running.
+// Whether link `link` has a progress message up (Slack took it, or may be
+// taking it) that it no longer keeps: its mode moved off progress mid-work
+// (a channel's pick, an agent's rollout). The message takes no more
+// updates, but still the work's end (idle, then closed), so it never stays
+// at running. The end is only ever an edit (beginSend): one never up gets
+// none.
 const endsProgressMessage = (link: SQL) => sql`(
   ${link}.role = 'primary' AND ${link}.thread_id <> '' AND ${reportsTurns(link)}
   AND EXISTS (
     SELECT 1 FROM slack_outbox pm
     WHERE pm.installation_id = ${link}.installation_id
       AND pm.progress_key = 'progress:' || ${link}.id
-      AND pm.status = 'sent')
+      AND pm.status IN ('sent', 'sending'))
 )`;
 
 // How long a closed link still takes the follow-ups of answers stored before
@@ -1359,18 +1360,10 @@ export function createPostgresSlackOutboxStore(
               )
               -- A progress message that went up says the work closed
               -- first, even one its link stopped keeping: the link takes no
-              -- update once closed. One a pass holds (claimed, or being
-              -- sent) may yet go up, so it is waited for (its lease bounds
-              -- the wait). A revoked install takes none, so it is not
-              -- waited for.
-              AND ((NOT (${keepsProgressMessage(sql.raw("l2"))}
-                OR ${endsProgressMessage(sql.raw("l2"))}) AND NOT EXISTS (
-                SELECT 1 FROM ${t} p
-                WHERE p.installation_id = l2.installation_id
-                  AND p.progress_key = 'progress:' || l2.id
-                  AND (p.status = 'sending' OR (p.status = 'pending'
-                    AND p.claim_token IS NOT NULL AND p.lease_expires_at > now()))
-              )) OR EXISTS (
+              -- update once closed. A revoked install takes none, so it is
+              -- not waited for.
+              AND (NOT (${keepsProgressMessage(sql.raw("l2"))}
+                OR ${endsProgressMessage(sql.raw("l2"))}) OR EXISTS (
                 SELECT 1 FROM slack_installations ri
                 WHERE ri.id = l2.installation_id AND ri.status = 'revoked'
               ) OR NOT EXISTS (
@@ -2877,7 +2870,8 @@ export function createPostgresSlackOutboxStore(
             stopped: boolean;
             ts: string | null;
             reposted: boolean;
-            ends_only: boolean;
+            left_progress: boolean;
+            ending: boolean;
           }>(
             await tx.execute(sql`
               WITH me AS (
@@ -2918,7 +2912,13 @@ export function createPostgresSlackOutboxStore(
                   WHERE pl.installation_id = ${row.installationId}::uuid
                     AND 'progress:' || pl.id = ${row.progressKey}
                     AND NOT ${keepsProgressMessage(sql.raw("pl"))}
-                ) AS ends_only`),
+                ) AS left_progress,
+                EXISTS (
+                  SELECT 1 FROM slack_outbox
+                  WHERE id = ${fence.id}::uuid
+                    AND (dedupe_key LIKE 'progress:%:idle:%'
+                      OR dedupe_key LIKE 'progress:%:closed:%')
+                ) AS ending`),
           );
           if (state === undefined) return false;
           if (state.stopped || state.superseded) {
@@ -2946,10 +2946,23 @@ export function createPostgresSlackOutboxStore(
             return false;
           }
           // A message its thread no longer keeps takes only its end, as an
-          // edit: one gone from Slack is not put up again.
+          // edit of the post Slack took: read here, as the mode may have
+          // moved since the claim. Nothing goes up as a first post, and one
+          // gone from Slack is not put up again.
+          if (state.left_progress && (!state.ending || state.ts === null)) {
+            await tx
+              .update(t)
+              .set({
+                status: "failed",
+                errorCode: "not_addressed",
+                ...released,
+              })
+              .where(eq(t.id, fence.id));
+            return false;
+          }
           progress = {
             ts: state.ts,
-            reposted: state.reposted || state.ends_only,
+            reposted: state.reposted || state.left_progress,
           };
         }
         // A title cut or made from the session's first message: that
