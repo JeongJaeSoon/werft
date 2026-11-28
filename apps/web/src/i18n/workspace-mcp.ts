@@ -10,6 +10,7 @@ export const workspaceMcpKo = {
     "보기만 할 수 있습니다. 등록과 연결은 오너와 어드민이 합니다.",
   "workspaceMcp.auth.oauth": "OAuth",
   "workspaceMcp.auth.bearer": "정적 token",
+  "workspaceMcp.auth.none": "인증 없음",
   "workspaceMcp.auth.unsupported": "지원하지 않는 인증",
   "workspaceMcp.auth.unsupportedNotice":
     "이 판은 이 서버의 인증 방식({kind})을 지원하지 않습니다. 여기서는 token이나 OAuth를 바꾸거나 다시 연결할 수 없습니다. API를 새 판으로 올리거나 서버를 삭제하세요.",
@@ -35,6 +36,8 @@ export const workspaceMcpKo = {
     "에이전트의 호출은 {name}이(가) 동의 화면에서 로그인한 외부 계정으로 실행되고, 외부 서비스에 그 계정으로 기록됩니다.",
   "workspaceMcp.actingAs.bearer":
     "에이전트의 호출은 {name}이(가) 넣은 token을 발급한 계정으로 실행되고, 외부 서비스에 그 계정으로 기록됩니다.",
+  "workspaceMcp.actingAs.none":
+    "인증 없이 부르는 서버입니다. 에이전트의 호출에 누구의 계정이나 자격도 실리지 않습니다.",
   "workspaceMcp.actingAs.unknown": "알 수 없는 사용자",
   "workspaceMcp.connectedBy": "연결한 사람",
   "workspaceMcp.connectedAt": "연결 시각",
@@ -108,6 +111,8 @@ export const workspaceMcpKo = {
   "workspaceMcp.register.token": "token",
   "workspaceMcp.register.tokenHint":
     "저장하면 다시 보이지 않고 끝 네 자리만 보입니다. 에이전트는 이 token을 발급한 계정으로 동작합니다.",
+  "workspaceMcp.register.noneHint":
+    "인증 없이 부를 수 있는 공개 서버에만 고르세요. 저장하는 자격이 없고, 에이전트의 호출에 Authorization 헤더가 실리지 않습니다.",
   "workspaceMcp.register.submit": "등록",
   "workspaceMcp.register.submitting": "등록하는 중…",
   "workspaceMcp.registered.oauth":
@@ -115,6 +120,8 @@ export const workspaceMcpKo = {
   "workspaceMcp.registered.manual":
     "{name}을(를) 등록했습니다. client 설정에서 client를 넣은 뒤 연결하세요.",
   "workspaceMcp.registered.bearer": "{name}을(를) 등록하고 연결했습니다.",
+  "workspaceMcp.registered.none":
+    "{name}을(를) 인증 없이 등록하고 도구를 읽었습니다.",
   "workspaceMcp.error.ALREADY_EXISTS":
     "이미 쓰는 이름입니다. 이 워크스페이스의 다른 서버가 쓰고 있습니다.",
   "workspaceMcp.error.MCP_SERVER_QUOTA_EXCEEDED":
@@ -140,6 +147,8 @@ export const workspaceMcpKo = {
     "이 서버는 OAuth가 아니라 정적 token으로 연결합니다.",
   "workspaceMcp.error.not_bearer":
     "이 서버는 정적 token이 아니라 OAuth로 연결합니다.",
+  "workspaceMcp.error.no_credential":
+    "이 서버는 인증 없이 부릅니다. 넣거나 끊을 token이나 OAuth가 없습니다.",
   "workspaceMcp.error.client_registration_required":
     "인가 서버가 동적 client 등록을 받지 않습니다. client 설정에서 client를 넣은 뒤 연결하세요.",
   "workspaceMcp.error.registration_failed":
@@ -218,6 +227,7 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
     "You can only view these. Owners and admins register and connect servers.",
   "workspaceMcp.auth.oauth": "OAuth",
   "workspaceMcp.auth.bearer": "Static token",
+  "workspaceMcp.auth.none": "No authentication",
   "workspaceMcp.auth.unsupported": "Unsupported authentication",
   "workspaceMcp.auth.unsupportedNotice":
     "This version does not support this server's authentication ({kind}). You cannot change its token or OAuth or connect it again here. Upgrade the API, or delete the server.",
@@ -243,6 +253,8 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
     "Agents' calls run as the external account {name} signed in with on the consent screen, and the remote service records them under it.",
   "workspaceMcp.actingAs.bearer":
     "Agents' calls run as the account that issued the token {name} entered, and the remote service records them under it.",
+  "workspaceMcp.actingAs.none":
+    "This server is called without a credential. No one's account or credential goes with agents' calls.",
   "workspaceMcp.actingAs.unknown": "Unknown user",
   "workspaceMcp.connectedBy": "Connected by",
   "workspaceMcp.connectedAt": "Connected at",
@@ -315,6 +327,8 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
   "workspaceMcp.register.token": "Token",
   "workspaceMcp.register.tokenHint":
     "Not shown again once saved; only its last four characters are. Agents run as the account that issued it.",
+  "workspaceMcp.register.noneHint":
+    "Choose this only for a public server that takes no credential. Nothing is stored, and agents' calls go without an Authorization header.",
   "workspaceMcp.register.submit": "Register",
   "workspaceMcp.register.submitting": "Registering…",
   "workspaceMcp.registered.oauth":
@@ -322,6 +336,8 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
   "workspaceMcp.registered.manual":
     "Registered {name}. Set its client, then connect.",
   "workspaceMcp.registered.bearer": "Registered and connected {name}.",
+  "workspaceMcp.registered.none":
+    "Registered {name} without authentication and read its tools.",
   "workspaceMcp.error.ALREADY_EXISTS":
     "That name is taken by another server of this workspace.",
   "workspaceMcp.error.MCP_SERVER_QUOTA_EXCEEDED":
@@ -347,6 +363,8 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
     "This server connects with a static token, not OAuth.",
   "workspaceMcp.error.not_bearer":
     "This server connects with OAuth, not a static token.",
+  "workspaceMcp.error.no_credential":
+    "This server is called without a credential. There is no token or OAuth to set or disconnect.",
   "workspaceMcp.error.client_registration_required":
     "The authorization server takes no dynamic client registration. Set a client, then connect.",
   "workspaceMcp.error.registration_failed":
@@ -427,6 +445,7 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
     "表示のみできます。登録と接続はオーナーとアドミンが行います。",
   "workspaceMcp.auth.oauth": "OAuth",
   "workspaceMcp.auth.bearer": "静的 token",
+  "workspaceMcp.auth.none": "認証なし",
   "workspaceMcp.auth.unsupported": "未対応の認証",
   "workspaceMcp.auth.unsupportedNotice":
     "この版はこのサーバーの認証方式（{kind}）に対応していません。ここでは token や OAuth の変更、再接続はできません。API を新しい版に上げるか、サーバーを削除してください。",
@@ -452,6 +471,8 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
     "エージェントの呼び出しは {name} が同意画面でログインした外部アカウントで実行され、外部サービスにそのアカウントで記録されます。",
   "workspaceMcp.actingAs.bearer":
     "エージェントの呼び出しは {name} が入れた token を発行したアカウントで実行され、外部サービスにそのアカウントで記録されます。",
+  "workspaceMcp.actingAs.none":
+    "認証なしで呼び出すサーバーです。エージェントの呼び出しには誰のアカウントや資格情報も付きません。",
   "workspaceMcp.actingAs.unknown": "不明なユーザー",
   "workspaceMcp.connectedBy": "接続した人",
   "workspaceMcp.connectedAt": "接続日時",
@@ -527,6 +548,8 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
   "workspaceMcp.register.token": "token",
   "workspaceMcp.register.tokenHint":
     "保存後は再表示されず、末尾 4 文字だけが見えます。エージェントはこの token を発行したアカウントで動作します。",
+  "workspaceMcp.register.noneHint":
+    "資格情報なしで呼び出せる公開サーバーにだけ選んでください。何も保存されず、エージェントの呼び出しに Authorization ヘッダーは付きません。",
   "workspaceMcp.register.submit": "登録",
   "workspaceMcp.register.submitting": "登録しています…",
   "workspaceMcp.registered.oauth":
@@ -534,6 +557,8 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
   "workspaceMcp.registered.manual":
     "{name} を登録しました。client を設定してから接続してください。",
   "workspaceMcp.registered.bearer": "{name} を登録して接続しました。",
+  "workspaceMcp.registered.none":
+    "{name} を認証なしで登録し、ツールを読み込みました。",
   "workspaceMcp.error.ALREADY_EXISTS":
     "この名前はこのワークスペースの別のサーバーが使っています。",
   "workspaceMcp.error.MCP_SERVER_QUOTA_EXCEEDED":
@@ -559,6 +584,8 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
     "このサーバーは OAuth ではなく静的 token で接続します。",
   "workspaceMcp.error.not_bearer":
     "このサーバーは静的 token ではなく OAuth で接続します。",
+  "workspaceMcp.error.no_credential":
+    "このサーバーは認証なしで呼び出します。設定や切断をする token や OAuth はありません。",
   "workspaceMcp.error.client_registration_required":
     "認可サーバーが動的 client 登録を受け付けません。client を設定してから接続してください。",
   "workspaceMcp.error.registration_failed":

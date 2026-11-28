@@ -236,8 +236,11 @@ function ServerRow({
   const name = server.name;
   const { connection } = server;
   const supported =
-    server.auth_kind === "oauth" || server.auth_kind === "bearer";
+    server.auth_kind === "oauth" ||
+    server.auth_kind === "bearer" ||
+    server.auth_kind === "none";
   const oauth = server.auth_kind === "oauth";
+  const noCredential = server.auth_kind === "none";
   const manualClient = server.oauth?.client_registration === "manual";
   const needsClient =
     oauth && server.oauth?.dcr_supported === false && !server.oauth.client_id;
@@ -358,7 +361,9 @@ function ServerRow({
                 ? t("workspaceMcp.auth.oauth")
                 : server.auth_kind === "bearer"
                   ? t("workspaceMcp.auth.bearer")
-                  : t("workspaceMcp.auth.unsupported")}
+                  : server.auth_kind === "none"
+                    ? t("workspaceMcp.auth.none")
+                    : t("workspaceMcp.auth.unsupported")}
             </Badge>
           </div>
           <Text as="span" variant="meta" className="wrap-anywhere">
@@ -415,7 +420,9 @@ function ServerRow({
                   {t(
                     oauth
                       ? "workspaceMcp.actingAs.oauth"
-                      : "workspaceMcp.actingAs.bearer",
+                      : noCredential
+                        ? "workspaceMcp.actingAs.none"
+                        : "workspaceMcp.actingAs.bearer",
                     { name: person },
                   )}
                 </Text>
@@ -423,7 +430,14 @@ function ServerRow({
                   variant="grid"
                   stack="sm"
                   items={[
-                    { label: t("workspaceMcp.connectedBy"), value: person },
+                    ...(noCredential
+                      ? []
+                      : [
+                          {
+                            label: t("workspaceMcp.connectedBy"),
+                            value: person,
+                          },
+                        ]),
                     ...(connection.connected_at
                       ? [
                           {
@@ -435,21 +449,27 @@ function ServerRow({
                           },
                         ]
                       : []),
-                    oauth
-                      ? {
-                          label: t("workspaceMcp.grantedScope"),
-                          value: connection.granted_scope ? (
-                            <Code className="wrap-anywhere">
-                              {connection.granted_scope}
-                            </Code>
-                          ) : (
-                            t("workspaceMcp.grantedScopeNone")
-                          ),
-                        }
-                      : {
-                          label: t("workspaceMcp.lastFour"),
-                          value: <Code>{server.bearer?.last4 ?? "—"}</Code>,
-                        },
+                    ...(noCredential
+                      ? []
+                      : [
+                          oauth
+                            ? {
+                                label: t("workspaceMcp.grantedScope"),
+                                value: connection.granted_scope ? (
+                                  <Code className="wrap-anywhere">
+                                    {connection.granted_scope}
+                                  </Code>
+                                ) : (
+                                  t("workspaceMcp.grantedScopeNone")
+                                ),
+                              }
+                            : {
+                                label: t("workspaceMcp.lastFour"),
+                                value: (
+                                  <Code>{server.bearer?.last4 ?? "—"}</Code>
+                                ),
+                              },
+                        ]),
                   ]}
                 />
               </div>
@@ -483,7 +503,7 @@ function ServerRow({
                           : "workspaceMcp.reconnect",
                       )}
                 </RowAction>
-              ) : (
+              ) : noCredential ? null : (
                 <RowAction
                   disabled={busy}
                   aria-label={t("workspaceMcp.replaceTokenFor", { name })}
@@ -520,7 +540,7 @@ function ServerRow({
                   {t("workspaceMcp.refresh")}
                 </RowAction>
               ) : null}
-              {connection.state !== "none" ? (
+              {connection.state !== "none" && !noCredential ? (
                 <RowAction
                   variant="danger"
                   disabled={busy}
@@ -792,7 +812,7 @@ function RegisterServer({
   const [found, setFound] = useState<DiscoverWorkspaceMcpServerResponse | null>(
     null,
   );
-  const [kind, setKind] = useState<"oauth" | "bearer">("oauth");
+  const [kind, setKind] = useState<"oauth" | "bearer" | "none">("oauth");
   const [error, setError] = useState<string | null>(null);
   const reset = () => {
     setUrl("");
@@ -822,7 +842,8 @@ function RegisterServer({
       api,
       body:
         | { name: string; url: string; auth_kind: "bearer"; token: string }
-        | { name: string; url: string; auth_kind: "oauth"; scope?: string },
+        | { name: string; url: string; auth_kind: "oauth"; scope?: string }
+        | { name: string; url: string; auth_kind: "none" },
     ) => unwrap(api.POST("/v1/workspace/mcp-servers", { body })),
     {
       onDone: (server) => {
@@ -831,11 +852,13 @@ function RegisterServer({
         onOutcome({
           kind: "notice",
           text: t(
-            server.auth_kind === "bearer"
-              ? "workspaceMcp.registered.bearer"
-              : server.oauth?.dcr_supported === false
-                ? "workspaceMcp.registered.manual"
-                : "workspaceMcp.registered.oauth",
+            server.auth_kind === "none"
+              ? "workspaceMcp.registered.none"
+              : server.auth_kind === "bearer"
+                ? "workspaceMcp.registered.bearer"
+                : server.oauth?.dcr_supported === false
+                  ? "workspaceMcp.registered.manual"
+                  : "workspaceMcp.registered.oauth",
             { name: server.name },
           ),
         });
@@ -875,6 +898,10 @@ function RegisterServer({
         const name = String(form.get("name")).trim();
         if (WORKSPACE_MCP_RESERVED_NAMES.includes(name)) {
           setError(t("workspaceMcp.error.name_reserved"));
+          return;
+        }
+        if (kind === "none") {
+          create.mutate({ name, url: found.url, auth_kind: "none" });
           return;
         }
         if (kind === "bearer") {
@@ -961,24 +988,38 @@ function RegisterServer({
               {t("workspaceMcp.register.nameHint")}
             </FieldDescription>
           </Field>
-          {oauth === null ? null : (
-            <Field>
-              <FieldLabel>{t("workspaceMcp.register.authKind")}</FieldLabel>
-              <NativeSelect
-                value={kind}
-                onChange={(event) =>
-                  setKind(event.target.value === "bearer" ? "bearer" : "oauth")
-                }
-              >
+          <Field>
+            <FieldLabel>{t("workspaceMcp.register.authKind")}</FieldLabel>
+            <NativeSelect
+              value={kind}
+              onChange={(event) =>
+                setKind(
+                  event.target.value === "bearer"
+                    ? "bearer"
+                    : event.target.value === "none"
+                      ? "none"
+                      : "oauth",
+                )
+              }
+            >
+              {oauth === null ? null : (
                 <NativeSelectOption value="oauth">
                   {t("workspaceMcp.auth.oauth")}
                 </NativeSelectOption>
-                <NativeSelectOption value="bearer">
-                  {t("workspaceMcp.auth.bearer")}
-                </NativeSelectOption>
-              </NativeSelect>
-            </Field>
-          )}
+              )}
+              <NativeSelectOption value="bearer">
+                {t("workspaceMcp.auth.bearer")}
+              </NativeSelectOption>
+              <NativeSelectOption value="none">
+                {t("workspaceMcp.auth.none")}
+              </NativeSelectOption>
+            </NativeSelect>
+            {kind === "none" ? (
+              <FieldDescription>
+                {t("workspaceMcp.register.noneHint")}
+              </FieldDescription>
+            ) : null}
+          </Field>
           {kind === "oauth" && oauth !== null ? (
             <Field>
               <FieldLabel>{t("workspaceMcp.register.scope")}</FieldLabel>
@@ -994,13 +1035,13 @@ function RegisterServer({
                 {t("workspaceMcp.register.scopeHint")}
               </FieldDescription>
             </Field>
-          ) : (
+          ) : kind === "bearer" ? (
             <TokenInput
               label={t("workspaceMcp.register.token")}
               name="token"
               hint={t("workspaceMcp.register.tokenHint")}
             />
-          )}
+          ) : null}
         </>
       )}
     </FormDialog>

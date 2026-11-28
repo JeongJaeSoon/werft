@@ -86,6 +86,20 @@ function bearerServer(): WorkspaceMcpServer {
   });
 }
 
+/** A public server: connected from the start, by no one. */
+function noneServer(): WorkspaceMcpServer {
+  return oauthServer({
+    id: TRACKER,
+    name: "deepwiki",
+    url: "https://mcp.example.com/mcp",
+    auth_kind: "none",
+    redirect_uri: null,
+    oauth: null,
+    bearer: null,
+    connection: { ...UNCONNECTED, state: "active", connected_at: AT },
+  });
+}
+
 const routes = (
   items: readonly WorkspaceMcpServer[],
   signedIn = me(),
@@ -321,7 +335,7 @@ describe("워크스페이스 MCP 서버", () => {
     expect(writes(api.calls)).toEqual([]);
   });
 
-  test("a server without OAuth registers with a static value only", async () => {
+  test("a server without OAuth registers with a static value by default", async () => {
     const { api } = renderAt(PAGE, {
       ...routes([]),
       [`POST ${LIST}/discover`]: () =>
@@ -337,7 +351,15 @@ describe("워크스페이스 MCP 서버", () => {
     );
     await user.click(within(dialog).getByRole("button", { name: "탐색" }));
     await within(dialog).findByRole("region", { name: "탐색 결과" });
-    expect(within(dialog).queryByLabelText("인증 방식") === null).toBe(true);
+    const kind = within(dialog).getByLabelText(
+      "인증 방식",
+    ) as HTMLSelectElement;
+    expect(kind.value).toBe("bearer");
+    // No OAuth to offer: a static value, or none at all.
+    expect([...kind.options].map((option) => option.value)).toEqual([
+      "bearer",
+      "none",
+    ]);
     expect(within(dialog).queryByLabelText("요청할 scope") === null).toBe(true);
     const secret = dialog.querySelector(
       'input[name="token"]',
@@ -354,6 +376,44 @@ describe("워크스페이스 MCP 서버", () => {
       url: "https://tracker.example.com/mcp",
       auth_kind: "bearer",
       token: "example-static-value",
+    });
+  });
+
+  test("a public server registers with no authentication and sends no token", async () => {
+    const { api } = renderAt(PAGE, {
+      ...routes([]),
+      [`POST ${LIST}/discover`]: () =>
+        json(200, { url: "https://mcp.example.com/mcp", oauth: null }),
+      [`POST ${LIST}`]: () => json(201, noneServer()),
+    });
+    const user = await setupUser();
+    await user.click(await screen.findByRole("button", { name: "서버 등록" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(
+      within(dialog).getByLabelText("서버 URL"),
+      "https://mcp.example.com/mcp",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "탐색" }));
+    await within(dialog).findByRole("region", { name: "탐색 결과" });
+    await user.selectOptions(
+      within(dialog).getByLabelText("인증 방식"),
+      "none",
+    );
+    expect(dialog.textContent).toContain(
+      "인증 없이 부를 수 있는 공개 서버에만 고르세요.",
+    );
+    expect(dialog.querySelector('input[name="token"]') === null).toBe(true);
+    await user.type(within(dialog).getByLabelText("이름"), "deepwiki");
+    await user.click(within(dialog).getByRole("button", { name: "등록" }));
+    expect(
+      await screen.findByText(
+        "deepwiki을(를) 인증 없이 등록하고 도구를 읽었습니다.",
+      ),
+    ).toBeDefined();
+    expect(writes(api.calls).at(-1)?.body).toEqual({
+      name: "deepwiki",
+      url: "https://mcp.example.com/mcp",
+      auth_kind: "none",
     });
   });
 
@@ -516,17 +576,35 @@ describe("워크스페이스 MCP 서버", () => {
     expect(screen.queryByText("설치 카탈로그") === null).toBe(true);
   });
 
+  test("a server with no authentication says so and offers only tools and delete", async () => {
+    renderAt(PAGE, routes([noneServer()]));
+    const row = await rowOf("deepwiki");
+    expect(row.textContent).toContain("연결됨");
+    expect(row.textContent).toContain("인증 없음");
+    expect(row.textContent).not.toContain("지원하지 않는 인증");
+    const acting = within(row).getByRole("region", {
+      name: "이 계정으로 동작함",
+    });
+    expect(acting.textContent).toContain("인증 없이 부르는 서버입니다.");
+    expect(acting.textContent).not.toContain("알 수 없는 사용자");
+    expect(
+      within(row)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["deepwiki 도구 다시 읽기", "deepwiki 삭제"]);
+  });
+
   test("a server of an auth kind this version does not know stays listed with delete only", async () => {
     const later = {
       ...bearerServer(),
-      auth_kind: "none",
+      auth_kind: "mtls",
       bearer: null,
     } satisfies WorkspaceMcpServer;
     renderAt(PAGE, routes([oauthServer(), later]));
     const tracker = await rowOf("tracker");
     expect(tracker.textContent).toContain("지원하지 않는 인증");
     expect(tracker.textContent).toContain(
-      "인증 방식(none)을 지원하지 않습니다",
+      "인증 방식(mtls)을 지원하지 않습니다",
     );
     expect(
       within(tracker).queryByRole("region", { name: "이 계정으로 동작함" }) ===

@@ -33,6 +33,11 @@ export type FakeRemoteOptions = {
   /** Answer MCP requests as an event stream. */
   sse?: boolean;
   accepted?: string[];
+  /**
+   * A public server, as DeepWiki is: a request with no Authorization is
+   * answered, and one with any is refused.
+   */
+  anonymous?: boolean;
 };
 
 function answer({ status, json, text, headers }: Answer): OutboundResponse {
@@ -83,7 +88,13 @@ export function fakeRemote(options: FakeRemoteOptions = {}) {
 
   const mcp = (request: OutboundRequest): Answer => {
     const bearer = request.headers?.Authorization?.replace(/^Bearer /, "");
-    if (bearer === undefined || !accepted.has(bearer)) {
+    const open = options.anonymous === true && bearer === undefined;
+    if (
+      !open &&
+      (options.anonymous === true ||
+        bearer === undefined ||
+        !accepted.has(bearer))
+    ) {
       return {
         status: 401,
         text: "",
@@ -294,13 +305,14 @@ export function memoryWorkspaceMcpStore(
           createdBy: personOf(input.actorUserId),
           createdAt: new Date("2026-11-15T00:00:00.000Z"),
           connection:
-            bearer === null
+            bearer === null && input.authKind !== "none"
               ? { ...NO_CONNECTION }
               : {
                   ...NO_CONNECTION,
                   state: "active",
                   generation: 1,
-                  connectedBy: personOf(input.actorUserId),
+                  connectedBy:
+                    bearer === null ? null : personOf(input.actorUserId),
                   connectedAt: new Date("2026-11-15T00:00:00.000Z"),
                 },
           bearerLast4: null,
@@ -326,6 +338,8 @@ export function memoryWorkspaceMcpStore(
       if (inactive.has(input.actorUserId)) return { outcome: "actor_inactive" };
       const stored = held(input.workspaceId, input.serverId);
       if (!stored) return { outcome: "not_found" };
+      if (stored.record.authKind === "none")
+        return { outcome: "no_credential" };
       if (stored.record.authKind !== "bearer") return { outcome: "not_bearer" };
       stored.bearer = input.token;
       stored.record.connection = {
@@ -408,6 +422,8 @@ export function memoryWorkspaceMcpStore(
       if (inactive.has(input.actorUserId)) return { outcome: "actor_inactive" };
       const stored = held(input.workspaceId, input.serverId);
       if (!stored) return { outcome: "not_found" };
+      if (stored.record.authKind === "none")
+        return { outcome: "no_credential" };
       const revocation = revocationOf(stored);
       dropConnection(stored, true);
       return { outcome: "disconnected", record: copy(stored), revocation };
@@ -418,6 +434,13 @@ export function memoryWorkspaceMcpStore(
     ): Promise<WorkspaceMcpCredential | null> {
       const stored = held(workspaceId, serverId);
       if (!stored || stored.record.connection.state !== "active") return null;
+      if (stored.record.authKind === "none") return { kind: "none" };
+      if (
+        stored.record.authKind !== "bearer" &&
+        stored.record.authKind !== "oauth"
+      ) {
+        return null;
+      }
       if (stored.record.authKind === "bearer") {
         return stored.bearer === null
           ? null

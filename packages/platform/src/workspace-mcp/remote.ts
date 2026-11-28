@@ -671,12 +671,14 @@ function rpcResultOf(
  */
 export async function listTools(
   deps: WorkspaceMcpRemoteDeps,
-  input: { url: string; serverName: string; token: string },
+  /** Null for a server that takes no credential: no Authorization goes. */
+  input: { url: string; serverName: string; token: string | null },
 ): Promise<{ tools: WorkspaceMcpTool[]; skipped: number }> {
   const headers: Record<string, string> = {
     ...MCP_HEADERS,
-    Authorization: `Bearer ${input.token}`,
+    ...(input.token === null ? {} : { Authorization: `Bearer ${input.token}` }),
   };
+  const secrets = input.token === null ? [] : [input.token];
   const call = async (body: string) => {
     const response = await send(deps, {
       url: input.url,
@@ -684,7 +686,7 @@ export async function listTools(
       headers,
       body,
     });
-    refuseReflection(response, [input.token]);
+    refuseReflection(response, secrets);
     if (response.status === 401 || response.status === 403) {
       throw fail(
         "unauthorized",

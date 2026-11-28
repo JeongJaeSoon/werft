@@ -33375,7 +33375,8 @@
                 "type": "string",
                 "enum": [
                   "oauth",
-                  "bearer"
+                  "bearer",
+                  "none"
                 ]
               },
               {
@@ -33796,6 +33797,30 @@
                 "type": "string",
                 "maxLength": 1024,
                 "pattern": "^[\\x21\\x23-\\x5b\\x5d-\\x7e]+( [\\x21\\x23-\\x5b\\x5d-\\x7e]+)*$"
+              }
+            },
+            "required": [
+              "name",
+              "url",
+              "auth_kind"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9](?:[a-z0-9-]|_(?!_)){0,31}$"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "auth_kind": {
+                "type": "string",
+                "const": "none"
               }
             },
             "required": [
@@ -85723,7 +85748,7 @@
           "Workspace settings"
         ],
         "summary": "Register a remote MCP server for the workspace",
-        "description": "Owners and admins signed in to the console as a person; never an API key. `auth_kind: oauth` pins what discovery finds; connect it with the OAuth start and callback. `auth_kind: bearer` stores the token, connects it under the caller and reads the server's tools. The name is the tool prefix `mcp__<name>__`: one taken by the installation catalog or by another server of this workspace answers 409 ALREADY_EXISTS, and `github` and `browser` are reserved. The URL is held to discovery's rules; a `bearer` server's name is resolved and judged before anything is stored. Writes a `create_workspace_mcp_server` receipt, never the token.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins signed in to the console as a person; never an API key. `auth_kind: oauth` pins what discovery finds; connect it with the OAuth start and callback. `auth_kind: bearer` stores the token, connects it under the caller and reads the server's tools. `auth_kind: none` stores nothing, connects it under no one and reads the tools without a credential; its calls carry no credential, and a token, OAuth client, sign-in or disconnect asked of it answers 400 `no_credential`. The name is the tool prefix `mcp__<name>__`: one taken by the installation catalog or by another server of this workspace answers 409 ALREADY_EXISTS, and `github` and `browser` are reserved. The URL is held to discovery's rules; a `bearer` or `none` server's name is resolved and judged before anything is stored. Writes a `create_workspace_mcp_server` receipt, never the token.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []

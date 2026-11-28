@@ -471,7 +471,7 @@ describe("a server of an auth kind this release does not know", () => {
   // What a later release may store: the row still answers, as stored.
   const LATER: typeof SERVER = {
     ...SERVER,
-    auth_kind: "none",
+    auth_kind: "mtls",
     redirect_uri: null,
     oauth: null,
     bearer: null,
@@ -489,7 +489,7 @@ describe("a server of an auth kind this release does not know", () => {
       workspaceMcpServerListSchema
         .parse(await listed.json())
         .items.map((item) => item.auth_kind),
-    ).toEqual(["oauth", "none"]);
+    ).toEqual(["oauth", "mtls"]);
 
     const reply = async () => LATER;
     const calls: [
@@ -550,10 +550,10 @@ describe("a server of an auth kind this release does not know", () => {
     expect(
       ((await disconnected.json()) as { server: { auth_kind: string } }).server
         .auth_kind,
-    ).toBe("none");
+    ).toBe("mtls");
   });
 
-  test("oauth and bearer servers answer as before; a request still names only those two", async () => {
+  test("oauth and bearer servers answer as before; a request names only the kinds this release knows", async () => {
     const bearer: typeof SERVER = {
       ...SERVER,
       auth_kind: "bearer",
@@ -574,9 +574,69 @@ describe("a server of an auth kind this release does not know", () => {
       {},
       "POST",
       base,
-      JSON.stringify({ name: "tracker", url: "https://x", auth_kind: "none" }),
+      JSON.stringify({ name: "tracker", url: "https://x", auth_kind: "mtls" }),
     );
     expect(refused.status).toBe(400);
+  });
+});
+
+describe("POST /v1/workspace/mcp-servers with auth_kind none", () => {
+  const NONE: typeof SERVER = {
+    ...SERVER,
+    auth_kind: "none",
+    redirect_uri: null,
+    oauth: null,
+    bearer: null,
+    connection: {
+      ...SERVER.connection,
+      connected_by: null,
+      granted_scope: null,
+    },
+  };
+
+  test("passes the name and URL alone and answers 201 with the server", async () => {
+    const seen: unknown[] = [];
+    const response = await send(
+      {
+        create: async (_caller, body) => {
+          seen.push(body);
+          return NONE;
+        },
+      },
+      "POST",
+      base,
+      JSON.stringify({
+        name: "deepwiki",
+        url: "https://mcp.example.com/mcp",
+        auth_kind: "none",
+      }),
+    );
+    expect(response.status).toBe(201);
+    expect(workspaceMcpServerSchema.parse(await response.json())).toEqual(NONE);
+    expect(seen).toEqual([
+      {
+        name: "deepwiki",
+        url: "https://mcp.example.com/mcp",
+        auth_kind: "none",
+      },
+    ]);
+  });
+
+  test("refuses a token or a scope beside it", async () => {
+    for (const extra of [{ token: "x".repeat(12) }, { scope: "read" }]) {
+      const response = await send(
+        {},
+        "POST",
+        base,
+        JSON.stringify({
+          name: "deepwiki",
+          url: "https://mcp.example.com/mcp",
+          auth_kind: "none",
+          ...extra,
+        }),
+      );
+      expect(response.status).toBe(400);
+    }
   });
 });
 

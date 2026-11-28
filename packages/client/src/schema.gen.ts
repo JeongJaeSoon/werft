@@ -3096,7 +3096,7 @@ export interface paths {
         put?: never;
         /**
          * Register a remote MCP server for the workspace
-         * @description Owners and admins signed in to the console as a person; never an API key. `auth_kind: oauth` pins what discovery finds; connect it with the OAuth start and callback. `auth_kind: bearer` stores the token, connects it under the caller and reads the server's tools. The name is the tool prefix `mcp__<name>__`: one taken by the installation catalog or by another server of this workspace answers 409 ALREADY_EXISTS, and `github` and `browser` are reserved. The URL is held to discovery's rules; a `bearer` server's name is resolved and judged before anything is stored. Writes a `create_workspace_mcp_server` receipt, never the token.
+         * @description Owners and admins signed in to the console as a person; never an API key. `auth_kind: oauth` pins what discovery finds; connect it with the OAuth start and callback. `auth_kind: bearer` stores the token, connects it under the caller and reads the server's tools. `auth_kind: none` stores nothing, connects it under no one and reads the tools without a credential; its calls carry no credential, and a token, OAuth client, sign-in or disconnect asked of it answers 400 `no_credential`. The name is the tool prefix `mcp__<name>__`: one taken by the installation catalog or by another server of this workspace answers 409 ALREADY_EXISTS, and `github` and `browser` are reserved. The URL is held to discovery's rules; a `bearer` or `none` server's name is resolved and judged before anything is stored. Writes a `create_workspace_mcp_server` receipt, never the token.
          *
          *     **Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.
          */
@@ -12301,7 +12301,7 @@ export interface components {
             id: string;
             name: string;
             url: string;
-            auth_kind: ("oauth" | "bearer") | string;
+            auth_kind: ("oauth" | "bearer" | "none") | string;
             redirect_uri: string | null;
             oauth: {
                 issuer: string;
@@ -12369,6 +12369,11 @@ export interface components {
             /** @constant */
             auth_kind: "oauth";
             scope?: string;
+        } | {
+            name: string;
+            url: string;
+            /** @constant */
+            auth_kind: "none";
         };
         PutWorkspaceMcpBearerTokenRequest: {
             token: string;
