@@ -1318,27 +1318,12 @@ export function createPostgresSlackOutboxStore(
       // turn past its mark lacks its report row (its last report is in);
       // else no turn still owes its instruction. Under the row locks, so an enqueue that
       // holds one is waited for.
-      const rows = await db.transaction(async (tx) => {
-        // A progress row a pass is about to send (beginSend holds it) is
-        // waited for first, so the close below, a statement of its own,
-        // reads it as that pass left it, and a send that begins after reads
-        // the link closed: the first post never goes up behind the close.
-        await tx.execute(sql`
-          SELECT o.id FROM ${t} o
-          JOIN session_links l2 ON l2.installation_id = o.installation_id
-            AND o.progress_key = 'progress:' || l2.id
-          JOIN ${sessions} s ON s.id = l2.session_id
-          WHERE s.admission_state = 'closed'
-            AND l2.closed_at IS NULL
-            AND l2.revoked_at IS NULL
-            AND o.status IN ('pending', 'sending')
-          ORDER BY o.id
-          FOR UPDATE OF o`);
-        return rowsOf<unknown>(
-          await tx.execute(sql`
-        UPDATE session_links l SET closed_at = now(), closed_reason = c.reason,
-          report_mode = ${closingReportMode(sql.raw("l"))}
-        FROM (
+      // The links are locked first, a statement of their own: a send
+      // (beginSend) or an enqueue that holds one is not raced (the link is
+      // left for a later pass), and one that comes after reads the link
+      // closed. The close then reads, in a statement of its own, all that
+      // came in before the lock.
+      const closable = (only: SQL) => sql`
           -- A task's own close reason first: the same four a link takes.
           SELECT l2.id, CASE WHEN s.task_closed_reason IS NOT NULL
             THEN s.task_closed_reason
@@ -1399,10 +1384,24 @@ export function createPostgresSlackOutboxStore(
                   AND ot.status NOT IN (${STOPPED_TURNS})
                   AND ${owesInstruction(sql.raw("ot"), sql.raw("l2"))}
               ) END)
+            ${only}
           ORDER BY l2.created_at
           LIMIT ${limit}
-          FOR UPDATE OF l2 SKIP LOCKED
-        ) c
+          FOR UPDATE OF l2 SKIP LOCKED`;
+      const rows = await db.transaction(async (tx) => {
+        const locked = rowsOf<{ id: string }>(
+          await tx.execute(sql`SELECT c.id FROM (${closable(sql``)}) c`),
+        );
+        if (locked.length === 0) return [];
+        const ids = sql.join(
+          locked.map(({ id }) => sql`${id}::uuid`),
+          sql`, `,
+        );
+        return rowsOf<unknown>(
+          await tx.execute(sql`
+        UPDATE session_links l SET closed_at = now(), closed_reason = c.reason,
+          report_mode = ${closingReportMode(sql.raw("l"))}
+        FROM (${closable(sql`AND l2.id IN (${ids})`)}) c
         WHERE l.id = c.id
         RETURNING l.id
       `),
@@ -2880,6 +2879,13 @@ export function createPostgresSlackOutboxStore(
         // stops, and after an edit it may have been the one post again.
         let progress: { ts: string | null; reposted: boolean } | undefined;
         if (row.progressKey !== null) {
+          // The message's own link, as an enqueue takes it (linkTakesNew):
+          // a close under way is waited for, and one after skips the link.
+          await tx.execute(sql`
+            SELECT 1 FROM session_links
+            WHERE installation_id = ${row.installationId}::uuid
+              AND 'progress:' || id = ${row.progressKey}
+            FOR SHARE`);
           const [state] = rowsOf<{
             busy: boolean;
             superseded: boolean;

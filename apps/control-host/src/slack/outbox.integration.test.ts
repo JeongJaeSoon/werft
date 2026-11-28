@@ -8274,12 +8274,12 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
   });
 
   test.skipIf(engine === "PGlite")(
-    "a close waits for a first progress post a pass is beginning, and then for its end",
+    "a first progress post begun while a close holds its thread waits, then reads the thread closed",
     async () => {
       const fixture = await agentInSlack();
       await mention(fixture, THREAD);
       const sessionId = await sessionOf(fixture);
-      await db.update(surfaceBindings).set({ reportMode: "progress" });
+      await db.execute(sql`UPDATE agents SET conversation_rollout = 'on'`);
       await setTurn(sessionId, "running");
       await outboxPass({ botToken: null });
       await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
@@ -8297,37 +8297,40 @@ describe.each(ENGINES)("a progress link's progress message on %s", (engine) => {
       const released = new Promise<void>((resolve) => {
         release = resolve;
       });
-      // A beginSend that read the thread on progress, kept open.
-      const beginning = db.transaction(async (tx) => {
-        await tx.execute(
-          sql`SELECT 1 FROM slack_outbox WHERE id = ${claim.id}::uuid FOR UPDATE`,
-        );
+      // A close's transaction as closeFinishedLinks runs it, kept open: the
+      // rollout went to shadow, so the thread closes per_step.
+      const closing = db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT id FROM session_links FOR UPDATE`);
         held();
         await released;
-        await tx.execute(
-          sql`UPDATE slack_outbox SET status = 'sending' WHERE id = ${claim.id}::uuid`,
-        );
+        await tx.execute(sql`
+          UPDATE session_links SET closed_at = now(),
+            closed_reason = 'completed', report_mode = 'per_step'`);
       });
       await hold;
-      await db.execute(sql`UPDATE agents SET conversation_rollout = 'shadow'`);
-      await db.update(surfaceBindings).set({ reportMode: null });
-      await db
-        .update(sessions)
-        .set({ admissionState: "closed", status: "stopped" })
-        .where(eq(sessions.id, sessionId));
-      const closing = outbox.closeFinishedLinks(10);
-      expect(
-        await Promise.race([
-          closing.then(() => "closed"),
-          Bun.sleep(300).then(() => "waiting"),
-        ]),
-      ).toBe("waiting");
-      release();
-      await beginning;
-      // The post is on its way: the thread stays open for its end.
-      expect(await closing).toBe(0);
-      const [link] = await db.select().from(sessionLinks);
-      expect(link?.closedAt).toBeNull();
+      try {
+        const begun = outbox.beginSend(claim);
+        expect(
+          await Promise.race([
+            begun.then(() => "begun"),
+            Bun.sleep(300).then(() => "waiting"),
+          ]),
+        ).toBe("waiting");
+        release();
+        await closing;
+        expect(await begun).toBe(false);
+      } finally {
+        release();
+        await closing.catch(() => {});
+      }
+      const [first] = await db
+        .select()
+        .from(slackOutbox)
+        .where(eq(slackOutbox.id, claim.id));
+      expect(first).toMatchObject({
+        status: "failed",
+        errorCode: "not_addressed",
+      });
     },
   );
 
