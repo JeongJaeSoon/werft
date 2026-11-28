@@ -37,6 +37,7 @@ import {
   clientMessageIdSchema,
   DEFAULT_SURFACE_CEILING,
   SESSION_SCOPE_VALUES,
+  SLACK_BOT_TURN_LIMIT,
   SLACK_NOTICE_MESSAGES,
   slackMirrorCorrelationIdSchema,
   TASK_CLOSING_DEFAULT,
@@ -9057,5 +9058,456 @@ describe.each(ENGINES)("a DM's thread on %s", (engine) => {
     expect(
       posted().filter((m) => m.channelId === DM && m.threadTs === THREAD),
     ).toHaveLength(1);
+  });
+});
+
+// v1-b/C2: a task its time rules close. The clock is moved by moving the
+// rows' own times back; the rules read the database clock.
+describe.each(ENGINES)("a task's time rules on %s", (engine) => {
+  useDatabase(engine);
+
+  const ko = SLACK_NOTICE_MESSAGES.ko;
+
+  const intervalOver = async () => {
+    await db
+      .update(slackOutbox)
+      .set({ nextAttemptAt: sql`now()` })
+      .where(eq(slackOutbox.kind, "progress"));
+    await db.execute(
+      sql`UPDATE slack_outbox_rate_blocks SET blocked_until = now() - interval '1 second'`,
+    );
+  };
+
+  let fixture: Fixture;
+
+  /** A session in its thread, its progress message up, its one turn done. */
+  const sessionInThread = async (
+    closing: typeof TASK_CLOSING_DEFAULT | null,
+  ) => {
+    fixture = await agentInSlack();
+    await mention(fixture, THREAD);
+    const sessionId = await sessionOf(fixture);
+    await db
+      .update(sessions)
+      .set({ taskClosing: closing })
+      .where(eq(sessions.id, sessionId));
+    await db.update(sessionLinks).set({ reportMode: "progress" });
+    await db
+      .update(turns)
+      .set({ status: "running" })
+      .where(and(eq(turns.sessionId, sessionId), eq(turns.sequence, 1)));
+    await outboxPass({ closeLinks: true });
+    await endTurn(sessionId, 1, "completed", [[text("Done.")]]);
+    await intervalOver();
+    await outboxPass({ closeLinks: true });
+    slack.updates.length = 0;
+    return sessionId;
+  };
+
+  const daysPass = (sessionId: string, days: number) =>
+    db.execute(sql`
+      WITH moved AS (
+        UPDATE turns SET created_at = created_at - make_interval(days => ${days}),
+          started_at = started_at - make_interval(days => ${days}),
+          ended_at = ended_at - make_interval(days => ${days})
+        WHERE session_id = ${sessionId}::uuid RETURNING 1)
+      , inputs AS (
+        UPDATE conversation_inputs i
+        SET received_at = received_at - make_interval(days => ${days})
+        FROM session_links l
+        JOIN conversation_topics tp ON tp.agent_id = l.agent_id
+          AND tp.slack_channel_id = l.channel_id
+          AND tp.slack_thread_ts = l.thread_id
+        WHERE l.session_id = ${sessionId}::uuid AND i.topic_id = tp.id
+        RETURNING 1)
+      , events AS (
+        UPDATE slack_inbound_events e
+        SET received_at = received_at - make_interval(days => ${days})
+        FROM session_links l
+        WHERE l.session_id = ${sessionId}::uuid AND e.agent_id = l.agent_id
+        RETURNING 1)
+      UPDATE sessions SET created_at = created_at - make_interval(days => ${days}),
+        last_turn_at = last_turn_at - make_interval(days => ${days})
+      WHERE id = ${sessionId}::uuid`);
+
+  const closeIdle = () =>
+    schema.createPostgresTaskCloses(db).closeOnTimeRules(50);
+
+  const stateOf = async (sessionId: string) =>
+    (
+      await db
+        .select({
+          admission: sessions.admissionState,
+          reason: sessions.taskClosedReason,
+        })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId))
+    )[0];
+
+  const lastWords = async () => {
+    for (let pass = 0; pass < 3; pass += 1) {
+      await intervalOver();
+      await outboxPass({ closeLinks: true });
+    }
+    return slack.updates.map(({ text }) => text.split("\n")[0]);
+  };
+
+  test("14 days without input: it closes as abandoned, its last report says so, and its link closes so", async () => {
+    const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
+    await daysPass(sessionId, 13);
+    expect(await closeIdle()).toBe(0);
+    await daysPass(sessionId, 1);
+    expect(await closeIdle()).toBe(1);
+    expect(await stateOf(sessionId)).toEqual({
+      admission: "closed",
+      reason: "abandoned",
+    });
+    expect(await lastWords()).toEqual([ko.progressAbandoned]);
+    const [link] = await db
+      .select({ closedReason: sessionLinks.closedReason })
+      .from(sessionLinks);
+    expect(link).toEqual({ closedReason: "abandoned" });
+    expect(await closeIdle()).toBe(0);
+  });
+
+  test("a reply held for M1's judgment in its thread keeps it open, though no turn took it yet", async () => {
+    const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
+    await daysPass(sessionId, 15);
+    // The reply's topic, as the thread's first held reply makes it.
+    const [link] = await db
+      .select({
+        workspaceId: sessionLinks.workspaceId,
+        agentId: sessionLinks.agentId,
+        channelId: sessionLinks.channelId,
+        threadId: sessionLinks.threadId,
+        teamId: schema.slackInstallations.teamId,
+        conversationId: sessions.parentConversationId,
+      })
+      .from(sessionLinks)
+      .innerJoin(
+        schema.slackInstallations,
+        eq(schema.slackInstallations.id, sessionLinks.installationId),
+      )
+      .innerJoin(sessions, eq(sessions.id, sessionLinks.sessionId))
+      .where(eq(sessionLinks.sessionId, sessionId));
+    if (link?.conversationId == null) throw new Error("no thread");
+    const topic = randomUUID();
+    await db.execute(sql`
+      INSERT INTO conversation_topics (id, workspace_id, agent_id,
+        conversation_id, conversation_kind, slack_team_id, slack_channel_id,
+        slack_thread_ts)
+      VALUES (${topic}::uuid, ${link.workspaceId}::uuid, ${link.agentId}::uuid,
+        ${link.conversationId}::uuid, 'channel', ${link.teamId},
+        ${link.channelId}, ${link.threadId})
+      ON CONFLICT DO NOTHING`);
+    await db.execute(sql`
+      INSERT INTO conversation_inputs (id, workspace_id, agent_id, topic_id,
+        seq, slack_team_id, slack_channel_id, slack_ts, requester_kind,
+        requester_id, body, buffer_expires_at)
+      SELECT ${randomUUID()}::uuid, ${link.workspaceId}::uuid,
+        ${link.agentId}::uuid, tp.id,
+        coalesce((SELECT max(seq) FROM conversation_inputs WHERE topic_id = tp.id), 0) + 1,
+        ${link.teamId}, ${link.channelId}, '1792900000.000001', 'slack_user',
+        'U0MOCK', 'one more thing', now() + interval '10 minutes'
+      FROM conversation_topics tp
+      WHERE tp.agent_id = ${link.agentId}::uuid
+        AND tp.slack_channel_id = ${link.channelId}
+        AND tp.slack_thread_ts = ${link.threadId}`);
+    expect(await closeIdle()).toBe(0);
+    expect(await stateOf(sessionId)).toEqual({
+      admission: "active",
+      reason: null,
+    });
+  });
+
+  /** A post of the task's thread the inbox records, not yet handed on. */
+  const postInThread = async (
+    eventId: string,
+    extra: Record<string, unknown> = {},
+  ) => {
+    const event = {
+      type: "message",
+      channel: CHANNEL,
+      user: PERSON,
+      ts: `1792900000.${String(eventCounter++).padStart(6, "0")}`,
+      thread_ts: THREAD,
+      text: "one more thing",
+      ...extra,
+    };
+    await createPostgresSlackInboundEventStore(db).record({
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      slackAppId: fixture.slackAppId,
+      teamId: TEAM,
+      appId: APP_ID,
+      eventId,
+      eventType: event.type,
+      eventSubtype: null,
+      eventTime: new Date(),
+      status: "received",
+      payload: { type: "event_callback", event_id: eventId, event },
+      conversationKey: slackConversationKey(fixture.slackAppId, event),
+    });
+  };
+
+  const eventsAge = (days: number) =>
+    db.execute(sql`
+      UPDATE slack_inbound_events
+      SET received_at = received_at - make_interval(days => ${days})
+      WHERE agent_id = ${fixture.agentId}::uuid`);
+
+  test("a person's post the inbox has yet to hand on keeps it open until it is older than the idle days", async () => {
+    const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
+    await daysPass(sessionId, 15);
+    await postInThread("EvOutWaiting");
+    expect(await closeIdle()).toBe(0);
+    expect(await stateOf(sessionId)).toEqual({
+      admission: "active",
+      reason: null,
+    });
+    await eventsAge(15);
+    expect(await closeIdle()).toBe(1);
+  });
+
+  test("a person's post M1 kept quiet starts its clock again once the inbox settled it, its payload and held input gone", async () => {
+    const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
+    await daysPass(sessionId, 15);
+    await postInThread("EvOutQuiet");
+    // What the inbox leaves of a reply kept quiet (bound-replies.ts,
+    // slack-inbound-events.ts complete): no held input, no payload.
+    await db.execute(sql`
+      UPDATE slack_inbound_events SET status = 'processed', payload = NULL
+      WHERE event_id = 'EvOutQuiet'`);
+    expect(await closeIdle()).toBe(0);
+    expect(await stateOf(sessionId)).toEqual({
+      admission: "active",
+      reason: null,
+    });
+    // The clock starts from the post: 13 days on it is still open, 14 closes it.
+    await eventsAge(13);
+    expect(await closeIdle()).toBe(0);
+    await eventsAge(1);
+    expect(await closeIdle()).toBe(1);
+  });
+
+  test("an allowed bot's post the inbox has yet to hand on does not start its clock again", async () => {
+    const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
+    await daysPass(sessionId, 15);
+    await postInThread("EvOutBot", { user: "UOTHERBOT", bot_id: "BOTHER" });
+    const [row] = await db
+      .select({ fromBot: schema.slackInboundEvents.fromBot })
+      .from(schema.slackInboundEvents)
+      .where(eq(schema.slackInboundEvents.eventId, "EvOutBot"));
+    expect(row).toEqual({ fromBot: true });
+    expect(await closeIdle()).toBe(1);
+  });
+
+  test("a bot's post the inbox dropped keeps no thread and does not start its clock again", async () => {
+    const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
+    await daysPass(sessionId, 15);
+    await createPostgresSlackInboundEventStore(db).record({
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      slackAppId: fixture.slackAppId,
+      teamId: TEAM,
+      appId: APP_ID,
+      eventId: "EvOutDropped",
+      eventType: "message",
+      eventSubtype: null,
+      eventTime: new Date(),
+      status: "dropped",
+      dropReason: "own_bot_user",
+      dropFields: {},
+    });
+    expect(await closeIdle()).toBe(1);
+  });
+
+  test("a post an image before from_bot recorded is read as a person's", async () => {
+    const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
+    await daysPass(sessionId, 15);
+    await postInThread("EvOutOld", { user: "UOTHERBOT", bot_id: "BOTHER" });
+    await db.execute(sql`
+      UPDATE slack_inbound_events SET from_bot = NULL, status = 'processed',
+        payload = NULL
+      WHERE event_id = 'EvOutOld'`);
+    expect(await closeIdle()).toBe(0);
+  });
+
+  test("an allowed bot's mention that runs a turn counts as the agent's work, and once its thread's bot turns run out it counts no more", async () => {
+    const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
+    await db.execute(sql`
+      UPDATE agents SET slack_allowed_bot_user_ids = ARRAY['UOTHERBOT']
+      WHERE id = ${fixture.agentId}::uuid`);
+    const turnCount = async () =>
+      (
+        await db
+          .select({ id: turns.id })
+          .from(turns)
+          .where(eq(turns.sessionId, sessionId))
+      ).length;
+    const botTurn = async (n: number) => {
+      await mention(
+        fixture,
+        `1792900100.${String(n).padStart(6, "0")}`,
+        "UOTHERBOT",
+        {
+          bot_id: "BOTHER",
+        },
+      );
+      const sequence = await turnCount();
+      await db
+        .update(turns)
+        .set({ status: "running" })
+        .where(
+          and(eq(turns.sessionId, sessionId), eq(turns.sequence, sequence)),
+        );
+      await endTurn(sessionId, sequence, "completed", [[text("ok")]]);
+    };
+    slack.users.set("UOTHERBOT", { isBot: true });
+    await daysPass(sessionId, 15);
+    await botTurn(1);
+    expect(await turnCount()).toBe(2);
+    expect(await closeIdle()).toBe(0);
+    for (let n = 2; n <= SLACK_BOT_TURN_LIMIT; n += 1) await botTurn(n);
+    expect(await turnCount()).toBe(1 + SLACK_BOT_TURN_LIMIT);
+    await daysPass(sessionId, 15);
+    // Past the limit: no turn, and the mention itself is a bot's.
+    await mention(fixture, "1792900199.000001", "UOTHERBOT", {
+      bot_id: "BOTHER",
+    });
+    expect(await turnCount()).toBe(1 + SLACK_BOT_TURN_LIMIT);
+    expect(await closeIdle()).toBe(1);
+    slack.users.delete("UOTHERBOT");
+  });
+
+  const ECHO_SECRET = "echo-signing-secret";
+
+  /** An event through the events gate, as Slack would send it. */
+  async function viaGate(fixture: Fixture, event: Record<string, unknown>) {
+    const gate = createSlackEventsService({
+      signingSecrets: {
+        forAgent: async () => ({
+          workspaceId: fixture.workspaceId,
+          slackAppId: fixture.slackAppId,
+          appId: APP_ID,
+          signingSecret: ECHO_SECRET,
+        }),
+      },
+      inbox: createPostgresSlackInboundEventStore(db),
+      apps: createPostgresSlackAppStore(db, key),
+      identities: createPostgresAgentIdentityStore(db),
+      installs: schema.createPostgresSlackInstallStore(db),
+      bindings: createPostgresSurfaceBindingStore(db),
+      sourceMarks: schema.createPostgresSlackSourceMarkStore(db),
+      mirrorEchoes: createPostgresSlackOutboxStore(db),
+    });
+    const rawBody = new TextEncoder().encode(
+      JSON.stringify(
+        slackEventEnvelope({ appId: APP_ID, teamId: TEAM, event }),
+      ),
+    );
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = `v0=${createHmac("sha256", ECHO_SECRET)
+      .update(`v0:${timestamp}:`)
+      .update(rawBody)
+      .digest("hex")}`;
+    return gate.receive({
+      agentId: fixture.agentId,
+      rawBody,
+      timestamp,
+      signature,
+    });
+  }
+
+  const drainInbox = async () => {
+    await drainSlackInbox({
+      inbox: createPostgresSlackInboundEventStore(db),
+      handler: slackSessionHandler({
+        catalog: await refreshedSlackCatalog(),
+        db,
+        pool: {
+          connect: () => {
+            throw new Error("no session control is asked of this role");
+          },
+        },
+        environment: ENVIRONMENT,
+        logger,
+        secretKey: key,
+        leaseMs: 30_000,
+        notices: createOutboxSlackNoticeSink(
+          createPostgresSlackOutboxStore(db),
+        ),
+        slackApiUrl: slack.url,
+      }),
+      logger,
+      concurrency: 4,
+      leaseMs: 30_000,
+      deadline: Date.now() + 10_000,
+    });
+  };
+
+  test("a person's mention in a channel waiting for approval counts, its receipt keeping no text and its task no turn", async () => {
+    const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
+    await db.update(surfaceBindings).set({
+      surfaceKind: "private_channel",
+      status: "pending_approval",
+      home: false,
+    });
+    await daysPass(sessionId, 15);
+    const turnCount = async () =>
+      (
+        await db
+          .select({ id: turns.id })
+          .from(turns)
+          .where(eq(turns.sessionId, sessionId))
+      ).length;
+    const before = await turnCount();
+    const since = new Date();
+    await viaGate(fixture, {
+      type: "app_mention",
+      channel: CHANNEL,
+      user: PERSON,
+      ts: "1792900200.000001",
+      thread_ts: THREAD,
+      event_ts: "1792900200.000001",
+      text: `<@${BOT_USER}> the plan nobody approved`,
+    });
+    const receipt = async () =>
+      await db
+        .select({
+          fromBot: schema.slackInboundEvents.fromBot,
+          keyed: sql<boolean>`${schema.slackInboundEvents.conversationKey} IS NOT NULL`,
+          text: sql<
+            string | null
+          >`${schema.slackInboundEvents.payload} -> 'event' ->> 'text'`,
+        })
+        .from(schema.slackInboundEvents)
+        .where(
+          sql`${schema.slackInboundEvents.eventType} = 'app_mention' AND ${schema.slackInboundEvents.receivedAt} >= ${since.toISOString()}::timestamptz`,
+        );
+    expect(await receipt()).toEqual([
+      { fromBot: false, keyed: true, text: `<@${BOT_USER}>` },
+    ]);
+    expect(await closeIdle()).toBe(0);
+    await drainInbox();
+    expect(await turnCount()).toBe(before);
+    expect(await receipt()).toEqual([
+      { fromBot: false, keyed: true, text: null },
+    ]);
+    expect(await closeIdle()).toBe(0);
+    expect(await stateOf(sessionId)).toEqual({
+      admission: "active",
+      reason: null,
+    });
+  });
+  test("a session from before tasks stays open however long it sits", async () => {
+    const sessionId = await sessionInThread(null);
+    await daysPass(sessionId, 60);
+    expect(await closeIdle()).toBe(0);
+    expect(await stateOf(sessionId)).toEqual({
+      admission: "active",
+      reason: null,
+    });
+    expect(await lastWords()).toEqual([]);
   });
 });

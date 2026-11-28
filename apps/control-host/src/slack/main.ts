@@ -317,6 +317,7 @@ export function slackSessionHandler(deps: {
       const release = await agentStore.findRelease(workspaceId, releaseId);
       return (
         release !== null &&
+        !("unreadable" in release) &&
         !(await releaseStartableIn(db, catalog, workspaceId, release))
       );
     },

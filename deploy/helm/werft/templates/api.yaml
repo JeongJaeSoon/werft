@@ -81,6 +81,8 @@ spec:
               value: {{ .Values.config.egress.credentialAllowlist | quote }}
             - name: EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST
               value: {{ .Values.config.egress.credentialPrivateAllowlist | quote }}
+            - name: EGRESS_PRIVATE_DENY_HOSTS
+              value: {{ include "ap.privateDenyHosts" . | quote }}
             - name: AUTH_MODE
               value: {{ .Values.config.authMode | quote }}
             {{- if .Values.codexSandbox.enabled }}
@@ -204,6 +206,26 @@ spec:
     - name: internal
       port: 3200
       targetPort: internal
+---
+# Every api Pod's address under one name, for the API itself: it holds a model
+# endpoint registered as on the internal network off each replica
+# (EGRESS_PRIVATE_DENY_HOSTS), and a ClusterIP Service's name answers with the
+# Service's address alone. Headless, and with the Pods that are not ready yet.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ap.apiHost" . }}-pods
+  labels:
+    {{- include "ap.labels" (dict "root" . "component" "api") | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "ap.selectorLabels" (dict "root" . "component" "api") | nindent 4 }}
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
 {{- if .Values.api.metrics.enabled }}
 ---
 # Each api Pod's /metrics. ClusterIP only and apart from the public Service, so

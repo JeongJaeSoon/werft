@@ -726,7 +726,10 @@ export function AddConnection({
     "connection",
     (
       client,
-      body: Omit<CreateSettingsConnectionRequest, "billing" | "endpoint"> & {
+      body: Omit<
+        CreateSettingsConnectionRequest,
+        "acknowledge_private" | "billing" | "endpoint"
+      > & {
         readonly billing: "none" | "per_token";
         readonly endpoint?: string;
       },

@@ -54,9 +54,12 @@ export const SKILL_REPOSITORY_SKILL_STATUS_VALUES = [
 export type SkillRepositorySkillStatus =
   (typeof SKILL_REPOSITORY_SKILL_STATUS_VALUES)[number];
 
-/** `https://github.com/<owner>/<name>`, with or without `.git` or a last slash. */
+/**
+ * `https://github.com/<owner>/<name>`, with or without `.git` or a last
+ * slash. A name of `.` or `..` is a path step, never a repository.
+ */
 export const SKILL_REPOSITORY_URL =
-  /^https:\/\/github\.com\/([A-Za-z0-9][A-Za-z0-9-]{0,38})\/([A-Za-z0-9._-]{1,100}?)(?:\.git)?\/?$/;
+  /^https:\/\/github\.com\/([A-Za-z0-9][A-Za-z0-9-]{0,38})\/(?!\.\.?(?:\.git)?\/?$)([A-Za-z0-9._-]{1,100}?)(?:\.git)?\/?$/;
 
 export const registerSkillRepositoryRequestSchema = z
   .object({

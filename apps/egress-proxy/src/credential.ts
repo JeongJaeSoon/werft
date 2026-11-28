@@ -1007,7 +1007,8 @@ const MAX_AUTHORIZER_ADDRESSES = 64;
  * case, no trailing dot, an address as the URL parser writes it (which reads
  * `2130706433` and `0x7f.1` as 127.0.0.1), and an IPv4-mapped address as
  * the IPv4 address a socket takes it to. null when the text is not a host
- * alone: a port, a path, a zone.
+ * alone: a port, a path, a zone. A key's key is itself: a deny entry is kept
+ * as its key and compared with an upstream's, so `x..` has to be `x` too.
  */
 export function hostKey(host: string): string | null {
   const bare =
@@ -1017,7 +1018,8 @@ export function hostKey(host: string): string | null {
   if (v6 && isIP(bare) !== 6) return null;
   try {
     const key = normalizeHost(
-      new URL(`http://${v6 ? `[${bare}]` : bare}/`).hostname,
+      new URL(`http://${v6 ? `[${bare}]` : bare.replace(/\.+$/, "")}/`)
+        .hostname,
     );
     const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(key);
     if (mapped !== null) {
@@ -1985,8 +1987,9 @@ export function startCredentialProxy(
     purpose: EgressPurpose,
     who: Readonly<Record<string, unknown>>,
     signal: AbortSignal,
-    // A registered private upstream's deny list; null for anything else.
-    denied: readonly string[] | null = null,
+    // A registered private upstream's deny list as its newest grant gives
+    // it, read at each judgment; null for anything else.
+    denied: (() => readonly string[]) | null = null,
   ): Promise<Dialable | Response> {
     const host = normalizeHost(upstream.hostname);
     const port = portOf(upstream);
@@ -2000,7 +2003,7 @@ export function startCredentialProxy(
       const early =
         looked === null
           ? UNKNOWN_AUTHORIZER
-          : privateVerdict(denied, host, [], looked);
+          : privateVerdict(denied(), host, [], looked);
       if (early !== null) return refusedPrivate(early, fields, purpose);
       own = looked ?? [];
     }
@@ -2046,7 +2049,7 @@ export function startCredentialProxy(
     const late =
       denied === null
         ? null
-        : privateVerdict(denied, host, decision.addresses, own);
+        : privateVerdict(denied(), host, decision.addresses, own);
     if (late !== null) return refusedPrivate(late, fields, purpose);
     // A certificate is checked for a name; an address would have to be
     // checked for itself, which the upstream client does not do. Nothing in
@@ -2069,7 +2072,7 @@ export function startCredentialProxy(
       address,
       host,
       port,
-      refusal: () => privateVerdict(denied, host, decision.addresses, known),
+      refusal: () => privateVerdict(denied(), host, decision.addresses, known),
     };
   }
 
@@ -2293,6 +2296,11 @@ export function startCredentialProxy(
     // A billed call's ledger entry, opened with the whole body just before
     // the upstream is called.
     ledger?: LedgerCall,
+    // What the regrants since `grant` said, for a registered private
+    // upstream: the body is waited for after the upstream is judged, and an
+    // address any of them held off meanwhile is not dialled. `unsure`: the
+    // newest of them got no answer, so its deny list may be behind.
+    since?: { denied: () => readonly string[]; unsure: () => boolean },
   ): Promise<Response> {
     const who = {
       purpose: route.purpose,
@@ -2318,7 +2326,9 @@ export function startCredentialProxy(
         route.purpose,
         who,
         signal,
-        registeredPrivate(route.purpose, grant) ? (grant.deny ?? []) : null,
+        registeredPrivate(route.purpose, grant)
+          ? () => [...(grant.deny ?? []), ...(since?.denied() ?? [])]
+          : null,
       );
     let first = await dialUpstream();
     // The built-in server's name stops resolving while its container is
@@ -2397,6 +2407,13 @@ export function startCredentialProxy(
         if (late != null) {
           ledger?.release();
           return refusedPrivate(late, fields, route.purpose);
+        }
+        if (at.refusal !== undefined && since?.unsure()) {
+          ledger?.release();
+          logger.warn("Credential route held: its grant could not be renewed", {
+            ...fields,
+          });
+          return undecidedReply(route.purpose);
         }
         try {
           response = await send(
@@ -2849,8 +2866,15 @@ export function startCredentialProxy(
       // cannot answer does only after the grace: a blip must not break
       // every stream in flight, and an outage must not hide an ended grant.
       let grantedAt = performance.now();
+      // Only ever added to: a later grant from a replica that has not seen
+      // an address does not let it back in.
+      const deniedSince = new Set<string>();
+      let unsure = false;
       const watchGrant = (grant: EgressGrant) => {
         regrant = setTimeout(async () => {
+          // From its start: a call that would connect while it is under way
+          // has no answer either.
+          unsure = true;
           const again = await authorize(
             token,
             route.purpose,
@@ -2860,8 +2884,10 @@ export function startCredentialProxy(
             exchangeId,
           );
           if (ended) return;
+          unsure = again.kind !== "granted";
           if (again.kind === "granted") {
             grantedAt = performance.now();
+            for (const host of again.grant.deny ?? []) deniedSince.add(host);
             // Beside the regrant, not in its way: its answer and the next
             // timer do not wait on the ledger.
             if (opened) toLedger({ op: "renew", exchange_id: exchangeId });
@@ -3066,6 +3092,7 @@ export function startCredentialProxy(
           streamed,
           exchangeId,
           ledger,
+          { denied: () => [...deniedSince], unsure: () => unsure },
         );
         const relayed = new Response(tracked(response.body, release), {
           status: response.status,

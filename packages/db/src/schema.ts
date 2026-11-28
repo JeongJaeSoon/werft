@@ -1400,6 +1400,14 @@ export const slackInboundEvents = pgTable(
      * instead, one event of a channel at a time.
      */
     conversationKey: text("conversation_key"),
+    /**
+     * The event is a bot's (its payload names a bot_id), kept after the
+     * payload is cleared. Null on rows intake dropped and on edits or deletes
+     * marked where they arrived (none keeps a thread key; a worker's drop keeps
+     * the flag and clears the key), and on rows an image before it wrote,
+     * which the task clock reads as a person's.
+     */
+    fromBot: boolean("from_bot"),
     claimToken: uuid("claim_token"),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     /** Claims so far, lease expiries included. */
@@ -1449,6 +1457,12 @@ export const slackInboundEvents = pgTable(
     index("slack_inbound_events_conversation_idx")
       .on(table.conversationKey, table.eventTime, table.receivedAt)
       .where(sql`${table.status} = 'received'`),
+    // A thread's posts by people, newest last: a task's clock (v1-b/C2).
+    index("slack_inbound_events_thread_received_idx")
+      .on(table.conversationKey, table.receivedAt)
+      .where(
+        sql`${table.conversationKey} IS NOT NULL AND ${table.fromBot} IS NOT TRUE`,
+      ),
     index("slack_inbound_events_failed_payload_idx")
       .on(table.receivedAt)
       .where(sql`${table.status} = 'failed' AND ${table.payload} IS NOT NULL`),
@@ -8546,6 +8560,13 @@ export const providerConnections = pgTable(
      * no decision model starts the window over.
      */
     judgingSince: timestamp("judging_since", { withTimezone: true }),
+    /**
+     * What the endpoint resolved to when the row was registered, or
+     * `private` carried over from the operator's private allowlist. Null on
+     * a row from before and on an imported one: the egress proxy's own lists
+     * then decide, as they did. Set once, like the definition.
+     */
+    network: text().$type<"public" | "private">(),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -8555,6 +8576,10 @@ export const providerConnections = pgTable(
     check(
       "provider_connections_auto_mode_check",
       sql`${table.autoMode} IN ('supported', 'unsupported', 'unknown')`,
+    ),
+    check(
+      "provider_connections_network_check",
+      sql`${table.network} IN ('public', 'private')`,
     ),
     // The credential is a stored value, never a reference to one held
     // elsewhere; a console row also has it from its first commit (0288's

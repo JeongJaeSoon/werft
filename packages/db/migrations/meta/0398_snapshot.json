@@ -1,5 +1,5 @@
 {
-  "id": "5ab61fbe-047a-4999-9cad-8d7f2bd5e6fa",
+  "id": "6498a59c-d6b5-40aa-8f30-15075924918a",
   "prevId": "c302eeaf-651e-422d-a503-8f0a44016b18",
   "version": "7",
   "dialect": "postgresql",
@@ -5788,18 +5788,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "reserve_priced_by": {
-          "name": "reserve_priced_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "priced_by": {
-          "name": "priced_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "unknown_at": {
           "name": "unknown_at",
           "type": "timestamp with time zone",
@@ -6086,10 +6074,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "conversation_calls_priced_by_check": {
-          "name": "conversation_calls_priced_by_check",
-          "value": "\"conversation_calls\".\"reserve_priced_by\" IN ('table', 'litellm', 'unknown', 'unmetered') AND \"conversation_calls\".\"priced_by\" IN ('table', 'litellm', 'unknown', 'unmetered')"
-        },
         "conversation_calls_conversation_turn_check": {
           "name": "conversation_calls_conversation_turn_check",
           "value": "\"conversation_calls\".\"conversation_turn_id\" IS NULL OR COALESCE(\"conversation_calls\".\"call_class\" = 'm2', false)"
@@ -13791,6 +13775,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "network": {
+          "name": "network",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_by": {
           "name": "created_by",
           "type": "uuid",
@@ -13833,6 +13823,10 @@
         "provider_connections_auto_mode_check": {
           "name": "provider_connections_auto_mode_check",
           "value": "\"provider_connections\".\"auto_mode\" IN ('supported', 'unsupported', 'unknown')"
+        },
+        "provider_connections_network_check": {
+          "name": "provider_connections_network_check",
+          "value": "\"provider_connections\".\"network\" IN ('public', 'private')"
         },
         "provider_connections_credential_source_check": {
           "name": "provider_connections_credential_source_check",

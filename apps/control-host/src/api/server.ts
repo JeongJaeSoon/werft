@@ -269,12 +269,18 @@ import {
   assertCheckpointBucketProtection,
   checkpointGitMemoryBytesFromEnv,
   checkpointObjectRouteSigner,
+  checkpointObjectStoreHost,
   checkpointObjectsAtStart,
   checkpointStorageConfigFromEnv,
   createApiCheckpoints,
   extensionBundleObjects,
   extensionBundleSource,
 } from "./checkpoints.ts";
+import {
+  carryOperatorPrivateConnections,
+  connectionNetworkCheck,
+  privateConnectionOutbound,
+} from "./connection-network.ts";
 import {
   assertConversationTurnDispatch,
   conversationRuntimeBearer,
@@ -310,6 +316,10 @@ import {
   createInstallationConfigAdmin,
   sessionArchiveStatusOf,
 } from "./installation-config.ts";
+import {
+  createInstallationHosts,
+  installationHostNames,
+} from "./installation-hosts.ts";
 import { leftOutReporter, settingsSource } from "./installation-settings.ts";
 import {
   createInstallationStatusReader,
@@ -1071,6 +1081,26 @@ const envVariableService = createEnvVariableService({
   store: createPostgresEnvVariableStore(db),
 });
 const workspaceMcpHosts = workspaceMcpHostsFromEnv(process.env);
+// Kept off every upstream registered as private, at registration and in
+// each grant's deny list. A value that names no host stops the start.
+const installationHosts = createInstallationHosts({
+  names: [
+    ...new Set([
+      ...installationHostNames(process.env),
+      // The object store as its signer addresses it: with no endpoint set
+      // that is the bucket's own name at AWS, which a private zone may
+      // answer with an address inside.
+      ...(checkpointStorage === "disabled"
+        ? []
+        : [checkpointObjectStoreHost(checkpointStorage)]),
+    ]),
+  ],
+});
+// Asked on a timer too, not only when a private grant is: a replica that
+// has given none for a while still learns the addresses its hosts hold, and
+// so keeps one denied for the five minutes after the name leaves it.
+setInterval(() => void installationHosts().catch(() => {}), 30_000).unref();
+const connectionNetwork = connectionNetworkCheck(installationHosts);
 const workspaceMcp = createWorkspaceMcpService({
   authorization,
   store: createPostgresWorkspaceMcpStore(db, secretKey),
@@ -1131,14 +1161,43 @@ const settingsConsole = createSettingsConsoleService({
   secretStoreOn: true,
   credentialHosts: workspaceMcpHosts?.credential ?? null,
   reread: rereadSettings,
+  endpointNetwork: connectionNetwork,
   discovery: {
     connection: (id) => catalogRegistry.settings?.connections[id],
     urlProblem: (url) => connectionEndpointProblem(workspaceMcpHosts, url),
     http: connectionModelsOutbound(workspaceMcpHosts),
+    privateHttp: privateConnectionOutbound(installationHosts),
     log: (fields) => logger.info("Connection model list read", fields),
     caughtUp: () => catalogRegistry.caughtUp(),
   },
 });
+// Not awaited: each name is resolved, and until a row is carried the proxy's
+// own lists hold it as they did.
+void carryOperatorPrivateConnections({
+  rows: () => settingsDocumentStore.listRows("connection"),
+  carry: (id) => settingsDocumentStore.carryOperatorPrivate(id),
+  privateHosts: workspaceMcpHosts?.private ?? [],
+  network: connectionNetwork,
+})
+  .then(async ({ carried, left }) => {
+    if (carried.length > 0) {
+      logger.info("Connections on the private allowlist kept as private", {
+        connection_ids: carried,
+      });
+      await rereadSettings();
+    }
+    if (left.length > 0) {
+      logger.warn(
+        "Connections on the private allowlist may not be registered as private and stay on the proxy's lists; give each an address that is not loopback or the installation's own",
+        { connection_ids: left },
+      );
+    }
+  })
+  .catch((error: unknown) => {
+    logger.warn("Connections on the private allowlist were not carried", {
+      error_name: error instanceof Error ? error.name : typeof error,
+    });
+  });
 const agentAdmins = createAgentAdminService({
   authorization,
   store: createPostgresAgentAdminStore(db),
@@ -1666,6 +1725,11 @@ const workers = createWorkerGateway({
     credentialFor: workspaceMcp.credentialFor,
     operatorListed: (url) => workspaceMcpListed(workspaceMcpHosts, url),
   },
+  privateUpstream: {
+    deny: installationHosts,
+    operatorListed: (url) =>
+      workspaceMcpListed(workspaceMcpHosts, url) === "private",
+  },
   onMcpReceiptError: (error) =>
     logger.error("MCP refusal receipt not recorded", {
       error: error instanceof Error ? error.name : "error",
@@ -1711,6 +1775,7 @@ const workers = createWorkerGateway({
   judgments: {
     store: judgmentEgress,
     upstream: judgeConnections.upstream,
+    network: judgeConnections.network,
   },
   settingsCaughtUp: () => catalogRegistry.caughtUp(),
   conversationCalls: { store: conversationCallStore },

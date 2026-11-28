@@ -105,6 +105,7 @@ const attach = (
   name: bundle.name,
   follows: false,
   bundle,
+  availability: "ok",
 });
 
 const unreached = async () => {
@@ -431,6 +432,7 @@ describe("what is offered", () => {
       name: "review",
       follows: true,
       bundle: v1,
+      availability: "ok",
     };
     const attachments = [following];
     const { service, caller, accepted } = setup({
@@ -521,6 +523,102 @@ describe("activation judges every bundle a session could turn on", () => {
     );
     expect(result.ok === false && result.refusal.code).toBe(
       "required_replaced",
+    );
+  });
+});
+
+describe("a skill of a registered repository that is switched off or withdrawn", () => {
+  const off = (
+    one: ExtensionBundle,
+    mode: ExtensionAttachment["mode"],
+    availability: ExtensionAttachment["availability"],
+    scope: ExtensionAttachment["scope"] = "agent",
+  ): ExtensionAttachment => ({ ...attach(one, mode, scope), availability });
+
+  test("a new session starts without it, required, optional, following or pinned; the rest resolve as before", async () => {
+    for (const availability of ["hidden", "withdrawn"] as const) {
+      const following: ExtensionAttachment = {
+        scope: "agent",
+        mode: "required",
+        name: "review",
+        follows: true,
+        bundle: null,
+        availability,
+      };
+      const { service, caller, accepted } = setup({
+        extensions: extensionDeps([
+          off(lint, "required", availability),
+          off(tools, "optional", availability),
+          following,
+          attach(docs, "required"),
+        ]),
+      });
+      await service.createSession(caller, { idempotencyKey: "k", body });
+      expect(accepted[0]?.extensions).toEqual([
+        {
+          bundle_id: docs.id,
+          name: "docs",
+          digest: docs.digest,
+          scope: "agent",
+        },
+      ]);
+    }
+  });
+
+  test("a stale new-session screen that turns one on is refused, not run without it", async () => {
+    const { service, caller, accepted } = setup({
+      extensions: extensionDeps([off(docs, "optional", "hidden")]),
+    });
+    const error = await refusalOf(
+      service.createSession(caller, {
+        idempotencyKey: "k",
+        body: { ...body, extensions: { enable: [docs.id] } },
+      }),
+    );
+    expect(error.code).toBe("UNSUPPORTED_CAPABILITY");
+    expect(error.details).toMatchObject({
+      reason_code: "not_optional",
+      bundle: "docs",
+    });
+    expect(accepted[0]?.extensionsRefused).toBe(true);
+  });
+
+  test("forbidding it still holds", async () => {
+    const { service, caller } = setup({
+      extensions: extensionDeps([
+        off(docs, "forbidden", "withdrawn", "workspace"),
+        attach(docs, "optional"),
+      ]),
+    });
+    const error = await refusalOf(
+      service.createSession(caller, { idempotencyKey: "k", body }),
+    );
+    expect(error.details).toMatchObject({ reason_code: "forbidden_revived" });
+  });
+
+  test("activation does not judge it: a release without Skill activates", async () => {
+    const input = {
+      workspaceId: WORKSPACE,
+      agentId: AGENT,
+      runtimeKind: "claude_agent_sdk",
+      tools: ["Read"],
+    } as const;
+    for (const availability of ["hidden", "withdrawn"] as const) {
+      const skipped = await checkAgentExtensions(
+        extensionDeps([
+          off(lint, "required", availability),
+          off(tools, "optional", availability),
+        ]),
+        input,
+      );
+      expect(skipped).toEqual({ ok: true, extensions: [] });
+    }
+    const judged = await checkAgentExtensions(
+      extensionDeps([attach(lint, "required")]),
+      input,
+    );
+    expect(judged.ok === false && judged.refusal.code).toBe(
+      "skill_tool_not_allowed",
     );
   });
 });

@@ -39,6 +39,18 @@ export const skillAttachmentModeSchema = z.enum([
   "forbidden",
 ]);
 
+/**
+ * Whether a new session may take the skill an attachment names. Only a skill
+ * of a registered repository is ever anything but `ok`: `hidden` while its
+ * switch is off, `withdrawn` once its repository is removed. A new session
+ * leaves such an attachment out, but a `forbidden` one still keeps the name
+ * out. A session that already runs keeps the version it started with either
+ * way.
+ */
+export const SKILL_AVAILABILITY_VALUES = ["ok", "hidden", "withdrawn"] as const;
+export type SkillAvailability = (typeof SKILL_AVAILABILITY_VALUES)[number];
+export const skillAvailabilitySchema = z.enum(SKILL_AVAILABILITY_VALUES);
+
 export const skillUploadFileSchema = z
   .object({
     path: z.string().min(1).max(SKILL_UPLOAD_PATH_MAX).meta({
@@ -501,6 +513,10 @@ export const agentSkillListSchema = z
           version: skillVersionSchema.nullable().meta({
             description:
               "The version named; for a following attachment the current version, null while there is none.",
+          }),
+          availability: skillAvailabilitySchema.meta({
+            description:
+              "Anything but `ok` and a new session leaves the attachment out, even a `required` one, while a `forbidden` one still keeps the name out; it can still be taken back.",
           }),
         })
         .strict(),

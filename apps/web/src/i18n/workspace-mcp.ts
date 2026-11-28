@@ -10,6 +10,9 @@ export const workspaceMcpKo = {
     "보기만 할 수 있습니다. 등록과 연결은 오너와 어드민이 합니다.",
   "workspaceMcp.auth.oauth": "OAuth",
   "workspaceMcp.auth.bearer": "정적 token",
+  "workspaceMcp.auth.unsupported": "지원하지 않는 인증",
+  "workspaceMcp.auth.unsupportedNotice":
+    "이 판은 이 서버의 인증 방식({kind})을 지원하지 않습니다. 여기서는 token이나 OAuth를 바꾸거나 다시 연결할 수 없습니다. API를 새 판으로 올리거나 서버를 삭제하세요.",
   "workspaceMcp.state.none": "연결 안 됨",
   "workspaceMcp.state.active": "연결됨",
   "workspaceMcp.state.needs_reauth": "다시 연결 필요",
@@ -137,6 +140,8 @@ export const workspaceMcpKo = {
     "이 서버는 OAuth가 아니라 정적 token으로 연결합니다.",
   "workspaceMcp.error.not_bearer":
     "이 서버는 정적 token이 아니라 OAuth로 연결합니다.",
+  "workspaceMcp.error.auth_kind_unsupported":
+    "이 판은 이 서버의 인증 방식을 지원하지 않아 연결을 끊을 수 없습니다. API를 새 판으로 올리거나 서버를 삭제하세요.",
   "workspaceMcp.error.client_registration_required":
     "인가 서버가 동적 client 등록을 받지 않습니다. client 설정에서 client를 넣은 뒤 연결하세요.",
   "workspaceMcp.error.registration_failed":
@@ -215,6 +220,9 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
     "You can only view these. Owners and admins register and connect servers.",
   "workspaceMcp.auth.oauth": "OAuth",
   "workspaceMcp.auth.bearer": "Static token",
+  "workspaceMcp.auth.unsupported": "Unsupported authentication",
+  "workspaceMcp.auth.unsupportedNotice":
+    "This version does not support this server's authentication ({kind}). You cannot change its token or OAuth or connect it again here. Upgrade the API, or delete the server.",
   "workspaceMcp.state.none": "Not connected",
   "workspaceMcp.state.active": "Connected",
   "workspaceMcp.state.needs_reauth": "Reconnect needed",
@@ -341,6 +349,8 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
     "This server connects with a static token, not OAuth.",
   "workspaceMcp.error.not_bearer":
     "This server connects with OAuth, not a static token.",
+  "workspaceMcp.error.auth_kind_unsupported":
+    "This version does not support this server's authentication, so it cannot disconnect it. Upgrade the API, or delete the server.",
   "workspaceMcp.error.client_registration_required":
     "The authorization server takes no dynamic client registration. Set a client, then connect.",
   "workspaceMcp.error.registration_failed":
@@ -421,6 +431,9 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
     "表示のみできます。登録と接続はオーナーとアドミンが行います。",
   "workspaceMcp.auth.oauth": "OAuth",
   "workspaceMcp.auth.bearer": "静的 token",
+  "workspaceMcp.auth.unsupported": "未対応の認証",
+  "workspaceMcp.auth.unsupportedNotice":
+    "この版はこのサーバーの認証方式（{kind}）に対応していません。ここでは token や OAuth の変更、再接続はできません。API を新しい版に上げるか、サーバーを削除してください。",
   "workspaceMcp.state.none": "未接続",
   "workspaceMcp.state.active": "接続済み",
   "workspaceMcp.state.needs_reauth": "再接続が必要",
@@ -550,6 +563,8 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
     "このサーバーは OAuth ではなく静的 token で接続します。",
   "workspaceMcp.error.not_bearer":
     "このサーバーは静的 token ではなく OAuth で接続します。",
+  "workspaceMcp.error.auth_kind_unsupported":
+    "この版はこのサーバーの認証方式に対応していないため、接続を切れません。API を新しい版に上げるか、サーバーを削除してください。",
   "workspaceMcp.error.client_registration_required":
     "認可サーバーが動的 client 登録を受け付けません。client を設定してから接続してください。",
   "workspaceMcp.error.registration_failed":

@@ -3692,6 +3692,7 @@ describe("egress and claim through the real GitHub gate", () => {
           ceilingRevision: 0,
         }),
         findDispatch: async () => null,
+        ownPullRequest: async () => null,
         recordReceipt: async (receipt) => {
           receipts.push(receipt);
           return `receipt-${receipts.length}`;

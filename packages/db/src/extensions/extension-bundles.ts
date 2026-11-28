@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   ENDED_SESSION_STATUSES,
+  type SkillAvailability,
   type WorkspaceRole,
 } from "@werft-ai/contracts";
 import type {
@@ -35,6 +36,8 @@ import {
   extensionBundles,
   sessions,
   skillGitSources,
+  skillRepositories,
+  skillRepositorySkills,
 } from "../schema.ts";
 import { writeSucceededReceipt } from "../succeeded-receipt.ts";
 import {
@@ -198,6 +201,60 @@ async function liveSessionRuns(
     )
     .limit(1);
   return row !== undefined;
+}
+
+/**
+ * The skills of registered repositories, by name, and whether a new session
+ * takes each: `withdrawn` once the repository is removed, `hidden` while
+ * the switch of the directory the skill's source names is off. A source
+ * whose directory the listing does not hold is hidden too. A name absent is
+ * no repository's skill.
+ */
+async function repositorySkills(
+  tx: Database,
+  workspaceId: string,
+  name?: string,
+): Promise<Map<string, SkillAvailability>> {
+  const skills = new Map<string, SkillAvailability>();
+  if (!UUID.test(workspaceId)) return skills;
+  const rows = await tx
+    .select({
+      name: skillGitSources.name,
+      removedAt: skillRepositories.removedAt,
+      enabled: skillRepositorySkills.enabled,
+    })
+    .from(skillGitSources)
+    .innerJoin(
+      skillRepositories,
+      and(
+        eq(skillRepositories.id, skillGitSources.repositorySourceId),
+        eq(skillRepositories.workspaceId, skillGitSources.workspaceId),
+      ),
+    )
+    .leftJoin(
+      skillRepositorySkills,
+      and(
+        eq(skillRepositorySkills.skillRepositoryId, skillRepositories.id),
+        eq(skillRepositorySkills.path, skillGitSources.path),
+      ),
+    )
+    .where(
+      and(
+        eq(skillGitSources.workspaceId, workspaceId),
+        name === undefined ? undefined : eq(skillGitSources.name, name),
+      ),
+    );
+  for (const row of rows) {
+    skills.set(
+      row.name,
+      row.removedAt !== null
+        ? "withdrawn"
+        : row.enabled === true
+          ? "ok"
+          : "hidden",
+    );
+  }
+  return skills;
 }
 
 /** The actor's role when it may manage bundles; otherwise why not. */
@@ -831,6 +888,22 @@ export function createPostgresExtensionBundleStore(
         if (follow && (bundle.version === null || mode === "forbidden")) {
           return { outcome: "bundle_not_found" };
         }
+        if (input.kind === "attach") {
+          const availability = (
+            await repositorySkills(tx, input.workspaceId, bundle.name)
+          ).get(bundle.name);
+          // Every agent would get it, chosen by no one who sets them up.
+          if (scope === "workspace" && availability !== undefined) {
+            return { outcome: "repository_skill_workspace" };
+          }
+          if (
+            availability !== undefined &&
+            availability !== "ok" &&
+            mode !== "forbidden"
+          ) {
+            return { outcome: "unavailable", availability };
+          }
+        }
         if (input.kind === "attach" && !follow) {
           if (bundle.archivedAt !== null) return { outcome: "archived" };
           // Forbidding a name needs no approved content behind it.
@@ -994,6 +1067,7 @@ export function createPostgresExtensionBundleStore(
           ),
         )
         .orderBy(asc(extensionAttachments.name));
+      const skills = await repositorySkills(db, input.workspaceId);
       return rows.map((row) => {
         const bundle = row.follows ? row.current : row.bundle;
         return {
@@ -1002,8 +1076,20 @@ export function createPostgresExtensionBundleStore(
           name: row.name,
           follows: row.follows,
           bundle: bundle === null ? null : bundleOf(bundle),
+          availability: skills.get(row.name) ?? "ok",
         };
       });
+    },
+
+    async unavailableSkills(workspaceId) {
+      const unavailable = new Map<string, "hidden" | "withdrawn">();
+      for (const [name, availability] of await repositorySkills(
+        db,
+        workspaceId,
+      )) {
+        if (availability !== "ok") unavailable.set(name, availability);
+      }
+      return unavailable;
     },
   };
 }

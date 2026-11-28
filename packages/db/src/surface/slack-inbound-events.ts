@@ -22,6 +22,16 @@ import { released } from "./slack-shared.ts";
 
 const t = slackInboundEvents;
 
+/**
+ * Whether a payload is a bot's post: the one test intake and the session
+ * handler make (slack-events-service.ts, slack-session-handler.ts), a bot_id
+ * on the event, which the redaction of a pending channel's event keeps.
+ */
+function fromBot(payload: Record<string, unknown>): boolean {
+  const event = payload.event as { bot_id?: unknown } | undefined;
+  return event?.bot_id !== undefined;
+}
+
 // Every lease judgment below is `now()` in the database, the clock the
 // uninstall's superseded check also reads; no app clock enters it.
 const leaseHeld = (fence: SurfaceInboundFence) =>
@@ -102,6 +112,10 @@ export function createPostgresSlackInboundEventStore(
           payload: event.status === "dropped" ? null : event.payload,
           conversationKey:
             event.status === "dropped" ? null : event.conversationKey,
+          fromBot:
+            event.status === "dropped" || event.payload === null
+              ? null
+              : fromBot(event.payload),
         })
         .onConflictDoNothing({ target: [t.appId, t.eventId] })
         .returning({ id: t.id });
