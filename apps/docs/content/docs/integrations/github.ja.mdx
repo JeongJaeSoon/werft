@@ -13,13 +13,15 @@ GitHub との間でやることは三つある。開始リポジトリがある�
 - **組織を追加**: App を組織か個人アカウントにインストールする。インストールの表にアカウントごとの種類・リポジトリの範囲・App・接続した人・状態が出て、行の ⋯ メニューの **GitHub で管理** がそのインストールの設定画面を開く。
 - **リポジトリを管理**: エージェントが選んだリポジトリをインストールごとに見て、デフォルトブランチとそのリポジトリを担当する App を変える。リポジトリはエージェントの GitHub タブで選ぶとでき、別に登録はしない。
 - **エージェントが使える機能**: ワークスペース全体の上限である。スイッチを変えるとすぐに保存される。有効にした機能に App の権限が足りないと、その App の行に必要な権限と **GitHub で権限を追加** が出る。権限を追加すると GitHub がインストール先のアカウントごとに owner へ承認を依頼し、再インストールは要らない。
-- **自分の PR のマージ**: 既定はオフである。オンにすると、人がマージを指示したとき、エージェントは自分のセッションが開いた PR を squash でマージする。必須チェックとレビューは GitHub が判断し、マージ要求は ruleset の回避をオフにして送る。変更できるのは owner と admin だけで、ワークスペースの GitHub 設定 API(`PUT /v1/workspaces/{id}/github-settings` の `ceiling.merge`)で行う。オンにしても新しいリリースは要らず、次の呼び出しから効く。
+- **自分の PR のマージ**: 既定はオフである。オンにすると、人がマージを指示したとき、エージェントは自分のセッションが開いた PR を squash でマージする。必須チェックとレビューは GitHub が判断し、マージ要求は ruleset の回避をオフにして送る。変更できるのは owner と admin だけで、ワークスペースの GitHub 設定 API(`PUT /v1/workspaces/{id}/github-settings` の `ceiling.merge`)で行う。オンにしても新しいリリースは要らず、次の呼び出しから効く。エージェントの GitHub タブでも **自分の PR のマージ** をオンにする必要がある。どちらかがオフなら `merge_off` で拒否し、拒否の `off_in` がオフの側(`agent`、`ceiling`、`both`)を示す。
 
 コンソールで新しい App を作るには、API に `CONSOLE_ORIGIN`(ブラウザがコンソールを開く origin。例: `https://werft.internal.example`)が必要です。GitHub が App を作った後、このアドレスにブラウザを戻すためです。ないと、**GitHub App を作成** から開く **新しい App を作成** 画面で **GitHub で作成** ボタンが無効になり、「CONSOLE_ORIGIN が設定されていないため、GitHub がコンソールに戻る先がありません」という案内が出ます。運用者に値の設定を頼むか、**既存の App を接続** を使います。単一サーバーでは env ファイルに入れて `upgrade` で再適用します([単一サーバー](/run-server/self-hosting/single-server))。GitHub が passkey の確認(sudo mode)を求めたときは、その画面で App が作られず、空の App フォームに移ることがあります。確認を済ませてコンソールに戻り、**GitHub で作成** をもう一度押します。
 
 | 方式 | 必要な権限 |
 | --- | --- |
 | GitHub App | Repository permissions: Contents Read and write, Pull requests Read and write |
+
+コンソールで作る作成用 App は、これに加えて Workflows の書き込みと Actions・Checks の読み取りを常に求める。ワークフローファイルの変更と CI 結果の確認が既定でオンだからである。**ワークフローの直接実行の権限も取得する** にチェックすると、Actions を書き込みで求める。それより前に作った App にはこの権限がないことがある。その App では CI 結果の読み取りが `github_refused`(`reason_code` `app_permission_missing`)で拒否され、人の承認には回らない。GitHub の App 設定の **Permissions & events** で Workflows を Read and write に、Actions と Checks を Read-only に上げ、App をインストールしたアカウントで権限の要求を承認する。
 
 ワークフローのスイッチは二つある。ワークスペースの上限とエージェントの GitHub タブに同じ二つがあり、上限がオフにしたものはエージェント側がオンでもオフになる。
 
@@ -33,6 +35,16 @@ GitHub との間でやることは三つある。開始リポジトリがある�
 **ワークフローの直接実行 (実行・再実行・キャンセル)**: オンにすると、エージェントが自分でワークフローを実行・再実行します。push と PR で動く CI は、このスイッチに関係なく GitHub が実行します。オフの間、dispatch・再実行は GitHub を呼ぶ前に `actions_off` で拒否され(MCP ツールは `feature_off`、REST API は `GITHUB_REFUSED`)、人の承認には回りません。トークンも `actions: write` を求めません。MCP ツールの拒否の `details` も、オフになっている場所とオンにできる人を伝えます。エージェントはオンでもワークスペースの上限がオフなら、MCP ツールは同じ `actions_off` で、REST API は `over_workspace_ceiling` で拒否します。キャンセルのツールはまだないので、オンにしても実行と再実行だけです。
 
 GitHub タブを一度も保存していないエージェントは、リリースに固定された設定に従う。その設定の以前の Actions(`actions: true`)はワークフローファイルの変更と CI 結果の確認として読み、直接実行はオフとみなす。直接実行は GitHub タブでオンにする。ワークスペースの上限がワークフローファイルの変更をオフにすると、ワークフローファイルの push も止まる。
+
+エージェントの GitHub タブでオフのまま始まる権限は三つある。ワークスペースの上限が許可したものだけをオンにでき、オンにした権限のトークンだけを求める。オフの権限は人の承認に回さず、理由コードで拒否する。
+
+| 権限 | オフのときの拒否 | オンのときトークンが求める権限 |
+| --- | --- | --- |
+| **自分の PR のマージ** | `GITHUB_REFUSED`(`merge_off`)、`off_in` がオフの側 | 作成用 App の `contents: write`・`pull_requests: read` |
+| **レビュー承認** | MCP ツールは `feature_off`(`review_off`)、REST API は `GITHUB_REFUSED`(`review_off`) | レビュー承認用 App の `contents: read`・`pull_requests: write` |
+| **ワークフローの直接実行 (実行・再実行・キャンセル)** | `actions_off` | 作成用 App の `actions: write` |
+
+**レビュー承認** をオンにすると、エージェントが自分でレビューを残して承認する。**自分の PR のマージ** をオンにすると、エージェントが自分で自分の PR をマージする。必須チェックとレビューの条件はリポジトリのルールが決める。ルールのないリポジトリではすぐにマージされる。自分の PR のマージはリリースに固定された設定にはないので、GitHub タブを保存したエージェントだけが使う。オンにする前に始まったセッションではオフのままで、新しいセッションから効く。
 
 `workflows: write` のトークンを GitHub が拒否すると、インストールが実際に与えた権限を App の鍵で読む。そこに `Workflows` の書き込みがなければ (App にないか、インストールがまだ承認していない)、一つ目のスイッチがオンでも push は `contents: write` だけで行う。権限を読めなければ push は `app_permission_missing` で拒否される。このとき `.github/workflows/` のファイルを変える push だけを GitHub が拒否する。push される commit はエージェントが書いたものなので、この権限があるとエージェントが書き換えた `.github/workflows/` のファイルも push され、CI で実行される。デフォルトブランチはリポジトリの ruleset でも保護しておく([デフォルトブランチの保護](#기본-브랜치-보호))。
 
@@ -181,7 +193,7 @@ PR 本文の末尾には、プラットフォームが書く末尾ブロック�
 
 `get_pull_request` は、このセッションの push 要求が開いた PR のタイトル、本文、状態、head を読む。プラットフォームの末尾は除き、秘密値に見える行は `[REDACTED]` で隠す。末尾を除き秘密値を隠した本文が 64 KiB を超えると先頭だけを返し、`body_truncated: true` と `body_sha256: null` で知らせる。本文は人が書いた文章なので `untrusted: true` が付く。一緒に返る `body_sha256` を `update_pull_request` の `expected_body_sha256` に渡すと、読んだあとに誰かが本文を直していた場合は何も書かずに `body_changed` で拒否する。この値と一緒に送った本文が長くて切れてしまう場合は、切らずに `body_too_long` で拒否する。切れて読まれた本文にはハッシュがないので、エージェントは書き直せない(`body_unverified`)。タイトルだけの変更はできる。読み取りも GitHub の利用スイッチとリポジトリの範囲に従う。
 
-ワークスペースが許可していれば、`merge_pull_request` でその PR を squash でマージする。許可していなければ、GitHub を呼ぶ前に `GITHUB_REFUSED`(`merge_off`)で拒否する。マージは push 要求が push した commit に固定する。PR の head がその commit でなければ `head_moved` で、必須チェックの待ち・レビュー待ち・未解決の会話・競合など GitHub が今はマージしない PR は `merge_blocked` で拒否する。この拒否の `details` には、GitHub が返した状態(`mergeable_state`、`mergeable`、`draft`)と、どの条件が満たされなかったかを述べる `reason` の文が載る。`reason` は状態を述べるだけで、どの必須チェックやレビューかまでは述べない。開いたときと別の base に移された PR、または base が別の開いている PR の head である PR(積まれた PR)も `merge_blocked` である。GitHub の非同期マージは、その PR が積まれている下の PR も一緒にマージするためである。マージ要求を GitHub が受け付けても待つ間に終わらなければ `forge_failed` で答える。マージはあとから終わることがあるので、PR を確かめてからもう一度呼べばよい。すでにマージ済みの PR は、同じ commit なら `changed: false` で答え、別の commit なら `head_moved` で拒否する。マージされずに閉じられた PR は `pull_request_closed` で拒否する。管理者による回避、自動マージ、ほかのマージ方式は使わない。マージ要求はルールの回避をオフにして(`bypass_rules: false`)GitHub の非同期マージ API に送るため、作成用 App がルールセットの回避対象でも、その権限で必須チェックとレビューを飛ばせない。それでもマージ用の App は回避対象に入れないほうが安全である。エージェントの Actions 許可リストに PR をマージするワークフローを入れると、このスイッチはそのマージを止められない。
+エージェントの GitHub タブとワークスペースの上限の両方で **自分の PR のマージ** がオンなら、`merge_pull_request` でその PR を squash でマージする。どちらかがオフなら、GitHub を呼ぶ前に `GITHUB_REFUSED`(`merge_off`)で拒否し、`details.off_in` でオフの側を示す。プラットフォームはチェックを自分で読んで判断せず、GitHub が拒否したマージを送り直さない。マージは push 要求が push した commit に固定する。PR の head がその commit でなければ `head_moved` で、必須チェックの待ち・レビュー待ち・未解決の会話・競合など GitHub が今はマージしない PR は `merge_blocked` で拒否する。この拒否の `details` には、GitHub が返した状態(`mergeable_state`、`mergeable`、`draft`)と、どの条件が満たされなかったかを述べる `reason` の文が載る。`reason` は状態を述べるだけで、どの必須チェックやレビューかまでは述べない。開いたときと別の base に移された PR、または base が別の開いている PR の head である PR(積まれた PR)も `merge_blocked` である。GitHub の非同期マージは、その PR が積まれている下の PR も一緒にマージするためである。マージ要求を GitHub が受け付けても待つ間に終わらなければ `forge_failed` で答える。マージはあとから終わることがあるので、PR を確かめてからもう一度呼べばよい。すでにマージ済みの PR は、同じ commit なら `changed: false` で答え、別の commit なら `head_moved` で拒否する。マージされずに閉じられた PR は `pull_request_closed` で拒否する。管理者による回避、自動マージ、ほかのマージ方式は使わない。マージ要求はルールの回避をオフにして(`bypass_rules: false`)GitHub の非同期マージ API に送るため、作成用 App がルールセットの回避対象でも、その権限で必須チェックとレビューを飛ばせない。それでもマージ用の App は回避対象に入れないほうが安全である。エージェントの Actions 許可リストに PR をマージするワークフローを入れると、このスイッチはそのマージを止められない。
 
 <a id="push가-거절되는-경우" />
 ## push が拒否される場合

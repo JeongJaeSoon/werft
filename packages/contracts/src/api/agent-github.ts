@@ -119,6 +119,7 @@ export const agentGitHubResponseSchema = z.object({
       checks: featureOptionSchema,
       issues: featureOptionSchema,
       review: featureOptionSchema,
+      merge: featureOptionSchema,
     }),
   }),
 });

@@ -3,6 +3,7 @@ import {
   AGENT_GITHUB_REPOSITORIES_MAX,
   type AgentDetail,
   type AgentGitHub,
+  type AgentGitHubSettings,
   type AgentGitHubSettingsRow,
   catalogIdOfRef,
   GITHUB_FEATURES_DEFAULT,
@@ -348,6 +349,27 @@ describe("the agent GitHub tab's options", () => {
       checks: { available: false, reason: "over_workspace_ceiling" },
       issues: { available: false, reason: "app_permission_missing" },
       review: { available: false, reason: "no_reviewer_app" },
+      merge: { available: true, reason: null },
+    });
+  });
+
+  test("merge: offered only under the workspace ceiling, and with an author App that writes contents (94S-2492)", async () => {
+    const off = await serviceWith({
+      github: WITH_SETTINGS,
+      ceiling: { ...ALL_ON, merge: false },
+    }).get(caller, AGENT);
+    expect(off.options.features.merge).toEqual({
+      available: false,
+      reason: "over_workspace_ceiling",
+    });
+    const readOnly = await serviceWith({
+      github: WITH_SETTINGS,
+      ceiling: ALL_ON,
+      author: { contents: "read", pull_requests: "write" },
+    }).get(caller, AGENT);
+    expect(readOnly.options.features.merge).toEqual({
+      available: false,
+      reason: "app_permission_missing",
     });
   });
 
@@ -616,7 +638,7 @@ describe("saving the agent's GitHub settings", () => {
   const request = (
     over: Partial<{
       expected_revision: number | null;
-      settings: AgentGitHub;
+      settings: AgentGitHubSettings;
       start_repository_id: string | null;
     }> = {},
   ) => ({
@@ -780,6 +802,27 @@ describe("saving the agent's GitHub settings", () => {
         ),
       ),
     ).toBe("saved");
+  });
+
+  test("merge is saved only under a ceiling that allows it, and is written as sent (94S-2492)", async () => {
+    const merging = request({
+      settings: { ...SAVED, features: { ...SAVED.features, merge: true } },
+    });
+    expect(
+      await refusal(
+        serviceWithPuts({
+          ceiling: { ...ALL_ON, merge: false },
+        }).service.putSettings(caller, AGENT, merging),
+      ),
+    ).toBe("BAD_REQUEST:over_workspace_ceiling");
+    const { service, puts } = serviceWithPuts({ ceiling: ALL_ON });
+    expect(await refusal(service.putSettings(caller, AGENT, merging))).toBe(
+      "saved",
+    );
+    expect(puts.at(-1)?.settings.features).toEqual({
+      ...SAVED.features,
+      merge: true,
+    });
   });
 
   test("a stale revision answers REVISION_CONFLICT", async () => {

@@ -163,13 +163,22 @@ const ALLOW_NARROW = "minmax(0,1fr) max-content";
 const ALLOW_NARROW_READ = "minmax(0,1fr)";
 const WIDE_ONLY_480 = "[@container(min-width:480px)]:hidden";
 const FOCUS_TARGET = "scroll-mt-4 outline-none";
-// Workflow edits first, then running them, as the workspace lists them.
-// `checks` is saved with `workflows`; issues has no work behind it yet.
+// Workflow edits first, then the three that start off: running workflows,
+// approving reviews, merging. `checks` is saved with `workflows`; issues has
+// no work behind it yet.
 const FEATURES = [
   "workflows",
   "actions",
   "review",
+  "merge",
 ] as const satisfies readonly Feature[];
+// What the switch lets the agent do, shown however the row reads.
+const FEATURE_HELP = {
+  workflows: "agentGitHub.feature.workflowsHelp",
+  actions: "agentGitHub.feature.actionsHelp",
+  review: "agentGitHub.feature.reviewHelp",
+  merge: "agentGitHub.feature.mergeHelp",
+} as const satisfies Record<(typeof FEATURES)[number], MessageKey>;
 const WORKFLOW_FILE = /^[A-Za-z0-9._-]+\.ya?ml$/;
 const ALLOW_MAX = 32;
 const REF_MAX = 255;
@@ -197,7 +206,10 @@ export function pendingCount(
   return (
     Number(basePushAttached !== draftPushAttached) +
     Number(base.push_approval !== draft.push_approval) +
-    FEATURES.filter((f) => base.features[f] !== draft.features[f]).length +
+    // `merge` is absent on a row saved before it, which reads as off.
+    FEATURES.filter(
+      (f) => (base.features[f] ?? false) !== (draft.features[f] ?? false),
+    ).length +
     draft.actions_allow.filter(
       (entry) => !base.actions_allow.some((held) => sameEntry(held, entry)),
     ).length +
@@ -849,7 +861,7 @@ function GitHubSettings({
               />
               {FEATURES.map((feature) => {
                 const option = data.options.features[feature];
-                const on = settings.features[feature];
+                const on = settings.features[feature] ?? false;
                 // GitHub refuses a review where the reviewer App is not installed.
                 const uninstalled =
                   feature === "review" && option.available
@@ -896,16 +908,9 @@ function GitHubSettings({
                         ) : (
                           t(`agentGitHub.feature.${feature}Hint`)
                         )}
-                        {/* Shown however the row reads: what the switch lets the agent do. */}
-                        {feature === "actions" || feature === "workflows" ? (
-                          <Text as="span" variant="meta" className="block">
-                            {t(
-                              feature === "actions"
-                                ? "agentGitHub.feature.actionsHelp"
-                                : "agentGitHub.feature.workflowsHelp",
-                            )}
-                          </Text>
-                        ) : null}
+                        <Text as="span" variant="meta" className="block">
+                          {t(FEATURE_HELP[feature])}
+                        </Text>
                       </>
                     }
                     status={onOff(on)}

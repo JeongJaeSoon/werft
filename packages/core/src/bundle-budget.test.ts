@@ -56,8 +56,10 @@ const BUDGET_BYTES: Record<string, number> = {
   // events' after_turn mark put ./forms 73 bytes over 153, so it moves to
   // 154. The CI read tools' repository argument and their descriptions put
   // ./schemas 391 bytes over 156 and ./forms 119 bytes over 154, so they
-  // move to 157 and 155.
-  "./schemas": 157 * 1024,
+  // move to 157 and 155. The agent's merge switch, the review_off and
+  // merge_off refusals and what the merge and review tools say of them put
+  // ./schemas 49 bytes over 157, so it moves to 158.
+  "./schemas": 158 * 1024,
   "./forms": 155 * 1024,
 };
 
