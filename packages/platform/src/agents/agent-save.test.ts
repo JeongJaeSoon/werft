@@ -66,7 +66,9 @@ const GITHUB: AgentGitHub = {
   actions_allow: [],
 };
 
-function activeRelease(): AgentRelease {
+function activeRelease(
+  github: AgentRelease["policy_pins"]["github"] = GITHUB,
+): AgentRelease {
   const identity = {
     agent_id: AGENT,
     card_sha256: "b".repeat(64),
@@ -74,7 +76,7 @@ function activeRelease(): AgentRelease {
     repository_id: "app",
     runtime_config_snapshot: { model: "claude-sonnet-5" },
     effective_tools: { tools: ["Read"], mcp: [] },
-    policy_pins: { github: GITHUB },
+    policy_pins: { github },
     instructions_snapshot: null,
   };
   return {
@@ -358,6 +360,25 @@ describe("a card save asks releaseAgent for what the request changes", () => {
     expect(insert?.release.repository_id).toBe("app");
     // The lock re-checks a first settings row saved since the read.
     expect(insert?.refuseGitHubWhenSettings).toBe(true);
+  });
+
+  test("a carried pin leaves out a switch this build does not know, which the ceiling check would refuse (94S-2491)", async () => {
+    const base = record();
+    const active = activeRelease({
+      ...GITHUB,
+      features: { ...GITHUB.features, later_switch: true },
+    });
+    const { calls, result } = save({
+      record: {
+        ...base,
+        agent: { ...base.agent, active_release_id: active.id },
+        releases: [active],
+        active_release: active,
+      },
+    });
+    expect((await result).release.status).toBe("applied");
+    const [insert] = calls.insert as { release: AgentRelease }[];
+    expect(insert?.release.policy_pins.github).toEqual(GITHUB);
   });
 
   test("it snapshots the carried repository's instruction file into the release it makes", async () => {
