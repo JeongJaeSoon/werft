@@ -26,9 +26,9 @@ import {
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresDecisionLog } from "./access-control/authz-decisions.ts";
 import { createPostgresPushIntents } from "./action/push-intents.ts";
 import { createPostgresSessionControl } from "./control-unit-of-work.ts";
-import { createPostgresDecisionLog } from "./musterrolle/authz-decisions.ts";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,

@@ -7,10 +7,13 @@ import {
   type RepositoryCeiling,
   storedAgentCardSchema,
 } from "@werft-ai/contracts";
+import { SessionServiceError } from "../access-control/index.ts";
+import {
+  callerFor,
+  createAuthorizationPolicy,
+} from "../access-control/policy.ts";
 import type { CatalogConnection } from "../catalog/catalog.ts";
 import type { ExtensionAttachment } from "../extensions/ports/extension-bundle-store.ts";
-import { SessionServiceError } from "../musterrolle/index.ts";
-import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
 import {
   TEST_RUNTIMES,
   testCatalog,

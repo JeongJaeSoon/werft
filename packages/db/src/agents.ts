@@ -38,6 +38,21 @@ import {
   sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import {
+  administers,
+  agentUsable,
+  credentialsAllowed,
+  hasOwner,
+  insideAgent,
+  liveMember,
+} from "./access-control/administers.ts";
+import { managingTeamAllowed } from "./access-control/agent-admins.ts";
+import { revokeAgentIdentities } from "./access-control/agent-identities.ts";
+import {
+  holdsRight,
+  lockAgentKeyIssue,
+  lockedRole,
+} from "./access-control/api-keys.ts";
 import { agentSummaries } from "./agent-summaries.ts";
 import { earlierInSecond, releaseLabel } from "./agents/release-labels.ts";
 import { actorStillMember, containsPattern, UUID } from "./control-shared.ts";
@@ -48,21 +63,6 @@ import {
   rethrowCursorCastError,
 } from "./cursors.ts";
 import { DB_NOW } from "./db-clock.ts";
-import {
-  administers,
-  agentUsable,
-  credentialsAllowed,
-  hasOwner,
-  insideAgent,
-  liveMember,
-} from "./musterrolle/administers.ts";
-import { managingTeamAllowed } from "./musterrolle/agent-admins.ts";
-import { revokeAgentIdentities } from "./musterrolle/agent-identities.ts";
-import {
-  holdsRight,
-  lockAgentKeyIssue,
-  lockedRole,
-} from "./musterrolle/api-keys.ts";
 import type { Database } from "./queries.ts";
 import {
   agentActivationEvents,

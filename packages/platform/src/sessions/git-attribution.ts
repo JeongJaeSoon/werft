@@ -4,16 +4,16 @@ import {
   githubNoreplyEmail,
   type SessionGitHubAttribution,
 } from "@werft-ai/contracts";
-import type {
-  SessionAttributionRecord,
-  SessionAttributionStore,
-} from "../action/ports/session-attribution.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
   requirePermitted,
   SessionServiceError,
-} from "../musterrolle/index.ts";
+} from "../access-control/index.ts";
+import type {
+  SessionAttributionRecord,
+  SessionAttributionStore,
+} from "../action/ports/session-attribution.ts";
 
 /** The session's page in the console; null when the console has no origin. */
 export function sessionUrlOf(

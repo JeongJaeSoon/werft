@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { type AgentGitHub, MCP_TOOL_PREFIX } from "../agents/agents.ts";
 import {
   dispatchWorkflowRequestSchema,
   dispatchWorkflowResponseSchema,
@@ -29,7 +30,6 @@ import {
   pushRequestStateSchema,
   sourceRefSchema,
 } from "../api/push-request.ts";
-import { type AgentGitHub, MCP_TOOL_PREFIX } from "../kollegium/agents.ts";
 import {
   ACTION_REFUSAL_CODES,
   type ActionRefusalCode,

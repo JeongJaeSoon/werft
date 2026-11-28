@@ -1,6 +1,6 @@
 {
   "name": "@werft-ai/storage",
-  "description": "Kiel session runtime: checkpoint object store, bounded S3 client and git workspace bundle verification",
+  "description": "Checkpoint object store, bounded S3 client and git workspace bundle verification",
   "version": "0.0.0",
   "private": true,
   "license": "PolyForm-Small-Business-1.0.0",

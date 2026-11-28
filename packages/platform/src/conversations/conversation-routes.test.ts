@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ConversationTurnId } from "@werft-ai/contracts";
-import { SessionServiceError } from "../musterrolle/index.ts";
+import { SessionServiceError } from "../access-control/index.ts";
 import {
   type ConversationRouteStore,
   type ConversationRouteTask,

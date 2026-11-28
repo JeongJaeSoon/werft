@@ -1,5 +1,5 @@
 import type { ControlAcceptedResponse } from "@werft-ai/contracts";
-import type { Principal } from "../../musterrolle/index.ts";
+import type { Principal } from "../../access-control/index.ts";
 
 export type InterruptTurnInput = {
   principal: Principal;

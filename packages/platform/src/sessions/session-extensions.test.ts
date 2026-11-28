@@ -1,21 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import { scopesForRole } from "@werft-ai/contracts";
-import type { SessionCatalogView } from "../catalog/catalog.ts";
-import type {
-  ExtensionAttachment,
-  ExtensionBundle,
-} from "../extensions/ports/extension-bundle-store.ts";
-import {
-  checkAgentExtensions,
-  resolveSessionExtensions,
-  type SessionExtensionsDeps,
-} from "../extensions/session-extensions.ts";
-import { SessionServiceError } from "../musterrolle/index.ts";
+import { SessionServiceError } from "../access-control/index.ts";
 import {
   callerFor,
   createAuthorizationPolicy,
   noAgentAuthority,
-} from "../musterrolle/policy.ts";
+} from "../access-control/policy.ts";
+import type { SessionCatalogView } from "../catalog/catalog.ts";
+import {
+  checkAgentExtensions,
+  resolveSessionExtensions,
+  type SessionExtensionsDeps,
+} from "../extensions/bundles/session-extensions.ts";
+import type {
+  ExtensionAttachment,
+  ExtensionBundle,
+} from "../extensions/ports/extension-bundle-store.ts";
 import { testCatalog, testSpecSource } from "../testing/catalog-fakes.ts";
 import type {
   AcceptSessionInput,

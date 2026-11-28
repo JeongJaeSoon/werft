@@ -17,7 +17,9 @@ const READERS = ["apps/web/src", "packages/react/src", "packages/ui/src"];
  * API error's message for a refused link. Only these files; the rest of the
  * contracts is not screen copy.
  */
-const SHOWN_AS_SENT = ["packages/contracts/src/musterrolle/linked-accounts.ts"];
+const SHOWN_AS_SENT = [
+  "packages/contracts/src/access-control/linked-accounts.ts",
+];
 
 /** Inside the readers, files that draw nothing a user sees. */
 const NOT_READERS =

@@ -161,6 +161,7 @@ domains:
       - tests/architecture.
       - tests/a0-deferred-paths.
       - tests/module-load.
+      - tests/module-map.
       - tests/message-keys.
       - tests/korean-copy.
       - tests/ci-concurrency.

@@ -72,6 +72,10 @@ import {
 } from "@werft-ai/contracts";
 import type { RuntimeFingerprint } from "@werft-ai/runtime-core";
 import { messageOf } from "@werft-ai/runtime-core";
+import {
+  type AuthorizationPolicy,
+  AuthorizationUndecidedError,
+} from "../access-control/index.ts";
 import type { CommitAttributionLedger } from "../action/ports/commit-attributions.ts";
 import { repoRefOf } from "../action/ports/forge.ts";
 import type {
@@ -148,10 +152,6 @@ import {
   type SessionBudget,
   type Setting,
 } from "../limits/index.ts";
-import {
-  type AuthorizationPolicy,
-  AuthorizationUndecidedError,
-} from "../musterrolle/index.ts";
 import type {
   ClaimInput as ClaimInputOf,
   EgressBindings,
@@ -191,14 +191,22 @@ import type {
 } from "../sessions/ports/repository-attachments.ts";
 import type { SessionTitleStore } from "../sessions/ports/session-title-store.ts";
 import { hashToken } from "../token-hash.ts";
-import { createGitHubMcpEgress } from "./github-mcp-egress.ts";
 import {
   appendNew,
   dedupe,
   legacyConfigsFromRow,
   servedLegacyConfig,
 } from "./legacy-runtime-configs.ts";
-import { createMcpEgress, type McpEgressRequest } from "./mcp-egress.ts";
+import { createGitHubMcpEgress } from "./mcp-egress/github-mcp-egress.ts";
+import {
+  createMcpEgress,
+  type McpEgressRequest,
+} from "./mcp-egress/mcp-egress.ts";
+import { createWerftMcpEgress } from "./mcp-egress/werft-mcp-egress.ts";
+import {
+  createWorkspaceMcpEgress,
+  type WorkspaceMcpCallCredential,
+} from "./mcp-egress/workspace-mcp-egress.ts";
 import {
   GITHUB_PACKAGE_REGISTRIES,
   PACKAGES_BINDING,
@@ -213,11 +221,6 @@ import {
   registeredUpstream,
 } from "./private-upstream.ts";
 import { runtimeConfigOfSpec } from "./runtime-config-of-spec.ts";
-import { createWerftMcpEgress } from "./werft-mcp-egress.ts";
-import {
-  createWorkspaceMcpEgress,
-  type WorkspaceMcpCallCredential,
-} from "./workspace-mcp-egress.ts";
 
 // The repository binding of a session without a repository of its own:
 // its repository route reaches only attached ones, each through the gate.

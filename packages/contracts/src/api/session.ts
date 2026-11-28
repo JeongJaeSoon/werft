@@ -1,11 +1,8 @@
 import { z } from "zod";
+import { releaseLabelSchema } from "../agents/agents.ts";
+import { envRefusalSchema } from "../agents/env-variables.ts";
+import { slackPermalinkSchema, surfaceKindSchema } from "../agents/surfaces.ts";
 import { BUDGET_OWNER_KIND_VALUES } from "../domain/budget.ts";
-import { releaseLabelSchema } from "../kollegium/agents.ts";
-import { envRefusalSchema } from "../kollegium/env-variables.ts";
-import {
-  slackPermalinkSchema,
-  surfaceKindSchema,
-} from "../kollegium/surfaces.ts";
 import {
   agentIdSchema,
   agentReleaseIdSchema,

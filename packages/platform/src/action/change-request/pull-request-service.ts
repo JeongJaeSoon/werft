@@ -20,6 +20,11 @@ import {
   type UpdatePullRequestRequest,
   type UpdatePullRequestResponse,
 } from "@werft-ai/contracts";
+import {
+  type AuthorizationPolicy,
+  requirePermitted,
+  SessionServiceError,
+} from "../../access-control/index.ts";
 import { repositoryBinding, type SessionCatalog } from "../../catalog/index.ts";
 import {
   GitHubCallError,
@@ -28,11 +33,6 @@ import {
   type GitHubGrant,
   GitHubUnavailableError,
 } from "../../github/ports/github-gate.ts";
-import {
-  type AuthorizationPolicy,
-  requirePermitted,
-  SessionServiceError,
-} from "../../musterrolle/index.ts";
 import { sessionUrlOf } from "../../sessions/index.ts";
 import type {
   Commentable,

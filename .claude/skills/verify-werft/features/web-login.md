@@ -53,6 +53,6 @@ U=scripts/verify/web-user.mjs
 - 로그인 실패가 쌓이면 잠긴다(429 `RATE_LIMITED`). 틀린 비밀번호는 한 번만 시험한다.
 - 비밀번호는 12자 이상이다. 짧으면 400. `web-user.mjs`는 32자를 만든다.
 - 설정 링크는 로그와 화면에 찍히지 않는다. 오너가 없을 때만 `docker compose --profile apps exec -T api bun run apps/control-host/src/main.ts admin bootstrap-owner --email <address> --out <file>`이 컨테이너 안 새 0600 파일에 쓰고, stdout에는 파일 경로와 만료 시각만 낸다. 링크는 그 주소로만 bootstrap된다(다른 주소는 403, 링크는 남는다). 24시간 뒤 만료되며, 다시 실행하면 앞 링크는 무효가 된다. 오너가 있으면 링크를 만들지 않고 1로 끝난다. 실행마다 api 컨테이너 로그에 `setup_link_issued` 한 줄(토큰 없음)이 남는다. `up.sh`는 `scripts/lib/setup-link-token.sh`로 이 파일에서 토큰을 읽는다.
-- member 초대·수락·역할 변경은 [musterrolle.md](./musterrolle.md) a, 화면은 [web-members-agents.md](./web-members-agents.md).
+- member 초대·수락·역할 변경은 [access-control.md](./access-control.md) a, 화면은 [web-members-agents.md](./web-members-agents.md).
 - `ap_web`은 `__Host-werft_session`만 저장한다. 공급자 로그인의 흐름 cookie(`__Host-werft_login_flow`)는 나르지 않으니 공급자 흐름은 브라우저로 몬다.
 - zsh(Bash 도구의 셸)는 `$c` 같은 변수를 단어로 나누지 않는다. `for c in "login owner" …; do node $U <run> $c; done`은 인자 하나로 넘어가 사용법만 출력한다. 하위 명령과 사람을 따로 적는다.

@@ -20,12 +20,12 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createDatabaseAgentAuthority } from "./access-control/agent-authority.ts";
+import { createPostgresWorkspaceKeyStore } from "./access-control/api-keys.ts";
+import { createPostgresCredentialBindingStore } from "./access-control/credential-bindings.ts";
+import { createDatabaseIdentityReader } from "./access-control/identity-reader.ts";
+import { createPostgresInviteStore } from "./access-control/invites.ts";
 import { createPostgresAgentStore } from "./agents.ts";
-import { createDatabaseAgentAuthority } from "./musterrolle/agent-authority.ts";
-import { createPostgresWorkspaceKeyStore } from "./musterrolle/api-keys.ts";
-import { createPostgresCredentialBindingStore } from "./musterrolle/credential-bindings.ts";
-import { createDatabaseIdentityReader } from "./musterrolle/identity-reader.ts";
-import { createPostgresInviteStore } from "./musterrolle/invites.ts";
 import * as schema from "./schema.ts";
 import {
   agentAdmins,

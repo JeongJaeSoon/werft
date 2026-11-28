@@ -139,7 +139,7 @@ ap_web PATCH "/v1/members/$MID" '{"role":"member"}'
 node "$U" "$RUN" login member
 ```
 
-기대: 모두 200. PATCH는 member 객체 자체(`user_id`·`role`), disable/enable은 `member`·`receipt_id`. disable 뒤 `member.disabled_at`이 있고 enable 뒤 null. 마지막 role member. 비활성 때 기존 cookie는 무효가 되므로 다시 로그인한다. 보호된 owner·마지막 owner·사용자 단위 비활성·인수 시나리오는 [musterrolle.md](musterrolle.md) a의 별도 계정으로 수행한다.
+기대: 모두 200. PATCH는 member 객체 자체(`user_id`·`role`), disable/enable은 `member`·`receipt_id`. disable 뒤 `member.disabled_at`이 있고 enable 뒤 null. 마지막 role member. 비활성 때 기존 cookie는 무효가 되므로 다시 로그인한다. 보호된 owner·마지막 owner·사용자 단위 비활성·인수 시나리오는 [access-control.md](access-control.md) a의 별도 계정으로 수행한다.
 
 ## P-API-TEAMS — 팀·에이전트 관리자
 
@@ -193,7 +193,7 @@ ap_web GET "/v1/agents/$AID/admins"
 ap_web GET "/v1/agents/$AID/credential-bindings"
 ```
 
-기대: connections 200 `items`(연결마다 모델 목록). agent create 201 `agent`·`versions`. release 200 `release.id`. activate 200. 관리 목록에 에이전트가 있고 관리자 목록에 만든 owner와 추가 팀이 있다. credential-bindings는 200 빈 목록. 소스: `apps/control-host/src/api/routes/agents/agents.ts`, `agent-identities.ts`, `credential-bindings.ts`, `teams.ts`와 contracts의 musterrolle 스키마.
+기대: connections 200 `items`(연결마다 모델 목록). agent create 201 `agent`·`versions`. release 200 `release.id`. activate 200. 관리 목록에 에이전트가 있고 관리자 목록에 만든 owner와 추가 팀이 있다. credential-bindings는 200 빈 목록. 소스: `apps/control-host/src/api/routes/agents/agents.ts`, `agent-identities.ts`, `credential-bindings.ts`, `teams.ts`와 contracts의 access-control 스키마.
 
 ## P-WEB-AGENTS — 목록·마법사·상세
 
@@ -234,7 +234,7 @@ node "$B" "$RUN" click '에이전트 보기'
 node "$B" "$RUN" eval 'document.querySelector("main").innerText'
 ```
 
-기대: 새 상세에 Member Helper가 활성화되어 있다. 상세에서 카드 저장 후 버전 증가, 릴리스 탭 release·활성화 후 활성 버전을 API로 재조회한다. API PATCH 카드·관리자 삭제·자격 연결/해제·활성화 충돌은 같은 파일의 상세 절차와 [musterrolle.md](musterrolle.md) f를 쓴다. f는 secret catalog 전제가 없으면 생략 사유를 기록한다.
+기대: 새 상세에 Member Helper가 활성화되어 있다. 상세에서 카드 저장 후 버전 증가, 릴리스 탭 release·활성화 후 활성 버전을 API로 재조회한다. API PATCH 카드·관리자 삭제·자격 연결/해제·활성화 충돌은 같은 파일의 상세 절차와 [access-control.md](access-control.md) f를 쓴다. f는 secret catalog 전제가 없으면 생략 사유를 기록한다.
 
 ## P-API-CREDENTIALS — 자격 이름 연결·해제
 
@@ -253,7 +253,7 @@ ap_web DELETE "/v1/agents/$AID/credential-bindings/$BINDING"
 ap_web GET "/v1/agents/$AID/credential-bindings"
 ```
 
-기대: 최초 연결 200 `created:true`, binding.credential_ref verify-reference, receipt_id. 중복 연결 200 `created:false`, receipt_id null. 목록에 해당 이름, 삭제 200 revoked_at·revoke_notice·receipt_id. 마지막 활성 목록에서 빠진다. source: `packages/contracts/src/musterrolle/credential-bindings.ts`, `packages/platform/src/musterrolle/credential-binding-service.ts`.
+기대: 최초 연결 200 `created:true`, binding.credential_ref verify-reference, receipt_id. 중복 연결 200 `created:false`, receipt_id null. 목록에 해당 이름, 삭제 200 revoked_at·revoke_notice·receipt_id. 마지막 활성 목록에서 빠진다. source: `packages/contracts/src/access-control/credential-bindings.ts`, `packages/platform/src/access-control/credential-binding-service.ts`.
 
 ## P-API-KEYS — 개인 key·에이전트 key·CLI
 
@@ -281,7 +281,7 @@ KEY=$SAVED_KEY
 unset OPKEY SAVED_KEY
 ```
 
-기대: 두 개인 key 201, 목록 200 `items`, key me 200 `principal.kind:"api_key"`. CLI key의 root는 200 `owner_id:"verify"`, read-only key POST는 403(scope 검사). 이어 revoked 출력과 같은 key로 401을 확인한다. 원시 CLI key는 이 블록의 변수로만 보관하고 마지막에 지운다. 사용자 개인 key는 뒤 절차에 쓰므로 아직 폐기하지 않는다. 에이전트 key 상한은 [musterrolle.md](musterrolle.md) d(별도 사용자 이름 사용).
+기대: 두 개인 key 201, 목록 200 `items`, key me 200 `principal.kind:"api_key"`. CLI key의 root는 200 `owner_id:"verify"`, read-only key POST는 403(scope 검사). 이어 revoked 출력과 같은 key로 401을 확인한다. 원시 CLI key는 이 블록의 변수로만 보관하고 마지막에 지운다. 사용자 개인 key는 뒤 절차에 쓰므로 아직 폐기하지 않는다. 에이전트 key 상한은 [access-control.md](access-control.md) d(별도 사용자 이름 사용).
 
 ## P-API-SESSIONS-CREATE — 모델 선택·턴·receipt
 
@@ -336,7 +336,7 @@ ap_get '/v1/sessions?relation=invalid'
 ap_get '/v1/sessions?status=closed'
 ```
 
-기대: 첫 목록 200 `items` 한 개, `next_cursor:null`; id=SID. counts 200 `total:1`, `counts.idle:1`, `queued/running/needs_input/failed/stopped:0`. shared는 자기 세션을 빼므로 빈 items. administered는 자신이 관리하는 AID의 세션을 포함한다. all도 포함. 잘못된 relation/status는 400. API q는 제목 대소문자 무시 부분 일치·ID prefix이며 최대 200자. 다른 사람의 private 세션은 목록·counts로 넓혀 볼 수 없다([musterrolle.md](musterrolle.md) e).
+기대: 첫 목록 200 `items` 한 개, `next_cursor:null`; id=SID. counts 200 `total:1`, `counts.idle:1`, `queued/running/needs_input/failed/stopped:0`. shared는 자기 세션을 빼므로 빈 items. administered는 자신이 관리하는 AID의 세션을 포함한다. all도 포함. 잘못된 relation/status는 400. API q는 제목 대소문자 무시 부분 일치·ID prefix이며 최대 200자. 다른 사람의 private 세션은 목록·counts로 넓혀 볼 수 없다([access-control.md](access-control.md) e).
 
 `channel`·`created_by`는 query가 아니다. 응답 필드다. 목록의 `agent`·`created_by`·`channel`·`model`·`repository`를 detail과 비교한다. `created_by`는 takeover 뒤에도 최초 시작한 사람이고 legacy·발급자 없는 key는 null일 수 있다. 소스: `packages/contracts/src/api/session.ts`, `packages/db/src/session-relations.integration.test.ts`.
 
@@ -366,7 +366,7 @@ ap_web POST "/v1/sessions/$SID/audit-read" '{"justification":"verify audit read"
 ap_web GET /v1/takeovers
 ```
 
-기대: rename 200 title 변경, share GET 200 `scope:"workspace"`, share 변경 200 `share`·`receipt_id`. private 뒤 member detail 404, shared 목록 items 빈 배열. people 뒤 shared 목록 SID 한 개와 counts total 1. team·workspace 변경 200. admin 목록 200 `items[].session_id`(내용 없는 메타데이터), audit-read 200 `session`·`turns`. 인수 대기는 현재 빈 items. source: `packages/contracts/src/musterrolle/session-shares.ts`, `takeovers.ts`, `apps/control-host/src/api/routes/musterrolle/session-shares.ts`.
+기대: rename 200 title 변경, share GET 200 `scope:"workspace"`, share 변경 200 `share`·`receipt_id`. private 뒤 member detail 404, shared 목록 items 빈 배열. people 뒤 shared 목록 SID 한 개와 counts total 1. team·workspace 변경 200. admin 목록 200 `items[].session_id`(내용 없는 메타데이터), audit-read 200 `session`·`turns`. 인수 대기는 현재 빈 items. source: `packages/contracts/src/access-control/session-shares.ts`, `takeovers.ts`, `apps/control-host/src/api/routes/access-control/session-shares.ts`.
 
 ## P-API-USAGE — 내 합계·설치 합계·한도
 
@@ -561,7 +561,7 @@ ap_web POST "/v1/workspaces/$WS/slack-guest" '{"slack_guest_enabled":false}'
 ap_as owner
 ```
 
-기대: workspace는 이름·ID·모델·감사 보존·Slack 게스트 Card. ID는 SecretField 복사, 모델은 mono Badge. 보존 29일은 400 `BAD_REQUEST` “Request body is invalid”, 30일은 200 `audit_retention_days:30`, 90일 복원도 200이다. 허용 범위 30–3650일. guest owner 200 뒤 me.settings 값 true, member 403 `details.reason_code:"role"`. 화면 switch도 true. 소스: `apps/web/src/routes/workspace-settings.tsx`, `apps/control-host/src/api/routes/musterrolle/workspaces.ts`. 다른 JSON 키로 보내 생긴 400을 보존 기간 경계 검증 성공으로 세지 않는다.
+기대: workspace는 이름·ID·모델·감사 보존·Slack 게스트 Card. ID는 SecretField 복사, 모델은 mono Badge. 보존 29일은 400 `BAD_REQUEST` “Request body is invalid”, 30일은 200 `audit_retention_days:30`, 90일 복원도 200이다. 허용 범위 30–3650일. guest owner 200 뒤 me.settings 값 true, member 403 `details.reason_code:"role"`. 화면 switch도 true. 소스: `apps/web/src/routes/workspace-settings.tsx`, `apps/control-host/src/api/routes/access-control/workspaces.ts`. 다른 JSON 키로 보내 생긴 400을 보존 기간 경계 검증 성공으로 세지 않는다.
 
 ## P-API-SESSION-CONTROL — 후속 메시지·pause·resume·close
 
@@ -809,11 +809,11 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "$Q"
 
 기대: 첫 이벤트 뒤 install `revoked`, identity `revoked`·revision 2·`revoked_at` 채움, 재전송은 변화 없음. 콘솔 Slack 탭 상단은 "재설치 필요". 재설치하면 새 active 행이 하나 더 생기고 상단이 "연결됨". 늦은 이벤트는 `processed`로 받되 새 행은 active 그대로. 이벤트 없는 제거는 channels가 409 `SLACK_NOT_INSTALLED`이고 같은 호출로 identity가 `revoked`가 된다. `invalid_auth`는 이 경로를 타지 않는다(상태 불변).
 
-Slack 연결 콜백 화면·연결 해제는 [musterrolle.md](musterrolle.md) c의 4와 [web-settings.md](web-settings.md) 4를 이어서 실행한다. 에이전트 신원 수동 연결/회수·Slack 채널 binding·처리 시점 권한 판정은 c·g의 진단 블록이다. 함수 직접 호출 결과와 HTTP inbound 증거를 구분한다.
+Slack 연결 콜백 화면·연결 해제는 [access-control.md](access-control.md) c의 4와 [web-settings.md](web-settings.md) 4를 이어서 실행한다. 에이전트 신원 수동 연결/회수·Slack 채널 binding·처리 시점 권한 판정은 c·g의 진단 블록이다. 함수 직접 호출 결과와 HTTP inbound 증거를 구분한다.
 
 ## P-SLACK-MENTION-ONLY — 채널 사용과 에이전트 멘션 설정
 
-전제: P-SLACK-SETUP, 그리고 owner가 [musterrolle.md](musterrolle.md) c의 4로 Slack 계정(`U0MOCK`)을 연결한 상태. mock의 채널 목록은 비어 있어 이름을 모르는 채널은 화면에 "채널 ID: …"로 보인다. 이름이 보여야 하면 api 컨테이너에서 `http://mock-slack:4020/fake/channels`에 `{app_id, channels:[{name}]}`를 POST하고, 돌아온 id로 binding을 만든다(목록이 고른 채널처럼).
+전제: P-SLACK-SETUP, 그리고 owner가 [access-control.md](access-control.md) c의 4로 Slack 계정(`U0MOCK`)을 연결한 상태. mock의 채널 목록은 비어 있어 이름을 모르는 채널은 화면에 "채널 ID: …"로 보인다. 이름이 보여야 하면 api 컨테이너에서 `http://mock-slack:4020/fake/channels`에 `{app_id, channels:[{name}]}`를 POST하고, 돌아온 id로 binding을 만든다(목록이 고른 채널처럼).
 
 ```sh
 # Actor: owner.
@@ -837,7 +837,7 @@ ap_compose exec -T postgres psql -U postgres -d sessions -c "select surface_ref 
 
 ## P-SLACK-APPROVAL-CLICK — Slack 스레드 세션의 승인 카드를 눌러 처리
 
-전제: P-SLACK-SETUP과 owner의 Slack 계정(`U0MOCK`) 연결([musterrolle.md](musterrolle.md) c의 4를 owner로), 에이전트 활성화, `C0SUP`에 `home` binding(P-SLACK-MENTION-ONLY의 첫 PUT). worker 슬롯이 기본 3개이고 idle 세션도 슬롯을 쥔다. 세션이 `queued`에 머물면 이미 끝난 세션을 `POST /v1/sessions/{id}/terminate`(`expected_revision`)로 닫는다. mock의 카드 기록에는 앱 표시가 없으므로 한 run에는 Slack 에이전트를 하나만 둔다(`slack-cards`·`slack-click`은 모든 카드를 본다). 이미 update된 카드는 답한 카드로 보고 건너뛴다. 서명은 mock이 자기 앱 secret으로 만든다. helper는 secret도 컨테이너 환경도 읽지 않는다.
+전제: P-SLACK-SETUP과 owner의 Slack 계정(`U0MOCK`) 연결([access-control.md](access-control.md) c의 4를 owner로), 에이전트 활성화, `C0SUP`에 `home` binding(P-SLACK-MENTION-ONLY의 첫 PUT). worker 슬롯이 기본 3개이고 idle 세션도 슬롯을 쥔다. 세션이 `queued`에 머물면 이미 끝난 세션을 `POST /v1/sessions/{id}/terminate`(`expected_revision`)로 닫는다. mock의 카드 기록에는 앱 표시가 없으므로 한 run에는 Slack 에이전트를 하나만 둔다(`slack-cards`·`slack-click`은 모든 카드를 본다). 이미 update된 카드는 답한 카드로 보고 건너뛴다. 서명은 mock이 자기 앱 secret으로 만든다. helper는 secret도 컨테이너 환경도 읽지 않는다.
 
 ```sh
 # Actor: owner. 묻기 규칙에 걸리는 같은 호출 두 번: 허용한 뒤에도 두 번째 호출에 카드가 다시 온다.

@@ -1,6 +1,6 @@
 {
   "name": "@werft-ai/runtime-claude-codec",
-  "description": "Kiel session runtime: Claude transcript and checkpoint codec",
+  "description": "Claude transcript and checkpoint codec",
   "version": "0.0.0",
   "private": true,
   "license": "PolyForm-Small-Business-1.0.0",

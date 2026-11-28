@@ -1,6 +1,6 @@
 {
   "name": "@werft-ai/execution-local-docker",
-  "description": "Kiel session runtime: local Docker execution backend for worker containers",
+  "description": "Local Docker execution backend for worker containers",
   "version": "0.0.0",
   "private": true,
   "license": "PolyForm-Small-Business-1.0.0",

@@ -12,6 +12,11 @@ import type {
 } from "@werft-ai/contracts";
 import { GITHUB_CI_RUNS_MAX } from "@werft-ai/contracts";
 import {
+  type AuthorizationPolicy,
+  requirePermitted,
+  SessionServiceError,
+} from "../../access-control/index.ts";
+import {
   GitHubCallError,
   type GitHubGate,
   GitHubGateError,
@@ -21,11 +26,6 @@ import {
   type GitHubWork,
   type GitHubWorkContext,
 } from "../../github/ports/github-gate.ts";
-import {
-  type AuthorizationPolicy,
-  requirePermitted,
-  SessionServiceError,
-} from "../../musterrolle/index.ts";
 import { cleanBody } from "../change-request/pull-request-text.ts";
 import {
   type PushActor,

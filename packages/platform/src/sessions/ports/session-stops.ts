@@ -1,4 +1,4 @@
-import type { Principal } from "../../musterrolle/index.ts";
+import type { Principal } from "../../access-control/index.ts";
 
 export type StopQueuedInput = {
   principal: Principal;

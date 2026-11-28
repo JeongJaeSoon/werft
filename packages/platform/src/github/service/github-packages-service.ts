@@ -14,7 +14,7 @@ import {
   requirePermitted,
   SECRET_STORE_OFF,
   SessionServiceError,
-} from "../../musterrolle/index.ts";
+} from "../../access-control/index.ts";
 import type {
   OutboundHttp,
   OutboundResponse,

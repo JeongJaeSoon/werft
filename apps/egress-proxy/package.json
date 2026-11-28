@@ -1,6 +1,6 @@
 {
   "name": "@werft-ai/egress-proxy",
-  "description": "Kiel session runtime: the only egress path out of the worker network",
+  "description": "Egress proxy: the only egress path out of the worker network",
   "version": "0.0.0",
   "private": true,
   "license": "PolyForm-Small-Business-1.0.0",

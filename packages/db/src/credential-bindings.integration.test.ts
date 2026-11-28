@@ -15,7 +15,7 @@ import {
   createPostgresCredentialBindingStore,
   lockUnboundRefs,
   releaseCredentialRefs,
-} from "./musterrolle/credential-bindings.ts";
+} from "./access-control/credential-bindings.ts";
 import * as schema from "./schema.ts";
 import {
   agentAdmins,

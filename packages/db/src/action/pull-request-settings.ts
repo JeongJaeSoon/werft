@@ -11,9 +11,9 @@ import {
 import type { PullRequestSettingsStore } from "@werft-ai/platform";
 import { MANAGEMENT_ROLES, receiptActorOf } from "@werft-ai/platform";
 import { and, eq, sql } from "drizzle-orm";
+import { lockedRole } from "../access-control/index.ts";
 import { lockAgentToChange } from "../agents.ts";
 import { UUID } from "../control-shared.ts";
-import { lockedRole } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import {
   agentPullRequestSettings,

@@ -1,0 +1,1157 @@
+#!/usr/bin/env bun
+/**
+ * Moves the code-named folders to feature-named ones and repairs everything
+ * that names a moved file by path. The names it moves from and to are the
+ * "rules" table below; docs/architecture/modules.md is the map it keeps.
+ *
+ *   bun scripts/move-module-folders.ts          move, rewrite, regenerate the map
+ *   bun scripts/move-module-folders.ts --check  change nothing; exit 1 when a run would change something
+ *
+ * What a run does, in order:
+ *   1. "git mv" every file an old-path rule matches (an untracked file is renamed).
+ *   2. In every TypeScript file, rewrite relative module specifiers and
+ *      relative path strings: read against the file's old place, written
+ *      against its new one.
+ *   3. In every text file, rewrite a moved path written out of the repository
+ *      root, a "musterrolle/" or "kollegium/" path segment (no other folder
+ *      or name in the repository is spelled so, so the segment alone says
+ *      what is meant), a "routes/..." key route errors are filed under, and
+ *      the links of the verify docs. Nothing inside a URL is rewritten. A
+ *      rewritten segment that names no file or folder of the moved tree is
+ *      listed at the end, to be read: right for a path of a test fixture,
+ *      wrong for anything that was never a path of this repository.
+ *   4. Run biome on what it rewrote (import order and line width follow the path).
+ *      The contracts index keeps its order: see keptOrder.
+ *   5. Regenerate the tables of docs/architecture/modules.md.
+ *   6. Fail if a relative import still names a file that does not exist. An
+ *      import that names one file from where its file is and another from
+ *      where it was is left as written and listed: run the typecheck.
+ *
+ * Running it again changes nothing: a rule matches an old path only, never
+ * the place it moves to. On a branch cut before the move, merge main first
+ * (git follows the renames), then run it: files the branch added under an old
+ * path move too, and imports the branch wrote against old paths are repaired.
+ * It stops before changing anything when a file would land on an existing
+ * one, when two files would land on one name, or when a file sits directly
+ * under an extensions/ folder with no rule
+ * (pick skills/, bundles/, mcp/ or builtin/ and add it to "rules").
+ *
+ * Not touched: CHANGELOG.md, changelog.d/, the migrations, lock files, the
+ * map's own text, this script and tests/module-map.test.ts (the last two name
+ * the old paths on purpose).
+ */
+import { spawnSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join, posix } from "node:path";
+import * as ts from "typescript";
+
+const root = join(import.meta.dir, "..");
+const checkOnly = process.argv.includes("--check");
+
+const contracts = "packages/contracts/src/";
+const platform = "packages/platform/src/";
+const db = "packages/db/src/";
+const routes = "apps/control-host/src/api/routes/";
+const verifyDocs = ".claude/skills/verify-werft/";
+
+/**
+ * root + from becomes root + to; what follows is kept. "only" holds the rule
+ * to the paths whose remainder matches. The first matching rule wins, so a
+ * narrower rule stands above the folder rule it carves out of.
+ */
+type Rule = { root: string; from: string; to: string; only?: RegExp };
+
+const rules: readonly Rule[] = [
+  { root: contracts, from: "musterrolle/", to: "access-control/" },
+  { root: contracts, from: "kollegium/", to: "agents/" },
+
+  { root: platform, from: "musterrolle/", to: "access-control/" },
+  { root: platform, from: "workspace-mcp/ports/", to: "extensions/ports/" },
+  { root: platform, from: "workspace-mcp/", to: "extensions/mcp/" },
+  { root: platform, from: "werft-mcp/", to: "extensions/builtin/" },
+  {
+    root: platform,
+    from: "agents/ports/",
+    to: "extensions/ports/",
+    only: /^agent-workspace-mcp-[^/]+$/,
+  },
+  {
+    root: platform,
+    from: "agents/",
+    to: "extensions/mcp/",
+    only: /^agent-workspace-mcp-[^/]+$/,
+  },
+  {
+    root: platform,
+    from: "extensions/",
+    to: "extensions/skills/",
+    only: /^(skill-[^/]+|line-diff\.[^/]+)$/,
+  },
+  {
+    root: platform,
+    from: "extensions/",
+    to: "extensions/bundles/",
+    only: /^(bundle-[^/]+|(resolve|secret-scan|session-extensions)\.[^/]+)$/,
+  },
+  {
+    root: platform,
+    from: "workers/",
+    to: "workers/mcp-egress/",
+    only: /^([a-z]+-)?mcp-egress\.[^/]+$/,
+  },
+
+  {
+    root: db,
+    from: "musterrolle/",
+    to: "extensions/mcp/",
+    only: /^workspace-mcp[^/]*$/,
+  },
+  { root: db, from: "musterrolle/", to: "access-control/" },
+  {
+    root: db,
+    from: "agents/",
+    to: "extensions/mcp/",
+    only: /^agent-workspace-mcp[^/]*$/,
+  },
+  { root: db, from: "werft-mcp/", to: "extensions/builtin/" },
+  {
+    root: db,
+    from: "extensions/",
+    to: "extensions/bundles/",
+    only: /^extension-bundle[^/]*$/,
+  },
+  {
+    root: db,
+    from: "extensions/",
+    to: "extensions/skills/",
+    only: /^skill-[^/]+$/,
+  },
+
+  {
+    root: routes,
+    from: "musterrolle/",
+    to: "extensions/mcp/",
+    only: /^workspace-mcp-servers[^/]*$/,
+  },
+  { root: routes, from: "musterrolle/", to: "access-control/" },
+  {
+    root: routes,
+    from: "agents/",
+    to: "extensions/mcp/",
+    only: /^agent-(workspace-)?mcp[^/]*$/,
+  },
+  {
+    root: routes,
+    from: "extensions/",
+    to: "extensions/skills/",
+    only: /^skill[^/]*$/,
+  },
+
+  {
+    root: `${verifyDocs}features/`,
+    from: "musterrolle.md",
+    to: "access-control.md",
+  },
+];
+
+/** Where a path goes. A path no rule matches, a moved one included, comes back as it is. */
+function mapPath(path: string): string {
+  for (const rule of rules) {
+    const from = rule.root + rule.from;
+    if (!rule.only && from.endsWith("/") && path === from.slice(0, -1))
+      return (rule.root + rule.to).slice(0, -1);
+    if (!path.startsWith(from)) continue;
+    const rest = path.slice(from.length);
+    if (rule.only && !rule.only.test(rest)) continue;
+    return rule.root + rule.to + rest;
+  }
+  return path;
+}
+
+/** The old paths that move to "path": where a file now at "path" may have been written. */
+function oldPathsOf(path: string): string[] {
+  const found: string[] = [];
+  for (const rule of rules) {
+    const to = rule.root + rule.to;
+    if (!path.startsWith(to)) continue;
+    const old = rule.root + rule.from + path.slice(to.length);
+    if (old !== path && mapPath(old) === path) found.push(old);
+  }
+  return found;
+}
+
+/** What stays directly under an extensions/ folder, and the folders the rest goes into. */
+const extensionsEntrances = /^(index\.tsx?|ports\/.*)$/;
+const extensionsParts = ["skills", "bundles", "mcp", "builtin"];
+
+const mapFile = "docs/architecture/modules.md";
+
+/** Never rewritten: history, generated files, and the files that name old paths on purpose. */
+const untouched = [
+  "CHANGELOG.md",
+  "changelog.d/",
+  "packages/db/migrations/",
+  "bun.lock",
+  "THIRD_PARTY_NOTICES.md",
+  mapFile,
+  "scripts/move-module-folders.ts",
+  "tests/module-map.test.ts",
+];
+
+function git(...args: string[]): string {
+  const result = spawnSync("git", args, { cwd: root, maxBuffer: 1 << 28 });
+  if (result.status !== 0)
+    throw new Error(`git ${args.join(" ")}: ${result.stderr.toString()}`);
+  return result.stdout.toString();
+}
+
+const exists = (path: string) => existsSync(join(root, path));
+const isScript = (path: string) => /\.(tsx?|mts|cts)$/.test(path);
+const read = (path: string) => readFileSync(join(root, path), "utf8");
+
+function listed(...args: string[]): string[] {
+  return git("ls-files", "-z", ...args)
+    .split("\0")
+    .filter(Boolean);
+}
+
+function foldersOf(files: readonly string[]): Set<string> {
+  const folders = new Set<string>();
+  for (const file of files)
+    for (let folder = dirname(file); folder !== "."; folder = dirname(folder)) {
+      if (folders.has(folder)) break;
+      folders.add(folder);
+    }
+  return folders;
+}
+
+// ---------------------------------------------------------------- 1. moves
+
+const tracked = new Set(listed("--cached"));
+const before = [
+  ...new Set([...tracked, ...listed("--others", "--exclude-standard")]),
+]
+  .filter(exists)
+  .sort();
+
+const moves = new Map<string, string>();
+const landing = new Map<string, string[]>();
+const problems: string[] = [];
+for (const path of before) {
+  const to = mapPath(path);
+  if (mapPath(to) !== to)
+    problems.push(
+      `${path}: the rules move ${to} again; a rule must not match its own target`,
+    );
+  if (to !== path) {
+    if (exists(to))
+      problems.push(
+        `${path}: ${to} already exists; merge the two by hand, then run again`,
+      );
+    moves.set(path, to);
+    // By its lower-case form, on every file system: where case is ignored
+    // (macOS, where this repository is worked on) Audit.ts and audit.ts are
+    // one file, so two names that differ only by case cannot both be kept.
+    const name = to.toLowerCase();
+    landing.set(name, [...(landing.get(name) ?? []), path]);
+  }
+  for (const layer of [platform, db, routes]) {
+    const folder = `${layer}extensions/`;
+    if (!to.startsWith(folder)) continue;
+    const rest = to.slice(folder.length);
+    if (
+      !extensionsEntrances.test(rest) &&
+      !extensionsParts.some((part) => rest.startsWith(`${part}/`))
+    )
+      problems.push(
+        `${path}: no rule says which of ${extensionsParts.join("/, ")}/ it belongs to; add one to rules`,
+      );
+  }
+}
+// Several rules gather files into one folder, so two old files can claim one
+// name, or one can claim as a file the name another needs as a folder.
+const staying = new Set(
+  before.filter((path) => !moves.has(path)).map((path) => path.toLowerCase()),
+);
+for (const [to, from] of landing) {
+  if (from.length > 1)
+    problems.push(
+      `${from.join(" and ")}: both move to ${to}; merge them by hand, then run again`,
+    );
+  for (let folder = dirname(to); folder !== "."; folder = dirname(folder))
+    if (landing.has(folder) || staying.has(folder))
+      problems.push(
+        `${from.join(" and ")}: ${folder} is a file, so nothing can move below it`,
+      );
+}
+// On disk too: a file git ignores is in no list, and can still sit where a
+// folder has to be made.
+for (const to of new Set(moves.values()))
+  for (let folder = dirname(to); folder !== "."; folder = dirname(folder))
+    if (exists(folder) && !statSync(join(root, folder)).isDirectory())
+      problems.push(
+        `${to}: ${folder} is a file on disk, so nothing can move below it`,
+      );
+if (problems.length > 0) {
+  console.error([...new Set(problems)].join("\n"));
+  process.exit(2);
+}
+
+/** The path a file had before this run, by the path it has after it. */
+const cameFrom = new Map<string, string>();
+for (const [from, to] of moves) cameFrom.set(to, from);
+
+if (!checkOnly) {
+  for (const [from, to] of moves) {
+    mkdirSync(dirname(join(root, to)), { recursive: true });
+    if (tracked.has(from)) git("mv", from, to);
+    else renameSync(join(root, from), join(root, to));
+  }
+  // Leave no empty folder behind, so nothing reads an old name as present.
+  for (let folder of [...foldersOf([...moves.keys()])].sort().reverse())
+    while (folder !== "." && existsSync(join(root, folder))) {
+      if (readdirSync(join(root, folder)).length > 0) break;
+      rmdirSync(join(root, folder));
+      folder = dirname(folder);
+    }
+}
+
+const after = before.map((path) => moves.get(path) ?? path);
+const afterFiles = new Set(after);
+const afterFolders = foldersOf(after);
+const beforeFiles = new Set(before);
+const beforeFolders = foldersOf(before);
+
+/** Whether a path names a file or a folder once the moves are done (in --check, before they are). */
+function existsAfter(path: string): boolean {
+  if (afterFiles.has(path) || afterFolders.has(path)) return true;
+  // An ignored file (a build output a test reads) is on disk but in no list.
+  return !beforeFiles.has(path) && !beforeFolders.has(path) && exists(path);
+}
+
+// ------------------------------------------------------- 2. TypeScript files
+
+type Edit = { start: number; end: number; text: string };
+
+/** Imports this run left alone because the path names one file here and another from the file's old place. */
+const twoReadings: string[] = [];
+
+function relativeFrom(file: string, target: string, keepSlash: boolean) {
+  let specifier = posix.relative(dirname(file), target) || ".";
+  if (!specifier.startsWith(".")) specifier = `./${specifier}`;
+  return keepSlash && !specifier.endsWith("/") ? `${specifier}/` : specifier;
+}
+
+/**
+ * A relative path written in "file", read where the file was and written for
+ * where it is. A module specifier is always repaired; any other string only
+ * when what it names exists, since "../x" may be test data and not a path.
+ */
+function repairedRelative(
+  text: string,
+  file: string,
+  isSpecifier: boolean,
+): string | undefined {
+  if (!/^\.\.?\/.*[\w*]/.test(text)) return undefined;
+  const [pathPart = "", suffix = ""] = text.split(/(?=[?#])/, 2);
+  const keepSlash = pathPart.endsWith("/");
+  const resolved = (from: string) =>
+    posix.normalize(posix.join(dirname(from), pathPart)).replace(/\/$/, "");
+  const origin = cameFrom.get(file) ?? file;
+  const oldTarget = resolved(origin);
+  const target = mapPath(oldTarget);
+  if (origin !== file || target !== oldTarget) {
+    if (!isSpecifier && !existsAfter(target)) return undefined;
+    return relativeFrom(file, target, keepSlash) + suffix;
+  }
+  // The file is where a rule moves files to. Text written for its old place
+  // and merged in after the move names something else from here: nothing, or
+  // by chance another file ("../index.ts" one folder deeper).
+  const fromOldPlace = [
+    ...new Set(oldPathsOf(file).map((old) => mapPath(resolved(old)))),
+  ].filter((candidate) => candidate !== target && existsAfter(candidate));
+  const [only] = fromOldPlace;
+  if (existsAfter(target) || fromOldPlace.length > 1) {
+    if (only && isSpecifier)
+      twoReadings.push(
+        `${file}: "${text}" is ${existsAfter(target) ? target : "nothing"} from here and ${fromOldPlace.join(" or ")} from where the file was`,
+      );
+    return undefined;
+  }
+  return only ? relativeFrom(file, only, keepSlash) + suffix : undefined;
+}
+
+function isModuleSpecifier(node: ts.Node): boolean {
+  const parent = node.parent;
+  if (ts.isImportDeclaration(parent) || ts.isExportDeclaration(parent))
+    return parent.moduleSpecifier === node;
+  if (ts.isExternalModuleReference(parent)) return true;
+  if (ts.isLiteralTypeNode(parent) && ts.isImportTypeNode(parent.parent))
+    return true;
+  if (!ts.isCallExpression(parent) || parent.arguments[0] !== node)
+    return false;
+  const callee = parent.expression;
+  if (callee.kind === ts.SyntaxKind.ImportKeyword) return true;
+  if (ts.isIdentifier(callee)) return callee.text === "require";
+  if (!ts.isPropertyAccessExpression(callee)) return false;
+  const object = callee.expression;
+  return (
+    // mock.module("./x.ts", ...) and import.meta.resolve("./x.ts")
+    (callee.name.text === "module" &&
+      ts.isIdentifier(object) &&
+      object.text === "mock") ||
+    (callee.name.text === "resolve" && ts.isMetaProperty(object))
+  );
+}
+
+const apiRoot = "apps/control-host/src/api/";
+const routeErrorTable = `${apiRoot}route-error-coverage.ts`;
+
+/** The expression a literal stands for, parentheses and type-only wrappers taken off. */
+function unwrapped(node: ts.Node): ts.Node {
+  let outer = node;
+  while (
+    ts.isParenthesizedExpression(outer.parent) ||
+    ts.isAsExpression(outer.parent) ||
+    ts.isSatisfiesExpression(outer.parent) ||
+    ts.isNonNullExpression(outer.parent) ||
+    ts.isTypeAssertionExpression(outer.parent)
+  )
+    outer = outer.parent;
+  return outer;
+}
+
+function isRouteErrorKey(file: string, node: ts.Node): boolean {
+  if (!file.startsWith(apiRoot)) return false;
+  const value = unwrapped(node);
+  const parent = value.parent;
+  if (file === routeErrorTable) {
+    // A property name of ROUTE_ERROR_TESTS, written plainly or computed; not
+    // a value. The table itself may be wrapped: parentheses, a type,
+    // Object.freeze().
+    const name = ts.isComputedPropertyName(parent) ? parent : value;
+    const property = name.parent;
+    if (!ts.isPropertyAssignment(property) || property.name !== name)
+      return false;
+    let table = unwrapped(property.parent);
+    while (
+      ts.isCallExpression(table.parent) &&
+      table.parent.arguments[0] === table &&
+      isMember(table.parent.expression, "Object", "freeze")
+    )
+      table = unwrapped(table.parent);
+    return (
+      ts.isVariableDeclaration(table.parent) &&
+      table.parent.name.getText() === "ROUTE_ERROR_TESTS"
+    );
+  }
+  return (
+    ts.isCallExpression(parent) &&
+    parent.arguments[0] === value &&
+    ts.isIdentifier(parent.expression) &&
+    parent.expression.text === "recordRouteErrors"
+  );
+}
+
+const parsed = (file: string, text: string) =>
+  ts.createSourceFile(
+    file,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+
+function scriptEdits(file: string, text: string): Edit[] {
+  const source = parsed(file, text);
+  const edits: Edit[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+      let next = repairedRelative(node.text, file, isModuleSpecifier(node));
+      // A key route errors are filed under: a test file's path below api/,
+      // in the coverage table or as what a test hands recordRouteErrors().
+      if (
+        next === undefined &&
+        node.text.startsWith("routes/") &&
+        isRouteErrorKey(file, node) &&
+        existsAfter(mapPath(apiRoot + node.text))
+      )
+        next = mapPath(apiRoot + node.text).slice(apiRoot.length);
+      if (next !== undefined && next !== node.text)
+        edits.push({
+          start: node.getStart(source) + 1,
+          end: node.getEnd() - 1,
+          text: next,
+        });
+    } else if (ts.isTemplateExpression(node)) {
+      // A template that opens with import.meta.dir and "/..": the text after
+      // the directory is a path that starts there.
+      const [first] = node.templateSpans;
+      if (
+        node.head.text === "" &&
+        first &&
+        first.expression.getText(source) === "import.meta.dir" &&
+        first.literal.text.startsWith("/..")
+      ) {
+        const written = `.${first.literal.text}`;
+        const next = repairedRelative(written, file, false);
+        if (next !== undefined && next !== written) {
+          const start = first.literal.getStart(source) + 1;
+          edits.push({
+            start,
+            end: start + first.literal.text.length,
+            text: `/${next}`,
+          });
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return edits;
+}
+
+function applyEdits(text: string, edits: Edit[]): string {
+  let result = text;
+  for (const edit of [...edits].sort((a, b) => b.start - a.start))
+    result = result.slice(0, edit.start) + edit.text + result.slice(edit.end);
+  return result;
+}
+
+// ------------------------------------------------------------ 3. text files
+
+const pathCharacters = "[\\w.*@-]+(?:/[\\w.*@-]+)*/?";
+const escaped = (text: string) => text.replace(/[.*+?^$(){}|[\]\\/]/g, "\\$&");
+const layerRoots = [...new Set(rules.map((rule) => rule.root))];
+const rootedPath = new RegExp(
+  `(?:${layerRoots.map(escaped).join("|")})${pathCharacters}`,
+  "g",
+);
+// The two code-named folders, wherever a path names them. No other folder
+// has either name, so the path segment alone says what is meant.
+const codeNamedSegment = new RegExp(
+  `(?<![\\w.-])(musterrolle|kollegium)/(${pathCharacters})?`,
+  "g",
+);
+
+function mapToken(token: string): string {
+  const dots = /\.+$/.exec(token)?.[0] ?? "";
+  const bare = dots ? token.slice(0, -dots.length) : token;
+  const slash = bare.endsWith("/") ? "/" : "";
+  return mapPath(slash ? bare.slice(0, -1) : bare) + slash + dots;
+}
+
+/**
+ * Addresses are not paths of this repository: a URL with a scheme
+ * ("https://[::1]/musterrolle/x", its slashes escaped or not), one without ("//host/musterrolle/x") and
+ * an scp-style remote ("git@host:org/musterrolle"). Each runs to the next
+ * space, quote or angle bracket, brackets and parentheses included. A scheme
+ * and a user name are looked for at the start of a run of their characters
+ * only, so a long run without one is read once.
+ */
+const address =
+  /(?:(?<![a-z0-9+.-])[0-9+.-]*[a-z][a-z0-9+.-]*:(?:\\?\/|\\u002f){2}|(?<![:\w/])\/\/(?=[\w[])|(?<![\w.-])[\w.-]+@[\w.-]+:)[^\s"'`<>]*/gi;
+
+/** One character of a literal's source: an escape sequence or a single unit. */
+const sourceUnit =
+  /\\(?:x[0-9a-fA-F]{2}|u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|[0-3][0-7]{0,2}|[4-7][0-7]?|\r\n|[\s\S])|\r\n|[\s\S]/g;
+
+const isMember = (node: ts.Node, object: string, name: string) =>
+  ts.isPropertyAccessExpression(node) &&
+  ts.isIdentifier(node.expression) &&
+  node.expression.text === object &&
+  node.name.text === name;
+
+/**
+ * The value of a piece of literal text and where each of its characters sits
+ * in the source: its start and its end. String.raw text is its own value. A
+ * piece this cannot follow is given whole to every character.
+ */
+function readPiece(piece: ts.LiteralLikeNode, source: ts.SourceFile) {
+  const start = piece.getStart(source) + 1;
+  const end =
+    piece.getEnd() -
+    (ts.isTemplateHead(piece) || ts.isTemplateMiddle(piece) ? 2 : 1);
+  const written = source.text.slice(start, end);
+  const template = ts.isNoSubstitutionTemplateLiteral(piece)
+    ? piece
+    : ts.isTemplateHead(piece)
+      ? piece.parent
+      : ts.isTemplateMiddleOrTemplateTail(piece)
+        ? piece.parent.parent
+        : undefined;
+  if (
+    template &&
+    ts.isTaggedTemplateExpression(template.parent) &&
+    isMember(template.parent.tag, "String", "raw")
+  )
+    return {
+      text: written,
+      spans: Array.from(
+        { length: written.length },
+        (_, index) => [start + index, start + index + 1] as const,
+      ),
+    };
+  const spans: (readonly [number, number])[] = [];
+  let at = start;
+  for (const [unit] of written.matchAll(sourceUnit)) {
+    const sequence = unit.length > 1 && unit.startsWith("\\");
+    const length = !sequence
+      ? 1
+      : /^\\[\n\r\u2028\u2029]/.test(unit)
+        ? 0
+        : unit.startsWith("\\u{") &&
+            Number.parseInt(unit.slice(3, -1), 16) > 0xffff
+          ? 2
+          : 1;
+    for (let n = 0; n < length; n += 1) spans.push([at, at + unit.length]);
+    at += unit.length;
+  }
+  const { text } = piece;
+  return spans.length === text.length
+    ? { text, spans }
+    : {
+        text,
+        spans: Array.from({ length: text.length }, () => [start, end] as const),
+      };
+}
+
+/**
+ * Addresses read in the VALUE of a script's literals, which the source may
+ * spell in a way the pattern above does not read: a slash written as an
+ * escape, "//" straight after a newline escape, a scheme or a host that is
+ * an expression of a template. An expression is read as "x" and is not part
+ * of what this returns, so a path written inside one is still looked at.
+ */
+function literalAddresses(file: string, text: string) {
+  const found: (readonly [number, number])[] = [];
+  if (!/\.([cm]?[jt]s|[jt]sx)$/.test(file)) return found;
+  const source = parsed(file, text);
+  const visit = (node: ts.Node) => {
+    const pieces = ts.isStringLiteralLike(node)
+      ? [node]
+      : ts.isTemplateExpression(node)
+        ? [node.head, ...node.templateSpans.map((span) => span.literal)]
+        : [];
+    const spans: (readonly [number, number] | undefined)[] = [];
+    let value = "";
+    for (const piece of pieces) {
+      if (piece !== pieces[0]) {
+        value += "x";
+        spans.push(undefined);
+      }
+      const read = readPiece(piece, source);
+      value += read.text;
+      for (const span of read.spans) spans.push(span);
+    }
+    const runs = [...value.matchAll(address)].map(
+      (match) => [match.index, match.index + match[0].length] as const,
+    );
+    spans.forEach((span, index) => {
+      // An expression can be the scheme: "//" and a host straight after one.
+      const rest =
+        span === undefined
+          ? /^\/\/[\w[][^\s"'`<>]*/.exec(value.slice(index + 1))
+          : null;
+      if (rest) runs.push([index + 1, index + 1 + rest[0].length]);
+    });
+    for (const [from, to] of runs)
+      for (const span of spans.slice(from, to)) if (span) found.push(span);
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
+}
+
+/** `replace`, leaving a match that overlaps an address as it is. */
+function replacePaths(
+  file: string,
+  text: string,
+  pattern: RegExp,
+  mapped: (match: string, ...groups: (string | undefined)[]) => string,
+): string {
+  if (text.search(pattern) === -1) return text;
+  const addresses = [
+    ...[...text.matchAll(address)].map(
+      (found) => [found.index, found.index + found[0].length] as const,
+    ),
+    ...literalAddresses(file, text),
+  ];
+  return text.replace(pattern, (match: string, ...rest: unknown[]) => {
+    const index = rest.find((value) => typeof value === "number") as number;
+    const groups = rest.slice(0, rest.indexOf(index)) as (string | undefined)[];
+    return addresses.some(
+      ([start, end]) => index < end && index + match.length > start,
+    )
+      ? match
+      : mapped(match, ...groups);
+  });
+}
+
+/**
+ * Code-named segments this run rewrote that name no file or folder of the
+ * moved tree. Right for a path of a test fixture, wrong for anything that
+ * was never a path of this repository, so they are printed to be read.
+ */
+const unnamed = new Set<string>();
+
+function rewriteText(file: string, text: string): string {
+  let result = replacePaths(file, text, rootedPath, mapToken);
+  result = replacePaths(
+    file,
+    result,
+    codeNamedSegment,
+    (all, folder, rest = "") => {
+      // db and the routes keep the remote MCP files in extensions/mcp.
+      const next =
+        folder === "musterrolle" && /^workspace-mcp[^/]*$/.test(rest)
+          ? `extensions/mcp/${rest}`
+          : `${folder === "kollegium" ? "agents" : "access-control"}/${rest}`;
+      const named = (root: string) =>
+        existsAfter(mapPath(`${root}${all}`.replace(/\/$/, "")));
+      if (rest === "" || !layerRoots.some(named))
+        unnamed.add(`${file}: ${all} -> ${next}`);
+      return next;
+    },
+  );
+  if (file.startsWith(verifyDocs))
+    result = replacePaths(
+      file,
+      result,
+      /(?<![\w-])musterrolle\.md\b/g,
+      () => "access-control.md",
+    );
+  return result;
+}
+
+/**
+ * Files whose statement order is part of what ships. packages/core bundles
+ * every contracts module in the order this index names them, and that order
+ * decides the gzip size its bundle budget holds. A path that sorts elsewhere
+ * after the move must not re-sort them, so the file opts out of biome's sort.
+ */
+const keptOrder: Readonly<Record<string, string>> = {
+  "packages/contracts/src/index.ts":
+    "// biome-ignore-all assist/source/organizeImports: packages/core bundles the contracts in this order, and its bundle budget measures the gzip of that order\n",
+};
+
+const binary =
+  /\.(png|jpe?g|gif|webp|ico|icns|woff2?|ttf|otf|pdf|zip|gz|tgz|bundle|payload|wasm|mp4)$/i;
+const rewritten: string[] = [];
+const scripts: string[] = [];
+for (const file of after) {
+  if (untouched.some((path) => file === path || file.startsWith(path)))
+    continue;
+  if (binary.test(file)) continue;
+  const onDisk = checkOnly ? (cameFrom.get(file) ?? file) : file;
+  if (statSync(join(root, onDisk)).size > 4_000_000) continue;
+  const text = read(onDisk);
+  if (text.includes("\0")) continue;
+  if (isScript(file)) scripts.push(file);
+  let next = rewriteText(
+    file,
+    isScript(file) ? applyEdits(text, scriptEdits(file, text)) : text,
+  );
+  if (next === text) continue;
+  rewritten.push(file);
+  const opening = keptOrder[file] ?? "";
+  if (!next.startsWith(opening)) next = opening + next;
+  if (!checkOnly) writeFileSync(join(root, file), next);
+}
+
+// ---------------------------------------------------------------- 4. biome
+
+if (!checkOnly) {
+  const biome = join(root, "node_modules", ".bin", "biome");
+  const targets = rewritten.filter((file) =>
+    /\.(tsx?|mts|cts|mjs|js|jsonc?)$/.test(file),
+  );
+  if (!existsSync(biome))
+    console.error(
+      "biome is not installed: run bun install, then biome check --write on the rewritten files",
+    );
+  else
+    for (let index = 0; index < targets.length; index += 200)
+      spawnSync(
+        biome,
+        [
+          "check",
+          "--write",
+          "--diagnostic-level=error",
+          "--no-errors-on-unmatched",
+          ...targets.slice(index, index + 200),
+        ],
+        { cwd: root, stdio: ["ignore", "ignore", "inherit"] },
+      );
+}
+
+// ------------------------------------------------------------------ 5. map
+
+const layers = { contracts, platform, db, route: routes } as const;
+const tick = String.fromCharCode(96);
+const code = (text: string) => tick + text + tick;
+
+/** Module and note of each domain folder, for a row the map does not have yet. */
+const domainDefaults: Record<string, [module: string, note: string]> = {
+  sessions: [
+    "Kiel",
+    `${code("sessions/achievements")}는 걸침: 성과 규칙은 workspace 설정, 판정은 세션 결과`,
+  ],
+  workers: ["Kiel", `${code("workers/mcp-egress")}는 실행 중 MCP 호출 중계`],
+  scheduler: ["Kiel", ""],
+  checkpoints: ["Kiel", ""],
+  secrets: ["Kiel", ""],
+  decision: [
+    "Kiel",
+    "답할 자격·승인 가능성 판단이 같이 있어 Musterrolle과 맞닿음",
+  ],
+  action: [
+    "Kiel",
+    `내장 github MCP 서버 코드(${code("action/github")})가 여기 있음`,
+  ],
+  catalog: ["Kiel", ""],
+  limits: ["Kiel", "호출마다 잡고 거절하는 집행"],
+  usage: [
+    "걸침",
+    "집계는 Kiel, 사람별 열람 권한과 보고서는 Musterrolle·Kollegium",
+  ],
+  github: [
+    "걸침",
+    "토큰 발급·작업 실행은 Kiel, App·workspace·에이전트 설정은 관리 권한",
+  ],
+  "access-control": [
+    "Musterrolle",
+    "안에 다른 모듈과 걸친 파일이 있음(Slack·GitHub 계약, 변수 부여, 알림)",
+  ],
+  agents: ["Kollegium", ""],
+  surface: ["Wache", "채널 연결 설정(binding, Slack 앱)은 Kollegium과 맞닿음"],
+  conversations: [
+    "Wache",
+    "결정·문맥은 대화 기능, 턴 큐·permit·호출 정산은 실행 책임(Kiel)",
+  ],
+  extensions: [
+    "Takelage",
+    `${extensionsParts.map(code).join(" ")}. ${code("builtin")}(내장 werft MCP 서버와 그 안내)은 걸침: 제품 표면이고 호출 허가에 Kiel·Musterrolle이 관여`,
+  ],
+  memory: ["Logbuch", "지금은 가시성 정책과 SQL만 있고 서비스·route가 없음"],
+  api: ["Kiel", "공개 API 계약면"],
+  "worker-protocol": ["Kiel", "worker gateway 계약면"],
+  ports: ["공용", ""],
+  testing: ["공용", ""],
+  shared: ["공용", ""],
+  domain: ["공용", "소속을 정하지 않은 계약"],
+};
+
+const packageDefaults: Record<string, string> = {
+  "apps/worker": "Kiel",
+  "apps/egress-proxy": "Kiel",
+  "packages/runtime-core": "Kiel",
+  "packages/storage": "Kiel",
+  "packages/adapters/execution/kubernetes": "Kiel",
+  "packages/adapters/execution/local-docker": "Kiel",
+  "packages/adapters/runtimes/claude": "Kiel",
+  "packages/adapters/runtimes/claude-codec": "Kiel",
+  "packages/adapters/runtimes/codec-kit": "Kiel",
+  "packages/adapters/runtimes/codecs": "Kiel",
+  "packages/adapters/runtimes/codex": "Kiel",
+  "packages/adapters/runtimes/codex-codec": "Kiel",
+  "packages/adapters/runtimes/registry": "Kiel",
+  "packages/adapters/forge/github": "Kiel",
+  "packages/adapters/chat/slack": "걸침",
+  "packages/contracts": "걸침",
+  "packages/platform": "걸침",
+  "packages/db": "걸침",
+  "apps/control-host": "걸침",
+  "packages/system": "공용",
+  "packages/observability": "공용",
+  "packages/testkit": "공용",
+  "apps/web": "Werft",
+  "apps/docs": "Werft",
+  "packages/client": "Werft",
+  "packages/core": "Werft",
+  "packages/react": "Werft",
+  "packages/ui": "Werft",
+  "packages/sdk": "Werft",
+};
+
+const moduleOrder = [
+  "Kiel",
+  "Musterrolle",
+  "Kollegium",
+  "Wache",
+  "Takelage",
+  "Logbuch",
+  "Lotse",
+  "걸침",
+  "미정",
+  "Werft",
+  "공용",
+];
+const byModule = (a: string, b: string) =>
+  moduleOrder.indexOf(a) - moduleOrder.indexOf(b);
+
+function block(text: string, name: string): string | undefined {
+  return new RegExp(
+    `<!-- ${name}:begin -->\\n([\\s\\S]*?)<!-- ${name}:end -->`,
+  ).exec(text)?.[1];
+}
+
+/** The rows of a generated table as cells, without its header and rule lines. */
+function rowsOf(table: string | undefined): string[][] {
+  return (table ?? "")
+    .split("\n")
+    .filter((line) => line.startsWith(`| ${tick}`))
+    .map((line) =>
+      line
+        .split("|")
+        .slice(1, -1)
+        .map((cell) => cell.trim()),
+    );
+}
+
+const unquoted = (cell = "") => cell.replaceAll(tick, "");
+
+/** A domain folder name as the rules leave it; undefined when it became part of another domain. */
+function domainNow(name: string): string | undefined {
+  for (const layer of Object.values(layers)) {
+    const moved = mapPath(layer + name);
+    if (moved !== layer + name) {
+      const domain = moved.slice(layer.length);
+      return domain.includes("/") ? undefined : domain;
+    }
+  }
+  return name;
+}
+
+function domainTable(current: string): string {
+  const known = new Map(Object.entries(domainDefaults));
+  // A row written by hand wins over the default; an old folder name follows its rule.
+  for (const [name, module = "", , note = ""] of rowsOf(
+    block(current, "domains"),
+  )) {
+    const domain = domainNow(unquoted(name));
+    if (domain) known.set(domain, [module, note]);
+  }
+  const present = new Map<string, string[]>();
+  for (const [layer, folder] of Object.entries(layers))
+    for (const file of after) {
+      if (!file.startsWith(folder)) continue;
+      const [domain, ...rest] = file.slice(folder.length).split("/");
+      if (!domain || rest.length === 0) continue;
+      const seen = present.get(domain) ?? [];
+      if (!seen.includes(layer)) seen.push(layer);
+      present.set(domain, seen);
+    }
+  const rows = [...present]
+    .flatMap(([domain, where]) => {
+      const entry = known.get(domain);
+      return entry
+        ? [
+            {
+              domain,
+              module: entry[0],
+              where: where.join(" · "),
+              note: entry[1],
+            },
+          ]
+        : [];
+    })
+    .sort(
+      (a, b) =>
+        byModule(a.module, b.module) || a.domain.localeCompare(b.domain),
+    );
+  return [
+    "| 도메인 폴더 | 모듈 | 있는 코드 층 | 비고 |",
+    "| --- | --- | --- | --- |",
+    ...rows.map(
+      (row) =>
+        `| ${code(row.domain)} | ${row.module} | ${row.where} | ${row.note} |`,
+    ),
+    "",
+  ].join("\n");
+}
+
+function packageTable(current: string): string {
+  const known = new Map(Object.entries(packageDefaults));
+  for (const [name, module = ""] of rowsOf(block(current, "packages")))
+    known.set(unquoted(name), module);
+  const rows = after
+    .filter((file) => /^(apps|packages)\/(.+\/)?package\.json$/.test(file))
+    .map((file) => dirname(file))
+    .flatMap((directory) => {
+      const module = known.get(directory);
+      return module ? [{ directory, module }] : [];
+    })
+    .sort(
+      (a, b) =>
+        byModule(a.module, b.module) || a.directory.localeCompare(b.directory),
+    );
+  return [
+    "| 패키지 | 모듈 |",
+    "| --- | --- |",
+    ...rows.map((row) => `| ${code(row.directory)} | ${row.module} |`),
+    "",
+  ].join("\n");
+}
+
+/** The map as first written; after that only its two tables are regenerated. */
+const mapText = [
+  "# 모듈 지도",
+  "",
+  "## 층",
+  "",
+  "층은 셋입니다.",
+  "",
+  "- 1층: LLM API (Werft 밖, BYOK)",
+  "- 2층: Kiel (세션 실행: 격리된 run, 제어, 강제, 복구)",
+  "- 3층: Wache (상시)",
+  "",
+  "| 층 | 하는 일 |",
+  "| --- | --- |",
+  "| LLM API | Werft가 부르는 모델 API. Werft 밖에 있고, 설치한 쪽이 자기 key로 잇는다(BYOK) |",
+  "| Kiel | 세션을 격리해 돌리고, 제어하고, 한도·권한을 강제하고, 끊겨도 되살리는 실행 기반 |",
+  "| Wache | 늘 켜져 있는 층. 듣기(Slack intake), 판단(attention loop, 대화 runtime), 말하기(outbox), 세션 띄우기(spawn_task)를 맡고, 앞으로 들어올 loop와 둘러보기도 여기에 둔다 |",
+  "",
+  "## 곁 모듈",
+  "",
+  "곁 모듈은 층이 아니고, 여러 층이 씁니다.",
+  "",
+  "| 곁 모듈 | 하는 일 | 폴더 |",
+  "| --- | --- | --- |",
+  `| Kollegium | 에이전트 명부(정의, release, 관리 팀, 채널 연결 설정) | ${code("agents")} |`,
+  `| Musterrolle | 누구인지 확인하고, 해도 되는지 판정하고, 그 판정을 기록 | ${code("access-control")} |`,
+  `| Takelage | 에이전트에 달 것(skill, 원격 MCP 서버)을 들이고, 검사하고, 내줌 | ${code("extensions/{skills,bundles,mcp,builtin}")} |`,
+  `| Logbuch | 에이전트 기억: 종류(agent, channel, person), 범위 판정, 세션에 넣기, 쓰기, 콘솔에서 보기와 고치기, 보존. 이것은 맡을 범위이고, 지금 코드에는 가시성 정책과 SQL만 있음 | ${code("memory")} |`,
+  "| Lotse | 세션과 세션 사이의 협업. 앞으로 올 모듈이고 아직 폴더가 없음 | 없음 |",
+  "",
+  "Werft는 제품 전체의 이름이고, 바깥에 내놓는 유일한 이름입니다.",
+  "",
+  "## 이름 규칙",
+  "",
+  "코드의 폴더, 패키지, 파일 이름에는 기능 이름만 씁니다. 코드명은 도메인 폴더를 묶는 이름이고, 저장소에서는 이 문서가 정합니다. 바깥(API, SDK, 화면, 문서 사이트, Slack, 모델이 읽는 글)에는 Werft만 나옵니다. 옛 프로젝트를 출처로 적은 주석, 변경 기록, migration, 시험 자료에는 옛 이름이 남아 있습니다.",
+  "",
+  `${code("tests/module-map.test.ts")}가 아래 두 표를 실제 패키지와 폴더에 맞춥니다. 패키지나 도메인 폴더를 더하거나 옮기는 PR은 같은 PR에서 이 표를 고칩니다.`,
+  "",
+  "아래 두 표의 모듈 칸에는 층과 곁 모듈의 이름, 그리고 다음 넷을 씁니다.",
+  "",
+  "- Werft: 제품 표면(화면, 문서 사이트, SDK, client)",
+  "- 걸침: 두 모듈 이상의 책임이 한 곳에 있음",
+  "- 미정: 소속을 아직 정하지 않음",
+  "- 공용: 모든 도메인이 쓰는 것",
+  "",
+  "## 패키지",
+  "",
+  "<!-- packages:begin -->",
+  "<!-- packages:end -->",
+  "",
+  `${["contracts", "platform", "db", "control-host"].map(code).join(", ")} 네 패키지는 모듈이 아니라 코드 층(계약, 도메인, DB, 앱)입니다. 위의 세 층과는 다른 말입니다. 이 넷 안에서는 아래 도메인 폴더가 단위입니다.`,
+  "",
+  "## 도메인 폴더",
+  "",
+  `도메인 폴더는 네 코드 층의 첫 폴더입니다: ${Object.values(layers)
+    .map((folder) => code(folder.slice(0, -1)))
+    .join(
+      ", ",
+    )}. 한 도메인의 폴더 이름은 모든 코드 층에서 같습니다. 그 바로 아래에 놓인 파일은 공용입니다.`,
+  "",
+  "<!-- domains:begin -->",
+  "<!-- domains:end -->",
+  "",
+  `## ${code("extensions")} 안`,
+  "",
+  `${code("extensions")} 바로 아래에는 다음 네 폴더와 진입점(${code("index.ts")}, ${code("ports/")})만 둡니다. 세 코드 층(platform, db, route)이 같은 이름을 씁니다.`,
+  "",
+  "| 폴더 | 담는 것 |",
+  "| --- | --- |",
+  `| ${code("skills")} | 사용자가 올린 skill을 등록하고, 검토하고, Git 저장소와 맞춘다 |`,
+  `| ${code("bundles")} | 세션에 skill을 실어 나르는 꾸러미를 저장하고 검사한다. 꾸러미는 내용 digest로 고정되고, worker가 ${code(".ext/<digest>")}에 풀어 Claude plugin으로 붙인다 |`,
+  `| ${code("mcp")} | workspace에 등록한 원격 MCP 서버와, 에이전트마다 그 가운데 무엇을 쓸지 정한 지정을 다룬다 |`,
+  `| ${code("builtin")} | Werft가 스스로 붙이는 것. 내장 werft MCP 서버와 그 안내를 담는다. ${code("werft_mcp")}를 지원한다고 알린 worker가 맡은 세션에 붙는다 |`,
+  "",
+  "Codex 엔진은 아직 꾸러미가 붙은 세션을 받지 않습니다.",
+  "",
+  `이름이 ${["skill-", "skills.", "extension-bundle", "workspace-mcp", "agent-workspace-mcp", "agent-mcp", "werft-mcp"].map(code).join(", ")}로 시작하는 파일은 세 코드 층에서 ${code("extensions")} 아래, 그 이름의 폴더에만 둡니다(port는 ${code("extensions/ports")}). 실행 중 MCP 호출을 중계하는 파일(이름이 ${code("mcp-egress")}로 끝남)은 Kiel 몫이라 예외이고, platform에서는 ${code("workers/mcp-egress")}(port는 ${code("workers/ports")})에 모읍니다.`,
+  "",
+].join("\n");
+
+const currentMap = exists(mapFile) ? read(mapFile) : mapText;
+let nextMap = currentMap;
+for (const [name, table] of [
+  ["packages", packageTable(currentMap)],
+  ["domains", domainTable(currentMap)],
+] as const)
+  nextMap = nextMap.replace(
+    new RegExp(`(<!-- ${name}:begin -->\\n)[\\s\\S]*?(<!-- ${name}:end -->)`),
+    (_all, begin: string, end: string) => begin + table + end,
+  );
+const mapChanged = nextMap !== currentMap || !exists(mapFile);
+if (mapChanged && !checkOnly) {
+  mkdirSync(dirname(join(root, mapFile)), { recursive: true });
+  writeFileSync(join(root, mapFile), nextMap);
+}
+
+// ------------------------------------------------------- 6. what is left
+
+// Only where the rules had a say: a file they rewrote or one that sits where
+// they move files to. An import that was already broken is not this run's.
+const touched = new Set(rewritten);
+const dangling: string[] = [];
+if (!checkOnly)
+  for (const file of scripts) {
+    if (!touched.has(file) && oldPathsOf(file).length === 0) continue;
+    const source = ts.createSourceFile(
+      file,
+      read(file),
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    const visit = (node: ts.Node) => {
+      if (
+        ts.isStringLiteral(node) &&
+        isModuleSpecifier(node) &&
+        /^\.\.?\/.*\.(tsx?|json)$/.test(node.text) &&
+        !exists(posix.normalize(posix.join(dirname(file), node.text)))
+      )
+        dangling.push(`${file}: ${node.text}`);
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+
+console.log(
+  [
+    `${checkOnly ? "would move" : "moved"} ${moves.size} file(s)`,
+    `${checkOnly ? "would rewrite" : "rewrote"} ${rewritten.length} file(s)`,
+    `${mapFile}: ${mapChanged ? (checkOnly ? "would change" : "written") : "unchanged"}`,
+  ].join(", "),
+);
+// A warning, not a failure: a branch may mean the file the path names from
+// here ("../index.ts" written after the move), and the typecheck says which.
+if (unnamed.size > 0)
+  console.error(
+    `${unnamed.size} code-named path segment(s) were rewritten that name no file or folder of the moved tree; read each (right for a path of a test fixture, wrong for anything that is not a path of this repository):\n${[...unnamed].join("\n")}`,
+  );
+if (twoReadings.length > 0)
+  console.error(
+    `${twoReadings.length} import(s) read two ways and were left as written; run the typecheck and check each:\n${twoReadings.join("\n")}`,
+  );
+if (checkOnly && (moves.size > 0 || rewritten.length > 0 || mapChanged)) {
+  for (const [from, to] of moves) console.log(`  mv ${from} -> ${to}`);
+  for (const file of rewritten) console.log(`  rewrite ${file}`);
+  process.exit(1);
+}
+if (dangling.length > 0) {
+  console.error(
+    `${dangling.length} relative import(s) name a file that does not exist; fix by hand:\n${dangling.join("\n")}`,
+  );
+  process.exit(1);
+}

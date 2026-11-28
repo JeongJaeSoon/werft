@@ -20,7 +20,6 @@ import {
   type RepositoryCeiling,
   repositoryRefOf,
 } from "@werft-ai/contracts";
-import type { AgentStore } from "../../agents/ports/agent-store.ts";
 import {
   ACTOR_INACTIVE,
   type AuthorizationPolicy,
@@ -32,7 +31,8 @@ import {
   requirePermitted,
   SECRET_STORE_OFF,
   SessionServiceError,
-} from "../../musterrolle/index.ts";
+} from "../../access-control/index.ts";
+import type { AgentStore } from "../../agents/ports/agent-store.ts";
 import type {
   CatalogRepositoryRow,
   CatalogRepositoryStore,

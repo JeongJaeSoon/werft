@@ -1,6 +1,6 @@
 {
   "name": "@werft-ai/execution-kubernetes",
-  "description": "Kiel session runtime: Kubernetes execution backend for worker Pods",
+  "description": "Kubernetes execution backend for worker Pods",
   "version": "0.0.0",
   "private": true,
   "license": "PolyForm-Small-Business-1.0.0",

@@ -16,11 +16,14 @@ import { eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import {
+  sessionReach,
+  startReach,
+} from "./access-control/agent-caller-limits.ts";
+import { createDatabaseIdentityReader } from "./access-control/identity-reader.ts";
+import {
   captureWorkspaceMcpStart,
   createPostgresAgentWorkspaceMcpStore,
-} from "./agents/agent-workspace-mcp.ts";
-import { sessionReach, startReach } from "./musterrolle/agent-caller-limits.ts";
-import { createDatabaseIdentityReader } from "./musterrolle/identity-reader.ts";
+} from "./extensions/mcp/agent-workspace-mcp.ts";
 import * as schema from "./schema.ts";
 import {
   agentReleases,

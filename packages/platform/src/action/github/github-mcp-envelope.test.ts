@@ -8,7 +8,7 @@ import {
   type PushRequest,
   type ReceiptActor,
 } from "@werft-ai/contracts";
-import { SessionServiceError } from "../../musterrolle/index.ts";
+import { SessionServiceError } from "../../access-control/index.ts";
 import type { GitHubMcpServices } from "../tools/handler.ts";
 import { createGitHubMcpServer } from "./github-mcp-server.ts";
 

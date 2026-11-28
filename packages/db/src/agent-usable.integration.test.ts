@@ -14,10 +14,10 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { agentUsable } from "./access-control/administers.ts";
+import { createPostgresAgentAdminStore } from "./access-control/agent-admins.ts";
+import { createPostgresTeamStore } from "./access-control/member-teams.ts";
 import { createPostgresAgentStore } from "./agents.ts";
-import { agentUsable } from "./musterrolle/administers.ts";
-import { createPostgresAgentAdminStore } from "./musterrolle/agent-admins.ts";
-import { createPostgresTeamStore } from "./musterrolle/member-teams.ts";
 import {
   createPostgresSessionReader,
   createPostgresSessionUnitOfWork,

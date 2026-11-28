@@ -1,5 +1,5 @@
+import type { TeamActor } from "../../access-control/ports/team-store.ts";
 import type { ConnectionNetwork, ModelFamilies } from "../../catalog/index.ts";
-import type { TeamActor } from "../../musterrolle/ports/team-store.ts";
 import type {
   SettingsEntries,
   SettingsImportAdd,

@@ -70,9 +70,9 @@ import { PasswordChecks } from "./password-checks.ts";
 import {
   registerAuthRoutes,
   registerPublicAuthRoutes,
-} from "./routes/musterrolle/auth.ts";
-import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
-import { registerSessionShareRoutes } from "./routes/musterrolle/session-shares.ts";
+} from "./routes/access-control/auth.ts";
+import { registerMemberRoutes } from "./routes/access-control/members.ts";
+import { registerSessionShareRoutes } from "./routes/access-control/session-shares.ts";
 import { registerEventRoutes } from "./routes/sessions/events.ts";
 import { registerInterruptRoutes } from "./routes/sessions/interrupt.ts";
 import { registerPauseRoutes } from "./routes/sessions/pause.ts";

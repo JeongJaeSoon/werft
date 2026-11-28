@@ -25,12 +25,12 @@ import { testCaller } from "@werft-ai/testkit/callers";
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
+import { createPostgresAgentIdentityStore } from "./access-control/agent-identities.ts";
+import { createPostgresSurfaceBindingStore } from "./access-control/surface-bindings.ts";
 import { createPostgresConversationCalls } from "./conversation-calls.ts";
 import { createPostgresConversationStore } from "./conversations/conversation-store.ts";
 import { createPostgresConversationTurnQueue } from "./conversations/conversation-turn-queue.ts";
 import { stopChannelWork } from "./emergency-stop.ts";
-import { createPostgresAgentIdentityStore } from "./musterrolle/agent-identities.ts";
-import { createPostgresSurfaceBindingStore } from "./musterrolle/surface-bindings.ts";
 import {
   CREATE_SESSION,
   createPostgresSessionUnitOfWork,

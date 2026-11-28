@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { builtinToolsDenyOf } from "../musterrolle/agent-caller-limits.ts";
+import { builtinToolsDenyOf } from "../access-control/agent-caller-limits.ts";
 
 const pinned = (tools_deny: unknown) => ({
   v: 1,

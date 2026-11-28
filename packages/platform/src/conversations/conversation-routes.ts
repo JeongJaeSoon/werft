@@ -9,7 +9,7 @@ import type {
 import {
   type AuthorizationPolicy,
   SessionServiceError,
-} from "../musterrolle/index.ts";
+} from "../access-control/index.ts";
 import type { SessionService } from "../sessions/index.ts";
 import {
   CONNECT_REASONS,

@@ -1,6 +1,6 @@
 # API key
 
-운영자는 key CLI로 owner id(또는 `--workspace <id> --personal <user id>`)와 scope를 정해 API key를 발급하고 폐기한다. 웹 사용자는 같은 key를 역할에 따라 `POST /v1/api-keys`로 발급한다([musterrolle.md](./musterrolle.md) d). 호출자는 `Authorization: Bearer <key>`로 `/v1`을 부르고, key가 가진 scope 밖의 동작은 403, 폐기된 key는 401을 받는다.
+운영자는 key CLI로 owner id(또는 `--workspace <id> --personal <user id>`)와 scope를 정해 API key를 발급하고 폐기한다. 웹 사용자는 같은 key를 역할에 따라 `POST /v1/api-keys`로 발급한다([access-control.md](./access-control.md) d). 호출자는 `Authorization: Bearer <key>`로 `/v1`을 부르고, key가 가진 scope 밖의 동작은 403, 폐기된 key는 401을 받는다.
 
 ## Sub-features
 
@@ -41,4 +41,4 @@ echo "key issued: len ${#KEY} key_id: $KID"
 - `local.sh key`는 env의 project를 따른다. `lib.sh`를 source하지 않은 셸에서 부르면 기본 스택에 발급한다.
 - `bun run keys …`(package.json)는 `--profile apps`만 주고 이 run의 `COMPOSE_FILE`·profile을 다 싣지 않는다. 이 스킬에서는 `ap_revoke`를 쓴다.
 - key는 다시 볼 수 없다. 잃으면 새로 발급한다.
-- 이 파일은 운영자 CLI의 key다. 사람이 웹(cookie)에서 발급하는 권한별 개인 key·에이전트 key는 [musterrolle.md](./musterrolle.md) d다. API key로 `POST /v1/api-keys`를 부르면 `403` `reason_code: role`이다.
+- 이 파일은 운영자 CLI의 key다. 사람이 웹(cookie)에서 발급하는 권한별 개인 key·에이전트 key는 [access-control.md](./access-control.md) d다. API key로 `POST /v1/api-keys`를 부르면 `403` `reason_code: role`이다.

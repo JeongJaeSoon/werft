@@ -1,6 +1,6 @@
 {
   "name": "@werft-ai/runtime-codecs",
-  "description": "Kiel session runtime: checkpoint codecs and descriptors of the installed runtimes, without any engine SDK",
+  "description": "Checkpoint codecs and descriptors of the installed runtimes, without any engine SDK",
   "version": "0.0.0",
   "private": true,
   "license": "PolyForm-Small-Business-1.0.0",

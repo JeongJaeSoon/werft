@@ -1,5 +1,4 @@
 import type { GetSlackInstructionsHeadResponse } from "@werft-ai/contracts";
-import type { GitHubReleaseRead } from "../github/ports/github-gate.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
@@ -7,7 +6,8 @@ import {
   receiptActorOf,
   requirePermitted,
   SessionServiceError,
-} from "../musterrolle/index.ts";
+} from "../access-control/index.ts";
+import type { GitHubReleaseRead } from "../github/ports/github-gate.ts";
 import type { AgentStore } from "./ports/agent-store.ts";
 import { RELEASE_INSTRUCTIONS_READ_MS } from "./release-instructions.ts";
 

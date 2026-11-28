@@ -10,7 +10,7 @@ import type {
   SurfaceMembership,
   WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { Principal } from "../../musterrolle/index.ts";
+import type { Principal } from "../../access-control/index.ts";
 
 /** A Slack channel some agent's linked sessions came from. */
 export type ChannelSessionPlace = {

@@ -94,10 +94,34 @@ import {
   sql,
 } from "drizzle-orm";
 import {
+  agentNamedInSession,
+  agentReachable,
+} from "./access-control/administers.ts";
+import {
+  inputRefusal,
+  lockCallerLimit,
+  pinnedLimitOf,
+  recordCallerLimited,
+  sessionReach,
+  startReach,
+} from "./access-control/agent-caller-limits.ts";
+import {
+  lockUnboundRefs,
+  recordUnboundRefusal,
+} from "./access-control/credential-bindings.ts";
+import {
+  captureEnvStart,
+  recordEnvRefusal,
+  recordEnvResolution,
+} from "./access-control/env-variables.ts";
+import {
+  sessionRelationIs,
+  sessionVisibleTo,
+} from "./access-control/session-shares.ts";
+import {
   pushFollowUpQueued,
   pushFollowUpRequester,
 } from "./action/push-follow-ups.ts";
-import { captureWorkspaceMcpStart } from "./agents/agent-workspace-mcp.ts";
 import { earlierInSecond, releaseLabel } from "./agents/release-labels.ts";
 import { ownerlessPastGrace } from "./agents.ts";
 import { workerRuntimeView } from "./checkpoints/checkpoint-runtime.ts";
@@ -127,34 +151,10 @@ import {
   rethrowCursorCastError,
 } from "./cursors.ts";
 import { budgetAccountRefused } from "./exchange-budget.ts";
+import { captureWorkspaceMcpStart } from "./extensions/mcp/agent-workspace-mcp.ts";
 import { captureGitHubPolicyStart } from "./github/github-settings.ts";
 import { acceptanceTransaction, admitInput } from "./input-limits.ts";
 import { readArchivedWorkspaceLimit } from "./limits/workspace-limit.ts";
-import {
-  agentNamedInSession,
-  agentReachable,
-} from "./musterrolle/administers.ts";
-import {
-  inputRefusal,
-  lockCallerLimit,
-  pinnedLimitOf,
-  recordCallerLimited,
-  sessionReach,
-  startReach,
-} from "./musterrolle/agent-caller-limits.ts";
-import {
-  lockUnboundRefs,
-  recordUnboundRefusal,
-} from "./musterrolle/credential-bindings.ts";
-import {
-  captureEnvStart,
-  recordEnvRefusal,
-  recordEnvResolution,
-} from "./musterrolle/env-variables.ts";
-import {
-  sessionRelationIs,
-  sessionVisibleTo,
-} from "./musterrolle/session-shares.ts";
 import type { Database } from "./queries.ts";
 import { startFreshAvailable } from "./recovery-control.ts";
 import {

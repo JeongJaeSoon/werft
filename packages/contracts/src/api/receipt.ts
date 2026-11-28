@@ -1,13 +1,12 @@
 import { z } from "zod";
-
-import {
-  type EffectiveGitHubPolicy,
-  GITHUB_POLICY_SOURCE_VALUES,
-} from "../kollegium/agents.ts";
 import {
   receiptActorSchema,
   resourceRefSchema,
-} from "../musterrolle/authorization.ts";
+} from "../access-control/authorization.ts";
+import {
+  type EffectiveGitHubPolicy,
+  GITHUB_POLICY_SOURCE_VALUES,
+} from "../agents/agents.ts";
 import {
   apiErrorCodeSchema,
   receiptIdSchema,

@@ -16,7 +16,7 @@ import {
   type AuthorizationPolicy,
   type Caller,
   SessionServiceError,
-} from "../musterrolle/index.ts";
+} from "../access-control/index.ts";
 import type { SessionService } from "../sessions/index.ts";
 import type {
   SessionLinkRecord,

@@ -2,11 +2,11 @@
 // only the names other domains use, not a barrel over the directory.
 
 // The built-in werft server belongs to this domain (extensions/builtin).
-export { WERFT_MCP_METHODS } from "../werft-mcp/index.ts";
-export { BundleIntegrityError } from "./bundle-service.ts";
-export type { ExtensionRefusal } from "./resolve.ts";
+export { WERFT_MCP_METHODS } from "./builtin/index.ts";
+export { BundleIntegrityError } from "./bundles/bundle-service.ts";
+export type { ExtensionRefusal } from "./bundles/resolve.ts";
 export {
   checkAgentExtensions,
   resolveSessionExtensions,
   type SessionExtensionsDeps,
-} from "./session-extensions.ts";
+} from "./bundles/session-extensions.ts";

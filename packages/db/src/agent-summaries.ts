@@ -10,9 +10,9 @@ import {
 import type { SessionViewer } from "@werft-ai/platform";
 import { IN_FLIGHT_STATUSES } from "@werft-ai/platform";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { insideAgent } from "./access-control/administers.ts";
+import { sessionVisibleTo } from "./access-control/session-shares.ts";
 import { earlierInSecond, releaseLabel } from "./agents/release-labels.ts";
-import { insideAgent } from "./musterrolle/administers.ts";
-import { sessionVisibleTo } from "./musterrolle/session-shares.ts";
 import type { Database } from "./queries.ts";
 import {
   agentAdmins,

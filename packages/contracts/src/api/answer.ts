@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { surfaceKindSchema } from "../kollegium/surfaces.ts";
-import { receiptActorSchema } from "../musterrolle/authorization.ts";
+import { receiptActorSchema } from "../access-control/authorization.ts";
+import { surfaceKindSchema } from "../agents/surfaces.ts";
 import { requestIdSchema } from "../shared/index.ts";
 import type { PendingQuestion } from "./pending.ts";
 import { receiptAcceptedResponseSchema } from "./receipt.ts";

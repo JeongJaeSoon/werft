@@ -29,11 +29,11 @@ import type {
   TurnDetail,
   TurnSummary,
 } from "@werft-ai/contracts";
-import type { StoredSourceSet } from "../../conversations/index.ts";
 import type {
   CallerLimitDimension,
   Principal,
-} from "../../musterrolle/index.ts";
+} from "../../access-control/index.ts";
+import type { StoredSourceSet } from "../../conversations/index.ts";
 import type { SessionViewer } from "./session-share-store.ts";
 import type { SessionTitleSource } from "./session-title-store.ts";
 

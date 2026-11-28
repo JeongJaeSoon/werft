@@ -7,7 +7,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import {
   enqueueModelCutNotices,
   enqueueSessionModelMoveNotices,
-} from "./musterrolle/model-cut-notices.ts";
+} from "./access-control/model-cut-notices.ts";
 import type { Database } from "./queries.ts";
 import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";

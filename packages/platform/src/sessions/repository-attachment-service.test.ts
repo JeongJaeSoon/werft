@@ -3,8 +3,8 @@ import {
   LISTED_REPOSITORY_MEANING as MEANING,
   type ReceiptActor,
 } from "@werft-ai/contracts";
+import { SessionServiceError } from "../access-control/index.ts";
 import type { GitHubSessionContext } from "../github/ports/github-gate.ts";
-import { SessionServiceError } from "../musterrolle/index.ts";
 import { agentPolicy, releasePolicy } from "../testing/github-fakes.ts";
 import { refusal } from "../testing/refusal.ts";
 import {

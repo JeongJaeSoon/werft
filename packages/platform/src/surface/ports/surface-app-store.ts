@@ -9,7 +9,7 @@ import type {
   SlackManifestSyncError,
   WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { Principal } from "../../musterrolle/index.ts";
+import type { Principal } from "../../access-control/index.ts";
 import type { SecretSummary } from "../../secrets/ports/secret-store.ts";
 
 /** What Slack answers to `apps.manifest.create`; the secrets are stored, never shown. */

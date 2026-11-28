@@ -8,7 +8,7 @@ import {
 } from "@werft-ai/contracts";
 import type { ToolAuditOutcome } from "@werft-ai/platform";
 import { and, eq, inArray } from "drizzle-orm";
-import { expireByAuditRetention } from "../musterrolle/index.ts";
+import { expireByAuditRetention } from "../access-control/index.ts";
 import type { Database } from "../queries.ts";
 import {
   agentReleases,

@@ -9,12 +9,12 @@ import {
   type RepositoryAttachment,
   type RepositoryAttachRefusal,
 } from "@werft-ai/contracts";
+import { SessionServiceError } from "../access-control/index.ts";
 import type { SessionCatalog } from "../catalog/index.ts";
 import type {
   GitHubGateStore,
   GitHubSessionContext,
 } from "../github/ports/github-gate.ts";
-import { SessionServiceError } from "../musterrolle/index.ts";
 import {
   additionalContextOf,
   additionalRepositoriesOf,

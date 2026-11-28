@@ -1,6 +1,6 @@
 {
   "name": "@werft-ai/platform",
-  "description": "Kiel session runtime: session, worker gateway, scheduler and checkpoint services over ports, plus the Musterrolle authorization policy",
+  "description": "Domain services over ports: sessions, the worker gateway, scheduler, checkpoints, agents and extensions, plus the access-control policy",
   "version": "0.0.0",
   "private": true,
   "license": "PolyForm-Small-Business-1.0.0",

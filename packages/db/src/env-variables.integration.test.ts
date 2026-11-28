@@ -18,7 +18,7 @@ import {
   ENV_START_RETENTION_MS,
   purgeExpiredEnvStart,
   UNREADABLE_ENV_START,
-} from "./musterrolle/env-variables.ts";
+} from "./access-control/env-variables.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {

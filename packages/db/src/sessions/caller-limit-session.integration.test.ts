@@ -22,9 +22,9 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresAgentCallerLimitsStore } from "../access-control/agent-caller-limits.ts";
+import { createPostgresTeamStore } from "../access-control/member-teams.ts";
 import { createPostgresAgentStore } from "../agents.ts";
-import { createPostgresAgentCallerLimitsStore } from "../musterrolle/agent-caller-limits.ts";
-import { createPostgresTeamStore } from "../musterrolle/member-teams.ts";
 import { createPostgresSessionUnitOfWork } from "../postgres-unit-of-work.ts";
 import * as schema from "../schema.ts";
 import {

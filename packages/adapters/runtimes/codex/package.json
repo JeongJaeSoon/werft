@@ -1,6 +1,6 @@
 {
   "name": "@werft-ai/runtime-codex",
-  "description": "Kiel session runtime: Codex app-server runtime adapter",
+  "description": "Codex app-server runtime adapter",
   "version": "0.0.0",
   "private": true,
   "license": "PolyForm-Small-Business-1.0.0",

@@ -5,7 +5,7 @@ import {
   type Caller,
   callerFor,
   createAuthorizationPolicy,
-} from "../musterrolle/policy.ts";
+} from "../access-control/policy.ts";
 import { refusal } from "../testing/refusal.ts";
 import type {
   SettingsDocumentStore,

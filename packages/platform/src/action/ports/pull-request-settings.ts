@@ -4,7 +4,7 @@ import type {
   ReceiptActor,
   WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { Principal } from "../../musterrolle/index.ts";
+import type { Principal } from "../../access-control/index.ts";
 
 export type PullRequestSettingsRead = {
   settings: PullRequestSettings;

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { scopesForRole } from "@werft-ai/contracts";
-import { callerFor } from "../musterrolle/policy.ts";
+import { callerFor } from "../access-control/policy.ts";
 import { pendingField, viewerFor } from "./session-service.ts";
 
 const WORKSPACE = "019a0000-0000-7000-8000-0000000000a1";

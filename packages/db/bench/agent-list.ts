@@ -8,11 +8,11 @@
 import { performance } from "node:perf_hooks";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
+import { createPostgresAgentAdminStore } from "../src/access-control/agent-admins.ts";
+import { createPostgresCredentialBindingStore } from "../src/access-control/credential-bindings.ts";
 import { createPostgresAgentStore } from "../src/agents.ts";
 import * as schema from "../src/index.ts";
 import { migrate } from "../src/migrate.ts";
-import { createPostgresAgentAdminStore } from "../src/musterrolle/agent-admins.ts";
-import { createPostgresCredentialBindingStore } from "../src/musterrolle/credential-bindings.ts";
 import type { Database } from "../src/queries.ts";
 import {
   RELEASE_SPEC_SQL_COLUMNS,

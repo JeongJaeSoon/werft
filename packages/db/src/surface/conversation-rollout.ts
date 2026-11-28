@@ -5,8 +5,8 @@ import {
   WORKSPACE_MANAGER_ROLES,
 } from "@werft-ai/contracts";
 import { and, eq, isNull } from "drizzle-orm";
+import { lockedRole } from "../access-control/index.ts";
 import { dropUnlistenedBuffer } from "../conversations/index.ts";
-import { lockedRole } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import { agents, memberships, receipts, users } from "../schema.ts";
 import { notDeleted } from "../soft-delete.ts";

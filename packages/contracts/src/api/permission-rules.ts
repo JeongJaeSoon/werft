@@ -1,4 +1,4 @@
-import { MCP_TOOL_PREFIX } from "../kollegium/agents.ts";
+import { MCP_TOOL_PREFIX } from "../agents/agents.ts";
 import { RUNTIME_SUBAGENT_TOOL } from "../shared/runtime-kind.ts";
 import {
   isMcpServerWildcard,

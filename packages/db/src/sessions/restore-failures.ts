@@ -2,9 +2,9 @@ import type { SessionAttention } from "@werft-ai/contracts";
 import { launchRetryDelayMs } from "@werft-ai/platform";
 import { isUnsupportedFeaturesReason } from "@werft-ai/runtime-core";
 import { and, eq, isNull, lte, or } from "drizzle-orm";
+import { enqueueRuntimeRetiredNotices } from "../access-control/index.ts";
 import { LAUNCHABLE_ADMISSION_STATES } from "../control-shared.ts";
 import { DB_NOW, fromDbNow } from "../db-clock.ts";
-import { enqueueRuntimeRetiredNotices } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import { openResumeReceipt } from "../resume-control.ts";
 import {

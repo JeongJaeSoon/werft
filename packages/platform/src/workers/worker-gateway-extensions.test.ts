@@ -9,8 +9,8 @@ import { createMemoryCheckpointObjectStore } from "@werft-ai/testkit/checkpoint-
 import {
   BundleIntegrityError,
   createExtensionBundleService,
-} from "../extensions/bundle-service.ts";
-import { validateExtensionBundle } from "../extensions/bundle-validator.ts";
+} from "../extensions/bundles/bundle-service.ts";
+import { validateExtensionBundle } from "../extensions/bundles/bundle-validator.ts";
 import type {
   ExtensionBundle,
   ExtensionBundleStore,

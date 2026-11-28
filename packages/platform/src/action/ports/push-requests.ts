@@ -17,8 +17,8 @@ import type {
   ReceiptActor,
   RepositoryCeiling,
 } from "@werft-ai/contracts";
+import type { Principal } from "../../access-control/index.ts";
 import { GITHUB_SETTINGS_UNSUPPORTED } from "../../github/ports/github-settings.ts";
-import type { Principal } from "../../musterrolle/index.ts";
 
 /** What every refused push operation answers, and its receipt records. */
 export const PUSH_REFUSAL_ERRORS: Record<

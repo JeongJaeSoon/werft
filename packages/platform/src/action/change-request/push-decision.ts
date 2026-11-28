@@ -8,11 +8,6 @@ import {
   presentPushRequest,
   type ReceiptActor,
 } from "@werft-ai/contracts";
-import type { PushSourceResult } from "../../checkpoints/index.ts";
-import {
-  pinnedCarries,
-  pushApprovability,
-} from "../../decision/push-approvability.ts";
 import {
   type AuthorizationPolicy,
   type Caller,
@@ -20,7 +15,12 @@ import {
   receiptActorOf,
   requirePermitted,
   SessionServiceError,
-} from "../../musterrolle/index.ts";
+} from "../../access-control/index.ts";
+import type { PushSourceResult } from "../../checkpoints/index.ts";
+import {
+  pinnedCarries,
+  pushApprovability,
+} from "../../decision/push-approvability.ts";
 import {
   idempotencyConflict,
   payloadHash,

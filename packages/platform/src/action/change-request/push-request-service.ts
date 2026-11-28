@@ -10,12 +10,12 @@ import {
   pushBranchFor,
 } from "@werft-ai/contracts";
 import { namesWorkingTreeSnapshot } from "@werft-ai/runtime-core";
-import { repositoryBinding, type SessionCatalog } from "../../catalog/index.ts";
 import {
   type AuthorizationPolicy,
   requirePermitted,
   SessionServiceError,
-} from "../../musterrolle/index.ts";
+} from "../../access-control/index.ts";
+import { repositoryBinding, type SessionCatalog } from "../../catalog/index.ts";
 import {
   additionalRepositoryAllowed,
   payloadHash,
