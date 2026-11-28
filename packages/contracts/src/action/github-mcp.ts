@@ -309,7 +309,7 @@ export const ciReadRepositorySchema = z
 
 /** What a CI read says of the repository it reads. */
 const CI_READ_REPOSITORY =
-  "`repository` (`owner/name`) names the repository read; without it, the session's own. A github.com repository the agent may work on is read: the session's own, or one its GitHub settings list that the session may attach; any other is refused with `github_refused` and `reason_code` `repository_not_allowed`. In a session with no repository of its own (a Slack DM), a call without it is refused with `github_refused` and `reason_code` `workflow_review_need_session_repository`.";
+  "`repository` (`owner/name`) names the repository read; without it, the session's own. Only a github.com repository of this session is read: the session's own, or another that the agent's GitHub settings and the workspace ceiling allow and the session has added; a session with no list of added repositories reads, without adding it, any repository its effective GitHub policy and the workspace's repository ceiling allow. Any other, one `list_repositories` shows as `not_attached` (allowed, not added yet) included, is refused with `github_refused` and `reason_code` `repository_not_allowed`. In a session with no repository of its own (a Slack DM), a call without it is refused with `github_refused` and `reason_code` `workflow_review_need_session_repository`.";
 
 /** At most this many check runs and this many workflow runs are answered. */
 export const GITHUB_CI_RUNS_MAX = 100;
@@ -619,7 +619,7 @@ export const GITHUB_MCP_TOOLS = {
     feature: null,
     actionClass: "pull_request.merge",
     description:
-      "Squash-merge the pull request of a pushed push request of this session, on the commit that push request pushed. Only while the workspace allows it: otherwise the call is refused with `github_refused` (`reason_code` `merge_off`) before GitHub is called. GitHub still decides on required checks, reviews and conversations (`merge_blocked`); a pull request whose head is not the pushed commit is refused with `head_moved`. `changed` is false and `method` null when the pull request was already merged on that commit.",
+      "Squash-merge the pull request of a pushed push request of this session, on the commit that push request pushed. Only while \"Merge its own pull requests\" is on in both this agent's GitHub settings and the workspace GitHub ceiling: otherwise the call is refused with `github_refused` (`reason_code` `merge_off`) before GitHub is called, and `details` say where it is off (`off_in`: `agent`, `ceiling` or `both`) and who turns it on. The repository's rules on GitHub decide on required checks, reviews and conversations, and the platform bypasses none of them: a pull request they hold back is refused with `merge_blocked` and the merge is not sent again. With no such rule no check or review is waited for, though a pull request GitHub cannot merge now (a conflict, a draft) is still `merge_blocked`. A pull request whose head is not the pushed commit is refused with `head_moved`. `changed` is false and `method` null when the pull request was already merged on that commit.",
     refusals: [
       ...PULL_REQUEST_REFUSALS,
       "no_pull_request",
@@ -701,7 +701,7 @@ export const GITHUB_MCP_TOOLS = {
     feature: "review",
     actionClass: "review",
     description:
-      "Submit a review of a pull request as the reviewer App, on the commit named by `commit_id`.",
+      'Submit a review of a pull request as the reviewer App, on the commit named by `commit_id`. With "Approve reviews" off it is refused with `feature_off` and `reason_code` `review_off`, and `details` say where it is off and who turns it on; a call that passed that check but whose policy, as the GitHub gate reads it, has the switch off is refused with `github_refused` instead, with `reason_code` `review_off` (off for the agent) or `over_workspace_ceiling` (off in the ceiling only).',
     refusals: [...GITHUB_WORK_REFUSALS, "stale_commit"],
   },
   list_repositories: {

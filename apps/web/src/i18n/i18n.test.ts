@@ -571,14 +571,14 @@ describe("no profile in copy", () => {
     },
   );
 
-  // Merging is set per workspace, not on the agent; the hint must say where
-  // and must not claim there is no merge at all.
+  // Merging starts off on the agent and the workspace caps it; the hint must
+  // say where the cap is and must not claim there is no merge at all.
   test.each([
-    ["ko", agentGitHubKo, /연동 > GitHub/, /머지는 이 에이전트 설정에 없고/],
-    ["en", agentGitHubEn, /Integrations > GitHub/, /allows it/],
-    ["ja", agentGitHubJa, /連携 > GitHub/, /マージを許可したときだけ/],
+    ["ko", agentGitHubKo, /연동 > GitHub/, /머지.*꺼진 채로 시작하고/],
+    ["en", agentGitHubEn, /Integrations > GitHub/, /Merging.*start off/],
+    ["ja", agentGitHubJa, /連携 > GitHub/, /マージ.*オフで始まり/],
   ] as const)(
-    "%s agent GitHub hint points merging at the workspace setting",
+    "%s agent GitHub hint says merging starts off and where the workspace allows it",
     (_locale, table, where, allowed) => {
       const hint = table["agentGitHub.permissionsHint"];
       expect(hint).toMatch(where);
