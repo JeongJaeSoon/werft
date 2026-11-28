@@ -61,6 +61,8 @@ const DELIMITER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 type Part = {
   words: string[];
+  /** A `~` or `^` inside a word, unquoted: a git revision's (`HEAD~1`, `HEAD^`). */
+  revision?: string;
   /** The words as they were written, quotes included. */
   written: string[];
   redirect?: { op: ">" | ">>"; target: string };
@@ -71,7 +73,7 @@ type Part = {
 };
 
 type Token =
-  | { kind: "word"; text: string; written: string }
+  | { kind: "word"; text: string; written: string; revision?: string }
   | { kind: "end"; op: "&&" | ";" | "\n" | "|" }
   | { kind: "redirect"; op: ">" | ">>" }
   | { kind: "heredoc" };
@@ -79,9 +81,15 @@ type Token =
 /**
  * The tokens of a line, or why it cannot be split with certainty. A single
  * `|` ends a command only under `pipes`: each side of it is then judged as a
- * command of its own.
+ * command of its own. Under `revisions`, a `~` or `^` inside a word is a
+ * letter of it: the shell reads `~` as a home only where a word or a value
+ * after `=` or `:` starts, so `HEAD~1` and `HEAD^` are revisions.
  */
-function tokensOf(command: string, pipes: boolean): Token[] | string {
+function tokensOf(
+  command: string,
+  pipes: boolean,
+  revisions = false,
+): Token[] | string {
   const tokens: Token[] = [];
   let pending: string | undefined;
   let i = 0;
@@ -156,11 +164,21 @@ function tokensOf(command: string, pipes: boolean): Token[] | string {
       continue;
     }
     let text = "";
+    let revision: string | undefined;
     const start = i;
     for (; i < command.length; i += 1) {
       const next = command[i] as string;
+      const before = command[i - 1] ?? "";
       if (BARE.test(next)) {
         text += next;
+      } else if (
+        revisions &&
+        (next === "~" || next === "^") &&
+        i > start &&
+        (/[\w./@+,%-]/.test(before) || before === "~" || before === "^")
+      ) {
+        text += next;
+        revision ??= next;
       } else if (next === "'") {
         const close = command.indexOf("'", i + 1);
         if (close === -1) return "an open quote";
@@ -179,14 +197,23 @@ function tokensOf(command: string, pipes: boolean): Token[] | string {
         return `a ${next} outside a quote`;
       }
     }
-    tokens.push({ kind: "word", text, written: command.slice(start, i) });
+    tokens.push({
+      kind: "word",
+      text,
+      written: command.slice(start, i),
+      ...(revision === undefined ? {} : { revision }),
+    });
   }
   return pending === undefined ? tokens : "a heredoc without its body";
 }
 
 /** The parts of a line, or why it is not a plain list of simple commands. */
-export function partsOf(command: string, pipes = false): Part[] | string {
-  const tokens = tokensOf(command, pipes);
+export function partsOf(
+  command: string,
+  pipes = false,
+  revisions = false,
+): Part[] | string {
+  const tokens = tokensOf(command, pipes, revisions);
   if (typeof tokens === "string") return tokens;
   const parts: Part[] = [];
   let current: Part = { words: [], written: [] };
@@ -203,6 +230,7 @@ export function partsOf(command: string, pipes = false): Part[] | string {
     } else if (token.kind === "word") {
       current.words.push(token.text);
       current.written.push(token.written);
+      if (token.revision !== undefined) current.revision ??= token.revision;
     } else if (token.kind === "redirect") {
       const target = tokens[i + 1];
       if (target?.kind !== "word" || current.redirect !== undefined) {
@@ -775,11 +803,210 @@ function rootRelative(word: string): string[] {
   return found;
 }
 
+/** What a git verb is given past its options, by the options that take a value. */
+function gitOperands(
+  rest: readonly string[],
+  shortValues: string,
+  longValues: readonly string[],
+): { operands: string[]; pathspecs: string[] | undefined } {
+  const operands: string[] = [];
+  for (let i = 0; i < rest.length; i += 1) {
+    const word = rest[i] as string;
+    if (word === "--") return { operands, pathspecs: rest.slice(i + 1) };
+    if (word.startsWith("--")) {
+      // git takes a long option by any unique start of its name.
+      const option = word.split("=")[0] as string;
+      if (
+        !word.includes("=") &&
+        option.length > 2 &&
+        longValues.some((full) => full.startsWith(option))
+      ) {
+        i += 1;
+      }
+      continue;
+    }
+    if (word.startsWith("-") && word !== "-") {
+      const at = [...word.slice(1)].findIndex((l) => shortValues.includes(l));
+      if (at !== -1 && at + 2 === word.length) i += 1;
+      continue;
+    }
+    operands.push(word);
+  }
+  return { operands, pathspecs: undefined };
+}
+
+/** Whether a short cluster or a long option in these words sets one of these. */
+function setsOption(
+  words: readonly string[],
+  letters: string,
+  longs: readonly string[],
+  shortValues = "",
+): boolean {
+  return words.some((word) => {
+    if (word.startsWith("--")) {
+      const option = word.split("=")[0] as string;
+      return option.length > 2 && longs.some((full) => full.startsWith(option));
+    }
+    if (!/^-[^-]/.test(word)) return false;
+    for (const letter of word.slice(1)) {
+      if (letters.includes(letter)) return true;
+      if (shortValues.includes(letter)) return false;
+    }
+    return false;
+  });
+}
+
 /**
- * The narrow reading's own checks of a part the policy allows: what git, gh
- * and grep do with the words that the ask rules do not see.
+ * Why a git verb writes the whole work tree, or what in it the line does not
+ * name, over a kept path: a pathspec of the workspace's top (`.`, `:/`), one
+ * that only leaves paths out (`:!x`), another branch's tree, or ignored and
+ * untracked files cleaned or stashed away.
  */
-function narrowKept(words: readonly string[], place: Place): string | null {
+function workTreeKept(
+  verb: string,
+  rest: readonly string[],
+  place: Place,
+): string | null {
+  const whole = "a write of the whole work tree";
+  // A pathspec by its magic: `:(top,exclude)x`, `:/!x`, `:^x`.
+  const spans = (pathspec: string) => {
+    let path = pathspec;
+    let top = false;
+    let exclude = false;
+    if (path.startsWith(":")) {
+      const long = /^:\(([^)]*)\)/.exec(path);
+      if (long !== null) {
+        const magic = (long[1] as string).split(",");
+        top = magic.includes("top");
+        exclude = magic.includes("exclude");
+        path = path.slice(long[0].length);
+      } else {
+        const short = /^:([^\w.(:]*):?/.exec(path) as RegExpExecArray;
+        const magic = short[1] as string;
+        top = magic.includes("/");
+        exclude = magic.includes("!") || magic.includes("^");
+        path = path.slice(short[0].length);
+      }
+    }
+    const base = top ? place.root : place.base;
+    return { exclude, root: resolve(base, path || ".") === place.root };
+  };
+  const coversAll = (pathspecs: readonly string[]) => {
+    const read = pathspecs.map(spans);
+    return (
+      read.some((spec) => !spec.exclude && spec.root) ||
+      (read.length > 0 && read.every((spec) => spec.exclude))
+    );
+  };
+  const onDisk = (word: string) => {
+    try {
+      lstatSync(resolve(place.base, word));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  if (verb === "checkout") {
+    const { operands, pathspecs } = gitOperands(rest, "bB", [
+      "--orphan",
+      "--conflict",
+    ]);
+    if (pathspecs !== undefined && pathspecs.length > 0) {
+      return coversAll(pathspecs) ? whole : null;
+    }
+    if (operands.length === 0) {
+      // `git checkout -f` throws every change away.
+      return pathspecs === undefined && setsOption(rest, "f", ["--force"], "bB")
+        ? whole
+        : null;
+    }
+    // One operand is a branch unless it is a path (both is ambiguous to git);
+    // more are a tree and its paths.
+    // A new branch from a start point is how work begins (`git checkout -b x
+    // origin/main`); the tree it brings is not read here.
+    if (pathspecs === undefined && setsOption(rest, "", ["--orphan"], "")) {
+      return null;
+    }
+    if (
+      pathspecs === undefined &&
+      rest.some((word) => /^-[^-]*[bB]/.test(word))
+    ) {
+      return null;
+    }
+    if (operands.length === 1 && pathspecs === undefined) {
+      const [only] = operands as [string];
+      if (!onDisk(only)) return "a switch to another tree";
+      return coversAll(operands) ? whole : null;
+    }
+    if (pathspecs !== undefined) return "a switch to another tree";
+    return coversAll(operands.slice(1)) ? whole : null;
+  }
+  if (verb === "switch") {
+    const { operands, pathspecs } = gitOperands(rest, "cC", [
+      "--create",
+      "--force-create",
+      "--orphan",
+      "--conflict",
+    ]);
+    if (setsOption(rest, "cC", ["--create", "--force-create", "--orphan"])) {
+      return null;
+    }
+    return operands.length > 0 || (pathspecs?.length ?? 0) > 0
+      ? "a switch to another tree"
+      : null;
+  }
+  if (verb === "restore") {
+    const { operands, pathspecs } = gitOperands(rest, "s", [
+      "--source",
+      "--conflict",
+    ]);
+    const staged = setsOption(rest, "S", ["--staged"], "s");
+    const worktree = setsOption(rest, "W", ["--worktree"], "s");
+    if (staged && !worktree) return null;
+    return coversAll(pathspecs ?? operands) ? whole : null;
+  }
+  if (verb === "rm") {
+    const { operands, pathspecs } = gitOperands(rest, "", []);
+    if (setsOption(rest, "", ["--cached"])) return null;
+    return coversAll(pathspecs ?? operands) ? whole : null;
+  }
+  if (verb === "reset") {
+    return setsOption(rest, "", ["--hard", "--merge", "--keep"]) ? whole : null;
+  }
+  if (verb === "read-tree") {
+    return setsOption(rest, "u", []) ? "a switch to another tree" : null;
+  }
+  if (verb === "clean") {
+    if (setsOption(rest, "n", ["--dry-run"], "e")) return null;
+    const { operands, pathspecs } = gitOperands(rest, "e", ["--exclude"]);
+    const given = pathspecs ?? operands;
+    return given.length === 0 || coversAll(given) ? whole : null;
+  }
+  if (verb === "stash") {
+    const [action] = rest;
+    const pushes =
+      action === undefined ||
+      action.startsWith("-") ||
+      action === "push" ||
+      action === "save";
+    return pushes &&
+      setsOption(rest, "ua", ["--all", "--include-untracked"], "m")
+      ? whole
+      : null;
+  }
+  return null;
+}
+
+/**
+ * The checks of git, gh and grep words that the ask rules do not see. The
+ * narrow reading runs them all on a part the policy allows; the wide one
+ * runs them but the work-tree ones (`wide`).
+ */
+function narrowKept(
+  words: readonly string[],
+  place: Place,
+  wide = false,
+): string | null {
   const [name] = words;
   // A path is judged where it lands, `..` taken as spelled, and by its name
   // alone as well: git may read it from a tree, not the work tree
@@ -847,7 +1074,18 @@ function narrowKept(words: readonly string[], place: Place): string | null {
     // Which option takes a value is not known here (`-F -m`, `-e -m`,
     // `-m --`), so no word is skipped as a message or a value: every word
     // is read as a path and as an option.
+    // The wide reading takes what follows a message flag as text, up to a
+    // `--`, as its own reading of git and gh does.
+    let options = wide;
+    let message = false;
     for (const word of words.slice(1)) {
+      if (word === "--") options = false;
+      if (options) {
+        const text =
+          message || MESSAGE_FLAGS.some((flag) => word.startsWith(`${flag}=`));
+        message = !message && MESSAGE_FLAGS.includes(word);
+        if (text) continue;
+      }
       // git takes a long option by any unique start of its name.
       const option = word.split("=")[0] as string;
       const longStart = (full: string) =>
@@ -937,6 +1175,10 @@ function narrowKept(words: readonly string[], place: Place): string | null {
     ) {
       return "a search of the workspace or a kept path";
     }
+    if (!wide && verb !== undefined) {
+      const kept = workTreeKept(verb, rest, place);
+      if (kept !== null) return kept;
+    }
   }
   if (name === "grep") {
     const { recurses, files, lists } = grepOperands(words);
@@ -958,6 +1200,61 @@ function narrowKept(words: readonly string[], place: Place): string | null {
     }
   }
   return null;
+}
+
+const WRAPPERS = ["env", "command", "builtin", "exec", "nohup", "time"];
+const TOOLS = ["git", "gh", "grep"];
+/** Settings of a git or gh environment that run nothing. */
+const QUIET_ENV =
+  /^(LC_\w+|LANG|LANGUAGE|TZ|TERM|COLUMNS|NO_COLOR|FORCE_COLOR|CLICOLOR(_FORCE)?|CI|GIT_TRACE\w*|GIT_TERMINAL_PROMPT|GIT_(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)|GH_REPO|GH_HOST|GH_PROMPT_DISABLED|GH_NO_UPDATE_NOTIFIER|GH_FORCE_TTY)$/;
+/** A pager or an editor, and the values of one that run nothing. */
+const PROGRAM_ENV =
+  /^(GIT_PAGER|GH_PAGER|PAGER|GIT_EDITOR|GH_EDITOR|EDITOR|VISUAL|GIT_SEQUENCE_EDITOR)$/;
+const QUIET_PROGRAMS = ["", "cat", "true", ":"];
+
+/**
+ * The wide reading of git, gh and grep: {@link narrowKept} but the work-tree
+ * checks, on the command behind any wrapper or setting (`env X=1 git`,
+ * `/usr/bin/grep`). A setting of git's or gh's environment may name a program
+ * (`GIT_PAGER=sh`, `GIT_DIR=.claude`), so only those known to run nothing pass.
+ */
+function wideKept(words: readonly string[], place: Place): string | null {
+  const at = words.findIndex((word) => TOOLS.includes(nameOf(word)));
+  if (at === -1) return null;
+  const before = words.slice(0, at);
+  // A wrapper's option may take a value (`env -u X`, `env -C dir`).
+  const wrapper = before.findIndex((word) => WRAPPERS.includes(word));
+  if (
+    wrapper !== -1 &&
+    before.slice(wrapper + 1).some((word) => word.startsWith("-"))
+  ) {
+    return "a wrapper the line does not read";
+  }
+  if (
+    !before.every(
+      (word) =>
+        ASSIGNMENT.test(word) ||
+        WRAPPERS.includes(word) ||
+        word.startsWith("-"),
+    )
+  ) {
+    return null;
+  }
+  const tool = nameOf(words[at] as string);
+  if (tool !== "grep") {
+    for (const word of before.filter((w) => ASSIGNMENT.test(w))) {
+      const cut = word.indexOf("=");
+      const key = word.slice(0, cut);
+      const value = word.slice(cut + 1);
+      if (
+        !QUIET_ENV.test(key) &&
+        !(PROGRAM_ENV.test(key) && QUIET_PROGRAMS.includes(value))
+      ) {
+        return "a setting that may make git or gh run a program";
+      }
+    }
+  }
+  return narrowKept([tool, ...words.slice(at + 1)], place, true);
 }
 
 /** The files gh reads as a body: `--body-file x`, `--body-file=x`, `-F x`, `-Fx`, `-dF x`. */
@@ -1172,6 +1469,10 @@ function partKept(
     if (part.piped && !filterReadsText(part.words)) {
       return `${name} is not a command the workspace policy lets read a pipe`;
     }
+    // Only git has revisions; elsewhere the letter stays unread.
+    if (part.revision !== undefined && name !== "git") {
+      return `a ${part.revision} outside a quote`;
+    }
   }
   const redirect = part.redirect;
   const tail =
@@ -1196,10 +1497,10 @@ function partKept(
       }
     }
   }
-  if (narrow) {
-    const kept = narrowKept(part.words, place);
-    if (kept !== null) return kept;
-  }
+  const tools = narrow
+    ? narrowKept(part.words, place)
+    : wideKept(part.words, place);
+  if (tools !== null) return tools;
   if (name === undefined) return null;
   // The command's own path is not judged: a program found by PATH lives
   // outside the workspace as well, and running one is not a path the policy
@@ -1425,6 +1726,10 @@ function unsplitKept(
       (word) => !MOVER_PREFIXES.includes(word) && !ASSIGNMENT.test(word),
     );
     const mayWrite = !READ_ONLY.includes(nameOf(lead ?? ""));
+    for (const base of bases) {
+      const kept = wideKept(words, { root, base });
+      if (kept !== null) return kept;
+    }
     for (const pair of pairs) {
       const literal = literalOf(pair.word, pair.written);
       if (literal === undefined) continue;
@@ -1503,7 +1808,7 @@ export function askedLineRefusal(
   command: string,
   at: LinePlace,
 ): string | null {
-  const parts = partsOf(command, true);
+  const parts = partsOf(command, true, true);
   if (typeof parts === "string") return parts;
   const place = placeOf(at);
   if (typeof place === "string") return place;
