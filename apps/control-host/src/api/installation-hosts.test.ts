@@ -174,3 +174,54 @@ describe("createInstallationHosts", () => {
     expect(await hosts()).toEqual(["api", "172.20.0.3"]);
   });
 });
+
+describe("what every private grant denies, from the API's own wiring", () => {
+  test("the database, the gateway, the object store and the Kubernetes API by name and by address, this process's listeners, and what the operator adds", async () => {
+    const names = installationHostNames({
+      DATABASE_URL: "postgresql://user:pw@postgres:5432/sessions",
+      WORKER_GATEWAY_URL: "http://api:3200",
+      AWS_ENDPOINT_URL: "http://seaweedfs:8333",
+      EGRESS_AUTHORIZER_HOST: "0.0.0.0",
+      KUBERNETES_SERVICE_HOST: "10.96.0.1",
+      EGRESS_PRIVATE_DENY_HOSTS: "172.30.64.1,vip.internal",
+    });
+    const hosts = createInstallationHosts({
+      names,
+      // Every listener of the API (public, /internal, authorizer, metrics,
+      // trace ingest) answers on these, whatever its port.
+      interfaces: () => ["127.0.0.1", "172.20.0.3"],
+      lookup: async (host) =>
+        (
+          ({
+            postgres: ["172.20.0.2"],
+            api: ["172.20.0.3", "172.20.0.4"],
+            seaweedfs: ["172.20.0.5"],
+            "vip.internal": ["10.9.9.9"],
+          }) as Record<string, string[]>
+        )[host]?.map((address) => ({ address, family: 4 })) ?? [],
+    });
+    const denied = new Set(await hosts());
+    for (const host of [
+      // The database: its name, and the address the name resolves to.
+      "postgres",
+      "172.20.0.2",
+      // The worker gateway and every replica behind its name.
+      "api",
+      "172.20.0.3",
+      "172.20.0.4",
+      // The object store.
+      "seaweedfs",
+      "172.20.0.5",
+      // This process, on every port it listens on.
+      "127.0.0.1",
+      "0.0.0.0",
+      "10.96.0.1",
+      // The operator's own: a bridge gateway, a front VIP and its address.
+      "172.30.64.1",
+      "vip.internal",
+      "10.9.9.9",
+    ]) {
+      expect([host, denied.has(host)]).toEqual([host, true]);
+    }
+  });
+});

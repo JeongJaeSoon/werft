@@ -36,8 +36,11 @@ spec:
         - {protocol: TCP, port: 3200}
     {{- end }}
 ---
-# The proxy takes connections from workers only; its own egress is open, and
-# its allowlists decide what a worker reaches through it.
+# The proxy takes connections from workers only. Its allowlists and the
+# authorizer's grants decide what is reached through it; its own egress is
+# every TCP port but the database's and the metrics listeners', and DNS. A
+# model endpoint registered as on the internal network is dialled from here,
+# and neither of those is one it may be (networkPolicy.egressProxy).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -48,7 +51,7 @@ spec:
   podSelector:
     matchLabels:
       {{- include "ap.selectorLabels" (dict "root" . "component" "egress-proxy") | nindent 6 }}
-  policyTypes: [Ingress]
+  policyTypes: [Ingress{{ if .Values.networkPolicy.egressProxy.restrict }}, Egress{{ end }}]
   ingress:
     - from:
         - podSelector:
@@ -64,6 +67,31 @@ spec:
       ports:
         - {protocol: TCP, port: 3128}
         - {protocol: TCP, port: 3129}
+  {{- if .Values.networkPolicy.egressProxy.restrict }}
+  egress:
+    - ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - ports:
+        {{- include "ap.proxyEgressPorts" . | nindent 8 }}
+      {{- with .Values.networkPolicy.egressProxy.exceptCidrs }}
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            {{- $v4 := list }}{{- range . }}{{- if not (contains ":" .) }}{{- $v4 = append $v4 . }}{{- end }}{{- end }}
+            {{- with $v4 }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+        - ipBlock:
+            cidr: "::/0"
+            {{- $v6 := list }}{{- range . }}{{- if contains ":" . }}{{- $v6 = append $v6 . }}{{- end }}{{- end }}
+            {{- with $v6 }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+      {{- end }}
+  {{- end }}
 ---
 # 3000 is public (through the Ingress) and has no /internal route; 3100, the
 # authorizer that hands out catalog credentials, and 3200, /internal, answer

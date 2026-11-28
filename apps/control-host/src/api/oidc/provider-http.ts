@@ -5,8 +5,8 @@ import {
   classifyAddress,
   isMetadataName,
 } from "@werft-ai/system";
-import { registeredNetwork } from "../registered-network.ts";
 import { OidcUnavailableError } from "./errors.ts";
+import { registeredNetwork } from "./registered-network.ts";
 
 const TIMEOUT_MS = 10_000;
 const MAX_BODY_BYTES = 1024 * 1024;

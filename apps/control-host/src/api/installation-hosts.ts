@@ -1,7 +1,7 @@
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import { defaultLookup, type Lookup } from "./oidc/provider-http.ts";
-import { addressKey, hostKey } from "./registered-network.ts";
+import { addressKey, hostKey } from "./oidc/registered-network.ts";
 
 /** An answer's key, or null for one that is no address. */
 function answerKey(answer: string): string | null {

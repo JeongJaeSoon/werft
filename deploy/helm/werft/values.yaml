@@ -183,6 +183,11 @@ config:
     # object store, and the packages route's public registries.
     credentialAllowlist: "api.anthropic.com:443,api.openai.com:443,registry.npmjs.org:443,rubygems.org:443,proxy.golang.org:443,sum.golang.org:443"
     credentialPrivateAllowlist: ""
+    # Hosts a model connection registered as on the internal network is never
+    # sent to, beside the ones the API finds by itself (its own addresses,
+    # its database, gateway and object store): a front VIP or NAT address.
+    # Comma separated names or IPs, no port.
+    privateDenyHosts: ""
     # Public hosts the packages route follows a registry's redirect to.
     packagesRedirectAllowlist: ""
 
@@ -560,6 +565,18 @@ networkPolicy:
   slack:
     # The PostgreSQL port slack's egress may reach, on any address.
     databasePort: 5432
+  egressProxy:
+    # The proxy's own egress: DNS, and every TCP port but the database's
+    # (slack.databasePort above) and the metrics listeners' (api.metrics.port,
+    # metrics.port). A model endpoint an owner registers as on the internal
+    # network is dialled from the proxy, and none of those is one it may be.
+    # false leaves the proxy's egress open, as it was before this policy.
+    restrict: true
+    # More TCP ports the proxy never dials.
+    denyPorts: []
+    # Destinations the proxy never dials on any port, as CIDRs: the
+    # database's subnet, a node-local service. Empty: none.
+    exceptCidrs: []
   metrics:
     # Peers allowed to scrape the metrics port (NetworkPolicy `from`
     # entries), e.g. the collector's namespace. Empty allows any source, as

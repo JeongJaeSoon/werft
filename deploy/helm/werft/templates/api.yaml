@@ -81,6 +81,8 @@ spec:
               value: {{ .Values.config.egress.credentialAllowlist | quote }}
             - name: EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST
               value: {{ .Values.config.egress.credentialPrivateAllowlist | quote }}
+            - name: EGRESS_PRIVATE_DENY_HOSTS
+              value: {{ .Values.config.egress.privateDenyHosts | quote }}
             - name: AUTH_MODE
               value: {{ .Values.config.authMode | quote }}
             {{- if .Values.codexSandbox.enabled }}

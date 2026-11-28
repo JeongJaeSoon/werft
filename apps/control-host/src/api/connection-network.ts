@@ -10,8 +10,8 @@ import {
   type Lookup,
   type PinnedRequest,
 } from "./oidc/provider-http.ts";
+import { refusedHost, registeredNetwork } from "./oidc/registered-network.ts";
 import { outboundUnder } from "./outbound-http.ts";
-import { refusedHost, registeredNetwork } from "./registered-network.ts";
 
 const LOOKUP_TIMEOUT_MS = 10_000;
 

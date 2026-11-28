@@ -521,3 +521,25 @@ built-in tool denied, which the Codex runtime does not offer.
 {{- end -}}
 {{- define "ap.privateAllowlist" -}}{{ .Values.config.egress.privateAllowlist | default (printf "%s:3200" (include "ap.apiInternalHost" .)) }}{{- end -}}
 {{- define "ap.proxyHost" -}}{{ include "ap.fullname" . }}-egress-proxy{{- end -}}
+
+{{/*
+The TCP ports the egress proxy's own egress admits, as NetworkPolicy port
+ranges: every port but the database's, the two metrics listeners' and
+networkPolicy.egressProxy.denyPorts. A policy only allows, so what is denied
+is what no range holds.
+*/}}
+{{- define "ap.proxyEgressPorts" -}}
+{{- $denied := list (printf "%05d" (int .Values.networkPolicy.slack.databasePort)) (printf "%05d" (int .Values.api.metrics.port)) (printf "%05d" (int .Values.metrics.port)) -}}
+{{- range .Values.networkPolicy.egressProxy.denyPorts }}{{- $denied = append $denied (printf "%05d" (int .)) -}}{{- end -}}
+{{- $next := 1 -}}
+{{- range ($denied | uniq | sortAlpha) }}
+{{- $port := atoi (trimPrefix "0" (trimPrefix "0" (trimPrefix "0" (trimPrefix "0" .)))) -}}
+{{- if gt $port $next }}
+- {protocol: TCP, port: {{ $next }}, endPort: {{ sub $port 1 }}}
+{{- end }}
+{{- $next = int (add $port 1) -}}
+{{- end }}
+{{- if le $next 65535 }}
+- {protocol: TCP, port: {{ $next }}, endPort: 65535}
+{{- end }}
+{{- end -}}
