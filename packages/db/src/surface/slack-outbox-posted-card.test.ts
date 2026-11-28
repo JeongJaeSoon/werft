@@ -66,11 +66,12 @@ async function card(input: {
   // null: a post that never came back with its ts.
   slackTs?: string | null;
   status?: "pending" | "sending" | "uncertain" | "failed";
+  errorCode?: string;
 }) {
   await client.query(
     // A notice goes to one person alone.
-    `INSERT INTO slack_outbox (id, workspace_id, agent_id, slack_app_id, installation_id, kind, channel_id, thread_ts, session_id, session_link_id, body, dedupe_key, status, slack_ts, slack_user_id, claim_token, lease_expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, '1.0', $8, $9, '{"text":"card"}', $10, $13, $11, $12, $14, $15)`,
+    `INSERT INTO slack_outbox (id, workspace_id, agent_id, slack_app_id, installation_id, kind, channel_id, thread_ts, session_id, session_link_id, body, dedupe_key, status, slack_ts, slack_user_id, claim_token, lease_expires_at, error_code)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, '1.0', $8, $9, '{"text":"card"}', $10, $13, $11, $12, $14, $15, $16)`,
     [
       crypto.randomUUID(),
       WORKSPACE,
@@ -90,6 +91,7 @@ async function card(input: {
       input.status === "sending"
         ? new Date(Date.now() + 60_000).toISOString()
         : null,
+      input.errorCode ?? null,
     ],
   );
 }
@@ -382,5 +384,16 @@ describe("the card a pressed message is", () => {
     expect(await at({ kind: "prompt", requestId: "toolu_20" })).toBe("earlier");
     expect(await at({ kind: "prompt", requestId: "toolu_21" })).toBeNull();
     expect(await at({ kind: "prompt", requestId: "toolu_22" })).toBeNull();
+    // Slack took it but answered with no ts: it is up, so it is earlier.
+    await card({
+      sessionId,
+      linkId: l,
+      channelId: "C0ROOM",
+      dedupeKey: `prompt:${l}:toolu_23`,
+      slackTs: null,
+      status: "failed",
+      errorCode: "missing_ts",
+    });
+    expect(await at({ kind: "prompt", requestId: "toolu_23" })).toBe("earlier");
   });
 });

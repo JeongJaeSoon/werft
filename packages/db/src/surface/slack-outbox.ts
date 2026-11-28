@@ -2629,7 +2629,8 @@ export function createPostgresSlackOutboxStore(
       if (row !== undefined) return row;
       // A card of the key in that channel that cannot be matched to the
       // message: one an earlier version posted without its link, or one
-      // whose post never came back with a ts (sending or uncertain). Only
+      // whose post never came back with a ts (sending, uncertain, or sent
+      // with no ts in Slack's answer). Only
       // the pressing agent's, and not under a revoked link.
       if (!UUID.test(agentId)) return null;
       const [earlier] = await db
@@ -2646,7 +2647,7 @@ export function createPostgresSlackOutboxStore(
             sql`starts_with(${t.dedupeKey}, ${prefix}::text)`,
             sql`right(${t.dedupeKey}, length(${suffix}::text)) = ${suffix}::text`,
             sql`length(${t.dedupeKey}) = length(${prefix}::text) + 36 + length(${suffix}::text)`,
-            sql`((${t.sessionLinkId} IS NULL AND ${t.slackTs} = ${slackTs}) OR (${t.slackTs} IS NULL AND ${t.status} IN ('sending', 'uncertain')))`,
+            sql`((${t.sessionLinkId} IS NULL AND ${t.slackTs} = ${slackTs}) OR (${t.slackTs} IS NULL AND (${t.status} IN ('sending', 'uncertain') OR (${t.status} = 'failed' AND ${t.errorCode} = 'missing_ts'))))`,
           ),
         )
         .limit(1);
