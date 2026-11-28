@@ -176,7 +176,12 @@ integration("conversation turn calls on PostgreSQL", () => {
       tokenHash: hashConversationCallToken(token),
       exchangeId: crypto.randomUUID(),
       callId,
-      reserveFor: () => ({ reserve: RESERVE, unmetered: false }),
+      reserveFor: () => ({
+        reserve: RESERVE,
+        unmetered: false,
+        pricedBy: "table",
+      }),
+      unknownPriceTokenLimit: 5_000_000,
     });
 
   const operator: BudgetRoot = {
@@ -319,7 +324,12 @@ integration("conversation turn calls on PostgreSQL", () => {
         tokenHash: hashConversationCallToken(turn.token),
         exchangeId,
         callId: conversationCallIdSchema.parse(crypto.randomUUID()),
-        reserveFor: () => ({ reserve: RESERVE, unmetered: false }),
+        reserveFor: () => ({
+          reserve: RESERVE,
+          unmetered: false,
+          pricedBy: "table",
+        }),
+        unknownPriceTokenLimit: 5_000_000,
       });
     expect((await regrant()).outcome).toBe("ok");
     expect((await regrant()).outcome).toBe("ok");

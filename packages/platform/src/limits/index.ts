@@ -36,6 +36,8 @@ export {
   priceSettledUsage,
 } from "./model-prices.ts";
 export type {
+  ConversationCallPricedBy,
+  ConversationCallRefusedBy,
   ConversationCallStore,
   ConversationTurnCallAuthorization,
 } from "./ports/conversation-call-store.ts";

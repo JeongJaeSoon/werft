@@ -10,6 +10,7 @@ import type {
 import type {
   BudgetRoot,
   ConversationCallLimit,
+  ConversationCallRefusedBy,
   ConversationCalls,
   ConversationCallUnavailable,
 } from "../limits/index.ts";
@@ -63,6 +64,7 @@ export type ConversationCallResult<T> =
       outcome: "refused";
       rootKind: BudgetRootKind;
       accountId: BudgetAccountId | null;
+      by: ConversationCallRefusedBy;
     }
   // Too many calls in progress on one of its keys; not reserved.
   | {

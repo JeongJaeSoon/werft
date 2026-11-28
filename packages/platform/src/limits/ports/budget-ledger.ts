@@ -39,7 +39,13 @@ export type BudgetReserveResult =
       rootKind: BudgetRootKind;
     }
   // The reserve does not fit, or the agent's own work has no limit: no row.
-  | { outcome: "refused"; accountId: BudgetAccountId | null }
+  // `by`: the caller's own judgment (reserveBudgetIn's admitsUnknownPrice)
+  // refused it, not the limit.
+  | {
+      outcome: "refused";
+      accountId: BudgetAccountId | null;
+      by?: "unknown_price_tokens";
+    }
   // The same reservation again: what became of it.
   | { outcome: "replayed"; state: BudgetReservationState }
   // The id was reserved for another account or another amount.

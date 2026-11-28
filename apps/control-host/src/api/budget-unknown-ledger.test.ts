@@ -219,7 +219,7 @@ describe("the operator's resolve of reservations of unknown end", () => {
       callId: call.callId,
       exchangeId: call.exchangeId,
       usage: late.usage,
-      priceFor: () => ({ costUsd: late.costUsd }),
+      priceFor: () => ({ costUsd: late.costUsd, pricedBy: "table" }),
     });
 
   const accountOf = async (ownerId: string) => {
@@ -685,7 +685,12 @@ describe("the operator's resolve of reservations of unknown end", () => {
       tokenHash: hashConversationCallToken(token),
       exchangeId,
       callId,
-      reserveFor: () => ({ reserve: RESERVE, unmetered: false }),
+      reserveFor: () => ({
+        reserve: RESERVE,
+        unmetered: false,
+        pricedBy: "table",
+      }),
+      unknownPriceTokenLimit: 5_000_000,
     });
     expect(granted.outcome).toBe("ok");
     await pool.query(

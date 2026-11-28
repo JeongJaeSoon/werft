@@ -227,7 +227,7 @@ const settle = (
     callId,
     exchangeId,
     usage,
-    priceFor: () => ({ costUsd: BILLED }),
+    priceFor: () => ({ costUsd: BILLED, pricedBy: "table" }),
   });
 
 async function callOf(id: string) {
@@ -310,6 +310,7 @@ describe("a conversation call's reservation", () => {
       costUsd: BILLED,
       unmetered: false,
       model: MODEL,
+      pricedBy: "table",
     });
     expect(await callOf(call.callId)).toMatchObject({
       state: "settled",
@@ -345,6 +346,7 @@ describe("a conversation call's reservation", () => {
       costUsd: BILLED,
       unmetered: false,
       model: MODEL,
+      pricedBy: "table",
     });
     expect(
       await settle(call.callId, exchange, { ...USED, outputTokens: 41 }),
@@ -372,12 +374,14 @@ describe("a conversation call's reservation", () => {
       costUsd: 0,
       unmetered: true,
       model: MODEL,
+      pricedBy: "unmetered",
     });
     expect(await settle(result.callId, exchange)).toEqual({
       outcome: "already_settled",
       costUsd: 0,
       unmetered: true,
       model: MODEL,
+      pricedBy: "unmetered",
     });
   });
 
@@ -429,6 +433,7 @@ describe("a conversation call's reservation", () => {
       outcome: "refused",
       rootKind: "none",
       accountId: expect.any(String),
+      by: "budget",
     });
     expect(await db.select().from(conversationCalls)).toEqual([]);
     expect((await issue(agentId, person(crypto.randomUUID()))).outcome).toBe(
@@ -493,6 +498,7 @@ describe("a conversation call's reservation", () => {
       outcome: "refused",
       rootKind: "none",
       accountId: null,
+      by: "budget",
     });
   });
 

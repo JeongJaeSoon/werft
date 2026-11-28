@@ -3262,6 +3262,7 @@ describe("a conversation call's usage report", () => {
     unmetered: boolean,
     replay = false,
     issuedFor = usage.model,
+    stored: "table" | "unknown" | null = null,
   ) {
     const unused = async (): Promise<never> => {
       throw new Error("not under test");
@@ -3285,6 +3286,8 @@ describe("a conversation call's usage report", () => {
           : input.priceFor({ unmetered, model: issuedFor }).costUsd,
         unmetered,
         model: issuedFor,
+        // Null as a call an older image settled: the answer is read again.
+        pricedBy: stored,
       }),
     };
     const instance = createWorkerGateway({
@@ -3315,6 +3318,12 @@ describe("a conversation call's usage report", () => {
 
   test("a billed call is priced from the table", async () => {
     expect((await reported(false)).pricedBy).toBe("table");
+  });
+
+  test("a replay answers with what the first settlement stored, not with what the report would price now", async () => {
+    expect((await reported(false, true, usage.model, "unknown")).pricedBy).toBe(
+      "unknown",
+    );
   });
 
   test("a billed call has no amount when nothing prices the model it was issued for, whatever answered", async () => {

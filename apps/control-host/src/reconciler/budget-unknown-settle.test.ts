@@ -451,7 +451,12 @@ describe("reservations of unknown end of an ended turn", () => {
         tokenHash: hashConversationCallToken(token),
         exchangeId: crypto.randomUUID(),
         callId,
-        reserveFor: () => ({ reserve: RESERVE, unmetered: false }),
+        reserveFor: () => ({
+          reserve: RESERVE,
+          unmetered: false,
+          pricedBy: "table",
+        }),
+        unknownPriceTokenLimit: 5_000_000,
       });
       expect(granted.outcome).toBe("ok");
       await pool.query(

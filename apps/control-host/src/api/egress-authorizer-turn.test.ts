@@ -321,6 +321,60 @@ describe("a conversation turn's provider calls", () => {
     });
   });
 
+  test("a priced call answered by a model nothing prices counts on the account's month of tokens of unknown price; at the limit the next turn's call is refused, saying why and when it lifts", async () => {
+    // A cost limit and no token limit: the amount of such a call is none.
+    await saveBudgetLimit(
+      db as never,
+      WORKSPACE,
+      { kind: "team", teamId },
+      { costUsd: 5, tokens: null },
+    );
+    authorize = createEgressAuthorizer({
+      gateway: createWorkerGateway({
+        work: createPostgresWorkerUnitOfWork(db),
+        catalog,
+        checkpoints: acceptAllCheckpoints,
+        conversationCalls: { store },
+        options: {
+          sessionBudget: { costUsd: 1_000, tokens: null },
+          leaseTtlMs: 60_000,
+          unknownPriceTokenLimit: async () => 500,
+        },
+      }),
+      logger: createLogger({ sinks: [logs] }),
+      token: BEARER,
+    });
+    const turn = await operatorTurn();
+    const call = await granted(turn.token);
+    const answered = await post(EGRESS_USAGE_PATH, {
+      exchange_id: call.exchange,
+      conversation_call_id: call.callId,
+      usage: { ...usage, model: "werft-test-model-nothing-prices" },
+    });
+    expect(answered.status).toBe(200);
+    const [settled] = await callsOf(turn.turnId);
+    expect(settled).toMatchObject({
+      state: "settled",
+      pricedBy: "unknown",
+      costUsd: 0,
+      tokens: 712,
+    });
+
+    const next = await operatorTurn();
+    const refused = await providerAsk(next.token, crypto.randomUUID());
+    expect(refused.status).toBe(403);
+    const problem = (await refused.json()) as { code: string; message: string };
+    expect(problem.code).toBe("BUDGET_EXCEEDED");
+    expect(problem.message).toContain("no known price");
+    expect(problem.message).toContain("1st of next month (UTC)");
+    expect(await callsOf(next.turnId)).toEqual([]);
+    expect(await permitOf(next.turnId)).toMatchObject({ refusal: "budget" });
+    expect(refusals().at(-1)?.fields).toMatchObject({
+      turn_id: next.turnId,
+      refused_by: "unknown_price_tokens",
+    });
+  });
+
   test("a call the turn's account cannot hold is refused with nothing held, and the turn ends on that refusal", async () => {
     // Room for one call and not two.
     await saveBudgetLimit(
