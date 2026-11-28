@@ -183,9 +183,8 @@ jobs:
           # Debian fixes rather than the first build's.
           echo "apt-upgrade-key=$(date -u +%F)" >>"$GITHUB_OUTPUT"
 
-      # The first build of a UTC day, and one after a Dockerfile or
-      # fetch-pinned.ts change, writes the layer cache; others only read it
-      # (.github/scripts/image-cache-to.sh). A failed step writes nothing and
+      # Whether this build writes the layer cache or only reads it:
+      # .github/scripts/image-cache-to.sh. A failed step writes nothing and
       # fails nothing.
       - id: cache-to
         name: Layer cache to write
@@ -425,9 +424,8 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # The first build of a UTC day, and one after a Dockerfile or
-      # fetch-pinned.ts change, writes the layer cache; others only read it
-      # (.github/scripts/image-cache-to.sh). A failed step writes nothing and
+      # Whether this build writes the layer cache or only reads it:
+      # .github/scripts/image-cache-to.sh. A failed step writes nothing and
       # fails nothing.
       - id: cache-to
         name: Layer cache to write

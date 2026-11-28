@@ -11,15 +11,19 @@
 # APT_UPGRADE_KEY, the UTC date, so one write a day keeps them warm.
 #
 # The day's entry is also written again after the image's Dockerfile or
-# fetch-pinned.ts changed: mode=min reuses the Go build stages only through the
-# release layers copied from them, so after a pin change every build compiles
-# them until the cache is written again.
+# fetch-pinned.ts changed: with mode=min a later build reuses the Go build
+# stages from this cache only through the release layers copied from them, so
+# after a pin change builds compile them until an entry holds the new pins.
 #
 # An entry written before 00:30Z may come from a build that started the day
 # before, with that day's APT_UPGRADE_KEY, so it does not count as today's.
 # For the same reason an entry written less than 30 minutes after an input
 # change may come from a build of the commit before it, and does not count.
 # A shallow checkout cannot date that change and skips the input rule.
+# A main build whose inputs differ from origin/main's (queued behind a pin
+# change, or a rerun) never writes: its entry would pass for a current one.
+# publish-main fetches origin/main before this step and ends within its
+# 20-minute timeout, inside those 30 minutes.
 #
 # Never fails the job and never holds it: a listing that fails or takes longer
 # than LIST_TIMEOUT seconds writes as before, and ignore-error=true keeps a
@@ -46,13 +50,22 @@ kill "$killer" >/dev/null 2>&1
 latest="$(cat "$out")"
 rm -f "$out"
 
+inputs=("apps/${APP%-codex}/Dockerfile" scripts/fetch-pinned.ts)
+
+# True only when git shows that main has moved the inputs away from HEAD's.
+superseded() {
+  [ "$GITHUB_REF" = refs/heads/main ] || return 1
+  git diff --quiet HEAD refs/remotes/origin/main -- "${inputs[@]}" 2>/dev/null
+  [ "$?" -eq 1 ]
+}
+
 # Prints the time from which an entry holds the current inputs, nothing in a
 # shallow checkout; fails when git cannot tell.
 fresh_from() {
   local shallow changed
   shallow="$(git rev-parse --is-shallow-repository)" || return 1
   [ "$shallow" = false ] || return 0
-  changed="$(git log -1 --first-parent --format=%ct -- "apps/${APP%-codex}/Dockerfile" scripts/fetch-pinned.ts)" || return 1
+  changed="$(git log -1 --first-parent --format=%ct -- "${inputs[@]}")" || return 1
   [ -n "$changed" ] || return 1
   jq -nr "($changed + 1800) | todateiso8601"
 }
@@ -70,5 +83,9 @@ if [ "$status" -eq 0 ]; then
   fi
 else
   echo "::warning::could not list the layer cache of ${scope} (exit ${status}); writing it: ${latest}" >&2
+fi
+if [ -n "$to" ] && superseded; then
+  echo "::notice::the build inputs of ${scope} differ on origin/main; this older build only reads the layer cache" >&2
+  to=""
 fi
 echo "to=${to}"

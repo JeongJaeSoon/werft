@@ -151,8 +151,7 @@ test("a listing that ignores TERM is killed and writes as before", () => {
   expect(Date.now() - started).toBeLessThan(10_000);
 });
 
-// 2026-11-28: the day's entry was written at 00:39Z, a Go pin changed at
-// 03:24Z, and every build after it compiled the Go stages.
+// A pin changed hours after the day's entry was written.
 test.each(["apps/worker/Dockerfile", "scripts/fetch-pinned.ts"])(
   "a day's entry older than a change of %s is written again",
   (path) => {
@@ -210,4 +209,37 @@ test("inputs git cannot date are written, and the job goes on", () => {
       exitCode: 0,
       stdout: write,
     });
+});
+
+// origin/main one commit past HEAD, changing `path`.
+const behindMain =
+  (path: string): Checkout =>
+  (repo) => {
+    unchanged(repo);
+    commit(repo, path, "2026-11-28T03:24:56Z");
+    git(repo, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    git(repo, ["reset", "-q", "--hard", "HEAD~1"]);
+  };
+
+// Queued behind a pin change, or rerun: writing would store the old pins as a
+// current entry.
+test.each(["", "2026-11-27T23:00:00Z"])(
+  "a main build behind a pin change never writes (latest entry %p)",
+  (latest) => {
+    expect(
+      run(latest, 0, {}, behindMain("apps/worker/Dockerfile")),
+    ).toMatchObject({ exitCode: 0, stdout: "to=\n" });
+  },
+);
+
+test("a main build behind other changes, or on another ref, still writes", () => {
+  expect(run("", 0, {}, behindMain("apps/worker/main.ts")).stdout).toBe(write);
+  expect(
+    run(
+      "",
+      0,
+      { GITHUB_REF: "refs/tags/v1.2.3" },
+      behindMain("apps/worker/Dockerfile"),
+    ).stdout,
+  ).toBe(write);
 });
