@@ -1481,18 +1481,18 @@ export async function toolHandlerGaps(
 }
 
 /**
- * A6: musterrolle is the bottom platform domain. Its product sources import
+ * A6: access-control is the bottom platform domain. Its product sources import
  * another domain only through that domain's ports/: not its internals and not
  * its index.ts. The package root is closed too, since it re-exports every
  * domain: a file directly under src, or the package's own name. The shared
  * ports/ and testing/ stay open, as in A2.
  */
-export async function musterrolleOutwardImports(
+export async function accessControlOutwardImports(
   repo: string,
 ): Promise<string[]> {
   const src = platformSrc(repo);
   const found: string[] = [];
-  for (const file of await productSourcesIn(join(src, "musterrolle"))) {
+  for (const file of await productSourcesIn(join(src, "access-control"))) {
     const from = slashed(relative(src, file));
     for (const specifier of importedModules(await parse(file)))
       if (packageOf(specifier) === "@werft-ai/platform")
@@ -1502,7 +1502,7 @@ export async function musterrolleOutwardImports(
       const other = to[0] ?? "";
       if (
         other.startsWith("..") ||
-        other === "musterrolle" ||
+        other === "access-control" ||
         sharedPlatformDirs.has(other)
       )
         continue;
@@ -3906,8 +3906,8 @@ describe("architecture", () => {
     ]);
   });
 
-  test("A6: musterrolle imports another platform domain only through its ports/", async () => {
-    expect(await musterrolleOutwardImports(root)).toEqual([]);
+  test("A6: access-control imports another platform domain only through its ports/", async () => {
+    expect(await accessControlOutwardImports(root)).toEqual([]);
   });
 
   test("A6 catches another domain's internals, its index.ts and the package root in each import form the scan reads, but not its ports/, the shared dirs, a sibling or a test", async () => {
@@ -3950,7 +3950,7 @@ describe("architecture", () => {
           [platformFile("access-control/internal.test.ts")]:
             'import "../beta/service.ts";',
           [platformFile("access-control/policy.ts")]: stub,
-          // Only musterrolle is held to this: beta may import an entrance.
+          // Only access-control is held to this: beta may import an entrance.
           [platformFile("beta/service.ts")]: 'import "../gamma/index.ts";',
           [platformFile("beta/deep/inner.ts")]: stub,
           [platformFile("beta/ports/store.ts")]: stub,
@@ -3960,7 +3960,7 @@ describe("architecture", () => {
           [platformFile("testing/refusal.ts")]: stub,
           [platformFile("index.ts")]: stub,
         },
-        musterrolleOutwardImports,
+        accessControlOutwardImports,
       ),
     ).toEqual([
       "access-control/asserted.ts -> beta/index.ts",

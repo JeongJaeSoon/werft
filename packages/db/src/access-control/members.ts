@@ -26,7 +26,7 @@ import {
 } from "drizzle-orm";
 import { actorStillMember } from "../control-shared.ts";
 import { DB_NOW } from "../db-clock.ts";
-import { disconnectWorkspaceMcpOf } from "../extensions/mcp/workspace-mcp.ts";
+import { disconnectWorkspaceMcpOf } from "../extensions/index.ts";
 import type { Database } from "../queries.ts";
 import {
   agentReleases,
