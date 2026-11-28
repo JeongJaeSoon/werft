@@ -918,6 +918,22 @@ const WIDE: [string, string, string | null][] = [
     "a wrapper the line does not read",
   ],
   ["a look-up behind builtin", "builtin command -v git", null],
+  ["a look-up behind time", "time command -v git", null],
+  [
+    "a program named command behind env",
+    "env command -v git",
+    "a wrapper the line does not read",
+  ],
+  [
+    "a program named command behind exec",
+    "exec command -v git",
+    "a wrapper the line does not read",
+  ],
+  [
+    "a program named command behind nohup",
+    "nohup command -v git",
+    "a wrapper the line does not read",
+  ],
   ["a look-up of several names, long", "command -V bash git", null],
   [
     "git right after a wrapper's option",

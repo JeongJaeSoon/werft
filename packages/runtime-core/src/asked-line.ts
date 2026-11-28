@@ -1397,6 +1397,8 @@ const PROGRAM_ENV =
 const QUIET_PROGRAMS = ["", "cat", "true", ":"];
 /** A redirect before a command: `2>/dev/null`, `&>`, `<in`, not `<<` or `<(`. */
 const REDIRECT = /^(?:\d+|&)?(?:>&|<&|<>|>>?\|?|<(?![<(]))/;
+/** Wrappers the shell itself runs, so `command` behind them is the builtin. */
+const SHELL_WRAPPERS = ["builtin", "command", "time"];
 const SHELL_KEYWORDS = [
   "if",
   "then",
@@ -1454,7 +1456,7 @@ function wideKept(
   // The options of the last wrapper, and whether a `--` ended them.
   let own: string[] = [];
   let ended = false;
-  let lastWord = "";
+  const wrapperWords: string[] = [];
   let at = -1;
   for (const [index, word] of words.entries()) {
     const last = wrappers.at(-1);
@@ -1466,10 +1468,12 @@ function wideKept(
       continue;
     }
     // `command -v git` only looks names up.
-    // Only the builtin, and only on options of its own (`env -u command -v`
-    // gives `-v` to env).
+    // Only the builtin, reached by the shell alone (`env command` runs a
+    // program of that name), and only on options of its own (`env -u
+    // command -v` gives `-v` to env).
     if (
-      lastWord === "command" &&
+      wrapperWords.at(-1) === "command" &&
+      wrapperWords.every((wrapper) => SHELL_WRAPPERS.includes(wrapper)) &&
       own.length > 0 &&
       own.length === options.length &&
       own.every((option) => /^-[vV]+$/.test(option))
@@ -1490,7 +1494,7 @@ function wideKept(
       wrappers.push(name);
       own = [];
       ended = false;
-      lastWord = word;
+      wrapperWords.push(word);
     } else {
       // A word after a wrapper's option may be its value (`env -u X git`).
       return options.length > 0 &&
