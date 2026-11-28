@@ -7,7 +7,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import {
   pendingRequesterOf,
   pushRequesterOf,
-} from "./musterrolle/session-shares.ts";
+} from "./access-control/session-shares.ts";
 import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
 import {

@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { SecretKey } from "@werft-ai/platform";
-import { DB_NOW } from "../db-clock.ts";
-import { secretOwnerWorkspace } from "../installation-settings.ts";
 import {
   LOGIN_CLIENT_SECRET_PURPOSE,
   loginProviderSecretOwner,
-} from "../musterrolle/login-providers.ts";
+} from "../access-control/login-providers.ts";
+import { DB_NOW } from "../db-clock.ts";
+import { secretOwnerWorkspace } from "../installation-settings.ts";
 import type { Database } from "../queries.ts";
 import { loginProviders } from "../schema.ts";
 import { writeSecretInTx } from "../secrets/secret-values.ts";

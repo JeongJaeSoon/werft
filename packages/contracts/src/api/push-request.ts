@@ -1,9 +1,8 @@
 import { z } from "zod";
-
-import { GITHUB_POLICY_SOURCE_VALUES } from "../kollegium/agents.ts";
-import { deciderKeySchema } from "../musterrolle/api-keys.ts";
-import { receiptActorSchema } from "../musterrolle/authorization.ts";
-import { githubRefusalSchema } from "../musterrolle/github-settings.ts";
+import { deciderKeySchema } from "../access-control/api-keys.ts";
+import { receiptActorSchema } from "../access-control/authorization.ts";
+import { githubRefusalSchema } from "../access-control/github-settings.ts";
+import { GITHUB_POLICY_SOURCE_VALUES } from "../agents/agents.ts";
 import {
   agentReleaseIdSchema,
   receiptIdSchema,

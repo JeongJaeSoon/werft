@@ -3,9 +3,9 @@ import type {
   SkillCheckFinding,
   WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { Principal } from "../../musterrolle/index.ts";
-import type { BundleManifest } from "../bundle-validator.ts";
-import type { ExtensionMode } from "../resolve.ts";
+import type { Principal } from "../../access-control/index.ts";
+import type { BundleManifest } from "../bundles/bundle-validator.ts";
+import type { ExtensionMode } from "../bundles/resolve.ts";
 import type {
   SkillGitLocation,
   SkillGitSource,

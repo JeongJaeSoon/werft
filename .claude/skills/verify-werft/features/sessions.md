@@ -75,7 +75,7 @@ Codex 엔진 run([SKILL.md](../SKILL.md) Launch의 Codex 줄)에서 몬다. 설�
 - 응답 마지막 줄이 상태 코드다. jq에 넘길 때는 `| head -1`.
 - worker 컨테이너는 끝나면 scheduler가 지운다. 로그가 필요하면 `docs/quickstart.md`의 "로그 보기" 루프에서 label을 `werft.installation=$EXECUTION_INSTALLATION_ID`로 바꿔 건다.
 - `finalDelayMs`로 느린 turn을 만들 수 있다(interrupt·terminate 시험용).
-- 본문의 `agent_release_id`는 언제나 필요하고 세션은 그 에이전트 release에 묶인다(빠지면 `400`). 에이전트 key는 자기 에이전트 release로만 만들고 읽는다(나머지는 `403` `agent_ceiling`, [musterrolle.md](./musterrolle.md) d).
+- 본문의 `agent_release_id`는 언제나 필요하고 세션은 그 에이전트 release에 묶인다(빠지면 `400`). 에이전트 key는 자기 에이전트 release로만 만들고 읽는다(나머지는 `403` `agent_ceiling`, [access-control.md](./access-control.md) d).
 - 세션 POST는 인증 방식과 상관없이 `Idempotency-Key`가 없으면 `400`, 같은 key에 다른 본문이면 `409 IDEMPOTENCY_CONFLICT`다.
 
 현재 화면·필터·모델 검증은 [procedures.md](procedures.md)의 P-API-SESSIONS-LIST·P-WEB-SESSIONS를 따른다. 소스: `packages/contracts/src/api/session.ts`, `apps/web/src/routes/sessions.tsx`, `packages/react/src/blocks/session-detail.tsx`.

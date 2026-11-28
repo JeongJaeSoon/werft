@@ -2,12 +2,12 @@ import type { SessionScope, WorkspaceRole } from "@werft-ai/contracts";
 import { WORKSPACE_MANAGER_ROLES } from "@werft-ai/contracts";
 import type { Principal, UsageDecision } from "@werft-ai/platform";
 import { and, arrayContains, asc, eq, inArray, isNull, ne } from "drizzle-orm";
-import { lockActorAccount } from "../control-shared.ts";
-import { dbNow } from "../db-clock.ts";
 import {
   behindPrivateChannel,
   reachesBeforePublishNow,
-} from "../musterrolle/index.ts";
+} from "../access-control/index.ts";
+import { lockActorAccount } from "../control-shared.ts";
+import { dbNow } from "../db-clock.ts";
 import type { Database } from "../queries.ts";
 import {
   agentAdmins,

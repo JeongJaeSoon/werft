@@ -36,7 +36,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/auth/me/login-methods/{provider_id}/link/start",
     "DELETE /v1/auth/me/login-methods/{id}",
   ],
-  "routes/musterrolle/login-providers.test.ts": [
+  "routes/access-control/login-providers.test.ts": [
     "GET /v1/login-providers",
     "POST /v1/login-providers/discover",
     "POST /v1/login-providers",
@@ -48,7 +48,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/login-providers/{id}/disable",
     "DELETE /v1/login-providers/{id}",
   ],
-  "routes/musterrolle/login-settings.test.ts": [
+  "routes/access-control/login-settings.test.ts": [
     "GET /v1/login-settings",
     "PATCH /v1/login-settings",
   ],
@@ -85,7 +85,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/sessions/{id}/resume",
     "POST /v1/sessions/{id}/recovery-decisions",
   ],
-  "routes/musterrolle/session-shares.test.ts": [
+  "routes/access-control/session-shares.test.ts": [
     "GET /v1/sessions/{id}/share",
     "POST /v1/sessions/{id}/share",
     "POST /v1/sessions/{id}/audit-read",
@@ -153,7 +153,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/installation/settings/repositories/{id}/credential",
   ],
   "routes/sessions/events.test.ts": ["GET /v1/sessions/{id}/events"],
-  "routes/musterrolle/members.test.ts": [
+  "routes/access-control/members.test.ts": [
     "GET /v1/members",
     "PATCH /v1/members/{user_id}",
     "POST /v1/members/{user_id}/disable",
@@ -163,7 +163,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/takeovers",
     "POST /v1/sessions/{id}/takeover",
   ],
-  "routes/musterrolle/linked-accounts.test.ts": [
+  "routes/access-control/linked-accounts.test.ts": [
     "POST /v1/linked-accounts/slack/start",
     "POST /v1/linked-accounts/slack/callback",
     "POST /v1/linked-accounts/github/start",
@@ -171,18 +171,18 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "GET /v1/linked-accounts",
     "DELETE /v1/linked-accounts/{id}",
   ],
-  "routes/musterrolle/invites.test.ts": [
+  "routes/access-control/invites.test.ts": [
     "POST /v1/invites",
     "GET /v1/invites",
     "DELETE /v1/invites/{id}",
     "POST /v1/invites/accept",
   ],
-  "routes/musterrolle/workspaces.test.ts": [
+  "routes/access-control/workspaces.test.ts": [
     "POST /v1/workspaces/{id}/audit-retention",
     "POST /v1/workspaces/{id}/slack-guest",
     "POST /v1/workspaces/{id}/web-fetch-preflight",
   ],
-  "routes/musterrolle/audit-log.test.ts": [
+  "routes/access-control/audit-log.test.ts": [
     "GET /v1/audit/events",
     "GET /v1/audit/events/counts",
   ],
@@ -218,7 +218,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "PUT /v1/agents/{id}/github/repository-access",
     "GET /v1/agents/{id}/github/activity",
   ],
-  "routes/agents/agent-workspace-mcp.test.ts": [
+  "routes/extensions/mcp/agent-workspace-mcp.test.ts": [
     "GET /v1/agents/{id}/mcp/workspace-servers",
     "PUT /v1/agents/{id}/mcp/workspace-servers",
   ],
@@ -244,12 +244,12 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "PUT /v1/workspaces/{id}/slack/config-token",
     "DELETE /v1/workspaces/{id}/slack/config-token",
   ],
-  "routes/musterrolle/api-keys.test.ts": [
+  "routes/access-control/api-keys.test.ts": [
     "POST /v1/api-keys",
     "GET /v1/api-keys",
     "DELETE /v1/api-keys/{id}",
   ],
-  "routes/musterrolle/teams.test.ts": [
+  "routes/access-control/teams.test.ts": [
     "POST /v1/teams",
     "GET /v1/teams",
     "GET /v1/my-teams",
@@ -267,15 +267,15 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "DELETE /v1/agents/{id}/admins/{kind}/{subject_id}",
     "GET /v1/administered-agents",
   ],
-  "routes/musterrolle/agent-caller-limits.test.ts": [
+  "routes/access-control/agent-caller-limits.test.ts": [
     "GET /v1/agents/{id}/caller-limits",
     "PUT /v1/agents/{id}/caller-limits",
   ],
-  "routes/musterrolle/agent-usage.test.ts": [
+  "routes/access-control/agent-usage.test.ts": [
     "GET /v1/agents/{id}/usage",
     "PUT /v1/agents/{id}/usage",
   ],
-  "routes/musterrolle/workspace-mcp-servers.test.ts": [
+  "routes/extensions/mcp/workspace-mcp-servers.test.ts": [
     "GET /v1/workspace/mcp-servers",
     "POST /v1/workspace/mcp-servers/discover",
     "POST /v1/workspace/mcp-servers",
@@ -287,7 +287,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/workspace/mcp-servers/{id}/disconnect",
     "POST /v1/workspace/mcp-servers/{id}/tools/refresh",
   ],
-  "routes/extensions/skills.test.ts": [
+  "routes/extensions/skills/skills.test.ts": [
     "GET /v1/workspace/skills",
     "POST /v1/workspace/skills",
     "POST /v1/workspace/skills/github",
@@ -304,7 +304,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "PUT /v1/agents/{id}/skills/{name}",
     "DELETE /v1/agents/{id}/skills/{name}",
   ],
-  "routes/extensions/skill-repositories.test.ts": [
+  "routes/extensions/skills/skill-repositories.test.ts": [
     "GET /v1/workspace/skill-repositories",
     "POST /v1/workspace/skill-repositories",
     "GET /v1/workspace/skill-repositories/{id}",
@@ -312,7 +312,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/workspace/skill-repositories/{id}/check",
     "PUT /v1/workspace/skill-repositories/{id}/ref",
   ],
-  "routes/musterrolle/env-variables.test.ts": [
+  "routes/access-control/env-variables.test.ts": [
     "GET /v1/workspace/variables",
     "PUT /v1/workspace/variables/{name}",
     "DELETE /v1/workspace/variables/{name}",
@@ -321,7 +321,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "PUT /v1/agents/{id}/variables/{name}",
     "DELETE /v1/agents/{id}/variables/{name}",
   ],
-  "routes/musterrolle/credential-bindings.test.ts": [
+  "routes/access-control/credential-bindings.test.ts": [
     "GET /v1/agents/{id}/credential-bindings",
     "POST /v1/agents/{id}/credential-bindings",
     "DELETE /v1/agents/{id}/credential-bindings/{binding_id}",
@@ -338,7 +338,7 @@ export const ROUTE_ERROR_TESTS: Record<string, string[]> = {
     "POST /v1/agents/{id}/activate",
     "GET /v1/connections",
   ],
-  "routes/musterrolle/agent-identities.test.ts": [
+  "routes/access-control/agent-identities.test.ts": [
     "POST /v1/agents/{id}/identities",
     "GET /v1/agents/{id}/identities",
     "DELETE /v1/agents/{id}/identities/{identity_id}",

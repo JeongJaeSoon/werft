@@ -9,6 +9,13 @@ import {
   type PullRequestSettings,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
+import { SessionServiceError } from "../../access-control/index.ts";
+import {
+  type AuthorizationPolicy,
+  callerFor,
+  createAuthorizationPolicy,
+  type SessionAccess,
+} from "../../access-control/policy.ts";
 import {
   repositoryBinding,
   type SessionCatalog,
@@ -19,13 +26,6 @@ import {
   GitHubGateError,
   type GitHubWork,
 } from "../../github/ports/github-gate.ts";
-import { SessionServiceError } from "../../musterrolle/index.ts";
-import {
-  type AuthorizationPolicy,
-  callerFor,
-  createAuthorizationPolicy,
-  type SessionAccess,
-} from "../../musterrolle/policy.ts";
 import { fakeRepositoryReads } from "../../testing/repository-tree-fake.ts";
 import { ForgeCredentialError, type ForgePullRequest } from "../ports/forge.ts";
 import type { GitHubApi } from "../ports/github-api.ts";

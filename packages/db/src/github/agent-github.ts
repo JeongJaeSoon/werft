@@ -13,8 +13,8 @@ import type {
 } from "@werft-ai/platform";
 import { receiptActorOf } from "@werft-ai/platform";
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { sessionVisibleTo } from "../access-control/index.ts";
 import { lockAgentToChange } from "../agents.ts";
-import { sessionVisibleTo } from "../musterrolle/index.ts";
 import { receiptFromRow } from "../postgres-unit-of-work.ts";
 import type { Database } from "../queries.ts";
 import {

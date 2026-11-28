@@ -27,6 +27,8 @@ import {
 import { createApiApp } from "./app.ts";
 import { hashApiKey } from "./keys.ts";
 import { API_ROUTE_DECLARATIONS } from "./openapi.ts";
+import { registerMemberRoutes } from "./routes/access-control/members.ts";
+import { registerSessionShareRoutes } from "./routes/access-control/session-shares.ts";
 import { registerPullRequestRoutes } from "./routes/action/pull-requests.ts";
 import { registerPushRequestRoutes } from "./routes/action/push-requests.ts";
 import {
@@ -34,8 +36,6 @@ import {
   registerSessionAttributionRoutes,
   registerSessionOutcomeRoutes,
 } from "./routes/github/github-work.ts";
-import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
-import { registerSessionShareRoutes } from "./routes/musterrolle/session-shares.ts";
 import { registerSessionAchievementRoutes } from "./routes/sessions/achievements.ts";
 import { registerCloseRoutes } from "./routes/sessions/close.ts";
 import { registerEventRoutes } from "./routes/sessions/events.ts";

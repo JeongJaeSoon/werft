@@ -148,7 +148,7 @@ describe("contracts 사본", () => {
     );
     const contracts = copied(
       new URL(
-        "../../../../packages/contracts/src/musterrolle/github-app.ts",
+        "../../../../packages/contracts/src/access-control/github-app.ts",
         import.meta.url,
       ),
     );

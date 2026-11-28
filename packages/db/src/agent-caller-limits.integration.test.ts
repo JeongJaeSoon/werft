@@ -17,15 +17,15 @@ import {
 } from "@werft-ai/testkit/postgres";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { createPostgresAgentStore } from "./agents.ts";
-import { createDatabaseAgentAuthority } from "./musterrolle/agent-authority.ts";
+import { createDatabaseAgentAuthority } from "./access-control/agent-authority.ts";
 import {
   callerLimitsOf,
   createPostgresAgentCallerLimitsStore,
-} from "./musterrolle/agent-caller-limits.ts";
-import { createPostgresCredentialBindingStore } from "./musterrolle/credential-bindings.ts";
-import { createDatabaseIdentityReader } from "./musterrolle/identity-reader.ts";
-import { createPostgresTeamStore } from "./musterrolle/member-teams.ts";
+} from "./access-control/agent-caller-limits.ts";
+import { createPostgresCredentialBindingStore } from "./access-control/credential-bindings.ts";
+import { createDatabaseIdentityReader } from "./access-control/identity-reader.ts";
+import { createPostgresTeamStore } from "./access-control/member-teams.ts";
+import { createPostgresAgentStore } from "./agents.ts";
 import * as schema from "./schema.ts";
 import { acting, cast as agentCast, idOf, newTeam } from "./testing/people.ts";
 import { TEST_RUNTIMES, testSessionCatalog } from "./testing/spec-pins.ts";

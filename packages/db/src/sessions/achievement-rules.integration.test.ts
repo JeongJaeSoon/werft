@@ -19,8 +19,8 @@ import {
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { bootstrapOwner } from "../access-control/identity.ts";
 import { findPgError } from "../control-shared.ts";
-import { bootstrapOwner } from "../musterrolle/identity.ts";
 import * as schema from "../schema.ts";
 import {
   achievementRules,

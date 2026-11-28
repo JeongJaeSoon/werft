@@ -11,6 +11,14 @@ import type {
   SettingsEntryState,
 } from "@werft-ai/contracts";
 import {
+  type AuthorizationPolicy,
+  type Caller,
+  requirePermitted,
+  SECRET_STORE_OFF,
+  SessionServiceError,
+} from "../access-control/index.ts";
+import type { TeamActor } from "../access-control/ports/team-store.ts";
+import {
   BILLING_NONE_ENDPOINT_MESSAGE,
   billingFitsEndpoint,
   type CatalogConnection,
@@ -25,14 +33,6 @@ import {
   resolveCredential,
 } from "../catalog/index.ts";
 import { rsaPrivateKey } from "../github/index.ts";
-import {
-  type AuthorizationPolicy,
-  type Caller,
-  requirePermitted,
-  SECRET_STORE_OFF,
-  SessionServiceError,
-} from "../musterrolle/index.ts";
-import type { TeamActor } from "../musterrolle/ports/team-store.ts";
 import type { OutboundHttp } from "../ports/outbound-http.ts";
 import { listProviderModels, ModelDiscoveryError } from "./model-discovery.ts";
 import type {

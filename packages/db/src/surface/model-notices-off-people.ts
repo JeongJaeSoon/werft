@@ -1,5 +1,5 @@
 import { and, asc, eq, sql } from "drizzle-orm";
-import { sessionNoticeThread } from "../musterrolle/index.ts";
+import { sessionNoticeThread } from "../access-control/index.ts";
 import type { Database } from "../queries.ts";
 import { slackOutbox } from "../schema.ts";
 

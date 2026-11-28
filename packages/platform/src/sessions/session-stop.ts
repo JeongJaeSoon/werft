@@ -3,7 +3,7 @@ import {
   type Caller,
   requirePermitted,
   SessionServiceError,
-} from "../musterrolle/index.ts";
+} from "../access-control/index.ts";
 import type { createInterruptService } from "./interrupt-service.ts";
 import type { SessionStops } from "./ports/session-stops.ts";
 

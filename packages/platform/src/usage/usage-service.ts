@@ -23,6 +23,12 @@ import {
   type UsageToolsResponse,
 } from "@werft-ai/contracts";
 import {
+  type AuthorizationPolicy,
+  type Caller,
+  requirePermitted,
+  SessionServiceError,
+} from "../access-control/index.ts";
+import {
   budgetExceeded,
   type InstallationLimits,
   readSetting,
@@ -31,12 +37,6 @@ import {
   STORAGE_ACCOUNTED_CONTENT,
   sessionBudgetOf,
 } from "../limits/index.ts";
-import {
-  type AuthorizationPolicy,
-  type Caller,
-  requirePermitted,
-  SessionServiceError,
-} from "../musterrolle/index.ts";
 import type { WorkerLimits } from "../scheduler/ports/execution-backend.ts";
 import { pendingField, viewerFor } from "../sessions/index.ts";
 import type {

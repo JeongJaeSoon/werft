@@ -8,8 +8,8 @@ import {
 import { and, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { sessionVisibleTo } from "./musterrolle/session-shares.ts";
-import { createPostgresSurfaceBindingStore } from "./musterrolle/surface-bindings.ts";
+import { sessionVisibleTo } from "./access-control/session-shares.ts";
+import { createPostgresSurfaceBindingStore } from "./access-control/surface-bindings.ts";
 import type { Database } from "./queries.ts";
 import * as schema from "./schema.ts";
 import { createPostgresSessionLinkStore } from "./session-links.ts";

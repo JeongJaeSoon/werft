@@ -20,7 +20,7 @@ import type {
 import { migratedPGlite } from "@werft-ai/testkit/pglite";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { sessionVisibleTo } from "../musterrolle/index.ts";
+import { sessionVisibleTo } from "../access-control/index.ts";
 import {
   APPEND_MESSAGE,
   conversationTurnInputScope,

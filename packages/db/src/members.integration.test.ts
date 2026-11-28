@@ -16,9 +16,9 @@ import {
 import { and, eq } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { issuePasswordReset } from "./musterrolle/identity.ts";
-import { createDatabaseIdentityReader } from "./musterrolle/identity-reader.ts";
-import { createPostgresMemberStore } from "./musterrolle/members.ts";
+import { issuePasswordReset } from "./access-control/identity.ts";
+import { createDatabaseIdentityReader } from "./access-control/identity-reader.ts";
+import { createPostgresMemberStore } from "./access-control/members.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import { createPostgresSchedulerStore } from "./scheduler/scheduler-store.ts";
 import * as schema from "./schema.ts";

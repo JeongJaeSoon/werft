@@ -11,7 +11,7 @@ import { z } from "zod";
 import {
   type AuthorizationPolicy,
   AuthorizationUndecidedError,
-} from "../musterrolle/index.ts";
+} from "../access-control/index.ts";
 import type { WorkerUnitOfWork } from "../ports/worker-unit-of-work.ts";
 import type { WorkerPendingStore } from "../sessions/ports/pending-requests.ts";
 import { testBinding, testCatalog } from "../testing/catalog-fakes.ts";

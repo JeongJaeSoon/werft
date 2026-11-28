@@ -1,8 +1,8 @@
 import type { ConversationInputId } from "@werft-ai/contracts";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { revokeInstallationIdentities } from "../access-control/index.ts";
 import { dropUnlistenedBuffer } from "../conversations/index.ts";
 import { DB_NOW } from "../db-clock.ts";
-import { revokeInstallationIdentities } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import { slackInstallations, slackOutbox, surfaceBindings } from "../schema.ts";
 import { forgetInstallationMembers } from "./slack-channel-members.ts";

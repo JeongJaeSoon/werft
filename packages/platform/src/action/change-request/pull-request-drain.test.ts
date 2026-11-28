@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_PULL_REQUEST_SETTINGS } from "@werft-ai/contracts";
+import { createAuthorizationPolicy } from "../../access-control/policy.ts";
 import {
   repositoryBinding,
   type SessionCatalog,
@@ -8,7 +9,6 @@ import {
   type GitHubGate,
   GitHubGateError,
 } from "../../github/ports/github-gate.ts";
-import { createAuthorizationPolicy } from "../../musterrolle/policy.ts";
 import {
   type FakeFile,
   fakeRepositoryReads,

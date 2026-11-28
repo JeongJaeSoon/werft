@@ -5,11 +5,11 @@ import {
   type RepositoryCeiling,
   repositoryRefOf,
 } from "@werft-ai/contracts";
-import { SessionServiceError } from "../../musterrolle/index.ts";
+import { SessionServiceError } from "../../access-control/index.ts";
 import {
   callerFor,
   createAuthorizationPolicy,
-} from "../../musterrolle/policy.ts";
+} from "../../access-control/policy.ts";
 import type {
   CatalogRepositoryRow,
   CatalogRepositoryStore,

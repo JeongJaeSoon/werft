@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   githubPurposeSchema,
   githubRefusalSchema,
-} from "../musterrolle/github-settings.ts";
+} from "../access-control/github-settings.ts";
 import { receiptIdSchema, timestampSchema } from "../shared/index.ts";
 import { GITHUB_REVIEW_EVENT_VALUES } from "./github-work.ts";
 import { GITHUB_GATE_RECEIPT_OPERATION_VALUES } from "./receipt.ts";

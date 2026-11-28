@@ -18,7 +18,7 @@ import {
   withDirectSources,
 } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
-import { channelKindOf, sessionVisibleTo } from "../musterrolle/index.ts";
+import { channelKindOf, sessionVisibleTo } from "../access-control/index.ts";
 import type { Database } from "../queries.ts";
 import { rowsOf } from "../statement-rows.ts";
 import { lockedTurnReadDeleted } from "./conversation-turns.ts";

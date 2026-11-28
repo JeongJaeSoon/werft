@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { AuthorizationPolicy } from "../musterrolle/policy.ts";
-import { SessionServiceError } from "../musterrolle/service-errors.ts";
+import type { AuthorizationPolicy } from "../access-control/policy.ts";
+import { SessionServiceError } from "../access-control/service-errors.ts";
 import { testCatalog } from "../testing/catalog-fakes.ts";
 import type {
   AppendMessageInput,

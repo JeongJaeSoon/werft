@@ -20,7 +20,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createPostgresAgentStore } from "./agents.ts";
-import { createPostgresExtensionBundleStore } from "./extensions/extension-bundles.ts";
+import { createPostgresExtensionBundleStore } from "./extensions/bundles/extension-bundles.ts";
 import { createPostgresSessionUnitOfWork } from "./postgres-unit-of-work.ts";
 import * as schema from "./schema.ts";
 import {

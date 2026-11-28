@@ -11,7 +11,7 @@ import { Pool } from "pg";
 import {
   createPostgresSlackGuestSetting,
   createPostgresWebFetchPreflightSetting,
-} from "./musterrolle/workspace-settings.ts";
+} from "./access-control/workspace-settings.ts";
 import * as schema from "./schema.ts";
 import { memberships, receipts, users, workspaces } from "./schema.ts";
 

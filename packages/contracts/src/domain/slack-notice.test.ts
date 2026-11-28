@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { slackNoticeTextSchema } from "../musterrolle/slack-notice-approval.ts";
+import { slackNoticeTextSchema } from "../access-control/slack-notice-approval.ts";
 import {
   SLACK_NOTICE_LOCALE_VALUES,
   SLACK_NOTICE_VERSIONS,

@@ -22,8 +22,8 @@ import {
   testSpecSource,
 } from "../testing/catalog-fakes.ts";
 import { acceptAllCheckpoints } from "../testing/checkpoints.ts";
+import { WERFT_MCP_UPSTREAM_PATH } from "./mcp-egress/werft-mcp-egress.ts";
 import type { WorkspaceMcpEgressStore } from "./ports/workspace-mcp-egress.ts";
-import { WERFT_MCP_UPSTREAM_PATH } from "./werft-mcp-egress.ts";
 import { createWorkerGateway } from "./worker-gateway.ts";
 
 const SESSION = "0b3f1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d";

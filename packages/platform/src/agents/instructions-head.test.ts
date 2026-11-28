@@ -4,8 +4,8 @@ import type {
   ReleaseInstructions,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit/callers";
+import { SessionServiceError } from "../access-control/service-errors.ts";
 import type { GitHubReleaseRead } from "../github/ports/github-gate.ts";
-import { SessionServiceError } from "../musterrolle/service-errors.ts";
 import {
   type BranchHeadReadable,
   createInstructionsHeadService,

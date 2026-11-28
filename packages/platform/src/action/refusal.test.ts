@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { Principal, PushRequest } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
-import type { SessionCatalog } from "../catalog/catalog.ts";
-import { SessionServiceError } from "../musterrolle/index.ts";
+import { SessionServiceError } from "../access-control/index.ts";
 import {
   type AuthorizationPolicy,
   createAuthorizationPolicy,
-} from "../musterrolle/policy.ts";
+} from "../access-control/policy.ts";
+import type { SessionCatalog } from "../catalog/catalog.ts";
 import { createPushRequestService } from "./change-request/push-request-service.ts";
 import { createGitHubMcpServer } from "./github/github-mcp-server.ts";
 import type { PushRequestStore } from "./ports/push-requests.ts";

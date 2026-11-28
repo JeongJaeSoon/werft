@@ -21,7 +21,7 @@ import type {
 } from "@werft-ai/platform";
 import { MANAGEMENT_ROLES } from "@werft-ai/platform";
 import { and, desc, eq, isNotNull, or, sql } from "drizzle-orm";
-import { lockedRole } from "../musterrolle/index.ts";
+import { lockedRole } from "../access-control/index.ts";
 import type { Database } from "../queries.ts";
 import {
   agentGitHubSettings,

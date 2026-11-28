@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AuthorizationPolicy } from "../musterrolle/policy.ts";
+import type { AuthorizationPolicy } from "../access-control/policy.ts";
 import { testCatalog } from "../testing/catalog-fakes.ts";
 import type {
   AppendMessageInput,

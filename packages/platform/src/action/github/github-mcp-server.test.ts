@@ -12,17 +12,17 @@ import {
   type ReceiptActor,
 } from "@werft-ai/contracts";
 import { testCaller } from "@werft-ai/testkit";
+import { SessionServiceError } from "../../access-control/index.ts";
+import {
+  type AuthorizationPolicy,
+  createAuthorizationPolicy,
+} from "../../access-control/policy.ts";
 import {
   type GitHubGate,
   GitHubGateError,
   type GitHubWork,
 } from "../../github/ports/github-gate.ts";
 import type { GitHubMcpSessionState } from "../../github/ports/github-mcp.ts";
-import { SessionServiceError } from "../../musterrolle/index.ts";
-import {
-  type AuthorizationPolicy,
-  createAuthorizationPolicy,
-} from "../../musterrolle/policy.ts";
 import { createRepositoryAttachmentService } from "../../sessions/repository-attachment-service.ts";
 import {
   attachCatalog,

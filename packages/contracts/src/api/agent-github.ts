@@ -1,11 +1,10 @@
 import { z } from "zod";
-
+import { repositoryRefSchema } from "../access-control/github-repository.ts";
 import {
   agentGitHubSettingsInputSchema,
   agentGitHubSettingsSchema,
   pushAttachedSchema,
-} from "../kollegium/agents.ts";
-import { repositoryRefSchema } from "../musterrolle/github-repository.ts";
+} from "../agents/agents.ts";
 import {
   privateChannelsPendingSchema,
   receiptIdSchema,

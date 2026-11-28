@@ -6,8 +6,8 @@ import type {
 } from "@werft-ai/platform";
 import { MANAGEMENT_ROLES } from "@werft-ai/platform";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { holdsRight, lockedRole } from "../access-control/index.ts";
 import { lockSettingsGeneration } from "../installation-settings.ts";
-import { holdsRight, lockedRole } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import {
   agentReleases,

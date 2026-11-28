@@ -340,19 +340,42 @@ import { createProviderLogin } from "./provider-login.ts";
 import { createSlackEventsLimiter } from "./rate-limit.ts";
 import { createReadinessProbe } from "./readiness.ts";
 import { RequestTracing } from "./request-tracing.ts";
+import { registerAgentCallerLimitsRoutes } from "./routes/access-control/agent-caller-limits.ts";
+import { registerAgentIdentityRoutes } from "./routes/access-control/agent-identities.ts";
+import { registerAgentUsageRoutes } from "./routes/access-control/agent-usage.ts";
+import { registerApiKeyRoutes } from "./routes/access-control/api-keys.ts";
+import { registerAuditLogRoutes } from "./routes/access-control/audit-log.ts";
+import {
+  registerAuthRoutes,
+  registerPublicAuthRoutes,
+} from "./routes/access-control/auth.ts";
+import { registerCredentialBindingRoutes } from "./routes/access-control/credential-bindings.ts";
+import { registerEnvVariableRoutes } from "./routes/access-control/env-variables.ts";
+import {
+  registerInviteRoutes,
+  registerPublicInviteRoutes,
+} from "./routes/access-control/invites.ts";
+import { registerLinkedAccountRoutes } from "./routes/access-control/linked-accounts.ts";
+import { registerLoginProviderRoutes } from "./routes/access-control/login-providers.ts";
+import { registerLoginSettingsRoutes } from "./routes/access-control/login-settings.ts";
+import { registerMemberRoutes } from "./routes/access-control/members.ts";
+import { registerSessionShareRoutes } from "./routes/access-control/session-shares.ts";
+import { registerTeamRoutes } from "./routes/access-control/teams.ts";
+import { registerWorkspaceRoutes } from "./routes/access-control/workspaces.ts";
 import { registerAgentPullRequestRoutes } from "./routes/action/agent-pull-request.ts";
 import { registerPullRequestRoutes } from "./routes/action/pull-requests.ts";
 import { registerPushRequestRoutes } from "./routes/action/push-requests.ts";
-import { registerAgentWorkspaceMcpRoutes } from "./routes/agents/agent-mcp.ts";
 import {
   refuseDeletedAgents,
   registerAgentRoutes,
 } from "./routes/agents/agents.ts";
+import { registerAgentWorkspaceMcpRoutes } from "./routes/extensions/mcp/agent-mcp.ts";
+import { registerWorkspaceMcpServerRoutes } from "./routes/extensions/mcp/workspace-mcp-servers.ts";
 import {
   listingBeyondRequest,
   registerSkillRepositoryRoutes,
-} from "./routes/extensions/skill-repositories.ts";
-import { registerSkillRoutes } from "./routes/extensions/skills.ts";
+} from "./routes/extensions/skills/skill-repositories.ts";
+import { registerSkillRoutes } from "./routes/extensions/skills/skills.ts";
 import { registerAgentGitHubRoutes } from "./routes/github/agent-github.ts";
 import { registerGitHubAppRoutes } from "./routes/github/github-app.ts";
 import { registerGitHubPackagesRoutes } from "./routes/github/github-packages.ts";
@@ -368,29 +391,6 @@ import {
 import { registerInstallationConfigRoutes } from "./routes/limits/installation-config.ts";
 import { registerInstallationStatusRoutes } from "./routes/limits/installation-status.ts";
 import { registerLostCheckpointNoticeRoutes } from "./routes/limits/lost-checkpoint-notices.ts";
-import { registerAgentCallerLimitsRoutes } from "./routes/musterrolle/agent-caller-limits.ts";
-import { registerAgentIdentityRoutes } from "./routes/musterrolle/agent-identities.ts";
-import { registerAgentUsageRoutes } from "./routes/musterrolle/agent-usage.ts";
-import { registerApiKeyRoutes } from "./routes/musterrolle/api-keys.ts";
-import { registerAuditLogRoutes } from "./routes/musterrolle/audit-log.ts";
-import {
-  registerAuthRoutes,
-  registerPublicAuthRoutes,
-} from "./routes/musterrolle/auth.ts";
-import { registerCredentialBindingRoutes } from "./routes/musterrolle/credential-bindings.ts";
-import { registerEnvVariableRoutes } from "./routes/musterrolle/env-variables.ts";
-import {
-  registerInviteRoutes,
-  registerPublicInviteRoutes,
-} from "./routes/musterrolle/invites.ts";
-import { registerLinkedAccountRoutes } from "./routes/musterrolle/linked-accounts.ts";
-import { registerLoginProviderRoutes } from "./routes/musterrolle/login-providers.ts";
-import { registerLoginSettingsRoutes } from "./routes/musterrolle/login-settings.ts";
-import { registerMemberRoutes } from "./routes/musterrolle/members.ts";
-import { registerSessionShareRoutes } from "./routes/musterrolle/session-shares.ts";
-import { registerTeamRoutes } from "./routes/musterrolle/teams.ts";
-import { registerWorkspaceMcpServerRoutes } from "./routes/musterrolle/workspace-mcp-servers.ts";
-import { registerWorkspaceRoutes } from "./routes/musterrolle/workspaces.ts";
 import {
   registerAchievementRoutes,
   registerSessionAchievementRoutes,

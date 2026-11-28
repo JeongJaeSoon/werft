@@ -5,7 +5,10 @@ import {
   type AgentVersion,
   agentCardSchema,
 } from "@werft-ai/contracts";
-import { callerFor, createAuthorizationPolicy } from "../musterrolle/policy.ts";
+import {
+  callerFor,
+  createAuthorizationPolicy,
+} from "../access-control/policy.ts";
 import {
   TEST_CONNECTION_ID,
   TEST_RUNTIMES,

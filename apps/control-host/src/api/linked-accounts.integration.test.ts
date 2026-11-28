@@ -49,8 +49,8 @@ import { PasswordChecks } from "./password-checks.ts";
 import {
   registerAuthRoutes,
   registerPublicAuthRoutes,
-} from "./routes/musterrolle/auth.ts";
-import { registerLinkedAccountRoutes } from "./routes/musterrolle/linked-accounts.ts";
+} from "./routes/access-control/auth.ts";
+import { registerLinkedAccountRoutes } from "./routes/access-control/linked-accounts.ts";
 import { createSlackOidcTransport } from "./slack-link.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;

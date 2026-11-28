@@ -40,8 +40,8 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import { lockedAdministers } from "../access-control/index.ts";
 import { findPgError, lockPeople } from "../control-shared.ts";
-import { lockedAdministers } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import {
   achievementJudgments,

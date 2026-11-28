@@ -3,7 +3,7 @@ import {
   type Caller,
   requirePermitted,
   SessionServiceError,
-} from "../musterrolle/index.ts";
+} from "../access-control/index.ts";
 import type {
   RequesterCloseReason,
   TaskCloseOutcome,

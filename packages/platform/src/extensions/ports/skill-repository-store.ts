@@ -3,7 +3,7 @@ import type {
   SkillRepositoryTriggerKind,
   WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { Principal } from "../../musterrolle/index.ts";
+import type { Principal } from "../../access-control/index.ts";
 import type { SkillSyncIssue } from "./skill-git-source-store.ts";
 
 /** What started a listing of a skill repository. */

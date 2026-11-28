@@ -11,7 +11,7 @@ import type {
   UnreadableRelease,
   WorkspaceRole,
 } from "@werft-ai/contracts";
-import type { Principal } from "../../musterrolle/index.ts";
+import type { Principal } from "../../access-control/index.ts";
 import type { SessionViewer } from "../../sessions/ports/session-share-store.ts";
 import type { ReleaseSpecRecord } from "../release-spec.ts";
 

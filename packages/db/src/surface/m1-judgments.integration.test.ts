@@ -20,6 +20,7 @@ import {
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { createPostgresSurfaceBindingStore } from "../access-control/surface-bindings.ts";
 import {
   appendChannelSummaryLines,
   createPostgresChannelSummaryStore,
@@ -30,7 +31,6 @@ import { requestReplyJudgment } from "../conversations/conversation-judgments.ts
 import { createPostgresConversationStore } from "../conversations/conversation-store.ts";
 import { createPostgresJudgmentBatchStore } from "../conversations/judgment-batches.ts";
 import { holdBufferedInput } from "../conversations/judgment-buffer.ts";
-import { createPostgresSurfaceBindingStore } from "../musterrolle/surface-bindings.ts";
 import type { Database } from "../queries.ts";
 import * as schema from "../schema.ts";
 import { fixtureTeamSql } from "../testing/fixture-team.ts";

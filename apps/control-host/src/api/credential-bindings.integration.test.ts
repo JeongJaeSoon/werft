@@ -55,13 +55,13 @@ import { createApiApp } from "./app.ts";
 import { DatabaseIdentityStore } from "./auth.ts";
 import { DatabaseApiKeyStore, generateApiKey, hashApiKey } from "./keys.ts";
 import { PasswordChecks } from "./password-checks.ts";
-import { registerAgentRoutes } from "./routes/agents/agents.ts";
-import { registerApiKeyRoutes } from "./routes/musterrolle/api-keys.ts";
+import { registerApiKeyRoutes } from "./routes/access-control/api-keys.ts";
 import {
   registerAuthRoutes,
   registerPublicAuthRoutes,
-} from "./routes/musterrolle/auth.ts";
-import { registerCredentialBindingRoutes } from "./routes/musterrolle/credential-bindings.ts";
+} from "./routes/access-control/auth.ts";
+import { registerCredentialBindingRoutes } from "./routes/access-control/credential-bindings.ts";
+import { registerAgentRoutes } from "./routes/agents/agents.ts";
 import { registerSessionRoutes } from "./routes/sessions/sessions.ts";
 
 const integration = process.env.QUEUE_DATABASE_URL ? describe : describe.skip;

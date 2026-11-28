@@ -1,5 +1,5 @@
 import type { TaskClosedReason } from "@werft-ai/contracts";
-import type { Principal } from "../../musterrolle/index.ts";
+import type { Principal } from "../../access-control/index.ts";
 
 /** The reasons a task's requester closes it with (v1-b/C1). */
 export type RequesterCloseReason = Extract<
