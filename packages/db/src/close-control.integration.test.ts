@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { ReceiptActor, SseEvent } from "@werft-ai/contracts";
+import {
+  type ReceiptActor,
+  type SseEvent,
+  TASK_CLOSING_DEFAULT,
+} from "@werft-ai/contracts";
 import {
   type SessionCatalog,
   type WorkerGateway,
@@ -33,6 +37,7 @@ import {
 import { closeAtomic, taskClosePayloadHash } from "./sessions/close-control.ts";
 import { createPostgresWorkerPendingStore } from "./sessions/pending-control.ts";
 import { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
+import { createPostgresTaskCloses } from "./sessions/task-close.ts";
 import {
   testWorkerGateway,
   type TestWorker as Worker,
@@ -662,6 +667,93 @@ integration("close on PostgreSQL", () => {
     expect(await sessionRow(lost.sessionId)).toMatchObject({
       admissionState: "recovery_required",
       taskClosedReason: null,
+    });
+  });
+
+  test("a pull request close that drains stores the reason judged under its lock and names it once closed", async () => {
+    const session = await newSession("task-pull-request");
+    const worker = await claim(session);
+    const turn = await deliver(worker);
+    await db
+      .update(sessions)
+      .set({ taskClosing: TASK_CLOSING_DEFAULT })
+      .where(eq(sessions.id, session.sessionId));
+    await db.insert(schema.sessionOutcomes).values({
+      id: crypto.randomUUID(),
+      ownerId: session.ownerId,
+      sessionId: session.sessionId,
+      type: "github_pull_request",
+      url: "https://github.com/acme/app/pull/7",
+      externalId: "7",
+      state: "closed",
+      stateChangedAt: new Date(),
+      closedAt: new Date(),
+    });
+    expect(await createPostgresTaskCloses(db).closeOnPullRequests(10)).toBe(1);
+    const closing = await sessionRow(session.sessionId);
+    expect(closing).toMatchObject({
+      admissionState: "closing",
+      taskClosedReason: null,
+    });
+    const [open] = await db
+      .select({ id: receipts.id })
+      .from(receipts)
+      .where(
+        and(
+          eq(receipts.operation, "close"),
+          sql`${receipts.targetRef}->>'session_id' = ${session.sessionId}`,
+        ),
+      );
+    if (!open) throw new Error("no close receipt");
+    await finalize(worker, turn, 0);
+    await gateway.nextInput(worker.principal, worker.scope);
+    expect(await releaseForDrain(worker, open.id)).toEqual({ released: true });
+    await confirmExecutionGone(db, worker.executionId);
+    expect(await sessionRow(session.sessionId)).toMatchObject({
+      admissionState: "closed",
+      taskClosedReason: "cancelled",
+    });
+  });
+
+  test("a pull request close does not wait on a refresh holding the pull request's row", async () => {
+    const session = await idleCovered("task-refresh-held");
+    await db
+      .update(sessions)
+      .set({ taskClosing: TASK_CLOSING_DEFAULT })
+      .where(eq(sessions.id, session.sessionId));
+    const outcomeId = crypto.randomUUID();
+    await db.insert(schema.sessionOutcomes).values({
+      id: outcomeId,
+      ownerId: session.ownerId,
+      sessionId: session.sessionId,
+      type: "github_pull_request",
+      url: "https://github.com/acme/app/pull/8",
+      externalId: "8",
+      state: "merged",
+      stateChangedAt: new Date(),
+      mergedAt: new Date(),
+    });
+    // A refresh settling the row holds it, then waits on the session.
+    const refresh = await pool.connect();
+    try {
+      await refresh.query("BEGIN");
+      await refresh.query(
+        "SELECT 1 FROM session_outcomes WHERE id = $1 FOR UPDATE",
+        [outcomeId],
+      );
+      const pass = createPostgresTaskCloses(db).closeOnPullRequests(10);
+      const waited = await Promise.race([
+        pass,
+        new Promise((resolve) => setTimeout(() => resolve("waiting"), 3000)),
+      ]);
+      expect(waited).toBe(1);
+    } finally {
+      await refresh.query("ROLLBACK");
+      refresh.release();
+    }
+    expect(await sessionRow(session.sessionId)).toMatchObject({
+      admissionState: "closed",
+      taskClosedReason: "completed",
     });
   });
 

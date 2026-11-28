@@ -108,11 +108,11 @@
 
 - 작업의 스레드 링크는 다음 outbox pass의 `closeFinishedLinks`가 `task_closed_reason`으로 닫는다. 진행 메시지가 있는 링크는 닫힘 갱신 행(취소면 '작업을 취소했어요')이 생긴 뒤에 닫힌다. 같은 pass에서 진행 갱신을 넣은 뒤 링크를 닫기 전에 세션이 닫혀도 같다.
 - 닫힌 작업의 진행 메시지에는 버튼이 없다.
-- PR 사건의 사유는 닫기 트랜잭션이 세션을 잠근 뒤 그 세션의 PR 성과를 다시 읽어 정한다. PR 저장도 같은 세션을 잠그고 refresh는 성과 행을 잠그므로, pass가 후보를 고른 뒤 저장된 PR(새로 열린 PR, merge)이 그 닫기에 보인다.
+- PR 사건의 사유는 닫기 트랜잭션이 세션을 잠근 뒤 그 세션의 PR 성과를 다시 읽어 정한다. pass가 후보를 고른 뒤, 닫기가 세션을 잠그기 전에 커밋된 PR 저장·refresh(새로 열린 PR, merge, 다시 열림)는 그 닫기에 보인다. PR 저장은 세션을 먼저 잠그므로 닫기가 먼저 잠갔으면 닫기 뒤에 저장된다. 성과 행은 잠그지 않는다: refresh는 성과 행을 잡은 채 세션을 기다리므로(`queueAchievementJudgment`), 잠그면 서로 기다린다.
 - PR 사건 pass는 replica마다 지난 pass가 멈춘 세션 id 뒤에서 이어 고른다. `closeAtomic`이 계속 거절하는 작업이 한 번에 고르는 수(100)보다 많아도 그 뒤 작업이 밀리지 않는다.
 - 요청자가 닫은 작업의 스레드에 온 멘션은 대화 turn이 된다(`spawn_task`면 새 작업과 새 링크, `reply`면 답만).
 
-시험: `apps/control-host/src/slack/outbox.integration.test.ts`의 `a task's close on …` 묶음과 `a work closed between a pass's progress and its link close keeps its link open for the closed update`, `apps/control-host/src/slack/session-handler.integration.test.ts`의 `a mention in the thread of a task its requester closed is a conversation turn, and its %s takes effect`, `packages/adapters/chat/slack/src/slack-interactions.test.ts`의 `the close buttons on a task's progress message` 묶음, `packages/platform/src/sessions/task-close.test.ts`, `packages/platform/src/sessions/outcome-refresher.test.ts`, `packages/db/src/sessions/task-close.test.ts`, `packages/db/src/close-control.integration.test.ts`의 `a task close that drains names its reason only once the session is closed; one lost to recovery leaves none`.
+시험: `apps/control-host/src/slack/outbox.integration.test.ts`의 `a task's close on …` 묶음과 `a work closed between a pass's progress and its link close keeps its link open for the closed update`, `apps/control-host/src/slack/session-handler.integration.test.ts`의 `a mention in the thread of a task its requester closed is a conversation turn, and its %s takes effect`, `packages/adapters/chat/slack/src/slack-interactions.test.ts`의 `the close buttons on a task's progress message` 묶음, `packages/platform/src/sessions/task-close.test.ts`, `packages/platform/src/sessions/outcome-refresher.test.ts`, `packages/db/src/sessions/task-close.test.ts`, `packages/db/src/close-control.integration.test.ts`의 `a task close that drains names its reason only once the session is closed; one lost to recovery leaves none`, `a pull request close that drains stores the reason judged under its lock and names it once closed`, `a pull request close does not wait on a refresh holding the pull request's row`.
 
 ### terminate가 일으키는 전이
 

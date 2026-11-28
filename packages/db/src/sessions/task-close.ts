@@ -25,8 +25,10 @@ class NotDue extends Error {}
 /**
  * The reason a task's pull requests close it with: any merged, completed;
  * else closed with none open, cancelled. Read under the session's lock,
- * which saving a pull request takes too, with the rows shared against a
- * refresh settling one, so the close judges what is there now.
+ * which saving a pull request takes first too, so one saved before the close
+ * is seen. The rows are not locked: a refresh holds its row while it waits
+ * on the session (queueAchievementJudgment), and one not committed yet
+ * settles after the close.
  */
 async function pullRequestReason(
   tx: Database,
@@ -42,7 +44,6 @@ async function pullRequestReason(
           eq(sessionOutcomes.type, "github_pull_request"),
         ),
       )
-      .for("share")
   ).map(({ state }) => state);
   if (states.includes("merged")) return "completed";
   if (states.includes("closed") && !states.includes("open")) return "cancelled";
