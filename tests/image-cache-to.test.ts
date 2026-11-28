@@ -63,6 +63,7 @@ function run(
   exit = 0,
   extra: Record<string, string> = {},
   checkout: Checkout = unchanged,
+  command = ["bash", script],
 ) {
   const dir = mkdtempSync(join(tmpdir(), "image-cache-to-"));
   try {
@@ -75,7 +76,7 @@ function run(
     const repo = join(dir, "repo");
     mkdirSync(repo);
     checkout(repo);
-    const result = Bun.spawnSync(["bash", script], {
+    const result = Bun.spawnSync(command, {
       cwd: repo,
       env: {
         // A checkout without a repository must not find one above it.
@@ -94,7 +95,6 @@ function run(
     return {
       exitCode: result.exitCode,
       stdout: result.stdout.toString(),
-      stderr: result.stderr.toString(),
       args: readFileSync(join(dir, "args"), "utf8"),
     };
   } finally {
@@ -269,9 +269,17 @@ test("a fetch that hangs is cut at LIST_TIMEOUT and the job goes on", () => {
     chmodSync(fake, 0o755);
   };
   const started = Date.now();
-  const result = run("", 0, { LIST_TIMEOUT: "1" }, hanging);
-  expect(result).toMatchObject({ exitCode: 0, stdout: write });
-  expect(result.stderr).toContain("could not fetch origin/main");
+  // Read through a pipe to its end, as a step's log is: Bun alone returns
+  // when the script exits, whoever still holds its output.
+  const result = run("", 0, { LIST_TIMEOUT: "1" }, hanging, [
+    "bash",
+    "-c",
+    'bash "$0" 2>&1 | cat',
+    script,
+  ]);
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain("could not fetch origin/main");
+  expect(result.stdout).toEndWith(write);
   expect(Date.now() - started).toBeLessThan(10_000);
 });
 

@@ -28,8 +28,8 @@
 # (publish-main 20 minutes), so while the commit time is close to the merge time
 # its entry is inside those 30 minutes and the next build writes again.
 #
-# Never fails the job and never holds it: the listing and the fetch each stop
-# after LIST_TIMEOUT seconds, a listing that fails writes as before, and ignore-error=true keeps a
+# Never fails the job and never holds it: the listing and the fetch are each
+# cut after LIST_TIMEOUT seconds (plus 2 for one that ignores TERM), a listing that fails writes as before, and ignore-error=true keeps a
 # failed upload from failing the build.
 set -uo pipefail
 
