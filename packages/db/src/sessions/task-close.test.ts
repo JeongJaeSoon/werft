@@ -183,32 +183,44 @@ describe("a task's time rules", () => {
   }
 
   test.each([
-    ["14 days idle", 14.01, {}, true],
-    ["13 days idle", 13.9, {}, false],
-    ["a session that is no task, 60 days idle", 60, { task: false }, false],
-    ["7 days quiet past its 40 turns", 7.01, { count: 40 }, true],
-    ["7 days quiet past its 2 working hours", 7.01, { minutes: 121 }, true],
+    ["14 days idle closes it", 14.01, {}, true],
+    ["13 days idle leaves it open", 13.9, {}, false],
     [
-      "7 days quiet short of its limits",
+      "a session that is no task stays open 60 days idle",
+      60,
+      { task: false },
+      false,
+    ],
+    ["7 days quiet past its 40 turns closes it", 7.01, { count: 40 }, true],
+    [
+      "7 days quiet past its 2 working hours closes it",
+      7.01,
+      { minutes: 121 },
+      true,
+    ],
+    [
+      "7 days quiet short of its limits leaves it open",
       7.01,
       { count: 39, minutes: 3 },
       false,
     ],
-    ["6 days quiet past its 40 turns", 6.9, { count: 40 }, false],
-  ] as const)(
-    "%s: closed as abandoned is %p",
-    async (_, days, options, closed) => {
-      const sessionId = await quietTask("1", days, options);
-      expect(await createPostgresTaskCloses(db).closeOnTimeRules(50)).toBe(
-        closed ? 1 : 0,
-      );
-      expect(await taskOf(sessionId)).toEqual(
-        closed
-          ? { admission: "closed", reason: "abandoned" }
-          : { admission: "paused", reason: null },
-      );
-    },
-  );
+    [
+      "6 days quiet past its 40 turns leaves it open",
+      6.9,
+      { count: 40 },
+      false,
+    ],
+  ] as const)("%s (as abandoned)", async (_, days, options, closed) => {
+    const sessionId = await quietTask("1", days, options);
+    expect(await createPostgresTaskCloses(db).closeOnTimeRules(50)).toBe(
+      closed ? 1 : 0,
+    );
+    expect(await taskOf(sessionId)).toEqual(
+      closed
+        ? { admission: "closed", reason: "abandoned" }
+        : { admission: "paused", reason: null },
+    );
+  });
 
   test("its close is the system's, by its time rules", async () => {
     const sessionId = await quietTask("1", 15);
