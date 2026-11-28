@@ -2100,8 +2100,9 @@ export function createPostgresSlackOutboxStore(
                   AND last.dedupe_key IS NOT NULL THEN 'closed:' || (
                   SELECT coalesce(max(ct.sequence), 0) FROM turns ct
                   WHERE ct.session_id = session_links.session_id
-                ) || CASE WHEN sessions.task_closed_reason = 'cancelled'
-                  THEN ':cancelled' ELSE '' END END,
+                ) || CASE sessions.task_closed_reason
+                  WHEN 'cancelled' THEN ':cancelled'
+                  WHEN 'abandoned' THEN ':abandoned' ELSE '' END END,
                 -- A worker waiting for room, as the session's wait_reason reads it.
                 (SELECT 'capacity_wait:' || wl.execution_id || ':' || wl.generation
                  FROM worker_launches wl
@@ -2590,6 +2591,68 @@ export function createPostgresSlackOutboxStore(
         .orderBy(sql`${l.createdAt} DESC`, sql`${l.id} DESC`)
         .limit(1);
       return row ?? null;
+    },
+
+    async postedCard({ sessionId, agentId, channelId, slackTs, card }) {
+      if (!UUID.test(sessionId)) return null;
+      const l = sessionLinks;
+      // slackPromptDedupeKey and slackTurnDedupeKey, under the row's own link.
+      const [kind, prefix, suffix] =
+        card.kind === "turn"
+          ? (["failure_notice", "failure:", `:${card.turnId}`] as const)
+          : card.kind === "push"
+            ? (["input_notice", "push:", `:${card.pushRequestId}`] as const)
+            : (["input_notice", "prompt:", `:${card.requestId}`] as const);
+      const [row] = await db
+        .select({
+          id: l.id,
+          agentId: l.agentId,
+          channelId: l.channelId,
+          threadId: l.threadId,
+        })
+        .from(t)
+        .innerJoin(
+          l,
+          and(eq(l.id, t.sessionLinkId), eq(l.sessionId, t.sessionId)),
+        )
+        .where(
+          and(
+            eq(t.sessionId, sessionId.toLowerCase()),
+            eq(t.kind, kind),
+            eq(t.channelId, channelId),
+            eq(t.slackTs, slackTs),
+            sql`${t.dedupeKey} = ${prefix}::text || ${t.sessionLinkId}::text || ${suffix}::text`,
+            // A revoked link takes no more input (as a message there).
+            isNull(l.revokedAt),
+          ),
+        )
+        .limit(1);
+      if (row !== undefined) return row;
+      // A card of the key in that channel that cannot be matched to the
+      // message: one an earlier version posted without its link, or one
+      // whose post never came back with a ts (sending, uncertain, or sent
+      // with no ts in Slack's answer). Only
+      // the pressing agent's, and not under a revoked link.
+      if (!UUID.test(agentId)) return null;
+      const [earlier] = await db
+        .select({ id: t.id })
+        .from(t)
+        .leftJoin(l, eq(l.id, t.sessionLinkId))
+        .where(
+          and(
+            eq(t.sessionId, sessionId.toLowerCase()),
+            eq(t.agentId, agentId.toLowerCase()),
+            isNull(l.revokedAt),
+            eq(t.kind, kind),
+            eq(t.channelId, channelId),
+            sql`starts_with(${t.dedupeKey}, ${prefix}::text)`,
+            sql`right(${t.dedupeKey}, length(${suffix}::text)) = ${suffix}::text`,
+            sql`length(${t.dedupeKey}) = length(${prefix}::text) + 36 + length(${suffix}::text)`,
+            sql`((${t.sessionLinkId} IS NULL AND ${t.slackTs} = ${slackTs}) OR (${t.slackTs} IS NULL AND (${t.status} IN ('sending', 'uncertain') OR (${t.status} = 'failed' AND ${t.errorCode} = 'missing_ts'))))`,
+          ),
+        )
+        .limit(1);
+      return earlier === undefined ? null : "earlier";
     },
 
     cards: createPostgresSlackCardSettleStore(db),

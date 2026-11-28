@@ -28,6 +28,8 @@ const SLACK_NOTICE_MESSAGES_KO = {
   progressClosed: "작업을 마쳤어요",
   // Its task closed as cancelled, by its requester or its pull request.
   progressCancelled: "작업을 취소했어요",
+  // Its task closed as abandoned on its time rules (v1-b/C2).
+  progressAbandoned: "오래 답이 없어 작업을 닫았어요.",
   // The progress message's buttons that close its task (v1-b/C1).
   taskCloseComplete: "완료",
   taskCloseCancel: "취소",
@@ -100,6 +102,10 @@ const SLACK_NOTICE_MESSAGES_KO = {
   taskCloseNotPermitted: "이 작업을 닫을 권한이 없어요",
   // A press whose value is not of the message pressed (surface_mismatch).
   pressMismatch: "이 메시지에서는 그 요청을 처리할 수 없어요",
+  // The same refusal on a card that cannot be tied to its message: posted
+  // by an earlier version, or its post never came back.
+  pressEarlierCard:
+    "이 카드는 이전 판에서 올라와 처리할 수 없어요. 웹 콘솔에서 답하거나 새 요청을 기다려 주세요",
   // A budget account's refusal, never the session's own limit: whose
   // monthly limit it is, as the ledger charged the call.
   budgetAccountUser:
@@ -169,6 +175,7 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     progressStarted: "開始",
     progressClosed: "作業を終えました",
     progressCancelled: "作業を取り消しました",
+    progressAbandoned: "長い間動きがないため作業を閉じました。",
     taskCloseComplete: "完了",
     taskCloseCancel: "取り消す",
     workStarted: "作業を始めました",
@@ -230,6 +237,8 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     stopNotPermitted: "作業を依頼した人だけが止められます",
     taskCloseNotPermitted: "この作業を閉じる権限がありません",
     pressMismatch: "このメッセージからはその操作はできません",
+    pressEarlierCard:
+      "このカードは以前のバージョンで投稿されたため処理できません。Webコンソールで回答するか、新しいリクエストをお待ちください",
     budgetAccountUser:
       "依頼した人の今月の予算上限に達したため、モデルを呼び出せませんでした。来月1日（UTC）に解除されます。それより前に使うには、ワークスペースの管理者に上限を上げてもらってください",
     budgetAccountTeam:
@@ -280,6 +289,8 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     progressStarted: "Started",
     progressClosed: "This task is done",
     progressCancelled: "This task was cancelled",
+    progressAbandoned:
+      "This task was closed after a long time without activity.",
     taskCloseComplete: "Done",
     taskCloseCancel: "Cancel",
     workStarted: "Started working on this",
@@ -340,6 +351,8 @@ export const SLACK_NOTICE_MESSAGES: Readonly<
     stopNotPermitted: "Only the person who asked for this task can stop it",
     taskCloseNotPermitted: "You don't have permission to close this task",
     pressMismatch: "That request can't be made from this message",
+    pressEarlierCard:
+      "This card was posted by an earlier version and can't be handled. Answer in the web console or wait for a new request",
     budgetAccountUser:
       "The requester's monthly budget limit was reached, so the model could not be called. It lifts on the 1st of next month (UTC), or sooner when a workspace admin raises the limit",
     budgetAccountTeam:

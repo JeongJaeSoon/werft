@@ -118,6 +118,7 @@ function record(): AgentRecord {
     versions: [version],
     releases: [active],
     active_release: active,
+    unreadable_releases: [],
     behavior_revision: 5,
     draft: null,
   };

@@ -40,6 +40,7 @@ export {
   createObjectRouteClient,
   createObjectRouteSigner,
   type ObjectRouteSigner,
+  objectRouteHost,
 } from "./object-route.ts";
 export {
   BodyLimitError,

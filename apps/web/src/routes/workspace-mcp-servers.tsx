@@ -235,6 +235,8 @@ function ServerRow({
   const refused = (text: string) => onOutcome({ kind: "error", text });
   const name = server.name;
   const { connection } = server;
+  const supported =
+    server.auth_kind === "oauth" || server.auth_kind === "bearer";
   const oauth = server.auth_kind === "oauth";
   const manualClient = server.oauth?.client_registration === "manual";
   const needsClient =
@@ -351,7 +353,13 @@ function ServerRow({
             <Badge variant={STATE_BADGE[connection.state]}>
               {t(`workspaceMcp.state.${connection.state}`)}
             </Badge>
-            <Badge>{t(`workspaceMcp.auth.${server.auth_kind}`)}</Badge>
+            <Badge>
+              {server.auth_kind === "oauth"
+                ? t("workspaceMcp.auth.oauth")
+                : server.auth_kind === "bearer"
+                  ? t("workspaceMcp.auth.bearer")
+                  : t("workspaceMcp.auth.unsupported")}
+            </Badge>
           </div>
           <Text as="span" variant="meta" className="wrap-anywhere">
             <Code>{server.url}</Code>
@@ -385,7 +393,16 @@ function ServerRow({
             </AlertDescription>
           </Alert>
         ) : null}
-        {connection.state !== "none" ? (
+        {supported ? null : (
+          <Alert variant="amber">
+            <AlertDescription>
+              {t("workspaceMcp.auth.unsupportedNotice", {
+                kind: server.auth_kind,
+              })}
+            </AlertDescription>
+          </Alert>
+        )}
+        {supported && connection.state !== "none" ? (
           <Alert
             role="region"
             aria-label={t("workspaceMcp.actingAs.title")}
@@ -442,73 +459,78 @@ function ServerRow({
       </div>
       {manages ? (
         <div className="flex flex-wrap gap-1">
-          {oauth ? (
-            <RowAction
-              disabled={busy || needsClient}
-              aria-label={t(
-                connection.state === "none"
-                  ? "workspaceMcp.connectFor"
-                  : "workspaceMcp.reconnectFor",
-                { name },
-              )}
-              onClick={() => {
-                onOutcome(null);
-                start.mutate(undefined);
-              }}
-            >
-              {start.isPending
-                ? t("workspaceMcp.connecting")
-                : t(
+          {supported ? (
+            <>
+              {oauth ? (
+                <RowAction
+                  disabled={busy || needsClient}
+                  aria-label={t(
                     connection.state === "none"
-                      ? "workspaceMcp.connect"
-                      : "workspaceMcp.reconnect",
+                      ? "workspaceMcp.connectFor"
+                      : "workspaceMcp.reconnectFor",
+                    { name },
                   )}
-            </RowAction>
-          ) : (
-            <RowAction
-              disabled={busy}
-              aria-label={t("workspaceMcp.replaceTokenFor", { name })}
-              onClick={(event) => {
-                setOpener(event.currentTarget);
-                setDialog({ kind: "token" });
-              }}
-            >
-              {t("workspaceMcp.replaceToken")}
-            </RowAction>
-          )}
-          {oauth && (manualClient || server.oauth?.dcr_supported === false) ? (
-            <RowAction
-              disabled={busy}
-              aria-label={t("workspaceMcp.clientFor", { name })}
-              onClick={(event) => {
-                setOpener(event.currentTarget);
-                setDialog({ kind: "client" });
-              }}
-            >
-              {t("workspaceMcp.client")}
-            </RowAction>
-          ) : null}
-          {connection.state === "active" ? (
-            <RowAction
-              disabled={busy}
-              aria-label={t("workspaceMcp.refreshFor", { name })}
-              onClick={() => {
-                onOutcome(null);
-                refresh.mutate(undefined);
-              }}
-            >
-              {t("workspaceMcp.refresh")}
-            </RowAction>
-          ) : null}
-          {connection.state !== "none" ? (
-            <RowAction
-              variant="danger"
-              disabled={busy}
-              aria-label={t("workspaceMcp.disconnectFor", { name })}
-              onClick={() => setDialog({ kind: "disconnect" })}
-            >
-              {t("workspaceMcp.disconnect")}
-            </RowAction>
+                  onClick={() => {
+                    onOutcome(null);
+                    start.mutate(undefined);
+                  }}
+                >
+                  {start.isPending
+                    ? t("workspaceMcp.connecting")
+                    : t(
+                        connection.state === "none"
+                          ? "workspaceMcp.connect"
+                          : "workspaceMcp.reconnect",
+                      )}
+                </RowAction>
+              ) : (
+                <RowAction
+                  disabled={busy}
+                  aria-label={t("workspaceMcp.replaceTokenFor", { name })}
+                  onClick={(event) => {
+                    setOpener(event.currentTarget);
+                    setDialog({ kind: "token" });
+                  }}
+                >
+                  {t("workspaceMcp.replaceToken")}
+                </RowAction>
+              )}
+              {oauth &&
+              (manualClient || server.oauth?.dcr_supported === false) ? (
+                <RowAction
+                  disabled={busy}
+                  aria-label={t("workspaceMcp.clientFor", { name })}
+                  onClick={(event) => {
+                    setOpener(event.currentTarget);
+                    setDialog({ kind: "client" });
+                  }}
+                >
+                  {t("workspaceMcp.client")}
+                </RowAction>
+              ) : null}
+              {connection.state === "active" ? (
+                <RowAction
+                  disabled={busy}
+                  aria-label={t("workspaceMcp.refreshFor", { name })}
+                  onClick={() => {
+                    onOutcome(null);
+                    refresh.mutate(undefined);
+                  }}
+                >
+                  {t("workspaceMcp.refresh")}
+                </RowAction>
+              ) : null}
+              {connection.state !== "none" ? (
+                <RowAction
+                  variant="danger"
+                  disabled={busy}
+                  aria-label={t("workspaceMcp.disconnectFor", { name })}
+                  onClick={() => setDialog({ kind: "disconnect" })}
+                >
+                  {t("workspaceMcp.disconnect")}
+                </RowAction>
+              ) : null}
+            </>
           ) : null}
           <RowAction
             variant="danger"

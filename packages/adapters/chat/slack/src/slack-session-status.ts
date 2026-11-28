@@ -138,7 +138,9 @@ export function slackProgressMessage(input: {
   const text =
     stage === "closed" && input.state.endsWith(":cancelled")
       ? messages.progressCancelled
-      : messages[PROGRESS_STAGE_MESSAGES[stage]];
+      : stage === "closed" && input.state.endsWith(":abandoned")
+        ? messages.progressAbandoned
+        : messages[PROGRESS_STAGE_MESSAGES[stage]];
   const closes = input.closes;
   const button = (actionId: string, label: string) => ({
     type: "button",

@@ -334,6 +334,13 @@ function addressOf(
   };
 }
 
+/** The host the object route's requests are signed for and sent to. */
+export function objectRouteHost(
+  config: Pick<ObjectRouteSignerConfig, "bucket" | "endpoint" | "region">,
+): string {
+  return addressOf(config).origin.hostname;
+}
+
 export function createObjectRouteSigner(
   config: ObjectRouteSignerConfig,
 ): ObjectRouteSigner {

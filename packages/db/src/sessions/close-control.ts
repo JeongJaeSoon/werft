@@ -49,6 +49,8 @@ const SESSION_CLOSED_SUBTYPE = "session_closed";
 export const OPERATOR_CLI = "operator_cli";
 /** Who closed a task on its pull request merged or closed (v1-b/C1). */
 export const PULL_REQUEST_EVENT = "pull_request_event";
+/** Who closed a task on its time rules: idle, or quiet past its limits (v1-b/C2). */
+export const IDLE_RULE = "idle_rule";
 
 const TASK_CLOSE_PAYLOAD = "task_close:";
 
@@ -168,7 +170,7 @@ export async function finishClose(
 export function closeAtomic(
   db: Database,
   input: CloseSessionInput & {
-    by?: typeof OPERATOR_CLI | typeof PULL_REQUEST_EVENT;
+    by?: typeof OPERATOR_CLI | typeof PULL_REQUEST_EVENT | typeof IDLE_RULE;
     /**
      * A task's closed reason (v1-b/C1), written when the close makes the
      * session `closed`; a drained one, when it is seen gone. A function is

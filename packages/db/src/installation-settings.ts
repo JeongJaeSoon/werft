@@ -186,6 +186,7 @@ export function createPostgresInstallationSettingsStore(
             provider: CatalogProviderConfig;
             models: string[];
             model_families?: ModelFamilies;
+            network?: "public" | "private";
           }> = [];
           for (const row of await tx
             .select()
@@ -222,6 +223,10 @@ export function createPostgresInstallationSettingsStore(
               provider: parsed.data,
               models,
               ...(families?.success ? { model_families: families.data } : {}),
+              // A value a later image wrote in another spelling says nothing.
+              ...(row.network === "public" || row.network === "private"
+                ? { network: row.network }
+                : {}),
             });
           }
           const repositories: Array<{

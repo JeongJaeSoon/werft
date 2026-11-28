@@ -12552,7 +12552,8 @@
                     "ambiguous_app",
                     "pinned_app_removed",
                     "merge_off",
-                    "review_off"
+                    "review_off",
+                    "not_own_pull_request"
                   ]
                 },
                 "created_at": {
@@ -27983,6 +27984,9 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 8192
+          },
+          "acknowledge_private": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -29457,6 +29461,31 @@
               }
             ]
           },
+          "unreadable_releases": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "reason_code": {
+                  "type": "string",
+                  "enum": [
+                    "policy_pins_unreadable",
+                    "row_unreadable"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "reason_code"
+              ],
+              "additionalProperties": false
+            }
+          },
           "behavior_revision": {
             "type": "integer",
             "minimum": 0,
@@ -29572,6 +29601,7 @@
           "versions",
           "releases",
           "active_release",
+          "unreadable_releases",
           "behavior_revision",
           "draft",
           "effective_behavior"
@@ -30867,6 +30897,31 @@
               }
             ]
           },
+          "unreadable_releases": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "reason_code": {
+                  "type": "string",
+                  "enum": [
+                    "policy_pins_unreadable",
+                    "row_unreadable"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "reason_code"
+              ],
+              "additionalProperties": false
+            }
+          },
           "behavior_revision": {
             "type": "integer",
             "minimum": 0,
@@ -31040,6 +31095,7 @@
           "versions",
           "releases",
           "active_release",
+          "unreadable_releases",
           "behavior_revision",
           "draft",
           "effective_behavior",
@@ -33966,10 +34022,18 @@
             "type": "string"
           },
           "auth_kind": {
-            "type": "string",
-            "enum": [
-              "oauth",
-              "bearer"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "oauth",
+                  "bearer"
+                ]
+              },
+              {
+                "type": "string",
+                "minLength": 1
+              }
             ]
           },
           "redirect_uri": {
@@ -35517,7 +35581,7 @@
           "url": {
             "type": "string",
             "maxLength": 300,
-            "pattern": "^https:\\/\\/github\\.com\\/([A-Za-z0-9][A-Za-z0-9-]{0,38})\\/([A-Za-z0-9._-]{1,100}?)(?:\\.git)?\\/?$",
+            "pattern": "^https:\\/\\/github\\.com\\/([A-Za-z0-9][A-Za-z0-9-]{0,38})\\/(?!\\.\\.?(?:\\.git)?\\/?$)([A-Za-z0-9._-]{1,100}?)(?:\\.git)?\\/?$",
             "description": "The repository's address on github.com: `https://github.com/<owner>/<name>`."
           },
           "ref": {
@@ -39767,6 +39831,15 @@
                     }
                   ],
                   "description": "The version named; for a following attachment the current version, null while there is none."
+                },
+                "availability": {
+                  "type": "string",
+                  "enum": [
+                    "ok",
+                    "hidden",
+                    "withdrawn"
+                  ],
+                  "description": "Anything but `ok` and a new session leaves the attachment out, even a `required` one, while a `forbidden` one still keeps the name out; it can still be taken back."
                 }
               },
               "required": [
@@ -39774,7 +39847,8 @@
                 "scope",
                 "mode",
                 "follows",
-                "version"
+                "version",
+                "availability"
               ],
               "additionalProperties": false
             }
@@ -64094,7 +64168,7 @@
           "Sessions"
         ],
         "summary": "Durably accept a session and its first input",
-        "description": "Creates a session of an agent release (`agent_release_id`, required) and queues `message` as turn `1`. A private agent (`GET /v1/agents/{id}/usage`) is used only by the members of its teams, the workspace's owners and admins, its admins and the members of its managing team; for anyone else its release answers 404, the very answer of a release that does not exist, before the integrity and state refusals below and whatever else the caller lacks (a key without the scope, or bound to another agent, or a Slack channel past its ceiling, included). Only those inside the agent start it: the workspace's owners and admins, its admins and its managing team's live members, or a personal key's creator who is one of them; anyone else is refused with 403 `FORBIDDEN`, `details.reason_code` `role`. The session runs the release's spec: its connection, runtime and the card's model. `repository_id` is optional; a repository named here is checked against the agent's GitHub settings list where those apply and against the workspace ceiling, else 403 GITHUB_REFUSED. A session created without one starts in an empty workspace, has no default push target (`POST /v1/sessions/{id}/push-requests` must name an attached repository, else it answers 409 PUSH_SOURCE_MISSING) and its detail's `repository_id` is null. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the release's connection offers; omitted, the model of the release's card runs. The session's detail reports it as `model`. A session waits in `queued` while no execution slot is free; it is never refused for that. A key bound to the agent may create it (it reads the agent's `active_release_id` from `GET /v1/agents`). Omitted, an agent with GitHub settings starts without a repository and attaches what it needs, and an agent with none uses the release's `repository_id`. A release whose connection is disabled or gone, or whose model left the connection's list, answers 409 RELEASE_SPEC_UNAVAILABLE. An agent that is paused or archived answers 409 AGENT_NOT_RUNNABLE with `details.reason_code` `agent_inactive`, and a release no activation ever approved answers it with `release_unapproved`. An agent that has had no one to administer it (`ownerless`) for `AGENT_OWNERLESS_GRACE_DAYS` (14) days since `ownerless_since` answers it with `agent_ownerless`; ownership is judged when the session is written, so adding an admin lets the next start through at once, and sessions already running are not stopped; an older release that was approved still starts while the agent is active and not refused as `agent_ownerless`, and a retry of a session made earlier gets its first answer. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The caller limits of the agent (`GET /v1/agents/{id}/caller-limits`) that reach the caller are merged (the workspace's, those of the teams the caller is in, and the Slack channel's) and fixed on the session as `caller_limit`; the first turn runs under the creator's limit, so a start is checked on all four dimensions the way an input is: a repository outside the merged `repositories`, a credential the merged `credentials_deny` names, an MCP server outside `mcp_servers`, or a tool the release loads that `tools_deny` names answers 403 `FORBIDDEN` with `details` `{reason_code: caller_limited, dimension: repository | credential | mcp_server | tool}` and no session. The write merges the limits again under lock, and its result wins over a rule changed since. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.\n\n**Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.",
+        "description": "Creates a session of an agent release (`agent_release_id`, required) and queues `message` as turn `1`. A private agent (`GET /v1/agents/{id}/usage`) is used only by the members of its teams, the workspace's owners and admins, its admins and the members of its managing team; for anyone else its release answers 404, the very answer of a release that does not exist, before the integrity and state refusals below and whatever else the caller lacks (a key without the scope, or bound to another agent, or a Slack channel past its ceiling, included). Only those inside the agent start it: the workspace's owners and admins, its admins and its managing team's live members, or a personal key's creator who is one of them; anyone else is refused with 403 `FORBIDDEN`, `details.reason_code` `role`. The session runs the release's spec: its connection, runtime and the card's model. `repository_id` is optional; a repository named here is checked against the agent's GitHub settings list where those apply and against the workspace ceiling, else 403 GITHUB_REFUSED. A session created without one starts in an empty workspace, has no default push target (`POST /v1/sessions/{id}/push-requests` must name an attached repository, else it answers 409 PUSH_SOURCE_MISSING) and its detail's `repository_id` is null. The 201 means the input is stored, not that it ran: follow the turn with `GET /v1/sessions/{id}/turns/{turn_id}` or the event stream. `model` picks one of the models the release's connection offers; omitted, the model of the release's card runs. The session's detail reports it as `model`. A session waits in `queued` while no execution slot is free; it is never refused for that. A key bound to the agent may create it (it reads the agent's `active_release_id` from `GET /v1/agents`). Omitted, an agent with GitHub settings starts without a repository and attaches what it needs, and an agent with none uses the release's `repository_id`. A release whose connection is disabled or gone, or whose model left the connection's list, answers 409 RELEASE_SPEC_UNAVAILABLE; so does a release row this build cannot read (one a newer build stored), with `details.reason_code` `release_unreadable` and its `release_id`, and only the release named is read. An agent that is paused or archived answers 409 AGENT_NOT_RUNNABLE with `details.reason_code` `agent_inactive`, and a release no activation ever approved answers it with `release_unapproved`. An agent that has had no one to administer it (`ownerless`) for `AGENT_OWNERLESS_GRACE_DAYS` (14) days since `ownerless_since` answers it with `agent_ownerless`; ownership is judged when the session is written, so adding an admin lets the next start through at once, and sessions already running are not stopped; an older release that was approved still starts while the agent is active and not refused as `agent_ownerless`, and a retry of a session made earlier gets its first answer. Every credential the release names must still be bound to its agent; otherwise 409 CREDENTIAL_UNBOUND, whose `details` carry the guidance to show the requester and the agent's admins to ask (`SessionCredentialUnboundDetails`), never the missing names. The caller limits of the agent (`GET /v1/agents/{id}/caller-limits`) that reach the caller are merged (the workspace's, those of the teams the caller is in, and the Slack channel's) and fixed on the session as `caller_limit`; the first turn runs under the creator's limit, so a start is checked on all four dimensions the way an input is: a repository outside the merged `repositories`, a credential the merged `credentials_deny` names, an MCP server outside `mcp_servers`, or a tool the release loads that `tools_deny` names answers 403 `FORBIDDEN` with `details` `{reason_code: caller_limited, dimension: repository | credential | mcp_server | tool}` and no session. The write merges the limits again under lock, and its result wins over a rule changed since. The receipt settles with turn `1`: `succeeded` when it completes, `failed` when it fails or is interrupted or cancelled, `unknown` when its outcome is unknown.\n\n**Scope:** `sessions:write` (API key or cookie session). **Idempotency-Key:** required.",
         "x-scope": "sessions:write",
         "security": [
           {
@@ -64349,7 +64423,7 @@
             }
           },
           "409": {
-            "description": "- `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.\n- `RELEASE_SPEC_UNAVAILABLE`: The release's connection is disabled or gone, or its model left the connection's list; release the agent again. `error.details.reason_code` is `connection_missing` or `model_removed`.\n- `AGENT_NOT_RUNNABLE`: A new session cannot start: `error.details.reason_code` is `agent_inactive` (the agent is paused or archived), `agent_ownerless` (no one has administered the agent for 14 days since its `ownerless_since`) or `release_unapproved` (the release named was never approved by an activation). A session pinned to an older release that was approved still starts while the agent is active and not refused as `agent_ownerless`.\n- `CREDENTIAL_UNBOUND`: The release names a credential its agent has no live binding for; an agent admin must bind it first.",
+            "description": "- `IDEMPOTENCY_CONFLICT`: This `Idempotency-Key` was already used for this operation and resource with a different body. Use a new key for a new intent.\n- `RELEASE_SPEC_UNAVAILABLE`: The release's connection is disabled or gone, or its model left the connection's list; release the agent again. `error.details.reason_code` is `connection_missing` or `model_removed`. `release_unreadable`: the release row was stored by a newer build and this build cannot read it (`details.release_id`, and `details.unreadable` `policy_pins_unreadable` or `row_unreadable`); upgrade to a newer build, or activate another release.\n- `AGENT_NOT_RUNNABLE`: A new session cannot start: `error.details.reason_code` is `agent_inactive` (the agent is paused or archived), `agent_ownerless` (no one has administered the agent for 14 days since its `ownerless_since`) or `release_unapproved` (the release named was never approved by an activation). A session pinned to an older release that was approved still starts while the agent is active and not refused as `agent_ownerless`.\n- `CREDENTIAL_UNBOUND`: The release names a credential its agent has no live binding for; an agent admin must bind it first.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -84587,7 +84661,7 @@
           "Agents"
         ],
         "summary": "An agent with its versions, releases and active release",
-        "description": "The agent's settings: its card versions, releases and active release. Read by the workspace's owners and admins and by those inside the agent: its admins and the live members of its managing team. A member outside it gets 404, the answer of an id of no agent in the workspace: the agent is hidden from them. A private agent the caller may not use is 404 too, with the body of an id of no agent, whatever the caller's other rights outside it. It changes nothing.\n\n**Auth:** cookie session only; no scope.",
+        "description": "The agent's settings: its card versions, releases and active release. Read by the workspace's owners and admins and by those inside the agent: its admins and the live members of its managing team. A member outside it gets 404, the answer of an id of no agent in the workspace: the agent is hidden from them. A private agent the caller may not use is 404 too, with the body of an id of no agent, whatever the caller's other rights outside it. A release row this build cannot read (one a newer build stored, which the insert-only table keeps) is left out of `releases` and named in `unreadable_releases` by its id and `reason_code` alone (`policy_pins_unreadable` or `row_unreadable`), never its values; while it is the active release, `active_release` is null and `agent.active_release_id` still names it. It changes nothing.\n\n**Auth:** cookie session only; no scope.",
         "security": [
           {
             "cookieSession": []
@@ -85368,7 +85442,7 @@
           "Agents"
         ],
         "summary": "Release a version on a provider connection",
-        "description": "The release id is a hash of the card, the connection and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. A model the connection does not offer, or a connection that is not enabled, answers 422. `repository_id` names the catalog repository the release pins, optional: 422 when the catalog has no such repository. Slack sessions and API sessions that send no `repository_id` start on it only while the agent has no GitHub settings; an agent with settings starts them without a repository. A request carrying `github` for an agent that already has GitHub settings answers 409 ALREADY_EXISTS with `reason_code: github_settings_exist`: those are saved with `PUT /v1/agents/{id}/github/settings`. Releasing approves and activates nothing.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "The release id is a hash of the card, the connection and the resolved runtime settings; releasing the same content again returns the stored release with `created: false`. A model the connection does not offer, or a connection that is not enabled, answers 422. `repository_id` names the catalog repository the release pins, optional: 422 when the catalog has no such repository. Slack sessions and API sessions that send no `repository_id` start on it only while the agent has no GitHub settings; an agent with settings starts them without a repository. A request carrying `github` for an agent that already has GitHub settings answers 409 ALREADY_EXISTS with `reason_code: github_settings_exist`: those are saved with `PUT /v1/agents/{id}/github/settings`. A request without `github` for an agent without GitHub settings carries the active release's pin; while the active release is a row this build cannot read, it answers 409 RELEASE_SPEC_UNAVAILABLE with `details.reason_code` `release_unreadable` and the active `release_id`. Releasing approves and activates nothing.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -85601,7 +85675,7 @@
             }
           },
           "409": {
-            "description": "- `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique.",
+            "description": "- `ALREADY_EXISTS`: A resource with the same identity already exists; the operation names which field must be unique.\n- `RELEASE_SPEC_UNAVAILABLE`: The release's connection is disabled or gone, or its model left the connection's list; release the agent again. `error.details.reason_code` is `connection_missing` or `model_removed`. `release_unreadable`: the release row was stored by a newer build and this build cannot read it (`details.release_id`, and `details.unreadable` `policy_pins_unreadable` or `row_unreadable`); upgrade to a newer build, or activate another release.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -85623,7 +85697,8 @@
                             "code": {
                               "type": "string",
                               "enum": [
-                                "ALREADY_EXISTS"
+                                "ALREADY_EXISTS",
+                                "RELEASE_SPEC_UNAVAILABLE"
                               ]
                             }
                           }
@@ -85756,7 +85831,7 @@
           "Agents"
         ],
         "summary": "Point the agent at a release (compare-and-swap)",
-        "description": "`expected_revision` is the agent's current `activation_revision` (-1 before the first activation); a stale one answers 409 REVISION_CONFLICT. Sending the same activation again is a no-op with a null `receipt_id`. A release whose connection is disabled or whose model left the connection's list answers 409 RELEASE_SPEC_UNAVAILABLE and has to be released again. A release whose card names a credential not bound to the agent answers 409 CREDENTIAL_UNBOUND with the missing names in `details.missing` (`ActivationCredentialUnboundDetails`). Sessions already pinned keep their release.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "`expected_revision` is the agent's current `activation_revision` (-1 before the first activation); a stale one answers 409 REVISION_CONFLICT. Sending the same activation again is a no-op with a null `receipt_id`. A release whose connection is disabled or whose model left the connection's list answers 409 RELEASE_SPEC_UNAVAILABLE and has to be released again; a release row of this agent that this build cannot read answers it with `details.reason_code` `release_unreadable` (such a row of another agent answers 404). A release whose card names a credential not bound to the agent answers 409 CREDENTIAL_UNBOUND with the missing names in `details.missing` (`ActivationCredentialUnboundDetails`). Sessions already pinned keep their release.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -85989,7 +86064,7 @@
             }
           },
           "409": {
-            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.\n- `RELEASE_SPEC_UNAVAILABLE`: The release's connection is disabled or gone, or its model left the connection's list; release the agent again. `error.details.reason_code` is `connection_missing` or `model_removed`.\n- `CREDENTIAL_UNBOUND`: The release names a credential its agent has no live binding for; an agent admin must bind it first.",
+            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.\n- `RELEASE_SPEC_UNAVAILABLE`: The release's connection is disabled or gone, or its model left the connection's list; release the agent again. `error.details.reason_code` is `connection_missing` or `model_removed`. `release_unreadable`: the release row was stored by a newer build and this build cannot read it (`details.release_id`, and `details.unreadable` `policy_pins_unreadable` or `row_unreadable`); upgrade to a newer build, or activate another release.\n- `CREDENTIAL_UNBOUND`: The release names a credential its agent has no live binding for; an agent admin must bind it first.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -90665,7 +90740,7 @@
           "Workspace settings"
         ],
         "summary": "Disconnect a workspace MCP server",
-        "description": "Owners and admins signed in to the console as a person; never an API key. Deletes the stored tokens (a static token too) and asks the authorization server to revoke them (best effort; `revoked` null when there was nothing to revoke or no endpoint). Agents' next calls to the server are refused. Disabling the member who connected a server disconnects it too, without the revocation request. Writes a `disconnect_workspace_mcp_server` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins signed in to the console as a person; never an API key. Deletes the stored tokens (a static token too) and asks the authorization server to revoke them (best effort; `revoked` null when there was nothing to revoke or no endpoint). Agents' next calls to the server are refused. Disabling the member who connected a server disconnects it too, without the revocation request. A server of an `auth_kind` this release does not know is left as it is and answers 400 `auth_kind_unsupported`. Writes a `disconnect_workspace_mcp_server` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -90748,6 +90823,41 @@
                 },
                 "schema": {
                   "$ref": "#/components/schemas/DisconnectWorkspaceMcpServerResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: . Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -95999,7 +96109,7 @@
           "Workspace settings"
         ],
         "summary": "Name the skill version every agent of the workspace gets",
-        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. `version_id` must be a version of `name` (400 `version_name_mismatch`), approved (`version_not_approved`) and not archived (`version_archived`); `mode: forbidden` takes any version that is not archived, approved or not, since it only keeps the name out. `follow: true` (with `required` or `optional`) instead follows the skill's current version: each new session takes the version current when it starts, so approving a higher version or reverting moves what the next session gets and never a running one. Replaces what the scope named before. A session takes it when it starts. Writes an `attach_extension` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. `version_id` must be a version of `name` (400 `version_name_mismatch`), approved (`version_not_approved`) and not archived (`version_archived`); `mode: forbidden` takes any version that is not archived, approved or not, since it only keeps the name out. `follow: true` (with `required` or `optional`) instead follows the skill's current version: each new session takes the version current when it starts, so approving a higher version or reverting moves what the next session gets and never a running one. Replaces what the scope named before. A session takes it when it starts. A skill of a registered skill repository is refused in every mode (400 `repository_skill_workspace`): it is attached to an agent only. Writes an `attach_extension` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -96625,7 +96735,8 @@
                         "reviewed_at": "2026-11-20T10:00:00.000Z",
                         "archived_at": null,
                         "current": true
-                      }
+                      },
+                      "availability": "ok"
                     }
                   ]
                 },
@@ -96791,7 +96902,7 @@
           "Agents"
         ],
         "summary": "Name the skill version the agent gets",
-        "description": "The agent's managers (owners, admins, the agent's own admins, members of its admin teams and its managing team's lead) signed in to the console; an API key is refused with 403 `reason_code` `web_session_required`. The version rules are the workspace scope's. Writes an `attach_extension` receipt on the agent.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "The agent's managers (owners, admins, the agent's own admins, members of its admin teams and its managing team's lead) signed in to the console; an API key is refused with 403 `reason_code` `web_session_required`. The version rules are the workspace scope's. A skill of a registered skill repository whose switch is off or whose repository was removed is refused (400 `skill_unavailable`, with its `availability`) unless the mode is `forbidden`. Writes an `attach_extension` receipt on the agent.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -127445,7 +127556,7 @@
           "Limits & receipts"
         ],
         "summary": "Current outcome of an accepted command",
-        "description": "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `resolve_push`, `push`: `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it. Receipts written before the rename say `decide_push`, `decision`, `already_decided` and `PUSH_REQUEST_DECIDED` instead.\n- `open_pull_request`, `update_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`, and for an open or update whose body came from structured fields also `template` (`{commit, path?, blob_sha?, skipped?}`: the default branch's commit read, the template used or the reason one was passed over; never its text); `created` is false when the call answered an open pull request, edited the marked comment, or (always, for `update_pull_request`) changed the title or body of the pull request with the built-in `github` MCP server's `update_pull_request`.\n- `close_pull_request`, `reopen_pull_request`: the same fields plus `{state, changed}`, written when the session's agent closes or reopens the pull request of its push request with the built-in `github` MCP server's tools of those names; `state` is the pull request's state after the call and `changed` is false when it was already in that state. A merged pull request is refused with `pull_request_merged` (`PULL_REQUEST_MERGED`).\n- `merge_pull_request`: the same fields as `close_pull_request` plus `{merged, changed, head_sha, merge_commit_sha, method}`, written when the session's agent squash-merges the pull request of its push request with the built-in `github` MCP server's `merge_pull_request`; `method` is `squash`, or null when the pull request was already merged on the pushed commit (`changed` false). A refusal is `failed` with `reason_code` `merge_off` (merging is off in the agent's GitHub settings, the workspace ceiling or both, as `off_in` says; `GITHUB_REFUSED`) before GitHub is called, or `merge_blocked` (`PULL_REQUEST_MERGE_BLOCKED`), `head_moved` or `pull_request_closed` (`PULL_REQUEST_CLOSED`). A receipt refused with `merge_off` names no connection, App or role.\n- `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, outside the workspace ceiling, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`), `allowed_in_newer_release` (off the session's release but allowed by the agent's active release: the session keeps the release it started with, and a new session can attach it; `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n- `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.\n- `set_slack_allowed_bots`: `{agent_id, added, removed, count_before, count_after, by}`; `by` is `web` for a save in the console (the user is the receipt's `actor`) and `operator_cli` for a change made with the `slack-app.ts` bot commands; both write it only when the list changed.\n- `approve_slack_notice`, `revoke_slack_notice`: no longer written, since the Slack notice approval is retired; ones written before still read, with `{agent_id, approval_id, slack_team_id, notice_version, notice_locale}` and `{agent_id, approval_ids, slack_team_ids, notice_versions}`.\n- `set_conversation_rollout`: `{agent_id, before, after, by, reason, buffered_dropped}`; `by` is `web` (a workspace owner or admin, the receipt's `actor`) or `operator_cli` (`slack-notice.ts set-rollout`), and `reason` is null. Receipts written while the approval stood may also say `reason` `notice_revoked` (`by` `web`: a revoke lowered the switch) or `not_approved`, `not_installed` or `no_notice` (`by` `reconciler`: the switch lowered to `off` by itself); no new receipt does. `buffered_dropped` counts the held messages a change to `off` removed.\n- `delete_slack_app`: `{slack_app_id, app_id, kind, agent_id, closed, slack_cleanup}`: a Slack app deleted through the API, by the receipt's `actor`. `closed` counts what the delete closed in Werft (`installations`, `identities`, `bindings`, `outbox` messages cancelled as `app_deleted`, `buffered` messages dropped); `slack_cleanup` is null until Slack's side was tried, then `{outcome, failed_steps, message}` as the delete answered. No token is in it.\n- `resolve_unknown_budget`: `{call_id, call_kind, session_id, agent_id, conversation_turn_id, account_id, owner_kind, owner_id, period_start, resolution, reason, held_cost_usd, held_tokens, charged_cost_usd, charged_tokens, unknown_at, run_id, by}`, written by the `budget-unknown.ts` operator command for each budget reservation of unknown end it resolves, or by the reconciler (`by` `reconciler`, no `actor`) for one whose turn ended and whose call can no longer run; `resolution` is `spent` (charged at what it held), `refunded` (charged nothing, with its `reason`) or `estimated` (the reconciler's: charged at what it held), and `target_ref` is the account's owner (a person, or a team) or, with no account, the workspace.\n\nAny credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. A receipt that names an agent or a release of one (`agent_id`, `agent_ids`, `release_id`, `agent_release_id`, or the agent as `target_ref` or `actor.agent_id`) is shown only with those ids to a reader who may use that agent (`GET /v1/usable-agents`); for anyone else a private agent's ids are left out (a list loses them, a single field is `null`) and a receipt whose target is that agent or one of its releases answers 404, as a receipt that does not exist does. It changes nothing.\n\n**Scope:** `sessions:read` (API key or cookie session).",
+        "description": "Reads the current outcome of a command by the `receipt_id` its response returned: `accepted` while it is in progress, then `succeeded`, `failed` (with `error`) or `unknown` (nobody can say; `error` explains). Poll until it leaves `accepted`. `result` depends on `operation`:\n\n- `create_session`, `append_message`: the acceptance response exactly as first returned, never rewritten. The turn's outcome is read from `GET /v1/sessions/{session_id}/turns/{turn_id}` using `target_ref`.\n- `interrupt`: `{turn_id, terminal, no_op}` once settled.\n- `pause`, `resume`: `{resulting_admission_state, checkpoint_revision, queued_turn_count}`.\n- `close`: `{resulting_admission_state, checkpoint_revision, cancelled_turn_count}`; `checkpoint_revision` is null only for a session that never ran a turn.\n- `terminate`: `{execution_gone, checkpoint_revision, unconfirmed_turn_id, external_effects_reverted}`.\n- `recovery_decision`: `{resulting_admission_state, checkpoint_revision, resumable}`.\n- `answer`: null; only `status` and `error` change.\n- `request_push`, `resolve_push`, `push`: `{push_request_id, action, verdict, refusal, repository_id, checkpoint_revision, git_commit, target_branch}`; `verdict` is `allow` or `refuse`, a refused attempt is `failed` with the reason in `refusal` and `error`, and fields the attempt never read are null. `actor` names who made it. Receipts written before the rename say `decide_push`, `decision`, `already_decided` and `PUSH_REQUEST_DECIDED` instead.\n- `open_pull_request`, `update_pull_request`, `comment_pull_request`: `{push_request_id, verdict, refusal, repository_id, number, url, head, base, created}`, and for a comment also `{comment_id, comment_url, marker}`, and for an open or update whose body came from structured fields also `template` (`{commit, path?, blob_sha?, skipped?}`: the default branch's commit read, the template used or the reason one was passed over; never its text); `created` is false when the call answered an open pull request, edited the marked comment, or (always, for `update_pull_request`) changed the title or body of the pull request with the built-in `github` MCP server's `update_pull_request`.\n- `close_pull_request`, `reopen_pull_request`: the same fields plus `{state, changed}`, written when the session's agent closes or reopens the pull request of its push request with the built-in `github` MCP server's tools of those names; `state` is the pull request's state after the call and `changed` is false when it was already in that state. A merged pull request is refused with `pull_request_merged` (`PULL_REQUEST_MERGED`).\n- `merge_pull_request`: the same fields as `close_pull_request` plus `{merged, changed, head_sha, merge_commit_sha, method}`, written when the session's agent squash-merges the pull request of its push request with the built-in `github` MCP server's `merge_pull_request`; `method` is `squash`, or null when the pull request was already merged on the pushed commit (`changed` false). A refusal is `failed` with `reason_code` `merge_off` (merging is off in the agent's GitHub settings, the workspace ceiling or both, as `off_in` says; `GITHUB_REFUSED`) before GitHub is called, `not_own_pull_request` (in a repository the session attached, a pull request the platform did not open on GitHub for this session's push request, such as one it found on the branch and adopted; `GITHUB_REFUSED`) or `repository_not_allowed`, or `merge_blocked` (`PULL_REQUEST_MERGE_BLOCKED`), `head_moved` or `pull_request_closed` (`PULL_REQUEST_CLOSED`). A receipt refused with `merge_off` names no connection, App or role.\n- `attach_repository`: `{session_id, attempt_id, agent_id, agent_release_id, repository_id, branch, commit, failure, reason_code}`, written when the session's agent attaches a repository with the built-in `github` MCP server's `attach_repository`. It is `accepted` until the worker reports the fetch, then `succeeded` with `commit` or `failed` with `failure` (`fetch_timeout`, `fetch_too_large`, `fetch_failed`). A refused call is `failed` at once with `reason_code` `repository_not_allowed` (not on the release's list, outside the workspace ceiling, or the agent's GitHub off; `error.code` `GITHUB_REFUSED`), `allowed_in_newer_release` (off the session's release but allowed by the agent's active release: the session keeps the release it started with, and a new session can attach it; `GITHUB_REFUSED`) or `attempt_ended` (`STALE_EPOCH`). `agent_release_id` is the release whose list allowed it.\n- `set_slack_secret`, `delete_slack_secret`: `{purpose, last4}`; the value itself is never in a receipt.\n- `set_github_app`, `delete_github_app`: `{app_id}`; the private key is never in a receipt.\n- `set_slack_allowed_bots`: `{agent_id, added, removed, count_before, count_after, by}`; `by` is `web` for a save in the console (the user is the receipt's `actor`) and `operator_cli` for a change made with the `slack-app.ts` bot commands; both write it only when the list changed.\n- `approve_slack_notice`, `revoke_slack_notice`: no longer written, since the Slack notice approval is retired; ones written before still read, with `{agent_id, approval_id, slack_team_id, notice_version, notice_locale}` and `{agent_id, approval_ids, slack_team_ids, notice_versions}`.\n- `set_conversation_rollout`: `{agent_id, before, after, by, reason, buffered_dropped}`; `by` is `web` (a workspace owner or admin, the receipt's `actor`) or `operator_cli` (`slack-notice.ts set-rollout`), and `reason` is null. Receipts written while the approval stood may also say `reason` `notice_revoked` (`by` `web`: a revoke lowered the switch) or `not_approved`, `not_installed` or `no_notice` (`by` `reconciler`: the switch lowered to `off` by itself); no new receipt does. `buffered_dropped` counts the held messages a change to `off` removed.\n- `delete_slack_app`: `{slack_app_id, app_id, kind, agent_id, closed, slack_cleanup}`: a Slack app deleted through the API, by the receipt's `actor`. `closed` counts what the delete closed in Werft (`installations`, `identities`, `bindings`, `outbox` messages cancelled as `app_deleted`, `buffered` messages dropped); `slack_cleanup` is null until Slack's side was tried, then `{outcome, failed_steps, message}` as the delete answered. No token is in it.\n- `resolve_unknown_budget`: `{call_id, call_kind, session_id, agent_id, conversation_turn_id, account_id, owner_kind, owner_id, period_start, resolution, reason, held_cost_usd, held_tokens, charged_cost_usd, charged_tokens, unknown_at, run_id, by}`, written by the `budget-unknown.ts` operator command for each budget reservation of unknown end it resolves, or by the reconciler (`by` `reconciler`, no `actor`) for one whose turn ended and whose call can no longer run; `resolution` is `spent` (charged at what it held), `refunded` (charged nothing, with its `reason`) or `estimated` (the reconciler's: charged at what it held), and `target_ref` is the account's owner (a person, or a team) or, with no account, the workspace.\n\nAny credential of the same owner can read a receipt, except that a receipt about a session needs that session to be visible to the caller, and one that changed an agent's settings (`target_ref.resource` an agent or one of its Slack bindings, other than a refused `create_session`) is read only by those who read the agent's settings: its workspace's owners and admins, its admins, the live members of its managing team, and their personal keys; anyone else gets 403. A receipt that names an agent or a release of one (`agent_id`, `agent_ids`, `release_id`, `agent_release_id`, or the agent as `target_ref` or `actor.agent_id`) is shown only with those ids to a reader who may use that agent (`GET /v1/usable-agents`); for anyone else a private agent's ids are left out (a list loses them, a single field is `null`) and a receipt whose target is that agent or one of its releases answers 404, as a receipt that does not exist does. It changes nothing.\n\n**Scope:** `sessions:read` (API key or cookie session).",
         "x-scope": "sessions:read",
         "security": [
           {

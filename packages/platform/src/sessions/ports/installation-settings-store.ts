@@ -1,6 +1,7 @@
 import type {
   CatalogProviderConfig,
   CatalogRepositoryConfig,
+  ConnectionNetwork,
   ModelFamilies,
   StoredOwnerKind,
 } from "../../catalog/index.ts";
@@ -21,6 +22,8 @@ export interface InstallationSettings {
     models?: readonly string[];
     /** Their series, for a retired model's successor. */
     model_families?: ModelFamilies | undefined;
+    /** What the endpoint was registered as; absent on a row from before. */
+    network?: ConnectionNetwork | undefined;
   }>;
   repositories: ReadonlyArray<{
     id: string;

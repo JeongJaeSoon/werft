@@ -178,6 +178,23 @@ export function Releases({
         <PrivateChannelsPending
           pending={privateChannelsPending(activity.data)}
         />
+        {/* `?? []`: an API from before the field omits it mid-rollout. */}
+        {(detail.unreadable_releases ?? []).map((item) => (
+          <Text
+            key={item.id}
+            as="p"
+            variant="sub"
+            className="wrap-anywhere"
+            data-unreadable-release={item.id}
+          >
+            {t(
+              item.id === detail.agent.active_release_id
+                ? "agent.releases.unreadableActive"
+                : "agent.releases.unreadable",
+              { release: item.id },
+            )}
+          </Text>
+        ))}
         {entries.length === 0 ? (
           <EmptyState
             title={t("agent.releases.empty")}

@@ -1522,6 +1522,10 @@ describe("compose and workflow agree with the Dockerfiles", () => {
       expect(jobs["promote-main"]?.needs).toBe("index-main");
       const publish = runsOf(jobs.publish);
       expect(publish).toContain("git merge-base --is-ancestor");
+      // The pull of the digest just pushed is the retried step; the smoke
+      // that follows it is not.
+      expect(publish).toContain('image-pull.sh "$' + "{NAME}@$" + '{DIGEST}"');
+      expect(publish).not.toContain("docker pull");
       expect(publish).toContain(
         'image-smoke.sh "$APP" "$' + "{NAME}@$" + '{DIGEST}"',
       );
@@ -2733,6 +2737,91 @@ esac
       const result = run({ FAKE_CREATE_FAILS: "1" });
       expect(result.code).toBe(1);
       expect(result.hasRecord("control-host")).toBe(false);
+    });
+  });
+
+  describe("image-pull.sh", () => {
+    const unknown = "Error response from daemon: manifest unknown";
+    const ref = "ghcr.io/o/werft-control-host@sha256:abc";
+    // Every pull is counted; the first FAKE_PULL_FAILS ones say FAKE_PULL_SAYS.
+    const fakeDocker = `#!/usr/bin/env bash
+echo "$*" >>"$FAKE/pulls"
+echo "Digest: sha256:abc"
+if [ "$(wc -l <"$FAKE/pulls")" -le "\${FAKE_PULL_FAILS:-0}" ]; then
+  echo "$FAKE_PULL_SAYS" >&2; exit 1
+fi
+`;
+    const run = (env: Record<string, string> = {}) => {
+      const directory = mkdtempSync(join(tmpdir(), "image-pull-"));
+      mkdirSync(join(directory, "bin"));
+      writeFileSync(join(directory, "bin/docker"), fakeDocker, { mode: 0o755 });
+      const result = Bun.spawnSync(
+        ["bash", join(root, ".github/scripts/image-pull.sh"), ref],
+        {
+          env: {
+            PATH: `${join(directory, "bin")}:${process.env.PATH ?? ""}`,
+            FAKE: directory,
+            IMAGE_PULL_WAITS: "0 0 0 0",
+            ...env,
+          },
+        },
+      );
+      const pulls = join(directory, "pulls");
+      return {
+        code: result.exitCode,
+        out: `${result.stdout.toString()}${result.stderr.toString()}`,
+        pulls: existsSync(pulls)
+          ? readFileSync(pulls, "utf8").trim().split("\n")
+          : [],
+      };
+    };
+
+    test("a pull that works runs once", () => {
+      const result = run();
+      expect(result.code).toBe(0);
+      expect(result.pulls).toEqual([`pull ${ref}`]);
+      expect(result.out).not.toContain("::warning::");
+    });
+
+    test("manifest unknown is pulled again until the registry has it", () => {
+      const result = run({ FAKE_PULL_SAYS: unknown, FAKE_PULL_FAILS: "4" });
+      expect(result.code).toBe(0);
+      expect(result.pulls).toHaveLength(5);
+      expect(result.out.match(/::warning::/g)).toHaveLength(4);
+      expect(result.out).toContain("try 4 of 5");
+    });
+
+    test("a fifth manifest unknown fails with the pull's output", () => {
+      const result = run({ FAKE_PULL_SAYS: unknown, FAKE_PULL_FAILS: "9" });
+      expect(result.code).toBe(1);
+      expect(result.pulls).toHaveLength(5);
+      expect(result.out).toContain(unknown);
+    });
+
+    test.each([
+      ["another daemon error", "Error response from daemon: denied"],
+      [
+        "manifest unknown on a line that is not the daemon's answer",
+        "note: manifest unknown, said a log line",
+      ],
+      [
+        "another manifest error",
+        "Error response from daemon: manifest for x not found",
+      ],
+      ["a network error", "Error response from daemon: Get: request canceled"],
+    ])("%s is not pulled again", (_, says) => {
+      const result = run({ FAKE_PULL_SAYS: says, FAKE_PULL_FAILS: "9" });
+      expect(result.code).toBe(1);
+      expect(result.pulls).toHaveLength(1);
+      expect(result.out).toContain(says);
+    });
+
+    test("the default pauses add up to well under two minutes", () => {
+      const waits = [5, 10, 20, 40];
+      expect(waits.reduce((a, b) => a + b)).toBeLessThan(120);
+      expect(read(".github/scripts/image-pull.sh")).toContain(
+        "IMAGE_PULL_WAITS:-5 10 20 40",
+      );
     });
   });
 

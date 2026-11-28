@@ -8,6 +8,7 @@ import type {
   AgentVersion,
   CountAgentsResponse,
   ListAgentsQuery,
+  UnreadableRelease,
   WorkspaceRole,
 } from "@werft-ai/contracts";
 import type { Principal } from "../../musterrolle/index.ts";
@@ -197,10 +198,13 @@ export interface AgentStore {
     agentId: string,
     versionId: string,
   ): Promise<AgentVersion | null>;
+  /** `unreadable`: the row is there and this build cannot read it. */
   findRelease(
     workspaceId: string,
     releaseId: string,
-  ): Promise<AgentRelease | null>;
+  ): Promise<
+    AgentRelease | { unreadable: UnreadableRelease; agent_id: string } | null
+  >;
   /** The agent's status alone, for a check that must not read its releases. */
   agentStatus(
     workspaceId: string,

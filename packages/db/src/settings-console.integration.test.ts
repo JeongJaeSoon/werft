@@ -23,6 +23,7 @@ import {
   providerConnections,
   receipts,
   secretValues,
+  settingsGeneration,
   users,
   workspaces,
 } from "./schema.ts";
@@ -145,6 +146,7 @@ integration("settings console writes", () => {
       host_port: "fake-model:8080",
       credential_source: "stored",
       source: "console",
+      billing: "none",
     });
     expect(JSON.stringify(receipt?.result)).not.toContain("example-key");
 
@@ -217,6 +219,170 @@ integration("settings console writes", () => {
         (row.result as { connection_id?: unknown }).connection_id === "raced",
     );
     expect(made).toHaveLength(1);
+  });
+
+  describe("a connection's network", () => {
+    const rowOf = async (id: string) =>
+      (
+        await db
+          .select()
+          .from(providerConnections)
+          .where(eq(providerConnections.id, id))
+      )[0];
+    const receiptsFor = async (operation: string, id: string) =>
+      (await receiptsOf(operation)).filter(
+        (row) =>
+          (row.result as { connection_id?: unknown }).connection_id === id,
+      );
+
+    test("a connection registered as private keeps that on its row, and its one receipt says it was acknowledged", async () => {
+      const owner = await person("owner");
+      const made = await store().create(
+        add("connections", "inside", CONNECTION),
+        "example-key-1234",
+        owner,
+        { network: "private", acknowledgedPrivate: true },
+      );
+      expect(made.outcome).toBe("done");
+      expect((await rowOf("inside"))?.network).toBe("private");
+      const read = await settings().read();
+      expect(
+        read.connections.find((item) => item.id === "inside")?.network,
+      ).toBe("private");
+      expect(
+        (await store().listRows("connection")).find(
+          (item) => item.id === "inside",
+        )?.network,
+      ).toBe("private");
+      const audit = await receiptsFor("create_connection", "inside");
+      expect(audit).toHaveLength(1);
+      expect(audit[0]?.result).toEqual({
+        connection_id: "inside",
+        kind: "anthropic",
+        endpoint: "http://fake-model:8080",
+        host_port: "fake-model:8080",
+        credential_source: "stored",
+        source: "console",
+        network: "private",
+        acknowledged_private: true,
+        billing: "none",
+      });
+      // The owner who acknowledged it, not the system.
+      expect(audit[0]?.actor).not.toBeNull();
+
+      // Disabling and enabling it say what it is held to as well.
+      await store().disable({ kind: "connection", id: "inside" }, owner);
+      await store().enableConnection("inside", owner);
+      for (const operation of ["disable_connection", "enable_connection"]) {
+        const [receipt] = await receiptsFor(operation, "inside");
+        expect(receipt?.result).toMatchObject({
+          connection_id: "inside",
+          host_port: "fake-model:8080",
+          network: "private",
+        });
+      }
+    });
+
+    test("a public one says so with no acknowledgement; one made without a network holds none", async () => {
+      const owner = await person("owner");
+      await store().create(
+        add("connections", "outside", {
+          kind: "anthropic",
+          endpoint: "https://api.anthropic.invalid",
+          auth: { kind: "api_key", stored: true },
+        }),
+        "example-key-1234",
+        owner,
+        { network: "public", acknowledgedPrivate: false },
+      );
+      expect((await rowOf("outside"))?.network).toBe("public");
+      const [audit] = await receiptsFor("create_connection", "outside");
+      expect(audit?.result).toMatchObject({ network: "public" });
+      expect(audit?.result).not.toHaveProperty("acknowledged_private");
+      expect(audit?.result).not.toHaveProperty("billing");
+
+      await store().create(
+        add("connections", "before", CONNECTION),
+        "example-key-1234",
+        owner,
+      );
+      expect((await rowOf("before"))?.network).toBeNull();
+      const read = await settings().read();
+      expect(
+        read.connections.find((item) => item.id === "before"),
+      ).not.toHaveProperty("network");
+    });
+
+    test("an admin or a member writes no connection, private or not", async () => {
+      for (const role of ["admin", "member"] as const) {
+        const actor = await person(role);
+        const id = "by-" + role;
+        expect(
+          await store().create(
+            add("connections", id, CONNECTION),
+            "example-key-1234",
+            actor,
+            { network: "private", acknowledgedPrivate: true },
+          ),
+        ).toEqual({ outcome: "actor_inactive" });
+        expect(await rowOf(id)).toBeUndefined();
+      }
+    });
+
+    test("a row the operator's private allowlist names is carried to private once, with a system receipt", async () => {
+      const owner = await person("owner");
+      await store().create(
+        add("connections", "listed", CONNECTION),
+        "example-key-1234",
+        owner,
+      );
+      const generationOf = async () =>
+        (await db.select().from(settingsGeneration))[0]?.generation ?? -1;
+      const before = await generationOf();
+      const carried = await store().carryOperatorPrivate("listed");
+      expect(carried.outcome).toBe("carried");
+      expect((await rowOf("listed"))?.network).toBe("private");
+      // The other replicas read the settings again.
+      expect(await generationOf()).toBeGreaterThan(before);
+      const audit = await receiptsFor("import_connection", "listed");
+      expect(audit).toHaveLength(1);
+      expect(audit[0]?.actor).toBeNull();
+      expect(audit[0]?.result).toEqual({
+        connection_id: "listed",
+        kind: "anthropic",
+        endpoint: "http://fake-model:8080",
+        host_port: "fake-model:8080",
+        network: "private",
+        by: "env_import",
+      });
+      // Again, from this replica or another: nothing more.
+      expect(await store().carryOperatorPrivate("listed")).toEqual({
+        outcome: "unchanged",
+      });
+      expect(await receiptsFor("import_connection", "listed")).toHaveLength(1);
+    });
+
+    test("a row that already says its network, or no row at all, is not carried", async () => {
+      const owner = await person("owner");
+      await store().create(
+        add("connections", "said-public", {
+          kind: "anthropic",
+          endpoint: "https://api.anthropic.invalid",
+          auth: { kind: "api_key", stored: true },
+        }),
+        "example-key-1234",
+        owner,
+        { network: "public", acknowledgedPrivate: false },
+      );
+      expect(await store().carryOperatorPrivate("said-public")).toEqual({
+        outcome: "unchanged",
+      });
+      expect((await rowOf("said-public"))?.network).toBe("public");
+      expect(await store().carryOperatorPrivate("no-such-row")).toEqual({
+        outcome: "unchanged",
+      });
+      expect(await receiptsFor("import_connection", "said-public")).toEqual([]);
+    });
   });
 
   describe("a new decision model and the workspace's judge", () => {
