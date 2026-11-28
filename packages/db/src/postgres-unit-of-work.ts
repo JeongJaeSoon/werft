@@ -1380,8 +1380,8 @@ function receiptFields(row: typeof receipts.$inferSelect) {
   };
 }
 
-// operation/error are stored untyped; a row this reader cannot represent is
-// a bug in the writer, so let the parse throw.
+// The strict feed reader: its callers already filter by the operations this
+// build knows, so a row it cannot represent is not one to show. Let it throw.
 export function receiptFromRow(row: typeof receipts.$inferSelect): Receipt {
   return receiptSchema.parse(receiptFields(row));
 }

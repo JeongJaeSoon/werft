@@ -104,8 +104,8 @@ import type {
 } from "./ports/session-unit-of-work.ts";
 import {
   agentRefsOf,
+  agentRefsRowOf,
   maskAgentRefs,
-  RECEIPT_AGENT_REFS,
   targetsHidden,
 } from "./receipt-agent-refs.ts";
 import { attachedRepositoriesOf } from "./session-repository.ts";
@@ -1921,8 +1921,7 @@ export function createSessionService(deps: {
         if (
           refs.agentIds.length > 0 ||
           refs.releaseIds.length > 0 ||
-          (sessionId !== null &&
-            Object.hasOwn(RECEIPT_AGENT_REFS, receipt.operation))
+          (sessionId !== null && agentRefsRowOf(receipt) !== undefined)
         ) {
           hidden = await reader.hiddenAgentRefs(
             actor.ownerId,
