@@ -9882,6 +9882,26 @@ describe.each(ENGINES)(
         expect(await drain(handle)).toMatchObject({ processed: 1 });
         expect(await messagesOf(sessionId)).toEqual(["summarize the thread"]);
         expect(await unaskedTurns()).toHaveLength(1);
+        // Answered, the post is no reply left unanswered, though another
+        // hold of it spoke with no turn and the turn is an `m1` judgment's.
+        await db.execute(sql`
+          INSERT INTO conversation_judgments SELECT (jsonb_populate_record(
+            NULL::conversation_judgments, to_jsonb(j) || jsonb_build_object(
+              'id', gen_random_uuid()::text, 'input_id', NULL,
+              'turn_id', NULL))).*
+          FROM conversation_judgments j WHERE j.grade = 'm1_to_task'`);
+        await db.execute(sql`
+          UPDATE conversation_judgments SET grade = 'm1', work_session_id = NULL
+          WHERE turn_id IS NOT NULL`);
+        await db.execute(sql`
+          UPDATE conversation_judgments
+          SET judged_at = judged_at - interval '11 minutes'`);
+        const metrics = await schema.readPlatformMetrics(db, {
+          budget: null,
+          buckets: [],
+          storageLimitBytes: null,
+        });
+        expect(metrics.heldRepliesUnanswered).toBe(0);
       });
 
       test("work open when M1 spoke: no unasked turn is offered, and the work takes the reply", async () => {

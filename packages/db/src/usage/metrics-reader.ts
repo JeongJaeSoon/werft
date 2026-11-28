@@ -304,17 +304,17 @@ async function readNoCapacityFailures(db: Database) {
   return row?.count ?? 0;
 }
 
-// By post: a post held twice is one reply, answered by any of its
-// judgments' unasked turns or by a session turn of its input.
+// By post: a post held twice is one reply, answered by an unasked turn of
+// any of its judgments (an `m1` one too) or by a session turn of its input.
 async function readHeldRepliesUnanswered(db: Database) {
   const [row] = rowsOf<{ count: string }>(
     await db.execute(sql`
       SELECT count(*) AS count FROM (
         SELECT j.agent_id, j.slack_team_id, j.slack_channel_id, j.target_ts
         FROM conversation_judgments j
-        WHERE j.grade = 'm1_to_task' AND j.target_ts IS NOT NULL
+        WHERE j.target_ts IS NOT NULL
         GROUP BY j.agent_id, j.slack_team_id, j.slack_channel_id, j.target_ts
-        HAVING bool_or(j.decision = 'speak'
+        HAVING bool_or(j.grade = 'm1_to_task' AND j.decision = 'speak'
             AND j.judged_at < now() - interval '10 minutes')
           AND bool_and(j.turn_id IS NULL)) p
       WHERE NOT EXISTS (
