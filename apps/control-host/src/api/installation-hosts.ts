@@ -41,15 +41,16 @@ export const freshLookup: Lookup = (host) => resolveEveryTime(host);
 export function installationHostNames(
   env: Record<string, string | undefined>,
 ): string[] {
-  const names = new Map<string, string>();
+  // By spelling, not by key: `db.corp` and `db.corp.` are one key and may
+  // be two answers where a search domain is set, and both are held off.
+  const names = new Set<string>();
   const add = (variable: string, host: string) => {
-    const key = hostKey(host);
-    if (key === null) {
+    if (hostKey(host) === null) {
       throw new Error(
         `${variable} names no host a private upstream can be held off`,
       );
     }
-    if (!names.has(key)) names.set(key, host);
+    names.add(host.toLowerCase());
   };
   for (const variable of [
     "DATABASE_URL",
@@ -73,7 +74,7 @@ export function installationHostNames(
   for (const entry of (env.EGRESS_PRIVATE_DENY_HOSTS ?? "").split(",")) {
     if (entry.trim() !== "") add("EGRESS_PRIVATE_DENY_HOSTS", entry.trim());
   }
-  return [...names.values()];
+  return [...names];
 }
 
 /**

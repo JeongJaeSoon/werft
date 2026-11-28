@@ -5094,12 +5094,72 @@ describe("startCredentialProxy", () => {
           await asked(first + 1);
           deny = [lan ?? ""];
           await asked(first + 3);
+          // A later grant that no longer names it (another replica's) does
+          // not let it back in.
+          deny = [];
+          await asked(asks + 2);
           body?.enqueue(new TextEncoder().encode('"m"}'));
           body?.close();
           expect((await slow).status).toBe(403);
           expect(lines.join("\n")).toContain(
             `${lan} is the installation's own`,
           );
+          expect(up.seen).toHaveLength(1);
+        },
+      );
+
+      test.skipIf(lan === undefined)(
+        "a regrant left unanswered while the body is still arriving holds the call rather than dial on an old list",
+        async () => {
+          const up = inside(() => Response.json({ id: "msg_1" }));
+          let answers = true;
+          let asks = 0;
+          const auth = authorizer(() => {
+            asks += 1;
+            return answers
+              ? Response.json(grantOf(`http://${INSIDE}:${up.port}`))
+              : Response.json(
+                  {
+                    code: "BACKEND_UNAVAILABLE",
+                    message:
+                      "The installation's own addresses could not be told",
+                    retryable: true,
+                  },
+                  { status: 503 },
+                );
+          });
+          const server = proxy(auth.url, 1, {
+            resolve: async () => [lan ?? ""],
+            selfAddresses: () => [],
+            regrantIntervalMs: 20,
+            regrantGraceMs: 60_000,
+          });
+          const asked = async (count: number) => {
+            while (asks < count) await Bun.sleep(5);
+          };
+          expect((await messages(server.port)).status).toBe(200);
+          expect(up.seen).toHaveLength(1);
+          const first = asks;
+          let body: ReadableStreamDefaultController<Uint8Array> | undefined;
+          const slow = fetch(
+            `http://127.0.0.1:${server.port}/provider/v1/messages`,
+            {
+              method: "POST",
+              headers: { "x-api-key": WORKER_TOKEN },
+              body: new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(new TextEncoder().encode('{"model":'));
+                  body = controller;
+                },
+              }),
+            },
+          );
+          await asked(first + 1);
+          answers = false;
+          await asked(first + 3);
+          body?.enqueue(new TextEncoder().encode('"m"}'));
+          body?.close();
+          expect((await slow).status).toBe(503);
           expect(up.seen).toHaveLength(1);
         },
       );

@@ -2296,10 +2296,11 @@ export function startCredentialProxy(
     // A billed call's ledger entry, opened with the whole body just before
     // the upstream is called.
     ledger?: LedgerCall,
-    // The deny list of a regrant since `grant`, if one came: the body is
-    // waited for after the upstream is judged, and an address held off
-    // meanwhile is not dialled.
-    deniedSince?: () => readonly string[] | undefined,
+    // What the regrants since `grant` said, for a registered private
+    // upstream: the body is waited for after the upstream is judged, and an
+    // address any of them held off meanwhile is not dialled. `unsure`: the
+    // newest of them got no answer, so its deny list may be behind.
+    since?: { denied: () => readonly string[]; unsure: () => boolean },
   ): Promise<Response> {
     const who = {
       purpose: route.purpose,
@@ -2326,7 +2327,7 @@ export function startCredentialProxy(
         who,
         signal,
         registeredPrivate(route.purpose, grant)
-          ? () => deniedSince?.() ?? grant.deny ?? []
+          ? () => [...(grant.deny ?? []), ...(since?.denied() ?? [])]
           : null,
       );
     let first = await dialUpstream();
@@ -2406,6 +2407,13 @@ export function startCredentialProxy(
         if (late != null) {
           ledger?.release();
           return refusedPrivate(late, fields, route.purpose);
+        }
+        if (at.refusal !== undefined && since?.unsure()) {
+          ledger?.release();
+          logger.warn("Credential route held: its grant could not be renewed", {
+            ...fields,
+          });
+          return undecidedReply(route.purpose);
         }
         try {
           response = await send(
@@ -2858,7 +2866,10 @@ export function startCredentialProxy(
       // cannot answer does only after the grace: a blip must not break
       // every stream in flight, and an outage must not hide an ended grant.
       let grantedAt = performance.now();
-      let deniedSince: readonly string[] | undefined;
+      // Only ever added to: a later grant from a replica that has not seen
+      // an address does not let it back in.
+      const deniedSince = new Set<string>();
+      let unsure = false;
       const watchGrant = (grant: EgressGrant) => {
         regrant = setTimeout(async () => {
           const again = await authorize(
@@ -2870,9 +2881,10 @@ export function startCredentialProxy(
             exchangeId,
           );
           if (ended) return;
+          unsure = again.kind !== "granted";
           if (again.kind === "granted") {
             grantedAt = performance.now();
-            deniedSince = again.grant.deny ?? deniedSince;
+            for (const host of again.grant.deny ?? []) deniedSince.add(host);
             // Beside the regrant, not in its way: its answer and the next
             // timer do not wait on the ledger.
             if (opened) toLedger({ op: "renew", exchange_id: exchangeId });
@@ -3077,7 +3089,7 @@ export function startCredentialProxy(
           streamed,
           exchangeId,
           ledger,
-          () => deniedSince,
+          { denied: () => [...deniedSince], unsure: () => unsure },
         );
         const relayed = new Response(tracked(response.body, release), {
           status: response.status,

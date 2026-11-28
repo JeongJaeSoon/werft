@@ -2498,16 +2498,15 @@ errors.push(
     ["vip.internal", "172.30.64.1"],
   ),
 );
-{
-  // DNS is how the proxy finds every upstream: it is not a port to deny.
-  const { ok, out } = helmTemplate([
-    "-f",
-    ciDigests,
-    "--set",
-    "networkPolicy.egressProxy.denyPorts={53}",
-  ]);
+// DNS is how the proxy finds every upstream: it is not a port to deny, by
+// any of the values the denied ports come from.
+for (const value of [
+  "networkPolicy.egressProxy.denyPorts={53}",
+  "networkPolicy.slack.databasePort=53",
+]) {
+  const { ok, out } = helmTemplate(["-f", ciDigests, "--set", value]);
   if (ok || !out.includes("53 is DNS")) {
-    errors.push("proxy egress: denyPorts takes 53, which shuts DNS");
+    errors.push(`proxy egress: ${value} is taken, and the DNS rule opens it`);
   }
 }
 const CURRENT_RUNTIME = {

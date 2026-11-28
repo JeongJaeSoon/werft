@@ -23,9 +23,10 @@ describe("installationHostNames", () => {
         "10.96.0.1",
         "172.30.64.1",
         "api",
+        // As written: the resolver is asked the absolute name too.
+        "api.",
         "[fd00::9]",
-        // As written: the resolver is asked the absolute name.
-        "Postgres.",
+        "postgres.",
         "vip.internal",
       ].sort(),
     );
@@ -179,6 +180,21 @@ describe("createInstallationHosts", () => {
     expect(answers).toHaveLength(2);
     answers[1]?.(["172.20.0.9"]);
     expect(await third).toEqual(["api", "172.20.0.8", "172.20.0.9"]);
+  });
+
+  test("a name configured relative and absolute is asked both ways, and both answers are held off", async () => {
+    const hosts = createInstallationHosts({
+      names: installationHostNames({
+        DATABASE_URL: "postgresql://user:pw@db.corp:5432/sessions",
+        EGRESS_PRIVATE_DENY_HOSTS: "db.corp.",
+      }),
+      interfaces: () => [],
+      lookup: answering({
+        "db.corp": ["10.20.0.11"],
+        "db.corp.": ["10.20.0.12"],
+      }),
+    });
+    expect(await hosts()).toEqual(["db.corp", "10.20.0.11", "10.20.0.12"]);
   });
 
   test("a name is asked as it is configured and compared without its trailing dot", async () => {

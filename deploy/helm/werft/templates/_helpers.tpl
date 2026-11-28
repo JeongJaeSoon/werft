@@ -557,10 +557,8 @@ to:
 {{- end -}}
 {{- define "ap.proxyEgressPorts" -}}
 {{- $denied := list (printf "%05d" (int .Values.networkPolicy.slack.databasePort)) (printf "%05d" (int .Values.api.metrics.port)) (printf "%05d" (int .Values.metrics.port)) -}}
-{{- range .Values.networkPolicy.egressProxy.denyPorts }}
-{{- if eq (int .) 53 }}{{- fail "networkPolicy.egressProxy.denyPorts: 53 is DNS, which the proxy resolves every upstream by" }}{{- end }}
-{{- $denied = append $denied (printf "%05d" (int .)) -}}
-{{- end -}}
+{{- range .Values.networkPolicy.egressProxy.denyPorts }}{{- $denied = append $denied (printf "%05d" (int .)) -}}{{- end -}}
+{{- if has "00053" $denied }}{{- fail "the egress proxy cannot be held off port 53 (networkPolicy.egressProxy.denyPorts, networkPolicy.slack.databasePort, api.metrics.port, metrics.port): 53 is DNS, which it resolves every upstream by" }}{{- end -}}
 {{- $next := 1 -}}
 {{- range ($denied | uniq | sortAlpha) }}
 {{- $port := atoi (trimPrefix "0" (trimPrefix "0" (trimPrefix "0" (trimPrefix "0" .)))) -}}

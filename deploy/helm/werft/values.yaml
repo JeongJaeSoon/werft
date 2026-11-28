@@ -574,7 +574,8 @@ networkPolicy:
     # network is dialled from the proxy, and none of those is one it may be.
     # false leaves the proxy's egress open, as it was before this policy.
     restrict: true
-    # More TCP ports the proxy never dials. Not 53: it resolves by it.
+    # More TCP ports the proxy never dials. Not 53, here or as the database's
+    # or a metrics port: the proxy resolves by it, and the render refuses it.
     denyPorts: []
     # Destinations the proxy never dials on any port, DNS included, as CIDRs:
     # the database's subnet, a node-local service. Empty: none. These are
