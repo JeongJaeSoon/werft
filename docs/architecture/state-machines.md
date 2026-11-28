@@ -91,9 +91,10 @@
 
 | 지금 상태 | 다음 상태 | 조건 | 누가 일으키나 |
 | --- | --- | --- | --- |
-| `active` (살아 있는 worker가 drain함) | `closing` 뒤 `closed` (status `stopped`) | 위 조건을 채운 작업 세션. `task_closed_reason`은 `closing`이 될 때 쓴다. `closed`는 실행이 사라진 것이 보일 때 된다(`confirmExecutionGone`) | PR 사건(system), 세션을 제어할 수 있는 요청자 |
+| `active` (살아 있는 worker가 drain함) | `closing` 뒤 `closed` (status `stopped`) | 위 조건을 채운 작업 세션. `closed`는 실행이 사라진 것이 보일 때 된다(`confirmExecutionGone`). `task_closed_reason`은 그때 쓴다. `closing` 동안은 close의 idempotency 행(`payload_hash` `task_close:<사유>`)만 사유를 든다 | PR 사건(system), 세션을 제어할 수 있는 요청자 |
 | `active` (drain할 worker 없음), `paused`, 이어 갈 수 있는 `stopped` | `closed` (status `stopped`) | 같음. `active`는 checkpoint가 마지막으로 돈 턴을 덮을 때만 닫힌다(`pauseBlocker`) | 같음 |
 | `closing`, `closed` | 그대로 | 요청자에게는 `already_closed`로 답한다. 처음 닫은 사유가 남는다 | 같음 |
+| `closing` | `recovery_required`, `stopping`·`stopped`, `active` | drain이 실패했거나(결과를 모르는 턴, checkpoint 없음) terminate가 앞질렀다. 세션에는 사유가 남지 않아 열린 일로 돌아가고, PR 사건이나 요청자가 다시 닫을 수 있다 | worker·reconciler, terminate |
 | `recovery_required`, 이어 갈 수 없는 `stopped`, checkpoint가 덮지 못한 `active` | 그대로 | `closeAtomic`이 거절한다. 요청자는 실패 안내를 받는다. PR 사건은 다음 pass에 다시 시도한다 | 같음 |
 
 막을 전이:
@@ -107,9 +108,10 @@
 
 - 작업의 스레드 링크는 다음 outbox pass의 `closeFinishedLinks`가 `task_closed_reason`으로 닫는다. 진행 메시지가 있는 링크는 닫힘 갱신 행(취소면 '작업을 취소했어요')이 생긴 뒤에 닫힌다. 같은 pass에서 진행 갱신을 넣은 뒤 링크를 닫기 전에 세션이 닫혀도 같다.
 - 닫힌 작업의 진행 메시지에는 버튼이 없다.
+- PR 사건 pass는 replica마다 지난 pass가 멈춘 세션 id 뒤에서 이어 고른다. `closeAtomic`이 계속 거절하는 작업이 한 번에 고르는 수(100)보다 많아도 그 뒤 작업이 밀리지 않는다.
 - 요청자가 닫은 작업의 스레드에 온 멘션은 대화 turn이 된다(`spawn_task`면 새 작업과 새 링크, `reply`면 답만).
 
-시험: `apps/control-host/src/slack/outbox.integration.test.ts`의 `a task's close on …` 묶음과 `a work closed between a pass's progress and its link close keeps its link open for the closed update`, `apps/control-host/src/slack/session-handler.integration.test.ts`의 `a mention in the thread of a task its requester closed is a conversation turn, and its %s takes effect`, `packages/adapters/chat/slack/src/slack-interactions.test.ts`의 `the close buttons on a task's progress message` 묶음, `packages/platform/src/sessions/task-close.test.ts`, `packages/platform/src/sessions/outcome-refresher.test.ts`.
+시험: `apps/control-host/src/slack/outbox.integration.test.ts`의 `a task's close on …` 묶음과 `a work closed between a pass's progress and its link close keeps its link open for the closed update`, `apps/control-host/src/slack/session-handler.integration.test.ts`의 `a mention in the thread of a task its requester closed is a conversation turn, and its %s takes effect`, `packages/adapters/chat/slack/src/slack-interactions.test.ts`의 `the close buttons on a task's progress message` 묶음, `packages/platform/src/sessions/task-close.test.ts`, `packages/platform/src/sessions/outcome-refresher.test.ts`, `packages/db/src/sessions/task-close.test.ts`, `packages/db/src/close-control.integration.test.ts`의 `a task close that drains names its reason only once the session is closed; one lost to recovery leaves none`.
 
 ### terminate가 일으키는 전이
 

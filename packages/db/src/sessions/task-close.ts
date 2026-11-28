@@ -10,7 +10,11 @@ import { eq, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import { sessions } from "../schema.ts";
 import { rowsOf } from "../statement-rows.ts";
-import { closeAtomic, PULL_REQUEST_EVENT } from "./close-control.ts";
+import {
+  closeAtomic,
+  PULL_REQUEST_EVENT,
+  taskClosePayloadHash,
+} from "./close-control.ts";
 
 // A session that moves between the read and the close is read again.
 const REVISION_ATTEMPTS = 3;
@@ -46,7 +50,7 @@ async function closeTask(
       principal: input.principal ?? { ownerId: row.ownerId },
       sessionId,
       idempotencyKey: randomUUID(),
-      payloadHash: `task_close:${input.reason}`,
+      payloadHash: taskClosePayloadHash(input.reason),
       expectedRevision: row.revision,
       reason: null,
       now: new Date(),
@@ -80,6 +84,9 @@ async function closeTask(
 }
 
 export function createPostgresTaskCloses(db: Database): TaskCloses {
+  // Where the next pass goes on from, so tasks closeAtomic keeps refusing
+  // never hold the ones after them out of every pass.
+  let after: string | null = null;
   return {
     close(input: {
       principal: Principal;
@@ -102,12 +109,14 @@ export function createPostgresTaskCloses(db: Database): TaskCloses {
           WHERE s.task_closed_reason IS NULL
             AND s.admission_state IN ('active', 'paused', 'stopped')
             AND (s.task_closing ->> 'eventRules')::boolean
+            AND (${after}::uuid IS NULL OR s.id > ${after}::uuid)
           GROUP BY s.id
           HAVING bool_or(o.state = 'merged')
             OR (bool_or(o.state = 'closed') AND NOT bool_or(o.state = 'open'))
           ORDER BY s.id
           LIMIT ${limit}`),
       );
+      after = due.length < limit ? null : (due.at(-1)?.id ?? null);
       let closed = 0;
       let failure: unknown;
       // One session failing leaves the others to close; the pass reports it.

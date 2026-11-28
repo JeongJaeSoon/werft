@@ -30,6 +30,10 @@ import {
   unassignedSessions,
   workerLaunches,
 } from "./schema.ts";
+import {
+  closeAtomic,
+  taskClosePayloadHash,
+} from "./sessions/close-control.ts";
 import { createPostgresWorkerPendingStore } from "./sessions/pending-control.ts";
 import { createPostgresPendingRequests } from "./sessions/pending-requests.ts";
 import {
@@ -612,6 +616,55 @@ integration("close on PostgreSQL", () => {
     expect(await receiptRow(r2.receipt_id)).toMatchObject({
       status: "failed",
       error: { code: "RECOVERY_REQUIRED" },
+    });
+  });
+
+  test("a task close that drains names its reason only once the session is closed; one lost to recovery leaves none", async () => {
+    const taskClose = async (session: Session) => {
+      const result = await closeAtomic(db, {
+        principal: { ownerId: session.ownerId },
+        sessionId: session.sessionId,
+        idempotencyKey: crypto.randomUUID(),
+        payloadHash: taskClosePayloadHash("cancelled"),
+        expectedRevision: (await sessionRow(session.sessionId)).revision,
+        reason: null,
+        now: new Date(),
+        taskClosedReason: "cancelled",
+      });
+      if (result.outcome !== "accepted") throw new Error(result.outcome);
+      return result.response;
+    };
+
+    const drained = await newSession("task-drained");
+    const worker = await claim(drained);
+    const turn = await deliver(worker);
+    const response = await taskClose(drained);
+    // closing may still fail back to open work, which keeps no reason.
+    expect(await sessionRow(drained.sessionId)).toMatchObject({
+      admissionState: "closing",
+      taskClosedReason: null,
+    });
+    await finalize(worker, turn, 0);
+    expect(
+      (await gateway.nextInput(worker.principal, worker.scope)).input,
+    ).toBeNull();
+    expect(await releaseForDrain(worker, response.receipt_id)).toEqual({
+      released: true,
+    });
+    await confirmExecutionGone(db, worker.executionId);
+    expect(await sessionRow(drained.sessionId)).toMatchObject({
+      admissionState: "closed",
+      taskClosedReason: "cancelled",
+    });
+
+    const lost = await newSession("task-lost");
+    const w2 = await claim(lost);
+    const t2 = await deliver(w2);
+    await taskClose(lost);
+    await finalize(w2, t2, null, "outcome_unknown");
+    expect(await sessionRow(lost.sessionId)).toMatchObject({
+      admissionState: "recovery_required",
+      taskClosedReason: null,
     });
   });
 
