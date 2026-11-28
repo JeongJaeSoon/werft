@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { ConversationRollout } from "@werft-ai/contracts";
+import {
+  type ConversationRollout,
+  MESSAGE_MAX_BYTES,
+} from "@werft-ai/contracts";
 import type { SurfaceInboundClaim, TaskReplyRoute } from "@werft-ai/platform";
 import { SlackInboundDeferred } from "./slack-inbox.ts";
 import { createSlackSessionHandler } from "./slack-session-handler.ts";
@@ -420,6 +423,16 @@ describe("once the rollout is on, a bound thread's unmentioned reply is routed b
       text: "A &amp;&amp; B",
     });
     expect(taskReplies).toEqual([expect.objectContaining({ body: "A && B" })]);
+  });
+
+  test("a reply within the limit once decoded is held, though its Slack text is past it", async () => {
+    const { receipt } = await receive({
+      rollout: "on",
+      linked: true,
+      taken: false,
+      text: `${"a".repeat(MESSAGE_MAX_BYTES - 4)}&amp;`,
+    });
+    expect(receipt).toMatchObject({ judgment: { grade: "m1" } });
   });
 
   test("a mention of the agent is not routed: its session takes it", async () => {

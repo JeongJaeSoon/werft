@@ -517,7 +517,7 @@ export function createSlackSessionHandler(
         if (
           (live.approvedAt !== null &&
             Number(event.ts) * 1000 < live.approvedAt.getTime()) ||
-          !messageTextSchema.safeParse(event.text).success
+          !messageTextSchema.safeParse(unescapeSlackText(event.text)).success
         ) {
           return unjudged;
         }
