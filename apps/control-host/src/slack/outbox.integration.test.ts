@@ -9108,6 +9108,15 @@ describe.each(ENGINES)("a task's time rules on %s", (engine) => {
           started_at = started_at - make_interval(days => ${days}),
           ended_at = ended_at - make_interval(days => ${days})
         WHERE session_id = ${sessionId}::uuid RETURNING 1)
+      , inputs AS (
+        UPDATE conversation_inputs i
+        SET received_at = received_at - make_interval(days => ${days})
+        FROM session_links l
+        JOIN conversation_topics tp ON tp.agent_id = l.agent_id
+          AND tp.slack_channel_id = l.channel_id
+          AND tp.slack_thread_ts = l.thread_id
+        WHERE l.session_id = ${sessionId}::uuid AND i.topic_id = tp.id
+        RETURNING 1)
       UPDATE sessions SET created_at = created_at - make_interval(days => ${days}),
         last_turn_at = last_turn_at - make_interval(days => ${days})
       WHERE id = ${sessionId}::uuid`);
@@ -9150,6 +9159,56 @@ describe.each(ENGINES)("a task's time rules on %s", (engine) => {
       .from(sessionLinks);
     expect(link).toEqual({ closedReason: "abandoned" });
     expect(await closeIdle()).toBe(0);
+  });
+
+  test("a reply held for M1's judgment in its thread keeps it open, though no turn took it yet", async () => {
+    const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
+    await daysPass(sessionId, 15);
+    // The reply's topic, as the thread's first held reply makes it.
+    const [link] = await db
+      .select({
+        workspaceId: sessionLinks.workspaceId,
+        agentId: sessionLinks.agentId,
+        channelId: sessionLinks.channelId,
+        threadId: sessionLinks.threadId,
+        teamId: schema.slackInstallations.teamId,
+        conversationId: sessions.parentConversationId,
+      })
+      .from(sessionLinks)
+      .innerJoin(
+        schema.slackInstallations,
+        eq(schema.slackInstallations.id, sessionLinks.installationId),
+      )
+      .innerJoin(sessions, eq(sessions.id, sessionLinks.sessionId))
+      .where(eq(sessionLinks.sessionId, sessionId));
+    if (link?.conversationId == null) throw new Error("no thread");
+    const topic = randomUUID();
+    await db.execute(sql`
+      INSERT INTO conversation_topics (id, workspace_id, agent_id,
+        conversation_id, conversation_kind, slack_team_id, slack_channel_id,
+        slack_thread_ts)
+      VALUES (${topic}::uuid, ${link.workspaceId}::uuid, ${link.agentId}::uuid,
+        ${link.conversationId}::uuid, 'channel', ${link.teamId},
+        ${link.channelId}, ${link.threadId})
+      ON CONFLICT DO NOTHING`);
+    await db.execute(sql`
+      INSERT INTO conversation_inputs (id, workspace_id, agent_id, topic_id,
+        seq, slack_team_id, slack_channel_id, slack_ts, requester_kind,
+        requester_id, body, buffer_expires_at)
+      SELECT ${randomUUID()}::uuid, ${link.workspaceId}::uuid,
+        ${link.agentId}::uuid, tp.id,
+        coalesce((SELECT max(seq) FROM conversation_inputs WHERE topic_id = tp.id), 0) + 1,
+        ${link.teamId}, ${link.channelId}, '1792900000.000001', 'slack_user',
+        'U0MOCK', 'one more thing', now() + interval '10 minutes'
+      FROM conversation_topics tp
+      WHERE tp.agent_id = ${link.agentId}::uuid
+        AND tp.slack_channel_id = ${link.channelId}
+        AND tp.slack_thread_ts = ${link.threadId}`);
+    expect(await closeIdle()).toBe(0);
+    expect(await stateOf(sessionId)).toEqual({
+      admission: "active",
+      reason: null,
+    });
   });
 
   test("a session from before tasks stays open however long it sits", async () => {

@@ -7,7 +7,13 @@ import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import type { Database } from "../queries.ts";
 import * as schema from "../schema.ts";
-import { events, sessionOutcomes, sessions, turns } from "../schema.ts";
+import {
+  events,
+  pendingRequests,
+  sessionOutcomes,
+  sessions,
+  turns,
+} from "../schema.ts";
 import { newPartitionedSession } from "../testing/sessions.ts";
 import { createPostgresTaskCloses } from "./task-close.ts";
 
@@ -138,8 +144,8 @@ describe("a task's time rules", () => {
   const DAY = 24 * 60 * 60 * 1000;
 
   /**
-   * A paused task whose one turn ended `days` ago, with `count` turns
-   * that each ran `minutes`. Paused: closeAtomic closes it with no drain.
+   * A paused task whose `count` turns (1 by default) each ran `minutes`
+   * and ended `days` ago. Paused: closeAtomic closes it with no drain.
    */
   async function quietTask(
     name: string,
@@ -278,6 +284,34 @@ describe("a task's time rules", () => {
     });
   });
 
+  test("a request answered on a paused task starts the clock again, though no turn follows", async () => {
+    const sessionId = await quietTask("1", 15, { count: 40 });
+    const [turn] = await db
+      .select({ id: turns.id })
+      .from(turns)
+      .where(eq(turns.sessionId, sessionId))
+      .limit(1);
+    if (turn === undefined) throw new Error("no turn");
+    // Taken over and answered six days ago, its pause kept: no continuation.
+    await db.insert(pendingRequests).values({
+      requestId: randomUUID(),
+      sessionId,
+      turnId: turn.id,
+      attemptId: "attempt-1",
+      kind: "permission",
+      payload: {},
+      inputHash: "hash",
+      expiresAt: new Date(Date.now() + DAY),
+      answer: { behavior: "allow" },
+      answeredAt: new Date(Date.now() - 6 * DAY),
+    });
+    expect(await createPostgresTaskCloses(db).closeOnTimeRules(50)).toBe(0);
+    expect(await taskOf(sessionId)).toEqual({
+      admission: "paused",
+      reason: null,
+    });
+  });
+
   test("an input saved after the pass chose the task is what its close judges", async () => {
     const sessionId = await quietTask("1", 15);
     const sweep = createPostgresTaskCloses(
@@ -323,7 +357,7 @@ describe("a task's time rules", () => {
       .update(sessions)
       .set({ podId: "legacy-pod" })
       .where(eq(sessions.id, stuck));
-    // Each pass is a process of its own (runPassLoop): a new sweep each time.
+    // Each pass makes its sweep anew (reconcileOnce): no cursor carries over.
     for (let pass = 0; pass < 40; pass += 1) {
       if ((await createPostgresTaskCloses(db).closeOnTimeRules(1)) === 1) break;
     }

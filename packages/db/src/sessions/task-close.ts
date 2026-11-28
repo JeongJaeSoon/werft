@@ -21,7 +21,7 @@ import {
 // A session that moves between the read and the close is read again.
 const REVISION_ATTEMPTS = 3;
 
-/** A task its pull requests, read under its lock, no longer close. */
+/** A task its pull requests or its time rules, read under its lock, no longer close. */
 class NotDue extends Error {}
 
 /**
@@ -76,16 +76,28 @@ const TIME_RULE_DUE = sql`
           hours => (s.task_interpretation -> 'limits' ->> 'hours')::int))))`;
 
 /**
- * A session's last activity (its creation, or a turn queued, started or
- * ended: a person's new input is a new turn), its turns, and the time they
- * ran. A turn is queued under the session's lock, so one read under it sees
- * every turn committed before.
+ * A session's last activity, its turns, and the time they ran. Activity is
+ * its creation, a turn queued, started or ended, a request of it answered,
+ * and a Slack post taken into its thread's topic: a reply held for M1's
+ * judgment is one before it is a turn (bound-replies.ts). Turns and answers
+ * are written under the session's lock; a post is not, so one committed
+ * before the read under the lock is seen, and one after comes to a closed task.
  */
 const TURN_CLOCK = sql`
   CROSS JOIN LATERAL (
     SELECT
       greatest(s.created_at, s.last_turn_at,
-        max(greatest(t.created_at, t.started_at, t.ended_at))) AS at,
+        max(greatest(t.created_at, t.started_at, t.ended_at)),
+        (SELECT max(p.answered_at) FROM pending_requests p
+          WHERE p.session_id = s.id),
+        (SELECT max(i.received_at) FROM session_links l
+          JOIN slack_installations si ON si.id = l.installation_id
+          JOIN conversation_topics tp ON tp.agent_id = l.agent_id
+            AND tp.slack_team_id = si.team_id
+            AND tp.slack_channel_id = l.channel_id
+            AND tp.slack_thread_ts = l.thread_id
+          JOIN conversation_inputs i ON i.topic_id = tp.id
+          WHERE l.session_id = s.id)) AS at,
       count(t.id) AS turns,
       coalesce(sum(t.ended_at - t.started_at), interval '0') AS worked
     FROM turns t WHERE t.session_id = s.id) a`;
@@ -235,9 +247,10 @@ export function createPostgresTaskCloses(db: Database): TaskCloses {
     async closeOnTimeRules(limit) {
       // The states closeAtomic closes from; one settling (pausing,
       // stopping, resuming, recovery_required decided) is taken once it is
-      // in one. Each pass is a process of its own, so no cursor carries
-      // over: a random order keeps tasks the close keeps refusing from
-      // holding the others out of every pass.
+      // in one. The sweep is made anew each pass (reconcileOnce) and a pass
+      // child can be replaced, so no cursor carries over: a random order
+      // keeps tasks the close keeps refusing from holding the others out
+      // of every pass.
       const due = rowsOf<{ id: string }>(
         await db.execute(sql`
           SELECT s.id FROM ${sessions} s ${TURN_CLOCK}
