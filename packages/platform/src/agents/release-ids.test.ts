@@ -4,6 +4,7 @@ import {
   type AgentRelease,
   agentCardSchema,
   agentReleaseSchema,
+  newSessionGitHubPolicy,
   storedAgentCardSchema,
 } from "@werft-ai/contracts";
 import { testConnection } from "../testing/catalog-fakes.ts";
@@ -213,6 +214,40 @@ describe("deriveReleaseId", () => {
     expect(cardContentSha256(read)).not.toBe(storedSha);
     expect(resolveReleaseContent(read, run)).toEqual(resolved);
     expect(() => assertReleaseIdentity(release)).not.toThrow();
+  });
+
+  test("a release whose pin holds a switch this build does not know still verifies once read, and no policy reads the switch (94S-2491)", () => {
+    const resolved = resolveReleaseContent(card, run);
+    if (!resolved.ok) throw new Error(resolved.error.message);
+    const known = {
+      workflows: false,
+      actions: false,
+      checks: false,
+      issues: false,
+      review: true,
+    };
+    const github = {
+      repositories: ["sample-app"],
+      push_approval: false,
+      features: { ...known, later_switch: true },
+      actions_allow: [],
+    };
+    const release = releaseOf({
+      agent_id: AGENT_ID,
+      card_sha256: cardContentSha256(card),
+      repository_id: null,
+      ...resolved.content,
+      policy_pins: { ...resolved.content.policy_pins, github },
+    });
+
+    expect(release.policy_pins.github).toEqual(github);
+    expect(() => assertReleaseIdentity(release)).not.toThrow();
+    const policy = newSessionGitHubPolicy(null, release.policy_pins.github);
+    expect(
+      policy.settings === null || policy.settings === "invalid"
+        ? policy.settings
+        : policy.settings.features,
+    ).toEqual(known);
   });
 });
 

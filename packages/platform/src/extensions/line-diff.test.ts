@@ -64,3 +64,8 @@ describe("unifiedLineDiff", () => {
     );
   });
 });
+
+test("a 1 MiB run of added lines does not exhaust the stack", () => {
+  const diff = unifiedLineDiff("", `${"\n".repeat(1_048_575)}:`);
+  expect(diff?.endsWith("\n+:")).toBe(true);
+});

@@ -1,8 +1,10 @@
 import {
   DEFAULT_USER_LOCALE,
+  SLACK_DM_THREAD_REQUIRED_CODE,
   SLACK_INPUT_MIRROR_EVENT_TYPE,
   SLACK_USER_CHANNEL_CODE,
   slackOutboxChannelRefused,
+  slackOutboxDmThreadRefused,
 } from "@werft-ai/contracts";
 import type {
   Approvable,
@@ -428,6 +430,10 @@ export function createRowDelivery(deps: RowDeliveryDeps): RowDelivery {
     // Before the token and any Slack call: such a row never goes out.
     if (slackOutboxChannelRefused(claim.channelId)) {
       return { kind: "failed", code: SLACK_USER_CHANNEL_CODE };
+    }
+    // Nor does a row that would stand at the top of a DM, however written.
+    if (slackOutboxDmThreadRefused(claim)) {
+      return { kind: "failed", code: SLACK_DM_THREAD_REQUIRED_CODE };
     }
     let botToken: string | null;
     try {
