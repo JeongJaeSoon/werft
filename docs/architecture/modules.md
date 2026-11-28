@@ -23,7 +23,7 @@
 | Kollegium | 에이전트 명부(정의, release, 관리 팀, 채널 연결 설정) | `agents` |
 | Musterrolle | 누구인지 확인하고, 해도 되는지 판정하고, 그 판정을 기록 | `access-control` |
 | Takelage | 에이전트에 달 것(skill, 원격 MCP 서버)을 들이고, 검사하고, 내줌 | `extensions/{skills,bundles,mcp,builtin}` |
-| Logbuch | 에이전트 기억: 종류(agent, channel, person), 범위 판정, 세션에 넣기, 쓰기, 콘솔에서 보기와 고치기, 보존 | `memory` |
+| Logbuch | 에이전트 기억: 종류(agent, channel, person), 범위 판정, 세션에 넣기, 쓰기, 콘솔에서 보기와 고치기, 보존. 이것은 맡을 범위이고, 지금 코드에는 가시성 정책과 SQL만 있음 | `memory` |
 | Lotse | 세션과 세션 사이의 협업. 앞으로 올 모듈이고 아직 폴더가 없음 | 없음 |
 
 Werft는 제품 전체의 이름이고, 바깥에 내놓는 유일한 이름입니다.
@@ -120,7 +120,7 @@ Werft는 제품 전체의 이름이고, 바깥에 내놓는 유일한 이름입�
 | `skills` | 사용자가 올린 skill을 등록하고, 검토하고, Git 저장소와 맞춘다 |
 | `bundles` | 세션에 skill을 실어 나르는 꾸러미를 저장하고 검사한다. 꾸러미는 내용 digest로 고정되고, worker가 `.ext/<digest>`에 풀어 Claude plugin으로 붙인다 |
 | `mcp` | workspace에 등록한 원격 MCP 서버와, 에이전트마다 그 가운데 무엇을 쓸지 정한 지정을 다룬다 |
-| `builtin` | Werft가 스스로 붙이는 것. 모든 세션이 갖는 내장 werft MCP 서버와 그 안내를 담는다 |
+| `builtin` | Werft가 스스로 붙이는 것. 내장 werft MCP 서버와 그 안내를 담는다. `werft_mcp`를 지원한다고 알린 worker가 맡은 세션에 붙는다 |
 
 Codex 엔진은 아직 꾸러미가 붙은 세션을 받지 않습니다.
 

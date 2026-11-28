@@ -432,16 +432,22 @@ function isRouteErrorKey(file: string, node: ts.Node): boolean {
   const value = unwrapped(node);
   const parent = value.parent;
   if (file === routeErrorTable) {
-    // A property name of ROUTE_ERROR_TESTS, written plainly or computed; not a value.
+    // A property name of ROUTE_ERROR_TESTS, written plainly or computed; not
+    // a value. The table itself may be wrapped: parentheses, a type, a call
+    // that takes it.
     const name = ts.isComputedPropertyName(parent) ? parent : value;
     const property = name.parent;
-    const table = property.parent?.parent;
+    if (!ts.isPropertyAssignment(property) || property.name !== name)
+      return false;
+    let table = unwrapped(property.parent);
+    while (
+      ts.isCallExpression(table.parent) &&
+      table.parent.expression !== table
+    )
+      table = unwrapped(table.parent);
     return (
-      ts.isPropertyAssignment(property) &&
-      property.name === name &&
-      table !== undefined &&
-      ts.isVariableDeclaration(table) &&
-      table.name.getText() === "ROUTE_ERROR_TESTS"
+      ts.isVariableDeclaration(table.parent) &&
+      table.parent.name.getText() === "ROUTE_ERROR_TESTS"
     );
   }
   return (
@@ -452,14 +458,17 @@ function isRouteErrorKey(file: string, node: ts.Node): boolean {
   );
 }
 
-function scriptEdits(file: string, text: string): Edit[] {
-  const source = ts.createSourceFile(
+const parsed = (file: string, text: string) =>
+  ts.createSourceFile(
     file,
     text,
     ts.ScriptTarget.Latest,
     true,
     file.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
+
+function scriptEdits(file: string, text: string): Edit[] {
+  const source = parsed(file, text);
   const edits: Edit[] = [];
   const visit = (node: ts.Node) => {
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
@@ -546,15 +555,50 @@ function mapToken(token: string): string {
 const address =
   /(?:[a-z][a-z0-9+.-]*:(?:\\?\/|\\u002f){2}|(?<![:\w/])\/\/(?=[\w[])|[\w.-]+@[\w.-]+:)[^\s"'`<>]*/gi;
 
+/**
+ * The literals of a script whose value holds an address that its source
+ * spells with an escape the pattern above does not read (a slash written as
+ * a hex escape, say). Such a literal is left whole.
+ */
+function escapedAddresses(file: string, text: string) {
+  const found: (readonly [number, number])[] = [];
+  if (!/\.([cm]?[jt]s|[jt]sx)$/.test(file) || !text.includes("\\"))
+    return found;
+  const source = parsed(file, text);
+  const visit = (node: ts.Node) => {
+    // A template is read whole, a placeholder standing for each expression.
+    const value = ts.isStringLiteralLike(node)
+      ? node.text
+      : ts.isTemplateExpression(node)
+        ? node.head.text +
+          node.templateSpans.map((span) => `x${span.literal.text}`).join("")
+        : undefined;
+    if (
+      value !== undefined &&
+      node.getText(source).includes("\\") &&
+      value.search(address) !== -1
+    )
+      found.push([node.getStart(source), node.getEnd()]);
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
+}
+
 /** `replace`, leaving a match that overlaps an address as it is. */
 function replacePaths(
+  file: string,
   text: string,
   pattern: RegExp,
   mapped: (match: string, ...groups: (string | undefined)[]) => string,
 ): string {
-  const addresses = [...text.matchAll(address)].map(
-    (found) => [found.index, found.index + found[0].length] as const,
-  );
+  if (text.search(pattern) === -1) return text;
+  const addresses = [
+    ...[...text.matchAll(address)].map(
+      (found) => [found.index, found.index + found[0].length] as const,
+    ),
+    ...escapedAddresses(file, text),
+  ];
   return text.replace(pattern, (match: string, ...rest: unknown[]) => {
     const index = rest.find((value) => typeof value === "number") as number;
     const groups = rest.slice(0, rest.indexOf(index)) as (string | undefined)[];
@@ -567,15 +611,21 @@ function replacePaths(
 }
 
 function rewriteText(file: string, text: string): string {
-  let result = replacePaths(text, rootedPath, mapToken);
-  result = replacePaths(result, codeNamedSegment, (_all, folder, rest = "") => {
-    // db and the routes keep the remote MCP files in extensions/mcp.
-    if (folder === "musterrolle" && /^workspace-mcp[^/]*$/.test(rest))
-      return `extensions/mcp/${rest}`;
-    return `${folder === "kollegium" ? "agents" : "access-control"}/${rest}`;
-  });
+  let result = replacePaths(file, text, rootedPath, mapToken);
+  result = replacePaths(
+    file,
+    result,
+    codeNamedSegment,
+    (_all, folder, rest = "") => {
+      // db and the routes keep the remote MCP files in extensions/mcp.
+      if (folder === "musterrolle" && /^workspace-mcp[^/]*$/.test(rest))
+        return `extensions/mcp/${rest}`;
+      return `${folder === "kollegium" ? "agents" : "access-control"}/${rest}`;
+    },
+  );
   if (file.startsWith(verifyDocs))
     result = replacePaths(
+      file,
       result,
       /(?<![\w-])musterrolle\.md\b/g,
       () => "access-control.md",
@@ -880,7 +930,7 @@ const mapText = [
   `| Kollegium | 에이전트 명부(정의, release, 관리 팀, 채널 연결 설정) | ${code("agents")} |`,
   `| Musterrolle | 누구인지 확인하고, 해도 되는지 판정하고, 그 판정을 기록 | ${code("access-control")} |`,
   `| Takelage | 에이전트에 달 것(skill, 원격 MCP 서버)을 들이고, 검사하고, 내줌 | ${code("extensions/{skills,bundles,mcp,builtin}")} |`,
-  `| Logbuch | 에이전트 기억: 종류(agent, channel, person), 범위 판정, 세션에 넣기, 쓰기, 콘솔에서 보기와 고치기, 보존 | ${code("memory")} |`,
+  `| Logbuch | 에이전트 기억: 종류(agent, channel, person), 범위 판정, 세션에 넣기, 쓰기, 콘솔에서 보기와 고치기, 보존. 이것은 맡을 범위이고, 지금 코드에는 가시성 정책과 SQL만 있음 | ${code("memory")} |`,
   "| Lotse | 세션과 세션 사이의 협업. 앞으로 올 모듈이고 아직 폴더가 없음 | 없음 |",
   "",
   "Werft는 제품 전체의 이름이고, 바깥에 내놓는 유일한 이름입니다.",
@@ -925,7 +975,7 @@ const mapText = [
   `| ${code("skills")} | 사용자가 올린 skill을 등록하고, 검토하고, Git 저장소와 맞춘다 |`,
   `| ${code("bundles")} | 세션에 skill을 실어 나르는 꾸러미를 저장하고 검사한다. 꾸러미는 내용 digest로 고정되고, worker가 ${code(".ext/<digest>")}에 풀어 Claude plugin으로 붙인다 |`,
   `| ${code("mcp")} | workspace에 등록한 원격 MCP 서버와, 에이전트마다 그 가운데 무엇을 쓸지 정한 지정을 다룬다 |`,
-  `| ${code("builtin")} | Werft가 스스로 붙이는 것. 모든 세션이 갖는 내장 werft MCP 서버와 그 안내를 담는다 |`,
+  `| ${code("builtin")} | Werft가 스스로 붙이는 것. 내장 werft MCP 서버와 그 안내를 담는다. ${code("werft_mcp")}를 지원한다고 알린 worker가 맡은 세션에 붙는다 |`,
   "",
   "Codex 엔진은 아직 꾸러미가 붙은 세션을 받지 않습니다.",
   "",
