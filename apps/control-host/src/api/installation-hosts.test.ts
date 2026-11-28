@@ -12,6 +12,7 @@ describe("installationHostNames", () => {
         DATABASE_URL: "postgresql://user:pw@Postgres.:5432/sessions",
         WORKER_GATEWAY_URL: "http://api:3200",
         AWS_ENDPOINT_URL: "http://[FD00::9]:8333",
+        AWS_ENDPOINT_URL_S3: "https://s3.corp.internal",
         EGRESS_AUTHORIZER_HOST: "0.0.0.0",
         KUBERNETES_SERVICE_HOST: "10.96.0.1",
         // The gateway's name again, in two more spellings.
@@ -27,6 +28,7 @@ describe("installationHostNames", () => {
         "api.",
         "[fd00::9]",
         "postgres.",
+        "s3.corp.internal",
         "vip.internal",
       ].sort(),
     );

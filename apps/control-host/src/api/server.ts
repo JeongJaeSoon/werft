@@ -1083,6 +1083,10 @@ const workspaceMcpHosts = workspaceMcpHostsFromEnv(process.env);
 const installationHosts = createInstallationHosts({
   names: installationHostNames(process.env),
 });
+// Asked on a timer too, not only when a private grant is: a replica that
+// has given none for a while still learns the addresses its hosts hold, and
+// so keeps one denied for the five minutes after the name leaves it.
+setInterval(() => void installationHosts(), 30_000).unref();
 const connectionNetwork = connectionNetworkCheck(installationHosts);
 const workspaceMcp = createWorkspaceMcpService({
   authorization,

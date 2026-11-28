@@ -32,7 +32,8 @@ export const freshLookup: Lookup = (host) => resolveEveryTime(host);
 /**
  * The hosts this installation is wired to, read from the API's own
  * environment and spelled as configured: its database, its worker gateway,
- * its object store, its authorizer listener, the Kubernetes API, and what
+ * its object store (by either variable the SDK reads), its authorizer
+ * listener, the Kubernetes API, and what
  * the deployment and the operator add in `EGRESS_PRIVATE_DENY_HOSTS` (the
  * API's own Service names, a front VIP or NAT address no interface of this
  * process shows). Throws on a value that names no host: a deny list with a
@@ -56,6 +57,8 @@ export function installationHostNames(
     "DATABASE_URL",
     "WORKER_GATEWAY_URL",
     "AWS_ENDPOINT_URL",
+    // What the AWS SDK reads for S3 when it is set, ahead of the one above.
+    "AWS_ENDPOINT_URL_S3",
   ]) {
     const value = env[variable]?.trim();
     if (!value) continue;
