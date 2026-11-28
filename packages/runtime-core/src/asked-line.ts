@@ -896,8 +896,8 @@ function optionsSet(
  * Whether git would read `word` as a revision when it is also a path: a
  * branch, tag or remote-tracking branch of that name (git checks out a
  * remote's branch by its short name), a revision spelling, or an object
- * name, in the repository git runs in from `dir`. A repository it cannot
- * find counts as one.
+ * name, in the repository git runs in, found by walking up out of `from`.
+ * A repository it cannot find counts as one.
  */
 function namesRevision(word: string, from: string): boolean {
   if (/[~^:]|@\{|^@$|^-|^[0-9a-f]{4,40}$|^[A-Z_]*HEAD$/.test(word)) {
