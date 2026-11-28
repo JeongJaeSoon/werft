@@ -348,6 +348,16 @@ describe("a repository past what a listing reads", () => {
       issues: [{ code: "path_too_long" }],
     });
     expect(past.asked).toEqual([]);
+    // Bytes, not characters, across several directories.
+    const deep = (last: number) => ({
+      [`${"가".repeat(170)}/${"나".repeat(170)}/${"p".repeat(last)}/SKILL.md`]:
+        skillFile("a"),
+    });
+    expect((await listed(deep(2))).entries).toHaveLength(1);
+    const over = treeOf(deep(3));
+    expect((await listSkillRepository(over.tree, over.readBlobs)).kind).toBe(
+      "refused",
+    );
   });
 
   test("a tree GitHub cut short is refused before any content is read", async () => {

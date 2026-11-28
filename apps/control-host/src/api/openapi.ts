@@ -1294,7 +1294,7 @@ const EXAMPLE_SKILL_REPOSITORY_DETAIL = {
   ],
 };
 const SKILL_REPOSITORY_LISTING =
-  "The listing reads the tree of the ref's commit once and, of its contents, only the `SKILL.md` files, with the parser an upload meets: every directory holding a `SKILL.md` is one entry with its `name`, `description` and `license`. What the tree alone refuses is judged before anything is fetched and listed in the entry's `issues` (`status` `unavailable`): a symlink or a submodule (by the entry's mode), a path the checker never accepts, another `SKILL.md` below it, more than 255 files, a file over 1 MiB, more than 8 MiB together, or a `SKILL.md` over 64 KiB, which is not fetched. A name another skill of the workspace holds is `conflict`. A tree GitHub cut short, more than 200 skill directories, or `SKILL.md` files over 4 MiB together refuse the whole listing.";
+  "The listing reads the tree of the ref's commit once and, of its contents, only the `SKILL.md` files, with the parser an upload meets: every directory holding a `SKILL.md` is one entry with its `name`, `description` and `license`. What the tree alone refuses is judged before anything is fetched and listed in the entry's `issues` (`status` `unavailable`): a symlink or a submodule (by the entry's mode), a path the checker never accepts, another `SKILL.md` below it, more than 255 files, a file over 1 MiB, more than 8 MiB together, or a `SKILL.md` over 64 KiB, which is not fetched. A name another skill of the workspace holds is `conflict`. A tree GitHub cut short, more than 200 skill directories, a skill directory whose path is over 1024 bytes (`path_too_long`), or `SKILL.md` files over 4 MiB together refuse the whole listing.";
 const SKILL_MANAGERS =
   "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`.";
 const EXAMPLE_SKILL_VERSION_ID = "7c3e9a1f-2d4b-4e6a-8f0c-5b1d3e7a9c20";
@@ -6852,7 +6852,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "checkSkillRepository",
     tag: "Workspace settings",
     summary: "Read a skill repository's listing again now",
-    description: `${SKILL_MANAGERS} Resolves the ref to a commit again and reads the listing there. ${SKILL_REPOSITORY_LISTING} One listing runs per repository at a time; while one runs this answers \`queued\` and the process that runs it reads once more when it ends. Should that process stop first, the queued request is lost and checks keep answering \`queued\` until its hold (5 minutes) has passed; a check made after that reads the listing. GitHub is asked whether the repository is public before any file is read and again after. \`last_sync\` records the time, who asked, the commit and the result: \`listed\`, \`source_missing\` (the ref or the repository is gone, or it is no longer public), \`rejected\` with \`issues\`, or \`github_unavailable\`. Only \`listed\` changes the skills shown. A removed repository is 400 \`repository_removed\`.`,
+    description: `${SKILL_MANAGERS} Resolves the ref to a commit again and reads the listing there. ${SKILL_REPOSITORY_LISTING} One listing runs per repository at a time; while one runs this answers \`queued\` and the process that runs it reads once more when it ends. Should that process stop first, the queued request may be lost; checks answer \`queued\` until its hold (5 minutes) has passed, and one made after that reads the listing. A listing that reads GitHub for longer than the request's 30 seconds answers 503 and still records its result when it ends. GitHub is asked whether the repository is public before any file is read and again after. \`last_sync\` records the time, who asked, the commit and the result: \`listed\`, \`source_missing\` (the ref or the repository is gone, or it is no longer public), \`rejected\` with \`issues\`, or \`github_unavailable\`. Only \`listed\` changes the skills shown. A removed repository is 400 \`repository_removed\`.`,
     auth: "session",
     success: {
       status: 200,
@@ -6869,7 +6869,7 @@ export const API_ROUTE_DECLARATIONS = [
     operationId: "putSkillRepositoryRef",
     tag: "Workspace settings",
     summary: "Point a skill repository at another ref",
-    description: `${SKILL_MANAGERS} The repository must still be public (400 \`repository_not_public\`) and GitHub must resolve \`ref\` to a commit first (400 \`ref_not_found\`; GitHub not answering is 502 \`GITHUB_UNAVAILABLE\`). The repository then follows it, a listing that was running at the old ref writes nothing, and the listing is read at the new one: \`check\` says whether it ended (\`checked\`) or waits behind a running one (\`queued\`). Writes an \`update_skill_repository_ref\` receipt with the ref before and after; the ref it already follows answers \`receipt_id: null\` and reads nothing. Should the process stop between the change and its listing, \`last_sync\` is left as it was; sending the same ref again reads nothing, so run a check. A removal, a restore or another ref change that lands while this one checks its ref answers 409 \`REVISION_CONFLICT\` (\`repository_changed\`) and writes nothing. A removed repository is 400 \`repository_removed\`.`,
+    description: `${SKILL_MANAGERS} The repository must still be public (400 \`repository_not_public\`) and GitHub must resolve \`ref\` to a commit first (400 \`ref_not_found\`; GitHub not answering is 502 \`GITHUB_UNAVAILABLE\`). The repository then follows it, a listing that was running at the old ref writes nothing, and the listing is read at the new one: \`check\` says whether it ended (\`checked\`) or waits behind a running one (\`queued\`). Writes an \`update_skill_repository_ref\` receipt with the ref before and after; the ref it already follows answers \`receipt_id: null\` and reads nothing. Should the process stop between the change and its listing, \`last_sync\` is left as it was; sending the same ref again reads nothing, so run a check. The repository may change while this call checks its ref: removed since, it answers 404; already at \`ref\`, 200 with \`receipt_id: null\`; restored or pointed elsewhere, 409 \`REVISION_CONFLICT\` (\`repository_changed\`) and nothing is written. An \`Idempotency-Key\` is not read: sending the call again is a new change. A removed repository is 400 \`repository_removed\`.`,
     auth: "session",
     body: "PutSkillRepositoryRefRequest",
     requestExample: { ref: "v2" },
@@ -6886,6 +6886,11 @@ export const API_ROUTE_DECLARATIONS = [
     },
     errors: [400, 401, 403, 404, 409, 502, 503],
     errorCodes: { 409: ["REVISION_CONFLICT"], 502: ["GITHUB_UNAVAILABLE"] },
+    errorNotes: {
+      REVISION_CONFLICT:
+        "Here no revision is sent: the repository was restored or pointed at another ref while this call checked its ref (`reason_code` `repository_changed`). Read it again and send the change again.",
+    },
+    idempotent: false,
   },
   {
     method: "post",

@@ -36544,7 +36544,7 @@
               "checked",
               "queued"
             ],
-            "description": "`queued`: a listing of the repository was running, and the process that runs it reads once more when it ends. Should that process stop first, the request is lost: a check made once its hold (5 minutes) has passed reads the listing."
+            "description": "`queued`: a listing of the repository was running, and the process that runs it reads once more when it ends. Should that process stop first, the queued request may be lost; checks answer `queued` until its hold (5 minutes) has passed, and one made after that reads the listing."
           }
         },
         "required": [
@@ -92559,7 +92559,7 @@
           "Workspace settings"
         ],
         "summary": "Register a public GitHub repository for its skills",
-        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Registering is the approval: no review follows. `url` is `https://github.com/\u003cowner>/\u003cname>`; `ref` is a branch, a tag or a commit SHA, and left out it is the repository's default branch as it is named now, kept by that name. The repository must be public (GitHub's `visibility` `public`; private and internal are refused) and is read with an installation of the workspace's oldest author App that has one, whether or not that installation covers it. The listing reads the tree of the ref's commit once and, of its contents, only the `SKILL.md` files, with the parser an upload meets: every directory holding a `SKILL.md` is one entry with its `name`, `description` and `license`. What the tree alone refuses is judged before anything is fetched and listed in the entry's `issues` (`status` `unavailable`): a symlink or a submodule (by the entry's mode), a path the checker never accepts, another `SKILL.md` below it, more than 255 files, a file over 1 MiB, more than 8 MiB together, or a `SKILL.md` over 64 KiB, which is not fetched. A name another skill of the workspace holds is `conflict`. A tree GitHub cut short, more than 200 skill directories, or `SKILL.md` files over 4 MiB together refuse the whole listing. Every skill is listed switched off, and nothing here switches one on, so no skill version is made. Registering a repository that was removed brings the same row back (`outcome` `restored`), at the ref given, with every switch off. Refused with 400 `reason_code` `no_installation`, `repository_not_found`, `repository_not_public`, `ref_not_found` or `listing_refused` (with `details.issues`); a repository the workspace already follows is 409 `ALREADY_EXISTS` `repository_already_registered`; GitHub unreachable or refusing the App is 502 `GITHUB_UNAVAILABLE`. Writes a `register_skill_repository` receipt with the address, the repository's and its owner's GitHub ids, the ref, the commit and the license GitHub names.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Registering is the approval: no review follows. `url` is `https://github.com/\u003cowner>/\u003cname>`; `ref` is a branch, a tag or a commit SHA, and left out it is the repository's default branch as it is named now, kept by that name. The repository must be public (GitHub's `visibility` `public`; private and internal are refused) and is read with an installation of the workspace's oldest author App that has one, whether or not that installation covers it. The listing reads the tree of the ref's commit once and, of its contents, only the `SKILL.md` files, with the parser an upload meets: every directory holding a `SKILL.md` is one entry with its `name`, `description` and `license`. What the tree alone refuses is judged before anything is fetched and listed in the entry's `issues` (`status` `unavailable`): a symlink or a submodule (by the entry's mode), a path the checker never accepts, another `SKILL.md` below it, more than 255 files, a file over 1 MiB, more than 8 MiB together, or a `SKILL.md` over 64 KiB, which is not fetched. A name another skill of the workspace holds is `conflict`. A tree GitHub cut short, more than 200 skill directories, a skill directory whose path is over 1024 bytes (`path_too_long`), or `SKILL.md` files over 4 MiB together refuse the whole listing. Every skill is listed switched off, and nothing here switches one on, so no skill version is made. Registering a repository that was removed brings the same row back (`outcome` `restored`), at the ref given, with every switch off. Refused with 400 `reason_code` `no_installation`, `repository_not_found`, `repository_not_public`, `ref_not_found` or `listing_refused` (with `details.issues`); a repository the workspace already follows is 409 `ALREADY_EXISTS` `repository_already_registered`; GitHub unreachable or refusing the App is 502 `GITHUB_UNAVAILABLE`. Writes a `register_skill_repository` receipt with the address, the repository's and its owner's GitHub ids, the ref, the commit and the license GitHub names.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -93427,7 +93427,7 @@
           "Workspace settings"
         ],
         "summary": "Read a skill repository's listing again now",
-        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Resolves the ref to a commit again and reads the listing there. The listing reads the tree of the ref's commit once and, of its contents, only the `SKILL.md` files, with the parser an upload meets: every directory holding a `SKILL.md` is one entry with its `name`, `description` and `license`. What the tree alone refuses is judged before anything is fetched and listed in the entry's `issues` (`status` `unavailable`): a symlink or a submodule (by the entry's mode), a path the checker never accepts, another `SKILL.md` below it, more than 255 files, a file over 1 MiB, more than 8 MiB together, or a `SKILL.md` over 64 KiB, which is not fetched. A name another skill of the workspace holds is `conflict`. A tree GitHub cut short, more than 200 skill directories, or `SKILL.md` files over 4 MiB together refuse the whole listing. One listing runs per repository at a time; while one runs this answers `queued` and the process that runs it reads once more when it ends. Should that process stop first, the queued request is lost and checks keep answering `queued` until its hold (5 minutes) has passed; a check made after that reads the listing. GitHub is asked whether the repository is public before any file is read and again after. `last_sync` records the time, who asked, the commit and the result: `listed`, `source_missing` (the ref or the repository is gone, or it is no longer public), `rejected` with `issues`, or `github_unavailable`. Only `listed` changes the skills shown. A removed repository is 400 `repository_removed`.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. Resolves the ref to a commit again and reads the listing there. The listing reads the tree of the ref's commit once and, of its contents, only the `SKILL.md` files, with the parser an upload meets: every directory holding a `SKILL.md` is one entry with its `name`, `description` and `license`. What the tree alone refuses is judged before anything is fetched and listed in the entry's `issues` (`status` `unavailable`): a symlink or a submodule (by the entry's mode), a path the checker never accepts, another `SKILL.md` below it, more than 255 files, a file over 1 MiB, more than 8 MiB together, or a `SKILL.md` over 64 KiB, which is not fetched. A name another skill of the workspace holds is `conflict`. A tree GitHub cut short, more than 200 skill directories, a skill directory whose path is over 1024 bytes (`path_too_long`), or `SKILL.md` files over 4 MiB together refuse the whole listing. One listing runs per repository at a time; while one runs this answers `queued` and the process that runs it reads once more when it ends. Should that process stop first, the queued request may be lost; checks answer `queued` until its hold (5 minutes) has passed, and one made after that reads the listing. A listing that reads GitHub for longer than the request's 30 seconds answers 503 and still records its result when it ends. GitHub is asked whether the repository is public before any file is read and again after. `last_sync` records the time, who asked, the commit and the result: `listed`, `source_missing` (the ref or the repository is gone, or it is no longer public), `rejected` with `issues`, or `github_unavailable`. Only `listed` changes the skills shown. A removed repository is 400 `repository_removed`.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -93750,7 +93750,7 @@
           "Workspace settings"
         ],
         "summary": "Point a skill repository at another ref",
-        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. The repository must still be public (400 `repository_not_public`) and GitHub must resolve `ref` to a commit first (400 `ref_not_found`; GitHub not answering is 502 `GITHUB_UNAVAILABLE`). The repository then follows it, a listing that was running at the old ref writes nothing, and the listing is read at the new one: `check` says whether it ended (`checked`) or waits behind a running one (`queued`). Writes an `update_skill_repository_ref` receipt with the ref before and after; the ref it already follows answers `receipt_id: null` and reads nothing. Should the process stop between the change and its listing, `last_sync` is left as it was; sending the same ref again reads nothing, so run a check. A removal, a restore or another ref change that lands while this one checks its ref answers 409 `REVISION_CONFLICT` (`repository_changed`) and writes nothing. A removed repository is 400 `repository_removed`.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** required.",
+        "description": "Owners and admins signed in to the console as a person; an API key is refused with 403 `reason_code` `web_session_required`. The repository must still be public (400 `repository_not_public`) and GitHub must resolve `ref` to a commit first (400 `ref_not_found`; GitHub not answering is 502 `GITHUB_UNAVAILABLE`). The repository then follows it, a listing that was running at the old ref writes nothing, and the listing is read at the new one: `check` says whether it ended (`checked`) or waits behind a running one (`queued`). Writes an `update_skill_repository_ref` receipt with the ref before and after; the ref it already follows answers `receipt_id: null` and reads nothing. Should the process stop between the change and its listing, `last_sync` is left as it was; sending the same ref again reads nothing, so run a check. The repository may change while this call checks its ref: removed since, it answers 404; already at `ref`, 200 with `receipt_id: null`; restored or pointed elsewhere, 409 `REVISION_CONFLICT` (`repository_changed`) and nothing is written. An `Idempotency-Key` is not read: sending the call again is a new change. A removed repository is 400 `repository_removed`.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -93766,17 +93766,6 @@
               "type": "string",
               "format": "uuid",
               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-            }
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "description": "Required, 1–255 characters; a UUID per user intent works. A retry with the same key and the same body returns the original response and runs the command once; the same key with a different body answers `409 IDEMPOTENCY_CONFLICT`. A missing or invalid key answers `400 BAD_REQUEST`, after the body is read.",
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 255
             }
           },
           {
@@ -93873,7 +93862,7 @@
             }
           },
           "400": {
-            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema; the `Idempotency-Key` header is missing, empty or longer than 255 characters. Fix the request before retrying.",
+            "description": "- `BAD_REQUEST`: The request is malformed: the body is not JSON or does not match the request schema. Fix the request before retrying.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"
@@ -94048,7 +94037,7 @@
             }
           },
           "409": {
-            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision.",
+            "description": "- `REVISION_CONFLICT`: `expected_revision` is not the session's current `revision`. Reread the session, check the intent still holds, and retry with the new revision. Here no revision is sent: the repository was restored or pointed at another ref while this call checked its ref (`reason_code` `repository_changed`). Read it again and send the change again.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestId"

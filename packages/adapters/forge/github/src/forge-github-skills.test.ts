@@ -445,6 +445,8 @@ describe("reading a public repository the installation does not cover", () => {
       [{ ...file, type: "commit", size: 1 }],
       [{ ...file, sha: "short", size: 1 }],
       [{ ...file, path: "a\0b", size: 1 }],
+      [{ ...file, path: "/SKILL.md", size: 1 }],
+      [{ ...file, path: "", size: 1 }],
       [{ ...file, path: `a${String.fromCharCode(0xd800)}b`, size: 1 }],
       [
         { ...file, size: 1 },

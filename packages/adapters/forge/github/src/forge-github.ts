@@ -1423,7 +1423,7 @@ export function createGitHubSkillReader(
     const size = type === "blob" ? item.size : 0;
     if (
       !plain(path) ||
-      path === "" ||
+      path.split("/").includes("") ||
       typeof sha !== "string" ||
       !SHA.test(sha) ||
       typeof mode !== "string" ||

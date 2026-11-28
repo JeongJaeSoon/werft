@@ -282,6 +282,7 @@ import {
   serveOperatorConversationTurns,
 } from "./conversation-runtime.ts";
 import { PostgresConversationTurnNotifier } from "./conversation-turn-notifier.ts";
+import { beyondRequest } from "./deadline.ts";
 import {
   createEgressAuthorizer,
   egressAuthorizerConfigFromEnv,
@@ -1534,12 +1535,19 @@ if (skillGitSync !== undefined) {
 }
 // Registered repositories list their skills switched off; without the bucket
 // a skill could never be switched on, so the routes are absent with the rest.
+const skillRepositoryStore = createPostgresSkillRepositoryStore(db);
 const skillRepositories =
   skillObjects === undefined
     ? undefined
     : createSkillRepositoryService({
         authorization,
-        store: createPostgresSkillRepositoryStore(db),
+        // A listing that reads GitHub past its request's deadline still
+        // records what it read and lets the repository go.
+        store: {
+          ...skillRepositoryStore,
+          record: beyondRequest(skillRepositoryStore.record),
+          finish: beyondRequest(skillRepositoryStore.finish),
+        },
         reader: skillReader,
         apps: (workspaceId) =>
           githubAppStore.credentials("author", workspaceId),
