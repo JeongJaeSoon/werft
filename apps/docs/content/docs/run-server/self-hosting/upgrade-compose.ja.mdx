@@ -90,6 +90,8 @@ pending.json が残ると start と以前の release への upgrade は拒否さ
 
 現在のロールバック下限は `v0.2.0` です。このリリースの migration `0270` がプロファイルのデータを消すため、それより前のイメージには戻しません([プロファイル削除のロールバック下限](#프로필-제거의-롤백-하한))。その後に変更履歴が戻せないと書いたリリースがあれば、そのリリースが下限です。下限より前に戻す必要があれば、アップグレード前のバックアップから DB を復元します。rollback を考える前に影響セッションを読み取り SQL で数え、データを失わずに roll-forward できるかを先に判断します。
 
+**次のリリースの予告。** `v0.6.0` の次のリリースは、`v0.3.0` 以前から直接上げるアップグレードと、`v0.4.0` より前に作成したセッションのチェックポイントの復元をサポートしなくなります。
+
 GitHub skill の出所に `access` 列が加わったリリース以降、`access = 'public'` の出所(App がインストールされていない公開リポジトリから読む skill)があれば、そのリリースより前のイメージに戻す前にその出所を削除します。以前のイメージはリポジトリがまだ公開かを確かめずに読みます。
 
 **ワークスペース設定の未知のキー。** この修正を含むリリースより前のリリース(`v0.5.0` を含む)は、`workspaces.settings` に自分の知らないキーが 1 つでもあると、そのワークスペースの `GET /v1/auth/me` が失敗します。この修正を含むリリースからは、未知のキーを応答から除き、保存された値は残します。これまでに出たリリースはすべて `achievement_judge` とその中のフィールドを知っており(`v0.4.0` と `v0.5.0` はキー一覧が現在と同じ: `dispatch_model`、`kill_switch`、`daily_cost_limit_usd`、`idle_pause_minutes`、`audit_retention_days`、`slack_guest_enabled`、`achievement_judge`)、この修正より前に保存できた設定はどの出荷済みビルドでも読めます。どのリリースへ戻せるかは、設定キーではなく上のロールバック下限で決まります。この修正の後に設定キーを加えたリリースを使った設置が、この修正のないリリースに戻すときは、戻す前にそのキーを削除します。
@@ -677,3 +679,21 @@ DELETE FROM provider_connections WHERE definition->>'kind' = 'openai_decisions';
 - 以前の proxy と新しい API が混在すると（API を先に更新した場合や proxy を戻した場合）、`EGRESS_CREDENTIAL_ALLOWLIST` と `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` のどちらにもない host のサーバーは登録・認証・ツール一覧は動きますが、セッションからの呼び出しは 403 です。記録は `call_mcp` receipt の理由 `egress_proxy_outdated` と API ログ `Egress authorization refused` に残ります。403 の基準は API に設定された二つの一覧です。そのどちらかにある host のサーバーはこの判定を通り、以前の proxy 自身の一覧で従来どおり判定されます。proxy を更新すれば戻り、データは変わりません。
 - [2. egress proxy → control-host → worker の順序](#2-egress-proxy--control-host--worker-순서)に従うと proxy が先に変わるため、この 403 の期間は生じません。
 - プライベートアドレスや http のサーバーは従来どおり `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` にある host だけです。その host が公開アドレスに解決される場合、登録は `address_not_allowed` で拒否されます。
+
+<a id="토큰-수-없는-성공-응답을-추정으로-세는-릴리스" />
+### トークン数のない成功応答を推定で数えるリリース
+
+このリリースから egress proxy は、トークン数を一つも示さない成功応答（`usage: {}`、またはトークンの欄がすべて null・負の値・文字列）の usage を、実測 0 ではなくリクエストに基づく推定として報告します。このような呼び出しは、トークン上限、金額上限、単価不明トークンの上限で数えます。計量の規則は[設定リファレンス](/run-server/self-hosting/reference/configuration)にあります。migration はありません。
+
+- 変わるのは egress proxy のイメージだけなので、[2. egress proxy → control-host → worker の順序](#2-egress-proxy--control-host--worker-순서)の最初の手順から適用されます。以前の control-host はこの報告をそのまま受け付けます。以前の proxy が残っている間、その proxy を通る呼び出しは従来どおり 0 で精算されます。
+- 更新の前に、DB で最近の精算（`provider_usage`、`conversation_calls.usage`）のうち、トークンがすべて 0 で `estimated` が `false` の行を数えます（読み取りのみ）。conversation call のエラー応答と、応答が明示した 0 も同じ形なので、その数のすべてが空の usage とは限りません。
+- 空の usage を返す課金接続（一部のセルフホストの gateway など）を使う環境では、更新後にセッションの費用とトークンが増え、上限に早く達します。proxy の警告 `Provider usage estimated` も増えるため、この警告にアラートを設定している場合は基準を見直します。
+- 以前の proxy に戻してもかまいません。戻すと空の usage の応答は再び 0 で精算され、推定として記録済みの行はそのまま残ります。
+
+<a id="사용량-응답에-단가-미상-칸을-더한-릴리스" />
+### 使用量の応答に単価不明の欄を追加するリリース
+
+このリリースから `GET /v1/usage/breakdown` の行と合計に `unknown_price`（単価不明の呼び出しの件数とトークン数）が加わり、単価不明の呼び出しがあって分かる金額が 0 の行は `cost_usd` が `null` になります。合計の `cost_usd` は null になりません。migration はありません。
+
+- この応答を読むスクリプトや、応答を厳密に検証する client は、control-host を更新する前に、行の `cost_usd` の null と新しい欄を受け付けるように直します。
+- 以前の API に戻すと新しい欄はなく、そのような行の `cost_usd` は従来どおり `"0.000000"` です。

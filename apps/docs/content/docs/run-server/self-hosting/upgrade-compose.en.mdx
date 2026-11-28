@@ -90,6 +90,8 @@ Before upgrading, read every [changelog](https://github.com/JeongJaeSoon/werft/b
 
 The current rollback floor is `v0.2.0`. Its migration `0270` deletes the profile data, so do not go back to older images ([Rollback floor of profile removal](#프로필-제거의-롤백-하한)). If the changelog marks a later release as irreversible, that release is the floor. To go back further than the floor, restore the database from the backup taken before the upgrade. Before considering a rollback, count the affected sessions with read-only SQL and decide first whether you can roll forward without losing data.
 
+**Notice for the next release.** The release after `v0.6.0` no longer supports upgrading directly from `v0.3.0` or earlier, or restoring checkpoints of sessions created before `v0.4.0`.
+
 From the release that adds the `access` column to GitHub skill sources: if a source has `access = 'public'` (a skill read from a public repository the App is not installed on), remove it before going back to an image older than that release. Older images read it without checking that the repository is still public.
 
 **Unknown workspace settings keys.** A release before the one with this fix (`v0.5.0` included) fails `GET /v1/auth/me` for any workspace whose `workspaces.settings` holds a key it does not know. From the release with the fix on, an unknown key is left out of the response and the stored value stays. Every release so far knows `achievement_judge` and its fields (`v0.4.0` and `v0.5.0` have the same key list as now: `dispatch_model`, `kill_switch`, `daily_cost_limit_usd`, `idle_pause_minutes`, `audit_retention_days`, `slack_guest_enabled`, `achievement_judge`), so settings saved before this fix read on any released build. Which release you may go back to is still decided by the rollback floor above, not by settings keys. When an install that ran a release adding a settings key after this fix goes back to a release without the fix, delete that key before going back.
@@ -677,3 +679,21 @@ From this release, registering a workspace MCP server no longer looks at `EGRESS
 - With an earlier proxy and the new API mixed (the API went first, or the proxy was rolled back), a server whose host is on neither `EGRESS_CREDENTIAL_ALLOWLIST` nor `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST` still registers, authenticates and lists its tools, but its session calls get 403. The traces are the `call_mcp` receipt reason `egress_proxy_outdated` and the API log `Egress authorization refused`. The 403 follows the two lists set on the API. A server whose host is on either of them passes that check and is judged by the earlier proxy's own list as before. Upgrading the proxy brings it back, and no data changes.
 - Following [2. egress proxy → control-host → worker order](#2-egress-proxy--control-host--worker-순서) changes the proxy first, so this 403 window does not occur.
 - A server at a private address or over http still works only for a host on `EGRESS_CREDENTIAL_PRIVATE_ALLOWLIST`. If that host resolves to a public address, registration is refused with `address_not_allowed`.
+
+<a id="토큰-수-없는-성공-응답을-추정으로-세는-릴리스" />
+### The release that estimates successful responses with no token counts
+
+From this release, when a successful response states no token count at all (`usage: {}`, or every token field null, negative or a string), the egress proxy reports its usage as an estimate from the request instead of a measured 0. The token limit, the cost limit and the unknown-price token limit now count such calls. The metering rules are in the [configuration reference](/run-server/self-hosting/reference/configuration). There is no migration.
+
+- Only the egress proxy image changes, so it applies from the first step of [2. egress proxy → control-host → worker order](#2-egress-proxy--control-host--worker-순서). An earlier control-host accepts these reports as they are. While an earlier proxy remains, calls through it still settle at 0 as before.
+- Before upgrading, count in the database the recent settlements (`provider_usage`, `conversation_calls.usage`) whose tokens are all 0 and whose `estimated` is `false` (read only). Error responses of conversation calls and a 0 the response states look the same, so not all of that count is empty usage.
+- On an installation with a billed connection that sends empty usage (some self-hosted gateways, for example), session cost and tokens rise after the upgrade and limits are reached earlier. The proxy warning `Provider usage estimated` also rises, so revisit the threshold if you alert on it.
+- Rolling back to an earlier proxy is fine. Empty usage responses then settle at 0 again, and rows already recorded as estimates stay.
+
+<a id="사용량-응답에-단가-미상-칸을-더한-릴리스" />
+### The release that adds unknown-price fields to usage responses
+
+From this release, the rows and the total of `GET /v1/usage/breakdown` carry `unknown_price` (the number and tokens of calls with no known price), and a row with such calls and a known amount of 0 has a null `cost_usd`. The total's `cost_usd` is never null. There is no migration.
+
+- Before upgrading the control-host, change scripts that read this response, and clients that validate it strictly, to accept a null `cost_usd` on a row and the new field.
+- Rolled back to an earlier API, the new field is gone and such a row's `cost_usd` is `"0.000000"` as before.
