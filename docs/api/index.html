@@ -33976,10 +33976,18 @@
             "type": "string"
           },
           "auth_kind": {
-            "type": "string",
-            "enum": [
-              "oauth",
-              "bearer"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "oauth",
+                  "bearer"
+                ]
+              },
+              {
+                "type": "string",
+                "minLength": 1
+              }
             ]
           },
           "redirect_uri": {
@@ -90685,7 +90693,7 @@
           "Workspace settings"
         ],
         "summary": "Disconnect a workspace MCP server",
-        "description": "Owners and admins signed in to the console as a person; never an API key. Deletes the stored tokens (a static token too) and asks the authorization server to revoke them (best effort; `revoked` null when there was nothing to revoke or no endpoint). Agents' next calls to the server are refused. Disabling the member who connected a server disconnects it too, without the revocation request. Writes a `disconnect_workspace_mcp_server` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
+        "description": "Owners and admins signed in to the console as a person; never an API key. Deletes the stored tokens (a static token too) and asks the authorization server to revoke them (best effort; `revoked` null when there was nothing to revoke or no endpoint). Agents' next calls to the server are refused. Disabling the member who connected a server disconnects it too, without the revocation request. A server of an `auth_kind` this release does not know is left as it is and answers 400 `auth_kind_unsupported`. Writes a `disconnect_workspace_mcp_server` receipt.\n\n**Auth:** cookie session only; no scope. **Idempotency-Key:** ignored.",
         "security": [
           {
             "cookieSession": []
@@ -90768,6 +90776,41 @@
                 },
                 "schema": {
                   "$ref": "#/components/schemas/DisconnectWorkspaceMcpServerResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "- `BAD_REQUEST`: The request is malformed: . Fix the request before retrying.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiErrorResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": [
+                                "BAD_REQUEST"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }

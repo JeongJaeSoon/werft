@@ -828,6 +828,12 @@ export function createPostgresWorkspaceMcpStore(
         }
         const server = await heldServer(tx, workspaceId, input.serverId);
         if (server === null) return { outcome: "not_found" as const };
+        // A kind this release does not know is a later release's to change:
+        // disconnected here, it could be left in a state that release cannot
+        // connect again.
+        if (server.authKind !== "bearer" && server.authKind !== "oauth") {
+          return { outcome: "unsupported_kind" as const };
+        }
         const connection = await heldConnection(tx, server.id);
         const revocation = await revocationOf(
           tx,

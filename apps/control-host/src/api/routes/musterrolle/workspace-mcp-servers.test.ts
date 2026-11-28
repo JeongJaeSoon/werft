@@ -460,10 +460,125 @@ describe("POST /v1/workspace/mcp-servers/{id}/disconnect", () => {
     await expectCodes(
       (failing) => send({ disconnect: failing }, "POST", `${one}/disconnect`),
       [
+        // A server of a kind this release does not know: auth_kind_unsupported.
+        ["BAD_REQUEST", 400],
         ["FORBIDDEN", 403],
         ["NOT_FOUND", 404],
       ],
     );
+  });
+});
+
+describe("a server of an auth kind this release does not know", () => {
+  // What a later release may store: the row still answers, as stored.
+  const LATER: typeof SERVER = {
+    ...SERVER,
+    auth_kind: "none",
+    redirect_uri: null,
+    oauth: null,
+    bearer: null,
+    connection: { ...SERVER.connection, granted_scope: null },
+  };
+
+  test("lists, and every answer that carries a server is 2xx with it as stored", async () => {
+    const listed = await send(
+      { list: async () => ({ items: [SERVER, LATER], limit: 20 }) },
+      "GET",
+      base,
+    );
+    expect(listed.status).toBe(200);
+    expect(
+      workspaceMcpServerListSchema
+        .parse(await listed.json())
+        .items.map((item) => item.auth_kind),
+    ).toEqual(["oauth", "none"]);
+
+    const reply = async () => LATER;
+    const calls: [
+      Partial<WorkspaceMcpService>,
+      string,
+      string,
+      string?,
+      number?,
+    ][] = [
+      [
+        { create: reply },
+        "POST",
+        base,
+        JSON.stringify({
+          name: "tracker",
+          url: "https://mcp.example.com/v1/mcp",
+          auth_kind: "oauth",
+        }),
+        201,
+      ],
+      [
+        { putBearerToken: reply },
+        "PUT",
+        `${one}/token`,
+        JSON.stringify({ token: "x".repeat(12) }),
+      ],
+      [
+        { putOAuthClient: reply },
+        "PUT",
+        `${one}/oauth-client`,
+        JSON.stringify({ client_id: "client-1" }),
+      ],
+      [
+        { completeOAuth: reply },
+        "POST",
+        `${one}/oauth/complete`,
+        JSON.stringify({ code: "c", state: "s" }),
+      ],
+      [{ refreshTools: reply }, "POST", `${one}/tools/refresh`],
+    ];
+    for (const [service, method, path, body, status = 200] of calls) {
+      const response = await send(service, method, path, body);
+      expect({ path, method, status: response.status }).toEqual({
+        path,
+        method,
+        status,
+      });
+      expect(workspaceMcpServerSchema.parse(await response.json())).toEqual(
+        LATER,
+      );
+    }
+    const disconnected = await send(
+      { disconnect: async () => ({ server: LATER, revoked: null }) },
+      "POST",
+      `${one}/disconnect`,
+    );
+    expect(disconnected.status).toBe(200);
+    expect(
+      ((await disconnected.json()) as { server: { auth_kind: string } }).server
+        .auth_kind,
+    ).toBe("none");
+  });
+
+  test("oauth and bearer servers answer as before; a request still names only those two", async () => {
+    const bearer: typeof SERVER = {
+      ...SERVER,
+      auth_kind: "bearer",
+      redirect_uri: null,
+      oauth: null,
+      bearer: { last4: "alue" },
+    };
+    const response = await send(
+      { list: async () => ({ items: [SERVER, bearer], limit: 20 }) },
+      "GET",
+      base,
+    );
+    expect(await response.json()).toEqual({
+      items: [SERVER, bearer],
+      limit: 20,
+    });
+    const refused = await send(
+      {},
+      "POST",
+      base,
+      JSON.stringify({ name: "tracker", url: "https://x", auth_kind: "none" }),
+    );
+    expect(refused.status).toBe(400);
   });
 });
 
