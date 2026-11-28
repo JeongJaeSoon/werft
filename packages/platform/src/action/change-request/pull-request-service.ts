@@ -526,6 +526,7 @@ export function createPullRequestService(deps: {
         sessionId: source.sessionId,
         purpose,
         repositoryId: source.repositoryId,
+        ...(purpose === "merge" ? { pushRequestId: source.id } : {}),
         actor: pushReceiptActor(actor),
       });
     } catch (error) {

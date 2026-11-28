@@ -200,6 +200,7 @@ export const agentGitHubKo = {
     "머지가 꺼져 있음 (에이전트 GitHub 설정 또는 워크스페이스 상한)",
   "agentGitHub.refusal.review_off":
     "이 에이전트는 리뷰 승인이 꺼져 있습니다. 관리자가 에이전트 GitHub 설정에서 켤 수 있습니다.",
+  "agentGitHub.refusal.not_own_pull_request": "이 세션이 열지 않은 PR",
   "agentGitHub.refusalNext.ambiguous_app":
     "설정 > 워크스페이스 > 연동 > GitHub > 저장소 관리에서 이 저장소를 맡을 App을 고르세요",
   "agentGitHub.refusalNext.pinned_app_removed":
@@ -433,6 +434,8 @@ export const agentGitHubEn: Record<keyof typeof agentGitHubKo, string> = {
     "Merging is off (the agent's GitHub settings or the workspace ceiling)",
   "agentGitHub.refusal.review_off":
     "Approving reviews is off for this agent. An admin can turn it on in the agent's GitHub settings.",
+  "agentGitHub.refusal.not_own_pull_request":
+    "A pull request this session did not open",
   "agentGitHub.refusalNext.ambiguous_app":
     "Choose the App that handles this repository under Settings > Workspace > Integrations > GitHub > Manage repositories",
   "agentGitHub.refusalNext.pinned_app_removed":
@@ -666,6 +669,7 @@ export const agentGitHubJa: Record<keyof typeof agentGitHubKo, string> = {
     "マージがオフ (エージェントの GitHub 設定またはワークスペースの上限)",
   "agentGitHub.refusal.review_off":
     "このエージェントはレビュー承認がオフです。管理者がエージェントの GitHub 設定でオンにできます。",
+  "agentGitHub.refusal.not_own_pull_request": "このセッションが開いていない PR",
   "agentGitHub.refusalNext.ambiguous_app":
     "設定 > ワークスペース > 連携 > GitHub > リポジトリを管理 で、このリポジトリを担当する App を選んでください",
   "agentGitHub.refusalNext.pinned_app_removed":

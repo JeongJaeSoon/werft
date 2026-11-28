@@ -123,6 +123,9 @@ export function createGitHubGate(deps: {
           ? {}
           : { workflow: work.workflow.file, ref: work.workflow.ref }),
         ...(work.runId === undefined ? {} : { run_id: work.runId }),
+        ...(work.pushRequestId === undefined
+          ? {}
+          : { push_request_id: work.pushRequestId }),
         ...(work.repositoryName === undefined
           ? {}
           : { repository: work.repositoryName }),
@@ -200,8 +203,22 @@ export function createGitHubGate(deps: {
         : undefined;
       // Another repository is fetched, pushed to, given pull requests and has
       // its CI read; running its workflows and reviews stay with the
-      // session's own.
-      if (!own && !ANOTHER_REPOSITORY_PURPOSES.has(work.purpose)) {
+      // session's own. A pull request the session opened there is merged
+      // with both switches on (PM, 94S-2556), judged switches first, then
+      // the repository lists, then the record of who opened it.
+      const attachedMerge = !own && work.purpose === "merge";
+      if (attachedMerge) {
+        if (context.policy.settings === "invalid") {
+          return await refuse("github_settings_unsupported");
+        }
+        const offIn = mergeOffIn(context);
+        if (offIn !== null) return await refuse("merge_off", { off_in: offIn });
+      }
+      if (
+        !own &&
+        !attachedMerge &&
+        !ANOTHER_REPOSITORY_PURPOSES.has(work.purpose)
+      ) {
         return await refuse("repository_not_allowed");
       }
       if (
@@ -288,15 +305,8 @@ export function createGitHubGate(deps: {
       );
       const needs = githubPermissionsFor(work.purpose, features);
       if (!platformRead && needs.ceilingFeature !== undefined) {
-        // Off by default on both sides, and no pin holds it: a session on a
-        // release's pin, or one that started with it off, does not merge.
-        const agentOn = settings?.features[needs.ceilingFeature] === true;
-        const ceilingOn = context.ceiling[needs.ceilingFeature];
-        if (!agentOn || !ceilingOn) {
-          return await refuse("merge_off", {
-            off_in: agentOn ? "ceiling" : ceilingOn ? "agent" : "both",
-          });
-        }
+        const offIn = mergeOffIn(context);
+        if (offIn !== null) return await refuse("merge_off", { off_in: offIn });
       }
       if (!platformRead && needs.feature !== null) {
         if (settings === null || !settings.features[needs.feature]) {
@@ -316,6 +326,15 @@ export function createGitHubGate(deps: {
         }
         if (author !== null && !author.githubCom) {
           return await refuse("github_host_unsupported");
+        }
+      }
+      if (attachedMerge) {
+        const recorded =
+          work.pushRequestId === undefined
+            ? null
+            : await store.ownPullRequest(context.sessionId, work.pushRequestId);
+        if (recorded?.repositoryId !== repositoryId) {
+          return await refuse("not_own_pull_request");
         }
       }
 
@@ -580,6 +599,21 @@ export function createGitHubGate(deps: {
         .map(({ id }) => id);
     },
   };
+}
+
+/**
+ * Where merging is off, or null when it is on. Off by default on both sides,
+ * and no pin holds it: a session on a release's pin, or one that started
+ * with it off, does not merge.
+ */
+function mergeOffIn(
+  context: GitHubSessionContext,
+): "agent" | "ceiling" | "both" | null {
+  const { settings } = context.policy;
+  const agentOn = settings !== "invalid" && settings?.features.merge === true;
+  const ceilingOn = context.ceiling.merge;
+  if (agentOn && ceilingOn) return null;
+  return agentOn ? "ceiling" : ceilingOn ? "agent" : "both";
 }
 
 const isGitHubCom = (url: string): boolean => {

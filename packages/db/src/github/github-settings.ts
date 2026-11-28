@@ -20,7 +20,7 @@ import type {
   GitHubWorkStore,
 } from "@werft-ai/platform";
 import { MANAGEMENT_ROLES } from "@werft-ai/platform";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, or, sql } from "drizzle-orm";
 import { lockedRole } from "../musterrolle/index.ts";
 import type { Database } from "../queries.ts";
 import {
@@ -31,6 +31,7 @@ import {
   githubWorkflowDispatches,
   githubWorkspaceSettings,
   pullRequests,
+  pushRequests,
   receipts,
   sessionOutcomes,
   sessions,
@@ -418,6 +419,35 @@ export function createPostgresGitHubGateStore(
         repositoryCeiling: settings?.repositoryCeiling ?? null,
         ceilingRevision: settings?.revision ?? 0,
       };
+    },
+
+    // The pull request `merge` reads for the push request: its own row, or
+    // the one another push request of the session opened on its branch.
+    async ownPullRequest(rawSessionId, rawPushRequestId) {
+      const sessionId = rawSessionId.toLowerCase();
+      const [row] = await db
+        .select({ repositoryId: pushRequests.repositoryId })
+        .from(pushRequests)
+        .innerJoin(
+          pullRequests,
+          and(
+            eq(pullRequests.sessionId, pushRequests.sessionId),
+            eq(pullRequests.repositoryId, pushRequests.repositoryId),
+            isNotNull(pullRequests.pushRequestId),
+            or(
+              eq(pullRequests.pushRequestId, pushRequests.id),
+              eq(pullRequests.head, pushRequests.targetBranch),
+            ),
+          ),
+        )
+        .where(
+          and(
+            eq(pushRequests.id, rawPushRequestId.toLowerCase()),
+            eq(pushRequests.sessionId, sessionId),
+          ),
+        )
+        .limit(1);
+      return row ?? null;
     },
 
     async findDispatch(repositoryId, runId) {

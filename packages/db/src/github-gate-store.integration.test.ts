@@ -560,4 +560,73 @@ integration("GitHub gate and ceiling stores on PostgreSQL", () => {
       await store.pullRequestOpener(workspaceId, "other-app", 7),
     ).toBeNull();
   });
+
+  test("ownPullRequest finds the pull request a push request of the session opened, or the one on its branch, and none of another session", async () => {
+    const { workspaceId, userId } = await workspace();
+    const { releaseId } = await agent(workspaceId, { github: GITHUB });
+    const pushes = createPostgresPushRequests(db);
+    const pushed = async (sessionId: string) => {
+      await pool.query(
+        "UPDATE sessions SET checkpoint_revision = 1 WHERE id = $1",
+        [sessionId],
+      );
+      const found = await pushes.findSession(workspaceId, sessionId);
+      const created = await pushes.create({
+        ownerId: workspaceId,
+        sessionId,
+        actor: ownerActor(userId),
+        idempotencyKey: `k-${randomUUID()}`,
+        payloadHash: "h",
+        repositoryId: "sample-app",
+        repositoryBinding: "sha256:binding",
+        checkpointRevision: 1,
+        gitCommit: "a".repeat(40),
+        policyApproval: found?.policyApproval ?? null,
+        policyFields: found?.policyFields ?? {},
+      });
+      if (created.outcome !== "written") throw new Error("not written");
+      return created.request;
+    };
+    const opened = async (
+      sessionId: string,
+      push: { id: string; target_branch: string },
+      number: number,
+    ) =>
+      pool.query(
+        `INSERT INTO pull_requests (session_id, url, owner_id, repository_id, number, push_request_id, head, base)
+         VALUES ($1, $2, $3, 'sample-app', $4, $5, $6, 'main')`,
+        [
+          sessionId,
+          `https://github.com/acme/app/pull/${number}`,
+          workspaceId,
+          number,
+          push.id,
+          push.target_branch,
+        ],
+      );
+    const mine = await session(workspaceId, releaseId, userId);
+    const theirs = await session(workspaceId, releaseId, userId);
+    const quiet = await session(workspaceId, releaseId, userId);
+    const first = await pushed(mine);
+    const later = await pushed(mine);
+    const other = await pushed(theirs);
+    const unopened = await pushed(quiet);
+    await opened(mine, first, 7);
+    await opened(theirs, other, 8);
+    const store = createPostgresGitHubGateStore(db);
+
+    expect(await store.ownPullRequest(mine, first.id)).toEqual({
+      repositoryId: "sample-app",
+    });
+    // A later push of the session reuses its branch's pull request.
+    expect(await store.ownPullRequest(mine, later.id.toUpperCase())).toEqual({
+      repositoryId: "sample-app",
+    });
+    // Another session's push request, though it opened one in the same
+    // repository, and a push request that opened none.
+    expect(await store.ownPullRequest(mine, other.id)).toBeNull();
+    expect(await store.ownPullRequest(theirs, first.id)).toBeNull();
+    expect(await store.ownPullRequest(quiet, unopened.id)).toBeNull();
+    expect(await store.ownPullRequest(mine, randomUUID())).toBeNull();
+  });
 });
