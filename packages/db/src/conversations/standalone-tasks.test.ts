@@ -454,7 +454,7 @@ describe("a DM person's standalone sessions (v1-b/DM3)", () => {
   /** The route_to_task turn a hand-off of `r` settled routed, as written. */
   async function routedTurn(
     r: PendingConversationRoute,
-    effect: "routed" | "voided" = "routed",
+    effect: "routed" | "voided" | null = "routed",
   ) {
     await db.execute(sql`
       INSERT INTO conversation_turns (id, workspace_id, agent_id,
@@ -537,7 +537,8 @@ describe("a DM person's standalone sessions (v1-b/DM3)", () => {
       .set({ taskClosing: null })
       .where(eq(sessions.id, old));
     await routedTurn(o);
-    // Bound alike, its turn voided (an old settle kept the bind): no task.
+    // Bound alike, its turn voided, the bind kept (an input went in by it):
+    // the DM's task all the same.
     const voided = await session();
     const v = route(voided);
     expect(await routes().bindStandalone(v)).toBe("bound");
@@ -546,6 +547,15 @@ describe("a DM person's standalone sessions (v1-b/DM3)", () => {
       .set({ taskClosing: null })
       .where(eq(sessions.id, voided));
     await routedTurn(v, "voided");
+    // Bound alike, its turn not ended yet: its own run writes them.
+    const inFlight = await session();
+    const f = route(inFlight);
+    expect(await routes().bindStandalone(f)).toBe("bound");
+    await db
+      .update(sessions)
+      .set({ taskClosing: null })
+      .where(eq(sessions.id, inFlight));
+    await routedTurn(f, null);
     // A DM thread's session no hand-off made: linked, parented, no rules.
     const dmSession = await session({ parent: dm });
     await db.insert(sessionLinks).values({
@@ -604,13 +614,14 @@ describe("a DM person's standalone sessions (v1-b/DM3)", () => {
 
     expect(
       await syncHandOffClosing(db, { dryRun: true, limit: 100 }),
-    ).toMatchObject({ filled: 1 });
+    ).toMatchObject({ filled: 2 });
     expect(await closingOf(old)).toBe(null);
     const synced = await syncHandOffClosing(db, { dryRun: false, limit: 100 });
-    expect(synced.filled).toBe(1);
+    expect(synced.filled).toBe(2);
     expect(synced.cleared).toBeGreaterThanOrEqual(1);
     expect(await closingOf(old)).toEqual(TASK_CLOSING_DEFAULT);
-    expect(await closingOf(voided)).toBe(null);
+    expect(await closingOf(voided)).toEqual(TASK_CLOSING_DEFAULT);
+    expect(await closingOf(inFlight)).toBe(null);
     expect(await closingOf(dmSession)).toBe(null);
     expect(await closingOf(untouched)).toBe(null);
     expect(await closingOf(dmTask)).toEqual(own);
@@ -667,6 +678,124 @@ describe("a DM person's standalone sessions (v1-b/DM3)", () => {
         reason: "completed",
       }),
     ).toBe("closed");
+  });
+
+  test("a pull request settled before the hand-off closes nothing; one settled after it does, and a DM's task counts its own as before", async () => {
+    const pr = async (
+      sessionId: string,
+      n: string,
+      state: "open" | "merged" | "closed",
+      at: string,
+    ) =>
+      db.execute(sql`
+        INSERT INTO session_outcomes (id, owner_id, session_id, type, url,
+          external_id, state, state_changed_at)
+        VALUES (gen_random_uuid(), ${ws}, ${sessionId}::uuid,
+          'github_pull_request', ${`https://github.com/acme/app/pull/${n}`},
+          ${n}, ${state}, ${at}::timestamptz)`);
+    const before = new Date(Date.now() - 60_000).toISOString();
+    const handed = await session();
+    await pr(handed, "10", "merged", before);
+    // An open one from before holds a later close back as a cancel.
+    const held = await session();
+    await pr(held, "20", "open", before);
+    for (const id of [handed, held]) {
+      expect(await routes().bindStandalone(route(id))).toBe("bound");
+    }
+    await db.execute(sql`
+      UPDATE sessions SET admission_state = 'paused'
+      WHERE id IN (${handed}::uuid, ${held}::uuid)`);
+    const closes = createPostgresTaskCloses(db);
+    expect(await closes.closeOnPullRequests(100)).toBe(0);
+    await pr(held, "21", "closed", new Date().toISOString());
+    expect(await closes.closeOnPullRequests(100)).toBe(0);
+    await pr(handed, "11", "merged", new Date().toISOString());
+    expect(await closes.closeOnPullRequests(100)).toBe(1);
+    const reasonOf = async (id: string) =>
+      (
+        await db
+          .select({ reason: sessions.taskClosedReason })
+          .from(sessions)
+          .where(eq(sessions.id, id))
+      )[0]?.reason;
+    expect(await reasonOf(handed)).toBe("completed");
+    expect(await reasonOf(held)).toBe(null);
+
+    // A DM's task: its link before the session, its pull request after.
+    const dmTask = await session({ parent: dm });
+    await db.insert(sessionLinks).values({
+      id: randomUUID(),
+      workspaceId: ws,
+      ownerId: ws,
+      sessionId: dmTask,
+      installationId,
+      surfaceBindingId: dmBinding,
+      surfaceRef: `D0DM3:${dmTask}`,
+      channelId: "D0DM3",
+      threadId: "8.0",
+      openedByTs: "8.0",
+      agentId,
+      releaseId: release,
+      createdAt: new Date(Date.now() - 120_000),
+    });
+    await db
+      .update(sessions)
+      .set({
+        admissionState: "paused",
+        taskClosing: TASK_CLOSING_DEFAULT,
+        taskInterpretation: {
+          goal: "g",
+          doneWhen: "d",
+          limits: { ...TASK_LIMITS_DEFAULT },
+        },
+      })
+      .where(eq(sessions.id, dmTask));
+    await pr(dmTask, "30", "closed", before);
+    expect(await closes.closeOnPullRequests(100)).toBe(1);
+    expect(await reasonOf(dmTask)).toBe("cancelled");
+  });
+
+  test("a hand-off taken back after the pull request pass chose it is not closed", async () => {
+    const taken = await session();
+    const r = route(taken);
+    expect(await routes().bindStandalone(r)).toBe("bound");
+    await db
+      .update(sessions)
+      .set({ admissionState: "paused" })
+      .where(eq(sessions.id, taken));
+    await db.execute(sql`
+      INSERT INTO session_outcomes (id, owner_id, session_id, type, url,
+        external_id, state, state_changed_at)
+      VALUES (gen_random_uuid(), ${ws}, ${taken}::uuid, 'github_pull_request',
+        'https://github.com/acme/app/pull/2', '2', 'merged', now())`);
+    let dropped = false;
+    // The close read the session as a task; before it takes the session's
+    // lock, the hand-off's end takes it back.
+    const racing = new Proxy(db, {
+      get(target, key) {
+        const value = Reflect.get(target, key, target);
+        if (key !== "transaction") {
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+        return async (...args: Parameters<Database["transaction"]>) => {
+          if (!dropped) {
+            dropped = true;
+            await routes().settle(r, "failed", null, null);
+          }
+          return target.transaction(...args);
+        };
+      },
+    });
+    expect(
+      await createPostgresTaskCloses(racing).closeOnPullRequests(100),
+    ).toBe(0);
+    expect(dropped).toBe(true);
+    expect(await closingOf(taken)).toBe(null);
+    const [row] = await db
+      .select({ admission: sessions.admissionState })
+      .from(sessions)
+      .where(eq(sessions.id, taken));
+    expect(row?.admission).toBe("paused");
   });
 
   test("handed sessions count as the DM's open tasks: a hand-off goes past the limit, a new task then is refused", async () => {

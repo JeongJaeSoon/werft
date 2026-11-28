@@ -6,10 +6,10 @@ import type {
   TaskCloseOutcome,
   TaskCloses,
 } from "@werft-ai/platform";
-import { and, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { sessionWorkClosed } from "../conversations/index.ts";
 import type { Database } from "../queries.ts";
-import { sessionOutcomes, sessions } from "../schema.ts";
+import { sessions } from "../schema.ts";
 import { rowsOf } from "../statement-rows.ts";
 import {
   closeAtomic,
@@ -25,32 +25,57 @@ const REVISION_ATTEMPTS = 3;
 class NotDue extends Error {}
 
 /**
- * The reason a task's pull requests close it with: any merged, completed;
- * else closed with none open, cancelled. Read under the session's lock,
+ * The reason a task's pull requests close it with: any merged since it
+ * became a task (SETTLED_AS_TASK), completed; else one closed since then
+ * with none open, cancelled. Read under the session's lock,
  * which saving a pull request takes first too, so one saved before the close
  * is seen. The rows are not locked: a refresh holds its row while it waits
  * on the session (queueAchievementJudgment), and one not committed yet
- * settles after the close.
+ * settles after the close. Its event rules are read again there too: a hand-off
+ * taken back after the pass chose it is no task any more.
  */
 async function pullRequestReason(
   tx: Database,
   sessionId: string,
 ): Promise<TaskClosedReason> {
-  const states = (
-    await tx
-      .select({ state: sessionOutcomes.state })
-      .from(sessionOutcomes)
-      .where(
-        and(
-          eq(sessionOutcomes.sessionId, sessionId),
-          eq(sessionOutcomes.type, "github_pull_request"),
-        ),
-      )
-  ).map(({ state }) => state);
-  if (states.includes("merged")) return "completed";
-  if (states.includes("closed") && !states.includes("open")) return "cancelled";
+  const [rules] = await tx
+    .select({
+      on: sql<
+        boolean | null
+      >`(${sessions.taskClosing} ->> 'eventRules')::boolean`,
+    })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId));
+  if (rules?.on !== true) throw new NotDue();
+  const prs = rowsOf<{ state: string; since: boolean }>(
+    await tx.execute(sql`
+      SELECT o.state, ${SETTLED_AS_TASK} AS since
+      FROM session_outcomes o JOIN ${sessions} s ON s.id = o.session_id
+      WHERE o.session_id = ${sessionId}::uuid
+        AND o.type = 'github_pull_request'`),
+  );
+  const settled = (state: string) =>
+    prs.some((pr) => pr.state === state && pr.since);
+  if (settled("merged")) return "completed";
+  if (settled("closed") && !prs.some((pr) => pr.state === "open")) {
+    return "cancelled";
+  }
   throw new NotDue();
 }
+
+/**
+ * Whether pull request `o` of session `s` settled since the session became
+ * a task: at or after its first primary link, the thread it works in. A
+ * task its DM opened has that link before it exists, so every one counts;
+ * a standalone session handed to from a DM (v1-b/DM3) has it from the
+ * hand-off, so one merged or closed before is not its task's. An open one
+ * still holds a cancel back, whenever it was opened.
+ */
+const SETTLED_AS_TASK = sql`
+  o.state_changed_at >= coalesce(
+    (SELECT min(fl.created_at) FROM session_links fl
+      WHERE fl.session_id = s.id AND fl.role = 'primary'),
+    '-infinity'::timestamptz)`;
 
 /**
  * A task's time rules (v1-b/C2), on the database clock, over sessions `s`
@@ -232,8 +257,9 @@ export function createPostgresTaskCloses(db: Database): TaskCloses {
             AND (s.task_closing ->> 'eventRules')::boolean
             AND (${after}::uuid IS NULL OR s.id > ${after}::uuid)
           GROUP BY s.id
-          HAVING bool_or(o.state = 'merged')
-            OR (bool_or(o.state = 'closed') AND NOT bool_or(o.state = 'open'))
+          HAVING bool_or(o.state = 'merged' AND ${SETTLED_AS_TASK})
+            OR (bool_or(o.state = 'closed' AND ${SETTLED_AS_TASK})
+              AND NOT bool_or(o.state = 'open'))
           ORDER BY s.id
           LIMIT ${limit}`),
       );

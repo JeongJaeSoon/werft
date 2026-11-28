@@ -44,14 +44,15 @@ export const handOffClosing = () =>
 
 /**
  * Brings the closing rules of DM hand-offs (v1-b/DM3) in line with them, at
- * most `limit` sessions each way. A session handed to before its bind wrote
- * them, or by an image that did not, gets them: one a route_to_task turn
- * of a DM routed to, still open, its open primary link opened by that
- * turn's message. A session a hand-off was taken back from without them
- * (no parent and no link left) loses them. Neither has an interpretation,
- * which a task opened as one always has, and rules already there stay.
- * Only routed turns: a bind still in flight writes its own, and a routed
- * one is never taken back.
+ * most `limit` sessions each way. A session handed to by an image that did
+ * not write them gets them: still open, its open primary link opened by
+ * the message of a DM's route_to_task turn that named it and ended. Ended,
+ * whatever its effect: the end takes an unused bind back in the same
+ * transaction, so a link still there is a kept one (an input went in by
+ * it); a bind still in flight writes its own. A session a hand-off was
+ * taken back from without them (no parent and no link left) loses them.
+ * Neither has an interpretation, which a task opened as one always has,
+ * and rules already there stay.
  */
 export async function syncHandOffClosing(
   db: Database,
@@ -75,7 +76,7 @@ export async function syncHandOffClosing(
       WHERE t.routed_session_id = s.id
         AND t.conversation_id = s.parent_conversation_id
         AND t.decision = 'route_to_task'
-        AND t.task_effect = 'routed')`;
+        AND t.task_effect IS NOT NULL)`;
   const takenBack = sql`
     s.task_closing IS NOT NULL
     AND s.task_interpretation IS NULL
