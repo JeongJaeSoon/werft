@@ -86,7 +86,8 @@ const TIME_RULE_DUE = sql`
  * its open link only: one closes after its session does. Turns and answers
  * are written under the session's lock; posts and events are not, so one
  * committed and still there, and still recent enough, when the close reads
- * under the lock is seen, and one after meets a task closing or closed.
+ * under the lock is seen; one after may meet a task closing or closed (or
+ * still active, if a later check refuses the close).
  */
 const TURN_CLOCK = sql`
   CROSS JOIN LATERAL (

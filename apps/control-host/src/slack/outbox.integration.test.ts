@@ -37,6 +37,7 @@ import {
   clientMessageIdSchema,
   DEFAULT_SURFACE_CEILING,
   SESSION_SCOPE_VALUES,
+  SLACK_BOT_TURN_LIMIT,
   SLACK_NOTICE_MESSAGES,
   slackMirrorCorrelationIdSchema,
   TASK_CLOSING_DEFAULT,
@@ -104,7 +105,7 @@ import {
   createTempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/pglite";
 import { Pool } from "pg";
@@ -9293,14 +9294,24 @@ describe.each(ENGINES)("a task's time rules on %s", (engine) => {
     const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
     await daysPass(sessionId, 15);
     await postInThread("EvOutBot", { user: "UOTHERBOT", bot_id: "BOTHER" });
-    const [row] = await db
+    // A bot Slack names by its profile alone.
+    await postInThread("EvOutBotProfile", {
+      user: "UOTHERBOT",
+      bot_profile: { app_id: "AOTHER" },
+    });
+    const rows = await db
       .select({ fromBot: schema.slackInboundEvents.fromBot })
       .from(schema.slackInboundEvents)
-      .where(eq(schema.slackInboundEvents.eventId, "EvOutBot"));
-    expect(row).toEqual({ fromBot: true });
+      .where(
+        inArray(schema.slackInboundEvents.eventId, [
+          "EvOutBot",
+          "EvOutBotProfile",
+        ]),
+      );
+    expect(rows).toEqual([{ fromBot: true }, { fromBot: true }]);
     await db.execute(sql`
       UPDATE slack_inbound_events SET status = 'processed', payload = NULL
-      WHERE event_id = 'EvOutBot'`);
+      WHERE event_id IN ('EvOutBot', 'EvOutBotProfile')`);
     expect(await closeIdle()).toBe(1);
   });
 
@@ -9333,6 +9344,78 @@ describe.each(ENGINES)("a task's time rules on %s", (engine) => {
         payload = NULL
       WHERE event_id = 'EvOutOld'`);
     expect(await closeIdle()).toBe(0);
+  });
+
+  test("an allowed bot's mention that runs a turn counts as the agent's work, and once its thread's bot turns run out it counts no more", async () => {
+    const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
+    await db.execute(sql`
+      UPDATE agents SET slack_allowed_bot_user_ids = ARRAY['UOTHERBOT']
+      WHERE id = ${fixture.agentId}::uuid`);
+    const turnCount = async () =>
+      (
+        await db
+          .select({ id: turns.id })
+          .from(turns)
+          .where(eq(turns.sessionId, sessionId))
+      ).length;
+    const botTurn = async (n: number) => {
+      await mention(
+        fixture,
+        `1792900100.${String(n).padStart(6, "0")}`,
+        "UOTHERBOT",
+        {
+          bot_id: "BOTHER",
+        },
+      );
+      const sequence = await turnCount();
+      await db
+        .update(turns)
+        .set({ status: "running" })
+        .where(
+          and(eq(turns.sessionId, sessionId), eq(turns.sequence, sequence)),
+        );
+      await endTurn(sessionId, sequence, "completed", [[text("ok")]]);
+    };
+    slack.users.set("UOTHERBOT", { isBot: true });
+    await daysPass(sessionId, 15);
+    await botTurn(1);
+    expect(await turnCount()).toBe(2);
+    expect(await closeIdle()).toBe(0);
+    for (let n = 2; n <= SLACK_BOT_TURN_LIMIT; n += 1) await botTurn(n);
+    expect(await turnCount()).toBe(1 + SLACK_BOT_TURN_LIMIT);
+    await daysPass(sessionId, 15);
+    // Past the limit: no turn, and the mention itself is a bot's.
+    await mention(fixture, "1792900199.000001", "UOTHERBOT", {
+      bot_id: "BOTHER",
+    });
+    expect(await turnCount()).toBe(1 + SLACK_BOT_TURN_LIMIT);
+    expect(await closeIdle()).toBe(1);
+    slack.users.delete("UOTHERBOT");
+  });
+
+  test("a person's mention in a channel waiting for approval counts, though its text is not kept", async () => {
+    const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
+    await db.update(surfaceBindings).set({
+      surfaceKind: "private_channel",
+      status: "pending_approval",
+      home: false,
+    });
+    await daysPass(sessionId, 15);
+    await mention(fixture, "1792900200.000001");
+    const [row] = await db
+      .select({
+        fromBot: schema.slackInboundEvents.fromBot,
+        keyed: sql<boolean>`${schema.slackInboundEvents.conversationKey} IS NOT NULL`,
+      })
+      .from(schema.slackInboundEvents)
+      .orderBy(sql`${schema.slackInboundEvents.receivedAt} DESC`)
+      .limit(1);
+    expect(row).toEqual({ fromBot: false, keyed: true });
+    expect(await closeIdle()).toBe(0);
+    expect(await stateOf(sessionId)).toEqual({
+      admission: "active",
+      reason: null,
+    });
   });
 
   test("a session from before tasks stays open however long it sits", async () => {

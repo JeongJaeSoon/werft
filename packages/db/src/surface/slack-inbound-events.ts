@@ -22,10 +22,19 @@ import { released } from "./slack-shared.ts";
 
 const t = slackInboundEvents;
 
-/** Whether a payload is a bot's post: Slack names its bot_id on the event. */
+/**
+ * Whether a payload is a bot's post: Slack names its bot_id on the event, or
+ * only its bot_profile, or marks it a bot_message.
+ */
 function fromBot(payload: Record<string, unknown>): boolean {
-  const event = payload.event as { bot_id?: unknown } | undefined;
-  return event?.bot_id !== undefined;
+  const event = payload.event as
+    | { bot_id?: unknown; bot_profile?: unknown; subtype?: unknown }
+    | undefined;
+  return (
+    event?.bot_id !== undefined ||
+    event?.bot_profile !== undefined ||
+    event?.subtype === "bot_message"
+  );
 }
 
 // Every lease judgment below is `now()` in the database, the clock the
