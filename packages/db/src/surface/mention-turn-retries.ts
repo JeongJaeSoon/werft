@@ -18,6 +18,7 @@ import type {
 import { MENTION_TURN_CALL_SETTLE_WAIT_MS } from "@werft-ai/platform";
 import { sql } from "drizzle-orm";
 import {
+  countedTries,
   keptTurnRequest,
   releaseKeptTurnRequest,
 } from "../conversations/index.ts";
@@ -45,12 +46,17 @@ export function createPostgresMentionTurnRetries(
       const [row] = rowsOf<{
         input_id: ConversationInputId;
         attempt: number;
+        counted: number | string;
+        first_tried_at: Date | string;
         ended_at: Date | string | null;
         went_out: boolean;
         call_in_flight: boolean;
       }>(
         await db.execute(sql`
           SELECT q.input_id, q.attempt, q.ended_at,
+            ${countedTries(sql`q.input_id`, sql`q.attempt`)} AS counted,
+            (SELECT min(f.created_at) FROM conversation_turn_queue f
+              WHERE f.input_id = q.input_id) AS first_tried_at,
             (t.decision IS NOT NULL OR t.task_effect IS NOT NULL
               OR EXISTS (SELECT 1 FROM slack_outbox o
                 WHERE o.conversation_turn_id = t.id
@@ -76,6 +82,8 @@ export function createPostgresMentionTurnRetries(
       return {
         inputId: row.input_id,
         attempt: Number(row.attempt),
+        counted: Number(row.counted),
+        firstTriedAt: new Date(row.first_tried_at),
         endedAt: row.ended_at === null ? null : new Date(row.ended_at),
         wentOut: row.went_out,
         callInFlight: row.call_in_flight,

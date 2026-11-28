@@ -18,7 +18,7 @@ import {
   sameResult,
   sealWithKey,
 } from "@werft-ai/platform";
-import { and, eq, inArray, isNotNull, max, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, max, type SQL, sql } from "drizzle-orm";
 import type { Database } from "../queries.ts";
 import {
   conversationTurns,
@@ -72,6 +72,17 @@ const notTaken = { outcome: "failed", reason: "not_taken" } as const;
  */
 export const SPAWN_INPUT_KEPT_MS = 60 * 60_000;
 
+/**
+ * How many tries of an input count, up to the given attempt: one its permit
+ * refused for want of a place (a concurrency limit) is waited out, not
+ * counted (94S-2536). A try's permit kept with its turn, as every try's is.
+ */
+export const countedTries = (inputId: SQL, attempt: SQL) => sql`(
+  SELECT count(*)::int FROM conversation_turn_queue c
+  LEFT JOIN conversation_turn_permits cp ON cp.turn_id = c.turn_id
+  WHERE c.input_id = ${inputId} AND c.attempt <= ${attempt}
+    AND cp.refusal IS DISTINCT FROM 'concurrency')`;
+
 // A turn ending keeps its sealed input only when what is sealed is the input
 // alone (a lease seals it so; an end before one reseals it right after) and it decided a task with no
 // effect yet, or it is a mention's try with no decision that may be tried
@@ -80,7 +91,7 @@ const keepsInput = sql`((${queue.leaseId} IS NOT NULL AND EXISTS (
   SELECT 1 FROM conversation_turns t
   WHERE t.id = ${queue.turnId}
     AND t.decision IN ('spawn_task', 'route_to_task')
-    AND t.task_effect IS NULL)) OR (${queue.attempt} < ${MENTION_TURN_ATTEMPTS}
+    AND t.task_effect IS NULL)) OR (${countedTries(sql`${queue.inputId}`, sql`${queue.attempt}`)} < ${MENTION_TURN_ATTEMPTS}
   AND EXISTS (SELECT 1 FROM conversation_turns t
     WHERE t.id = ${queue.turnId} AND t.origin = 'm2'
       AND t.slack_installation_id IS NOT NULL AND t.decision IS NULL)))`;

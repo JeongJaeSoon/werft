@@ -14,6 +14,7 @@ export {
 } from "./conversation-judgments.ts";
 export { createPostgresConversationStore } from "./conversation-store.ts";
 export {
+  countedTries,
   createPostgresConversationTurnQueue,
   keptTurnRequest,
   releaseKeptTurnRequest,

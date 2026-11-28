@@ -591,11 +591,26 @@ export const MENTION_TURN_RETRY_DELAYS_MS = [0, 10_000] as const;
  * the try ends on the failure line.
  */
 export const MENTION_TURN_CALL_SETTLE_WAIT_MS = 30_000;
+/**
+ * A try refused for want of a place (a concurrency limit: its topic's one
+ * call held by M1's, say) is no try of the input: it is written again after
+ * this, uncounted, until a place is free or the input's first try is this
+ * old. Past it the try ends on the failure line, as one used up does.
+ */
+export const MENTION_TURN_PLACE_RETRY_MS = 5_000;
+export const MENTION_TURN_PLACE_WAIT_MS = 5 * 60_000;
 
 /** Where a mention turn stands as a try of its input. */
 export type MentionTurnAttempt = {
   inputId: ConversationInputId;
   attempt: number;
+  /**
+   * The tries of its input that count, this one included: one refused for
+   * want of a place does not.
+   */
+  counted: number;
+  /** When its input's first try was queued. */
+  firstTriedAt: Date;
   /** When its queue ended it; null while the queue has not. */
   endedAt: Date | null;
   /**
@@ -795,7 +810,15 @@ export async function endMentionTurns(deps: {
     };
     // The account would refuse the next try as it did this one.
     if (ended.refusal === "budget") return giveUp("budget");
-    if (attempt.wentOut || attempt.attempt >= MENTION_TURN_ATTEMPTS) {
+    if (attempt.wentOut) return giveUp("failed");
+    // Refused a place, not tried: waited for, uncounted, up to its limit.
+    const placeRefused = ended.refusal === "concurrency";
+    if (
+      placeRefused
+        ? at.getTime() >=
+          attempt.firstTriedAt.getTime() + MENTION_TURN_PLACE_WAIT_MS
+        : attempt.counted >= MENTION_TURN_ATTEMPTS
+    ) {
       return giveUp("failed");
     }
     if (attempt.callInFlight) {
@@ -808,7 +831,9 @@ export async function endMentionTurns(deps: {
       }
       return giveUp("failed");
     }
-    const delay = MENTION_TURN_RETRY_DELAYS_MS[attempt.attempt - 1] ?? 0;
+    const delay = placeRefused
+      ? MENTION_TURN_PLACE_RETRY_MS
+      : (MENTION_TURN_RETRY_DELAYS_MS[attempt.counted - 1] ?? 0);
     if (
       attempt.endedAt !== null &&
       at.getTime() < attempt.endedAt.getTime() + delay
