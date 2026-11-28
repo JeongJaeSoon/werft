@@ -188,6 +188,7 @@ bun run check:fast
 - 오류 문장이 정해진 것과 같을 때만, 횟수와 간격의 상한을 두고 다시 한다. 다른 오류는 바로 실패한다. 오류를 가리지 않고 다시 하는 예전 것이 둘 있다: `pages.yml`의 deploy(한 번), `check-agent-sdk-compat-job.sh`의 API 호출(세 번까지). 새로 넣는 것은 이 규칙을 따른다.
 - 올린 직후의 읽기 재시도는 셋이다: `chart-push.sh`(main chart의 태그 `not found`), `image-index.sh`(staging tag 조회의 `not found`), `image-pull.sh`(방금 push한 digest를 pull할 때의 `manifest unknown`, 다섯 번까지, 합계 75초). `image-index.sh`와 `image-pull.sh`는 index나 image를 다시 만들거나 push하지 않고 읽기만 다시 한다. `chart-push.sh`는 다시 조회한 결과가 `absent`이거나 로그인·익명 조회가 모두 `denied`일 때만 `helm push`를 다시 한다.
 - 이미지 layer cache에 쓰는 일은 `ignore-error=true`로 하므로 cache 쓰기(export)의 503은 build를 실패시키지 않는다. build·push action이 실패를 돌려주면 job은 그대로 실패한다. `cache-from`에는 이 옵션이 없고, 그 오류를 어떻게 다룰지는 BuildKit에 맡긴다.
+- 이미지 layer cache는 신뢰하는 ref의 build만 쓰고 PR은 읽기만 한다. 쓸지는 `.github/scripts/image-cache-to.sh`가 scope와 ref마다 정한다. 오늘(UTC) 00:30Z 뒤에 만든 entry가 있으면 읽기만 한다. 다만 full checkout에서는, 그 entry가 이미지의 Dockerfile이나 `scripts/fetch-pinned.ts`가 마지막으로 바뀐 시각 + 30분보다 이르면 다시 쓴다. shallow checkout은 이 시각 규칙을 건너뛴다. main의 build는 그 두 파일이 `origin/main`(shallow checkout은 script가 새로 가져온다)과 다르면 쓰지 않는다. `mode=min` cache에서 gitleaks·git-lfs 같은 중간 stage는 release layer를 거쳐서만 재사용되므로, 다시 쓰지 않으면 pin을 올린 뒤 이 원격 cache에서 맞는 결과를 찾지 못한 build가 그 stage를 컴파일한다.
 - 시험 assertion은 다시 하지 않는다. 실패한 suite를 통과할 때까지 돌리는 step은 두지 않는다. 상태가 자리 잡기를 기다리는 probe(서비스 준비, NetworkPolicy가 node에 닿기)는 재시도가 아니라 그 검사의 일부다.
 
 ### timeout
