@@ -78,9 +78,12 @@ const TIME_RULE_DUE = sql`
 /**
  * A session's last activity, its turns, and the time they ran. Activity is
  * its creation, a turn queued, started or ended, a request of it answered,
- * and a Slack post taken into its thread's topic: a reply held for M1's
- * judgment is one before it is a turn (bound-replies.ts). Turns and answers
- * are written under the session's lock; a post is not, so one committed
+ * an input taken into its thread's topic (a reply held for M1's judgment is
+ * one before it is a turn, bound-replies.ts), and a Slack event of its
+ * thread the inbox has not processed yet (a reply the buffer let go of
+ * waits there for its retry to hand it to the task). Through its open link
+ * only: one closes after its session does. Turns and answers are written
+ * under the session's lock; posts and events are not, so one committed
  * before the read under the lock is seen, and one after comes to a closed task.
  */
 const TURN_CLOCK = sql`
@@ -97,7 +100,14 @@ const TURN_CLOCK = sql`
             AND tp.slack_channel_id = l.channel_id
             AND tp.slack_thread_ts = l.thread_id
           JOIN conversation_inputs i ON i.topic_id = tp.id
-          WHERE l.session_id = s.id)) AS at,
+          WHERE l.session_id = s.id AND l.closed_at IS NULL),
+        (SELECT max(e.received_at) FROM session_links l
+          JOIN slack_installations si ON si.id = l.installation_id
+          JOIN slack_apps sa ON sa.app_id = si.app_id
+          JOIN slack_inbound_events e ON e.status = 'received'
+            AND e.conversation_key =
+              sa.id::text || ':' || l.channel_id || ':' || l.thread_id
+          WHERE l.session_id = s.id AND l.closed_at IS NULL)) AS at,
       count(t.id) AS turns,
       coalesce(sum(t.ended_at - t.started_at), interval '0') AS worked
     FROM turns t WHERE t.session_id = s.id) a`;

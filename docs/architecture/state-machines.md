@@ -119,7 +119,7 @@
 
 작업 세션(`task_closing` 있음)을 시간으로 닫는 길이다(v1-b/C2). reconciler pass마다 한 번, 한 번에 50개까지(`TASK_TIME_CLOSES_PER_PASS`) 고르고, 넘치는 것은 다음 pass로 넘긴다. 닫기는 C1과 같은 `closeAtomic`이다. 사유는 `abandoned`이고, status 이벤트의 actor는 `{kind: system, by: idle_rule}`이다(`packages/db/src/sessions/task-close.ts`의 `closeOnTimeRules`).
 
-시계는 데이터베이스 시계다. 마지막 활동은 다음 가운데 가장 늦은 것이다: 세션이 만들어진 때, `last_turn_at`, turn이 queued·시작·끝난 때, 세션의 질문·승인에 답한 때(`pending_requests.answered_at`), 작업 스레드의 topic에 Slack 글이 들어온 때(`conversation_inputs.received_at`, M1 판단을 기다리며 버퍼에 잡힌 답글 포함). 사람의 새 입력, 답, 스레드 답글은 시계를 다시 시작한다. 입력 없는 resume·pause는 시계를 바꾸지 않는다. 걸리는 조건은 둘이다.
+시계는 데이터베이스 시계다. 마지막 활동은 다음 가운데 가장 늦은 것이다: 세션이 만들어진 때, `last_turn_at`, turn이 queued·시작·끝난 때, 세션의 질문·승인에 답한 때(`pending_requests.answered_at`), 작업 스레드의 topic에 입력이 들어온 때(`conversation_inputs.received_at`, M1 판단을 기다리며 버퍼에 잡힌 답글과 웹에서 그 topic에 쓴 글 포함), 그 스레드의 Slack 이벤트가 inbox에서 아직 처리를 기다리는 동안 그 이벤트를 받은 때(`slack_inbound_events.received_at`, status `received`. 버퍼 상한이나 만료로 버퍼에서 빠진 답글은 재시도로 작업에 넘어가기 전까지 여기 남는다). 스레드는 세션의 열린 link로 찾는다(link는 세션이 닫힌 뒤에 닫힌다). 사람의 새 입력, 답, 스레드 답글은 시계를 다시 시작한다. M1이 조용히 두기로 한 답글도 사람이 스레드에 쓴 글이므로 들어온 때를 센다. 입력 없는 resume·pause는 시계를 바꾸지 않는다. 걸리는 조건은 둘이다.
 
 - 방치: 마지막 활동 뒤 `task_closing.idleDays`(14)일이 지났다.
 - 상한 뒤 답 없음: 작업이 상한에 닿았고(turn 수 ≥ `task_interpretation.limits.turns`(40), 또는 끝난 turn들의 실행 시간 합 ≥ `limits.hours`(2)시간), 마지막 활동 뒤 `task_closing.quietAfterLimitDays`(7)일이 지났다.
@@ -136,17 +136,17 @@
 - 작업이 아닌 세션(`task_closing` 없음, v1-b 전의 세션)은 얼마나 오래 쉬어도 닫히지 않는다.
 - queued·running turn이 있는 작업은 어느 규칙으로도 닫히지 않는다.
 - 상한에 닿지 않은 작업은 7일로 닫히지 않는다(14일만 건다). `task_interpretation`이 없는 작업도 같다.
-- 후보를 고른 뒤 세션을 잠그기 전에 들어온 입력(turn), 답, 스레드 답글이 있으면 닫지 않는다.
+- 후보를 고른 뒤 세션을 잠그기 전에 들어온 입력(turn)이 있으면 닫지 않는다. 답, 버퍼에 잡힌 답글, inbox에서 기다리는 스레드 이벤트는 그 전에 있으면 닫지 않는다.
 
 지켜야 할 성질:
 
-- 조건은 닫기 트랜잭션이 세션을 잠근 뒤 같은 SQL로 다시 판단한다. turn과 답은 세션 잠금 아래에서 들어오므로(`insertQueuedTurn`, `pending-requests.ts`), 그 전에 커밋된 것은 그 판단에 보인다. 버퍼에 잡히는 답글은 세션을 잠그지 않는다. 그 판단 문장보다 먼저 커밋된 것은 보이고, 뒤에 커밋된 것은 닫힌 작업에 온 답글이 된다.
+- 조건은 닫기 트랜잭션이 세션을 잠근 뒤 같은 SQL로 다시 판단한다. turn과 답은 세션 잠금 아래에서 들어오므로(`insertQueuedTurn`, `pending-requests.ts`), 그 전에 커밋된 것은 그 판단에 보인다. 버퍼에 잡히는 답글과 inbox 이벤트는 세션을 잠그지 않는다. 그 판단 문장보다 먼저 커밋되어 그때 남아 있는 것은 보이고, 뒤에 커밋된 것은 닫힌 작업(또는 아직 `closing`인 작업)에 온 답글이 된다. 버퍼에서 빠진 답글은 inbox 이벤트가 `received`로 남아 있는 동안 보인다.
 - 한 pass에서 닫는 수는 고른 수(50) 이하다.
 - sweep은 pass마다 새로 만들어지고(`reconcileOnce`) pass child도 바뀔 수 있어 커서가 이어지지 않는다. 그래서 고르는 순서는 무작위다. `closeAtomic`이 계속 거절하는 작업이 50개를 넘어도 다른 작업이 늘 밀려나지는 않는다. 다만 기다리는 pass 수에 상한은 없다(한 pass에 뽑힐 확률 50/N).
 - 닫힘 갱신의 문구는 '오래 답이 없어 작업을 닫았어요.'(`progressAbandoned`)이고, 스레드 링크는 `abandoned`로 닫힌다.
 - dry run에서는 닫지 않는다.
 
-시험: `packages/db/src/sessions/task-close.test.ts`의 `a task's time rules` 묶음(답한 질문은 `a request answered on a paused task starts the clock again …`)과 `a close of a session no longer there is not_found, not closed work`, `apps/control-host/src/slack/outbox.integration.test.ts`의 `a task's time rules on …` 묶음(버퍼에 잡힌 답글은 `a reply held for M1's judgment in its thread keeps it open …`), `apps/control-host/src/reconciler/reconcile.test.ts`.
+시험: `packages/db/src/sessions/task-close.test.ts`의 `a task's time rules` 묶음(답한 질문은 `a request answered on a paused task starts the clock again …`)과 `a close of a session no longer there is not_found, not closed work`, `apps/control-host/src/slack/outbox.integration.test.ts`의 `a task's time rules on …` 묶음(버퍼에 잡힌 답글은 `a reply held for M1's judgment in its thread keeps it open …`, 버퍼에서 빠져 inbox에서 기다리는 답글은 `a reply the inbox has yet to hand on …`), `apps/control-host/src/reconciler/reconcile.test.ts`.
 
 ### terminate가 일으키는 전이
 

@@ -9077,11 +9077,13 @@ describe.each(ENGINES)("a task's time rules on %s", (engine) => {
     );
   };
 
+  let fixture: Fixture;
+
   /** A session in its thread, its progress message up, its one turn done. */
   const sessionInThread = async (
     closing: typeof TASK_CLOSING_DEFAULT | null,
   ) => {
-    const fixture = await agentInSlack();
+    fixture = await agentInSlack();
     await mention(fixture, THREAD);
     const sessionId = await sessionOf(fixture);
     await db
@@ -9209,6 +9211,44 @@ describe.each(ENGINES)("a task's time rules on %s", (engine) => {
       admission: "active",
       reason: null,
     });
+  });
+
+  test("a reply the inbox has yet to hand on, the buffer having let it go, keeps it open", async () => {
+    const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
+    await daysPass(sessionId, 15);
+    const event = {
+      type: "message",
+      channel: CHANNEL,
+      user: PERSON,
+      ts: "1792900000.000002",
+      thread_ts: THREAD,
+      text: "one more thing",
+    };
+    await createPostgresSlackInboundEventStore(db).record({
+      workspaceId: fixture.workspaceId,
+      agentId: fixture.agentId,
+      slackAppId: fixture.slackAppId,
+      teamId: TEAM,
+      appId: APP_ID,
+      eventId: "EvOutWaiting",
+      eventType: event.type,
+      eventSubtype: null,
+      eventTime: new Date(),
+      status: "received",
+      payload: { type: "event_callback", event_id: "EvOutWaiting", event },
+      conversationKey: slackConversationKey(fixture.slackAppId, event),
+    });
+    expect(await closeIdle()).toBe(0);
+    expect(await stateOf(sessionId)).toEqual({
+      admission: "active",
+      reason: null,
+    });
+    // Waiting past the idle days, it counts no more.
+    await db.execute(sql`
+      UPDATE slack_inbound_events
+      SET received_at = received_at - interval '15 days'
+      WHERE event_id = 'EvOutWaiting'`);
+    expect(await closeIdle()).toBe(1);
   });
 
   test("a session from before tasks stays open however long it sits", async () => {
