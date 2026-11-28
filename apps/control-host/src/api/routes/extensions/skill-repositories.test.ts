@@ -9,12 +9,20 @@ import {
   skillRepositoryListSchema,
 } from "@werft-ai/contracts";
 import {
+  currentDeadline,
+  RequestDeadline,
+  runWithDeadline,
+} from "@werft-ai/db/pool";
+import {
   SessionServiceError,
   type SkillRepositoryService,
 } from "@werft-ai/platform";
 import { errorOf } from "../../../testing/api-error.ts";
 import { recordRouteErrors } from "../../route-error-coverage.ts";
-import { registerSkillRepositoryRoutes } from "./skill-repositories.ts";
+import {
+  listingBeyondRequest,
+  registerSkillRepositoryRoutes,
+} from "./skill-repositories.ts";
 
 const createApiApp = recordRouteErrors(
   "routes/extensions/skill-repositories.test.ts",
@@ -291,6 +299,40 @@ describe("workspace skill repositories", () => {
           send({ setRef: fail(code, reason) }, "PUT", ref, { ref: "v2" }),
         ),
       ).toEqual([expected, code, reason]);
+    }
+  });
+});
+
+describe("a listing past its request's deadline", () => {
+  test("reads the repository and its App, records and lets go under deadlines of their own", async () => {
+    const left: Record<string, number> = {};
+    const noting =
+      <T>(name: string, value: T) =>
+      async () => {
+        left[name] = currentDeadline()?.remainingMs() ?? Number.NaN;
+        return value;
+      };
+    const store = {
+      find: noting("find", null),
+      record: noting("record", true),
+      finish: noting("finish", null),
+      begin: noting("begin", { outcome: "not_found" as const }),
+    };
+    const wired = listingBeyondRequest(store, noting("apps", []));
+    // As the pool sees a request that already answered 503.
+    await runWithDeadline(
+      new RequestDeadline(performance.now() - 1),
+      async () => {
+        await wired.store.begin();
+        await wired.store.find(WORKSPACE, ID);
+        await wired.apps();
+        await wired.store.record({} as never);
+        await wired.store.finish(WORKSPACE, ID, 1, "t");
+      },
+    );
+    expect(left["begin"]).toBeLessThanOrEqual(0);
+    for (const name of ["find", "apps", "record", "finish"]) {
+      expect(left[name]).toBeGreaterThan(0);
     }
   });
 });

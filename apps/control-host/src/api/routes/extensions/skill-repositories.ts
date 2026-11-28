@@ -9,14 +9,40 @@ import {
   skillRepositoryListSchema,
   skillRepositoryParamsSchema,
 } from "@werft-ai/contracts";
-import type { SkillRepositoryService } from "@werft-ai/platform";
+import type {
+  SkillRepositoryService,
+  SkillRepositoryStore,
+} from "@werft-ai/platform";
 import {
   type ApiRouter,
   apiRoute,
   jsonWithSchema,
   parseJsonBody,
 } from "../../app.ts";
+import { beyondRequest } from "../../deadline.ts";
 import { mapped, requireParams } from "../errors.ts";
+
+/**
+ * The store and the App lookup as a listing uses them, each call under a
+ * deadline of its own: a listing that reads GitHub past its request's
+ * deadline still records what it read, runs the check queued behind it and
+ * lets the repository go.
+ */
+export function listingBeyondRequest<
+  S extends Pick<SkillRepositoryStore, "find" | "record" | "finish">,
+  A extends unknown[],
+  T,
+>(store: S, apps: (...args: A) => Promise<T>) {
+  return {
+    store: {
+      ...store,
+      find: beyondRequest(store.find),
+      record: beyondRequest(store.record),
+      finish: beyondRequest(store.finish),
+    },
+    apps: beyondRequest(apps),
+  };
+}
 
 export function registerSkillRepositoryRoutes(
   router: ApiRouter,

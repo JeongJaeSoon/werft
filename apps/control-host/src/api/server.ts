@@ -282,7 +282,6 @@ import {
   serveOperatorConversationTurns,
 } from "./conversation-runtime.ts";
 import { PostgresConversationTurnNotifier } from "./conversation-turn-notifier.ts";
-import { beyondRequest } from "./deadline.ts";
 import {
   createEgressAuthorizer,
   egressAuthorizerConfigFromEnv,
@@ -337,7 +336,10 @@ import {
   refuseDeletedAgents,
   registerAgentRoutes,
 } from "./routes/agents/agents.ts";
-import { registerSkillRepositoryRoutes } from "./routes/extensions/skill-repositories.ts";
+import {
+  listingBeyondRequest,
+  registerSkillRepositoryRoutes,
+} from "./routes/extensions/skill-repositories.ts";
 import { registerSkillRoutes } from "./routes/extensions/skills.ts";
 import { registerAgentGitHubRoutes } from "./routes/github/agent-github.ts";
 import { registerGitHubAppRoutes } from "./routes/github/github-app.ts";
@@ -1535,22 +1537,18 @@ if (skillGitSync !== undefined) {
 }
 // Registered repositories list their skills switched off; without the bucket
 // a skill could never be switched on, so the routes are absent with the rest.
-const skillRepositoryStore = createPostgresSkillRepositoryStore(db);
+const skillRepositoryListing = listingBeyondRequest(
+  createPostgresSkillRepositoryStore(db),
+  (workspaceId: string) => githubAppStore.credentials("author", workspaceId),
+);
 const skillRepositories =
   skillObjects === undefined
     ? undefined
     : createSkillRepositoryService({
         authorization,
-        // A listing that reads GitHub past its request's deadline still
-        // records what it read and lets the repository go.
-        store: {
-          ...skillRepositoryStore,
-          record: beyondRequest(skillRepositoryStore.record),
-          finish: beyondRequest(skillRepositoryStore.finish),
-        },
+        store: skillRepositoryListing.store,
         reader: skillReader,
-        apps: (workspaceId) =>
-          githubAppStore.credentials("author", workspaceId),
+        apps: skillRepositoryListing.apps,
         installations: (app) => githubAppDirectory.installations(app),
       });
 const skills =
