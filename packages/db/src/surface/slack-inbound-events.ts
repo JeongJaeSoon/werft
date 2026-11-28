@@ -23,18 +23,13 @@ import { released } from "./slack-shared.ts";
 const t = slackInboundEvents;
 
 /**
- * Whether a payload is a bot's post: Slack names its bot_id on the event, or
- * only its bot_profile, or marks it a bot_message.
+ * Whether a payload is a bot's post: the one test intake and the session
+ * handler make (slack-events-service.ts, slack-session-handler.ts), a bot_id
+ * on the event, which the redaction of a pending channel's event keeps.
  */
 function fromBot(payload: Record<string, unknown>): boolean {
-  const event = payload.event as
-    | { bot_id?: unknown; bot_profile?: unknown; subtype?: unknown }
-    | undefined;
-  return (
-    event?.bot_id !== undefined ||
-    event?.bot_profile !== undefined ||
-    event?.subtype === "bot_message"
-  );
+  const event = payload.event as { bot_id?: unknown } | undefined;
+  return event?.bot_id !== undefined;
 }
 
 // Every lease judgment below is `now()` in the database, the clock the

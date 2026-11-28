@@ -46,7 +46,8 @@ export type ReconcilerRun = {
   // days, and the lines only they held.
   channelSummaryHistoryPruned: ChannelSummaryHistoryPrune;
   slackMembersPurged: number;
-  // Tasks this pass closed as abandoned; null on a dry run, which closes none.
+  // Tasks whose close as abandoned this pass started (closed, or a drain
+  // accepted); null on a dry run, which closes none.
   tasksClosedIdle: number | null;
   ownership: OwnershipReconciled;
   // null on a dry run, which projects nothing.
@@ -178,8 +179,8 @@ export async function runReconciler(input: {
     dryRun: boolean;
     limit: number;
   }): Promise<number>;
-  // Open tasks idle, or quiet past their limits, closed as abandoned
-  // (v1-b/C2), at most `limit` of them.
+  // Open tasks idle, or quiet past their limits, whose close as abandoned
+  // (v1-b/C2) starts, at most `limit` of them.
   closeIdleTasks(limit: number): Promise<number>;
   // Agents no one live administers get their ownerless mark; agents that
   // have someone again lose it.

@@ -1401,8 +1401,9 @@ export const slackInboundEvents = pgTable(
     conversationKey: text("conversation_key"),
     /**
      * The event is a bot's (its payload names a bot_id), kept after the
-     * payload is cleared. Null on dropped rows and on rows an image before it
-     * wrote, which the task clock reads as a person's.
+     * payload is cleared. Null on rows intake dropped (a worker's drop keeps it
+     * and clears the thread key) and on rows an image before it wrote, which
+     * the task clock reads as a person's.
      */
     fromBot: boolean("from_bot"),
     claimToken: uuid("claim_token"),

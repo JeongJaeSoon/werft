@@ -105,7 +105,7 @@ import {
   createTempDatabase,
   testDatabaseUrl,
 } from "@werft-ai/testkit/postgres";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/pglite";
 import { Pool } from "pg";
@@ -9294,24 +9294,14 @@ describe.each(ENGINES)("a task's time rules on %s", (engine) => {
     const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
     await daysPass(sessionId, 15);
     await postInThread("EvOutBot", { user: "UOTHERBOT", bot_id: "BOTHER" });
-    // A bot Slack names by its profile alone.
-    await postInThread("EvOutBotProfile", {
-      user: "UOTHERBOT",
-      bot_profile: { app_id: "AOTHER" },
-    });
-    const rows = await db
+    const [row] = await db
       .select({ fromBot: schema.slackInboundEvents.fromBot })
       .from(schema.slackInboundEvents)
-      .where(
-        inArray(schema.slackInboundEvents.eventId, [
-          "EvOutBot",
-          "EvOutBotProfile",
-        ]),
-      );
-    expect(rows).toEqual([{ fromBot: true }, { fromBot: true }]);
+      .where(eq(schema.slackInboundEvents.eventId, "EvOutBot"));
+    expect(row).toEqual({ fromBot: true });
     await db.execute(sql`
       UPDATE slack_inbound_events SET status = 'processed', payload = NULL
-      WHERE event_id IN ('EvOutBot', 'EvOutBotProfile')`);
+      WHERE event_id = 'EvOutBot'`);
     expect(await closeIdle()).toBe(1);
   });
 
@@ -9393,7 +9383,73 @@ describe.each(ENGINES)("a task's time rules on %s", (engine) => {
     slack.users.delete("UOTHERBOT");
   });
 
-  test("a person's mention in a channel waiting for approval counts, though its text is not kept", async () => {
+  const ECHO_SECRET = "echo-signing-secret";
+
+  /** An event through the events gate, as Slack would send it. */
+  async function viaGate(fixture: Fixture, event: Record<string, unknown>) {
+    const gate = createSlackEventsService({
+      signingSecrets: {
+        forAgent: async () => ({
+          workspaceId: fixture.workspaceId,
+          slackAppId: fixture.slackAppId,
+          appId: APP_ID,
+          signingSecret: ECHO_SECRET,
+        }),
+      },
+      inbox: createPostgresSlackInboundEventStore(db),
+      apps: createPostgresSlackAppStore(db, key),
+      identities: createPostgresAgentIdentityStore(db),
+      installs: schema.createPostgresSlackInstallStore(db),
+      bindings: createPostgresSurfaceBindingStore(db),
+      sourceMarks: schema.createPostgresSlackSourceMarkStore(db),
+      mirrorEchoes: createPostgresSlackOutboxStore(db),
+    });
+    const rawBody = new TextEncoder().encode(
+      JSON.stringify(
+        slackEventEnvelope({ appId: APP_ID, teamId: TEAM, event }),
+      ),
+    );
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = `v0=${createHmac("sha256", ECHO_SECRET)
+      .update(`v0:${timestamp}:`)
+      .update(rawBody)
+      .digest("hex")}`;
+    return gate.receive({
+      agentId: fixture.agentId,
+      rawBody,
+      timestamp,
+      signature,
+    });
+  }
+
+  const drainInbox = async () => {
+    await drainSlackInbox({
+      inbox: createPostgresSlackInboundEventStore(db),
+      handler: slackSessionHandler({
+        catalog: await refreshedSlackCatalog(),
+        db,
+        pool: {
+          connect: () => {
+            throw new Error("no session control is asked of this role");
+          },
+        },
+        environment: ENVIRONMENT,
+        logger,
+        secretKey: key,
+        leaseMs: 30_000,
+        notices: createOutboxSlackNoticeSink(
+          createPostgresSlackOutboxStore(db),
+        ),
+        slackApiUrl: slack.url,
+      }),
+      logger,
+      concurrency: 4,
+      leaseMs: 30_000,
+      deadline: Date.now() + 10_000,
+    });
+  };
+
+  test("a person's mention in a channel waiting for approval counts, its receipt keeping no text and its task no turn", async () => {
     const sessionId = await sessionInThread(TASK_CLOSING_DEFAULT);
     await db.update(surfaceBindings).set({
       surfaceKind: "private_channel",
@@ -9401,23 +9457,51 @@ describe.each(ENGINES)("a task's time rules on %s", (engine) => {
       home: false,
     });
     await daysPass(sessionId, 15);
-    await mention(fixture, "1792900200.000001");
-    const [row] = await db
-      .select({
-        fromBot: schema.slackInboundEvents.fromBot,
-        keyed: sql<boolean>`${schema.slackInboundEvents.conversationKey} IS NOT NULL`,
-      })
-      .from(schema.slackInboundEvents)
-      .orderBy(sql`${schema.slackInboundEvents.receivedAt} DESC`)
-      .limit(1);
-    expect(row).toEqual({ fromBot: false, keyed: true });
+    const turnCount = async () =>
+      (
+        await db
+          .select({ id: turns.id })
+          .from(turns)
+          .where(eq(turns.sessionId, sessionId))
+      ).length;
+    const before = await turnCount();
+    await viaGate(fixture, {
+      type: "app_mention",
+      channel: CHANNEL,
+      user: PERSON,
+      ts: "1792900200.000001",
+      thread_ts: THREAD,
+      event_ts: "1792900200.000001",
+      text: `<@${BOT_USER}> the plan nobody approved`,
+    });
+    const receipt = async () =>
+      await db
+        .select({
+          fromBot: schema.slackInboundEvents.fromBot,
+          keyed: sql<boolean>`${schema.slackInboundEvents.conversationKey} IS NOT NULL`,
+          text: sql<
+            string | null
+          >`${schema.slackInboundEvents.payload} -> 'event' ->> 'text'`,
+        })
+        .from(schema.slackInboundEvents)
+        .where(
+          sql`${schema.slackInboundEvents.payload} -> 'event' ->> 'ts' = '1792900200.000001' OR (${schema.slackInboundEvents.payload} IS NULL AND ${schema.slackInboundEvents.eventType} = 'app_mention' AND ${schema.slackInboundEvents.receivedAt} > now() - interval '1 minute')`,
+        );
+    expect(await receipt()).toEqual([
+      { fromBot: false, keyed: true, text: `<@${BOT_USER}>` },
+    ]);
+    expect(await closeIdle()).toBe(0);
+    await drainInbox();
+    expect(await turnCount()).toBe(before);
+    expect(await receipt()).toEqual([
+      { fromBot: false, keyed: true, text: null },
+    ]);
     expect(await closeIdle()).toBe(0);
     expect(await stateOf(sessionId)).toEqual({
       admission: "active",
       reason: null,
     });
   });
-
   test("a session from before tasks stays open however long it sits", async () => {
     const sessionId = await sessionInThread(null);
     await daysPass(sessionId, 60);
