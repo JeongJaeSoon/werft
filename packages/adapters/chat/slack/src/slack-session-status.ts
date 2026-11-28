@@ -1,4 +1,5 @@
 import {
+  SLACK_INTERACTION_ACTIONS,
   SLACK_NOTICE_MESSAGES,
   type SlackNoticeMessage,
   type UserLocale,
@@ -129,11 +130,22 @@ export function slackProgressMessage(input: {
   state: string;
   startedAt: number | null;
   linkUrl?: string;
+  /** A task's: the buttons that close it, shown until it closes (v1-b/C1). */
+  closes?: { sessionId: string; sessionLinkId: string };
 }): { text: string; blocks: unknown[] } {
+  const stage = slackProgressStage(input.state);
+  const messages = SLACK_NOTICE_MESSAGES[input.locale];
   const text =
-    SLACK_NOTICE_MESSAGES[input.locale][
-      PROGRESS_STAGE_MESSAGES[slackProgressStage(input.state)]
-    ];
+    stage === "closed" && input.state.endsWith(":cancelled")
+      ? messages.progressCancelled
+      : messages[PROGRESS_STAGE_MESSAGES[stage]];
+  const closes = input.closes;
+  const button = (actionId: string, label: string) => ({
+    type: "button",
+    action_id: actionId,
+    text: { type: "plain_text", text: label },
+    value: JSON.stringify({ s: closes?.sessionId, r: closes?.sessionLinkId }),
+  });
   const context = [
     ...(input.startedAt === null
       ? []
@@ -152,6 +164,23 @@ export function slackProgressMessage(input: {
             {
               type: "context",
               elements: [{ type: "mrkdwn", text: context.join(" · ") }],
+            },
+          ]),
+      ...(closes === undefined || stage === "closed"
+        ? []
+        : [
+            {
+              type: "actions",
+              elements: [
+                button(
+                  SLACK_INTERACTION_ACTIONS.taskComplete,
+                  messages.taskCloseComplete,
+                ),
+                button(
+                  SLACK_INTERACTION_ACTIONS.taskCancel,
+                  messages.taskCloseCancel,
+                ),
+              ],
             },
           ]),
     ],
