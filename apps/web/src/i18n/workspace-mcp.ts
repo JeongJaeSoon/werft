@@ -113,7 +113,7 @@ export const workspaceMcpKo = {
   "workspaceMcp.register.tokenHint":
     "저장하면 다시 보이지 않고 끝 네 자리만 보입니다. 에이전트는 이 token을 발급한 계정으로 동작합니다.",
   "workspaceMcp.register.noneHint":
-    "인증 없이 부를 수 있는 공개 서버에만 고르세요. 저장하는 자격이 없고, 에이전트의 호출에 Authorization 헤더가 실리지 않습니다.",
+    "인증 없이 부를 수 있는 공개 서버에만 고르세요. 저장하는 자격이 없고, 에이전트의 호출에 Authorization 헤더도 다른 자격도 보내지 않습니다.",
   "workspaceMcp.register.submit": "등록",
   "workspaceMcp.register.submitting": "등록하는 중…",
   "workspaceMcp.registered.oauth":
@@ -331,7 +331,7 @@ export const workspaceMcpEn: Record<keyof typeof workspaceMcpKo, string> = {
   "workspaceMcp.register.tokenHint":
     "Not shown again once saved; only its last four characters are. Agents run as the account that issued it.",
   "workspaceMcp.register.noneHint":
-    "Choose this only for a public server that takes no credential. Nothing is stored, and agents' calls go without an Authorization header.",
+    "Choose this only for a public server that takes no credential. Nothing is stored, and agents' calls send no Authorization header and no other credential.",
   "workspaceMcp.register.submit": "Register",
   "workspaceMcp.register.submitting": "Registering…",
   "workspaceMcp.registered.oauth":
@@ -554,7 +554,7 @@ export const workspaceMcpJa: Record<keyof typeof workspaceMcpKo, string> = {
   "workspaceMcp.register.tokenHint":
     "保存後は再表示されず、末尾 4 文字だけが見えます。エージェントはこの token を発行したアカウントで動作します。",
   "workspaceMcp.register.noneHint":
-    "資格情報なしで呼び出せる公開サーバーにだけ選んでください。何も保存されず、エージェントの呼び出しに Authorization ヘッダーは付きません。",
+    "資格情報なしで呼び出せる公開サーバーにだけ選んでください。何も保存されず、エージェントの呼び出しには Authorization ヘッダーもほかの資格情報も送りません。",
   "workspaceMcp.register.submit": "登録",
   "workspaceMcp.register.submitting": "登録しています…",
   "workspaceMcp.registered.oauth":

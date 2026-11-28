@@ -402,6 +402,9 @@ describe("워크스페이스 MCP 서버", () => {
     expect(dialog.textContent).toContain(
       "인증 없이 부를 수 있는 공개 서버에만 고르세요.",
     );
+    expect(dialog.textContent).toContain(
+      "Authorization 헤더도 다른 자격도 보내지 않습니다.",
+    );
     expect(dialog.querySelector('input[name="token"]') === null).toBe(true);
     await user.type(within(dialog).getByLabelText("이름"), "deepwiki");
     await user.click(within(dialog).getByRole("button", { name: "등록" }));

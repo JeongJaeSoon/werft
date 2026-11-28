@@ -867,6 +867,37 @@ describe("the address check before a server is stored", () => {
     expect(context.memory.stored(created.id)).toBeUndefined();
   });
 
+  test("a credential left on a server that takes none, or of a kind this release does not know, is never sent", async () => {
+    // A row a migration did not clean: the kind says none, the slots still hold values.
+    const context = setup({ remote: { oauth: false, anonymous: true } });
+    const leftover = async (name: string, kind: string) => {
+      const created = await context.service.create(admin, {
+        ...bearerBody,
+        name,
+      });
+      const stored = context.memory.stored(created.id);
+      if (!stored) throw new Error("the server is not stored");
+      stored.record.authKind = kind as "none";
+      stored.access = "y".repeat(12);
+      expect(stored.bearer).not.toBeNull();
+      return created.id;
+    };
+    const none = await leftover("deepwiki", "none");
+    const unknown = await leftover("later", "mtls");
+    expect(await context.service.credentialFor(WORKSPACE, none)).toEqual({
+      kind: "none",
+    });
+    expect(await context.service.credentialFor(WORKSPACE, unknown)).toBeNull();
+    const before = context.remote.requests.length;
+    const refreshed = await context.service.refreshTools(admin, none);
+    expect(refreshed.tools.length).toBeGreaterThan(0);
+    const sent = context.remote.requests.slice(before);
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.map((r) => r.headers?.Authorization ?? null)).toEqual(
+      sent.map(() => null),
+    );
+  });
+
   test("a bearer server still stores its token and sends it", async () => {
     const context = setup({ remote: { oauth: false, accepted: [FAKE_TOKEN] } });
     const created = await context.service.create(admin, bearerBody);

@@ -327,6 +327,26 @@ integration("workspace MCP servers on PostgreSQL", () => {
     ]);
   });
 
+  test("a credential left on a server that takes none, or of a kind this release does not know, is never read out", async () => {
+    const { ws, admin } = await team();
+    const record = await created(ws, admin);
+    await db.execute(
+      sql`ALTER TABLE workspace_mcp_servers DROP CONSTRAINT workspace_mcp_servers_auth_kind_check, ADD CONSTRAINT workspace_mcp_servers_auth_kind_check CHECK (auth_kind IN ('oauth', 'bearer', 'none', 'mtls')) NOT VALID`,
+    );
+    const left = await purposesOf(ws);
+    expect(left.length).toBeGreaterThan(0);
+    for (const kind of ["none", "mtls"] as const) {
+      await db
+        .update(workspaceMcpServers)
+        .set({ authKind: kind as never })
+        .where(eq(workspaceMcpServers.id, record.id));
+      expect(await purposesOf(ws)).toEqual(left);
+      expect(await store.credentialOf(ws, record.id)).toEqual(
+        kind === "none" ? { kind: "none" } : null,
+      );
+    }
+  });
+
   test("a member, or an admin no longer one, writes nothing", async () => {
     const { ws, admin, plain } = await team();
     expect((await create(ws, plain)).outcome).toBe("actor_inactive");
